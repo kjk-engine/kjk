@@ -869,6 +869,10 @@ impl State {
                     .filter(|(_, facts)| {
                         slot < slots::COUNT && facts.slots & 1 << slots::rules(slot) != 0
                     })
+                    // A droid wears only what is for droids, a human only what
+                    // is for humans (`droidorhuman`): T3-M4 takes no forearm
+                    // band nor stealth unit, nor the Exile a droid's device.
+                    .filter(|(_, facts)| facts.fits(wearer.race))
                     .ok_or(Notice::CannotEquip)?;
                 if !passive::may_equip(feats, &facts.needs) {
                     return Err(Notice::Line(passive::NOT_PROFICIENT));

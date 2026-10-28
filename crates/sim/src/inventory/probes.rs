@@ -294,6 +294,26 @@ fn limits() -> Checks {
     let unequippable = state.wear(&catalog, &mut out, (2, &light), put_on.clone());
     set_barred(&mut state, false);
     let equippable = state.wear(&catalog, &mut out, (2, &light), put_on);
+    // An item for humans only (`droidorhuman` 1): refused to a droid (T3-M4
+    // and a forearm band), worn by a human.
+    let humans = Catalog::new([ItemFacts {
+        droids: Some(false),
+        ..pistol(Vec::new())
+    }]);
+    let mut kept = crate::script::State::default();
+    let band = kept
+        .make_item(&humans, "pistol", PARTY, 2, None)
+        .map_or(0, |id| id.0);
+    let band_on = crate::action::Action::Equip {
+        item: band,
+        slot: slots::RIGHT_WEAPON,
+    };
+    let droid = Wearer {
+        race: races::DROID,
+        ..light.clone()
+    };
+    let on_droid = kept.wear(&humans, &mut out, (3, &droid), band_on.clone());
+    let on_human = kept.wear(&humans, &mut out, (4, &light), band_on);
     let race = [Limit::Race(races::DROID)];
     let strong = [Limit::Ability {
         ability: 0,
@@ -306,6 +326,13 @@ fn limits() -> Checks {
             check(
                 unequippable == Err(crate::notice::Notice::CannotEquip) && equippable.is_ok(),
                 format!("barred {unequippable:?}, cleared {equippable:?}"),
+            ),
+        ),
+        (
+            "droid_or_human_refused",
+            check(
+                on_droid == Err(crate::notice::Notice::CannotEquip) && on_human.is_ok(),
+                format!("droid {on_droid:?}, human {on_human:?}"),
             ),
         ),
         (

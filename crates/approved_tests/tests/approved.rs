@@ -1324,7 +1324,7 @@ fn item_uses() {
 /// alone, no install.
 #[test]
 fn item_properties() {
-    probed("item properties", &sim::inventory::probes::probes(), 25);
+    probed("item properties", &sim::inventory::probes::probes(), 26);
 }
 
 /// `SwitchPlayerCharacter` (K1's Leviathan, TSL's many): `sim::switch::probes`,
