@@ -9,26 +9,11 @@ KOTOR 1 comes first.
 It reads the games from installs you own. **No game data is included here or
 in any release.**
 
-## Status
-
-KOTOR 1 plays from the Endar Spire to the credits, light and dark side.
-
-- **World:** KOTOR's modules with JA's movement and camera, doors, effects, music, voice and movies.
-- **Story:** the games' own scripts run on our NWScript VM: dialogue, journal, XP, party, items, stores.
-- **Combat:** KOTOR's character sheets under JA's sabers, blasters and Force.
-- **Screens:** KOTOR's menus and HUD in TSL's style.
-- **Minigames:** pazaak, swoop racing, the Ebon Hawk's turret.
-- **Saves:** from the menus, F5 / F9 quick save and load.
-- **Co-op** over UDP or Steam: friends play the companions.
-
-Not yet: TSL's campaign past Peragus. **Before reporting a bug, read
-[`KNOWN-ISSUES.md`](KNOWN-ISSUES.md).**
-
 ## Install
 
 You need your own installs of **KOTOR 1**, **Jedi Academy** and **KOTOR II**
-(Steam and GOG are found automatically; others go in `.env`). `ffmpeg` on the `PATH` is optional,
-for the movies.
+(Steam and GOG are found automatically; others go in `.env`). `ffmpeg` on the
+`PATH` is optional, for the movies.
 
 - **Release:** download your OS's archive from Releases, unpack, run. Builds
   are unsigned: macOS needs "Open Anyway" in Privacy & Security, Windows
@@ -36,15 +21,22 @@ for the movies.
 - **From source:** `cargo run --release -p launcher` (Rust is installed via
   `rust-toolchain.toml`; [`docs/BUILD.md`](docs/BUILD.md)).
 
-The first start finds your games and imports what it needs.
+The first start finds your games, imports what it needs and opens the main
+menu.
+
+## Co-op
+
+Up to three players; guests play the host's companions and the host keeps the
+save.
 
 ```bash
-kjk                                        # the main menu
-kjk play --stage end_m01aa                 # one module (--class jedi for the Force)
-kjk host --stage end_m01aa                 # host co-op (UDP 29170)
-kjk join 192.0.2.20                        # join it, or by Steam name
-kjk chain k1                               # the whole campaign, headless
+kjk host --stage end_m01aa                 # host (UDP port 29170)
+kjk join 192.0.2.20                        # join by IP
+kjk join "Friend's Steam name"             # or through Steam (source builds), no port to forward
 ```
+
+In play: Z takes a break, Y says ready at an exit, N follows the next party
+member while watching. More in [`docs/COOP.md`](docs/COOP.md).
 
 ## Controls
 
@@ -72,9 +64,27 @@ Every key rebinds in the options; fighting in detail is in
 | F1 | first / third person |
 | Alt+Enter | borderless / windowed |
 | 1–9 | dialogue reply |
-| Z / Y / N | co-op: break / ready / follow next |
 
-## The repository
+## Status
+
+KOTOR 1 plays from the Endar Spire to the credits, light and dark side.
+
+- **World:** KOTOR's modules with JA's movement and camera, doors, effects, music, voice and movies.
+- **Story:** the games' own scripts run on our NWScript VM: dialogue, journal, XP, party, items, stores.
+- **Combat:** KOTOR's character sheets under JA's sabers, blasters and Force.
+- **Screens:** KOTOR's menus and HUD in TSL's style.
+- **Minigames:** pazaak, swoop racing, the Ebon Hawk's turret.
+- **Saves:** from the menus, F5 / F9 quick save and load.
+
+Not yet: TSL's campaign past Peragus. **Before reporting a bug, read
+[`KNOWN-ISSUES.md`](KNOWN-ISSUES.md).**
+
+## Development
+
+```bash
+kjk play --stage end_m01aa                 # one module (--class jedi for the Force)
+kjk chain k1                               # the whole campaign, headless
+```
 
 | path | what |
 |---|---|
