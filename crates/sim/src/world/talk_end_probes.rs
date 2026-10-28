@@ -14,6 +14,9 @@
 //! Its `OnFailToOpen` that unlocks and opens it (as the Endar Spire's do)
 //! leaves the player told nothing and the door open; one that does
 //! nothing tells the player it is locked.
+//!
+//! Owners lost: a party member's conversation goes on while its owner
+//! lies knocked out (it gets up again), and is cut short by its death.
 
 use super::{Fighting, Id, Object, SimWorld};
 use crate::StepReason;
@@ -310,6 +313,117 @@ fn ends(ending: Ending) -> Result<Vec<String>, String> {
     ))
 }
 
+/// How the owner of a conversation is lost while it plays.
+#[derive(Clone, Copy)]
+enum Lost {
+    /// A party member knocked out (`Fighter::fall`): it gets up again.
+    KnockedOut,
+    /// Dead for good.
+    Dead,
+}
+
+/// A party member's conversation with the player (TSL's Atton starting
+/// Peragus' escape), its owner `lost` as its first line plays; then its
+/// last reply taken: whether it was still under way after the fall, and
+/// whether it ended cut short.
+fn owner_lost(lost: Lost) -> Result<(bool, bool), String> {
+    let at = by_entry(1.5, 0.0);
+    let placed = vec![ObjectData::creature(
+        "buddy",
+        "buddy",
+        at,
+        Sheet::commoner(),
+    )];
+    let (mut world, first) = world_with(placed, None, library())?;
+    let owner = id_of(&mut world, first)?;
+    let mut state = world.script_state().clone();
+    let slot = crate::script::party::Npc {
+        template: "buddy".into(),
+        object: None,
+        kept: None,
+        template_data: None,
+    };
+    state.party.available.insert(0, slot);
+    if !state.party.join(0, owner) {
+        return Err("buddy did not join".into());
+    }
+    world.set_script_state(state);
+    let mut tick = 1;
+    let player = step(&mut world, tick, &TickInput::default())
+        .body(Seat(0))
+        .map(|entity| entity.id.0)
+        .ok_or("no player")?;
+    let mut state = world.script_state().clone();
+    state.talk.asked.push(Start {
+        owner: ObjectId(owner),
+        pc: ObjectId(player),
+        asker: ObjectId(player),
+        dialog: "probe_talk".into(),
+        bark: false,
+    });
+    world.set_script_state(state);
+    let mut still = TickInput::default();
+    still.insert(Seat(0), Command::default());
+    tick += 1;
+    let started = step(&mut world, tick, &still);
+    let Some(id) = started.talk.conversations.first().map(|c| c.id) else {
+        return Err("the conversation did not start".into());
+    };
+    let now = started.time_ms;
+    let mut fighters = world.world.query::<(&Id, &mut Fighting)>();
+    for (own, mut fighting) in fighters.iter_mut(&mut world.world) {
+        if own.0.0 == owner {
+            // The party's to the world too: a companion of the player's.
+            fighting.0.mind = crate::combat::ai::Mind::companion(Seat(0));
+            match lost {
+                Lost::KnockedOut => fighting.0.fall(now),
+                Lost::Dead => {
+                    fighting.0.hp = 0;
+                    fighting.0.life = Life::Dead;
+                }
+            }
+        }
+    }
+    for _ in 0..10 {
+        tick += 1;
+        step(&mut world, tick, &still);
+    }
+    let on = world
+        .snapshot()
+        .talk
+        .conversations
+        .iter()
+        .any(|c| c.id == id);
+    let mut input = TickInput::default();
+    input.insert(
+        Seat(0),
+        Command {
+            reply: answer(0, Pick::Reply(1)),
+            ..Command::default()
+        },
+    );
+    for _ in 0..ANSWER_STEPS {
+        tick += 1;
+        if step(&mut world, tick, &input).talk.conversations.is_empty() {
+            break;
+        }
+    }
+    let ended = |aborted: bool| {
+        world.script_report().talk.iter().any(|line| {
+            matches!(line, crate::script::dialogue::Line::Ended { id: of, aborted: cut, .. }
+                if *of == id && *cut == aborted)
+        })
+    };
+    match (ended(false), ended(true)) {
+        (_, true) => Ok((on, true)),
+        (true, false) => Ok((on, false)),
+        _ => Err(format!(
+            "the conversation did not end: {:?}",
+            world.snapshot().talk.conversations
+        )),
+    }
+}
+
 /// The door locked with `fails` its `OnFailToOpen`, the player opening it
 /// from a step before it: whether it was told it is locked, and whether
 /// the door stands open after.
@@ -376,6 +490,26 @@ pub fn probes() -> Checks {
         (
             "cut_short_end_heard_by_none",
             ended(Ending::Leave, &[], "left"),
+        ),
+        (
+            "owner_knocked_out_talks_on",
+            match owner_lost(Lost::KnockedOut) {
+                Ok((on, cut)) => check(
+                    on && !cut,
+                    format!("under way after the fall {on}, cut short {cut}"),
+                ),
+                Err(why) => Err(why),
+            },
+        ),
+        (
+            "owner_dead_cuts_it_short",
+            match owner_lost(Lost::Dead) {
+                Ok((on, cut)) => check(
+                    !on && cut,
+                    format!("under way after the death {on}, cut short {cut}"),
+                ),
+                Err(why) => Err(why),
+            },
         ),
         (
             "door_opening_itself_says_nothing",

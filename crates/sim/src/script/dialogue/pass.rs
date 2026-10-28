@@ -124,7 +124,10 @@ pub(in crate::script) fn advance(step: &mut Step) {
     // not the host's character as the PC of a guest's own; one player alone,
     // its owner or its PC, as ever. One made this step is not gone: it is
     // in the world from the step's end (TSL's prologue switches the player
-    // to T3-M4, made for it, while its opening conversation plays).
+    // to T3-M4, made for it, while its opening conversation plays). Nor is
+    // a party member knocked out: it gets up again (`Thing::dead_for_good`;
+    // Atton, poisoned in Peragus' hangar bay, falls as his escape's scene
+    // begins).
     let made: Vec<ObjectId> = step.out.made.iter().map(|made| made.id).collect();
     let gone: Vec<u32> = step
         .state
@@ -138,7 +141,7 @@ pub(in crate::script) fn advance(step: &mut Step) {
                 [c.owner, c.pc]
             };
             them.iter().any(|id| match view.thing(*id) {
-                Some(thing) => thing.dead(),
+                Some(thing) => thing.dead_for_good(),
                 None => !made.contains(id),
             })
         })
