@@ -33,7 +33,7 @@ say maintenance officer override
 say log out
 use DroCon
 fight 15             # the floating mines past the door, from range
-use SpaceSuitLocker  # the airlock's storage locker: the space suit
-equip
+use SpaceSuitLocker  # the airlock's storage locker: the space suit (a plot
+                     # item the airlock asks for, never worn)
 exit AirlockOuterDoor_103PER # out onto the asteroid's surface
 save peragus_asteroid

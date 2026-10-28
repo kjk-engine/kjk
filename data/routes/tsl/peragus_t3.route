@@ -12,7 +12,6 @@ use MilLowFootLker@1
 unlock MilLowFootLker@3
 use MilLowFootLker@3
 use LowBroknDrd@1
-equip
 unlock PeragusDoor1@5 # the left door, locked: T3's Security
 fight 20             # the two droids past it
 exit Door_to_103PER2 # the ramp's bottom door: the fuel depot's sublevel
