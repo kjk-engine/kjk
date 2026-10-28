@@ -65,6 +65,8 @@
 //! put g_i_synthodor tar05_corpsepile  # walk up, open it, put one in (its disturbed script)
 //! race                  # race the swoop minigame to its finish (`minigame_bot`)
 //! turrets               # man the Ebon Hawk's gun until the fighters are down
+//!                       # (Peragus' hangar: until its troopers are dead or
+//!                       # aboard, the module left for the boarded Ebon Hawk)
 //! pazaak                # stand until a pazaak match is played out (any match a
 //!                       # script starts is played as `pazaak::Match::advice` says)
 //! global K_STAR_MAP=10  # a script global set (a number, or true/false)
@@ -522,9 +524,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 let mut held = Vec::new();
                 // The goal's clock, held by progress only: foes losing hit
                 // points, a conversation reaching a line it had not, the way
-                // left growing shorter.
+                // left growing shorter, a minigame's scripts keeping count.
                 let mut clock_ms = started_ms;
                 let mut nodes: BTreeSet<(u32, u32)> = BTreeSet::new();
+                let mut counted: Option<BTreeMap<String, i32>> = None;
                 let mut foe_hp: BTreeMap<sim::SimId, i32> = BTreeMap::new();
                 let mut quiet_since: Option<u64> = None;
                 let mut fought = false;
@@ -1693,6 +1696,19 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         && nodes.insert((talk.id, talk.entry))
                     {
                         clock_ms = hold;
+                    }
+                    // A minigame ends when its scripts say, the player in its
+                    // seat meanwhile, as KOTOR's is: a global they set changing
+                    // is progress (Peragus' turret counts the troopers that
+                    // board the Ebon Hawk, `107PER_MG_EBON`, until all 25 have).
+                    if matches!(goal, Goal::Race | Goal::Turrets) {
+                        let numbers = &world.script_state().numbers;
+                        if counted.as_ref() != Some(numbers) {
+                            if counted.is_some() {
+                                clock_ms = hold;
+                            }
+                            counted = Some(numbers.clone());
+                        }
                     }
                     let near_m = match goal {
                         Goal::Fight(radius) => stretched(*radius),
