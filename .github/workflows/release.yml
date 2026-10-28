@@ -3,9 +3,9 @@
 # owner reviews the draft and publishes it. Run by hand, it builds the same
 # packages as the run's artifacts and makes no Release.
 #
-# One package for each OS and processor: macOS on Apple silicon and on
-# Intel, Windows and Linux on x86-64 (Linux on Ubuntu 22.04's older glibc, so
-# it runs on newer systems and the Steam Deck too). Nothing is signed (the
+# One package for each OS: macOS on Apple silicon (no Intel build), Windows
+# and Linux on x86-64 (Linux on Ubuntu 22.04's older glibc, so it runs on
+# newer systems and the Steam Deck too). Nothing is signed (the
 # owner's call; the player's readme says how to open the app).
 name: release
 
@@ -30,7 +30,6 @@ jobs:
       matrix:
         include:
           - { name: macOS arm64, runner: macos-15, artifact: macos-arm64 }
-          - { name: macOS x86-64, runner: macos-15-intel, artifact: macos-x86_64 }
           - { name: Windows x86-64, runner: windows-latest, artifact: windows-x86_64 }
           - { name: Linux x86-64, runner: ubuntu-22.04, artifact: linux-x86_64 }
     defaults:
@@ -51,15 +50,9 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
 
-      # A prebuilt cargo-about where the action has one (not on Intel Macs);
-      # built from source where it has not.
       - uses: taiki-e/install-action@v2
-        continue-on-error: true
         with:
           tool: cargo-about@0.9.3
-
-      - name: cargo-about from source
-        run: command -v cargo-about || cargo install --locked cargo-about@0.9.3 --features cli
 
       # The dist profile's build (the icon on macOS), the crates' licences,
       # packed. PowerShell, so Windows packs with its own tar (zips), not
@@ -121,4 +114,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" packages/*
           --repo "$GITHUB_REPOSITORY" --draft --verify-tag
           --title "kjk $GITHUB_REF_NAME"
-          --notes "Unsigned builds for macOS (Apple silicon and Intel), Windows and Linux (x86-64). Read README.txt in the package first; SHA256SUMS lists each file's checksum."
+          --notes "Unsigned builds for macOS (Apple silicon), Windows and Linux (x86-64). Read README.txt in the package first; SHA256SUMS lists each file's checksum."
