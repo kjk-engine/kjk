@@ -208,7 +208,7 @@ pub fn record(setup: &Setup, ticks: u64, file: &Path) -> ExitCode {
 pub fn replay(discovery: &vfs::Discovery, file: &Path) -> ExitCode {
     let recording = match std::fs::read(file)
         .map_err(|error| error.to_string())
-        .and_then(|bytes| Recording::decode(&bytes).map_err(|error| error.to_string()))
+        .and_then(|bytes| Recording::from_file(&bytes).map_err(|error| error.to_string()))
     {
         Ok(recording) => recording,
         Err(error) => {

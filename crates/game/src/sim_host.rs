@@ -454,6 +454,9 @@ struct Authority {
     generation: u32,
     /// The session: the server, the player's client, the loopback.
     solo: Solo,
+    /// A live world's ticks streamed to the run's folder (a replay's are
+    /// not).
+    flight: Option<crate::flight_writer::Flight>,
 }
 
 impl Plugin for SimHostPlugin {
@@ -563,6 +566,15 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         };
         let alone = listen.is_none();
         let folder = app.resource::<RunFolder>().0.clone();
+        let flight = matches!(source, Source::Live { .. }).then(|| {
+            crate::flight_writer::Flight::new(
+                &folder,
+                rate.hz(),
+                &last,
+                &world.level().id(),
+                world.script_state(),
+            )
+        });
         let solo = Solo::new(world.level(), request, rate, &last, listen, &folder)
             .map_err(|error| format!("the session: {error}"))?;
         let mut states = States::default();
@@ -608,6 +620,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             installs: Vec::new(),
             generation: 0,
             solo,
+            flight,
         });
     }
     Ok(())
@@ -1378,6 +1391,11 @@ fn advance(
                         recorder.install(announcement.clone());
                     }
                 }
+                // The flight recorder's segment for the module entered
+                // (a reload's too): it installs nothing.
+                if let Some(flight) = &mut authority.flight {
+                    flight.start(&after, &authority.world.level().id(), authority.world.script_state());
+                }
                 let census = after.census();
                 info!(
                     target: "lifecycle",
@@ -1677,6 +1695,9 @@ fn advance(
                 if let Some(recorder) = recorder {
                     recorder.record(msec, &input, &snapshot);
                 }
+                if let Some(flight) = &mut authority.flight {
+                    flight.tick(msec, &input, &snapshot);
+                }
                 for (seat, notice) in authority.world.take_notices() {
                     match notice {
                         sim::notice::Notice::Show(screen) => authority.solo.screen(seat, screen),
@@ -1924,6 +1945,10 @@ fn write_session(
     }
     let authority = &mut *authority;
     authority.solo.shutdown(&folder.0);
+    // The flight recorder's last ticks, waited for on the disk.
+    if let Some(mut flight) = authority.flight.take() {
+        flight.flush(&authority.last);
+    }
     let Source::Live { recorder } = &mut authority.source else {
         return;
     };

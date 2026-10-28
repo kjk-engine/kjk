@@ -47,6 +47,7 @@ pub mod floaty_view;
 mod force_fx;
 mod force_view;
 mod form_view;
+pub mod flight_writer;
 mod fx_model;
 mod gait;
 mod glow_shell;

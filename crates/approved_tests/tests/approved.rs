@@ -1421,6 +1421,15 @@ fn save_safety() {
     probed("save safety", &saves::safety_probes(), 11);
 }
 
+/// The flight recorder's file (`sim::flight::probes`): the pinned run kept
+/// by a recorder and the flight side by side replays alike, a file cut
+/// anywhere in its last chunk or bent there keeps the whole chunks, an
+/// empty one is refused, and a replay may skip the data check; no install.
+#[test]
+fn flight_recorder() {
+    probed("flight", &sim::flight::probes(), 6);
+}
+
 /// A save copy in parts on the wire (I30 P17):
 /// `net::session::probes::copy_probes`, split, coded, decoded and joined
 /// again, a cut copy and a part out of turn dropped, malformed parts
