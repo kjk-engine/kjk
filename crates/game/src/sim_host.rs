@@ -470,7 +470,7 @@ impl Plugin for SimHostPlugin {
                 (
                     crate::swallow::hold_up.after(bevy::input::InputSystems),
                     (
-                        (advance, save_world)
+                        (advance, save_world, autosave)
                             .chain()
                             .run_if(resource_exists::<Authority>),
                         crate::net_join::advance.run_if(crate::net_join::joined),
@@ -1031,55 +1031,18 @@ fn save_world(
     };
     let on_screen = asked.on_screen;
     let authority = &mut *authority;
-    let snapshot = authority.world.snapshot();
-    let hash = snapshot.hash();
-    let refused = if authority.job.is_some() {
-        Some("You cannot save while an area loads.".to_string())
-    } else if showing.is_some_and(|showing| showing.0) {
-        Some("You cannot save during a movie.".to_string())
-    } else {
-        let seat = own.map_or(Seat(0), |own| own.0);
-        saves::refusal(&snapshot, seat, authority.world.level())
-    };
-    let saved = match refused {
-        Some(why) => Err(why),
-        None => {
-            let meta = saves::Meta {
-                name: asked.name,
-                module: snapshot.place.as_ref().map_or_else(
-                    || authority.world.level().id().name,
-                    |place| place.module.clone(),
-                ),
-                area: asked.area,
-                saved: saves::now(),
-                seats: snapshot.seats(),
-                character: made.and_then(|made| made.0.clone()),
-            };
-            let tick = snapshot.tick;
-            let save = sim::Save {
-                hz: authority.setup.rate.hz(),
-                level: authority.world.level().id(),
-                script: authority.world.script_state().clone(),
-                snapshot,
-            };
-            let world = save.encode();
-            let written = crate::save_view::folder()
-                .ok_or_else(|| "no folder for saves here".to_string())
-                .and_then(|root| saves::write_encoded(&root, asked.slot.as_deref(), &world, &meta));
-            if let Ok(id) = &written {
-                // The whole save's hash (the VM's state too): a load of it
-                // says the same (`play::load`).
-                let bytes = blake3::hash(&world);
-                info!(target: "saves", id, tick, %hash, save = %bytes, "saved");
-                let host = settings.map_or_else(
-                    || crate::settings::Settings::load().host_id().to_string(),
-                    |settings| settings.host_id().to_string(),
-                );
-                send_copies(&mut authority.solo, host, id, &meta, &world);
-            }
-            written
-        }
-    };
+    let movie = showing.is_some_and(|showing| showing.0);
+    let seat = own.map_or(Seat(0), |own| own.0);
+    let character = made.and_then(|made| made.0.clone());
+    let saved = store(authority, Slot::Named(asked.slot), asked.name, asked.area, character, movie, seat)
+        .map(|(id, meta, world)| {
+            let host = settings.map_or_else(
+                || crate::settings::Settings::load().host_id().to_string(),
+                |settings| settings.host_id().to_string(),
+            );
+            send_copies(&mut authority.solo, host, &id, &meta, &world);
+            id
+        });
     if let Err(why) = &saved {
         warn!(target: "saves", "not saved: {why}");
     }
@@ -1087,6 +1050,129 @@ fn save_world(
         result: saved,
         on_screen,
     });
+}
+
+/// Where a save goes: a slot (a new number without one), or the autosaves.
+enum Slot {
+    Named(Option<String>),
+    Auto,
+}
+
+/// The world saved into `slot`, named `name`, in the area called `area`,
+/// stamped with this build; its id, meta and bytes. Refused as KOTOR
+/// refuses (`saves::refusal` for `seat`), while a module loads and during a
+/// `movie`.
+fn store(
+    authority: &mut Authority,
+    slot: Slot,
+    name: String,
+    area: String,
+    character: Option<ui::intent::CharacterDesc>,
+    movie: bool,
+    seat: Seat,
+) -> Result<(String, saves::Meta, Vec<u8>), String> {
+    let snapshot = authority.world.snapshot();
+    let refused = if authority.job.is_some() {
+        Some("You cannot save while an area loads.".to_string())
+    } else if movie {
+        Some("You cannot save during a movie.".to_string())
+    } else {
+        saves::refusal(&snapshot, seat, authority.world.level())
+    };
+    if let Some(why) = refused {
+        return Err(why);
+    }
+    let hash = snapshot.hash();
+    let meta = saves::Meta {
+        name,
+        module: snapshot.place.as_ref().map_or_else(
+            || authority.world.level().id().name,
+            |place| place.module.clone(),
+        ),
+        area,
+        saved: saves::now(),
+        seats: snapshot.seats(),
+        character,
+        build: Some(env!("KJK_GIT_SHA").into()),
+        version: Some(env!("KJK_VERSION").into()),
+        formats: Some(saves::Formats {
+            save: sim::SAVE_FORMAT,
+            snapshot: sim::SNAPSHOT_FORMAT,
+        }),
+        ..saves::Meta::default()
+    };
+    let tick = snapshot.tick;
+    let save = sim::Save {
+        hz: authority.setup.rate.hz(),
+        level: authority.world.level().id(),
+        script: authority.world.script_state().clone(),
+        snapshot,
+    };
+    let world = save.encode();
+    let root = crate::save_view::folder().ok_or("no folder for saves here")?;
+    let id = match slot {
+        Slot::Named(slot) => saves::write_encoded(&root, slot.as_deref(), &world, &meta)?,
+        Slot::Auto => saves::write_auto(&root, &world, &meta)?,
+    };
+    // The whole save's hash (the VM's state too): a load of it says the
+    // same (`play::load`).
+    let bytes = blake3::hash(&world);
+    info!(target: "saves", id, tick, %hash, save = %bytes, "saved");
+    Ok((id, meta, world))
+}
+
+/// An autosave owed since a module was installed (`installs` counts them;
+/// none counted yet: the first module the game starts in is owed one too):
+/// tried each second until nothing refuses it.
+#[derive(Default)]
+struct AutosaveDue {
+    installs: Option<usize>,
+    owed: bool,
+    tried: Option<Instant>,
+}
+
+/// The autosave owed after each module installed (KOTOR's rule), once a
+/// second until nothing refuses it: a player's game, solo or hosting (the
+/// host's world is the authority), live, with Autosave on.
+fn autosave(
+    mut authority: ResMut<Authority>,
+    mut due: Local<AutosaveDue>,
+    (player, settings): (Option<Res<crate::crash::PlayerRun>>, Option<Res<crate::settings::Settings>>),
+    showing: Option<Res<crate::movie_view::Showing>>,
+    own: Option<Res<OwnSeat>>,
+    made: Option<Res<crate::character::Made>>,
+) {
+    if Some(authority.installs.len()) != due.installs {
+        due.installs = Some(authority.installs.len());
+        due.owed = player.is_some_and(|player| player.0)
+            && matches!(authority.source, Source::Live { .. })
+            && settings.is_some_and(|settings| settings.value(crate::settings::AUTOSAVE) == Some("true"));
+        if due.owed {
+            info!(target: "saves", installs = authority.installs.len(), "autosave owed");
+        }
+    }
+    let now = Instant::now();
+    if !due.owed || due.tried.is_some_and(|tried| now - tried < Duration::from_secs(1)) {
+        return;
+    }
+    due.tried = Some(now);
+    let area = authority
+        .world
+        .level()
+        .module()
+        .map_or_else(String::new, |module| module.area_title.clone());
+    let movie = showing.is_some_and(|showing| showing.0);
+    let seat = own.map_or(Seat(0), |own| own.0);
+    let character = made.and_then(|made| made.0.clone());
+    match store(&mut authority, Slot::Auto, area.clone(), area, character, movie, seat) {
+        Ok(_) => due.owed = false,
+        // KOTOR's refusals pass: the autosave waits for them.
+        Err(why) if why.starts_with("You cannot save") => debug!(target: "saves", "autosave waits: {why}"),
+        Err(why) => {
+            warn!(target: "saves", "no autosave: {why}");
+            due.owed = false;
+        }
+    }
 }
 
 /// The reload of the save `id` starts: its module planned as an install

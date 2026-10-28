@@ -106,6 +106,8 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// (`party::Npc::template_data`, `sim::pack`'s creature encoding), so a module
 /// without it makes the companion all the same.
 const VERSION: u32 = 59 + crate::pending::SAVE;
+/// The version this build writes, for a save's meta to name.
+pub const FORMAT: u32 = VERSION;
 
 /// The scripts' state (`script::State`): globals, objects' locals, events
 /// waiting and deferred code. `SimWorld::script_state` gives it, and

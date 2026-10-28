@@ -1192,7 +1192,7 @@ fn save(root: &std::path::Path, world: &mut sim::SimWorld, slot: Option<&str>) -
         area: "here".into(),
         saved: saves::now(),
         seats: snapshot.seats(),
-        character: None,
+        ..saves::Meta::default()
     };
     let save = sim::Save {
         hz: sim::TICK_HZ,
@@ -1409,6 +1409,16 @@ fn feats() {
 fn save_copy_round_trip() {
     probed("save copies", &saves::copies::probes(), 12);
     probed("save refusals", &saves::refusal_probes(), 14);
+}
+
+/// The saves' safety net (`saves::safety_probes`): the meta's new fields
+/// and an older meta, a damaged save listed and refused, one without a hash
+/// trusted, autosaves rotating, the backup before a new release, a failed
+/// write leaving nothing, a refusal naming the build that made the save;
+/// no install.
+#[test]
+fn save_safety() {
+    probed("save safety", &saves::safety_probes(), 11);
 }
 
 /// A save copy in parts on the wire (I30 P17):

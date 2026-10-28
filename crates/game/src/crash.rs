@@ -31,8 +31,10 @@ const CRASHES_KEPT: usize = 10;
 pub struct PlayerRun(pub bool);
 
 impl PlayerRun {
+    /// A probe's run plays a player's with `KJK_PLAYER_RUN=1`.
     pub fn of(headless: bool, script: &str) -> Self {
-        Self(!headless && script.trim().is_empty())
+        let forced = cfg!(feature = "probes") && std::env::var("KJK_PLAYER_RUN").is_ok_and(|value| value == "1");
+        Self(forced || !headless && script.trim().is_empty())
     }
 }
 
@@ -202,22 +204,35 @@ pub fn unexpected_end(runs: &Path, current: &Path) -> Option<PathBuf> {
 /// cut off.
 pub const NOTICE: &str = "kjk stopped unexpectedly last time.";
 
+/// Why the saves could not be backed up before this release touched them
+/// (`saves::backup_on_new_version`): told on the main menu.
+#[derive(Resource, Debug)]
+pub struct BackupFailed(pub String);
+
 /// On a player's main menu, tells of the last run that ended unexpectedly,
-/// once (`unexpected_end`, then `SEEN`).
+/// once (`unexpected_end`, then `SEEN`), and of saves not backed up.
 pub(crate) fn notice(
     player: bevy::prelude::Res<PlayerRun>,
     folder: bevy::prelude::Res<console::RunFolder>,
+    backup: Option<bevy::prelude::Res<BackupFailed>>,
     ui: Option<bevy::prelude::ResMut<crate::ui_view::Ui>>,
 ) {
     let Some(mut ui) = ui.filter(|_| player.0) else {
         return;
     };
-    let Some(previous) = unexpected_end(&crate::runtime::runs(), &folder.0) else {
+    let mut told = Vec::new();
+    if let Some(previous) = unexpected_end(&crate::runtime::runs(), &folder.0) {
+        mark(&previous, SEEN);
+        told.push(NOTICE.to_string());
+    }
+    if let Some(backup) = backup {
+        told.push(format!("The saves could not be backed up: {}", backup.0));
+    }
+    if told.is_empty() {
         return;
-    };
-    mark(&previous, SEEN);
+    }
     let ui = &mut *ui;
-    ui.vm.session.error = Some(NOTICE.into());
+    ui.vm.session.error = Some(told.join("\n"));
     ui.stack.open("message", &ui.vm);
 }
 

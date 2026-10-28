@@ -20,6 +20,9 @@
 //! free (`restore`, at every listing and write).
 
 pub mod copies;
+pub mod safety;
+
+pub use safety::{AUTOS, Formats, backup_on_new_version, write_auto};
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -51,6 +54,20 @@ pub struct Meta {
     pub seats: u8,
     #[serde(default)]
     pub character: Option<CharacterDesc>,
+    /// The world's hash (blake3, hex), checked before it loads; a save
+    /// from before it is trusted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blake3: Option<String>,
+    /// The commit and release that wrote it, the game it is of, and its
+    /// formats: what a refusal names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formats: Option<Formats>,
 }
 
 /// `meta.json`: the meta, and where it came from if it is a copy
@@ -66,8 +83,9 @@ struct MetaFile {
 /// The ids of copies received start with it (`r0001`).
 pub const RECEIVED: &str = "r";
 
-/// `quick`, a number, `r` and a number (a copy received), or a game's key
-/// and a number (a playtest's checkpoint, `k1-03`): an id that names a
+/// `quick`, `auto` (the autosaves' newest; `auto-2`, `auto-3` are as a
+/// checkpoint's), a number, `r` and a number (a copy received), or a game's
+/// key and a number (a playtest's checkpoint, `k1-03`): an id that names a
 /// folder in the saves' and nothing else.
 pub fn valid_id(id: &str) -> bool {
     let number = |digits: &str| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit());
@@ -78,7 +96,11 @@ pub fn valid_id(id: &str) -> bool {
                 .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
             && number(digits)
     });
-    id == QUICK || number(id) || id.strip_prefix(RECEIVED).is_some_and(number) || checkpoint
+    id == QUICK
+        || id == AUTOS[0]
+        || number(id)
+        || id.strip_prefix(RECEIVED).is_some_and(number)
+        || checkpoint
 }
 
 /// The id the `number`th (from 1) of `game`'s playtest checkpoints is
@@ -104,6 +126,9 @@ pub struct Listing {
     pub unread: Vec<String>,
     /// Those that are copies of another's game (I30 P17), by id.
     pub received: BTreeMap<String, copies::Received>,
+    /// Those of `saves` whose world is not what their meta's hash says:
+    /// shown, not loaded.
+    pub damaged: Vec<String>,
 }
 
 /// What `root` holds (nothing, when it is not there yet), a save left
@@ -126,6 +151,9 @@ pub fn list(root: &Path) -> Listing {
                 if let Some(received) = received {
                     listing.received.insert(id.clone(), received);
                 }
+                if whole(&entry.path(), &meta).is_err() {
+                    listing.damaged.push(id.clone());
+                }
                 listing.saves.push((id, meta));
             }
             Err(why) => listing.unread.push(format!("save {id}: {why}")),
@@ -137,12 +165,37 @@ pub fn list(root: &Path) -> Listing {
     listing
 }
 
-/// The save `id`: its world and its meta.
+/// The save `id`: its world and its meta. A damaged one is refused; one
+/// this build does not read is refused naming the build that made it.
 pub fn read(root: &Path, id: &str) -> Result<(sim::Save, Meta), String> {
     let folder = checked(root, id)?;
-    let bytes = std::fs::read(folder.join(WORLD)).map_err(|error| format!("save {id}: {error}"))?;
-    let save = sim::Save::decode(&bytes).map_err(|error| format!("save {id}: {error}"))?;
-    Ok((save, read_meta(&folder)?))
+    let meta = read_meta(&folder)?;
+    let bytes = whole(&folder, &meta).map_err(|error| format!("save {id}: {error}"))?;
+    let save = sim::Save::decode(&bytes).map_err(|error| {
+        let made = match (&meta.version, &meta.build) {
+            (Some(version), Some(build)) => {
+                format!("; it was made with {version} ({})", &build[..8.min(build.len())])
+            }
+            _ => String::new(),
+        };
+        format!(
+            "save {id}: {error}{made}. The saves as they were before each new release are kept in {}; an autosave, or the release that made it, may load it",
+            safety::BACKUPS
+        )
+    })?;
+    Ok((save, meta))
+}
+
+/// The world in `folder`, refused as damaged when it is not what `meta`'s
+/// hash says.
+fn whole(folder: &Path, meta: &Meta) -> Result<Vec<u8>, String> {
+    let bytes = std::fs::read(folder.join(WORLD)).map_err(|error| error.to_string())?;
+    match &meta.blake3 {
+        Some(hash) if *hash != blake3::hash(&bytes).to_hex().as_str() => {
+            Err("the save is damaged: its world is not the one saved".into())
+        }
+        _ => Ok(bytes),
+    }
 }
 
 /// `save` written as `slot` (a new number without one), with `meta`; its
@@ -204,10 +257,21 @@ fn write_files(
         remove(&aside)?;
     }
     std::fs::create_dir_all(&fresh).map_err(failed(&fresh))?;
-    let text = serde_json::to_vec_pretty(&meta_file(meta, received)).expect("a meta serializes");
+    let meta = Meta {
+        blake3: Some(blake3::hash(world).to_hex().to_string()),
+        ..meta.clone()
+    };
+    let text = serde_json::to_vec_pretty(&meta_file(&meta, received)).expect("a meta serializes");
+    // On the disk before the renames: a power cut leaves the old save or
+    // the new one whole.
     for (name, bytes) in [(WORLD, world), (META, text.as_slice())] {
         let path = fresh.join(name);
-        std::fs::write(&path, bytes).map_err(failed(&path))?;
+        let written = std::fs::write(&path, bytes).and_then(|()| std::fs::File::open(&path)?.sync_all());
+        if let Err(error) = written {
+            // A full disk: nothing half-written is left.
+            let _ = remove(&fresh);
+            return Err(failed(&path)(error));
+        }
     }
     let replacing = folder.exists();
     if replacing {
@@ -285,6 +349,20 @@ pub fn now() -> u64 {
         .map_or(0, |since| since.as_secs())
 }
 
+/// Days since 1970-01-01 to (year, month, day), proleptic Gregorian.
+pub fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    (year, month, day)
+}
+
 /// `meta.json` for `meta`, made here or `received`.
 fn meta_file(meta: &Meta, received: Option<&copies::Received>) -> MetaFile {
     MetaFile {
@@ -293,7 +371,7 @@ fn meta_file(meta: &Meta, received: Option<&copies::Received>) -> MetaFile {
     }
 }
 
-fn read_meta(folder: &Path) -> Result<Meta, String> {
+pub(crate) fn read_meta(folder: &Path) -> Result<Meta, String> {
     read_meta_received(folder).map(|(meta, _)| meta)
 }
 
@@ -380,3 +458,5 @@ const MINIGAME: &str = "You cannot save during a minigame.";
 mod probes;
 #[cfg(feature = "probes")]
 pub use probes::refusal_probes;
+#[cfg(feature = "probes")]
+pub use safety::probes as safety_probes;

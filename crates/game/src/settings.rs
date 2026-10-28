@@ -427,7 +427,7 @@ pub struct Settings {
 }
 
 /// Each setting the screens change, and its default.
-const DEFAULTS: [(&str, &str); 17] = [
+const DEFAULTS: [(&str, &str); 18] = [
     ("mouse.sensitivity", "0.50"),
     ("camera.invert", "false"),
     ("camera.view", "third"),
@@ -445,7 +445,11 @@ const DEFAULTS: [(&str, &str); 17] = [
     ("display.shadows", "true"),
     ("display.soft_shadows", "true"),
     ("feedback.tutorials", "true"),
+    (AUTOSAVE, "true"),
 ];
+
+/// The key of Autosave (saving on each module entered, `sim_host::autosave`).
+pub(crate) const AUTOSAVE: &str = "game.autosave";
 
 /// Each part of the mix and the setting of its slider.
 const VOLUMES: [(Bus, &str); 4] = [
@@ -474,7 +478,7 @@ const MOVED: [(&str, &str); 3] = [
 /// What a page's Default button puts back.
 fn page_keys(page: &str) -> &'static [&'static str] {
     match page {
-        "options_gameplay" => &["camera.invert"],
+        "options_gameplay" => &["camera.invert", AUTOSAVE],
         "options_mouse" => &["mouse.sensitivity", "mouse.reverse"],
         "options_sound" => &["sound.music", "sound.voice", "sound.effects", "sound.movie"],
         "options_graphics" => &["display.gamma", "display.shadows", "display.grass"],

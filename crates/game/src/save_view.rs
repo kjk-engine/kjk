@@ -75,12 +75,23 @@ pub(crate) fn refuse_on_screen(ui: &mut Ui, why: String) {
 /// When `saved` (Unix seconds) was, as the screens show it (UTC).
 fn when(saved: u64) -> String {
     let (days, seconds) = (saved / 86_400, saved % 86_400);
-    let (year, month, day) = crate::runtime::civil_from_days(days as i64);
+    let (year, month, day) = saves::civil_from_days(days as i64);
     format!(
         "{year:04}-{month:02}-{day:02} {:02}:{:02} UTC",
         seconds / 3600,
         seconds / 60 % 60
     )
+}
+
+/// A save's name as the lists show it: the autosaves as such, a damaged
+/// one marked (it does not load: `saves::read` refuses it).
+fn shown_name(id: &str, name: String, damaged: bool) -> String {
+    let name = match saves::AUTOS.iter().position(|auto| *auto == id) {
+        Some(0) => format!("Autosave: {name}"),
+        Some(_) => format!("Autosave (earlier): {name}"),
+        None => name,
+    };
+    if damaged { format!("{name} (damaged)") } else { name }
 }
 
 /// The screens that list the saves.
@@ -100,11 +111,12 @@ fn refresh(ui: &mut Ui) {
         ui.vm.new_game = new_game(assets);
     }
     let mut received = listing.received;
+    let damaged = listing.damaged;
     ui.vm.saves = listing
         .saves
         .into_iter()
         .map(|(id, meta)| SaveView {
-            name: meta.name,
+            name: shown_name(&id, meta.name, damaged.contains(&id)),
             from: received.remove(&id).map(|copy| copy.from),
             id,
             area: meta.area,
