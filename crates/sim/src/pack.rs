@@ -14,7 +14,7 @@ use crate::combat::Sheet;
 use crate::combat::sheet::{Guards, decode_weapon, encode_weapon};
 use crate::inventory::{Armour, Catalog, Held, ItemFacts, ItemSpell};
 use crate::module::{ObjectData, ObjectKind, Opens, Senses, Strike};
-use crate::wire::{DecodeError, Reader, Writer, read_fixed, write_fixed};
+use crate::wire::{DecodeError, Reader, Versions, Writer, read_fixed, write_fixed};
 
 const MAGIC: &[u8; 4] = b"KJKT";
 /// Bump when the encoding or what a template carries changes. 8: sheets
@@ -35,6 +35,10 @@ const MAGIC: &[u8; 4] = b"KJKT";
 /// (`module::Body::walk_mps`, `run_mps`, `head_arc_h`). 20: items whether
 /// an energy shield (`ItemFacts::shield`).
 pub const VERSION: u32 = 20 + crate::pending::PACK;
+
+/// The oldest version read in a save's companions' templates: v0.1.0's
+/// (`crate::since::pack`, `bumps/README.md`).
+pub const OLDEST: u32 = crate::wire::later(20, crate::pending::oldest::PACK);
 
 /// Item and creature templates by lowercase resref (the creatures' shared:
 /// a plan hands them to its module and its library as they are).
@@ -224,9 +228,10 @@ pub(crate) fn creature_bytes(facts: &ObjectData) -> Vec<u8> {
     out.0
 }
 
-/// The creature template `creature_bytes` made.
-pub(crate) fn creature_of(bytes: &[u8]) -> Option<ObjectData> {
-    decode_creature(&mut Reader::new("a kept companion", bytes)).ok()
+/// The creature template `creature_bytes` made, in a save of `versions`
+/// (`Versions::THIS_BUILD` for this build's).
+pub(crate) fn creature_of(bytes: &[u8], versions: Versions) -> Result<ObjectData, DecodeError> {
+    decode_creature(&mut Reader::new("a kept companion", bytes).with_versions(versions))
 }
 
 /// A creature template: what a creature made from it has (no place, no

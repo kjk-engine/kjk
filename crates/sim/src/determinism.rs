@@ -223,6 +223,12 @@ pub fn ground_point(x: f32, y: f32, z: f32) -> [f32; 3] {
 /// `LevelBuilder`, the door's owned by its object's index, the level with
 /// the module's objects.
 pub fn proving_ground() -> Level {
+    proving_ground_named(GROUND)
+}
+
+/// The proving ground as a module named `name`: a second one to leave
+/// behind (`fixtures::kitchen_sink`).
+pub(crate) fn proving_ground_named(name: &str) -> Level {
     let (sin, cos) = collision::trig::sin_cos(TURN_DEGREES * (std::f32::consts::PI / 180.0));
     let frame = Frame { sin, cos };
     let mut builder = LevelBuilder::new();
@@ -328,9 +334,9 @@ pub fn proving_ground() -> Level {
     let module = ModuleData {
         minutes_per_hour: 0,
         game: "kjk".to_string(),
-        name: GROUND.to_string(),
+        name: name.to_string(),
         title: String::new(),
-        area: GROUND.to_string(),
+        area: name.to_string(),
         area_title: String::new(),
         entry: Spot {
             position: position(-4.0, 0.0),
@@ -354,7 +360,7 @@ pub fn proving_ground() -> Level {
         encounter_tables: Default::default(),
     };
     Level::new(
-        GROUND,
+        name,
         Arc::new(builder.build()),
         Arc::new(AnimTable::stand_in()),
     )

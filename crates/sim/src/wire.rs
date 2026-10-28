@@ -138,11 +138,58 @@ pub(crate) fn read_fixed<T: PartialEq>(
     }
 }
 
+/// A format saves hold. A save's bytes carry all three, one inside
+/// another (a snapshot's sheets, a companion's template, items' facts in
+/// the scripts' state), so its readers know each one's version.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stored {
+    Save,
+    Snapshot,
+    Pack,
+}
+
+/// The version of a stored format a change came in (`crate::since`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Since(pub Stored, pub u32);
+
+/// The versions of the stored formats bytes are in: their headers', or
+/// this build's (`u32::MAX`: every `since` true) for bytes of this build.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Versions {
+    pub save: u32,
+    pub snapshot: u32,
+    pub pack: u32,
+}
+
+impl Versions {
+    pub const THIS_BUILD: Versions = Versions {
+        save: u32::MAX,
+        snapshot: u32::MAX,
+        pack: u32::MAX,
+    };
+
+    fn of(&mut self, format: Stored) -> &mut u32 {
+        match format {
+            Stored::Save => &mut self.save,
+            Stored::Snapshot => &mut self.snapshot,
+            Stored::Pack => &mut self.pack,
+        }
+    }
+}
+
+/// `a` or `pending` if later: a format's oldest version read, raised by a
+/// pending `breaking` bump (`crate::pending::oldest`).
+pub(crate) const fn later(a: u32, pending: u32) -> u32 {
+    if pending > a { pending } else { a }
+}
+
 /// Reads fields in order, failing as `Truncated` instead of panicking.
 pub(crate) struct Reader<'a> {
     format: &'static str,
     bytes: &'a [u8],
     at: usize,
+    /// The stored formats' versions these bytes are in.
+    versions: Versions,
 }
 
 impl<'a> Reader<'a> {
@@ -151,11 +198,48 @@ impl<'a> Reader<'a> {
             format,
             bytes,
             at: 0,
+            versions: Versions::THIS_BUILD,
         }
+    }
+
+    /// These bytes as written by `versions` of the stored formats: a part
+    /// of a save read by a reader of its own (its scripts, a companion's
+    /// template).
+    pub fn with_versions(self, versions: Versions) -> Self {
+        Reader { versions, ..self }
+    }
+
+    pub fn versions(&self) -> Versions {
+        self.versions
+    }
+
+    /// Whether these bytes hold a change that came in `since`
+    /// (`crate::since`): its format's version here is it or later.
+    pub fn since(&self, since: Since) -> bool {
+        let mut versions = self.versions;
+        *versions.of(since.0) >= since.1
     }
 
     /// The 4-byte signature, then a u32 version that must be `version`.
     pub fn header(&mut self, magic: &[u8; 4], version: u32) -> Result<(), DecodeError> {
+        self.check(magic, version, version).map(|_| ())
+    }
+
+    /// The 4-byte signature, then a u32 version of `format` from `oldest`
+    /// to `current`: the one found, which `since` then answers by.
+    pub fn header_since(
+        &mut self,
+        magic: &[u8; 4],
+        format: Stored,
+        oldest: u32,
+        current: u32,
+    ) -> Result<u32, DecodeError> {
+        let found = self.check(magic, oldest, current)?;
+        *self.versions.of(format) = found;
+        Ok(found)
+    }
+
+    fn check(&mut self, magic: &[u8; 4], oldest: u32, current: u32) -> Result<u32, DecodeError> {
         let found: [u8; 4] = self.take(4)?.try_into().expect("take of 4");
         if &found != magic {
             return Err(DecodeError::Signature {
@@ -164,13 +248,13 @@ impl<'a> Reader<'a> {
             });
         }
         let found = self.u32()?;
-        if found != version {
+        if !(oldest..=current).contains(&found) {
             return Err(DecodeError::Version {
                 format: self.format,
                 found,
             });
         }
-        Ok(())
+        Ok(found)
     }
 
     pub fn take(&mut self, len: usize) -> Result<&'a [u8], DecodeError> {

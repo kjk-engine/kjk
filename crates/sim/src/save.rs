@@ -5,7 +5,7 @@
 //! Not a KOTOR save: original save games are out of scope (`ROADMAP.md`).
 
 use crate::snapshot::{Kind, Snapshot};
-use crate::wire::{DecodeError, Reader, Writer};
+use crate::wire::{DecodeError, Reader, Stored, Writer};
 use crate::world::{Level, LevelId, SimWorld};
 
 const MAGIC: &[u8; 4] = b"KJKV";
@@ -105,9 +105,18 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 59: the party table keeps a companion's template made available by template
 /// (`party::Npc::template_data`, `sim::pack`'s creature encoding), so a module
 /// without it makes the companion all the same.
-const VERSION: u32 = 59 + crate::pending::SAVE;
+pub const VERSION: u32 = 59 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
+
+/// The oldest version read: v0.1.0's. Each change since keeps its old read
+/// (`crate::since::save`, `bumps/README.md`).
+pub const OLDEST: u32 = crate::wire::later(59, crate::pending::oldest::SAVE);
+
+/// The companions' templates' version in a save from before it recorded
+/// theirs (`since::save::SAVE_MIGRATIONS`): v0.1.0's, whatever the oldest
+/// read is now.
+const PACK_BEFORE_RECORDED: u32 = 20;
 
 /// The scripts' state (`script::State`): globals, objects' locals, events
 /// waiting and deferred code. `SimWorld::script_state` gives it, and
@@ -175,6 +184,7 @@ impl Save {
         out.bytes(MAGIC);
         out.u32(VERSION);
         out.u32(self.hz);
+        out.u32(crate::pack::VERSION);
         self.level.write(&mut out);
         out.section(&self.snapshot.encode());
         let mut script = Writer::default();
@@ -185,26 +195,36 @@ impl Save {
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut input = Reader::new("save", bytes);
-        input.header(MAGIC, VERSION)?;
+        input.header_since(MAGIC, Stored::Save, OLDEST, VERSION)?;
         let hz = input.u32()?;
+        // The companions' templates' version (`party::Npc::template_data`).
+        let pack = if input.since(crate::since::save::SAVE_MIGRATIONS) {
+            input.u32()?
+        } else {
+            PACK_BEFORE_RECORDED
+        };
         let level = LevelId::read(&mut input)?;
-        let snapshot = Snapshot::decode(input.section()?)?;
+        let mut versions = input.versions();
+        versions.pack = pack;
+        let snapshot = Snapshot::decode_stored(input.section()?, &mut versions)?;
         // Saves from before I16 have an empty section.
         let section = input.section()?;
         let script = if section.is_empty() {
             ScriptVmState::default()
         } else {
-            let mut script = Reader::new("save's scripts", section);
+            let mut script = Reader::new("save's scripts", section).with_versions(versions);
             let state = ScriptVmState::decode(&mut script)?;
             script.finish()?;
             state
         };
         input.finish()?;
-        Ok(Save {
+        let mut save = Save {
             hz,
             level,
             snapshot,
             script,
-        })
+        };
+        crate::migrate::save(&mut save, versions)?;
+        Ok(save)
     }
 }

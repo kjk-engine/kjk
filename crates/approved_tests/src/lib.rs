@@ -90,6 +90,17 @@ pub fn hash_left_to_merge() -> Result<Vec<String>, String> {
         .collect())
 }
 
+/// Whether a pending bump file moves a format saves hold (`save`,
+/// `snapshot`, `pack`): the branch is then at main + 1, and its fixture is
+/// written at the merge's pin (`sim::fixtures`).
+pub fn stored_bumps_pending() -> bool {
+    bumps::pending(&workspace())
+        .expect("the bump files read")
+        .iter()
+        .flat_map(|bump| &bump.formats)
+        .any(|(name, _)| matches!(*name, "save" | "snapshot" | "pack"))
+}
+
 /// A KOTOR resolver as a module reader's `Source`.
 pub struct ResolverSource(pub Resolver);
 
