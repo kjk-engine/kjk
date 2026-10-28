@@ -33,7 +33,8 @@ pub struct PlayerRun(pub bool);
 impl PlayerRun {
     /// A probe's run plays a player's with `KJK_PLAYER_RUN=1`.
     pub fn of(headless: bool, script: &str) -> Self {
-        let forced = cfg!(feature = "probes") && std::env::var("KJK_PLAYER_RUN").is_ok_and(|value| value == "1");
+        let forced = cfg!(feature = "probes")
+            && std::env::var("KJK_PLAYER_RUN").is_ok_and(|value| value == "1");
         Self(forced || !headless && script.trim().is_empty())
     }
 }
@@ -115,7 +116,9 @@ pub fn facts() -> String {
 /// prints it. Installed once; a later run moves it to its own folder.
 pub fn install_hook(folder: PathBuf, facts: String) {
     let first = {
-        let mut hooked = HOOKED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut hooked = HOOKED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let first = hooked.is_none();
         *hooked = Some((folder, facts));
         first
@@ -267,7 +270,11 @@ pub(crate) fn kept(mut folders: Vec<PathBuf>, keep: usize, now: SystemTime) -> V
                     .map_or(true, |age| age < Duration::from_secs(CRASH_DAYS * 86_400))
             })
     };
-    let mut crashed: Vec<PathBuf> = folders[..old].iter().filter(|folder| recent(folder)).cloned().collect();
+    let mut crashed: Vec<PathBuf> = folders[..old]
+        .iter()
+        .filter(|folder| recent(folder))
+        .cloned()
+        .collect();
     crashed.drain(..crashed.len().saturating_sub(CRASHES_KEPT));
     crashed.extend(folders.drain(old..));
     crashed

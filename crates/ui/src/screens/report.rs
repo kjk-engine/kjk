@@ -44,7 +44,9 @@ impl Screen for Report {
 
     fn state(&self, control: &Control, _: &ViewModel) -> ControlState {
         match control.tag.as_str() {
-            "LBL_TITLE" => text("What went wrong? (The report holds your save, character names included.)"),
+            "LBL_TITLE" => {
+                text("What went wrong? (The report holds your save, character names included.)")
+            }
             "BTN_OK" => text("Make report"),
             "BTN_CANCEL" => text(strings::CANCEL),
             _ => ControlState::default(),

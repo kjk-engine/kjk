@@ -436,69 +436,7 @@ pub fn save(setup: &Setup, ticks: u64, then: u64, file: &Path) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Installers by game, each made once (its base archives opened once),
-/// with the JA skeleton's animation lengths loaded once for all of them.
-#[derive(Default)]
-pub(crate) struct Installers {
-    anims: Option<std::sync::Arc<sim::motion::AnimTable>>,
-    made: Vec<std::sync::Arc<crate::lifecycle::Installer>>,
-}
-
-impl Installers {
-    fn anims(&mut self, discovery: &vfs::Discovery) -> std::sync::Arc<sim::motion::AnimTable> {
-        self.anims
-            .get_or_insert_with(|| std::sync::Arc::new(crate::stage::anims(discovery).0))
-            .clone()
-    }
-
-    /// The installer for `game` (`k1` or `tsl`).
-    pub(crate) fn get(
-        &mut self,
-        discovery: &vfs::Discovery,
-        game: &str,
-    ) -> Result<std::sync::Arc<crate::lifecycle::Installer>, String> {
-        let game = vfs::Game::from_key(game)
-            .filter(|game| *game != vfs::Game::JediAcademy)
-            .ok_or(format!("{game}: not a KOTOR game"))?;
-        if let Some(made) = self.made.iter().find(|made| made.game == game) {
-            return Ok(made.clone());
-        }
-        let anims = self.anims(discovery);
-        let made = std::sync::Arc::new(crate::lifecycle::Installer::new(discovery, game, anims)?);
-        self.made.push(made.clone());
-        Ok(made)
-    }
-
-    /// The level a save or recording names, built here: the placeholder
-    /// arena, the movement course, or its module, planned for `seats`
-    /// players; refused unless it is the very level named
-    /// (`LevelId::check`).
-    pub(crate) fn level_named(
-        &mut self,
-        discovery: &vfs::Discovery,
-        id: &sim::LevelId,
-        place: Option<&sim::Place>,
-        seats: u8,
-    ) -> Result<Level, String> {
-        let level = match place {
-            None if id.name == "arena" => Level::arena(),
-            None if id.name == "course" => Level::new(
-                "course",
-                std::sync::Arc::new(crate::course::course()),
-                self.anims(discovery),
-            ),
-            None if id.name == "duel" => crate::stage::duel_level(self.anims(discovery)),
-            None if id.name == "ring" => crate::stage::ring(&self.anims(discovery)),
-            None => return Err(format!("{}: no such level without a module", id.name)),
-            Some(place) => {
-                let installer = self.get(discovery, &place.game)?;
-                crate::lifecycle_verbs::level_of_place(&installer, place, seats)?
-            }
-        };
-        id.check(&level).map_err(|error| error.to_string())?;
-        Ok(level)
-    }
-}
+pub(crate) use crate::levels::Installers;
 
 /// What `kjk sim view --replay` runs a recording in: its own level, the
 /// world at its start, and, when it is in a module or installs any, what

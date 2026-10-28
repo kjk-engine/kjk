@@ -91,7 +91,11 @@ fn shown_name(id: &str, name: String, damaged: bool) -> String {
         Some(_) => format!("Autosave (earlier): {name}"),
         None => name,
     };
-    if damaged { format!("{name} (damaged)") } else { name }
+    if damaged {
+        format!("{name} (damaged)")
+    } else {
+        name
+    }
 }
 
 /// The screens that list the saves.

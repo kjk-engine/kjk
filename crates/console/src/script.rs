@@ -346,7 +346,9 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
                 continue;
             }
             ("clip", _) => return Err(error(CLIP_USAGE)),
-            ("screenshot" | "dump" | "quit" | "crash", _) => return Err(error("too many arguments")),
+            ("screenshot" | "dump" | "quit" | "crash", _) => {
+                return Err(error("too many arguments"));
+            }
             _ => return Err(error("unknown command")),
         };
         commands.push(command);

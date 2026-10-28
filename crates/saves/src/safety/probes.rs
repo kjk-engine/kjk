@@ -97,7 +97,8 @@ fn without_hash(root: &Path) -> Result<String, String> {
     let id = write_encoded(root, None, b"KJKV world", &meta("unhashed"))?;
     let path = root.join(&id).join(crate::META);
     let text = std::fs::read_to_string(&path).map_err(io)?;
-    let mut json: serde_json::Value = serde_json::from_str(&text).map_err(|error| error.to_string())?;
+    let mut json: serde_json::Value =
+        serde_json::from_str(&text).map_err(|error| error.to_string())?;
     json.as_object_mut().map(|fields| fields.remove("blake3"));
     std::fs::write(&path, json.to_string()).map_err(io)?;
     let listing = list(root);
@@ -109,13 +110,20 @@ fn without_hash(root: &Path) -> Result<String, String> {
 
 fn autos(root: &Path) -> Result<String, String> {
     for n in 1..=4 {
-        write_auto(root, format!("world {n}").as_bytes(), &meta(&format!("auto {n}")))?;
+        write_auto(
+            root,
+            format!("world {n}").as_bytes(),
+            &meta(&format!("auto {n}")),
+        )?;
     }
     let names: Vec<String> = AUTOS
         .iter()
         .map(|id| crate::read_meta(&root.join(id)).map(|meta| meta.name))
         .collect::<Result<_, _>>()?;
-    check(names == ["auto 4", "auto 3", "auto 2"], format!("{names:?}"))
+    check(
+        names == ["auto 4", "auto 3", "auto 2"],
+        format!("{names:?}"),
+    )
 }
 
 fn failed_write(root: &Path) -> Result<String, String> {
@@ -163,8 +171,10 @@ fn backups(at: &Path) -> Checks {
                 .as_ref()
                 .is_some_and(|made| made.join(crate::QUICK).join(crate::WORLD).exists());
             let named = made.as_ref().is_some_and(|made| {
-                made.file_name()
-                    .is_some_and(|name| name.to_string_lossy().starts_with("update-v0.1.0-ab12cd34-"))
+                made.file_name().is_some_and(|name| {
+                    name.to_string_lossy()
+                        .starts_with("update-v0.1.0-ab12cd34-")
+                })
             });
             check(copied && named, format!("{made:?}"))
         });

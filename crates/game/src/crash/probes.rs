@@ -13,8 +13,14 @@ pub fn probes() -> Checks {
     let root = std::env::temp_dir().join(format!("kjk-crash-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let mut checks = vec![
-        ("crash_holds_everything", holds_everything(&root.join("everything"))),
-        ("crash_without_crumbs", without_crumbs(&root.join("without"))),
+        (
+            "crash_holds_everything",
+            holds_everything(&root.join("everything")),
+        ),
+        (
+            "crash_without_crumbs",
+            without_crumbs(&root.join("without")),
+        ),
         ("crumbs_while_held", while_held()),
     ];
     checks.extend(unexpected(&root.join("runs")));
@@ -29,8 +35,16 @@ fn fresh(folder: &Path) -> Result<(), String> {
 
 fn crash_text(folder: &Path, crumbs: Option<&Breadcrumbs>) -> Result<String, String> {
     fresh(folder)?;
-    write_crash(folder, "it broke", "src/x.rs:1:2", "main", "0: frame", "kjk 9.9\n", crumbs)
-        .map_err(|error| error.to_string())?;
+    write_crash(
+        folder,
+        "it broke",
+        "src/x.rs:1:2",
+        "main",
+        "0: frame",
+        "kjk 9.9\n",
+        crumbs,
+    )
+    .map_err(|error| error.to_string())?;
     std::fs::read_to_string(folder.join(CRASH)).map_err(|error| error.to_string())
 }
 
@@ -55,13 +69,19 @@ fn holds_everything(folder: &Path) -> Result<String, String> {
         "party trask",
         "0: frame",
     ];
-    let missing: Vec<&str> = wanted.into_iter().filter(|line| !text.contains(line)).collect();
+    let missing: Vec<&str> = wanted
+        .into_iter()
+        .filter(|line| !text.contains(line))
+        .collect();
     check(missing.is_empty(), format!("missing {missing:?}"))
 }
 
 fn without_crumbs(folder: &Path) -> Result<String, String> {
     let text = crash_text(folder, None)?;
-    check(text.contains("breadcrumbs: unavailable"), "the breadcrumbs' absence said".into())
+    check(
+        text.contains("breadcrumbs: unavailable"),
+        "the breadcrumbs' absence said".into(),
+    )
 }
 
 fn while_held() -> Result<String, String> {
@@ -97,12 +117,21 @@ fn unexpected(runs: &Path) -> Checks {
         .map(|(n, (name, markers, found))| {
             let runs = runs.join(n.to_string());
             let folder = runs.join("20261028-120000-1");
-            let current = if *name == "unexpected_current" { folder.clone() } else { runs.join("20261028-130000-2") };
-            let result = fresh(&folder).and_then(|()| fresh(&current)).and_then(|()| {
-                markers.iter().for_each(|marker| mark(&folder, marker));
-                let got = unexpected_end(&runs, &current);
-                check(got.as_deref() == found.then_some(folder.as_path()), format!("{got:?}"))
-            });
+            let current = if *name == "unexpected_current" {
+                folder.clone()
+            } else {
+                runs.join("20261028-130000-2")
+            };
+            let result = fresh(&folder)
+                .and_then(|()| fresh(&current))
+                .and_then(|()| {
+                    markers.iter().for_each(|marker| mark(&folder, marker));
+                    let got = unexpected_end(&runs, &current);
+                    check(
+                        got.as_deref() == found.then_some(folder.as_path()),
+                        format!("{got:?}"),
+                    )
+                });
             (*name, result)
         })
         .collect()

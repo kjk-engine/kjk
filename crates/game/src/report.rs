@@ -83,7 +83,11 @@ fn replace_any_case(text: &str, from: &str, to: &str) -> String {
 pub fn scrub(text: &str, home: &str, user: &str, host: &str) -> String {
     let mut out = text.to_string();
     if !home.is_empty() {
-        for home in [home.to_string(), home.replace('\\', "/"), home.replace('/', "\\")] {
+        for home in [
+            home.to_string(),
+            home.replace('\\', "/"),
+            home.replace('/', "\\"),
+        ] {
             out = replace_any_case(&out, &home, "~");
         }
     }
@@ -124,29 +128,38 @@ pub fn zip(mut parts: Vec<Part>, me: &Identity, limit: usize) -> (Vec<u8>, Vec<S
 }
 
 /// A flight recorder segment's number (`flight-3.kjkf`).
-fn segment(name: &str) -> Option<u32> {
-    name.strip_prefix("flight-")?.strip_suffix(".kjkf")?.parse().ok()
+pub fn segment(name: &str) -> Option<u32> {
+    name.strip_prefix("flight-")?
+        .strip_suffix(".kjkf")?
+        .parse()
+        .ok()
 }
 
 /// `parts` deflated into a zip, with a note of those `dropped`.
 fn packed(parts: &[Part], dropped: &[String]) -> Vec<u8> {
     let mut zip = ::zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    let options = ::zip::write::SimpleFileOptions::default().compression_method(::zip::CompressionMethod::Deflated);
+    let options = ::zip::write::SimpleFileOptions::default()
+        .compression_method(::zip::CompressionMethod::Deflated);
     let note = (!dropped.is_empty()).then(|| Part {
         name: "dropped.txt".into(),
         bytes: format!("left out to fit {LIMIT} bytes: {}\n", dropped.join(", ")).into_bytes(),
         text: true,
     });
     for part in parts.iter().chain(note.as_ref()) {
-        let written = zip.start_file(part.name.as_str(), options).map_err(std::io::Error::other).and_then(|()| zip.write_all(&part.bytes));
+        let written = zip
+            .start_file(part.name.as_str(), options)
+            .map_err(std::io::Error::other)
+            .and_then(|()| zip.write_all(&part.bytes));
         if let Err(error) = written {
             warn!(target: "report", "{}: {error}", part.name);
         }
     }
-    zip.finish().map(std::io::Cursor::into_inner).unwrap_or_else(|error| {
-        warn!(target: "report", "the zip: {error}");
-        Vec::new()
-    })
+    zip.finish()
+        .map(std::io::Cursor::into_inner)
+        .unwrap_or_else(|error| {
+            warn!(target: "report", "the zip: {error}");
+            Vec::new()
+        })
 }
 
 /// `bytes` kept in `reports` as `kjk-report-<UTC time>.zip`, the newest
@@ -163,7 +176,13 @@ pub fn save(reports: &Path, bytes: &[u8]) -> std::io::Result<PathBuf> {
         seconds % 60
     );
     let path = (1..)
-        .map(|n| reports.join(if n == 1 { format!("{stem}.zip") } else { format!("{stem}-{n}.zip") }))
+        .map(|n| {
+            reports.join(if n == 1 {
+                format!("{stem}.zip")
+            } else {
+                format!("{stem}-{n}.zip")
+            })
+        })
         .find(|path| !path.exists())
         .expect("a free name");
     std::fs::write(&path, bytes)?;
@@ -183,8 +202,16 @@ fn system_text(settings: Option<&crate::settings::Settings>) -> String {
     let mut system = sysinfo::System::new();
     system.refresh_memory();
     system.refresh_cpu_all();
-    let cpu = system.cpus().first().map_or_else(String::new, |cpu| cpu.brand().to_string());
-    let setting = |key: &str| settings.and_then(|settings| settings.value(key)).unwrap_or("").to_string();
+    let cpu = system
+        .cpus()
+        .first()
+        .map_or_else(String::new, |cpu| cpu.brand().to_string());
+    let setting = |key: &str| {
+        settings
+            .and_then(|settings| settings.value(key))
+            .unwrap_or("")
+            .to_string()
+    };
     format!(
         "{}os version {}\ncpu {cpu} ({} cores)\nmemory {} MiB\nwindow {} {}\n",
         crate::crash::facts(),
@@ -203,7 +230,12 @@ fn data_text(segments: &[Part]) -> String {
         .iter()
         .filter_map(|part| {
             let recording = sim::flight::read(&part.bytes).ok()?;
-            let digest: String = recording.level.digest.iter().map(|byte| format!("{byte:02x}")).collect();
+            let digest: String = recording
+                .level
+                .digest
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
             Some(format!("{} {} {digest}\n", part.name, recording.level.name))
         })
         .collect()
@@ -211,7 +243,12 @@ fn data_text(segments: &[Part]) -> String {
 
 /// The report's parts from `run` (the run's folder), with `note`, the world
 /// `now`, the settings' file and the breadcrumbs.
-fn gather(run: &Path, note: &str, now: Option<Vec<u8>>, settings: Option<&crate::settings::Settings>) -> Vec<Part> {
+fn gather(
+    run: &Path,
+    note: &str,
+    now: Option<Vec<u8>>,
+    settings: Option<&crate::settings::Settings>,
+) -> Vec<Part> {
     let text = |name: &str, bytes: Vec<u8>| Part {
         name: name.into(),
         bytes,
@@ -321,20 +358,29 @@ fn make(world: &mut World) {
         return;
     };
     let crashed = world.remove_resource::<CrashedRun>();
-    let run = crashed
-        .as_ref()
-        .map_or_else(|| world.resource::<console::RunFolder>().0.clone(), |crashed| crashed.0.clone());
+    let run = crashed.as_ref().map_or_else(
+        || world.resource::<console::RunFolder>().0.clone(),
+        |crashed| crashed.0.clone(),
+    );
     // The world now, unless the report is of a run that crashed.
-    let now = crashed.is_none().then(|| crate::sim_host::current_save(world)).flatten();
+    let now = crashed
+        .is_none()
+        .then(|| crate::sim_host::current_save(world))
+        .flatten();
     let settings = world.get_resource::<crate::settings::Settings>().cloned();
     let me = Identity::here();
     let (zipped, dropped) = zip(gather(&run, &note, now, settings.as_ref()), &me, LIMIT);
     if !dropped.is_empty() {
         warn!(target: "report", ?dropped, "left out of the report to fit");
     }
-    let reports = crate::settings::folder().map_or_else(|| crate::runtime::artifacts().join("reports"), |folder| folder.join("reports"));
+    let reports = crate::settings::folder().map_or_else(
+        || crate::runtime::artifacts().join("reports"),
+        |folder| folder.join("reports"),
+    );
     // Only a player's game opens anything on the desktop.
-    let player = world.get_resource::<crate::crash::PlayerRun>().is_some_and(|player| player.0);
+    let player = world
+        .get_resource::<crate::crash::PlayerRun>()
+        .is_some_and(|player| player.0);
     let told = match save(&reports, &zipped) {
         Ok(path) => {
             info!(target: "report", path = %path.display(), bytes = zipped.len(), "report made");
@@ -359,7 +405,10 @@ fn make(world: &mut World) {
 /// The box's note, if its Make report was pressed (the intent taken).
 fn take_report(world: &mut World) -> Option<String> {
     let mut intents = world.get_resource_mut::<UiIntents>()?;
-    let at = intents.0.iter().position(|intent| matches!(intent, Intent::Report(_)))?;
+    let at = intents
+        .0
+        .iter()
+        .position(|intent| matches!(intent, Intent::Report(_)))?;
     match intents.0.remove(at) {
         Intent::Report(note) => Some(note),
         _ => None,

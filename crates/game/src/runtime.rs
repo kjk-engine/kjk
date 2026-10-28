@@ -250,7 +250,10 @@ pub fn run(options: RunOptions) -> AppExit {
             crate::terminal::TerminalPlugin,
             crate::character::CharacterPlugin,
             crate::script_screens::ScriptScreensPlugin,
-            (crate::save_view::SaveViewPlugin, crate::report::ReportPlugin),
+            (
+                crate::save_view::SaveViewPlugin,
+                crate::report::ReportPlugin,
+            ),
         ));
         if black {
             app.insert_resource(ClearColor(Color::BLACK));
@@ -360,7 +363,8 @@ fn back_saves_up() -> Result<(), String> {
         return Ok(());
     };
     let backups = folder.join(saves::safety::BACKUPS);
-    let made = saves::backup_on_new_version(&root, &backups, env!("KJK_VERSION"), env!("KJK_GIT_SHA"))?;
+    let made =
+        saves::backup_on_new_version(&root, &backups, env!("KJK_VERSION"), env!("KJK_GIT_SHA"))?;
     if let Some(made) = made {
         eprintln!("the saves were kept in {}", made.display());
     }

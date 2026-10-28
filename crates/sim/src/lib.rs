@@ -41,12 +41,12 @@ pub mod pazaak;
 mod pending {
     include!(concat!(env!("OUT_DIR"), "/pending.rs"));
 }
+pub mod flight;
 pub mod motion;
 pub mod persona;
 #[cfg(feature = "probes")]
 pub mod probe;
 mod rate;
-pub mod flight;
 mod replay;
 pub mod rng;
 mod save;

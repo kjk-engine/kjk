@@ -98,7 +98,10 @@ impl Flight {
         self.segment += 1;
         let (writer, bytes) = FlightWriter::new(self.hz, start, level, script, env!("KJK_GIT_SHA"));
         self.writer = Some(writer);
-        self.send(Message::Segment(segment_path(&self.folder, self.segment), bytes));
+        self.send(Message::Segment(
+            segment_path(&self.folder, self.segment),
+            bytes,
+        ));
         if let Some(old) = self.segment.checked_sub(2).filter(|old| *old > 0) {
             let _ = std::fs::remove_file(segment_path(&self.folder, old));
         }
@@ -106,14 +109,22 @@ impl Flight {
 
     /// One stepped tick.
     pub(crate) fn tick(&mut self, msec: u32, input: &TickInput, after: &Snapshot) {
-        if let Some(bytes) = self.writer.as_mut().and_then(|writer| writer.tick(msec, input, after)) {
+        if let Some(bytes) = self
+            .writer
+            .as_mut()
+            .and_then(|writer| writer.tick(msec, input, after))
+        {
             self.send(Message::Append(bytes));
         }
     }
 
     /// The ticks not yet written, ending at `last` (the run ends).
     pub(crate) fn flush(&mut self, last: &Snapshot) {
-        let bytes = self.writer.as_mut().map(|writer| writer.flush(last)).unwrap_or_else(Vec::new);
+        let bytes = self
+            .writer
+            .as_mut()
+            .map(|writer| writer.flush(last))
+            .unwrap_or_else(Vec::new);
         if !bytes.is_empty() {
             self.send(Message::Append(bytes));
         }

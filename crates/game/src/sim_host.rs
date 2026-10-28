@@ -1047,15 +1047,23 @@ fn save_world(
     let movie = showing.is_some_and(|showing| showing.0);
     let seat = own.map_or(Seat(0), |own| own.0);
     let character = made.and_then(|made| made.0.clone());
-    let saved = store(authority, Slot::Named(asked.slot), asked.name, asked.area, character, movie, seat)
-        .map(|(id, meta, world)| {
-            let host = settings.map_or_else(
-                || crate::settings::Settings::load().host_id().to_string(),
-                |settings| settings.host_id().to_string(),
-            );
-            send_copies(&mut authority.solo, host, &id, &meta, &world);
-            id
-        });
+    let saved = store(
+        authority,
+        Slot::Named(asked.slot),
+        asked.name,
+        asked.area,
+        character,
+        movie,
+        seat,
+    )
+    .map(|(id, meta, world)| {
+        let host = settings.map_or_else(
+            || crate::settings::Settings::load().host_id().to_string(),
+            |settings| settings.host_id().to_string(),
+        );
+        send_copies(&mut authority.solo, host, &id, &meta, &world);
+        id
+    });
     if let Err(why) = &saved {
         warn!(target: "saves", "not saved: {why}");
     }
@@ -1164,7 +1172,10 @@ struct AutosaveDue {
 fn autosave(
     mut authority: ResMut<Authority>,
     mut due: Local<AutosaveDue>,
-    (player, settings): (Option<Res<crate::crash::PlayerRun>>, Option<Res<crate::settings::Settings>>),
+    (player, settings): (
+        Option<Res<crate::crash::PlayerRun>>,
+        Option<Res<crate::settings::Settings>>,
+    ),
     showing: Option<Res<crate::movie_view::Showing>>,
     own: Option<Res<OwnSeat>>,
     made: Option<Res<crate::character::Made>>,
@@ -1173,13 +1184,18 @@ fn autosave(
         due.installs = Some(authority.installs.len());
         due.owed = player.is_some_and(|player| player.0)
             && matches!(authority.source, Source::Live { .. })
-            && settings.is_some_and(|settings| settings.value(crate::settings::AUTOSAVE) == Some("true"));
+            && settings
+                .is_some_and(|settings| settings.value(crate::settings::AUTOSAVE) == Some("true"));
         if due.owed {
             info!(target: "saves", installs = authority.installs.len(), "autosave owed");
         }
     }
     let now = Instant::now();
-    if !due.owed || due.tried.is_some_and(|tried| now - tried < Duration::from_secs(1)) {
+    if !due.owed
+        || due
+            .tried
+            .is_some_and(|tried| now - tried < Duration::from_secs(1))
+    {
         return;
     }
     due.tried = Some(now);
@@ -1191,10 +1207,20 @@ fn autosave(
     let movie = showing.is_some_and(|showing| showing.0);
     let seat = own.map_or(Seat(0), |own| own.0);
     let character = made.and_then(|made| made.0.clone());
-    match store(&mut authority, Slot::Auto, area.clone(), area, character, movie, seat) {
+    match store(
+        &mut authority,
+        Slot::Auto,
+        area.clone(),
+        area,
+        character,
+        movie,
+        seat,
+    ) {
         Ok(_) => due.owed = false,
         // KOTOR's refusals pass: the autosave waits for them.
-        Err(why) if why.starts_with("You cannot save") => debug!(target: "saves", "autosave waits: {why}"),
+        Err(why) if why.starts_with("You cannot save") => {
+            debug!(target: "saves", "autosave waits: {why}")
+        }
         Err(why) => {
             warn!(target: "saves", "no autosave: {why}");
             due.owed = false;
@@ -1408,7 +1434,11 @@ fn advance(
                 // The flight recorder's segment for the module entered
                 // (a reload's too): it installs nothing.
                 if let Some(flight) = &mut authority.flight {
-                    flight.start(&after, &authority.world.level().id(), authority.world.script_state());
+                    flight.start(
+                        &after,
+                        &authority.world.level().id(),
+                        authority.world.script_state(),
+                    );
                 }
                 let census = after.census();
                 info!(
@@ -1786,7 +1816,10 @@ fn advance(
             module.clone_into(&mut crumbs.module);
         }
         let talk = last.talk.conversations.first();
-        if crumbs.conversation.as_ref().map(|(dialog, entry)| (dialog.as_str(), *entry))
+        if crumbs
+            .conversation
+            .as_ref()
+            .map(|(dialog, entry)| (dialog.as_str(), *entry))
             != talk.map(|talk| (talk.dialog.as_str(), talk.entry))
         {
             crumbs.conversation = talk.map(|talk| (talk.dialog.clone(), talk.entry));

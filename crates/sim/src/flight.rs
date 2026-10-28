@@ -127,7 +127,8 @@ pub fn read(bytes: &[u8]) -> Result<Recording, DecodeError> {
     let mut input = Reader::new("flight", bytes);
     input.header(MAGIC, VERSION)?;
     input.string()?;
-    let (kind, payload) = next_chunk(&mut input).ok_or_else(|| input.invalid("a start chunk", input.at()))?;
+    let (kind, payload) =
+        next_chunk(&mut input).ok_or_else(|| input.invalid("a start chunk", input.at()))?;
     if kind != START {
         return Err(input.invalid("a start chunk", input.at()));
     }
@@ -169,7 +170,9 @@ fn next_chunk<'a>(input: &mut Reader<'a>) -> Option<(u8, &'a [u8])> {
 }
 
 /// A tick chunk's ticks, and the tick and hash it ends at.
-fn read_ticks(payload: &[u8]) -> Result<(Vec<crate::replay::RecordedTick>, (u64, SnapshotHash)), DecodeError> {
+fn read_ticks(
+    payload: &[u8],
+) -> Result<(Vec<crate::replay::RecordedTick>, (u64, SnapshotHash)), DecodeError> {
     let mut input = Reader::new("flight ticks", payload);
     let count = input.u64()?;
     let ticks = (0..count)

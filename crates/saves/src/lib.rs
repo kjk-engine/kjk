@@ -266,7 +266,8 @@ fn write_files(
     // the new one whole.
     for (name, bytes) in [(WORLD, world), (META, text.as_slice())] {
         let path = fresh.join(name);
-        let written = std::fs::write(&path, bytes).and_then(|()| std::fs::File::open(&path)?.sync_all());
+        let written =
+            std::fs::write(&path, bytes).and_then(|()| std::fs::File::open(&path)?.sync_all());
         if let Err(error) = written {
             // A full disk: nothing half-written is left.
             let _ = remove(&fresh);

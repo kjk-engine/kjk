@@ -9,7 +9,11 @@ fn homes() -> [(String, String); 3] {
     let windows = format!("C:{}Users{}Åsa", '\\', '\\');
     let linux = ["", "home", "zoë"].join("/");
     let mac = ["", "Users", "a b"].join("/");
-    [(windows, "Åsa".into()), (linux, "zoë".into()), (mac, "a b".into())]
+    [
+        (windows, "Åsa".into()),
+        (linux, "zoë".into()),
+        (mac, "a b".into()),
+    ]
 }
 
 pub fn probes() -> Checks {
@@ -33,7 +37,10 @@ fn scrubs() -> Result<String, String> {
         .flat_map(|(home, user)| {
             let lower = home.to_lowercase().replace('\\', "/");
             [
-                (format!("{home}{}kjk{}saves", SEP[0], SEP[0]), format!("~{}kjk{}saves", SEP[0], SEP[0])),
+                (
+                    format!("{home}{}kjk{}saves", SEP[0], SEP[0]),
+                    format!("~{}kjk{}saves", SEP[0], SEP[0]),
+                ),
                 (format!("{lower}/x"), "~/x".to_string()),
                 (format!("{user} was here"), "<user> was here".to_string()),
             ]
@@ -63,12 +70,16 @@ fn part(name: &str, text: &str) -> Part {
 
 /// Whether `zip`'s files hold `needle` anywhere, compressed or not.
 fn holds(zip: &[u8], needle: &str) -> Result<bool, String> {
-    let mut archive = ::zip::ZipArchive::new(std::io::Cursor::new(zip)).map_err(|error| error.to_string())?;
+    let mut archive =
+        ::zip::ZipArchive::new(std::io::Cursor::new(zip)).map_err(|error| error.to_string())?;
     for index in 0..archive.len() {
         let mut file = archive.by_index(index).map_err(|error| error.to_string())?;
         let mut bytes = Vec::new();
         std::io::Read::read_to_end(&mut file, &mut bytes).map_err(|error| error.to_string())?;
-        if bytes.windows(needle.len()).any(|window| window == needle.as_bytes()) {
+        if bytes
+            .windows(needle.len())
+            .any(|window| window == needle.as_bytes())
+        {
             return Ok(true);
         }
     }
@@ -83,7 +94,10 @@ fn no_identity() -> Result<String, String> {
         host: "box-7".into(),
     };
     let parts = vec![
-        part("kjk.log", &format!("run folder: {home}/.config/kjk/logs on box-7 for {user}")),
+        part(
+            "kjk.log",
+            &format!("run folder: {home}/.config/kjk/logs on box-7 for {user}"),
+        ),
         part("settings.json", &format!("{{\"saves\":\"{home}/saves\"}}")),
     ];
     let (zipped, _) = zip(parts, &me, LIMIT);
@@ -96,7 +110,10 @@ fn no_identity() -> Result<String, String> {
 
 fn drop_host_id() -> Result<String, String> {
     let kept = settings_text(r#"{"host.id":"0011223344556677","sound.music":"0.5"}"#);
-    check(!kept.contains("host.id") && kept.contains("sound.music"), kept)
+    check(
+        !kept.contains("host.id") && kept.contains("sound.music"),
+        kept,
+    )
 }
 
 fn cap() -> Result<String, String> {
@@ -116,7 +133,11 @@ fn cap() -> Result<String, String> {
         text: false,
     };
     let me = Identity::default();
-    let (zipped, dropped) = zip(vec![part("note.txt", "hi"), flight(1), flight(2), flight(3)], &me, 25 * 1024 * 1024);
+    let (zipped, dropped) = zip(
+        vec![part("note.txt", "hi"), flight(1), flight(2), flight(3)],
+        &me,
+        25 * 1024 * 1024,
+    );
     check(
         dropped == ["flight-1.kjkf"] && zipped.len() <= 25 * 1024 * 1024,
         format!("dropped {dropped:?}, {} bytes", zipped.len()),
