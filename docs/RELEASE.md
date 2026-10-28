@@ -141,4 +141,4 @@ Nothing is written next to the program or into a game's folder.
   own menus) would let more players in.
 - **Movies** need `ffmpeg` on the `PATH`; without it they are skipped.
 - **A Linux AppImage**, and Linux and Windows on ARM. `release.yml` packs
-  macOS (Apple silicon, Intel), Windows and Linux on x86-64.
+  macOS on Apple silicon (no Intel build), Windows and Linux on x86-64.
