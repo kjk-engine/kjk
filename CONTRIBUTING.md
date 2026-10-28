@@ -68,7 +68,9 @@ opening a pull request you agree to license your change under it.
   in its own git worktree (`docs/BUILD.md` on seeding its `target/`).
 - Open a pull request against `main`. CI runs two jobs: **tests**
   (publish check, fmt, the approved tests) and **clippy** (both lints).
-- The maintainer reviews and merges.
+- The maintainer reviews and squash-merges: the pull request's title and
+  description become its one commit on `main`, so write them as that
+  commit's message.
 - Pushed history is never rewritten. To catch up with `main`, merge it into
   your branch.
 - Commit messages say the effect in plain words ("Silent shouts carry only
