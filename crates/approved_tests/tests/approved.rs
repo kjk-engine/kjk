@@ -1798,6 +1798,21 @@ fn old_saves_load() {
             continue;
         }
         let bytes = std::fs::read(&path).expect("a fixture reads");
+        let name = path
+            .file_name()
+            .expect("a fixture's name")
+            .to_string_lossy();
+        let versions = sim::fixtures::versions_of(&name)
+            .unwrap_or_else(|| panic!("{name}: not a fixture's name"));
+        // Older than a pending `breaking` bump: its pin retires it.
+        if sim::fixtures::refused(versions) {
+            let error = sim::Save::decode(&bytes)
+                .map(|_| ())
+                .expect_err("a fixture before a breaking bump is refused");
+            assert!(error.to_string().contains("version"), "{name}: {error}");
+            seen += 1;
+            continue;
+        }
         let mut save =
             sim::Save::decode(&bytes).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         let again = sim::Save::decode(&save.encode()).expect("a re-encoded save decodes");
@@ -1813,21 +1828,12 @@ fn old_saves_load() {
         newest.exists() || approved_tests::stored_bumps_pending(),
         "no fixture at this build's versions: `cargo run --release -p approved_tests --bin save_fixture`"
     );
-    // The oldest fixture read, damaged three ways: each refused, none a
-    // panic.
-    let mut fixtures: Vec<_> = std::fs::read_dir(&dir)
-        .expect("the fixtures folder")
-        .map(|entry| entry.expect("a fixture").path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "kjkv")
-        })
-        .collect();
-    fixtures.sort();
-    let first = std::fs::read(&fixtures[0]).expect("the oldest fixture");
+    // The kitchen sink as this build writes it, damaged three ways: each
+    // refused, none a panic.
+    let first = sink.encode();
     let mut newer = first.clone();
     newer[4..8].copy_from_slice(&(sim::fixtures::current().save + 1).to_le_bytes());
-    let mut companion = sim::Save::decode(&first).expect("the oldest fixture decodes");
+    let mut companion = sink.clone();
     let npc = companion
         .script
         .party
@@ -1898,6 +1904,11 @@ fn bump_files() {
             Err("snapshot is not bumped"),
         ),
         (
+            "2026-fix.toml",
+            "[formats]\nsave = \"x\"\n[migrations]\nsave = \"y\"\n",
+            Err("not a name"),
+        ),
+        (
             "net-migrated.toml",
             "[formats]\ninstall = \"x\"\n[migrations]\ninstall = \"y\"\n",
             Err("install is not stored in saves"),
@@ -1923,4 +1934,12 @@ fn bump_files() {
         bumps::pending_since(&two, "save"),
         vec![("A_FIRST".to_string(), 1), ("B_LATER".to_string(), 2)]
     );
+    // A name a pinned bump took, or two files of one name, is refused by
+    // the file: its `since` constant would be another's.
+    let pinned = "pub mod save {\n    pub const A_FIRST: crate::Since = crate::Since(crate::Stored::Save, 60);\n}\n";
+    let reused = bumps::clashes(&two, pinned).expect_err("a pinned name reused");
+    assert!(reused.contains("a-first.toml"), "{reused}");
+    two.push(bumps::parse_file("a_first.toml", migrated).expect("a migrated bump"));
+    let twice = bumps::clashes(&two, "").expect_err("two files of one name");
+    assert!(twice.contains("a_first.toml"), "{twice}");
 }

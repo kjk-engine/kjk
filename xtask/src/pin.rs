@@ -1,6 +1,6 @@
 //! `cargo xtask pin [--message <file>]`: what the merge does with the bump
 //! files that reached `main` (`bumps/README.md`). Each format bumped gets
-//! the next version, in the order the files were added, with its line in
+//! the next version, in the files' name order, with its line in
 //! the version's history; the files are taken away; then the sim hash is
 //! run and pinned in both workflows. A format saves hold that moved gets
 //! its bump's named version in `crates/sim/src/since.rs`, its migration in
@@ -16,7 +16,7 @@ use std::process::Command;
 
 const WORKFLOWS: [&str; 2] = [".github/workflows/ci.yml", ".github/workflows/manual.yml"];
 const HASH_KEY: &str = "KJK_SIM_HASH:";
-const SINCE: &str = "crates/sim/src/since.rs";
+const SINCE: &str = bumps::SINCE;
 const BREAKING: &str = "bumps/BREAKING.md";
 /// The format fixtures (`sim::fixtures::DIR`) and the order of the
 /// versions in their names (`save-<save>-<snapshot>-<pack>.kjkv`).
@@ -32,32 +32,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
         _ => return Err("usage: cargo xtask pin [--message <file>]".into()),
     };
     let root = repo_root();
-    let mut pending = bumps::pending(&root)?;
+    let pending = bumps::pending(&root)?;
     if pending.is_empty() {
         println!("pin: no bump files");
         return Ok(());
     }
-    // The order they reached this branch: the first added is numbered first.
-    let mut added = Vec::new();
-    for bump in &pending {
-        let path = relative(&root, &bump.path);
-        let time = String::from_utf8_lossy(&git(&[
-            "log",
-            "--diff-filter=A",
-            "--format=%ct",
-            "-1",
-            "--",
-            &path,
-        ])?)
-        .trim()
-        .parse::<u64>()
-        .unwrap_or(u64::MAX);
-        added.push((time, path));
-    }
-    let mut order: Vec<usize> = (0..pending.len()).collect();
-    order.sort_by(|a, b| added[*a].cmp(&added[*b]));
-    pending = order.iter().map(|at| pending[*at].clone()).collect();
-
+    // In file-name order, as the sim's build script numbered them on the
+    // branches (`bumps::pending_since`), so a save made there reads the same.
     let mut lines = Vec::new();
     let mut named = Vec::new();
     for bump in &pending {
@@ -247,8 +228,13 @@ fn write_since(root: &Path, named: &[(&str, String, u32)]) -> Result<(), String>
         if line.trim_start().starts_with("#[allow(unused_imports)]") {
             for (format, name, version) in named {
                 if module.as_deref() == Some(*format) {
-                    writeln!(out, "    pub const {name}: u32 = {version};")
-                        .expect("a String takes writes");
+                    let format = bumps::format(format).expect("stored formats are known");
+                    let variant = bumps::stored_variant(format);
+                    writeln!(
+                        out,
+                        "    pub const {name}: crate::Since = crate::Since(crate::Stored::{variant}, {version});"
+                    )
+                    .expect("a String takes writes");
                 }
             }
         }
@@ -273,14 +259,18 @@ fn breaking(
     write(&path, &text)?;
     let file = root.join(format.file);
     let source = read(&file)?;
-    let oldest = "pub const OLDEST: u32 = ";
-    if !source.lines().any(|line| line.starts_with(oldest)) {
-        return Err(format!("{}: no `{oldest}N;`", format.file));
+    let oldest = "pub const OLDEST: u32 = crate::wire::later(";
+    let pending = format!(", crate::pending::oldest::{});", format.name.to_uppercase());
+    if !source
+        .lines()
+        .any(|line| line.starts_with(oldest) && line.ends_with(&pending))
+    {
+        return Err(format!("{}: no `{oldest}N{pending}`", format.file));
     }
     let source: String = source
         .split_inclusive('\n')
         .map(|line| match line.starts_with(oldest) {
-            true => format!("{oldest}{version};\n"),
+            true => format!("{oldest}{version}{pending}\n"),
             false => line.to_string(),
         })
         .collect();

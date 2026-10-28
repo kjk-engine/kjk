@@ -81,7 +81,7 @@ pub use snapshot::{
     RoomAnim, Screens, SimId, Snapshot, SnapshotHash, Spawned, Stash, Stashed, Status, StatusKind,
     Track, Transit, Transition, cannot_equip, lock, look, pin, room_key, sound, trap,
 };
-pub use wire::DecodeError;
+pub use wire::{DecodeError, Since, Stored};
 #[cfg(feature = "probes")]
 pub use world::aim_probes;
 pub use world::arena;

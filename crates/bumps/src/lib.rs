@@ -27,6 +27,9 @@ use std::path::{Path, PathBuf};
 /// The folder of the pending bumps, under the repository's root.
 pub const DIR: &str = "bumps";
 
+/// The pinned bumps' named versions, under the repository's root.
+pub const SINCE: &str = "crates/sim/src/since.rs";
+
 /// A versioned format: its constant reads `N + crate::pending::<NAME>`,
 /// the bumps pending on the branch counted by the sim's build script.
 pub struct Format {
@@ -193,6 +196,53 @@ pub fn declared(line: &str, format: &Format) -> Option<u32> {
         .ok()
 }
 
+/// `format`'s variant of `sim::Stored` (`Save`, `Snapshot`, `Pack`).
+pub fn stored_variant(format: &Format) -> String {
+    let mut name = format.name.to_string();
+    name[..1].make_ascii_uppercase();
+    name
+}
+
+/// An error naming the file of any of `bumps` whose name another has, or
+/// a pinned bump in `since` (the source of `SINCE`) has: its versions would
+/// be another's.
+pub fn clashes(bumps: &[Bump], since: &str) -> Result<(), String> {
+    for (at, bump) in bumps.iter().enumerate() {
+        let name = bump.name();
+        if since.contains(&format!(" {name}: ")) {
+            return Err(format!(
+                "{}: {name} is a pinned bump's name (`{SINCE}`): name the file anew",
+                bump.path.display()
+            ));
+        }
+        if let Some(other) = bumps[..at].iter().find(|other| other.name() == name) {
+            return Err(format!(
+                "{}: {name} is {}'s name too: name the file anew",
+                bump.path.display(),
+                other.path.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The version from which `format`'s older saves are refused by a pending
+/// `breaking` bump (its base and its place among `bumps`), if one is.
+pub fn breaking_since(bumps: &[Bump], format: &str, base: u32) -> Option<u32> {
+    let mut place = 0;
+    let mut since = None;
+    for bump in bumps {
+        if bump.formats.iter().any(|(name, _)| *name == format) {
+            place += 1;
+            let migrated = bump.migrations.iter().any(|(name, _)| *name == format);
+            if bump.breaking.is_some() && !migrated {
+                since = Some(base + place);
+            }
+        }
+    }
+    since
+}
+
 /// Each of `bumps` that bumps `format`, by its name, with its place among
 /// them from 1: its version is the format's base and that.
 pub fn pending_since(bumps: &[Bump], format: &str) -> Vec<(String, u32)> {
@@ -290,6 +340,16 @@ fn parse(path: PathBuf, text: &str) -> Result<Bump, String> {
                 list.push((known.name, value));
             }
         }
+    }
+    let name = bump.name();
+    let valid = name.starts_with(|first: char| first.is_ascii_uppercase())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+    if !valid {
+        return Err(named(format!(
+            "{name} is not a name its versions can go by: start the file's name with a letter, then letters, digits, `-` or `_`"
+        )));
     }
     if bump.sim.is_none() && bump.formats.is_empty() {
         return Err(named(

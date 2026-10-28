@@ -5,7 +5,7 @@
 //! Not a KOTOR save: original save games are out of scope (`ROADMAP.md`).
 
 use crate::snapshot::{Kind, Snapshot};
-use crate::wire::{DecodeError, Reader, Writer};
+use crate::wire::{DecodeError, Reader, Stored, Writer};
 use crate::world::{Level, LevelId, SimWorld};
 
 const MAGIC: &[u8; 4] = b"KJKV";
@@ -109,7 +109,7 @@ pub const VERSION: u32 = 59 + crate::pending::SAVE;
 
 /// The oldest version read: v0.1.0's. Each change since keeps its old read
 /// (`crate::since::save`, `bumps/README.md`).
-pub const OLDEST: u32 = 59;
+pub const OLDEST: u32 = crate::wire::later(59, crate::pending::oldest::SAVE);
 
 /// The companions' templates' version in a save from before it recorded
 /// theirs (`since::save::SAVE_MIGRATIONS`): v0.1.0's, whatever the oldest
@@ -193,7 +193,7 @@ impl Save {
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut input = Reader::new("save", bytes);
-        let version = input.header_since(MAGIC, OLDEST, VERSION)?;
+        input.header_since(MAGIC, Stored::Save, OLDEST, VERSION)?;
         let hz = input.u32()?;
         // The companions' templates' version (`party::Npc::template_data`).
         let pack = if input.since(crate::since::save::SAVE_MIGRATIONS) {
@@ -202,13 +202,15 @@ impl Save {
             PACK_BEFORE_RECORDED
         };
         let level = LevelId::read(&mut input)?;
-        let snapshot = Snapshot::decode_stored(input.section()?)?;
+        let mut versions = input.versions();
+        versions.pack = pack;
+        let snapshot = Snapshot::decode_stored(input.section()?, &mut versions)?;
         // Saves from before I16 have an empty section.
         let section = input.section()?;
         let script = if section.is_empty() {
             ScriptVmState::default()
         } else {
-            let mut script = Reader::new("save's scripts", section).with_version(version);
+            let mut script = Reader::new("save's scripts", section).with_versions(versions);
             let state = ScriptVmState::decode(&mut script)?;
             script.finish()?;
             state
@@ -220,7 +222,7 @@ impl Save {
             snapshot,
             script,
         };
-        crate::migrate::save(&mut save, pack)?;
+        crate::migrate::save(&mut save, versions)?;
         Ok(save)
     }
 }

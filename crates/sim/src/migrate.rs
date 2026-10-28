@@ -3,15 +3,17 @@
 //! so the rest of the sim sees only this build's (`bumps/README.md`).
 
 use crate::save::Save;
-use crate::wire::DecodeError;
+use crate::wire::{DecodeError, Versions};
 
-/// `save`, decoded from any version read, made this build's: the
-/// companions' templates kept in its party table (`Npc::template_data`),
-/// written in `pack` of that format, re-encoded in this build's.
-pub(crate) fn save(save: &mut Save, pack: u32) -> Result<(), DecodeError> {
+/// `save`, decoded from `versions` of the stored formats, made this
+/// build's: the companions' templates kept in its party table
+/// (`Npc::template_data`), written in its pack version, re-encoded in this
+/// build's.
+pub(crate) fn save(save: &mut Save, versions: Versions) -> Result<(), DecodeError> {
+    let pack = versions.pack;
     if !(crate::pack::OLDEST..=crate::pack::VERSION).contains(&pack) {
         return Err(DecodeError::Version {
-            format: "a kept companion",
+            format: "a save's templates",
             found: pack,
         });
     }
@@ -19,7 +21,7 @@ pub(crate) fn save(save: &mut Save, pack: u32) -> Result<(), DecodeError> {
         let Some(bytes) = &npc.template_data else {
             continue;
         };
-        let facts = crate::pack::creature_of(bytes, pack)?;
+        let facts = crate::pack::creature_of(bytes, versions)?;
         if pack < crate::pack::VERSION {
             npc.template_data = Some(crate::pack::creature_bytes(&facts).into());
         }

@@ -61,11 +61,15 @@ snapshot = "…"
 
 The build refuses a stored format bumped with neither, and a migration of a
 format not bumped or not stored. `breaking` takes the owner's approval in
-the pull request.
+the pull request. While it is pending, that format's `OLDEST` is already
+its version, so the branch refuses older saves as the merge will.
 
 The decoder keeps the old read beside the new one, gated on the version
 the bump gives, named after its file (`bumps/saber-duel-fixes.toml` is
-`SABER_DUEL_FIXES`; `crates/sim/src/since.rs`):
+`SABER_DUEL_FIXES`; `crates/sim/src/since.rs`). The name must start with a
+letter and be new: one a pinned bump took, or another pending file has, is
+refused. The gate reads that format's version wherever the bytes lie in a
+save (a sheet in the snapshot, an item's facts in the scripts' state):
 
 ```rust
 let drawn = if input.since(crate::since::snapshot::SABER_DUEL_FIXES) {
@@ -92,8 +96,8 @@ is the merge's.
 ## At merge
 
 `.github/workflows/pin.yml` runs on `main` after a pull request with a bump
-file merges (a merge or push to `main` starts it by its paths). It runs `cargo xtask pin`: each bump, in the
-order the files reached `main`, takes the next version with its history
+file merges (a merge or push to `main` starts it by its paths). It runs `cargo xtask pin`: each bump, in the files' name order
+(as the build numbers them on a branch), takes the next version with its history
 line; the files are removed; the pinned determinism run's hash is written
 into both workflows. Then the approved tests run on the result, and it is
 committed to `main` as "Pinned at merge: …", naming every version and

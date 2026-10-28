@@ -32,6 +32,38 @@ pub fn current() -> Versions {
     }
 }
 
+/// The oldest versions this build reads: a pending `breaking` bump's
+/// already (`bumps/README.md`).
+pub fn oldest() -> Versions {
+    Versions {
+        save: crate::save::OLDEST,
+        snapshot: crate::snapshot::OLDEST,
+        pack: crate::pack::OLDEST,
+    }
+}
+
+/// The versions a fixture's file name gives (`file_name`).
+pub fn versions_of(name: &str) -> Option<Versions> {
+    let mut parts = name
+        .strip_prefix("save-")?
+        .strip_suffix(".kjkv")?
+        .split('-');
+    let mut next = || parts.next()?.parse().ok();
+    Some(Versions {
+        save: next()?,
+        snapshot: next()?,
+        pack: next()?,
+    })
+}
+
+/// Whether a fixture of `versions` is older than this build reads.
+pub fn refused(versions: Versions) -> bool {
+    let oldest = oldest();
+    versions.save < oldest.save
+        || versions.snapshot < oldest.snapshot
+        || versions.pack < oldest.pack
+}
+
 /// A fixture's file name: its three versions.
 pub fn file_name(versions: Versions) -> String {
     format!(
