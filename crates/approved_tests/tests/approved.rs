@@ -937,7 +937,7 @@ fn use_actions() {
 /// state round-trips; two runs end the same. The sim alone.
 #[test]
 fn bash_doors() {
-    probed("bash", &sim::objects::probes(), 14);
+    probed("bash", &sim::objects::probes(), 16);
 }
 
 /// Placeables' looks and the visuals on objects (proposed 2026-10-06, the
