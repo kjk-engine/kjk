@@ -50,7 +50,9 @@ around them and reports before changing one.
    4 m (unless `bIgnoreStartRange`), then `Action::Converse { with, dialog }`
    (save tag 10), which asks `dialogue` to start when it reaches the front.
    `ActionResumeConversation` queues `Action::Hold` (tag 11); a pause
-   takes effect at once.
+   takes effect at once and keeps its place in the queue too
+   (`Action::Pause`): a queue cleared before it reached the front drops
+   it, as the executables' queued pause never ran.
 5. **"The player used me".** A player's use of a creature that has a
    `ScriptDialogue` hook (`Hook::Dialogue`; no placeable has one) queues
    `Pending { caller: it, entering: Some(player), number: -1 }` on it
@@ -211,7 +213,11 @@ where they part, the choice is ours and named.
   script that calls it, so a skip or the timer cannot get past it;
   `ActionResumeConversation` is queued behind the caller's actions, so
   pausing, acting and resuming holds the line through the acting (reone's
-  pause only stops skipping). A walk-up with no way to the player (a
+  pause only stops skipping). The pause keeps its place in the queue all
+  the same: a `ClearAllActions` before it reached the front drops it with
+  the resume, so a line that pauses and clears its speaker's queue to walk
+  it in (Citadel Station's Czerka men, `a_czerkaint`) goes on, not held
+  for good (probe `pause_cleared_with_its_queue`). A walk-up with no way to the player (a
   player arrived past locked doors) fails at once, so the resume queued
   after it comes (`EVENTS.md`, action queues).
 - **Replies.** The player may answer while the line plays (it is cut),

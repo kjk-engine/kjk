@@ -1278,7 +1278,7 @@ fn dialogue_coop() {
 /// alone. Approved by the owner 2026-10-17 (do what you think is best).
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 68);
+    probed("scene", &sim::scene_probes::all(), 69);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,

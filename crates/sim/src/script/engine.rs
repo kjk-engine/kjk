@@ -491,11 +491,31 @@ pub(super) fn can_cast(view: &View, thing: &Thing, row: u16) -> bool {
 
 /// `who` stops what it does and fights no more: its queue cleared (unless
 /// not commandable), out of combat.
-fn stop(state: &mut State, out: &mut Out, who: ObjectId) {
+fn stop(state: &mut State, out: &mut Out, view: &View, who: ObjectId) {
     if !state.uncommandable.contains(&who.0) {
-        state.actions.remove(&who.0);
+        clear_queue(state, view, who);
     }
     out.changes.push(Change::CancelCombat { who });
+}
+
+/// `who`'s queue cleared. A conversation pause still in it, one that never
+/// reached the front, is dropped with it: the executables queue the pause
+/// as they queue the resume (reone's `PauseConversationAction`), so a clear
+/// before it ran leaves the conversation going on. Citadel Station's Czerka
+/// men pause their line, clear their own queues and walk in (`a_czerkaint`):
+/// their resume, cleared too, would otherwise hold it for good.
+fn clear_queue(state: &mut State, view: &View, who: ObjectId) {
+    let Some(queue) = state.actions.remove(&who.0) else {
+        return;
+    };
+    let host = view.host(&state.party);
+    for queued in queue {
+        if let Action::Pause { talk } = queued.action
+            && let Some(at) = state.talk.held_by(who, talk, host)
+        {
+            state.talk.conversations[at].paused = false;
+        }
+    }
 }
 
 /// `caller` gives up (`SurrenderToEnemies`; Calo Nord when Davik falls,
@@ -534,7 +554,7 @@ pub(super) fn surrender(
         if thing.id != caller && distance(from, thing.position) > SURRENDER_REACH {
             continue;
         }
-        stop(state, out, thing.id);
+        stop(state, out, view, thing.id);
         if !keeps {
             for lasting in c.lasting.iter().flatten().filter(|l| l.by == thing.id.0) {
                 state.removed.push((thing.id.0, Some(lasting.id), after));
@@ -1449,7 +1469,7 @@ impl Engine<'_> {
     /// `who`'s queue cleared (unless it is not commandable) and its fight
     /// over: a surrender's.
     fn stop(&mut self, who: ObjectId) {
-        stop(self.state, self.out, who);
+        stop(self.state, self.out, self.view, who);
     }
 
     /// Whether `who`'s queue holds an animation of `LONG_ANIMATION_MS` or
@@ -4165,7 +4185,7 @@ impl Engine<'_> {
                 // What it plays stops too, even a clip that outlasts its
                 // queued time.
                 if !state.uncommandable.contains(&caller.0) {
-                    state.actions.remove(&caller.0);
+                    clear_queue(state, self.view, caller);
                     self.out.changes.push(Change::Clear { who: caller });
                 }
                 Value::Int(0)
