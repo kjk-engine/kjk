@@ -135,7 +135,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
         let text = String::from_utf8_lossy(content);
         scan_text(path, &text, &mut findings);
-        if !PROVENANCE_FILES.contains(&path.as_str()) {
+        // A route names the games' own objects (`WP_GASDEATH5`), never code.
+        if !PROVENANCE_FILES.contains(&path.as_str()) && !path.ends_with(".route") {
             scan_provenance(path, &text, &mut findings);
         }
     }
