@@ -356,7 +356,13 @@ read across and along its curving track, its mines steered round too and
 jumped when close, what lies off the swoop's height left alone); the turret
 turns the view to the nearest fighter ahead of it by the bolts' flight and
 holds fire while on it. Each is met when the minigame's script leaves its
-module; `turrets` is refused once the game is lost (`EndGame(TRUE)`). `kjk play
+module; `turrets` is refused once the game is lost (`EndGame(TRUE)`). A
+global the scripts set changing is progress, holding the goal's clock as a
+foe losing hit points does (Peragus' turret counts the troopers boarding,
+`107PER_MG_EBON`, and ends with Atton's `turend` once all 25 are dead or
+aboard). A conversation the scripts start while a minigame plays is
+answered as any other: the minigame parks what moves the player, not its
+answer (`world::minigame::steer`). `kjk play
 --aim race|turrets` hands the scripted player to the same bot, for
 filming a minigame played.
 

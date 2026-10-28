@@ -110,6 +110,10 @@ pub(super) fn steer(
             .filter_map(|raised| crate::minigame::pending(rules, raised));
         scripts.state.pending.extend(queued);
     }
+    // What steers the course moves no body; an answer to a conversation
+    // stays the conversation's (the scripts may start one while it plays:
+    // Peragus' turret ends with Atton's `turend`, whose reply loads the
+    // boarded Ebon Hawk).
     let parked: Vec<_> = inputs
         .0
         .iter()
@@ -118,6 +122,7 @@ pub(super) fn steer(
                 seat,
                 Command {
                     angles: command.angles,
+                    reply: command.reply,
                     ..Command::default()
                 },
             )

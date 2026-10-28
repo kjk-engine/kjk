@@ -1400,6 +1400,12 @@ impl Thing {
         self.hp.is_some_and(|(hp, _)| hp <= 0)
     }
 
+    /// Whether it is dead for good: `dead`, but not a party member knocked
+    /// out (`Character::downed`), who gets up again where it fell.
+    pub fn dead_for_good(&self) -> bool {
+        self.dead() && !self.character.is_some_and(|character| character.downed)
+    }
+
     /// Whether blows may break it open (`module::bashable`).
     pub fn bashable(&self) -> bool {
         let locked = self.locked == Some(true);
