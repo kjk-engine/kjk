@@ -140,5 +140,5 @@ Nothing is written next to the program or into a game's folder.
 - **KOTOR II** is required for the menus' look; making it optional (KOTOR's
   own menus) would let more players in.
 - **Movies** need `ffmpeg` on the `PATH`; without it they are skipped.
-- **Packages from CI for Windows, Intel Macs and Linux** (only macOS
-  arm64 is in `release.yml`), and a Linux AppImage.
+- **A Linux AppImage**, and Linux and Windows on ARM. `release.yml` packs
+  macOS (Apple silicon, Intel), Windows and Linux on x86-64.

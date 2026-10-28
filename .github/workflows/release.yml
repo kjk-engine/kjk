@@ -3,9 +3,10 @@
 # owner reviews the draft and publishes it. Run by hand, it builds the same
 # packages as the run's artifacts and makes no Release.
 #
-# macOS on Apple silicon only so far; Windows, Intel Macs and Linux are to
-# come. Nothing is signed (the owner's call; the player's readme says how
-# to open the app).
+# One package for each OS and processor: macOS on Apple silicon and on
+# Intel, Windows and Linux on x86-64 (Linux on Ubuntu 22.04's older glibc, so
+# it runs on newer systems and the Steam Deck too). Nothing is signed (the
+# owner's call; the player's readme says how to open the app).
 name: release
 
 on:
@@ -21,9 +22,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  macos-arm64:
-    name: package (macOS arm64)
-    runs-on: macos-14
+  package:
+    name: package (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS arm64, runner: macos-14, artifact: macos-arm64 }
+          - { name: macOS x86-64, runner: macos-15-intel, artifact: macos-x86_64 }
+          - { name: Windows x86-64, runner: windows-latest, artifact: windows-x86_64 }
+          - { name: Linux x86-64, runner: ubuntu-22.04, artifact: linux-x86_64 }
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,37 +46,54 @@ jobs:
       - name: Toolchain
         run: rustup toolchain install
 
+      # Bevy's window crates and the sound device (cpal) link these.
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
+
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-about@0.9.3
 
-      # The dist profile's build, the icon, the crates' licences, packed.
+      # The dist profile's build (the icon on macOS), the crates' licences,
+      # packed. PowerShell, so Windows packs with its own tar (zips), not
+      # Git Bash's.
       - name: package
+        shell: pwsh
         run: cargo xtask dist
 
       - name: check the package
         run: |
           cd target/packages
-          tar -tzf kjk-*-macos-aarch64.tar.gz | sort
-          for f in kjk.app/Contents/MacOS/kjk kjk.app/Contents/Info.plist \
-                   kjk.app/Contents/Resources/kjk.icns README.txt LICENSE.txt \
-                   NOTICE.txt THIRD-PARTY-LICENSES.html; do
-            tar -tzf kjk-*-macos-aarch64.tar.gz | grep -q "/$f$" || { echo "missing $f"; exit 1; }
+          ls -la
+          stage=$(ls -d kjk-*/ | head -n 1)
+          for f in README.txt LICENSE.txt NOTICE.txt THIRD-PARTY-LICENSES.html; do
+            test -f "$stage$f" || { echo "missing $f"; exit 1; }
           done
-          plutil -lint kjk-*-macos-aarch64/kjk.app/Contents/Info.plist
-          codesign --verify --strict -vv kjk-*-macos-aarch64/kjk.app
-          file kjk-*-macos-aarch64/kjk.app/Contents/MacOS/kjk
-          kjk-*-macos-aarch64/kjk.app/Contents/MacOS/kjk --help
+          case "$RUNNER_OS" in
+            macOS)
+              app="${stage}kjk.app"
+              plutil -lint "$app/Contents/Info.plist"
+              test -f "$app/Contents/Resources/kjk.icns"
+              codesign --verify --strict -vv "$app"
+              program="$app/Contents/MacOS/kjk" ;;
+            Windows) program="${stage}kjk.exe" ;;
+            *) program="${stage}kjk" ;;
+          esac
+          file "$program" || true
+          "$program" --help
 
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-arm64
-          path: target/packages/*.tar.gz
+          name: ${{ matrix.artifact }}
+          path: |
+            target/packages/*.tar.gz
+            target/packages/*.zip
           if-no-files-found: error
 
   release:
     name: draft release
-    needs: [macos-arm64]
+    needs: [package]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -86,4 +115,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" packages/*
           --repo "$GITHUB_REPOSITORY" --draft --verify-tag
           --title "kjk $GITHUB_REF_NAME"
-          --notes "Unsigned builds. Read README.txt in the package first; SHA256SUMS lists each file's checksum."
+          --notes "Unsigned builds for macOS (Apple silicon and Intel), Windows and Linux (x86-64). Read README.txt in the package first; SHA256SUMS lists each file's checksum."
