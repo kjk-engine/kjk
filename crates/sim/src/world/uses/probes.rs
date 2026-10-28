@@ -592,12 +592,18 @@ const SELF_OPEN_STEPS: usize = 1000;
 type NpcRan = (Vec<u8>, Vec<(usize, String)>, crate::Snapshot);
 
 fn npc_scenario() -> Result<NpcRan, String> {
-    ground_scenario(&[("OnOpen", "probe_opened_by")], true, NPC_STEPS)
+    ground_scenario(&[("OnOpen", "probe_opened_by")], None, true, NPC_STEPS)
 }
 
-/// The proving ground with its gate's `scripts`, the NPCs (`npcs`: the
-/// worker and the doorman) or none, run for `steps`.
-fn ground_scenario(scripts: &[(&str, &str)], npcs: bool, steps: usize) -> Result<NpcRan, String> {
+/// The proving ground with its gate's `scripts` (and, given, whether its
+/// lock may be locked again), the NPCs (`npcs`: the worker and the
+/// doorman) or none, run for `steps`.
+fn ground_scenario(
+    scripts: &[(&str, &str)],
+    lockable: Option<bool>,
+    npcs: bool,
+    steps: usize,
+) -> Result<NpcRan, String> {
     use crate::module::{ObjectData, Placement};
     use crate::notice::Notice;
     use crate::{StepReason, TickInput, WorldConfig};
@@ -611,6 +617,15 @@ fn ground_scenario(scripts: &[(&str, &str)], npcs: bool, steps: usize) -> Result
         .iter()
         .map(|(hook, script)| ((*hook).into(), (*script).into()))
         .collect();
+    if let Some(lockable) = lockable {
+        gate.lock = Some(crate::module::Lock {
+            lockable,
+            ..gate
+                .lock
+                .clone()
+                .unwrap_or_else(crate::module::Lock::default)
+        });
+    }
     let thing = |kind, tag: &str, at, hook: &str, script: &str| ObjectData {
         kind,
         tag: tag.into(),
@@ -1438,21 +1453,23 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
             ("OnHeartbeat", "probe_opens_itself"),
             ("OnOpen", "probe_opened_by"),
         ],
+        None,
         false,
         SELF_OPEN_STEPS,
     );
-    let locked = ground_scenario(
-        &[("OnHeartbeat", "probe_locks_itself")],
-        false,
-        SELF_OPEN_STEPS,
-    )
-    .map(|(_, _, last)| {
-        last.entities
-            .iter()
-            .find(|entity| matches!(entity.kind, crate::Kind::Object(_, GATE)))
-            .and_then(|entity| entity.object)
-            .map(|object| object.lock)
-    });
+    let locked: Result<Vec<_>, String> = [false, true]
+        .into_iter()
+        .map(|lockable| {
+            let script = [("OnHeartbeat", "probe_locks_itself")];
+            ground_scenario(&script, Some(lockable), false, SELF_OPEN_STEPS).map(|(_, _, last)| {
+                last.entities
+                    .iter()
+                    .find(|entity| matches!(entity.kind, crate::Kind::Object(_, GATE)))
+                    .and_then(|entity| entity.object)
+                    .map(|object| object.lock == crate::snapshot::lock::LOCKED)
+            })
+        })
+        .collect();
     let opened_at = gates.iter().position(|state| *state == 1);
     let told_by = |tag: &str| -> Vec<usize> {
         told.iter()
@@ -1491,11 +1508,11 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
             },
         ),
         (
-            "door_cannot_lock_itself",
+            "only_lockable_locks",
             match locked {
-                Ok(lock) => check(
-                    lock.is_some_and(|lock| lock != crate::snapshot::lock::LOCKED),
-                    format!("the gate's lock after its heartbeat {lock:?}"),
+                Ok(locked) => check(
+                    locked == [Some(false), Some(true)],
+                    format!("locked after its heartbeat, unlockable and lockable: {locked:?}"),
                 ),
                 Err(why) => Err(why),
             },
