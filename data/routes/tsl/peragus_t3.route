@@ -30,8 +30,6 @@ unlock MilLowFootLker@2
 use MilLowFootLker@2
 # The lower door and up the ramp to Hangar 25's console (the Ebon Hawk in
 # its bay): the two footlockers, then the console.
-at 0 67               # to the lower door (planned from the start room, no way
-                     # is found: NAV BLOCKER, 2026-10-28)
 unlock PeragusDoor1@6 # the lower door, locked: T3 slides through
 unlock MilLowPlstcCylin@2 # up the ramp: two locked containers (DC 18)
 use MilLowPlstcCylin@2

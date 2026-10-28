@@ -971,10 +971,17 @@ impl NavMesh {
             // (`inside_corner`), which a way bends round little if at all:
             // stepped off the walls there, such an end can lie past a walker
             // standing that near the portal, and taken as the funnel's side it
-            // turned the way back round it. An end at an outside corner (one
-            // a way bends round) still bounds its side, and a gate collapsed
-            // to its middle is never passed over, even with the middle behind
-            // the apex.
+            // turned the way back round it. So too both ends of a gate whose
+            // corners the apex stands beside neither of (farther from each
+            // than it is stepped off its walls): between two blocks' corners
+            // the stepped gate lies aslant the bare portal, and a walker on
+            // the portal, past the stepped gate, was sent back round one
+            // stepped end and then the other (TSL's Peragus hangar bay,
+            // 106PER: the start room's way to the lower door zig-zagged, and
+            // the walk turned back and forth between two ways). Beside one
+            // block's corner (in a doorway), an end at an outside corner
+            // still bounds its side, and a gate collapsed to its middle is
+            // never passed over, even with the middle behind the apex.
             let (drop_left, drop_right) = ends
                 .get(at)
                 .filter(|((left_bare, _), (right_bare, _))| {
@@ -985,7 +992,14 @@ impl NavMesh {
                         && off_stretch(apex, (*left_bare, *right_bare)) < self.radius
                 })
                 .map_or((false, false), |&(left_end, right_end)| {
-                    (self.inside_corner(left_end), self.inside_corner(right_end))
+                    let beside = |(bare, stepped): (Vec3, Vec3)| {
+                        flat_length(apex, bare) <= flat_length(stepped, bare)
+                    };
+                    let neither = !beside(left_end) && !beside(right_end);
+                    (
+                        neither || self.inside_corner(left_end),
+                        neither || self.inside_corner(right_end),
+                    )
                 });
             if drop_left && drop_right {
                 at += 1;

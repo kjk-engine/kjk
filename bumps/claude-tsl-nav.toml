@@ -1,0 +1,5 @@
+# The sim's hash moves on purpose: a script's move whose move_body step went
+# nowhere with the level's solid ahead goes on KOTOR's walker at once, and the
+# funnel no longer turns back round both stepped ends of a gate whose corners
+# the walker stands beside neither of.
+sim = "a wedged scripted walk goes on KOTOR's walker at once; the funnel passes a gate between two blocks' corners a walker stands past"

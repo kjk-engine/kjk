@@ -614,6 +614,9 @@ pub(super) fn move_actors(
         // KOTOR's walker does (`Walker::meet`): pushes it aside, or bumps
         // into it and goes round, rather than stalling a second first. One
         // KOTOR's walker carried met what it ran into in its step.
+        let scripted_move = seat.is_none()
+            && fighting.0.mind.moving
+            && fighting.0.mind.task != crate::combat::ai::Task::Engage;
         if let Some(stepped) = &stepped {
             pushes.extend(stepped.pushed);
         } else if routed
@@ -634,6 +637,27 @@ pub(super) fn move_actors(
                 && let Some(spot) = walker.meet(&level.0, &player.0, space, met, &mets)
             {
                 pushes.push((met.who, spot));
+            }
+            // A script's move out of a fight whose step went nowhere with the
+            // level's own solid on its way ahead (`walk::way_clear`: not a
+            // body, nor a door or placeable, which keep their own rules) has
+            // stalled: it goes on KOTOR's walker from the next step
+            // (`stalled_out`), as after a second with no headway. The mesh
+            // planned the leg, and KOTOR's walker, a point on the walkmesh,
+            // walks it: Peragus's Sith troopers boarding the Ebon Hawk
+            // (107PER), routed between an explosive barrel and a crate's
+            // walkmesh edge their boxes do not fit between, stood a second at
+            // each such gap, twenty times in the turret game.
+            let commanded = command.forward != 0 || command.right != 0;
+            if scripted_move
+                && commanded
+                && walker.stalls == 0
+                && walker.waypoint.is_some()
+                && math::flat_distance(before, player.0.origin) <= WALKED
+                && !touches.iter().any(|entity| *entity & BODY != 0)
+                && !walk::way_clear(&level.0, &player.0, command.forward, command.right)
+            {
+                walker.stalls = 1;
             }
         }
         idle::check(

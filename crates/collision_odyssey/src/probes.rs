@@ -262,6 +262,10 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("footprint_walls", footprint_walls()));
     checks.push(("footprint_nav_marks", footprint_nav_marks()));
     checks.push(("sliver_nav_open", sliver_nav_open()));
+    checks.push((
+        "nav_past_gate_between_corners",
+        nav_past_gate_between_corners(),
+    ));
     checks
 }
 
@@ -613,5 +617,133 @@ fn sliver_nav_open() -> Result<String, String> {
             route.len()
         )),
         _ => Err(format!("{detail}: no way from room to room")),
+    }
+}
+
+/// The floor of TSL's Peragus hangar bay start room (106PER) before the
+/// lower door, as the bake makes it: a fan of long faces between two
+/// blocks' corners, the portals' ends stepped off the walls as the bake
+/// steps them. A walk from a spot on the portal between the two corners,
+/// past its stepped gate and two metres and more from either corner, goes
+/// straight to the doorway: stepped off along the corners' bisectors, the
+/// ends lay behind the walker, and the funnel sent it back round one and
+/// then the other, (4.07, 71.91), (4.08, 71.30), (-3.11, 68.33), and the
+/// walk turned back and forth between the two ways.
+fn nav_past_gate_between_corners() -> Result<String, String> {
+    let faces: Vec<[[f32; 3]; 3]> = vec![
+        [
+            [-2.250001, 65.36038, 9.344971],
+            [-2.254681, 64.38335, 9.34506],
+            [2.254674, 64.38335, 9.34506],
+        ],
+        [
+            [-3.622631, 67.79607, 9.344871],
+            [-3.584011, 65.34815, 9.34496],
+            [-2.250001, 65.36038, 9.344971],
+        ],
+        [
+            [2.251145, 65.374664, 9.344971],
+            [4.724559, 66.06493, 9.34496],
+            [4.599969, 71.394905, 9.344871],
+        ],
+        [
+            [4.599969, 71.394905, 9.344871],
+            [-3.622631, 67.79607, 9.344871],
+            [2.251145, 65.374664, 9.344971],
+        ],
+        [
+            [2.251145, 65.374664, 9.344971],
+            [-3.622631, 67.79607, 9.344871],
+            [-2.250001, 65.36038, 9.344971],
+        ],
+        [
+            [-2.250001, 65.36038, 9.344971],
+            [2.254674, 64.38335, 9.34506],
+            [2.251145, 65.374664, 9.344971],
+        ],
+        [
+            [-4.301151, 69.52805, 9.346041],
+            [-4.713741, 67.77001, 9.34463],
+            [4.599969, 71.394905, 9.344871],
+        ],
+        [
+            [-4.713741, 67.77001, 9.34463],
+            [-4.301151, 69.52805, 9.346041],
+            [-4.717761, 68.55516, 9.34576],
+        ],
+        [
+            [-3.622631, 67.79607, 9.344871],
+            [4.599969, 71.394905, 9.344871],
+            [-4.713741, 67.77001, 9.34463],
+        ],
+        [
+            [-4.8982615, 71.29964, 9.349582],
+            [4.149571, 71.300446, 9.34493],
+            [4.599969, 71.394905, 9.344871],
+        ],
+        [
+            [-4.898169, 70.207726, 9.347589],
+            [-4.301151, 69.52805, 9.346041],
+            [4.149571, 71.300446, 9.34493],
+        ],
+        [
+            [-4.898169, 70.207726, 9.347589],
+            [4.149571, 71.300446, 9.34493],
+            [-4.8982615, 71.29964, 9.349582],
+        ],
+        [
+            [-4.8982615, 71.29964, 9.349582],
+            [4.599969, 71.394905, 9.344871],
+            [-4.898306, 71.82357, 9.350538],
+        ],
+        [
+            [-0.07020235, 71.605675, 9.347657],
+            [4.599969, 71.394905, 9.344871],
+            [1.4687049, 73.09409, 9.34805],
+        ],
+        // Stand-ins for the hall north and east of the east block.
+        [
+            [4.599969, 71.394905, 9.344871],
+            [9.0, 71.4, 9.345],
+            [4.6, 75.0, 9.345],
+        ],
+        [
+            [4.599969, 71.394905, 9.344871],
+            [4.6, 75.0, 9.345],
+            [1.4687049, 73.09409, 9.34805],
+        ],
+    ];
+    // Where the whole room's bake steps each wall corner (its walls reach
+    // past these faces).
+    let stepped: [([f32; 2], [f32; 2]); 10] = [
+        ([-2.250001, 65.36038], [-1.7348809, 65.87776]),
+        ([-2.254681, 64.38335], [-1.7442496, 64.382965]),
+        ([-3.622631, 67.79607], [-3.110983, 68.328415]),
+        ([-4.301151, 69.52805], [-3.4207606, 69.823044]),
+        ([-4.713741, 67.77001], [-4.1964784, 68.30249]),
+        ([-4.898169, 70.207726], [-4.6997395, 70.55463]),
+        ([2.251145, 65.374664], [1.6235957, 65.849304]),
+        ([2.254674, 64.38335], [1.7448657, 64.38328]),
+        ([4.599969, 71.394905], [4.0679455, 71.914635]),
+        ([4.149571, 71.300446], [4.0823383, 71.298874]),
+    ];
+    let step = |p: [f32; 3]| {
+        stepped
+            .iter()
+            .find(|(bare, _)| bare[0] == p[0] && bare[1] == p[1])
+            .map_or(p, |(_, to)| [to[0], to[1], p[2]])
+    };
+    let mut nav = collision::nav::NavMesh::build(&faces, 0.508);
+    for face in &mut nav.faces {
+        for portal in &mut face.portals {
+            portal.a_round = step(portal.a);
+            portal.b_round = step(portal.b);
+        }
+    }
+    let to = [0.0, 64.6, 9.35];
+    let route = nav.route([-1.58, 68.70, 9.35], to, false, &|_| true);
+    match route {
+        Some(route) if route == [to] => Ok("straight to the doorway".into()),
+        other => Err(format!("the way turned back: {other:?}")),
     }
 }
