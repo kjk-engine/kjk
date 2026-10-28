@@ -105,8 +105,9 @@ walker is a point on the walkmesh and meets nothing drawn; the mesh
 planned the leg, so it carries it: a tent's guy rope at waist height
 across the Outcast village's walkway (Taris, `tar_m04aa`) held each
 outcast's box until its walkway's forced move jumped it on, 30 s a leg.
-A step that went nowhere with the level's own solid on the way ahead
-(`walk::way_clear`, no body in it) is that stall at once, not a second
+A step that went nowhere against a placeable it touched or the level's
+own solid on the way ahead (`walk::way_clear`; no body in it, nor a door)
+is that stall at once, not a second
 later: a mesh run on under a wall's foot or between a barrel and a crate's
 walkmesh edge held Peragus's Sith troopers boarding the Ebon Hawk (107PER)
 a second at each such gap, twenty times in the turret game.
