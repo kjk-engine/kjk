@@ -1065,6 +1065,20 @@ fn save_world(
     });
 }
 
+/// The host's world now as a save's bytes (for a bug report), none
+/// without one.
+pub(crate) fn current_save(world: &mut World) -> Option<Vec<u8>> {
+    let mut authority = world.get_resource_mut::<Authority>()?;
+    let snapshot = authority.world.snapshot();
+    let save = sim::Save {
+        hz: authority.setup.rate.hz(),
+        level: authority.world.level().id(),
+        script: authority.world.script_state().clone(),
+        snapshot,
+    };
+    Some(save.encode())
+}
+
 /// Where a save goes: a slot (a new number without one), or the autosaves.
 enum Slot {
     Named(Option<String>),

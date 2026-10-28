@@ -95,6 +95,7 @@ mod power_fx;
 mod probe_kit;
 mod progress;
 mod ragdolls;
+pub mod report;
 mod rulebook_text;
 pub use ragdolls::doll_fits;
 mod particle_surfaces;

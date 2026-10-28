@@ -28,6 +28,7 @@ pub mod pages;
 pub mod party;
 pub mod pazaak;
 pub mod power_pick;
+pub mod report;
 pub mod resolution;
 pub mod save_load;
 pub mod status_summary;
@@ -104,6 +105,7 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
         "load" => Box::new(save_load::SaveLoad::loading()),
         "host" => Box::new(new_or_load::NewOrLoad::host()),
         "loading" => Box::new(loading::Loading),
+        "report" => Box::new(report::Report::default()),
         "message" => Box::new(message::Message::new(
             vm.session.error.as_deref().unwrap_or(""),
         )),

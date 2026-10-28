@@ -202,7 +202,8 @@ pub fn unexpected_end(runs: &Path, current: &Path) -> Option<PathBuf> {
 
 /// What the main menu says once after a player's run that crashed or was
 /// cut off.
-pub const NOTICE: &str = "kjk stopped unexpectedly last time.";
+pub const NOTICE: &str =
+    "kjk stopped unexpectedly last time. Press F12 to make a bug report of it.";
 
 /// Why the saves could not be backed up before this release touched them
 /// (`saves::backup_on_new_version`): told on the main menu.
@@ -212,6 +213,7 @@ pub struct BackupFailed(pub String);
 /// On a player's main menu, tells of the last run that ended unexpectedly,
 /// once (`unexpected_end`, then `SEEN`), and of saves not backed up.
 pub(crate) fn notice(
+    mut commands: bevy::prelude::Commands,
     player: bevy::prelude::Res<PlayerRun>,
     folder: bevy::prelude::Res<console::RunFolder>,
     backup: Option<bevy::prelude::Res<BackupFailed>>,
@@ -224,6 +226,7 @@ pub(crate) fn notice(
     if let Some(previous) = unexpected_end(&crate::runtime::runs(), &folder.0) {
         mark(&previous, SEEN);
         told.push(NOTICE.to_string());
+        commands.insert_resource(crate::report::CrashedRun(previous));
     }
     if let Some(backup) = backup {
         told.push(format!("The saves could not be backed up: {}", backup.0));

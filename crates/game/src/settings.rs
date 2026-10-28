@@ -71,11 +71,20 @@ pub enum Action {
     /// conversation (R5, `dialogue_view`).
     AcceptCall,
     EndCall,
+    /// Make a bug report (`report`).
+    Report,
 }
 
 /// Each action: its settings name, its label, its default key, and
 /// whether it is a movement key.
-const ACTIONS: [(Action, &str, &str, KeyCode, bool); 42] = [
+const ACTIONS: [(Action, &str, &str, KeyCode, bool); 43] = [
+    (
+        Action::Report,
+        "report",
+        "Report a bug",
+        KeyCode::F12,
+        false,
+    ),
     (Action::Forward, "forward", "Forward", KeyCode::KeyW, true),
     (
         Action::Backward,
@@ -460,7 +469,7 @@ const VOLUMES: [(Bus, &str); 4] = [
 ];
 
 /// The key of this install's host id (`Settings::host_id`).
-const HOST_ID: &str = "host.id";
+pub(crate) const HOST_ID: &str = "host.id";
 
 /// The key of the layout of the key bindings a file was saved with, and
 /// the layout now: 2 moved the medpac, stim and shield to the number row,
@@ -581,6 +590,11 @@ impl Settings {
             settings.save();
         }
         settings
+    }
+
+    /// The file the settings are kept in, if any.
+    pub(crate) fn path(&self) -> Option<&std::path::Path> {
+        self.path.as_deref()
     }
 
     /// The value set for `key`, if any.

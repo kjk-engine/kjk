@@ -250,7 +250,7 @@ pub fn run(options: RunOptions) -> AppExit {
             crate::terminal::TerminalPlugin,
             crate::character::CharacterPlugin,
             crate::script_screens::ScriptScreensPlugin,
-            crate::save_view::SaveViewPlugin,
+            (crate::save_view::SaveViewPlugin, crate::report::ReportPlugin),
         ));
         if black {
             app.insert_resource(ClearColor(Color::BLACK));
