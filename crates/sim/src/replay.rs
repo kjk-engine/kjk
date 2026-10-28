@@ -40,7 +40,10 @@ const MAGIC: &[u8; 4] = b"KJKR";
 /// `KJKV` 41 (a conversation's camera angle, its nodes' angles, the line's
 /// pair and its turn and head-follow locks). 33: commands carry the
 /// crosshair line (`Command::aim`).
-const VERSION: u32 = 33 + crate::pending::REPLAY;
+/// 34: the party table keeps a companion's template made available by template
+/// (`party::Npc::template_data`).
+/// 35: a take names the item's script id (`Action::Take::item`), not a slot.
+const VERSION: u32 = 35 + crate::pending::REPLAY;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordedTick {

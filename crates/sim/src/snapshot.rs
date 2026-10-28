@@ -166,7 +166,14 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// variants and the variant each entry took (`Conversation::voice_cursor`,
 /// `voices`).
 /// 69: an item's flag that no one may put it on (`Item::non_equippable`).
-const VERSION: u32 = 69 + crate::pending::SNAPSHOT;
+/// 70: a pistol in each hand: the left gun's timer, its turn, the hands of the
+/// last shot and a Rapid Shot's left shot still to fire (`Shooting::off_ms`,
+/// `next_off`, `hands`, `off_burst`).
+/// 71: a container no longer carries the slots taken from it
+/// (`ObjectState::taken`); the goods carry what each container held open holds.
+/// 72: a swing's contact keeps whether its chance to be turned was drawn
+/// (`Contact::drawn`).
+const VERSION: u32 = 72 + crate::pending::SNAPSHOT;
 
 /// An entity's identity in the sim, stable across save, load and replay.
 /// Handed out in order and never reused, so ordering by it is canonical.

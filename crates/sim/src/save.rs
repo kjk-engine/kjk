@@ -100,7 +100,12 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 57: a blow carries its target's answer and its hit's moment
 /// (`script::effects::Strike::answer`, `hit_ms`), and each attacker its
 /// last round's swing (`script::State::swung`).
-const VERSION: u32 = 57 + crate::pending::SAVE;
+/// 58: a gunner's blow carries the hand each of its clip's bolts leaves
+/// (`Discharge`'s switchmask).
+/// 59: the party table keeps a companion's template made available by template
+/// (`party::Npc::template_data`, `sim::pack`'s creature encoding), so a module
+/// without it makes the companion all the same.
+const VERSION: u32 = 59 + crate::pending::SAVE;
 
 /// The scripts' state (`script::State`): globals, objects' locals, events
 /// waiting and deferred code. `SimWorld::script_state` gives it, and

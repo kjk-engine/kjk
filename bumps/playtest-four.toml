@@ -1,7 +1,0 @@
-# A container holds its inventory as the scripts have it: what scripts
-# gave it (K1's footlockers filled by their heartbeat) is shown and taken.
-sim = "a container's loot is what the scripts say it holds (`State::loot`), shown in the goods while held open and taken by item"
-
-[formats]
-snapshot = "a container no longer carries the slots taken from it (`ObjectState::taken`); the goods carry what each container held open holds."
-replay = "a take names the item's script id (`Action::Take::item`), not a slot."

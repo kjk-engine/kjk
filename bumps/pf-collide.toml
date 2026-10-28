@@ -1,4 +1,0 @@
-# Placeables block movement round their walkmesh footprints in every look,
-# and the nav mesh is cut along them so routes go round; a seat's player
-# slides along a body it touches.
-sim = "placeables collide round their walkmesh footprints (walk-clip walls, state 0 in every look) and the nav mesh is cut along them, so routes go round; a seat's player meets a body it touches as one it stands inside and slides along it (Q-0267)"

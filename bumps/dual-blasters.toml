@@ -1,7 +1,0 @@
-# A pistol in each hand fires both guns in turn, creatures with a pair fire
-# both, and a two-pistol scene round fires each bolt from its hand.
-sim = "a pistol in each hand fires both guns in turn (`combat::pair`)"
-
-[formats]
-snapshot = "a pistol in each hand: the left gun's timer, its turn, the hands of the last shot and a Rapid Shot's left shot still to fire (`Shooting::off_ms`, `next_off`, `hands`, `off_burst`)."
-save = "a gunner's blow carries the hand each of its clip's bolts leaves (`Discharge`'s switchmask)."
