@@ -106,6 +106,17 @@ pub(in crate::world) fn apply(
         })
         .collect();
     for made in std::mem::take(&mut scripts.made) {
+        // One a script destroyed at once in the step that made it is never
+        // put in (the entity would come after this step's changes, and the
+        // destroy find nothing): TSL's Bao-Dur spawned twice as he joins
+        // (`SpawnAvailableNPC`).
+        let undone = scripts
+            .changes
+            .iter()
+            .any(|change| matches!(change, Change::Destroy { who, ms: 0, .. } if *who == made.id));
+        if undone {
+            continue;
+        }
         let kind = made.facts.kind;
         let index = area.instances.make(
             &level.0,

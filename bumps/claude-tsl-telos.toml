@@ -1,7 +1,11 @@
 # The sim's hash moves on purpose: a conversation pause keeps its place in
-# its caller's queue, and a queue cleared before it reached the front drops
-# it (Citadel Station's Czerka men, `a_czerkaint`).
-sim = "a conversation pause cleared from its caller's queue before it ran is dropped"
+# its caller's queue (a clear before it ran drops it); a door a script
+# opens itself runs its OnOpen; the lock action locks only a Lockable
+# lock; GetObjectByTag finds held items; a heavy repeater's holder answers
+# a blow with no clip; a companion spawned again replaces its last
+# creature (one made and destroyed in a step is never put in); the
+# companion leading the party punches at its player's press.
+sim = "Telos: queued pauses, self-opened doors' OnOpen, Lockable locks, held items by tag, one creature a companion, the led companion's punches"
 
 [formats]
 save = "a queued conversation pause (`Action::Pause`, its conversation)."

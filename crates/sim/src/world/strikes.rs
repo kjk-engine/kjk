@@ -138,6 +138,7 @@ pub(super) fn strikes(
     clock: Res<Clock>,
     level: Res<Static>,
     mut hits: ResMut<Hits>,
+    scripts: Res<super::scripts::Scripts>,
     mut actors: Query<(
         &Id,
         Option<&Avatar>,
@@ -167,6 +168,11 @@ pub(super) fn strikes(
         .collect();
     bodies.sort_by_key(|body| body.id);
     let bashable = super::objects::bodies(placed.iter());
+    // The companion leading the party (`lent`) is its player's hands: it
+    // throws a punch at their press, and punches what may be bashed, as
+    // their own body does (TSL's Bao-Dur led to strike a force field open:
+    // `a_ffield_baodur`).
+    let lent = super::lent(&scripts.state.party);
     let mut rows: Vec<_> = actors.iter_mut().collect();
     rows.sort_by_key(|(id, ..)| id.0);
     for (id, avatar, object, sheet, mut player, mut fighting) in rows {
@@ -219,7 +225,7 @@ pub(super) fn strikes(
                 _ if !landing || held_up => None,
                 Some(_) => target,
                 None => {
-                    let party = in_party(avatar, fighter);
+                    let party = in_party(avatar, fighter) || lent == Some(id.0);
                     let apart = level.0.friendly_fire == FriendlyFire::Off && party;
                     // The party punches what may be bashed too (`objects`).
                     let near: Vec<Standing> = match party {
@@ -267,7 +273,7 @@ pub(super) fn strikes(
             // Not gripped, its hand out, changing weapons or down (as a
             // shot waits: `fire`).
             None => {
-                (avatar.is_some() || target.is_some())
+                (avatar.is_some() || lent == Some(id.0) || target.is_some())
                     && force.gripped_by.is_none()
                     && !force.hand_out(now)
                     && saber.change == Change::None
