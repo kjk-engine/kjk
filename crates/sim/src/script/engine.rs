@@ -3764,7 +3764,27 @@ impl Engine<'_> {
             | SetFakeCombatState
             | CreatureFlourishWeapon
             | ForceHeartbeat => self.force_call(bound, args),
+            // The party table keeps one creature for each companion: one
+            // spawned again takes the place of the one it had, which goes
+            // [verify the executable's own handling]. TSL's Bao-Dur joins
+            // by being spawned, added, removed and spawned again
+            // (`a_baodur_join`); the first had stayed standing at the
+            // wreck, the one `GetObjectByTag("BaoDur")` then found, and his
+            // force-field punches asked it, not the one following, whether
+            // he stood near.
             SpawnAvailableNPC => {
+                let had = u8::try_from(int(args, 0))
+                    .ok()
+                    .and_then(|npc| self.state.party.available.get(&npc))
+                    .and_then(|slot| slot.object)
+                    .map(ObjectId);
+                if let Some(old) = had {
+                    self.out.changes.push(Change::Destroy {
+                        who: old,
+                        ms: 0,
+                        going: None,
+                    });
+                }
                 let made = u8::try_from(int(args, 0))
                     .ok()
                     .zip(self.place(args, 1))

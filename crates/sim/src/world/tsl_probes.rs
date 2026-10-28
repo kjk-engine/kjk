@@ -219,6 +219,8 @@ fn library() -> crate::script::Library {
             ("probe_follow_far", follow_owner(FOLLOW_FAR)),
             ("probe_follow_near", follow_owner(FOLLOW_NEAR)),
             ("probe_bao_dur", bao_dur.build()),
+            ("probe_spawned_twice", spawned_twice()),
+            ("probe_second_atton", second_atton()),
         ],
     )
     .with_creatures(
@@ -262,6 +264,39 @@ fn atton_joins() -> Ncs {
     asm.op(call(13, 0)).op(call(12, 1));
     asm.op(int(ATTON)).op(call(14, 2));
     asm.op(int(ATTON)).op(call(15, 2)).op(Op::MovSp(-4));
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_spawned_twice`: Atton made available, then spawned twice at the
+/// player in one script, the second made a party member (TSL's
+/// `a_baodur_join` spawns Bao-Dur so).
+fn spawned_twice() -> Ncs {
+    let mut asm = Asm::default();
+    asm.op(text(ATTON_TEMPLATE))
+        .op(int(ATTON))
+        .op(call(5, 2))
+        .op(Op::MovSp(-4));
+    asm.op(call(13, 0)).op(call(12, 1));
+    asm.op(int(ATTON)).op(call(14, 2)).op(Op::MovSp(-4));
+    asm.op(call(13, 0)).op(call(12, 1));
+    asm.op(int(ATTON)).op(call(14, 2));
+    asm.op(int(ATTON)).op(call(15, 2)).op(Op::MovSp(-4));
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_second_atton`: token 40 whether a second object is tagged
+/// `atton`, 41 whether a first one is.
+fn second_atton() -> Ncs {
+    let mut asm = Asm::default();
+    for (n, nth) in [(40, 1), (41, 0)] {
+        token(
+            &mut asm,
+            n,
+            &[int(nth), text("atton"), call(21, 2), call(16, 1)],
+        );
+    }
     asm.op(Op::Retn);
     asm.build()
 }
@@ -419,6 +454,7 @@ pub fn probes() -> Checks {
     checks.push(("follow_owner_held", follow_owner(true)));
     checks.push(("follow_owner_runs", follow_owner(false)));
     checks.push(("bao_dur_met", bao_dur_met()));
+    checks.push(("spawned_twice_is_one", spawned_twice_is_one()));
     checks.push(("cannot_equip_lines", cannot_equip_lines()));
     checks.push(("influence_starts", influence_starts()));
     checks.push(("alignment_follows_influence", follows()));
@@ -696,6 +732,21 @@ fn bao_dur_met() -> Result<String, String> {
     check(
         !before && after,
         format!("before {before}, after SetInfluence(NPC_BAO_DUR, 50) {after}"),
+    )
+}
+
+/// A companion spawned twice in one script (`SpawnAvailableNPC`) stands
+/// once: the second takes the first one's place, the party table keeping
+/// one creature a companion.
+fn spawned_twice_is_one() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    run(&mut world, "probe_spawned_twice");
+    step(&mut world);
+    run(&mut world, "probe_second_atton");
+    let told = tokens(&step(&mut world), 40..=41);
+    check(
+        told == ["0", "1"],
+        format!("(a second, a first) atton: {told:?}"),
     )
 }
 

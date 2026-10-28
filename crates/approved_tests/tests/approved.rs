@@ -881,6 +881,16 @@ fn ui_loot() {
     probed("loot", &sim::containers::probes(), 5);
 }
 
+/// TSL's party rules (`sim::tsl_probes`): natural healing and its hold,
+/// influence, puppets, forfeits, the puppet's follow, Bao-Dur met and the
+/// lines it names, alignment following influence, and a companion spawned
+/// twice in one script standing once (`spawned_twice_is_one`, Bao-Dur
+/// joining on Telos). The sim alone, on the proving ground.
+#[test]
+fn tsl_party_rules() {
+    probed("tsl", &sim::tsl_probes::probes(), 13);
+}
+
 /// The dead's remains (KOTOR's body bags; `sim::remains::probes`), owner
 /// 2026-10-05: on the proving ground a creature holding droppable items and
 /// gold is killed, its body taken away after its appearance's delay and
@@ -1334,7 +1344,7 @@ fn item_properties() {
 /// the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 13);
+    probed("switch", &sim::switch::probes(), 14);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and

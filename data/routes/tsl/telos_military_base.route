@@ -1,0 +1,52 @@
+# Telos, the old military base (TSL, 232TEL), as far as the reactor: Bao-
+# Dur's fist through the force fields, the turrets and the base's droids,
+# the security control (the poison grates off), his Security on the
+# security doors, the reactor started (its turrets turn hostile). Not yet:
+# the codes' datapad, the bay control, the tank droid and the shuttle out
+# to the polar plateau. Starts from the Czerka site's checkpoint:
+#   kjk playthrough tsl @telos_military_base data/routes/tsl/telos_military_base.route --god
+# Walkthrough: DSimpson's "Old Military Base" (context/walkthroughs/tsl/).
+to TelosDoorFirst    # the party together at the first force field, for
+gather               # Bao-Dur's fist (he must stand within 10 m)
+use TelosDoorFirst
+talk
+use TurretA1         # the four turrets beyond, shot down (DSimpson: XP
+use TurretA2         # for the fight, none for the console)
+use TurretA3
+say Slice into security terminal # the fourth, out of the room's sight,
+say Deactivate local turrets # turned off at the room's console ([Computer])
+use TermSA
+talk
+leader 1             # the next force field: Bao-Dur strikes it himself
+bash TelosDoor2@8    # (DSimpson: switch to Bao-Dur; a_ffield_baodur opens
+leader player        # it to his blow)
+save telos_base_halls
+fight 30             # the droids in the hall and the side passages
+leader 1             # Bao-Dur leads through the force fields, each to his
+bash TelosDoor2@5    # blow: the turrets' room's, its six droids and turrets
+fight 30             # fought (the workbench beside), the shuttle hangar's,
+bash TelosDoor2@6    # and down the lower passage the one to the left
+bash TelosDoor2@7
+leader player
+say Turn off the security gas vents # the security control: the poison
+use Security         # grates off
+talk
+save telos_base_security
+leader 1             # Bao-Dur leads to the reactor: his Security on the
+unlock TelosDoor3@1  # security doors (DC 28), his blow on the force fields,
+fight 30             # the droids fought on the way
+bash TelosDoor2@2
+fight 30
+unlock TelosDoor3@2
+fight 30
+unlock TelosDoor3@4
+fight 30
+bash TelosDoor2@1
+fight 30
+bash TelosDoor2@4
+fight 30
+bash TelosDoor2@3
+use Reactor          # the reactor started: its turrets turn hostile
+talk
+fight 30
+save telos_reactor
