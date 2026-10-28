@@ -1824,3 +1824,59 @@ fn old_saves_load() {
         );
     }
 }
+
+/// Bump files say how old saves are read (bumps/README.md): a format saves
+/// hold, bumped without `[migrations]` or `breaking`, is refused, as is a
+/// migration of a format not bumped; and pending bumps of one format get
+/// ordered named versions (`sim::since`).
+#[test]
+fn bump_files() {
+    let cases: &[(&str, &str, Result<(), &str>)] = &[
+        (
+            "ok.toml",
+            "[formats]\nsnapshot = \"x\"\n[migrations]\nsnapshot = \"old: none\"\n",
+            Ok(()),
+        ),
+        (
+            "breaks.toml",
+            "breaking = \"why\"\n[formats]\nsave = \"x\"\n",
+            Ok(()),
+        ),
+        ("net.toml", "[formats]\ninstall = \"x\"\n", Ok(())),
+        (
+            "bare.toml",
+            "[formats]\npack = \"x\"\n",
+            Err("pack: say how old saves are read"),
+        ),
+        (
+            "stray.toml",
+            "[formats]\nsave = \"x\"\n[migrations]\nsave = \"y\"\nsnapshot = \"z\"\n",
+            Err("snapshot is not bumped"),
+        ),
+        (
+            "net-migrated.toml",
+            "[formats]\ninstall = \"x\"\n[migrations]\ninstall = \"y\"\n",
+            Err("install is not stored in saves"),
+        ),
+    ];
+    for (name, text, expected) in cases {
+        let got = bumps::parse_file(name, text).map(|_| ());
+        match expected {
+            Ok(()) => assert!(got.is_ok(), "{name}: {got:?}"),
+            Err(part) => assert!(
+                got.as_ref().is_err_and(|error| error.contains(part)),
+                "{name}: {got:?}"
+            ),
+        }
+    }
+    let migrated = "[formats]\nsave = \"x\"\n[migrations]\nsave = \"y\"\n";
+    let mut two = vec![
+        bumps::parse_file("b-later.toml", migrated).expect("a migrated bump"),
+        bumps::parse_file("a-first.toml", migrated).expect("a migrated bump"),
+    ];
+    two.sort_by(|a, b| a.path.cmp(&b.path));
+    assert_eq!(
+        bumps::pending_since(&two, "save"),
+        vec![("A_FIRST".to_string(), 1), ("B_LATER".to_string(), 2)]
+    );
+}

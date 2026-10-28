@@ -111,13 +111,8 @@ fn bump_version(root: &Path, format: &bumps::Format, text: &str) -> Result<u32, 
     let mut out = String::new();
     let mut version = None;
     for line in source.split_inclusive('\n') {
-        let declared = line
-            .strip_prefix("pub ")
-            .unwrap_or(line)
-            .strip_prefix(&format!("const {}: u32 = ", format.constant))
-            .and_then(|rest| rest.trim_end().strip_suffix(&pending));
-        match declared.map(str::parse::<u32>) {
-            Some(Ok(old)) if version.is_none() => {
+        match bumps::declared(line, format) {
+            Some(old) if version.is_none() => {
                 let new = old + 1;
                 out.push_str(&history(&format!("{new}: {text}")));
                 let prefix = &line[..line.find("= ").expect("matched above") + 2];

@@ -38,6 +38,54 @@ While the file is there:
   a bump file the hash must stay `main`'s: an unexpected move fails, as
   before.
 
+## Reading old saves
+
+Players keep their saves across updates, so a bump of a format saves hold
+(`save`, `snapshot`, `pack`) says how a save from before it is read, under
+`[migrations]`, or the file says why such saves are refused:
+
+```toml
+[formats]
+snapshot = "a swing's contact keeps whether its chance to be turned was drawn (`Contact::drawn`)."
+
+[migrations]
+snapshot = "old saves read `drawn = false`: no swing in a save is mid-contact"
+```
+
+```toml
+breaking = "why old saves can't be read, and what the story restore keeps"
+
+[formats]
+snapshot = "…"
+```
+
+The build refuses a stored format bumped with neither, and a migration of a
+format not bumped or not stored. `breaking` takes the owner's approval in
+the pull request.
+
+The decoder keeps the old read beside the new one, gated on the version
+the bump gives, named after its file (`bumps/saber-duel-fixes.toml` is
+`SABER_DUEL_FIXES`; `crates/sim/src/since.rs`):
+
+```rust
+let drawn = if input.since(crate::since::snapshot::SABER_DUEL_FIXES) {
+    input.bool()?
+} else {
+    false
+};
+```
+
+- A field added: read from new versions; old ones get what an old save
+  means (empty, `None`, the default). Most bumps are this.
+- A field removed: old versions read it and drop it.
+- A field whose meaning changed: read the old form, then convert it in
+  `crates/sim/src/migrate.rs`, after the whole save is decoded.
+
+`encode` writes only the current layout. The approved test
+`old_saves_load` loads the fixture of every earlier version
+(`crates/approved_tests/saves`), so a pull request whose old saves no
+longer read fails there.
+
 Report the change in the pull request as before ("KJKS +1"); its number
 is the merge's.
 
