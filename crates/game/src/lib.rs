@@ -151,6 +151,7 @@ mod weapon_set_view;
 mod weapon_sounds;
 pub mod weapons;
 pub mod weather;
+mod window_icon;
 pub mod workbench_view;
 
 use std::path::Path;
