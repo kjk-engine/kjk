@@ -1813,11 +1813,21 @@ fn old_saves_load() {
         newest.exists() || approved_tests::stored_bumps_pending(),
         "no fixture at this build's versions: `cargo run --release -p approved_tests --bin save_fixture`"
     );
-    // v0.1.0's save, damaged three ways: each refused, none a panic.
-    let first = std::fs::read(dir.join("save-59-72-20.kjkv")).expect("v0.1.0's fixture");
+    // The oldest fixture read, damaged three ways: each refused, none a
+    // panic.
+    let mut fixtures: Vec<_> = std::fs::read_dir(&dir)
+        .expect("the fixtures folder")
+        .map(|entry| entry.expect("a fixture").path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "kjkv")
+        })
+        .collect();
+    fixtures.sort();
+    let first = std::fs::read(&fixtures[0]).expect("the oldest fixture");
     let mut newer = first.clone();
     newer[4..8].copy_from_slice(&(sim::fixtures::current().save + 1).to_le_bytes());
-    let mut companion = sim::Save::decode(&first).expect("v0.1.0's fixture decodes");
+    let mut companion = sim::Save::decode(&first).expect("the oldest fixture decodes");
     let npc = companion
         .script
         .party
