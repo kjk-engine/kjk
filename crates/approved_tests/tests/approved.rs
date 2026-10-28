@@ -1813,6 +1813,38 @@ fn old_saves_load() {
         newest.exists() || approved_tests::stored_bumps_pending(),
         "no fixture at this build's versions: `cargo run --release -p approved_tests --bin save_fixture`"
     );
+    // v0.1.0's save, damaged three ways: each refused, none a panic.
+    let first = std::fs::read(dir.join("save-59-72-20.kjkv")).expect("v0.1.0's fixture");
+    let mut newer = first.clone();
+    newer[4..8].copy_from_slice(&(sim::fixtures::current().save + 1).to_le_bytes());
+    let mut companion = sim::Save::decode(&first).expect("v0.1.0's fixture decodes");
+    let npc = companion
+        .script
+        .party
+        .available
+        .values_mut()
+        .find(|npc| npc.template_data.is_some())
+        .expect("the kitchen sink keeps a companion's template");
+    npc.template_data = Some(vec![0xff; 3].into());
+    let damaged = [
+        ("a newer build's", newer, "version"),
+        ("half of one", first[..first.len() / 2].to_vec(), "save"),
+        (
+            "a broken companion's",
+            companion.encode(),
+            "a kept companion",
+        ),
+    ];
+    for (what, bytes, says) in damaged {
+        let error = sim::Save::decode(&bytes)
+            .map(|_| ())
+            .expect_err(what)
+            .to_string();
+        assert!(error.contains(says), "{what}: {error}");
+    }
+    // The network's snapshots stay at this build's version alone
+    // (`Snapshot::decode`): checked once a stored snapshot is older than
+    // this build's, which no fixture is yet.
     for entry in std::fs::read_dir(dir.join("retired")).into_iter().flatten() {
         let path = entry.expect("a retired fixture").path();
         let bytes = std::fs::read(&path).expect("a retired fixture reads");

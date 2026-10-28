@@ -107,6 +107,10 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// without it makes the companion all the same.
 pub const VERSION: u32 = 59 + crate::pending::SAVE;
 
+/// The oldest version read: v0.1.0's. Each change since keeps its old read
+/// (`crate::since::save`, `bumps/README.md`).
+pub const OLDEST: u32 = 59;
+
 /// The scripts' state (`script::State`): globals, objects' locals, events
 /// waiting and deferred code. `SimWorld::script_state` gives it, and
 /// `set_script_state` puts a loaded one back.
@@ -173,6 +177,7 @@ impl Save {
         out.bytes(MAGIC);
         out.u32(VERSION);
         out.u32(self.hz);
+        out.u32(crate::pack::VERSION);
         self.level.write(&mut out);
         out.section(&self.snapshot.encode());
         let mut script = Writer::default();
@@ -183,26 +188,34 @@ impl Save {
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut input = Reader::new("save", bytes);
-        input.header(MAGIC, VERSION)?;
+        let version = input.header_since(MAGIC, OLDEST, VERSION)?;
         let hz = input.u32()?;
+        // The companions' templates' version (`party::Npc::template_data`).
+        let pack = if input.since(crate::since::save::SAVE_MIGRATIONS) {
+            input.u32()?
+        } else {
+            crate::pack::OLDEST
+        };
         let level = LevelId::read(&mut input)?;
-        let snapshot = Snapshot::decode(input.section()?)?;
+        let snapshot = Snapshot::decode_stored(input.section()?)?;
         // Saves from before I16 have an empty section.
         let section = input.section()?;
         let script = if section.is_empty() {
             ScriptVmState::default()
         } else {
-            let mut script = Reader::new("save's scripts", section);
+            let mut script = Reader::new("save's scripts", section).with_version(version);
             let state = ScriptVmState::decode(&mut script)?;
             script.finish()?;
             state
         };
         input.finish()?;
-        Ok(Save {
+        let mut save = Save {
             hz,
             level,
             snapshot,
             script,
-        })
+        };
+        crate::migrate::save(&mut save, pack)?;
+        Ok(save)
     }
 }

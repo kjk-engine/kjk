@@ -3397,7 +3397,9 @@ fn make_npc(
     let id = match library.creature(&slot.template) {
         Some(_) => make(library, view, state, out, &slot.template, at, yaw)?,
         None => {
-            let facts = crate::pack::creature_of(slot.template_data.as_deref()?)?;
+            let facts =
+                crate::pack::creature_of(slot.template_data.as_deref()?, crate::pack::VERSION)
+                    .ok()?;
             make_of(library, view, state, out, Arc::new(facts), at, yaw)
         }
     };

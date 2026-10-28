@@ -32,6 +32,7 @@ pub mod levels;
 pub mod math;
 #[cfg(feature = "probes")]
 pub mod measure;
+mod migrate;
 pub mod minigame;
 pub mod module;
 pub mod moves;

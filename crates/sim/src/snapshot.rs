@@ -175,6 +175,11 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// (`Contact::drawn`).
 pub const VERSION: u32 = 72 + crate::pending::SNAPSHOT;
 
+/// The oldest version a save's snapshot is read in: v0.1.0's. Each change
+/// since keeps its old read (`crate::since::snapshot`, `bumps/README.md`).
+/// The network's snapshots are this build's alone (`Snapshot::decode`).
+pub const OLDEST: u32 = 72;
+
 /// An entity's identity in the sim, stable across save, load and replay.
 /// Handed out in order and never reused, so ordering by it is canonical.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1589,7 +1594,7 @@ impl Snapshot {
     /// snapshot built from parts passes every check a decoded one does. The
     /// stash is the parts' own, shared, not decoded again.
     pub fn join(parts: &Parts) -> Result<Snapshot, DecodeError> {
-        Snapshot::read(&parts.state(), Some(&parts.stash))
+        Snapshot::read(&parts.state(), Some(&parts.stash), VERSION)
     }
 
     fn encode_head(&self, out: &mut Writer) {
@@ -1672,15 +1677,21 @@ impl Snapshot {
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
-        Snapshot::read(bytes, None)
+        Snapshot::read(bytes, None, VERSION)
     }
 
-    /// Decodes `bytes`: a whole encoding, or with `stash` given, the
-    /// encoding up to the stash's bytes (`Parts::state`), whose digest must
-    /// be the one the tail carries.
-    fn read(bytes: &[u8], stash: Option<&Stash>) -> Result<Self, DecodeError> {
+    /// Decodes a save's snapshot, which may be of any version from
+    /// `OLDEST` on.
+    pub fn decode_stored(bytes: &[u8]) -> Result<Self, DecodeError> {
+        Snapshot::read(bytes, None, OLDEST)
+    }
+
+    /// Decodes `bytes`, of a version from `oldest` on: a whole encoding,
+    /// or with `stash` given, the encoding up to the stash's bytes
+    /// (`Parts::state`), whose digest must be the one the tail carries.
+    fn read(bytes: &[u8], stash: Option<&Stash>, oldest: u32) -> Result<Self, DecodeError> {
         let mut input = Reader::new("snapshot", bytes);
-        input.header(MAGIC, VERSION)?;
+        let version = input.header_since(MAGIC, oldest, VERSION)?;
         let tick = input.u64()?;
         let time_ms = input.u64()?;
         let shared = SimRng::decode(&mut input)?;
@@ -1782,7 +1793,9 @@ impl Snapshot {
             Some(stash) => stash.clone(),
             None => Stash::read(&mut input)?,
         };
-        if stash.digest() != digest {
+        // The digest is of the stash's bytes as written: an older version's
+        // are not this build's re-encoding of them.
+        if stash.digest() != digest && version == VERSION {
             return Err(input.invalid("stash digest", digest_at));
         }
         if stash.0.ids_end > next_id {

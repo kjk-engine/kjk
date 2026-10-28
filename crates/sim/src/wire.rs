@@ -143,6 +143,9 @@ pub(crate) struct Reader<'a> {
     format: &'static str,
     bytes: &'a [u8],
     at: usize,
+    /// The format's version these bytes are in: the header's, else this
+    /// build's (`u32::MAX`, every `since` true).
+    version: u32,
 }
 
 impl<'a> Reader<'a> {
@@ -151,11 +154,35 @@ impl<'a> Reader<'a> {
             format,
             bytes,
             at: 0,
+            version: u32::MAX,
         }
+    }
+
+    /// These bytes as written by `version` of their format: a part of a
+    /// format read by a reader of its own (the save's scripts).
+    pub fn with_version(self, version: u32) -> Self {
+        Reader { version, ..self }
+    }
+
+    /// Whether these bytes are of `version` or later: whether a change
+    /// that came in `version` (`crate::since`) is in them.
+    pub fn since(&self, version: u32) -> bool {
+        self.version >= version
     }
 
     /// The 4-byte signature, then a u32 version that must be `version`.
     pub fn header(&mut self, magic: &[u8; 4], version: u32) -> Result<(), DecodeError> {
+        self.header_since(magic, version, version).map(|_| ())
+    }
+
+    /// The 4-byte signature, then a u32 version from `oldest` to `current`:
+    /// the one found, which `since` then answers by.
+    pub fn header_since(
+        &mut self,
+        magic: &[u8; 4],
+        oldest: u32,
+        current: u32,
+    ) -> Result<u32, DecodeError> {
         let found: [u8; 4] = self.take(4)?.try_into().expect("take of 4");
         if &found != magic {
             return Err(DecodeError::Signature {
@@ -164,13 +191,14 @@ impl<'a> Reader<'a> {
             });
         }
         let found = self.u32()?;
-        if found != version {
+        if !(oldest..=current).contains(&found) {
             return Err(DecodeError::Version {
                 format: self.format,
                 found,
             });
         }
-        Ok(())
+        self.version = found;
+        Ok(found)
     }
 
     pub fn take(&mut self, len: usize) -> Result<&'a [u8], DecodeError> {

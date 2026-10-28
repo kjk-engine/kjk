@@ -394,6 +394,7 @@ crates/sim/src/notice.rs TUTORIAL  # a screen notice's wire tag
 crates/sim/src/notice.rs UPGRADE  # a screen notice's wire tag
 crates/sim/src/notice.rs WORKBENCH  # a screen notice's wire tag
 crates/sim/src/pack.rs GATHERED_VERSION  # format version
+crates/sim/src/pack.rs OLDEST  # the oldest format version read
 crates/sim/src/pack.rs VERSION  # format version
 crates/sim/src/pazaak/game.rs OPPONENT  # a side's index
 crates/sim/src/pazaak/game.rs PLAYER  # a side's index
@@ -404,6 +405,7 @@ crates/sim/src/persona.rs MALE  # gender.2da row
 crates/sim/src/replay.rs VERSION  # format version
 crates/sim/src/rng.rs GOLDEN_64  # the generator's constant (SplitMix64)
 crates/sim/src/rng.rs MULTIPLIER  # the generator's constant (PCG)
+crates/sim/src/save.rs OLDEST  # the oldest format version read
 crates/sim/src/save.rs VERSION  # format version
 crates/sim/src/scaling.rs COUNTS  # a probe's cases
 crates/sim/src/script/actions.rs ACTIONS_PER_STEP  # engine guard: a queue's actions a step
@@ -545,6 +547,7 @@ crates/sim/src/snapshot.rs DISABLED  # bit flag
 crates/sim/src/snapshot.rs KEPT_MS  # transport: how long a status waits for every view
 crates/sim/src/snapshot.rs LOCKED  # snapshot field value
 crates/sim/src/snapshot.rs OFF  # snapshot field value
+crates/sim/src/snapshot.rs OLDEST  # the oldest format version read
 crates/sim/src/snapshot.rs ON  # snapshot field value
 crates/sim/src/snapshot.rs OPEN  # snapshot field value
 crates/sim/src/snapshot.rs PARTY_SEES  # bit flag
