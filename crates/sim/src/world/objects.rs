@@ -11,6 +11,9 @@
 //!   script asks (`DoDoorAction(…, DOOR_ACTION_BASH)`: `k_ai_master` for a
 //!   door in its way): a KOTOR attack of what it has in hand a round
 //!   (`script::State::bashes`), with a swing.
+//! - A script's attack of a door or placeable (`ActionAttack` on an
+//!   object, a player's too: TSL's Peragus shift console) strikes the same
+//!   way, a blow a round within reach, and hurts it locked or not.
 //! - Any grenade's blast reaches what may be bashed (`world::fly`), KOTOR's
 //!   grenade script asking for creatures alone.
 //! - A blow is worth what it would be against a body that does not dodge
@@ -190,8 +193,15 @@ fn stand_in(hardness: u8, most: i32) -> Sheet {
 }
 
 /// What `source` may do to `facts` as `state` leaves it, by a party member
-/// (`party`) or not: whether it is hurt at all.
-pub(crate) fn hurts(source: &Source, facts: &ObjectData, state: &ObjectState, party: bool) -> bool {
+/// (`party`) or not, a script's blow (`ordered`: a bash, an attack of the
+/// object) or not: whether it is hurt at all.
+pub(crate) fn hurts(
+    source: &Source,
+    facts: &ObjectData,
+    state: &ObjectState,
+    party: bool,
+    ordered: bool,
+) -> bool {
     // A door that is scenery never breaks: its collision has no way open.
     let scenery = facts.kind == ObjectKind::Door && facts.opens == crate::module::Opens::Never;
     if facts.toughness.plot || scenery || state.broken(facts) || state.hit_points(facts).is_none() {
@@ -199,7 +209,10 @@ pub(crate) fn hurts(source: &Source, facts: &ObjectData, state: &ObjectState, pa
     }
     match source {
         Source::Script { .. } | Source::Death => true,
-        Source::Weapon { .. } | Source::Blast { .. } => party && state.bashable(facts),
+        // A script's blow lands locked or not: a bash is asked only of
+        // what is locked, an attack of an object of anything that breaks
+        // (`script::Thing::breakable`).
+        Source::Weapon { .. } | Source::Blast { .. } => ordered || party && state.bashable(facts),
         Source::Power { .. } => false,
     }
 }
@@ -310,7 +323,7 @@ pub(super) fn objects(
             share: 1000,
             area: false,
         });
-        if !hurts(&source, &facts, &object.state, party || ordered) {
+        if !hurts(&source, &facts, &object.state, party, ordered) {
             continue;
         }
         if ordered {

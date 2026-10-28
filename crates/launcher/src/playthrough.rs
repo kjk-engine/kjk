@@ -1906,8 +1906,48 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 && (near || reach.ways(&here, &player, (*id, *at), now).1))
                                 || near && walker.as_ref().is_some_and(|w| w.stalls > 2)
                         }));
+                    // A door or placeable a script's attack has the player
+                    // strike (`SimWorld::assigned_strike`): the sim strikes
+                    // it once the player stands within its reach, the
+                    // player's legs being its seat's. KOTOR's character walks
+                    // up to it by itself, so the harness walks there,
+                    // whatever the goal (TSL's Peragus shift console,
+                    // "[Destroy the console]").
+                    let assigned = world
+                        .assigned_strike(me.id)
+                        .filter(|_| talking.is_none())
+                        .and_then(|id| last.get(id))
+                        .filter(|e| {
+                            matches!(
+                                e.kind,
+                                sim::Kind::Object(ObjectKind::Door | ObjectKind::Placeable, _)
+                            )
+                        })
+                        .map(|e| e.position)
+                        .filter(|at| flat(*at, me.position) > sim::script::DOOR_REACH);
                     match foe_back {
-                        None => (back, back_walker) = (Chase::default(), None),
+                        None => {
+                            back = Chase::default();
+                            match assigned {
+                                None => back_walker = None,
+                                Some(at) => {
+                                    let w = back_walker.get_or_insert_with(|| here.approach(&player, at));
+                                    let walk = if !w.arrived(&player) && here.leads(player.origin, w.goal) {
+                                        w.command(here.level, &player, now, &|index| here.to_try(index))
+                                    } else {
+                                        Command {
+                                            forward: 127,
+                                            ..facing(&player, at)
+                                        }
+                                    };
+                                    command = Command {
+                                        buttons: command.buttons | pulse,
+                                        ..walk
+                                    };
+                                    walker = None;
+                                }
+                            }
+                        }
                         Some(foe) => {
                             let (strike, stepping) = back.strike(
                                 &mut back_walker, &here, &world, &mut reach, &player, &me, foe, now,

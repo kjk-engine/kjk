@@ -1405,6 +1405,19 @@ impl Thing {
         let locked = self.locked == Some(true);
         (self.facts.as_deref()).is_some_and(|facts| crate::module::bashable(facts, locked, self.hp))
     }
+
+    /// Whether it is a door or placeable a script's attack strikes
+    /// (`Action::Attack` on an object): no character, of either kind.
+    pub fn struck_as_object(&self) -> bool {
+        self.character.is_none()
+            && matches!(self.kind, Some(ObjectKind::Door | ObjectKind::Placeable))
+    }
+
+    /// Whether a script's attack may still break it: as `bashable`, locked
+    /// or not (KOTOR's attack of an object is no Bash of a lock).
+    pub fn breakable(&self) -> bool {
+        (self.facts.as_deref()).is_some_and(|facts| crate::module::bashable(facts, true, self.hp))
+    }
 }
 
 impl Character {
@@ -2627,6 +2640,43 @@ impl Step<'_> {
                         };
                         self.goal(id, point, wander::ARRIVE_M, false);
                         false
+                    }
+                    // A script's attack on a door or placeable, KOTOR's
+                    // attack of an object (no fighter to fight it, no Bash
+                    // of a lock): within reach, a blow a round of what is in
+                    // hand, as a script's bash (`State::bashes`, which hurts
+                    // it locked or not and raises its `OnMeleeAttacked`),
+                    // until it breaks or is gone. A creature walks up to it;
+                    // a player's legs are its seat's, so the player strikes
+                    // once it stands within reach, the attack kept at the
+                    // front of its queue meanwhile (`SimWorld::assigned_strike`).
+                    // TSL's Peragus shift console, "[Destroy the console]",
+                    // has the Exile attack it; its `OnMeleeAttacked` opens
+                    // the dormitory door. (Dropped for a player before, the
+                    // door stayed shut.)
+                    &Action::Attack { target, .. }
+                        if self.view.thing(target).is_some_and(Thing::struck_as_object) =>
+                    {
+                        let breakable = self.view.thing(target).is_some_and(Thing::breakable);
+                        if breakable {
+                            if starting {
+                                self.attacking(id, None);
+                            }
+                            let near = match self.view.place(Target::Object(target)) {
+                                Some((at, _)) if player => flat(thing.position, at) <= DOOR_REACH,
+                                Some(_) => self.within_reach(id, &thing, false, target, |_| {}),
+                                None => false,
+                            };
+                            if near && now >= started + ROUND_MS {
+                                self.state.bashes.push((target.0, who.0));
+                                if let Some(front) =
+                                    self.state.actions.get_mut(&id).and_then(|q| q.first_mut())
+                                {
+                                    front.started_ms = Some(now);
+                                }
+                            }
+                        }
+                        !breakable
                     }
                     Action::Attack { .. } if player => true,
                     Action::Attack { target, passive } => {

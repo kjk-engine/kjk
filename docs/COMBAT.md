@@ -239,7 +239,14 @@ last; a script's damage hurts any object but a `Plot` one. Others' blows
 do nothing, unless a script asks a creature to bash
 (`DoDoorAction(…, DOOR_ACTION_BASH)`, `k_ai_master`'s answer to a door in
 its way): it walks there and strikes a KOTOR attack of what it has in hand
-a round, swinging. A broken door plays its model's `busted` where its
+a round, swinging. A script's attack of a door or placeable
+(`ActionAttack` on an object, KOTOR's attack of one) strikes the same way,
+locked or not, with its `OnMeleeAttacked` on every blow, until it breaks;
+a player's too, once the player stands within `DOOR_REACH` of it (its
+legs are its seat's: the attack waits at the front of its queue,
+`SimWorld::assigned_strike`, and the playthrough harness walks it there).
+TSL's Peragus shift console, "[Destroy the console]", opens the
+dormitory door so. A broken door plays its model's `busted` where its
 `genericdoors.2da` row's `StaticAnim` names it (the executable's rule; no
 stock row does), else stands open. The target block shows a door's
 vitality once blows have told on it. Approved test `bash_doors`.
