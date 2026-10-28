@@ -452,6 +452,9 @@ pub enum Line {
     /// A quest reached an entry (a node's `Quest`, or a script's
     /// `AddJournalQuestEntry`).
     Journal { ms: u64, quest: String, entry: i32 },
+    /// A script set `<CUSTOMn>` (`SetCustomToken`): the lines after it
+    /// show the value, as the screen does.
+    Token { ms: u64, number: i32, value: String },
 }
 
 /// A conversation with nothing in it: no one, no angle, the default-angle

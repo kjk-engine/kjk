@@ -2360,13 +2360,14 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
             lines.extend(said.iter().map(|s| format!("{s} (to the player)")));
             let blockers: Vec<&Outcome> = outcomes.iter().filter(|o| !o.met).collect();
             outln!(
-                "playthrough: {} goals, {} met, {} blocked; {:.1} s of play; faults {}, runaways {}, gaps {}, missing scripts {}",
+                "playthrough: {} goals, {} met, {} blocked; {:.1} s of play; faults {}, runaways {}, aborted {}, gaps {}, missing scripts {}",
                 outcomes.len(),
                 outcomes.len() - blockers.len(),
                 blockers.len(),
                 last.time_ms as f64 / 1000.0,
                 report.faults.len(),
                 report.runaways.len(),
+                report.aborted.len(),
                 report.gaps.len(),
                 report.missing.len()
             );
@@ -2375,6 +2376,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
             }
             for runaway in &report.runaways {
                 outln!("  runaway: {runaway}");
+            }
+            for aborted in report.aborted.iter().collect::<BTreeSet<_>>() {
+                outln!("  aborted (the game's own error): {aborted}");
             }
             let mut gaps: Vec<(&String, &usize)> = report.gaps.iter().collect();
             gaps.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
@@ -2405,6 +2409,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 "wall_ms": began_wall.elapsed().as_millis(),
                 "faults": report.faults,
                 "runaways": report.runaways,
+                "aborted": report.aborted,
                 "gaps": report.gaps,
                 "missing": report.missing,
                 "runs": report.runs,
@@ -2547,11 +2552,10 @@ fn transcribe(
     let talk = &world.script_report().talk;
     if let Some(library) = world.level().scripts() {
         let text = |strref| installer.text(strref);
-        lines.extend(
-            talk.iter()
-                .skip(from)
-                .flat_map(|line| crate::transcript::transcript(&text, library, names, line)),
-        );
+        let mut tokens = crate::transcript::tokens(&talk[..from.min(talk.len())]);
+        lines.extend(talk.iter().skip(from).flat_map(|line| {
+            crate::transcript::transcript(&text, library, names, &mut tokens, line)
+        }));
     }
     talk.len()
 }

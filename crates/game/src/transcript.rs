@@ -20,13 +20,21 @@ pub fn text(talk: Talk, node: &Node) -> String {
     }
 }
 
-/// The transcript's lines for one report line, text resolved.
+/// The transcript's lines for one report line, text resolved and
+/// `<CUSTOMn>` filled from `tokens`, the values the report's lines before
+/// it set (`Line::Token`, which updates them and writes nothing).
 pub fn transcript(
     talk: Talk,
     library: &Library,
     names: &BTreeMap<u32, String>,
+    tokens: &mut BTreeMap<i32, String>,
     line: &Line,
 ) -> Vec<String> {
+    if let Line::Token { number, value, .. } = line {
+        tokens.insert(*number, value.clone());
+        return Vec::new();
+    }
+    let talk = |strref| talk(strref).map(|text| filled(&text, tokens));
     let who = |id: ObjectId| {
         names
             .get(&id.0)
@@ -40,7 +48,7 @@ pub fn transcript(
                 let list = if entry { &dlg.entries } else { &dlg.replies };
                 list.get(index as usize)
             })
-            .map_or_else(String::new, |node| text(talk, node))
+            .map_or_else(String::new, |node| filled(&text(&talk, node), tokens))
     };
     let at = |ms: u64| format!("{:>8.2}s", ms as f64 / 1000.0);
     match line {
@@ -133,7 +141,28 @@ pub fn transcript(
                 .map_or_else(|| entry.to_string(), |text| format!("{entry} {text:?}"));
             vec![format!("{} -- journal: {quest} at {entry}", at(*ms))]
         }
+        Line::Token { .. } => Vec::new(),
     }
+}
+
+/// The `<CUSTOMn>` values `lines` set, the last of each.
+pub fn tokens(lines: &[Line]) -> BTreeMap<i32, String> {
+    let mut tokens = BTreeMap::new();
+    for line in lines {
+        if let Line::Token { number, value, .. } = line {
+            tokens.insert(*number, value.clone());
+        }
+    }
+    tokens
+}
+
+/// `text` with each `<CUSTOMn>` that `tokens` holds filled in.
+fn filled(text: &str, tokens: &BTreeMap<i32, String>) -> String {
+    tokens
+        .iter()
+        .fold(text.to_string(), |text, (number, value)| {
+            text.replace(&format!("<CUSTOM{number}>"), value)
+        })
 }
 
 /// Each object's name for the transcript: its tag, the player "player".

@@ -1933,3 +1933,24 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Evidence:   `context/artifacts/2026-10-25-interjections/SURVEY.md`; the
   probe `speaker_search_keeps_its_first_bar` (`kjk sim probes --only
   speakers`).
+
+### Q-0324 — A routine's argument of the wrong type ends the script's run
+
+- Reference:  TSL (the executable's script machine: its routines pop their
+  arguments by type, an engine structure's pop refusing a cell of another
+  type, and the machine ends the run when a routine reports the refusal)
+- Behaviour:  a script that hands a routine an argument of another type
+  stops there; nothing after it in that run happens. TSL's floating mines
+  (`k_fm_die_custom`, HK-50's on Peragus's administration level) break out
+  of their blast loop when the blast reaches HK-50, and the compiled
+  `break` leaves the loop's local on the stack: `ApplyEffectAtLocation`
+  then gets an object where its location is, and the mine's run ends
+  before it destroys itself, so it goes off again on its next heartbeat.
+- Expected:   the mine's blast drawn at its place and the mine gone.
+- Status:     reproduced. It is no fault of ours: such runs are counted
+  apart (the script report's `aborted`, the playthrough's "aborted").
+- Ours:       `script_ncs::vm::Fault::Argument`, `sim::script::finish`
+- Evidence:   `kjk script dis tsl k_fm_die_custom --module 101per` (the
+  two exits to the blast's end, one a local deeper); the probe "an
+  argument of the wrong type" (`kjk script probes`); the
+  `peragus_harbinger` route (15 runs aborted, no faults).

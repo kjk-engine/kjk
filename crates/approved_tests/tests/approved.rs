@@ -486,7 +486,7 @@ mod rig {
 /// `nwscript.nss` declares (`kjk script check`).
 #[test]
 fn script_vm() {
-    passed("script", &script_ncs::probes::all(), 29);
+    passed("script", &script_ncs::probes::all(), 30);
 
     let discovery = discovery();
     for game in [vfs::Game::Kotor1, vfs::Game::Kotor2] {

@@ -780,6 +780,10 @@ pub fn coverage(discovery: &Discovery, game: &str, module: &str, options: &Cover
         for runaway in &report.runaways {
             outln!("    {runaway}");
         }
+        outln!("  aborted (the game's own errors): {}", report.aborted.len());
+        for aborted in &report.aborted {
+            outln!("    {aborted}");
+        }
         outln!(
             "  globals: {:?} {:?} {:?}; locals {}; waiting: {} events, {} deferred",
             state.numbers,
@@ -815,6 +819,7 @@ pub fn coverage(discovery: &Discovery, game: &str, module: &str, options: &Cover
             "actions": report.actions,
             "faults": report.faults,
             "runaways": report.runaways,
+            "aborted": report.aborted,
             "missing": report.missing,
             "instructions": report.instructions,
             "globals": { "numbers": state.numbers, "booleans": state.booleans, "strings": state.strings },

@@ -1986,6 +1986,9 @@ pub struct Report {
     /// Runs stopped at the instruction limit, as KOTOR's machine stops
     /// them: the games' own endless loops, not ours.
     pub runaways: Vec<String>,
+    /// Runs stopped at a routine's argument of the wrong type, as KOTOR's
+    /// machine stops them (`vm::Fault::Argument`): the games' own errors.
+    pub aborted: Vec<String>,
     /// Scripts named to run that the library does not have, by times
     /// named: nothing runs (the games ship hooks naming scripts they lack).
     pub missing: BTreeMap<String, usize>,
@@ -3672,6 +3675,10 @@ fn finish(
         }
         Err(fault @ vm::Fault::Budget { .. }) => {
             report.runaways.push(format!("{script}: {fault}"));
+            None
+        }
+        Err(fault @ vm::Fault::Argument { .. }) => {
+            report.aborted.push(format!("{script}: {fault}"));
             None
         }
         // A stop the executables make too (`minigame::aborts`): no fault.
