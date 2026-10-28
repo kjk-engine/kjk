@@ -9,34 +9,39 @@ KOTOR 1 comes first.
 It reads the games from installs you own. **No game data is included here or
 in any release.**
 
-## Install
+## How to play
 
-You need your own installs of **KOTOR 1**, **Jedi Academy** and **KOTOR II**
-(Steam and GOG are found automatically; others go in `.env`). `ffmpeg` on the
-`PATH` is optional, for the movies.
+1. Own and install **KOTOR 1**, **Jedi Academy** and **KOTOR II** (Steam or
+   GOG copies are found automatically).
+2. Download the file for your computer (macOS, Windows or Linux) from the
+   [Releases](https://github.com/kjk-engine/kjk/releases) page and unzip it.
+3. Open `kjk`. The first time, it finds your games and sets itself up, then
+   shows the main menu.
 
-- **Release:** download your OS's archive from Releases, unpack, run. Builds
-  are unsigned: macOS needs "Open Anyway" in Privacy & Security, Windows
-  "More info" → "Run anyway".
-- **From source:** `cargo run --release -p launcher` (Rust is installed via
-  `rust-toolchain.toml`; [`docs/BUILD.md`](docs/BUILD.md)).
+The builds are not signed, so your computer warns you the first time:
 
-The first start finds your games, imports what it needs and opens the main
-menu.
+- **macOS:** open System Settings → Privacy & Security and click "Open Anyway".
+- **Windows:** click "More info", then "Run anyway".
 
-## Co-op
+Movies need [ffmpeg](https://ffmpeg.org/download.html) installed; the game
+runs without it.
 
-Up to three players; guests play the host's companions and the host keeps the
-save.
+(Building from source is only needed for development; see
+[Development](#development).)
 
-```bash
-kjk host --stage end_m01aa                 # host (UDP port 29170)
-kjk join 192.0.2.20                        # join by IP
-kjk join "Friend's Steam name"             # or through Steam (source builds), no port to forward
-```
+## Playing together
 
-In play: Z takes a break, Y says ready at an exit, N follows the next party
-member while watching. More in [`docs/COOP.md`](docs/COOP.md).
+Up to three players: the host plays the main character, friends play the
+companions, and the host keeps the save.
+
+- **To host:** choose **Host** on the main menu, then start a new game or load
+  a save. Your friends need your IP address, and port 29170 (UDP) must be open
+  on your router, unless you are on the same network.
+- **To join:** choose **Join** on the main menu, type the host's IP address,
+  then your name.
+
+In play: Z takes a break, Y says you are ready to leave an area, and N follows
+the next party member while you watch. More in [`docs/COOP.md`](docs/COOP.md).
 
 ## Controls
 
@@ -81,8 +86,15 @@ Not yet: TSL's campaign past Peragus. **Before reporting a bug, read
 
 ## Development
 
+Building from source needs Rust (the pinned version installs itself) and is
+covered in [`docs/BUILD.md`](docs/BUILD.md). Games outside Steam and GOG go in
+`.env` (copy `.env.example`).
+
 ```bash
+cargo run --release -p launcher            # build and open the main menu
 kjk play --stage end_m01aa                 # one module (--class jedi for the Force)
+kjk host --stage end_m01aa                 # host co-op from the command line
+kjk join 192.0.2.20                        # join by IP, or by Steam name (source builds only)
 kjk chain k1                               # the whole campaign, headless
 ```
 
