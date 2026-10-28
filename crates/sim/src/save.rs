@@ -111,6 +111,11 @@ pub const VERSION: u32 = 59 + crate::pending::SAVE;
 /// (`crate::since::save`, `bumps/README.md`).
 pub const OLDEST: u32 = 59;
 
+/// The companions' templates' version in a save from before it recorded
+/// theirs (`since::save::SAVE_MIGRATIONS`): v0.1.0's, whatever the oldest
+/// read is now.
+const PACK_BEFORE_RECORDED: u32 = 20;
+
 /// The scripts' state (`script::State`): globals, objects' locals, events
 /// waiting and deferred code. `SimWorld::script_state` gives it, and
 /// `set_script_state` puts a loaded one back.
@@ -194,7 +199,7 @@ impl Save {
         let pack = if input.since(crate::since::save::SAVE_MIGRATIONS) {
             input.u32()?
         } else {
-            crate::pack::OLDEST
+            PACK_BEFORE_RECORDED
         };
         let level = LevelId::read(&mut input)?;
         let snapshot = Snapshot::decode_stored(input.section()?)?;

@@ -9,7 +9,7 @@ use crate::wire::DecodeError;
 /// companions' templates kept in its party table (`Npc::template_data`),
 /// written in `pack` of that format, re-encoded in this build's.
 pub(crate) fn save(save: &mut Save, pack: u32) -> Result<(), DecodeError> {
-    if pack > crate::pack::VERSION {
+    if !(crate::pack::OLDEST..=crate::pack::VERSION).contains(&pack) {
         return Err(DecodeError::Version {
             format: "a kept companion",
             found: pack,

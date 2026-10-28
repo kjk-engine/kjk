@@ -1858,7 +1858,9 @@ fn old_saves_load() {
     for entry in std::fs::read_dir(dir.join("retired")).into_iter().flatten() {
         let path = entry.expect("a retired fixture").path();
         let bytes = std::fs::read(&path).expect("a retired fixture reads");
-        let error = sim::Save::decode(&bytes).expect_err("a retired fixture is refused");
+        let error = sim::Save::decode(&bytes)
+            .map(|_| ())
+            .expect_err("a retired fixture is refused");
         assert!(
             error.to_string().contains("version"),
             "{}: {error}",
