@@ -267,6 +267,10 @@ crates/sim/src/determinism.rs RECORD_EVERY  # test setup: a recording's hash int
 crates/sim/src/determinism.rs ROLLBACK_EVERY  # test setup: rollback windows' spacing
 crates/sim/src/determinism.rs ROLLBACK_TICKS  # test setup: a rollback window's length
 crates/sim/src/determinism.rs TURN_DEGREES  # test setup: the proving ground's turn
+crates/sim/src/flight.rs BATCH  # the flight recorder's chunk: ticks written at once (engine, not a game rule)
+crates/sim/src/flight.rs START  # a chunk kind (format)
+crates/sim/src/flight.rs TICKS  # a chunk kind (format)
+crates/sim/src/flight.rs VERSION  # format version
 crates/sim/src/fog.rs COLUMNS  # the AreaMap grid's width where the ARE gives none (the saves' format)
 crates/sim/src/fog.rs MOST_COLUMNS  # the widest AreaMap grid kept (the saves' format)
 crates/sim/src/input.rs ALT_ATTACK  # bit flag: a command button

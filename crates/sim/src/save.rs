@@ -106,6 +106,8 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// (`party::Npc::template_data`, `sim::pack`'s creature encoding), so a module
 /// without it makes the companion all the same.
 pub const VERSION: u32 = 59 + crate::pending::SAVE;
+/// The version this build writes, for a save's meta to name.
+pub const FORMAT: u32 = VERSION;
 
 /// The oldest version read: v0.1.0's. Each change since keeps its old read
 /// (`crate::since::save`, `bumps/README.md`).

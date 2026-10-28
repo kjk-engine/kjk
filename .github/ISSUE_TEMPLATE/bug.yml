@@ -1,0 +1,65 @@
+name: Bug report
+description: Something in the game went wrong.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. Press **F12** in the game (or after a crash, on the main menu) to make a report: a zip of what the game was doing, with your home folder and names taken out. Attach it below; it lets us replay the bug exactly.
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: dropdown
+    id: game
+    attributes:
+      label: Game
+      options:
+        - KOTOR 1
+        - KOTOR 2 (TSL)
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Where your copy of the game is from
+      options:
+        - Steam
+        - GOG
+        - Disc
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: mods
+    attributes:
+      label: Mods
+      description: Anything in the game's Override folder, or none.
+      placeholder: none
+  - type: input
+    id: version
+    attributes:
+      label: kjk version
+      description: Shown in the main menu's corner, or by `kjk --version`.
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: The report
+      description: Drag the kjk-report-….zip here. It is in kjk's folder under `reports`.
+  - type: checkboxes
+    id: attached
+    attributes:
+      label: Report
+      options:
+        - label: I attached the report zip, or could not make one.
+          required: true

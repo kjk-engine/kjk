@@ -1193,7 +1193,7 @@ fn save(root: &std::path::Path, world: &mut sim::SimWorld, slot: Option<&str>) -
         area: "here".into(),
         saved: saves::now(),
         seats: snapshot.seats(),
-        character: None,
+        ..saves::Meta::default()
     };
     let save = sim::Save {
         hz: sim::TICK_HZ,
@@ -1410,6 +1410,25 @@ fn feats() {
 fn save_copy_round_trip() {
     probed("save copies", &saves::copies::probes(), 12);
     probed("save refusals", &saves::refusal_probes(), 14);
+}
+
+/// The saves' safety net (`saves::safety_probes`): the meta's new fields
+/// and an older meta, a damaged save listed and refused, one without a hash
+/// trusted, autosaves rotating, the backup before a new release, a failed
+/// write leaving nothing, a refusal naming the build that made the save;
+/// no install.
+#[test]
+fn save_safety() {
+    probed("save safety", &saves::safety_probes(), 11);
+}
+
+/// The flight recorder's file (`sim::flight::probes`): the pinned run kept
+/// by a recorder and the flight side by side replays alike, a file cut
+/// anywhere in its last chunk or bent there keeps the whole chunks, an
+/// empty one is refused, and a replay may skip the data check; no install.
+#[test]
+fn flight_recorder() {
+    probed("flight", &sim::flight::probes(), 6);
 }
 
 /// A save copy in parts on the wire (I30 P17):

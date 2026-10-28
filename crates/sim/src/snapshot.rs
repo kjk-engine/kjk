@@ -174,6 +174,8 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 72: a swing's contact keeps whether its chance to be turned was drawn
 /// (`Contact::drawn`).
 pub const VERSION: u32 = 72 + crate::pending::SNAPSHOT;
+/// The version this build writes, for a save's meta to name.
+pub const FORMAT: u32 = VERSION;
 
 /// The oldest version a save's snapshot is read in: v0.1.0's. Each change
 /// since keeps its old read (`crate::since::snapshot`, `bumps/README.md`).
