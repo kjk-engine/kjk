@@ -3,6 +3,7 @@
 
 use crate::action::{Action, Verb};
 use crate::combat::damage::Source;
+use crate::combat::gear::weapon_traits::DOOR_CUTTING;
 use crate::combat::sheet::{Weapon, damage_types};
 use crate::input::Seat;
 use crate::module::{ObjectData, ObjectKind, Opens, Placement, Toughness};
@@ -23,6 +24,8 @@ object GetObjectByTag(string sTag, int nNth = 0);
 // 4
 void DoDoorAction(object oTargetDoor, int nDoorAction);
 int DOOR_ACTION_BASH = 2;
+// 5
+object GetLastAttacker(object oAttackee = OBJECT_SELF);
 "#;
 const SAYS: [(&str, u16, &str); 2] = [("probe_damaged", 1, "damaged"), ("probe_broke", 2, "broke")];
 
@@ -42,6 +45,20 @@ fn library() -> crate::script::Library {
             .op(Op::Retn);
         (name.to_string(), asm.build())
     });
+    // `SendMessageToPC(GetLastAttacker(), "attacked")`: `OnMeleeAttacked`.
+    let mut attacked = script_ncs::probes::Asm::default();
+    attacked
+        .op(Op::Const(Const::String(b"attacked".to_vec())))
+        .op(Op::Const(Const::Object(0)))
+        .op(Op::Action {
+            routine: 5,
+            args: 1,
+        })
+        .op(Op::Action {
+            routine: 0,
+            args: 2,
+        })
+        .op(Op::Retn);
     // The bruiser's heartbeat: `DoDoorAction(GetObjectByTag("box"),
     // DOOR_ACTION_BASH)`.
     let mut bash = script_ncs::probes::Asm::default();
@@ -59,8 +76,10 @@ fn library() -> crate::script::Library {
         .op(Op::Retn);
     crate::probe::library(
         CATALOG,
-        says.into_iter()
-            .chain([("probe_bash".to_string(), bash.build())]),
+        says.into_iter().chain([
+            ("probe_bash".to_string(), bash.build()),
+            ("probe_attacked".to_string(), attacked.build()),
+        ]),
     )
 }
 
@@ -107,7 +126,8 @@ const STEPS: [Step; 9] = [
     // 1: the thug's does nothing: only the party bashes.
     (&[(By::Thug, GATE, Blow::Weapon(GATE_BLOW))], &[]),
     // 2: a weapon on what is not locked, on what is plot, and short of
-    // the vault's hardness: nothing.
+    // the vault's hardness: nothing, though the vault hears it was
+    // attacked (its `OnMeleeAttacked`).
     (
         &[
             (By::Player, CRATE, Blow::Weapon(10)),
@@ -256,7 +276,14 @@ fn scenario() -> Result<Ran, String> {
             [
                 placeable("crate", [-2.0, -1.5], false, 10, Toughness::default()),
                 placeable("statue", [-2.0, 1.5], true, 10, toughness(0, true, false)),
-                placeable("vault", [-2.5, -2.0], true, 10, toughness(50, false, false)),
+                ObjectData {
+                    scripts: [
+                        hooks(),
+                        vec![("OnMeleeAttacked".into(), "probe_attacked".into())],
+                    ]
+                    .concat(),
+                    ..placeable("vault", [-2.5, -2.0], true, 10, toughness(50, false, false))
+                },
                 placeable("sealed", [-2.5, 2.0], true, 5, toughness(0, false, true)),
                 ObjectData::creature(
                     "thug",
@@ -392,10 +419,11 @@ fn scripted() -> Result<(Option<u64>, Option<ObjectState>), String> {
 /// 50 ms at a time.
 const BY_HAND_MS: u64 = 6_000;
 
-/// The player playing `sheet`, at the gate's near side facing its middle,
-/// holding attack: what the gate lost to its own shots or punches, through
-/// the sim's delivery (`fire`, `strikes`), not hits put in by hand.
-fn by_hand(sheet: crate::combat::Sheet) -> Result<u16, String> {
+/// The player playing `sheet`, at the near side of the gate (of
+/// `hardness`) facing its middle, holding attack: the gate's state after
+/// its own shots or punches, through the sim's delivery (`fire`,
+/// `strikes`), not hits put in by hand.
+fn by_hand(sheet: crate::combat::Sheet, hardness: u8) -> Result<ObjectState, String> {
     let mut gate_at = [0.0; 3];
     let mut world = world_for(sheet, |data| {
         let Some(Placement::Own(gate)) = data.placements.first_mut() else {
@@ -403,6 +431,7 @@ fn by_hand(sheet: crate::combat::Sheet) -> Result<u16, String> {
         };
         gate.opens = Opens::Locked;
         gate.hit_points = Some(GATE_HP);
+        gate.toughness.hardness = hardness;
         gate_at = gate.position;
         Ok(())
     })?;
@@ -431,7 +460,26 @@ fn by_hand(sheet: crate::combat::Sheet) -> Result<u16, String> {
         let snapshot = crate::step(&mut world, tick, &input, 50, crate::StepReason::Authority);
         last = state(std::slice::from_ref(&snapshot), 0, GATE);
     }
-    last.map(|gate| gate.damage).ok_or("no gate".into())
+    last.ok_or("no gate".into())
+}
+
+/// The dev soldier holding `weapon` in the right hand alone.
+fn holding(weapon: Weapon) -> crate::combat::Sheet {
+    crate::combat::Sheet {
+        weapons: [Some(weapon), None],
+        ..crate::combat::Sheet::dev_soldier()
+    }
+}
+
+/// A stun baton (`baseitems.2da` row 1) with `traits`
+/// (`gear::weapon_traits`): TSL's plasma torch is one with Door Cutting.
+fn baton(traits: u8) -> Weapon {
+    Weapon {
+        base_item: 1,
+        delivery: crate::combat::Delivery::Baton,
+        traits,
+        ..weapon(GATE_BLOW)
+    }
 }
 
 /// An object's state after `step`.
@@ -492,8 +540,16 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         (
             "unlocked_plot_hardness_hold",
             check(
-                [CRATE, STATUE, VAULT].map(|index| lost(2, index)) == [Some(0); 3],
+                [CRATE, STATUE, VAULT].map(|index| lost(2, index)) == [Some(0); 3]
+                    && said(2, "damaged") == 0,
                 format!("{:?}", [CRATE, STATUE, VAULT].map(|index| lost(2, index))),
+            ),
+        ),
+        (
+            "hardness_turned_still_attacked",
+            check(
+                said(2, "attacked") == 1,
+                format!("{} attacked, {notices:?}", said(2, "attacked")),
             ),
         ),
         (
@@ -552,7 +608,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ),
         (
             "shots_bash",
-            match by_hand(crate::combat::Sheet::dev_soldier()) {
+            match by_hand(crate::combat::Sheet::dev_soldier(), 0).map(|gate| gate.damage) {
                 Ok(lost) if lost > 0 => Ok(format!("the gate lost {lost} to blaster fire")),
                 Ok(_) => Err("the blaster's bolts never hurt the gate".into()),
                 Err(why) => Err(why),
@@ -560,13 +616,43 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ),
         (
             "fists_bash",
-            match by_hand(crate::combat::Sheet {
-                weapons: [None; 2],
-                ..crate::combat::Sheet::dev_soldier()
-            }) {
+            match by_hand(
+                crate::combat::Sheet {
+                    weapons: [None; 2],
+                    ..crate::combat::Sheet::dev_soldier()
+                },
+                0,
+            )
+            .map(|gate| gate.damage)
+            {
                 Ok(lost) if lost > 0 => Ok(format!("the gate lost {lost} to fists")),
                 Ok(_) => Err("the fists never hurt the gate".into()),
                 Err(why) => Err(why),
+            },
+        ),
+        (
+            "baton_bashes",
+            match by_hand(holding(baton(0)), 0).map(|gate| gate.damage) {
+                Ok(lost) if lost > 0 => Ok(format!("the gate lost {lost} to a stun baton")),
+                Ok(_) => Err("the stun baton never hurt the gate".into()),
+                Err(why) => Err(why),
+            },
+        ),
+        (
+            "door_cutting_breaks",
+            match (
+                by_hand(holding(baton(0)), 100),
+                by_hand(holding(baton(DOOR_CUTTING)), 100),
+            ) {
+                (Ok(plain), Ok(cut))
+                    if plain.damage == 0 && cut.lock == lock::UNLOCKED && cut.state != 0 =>
+                {
+                    Ok(format!(
+                        "a baton lost {} to hardness 100; the torch broke it: {cut:?}",
+                        plain.damage
+                    ))
+                }
+                (plain, cut) => Err(format!("plain baton {plain:?}, door cutting {cut:?}")),
             },
         ),
         (

@@ -1358,8 +1358,17 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     // player attacks it, until it breaks
                                     // (unlocked).
                                     Goal::Bash(_) => {
+                                        // A blade or a baton steps in while it
+                                        // swings, as a fight's chase presses on
+                                        // into a wide body (`Chase::strike`),
+                                        // until the thing's own collision holds
+                                        // it: a walk to pick its lock ends up
+                                        // to 2 m off, out of a blow's reach
+                                        // (Peragus's locker between lockers).
+                                        let step_in = !ranged(&me) && d > melee_m().0;
                                         command = Command {
                                             buttons: buttons::ATTACK,
+                                            forward: if step_in { 127 } else { 0 },
                                             ..aiming(&player, &me, at)
                                         };
                                         met = object_of(&here, index).lock == sim::lock::UNLOCKED;
@@ -1570,9 +1579,22 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                                     e.kind == sim::Kind::Object(ObjectKind::Creature, index)
                                                 })
                                             });
+                                            // Or its own conversation of one
+                                            // line, said since the press: begun
+                                            // and over within a step, never
+                                            // seen playing (Peragus's sealed
+                                            // hatch, `a_compdlg`'s hint).
+                                            let one_line = talk_at_press.zip(target_id).is_some_and(|(from, id)| {
+                                                world.script_report().talk.get(from..).is_some_and(|lines| {
+                                                    lines.iter().any(|line| {
+                                                        matches!(line, Line::Bark { who, conversation: true, .. } if who.0 == id.0)
+                                                    })
+                                                })
+                                            });
                                             met = answered
                                                 || played_out
                                                 || barked
+                                                || one_line
                                                 || opened
                                                 || module_of(&last) != module;
                                         }
