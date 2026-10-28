@@ -1,0 +1,16 @@
+# Telos, Restoration Zone 0031 (TSL, 231TEL): shot down by Czerka; Bao-Dur
+# wakes us and joins (Kreia kept with him, DSimpson's pick), the cannoks
+# and Czerka's mercenaries (the escaped criminals among them) and sentry
+# droids fought down to the beach and along the cliffs, the minefield's
+# turrets, and on to the Czerka site. Starts from the Citadel Station's
+# last checkpoint:
+#   kjk playthrough tsl @telos_planet data/routes/tsl/telos_restoration.route --god
+# Walkthrough: DSimpson's "Restoration Zone 0031" (context/walkthroughs/tsl/).
+party 1,6            # Bao-Dur joins as we wake in the wreck (the shield
+talk                 # network, the old military base); Kreia with him
+fight 30             # the cannoks up the way
+use G_TURRETBL006@1  # past the mercenaries and the beach to the minefield:
+use G_TURRETBL006@2  # its two turrets shot down first (DSimpson)
+exit to_233TEL@2     # (the first of the tag is the minefield's warning) down past the mercenaries, the beach and the
+module 233tel        # minefield's turrets to the Czerka site
+save telos_czerka_site
