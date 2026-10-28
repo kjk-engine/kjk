@@ -227,7 +227,10 @@ where they part, the choice is ours and named.
   owner or the player is gone or dead (in co-op the owner or the body
   standing in it, its listener: the host's character down does not end a
   guest's own, whose PC it is), and in co-op when it is left or cut short
-  (below). Every way out goes through `Step::end`, so its end
+  (below). A party member knocked out (`COMBAT.md`: it gets up again) is
+  neither: its conversation goes on (`Thing::dead_for_good`; TSL's Atton,
+  poisoned in Peragus' hangar bay, falls as the escape's `106percut`
+  begins) [verify: that the exe does not abort it]. Every way out goes through `Step::end`, so its end
   script runs once. A module left behind drops its conversations without
   their scripts.
 - **Who hears the end** (`Step::heard_end`). K1's exe runs, after
