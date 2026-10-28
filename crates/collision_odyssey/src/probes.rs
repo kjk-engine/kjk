@@ -261,6 +261,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("edge_walls_turn_back", turn_back()));
     checks.push(("footprint_walls", footprint_walls()));
     checks.push(("footprint_nav_marks", footprint_nav_marks()));
+    checks.push(("sliver_nav_open", sliver_nav_open()));
     checks
 }
 
@@ -565,5 +566,52 @@ fn footprint_nav_marks() -> Result<String, String> {
         Ok(detail)
     } else {
         Err(format!("{detail} crosses the footprint"))
+    }
+}
+
+/// The navigation mesh over a sliver (`collision::nav::NavMesh::mark`): a
+/// west room (x 0 to 4 m) and an east one (x 4 to 8 m, y 4 to 8 m, a rock
+/// wall below it) whose floors meet only through a face 3 mm wide between
+/// them, running along the wall's face, as TSL's Peragus mining tunnels
+/// join the hallway past the damaged droid to the cave. The column the
+/// furniture check looks over each point of the sliver with meets the wall
+/// along its edge; the sliver is still open, so a way leads from one room
+/// to the other.
+fn sliver_nav_open() -> Result<String, String> {
+    use collision::{LevelBuilder, Tag};
+    let at = |x: f32, y: f32| [x, y, 0.0f32];
+    let (p, q, r) = (at(4.0, 0.0), at(4.0, 8.0), at(4.003, 4.0));
+    let faces = vec![
+        // The west room, its east edge the sliver's long one.
+        [at(0.0, 0.0), p, q],
+        [at(0.0, 0.0), q, at(0.0, 8.0)],
+        // The sliver.
+        [p, r, q],
+        // The east room, its west edge the sliver's upper short one.
+        [r, at(8.0, 4.0), at(8.0, 8.0)],
+        [r, at(8.0, 8.0), q],
+    ];
+    let mut level = LevelBuilder::new();
+    for corners in &faces {
+        level.triangle(*corners, Tag::level(Contents::SOLID, 1));
+    }
+    // The rock beside the sliver's lower short edge.
+    level.aabb(
+        [4.0, 0.0, 0.0],
+        [8.0, 4.0, 4.0],
+        Tag::level(Contents::SOLID, 0),
+    );
+    let level = level.build();
+    let mut nav = collision::nav::NavMesh::build(&faces, 0.5);
+    nav.mark(&level);
+    let covered = nav.faces.iter().filter(|face| face.covered).count();
+    let route = nav.route([1.0, 4.0, 0.0], [6.0, 6.5, 0.0], false, &|_| false);
+    let detail = format!("{} faces, {covered} covered", nav.faces.len());
+    match route {
+        Some(route) if covered == 0 => Ok(format!(
+            "{detail}; the way from room to room by {} corners",
+            route.len()
+        )),
+        _ => Err(format!("{detail}: no way from room to room")),
     }
 }
