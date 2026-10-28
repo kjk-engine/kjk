@@ -61,6 +61,16 @@ impl Engine<'_> {
         !lock.key_required && reaches.is_some_and(|total| taken + total >= i16::from(lock.open_dc))
     }
 
+    /// Whether `who` is a door or a placeable.
+    fn situated(&self, who: ObjectId) -> bool {
+        self.view.thing(who).is_some_and(|thing| {
+            matches!(
+                thing.kind,
+                Some(crate::module::ObjectKind::Door | crate::module::ObjectKind::Placeable)
+            )
+        })
+    }
+
     /// Whether blows may break `target` open (`module::bashable`).
     fn bashable(&self, target: ObjectId) -> bool {
         self.view
@@ -85,6 +95,13 @@ impl Engine<'_> {
             GetLockLockable => truth(lock.is_some_and(|lock| lock.lockable)),
             GetLockUnlockDC => Value::Int(lock.map_or(0, |lock| i32::from(lock.open_dc))),
             GetLockLockDC => Value::Int(lock.map_or(0, |lock| i32::from(lock.close_dc))),
+            // A creature's actions: a door or placeable told to lock or
+            // unlock does nothing (it has no hands; scripts use `SetLocked`
+            // for that). Citadel Station's Exchange door is told to lock
+            // itself as Slusk's scene begins (`a_luxaslusk`); held to, it
+            // would shut the party in his office for good [verify in TSL's
+            // executable].
+            ActionUnlockObject | ActionLockObject if self.situated(caller) => Value::Int(0),
             ActionUnlockObject | ActionLockObject => self.queue(
                 caller,
                 Action::Lock {

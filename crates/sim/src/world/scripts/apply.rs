@@ -402,7 +402,10 @@ pub(in crate::world) fn apply(
             // A door opened by another opens away from it and runs its
             // `OnOpen` with that one its opener: from the next step's
             // scripts, the door open by then. One a script opens itself
-            // takes its first way.
+            // takes its first way, and runs its `OnOpen` too, its opener
+            // itself: Citadel Station's Exchange door is opened by its own
+            // `ActionOpenDoor` (`k_drd_death`) and its `OnOpen` (`a_luxa`)
+            // begins Slusk's scene.
             Change::Door { door, open, by } => {
                 let Some((_, mut object)) = objects.iter_mut().find(|(id, _)| id.0.0 == door.0)
                 else {
@@ -443,7 +446,7 @@ pub(in crate::world) fn apply(
                     Some(facts) if open => facts.opening(from),
                     _ => u8::from(open),
                 };
-                if open && by != door {
+                if open {
                     let opened = (door.0, script::last::OPENED);
                     scripts.state.last.insert(opened, by.0);
                     if let Some(script) = facts.and_then(|facts| Hook::Open.of(facts)) {
