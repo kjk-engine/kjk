@@ -44,8 +44,7 @@ is the merge's.
 ## At merge
 
 `.github/workflows/pin.yml` runs on `main` after a pull request with a bump
-file merges (the automerge workflow calls it; a merge or push by hand
-starts it by its paths). It runs `cargo xtask pin`: each bump, in the
+file merges (a merge or push to `main` starts it by its paths). It runs `cargo xtask pin`: each bump, in the
 order the files reached `main`, takes the next version with its history
 line; the files are removed; the pinned determinism run's hash is written
 into both workflows. Then the approved tests run on the result, and it is

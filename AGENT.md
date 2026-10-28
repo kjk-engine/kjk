@@ -67,9 +67,6 @@ merges it. What has gone wrong before, and the rule that prevents it:
   not reach.
 * **Never push, never merge.** Report branch, commits, evidence, decisions
   made, quirks, and what is not done.
-* **"Automerge it"** from the owner, to a session with an open pull request:
-  `gh pr edit <n> --add-label automerge`. The automerge workflow merges it
-  once ci passes; no waiting on ci, and the label off holds it back.
 * **A worktree's own build folder, seeded.** A new worktree's `target/`
   starts as a clone of the main checkout's (`docs/BUILD.md`), made
   before its first `cargo` command.
