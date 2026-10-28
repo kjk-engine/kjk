@@ -26,8 +26,14 @@ void DoDoorAction(object oTargetDoor, int nDoorAction);
 int DOOR_ACTION_BASH = 2;
 // 5
 object GetLastAttacker(object oAttackee = OBJECT_SELF);
+// 6
+void ActionAttack(object oAttackee, int bPassive = FALSE);
 "#;
-const SAYS: [(&str, u16, &str); 2] = [("probe_damaged", 1, "damaged"), ("probe_broke", 2, "broke")];
+const SAYS: [(&str, u16, &str); 3] = [
+    ("probe_damaged", 1, "damaged"),
+    ("probe_broke", 2, "broke"),
+    ("probe_attacked", 1, "attacked"),
+];
 
 fn library() -> crate::script::Library {
     use fmt_odyssey::ncs::{Const, Op};
@@ -74,11 +80,27 @@ fn library() -> crate::script::Library {
             args: 2,
         })
         .op(Op::Retn);
+    // The brute's heartbeat: `ActionAttack(GetObjectByTag("chest"))`.
+    let mut attack = script_ncs::probes::Asm::default();
+    attack
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::String(b"chest".to_vec())))
+        .op(Op::Action {
+            routine: 3,
+            args: 2,
+        })
+        .op(Op::Action {
+            routine: 6,
+            args: 2,
+        })
+        .op(Op::Retn);
     crate::probe::library(
         CATALOG,
         says.into_iter().chain([
             ("probe_bash".to_string(), bash.build()),
             ("probe_attacked".to_string(), attacked.build()),
+            ("probe_attack".to_string(), attack.build()),
         ]),
     )
 }
@@ -482,6 +504,141 @@ fn baton(traits: u8) -> Weapon {
     }
 }
 
+/// How long a script's attack of an object may take (sim ms), and how long
+/// the player stands out of its reach first, stepped 100 ms at a time.
+const ATTACK_WITHIN_MS: u64 = 30_000;
+const AWAY_MS: u64 = 5_000;
+/// The chest a script's attack strikes, after the trigger: unlocked, so no
+/// Bash breaks it, with the probe's attacked, damaged and death scripts.
+const CHEST: u32 = 2;
+
+fn chest(at: [f32; 2]) -> ObjectData {
+    let mut chest = placeable("chest", at, false, 10, Toughness::default());
+    chest
+        .scripts
+        .push(("OnMeleeAttacked".into(), "probe_attacked".into()));
+    chest
+}
+
+/// Steps `world` 100 ms at a time until the chest breaks or `until_ms`
+/// (sim ms): when it broke, its state then; the notices said go into
+/// `notices`.
+fn until_broken(
+    world: &mut super::super::SimWorld,
+    ticks: &mut u64,
+    until_ms: u64,
+    notices: &mut Vec<Notice>,
+) -> (Option<u64>, Option<ObjectState>) {
+    let input = crate::TickInput::default();
+    let mut last = None;
+    while *ticks < until_ms / 100 {
+        *ticks += 1;
+        let snapshot = crate::step(world, *ticks, &input, 100, crate::StepReason::Authority);
+        notices.extend(world.take_notices().into_iter().map(|(_, notice)| notice));
+        last = state(std::slice::from_ref(&snapshot), 0, CHEST);
+        if last.is_some_and(|state| state.state == look::DEAD) {
+            return (Some(snapshot.time_ms), last);
+        }
+    }
+    (None, last)
+}
+
+/// A brute whose heartbeat has it attack an unlocked chest beside it
+/// (`ActionAttack` on a placeable, KOTOR's attack of an object): it
+/// strikes it, a blow a round, though no Bash would (unlocked), until it
+/// breaks: when it broke. (Its scripts tell the player only: the player's
+/// own attack, below, hears them.)
+fn object_attacked() -> Result<Option<u64>, String> {
+    let mut world = world(|data| {
+        data.placements.extend(
+            [
+                chest([-6.5, -4.0]),
+                ObjectData {
+                    scripts: vec![("ScriptHeartbeat".into(), "probe_attack".into())],
+                    ..ObjectData::creature(
+                        "brute",
+                        "brute",
+                        floor_at([-5.0, -3.0]),
+                        crate::combat::Sheet::commoner(),
+                    )
+                },
+            ]
+            .map(Placement::Own),
+        );
+        Ok(())
+    })?;
+    let (broke, _) = until_broken(&mut world, &mut 0, ATTACK_WITHIN_MS, &mut Vec::new());
+    Ok(broke)
+}
+
+/// What `assigned` saw: the chest's damage and the attack the player was
+/// left with while out of reach, when it broke once within reach, whether
+/// it heard itself attacked, and the attack left after.
+type Assigned = (u16, Option<SimId>, Option<u64>, bool, Option<SimId>);
+
+/// Puts seat 0's player at `at` (the ground's own axes, metres).
+fn stand(world: &mut super::super::SimWorld, at: [f32; 2]) {
+    let at = floor_at(at);
+    let mut players = world
+        .world
+        .query::<(&super::super::Avatar, &mut super::super::Player)>();
+    for (_, mut player) in players.iter_mut(&mut world.world) {
+        player.0.origin[0] = at[0] / collision::UNIT;
+        player.0.origin[1] = at[1] / collision::UNIT;
+    }
+}
+
+/// The player told to attack an unlocked chest (an `Action::Attack` queued
+/// on it, as `AssignCommand(PC, ActionAttack(…))` queues it: TSL's Peragus
+/// shift console), out of its reach for `AWAY_MS`, then moved within it:
+/// its legs are its seat's, so nothing is struck from afar and the attack
+/// waits (`SimWorld::assigned_strike`); within reach it strikes.
+fn assigned() -> Result<Assigned, String> {
+    let mut world = world(|data| {
+        data.placements.push(Placement::Own(chest([-6.5, 3.5])));
+        Ok(())
+    })?;
+    let mut ids = world.world.query::<(
+        &super::super::Id,
+        Option<&super::super::Avatar>,
+        Option<&super::super::Object>,
+    )>();
+    let player = ids
+        .iter(&world.world)
+        .find(|(_, avatar, _)| avatar.is_some())
+        .map(|(id, ..)| id.0)
+        .ok_or("no player")?;
+    let chest = ids
+        .iter(&world.world)
+        .find(|(_, _, object)| object.is_some_and(|object| object.index == CHEST))
+        .map(|(id, ..)| id.0)
+        .ok_or("no chest")?;
+    stand(&mut world, NEAR);
+    world
+        .world
+        .resource_mut::<super::super::scripts::Scripts>()
+        .state
+        .queue(
+            script_ncs::vm::ObjectId(player.0),
+            crate::script::actions::Action::Attack {
+                target: script_ncs::vm::ObjectId(chest.0),
+                passive: false,
+            },
+        );
+    let (mut ticks, mut notices) = (0, Vec::new());
+    let (_, away) = until_broken(&mut world, &mut ticks, AWAY_MS, &mut notices);
+    let waiting = world.assigned_strike(player);
+    stand(&mut world, [-5.5, 3.5]);
+    let (broke, _) = until_broken(&mut world, &mut ticks, ATTACK_WITHIN_MS, &mut notices);
+    Ok((
+        away.map_or(u16::MAX, |chest| chest.damage),
+        waiting,
+        broke,
+        notices.contains(&Notice::Said("attacked".into())),
+        world.assigned_strike(player),
+    ))
+}
+
 /// An object's state after `step`.
 fn state(snapshots: &[crate::Snapshot], step: usize, index: u32) -> Option<ObjectState> {
     snapshots
@@ -603,6 +760,26 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             match scripted() {
                 Ok((Some(at), state)) => Ok(format!("broke at {at} ms: {state:?}")),
                 Ok((None, state)) => Err(format!("not broken: {state:?}")),
+                Err(why) => Err(why),
+            },
+        ),
+        (
+            "script_attacks_an_object",
+            match object_attacked() {
+                Ok(Some(at)) => Ok(format!("the unlocked chest broke at {at} ms")),
+                Ok(None) => Err("the unlocked chest never broke".into()),
+                Err(why) => Err(why),
+            },
+        ),
+        (
+            "player_strikes_what_it_was_told_to",
+            match assigned() {
+                Ok((0, Some(_), Some(at), true, None)) => Ok(format!(
+                    "untouched out of reach, the attack waiting; broke at {at} ms within it"
+                )),
+                Ok(seen) => Err(format!(
+                    "(damage away, waiting, broke at, attacked, left) {seen:?}"
+                )),
                 Err(why) => Err(why),
             },
         ),

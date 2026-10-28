@@ -1682,6 +1682,18 @@ impl SimWorld {
         &self.world.resource::<Scripts>().state.intents
     }
 
+    /// The door or placeable a script's attack has `who` (a player) strike
+    /// now, at the front of its queue: struck once it stands within
+    /// `script::DOOR_REACH` of it, its legs its seat's (`Action::Attack` on
+    /// an object). TSL's Peragus shift console's "[Destroy the console]".
+    pub fn assigned_strike(&self, who: SimId) -> Option<SimId> {
+        let state = &self.world.resource::<Scripts>().state;
+        match state.actions.get(&who.0)?.first()?.action {
+            crate::script::actions::Action::Attack { target, .. } => Some(SimId(target.0)),
+            _ => None,
+        }
+    }
+
     /// What the scripts did, for reports.
     pub fn script_report(&self) -> &Report {
         &self.world.resource::<Scripts>().report
