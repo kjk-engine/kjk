@@ -898,6 +898,7 @@ impl Engine<'_> {
     fn tagged<'a>(&'a self, tag: &str) -> impl Iterator<Item = super::Tagged> + 'a {
         let catalog = self.library.items();
         let wanted = key(tag);
+        let wanted_held = wanted.clone();
         let lying = self
             .state
             .lying_in(&self.view.module.name)
@@ -913,7 +914,36 @@ impl Engine<'_> {
                 kind: None,
                 at: lying.at,
             });
-        tagged(self.view, &self.out.made, tag).chain(lying)
+        // Then the items held here, as the games keep every item an object
+        // (a key or a datapad in a pocket is found): the party's, at the
+        // first PC, and those of an object in this area, at it. TSL's
+        // Czerka droid B-4D4 asks whether Opo Chano's credentials are
+        // anywhere (`c_havecreds`: `GetObjectByTag("DroidTechCreds")`).
+        let pc = self.view.first_pc(&self.state.party);
+        let held = self
+            .state
+            .items
+            .iter()
+            .filter(move |(_, item)| {
+                self.state
+                    .item_facts(catalog, &item.template)
+                    .is_some_and(|facts| facts.tag == wanted_held)
+            })
+            .filter_map(move |(id, item)| {
+                let at = if item.holder == crate::inventory::PARTY {
+                    self.position(pc)?
+                } else {
+                    self.position(ObjectId(item.holder))?
+                };
+                Some(super::Tagged {
+                    id: ObjectId(*id),
+                    kind: None,
+                    at,
+                })
+            });
+        tagged(self.view, &self.out.made, tag)
+            .chain(lying)
+            .chain(held)
     }
 
     /// The `nth` (from 1) nearest object to `from` tagged `tag`, but itself.

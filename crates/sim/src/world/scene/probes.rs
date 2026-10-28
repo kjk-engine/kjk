@@ -1504,7 +1504,8 @@ fn probe_rounds() -> crate::combat::rounds::Table {
 /// `c2a1` to `c2a5`; a baton's Power Attack `g1a1` and a blade's `f2a3`;
 /// bare hands `g8a*`. The target answers a hit with the table's damage
 /// clip, a miss with a parry holding a weapon and a dodge bare-handed, and
-/// the blow lands at the swing's `hit1`.
+/// the blow lands at the swing's `hit1`. One holding a heavy repeater (class
+/// 9, past the table's columns) answers with nothing, not a panic.
 fn round_clips_by_wield() -> Found {
     use crate::combat::Delivery;
     use crate::combat::rounds::{Answer, Side};
@@ -1574,10 +1575,22 @@ fn round_clips_by_wield() -> Found {
         .map(|(name, got, _)| format!("{name}: {got:?}"))
         .collect();
     let answer = |landed, target| table.answer(C2A1, Answer::of_round(landed, target), target);
+    let heavy = Sheet {
+        weapons: [
+            Some(Weapon {
+                delivery: Delivery::Blaster(crate::combat::sheet::Blaster::Repeater),
+                base_item: 24,
+                ..Weapon::UNARMED
+            }),
+            None,
+        ],
+        ..Sheet::commoner()
+    };
     let answers = [
         answer(true, side(&blade)),
         answer(false, side(&baton)),
         answer(false, side(&bare)),
+        answer(true, side(&heavy)),
     ];
     // K1's classes with a weapon in each hand go by the left one's.
     let pair = |right: Delivery, left: Delivery| {
@@ -1593,7 +1606,13 @@ fn round_clips_by_wield() -> Found {
     let hits = [table.hit_ms(C2A1), table.hit_ms(G1A1), table.hit_ms(B5A1)];
     check(
         wrong.is_empty()
-            && answers == [Some(PROBE_DAMAGE), Some(PROBE_PARRY), Some(PROBE_DODGE)]
+            && answers
+                == [
+                    Some(PROBE_DAMAGE),
+                    Some(PROBE_PARRY),
+                    Some(PROBE_DODGE),
+                    None,
+                ]
             && hits == [Some(1267), Some(500), None]
             && classes == [4, 0, 8],
         format!("{wrong:?}; answers {answers:?}; hits {hits:?}; classes {classes:?}"),
