@@ -162,11 +162,31 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // gzipped tar keeps the program's executable bit.
     let mut tar = Command::new("tar");
     tar.current_dir(&packages);
-    if os == "windows" {
-        tar.args(["-a", "-c", "-f"]);
-    } else {
-        tar.args(["-c", "-z", "-f"]);
+    // A tar names no one: its files are owned by number 0 with no user or
+    // group name (the builder's login otherwise, in bsdtar on macOS and GNU
+    // tar on Linux alike), and macOS adds none of its metadata or extended
+    // attributes.
+    match os {
+        "windows" => {
+            tar.args(["-a", "-c"]);
+        }
+        "macos" => {
+            tar.env("COPYFILE_DISABLE", "1").args([
+                "-c",
+                "-z",
+                "--uid=0",
+                "--gid=0",
+                "--numeric-owner",
+                "--no-mac-metadata",
+                "--no-xattrs",
+                "--no-acls",
+            ]);
+        }
+        _ => {
+            tar.args(["-c", "-z", "--owner=0", "--group=0", "--numeric-owner"]);
+        }
     }
+    tar.arg("-f");
     let status = tar
         .arg(&archive)
         .arg(&name)
