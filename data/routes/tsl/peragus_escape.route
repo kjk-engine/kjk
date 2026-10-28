@@ -1,10 +1,11 @@
 # Peragus, the escape (TSL, 103PER, 106PER to the Ebon Hawk): T3-M4 found
 # in the fuel pipe and rejoining, the concealed stash's Hangar 25 control
 # conduit, the emergency field shut down, the hangar's console (the
-# conduit replaced, the door open), the decontamination console, and
-# aboard the Ebon Hawk: the Sith boarders fought, the asteroid field
-# (keep our distance, someone may be alive: LSP), the escape, Kreia and
-# Atton. Starts from the Harbinger's checkpoint:
+# conduit replaced, the door open), the decontamination console, the
+# hangar's turret (the troopers let aboard) and the boarders fought on the
+# Ebon Hawk, the asteroid field (keep our distance, someone may be alive:
+# LSP), the escape, Kreia and Atton, and the galaxy map to Telos. Starts
+# from the Harbinger's checkpoint:
 #   kjk playthrough tsl @peragus_escape data/routes/tsl/peragus_escape.route --god
 # Walkthrough: DSimpson's "Escape from Peragus" (context/walkthroughs/tsl/).
 to WP_T3_DEAD          # T3 in the fuel pipe: he talks as the party comes up
@@ -47,3 +48,29 @@ leader player
 # Atton wants the laser turret (DSimpson lets the troopers board and
 # fights them inside).
 exit TO_107PERm      # up the ramp: aboard
+module 107per        # Atton's 106percut: the turret (permov04), troopers sent every 2 s
+turrets              # until all 25 troopers are dead or aboard; Atton's turend answered
+module 005ebo        # the boarded Ebon Hawk
+fight 60             # the boarders (DSimpson: let them board, fight them inside)
+module 003ebo        # after the last falls: Kreia (turend's end) and the escape
+talk                 # met by turend's end
+# The asteroids (DSimpson: keep our distance, and "no, someone might be
+# alive", LSP):
+say Just do your best to keep your distance
+say No - someone might still be alive
+talk                 # 003atton: the asteroids blown (a_next_scene: the next scene)
+talk                 # 003atton again: all of them on what happened; Kreia to the crew quarters
+save peragus_escaped
+# Kreia, sent to the port room (DSimpson's light side answer about Atton
+# at her end), then back to Atton (his LSP), then the galaxy map, open once
+# Kreia has been heard:
+say The fool has a name
+use kreia            # in the crew quarters: 003kreia
+talk
+say ease off the insults
+use Atton
+talk
+use Galaxymap
+travel 10            # Telos: Citadel Station (planetary.2da; the map offers it, not 9)
+module 201tel        # the Ebon Hawk docks at Citadel Station
+save telos_arrival
