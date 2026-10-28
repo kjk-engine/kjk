@@ -1,0 +1,70 @@
+# The Star Forge (K1, sta_m45aa deck one, sta_m45ab deck two, sta_m45ac
+# the command centre, sta_m45ad the viewing platform), the light side's
+# way: the Jedi at the landing, the decks fought through, Bastila brought
+# back to the light (her Battle Meditation turned on the Sith fleet), the
+# six droid generators shut down, Malak fought while he drains the captive
+# Jedi until he falls; the Star Forge destroyed, the ceremony, the end.
+# Starts from the Unknown World route's checkpoint (aboard, at the Forge):
+#   kjk playthrough k1 @star_forge data/routes/k1/star_forge.route --god
+exit ebn12_ebonexit      # down the ramp: the Jedi there, the dark Jedi
+talk
+fight 30
+save sf_landed
+exit sta45a_west_45b     # deck one: droids, troopers, dark Jedi
+save sf_deck2
+fight 40                 # deck two's turrets: its door to the command centre
+                         # opens only once they are destroyed (the door says so)
+use sta45b_medium4       # by the way down: 3 computer spikes
+exit sta45b_sta45c       # deck two, to the command centre
+save sf_command
+use sta45c_medium1       # the lower floor's container: 5 computer spikes
+# Bastila: no killing her; the light, the bond, love (Persuades, a
+# persuasive build since Korriban's).
+say i could never kill you
+say you can reject the dark side
+say use our bond
+say turn to the jedi code
+say look into your heart
+say help us defeat the sith
+say i trust you enough
+say because i love you
+say i do love you
+say you could use your battle meditation
+use k45_door_bast1       # Malak and Bastila, seen from afar
+talk
+talk                     # Bastila: "I knew you'd come"
+while K_PSTA_BASTSAVE=0  # her duel, round by round, each with words
+fight 30
+talk
+end
+save sf_bastila
+to k45_strt_malak        # Malak at his door: the generators started
+talk
+save sf_generators
+# Each generator's "Disable" costs computer spikes by the slicer's Computer
+# Use (k_psta_token: 8 at none, 3 at 20, 2 at 24). The route stands in the
+# levelled character's Computer Use, as Manaan's stands in its Persuade: the
+# party comes with 15 to 17 (at 20, five took 15 and the sixth was short), so
+# 24, the six taking 12.
+skill computer=24
+use k45_plc_assdroid     # each shut down (Computer Use, spikes)
+talk
+use k45_plc_mk2droid
+talk
+use k45_plc_mk4droid
+talk
+use k45_plc_excharge
+talk
+use k45_plc_prbdroid
+talk
+use k45_plc_wardroid
+talk
+fight 30
+exit sta45c_sta45d       # the viewing platform
+save sf_malak
+to k45_init_malak        # Malak; between bouts he drains a captive Jedi
+talk                     # (eight of them) and is fought again
+while STA_MALAK_DEAD=0   # (each round a bout; his drains' scenes play
+fight 60                 # as they come; the loop reads its global once the
+end                      # world has settled, the playthrough's `Settle`)
+credits                  # the Forge destroyed, the ceremony, EndGame

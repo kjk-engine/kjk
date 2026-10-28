@@ -1,0 +1,304 @@
+[chapter]
+title = "Walking"
+order = 72
+summary = """
+How a character walks to a place it is sent: a script's move, following the
+party leader, or walking to a target. Outside combat, each character walks
+and runs at its own speeds, raised or lowered by movement speed effects. The
+walking path keeps {walking.route.clearance:m} from walls.
+"""
+
+[route]
+title = "Paths"
+applies = ["kind:creature", "kind:companion", "kind:player"]
+summary = """
+A character walks its path from corner to corner and arrives within
+{walking.route.arrived:bare} times {walking.route.reached:m} of its goal. A
+character that gets no closer to its next corner for
+{walking.route.stall_ms:s} is blocked: it finds a new path, skipping a corner
+it cannot reach, and on every other block it steps aside for
+{walking.route.sidestep_ms:s}. A character standing in the way is walked
+around.
+"""
+
+[route.clearance]
+name = "Wall Clearance"
+value = 20.0
+unit = "units"
+range = [15.0, 40.0]
+summary = "A path keeps a character's center {walking.route.clearance:m} from walls at its corners."
+source = "ours"
+see = "sim::walk::route"
+
+[route.reached]
+name = "Corner Reached"
+value = 12.0
+unit = "units"
+range = [1.0, 64.0]
+summary = "A character within {walking.route.reached:m} of a corner has reached it."
+source = "ours"
+see = "sim::walk::Walker::command"
+
+[route.arrived]
+name = "Arrival Distance"
+value = 2.0
+unit = "×"
+range = [1.0, 10.0]
+summary = "A character has arrived within {walking.route.arrived:bare} times the corner distance of its goal."
+source = "ours"
+see = "sim::walk::Walker::arrived"
+
+[route.headway]
+name = "Progress"
+value = 1.0
+unit = "units"
+range = [0.0, 16.0]
+summary = "A character that gets {walking.route.headway:bare} inch or more closer to its corner is not blocked."
+source = "ours"
+see = "sim::walk::Walker::command"
+
+[route.stall_ms]
+name = "Blocked"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [100, 10000]
+summary = "A character that gets no closer to its corner for {walking.route.stall_ms:s} is blocked and finds a new path."
+source = "ours"
+see = "sim::walk::Walker::command"
+
+[route.sidestep_ms]
+name = "Step Aside"
+type = "u64"
+value = 500
+unit = "ms"
+range = [0, 5000]
+summary = "A blocked character steps aside for {walking.route.sidestep_ms:s}, to the right and left by turns."
+source = "ours"
+see = "sim::walk::Walker::command"
+
+[route.pass_margin]
+name = "Passing Room"
+value = 6.0
+unit = "units"
+range = [0.0, 32.0]
+summary = "Two characters pass with a body's width and {walking.route.pass_margin:m} between their centers."
+source = "ours"
+see = "sim::walk::Walker::around"
+
+[route.skip_passes]
+name = "Skipped Corner"
+value = 1.5
+range = [0.0, 10.0]
+summary = "A blocked character skips a corner within {walking.route.skip_passes:bare} times the passing room."
+source = "ours (Anchorhead's commoner on the way to the gate)"
+see = "sim::walk::Walker::plan"
+
+[route.ahead_passes]
+name = "Character in the Way"
+value = 3.0
+range = [0.0, 10.0]
+summary = "A blocked character walks around another standing up to {walking.route.ahead_passes:bare} times the passing room ahead of it."
+source = "ours"
+see = "sim::walk::Walker::around"
+
+[route.sides]
+name = "Walking Around"
+value = [1.5, 2.5]
+labels = ["near side", "wide side"]
+range = [1.0, 10.0]
+summary = "A character walks around another at {walking.route.sides[0]:bare} times the passing room, or {walking.route.sides[1]:bare} times when a crowd blocks both near sides."
+source = "ours (Gorton Colu's speech)"
+see = "sim::walk::Walker::around"
+
+[route.probe]
+name = "Clear Way"
+value = [0.5, 0.6]
+labels = ["distance checked", "spot checked"]
+range = [0.0, 2.0]
+summary = "Before moving, a character checks the way ahead for walls and drops: {walking.route.probe[0]:bare} of its movement ahead, and a spot {walking.route.probe[1]:bare} of the way along must have floor to stand on."
+source = "JA: NPC path checks"
+see = "sim::walk::way_clear"
+
+[route.drop_steps]
+name = "Drop"
+value = 4.0
+range = [0.0, 20.0]
+summary = "A character can walk down to floor no more than {walking.route.drop_steps:bare} steps below."
+source = "JA: NPC path checks"
+see = "sim::walk::stands"
+
+[pace]
+title = "Movement Speed"
+summary = """
+Outside combat, a character walks and runs at its own speeds, raised or
+lowered by movement speed effects from {walking.pace.least_multiplier:bare} to
+{walking.pace.most_multiplier:bare} times normal. A character leaving
+combat slows to those speeds over {walking.pace.ease_ms:s}.
+"""
+
+[pace.ease_ms]
+name = "Leaving Combat"
+type = "u64"
+value = 500
+unit = "ms"
+range = [0, 5000]
+summary = "A character leaving combat slows to its walking speeds over {walking.pace.ease_ms:s}."
+source = "ours"
+see = "sim::walk::pace_kept"
+
+[pace.least_multiplier]
+name = "Slowest Movement"
+value = 0.125
+unit = "×"
+range = [0.0, 1.0]
+summary = "Effects and powers can slow a character's walking and running to no less than {walking.pace.least_multiplier:bare} times normal."
+source = "ours [verify against KOTOR's executable]"
+see = "sim::walk::kotor_speed"
+
+[pace.most_multiplier]
+name = "Fastest Movement"
+value = 1.5
+unit = "×"
+range = [1.0, 5.0]
+summary = "Burst of Speed, adrenals and other bonuses can raise a character's walking and running to no more than {walking.pace.most_multiplier:bare} times normal."
+source = "ours [verify against KOTOR's executable]"
+see = "sim::walk::kotor_speed"
+applies = ["spell:FORCE_POWER_SPEED_BURST", "spell:FORCE_POWER_KNIGHT_SPEED", "spell:FORCE_POWER_SPEED_MASTERY", "kind:adrenal"]
+
+[pace.least_walk]
+name = "Slowest Walk"
+value = 0.1
+unit = "m/s"
+range = [0.0, 1.0]
+summary = "A character slowed below {walking.pace.least_walk:bare} meters per second stands still."
+source = "ours"
+see = "sim::walk::kotor_speed"
+
+[pace.least_run]
+name = "Slowest Run"
+value = 1.0
+unit = "m/s"
+range = [0.0, 5.0]
+summary = "A running character moves at least {walking.pace.least_run:bare} meter per second."
+source = "ours"
+see = "sim::walk::kotor_speed"
+
+[walker]
+title = "Walking in Conversations"
+summary = """
+During a conversation, a character walks its path straight from corner to
+corner, never past one. It pushes aside an idle, friendly character in its
+way, and walks around any other. It gives up after bumping into the same
+character from the same spot a few times, or when no side is free. A closed
+door stops it until the door opens.
+"""
+
+[walker.lift]
+name = "Floor Height"
+value = 0.125
+unit = "units"
+range = [0.0, 2.0]
+summary = "A character walking in a conversation is held {walking.walker.lift:bare} inch above the floor."
+source = "ours"
+see = "sim::walk::kotor_step"
+
+[walker.push_margin_m]
+name = "Pushed Aside"
+value = 0.1
+unit = "m"
+range = [0.0, 2.0]
+summary = "A character pushed aside is moved {walking.walker.push_margin_m:bare} meters beyond the two characters' personal space, out of the walker's way."
+source = "ours, after KOTOR's walker's bump"
+see = "sim::walk::pushed_aside"
+
+[walker.push_rings]
+name = "Pushed Aside Spots"
+value = [8.0, 16.0, 24.0, 32.0]
+labels = ["first", "second", "third", "fourth"]
+unit = "units"
+range = [0.0, 128.0]
+summary = "If the first spot is blocked, a pushed character is placed in the nearest free spot from {walking.walker.push_rings[0]:m} to {walking.walker.push_rings[3]:m} away, in eight directions."
+source = "ours"
+see = "sim::walk::pushed_aside"
+
+[searches]
+title = "Finding the Floor"
+summary = """
+A walking character finds the floor below and above it, below a script's
+destination, back onto walkable floor from a ledge, out of a doorway, and
+around a pillar.
+"""
+
+[searches.floor_below_m]
+name = "Floor Below"
+value = 1.0
+unit = "m"
+range = [0.0, 10.0]
+summary = "The floor is found up to {walking.searches.floor_below_m:bare} meter below a character."
+source = "ours"
+see = "sim::walk::kotor_step"
+
+[searches.floor_above_m]
+name = "Floor Above"
+value = 0.5
+unit = "m"
+range = [0.0, 10.0]
+summary = "The floor is found up to {walking.searches.floor_above_m:bare} meters above a character."
+source = "ours"
+see = "sim::walk::kotor_step"
+
+[searches.goal_column_m]
+name = "Destination Floor"
+value = 20.0
+unit = "m"
+range = [0.0, 100.0]
+summary = "The floor of a script's destination is found up to {walking.searches.goal_column_m:bare} meters above or below it."
+source = "ours (KOTOR's movers)"
+see = "sim::walk::on_floor"
+
+[searches.back_on_m]
+name = "Return to Floor"
+value = 6.0
+unit = "m"
+range = [0.0, 50.0]
+summary = "A character off the walkable floor finds its way back within {walking.searches.back_on_m:bare} meters. Beyond that, no path leads from where it stands."
+source = "ours"
+see = "sim::walk::back_on"
+
+[searches.doorway_reach]
+name = "Doorway Search"
+value = 1.5
+unit = "m"
+range = [0.0, 10.0]
+summary = "The floor beyond a doorway is found up to {walking.searches.doorway_reach:bare} meters out, every {walking.searches.doorway_step:bare} meters."
+source = "ours"
+see = "sim::walk::outside"
+
+[searches.doorway_step]
+name = "Doorway Search Step"
+value = 0.25
+unit = "m"
+range = [0.05, 2.0]
+summary = "The floor beyond a doorway is checked every {walking.searches.doorway_step:bare} meters."
+source = "ours"
+see = "sim::walk::outside"
+
+[searches.clear_rings]
+name = "Around a Pillar"
+value = [6.0, 12.0, 18.0, 24.0]
+labels = ["first", "second", "third", "fourth"]
+unit = "units"
+range = [0.0, 128.0]
+summary = "A path corner a character does not fit at, such as a pillar or pipe, is moved to the nearest spot from {walking.searches.clear_rings[0]:m} to {walking.searches.clear_rings[3]:m} away, in eight directions, where it fits."
+source = "ours"
+see = "sim::walk::clear"
+
+[searches.straight_step]
+name = "Straight Path Check"
+value = 24.0
+unit = "units"
+range = [1.0, 128.0]
+summary = "A straight walk is checked for floor every {walking.searches.straight_step:m}."
+source = "JA: a Jedi NPC's path checks"
+see = "sim::walk::straight"

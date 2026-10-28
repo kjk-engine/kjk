@@ -1,0 +1,6 @@
+# The flags every k1 route plays with in `kjk chain`, before its header's
+# own (`kjk chain --bare` leaves them out). The routes are written for this
+# build: Security 2 from the start (the Endar Spire's lockers and doors, and
+# the checkpoints after carry it), and blows that end fights quickly, so a
+# route tests what the scripts and the world do, not the fights' balance.
+--mighty --skill security=2

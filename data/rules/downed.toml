@@ -1,0 +1,90 @@
+[chapter]
+title = "Falling and Reviving"
+order = 54
+summary = """
+A party member reduced to 0 vitality points falls unconscious instead of
+dying. It gets up when combat ends, or sooner if another party member
+revives it. If the entire party falls, the game is over.
+"""
+detail = """
+Other creatures die at 0 vitality points. An unconscious character cannot
+act, cannot be attacked or healed, and gives no experience.
+"""
+
+[rising]
+title = "Getting Up"
+summary = """
+Once combat ends, an unconscious party member that has been down at least
+{downed.rising.down_min_ms:s} gets up with {downed.rising.rise_hp:bare}
+hundredths of a vitality point. A character leaving the party gets up at
+once.
+"""
+applies = ["kind:player", "kind:companion"]
+
+[rising.down_min_ms]
+name = "Time Unconscious"
+type = "u64"
+value = 2000
+unit = "ms"
+range = [0, 60000]
+summary = "An unconscious party member stays down at least {downed.rising.down_min_ms:s} before it can get up."
+source = "ours (I30 P11)"
+see = "sim::world::falls::falls"
+applies = ["kind:player", "kind:companion"]
+
+[rising.rise_hp]
+name = "Vitality on Rising"
+type = "i32"
+value = 100
+range = [1, 100000]
+summary = "A party member gets up with {downed.rising.rise_hp:bare} hundredths of a vitality point."
+source = "K1 [verify]"
+see = "sim::world::falls::stand"
+applies = ["kind:player", "kind:companion"]
+
+[revive]
+title = "Reviving"
+summary = """
+A party member standing still beside an unconscious ally can revive it by
+holding [Use]. A revive takes {downed.revive.ms:s}, less
+{downed.revive.rank_ms:s} for each rank of Treat Injury (Repair for a
+droid), and never less than {downed.revive.least_ms:s}.
+"""
+detail = """
+Moving, attacking, being stunned, knocked down or hit cancels the revive.
+Party members under AI control do not revive others.
+"""
+applies = ["skill:TreatInjury", "skill:Repair", "kind:player", "kind:companion"]
+
+[revive.ms]
+name = "Revive Time"
+type = "u32"
+value = 3000
+unit = "ms"
+range = [0, 60000]
+summary = "A character with no ranks in Treat Injury revives an ally in {downed.revive.ms:s}."
+source = "I30 P11's \"a few seconds\" (ours)"
+see = "sim::world::falls::revive_ms"
+applies = ["kind:player", "kind:companion"]
+
+[revive.rank_ms]
+name = "Revive Time per Rank"
+type = "u32"
+value = 100
+unit = "ms"
+range = [0, 1000]
+summary = "Each rank of Treat Injury (Repair, for a droid) takes {downed.revive.rank_ms:s} off a revive."
+source = "ours (as `combat::items::heal_ms`)"
+see = "sim::world::falls::revive_ms"
+applies = ["skill:TreatInjury", "skill:Repair"]
+
+[revive.least_ms]
+name = "Shortest Revive"
+type = "u32"
+value = 1000
+unit = "ms"
+range = [0, 60000]
+summary = "A revive always takes at least {downed.revive.least_ms:s}."
+source = "ours"
+see = "sim::world::falls::revive_ms"
+applies = ["skill:TreatInjury", "skill:Repair"]

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>kjk: third-party licences</title>
+<style>
+body { font: 15px/1.5 system-ui, sans-serif; max-width: 52rem; margin: 2rem auto; padding: 0 1rem; color: #222; background: #fff; }
+pre { white-space: pre-wrap; background: #f4f4f4; padding: 1rem; font-size: 13px; }
+h2 { border-top: 1px solid #ccc; padding-top: 1.5rem; }
+</style>
+</head>
+<body>
+<h1>Third-party licences</h1>
+<p>kjk is MIT (see LICENSE and NOTICE). It is built from the Rust crates
+below, under the licences they carry. The MPL-2.0 crates are used unmodified;
+their source is at the crates.io link beside each.</p>
+<h2>Overview</h2>
+<ul>
+{{#each overview}}<li><a href="#{{id}}">{{name}}</a> ({{count}})</li>
+{{/each}}</ul>
+{{#each licenses}}
+<h2 id="{{id}}">{{name}}</h2>
+<p>Used by:</p>
+<ul>
+{{#each used_by}}<li><a href="https://crates.io/crates/{{crate.name}}/{{crate.version}}">{{crate.name}} {{crate.version}}</a></li>
+{{/each}}</ul>
+<pre>{{text}}</pre>
+{{/each}}
+</body>
+</html>

@@ -1,0 +1,11 @@
+/context/
+/.env
+/kjk-artifacts/
+/target/
+/screenshot-*.png
+/.claude/worktrees/
+/.claude/settings.local.json
+.DS_Store
+/design/promo/
+/.claude/launch.json
+THIRD-PARTY-LICENSES.html

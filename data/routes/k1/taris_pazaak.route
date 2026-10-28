@@ -1,0 +1,18 @@
+# Taris, the Upper City cantina's pazaak (K1, tar_m02ae): Garouk's deck
+# bought and his lesson (the tutorial, no wager), then a match with Niklos
+# for 40 credits, played out to his end script, which starts his
+# conversation again with the result. A match is played as
+# `sim::pazaak::Match::advice` says:
+#   kjk playthrough k1 tar_m02ae data/routes/k1/taris_pazaak.route
+gold 200                 # a stand-in for the credits a run brings here
+say buy your deck        # Garouk: fifty credits for his deck...
+say pazaak lesson        # ...and his free lesson
+use Garouk021
+talk
+pazaak                   # the lesson (his end script asks for "Garouk21": none answers)
+say let's play           # Niklos
+use Niklos021
+talk
+pazaak                   # 40 credits on it
+pick 4                   # Niklos again, won or lost: away
+talk

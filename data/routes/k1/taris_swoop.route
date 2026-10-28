@@ -1,0 +1,40 @@
+# Taris, the swoop race (K1, tar_m03ae the Bek base, tar_m03af the swoop
+# platform): the accelerator to Gadon, the races, Brejik's betrayal and
+# the fight, Bastila freed, back to the Upper City's apartment. Starts from
+# the Vulkar base's checkpoint:
+#   kjk playthrough k1 @vulkar_out data/routes/k1/taris_swoop.route --god
+#
+# The races are played (tar_m03mg, the swoop minigame, `race`): the race's
+# own script sets the time and takes the party back to the pits.
+exit tar03_bekdoor       # the Lower City into the Bek base
+say i have the accelerator right here
+use GadonThek112         # the accelerator handed over; the race is on
+talk
+save race_eve
+module tar_m03af         # Gadon's mechanic sends the party to the platform
+save swoop_pits
+use RaceAnnoun031        # the first race
+talk
+race                     # tar_m03mg, back to the pits at its end
+to tar03_postrace
+talk
+save race1
+use RaceAnnoun031        # the second: a better time wins it
+talk
+race                     # tar_m03mg, back to the pits at its end
+to tar03_postrace
+talk                     # the mechanic
+if Tar_SwoopStatus=0     # lost (the bot's time not good enough): again,
+use RaceAnnoun031        # as a player would
+talk
+race
+to tar03_postrace
+talk
+end
+talk                     # the announcer, Brejik, Bastila
+fight 20
+save brejik_dead
+use Bastilla03           # Bastila, freed
+talk
+module tar_m02af         # the apartment
+save bastila

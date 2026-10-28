@@ -1,0 +1,18 @@
+[package]
+name = "collision_odyssey"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+collision.workspace = true
+fmt_odyssey.workspace = true
+asset_odyssey.workspace = true
+
+[features]
+probes = ["collision/probes"]
+
+[lints]
+workspace = true

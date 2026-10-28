@@ -1,0 +1,11 @@
+# The owner's chest touch-ups (asset_odyssey::body_morph), one per line:
+#
+#   <appearance.2da label prefix> <amount>
+#
+# A body drawn for an appearance.2da row whose label starts so (any case),
+# or a body model only such rows name, has its chest drawn larger by
+# <amount> at the centre of each side (0.7: 70%), easing to nothing at the
+# edge. The models are untouched. `#` to the end of a line is a comment.
+
+# Bastila's rows: her own, cutscene and slave ones.
+party_npc_bastila 0.7

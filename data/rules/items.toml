@@ -1,0 +1,655 @@
+[chapter]
+title = "Items"
+order = 13
+summary = """
+Medpacs, repair kits, stims and energy shields; item properties and their
+limits; upgrades; stores and the workbench; and what the dead leave behind.
+"""
+
+[using]
+title = "Using Items in Combat"
+summary = """
+A medpac, stim or energy shield is used from its own key. The medpac key
+uses an antidote kit if the character is poisoned or weakened, otherwise a
+medpac (a repair kit for a droid), otherwise a squad recovery stim. A
+medpac or repair kit takes effect when its use is complete; an energy
+shield or stim takes effect at once.
+"""
+detail = """
+Only one energy shield and one stim can be active at a time. Opponents also
+use medpacs, shields and stims in combat.
+"""
+applies = ["kind:medpac", "kind:repairkit", "kind:shield", "kind:stim", "kind:antidote"]
+
+[using.heal_ms]
+name = "Healing Time"
+type = "u64"
+value = 1500
+unit = "ms"
+range = [0, 10000]
+summary = "Using a medpac or repair kit takes {items.using.heal_ms:s} for a character with no skill ranks."
+source = "I22 section 5 (ours)"
+see = "sim::combat::items::heal_ms"
+applies = ["kind:medpac", "kind:repairkit"]
+
+[using.per_rank_ms]
+name = "Healing Time per Rank"
+type = "u64"
+value = 100
+unit = "ms"
+range = [0, 1000]
+summary = "Each rank of Treat Injury (Repair for a droid) takes {items.using.per_rank_ms:s} off the time to use a medpac or repair kit."
+source = "I22 section 5 (ours)"
+see = "sim::combat::items::heal_ms"
+applies = ["kind:medpac", "kind:repairkit", "skill:TREAT_INJURY", "skill:REPAIR"]
+
+[using.least_ms]
+name = "Fastest Healing"
+type = "u64"
+value = 500
+unit = "ms"
+range = [0, 10000]
+summary = "Using a medpac or repair kit always takes at least {items.using.least_ms:s}."
+source = "I22 section 5 (ours)"
+see = "sim::combat::items::heal_ms"
+applies = ["kind:medpac", "kind:repairkit"]
+
+[using.quick_ms]
+name = "Shield and Stim Use"
+type = "i32"
+value = 500
+unit = "ms"
+range = [0, 5000]
+summary = "Using an energy shield or stim keeps the character from attacking for {items.using.quick_ms:s}."
+source = "I22 section 7 (ours)"
+see = "sim::combat::items::QUICK_MS"
+applies = ["kind:shield", "kind:stim"]
+
+[medpacs]
+title = "Medpacs"
+summary = """
+Medpacs heal {items.medpacs.points[0]:bare} vitality points + WIS modifier
++ user's skill in Treat Injury. Advanced medpacs heal
+{items.medpacs.points[1]:bare} vitality points + WIS modifier +
+({items.medpacs.per_rank[1]:bare} x user's skill in Treat Injury). Life
+support packs heal {items.medpacs.points[2]:bare} vitality points + WIS
+modifier + ({items.medpacs.per_rank[2]:bare} x user's skill in Treat
+Injury). They cannot be used by droids. An antidote kit cures poison and
+restores lost attributes.
+"""
+applies = ["kind:medpac", "spell:ITEM_ABILITY_MED_PACK", "spell:ITEM_ABILITY_ADVANCED_MED_PACK", "spell:ITEM_ABILITY_LIFE_SUPPORT_KIT", "skill:TREAT_INJURY"]
+
+[medpacs.points]
+name = "Medpac Healing"
+type = "u8"
+value = [10, 20, 30]
+labels = ["Medpac", "Advanced Medpac", "Life Support Pack"]
+unit = "HP"
+range = [0, 255]
+summary = "Medpacs heal {items.medpacs.points[0]:bare}, {items.medpacs.points[1]:bare} or {items.medpacs.points[2]:bare} vitality points, before WIS modifier and Treat Injury."
+source = "K1's `k_sup_healing`"
+see = "sim::combat::items::use_of"
+
+[medpacs.per_rank]
+name = "Medpac Healing per Rank"
+type = "u8"
+value = [1, 2, 3]
+labels = ["Medpac", "Advanced Medpac", "Life Support Pack"]
+unit = "HP"
+range = [0, 20]
+summary = "Each rank of Treat Injury adds {items.medpacs.per_rank[0]:bare}, {items.medpacs.per_rank[1]:bare} or {items.medpacs.per_rank[2]:bare} vitality points to a medpac's healing."
+source = "K1's `k_sup_healing`"
+see = "sim::combat::items::use_of"
+
+[repair_kits]
+title = "Repair Kits"
+summary = """
+Repair kits repair {items.repair_kits.points[0]:bare} vitality points + INT
+modifier + user's skill in Repair. Advanced repair kits repair
+{items.repair_kits.points[1]:bare} vitality points + INT modifier +
+({items.repair_kits.per_rank[1]:bare} x user's skill in Repair).
+Construction kits repair {items.repair_kits.points[2]:bare} vitality points
++ INT modifier + ({items.repair_kits.per_rank[2]:bare} x user's skill in
+Repair). They can only be used by droids.
+"""
+applies = ["kind:repairkit", "kind:droid", "spell:ITEM_ABILITY_DROID_REPAIR_KIT", "spell:ITEM_ABILITY_DROID_REPAIR_KIT_ADV", "spell:ITEM_ABILITY_DROID_CONSTRUCTION_KIT", "skill:REPAIR"]
+
+[repair_kits.points]
+name = "Repair Kit Repair"
+type = "u8"
+value = [15, 25, 35]
+labels = ["Repair Kit", "Advanced Repair Kit", "Construction Kit"]
+unit = "HP"
+range = [0, 255]
+summary = "Repair kits repair {items.repair_kits.points[0]:bare}, {items.repair_kits.points[1]:bare} or {items.repair_kits.points[2]:bare} vitality points, before INT modifier and Repair."
+source = "K1's `k_sup_healing`"
+see = "sim::combat::items::use_of"
+
+[repair_kits.per_rank]
+name = "Repair Kit Repair per Rank"
+type = "u8"
+value = [1, 2, 3]
+labels = ["Repair Kit", "Advanced Repair Kit", "Construction Kit"]
+unit = "HP"
+range = [0, 20]
+summary = "Each rank of Repair adds {items.repair_kits.per_rank[0]:bare}, {items.repair_kits.per_rank[1]:bare} or {items.repair_kits.per_rank[2]:bare} vitality points to a repair kit's repair."
+source = "K1's `k_sup_healing`"
+see = "sim::combat::items::use_of"
+
+[squad_stim]
+title = "Squad Recovery Stim"
+summary = """
+Heals the user and every ally nearby, droids included.
+"""
+applies = ["kind:stim", "spell:ITEM_ABILITY_RECOVERY_STIM"]
+
+[squad_stim.points]
+name = "Squad Stim Healing"
+type = "u8"
+value = 30
+unit = "HP"
+range = [0, 255]
+summary = "A squad recovery stim heals {items.squad_stim.points:bare} vitality points to each ally it reaches."
+source = "K1's `k_sup_healing`"
+see = "sim::combat::items::use_of"
+
+[squad_stim.reach_m]
+name = "Squad Stim Range"
+value = 20.0
+unit = "m"
+range = [0.0, 200.0]
+summary = "A squad recovery stim heals allies within {items.squad_stim.reach_m:bare} meters of its user."
+source = "ours (a stand-in's)"
+see = "sim::combat::items::SQUAD_REACH"
+
+[stims]
+title = "Stims"
+summary = """
+An adrenal stim raises Strength (adrenal strength), Dexterity (adrenal
+alacrity) or Constitution (adrenal stamina). A battle stimulant gives a
+bonus to attack and damage, and bonus vitality points that are lost first
+and fade when it ends. Only one stim can be active at a time.
+"""
+applies = ["kind:stim", "kind:adrenal", "spell:ITEM_ABILITY_ADRENAL_SHOT_STRENGTH", "spell:ITEM_ABILITY_ADRENAL_SHOT_ALACRITY", "spell:ITEM_ABILITY_ADRENAL_SHOT_STAMINA", "spell:ITEM_ABILITY_HYPER_ADRENAL_SHOT_STRENGTH", "spell:ITEM_ABILITY_HYPER_ADRENAL_SHOT_ALACRITY", "spell:ITEM_ABILITY_HYPER_ADRENAL_SHOT_STAMINA", "spell:ITEM_ABILITY_COMBAT_SHOT_1", "spell:ITEM_ABILITY_COMBAT_SHOT_2", "spell:ITEM_ABILITY_COMBAT_SHOT_3"]
+
+[stims.ms]
+name = "Stim Duration"
+type = "u64"
+value = 120_000
+unit = "ms"
+range = [1000, 600000]
+summary = "Duration: {items.stims.ms:s}."
+source = "the items' descriptions"
+see = "sim::combat::items::STIM_MS"
+
+[stims.adrenal]
+name = "Adrenal Bonus"
+type = "u8"
+value = 4
+unit = "points"
+range = [0, 20]
+summary = "Attribute Bonus: +{items.stims.adrenal:bare}."
+source = "the items' descriptions"
+see = "sim::combat::items::use_of"
+
+[stims.hyper_adrenal]
+name = "Hyper-Adrenal Bonus"
+type = "u8"
+value = 6
+unit = "points"
+range = [0, 20]
+summary = "Hyper-adrenal Attribute Bonus: +{items.stims.hyper_adrenal:bare}."
+source = "the items' descriptions"
+see = "sim::combat::items::use_of"
+
+[stims.battle_bonus]
+name = "Battle Stimulant Bonus"
+type = "u8"
+value = [1, 2, 3]
+labels = ["Battle Stimulant", "Hyper-Battle Stimulant", "Echani Battle Stimulant"]
+unit = "points"
+range = [0, 20]
+summary = "Attack and Damage Bonus: +{items.stims.battle_bonus[0]:bare}, +{items.stims.battle_bonus[1]:bare} or +{items.stims.battle_bonus[2]:bare}, by stimulant."
+source = "the items' descriptions"
+see = "sim::combat::items::use_of"
+
+[stims.battle_vitality]
+name = "Battle Stimulant Vitality"
+type = "u8"
+value = [8, 16, 25]
+labels = ["Battle Stimulant", "Hyper-Battle Stimulant", "Echani Battle Stimulant"]
+unit = "HP"
+range = [0, 255]
+summary = "Bonus Vitality: {items.stims.battle_vitality[0]:bare}, {items.stims.battle_vitality[1]:bare} or {items.stims.battle_vitality[2]:bare} points, by stimulant."
+source = "the items' descriptions"
+see = "sim::combat::items::use_of"
+
+[shields]
+title = "Energy Shields"
+summary = """
+An energy shield absorbs damage of the types it protects against until its
+points are spent or it expires. Only one can be active at a time. Energy
+shields protect against energy and electrical damage; Sith and Echani
+shields also against sonic; Arkanian, Verpine and droid environment shields
+also against cold and fire; Mandalorian shields against physical damage.
+"""
+applies = ["kind:shield"]
+
+[shields.ms]
+name = "Shield Duration"
+type = "u64"
+value = 200_000
+unit = "ms"
+range = [1000, 600000]
+summary = "Duration: {items.shields.ms:s}, unless spent."
+source = "the items' descriptions"
+see = "sim::combat::items::SHIELD_MS"
+
+[shields.energy]
+name = "Energy Shield"
+type = "u16"
+value = 20
+unit = "points"
+range = [0, 1000]
+summary = "An energy shield absorbs {items.shields.energy}."
+source = "`forceshields.2da` `amount`"
+see = "sim::combat::items::use_of"
+applies = ["spell:ITEM_ABILITY_ENERGY_SHIELD"]
+
+[shields.sith]
+name = "Sith Energy Shield"
+type = "u16"
+value = 30
+unit = "points"
+range = [0, 1000]
+summary = "A Sith energy shield absorbs {items.shields.sith}."
+source = "`forceshields.2da` `amount`"
+see = "sim::combat::items::use_of"
+applies = ["spell:ITEM_ABILITY_SITH_ENERGY_SHIELD"]
+
+[shields.arkanian]
+name = "Arkanian Energy Shield"
+type = "u16"
+value = 40
+unit = "points"
+range = [0, 1000]
+summary = "An Arkanian energy shield absorbs {items.shields.arkanian}."
+source = "`forceshields.2da` `amount`"
+see = "sim::combat::items::use_of"
+applies = ["spell:ITEM_ABILITY_ARKANIAN_ENERGY_SHIELD"]
+
+[shields.echani]
+name = "Echani Shield"
+type = "u16"
+value = 50
+unit = "points"
+range = [0, 1000]
+summary = "An Echani shield absorbs {items.shields.echani}."
+source = "`forceshields.2da` `amount`"
+see = "sim::combat::items::use_of"
+applies = ["spell:ITEM_ABILITY_ECHANI_SHIELD"]
+
+[shields.mandalorian_melee]
+name = "Mandalorian Melee Shield"
+type = "u16"
+value = 20
+unit = "points"
+range = [0, 1000]
+summary = "A Mandalorian melee shield absorbs {items.shields.mandalorian_melee}."
+source = "`forceshields.2da` `amount`"
+see = "sim::combat::items::use_of"
+applies = ["spell:ITEM_ABILITY_MANDLORIAN_MELEE_SHIELD"]
+
+[shields.mandalorian_power]
+name = "Mandalorian Power Shield"
+type = "u16"
+value = 30
+unit = "points"
+range = [0, 1000]
+summary = "A Mandalorian power shield absorbs {items.shields.mandalorian_power}."
+source = "`forceshields.2da` `amount`"
+see = "sim::combat::items::use_of"
+applies = ["spell:ITEM_ABILITY_MANDLORIAN_POWER_SHIELD"]
+
+[shields.echani_dueling]
+name = "Echani Dueling Shield"
+type = "u16"
+value = 60
+unit = "points"
+range = [0, 1000]
+summary = "An Echani dueling shield absorbs {items.shields.echani_dueling}."
+source = "`forceshields.2da` `amount`"
+see = "sim::combat::items::use_of"
+applies = ["spell:ITEM_ABILITY_ECHANI_DUELING_SHIELD"]
+
+[shields.yusanis]
+name = "Yusanis' Dueling Shield"
+type = "u16"
+value = 100
+unit = "points"
+range = [0, 1000]
+summary = "Yusanis' dueling shield absorbs {items.shields.yusanis}."
+source = "`forceshields.2da` `amount`"
+see = "sim::combat::items::use_of"
+applies = ["spell:ITEM_ABILITY_YUSANIS_DUELING_SHIELD"]
+
+[shields.verpine]
+name = "Verpine Prototype Shield"
+type = "u16"
+value = 120
+unit = "points"
+range = [0, 1000]
+summary = "A Verpine prototype shield absorbs {items.shields.verpine}."
+source = "`forceshields.2da` `amount`"
+see = "sim::combat::items::use_of"
+applies = ["spell:ITEM_ABILITY_VERPINE_ENERGY_SHIELD"]
+
+[shields.droid_energy]
+name = "Droid Energy Shields"
+type = "u16"
+value = [20, 30, 50]
+labels = ["Level 1", "Level 2", "Level 3"]
+unit = "points"
+range = [0, 1000]
+summary = "Droid energy shields absorb {items.shields.droid_energy[0]:bare}, {items.shields.droid_energy[1]:bare} or {items.shields.droid_energy[2]:bare} points, by level."
+source = "`forceshields.2da` `amount`"
+see = "sim::combat::items::use_of"
+applies = ["kind:droid", "spell:DROID_ITEM_ENERGY_SHIELD_1", "spell:DROID_ITEM_ENERGY_SHIELD_2", "spell:DROID_ITEM_ENERGY_SHIELD_3"]
+
+[shields.droid_hazard]
+name = "Droid Environment Shields"
+type = "u16"
+value = [20, 30, 50]
+labels = ["Level 1", "Level 2", "Level 3"]
+unit = "points"
+range = [0, 1000]
+summary = "Droid environment shields absorb {items.shields.droid_hazard[0]:bare}, {items.shields.droid_hazard[1]:bare} or {items.shields.droid_hazard[2]:bare} points, by level."
+source = "`forceshields.2da` `amount`"
+see = "sim::combat::items::use_of"
+applies = ["kind:droid", "spell:DROID_ITEM_HAZARD_SHIELD_1", "spell:DROID_ITEM_HAZARD_SHIELD_2", "spell:DROID_ITEM_HAZARD_SHIELD_3"]
+
+[properties]
+title = "Item Properties"
+summary = """
+Of several bonuses of the same kind on one item, only the highest applies;
+all penalties apply. Bonuses from different items stack, and Defense
+bonuses always stack. The totals are limited by the effect caps.
+"""
+detail = """
+Damage bonuses of a type other than the weapon's own are rolled as extra
+damage of that type. Of several resistances to one damage type, only the
+best applies.
+"""
+
+[properties.keen]
+name = "Keen"
+type = "u8"
+value = 2
+unit = "×"
+range = [1, 10]
+summary = "A Keen weapon's critical threat range is multiplied by {items.properties.keen:bare}."
+source = "the item property's description (Keen, 28)"
+see = "sim::inventory::properties::make"
+applies = ["kind:weapon"]
+
+[properties.regenerate_ms]
+name = "Regeneration"
+type = "u64"
+value = 6000
+unit = "ms"
+range = [100, 60000]
+summary = "An item with Regeneration, or Force Point regeneration in TSL, restores its points every {items.properties.regenerate_ms:s}."
+source = "KOTOR's round of 6 s (NWN's regeneration beat)"
+see = "sim::combat::gear::REGENERATE_EVERY_MS"
+
+[properties.drain_ms]
+name = "Attribute Drain Duration"
+type = "u64"
+value = 30_000
+unit = "ms"
+range = [1000, 600000]
+summary = "An attribute lowered by a weapon's on-hit drain stays lowered for {items.properties.drain_ms:s}."
+source = "ours [verify: the executables' drain duration]"
+see = "sim::combat::gear::DRAIN_MS"
+
+[alignment]
+title = "Alignment Restrictions"
+summary = """
+For items and workbench recipes, a character with an alignment of
+{items.alignment.dark_most:bare} or lower is Dark Side, one of
+{items.alignment.light_least:bare} or higher is Light Side, and one between
+is neutral. Alignment runs from 0 (Dark Side) to 100 (Light Side).
+"""
+
+[alignment.dark_most]
+name = "Dark Side Alignment"
+type = "u8"
+value = 40
+range = [0, 100]
+summary = "A character with an alignment of {items.alignment.dark_most:bare} or lower is Dark Side for item restrictions."
+source = "the executables' item rules"
+see = "sim::combat::gear::sides::of"
+
+[alignment.light_least]
+name = "Light Side Alignment"
+type = "u8"
+value = 60
+range = [0, 100]
+summary = "A character with an alignment of {items.alignment.light_least:bare} or higher is Light Side for item restrictions."
+source = "the executables' item rules"
+see = "sim::combat::gear::sides::of"
+
+[caps]
+title = "Effect Limits"
+summary = """
+Items and effects together can raise or lower an attribute, skill, saving
+throw, attack bonus or damage only so far. In TSL the limits are
+{items.caps.tsl_times:bare} times higher.
+"""
+
+[caps.ability]
+name = "Attribute Limit"
+value = [20, 30]
+labels = ["Bonus", "Penalty"]
+unit = "points"
+range = [0, 255]
+summary = "Effects can raise an attribute by at most +{items.caps.ability[0]:bare} and lower it by at most -{items.caps.ability[1]:bare}."
+source = "K1's executable"
+see = "sim::combat::gear::Caps::of"
+
+[caps.skill]
+name = "Skill Limit"
+value = [30, 30]
+labels = ["Bonus", "Penalty"]
+unit = "points"
+range = [0, 255]
+summary = "Effects can raise a skill by at most +{items.caps.skill[0]:bare} and lower it by at most -{items.caps.skill[1]:bare}."
+source = "K1's executable"
+see = "sim::combat::gear::Caps::of"
+
+[caps.save]
+name = "Saving Throw Limit"
+value = [20, 20]
+labels = ["Bonus", "Penalty"]
+unit = "points"
+range = [0, 255]
+summary = "Effects can raise a saving throw by at most +{items.caps.save[0]:bare} and lower it by at most -{items.caps.save[1]:bare}."
+source = "K1's executable"
+see = "sim::combat::gear::Caps::of"
+
+[caps.attack]
+name = "Attack Limit"
+value = [20, 20]
+labels = ["Bonus", "Penalty"]
+unit = "points"
+range = [0, 255]
+summary = "Effects can raise the attack bonus by at most +{items.caps.attack[0]:bare} and lower it by at most -{items.caps.attack[1]:bare}."
+source = "K1's executable"
+see = "sim::combat::gear::Caps::of"
+
+[caps.damage]
+name = "Damage Limit"
+value = [36, 36]
+labels = ["Bonus", "Penalty"]
+unit = "points"
+range = [0, 255]
+summary = "Effects can raise damage by at most +{items.caps.damage[0]:bare} and lower it by at most -{items.caps.damage[1]:bare}."
+source = "K1's executable"
+see = "sim::combat::gear::Caps::of"
+
+[caps.tsl_times]
+name = "TSL Limits"
+value = 3
+unit = "×"
+range = [1, 10]
+summary = "In TSL, every effect limit is {items.caps.tsl_times:bare} times higher."
+source = "TSL's executable"
+see = "sim::combat::gear::Caps::of"
+
+[upgrades]
+title = "Upgrades"
+summary = """
+An upgrade's properties apply only while it is fitted. A lightsaber holds a
+color crystal and {items.upgrades.crystals:bare} power crystals; any other
+item holds {items.upgrades.others:bare} upgrade of each kind.
+"""
+applies = ["kind:lightsaber", "kind:weapon"]
+
+[upgrades.crystals]
+name = "Power Crystals"
+type = "usize"
+value = 2
+range = [0, 8]
+summary = "A lightsaber holds {items.upgrades.crystals:bare} power crystals."
+source = "K1's upgrade screen"
+see = "sim::inventory::properties::room"
+applies = ["kind:lightsaber"]
+
+[upgrades.others]
+name = "Upgrade Slots"
+type = "usize"
+value = 1
+range = [0, 8]
+summary = "An item holds {items.upgrades.others:bare} upgrade of each other kind."
+source = "K1's and TSL's upgrade screens"
+see = "sim::inventory::properties::room"
+
+[stores]
+title = "Stores"
+summary = """
+A merchant sells an item for its value raised by the store's markup, and
+buys it for its value lowered by the store's markdown. Plot items and
+equipped items cannot be sold. Some merchants never run out of an item.
+"""
+
+[workbench]
+title = "Workbench and Lab Station"
+summary = """
+At a workbench, items can be broken down into components and new items
+built from them; at a lab station, chemicals. An item's price in components
+is a share of its value, at least 1. Breaking an item down returns that
+price, reduced if the character's skill is low.
+"""
+detail = """
+Breaking down uses Repair at the workbench and Treat Injury at the lab
+station. A recipe can be built once the character's skill reaches its
+requirement.
+"""
+applies = ["skill:REPAIR", "skill:TREAT_INJURY"]
+
+[workbench.price_share]
+name = "Component Price"
+type = "u32"
+value = 20
+range = [1, 1000]
+summary = "An item's price in components is its value divided by {items.workbench.price_share:bare}."
+source = "TSL's executable"
+see = "sim::inventory::workshop::Workshop::price"
+
+[workbench.full_yield_ranks]
+name = "Full Breakdown"
+value = 20.0
+unit = "points"
+range = [1.0, 100.0]
+summary = "Breaking an item down returns its full price at skill {items.workbench.full_yield_ranks:bare}; below that, a share in proportion to the skill."
+source = "TSL's executable"
+see = "sim::inventory::workshop::Workshop::yields"
+
+[workbench.listed_above]
+name = "Recipes Shown"
+type = "u16"
+value = 8
+unit = "points"
+range = [0, 50]
+summary = "A recipe is shown, but cannot be built, while its skill requirement is no more than {items.workbench.listed_above:bare} above the character's skill."
+source = "TSL's executable"
+see = "sim::inventory::workshop::Recipe::listed"
+
+[workbench.most]
+name = "Component Limit"
+type = "i32"
+value = 999_999_999
+range = [0, 2147483647]
+summary = "The party can hold at most {items.workbench.most:bare} components, and as many chemicals."
+source = "TSL's executable (its cap)"
+see = "sim::script::workbench"
+
+[remains]
+title = "Remains"
+summary = """
+A slain creature's body fades away shortly after death. What it carried is
+left behind as remains where it fell.
+"""
+applies = ["kind:creature", "kind:container"]
+
+[remains.destroy_ms]
+name = "Body Removal"
+type = "u32"
+value = 3000
+unit = "ms"
+range = [0, 60000]
+summary = "A body is removed {items.remains.destroy_ms:s} after death, unless its appearance sets its own delay."
+source = "reone"
+see = "sim::world::remains::DESTROY_MS"
+
+[remains.fade_ms]
+name = "Body Fade"
+type = "u32"
+value = 1000
+unit = "ms"
+range = [0, 10000]
+summary = "A body fades out over {items.remains.fade_ms:s}, unless its appearance sets its own fade."
+source = "ours [verify]"
+see = "sim::world::remains::FADE_MS"
+
+[remains.bag_after_ms]
+name = "Remains Delay"
+type = "u32"
+value = 500
+unit = "ms"
+range = [0, 10000]
+summary = "Remains appear at least {items.remains.bag_after_ms:s} after the body is removed."
+source = "the engines (reone)"
+see = "sim::world::remains::BAG_AFTER_MS"
+
+[containers]
+title = "Containers"
+summary = "A character can open a container it stands near and faces."
+applies = ["kind:container"]
+
+[containers.reach]
+name = "Container Range"
+value = 2.5
+unit = "m"
+range = [0.0, 20.0]
+summary = "A character can open a container within {items.containers.reach:bare} meters of its center."
+source = "ours"
+see = "sim::world::containers::REACH"
+
+[containers.facing]
+name = "Container Facing"
+value = 0.5
+range = [-1.0, 1.0]
+summary = "A container must be in front of the character: the cosine of the angle from its facing must be at least {items.containers.facing:bare}."
+source = "ours"
+see = "sim::world::containers::ahead"

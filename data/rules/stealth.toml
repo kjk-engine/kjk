@@ -1,0 +1,363 @@
+[chapter]
+title = "Stealth and Awareness"
+order = 50
+summary = """
+A character in Stealth Mode is seen only by an opponent that makes a spot
+check, and heard only by one that makes a listen check: the opponent's
+Awareness and roll against the character's Stealth and roll. An attack made
+from Stealth Mode is a sneak attack.
+"""
+detail = """
+Stealth, Security and Demolitions can only be used by a character who has
+paid points into the skill.
+"""
+
+[mode]
+title = "Stealth Mode"
+summary = """
+Stealth Mode requires ranks in the Stealth skill and a stealth unit worn,
+and cannot be entered during combat. Attacking, using a Force power,
+throwing a grenade, entering combat, removing the unit or starting a
+conversation ends Stealth Mode. A character in Stealth Mode cannot run.
+"""
+detail = """
+Disarming, recovering or laying a mine, opening doors and using objects do
+not end Stealth Mode. Party members under AI control never enter it.
+"""
+applies = ["kind:stealth", "skill:Stealth", "baseitem:Stealth_Unit"]
+
+[mode.opener_ms]
+name = "Sneak Attack Window"
+type = "u64"
+value = 1500
+unit = "ms"
+range = [0, 10000]
+summary = """
+An attack that lands within {stealth.mode.opener_ms:s} of leaving Stealth
+Mode, on a target that has not yet perceived the attacker, is a sneak
+attack.
+"""
+source = "ours, agreed with the owner 2026-10-04"
+see = "sim::world::covert::covert"
+applies = ["kind:stealth", "skill:Stealth"]
+
+[mode.walk_axis]
+name = "Stealth Walk"
+type = "i8"
+value = 64
+range = [1, 127]
+summary = """
+A character in Stealth Mode, or wearing an item that grants Special Walk,
+moves at a walk: {stealth.mode.walk_axis:bare} of a full 127 step.
+"""
+source = "JA's walk command"
+see = "sim::world::move_actors"
+applies = ["kind:stealth", "skill:Stealth"]
+
+[pace]
+title = "Standing, Walking and Running"
+summary = """
+For spot and listen checks, a character moving slower than
+{stealth.pace.still_speed:m} is standing still, and one moving faster than
+{stealth.pace.run_speed:m} is running.
+"""
+
+[pace.still_speed]
+name = "Standing Still"
+type = "f32"
+value = 20.0
+unit = "units/s"
+range = [0.0, 126.0]
+summary = "A character moving slower than {stealth.pace.still_speed:m} counts as standing still."
+source = "ours"
+see = "sim::stealth::pace"
+applies = ["kind:stealth"]
+
+[pace.run_speed]
+name = "Running"
+type = "f32"
+value = 180.0
+unit = "units/s"
+range = [126.0, 250.0]
+summary = "A character moving faster than {stealth.pace.run_speed:m} counts as running."
+source = "ours"
+see = "sim::stealth::pace"
+applies = ["kind:stealth"]
+
+[rolls]
+title = "Stealth Rolls"
+summary = """
+Every {stealth.rolls.every_ms:s}, each creature rolls again for Stealth
+against sight and against hearing, {stealth.rolls.sneak_base:bare} +
+1-{stealth.rolls.sneak_die:bare} each, and for spot and listen checks,
+1-{stealth.rolls.watch_die:bare} each.
+"""
+applies = ["kind:stealth", "skill:Stealth", "skill:Awareness"]
+
+[rolls.every_ms]
+name = "Roll Duration"
+type = "u64"
+value = 20000
+unit = "ms"
+range = [1000, 120000]
+summary = "A creature's Stealth, spot and listen rolls last {stealth.rolls.every_ms:s} before they are rolled again."
+source = "K1's executable"
+see = "sim::stealth::Rolls::due"
+applies = ["kind:stealth", "skill:Stealth", "skill:Awareness"]
+
+[rolls.sneak_base]
+name = "Stealth Roll Base"
+type = "u8"
+value = 10
+range = [0, 30]
+summary = "A Stealth roll is {stealth.rolls.sneak_base:bare} + 1-{stealth.rolls.sneak_die:bare}."
+source = "K1's executable (S12)"
+see = "sim::stealth::Rolls::draw"
+applies = ["kind:stealth", "skill:Stealth"]
+
+[rolls.sneak_die]
+name = "Stealth Roll Die"
+type = "u32"
+value = 10
+range = [1, 40]
+summary = "A Stealth roll adds 1-{stealth.rolls.sneak_die:bare} to its base."
+source = "K1's executable (S12)"
+see = "sim::stealth::Rolls::draw"
+applies = ["kind:stealth", "skill:Stealth"]
+
+[rolls.watch_die]
+name = "Awareness Roll Die"
+type = "u32"
+value = 20
+range = [1, 40]
+summary = "Spot and listen rolls are 1-{stealth.rolls.watch_die:bare}."
+source = "K1's executable (S12)"
+see = "sim::stealth::Rolls::draw"
+applies = ["kind:stealth", "skill:Awareness"]
+
+[spot]
+title = "Spot Check"
+summary = """
+A character in Stealth Mode within an opponent's sight is seen if the
+opponent's Awareness + spot roll beats the character's Stealth + Stealth
+roll. The opponent suffers -{stealth.spot.running:bare} while running,
+-{stealth.spot.behind:bare} with the character behind it,
+-{stealth.spot.in_combat:bare} in combat, and -{stealth.spot.still_sneaker:bare}
+if the character stands still. It gains +{stealth.spot.still_watcher:bare}
+while standing still itself. Distance costs -1 for every
+{stealth.spot.metres_a_point:bare} meters, after the first
+{stealth.spot.free_points:bare} steps.
+"""
+detail = """
+A character not in Stealth Mode is seen by anyone in sight of it. An
+opponent with True Seeing always sees.
+"""
+applies = ["kind:stealth", "skill:Stealth", "skill:Awareness"]
+
+[spot.running]
+name = "Running Penalty"
+type = "i32"
+value = 5
+unit = "points"
+range = [0, 20]
+summary = "A running opponent suffers -{stealth.spot.running:bare} to its spot check."
+source = "K1's executable (S12)"
+see = "sim::stealth::spot_score"
+applies = ["kind:stealth", "skill:Awareness"]
+
+[spot.behind]
+name = "Behind Penalty"
+type = "i32"
+value = 5
+unit = "points"
+range = [0, 20]
+summary = "An opponent suffers -{stealth.spot.behind:bare} to its spot check against a character behind it."
+source = "K1's executable (S12)"
+see = "sim::stealth::spot_score"
+applies = ["kind:stealth", "skill:Stealth"]
+
+[spot.behind_cos]
+name = "Behind Arc"
+type = "f32"
+value = -0.707
+range = [-1.0, 0.0]
+summary = """
+A character is behind an opponent when the cosine of the angle between
+the opponent's facing and the character is {stealth.spot.behind_cos:bare}
+or less.
+"""
+source = "K1's executable (S12)"
+see = "sim::stealth::spot_score"
+applies = ["kind:stealth", "skill:Stealth"]
+
+[spot.in_combat]
+name = "Combat Penalty"
+type = "i32"
+value = 10
+unit = "points"
+range = [0, 30]
+summary = "An opponent in combat suffers -{stealth.spot.in_combat:bare} to its spot check."
+source = "K1's executable (S12)"
+see = "sim::stealth::spot_score"
+applies = ["kind:stealth", "skill:Awareness"]
+
+[spot.still_sneaker]
+name = "Standing Still Bonus"
+type = "i32"
+value = 5
+unit = "points"
+range = [0, 20]
+summary = "A character in Stealth Mode standing still gives -{stealth.spot.still_sneaker:bare} to the opponent's spot check."
+source = "K1's executable (S12)"
+see = "sim::stealth::spot_score"
+applies = ["kind:stealth", "skill:Stealth"]
+
+[spot.still_watcher]
+name = "Watching Bonus"
+type = "i32"
+value = 5
+unit = "points"
+range = [0, 20]
+summary = "An opponent standing still gains +{stealth.spot.still_watcher:bare} to its spot check."
+source = "K1's executable (S12)"
+see = "sim::stealth::spot_score"
+applies = ["kind:stealth", "skill:Awareness"]
+
+[spot.metres_a_point]
+name = "Spot Distance"
+type = "f32"
+value = 3.0
+unit = "m"
+range = [0.5, 20.0]
+summary = "Every {stealth.spot.metres_a_point:bare} meters of distance gives -1 to the spot check."
+source = "K1's executable (S12)"
+see = "sim::stealth::spot_score"
+applies = ["kind:stealth", "skill:Stealth"]
+
+[spot.free_points]
+name = "Spot Distance Free"
+type = "i32"
+value = 2
+range = [0, 20]
+summary = """
+The first {stealth.spot.free_points:bare} steps of
+{stealth.spot.metres_a_point:bare} meters give no penalty to the spot
+check.
+"""
+source = "K1's executable (S12)"
+see = "sim::stealth::spot_score"
+applies = ["kind:stealth", "skill:Stealth"]
+
+[listen]
+title = "Listen Check"
+summary = """
+A character in Stealth Mode within an opponent's hearing is heard if the
+opponent's Awareness + listen roll beats the character's Stealth + Stealth
+roll. Distance costs -1 for every {stealth.listen.metres_a_point:bare}
+meters, and each meter of wall between them -{stealth.listen.wall_a_metre:bare}.
+Large creatures are easier to hear and small ones harder. Some areas
+modify listen checks.
+"""
+detail = """
+A character whose items grant Dampen Sound is never heard. A blinded
+creature neither sees nor hears.
+"""
+applies = ["kind:stealth", "skill:Stealth", "skill:Awareness"]
+
+[listen.metres_a_point]
+name = "Listen Distance"
+type = "f32"
+value = 3.0
+unit = "m"
+range = [0.5, 20.0]
+summary = "Every {stealth.listen.metres_a_point:bare} meters of distance gives -1 to the listen check."
+source = "K1's executable (S12)"
+see = "sim::stealth::listen_score"
+applies = ["kind:stealth", "skill:Stealth"]
+
+[listen.size]
+name = "Size"
+type = "i32"
+value = [-8, -4, 0, 4, 8]
+unit = "points"
+labels = ["Tiny", "Small", "Medium", "Large", "Huge"]
+range = [-30, 30]
+summary = "A creature's size modifies the listen check against it, from Tiny to Huge: {stealth.listen.size}."
+source = "K1's executable (S12)"
+see = "sim::stealth::listen_score"
+applies = ["kind:stealth", "skill:Stealth", "kind:creature"]
+
+[listen.wall_a_metre]
+name = "Wall Penalty"
+type = "f32"
+value = 5.0
+unit = "points"
+range = [0.0, 50.0]
+summary = "Each meter of wall between them gives -{stealth.listen.wall_a_metre:bare} to the listen check."
+source = "K1's executable (S12)"
+see = "sim::stealth::listen_score"
+applies = ["kind:stealth", "skill:Stealth"]
+
+[perception]
+title = "Perception"
+summary = """
+An active creature checks what it sees and hears every
+{stealth.perception.active_least_ms:s} to
+{stealth.perception.active_spread_ms:s} longer. A creature in a
+conversation checks every {stealth.perception.idle_ms:s}. Hearing is
+checked before sight.
+"""
+applies = ["kind:stealth", "skill:Awareness", "kind:creature"]
+
+[perception.active_least_ms]
+name = "Perception Rate"
+type = "u64"
+value = 300
+unit = "ms"
+range = [50, 5000]
+summary = "An active creature checks what it perceives at least {stealth.perception.active_least_ms:s} apart."
+source = "K1's executable (S13, the owner's choice 2026-10-04)"
+see = "sim::world::scripts::perceive"
+applies = ["kind:stealth", "skill:Awareness"]
+
+[perception.active_spread_ms]
+name = "Perception Spread"
+type = "u32"
+value = 400
+unit = "ms"
+range = [1, 5000]
+summary = "Each wait between perception checks is up to {stealth.perception.active_spread_ms:s} longer, at random."
+source = "K1's executable (S13)"
+see = "sim::world::scripts::perceive"
+applies = ["kind:stealth", "skill:Awareness"]
+
+[perception.idle_ms]
+name = "Perception in Conversation"
+type = "u64"
+value = 4000
+unit = "ms"
+range = [300, 30000]
+summary = "A creature in a conversation checks what it perceives every {stealth.perception.idle_ms:s}."
+source = "K1's executable (S13)"
+see = "sim::world::scripts::perceive"
+applies = ["kind:stealth", "skill:Awareness"]
+
+[stealth_xp]
+title = "Stealth Experience"
+summary = """
+Some areas award experience for passing through unseen. Each time a
+hostile creature sees a party member, the award is reduced
+{stealth.stealth_xp.loss_after_ms:s} later, or at once if it attacks.
+"""
+applies = ["kind:stealth", "skill:Stealth"]
+
+[stealth_xp.loss_after_ms]
+name = "Stealth Experience Loss"
+type = "u64"
+value = 6000
+unit = "ms"
+range = [0, 60000]
+summary = "The area's stealth experience is reduced {stealth.stealth_xp.loss_after_ms:s} after a hostile creature sees a party member."
+source = "K1's executable (S15)"
+see = "sim::world::scripts::stealth_loss"
+applies = ["kind:stealth", "skill:Stealth"]

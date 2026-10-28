@@ -1,0 +1,206 @@
+[chapter]
+title = "Conversations"
+order = 75
+summary = """
+How long each line of a conversation is shown, which camera angle it uses,
+how the party is gathered in co-op, and how scripts count rounds and turns.
+"""
+
+[lines]
+title = "Line Length"
+summary = """
+A voiced line lasts as long as its voice. A line with no voice, or a voice
+shorter than {dialogue.lines.min_voice_ms:s}, lasts as long as its text takes
+to read. A line's own delay can lengthen it, and its wait flag can hold it
+for the whole voice. In an animated cutscene, a line with no wait flag or
+delay lasts only as long as its animation.
+"""
+
+[lines.read_tenths_ms_per_char]
+name = "Reading Time"
+type = "u64"
+value = 1125
+range = [0, 10000]
+summary = "A line with no voice is shown for {dialogue.lines.read_tenths_ms_per_char:bare} ten-thousandths of a second for each character of its text."
+source = "reone (the games' unvoiced line length)"
+see = "sim::script::dialogue::line_ms"
+
+[lines.min_voice_ms]
+name = "Shortest Voice"
+type = "u64"
+value = 150
+unit = "ms"
+range = [0, 2000]
+summary = "A voice shorter than {dialogue.lines.min_voice_ms:s} is ignored: the line lasts as long as its text takes to read."
+source = "reone"
+see = "sim::script::dialogue::line_ms"
+
+[lines.least_line_ms]
+name = "Shortest Line"
+type = "u64"
+value = 10
+unit = "ms"
+range = [0, 1000]
+summary = "A line lasts at least {dialogue.lines.least_line_ms:s}, except in an animated cutscene."
+source = "reone"
+see = "sim::script::dialogue::line_ms"
+
+[lines.skip_after_ms]
+name = "Skip Delay"
+type = "u64"
+value = 250
+unit = "ms"
+range = [0, 2000]
+summary = "A line cannot be skipped until it has been shown for {dialogue.lines.skip_after_ms:s}."
+source = "ours"
+see = "sim::script::dialogue"
+
+[lines.bark_ms]
+name = "Bark Length"
+type = "u64"
+value = 4000
+unit = "ms"
+range = [500, 20000]
+summary = "A line spoken over a character's head with no voice is shown for {dialogue.lines.bark_ms:s}. A bark string is always shown this long."
+source = "ours [verify in K1's executable]"
+see = "sim::script::dialogue"
+
+[lines.fade_starts_ms]
+name = "Fade Head Start"
+type = "u64"
+value = 100
+unit = "ms"
+range = [0, 1000]
+summary = "A line that waits for its own fade waits {dialogue.lines.fade_starts_ms:s} less than the fade's delay and length: the fade's clock starts that far in."
+source = "both executables (the letterbox starts a node's fade clock there)"
+see = "sim::script::dialogue::fade_ms"
+
+[lines.voice_variants]
+name = "Alien Voice Variants"
+type = "u8"
+value = [1, 1, 2, 3, 1, 2, 1, 2, 2, 3, 3, 3, 1, 3, 2, 1, 3, 2, 2]
+range = [1, 3]
+summary = "In TSL, each line in alien speech plays the next of its race's three recordings in this sequence: {dialogue.lines.voice_variants}."
+source = "TSL's executable"
+see = "sim::script::dialogue::Conversation::entry_variant"
+
+[cameras]
+title = "Camera Angles"
+summary = """
+A line with no camera angle of its own takes the next angle in a fixed
+sequence, starting from a point set by the conversation's name. The angles
+are: 1, a close-up of the speaker; 2, over the listener's shoulder; 3, a wide
+shot of both. A speaker turns its head toward the listener and turns its body
+only as far as its head cannot.
+"""
+
+[cameras.default_angles]
+name = "Default Angles"
+type = "u8"
+value = [1, 3, 1, 3, 2, 2, 1, 3, 1, 2, 1, 2, 1, 3, 2, 3, 1, 1, 1]
+range = [1, 3]
+summary = "A line with no camera angle of its own takes the next angle in this sequence: {dialogue.cameras.default_angles}."
+source = "KOTOR's executable (design S6)"
+see = "sim::script::dialogue::angle_walk"
+
+[cameras.first_default_angle]
+name = "First Angle"
+type = "u8"
+value = 2
+range = [1, 3]
+summary = "The first line of a conversation, and the first set of replies, use angle {dialogue.cameras.first_default_angle:bare} when they have none of their own."
+source = "KOTOR's executable (design S6)"
+see = "sim::script::dialogue"
+
+[cameras.head_margin]
+name = "Turning to the Listener"
+value = 1.0
+unit = "°"
+range = [0.0, 45.0]
+summary = "A speaker turns its body until the listener is within its head's turning arc, less {dialogue.cameras.head_margin}. Its head turns the rest of the way."
+source = "ours [verify the order against the exe]"
+see = "sim::script::dialogue"
+
+[speakers]
+title = "Who Says a Line"
+summary = """
+A line naming a speaker is said by the character nearest the conversation's
+owner with that tag, within {dialogue.speakers.reach_m:bare} meters. When no
+one with that tag is there (a companion not in the party), the line is passed
+over before its condition is checked, and the conversation takes the next
+line instead.
+"""
+
+[speakers.reach_m]
+name = "Speaker Search"
+value = 1000.0
+unit = "m"
+range = [0.0, 10000.0]
+summary = "A line's speaker is looked for within {dialogue.speakers.reach_m:bare} meters of the conversation's owner."
+source = "both executables (the radius their dialogue passes to the nearest-by-tag search)"
+see = "sim::script::dialogue::Step::speaker_for"
+
+[coop]
+title = "Co-op Conversations"
+summary = """
+When a conversation begins, party members farther than
+{dialogue.coop.gather_beyond_m:bare} meters away are brought to it. Only the
+host can choose a reply that advances the story: one that gives a quest or
+plot experience, or runs a script that may, within the next
+{dialogue.coop.story_depth:bare} lines.
+"""
+applies = ["kind:player", "kind:companion"]
+
+[coop.gather_beyond_m]
+name = "Gathering the Party"
+value = 10.0
+unit = "m"
+range = [0.0, 100.0]
+summary = "When a conversation begins, party members farther than {dialogue.coop.gather_beyond_m:bare} meters away are brought to it. When a Pazaak match begins, other players within {dialogue.coop.gather_beyond_m:bare} meters watch it."
+source = "ours [verify against KOTOR's scene staging]"
+see = "sim::world::coop_talk::gather"
+
+[coop.interjection_wait_ms]
+name = "Interjection Wait"
+type = "u64"
+value = 10_000
+unit = "ms"
+range = [0, 60000]
+summary = "A line spoken by another player's character waits up to {dialogue.coop.interjection_wait_ms:s} for that player's own conversation to end, then plays without it."
+source = "ours (R4)"
+see = "sim::script::dialogue"
+
+[coop.story_depth]
+name = "Story Replies"
+type = "usize"
+value = 4
+range = [0, 20]
+summary = "A reply advances the story if it, or any of the next {dialogue.coop.story_depth:bare} lines it leads to, gives a quest or plot experience or runs a script that may."
+source = "ours (R6)"
+see = "sim::script::dialogue::story"
+
+[clock]
+title = "Rounds and Turns"
+summary = """
+Scripts count time in rounds, turns and hours. A round is
+{dialogue.clock.round_s:bare} seconds and a turn is
+{dialogue.clock.rounds_a_turn:bare} rounds. An hour is the area's own number
+of minutes, {scripts.clock.minutes_per_hour:bare} where it gives none.
+"""
+
+[clock.round_s]
+name = "Round"
+value = 3.0
+unit = "s"
+range = [0.5, 12.0]
+summary = "A combat round lasts {dialogue.clock.round_s:bare} seconds."
+source = "both games' executables (TimeConversions)"
+see = "sim::script::presentation::seconds"
+
+[clock.rounds_a_turn]
+name = "Turn"
+value = 10.0
+range = [1.0, 100.0]
+summary = "A turn lasts {dialogue.clock.rounds_a_turn:bare} rounds."
+source = "both games' executables (TimeConversions)"
+see = "sim::script::presentation::seconds"

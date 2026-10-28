@@ -1,0 +1,86 @@
+# The Ebon Hawk prologue (TSL, 001EBO): T3-M4 alone on the drifting ship,
+# from the cockpit to the hyperdrive and the galaxy map's course for Peragus.
+#   kjk playthrough tsl 001ebo data/routes/tsl/prologue.route --god
+# Goals: launcher::playthrough. Method: docs/PLAYTESTS.md.
+pick 1               # the intro's last line: continue the prologue
+wait 4s              # the controls' and journal's tutorial barks
+use PlsCylSpk        # the communications room's cylinder: a computer spike
+use Comcon           # slice it: the main hold's containment door opens
+to 001EBODr1
+use body_invis       # the main hold's body (Kreia's): the locker key
+unlock 001EBODrSec@1 # the main hold's aft door: Security, as its tutorial says
+unlock 001EBODrSec@2 # the medical bay's door
+unlock med_bin       # the medical bay's bin
+use med_bin          # a medpac
+pick 1               # [Treat Injury] use the medpac
+use MEDBAY_PC        # the Exile, critical in the medbay: its talk passes to
+                     # pc_invis, so the body does not get up (a_dlg)
+unlock 001EBODrSec@3 # the cargo hold's door
+use locker_locked    # the locker key opens it: impact armour
+use MilHighPlstcCylin # security tunnelers
+unlock cont_tunnel g_i_secspike01 # the high security cylinder, with a tunneler
+use cont_tunnel
+unlock cont_sensor_drds g_i_secspike01 # the metal box, DC 33: a tunneler too
+use cont_sensor_drds # a weapon, and sensor droids for practice
+equip w_blaste_03    # the box's blaster
+fight 15             # the sensor droids
+save prologue_cargo
+bash fl_spikes       # the main hold's footlocker, too hard to pick: struck open
+use fl_spikes        # computer spikes (some may break)
+use 3CFD             # the cargo hold's broken droid: a part repairs it, and it joins
+pick 1               # the lift's [Go outside.]
+use lift_to_002      # up to the outer hull
+module 002ebo
+save prologue_hull
+use openhatch@1      # the open hatches' parts
+use openhatch@2
+use openhatch@3
+use openhatch@4
+use eng_port         # the busted engine port's parts
+use Quad             # the quad laser turret's parts
+use ProtonMis        # the unexploded missile: a mine for the engine room door
+pick 1               # override the door [1 Part]
+use door_override    # the exposed wires: the starboard dormitory's door opens
+pick 1               # the lift's way back down
+use lift_to_001
+module 001ebo
+save prologue_inside
+# The garage behind its airlock (the journal's tutorial_garage): T3 waits
+# between the outer and inner doors, 3C-FD at the main hold's security
+# console closes the outer one and opens the inner one.
+to 54.3 30.6         # the airlock, between sealed_door2 and sealed_door1
+solo on
+leader 7             # 3C-FD (the portrait click)
+say slice
+say security doors
+say close outer
+say open inner
+say log out
+use security_console
+wait 5s              # its menu played out, 3C-FD still at the console
+leader player        # back to T3, in the airlock
+to Workbench
+save prologue_garage
+use fl_parts         # the starboard dormitory (opened from the hull): parts
+use fl_flamethrow    # and a droid flamethrower
+leader 7             # 3C-FD, waiting by the console (T3 is sealed in the
+mine engine_door     # garage): the missile's mine set on the engine room
+                     # door blasts its lock, as its conversation says
+leader player        # T3 back into the airlock
+to 54.3 30.6
+leader 7             # 3C-FD at the console: the inner door shut, the outer
+say security doors   # one opened, T3 let out
+say close inner
+say open outer
+say log out
+use security_console
+wait 5s
+leader player
+use Hyperdrive       # rig it with the parts: primary power
+until 001EBO_HyperDrive=2
+save prologue_hyperdrive
+to mn_cockpit         # back out past the blasted door
+use Galaxymap
+travel 8             # Peragus: the outro (HK-50 in the storage room), then 101PER
+module 101per
+save peragus_start

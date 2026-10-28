@@ -1,0 +1,519 @@
+[chapter]
+title = "Movement"
+order = 70
+summary = """
+Running, jumping, crouching, rolling and falling. In combat, a character runs
+at {movement.ground.base_speed:m}. Outside combat, it walks and runs at its
+own speeds instead.
+"""
+
+[ground]
+title = "On the Ground"
+summary = """
+On the ground, friction slows a character and its movement speeds it up.
+A character stops quickly once it is no longer moving.
+"""
+applies = ["kind:player", "kind:creature"]
+
+[ground.stop_speed]
+name = "Stopping Speed"
+value = 100.0
+unit = "units/s"
+range = [1.0, 500.0]
+summary = "Friction slows a character moving under {movement.ground.stop_speed:m} as if it moved at that speed, so it stops quickly."
+source = "JA: ground friction"
+see = "sim::motion::Move::friction"
+
+[ground.friction]
+name = "Ground Friction"
+value = 6.0
+range = [0.5, 20.0]
+summary = "Friction slows a character on the ground by {movement.ground.friction:bare} times its speed each second."
+detail = "A character knocked back feels no friction until the knockback ends."
+source = "JA: ground friction"
+see = "sim::motion::Move::friction"
+
+[ground.still_below]
+name = "Stopped"
+value = 1.0
+unit = "units/s"
+range = [0.0, 10.0]
+summary = "A character on the ground moving slower than {movement.ground.still_below:bare} inch per second stops."
+source = "JA: ground friction"
+see = "sim::motion::Move::friction"
+
+[ground.accelerate]
+name = "Ground Acceleration"
+value = 10.0
+range = [1.0, 50.0]
+summary = "On the ground, a character speeds up by at most {movement.ground.accelerate:bare} times its intended speed each second."
+source = "JA: ground acceleration"
+see = "sim::motion::Move::ground_move"
+
+[ground.duck_scale]
+name = "Crouching Speed"
+value = 0.5
+unit = "×"
+range = [0.1, 1.0]
+summary = "A crouching character, or one rising from a roll, moves at {movement.ground.duck_scale:bare} times its normal speed."
+source = "JA: crouching"
+see = "sim::motion::Move::ground_move"
+
+[ground.backward]
+name = "Running Backward"
+value = 0.75
+unit = "×"
+range = [0.1, 1.0]
+summary = "A character running backward moves at {movement.ground.backward:bare} times its running speed. Walking backward is not slowed."
+source = "JA: movement speed"
+see = "sim::motion::Move::set_step_speed"
+
+[ground.dead_slow]
+name = "Corpse Slide"
+value = 20.0
+unit = "units/s"
+range = [0.0, 200.0]
+summary = "A dead body sliding on the ground loses an extra {movement.ground.dead_slow:m} at each movement step, so it soon lies still."
+source = "JA: a dead body's movement"
+see = "sim::motion::Move::corpse_slide"
+
+[ground.base_speed]
+name = "Run Speed"
+value = 250.0
+unit = "units/s"
+range = [100.0, 600.0]
+summary = "In combat, a character runs at {movement.ground.base_speed:m}. Walking, crouching, running backward and Force speed are all set against this speed."
+source = "JA: base speed"
+see = "collision::player::BASE_SPEED"
+applies = ["kind:player", "kind:companion", "kind:creature"]
+
+[ground.walkable_normal_z]
+name = "Walkable Slope"
+value = 0.7
+range = [0.3, 1.0]
+summary = "A character slides off a slope steeper than about 45 degrees, where the ground faces less than {movement.ground.walkable_normal_z:bare} upward."
+source = "JA: the player's body numbers"
+see = "collision::player::WALKABLE_NORMAL_Z"
+
+[air]
+title = "In the Air"
+summary = """
+A jump leaves the ground at {movement.air.jump_speed:m}. In the air, a
+character can steer only a little, and gravity pulls it down.
+"""
+applies = ["kind:player", "kind:creature"]
+
+[air.air_accelerate]
+name = "Air Control"
+value = 1.0
+range = [0.0, 20.0]
+summary = "In the air, a character steers by at most {movement.air.air_accelerate:bare} times its intended speed each second. A character knocked back on the ground steers the same way."
+source = "JA: air acceleration"
+see = "sim::motion::Move::air_move"
+
+[air.jump_speed]
+name = "Jump Speed"
+value = 225.0
+unit = "units/s"
+range = [50.0, 600.0]
+summary = "A jump leaves the ground at {movement.air.jump_speed:m}."
+detail = "Holding jump does not jump again. A Force jump goes higher."
+source = "JA: jumping"
+see = "sim::motion::Move::jump_check"
+
+[air.thrown_off]
+name = "Leaving the Ground"
+value = 10.0
+unit = "units/s"
+range = [0.0, 100.0]
+summary = "A character rising from the ground faster than {movement.air.thrown_off:m} leaves it, as in a jump."
+source = "JA: ground contact"
+see = "sim::motion::Move::find_ground"
+
+[air.gravity]
+name = "Gravity"
+value = 800.0
+unit = "units/s²"
+range = [200.0, 2000.0]
+summary = "Gravity adds {movement.air.gravity:bare} inches per second to a falling character's speed every second."
+source = "JA: gravity"
+see = "collision::player::GRAVITY"
+
+[body]
+title = "Body Size"
+summary = """
+A character crouching or rolling is shorter. To stand up again, it needs
+room overhead.
+"""
+applies = ["kind:player", "kind:creature"]
+
+[body.crouch_height]
+name = "Crouching Height"
+value = 16.0
+unit = "units"
+range = [0.0, 40.0]
+summary = "A crouching or rolling character's top is {movement.body.crouch_height:m} above its center."
+source = "JA: crouching"
+see = "sim::motion::Move::settle_height"
+
+[body.eye_height]
+name = "Eye Height"
+value = 36.0
+unit = "units"
+range = [0.0, 40.0]
+summary = "A standing or rolling character's eyes are {movement.body.eye_height:m} above its center."
+source = "JA: view height"
+see = "sim::motion::Move::settle_height"
+
+[body.crouch_eye_height]
+name = "Crouching Eye Height"
+value = 12.0
+unit = "units"
+range = [-24.0, 36.0]
+summary = "A crouching character's eyes are {movement.body.crouch_eye_height:m} above its center."
+source = "JA: crouching"
+see = "sim::motion::Move::settle_height"
+
+[body.pitch_max]
+name = "View Angle"
+type = "i16"
+value = 16000
+range = [0, 16383]
+summary = "The view tilts up or down by at most {movement.body.pitch_max:bare} out of 16384, which is straight up or down."
+source = "JA: the view's turn"
+see = "sim::motion::view_of"
+
+[body.step_height]
+name = "Step Height"
+value = 18.0
+unit = "units"
+range = [4.0, 48.0]
+summary = "A character steps up a ledge of {movement.body.step_height:m} or less without jumping."
+source = "JA: the player's body numbers"
+see = "collision::player::STEP_HEIGHT"
+
+[body.half_width]
+name = "Body Width"
+value = 15.0
+unit = "units"
+range = [8.0, 32.0]
+summary = "A character's body reaches {movement.body.half_width:m} to each side of its center."
+source = "JA (the player's body box)"
+see = "collision::player::HALF_WIDTH"
+
+[body.sole_z]
+name = "Feet"
+value = -24.0
+unit = "units"
+summary = "A character's feet are at {movement.body.sole_z:m} from its center."
+source = "JA: the body box"
+see = "collision::player::SOLE_Z"
+
+[body.stand_height]
+name = "Standing Height"
+value = 40.0
+unit = "units"
+range = [20.0, 80.0]
+summary = "A standing character's top is {movement.body.stand_height:m} above its center. It needs that much room to stand up."
+source = "JA: the body box"
+see = "collision::player::STAND_HEIGHT"
+
+[keys]
+title = "Controls"
+summary = "Movement controls range from 0 to 127 in each direction."
+applies = ["kind:player"]
+
+[keys.jump_axis]
+name = "Jump Pressed"
+type = "i8"
+value = 10
+range = [1, 127]
+summary = "Jump counts as pressed at {movement.keys.jump_axis:bare} or more out of 127. Below that, it is released and can be pressed again."
+source = "JA: jumping"
+see = "sim::motion::Move::jump_check"
+
+[keys.walk_axis]
+name = "Walking"
+type = "u8"
+value = 64
+range = [0, 127]
+summary = "Movement over {movement.keys.walk_axis:bare} out of 127 runs, even while walk is held."
+source = "JA: the movement step"
+see = "sim::motion::Move::run"
+
+[landing]
+title = "Landing"
+summary = """
+The force of a landing is the character's falling speed squared, divided by
+10,000. A soft landing makes no sound, a harder one a footstep, and the
+hardest a fall. A crouching character that lands hard enough rolls.
+"""
+applies = ["kind:player", "kind:creature"]
+
+[landing.soft]
+name = "Soft Landing"
+value = 1.0
+range = [0.0, 10.0]
+summary = "A landing with a force under {movement.landing.soft:bare} makes no sound and does not count."
+source = "JA: landing"
+see = "sim::motion::Move::land"
+
+[landing.roll]
+name = "Landing Roll"
+value = 2.0
+range = [0.0, 20.0]
+summary = "A crouching character landing with a force of {movement.landing.roll:bare} or more rolls the way it is moving, if there is room."
+source = "JA: landing"
+see = "sim::motion::Move::land"
+
+[landing.hurt]
+name = "Hard Fall"
+value = 7.0
+range = [1.0, 100.0]
+summary = "A landing with a force over {movement.landing.hurt:bare} is a hard fall."
+source = "JA: landing"
+see = "sim::motion::Move::land"
+
+[landing.crouched]
+name = "Crouching Landing"
+value = 2.0
+unit = "×"
+range = [1.0, 10.0]
+summary = "A crouching character's landing counts {movement.landing.crouched:bare} times as hard."
+source = "JA: landing"
+see = "sim::motion::Move::land"
+
+[landing.hold_speed]
+name = "Landing Slide"
+value = -200.0
+unit = "units/s"
+range = [-2000.0, 0.0]
+summary = "A character landing at a falling speed beyond {movement.landing.hold_speed:m} keeps sliding for {movement.landing.hold_ms:s}, untouched by friction."
+source = "JA: ground contact"
+see = "sim::motion::Move::find_ground"
+
+[landing.hold_ms]
+name = "Landing Slide Time"
+value = 250
+unit = "ms"
+range = [0, 2000]
+summary = "A hard landing keeps its speed for {movement.landing.hold_ms:s}."
+source = "JA: ground contact"
+see = "sim::motion::Move::find_ground"
+
+[landing.timer]
+name = "Landing Animation"
+value = 130
+unit = "ms"
+range = [0, 1000]
+summary = "A landing's animation holds the legs for {movement.landing.timer:s}."
+source = "JA: landing"
+see = "sim::motion::Move::land"
+
+[landing.fall_drop]
+name = "Falling Animation"
+value = 64.0
+unit = "units"
+range = [0.0, 512.0]
+summary = "A character walking off an edge plays its falling animation only over a drop of {movement.landing.fall_drop:m} or more. Stairs and curbs do not count."
+source = "JA: ground contact"
+see = "sim::motion::Move::ground_missed"
+
+[rolls]
+title = "Rolls"
+summary = """
+A character that crouches while running, or lands crouching, rolls forward,
+back or to the side, the way it is moving. A roll slows as it ends. A back
+roll is slower than the others. A roll goes no faster than
+{movement.rolls.most_speed:m}.
+"""
+applies = ["kind:player", "kind:creature"]
+
+[rolls.room]
+name = "Room to Roll"
+value = 64.0
+unit = "units"
+range = [0.0, 256.0]
+summary = "A roll needs {movement.rolls.room:m} of clear space in its direction."
+source = "JA: rolling"
+see = "sim::motion::Move::keyed_roll"
+
+[rolls.from_speed_squared]
+name = "Running Roll"
+value = 40_000.0
+range = [0.0, 1_000_000.0]
+summary = "A running character that crouches rolls if its speed squared, in inches per second, is {movement.rolls.from_speed_squared:bare} or more."
+source = "JA: walking"
+see = "sim::motion::Move::footsteps"
+
+[rolls.late_ms]
+name = "End of a Roll"
+value = 800
+unit = "ms"
+range = [0, 5000]
+summary = "A roll slows sharply in its last {movement.rolls.late_ms:s}."
+source = "JA: movement speed"
+see = "sim::motion::Move::set_step_speed"
+
+[rolls.forward_divisors]
+name = "Forward and Side Roll Speed"
+type = "f64"
+value = [1.5, 5.0]
+labels = ["early", "late"]
+range = [0.1, 50.0]
+summary = "A forward or side roll's speed is its time remaining divided by {movement.rolls.forward_divisors[0]:bare}, then by {movement.rolls.forward_divisors[1]:bare} near its end."
+source = "JA: movement speed"
+see = "sim::motion::Move::set_step_speed"
+
+[rolls.back_divisors]
+name = "Back Roll Speed"
+type = "f64"
+value = [2.5, 6.0]
+labels = ["early", "late"]
+range = [0.1, 50.0]
+summary = "A back roll's speed is its time remaining divided by {movement.rolls.back_divisors[0]:bare}, then by {movement.rolls.back_divisors[1]:bare} near its end."
+source = "JA: movement speed"
+see = "sim::motion::Move::set_step_speed"
+
+[rolls.least_speed]
+name = "Slowed Roll"
+value = 50.0
+unit = "units/s"
+range = [0.0, 250.0]
+summary = "A character slowed to {movement.rolls.least_speed:m} or less rolls at its slowed speed."
+source = "JA: movement speed"
+see = "sim::motion::Move::set_step_speed"
+
+[rolls.most_speed]
+name = "Roll Top Speed"
+value = 600.0
+unit = "units/s"
+range = [0.0, 2000.0]
+summary = "A roll goes no faster than {movement.rolls.most_speed:m}."
+source = "JA: movement speed"
+see = "sim::motion::Move::set_step_speed"
+
+[footsteps]
+title = "Footsteps and Stances"
+summary = """
+A character stands, walks, runs, crouches or walks crouched as its movement
+calls for. Standing on uneven ground, it lifts one foot to meet the floor.
+"""
+applies = ["kind:player", "kind:creature"]
+
+[footsteps.still_below]
+name = "Standing Still"
+value = 5.0
+unit = "units/s"
+range = [0.0, 50.0]
+summary = "A character slower than {movement.footsteps.still_below:m} with no movement held stands still."
+source = "JA: walking"
+see = "sim::motion::Move::footsteps"
+
+[footsteps.cycle]
+name = "Footstep Pace"
+value = [0.2, 0.4, 0.5]
+labels = ["walking", "running", "crouching"]
+range = [0.0, 2.0]
+summary = "Footstep pace: {movement.footsteps.cycle[0]:bare} walking, {movement.footsteps.cycle[1]:bare} running, {movement.footsteps.cycle[2]:bare} crouching. A higher pace means quicker steps."
+detail = "A spinning staff keeps the walking pace."
+source = "JA: the walking bob"
+see = "sim::motion::Move::footsteps"
+
+[footsteps.slope_step]
+name = "Uneven Ground Stance"
+value = 4.0
+unit = "units"
+range = [1.0, 20.0]
+summary = "On uneven ground, each of the five stances lifts a foot {movement.footsteps.slope_step:m} higher than the last."
+source = "JA: slopes"
+see = "sim::motion::Move::slope_stance"
+
+[footsteps.slope_ms]
+name = "Uneven Ground Stance Change"
+type = "u64"
+value = 100
+unit = "ms"
+range = [0, 1000]
+summary = "On uneven ground, the stance changes one step every {movement.footsteps.slope_ms:s}."
+source = "JA: slopes"
+see = "sim::motion::Move::slope_stance"
+
+[footsteps.slope_back_ms]
+name = "Leaving an Uneven Stance"
+type = "u64"
+value = 8
+unit = "ms"
+range = [0, 1000]
+summary = "A character moving off from an uneven ground stance lowers its foot one step every {movement.footsteps.slope_back_ms:s}."
+source = "JA: slopes"
+see = "sim::motion::Move::slope_return"
+
+[fine]
+title = "Tight Spaces"
+summary = """
+A character caught in a crevice stands in it. A character forced into a wall
+is moved to the nearest free spot. A low, beveled step is climbed as a step.
+"""
+applies = ["kind:player", "kind:creature"]
+
+[fine.crevice_units]
+name = "Crevice"
+value = 4.0
+unit = "units"
+range = [0.0, 32.0]
+summary = "A character on a steep slope that cannot slide {movement.fine.crevice_units:m} down it is in a crevice, and stands."
+source = "ours, after a note in JA's ground-contact code"
+see = "sim::motion::Move::crevice"
+
+[fine.crevice_free]
+name = "Crevice Slide"
+value = 0.25
+range = [0.0, 1.0]
+summary = "A character that slides {movement.fine.crevice_free:bare} of the crevice distance down a steep slope is not in a crevice."
+source = "ours"
+see = "sim::motion::Move::crevice"
+
+[fine.crevice_heading]
+name = "Crevice Heading"
+value = 0.5
+range = [-1.0, 1.0]
+summary = "Only a character standing still, or heading within 60 degrees of straight up the slope (a heading of {movement.fine.crevice_heading:bare} or more), stands in a crevice. Any other slides off."
+source = "ours"
+see = "sim::motion::Move::crevice"
+
+[fine.unbury_reach]
+name = "Freed from a Wall"
+value = 48.0
+unit = "units"
+range = [0.0, 256.0]
+summary = "A character forced into a wall is moved to the nearest free spot within {movement.fine.unbury_reach:m}, up to a step higher."
+source = "ours"
+see = "sim::motion::Move::free_spot"
+
+[fine.unbury_step]
+name = "Free Spot Search"
+value = 4.0
+unit = "units"
+range = [1.0, 64.0]
+summary = "A free spot for a character forced into a wall is searched every {movement.fine.unbury_step:m}, in sixteen directions."
+source = "ours"
+see = "sim::motion::Move::free_spot"
+
+[fine.stride]
+name = "Beveled Step"
+value = 8.0
+unit = "units"
+range = [0.0, 32.0]
+summary = "A step too steep to climb is tried again {movement.fine.stride:m} further on, onto walkable floor."
+source = "ours"
+see = "sim::motion::Move::stride"
+
+[fine.stride_rise]
+name = "Beveled Step Height"
+value = 10.0
+unit = "units"
+range = [0.0, 18.0]
+summary = "A beveled step can be at most {movement.fine.stride_rise:m} high: a raised floor, not a ledge."
+source = "ours"
+see = "sim::motion::Move::stride"

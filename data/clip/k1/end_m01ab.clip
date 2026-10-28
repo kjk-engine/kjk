@@ -1,0 +1,18 @@
+# Endar Spire, lower decks (k1 end_m01ab): clip brushes the containment
+# audit showed are needed. Format: crates/collision/src/clip_file.rs;
+# KOTOR world metres, +Z up. Check with `kjk collision audit k1 end_m01ab`
+# (and `--seeds walkmesh`, which floods from every walkable spot).
+
+# The walls along the walkmesh's open edges (collision_odyssey::edges) close
+# every other gap these decks had; this one they cannot tell from floor
+# that is meant to be roofless (outdoors). The audit opens it only with
+# every door open (`--doors all`): the game keeps end_door07 static and
+# locked.
+#
+# Behind door end_door07 (at x 47.57, where the player comes down from the
+# upper decks) the walkmesh goes on into half an airlock that has a floor
+# but no walls or ceiling: through the open door a player walks off into
+# space, or force-jumps onto the ship's hull and roams its whole roof. The
+# box fills that half airlock, from just behind the closed door's slab
+# (x 47.15 to 47.99) west past the end of its floor, and above the frame.
+box airlock_stub 42.5 116.5 -0.5 47.05 124.0 6.0

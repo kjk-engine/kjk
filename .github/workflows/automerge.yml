@@ -1,0 +1,86 @@
+name: automerge
+
+# A pull request labelled automerge is merged (a merge commit, its branch
+# deleted) once ci has passed on its newest commit. The owner says when; the
+# session then runs `gh pr edit <n> --add-label automerge` (AGENT.md).
+# GitHub's own auto-merge needs a paid plan for a private repository.
+#
+# Two ways in: ci finishing on a pull request, and the label being added to
+# one whose ci already passed. A docs-only pull request runs no ci, so it is
+# merged as soon as it is labelled. A merge made here starts no ci run on
+# main (GitHub's rule for its own token); the pull request's run already
+# tested it merged onto main.
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  merge:
+    if: >-
+      (github.event_name == 'workflow_run'
+        && github.event.workflow_run.event == 'pull_request'
+        && github.event.workflow_run.conclusion == 'success')
+      || (github.event_name == 'pull_request'
+        && github.event.label.name == 'automerge')
+    runs-on: ubuntu-latest
+    outputs:
+      merged: ${{ steps.merge.outputs.merged }}
+    steps:
+      - name: Merge when labelled and green
+        id: merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PR" ]; then
+            PR=$(gh api "repos/$GH_REPO/commits/$SHA/pulls" \
+              --jq 'map(select(.state == "open"))[0].number // empty')
+          fi
+          [ -n "$PR" ] || { echo "no open pull request for $SHA"; exit 0; }
+
+          IFS=$'\t' read -r state draft head branch labelled < <(gh pr view "$PR" \
+            --json state,isDraft,headRefOid,headRefName,labels \
+            --jq '[.state, .isDraft, .headRefOid, .headRefName,
+                   (.labels | map(.name) | index("automerge") != null)] | @tsv')
+          if [ "$state" != OPEN ] || [ "$draft" = true ] || [ "$labelled" != true ]; then
+            echo "#$PR is not an open, labelled pull request"; exit 0
+          fi
+
+          # ci's newest run on the head commit; none means docs only, or not
+          # started yet (then its finishing brings us back here).
+          ci=$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?head_sha=$head&event=pull_request" \
+            --jq '.workflow_runs[0] // empty | "\(.status) \(.conclusion)"')
+          case "$ci" in
+            "completed success") ;;
+            "")
+              files=$(gh pr diff "$PR" --name-only)
+              if grep -qvE '^docs/|^[^/]+\.md$' <<<"$files"; then
+                echo "ci has not run on $head yet"; exit 0
+              fi ;;
+            *) echo "ci on $head: $ci"; exit 0 ;;
+          esac
+
+          if gh pr merge "$PR" --merge --match-head-commit "$head"; then
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+            gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$branch"
+          elif [ "$(gh pr view "$PR" --json state --jq .state)" != MERGED ]; then
+            exit 1
+          fi
+
+  # The merge's bump files numbered and the sim hash pinned (bumps/README.md):
+  # this merge, made with GitHub's own token, starts no push run of pin.yml.
+  pin:
+    needs: merge
+    if: needs.merge.outputs.merged == 'true'
+    uses: ./.github/workflows/pin.yml

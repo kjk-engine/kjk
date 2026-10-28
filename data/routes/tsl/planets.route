@@ -1,0 +1,37 @@
+# TSL's planets, cold: from Peragus's start the party is moved to each
+# planet's first module and saved there, for loading straight into an area
+# the routes do not reach yet (data/routes/tsl/saves.list). Every `goto` is
+# a marked stand-in: the story's globals are as Peragus left them, so what
+# a planet's scripts read of the story before it is not there. Each goal is
+# met once its module is installed; the `wait` lets the area's OnEnter run.
+#   kjk playthrough tsl @peragus_start data/routes/tsl/planets.route --god
+goto 151har          # the Harbinger
+wait 2s
+save cold_harbinger
+goto 201tel          # Telos: Citadel Station
+wait 2s
+save cold_telos
+goto 261tel          # Telos: the polar plateau
+wait 2s
+save cold_telos_polar
+goto 301nar          # Nar Shaddaa: the refugee landing pad
+wait 2s
+save cold_nar_shaddaa
+goto 401dxn          # Dxun: the jungle landing
+wait 2s
+save cold_dxun
+goto 501ond          # Onderon: Iziz spaceport
+wait 2s
+save cold_onderon
+goto 601dan          # Dantooine: Khoonda
+wait 2s
+save cold_dantooine
+goto 701kor          # Korriban: the valley
+wait 2s
+save cold_korriban
+goto 851nih          # the Ravager
+wait 2s
+save cold_ravager
+goto 901mal          # Malachor V
+wait 2s
+save cold_malachor

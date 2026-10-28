@@ -1,0 +1,40 @@
+# Kashyyyk, Chuundar's way (K1): Freyyr given the blade and brought back
+# up as on the main route, but at the throne the party sides with
+# Chuundar and turns Zaalbar against his father; Freyyr falls, Chuundar
+# keeps his throne, and Zaalbar leaves with the party and Bacca's sword.
+# Starts from the main route's checkpoint after the ritual (the blade
+# found):
+#   kjk playthrough k1 @kas_ritual data/routes/k1/kashyyyk_chuundar.route --god
+say found the blade      # Freyyr, Zaalbar's father: the blade of Bacca's sword
+say here, take it
+use kas25_freyyr_01      # feral after his years below: he fights,
+talk
+fight 20                 # beaten near to death, he hears the party out
+talk
+save kch_freyyr
+exit Exit                # back up to the Upper Shadowlands
+use kas24_gorwook_01     # Gorwooken at the lift
+talk
+fight 20
+use kas24_baskettalk     # up to the Great Walkway
+talk
+module kas_m22ab
+save kch_walkway_back
+say side with chuundar   # Rwookrrorro: Freyyr's return; the party with
+say yes! freyyr abandoned you  # Chuundar, Zaalbar turned on his father
+exit kas22_towndoor
+talk
+fight 30
+talk                     # Chuundar's thanks: Bacca's sword for Zaalbar
+save kch_throne
+if in kas_m23ad          # out, onto the Great Walkway (where the scene's
+exit KashyyykDoor2       # end has not already put the party)
+end
+exit KashyyykDoor3       # the landing port
+exit EbonHawk            # aboard
+use GalaxyMap            # the galaxy map: Manaan
+travel 6
+module stunt_00          # the vision (stunt_00),
+module ebo_m12aa         # landed in Ahto City's docking bay
+talk
+save kch_manaan

@@ -1,0 +1,18 @@
+[package]
+name = "ragdoll"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+glam.workspace = true
+rapier3d.workspace = true
+
+[features]
+# The probes (`kjk <layer> probes`): checks, not the game.
+probes = []
+
+[lints]
+workspace = true

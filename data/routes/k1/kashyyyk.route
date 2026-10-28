@@ -1,0 +1,96 @@
+# Kashyyyk (K1, kas_m22aa the Czerka landing port, kas_m22ab the Great
+# Walkway, kas_m23aa Rwookrrorro, kas_m23ad the chieftain's hall,
+# kas_m24aa the Upper Shadowlands, kas_m25aa the Lower Shadowlands):
+# Zaalbar's homecoming, Chuundar, Jolee, the Star Map. Starts from the
+# Tatooine route's checkpoint:
+#   kjk playthrough k1 @kashyyyk data/routes/k1/kashyyyk.route --god
+party 8,2                # Zaalbar (the village's gate wants a Wookiee) and Carth
+exit ebn12_ebonexit      # down the ramp: Czerka's landing port
+talk                     # Janos: the docking fee paid
+save kas_landing
+say going past you       # the door's Czerka guard: the fee is paid
+exit KashyyykDoor3       # the Great Walkway (kas_m22ab)
+save kas_walkway
+exit kas22_towndoor      # Malak's dark Jedi on the way; the gate's Wookiee
+module kas_m23ad         # takes the party before Chuundar
+save kas_chuundar
+talk                     # Chuundar: Zaalbar's brother, the Shadowlands
+module kas_m23aa         # out into Rwookrrorro: Zaalbar held until the mad-claw dies
+save kas_village
+exit KashyyykDoor3       # back out onto the Great Walkway, to Gorwooken
+use kas22_gorwook_01     # he lowers the party to the Shadowlands
+talk
+module kas_m24aa
+save kas_upper_shadow
+to kas24_joleetrig       # Jolee Bindo among the katarns: they fall, his scene
+fight 20
+save kas_jolee
+to kas24_joleehome       # his camp, under a log
+say star map
+use Jolee
+talk                     # the Czerka hunters he wants gone first
+save kas_jolee_camp
+say czerka slaver        # Dern and his poachers: the fight Jolee wanted
+say should just kill you
+use kas24_poffice_01
+talk
+fight 30
+save kas_poachers
+say star map             # back at the camp: Jolee joins, the Star Map below
+use Jolee
+talk
+save kas_jolee_joins
+say get us past the field # Czerka's repulsor field: Jolee bypasses it
+if in kas_m24aa          # (unless his own word has taken the party down)
+use kas24_forcefield
+talk                     # (its end takes the party down)
+end
+module kas_m25aa         # the Lower Shadowlands
+save kas_lower_shadow
+say accuse him to be safe # the Star Map's guardian: its four questions
+say attack in ten days
+say would spur
+say let the attack happen
+use kas24_computer       # (a hologram at the map): the map given
+talk
+save kas_starmap
+to kas25_kinrath         # a viper kinrath: its body is the ritual's bait
+fight 15
+use kas25_kinrath        # its remains: the body
+use kas25_ritualvine     # hung on the vine: the ancient beast comes
+talk
+fight 25
+talk                     # the sword at its side
+save kas_ritual
+say found the blade      # Freyyr, Zaalbar's father: the blade of Bacca's sword
+say here, take it
+say take the fight to chuundar
+use kas25_freyyr_01      # feral after his years below: he fights,
+talk
+fight 20                 # beaten near to death, he hears the party out
+talk
+save kas_freyyr
+exit Exit                # back up to the Upper Shadowlands
+use kas24_gorwook_01     # Gorwooken at the lift: he knows Chuundar was crossed
+talk
+fight 20
+use kas24_baskettalk     # the basket, worked by hand now: up to the Great Walkway
+talk
+module kas_m22ab
+save kas_walkway_back
+say side with freyyr     # Rwookrrorro: Freyyr's return, Zaalbar's choice
+exit kas22_towndoor
+talk
+fight 30                 # Chuundar and his Czerka allies' last stand
+talk
+save kas_throne
+exit KashyyykDoor2       # out into Rwookrrorro
+exit KashyyykDoor3       # the Great Walkway
+exit KashyyykDoor3       # the landing port
+exit EbonHawk            # aboard
+use GalaxyMap            # the galaxy map: Manaan
+travel 6
+module stunt_00          # the vision (stunt_00),
+module ebo_m12aa         # landed in Ahto City's docking bay
+talk
+save manaan

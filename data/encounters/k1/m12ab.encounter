@@ -1,0 +1,8 @@
+# Encounter overrides for the Ebon Hawk's turret (our own data, see
+# crates/session/src/encounters.rs; never written into the game install).
+#
+# Every space fight loads this module (docs/MINIGAMES.md). In
+# co-op each seat mans a gun, and each gunner past the first adds
+# half again of every Sith fighter's hit points (sim::minigame's
+# Rules::per_player_hp); the module places no hostile creature.
+per_player hp x0.5

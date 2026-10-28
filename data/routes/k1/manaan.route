@@ -1,0 +1,198 @@
+# Manaan (K1, manm26ad the docking bay, manm26ac West Central, manm26aa
+# Ahto West, manm26ae East Central, manm26ab Ahto East, manm27aa the Sith
+# base, manm28aa Hrakert Station, manm28ab the sea floor, manm28ac kolto
+# control, manm28ad the Hrakert Rift): the docking fee, Roland Wann's
+# missing droid by the stolen passcard, the Sith base, the trial, the
+# submersible, the kolto machine, the Star Map. Starts from the Kashyyyk
+# route's checkpoint (the Ebon Hawk landed in Ahto City's docking bay):
+#   kjk playthrough k1 @manaan data/routes/k1/manaan.route --god --mighty
+exit ebn12_ebonexit      # down the ramp
+talk                     # the Republic's and the Sith's envoys argue
+save man_dock
+exit man26ad_to26ac      # West Central: the Visitor Center
+use man26_selport        # the Selkath port authority: the docking fee
+talk
+save man_fee
+exit man26ac_to26aa      # Ahto West: Shaelas, whose daughter is among the
+say blight upon the galaxy  # missing Selkath youth (taken now, his quest
+say shall look into these disappearances  # opens the Sith base's Selkath wing)
+use man26_shaelas
+talk
+save man_shaelas
+exit man26aa_door05      # back to West Central
+exit man26ac_to26ae      # East Central
+say seek a star map       # the Republic embassy: Roland Wann, the Star Map,
+say decrypting the passcard  # the droid the Sith took; a stolen passcard
+say decrypt the passcard
+use man26_repdip
+talk
+save man_roland
+say =22                  # the passcard: the console's six sequences
+say =18
+say =64
+say =2
+say =6
+say =7
+use man26_bigcomp
+talk
+save man_passcard
+exit man26ae_to26ab      # Ahto East
+say have this passcard   # the Sith envoy at the base's door
+use man26_sithdip
+talk
+exit to27a               # the Sith base (manm27aa)
+save man_sith_base
+talk                     # the passcard is out of date: the officer calls her commander
+fight 25
+save man_sith_in
+# The base's Mark IV droids' plating turns 15 of each energy blow, nearly
+# all of a saber's: a vibroblade for them.
+equip g_w_vbroswrd05
+use BroknDrd             # the Republic's droid: its data
+fight 25
+equip g_w_lghtsbr01      # the saber again
+save man_droid
+fight 30                 # on to the flow control room's officer
+use man27_button03       # the flow control room's water (rooms A, C, E east of
+fight 30                 # it, B, D, F west; A and D flooded): A's water let
+say =[proceed.]          # down into C, then the flow control swaps each row's
+use man27_flowA          # rooms twice (C's into D's, then back into C):
+talk                     # the west column dry
+say =[proceed.]
+use man27_flowA
+talk
+use man27_h2o02
+use man27_h2o04
+use man27_h2o06
+use man27_h2o08
+save man_flow
+use man27aa_door01@16    # left past the water: three Dark Jedi
+fight 30
+save man_djroom
+use man27aa_door01@18    # the other way: the Sith soldiers' room
+fight 30
+use man27aa_door01@17    # out into the corridor: its patrol, the barracks
+fight 30
+save man_soldiers
+to man27aa_misssel01     # the corridor's end: a Selkath apprentice comes out
+fight 30                 # of the wing's door and attacks
+save man_wing
+use man27_shasa          # the three apprentices: they want proof
+talk
+save man_apprentices
+to man27_sithmas         # the Dark Jedi master and his two Selkath apprentices
+fight 30
+save man_master
+use man27_padbox01       # the datapad: the Sith's plan for Manaan's youth
+save man_datapad
+use man27_shasa          # the young Selkath shown the proof
+talk
+save man_selkath
+exit to26b               # out of the base: the Selkath arrest the party for it
+talk
+save man_arrested
+say datapad as proof     # the Arbiter's questions, then the trial: the
+say datapad proving      # datapad shown
+say proof that the sith are evil
+talk
+save man_trial           # innocent: the Sith base outside Selkath law
+exit man26aa_door05      # out to West Central
+exit man26ac_to26ae      # East Central: the Republic Embassy
+use man26_repdip         # Roland Wann: the droid's data; the Hrakert station
+talk                     # lost, the Republic's submersible
+save man_roland_sub
+use man26ae_sub          # down to Hrakert Station
+module manm28aa
+save man_hrakert
+use man28_merc           # the Twi'lek mercenary who locked himself in
+talk
+# The heavy sentry droid (man28_shield) turns 15 of each energy blow and
+# its plot shield (forceshields 18) 300 more: a vibroblade for it, as for
+# the Sith base's droids.
+equip g_w_vbroswrd05
+fight 30                 # the station's droids and maddened Selkath
+use EnvrSuit             # the environment suit
+say deactivate shield on heavy sentry droid  # its plot shield (forceshields 18):
+use ComputerPanel        # the security panel cuts it (spikes), fought on the way
+talk
+fight 30
+say leave party members  # the west airlock, alone in the suit
+say begin airlock sequence
+fight 20                 # the insane Selkath at the airlock first (no
+use 28aw                 # conversation starts in a fight)
+talk
+module manm28ab          # the sea floor
+equip g_w_lghtsbr01      # the saber again
+save man_seafloor
+to man28ab_surinit       # a mercenary survivor: he heads for the kolto harvester
+talk
+save man_survivor
+say begin airlock sequence  # the north airlock, into the far complex
+use 28bn
+talk
+module manm28ac
+save man_scientists_hall
+fight 30                 # the maddened Selkath in the hall
+# WORKAROUND (journal T92): the scientists open their chamber only to a
+# Persuade the build's recommended skills never take (rank 0: no chance),
+# or to five computer spikes the driver never gathered. The route stands
+# in a Persuade a player would have picked by now.
+skill persuade=15
+use man28_sur3           # the decompression chamber: the scientists begin
+talk                     # to empty it
+say keep you safe        # persuaded, they unlock it
+use man28_sur3
+talk
+save man_scientists
+say a friend. i'll protect you  # inside: the firaxan shark the Selkath guard
+say destroy the harvesting machine
+use man28_sur3
+talk
+save man_scientists_in
+say begin airlock sequence  # their hatch, out to the Rift
+use 28c
+talk
+module manm28ad
+save man_rift
+say =access fuel tank pressure control.  # the harvester's console at the
+say =fill injector pod.                  # Rift's edge: its pods overloaded
+say =transfer from injector to container.  # (3 into 5 twice, the container
+say =fill injector pod.                  # dumped between)
+say =transfer from injector to container.
+say =dump container pod.
+say =transfer from injector to container.
+say =fill injector pod.
+say =transfer from injector to container.
+use man28d_comp
+talk
+save man_kolto
+to wp_player_starmap     # the Star Map, the giant firaxan freed
+talk
+save man_starmap
+exit ManaanDoor2         # back into the station
+fight 30
+save man_station_back
+to man_bandon_talker     # Darth Bandon and two Dark Jedi by the submersible
+fight 30
+save man_bandon
+use man28_sub            # up to the embassy
+module manm26ae
+save man_up
+use man26_repdip         # Roland Wann: thanks
+talk
+save man_roland_done
+say come peacefully      # arrested again: the harvester; the truth told,
+say research station both our governments  # released with the court's thanks
+say offer the data the republic gained
+say destroyed the machinery to save it
+exit man26ae_to26ac
+talk
+save man_trial2
+exit man26aa_door05      # back to the docking bay, aboard
+exit man26ac_to26ad
+exit man26ad_to12aa
+use GalaxyMap
+travel 7                 # Korriban
+talk                     # the Leviathan: the Ebon Hawk taken aboard
+talk
+save leviathan

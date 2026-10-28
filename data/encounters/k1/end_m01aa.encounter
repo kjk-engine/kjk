@@ -1,0 +1,8 @@
+# Encounter overrides for the Command Module (I28; our own data, see
+# crates/session/src/encounters.rs; never written into the game install).
+#
+# The Endar Spire's first fights are the story's tutorial: KOTOR makes the
+# Sith harmless (one-damage weapons) and scripts the Jedi duel and Bandon,
+# and that stays so (I22 section 11). Only co-op scales them: each player
+# past the first adds half again of every hostile's maximum.
+per_player hp x0.5

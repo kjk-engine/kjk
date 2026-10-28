@@ -1,0 +1,258 @@
+[chapter]
+title = "Targeting"
+order = 73
+summary = """
+The target is the object under the crosshair within
+{targeting.pick.range:bare} meters. If there is none, it is the object
+nearest the crosshair within {targeting.pick.cone_degrees}, or else the
+nearest object at the character's feet. Each target offers its own actions:
+open, use, talk, unlock, disarm, revive and so on. If the target is out of
+reach, the character walks to it first.
+"""
+detail = """
+Doors, usable placeables, living creatures outside the party, detected traps
+and downed party members can be targeted.
+"""
+
+[pick]
+title = "Selecting a Target"
+applies = ["kind:player", "kind:door", "kind:container"]
+summary = """
+The crosshair selects the nearest object it points at, unless a wall is in
+the way. A target stays selected for {targeting.pick.hold_ms:s} after the
+crosshair leaves it.
+"""
+
+[pick.range]
+name = "Targeting Range"
+value = 10.0
+unit = "m"
+range = [1.0, 50.0]
+summary = "An object can be targeted from up to {targeting.pick.range:bare} meters away."
+source = "ours (measured on Taris)"
+see = "sim::target::pick"
+
+[pick.cone_degrees]
+name = "Targeting Assist"
+value = 4.0
+unit = "°"
+range = [0.0, 45.0]
+summary = "When the crosshair points at nothing, an object up to {targeting.pick.cone_degrees} off the crosshair can be targeted."
+source = "ours"
+see = "sim::target::pick"
+
+[pick.hold_ms]
+name = "Target Hold"
+type = "u64"
+value = 200
+unit = "ms"
+range = [0, 2000]
+summary = "A target stays selected for {targeting.pick.hold_ms:s} after the crosshair leaves it."
+source = "ours"
+see = "sim::target::Hold::update"
+
+[pick.eyes]
+name = "Eye Height"
+value = 1.6
+unit = "m"
+range = [0.5, 3.0]
+summary = "An object at the character's feet must be in sight of eyes {targeting.pick.eyes:bare} meters above the floor."
+source = "ours"
+see = "sim::target::pick"
+
+[volumes]
+title = "Target Size"
+summary = """
+Each kind of object is targeted within an upright cylinder standing on its
+base. A door is targeted on its own surfaces.
+"""
+
+[volumes.creature_radius]
+name = "Creature Radius"
+value = 0.4
+unit = "m"
+range = [0.1, 3.0]
+summary = "A creature can be targeted within {targeting.volumes.creature_radius:bare} meters of its center."
+source = "ours"
+see = "sim::target::candidates"
+applies = ["kind:creature"]
+
+[volumes.creature_height]
+name = "Creature Height"
+value = 1.9
+unit = "m"
+range = [0.1, 5.0]
+summary = "A creature can be targeted up to {targeting.volumes.creature_height:bare} meters above its feet."
+source = "ours"
+see = "sim::target::candidates"
+applies = ["kind:creature"]
+
+[volumes.placeable_radius]
+name = "Placeable Radius"
+value = 0.5
+unit = "m"
+range = [0.1, 3.0]
+summary = "A usable placeable can be targeted within {targeting.volumes.placeable_radius:bare} meters of its center."
+source = "ours"
+see = "sim::target::candidates"
+applies = ["kind:container"]
+
+[volumes.placeable_height]
+name = "Placeable Height"
+value = 1.5
+unit = "m"
+range = [0.1, 5.0]
+summary = "A usable placeable can be targeted up to {targeting.volumes.placeable_height:bare} meters above its base."
+source = "ours"
+see = "sim::target::candidates"
+applies = ["kind:container"]
+
+[volumes.door_radius]
+name = "Door Radius"
+value = 1.0
+unit = "m"
+range = [0.1, 5.0]
+summary = "A closed door can also be targeted within {targeting.volumes.door_radius:bare} meters of its center."
+source = "ours"
+see = "sim::target::candidates"
+applies = ["kind:door"]
+
+[volumes.door_height]
+name = "Door Height"
+value = 2.5
+unit = "m"
+range = [0.1, 10.0]
+summary = "A door can be targeted up to {targeting.volumes.door_height:bare} meters above its base."
+source = "ours"
+see = "sim::target::candidates"
+applies = ["kind:door"]
+
+[volumes.body_radius]
+name = "Downed Party Member Radius"
+value = 0.8
+unit = "m"
+range = [0.1, 3.0]
+summary = "A downed party member can be targeted within {targeting.volumes.body_radius:bare} meters of its center."
+source = "ours"
+see = "sim::target::candidates"
+applies = ["kind:companion"]
+
+[volumes.body_height]
+name = "Downed Party Member Height"
+value = 0.5
+unit = "m"
+range = [0.1, 3.0]
+summary = "A downed party member can be targeted up to {targeting.volumes.body_height:bare} meters above the floor."
+source = "ours"
+see = "sim::target::candidates"
+applies = ["kind:companion"]
+
+[volumes.trap_radius]
+name = "Mine Radius"
+value = 0.6
+unit = "m"
+range = [0.1, 3.0]
+summary = "A detected mine can be targeted within {targeting.volumes.trap_radius:bare} meters of its center."
+source = "ours"
+see = "sim::target::candidates"
+applies = ["kind:mine"]
+
+[volumes.trap_height]
+name = "Mine Height"
+value = 0.3
+unit = "m"
+range = [0.05, 3.0]
+summary = "A detected mine can be targeted up to {targeting.volumes.trap_height:bare} meters above the floor."
+source = "ours"
+see = "sim::target::candidates"
+applies = ["kind:mine"]
+
+[walk]
+title = "Moving to a Target"
+summary = """
+If the chosen action is out of reach, the character walks to the target
+first. Moving, jumping or attacking cancels the walk.
+"""
+
+[walk.arrive]
+name = "Action Reach"
+value = 0.8
+unit = "×"
+range = [0.1, 1.0]
+summary = "A character within {targeting.walk.arrive:bare} times an action's reach performs it without walking."
+source = "ours"
+see = "sim::target::Walk::near"
+
+[walk.share]
+name = "Stopping Distance"
+value = 0.5
+unit = "×"
+range = [0.0, 1.0]
+summary = "A character walking to a target stops at {targeting.walk.share:bare} times the reach it acts from."
+source = "ours"
+see = "sim::target::stand_off"
+
+[walk.trap_share]
+name = "Mine Stopping Distance"
+value = 0.9
+unit = "×"
+range = [0.0, 1.0]
+summary = "A character walking to disarm or recover a mine stops at {targeting.walk.trap_share:bare} times the reach it acts from, beside the mine."
+source = "ours (KOTOR disarms from beside a mine)"
+see = "sim::target::stand_off"
+applies = ["kind:mine", "skill:Demolitions"]
+
+[walk.walk_ms]
+name = "Walk Time Limit"
+type = "u64"
+value = 10_000
+unit = "ms"
+range = [1000, 60000]
+summary = "A walk to a target is canceled after {targeting.walk.walk_ms:s}."
+source = "ours"
+see = "sim::target::Walk::stride"
+
+[walk.stalls]
+name = "Walk Blocked"
+type = "u8"
+value = 3
+range = [1, 50]
+summary = "A walk to a target is canceled after it is blocked {targeting.walk.stalls:bare} times."
+source = "ours"
+see = "sim::target::Walk::stride"
+
+[walk.moved]
+name = "Moving Target"
+value = 1.0
+unit = "m"
+range = [0.0, 10.0]
+summary = "A target that moves more than {targeting.walk.moved:bare} meters makes the character find a new path to it."
+source = "ours"
+see = "sim::target::Walk::stride"
+
+[revive]
+title = "Reviving"
+summary = """
+A downed party member is revived by holding Use on it. The character looks
+down at the body and stays still until it stands.
+"""
+applies = ["kind:companion"]
+
+[revive.wait_ms]
+name = "Revive Wait"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [0, 10000]
+summary = "If a revive has not begun within {targeting.revive.wait_ms:s}, it is canceled: another player is reviving the body, or it is out of reach."
+source = "ours"
+see = "sim::target::Reviving::keep"
+
+[revive.pitch]
+name = "Revive View"
+value = 20.0
+unit = "°"
+range = [-90.0, 90.0]
+summary = "A character reviving a party member looks down {targeting.revive.pitch} at the body."
+source = "ours"
+see = "sim::target::Reviving::keep"

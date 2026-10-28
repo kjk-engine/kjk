@@ -1,0 +1,540 @@
+[chapter]
+title = "Perception and Tactics"
+order = 41
+summary = """
+A creature notices its enemies, chooses whom to fight, then attacks, gives
+chase, follows its leader or stands idle. Its scripts choose whom it attacks
+and every Force power, feat, grenade and item it uses. Where no scripts run,
+it chooses for itself.
+"""
+
+[looking]
+title = "Perception"
+summary = """
+A creature fights the target its script attacks, even out of sight, or else
+the enemy it is already fighting while that enemy stays hostile and in
+sight. Where no scripts run, it fights the nearest hostile creature it can
+see. A creature in Stealth Mode is seen only if its Stealth loses to the
+searcher's Awareness, each taking 10 on the roll. A party member who sees no
+enemy goes to the nearest enemy fighting the party. A creature that spots an
+enemy outside combat is caught unaware for a moment and can be sneak
+attacked. Damage ends this at once.
+"""
+applies = ["kind:creature", "kind:companion", "skill:Awareness", "kind:stealth"]
+
+[looking.look_every_ms]
+name = "Perception Rate"
+type = "u64"
+value = 200
+unit = "ms"
+range = [16, 5000]
+summary = "A creature looks for enemies every {minds.looking.look_every_ms:s}. It chooses its own Force powers at the same time."
+source = "ours"
+see = "sim::world::minds::think"
+
+[looking.sight]
+name = "Sight Range"
+value = 1200.0
+unit = "units"
+range = [0.0, 8192.0]
+summary = "A creature with no perception range of its own sees {minds.looking.sight:m}."
+source = "ours"
+see = "sim::world::minds::think"
+
+[looking.reaction_ms]
+name = "Reaction Time"
+type = "u64"
+value = 1500
+unit = "ms"
+range = [0, 10000]
+summary = "A creature that spots an enemy outside combat acts after {minds.looking.reaction_ms:s}, less {minds.looking.reaction_per_rank_ms:s} for each rank of Awareness."
+source = "ours (I22 section 5)"
+see = "sim::combat::ai::reaction_ms"
+applies = ["skill:Awareness"]
+
+[looking.reaction_per_rank_ms]
+name = "Awareness Reaction Bonus"
+type = "u64"
+value = 150
+unit = "ms"
+range = [0, 1000]
+summary = "Each rank of Awareness lets a creature act {minds.looking.reaction_per_rank_ms:s} sooner on an enemy it spots."
+source = "ours (I22 section 5)"
+see = "sim::combat::ai::reaction_ms"
+applies = ["skill:Awareness"]
+
+[tasks]
+title = "Combat Tactics"
+summary = """
+A creature with a target attacks it. A creature that loses its target goes
+to where it last saw it while combat lasts. A party member with nothing to
+do follows its leader. A creature with a melee weapon runs to a distant or
+hidden target, and closes from one side so a group attacks from the flanks
+rather than in a line. No creature steps off walkable ground. In solo mode,
+party members stay where they are.
+"""
+applies = ["kind:creature", "kind:companion"]
+
+[tasks.leash]
+name = "Leash"
+value = 1024.0
+unit = "units"
+range = [64.0, 8192.0]
+summary = "A party member more than {minds.tasks.leash:m} from its leader breaks off combat and returns."
+source = "ours"
+see = "sim::world::minds::think"
+applies = ["kind:companion"]
+
+[tasks.follow_near]
+name = "Following Distance"
+value = 192.0
+unit = "units"
+range = [16.0, 2048.0]
+summary = "A party member follows its leader once it is more than {minds.tasks.follow_near:m} away."
+source = "ours"
+see = "sim::world::minds::think"
+applies = ["kind:companion"]
+
+[tasks.follow_replan]
+name = "Following Path"
+value = 96.0
+unit = "units"
+range = [1.0, 2048.0]
+summary = "A following party member finds a new path when its leader moves {minds.tasks.follow_replan:m}."
+source = "ours"
+see = "sim::world::minds::think"
+applies = ["kind:companion"]
+
+[tasks.follow_back]
+name = "Formation Depth"
+value = 64.0
+unit = "units"
+range = [16.0, 512.0]
+summary = "A following party member keeps {minds.tasks.follow_back:m} behind its leader, a second pair twice as far."
+source = "ours (owner, 2026-10-27)"
+see = "sim::world::minds::follow_slot"
+applies = ["kind:companion"]
+
+[tasks.follow_side]
+name = "Formation Width"
+value = 48.0
+unit = "units"
+range = [0.0, 512.0]
+summary = "Following party members keep {minds.tasks.follow_side:m} to their leader's left and right, one on each side."
+source = "ours (owner, 2026-10-27)"
+see = "sim::world::minds::follow_slot"
+applies = ["kind:companion"]
+
+[tasks.follow_apart]
+name = "Formation Spacing"
+value = 40.0
+unit = "units"
+range = [8.0, 512.0]
+summary = "A following party member nearer than {minds.tasks.follow_apart:m} to another moves to its own place beside the leader."
+source = "ours (owner, 2026-10-27)"
+see = "sim::world::minds::follow_slot"
+applies = ["kind:companion"]
+
+[tasks.replan]
+name = "Pursuit Path"
+value = 64.0
+unit = "units"
+range = [1.0, 2048.0]
+summary = "A creature running after a target finds a new path when the target moves {minds.tasks.replan:m}."
+source = "ours"
+see = "sim::world::minds::engage, sim::world::minds::fight"
+
+[tasks.chase_arrived]
+name = "End of Pursuit"
+value = 2.0
+unit = "×"
+range = [0.5, 20.0]
+summary = "A pursuit ends within {minds.tasks.chase_arrived:bare} times a creature's usual stopping distance of where it last saw its target."
+source = "ours"
+see = "sim::world::minds::think"
+
+[tasks.route_beyond]
+name = "Pathing Distance"
+value = 256.0
+unit = "units"
+range = [0.0, 4096.0]
+summary = "A creature with a melee weapon finds a path to a target more than {minds.tasks.route_beyond:m} away instead of walking straight at it."
+source = "ours"
+see = "sim::world::minds::engage"
+applies = ["kind:melee", "kind:lightsaber"]
+
+[tasks.seen_lately_ms]
+name = "Pursuit Delay"
+type = "u64"
+value = 400
+unit = "ms"
+range = [0, 10000]
+summary = "A creature with a melee weapon that has not seen its target for {minds.tasks.seen_lately_ms:s} finds a path to it."
+source = "ours"
+see = "sim::world::minds::engage"
+applies = ["kind:melee", "kind:lightsaber"]
+
+[tasks.flank_from]
+name = "Flanking Distance"
+value = 96.0
+unit = "units"
+range = [0.0, 1024.0]
+summary = "A creature with a melee weapon more than {minds.tasks.flank_from:m} from its target closes from one side."
+source = "ours"
+see = "sim::world::minds::engage"
+applies = ["kind:melee", "kind:lightsaber"]
+
+[tasks.flank_axis]
+name = "Flanking Step"
+type = "i8"
+value = 64
+range = [0, 127]
+summary = "A flanking creature steps aside at {minds.tasks.flank_axis} out of a full 127."
+source = "ours"
+see = "sim::world::minds::engage"
+applies = ["kind:melee", "kind:lightsaber"]
+
+[tasks.ledge_margin]
+name = "Ledge Check"
+value = 8.0
+unit = "units"
+range = [0.0, 64.0]
+summary = "A creature checks the ground {minds.tasks.ledge_margin:m} beyond its body before each step, and never steps off a ledge."
+source = "ours"
+see = "sim::world::minds::on_the_mesh"
+
+[tasks.walk_axis]
+name = "Walking Pace"
+type = "i8"
+value = 64
+range = [1, 127]
+summary = "A walking creature moves at {minds.tasks.walk_axis} out of a full 127. Scripts that do not tell a creature to run, and a creature circling in combat, walk."
+source = "JA: the client's walk"
+see = "sim::world::minds::walking"
+
+[tasks.script_goal_moved]
+name = "Scripted Move Path"
+value = 32.0
+unit = "units"
+range = [1.0, 1024.0]
+summary = "A creature a script sends to a moving object finds a new path when the object moves {minds.tasks.script_goal_moved:m}."
+source = "ours"
+see = "sim::world::minds::scripted_walk"
+
+[tasks.script_spot_m]
+name = "Scripted Move Arrival"
+value = 0.1
+unit = "m"
+range = [0.0, 2.0]
+summary = "A creature a script sends to a spot walks straight to within {minds.tasks.script_spot_m:bare} meters of it, or the move's own range if larger."
+source = "ours"
+see = "sim::world::minds::scripted_walk"
+
+[guarding]
+title = "Guarding and Saber Locks"
+summary = """
+In a cutscene or a duel, a creature with a lightsaber that can block
+sometimes holds back from attacking to guard, turning aside blows and
+blaster bolts. A creature caught in a saber lock presses its attack again
+and again.
+"""
+applies = ["kind:lightsaber", "kind:creature"]
+
+[guarding.guard_ms]
+name = "Guard Duration"
+type = "u64"
+value = 700
+unit = "ms"
+range = [50, 10000]
+summary = "A creature that guards does so for {minds.guarding.guard_ms:s} at a time."
+source = "ours"
+see = "sim::world::minds::think"
+
+[guarding.guard_share]
+name = "Guard Chance"
+value = 0.3
+range = [0.0, 1.0]
+summary = "A creature that can block guards {minds.guarding.guard_share} of the time."
+source = "ours"
+see = "sim::world::minds::think"
+
+[guarding.lock_tap_ms]
+name = "Saber Lock Attacks"
+type = "u64"
+value = 60
+unit = "ms"
+range = [8, 1000]
+summary = "In a saber lock, a creature presses attack for {minds.guarding.lock_tap_ms:s}, then releases for as long, over and over."
+source = "ours"
+see = "sim::world::minds::think"
+
+[powers]
+title = "Force Powers"
+summary = """
+A creature uses the power its script chooses once it is within the power's
+range of the target, no more than once a round. Choke, Force Lightning and
+Drain Life are held. Where no scripts run, a creature chooses for
+itself. It heals when hurt, uses Choke, lightning or drain within range,
+pushes a nearby enemy, stuns an enemy not already stunned, slows a living
+enemy, breaks an enemy's Force powers and raises a protective power it
+lacks. After a power, it waits {minds.powers.cast_wait_ms:s} plus up to
+{minds.powers.cast_spread_ms:s} more. After a held power, it waits
+{minds.powers.hold_wait_ms:s} plus up to as much again.
+"""
+applies = ["kind:force", "kind:creature", "kind:companion"]
+
+[powers.grip_hold_ms]
+name = "Choke Duration"
+type = "u64"
+value = 1500
+unit = "ms"
+range = [0, 10000]
+summary = "Where no scripts run, a creature holds Choke for {minds.powers.grip_hold_ms:s}."
+source = "ours"
+see = "sim::combat::ai::choose_power"
+applies = ["spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL"]
+
+[powers.scripted_grip_hold_ms]
+name = "Scripted Choke Duration"
+type = "u64"
+value = 6000
+unit = "ms"
+range = [0, 20000]
+summary = "A creature holds a Choke its script chose for {minds.powers.scripted_grip_hold_ms:s}, the power's full duration."
+source = "K1's choke impact script"
+see = "sim::combat::ai::power_cast"
+applies = ["spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL"]
+
+[powers.channel_hold_ms]
+name = "Lightning and Drain Duration"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [0, 10000]
+summary = "A creature holds Force Lightning or Drain Life for {minds.powers.channel_hold_ms:s}."
+source = "ours"
+see = "sim::combat::ai::choose_power, sim::combat::ai::power_cast"
+applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_FORCE_STORM", "spell:FORCE_POWER_DRAIN_LIFE"]
+
+[powers.heal_below]
+name = "Healing Threshold"
+type = "i32"
+value = 40
+unit = "%"
+range = [0, 100]
+summary = "Where no scripts run, a creature heals itself below {minds.powers.heal_below} of its vitality points."
+source = "ours"
+see = "sim::combat::ai::choose_power"
+applies = ["spell:FORCE_POWER_CURE", "spell:FORCE_POWER_HEAL"]
+
+[powers.lightning_chance]
+name = "Lightning Chance"
+value = 0.6
+range = [0.0, 1.0]
+summary = "Where no scripts run, a creature within range uses Force Lightning with a {minds.powers.lightning_chance} chance each time it looks."
+source = "ours"
+see = "sim::combat::ai::choose_power"
+applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_FORCE_STORM"]
+
+[powers.push_within]
+name = "Force Push Range"
+value = 192.0
+unit = "units"
+range = [0.0, 2048.0]
+summary = "Where no scripts run, a creature pushes an enemy within {minds.powers.push_within:m}."
+source = "ours"
+see = "sim::combat::ai::choose_power"
+applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE"]
+
+[powers.slow_chance]
+name = "Slow Chance"
+value = 0.4
+range = [0.0, 1.0]
+summary = "Where no scripts run, a creature uses Slow, Affliction or Plague on a living enemy not already slowed with a {minds.powers.slow_chance} chance each time it looks."
+source = "ours"
+see = "sim::combat::ai::choose_power"
+applies = ["spell:FORCE_POWER_SLOW", "spell:FORCE_POWER_AFFLICTION", "spell:FORCE_POWER_PLAGUE"]
+
+[powers.dispel_chance]
+name = "Force Suppression Chance"
+value = 0.5
+range = [0.0, 1.0]
+summary = "Where no scripts run, a creature uses Force Suppression or Force Breach on an enemy with a power it can cancel with a {minds.powers.dispel_chance} chance each time it looks."
+source = "ours"
+see = "sim::combat::ai::choose_power"
+applies = ["spell:FORCE_POWER_SUPRESS_FORCE", "spell:FORCE_POWER_FORCE_BREACH"]
+
+[powers.buff_chance]
+name = "Protective Power Chance"
+value = 0.3
+range = [0.0, 1.0]
+summary = "Where no scripts run, a creature raises a protective power it lacks with a {minds.powers.buff_chance} chance each time it looks."
+source = "ours"
+see = "sim::combat::ai::choose_power"
+applies = ["spell:FORCE_POWER_SPEED_BURST", "spell:FORCE_POWER_KNIGHT_SPEED", "spell:FORCE_POWER_SPEED_MASTERY", "spell:FORCE_POWER_FORCE_ARMOR", "spell:FORCE_POWER_FORCE_AURA", "spell:FORCE_POWER_FORCE_IMMUNITY", "spell:FORCE_POWER_FORCE_VALOR", "spell:FORCE_POWER_KNIGHT_VALOR", "spell:FORCE_POWER_MASTER_VALOR", "spell:FORCE_POWER_RESIST_ENERGY_1", "spell:FORCE_POWER_RESIST_ENERGY_2", "spell:SPECIAL_ABILITY_RAGE"]
+
+[powers.rage_above]
+name = "Rage Threshold"
+type = "i32"
+value = 50
+unit = "%"
+range = [0, 100]
+summary = "A creature uses Rage only at {minds.powers.rage_above} of its vitality points or more."
+source = "ours"
+see = "sim::combat::ai::choose_power"
+applies = ["spell:SPECIAL_ABILITY_RAGE"]
+
+[powers.cast_wait_ms]
+name = "Delay After a Power"
+type = "u64"
+value = 2500
+unit = "ms"
+range = [0, 30000]
+summary = "A creature waits at least {minds.powers.cast_wait_ms:s} after a power before its next."
+source = "ours"
+see = "sim::world::minds::cast_into"
+
+[powers.cast_spread_ms]
+name = "Delay Variance"
+value = 3000.0
+unit = "ms"
+range = [0.0, 30000.0]
+summary = "A creature waits up to {minds.powers.cast_spread_ms:s} longer between powers, at random."
+source = "ours"
+see = "sim::world::minds::cast_into"
+
+[powers.hold_wait_ms]
+name = "Delay After a Held Power"
+type = "u64"
+value = 2000
+unit = "ms"
+range = [0, 30000]
+summary = "A creature waits at least {minds.powers.hold_wait_ms:s} after it releases a held power, a thrown lightsaber or a special attack before its next."
+source = "ours"
+see = "sim::world::minds::cast_into"
+
+[powers.throw_facing]
+name = "Grenade Facing"
+value = 20.0
+unit = "°"
+range = [0.0, 180.0]
+summary = "A creature throws a grenade its script chose only when it faces within {minds.powers.throw_facing:bare} degrees of the target."
+source = "ours"
+see = "sim::world::minds::think"
+applies = ["kind:grenade"]
+
+[items]
+title = "Items, Grenades and Special Attacks"
+summary = """
+Where no scripts run, a creature with no power ready uses its items. It uses
+a medpac when hurt and an antidote when poisoned or weakened, or else a stim
+not already active. It never uses an energy shield. It throws a grenade now
+and then at a target within its throwing range. A creature with a ranged weapon uses a feat's special attack
+when it can.
+"""
+applies = ["kind:medpac", "kind:stim", "kind:antidote", "kind:repairkit", "kind:grenade", "kind:creature"]
+
+[items.heal_below]
+name = "Medpac Threshold"
+type = "i32"
+value = 35
+unit = "%"
+range = [0, 100]
+summary = "Where no scripts run, a creature uses a medpac, or a droid a repair kit, below {minds.items.heal_below} of its vitality points."
+source = "ours"
+see = "sim::combat::ai::choose_item"
+applies = ["kind:medpac", "kind:repairkit"]
+
+[items.grenade_nearest_m]
+name = "Grenade Minimum Range"
+value = 4.0
+unit = "m"
+range = [0.0, 50.0]
+summary = "Where no scripts run, a creature throws a grenade only at a target at least {minds.items.grenade_nearest_m:bare} meters away."
+source = "ours"
+see = "sim::combat::ai::choose_grenade"
+applies = ["kind:grenade"]
+
+[items.grenade_farthest_m]
+name = "Grenade Maximum Range"
+value = 12.0
+unit = "m"
+range = [1.0, 100.0]
+summary = "A creature throws a grenade no farther than {minds.items.grenade_farthest_m:bare} meters, at full strength."
+source = "ours"
+see = "sim::combat::ai::choose_grenade, sim::combat::ai::throw"
+applies = ["kind:grenade"]
+
+[items.grenade_chance]
+name = "Grenade Chance"
+value = 0.3
+range = [0.0, 1.0]
+summary = "Where no scripts run, a creature with a grenade and a target in range throws with a {minds.items.grenade_chance} chance each time it looks."
+source = "ours"
+see = "sim::combat::ai::choose_grenade"
+applies = ["kind:grenade"]
+
+[items.charge_past_ms]
+name = "Power Blast Charge"
+type = "u64"
+value = 10
+unit = "ms"
+range = [0, 1000]
+summary = "A creature holds a Power Blast {minds.items.charge_past_ms:s} past its last charge, so it fires at full strength."
+source = "ours"
+see = "sim::combat::ai::choose_special"
+applies = ["feat:POWER_BLAST", "feat:IMPROVED_POWER_BLAST", "feat:MASTER_POWER_BLAST"]
+
+[items.sniper_aim_ms]
+name = "Sniper Shot Aim"
+type = "u64"
+value = 1500
+unit = "ms"
+range = [0, 10000]
+summary = "A creature aims a Sniper Shot for {minds.items.sniper_aim_ms:s}."
+source = "ours"
+see = "sim::combat::ai::choose_special"
+applies = ["feat:SNIPER_SHOT", "feat:IMPROVED_SNIPER_SHOT", "feat:MASTER_SNIPER_SHOT"]
+
+[scenes]
+title = "Cutscenes and Duels"
+summary = """
+A creature fighting in a cutscene closes in, then stands and fights without
+circling, flanking or stepping with its swings. While a conversation holds
+the action, every combatant fights this way. Party members neither follow
+nor give chase, open no doors and use no attacks, powers or grenades of
+their own. Two creatures outside the party fight in rounds: an attack roll,
+the weapon's damage, and a matching swing and response.
+"""
+detail = "A creature with a ranged weapon fires one shot for each blow. The shot that hits strikes the chest, the rest fly past."
+applies = ["kind:creature", "kind:companion"]
+
+[scenes.miss_aside_m]
+name = "Missed Shot: Side"
+value = 0.9
+unit = "m"
+range = [0.0, 5.0]
+summary = "A missed shot in a cutscene flies {minds.scenes.miss_aside_m:bare} meters to the side of its target."
+source = "ours"
+see = "sim::world::minds::scene_attack"
+applies = ["kind:blaster"]
+
+[scenes.miss_up_m]
+name = "Missed Shot: Height"
+value = 0.3
+unit = "m"
+range = [0.0, 5.0]
+summary = "A missed shot in a cutscene flies {minds.scenes.miss_up_m:bare} meters above its target's chest."
+source = "ours"
+see = "sim::world::minds::scene_attack"
+applies = ["kind:blaster"]
+
+[scenes.object_aim_up_m]
+name = "Shot at an Object"
+value = 0.6
+unit = "m"
+range = [0.0, 5.0]
+summary = "A shot a cutscene fires at a door or placeable is aimed {minds.scenes.object_aim_up_m:bare} meters above where it stands."
+source = "ours [verify: where KOTOR's bolt meets a placeable]"
+see = "sim::world::minds::think"
+applies = ["kind:blaster"]

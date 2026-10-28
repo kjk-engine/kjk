@@ -1,0 +1,5 @@
+# The sim's hash moves on purpose: why.
+sim = "a swing that cut a body before meeting its blade still draws the chance to miss for the clash (`Swing::verdict` answers only for a draw)"
+
+[formats]
+snapshot = "a swing's contact keeps whether its chance to be turned was drawn (`Contact::drawn`)."

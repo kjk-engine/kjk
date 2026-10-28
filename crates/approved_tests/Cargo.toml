@@ -1,0 +1,36 @@
+[package]
+name = "approved_tests"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The owner-approved test scenarios, and nothing else (docs/TESTS.md)."
+
+# The scenarios are the layers' probes (their `probes` feature).
+[dependencies]
+asset_odyssey.workspace = true
+bumps.workspace = true
+collision = { workspace = true, features = ["probes"] }
+collision_odyssey = { workspace = true, features = ["probes"] }
+fmt_odyssey.workspace = true
+net = { workspace = true, features = ["probes"] }
+ragdoll = { workspace = true, features = ["probes"] }
+rules.workspace = true
+saves = { workspace = true, features = ["probes"] }
+script_ncs = { workspace = true, features = ["probes"] }
+session.workspace = true
+sim = { workspace = true, features = ["probes"] }
+ui = { workspace = true, features = ["probes"] }
+vfs.workspace = true
+# The rig's timelines live in kjk's library and the weapon holdings in the
+# game's, both of which build Bevy: only with `--features rig`
+# (timeline_jolt_ceilings, weapon_holdings), never in CI.
+launcher = { path = "../launcher", optional = true }
+game = { workspace = true, optional = true }
+
+[features]
+rig = ["dep:launcher", "dep:game"]
+
+[lints]
+workspace = true

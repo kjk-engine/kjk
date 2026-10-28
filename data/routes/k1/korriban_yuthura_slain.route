@@ -1,0 +1,28 @@
+# Korriban, Yuthura slain (K1): the final test's other end. Uthar's test
+# turned as on the main route (with Yuthura against him), but when she
+# yields she is killed, not spared. Her death opens the tomb's doors only
+# because Uthar, long faded, counts as dead (`GetIsDead` of no object, as
+# Aurora's). Starts from the main route's checkpoint at the Star Map:
+#   kjk playthrough k1 @kor_starmap data/routes/k1/korriban_yuthura_slain.route --god
+say mercy? you won't find any here!   # whichever yield she offers: no mercy
+say i have no problem with that
+to k39_trg_initacid
+fight 30
+talk
+fight 30
+save kor_ys_exam
+exit kor39_kor36            # out through the valley and the academy
+to k36_trg_shywyrm
+exit kor36_kor35
+fight 30
+exit kor35_kor33b
+exit kor33b_kor33a
+exit k33_trg_ebonhawk       # aboard
+use GalaxyMap               # the Star Maps' coordinates: the Unknown World
+travel 9
+talk
+talk
+turrets                  # m12ab: the fighters; the disruptor field, the crash
+talk                     # (played before the checkpoint: no save in a
+talk                     # minigame)
+save kor_ys_unknown_world

@@ -1,0 +1,28 @@
+# Taris, the Black Vulkar base (K1, tar_m10aa, the garage tar_m10ac) for
+# the swoop accelerator: a lieutenant's pass card, the turrets' console,
+# the garage head's key card, Kandon's offer refused, the accelerator, out
+# by the main doors to the Lower City. Starts from the sewers' checkpoint:
+#   kjk playthrough k1 @vulkar_base data/routes/k1/taris_vulkar_base.route --god
+to tar10_vulkpoo005      # the pool room's lieutenant (by template)
+fight 15
+use tar10_vulkpoo005     # his remains: the pass card (tar10_elevcar001)
+save vulkar_card
+use VulkEleve            # the turrets' console: insert the pass card
+talk
+fight 30                 # the patrol droids by the console (no leaving in
+                         # a fight)
+exit tar10_elev02        # down to the garage
+save garage
+use tar10_headdesk       # the garage head's desk: his key card
+fight 20                 # he and his guards
+save garage_key
+say kill you instead     # Kandon's offer (tar10_kandon01), when he meets you:
+use ptar_lockdoor@2      # "How about I just kill you instead?"
+use ptar_lockdoor@1      # the key opens the way to the swoop bay
+to KandonArk101
+fight 25
+use tar10_accelerator    # the prototype (k_ptar_accelused gives it)
+save accelerator
+exit tar10_elevator      # up again
+exit ptar_secdoor        # the main doors, out to the Lower City
+save vulkar_out

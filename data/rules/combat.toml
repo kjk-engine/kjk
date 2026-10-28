@@ -1,0 +1,519 @@
+[chapter]
+title = "Combat"
+order = 10
+summary = """
+An attack hits when the blade or bolt strikes the target's body. The damage
+it deals is sized by the attacker's chance to hit, as on a d20 attack roll.
+"""
+
+[damage]
+title = "Damage"
+summary = """
+A weapon's damage is its damage roll, plus its bonus damage, the wielder's
+Strength modifier (melee weapons only) and Weapon Specialization. A critical
+hit multiplies this roll. Sneak Attack damage is added, and is not
+multiplied. The target's resistances and damage reduction are subtracted,
+and the rest is multiplied by the chance to hit and by the combat pace.
+"""
+detail = """
+A weapon with several damage types deals the type its target resists least.
+A target immune to a damage type takes no damage of that type.
+"""
+applies = ["kind:weapon"]
+
+[damage.pace]
+name = "Combat Pace"
+type = "i64"
+value = 4
+unit = "×"
+range = [1, 20]
+summary = """
+Each combat round of attacks deals {combat.damage.pace:bare} rounds' worth
+of damage, divided among the weapon's attacks. A fast weapon deals many
+light hits, a slow weapon few heavy ones.
+"""
+source = "I22 C2, the owner's choice (2026-09-30)"
+see = "sim::combat::damage::pace"
+
+[damage.mighty_times]
+name = "Mighty Damage"
+type = "i64"
+value = 10
+unit = "×"
+summary = "A mighty character's attacks deal {combat.damage.mighty_times:bare} times their damage. Used for testing only."
+see = "sim::combat::damage::assess"
+
+[damage.least_roll]
+name = "Minimum Damage Roll"
+type = "i64"
+value = 1
+unit = "points"
+range = [0, 10]
+summary = "A weapon's damage roll, with all bonuses and penalties, is never less than {combat.damage.least_roll:bare}."
+detail = "The target's resistances and damage reduction may still reduce the damage to 0."
+source = "KOTOR's d20 rules (reone's damage roll)"
+see = "sim::combat::damage::weapon_roll"
+applies = ["kind:weapon"]
+
+[damage.least]
+name = "Minimum Damage"
+type = "i64"
+value = 1
+range = [0, 100]
+summary = "A hit that can harm its target deals at least {combat.damage.least:bare} hundredth of a vitality point, unless the target is immune."
+source = "JA's minimum damage of 1"
+see = "sim::combat::damage::assess"
+
+[margin]
+title = "Chance to Hit"
+summary = """
+Every hit is multiplied by the chance the attack roll would have hit:
+({combat.margin.base:bare} + attack bonus - Defense) /
+{combat.margin.step:bare}. A strong attacker against a weak Defense deals
+nearly full damage; a weak attacker against a strong Defense deals little.
+"""
+detail = """
+The attack bonus is the base attack bonus, the Dexterity modifier (ranged)
+or Strength modifier (melee), Weapon Focus, lightsaber forms, item and
+effect bonuses, and the penalties for two weapons or a lack of proficiency.
+Defense is {combat.sheet.defence_base:bare} + the Dexterity modifier
+(limited by armor) + armor, natural and class bonuses and Dueling.
+"""
+applies = ["kind:weapon"]
+
+[margin.base]
+name = "Attack Roll Base"
+type = "i32"
+value = 21
+range = [11, 31]
+summary = "The chance to hit starts from {combat.margin.base:bare} + attack bonus - Defense, as on a d20 attack roll."
+source = "KOTOR's d20 attack roll"
+see = "sim::combat::damage::margin"
+
+[margin.step]
+name = "Attack Roll Step"
+type = "i64"
+value = 20
+range = [10, 40]
+summary = "Each point of attack bonus over Defense adds one part in {combat.margin.step:bare} to the chance to hit."
+source = "KOTOR's d20 attack roll"
+see = "sim::combat::damage::margin"
+
+[margin.least]
+name = "Minimum Chance to Hit"
+type = "i64"
+value = 50
+unit = "‰"
+range = [0, 1000]
+summary = "A hit always deals at least {combat.margin.least:pct} of its damage, however high the target's Defense."
+source = "I22 C1; KOTOR's natural 20"
+see = "sim::combat::damage::margin"
+
+[margin.most]
+name = "Maximum Chance to Hit"
+type = "i64"
+value = 950
+unit = "‰"
+range = [0, 1000]
+summary = "A hit deals at most {combat.margin.most:pct} of its damage, however low the target's Defense."
+source = "I22 C1; KOTOR's natural 1"
+see = "sim::combat::damage::margin"
+
+[location]
+title = "Hit Locations"
+summary = """
+Where an attack strikes the body changes the damage it deals. Hits to the
+head deal more damage; hits to the arms, legs, hands and feet deal less.
+Damage from Force powers and blasts strikes no single location.
+"""
+detail = """
+The location is judged by the direction from the center of the body to the
+point struck, measured along the body's height, front and side.
+"""
+applies = ["kind:weapon"]
+
+[location.head]
+name = "Head"
+type = "i64"
+value = 1300
+unit = "‰"
+range = [0, 5000]
+summary = "A hit to the head deals {combat.location.head:pct} damage."
+source = "JA's location multipliers"
+see = "sim::combat::fighter::Location::per_mille"
+
+[location.arm]
+name = "Arms"
+type = "i64"
+value = 850
+unit = "‰"
+range = [0, 5000]
+summary = "A hit to an arm deals {combat.location.arm:pct} damage."
+source = "JA's location multipliers"
+see = "sim::combat::fighter::Location::per_mille"
+
+[location.leg]
+name = "Legs"
+type = "i64"
+value = 700
+unit = "‰"
+range = [0, 5000]
+summary = "A hit to a leg deals {combat.location.leg:pct} damage."
+source = "JA's location multipliers"
+see = "sim::combat::fighter::Location::per_mille"
+
+[location.hand]
+name = "Hands"
+type = "i64"
+value = 600
+unit = "‰"
+range = [0, 5000]
+summary = "A hit to a hand deals {combat.location.hand:pct} damage."
+source = "JA's location multipliers"
+see = "sim::combat::fighter::Location::per_mille"
+
+[location.foot]
+name = "Feet"
+type = "i64"
+value = 500
+unit = "‰"
+range = [0, 5000]
+summary = "A hit to a foot deals {combat.location.foot:pct} damage."
+source = "JA's location multipliers"
+see = "sim::combat::fighter::Location::per_mille"
+
+[location.body]
+name = "Body"
+type = "i64"
+value = 1000
+unit = "‰"
+range = [0, 5000]
+summary = "A hit to the chest, back or waist, or a hit with no location, deals {combat.location.body:pct} damage."
+source = "JA's location multipliers"
+see = "sim::combat::fighter::Location::per_mille"
+
+[location.vertical_edges]
+name = "Height Bands"
+value = [0.8, 0.4, -0.333, -0.666]
+labels = ["head", "arms", "waist", "legs"]
+range = [-1.0, 1.0]
+summary = "The height of a hit on the body, from 1 (straight up) to -1 (straight down), falls into bands divided at {combat.location.vertical_edges}, from the head down to the feet."
+source = "JA: where a hit lands"
+see = "sim::combat::location::locate"
+
+[location.wide_edges]
+name = "Front and Side Bands"
+value = [0.666, 0.333, -0.333, -0.666]
+labels = ["far", "near", "middle", "near the other way"]
+range = [-1.0, 1.0]
+summary = "The front-to-back and side-to-side direction of a hit falls into bands divided at {combat.location.wide_edges}."
+source = "JA: where a hit lands"
+see = "sim::combat::location::locate"
+
+[location.waist_below]
+name = "Waist"
+value = 0.3
+range = [-1.0, 1.0]
+summary = "A hit to the torso lower than {combat.location.waist_below} on the height scale is a hit to the waist."
+source = "JA: where a hit lands"
+see = "sim::combat::location::locate"
+
+[location.back_side]
+name = "Back Sides"
+value = 0.4
+range = [0.0, 1.0]
+summary = "A hit to the back farther to one side than {combat.location.back_side} strikes the left or right of the back."
+source = "JA: where a hit lands"
+see = "sim::combat::location::locate"
+
+[location.chest_side]
+name = "Chest Sides"
+value = 0.3
+range = [0.0, 1.0]
+summary = "A hit to the chest farther to one side than {combat.location.chest_side} strikes the left or right of the chest."
+source = "JA: where a hit lands"
+see = "sim::combat::location::locate"
+
+[knockback]
+title = "Knockback"
+summary = """
+A hit pushes its target back, harder the more damage it deals. Lightsaber
+hits and damage that comes from no direction do not push. A pushed target
+cannot move on its own until it recovers.
+"""
+detail = "A hit that cannot harm its target does not push."
+applies = ["kind:blaster", "kind:grenade", "kind:force"]
+
+[knockback.per_point]
+name = "Knockback Speed"
+value = 5.0
+unit = "units/s"
+range = [0.0, 50.0]
+summary = "A hit pushes its target at {combat.knockback.per_point:m} for every 1% of the target's maximum vitality points it takes."
+source = "JA: damage"
+see = "sim::combat::damage::assess"
+
+[knockback.most_points]
+name = "Maximum Knockback"
+type = "i64"
+value = 200
+unit = "points"
+range = [0, 1000]
+summary = "Knockback counts no more than {combat.knockback.most_points:bare}% of the target's maximum vitality points, however hard the hit."
+source = "JA: the knockback cap on damage"
+see = "sim::combat::damage::assess"
+
+[knockback.ms_per_point]
+name = "Knockback Time"
+type = "i32"
+value = 2
+unit = "ms"
+range = [0, 20]
+summary = "A pushed target cannot move on its own for {combat.knockback.ms_per_point:bare} milliseconds for every 1% of its maximum vitality points the hit takes."
+source = "JA: the pain time after damage"
+see = "sim::combat::damage::assess"
+
+[knockback.least_ms]
+name = "Minimum Knockback Time"
+type = "i32"
+value = 50
+unit = "ms"
+range = [0, 1000]
+summary = "A pushed target cannot move on its own for at least {combat.knockback.least_ms:s}."
+source = "JA: the pain time after damage"
+see = "sim::combat::damage::assess"
+
+[knockback.most_ms]
+name = "Maximum Knockback Time"
+type = "i32"
+value = 200
+unit = "ms"
+range = [0, 2000]
+summary = "A pushed target cannot move on its own for at most {combat.knockback.most_ms:s}."
+source = "JA: the pain time after damage"
+see = "sim::combat::damage::assess"
+
+[friendly_fire]
+title = "Friendly Fire"
+summary = """
+Hostile creatures can always be harmed, and plot characters never. A
+neutral creature is never harmed by the party, nor by blasts and area
+powers; only another's aimed attack harms it. Party members and allies harm
+each other by the friendly fire setting: off, area attacks only, or all
+attacks.
+"""
+detail = "Damage dealt by a script harms whomever it names, except a plot character."
+
+[friendly_fire.ally_area]
+name = "Area Damage to Allies"
+type = "i64"
+value = 500
+unit = "‰"
+range = [0, 1000]
+summary = "With area friendly fire, an ally caught in a grenade blast or an area Force power takes {combat.friendly_fire.ally_area:pct} of its damage, and aimed attacks do not harm allies. With all friendly fire, an ally takes full damage."
+source = "I22 C17"
+see = "sim::combat::damage::share"
+applies = ["kind:grenade", "kind:force"]
+
+[friendly_fire.own]
+name = "Own Blast Damage"
+type = "i64"
+value = 500
+unit = "‰"
+range = [0, 1000]
+summary = "A character caught in its own grenade blast takes {combat.friendly_fire.own:pct} of the damage, unless friendly fire is off."
+source = "I22 C17"
+see = "sim::combat::damage::share"
+applies = ["kind:grenade"]
+
+[timing]
+title = "Rounds and Timers"
+summary = """
+The combat round sets the beat of a fight. A character remains in combat
+for a time after its last attack.
+"""
+
+[timing.round_ms]
+name = "Combat Round"
+type = "u64"
+value = 3000
+unit = "ms"
+range = [1000, 10000]
+summary = "A combat round lasts {combat.timing.round_ms:s}. A creature's combat AI acts once each round, and a scripted attack lands halfway through its round."
+detail = "The penalties of feat attacks last one round."
+source = "reone (KOTOR's 3 s round)"
+see = "sim::combat::ROUND_MS"
+
+[timing.combat_ms]
+name = "Combat Duration"
+type = "u64"
+value = 8000
+unit = "ms"
+range = [0, 60000]
+summary = "A character remains in combat for {combat.timing.combat_ms:s} after it attacks or is hit. While in combat, its weapon stays drawn, Stealth Mode cannot be entered, and the battle music plays."
+source = "reone (the deactivation delay after the last round)"
+see = "sim::combat::COMBAT_MS"
+
+[timing.swap_ms]
+name = "Weapon Swap"
+type = "i32"
+value = 1000
+unit = "ms"
+range = [0, 5000]
+summary = "Switching weapons during combat takes {combat.timing.swap_ms:s}. Outside of combat, the switch is instant."
+source = "TSL's executable (`CSWSCombatRound::AddSwitchWeaponsAction`, a round action of 1000 ms)"
+see = "sim::combat::SWAP_MS"
+
+[flinch]
+title = "Flinching"
+summary = """
+A creature that is hit may flinch, losing its next action until it
+recovers. A surprised creature, or one struck by a blade, always flinches.
+Otherwise the chance grows with the creature's wounds and the size of the
+hit, and a hit that takes more than half of its maximum vitality points
+always causes a flinch. Droids flinch only when surprised or struck by a
+blade.
+"""
+detail = """
+The chance is (maximum vitality - current vitality) / (2 × maximum
+vitality) + damage / (maximum vitality / 2), divided by
+{combat.flinch.skill_divisor:bare}.
+"""
+applies = ["kind:creature"]
+
+[flinch.skill_divisor]
+name = "Flinch Divisor"
+type = "i64"
+value = 2
+unit = "×"
+range = [1, 10]
+summary = "A creature's chance to flinch from a hit is divided by {combat.flinch.skill_divisor:bare}."
+source = "JA (NPC skill level 1); a delegated decision"
+see = "sim::combat::death::pain_chance"
+
+[sheet]
+title = "Character Sheet"
+summary = """
+Each attribute's modifier is (score - 10) / 2. A Force user spends Force
+points on Force powers. Any other character has stamina instead, spent on
+feat attacks: {combat.sheet.stamina_base:bare} points +
+{combat.sheet.stamina_per_con:bare} for each point of Constitution
+modifier, at least {combat.sheet.stamina_least:bare}. Stamina recovers as
+Force points do.
+"""
+
+[sheet.stamina_base]
+name = "Stamina"
+type = "i32"
+value = 100
+unit = "points"
+range = [10, 1000]
+summary = "A character who is not a Force user has {combat.sheet.stamina_base:bare} stamina points, before its Constitution modifier."
+source = "I22 C7 (2026-09-30)"
+see = "sim::combat::sheet::Sheet::pool"
+applies = ["kind:stamina"]
+
+[sheet.stamina_per_con]
+name = "Stamina per Constitution"
+type = "i32"
+value = 10
+unit = "points"
+range = [0, 100]
+summary = "Each point of Constitution modifier adds {combat.sheet.stamina_per_con:bare} stamina points, or removes them if the modifier is negative."
+source = "I22 C7"
+see = "sim::combat::sheet::Sheet::pool"
+applies = ["kind:stamina"]
+
+[sheet.stamina_least]
+name = "Minimum Stamina"
+type = "i32"
+value = 10
+unit = "points"
+range = [0, 100]
+summary = "A character always has at least {combat.sheet.stamina_least:bare} stamina points, however low its Constitution."
+source = "I22 C7"
+see = "sim::combat::sheet::Sheet::pool"
+applies = ["kind:stamina"]
+
+[sheet.defence_base]
+name = "Base Defense"
+type = "i32"
+value = 10
+unit = "points"
+range = [0, 30]
+summary = "Every character's Defense starts at {combat.sheet.defence_base:bare}, before Dexterity, armor, natural and class bonuses and Dueling."
+source = "KOTOR's d20 rules"
+see = "sim::combat::sheet::Sheet::defence"
+
+[sheet.light_least]
+name = "Light Side"
+type = "u8"
+value = 70
+range = [51, 100]
+summary = "A character with an alignment of {combat.sheet.light_least} or higher, on a scale from 0 (dark) to 100 (light), is of the Light Side."
+source = "NWN's good and evil (reone's thresholds)"
+see = "sim::combat::sheet::side"
+
+[sheet.dark_most]
+name = "Dark Side"
+type = "u8"
+value = 30
+range = [0, 49]
+summary = "A character with an alignment of {combat.sheet.dark_most} or lower is of the Dark Side."
+source = "NWN's good and evil (reone's thresholds)"
+see = "sim::combat::sheet::side"
+
+[sheet.neutral]
+name = "Neutral Alignment"
+type = "u8"
+value = 50
+range = [0, 100]
+summary = "A new character begins at an alignment of {combat.sheet.neutral}, neither Light Side nor Dark Side."
+source = "KOTOR (a new character's `GoodEvil`)"
+see = "sim::combat::sheet::NEUTRAL"
+
+[idle]
+title = "Idle Animations"
+summary = """
+A character who stands still, unhurt, with its weapon at rest and its view
+held steady, plays an idle animation. Any action ends it. Scripted
+animations replace idles while they play.
+"""
+
+[idle.rest_ms]
+name = "Time Before Idle"
+type = "u64"
+value = 5000
+unit = "ms"
+range = [0, 60000]
+summary = "A character plays an idle animation after standing at rest for {combat.idle.rest_ms:s}."
+source = "JA: idling"
+see = "sim::combat::idle::check"
+
+[idle.spread_ms]
+name = "Time Between Idles"
+type = "u32"
+value = 2000
+unit = "ms"
+range = [0, 60000]
+summary = "After an idle animation ends, the next may follow up to {combat.idle.spread_ms:s} later."
+source = "JA: idling"
+see = "sim::combat::idle::check"
+
+[idle.view_slack]
+name = "View Tolerance"
+value = 10.0
+unit = "°"
+range = [0.0, 180.0]
+summary = "The view may turn up to {combat.idle.view_slack:bare} degrees and still count as at rest."
+source = "JA: idling"
+see = "sim::combat::idle::check"
+
+[idle.second_idle]
+name = "Second Idle Chance"
+type = "u32"
+value = 5
+range = [0, 10]
+summary = "A character in its second stance plays its second idle animation {combat.idle.second_idle} times in 10."
+source = "JA: idling"
+see = "sim::combat::idle::check"

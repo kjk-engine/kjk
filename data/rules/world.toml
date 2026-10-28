@@ -1,0 +1,334 @@
+[chapter]
+title = "The World"
+order = 65
+summary = """
+How often scripts run, how factions regard each other, how far a fight
+reaches, how the area map is explored, and how TSL adjusts Force point
+costs.
+"""
+
+[timings]
+title = "Heartbeat"
+summary = """
+Every object's heartbeat script runs every {world.timings.heartbeat_ms:s},
+each at its own moment. A character's damaged script runs at most every
+{world.timings.damaged_every_ms:s}; damage taken meanwhile triggers it once
+the wait is over.
+"""
+
+[timings.heartbeat_ms]
+name = "Heartbeat"
+type = "u64"
+value = 6000
+unit = "ms"
+range = [500, 60000]
+summary = "Heartbeat scripts run every {world.timings.heartbeat_ms:s}, once a round."
+source = "K1's executable"
+see = "sim::world::scripts::heartbeats"
+
+[timings.damaged_every_ms]
+name = "Damage Scripts"
+type = "u64"
+value = 500
+unit = "ms"
+range = [0, 6000]
+summary = "A character's damaged script, and its attacked script for each attacker, runs at most once every {world.timings.damaged_every_ms:s}."
+source = "ours (I22 C15)"
+see = "sim::world::scripts::scripts"
+
+[timings.flourish_ms]
+name = "Weapon Flourish"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [0, 10000]
+summary = "In TSL, a creature may flourish its weapon again {world.timings.flourish_ms:s} after the last."
+source = "TSL's executable (its client's cooldown)"
+see = "sim::world::scripts::apply"
+applies = ["kind:weapon"]
+
+[factions]
+title = "Factions"
+summary = """
+Each faction regards each other faction with a standing from 0 to 100,
+changed by scripts. A standing of {world.factions.hostile_at_most:bare} or
+less is hostile, {world.factions.friendly_at_least:bare} or more is
+friendly, and anything between is neutral. A faction missing from the table
+stands at {world.factions.unlisted_own:bare} to itself and
+{world.factions.unlisted_other:bare} to others.
+"""
+
+[factions.hostile_at_most]
+name = "Hostile"
+type = "u8"
+value = 10
+range = [0, 100]
+summary = "A faction with a standing of {world.factions.hostile_at_most:bare} or less toward another is hostile to it."
+source = "K1's executable (repute.2da's rule)"
+see = "sim::module::Standing::hostile"
+applies = ["kind:creature", "kind:mine"]
+
+[factions.friendly_at_least]
+name = "Friendly"
+type = "u8"
+value = 90
+range = [0, 100]
+summary = "A faction with a standing of {world.factions.friendly_at_least:bare} or more toward another is friendly to it."
+source = "K1's executable (repute.2da's rule)"
+see = "sim::module::Standing::friendly"
+applies = ["kind:creature", "kind:mine"]
+
+[factions.unlisted_own]
+name = "Unlisted Faction to Itself"
+type = "u8"
+value = 100
+range = [0, 100]
+summary = "A faction missing from the table stands at {world.factions.unlisted_own:bare} to itself."
+source = "ours"
+see = "sim::module::Repute::row"
+
+[factions.unlisted_other]
+name = "Unlisted Faction to Others"
+type = "u8"
+value = 50
+range = [0, 100]
+summary = "A faction missing from the table stands at {world.factions.unlisted_other:bare} to others, neutral."
+source = "ours"
+see = "sim::module::Repute::row"
+
+[ranges]
+title = "Ranges"
+summary = """
+Each area sets how far a fight draws in the party, how far a creature in
+combat sees, and the radius of a mine. K1's ranges apply where an area sets
+none.
+"""
+
+[ranges.party_combat_m]
+name = "Combat Range"
+type = "f32"
+value = 35.0
+unit = "m"
+range = [1.0, 200.0]
+summary = "A fight draws in party members within {world.ranges.party_combat_m:bare} meters, and a creature in combat sees as far, where the area sets no range."
+source = "K1's ranges.2da"
+see = "sim::module::Ranges::K1"
+applies = ["kind:companion", "kind:stealth"]
+
+[ranges.trap_radius_m]
+name = "Mine Radius"
+type = "f32"
+value = 1.5
+unit = "m"
+range = [0.0, 20.0]
+summary = "A mine's radius is {world.ranges.trap_radius_m:bare} meters where the area sets none."
+source = "K1's ranges.2da"
+see = "sim::module::Ranges::K1"
+applies = ["kind:mine"]
+
+[triggers]
+title = "Triggers"
+summary = """
+A character is inside a trigger while standing within its outline, on the
+floor the trigger lies on. Floors less than {world.triggers.step_m:bare}
+meters apart count as one. Away from walkable floor, a character is inside
+up to {world.triggers.reach_m:bare} meters above or below the trigger.
+"""
+applies = ["kind:mine"]
+
+[triggers.reach_m]
+name = "Trigger Height"
+type = "f32"
+value = 2.0
+unit = "m"
+range = [0.0, 10.0]
+summary = "Away from walkable floor, a character is inside a trigger up to {world.triggers.reach_m:bare} meters above or below it."
+source = "ours"
+see = "sim::module::ObjectData::contains"
+applies = ["kind:mine"]
+
+[triggers.step_m]
+name = "Step Height"
+type = "f32"
+value = 0.5
+unit = "m"
+range = [0.0, 3.0]
+summary = "Floors less than {world.triggers.step_m:bare} meters apart count as one, and a floor up to that height above a character's feet is still under it."
+source = "ours (about JA's step)"
+see = "sim::module::ObjectData::contains"
+
+[map]
+title = "Area Map"
+summary = """
+Party members explore the area map within {world.map.reveal_m:bare} meters
+of themselves. Scripts may also reveal the map.
+"""
+detail = "The map is shared by every player and kept for each area."
+
+[map.reveal_m]
+name = "Map Reveal"
+type = "f32"
+value = 10.0
+unit = "m"
+range = [1.0, 100.0]
+summary = "The area map is explored within {world.map.reveal_m:bare} meters of a party member."
+source = "ours [verify]"
+see = "sim::fog::explore"
+
+[arena]
+title = "Combat Arena"
+summary = """
+In the combat arena, a called creature appears
+{world.arena.spawn_ahead_m:bare} meters ahead of the player, facing them,
+always hostile. A creature that falls into the pit dies. A defeated party
+member gets back up at the respawn point, fully healed. The arena cannot be
+lost.
+"""
+
+[arena.spawn_ahead_m]
+name = "Arena Spawn"
+type = "f32"
+value = 5.0
+unit = "m"
+range = [1.0, 50.0]
+summary = "A creature called into the arena appears {world.arena.spawn_ahead_m:bare} meters ahead of the player."
+source = "ours"
+see = "sim::world::arena::orders"
+
+[force_costs]
+title = "Force Point Cost"
+summary = """
+In TSL, a party member's Force power cost is multiplied by a value set by
+the power's side and the caster's alignment. A multiplier above 1 drops by
+{world.force_costs.charisma_ease:bare} for each point of Charisma modifier,
+to no less than 1. Then, for any caster, the area's Force rating ÷
+{world.force_costs.rating_divisor:bare} is taken off the cost at alignment
+{world.force_costs.light_at_least:bare} or more, or added to it under
+{world.force_costs.dark_under:bare}. A power costs at least 1 Force point
+before Force Forms apply.
+"""
+applies = ["kind:force"]
+
+[force_costs.charisma_ease]
+name = "Charisma Discount"
+type = "f32"
+value = 0.05
+unit = "×"
+range = [0.0, 1.0]
+summary = "Each point of the caster's Charisma modifier lowers a Force cost multiplier above 1 by {world.force_costs.charisma_ease:bare}."
+source = "TSL's executable"
+see = "sim::module::ForceRules::cost"
+applies = ["kind:force"]
+
+[force_costs.rating_divisor]
+name = "Area Force Rating"
+type = "i32"
+value = 20
+range = [1, 1000]
+summary = "An area's Force rating ÷ {world.force_costs.rating_divisor:bare} is taken off or added to a power's Force point cost."
+source = "TSL's executable"
+see = "sim::module::ForceRules::cost"
+applies = ["kind:force"]
+
+[force_costs.light_at_least]
+name = "Light Side Discount"
+type = "u8"
+value = 60
+range = [0, 100]
+summary = "A caster of alignment {world.force_costs.light_at_least:bare} or more pays fewer Force points in an area with a Force rating."
+source = "TSL's executable"
+see = "sim::module::ForceRules::cost"
+applies = ["kind:force"]
+
+[force_costs.dark_under]
+name = "Dark Side Penalty"
+type = "u8"
+value = 50
+range = [0, 100]
+summary = "A caster of alignment under {world.force_costs.dark_under:bare} pays more Force points in an area with a Force rating."
+source = "TSL's executable"
+see = "sim::module::ForceRules::cost"
+applies = ["kind:force"]
+
+[shots]
+title = "Sniper Bonus"
+summary = """
+In TSL, items with Sniper Bonus add +{world.shots.sniper_bonus:bare} to hit
+with Sniper Shot. Items with Rapid Shot Bonus lower the Rapid Shot penalty
+by 1.
+"""
+applies = ["feat:SNIPER_SHOT", "kind:blaster"]
+
+[shots.sniper_bonus]
+name = "Sniper Bonus"
+type = "i8"
+value = 4
+unit = "points"
+range = [0, 20]
+summary = "Items with Sniper Bonus add +{world.shots.sniper_bonus:bare} to hit with Sniper Shot."
+source = "TSL's items (their Sniper Bonus property)"
+see = "sim::world::fire"
+applies = ["feat:SNIPER_SHOT", "feat:IMPROVED_SNIPER_SHOT", "feat:MASTER_SNIPER_SHOT", "kind:blaster"]
+
+[healing]
+title = "Healing Over Time"
+summary = """
+In K1 a character heals a share of its hit points each second, one share in
+combat and another out of it (`regeneration.2da` `healthregen`, rows 0 and
+1), at least {world.healing.least_hp_per_s:bare} hit points a second. TSL
+heals by its own table's rows. A character who gains a level is healed to
+full.
+"""
+applies = ["kind:creature", "kind:companion"]
+
+[healing.least_hp_per_s]
+name = "Slowest Healing"
+type = "f32"
+value = 0.0001
+unit = "HP"
+range = [0.0, 1.0]
+summary = "Healing over time restores at least {world.healing.least_hp_per_s:bare} hit points a second."
+source = "K1's executable"
+see = "sim::script::HealthRegeneration::every_ms"
+
+[battle_music]
+title = "Battle Music"
+summary = """
+The battle music plays when a script starts it, or when a party member is
+stirred while a living enemy stands within {world.battle_music.near_m:bare}
+meters across the floor. A character is stirred for
+{world.battle_music.stirred_ms:s} when an attack or power lands on it or it
+lands one, or when one lands on a party member within
+{world.battle_music.alert_m:bare} meters. The music ends when no one in the
+party is stirred and no enemy is near.
+"""
+
+[battle_music.stirred_ms]
+name = "Excitement"
+type = "u64"
+value = 10_000
+unit = "ms"
+range = [0, 60000]
+summary = "A blow or power stirs a character for {world.battle_music.stirred_ms:s}."
+source = "excitedduration.2da (Damage and SpellCast, alike in both games)"
+see = "game::battle_music"
+
+[battle_music.near_m]
+name = "Enemy Near"
+type = "f32"
+value = 30.0
+unit = "m"
+range = [0.0, 200.0]
+summary = "A stirred party member starts the battle music while an enemy stands within {world.battle_music.near_m:bare} meters across the floor."
+source = "K1's executable"
+see = "game::battle_music"
+
+[battle_music.alert_m]
+name = "Party Alert"
+type = "f32"
+value = 20.0
+unit = "m"
+range = [0.0, 200.0]
+summary = "A blow on a party member stirs the rest of the party within {world.battle_music.alert_m:bare} meters."
+source = "ranges.2da (PercepRngDefault)"
+see = "game::battle_music"

@@ -1,0 +1,22 @@
+[package]
+name = "saves"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Saved games on disk: the world as sim::Save has it, and what the screens show of it."
+
+[dependencies]
+lz4_flex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sim.workspace = true
+ui.workspace = true
+
+[features]
+# The probes (`kjk sim probes`): checks, not the game.
+probes = ["sim/probes"]
+
+[lints]
+workspace = true

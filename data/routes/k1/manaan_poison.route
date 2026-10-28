@@ -1,0 +1,44 @@
+# Manaan, the Hrakert Rift poisoned (K1): the scientists' poison taken
+# instead of their plan to wreck the harvester; at the Rift its console
+# vents the toxin, the giant firaxan shark dies, and the Star Map is free.
+# Back in Ahto City the Selkath court learns what was done. Starts from
+# the main route's checkpoint with the scientists persuaded:
+#   kjk playthrough k1 @man_scientists data/routes/k1/manaan_poison.route --god
+say a friend. i'll protect you  # inside: the firaxan shark the Selkath guard
+say i will try to poison the shark.
+use man28_sur3
+talk
+save mpo_scientists_in
+say begin airlock sequence  # their hatch, out to the Rift
+use 28c
+talk
+module manm28ad
+save mpo_rift
+say =feed toxin into vents.  # the harvester's console: the poison vented
+use man28d_comp
+talk
+save mpo_poisoned
+to wp_player_starmap     # the Star Map, the shark dead
+talk
+save mpo_starmap
+exit ManaanDoor2         # back into the station
+fight 30
+to man_bandon_talker     # Darth Bandon and two Dark Jedi by the submersible
+fight 30
+use man28_sub            # up to the embassy
+module manm26ae
+save mpo_up
+use man26_repdip         # Roland Wann
+talk
+say come peacefully      # arrested again: the court's judgement on the Rift
+exit man26ae_to26ac
+talk
+save mpo_trial
+exit man26aa_door05      # back to the docking bay, aboard
+exit man26ac_to26ad
+exit man26ad_to12aa
+use GalaxyMap
+travel 7                 # Korriban
+talk                     # the Leviathan: the Ebon Hawk taken aboard
+talk
+save mpo_leviathan

@@ -1,0 +1,37 @@
+kjk
+Copyright (c) 2026 the kjk contributors
+Licensed under the MIT License; see LICENSE.
+
+Game data
+---------
+kjk contains no data from any game. It reads Star Wars: Knights of the
+Old Republic, Star Wars: Knights of the Old Republic II - The Sith Lords and
+Star Wars Jedi Knight: Jedi Academy from installs the player already owns.
+Nothing from those games is shipped in this repository or in any release.
+
+Star Wars, Knights of the Old Republic and Jedi Academy are trademarks of
+their respective owners. kjk is not affiliated with or endorsed by them.
+
+Behaviour references
+--------------------
+These projects were read to understand how the original engines behave. No
+code from them is included, translated or adapted; the parts of kjk that
+match their behaviour were written from behaviour specifications by people
+who had not read their source.
+
+OpenJK   https://github.com/JACoders/OpenJK   GNU GPL v2
+reone    https://github.com/seedhartha/reone  GNU GPL v3
+xoreos   https://github.com/xoreos/xoreos     GNU GPL v3
+iw4L     https://github.com/vladtrc/iw4L      Apache License 2.0 (structure and working method)
+
+Steam
+-----
+Binary releases do not include Steam. A build made from source with the
+`steam` feature (the default) links Valve's Steam API library
+(libsteam_api.dylib, steam_api64.dll or libsteam_api.so), the Steamworks
+SDK's redistributable as the steamworks-sys crate ships it, for co-op
+through Steam. It is Valve's, under the Steamworks SDK's terms, not the MIT
+License. Steam and the Steam logo are trademarks of Valve Corporation.
+
+Binary releases include THIRD-PARTY-LICENSES.html for the Rust crates they
+are built from.

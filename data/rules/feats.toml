@@ -1,0 +1,457 @@
+[chapter]
+title = "Feats"
+order = 12
+summary = """
+A character's feats apply wherever their rules call for them: weapon
+training, two-weapon fighting, saving throws, skills and toughness. The
+alternate fire of a ranged weapon uses Power Blast, Rapid Shot or Sniper
+Shot.
+"""
+detail = """
+Each tier of a feat replaces the one before it. Scoundrel's Luck, Jedi Sense
+and the droid Logic Upgrades add to Defense as class bonuses.
+"""
+
+[weapon]
+title = "Weapon Training"
+summary = """
+A weapon's proficiency feat allows a character to equip it. Weapon Focus
+adds to hit with it, and Weapon Specialization adds to its damage.
+"""
+applies = ["kind:weapon"]
+
+[weapon.focus]
+name = "Weapon Focus"
+type = "i32"
+value = 1
+unit = "points"
+range = [0, 10]
+summary = "Adds a +{feats.weapon.focus:bare} attack bonus with weapons of the feat's type."
+source = "the feats' descriptions"
+see = "sim::combat::damage::attack_bonus"
+applies = ["feat:WEAPON_FOCUS_BLASTER", "feat:WEAPON_FOCUS_BLASTER_RIFLE", "feat:WEAPON_FOCUS_HEAVY_WEAPONS", "feat:WEAPON_FOCUS_LIGHTSABER", "feat:WEAPON_FOCUS_MELEE_WEAPONS"]
+
+[weapon.not_proficient]
+name = "Nonproficiency Penalty"
+type = "i32"
+value = 4
+unit = "points"
+range = [0, 20]
+summary = "A character using a weapon without its proficiency feat suffers a -{feats.weapon.not_proficient:bare} penalty to hit. Proficiency All counts as every proficiency."
+detail = "A player character cannot equip such a weapon. A creature that already holds one fights with it at this penalty."
+source = "KOTOR's d20 rules (reone)"
+see = "sim::combat::damage::attack_bonus"
+applies = ["feat:WEAPON_PROF_BLASTER", "feat:WEAPON_PROF_BLASTER_RIFLE", "feat:WEAPON_PROF_HEAVY_WEAPONS", "feat:WEAPON_PROF_LIGHTSABER", "feat:WEAPON_PROF_MELEE_WEAPONS", "feat:PROFICIENCY_ALL"]
+
+[weapon.specialization]
+name = "Weapon Specialization"
+type = "i64"
+value = 2
+unit = "points"
+range = [0, 20]
+summary = "Adds a +{feats.weapon.specialization:bare} damage bonus with weapons of the feat's type."
+source = "the feats' descriptions"
+see = "sim::combat::damage::weapon_roll"
+applies = ["feat:WEAPON_SPEC_BLASTER", "feat:WEAPON_SPEC_BLASTER_RIFLE", "feat:WEAPON_SPEC_HEAVY_WEAPONS", "feat:WEAPON_SPEC_LIGHTSABER", "feat:WEAPON_SPEC_MELEE_WEAPONS"]
+
+[two_weapon]
+title = "Two-Weapon Fighting and Dueling"
+summary = """
+A character wielding a double-bladed weapon or two weapons (one in each
+hand) suffers a penalty to hit with both hands, reduced by Two-Weapon
+Fighting, Improved Two-Weapon Fighting and Master Two-Weapon Fighting. A
+"balanced" (small) weapon in the off hand further reduces the main hand's
+penalty. A character wielding a single one-handed weapon, with nothing in
+the other hand, gains the Dueling bonus instead: +1, +2 or +3 to hit and to
+Defense, by tier.
+"""
+detail = "A double-bladed weapon attacks as two weapons, its blows those of the main hand."
+applies = ["feat:TWO_WEAPON_FIGHTING", "feat:TWO_WEAPON_ADVANCED", "feat:TWO_WEAPON_MASTERY", "feat:DUELING", "feat:ADVANCED_DUELING", "feat:MASTER_DUELING", "kind:melee", "kind:lightsaber"]
+
+[two_weapon.main_hand]
+name = "Main Hand Penalty"
+value = [-6, -6, -4, -2]
+labels = ["untrained", "Two-Weapon Fighting", "Improved", "Master"]
+unit = "points"
+range = [-20, 0]
+summary = "The main hand suffers {feats.two_weapon.main_hand[0]:bare} to hit untrained, {feats.two_weapon.main_hand[1]:bare} with Two-Weapon Fighting, {feats.two_weapon.main_hand[2]:bare} with Improved Two-Weapon Fighting and {feats.two_weapon.main_hand[3]:bare} with Master Two-Weapon Fighting."
+source = "the feats' descriptions"
+see = "sim::combat::passive::hand_attack"
+
+[two_weapon.off_hand]
+name = "Off Hand Penalty"
+value = [-10, -6, -4, -2]
+labels = ["untrained", "Two-Weapon Fighting", "Improved", "Master"]
+unit = "points"
+range = [-20, 0]
+summary = "The off hand suffers {feats.two_weapon.off_hand[0]:bare} to hit untrained, {feats.two_weapon.off_hand[1]:bare} with Two-Weapon Fighting, {feats.two_weapon.off_hand[2]:bare} with Improved Two-Weapon Fighting and {feats.two_weapon.off_hand[3]:bare} with Master Two-Weapon Fighting."
+source = "the feats' descriptions"
+see = "sim::combat::passive::hand_attack"
+
+[two_weapon.balanced]
+name = "Balanced Weapon"
+value = 2
+unit = "points"
+range = [0, 10]
+summary = "A balanced weapon in the off hand reduces the main hand's penalty by {feats.two_weapon.balanced:bare}."
+source = "the feats' descriptions (the game's \"Balanced\")"
+see = "sim::combat::passive::hand_attack"
+
+[saves]
+title = "Saving Throws"
+summary = """
+Conditioning, Improved Conditioning and Master Conditioning add +1, +2 and
++3 to all saving throws. Uncanny Dodge 1 and 2 add to saves against
+grenades.
+"""
+applies = ["feat:CONDITIONING", "feat:IMPROVED_CONDITIONING", "feat:MASTER_CONDITIONING"]
+
+[saves.uncanny_dodge]
+name = "Uncanny Dodge Grenade Bonus"
+type = "i32"
+value = 2
+unit = "points"
+range = [0, 10]
+summary = "Uncanny Dodge 1 and Uncanny Dodge 2 each add +{feats.saves.uncanny_dodge:bare} to Reflex saves against grenades."
+source = "the feats' descriptions"
+see = "sim::combat::passive::grenade_save_bonus"
+applies = ["feat:UNCANNY_DODGE_1", "feat:UNCANNY_DODGE_2", "kind:grenade"]
+
+[skills]
+title = "Skill Feats"
+summary = """
+Caution (Demolitions, Stealth), Empathy (Persuade, Awareness, Treat Injury)
+and Gear Head (Repair, Security, Computer Use) add to their skills by tier.
+Perceptive adds to Stealth and Awareness, and each Skill Focus adds to its
+skill. A skill feat gives no bonus to a skill in which the character has no
+ranks.
+"""
+
+[skills.line_per_tier]
+name = "Skill Feat Bonus"
+value = [1, 1, 1, 2]
+labels = ["Caution", "Empathy", "Gear Head", "Perceptive"]
+unit = "points"
+range = [0, 10]
+summary = "Each tier of Caution, Empathy and Gear Head adds +{feats.skills.line_per_tier[0]:bare}, +{feats.skills.line_per_tier[1]:bare} and +{feats.skills.line_per_tier[2]:bare} to each of its skills. Perceptive adds +{feats.skills.line_per_tier[3]:bare}."
+source = "the feats' descriptions"
+see = "sim::combat::passive::skill_bonus"
+applies = ["feat:CAUTIOUS", "feat:IMPROVED_CAUTION", "feat:MASTER_CAUTION", "feat:EMPATHY", "feat:IMPROVED_EMPATHY", "feat:MASTER__EMPATHY", "feat:GEAR_HEAD", "feat:GEAR_HEAD_ADEPT", "feat:GEAR_HEAD_MASTER", "feat:XXXX_PERCEPTIVE"]
+
+[skills.skill_focus]
+name = "Skill Focus"
+type = "i32"
+value = 2
+unit = "points"
+range = [0, 10]
+summary = "Adds a +{feats.skills.skill_focus:bare} bonus to the skill."
+source = "the feats' descriptions"
+see = "sim::combat::passive::skill_bonus"
+applies = ["feat:XXXX_SKILL_FOCUS_COMPUTER_USE", "feat:XXXX_SKILL_FOCUS_DEMOLITIONS", "feat:XXXX_SKILL_FOCUS_STEALTH", "feat:XXXX_SKILL_FOCUS_AWARENESS", "feat:XXXX_SKILL_FOCUS_PERSUADE", "feat:XXXX_SKILL_FOCUS_REPAIR", "feat:XXXX_SKILL_FOCUS_SECURITY", "feat:XXXX_SKILL_FOCUS_TREAT_INJURY"]
+
+[toughness]
+title = "Toughness"
+summary = """
+Toughness and Master Toughness each add +1 vitality point per level,
+including levels gained before the feat. Wookiee Toughness adds more.
+Improved Toughness and Wookiee Toughness reduce the damage of every attack.
+"""
+detail = """
+In K1, Improved Toughness reduces only physical damage (bludgeoning,
+piercing and slashing). Damage reduction never takes more than the hit
+deals.
+"""
+applies = ["feat:TOUGHNESS", "feat:MASTER_TOUGHNESS", "feat:IMPROVED_TOUGHNESS", "feat:WOOKIE_ENDURANCE", "feat:WOOKIEE_TOUGHNESS_II", "feat:WOOKIEE_TOUGHNESS_III"]
+
+[toughness.wookiee_hp]
+name = "Wookiee Toughness Vitality"
+value = [0, 2, 3, 4]
+labels = ["none", "Wookiee Toughness", "II", "III"]
+unit = "HP"
+range = [0, 20]
+summary = "Wookiee Toughness adds +{feats.toughness.wookiee_hp[1]:bare} vitality points per level, Wookiee Toughness II +{feats.toughness.wookiee_hp[2]:bare} and Wookiee Toughness III +{feats.toughness.wookiee_hp[3]:bare}."
+source = "the feats' descriptions"
+see = "sim::combat::passive::hp_per_level"
+
+[toughness.improved_k1]
+name = "Improved Toughness (K1)"
+type = "i64"
+value = 2
+unit = "points"
+range = [0, 20]
+summary = "In K1, Improved Toughness reduces the physical damage of each hit by {feats.toughness.improved_k1:bare} points."
+source = "K1's description"
+see = "sim::combat::passive::toughness"
+
+[toughness.improved_tsl_over]
+name = "Improved Toughness Threshold (TSL)"
+type = "i64"
+value = 20
+unit = "points"
+range = [0, 100]
+summary = "In TSL, Improved Toughness reduces each hit by 1 point for every {feats.toughness.improved_tsl_share:bare} points of damage over {feats.toughness.improved_tsl_over:bare}."
+source = "TSL's description"
+see = "sim::combat::passive::toughness"
+
+[toughness.improved_tsl_share]
+name = "Improved Toughness Reduction (TSL)"
+type = "i64"
+value = 10
+range = [1, 100]
+summary = "In TSL, Improved Toughness reduces each hit by 1 point for every {feats.toughness.improved_tsl_share:bare} points of damage over {feats.toughness.improved_tsl_over:bare}."
+source = "TSL's description"
+see = "sim::combat::passive::toughness"
+
+[toughness.wookiee_flat]
+name = "Wookiee Toughness Reduction"
+type = "i64"
+value = [2, 5, 8]
+labels = ["Wookiee Toughness", "II", "III"]
+unit = "points"
+range = [0, 50]
+summary = "Wookiee Toughness reduces the damage of each hit by {feats.toughness.wookiee_flat[0]:bare} points, Wookiee Toughness II by {feats.toughness.wookiee_flat[1]:bare} and Wookiee Toughness III by {feats.toughness.wookiee_flat[2]:bare}."
+source = "the feats' descriptions (K1's; TSL's II and III)"
+see = "sim::combat::passive::toughness"
+
+[toughness.wookiee_share]
+name = "Wookiee Toughness Share"
+type = "i64"
+value = [20, 10]
+labels = ["II", "III"]
+range = [1, 100]
+summary = "Wookiee Toughness II also reduces the remaining damage by 1 point in {feats.toughness.wookiee_share[0]:bare}, and Wookiee Toughness III by 1 point in {feats.toughness.wookiee_share[1]:bare}."
+source = "TSL's descriptions"
+see = "sim::combat::passive::toughness"
+
+[force_sensitive]
+title = "Force Sensitive"
+summary = "Force Sensitive grants Force points once, when the feat is learned."
+applies = ["feat:FORCE_SENSITIVE"]
+
+[force_sensitive.points]
+name = "Force Sensitive Points"
+type = "u16"
+value = 40
+unit = "FP"
+range = [0, 500]
+summary = "Force Sensitive grants {feats.force_sensitive.points:bare} Force points."
+source = "TSL's description"
+see = "sim::combat::passive::learn"
+
+[force_focus]
+title = "Force Focus"
+summary = "Force Focus, Advanced Force Focus and Force Focus Mastery make a character's Force powers harder to resist. Only the highest of these feats applies."
+applies = ["feat:FORCE_FOCUS", "feat:FORCE_FOCUS_ADVANCED", "feat:FORCE_FOCUS_MASTERY", "kind:force"]
+
+[force_focus.dc]
+name = "Force Focus DC Bonus"
+value = [1, 2, 4]
+labels = ["Force Focus", "Advanced", "Mastery"]
+unit = "points"
+range = [0, 20]
+summary = "Force Focus adds +{feats.force_focus.dc[0]:bare} to the DC of the character's Force powers, Advanced Force Focus +{feats.force_focus.dc[1]:bare} and Force Focus Mastery +{feats.force_focus.dc[2]:bare}. Only the highest applies."
+source = "the feats' descriptions"
+see = "sim::combat::force"
+
+[specials]
+title = "Feat Attacks for Ranged Weapons"
+summary = """
+The alternate fire of a ranged weapon uses a feat attack: Power Blast for
+blaster pistols, Sniper Shot for disruptors and Rapid Shot for all other
+ranged weapons. A character without the feat, or without enough Force
+points or stamina, fires normally. The penalties of a feat attack last one
+round ({combat.timing.round_ms:s}).
+"""
+applies = ["kind:blaster"]
+
+[specials.cost_percent]
+name = "Feat Attack Cost"
+type = "u16"
+value = 15
+unit = "%"
+range = [0, 100]
+summary = "A feat attack costs {feats.specials.cost_percent} of the character's maximum Force points, or of its stamina if it is not a Force user."
+source = "I22 C7"
+see = "sim::combat::specials::cost"
+applies = ["kind:stamina"]
+
+[specials.power_blast]
+title = "Power Blast"
+summary = """
+Hold the alternate fire to charge a Power Blast, and release it to fire one
+shot with bonus damage and a penalty to hit. The longer the charge, the
+heavier the shot.
+"""
+applies = ["feat:POWER_BLAST", "feat:IMPROVED_POWER_BLAST", "feat:MASTER_POWER_BLAST", "kind:pistol"]
+
+[specials.power_blast.step_ms]
+name = "Charge Step"
+type = "u64"
+value = 200
+unit = "ms"
+range = [10, 2000]
+summary = "A Power Blast charges in steps of {feats.specials.power_blast.step_ms:s}."
+source = "JA (the Bryar's charge)"
+see = "sim::combat::specials::pull"
+
+[specials.power_blast.steps]
+name = "Charge Steps"
+type = "u64"
+value = 5
+range = [1, 20]
+summary = "A Power Blast charges up to {feats.specials.power_blast.steps:bare} steps."
+source = "JA (the Bryar's charge)"
+see = "sim::combat::specials::pull"
+
+[specials.power_blast.limit_ms]
+name = "Maximum Charge"
+type = "u64"
+value = 5000
+unit = "ms"
+range = [100, 30000]
+summary = "A Power Blast held for {feats.specials.power_blast.limit_ms:s} fires on its own."
+source = "JA: weapon charge"
+see = "sim::combat::specials::pull"
+
+[specials.power_blast.damage]
+name = "Power Blast Damage"
+type = "i8"
+value = [5, 8, 10]
+labels = ["Power Blast", "Improved", "Master"]
+unit = "points"
+range = [0, 50]
+summary = "Power Blast adds +{feats.specials.power_blast.damage[0]:bare} damage, Improved Power Blast +{feats.specials.power_blast.damage[1]:bare} and Master Power Blast +{feats.specials.power_blast.damage[2]:bare}."
+source = "the feats' descriptions"
+see = "sim::combat::specials::Special::shot"
+
+[specials.power_blast.attack_penalty]
+name = "Power Blast Penalty"
+type = "i8"
+value = 3
+unit = "points"
+range = [0, 20]
+summary = "A Power Blast is made with a penalty of -{feats.specials.power_blast.attack_penalty:bare} to hit."
+source = "the feats' descriptions"
+see = "sim::combat::specials::Special::shot"
+
+[specials.rapid_shot]
+title = "Rapid Shot"
+summary = """
+The alternate fire fires a burst of shots when the weapon is next ready.
+The weapon is ready again one shot sooner than the burst would take at its
+normal rate, granting an extra attack. For the round after, the character
+suffers a penalty to attacks and Defense.
+"""
+applies = ["feat:RAPID_SHOT", "feat:IMPROVED_RAPID_SHOT", "feat:MULTI_SHOT", "kind:rifle"]
+
+[specials.rapid_shot.gap_ms]
+name = "Burst Interval"
+type = "u32"
+value = 150
+unit = "ms"
+range = [10, 2000]
+summary = "The shots of a burst are {feats.specials.rapid_shot.gap_ms:s} apart, or closer if the weapon's own rate of fire is faster."
+source = "JA (the E-11's alternate refire)"
+see = "sim::combat::specials::pull"
+
+[specials.rapid_shot.shots]
+name = "Rapid Shot Burst"
+type = "u8"
+value = 2
+range = [1, 10]
+summary = "Rapid Shot and Improved Rapid Shot fire a burst of {feats.specials.rapid_shot.shots:bare} shots."
+source = "the feats' descriptions (an extra attack)"
+see = "sim::combat::specials::Special::burst"
+
+[specials.rapid_shot.multi_shots]
+name = "Master Rapid Shot Burst"
+type = "u8"
+value = 3
+range = [1, 10]
+summary = "Master Rapid Shot fires a burst of {feats.specials.rapid_shot.multi_shots:bare} shots."
+source = "the feats' descriptions (two extra attacks)"
+see = "sim::combat::specials::Special::burst"
+
+[specials.rapid_shot.penalty]
+name = "Rapid Shot Penalty"
+type = "i8"
+value = [-4, -2, -1]
+labels = ["Rapid Shot", "Improved", "Multi Shot"]
+unit = "points"
+range = [-20, 0]
+summary = "For the round after a burst, the character suffers {feats.specials.rapid_shot.penalty[0]:bare} to attacks and Defense with Rapid Shot, {feats.specials.rapid_shot.penalty[1]:bare} with Improved Rapid Shot and {feats.specials.rapid_shot.penalty[2]:bare} with Master Rapid Shot. Each item with a Rapid Shot bonus reduces these penalties by 1."
+source = "the feats' descriptions"
+see = "sim::combat::specials::Special::exposure"
+
+[specials.sniper_shot]
+title = "Sniper Shot"
+summary = """
+Hold the alternate fire to aim. While aiming, the character moves slowly and
+cannot jump. Each shot fired while aiming has its critical threat range
+multiplied, and the character suffers a Defense penalty for the round
+after. Sniper Shot does not stun.
+"""
+applies = ["feat:SNIPER_SHOT", "feat:IMPROVED_SNIPER_SHOT", "feat:MASTER_SNIPER_SHOT"]
+
+[specials.sniper_shot.aim_speed]
+name = "Aiming Speed"
+value = 0.5
+unit = "×"
+range = [0.0, 1.0]
+summary = "A character aiming a Sniper Shot moves at {feats.specials.sniper_shot.aim_speed:bare} times normal speed."
+source = "JA (the disruptor's zoom)"
+see = "sim::combat::specials::AIM_SPEED"
+
+[specials.sniper_shot.threat_times]
+name = "Sniper Shot Threat Range"
+type = "u8"
+value = [2, 3, 4]
+labels = ["Sniper Shot", "Improved", "Master"]
+unit = "×"
+range = [1, 20]
+summary = "Sniper Shot multiplies the critical threat range by {feats.specials.sniper_shot.threat_times[0]:bare}, Improved Sniper Shot by {feats.specials.sniper_shot.threat_times[1]:bare} and Master Sniper Shot by {feats.specials.sniper_shot.threat_times[2]:bare}."
+source = "the feats' descriptions"
+see = "sim::combat::specials::Special::shot"
+
+[specials.sniper_shot.defence_penalty]
+name = "Sniper Shot Penalty"
+type = "i8"
+value = -5
+unit = "points"
+range = [-20, 0]
+summary = "For the round after an aimed shot, the character suffers {feats.specials.sniper_shot.defence_penalty:bare} to Defense."
+source = "the feats' descriptions"
+see = "sim::combat::specials::Special::exposure"
+
+[sneak_attack]
+title = "Sneak Attack"
+summary = """
+Each Sneak Attack feat adds 1-{feats.sneak_attack.die:bare} points of extra
+damage to attacks when the target can't respond to the attacker: attacks
+from behind (unless the target has Uncanny Dodge), attacks against stunned,
+knocked down or choked targets, and attacks against targets that are not
+yet in combat or have not yet noticed the attacker. Sneak Attack only works
+if the target is within {feats.sneak_attack.reach_m:bare} meters. The extra
+damage is not multiplied in the case of a critical hit, and a target immune
+to critical hits or sneak attacks takes none.
+"""
+detail = "An attack counts as from behind within the target's rear 90 degrees. The first attack out of Stealth Mode receives the bonus."
+applies = ["feat:SNEAK_ATTACK_1D6", "feat:SNEAK_ATTACK_2D6", "feat:SNEAK_ATTACK_3D6", "feat:SNEAK_ATTACK_4D6", "feat:SNEAK_ATTACK_5D6", "feat:SNEAK_ATTACK_6D6", "feat:SNEAK_ATTACK_7D6", "feat:SNEAK_ATTACK_8D6", "feat:SNEAK_ATTACK_9D6", "feat:SNEAK_ATTACK_10D6", "feat:UNCANNY_DODGE_1", "feat:UNCANNY_DODGE_2", "kind:stealth"]
+
+[sneak_attack.die]
+name = "Sneak Attack Die"
+type = "u8"
+value = 6
+range = [1, 20]
+summary = "Each Sneak Attack feat adds 1-{feats.sneak_attack.die:bare} points of extra damage."
+source = "the feats' descriptions"
+see = "sim::combat::damage::weapon_damage"
+
+[sneak_attack.reach_m]
+name = "Sneak Attack Range"
+value = 10.0
+unit = "m"
+range = [0.0, 100.0]
+summary = "Sneak Attack only works if the target is within {feats.sneak_attack.reach_m:bare} meters."
+source = "the feats' descriptions (KOTOR's 10 m)"
+see = "sim::combat::specials::sneak_dice"

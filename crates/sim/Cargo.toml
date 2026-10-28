@@ -1,0 +1,31 @@
+[package]
+name = "sim"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+bevy_ecs.workspace = true
+blake3.workspace = true
+collision.workspace = true
+fmt_odyssey.workspace = true
+rules.workspace = true
+script_ncs.workspace = true
+
+# The formats' bumps pending on the branch (build.rs).
+[build-dependencies]
+bumps.workspace = true
+
+[features]
+# The probes (`kjk <layer> probes`): checks, not the game.
+probes = ["script_ncs/probes"]
+
+[lints]
+workspace = true
+
+# `kjk trace`'s driver alone, for coverage (`docs/EQUIVALENCE.md`).
+[[example]]
+name = "trace"
+required-features = ["probes"]

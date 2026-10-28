@@ -1,0 +1,61 @@
+# The Unknown World (K1, unk_m41aa the central beach, unk_m41ac the north
+# beach, unk_m43aa the Rakata village, unk_m41ad the temple's grounds,
+# unk_m41ab the south beach, unk_m42aa the Elders' compound): the turrets,
+# the crash, The One's bargain (the Elders put down, their tome brought
+# back), the ritual at the temple. The temple itself is
+# unknown_world_temple.route. Starts from the Korriban route's checkpoint
+# (the crash, the turrets played):
+#   kjk playthrough k1 @unknown_world data/routes/k1/unknown_world.route --god
+exit ebn12_ebonexit      # the central beach
+save uw_beach
+to newfight              # the Rakata at the wreck; the Ithorians after
+talk
+fight 25
+talk
+exit unk41_goto41ac      # north
+save uw_north
+to plottalk              # the Rakata and their rancors: to The One
+talk
+save uw_theone
+exit RakataDoor2         # back out, round to the temple's grounds
+exit unk41_goto41aabr
+exit unk41_goto41ada
+save uw_temple_out
+fight 25
+exit unk41_goto41abd     # the south beach
+save uw_south
+use punk_shipparts       # the wreck's stabilizers (its traps no matter)
+fight 25
+to talktrig              # the Elders' hologram: the ring of force fields before
+talk                     # their gate stands till it lets the party in (unk41_holo03)
+exit RakataDoor2         # the Elders' gate: the hologram, their council
+talk
+module unk_m42aa
+save uw_elders
+fight 30                 # IGN's way: the Elders put down
+fight 30
+save uw_elders_dead
+say i am looking for the secrets of the ancient rakata
+use unk42_raksupercomp   # their archive: the temple's shields
+talk
+save uw_computer
+say i'm here to kill you all!  # the scholar, if the fight left him standing:
+use n_rakata005          # his guards called and put down with him
+fight 30
+use n_rakata005          # the scholar's remains: the ancient tome
+exit RakataDoor2         # back to The One
+exit unk41_goto41aarc
+exit unk41_goto41aad
+exit unk41_goto41ac
+exit unk41_blkdoor
+say here is the ancient tome
+use unk43_theone
+talk
+save uw_tome_given
+exit RakataDoor2         # the ritual at the temple; Jolee and Juhani come
+exit unk41_goto41aabr
+exit unk41_goto41ada
+to templetrig
+talk
+module unk_m44aa         # the guide's word, then the ritual's scene: the temple
+save uw_temple

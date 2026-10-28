@@ -1,0 +1,16 @@
+[package]
+name = "asset_ja"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+fmt_ja.workspace = true
+asset_odyssey.workspace = true
+collision.workspace = true
+glam.workspace = true
+
+[lints]
+workspace = true

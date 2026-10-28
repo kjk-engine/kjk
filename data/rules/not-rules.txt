@@ -1,0 +1,630 @@
+# The literal constants in crates/sim that are no rules: `file NAME  # why`.
+# A table's row, a bit flag, a format's version, a script constant's number,
+# a buffer's size. The approved test `rulebook` fails on a literal constant
+# neither a rule's alias nor listed here, and on a line that names none:
+# a number the game plays by belongs in the book (data/rules/README.md).
+crates/sim/src/action.rs ALL  # every interaction verb, a list
+crates/sim/src/action.rs ARENA  # a player action's wire tag
+crates/sim/src/action.rs ASSEMBLE  # a player action's wire tag
+crates/sim/src/action.rs BREAK  # a player action's wire tag
+crates/sim/src/action.rs BREAKDOWN  # a player action's wire tag
+crates/sim/src/action.rs BUY  # a player action's wire tag
+crates/sim/src/action.rs CHOOSE_PARTY  # a player action's wire tag
+crates/sim/src/action.rs CLOSE  # a player action's wire tag
+crates/sim/src/action.rs CREATE  # a player action's wire tag
+crates/sim/src/action.rs DISARM  # a player action's wire tag
+crates/sim/src/action.rs EQUIP  # a player action's wire tag
+crates/sim/src/action.rs EQUIP_ON  # a player action's wire tag
+crates/sim/src/action.rs FIT  # a player action's wire tag
+crates/sim/src/action.rs FORCE  # a player action's wire tag
+crates/sim/src/action.rs FORFEIT  # a player action's wire tag
+crates/sim/src/action.rs FORM  # a player action's wire tag
+crates/sim/src/action.rs HOLSTER  # a player action's wire tag
+crates/sim/src/action.rs LEAD  # a player action's wire tag
+crates/sim/src/action.rs LEAVE  # a player action's wire tag
+crates/sim/src/action.rs LEVEL_UP  # a player action's wire tag
+crates/sim/src/action.rs MINE  # a player action's wire tag
+crates/sim/src/action.rs OPEN  # a player action's wire tag
+crates/sim/src/action.rs PAZAAK  # a player action's wire tag
+crates/sim/src/action.rs PUT  # a player action's wire tag
+crates/sim/src/action.rs READY  # a player action's wire tag
+crates/sim/src/action.rs RECOVER  # a player action's wire tag
+crates/sim/src/action.rs REQUEST  # a player action's wire tag
+crates/sim/src/action.rs RESUME  # a player action's wire tag
+crates/sim/src/action.rs REVIVE  # a player action's wire tag
+crates/sim/src/action.rs SCREEN_OPENED  # a player action's wire tag
+crates/sim/src/action.rs SELL  # a player action's wire tag
+crates/sim/src/action.rs SET_LEADER  # a player action's wire tag
+crates/sim/src/action.rs SHOW_PARTY  # a player action's wire tag
+crates/sim/src/action.rs SOLO  # a player action's wire tag
+crates/sim/src/action.rs SWITCH_WEAPONS  # a player action's wire tag
+crates/sim/src/action.rs SWITCH_WEAPONS_ON  # a player action's wire tag
+crates/sim/src/action.rs TAKE  # a player action's wire tag
+crates/sim/src/action.rs TAKE_ALL  # a player action's wire tag
+crates/sim/src/action.rs TRAVEL  # a player action's wire tag
+crates/sim/src/action.rs UNEQUIP  # a player action's wire tag
+crates/sim/src/action.rs UNEQUIP_FROM  # a player action's wire tag
+crates/sim/src/action.rs UNFIT  # a player action's wire tag
+crates/sim/src/action.rs UNLOCK  # a player action's wire tag
+crates/sim/src/action.rs USE  # a player action's wire tag
+crates/sim/src/action.rs USE_ITEM  # a player action's wire tag
+crates/sim/src/action.rs WATCH  # a player action's wire tag
+crates/sim/src/combat/ai.rs TASKS  # the tasks' wire order
+crates/sim/src/combat/damage.rs WHOLE_CADENCE_MS  # derived: the round over the pace
+crates/sim/src/combat/death.rs DIE  # animations.2da row 80 as the views number clips
+crates/sim/src/combat/effects.rs ALL  # enum order for the wire encoding
+crates/sim/src/combat/effects.rs ALL_SAVES  # save index (all three), an id
+crates/sim/src/combat/effects.rs CHOKE  # a hold's state number
+crates/sim/src/combat/effects.rs CONFUSED  # TSL executable's state number
+crates/sim/src/combat/effects.rs CRUSH  # TSL executable's state number
+crates/sim/src/combat/effects.rs DAZED  # IMMUNITY_TYPE_* script constant
+crates/sim/src/combat/effects.rs DROID_CONFUSED  # TSL executable's state number
+crates/sim/src/combat/effects.rs DROID_CONFUSION  # IMMUNITY_TYPE_* script constant
+crates/sim/src/combat/effects.rs DROID_SCRAMBLE  # TSL executable's state number
+crates/sim/src/combat/effects.rs DROID_STUN  # TSL executable's state number
+crates/sim/src/combat/effects.rs ENTANGLE  # IMMUNITY_TYPE_* script constant
+crates/sim/src/combat/effects.rs FORCE_SIGHT_VIDEO  # videoeffects.2da row
+crates/sim/src/combat/effects.rs FRIGHTENED  # TSL executable's state number
+crates/sim/src/combat/effects.rs HORRIFIED  # TSL executable's state number
+crates/sim/src/combat/effects.rs KNOCKDOWN  # IMMUNITY_TYPE_* script constant
+crates/sim/src/combat/effects.rs LASTING_SLOTS  # buffer size (the snapshot's lasting-effect slots)
+crates/sim/src/combat/effects.rs MANDALORIAN_COURAGE  # feat.2da row (TSL's MANDALORIAN_COURAGE)
+crates/sim/src/combat/effects.rs MIND_TRICK  # TSL executable's state number
+crates/sim/src/combat/effects.rs PARALYZED  # TSL executable's state number
+crates/sim/src/combat/effects.rs RESIST_TYPES  # damage type rows (type_rows), no number
+crates/sim/src/combat/effects.rs SLEEP  # TSL executable's state number
+crates/sim/src/combat/effects.rs STUNNED  # TSL executable's state number
+crates/sim/src/combat/effects.rs WHIRLWIND  # a hold's state number
+crates/sim/src/combat/fighter.rs ALL  # every Location, a list
+crates/sim/src/combat/fighter.rs EVENTS  # a snapshot ring's size
+crates/sim/src/combat/force.rs FEAR  # IMMUNITY_TYPE_* script constant
+crates/sim/src/combat/force.rs GESTURES  # enum order for the wire encoding
+crates/sim/src/combat/force.rs MIND_SPELLS  # IMMUNITY_TYPE_* script constant
+crates/sim/src/combat/force.rs PARALYSIS  # IMMUNITY_TYPE_* script constant
+crates/sim/src/combat/force.rs POISON  # IMMUNITY_TYPE_* script constant
+crates/sim/src/combat/force.rs POWERS  # enum order for the wire encoding
+crates/sim/src/combat/force.rs PULL  # Command::force's id for JA's pull, beyond spells.2da's rows
+crates/sim/src/combat/force.rs REGENERATE_FEAT  # feat.2da row (TSL's REGENERATE_FORCE_POINTS)
+crates/sim/src/combat/force.rs SLEEP  # IMMUNITY_TYPE_* script constant
+crates/sim/src/combat/force.rs STUN  # IMMUNITY_TYPE_* script constant
+crates/sim/src/combat/forms.rs AFFINITY  # spells.2da row (a Form)
+crates/sim/src/combat/forms.rs ATARU  # spells.2da row (a Form)
+crates/sim/src/combat/forms.rs FOCUS  # spells.2da row (a Form)
+crates/sim/src/combat/forms.rs FORM_MASK  # spells.2da formmask bit
+crates/sim/src/combat/forms.rs JUYO  # spells.2da row (a Form)
+crates/sim/src/combat/forms.rs MAKASHI  # spells.2da row (a Form)
+crates/sim/src/combat/forms.rs MASTERY  # spells.2da row (a Form)
+crates/sim/src/combat/forms.rs NIMAN  # spells.2da row (a Form)
+crates/sim/src/combat/forms.rs POTENCY  # spells.2da row (a Form)
+crates/sim/src/combat/forms.rs SHIEN  # spells.2da row (a Form)
+crates/sim/src/combat/forms.rs SHII_CHO  # spells.2da row (a Form)
+crates/sim/src/combat/forms.rs SORESU  # spells.2da row (a Form)
+crates/sim/src/combat/gear.rs ABILITY_DECREASE  # nwscript IMMUNITY_TYPE_* number
+crates/sim/src/combat/gear.rs ABILITY_DRAIN  # iprp_onhit.2da row
+crates/sim/src/combat/gear.rs ALL  # iprp_aligngrp.2da group
+crates/sim/src/combat/gear.rs CONFUSED  # nwscript IMMUNITY_TYPE_* number
+crates/sim/src/combat/gear.rs CONFUSION  # iprp_onhit.2da row
+crates/sim/src/combat/gear.rs CRITICAL_HIT  # nwscript IMMUNITY_TYPE_* number
+crates/sim/src/combat/gear.rs DARK  # iprp_aligngrp.2da group
+crates/sim/src/combat/gear.rs DEATH  # iprp_onhit.2da row; nwscript IMMUNITY_TYPE_* number
+crates/sim/src/combat/gear.rs DOOR_CUTTING  # a bit flag
+crates/sim/src/combat/gear.rs DOOR_SABERING  # a bit flag
+crates/sim/src/combat/gear.rs FEAR  # iprp_onhit.2da row; nwscript IMMUNITY_TYPE_* number
+crates/sim/src/combat/gear.rs FORT  # a save's index
+crates/sim/src/combat/gear.rs KNOCKDOWN  # iprp_onhit.2da row; nwscript IMMUNITY_TYPE_* number
+crates/sim/src/combat/gear.rs LIGHT  # iprp_aligngrp.2da group; a bit flag
+crates/sim/src/combat/gear.rs LIGHT_VISUAL  # visualeffects.2da row
+crates/sim/src/combat/gear.rs MIND_SPELLS  # nwscript IMMUNITY_TYPE_* number
+crates/sim/src/combat/gear.rs NEUTRAL  # iprp_aligngrp.2da group
+crates/sim/src/combat/gear.rs PARALYSIS  # nwscript IMMUNITY_TYPE_* number
+crates/sim/src/combat/gear.rs PARALYZE  # iprp_onhit.2da row
+crates/sim/src/combat/gear.rs POISON  # iprp_onhit.2da row; nwscript IMMUNITY_TYPE_* number
+crates/sim/src/combat/gear.rs RAPID_SHOT  # a bit flag
+crates/sim/src/combat/gear.rs REFLEX  # a save's index
+crates/sim/src/combat/gear.rs SILENT  # a bit flag
+crates/sim/src/combat/gear.rs SLAY_RACE  # iprp_onhit.2da row
+crates/sim/src/combat/gear.rs SLAY_SIDE  # iprp_onhit.2da row
+crates/sim/src/combat/gear.rs SLEEP  # iprp_onhit.2da row; nwscript IMMUNITY_TYPE_* number
+crates/sim/src/combat/gear.rs SLOW  # iprp_onhit.2da row; nwscript IMMUNITY_TYPE_* number
+crates/sim/src/combat/gear.rs SNEAK_ATTACK  # nwscript IMMUNITY_TYPE_* number
+crates/sim/src/combat/gear.rs SNIPER  # a bit flag
+crates/sim/src/combat/gear.rs STUN  # iprp_onhit.2da row; nwscript IMMUNITY_TYPE_* number
+crates/sim/src/combat/gear.rs TRUE_SEEING  # a bit flag
+crates/sim/src/combat/gear.rs VERSUS  # a snapshot array's size
+crates/sim/src/combat/gear.rs WALK_ONLY  # a bit flag
+crates/sim/src/combat/gear.rs WILL  # a save's index
+crates/sim/src/combat/idle.rs FIRE_AND_FORGET  # the first fire-and-forget ANIMATION_* constant
+crates/sim/src/combat/idle.rs IDLES  # a list of JA animations
+crates/sim/src/combat/idle.rs LOOPED_ROWS  # numbering: where looping animations.2da rows are numbered from
+crates/sim/src/combat/items.rs COLD  # a damageflags bit
+crates/sim/src/combat/items.rs ELECTRICAL  # a damageflags bit
+crates/sim/src/combat/items.rs FIRE  # a damageflags bit
+crates/sim/src/combat/items.rs KINDS  # a snapshot array's size
+crates/sim/src/combat/mind.rs AIM_STEP  # Command::aim's wire step
+crates/sim/src/combat/mind.rs SWINGS  # the movement keys that pick each swing (input axes)
+crates/sim/src/combat/pace.rs BACK  # an index into Pace::holds
+crates/sim/src/combat/pace.rs CENTRE  # an index into Pace::holds
+crates/sim/src/combat/pace.rs FENCER  # the game's rank number of a fencer
+crates/sim/src/combat/pace.rs FORWARD  # an index into Pace::holds
+crates/sim/src/combat/pace.rs LEFT  # an index into Pace::holds
+crates/sim/src/combat/pace.rs LIEUTENANT  # the game's rank number of a lieutenant
+crates/sim/src/combat/pace.rs NONE  # an index into Pace::holds
+crates/sim/src/combat/pace.rs RIGHT  # an index into Pace::holds
+crates/sim/src/combat/passive.rs NOT_PROFICIENT  # dialog.tlk line
+crates/sim/src/combat/rounds.rs CLASSES  # table width: combatanimations.2da's classes
+crates/sim/src/combat/rounds.rs CREATURE  # weapon class number: a creature model's
+crates/sim/src/combat/rounds.rs HALF_ROUND_MS  # derived (half of the round)
+crates/sim/src/combat/rounds.rs UNARMED  # weapon class number: bare hands
+crates/sim/src/combat/saber/blades.rs SABERS  # the skeleton data's saber names (the host loads them by these)
+crates/sim/src/combat/saber/blades.rs SINGLE  # an index into SABERS
+crates/sim/src/combat/saber/blades.rs STAFF  # an index into SABERS
+crates/sim/src/combat/saber/grace.rs HELD  # a buffer size: the held hits' slots, in the snapshot
+crates/sim/src/combat/saber/lock.rs ENDS  # a table of the five ends of a new lock block, in list order (an enum's values)
+crates/sim/src/combat/saber/lock.rs KINDS  # a table of the lock kinds (an enum's values)
+crates/sim/src/combat/saber/lock.rs NEVER_PLAYED  # a table of animation ids
+crates/sim/src/combat/saber/lock.rs PAIRS  # a table of the class pairs in the new locks' block order (the animation list's layout)
+crates/sim/src/combat/saber/lock.rs RISING  # a table of animation ids: the locks whose frame climbs to win (game facts)
+crates/sim/src/combat/saber/lock.rs SWING_RULES  # a table of the four swing rules that pick a lock (game facts: animations and kinds)
+crates/sim/src/combat/saber/look.rs PITCH  # an axis index
+crates/sim/src/combat/saber/look.rs ROLL  # an axis index
+crates/sim/src/combat/saber/look.rs YAW  # an axis index
+crates/sim/src/combat/saber/mod.rs ALL  # a table of the blocked states (an enum's values, wire order)
+crates/sim/src/combat/saber/moves.rs ALL  # a table of the quadrants (an enum's values)
+crates/sim/src/combat/saber/moves.rs BROKEN_PARRY_AT  # the quadrants of the broken parries, in move order (the table's enumeration)
+crates/sim/src/combat/saber/moves.rs GUARDS  # the five guard quadrants, in move order (the table's enumeration)
+crates/sim/src/combat/saber/moves.rs RING  # the seven ring quadrants (an enum's values)
+crates/sim/src/combat/saber/moves.rs SWINGS  # the seven swings' quadrants, in move order (the table's enumeration)
+crates/sim/src/combat/saber/power.rs WIN_GATES  # a table: which window gates each super-break win, by lock block (the windows are rules)
+crates/sim/src/combat/saber/sweep.rs CONTACTS  # a buffer size: the bodies a swing keeps count of, in the snapshot
+crates/sim/src/combat/saber/throw.rs FLIGHTS  # a table of the flights (an enum's values, wire order)
+crates/sim/src/combat/sheet.rs ALL  # every Ability, a list
+crates/sim/src/combat/sheet.rs ASSURED_HIT  # a bit flag
+crates/sim/src/combat/sheet.rs AWARENESS  # skills.2da row
+crates/sim/src/combat/sheet.rs BLUDGEONING  # a damageflags bit; iprp_damagetype.2da row
+crates/sim/src/combat/sheet.rs COLD  # a damageflags bit; iprp_damagetype.2da row
+crates/sim/src/combat/sheet.rs COMPUTER_USE  # skills.2da row
+crates/sim/src/combat/sheet.rs CONDITIONING  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs CRITICAL_STRIKE  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs DAMAGE_TYPES  # iprp_damagetype.2da's row count
+crates/sim/src/combat/sheet.rs DEMOLITIONS  # skills.2da row
+crates/sim/src/combat/sheet.rs DOUBLE  # a bit flag
+crates/sim/src/combat/sheet.rs DROID  # a sheet flag bit; racialtypes.2da row
+crates/sim/src/combat/sheet.rs DUELING  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs ELECTRICAL  # a damageflags bit; iprp_damagetype.2da row
+crates/sim/src/combat/sheet.rs ENERGY  # a damageflags bit; iprp_damagetype.2da row
+crates/sim/src/combat/sheet.rs EXTRAS  # a weapon's slots (a snapshot array's size)
+crates/sim/src/combat/sheet.rs FIRE  # a damageflags bit; iprp_damagetype.2da row
+crates/sim/src/combat/sheet.rs FLURRY  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs FORCE_FOCUS  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs FORCE_IMMUNITY_FEAR  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs FORCE_IMMUNITY_PARALYSIS  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs FORCE_IMMUNITY_STUN  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs FORCE_JUMP  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs FORCE_SENSITIVE  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs FRIENDLY_1  # repute.2da row
+crates/sim/src/combat/sheet.rs FRIENDLY_2  # repute.2da row
+crates/sim/src/combat/sheet.rs HOSTILE_1  # repute.2da row
+crates/sim/src/combat/sheet.rs HOSTILE_2  # repute.2da row
+crates/sim/src/combat/sheet.rs HUMAN  # racialtypes.2da row
+crates/sim/src/combat/sheet.rs IMMORTAL  # a bit flag
+crates/sim/src/combat/sheet.rs IMPROVED_TOUGHNESS  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs INSANE  # repute.2da row
+crates/sim/src/combat/sheet.rs ION  # a damageflags bit; iprp_damagetype.2da row
+crates/sim/src/combat/sheet.rs JEDI_DEFENSE  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs MASTER_FLURRY  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs MIGHTY  # a bit flag
+crates/sim/src/combat/sheet.rs MIN_ONE_HP  # a bit flag
+crates/sim/src/combat/sheet.rs NEUTRAL  # repute.2da row (factions::NEUTRAL; the alignment NEUTRAL is a rule)
+crates/sim/src/combat/sheet.rs ONE_HANDED  # a bit flag
+crates/sim/src/combat/sheet.rs ON_HITS  # a weapon's slots (a snapshot array's size)
+crates/sim/src/combat/sheet.rs PERSUADE  # skills.2da row
+crates/sim/src/combat/sheet.rs PIERCING  # a damageflags bit; iprp_damagetype.2da row
+crates/sim/src/combat/sheet.rs PLAYER  # repute.2da row
+crates/sim/src/combat/sheet.rs PLOT  # a bit flag
+crates/sim/src/combat/sheet.rs POWER_ATTACK  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs POWER_BLAST  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs PROFICIENCIES  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs PROFICIENCY_ALL  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs PROFICIENCY_BLASTER  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs PROFICIENCY_BLASTER_RIFLE  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs PROFICIENCY_HEAVY_WEAPONS  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs PROFICIENCY_LIGHTSABER  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs PROFICIENCY_MELEE  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs RAPID_SHOT  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs REPAIR  # skills.2da row
+crates/sim/src/combat/sheet.rs ROWS  # a row set's size
+crates/sim/src/combat/sheet.rs SECURITY  # skills.2da row
+crates/sim/src/combat/sheet.rs SLASHING  # a damageflags bit; iprp_damagetype.2da row
+crates/sim/src/combat/sheet.rs SMALL  # a bit flag
+crates/sim/src/combat/sheet.rs SNEAK_ATTACK  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs SNIPER_SHOT  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs SONIC  # a damageflags bit; iprp_damagetype.2da row
+crates/sim/src/combat/sheet.rs STEALTH  # skills.2da row
+crates/sim/src/combat/sheet.rs STEALTH_UNIT  # a bit flag
+crates/sim/src/combat/sheet.rs TOUGHNESS  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs TREAT_INJURY  # skills.2da row
+crates/sim/src/combat/sheet.rs TSL  # a bit flag
+crates/sim/src/combat/sheet.rs TWO_HANDED_MELEE  # baseitems.2da row(s)
+crates/sim/src/combat/sheet.rs TWO_WEAPON_FIGHTING  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs UNCANNY_DODGE  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs WEAPON_FOCUS_BLASTER  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs WEAPON_FOCUS_BLASTER_RIFLE  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs WEAPON_FOCUS_HEAVY_WEAPONS  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs WEAPON_FOCUS_LIGHTSABER  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs WEAPON_FOCUS_MELEE  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs WEAPON_SPEC_BLASTER  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs WEAPON_SPEC_BLASTER_RIFLE  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs WEAPON_SPEC_HEAVY_WEAPONS  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs WEAPON_SPEC_LIGHTSABER  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs WEAPON_SPEC_MELEE  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs WOOKIEE_TOUGHNESS  # feat.2da row(s)
+crates/sim/src/combat/spells.rs K1_FORCE_POWERS  # spells.2da rows
+crates/sim/src/determinism.rs DOOR  # test setup: the proving ground's door index
+crates/sim/src/determinism.rs HOLD_TICKS  # test setup: a scripted seat's stick hold
+crates/sim/src/determinism.rs ORIGIN  # test setup: the proving ground's place
+crates/sim/src/determinism.rs PINNED_TICKS  # test setup: the pinned run's length
+crates/sim/src/determinism.rs RECORD_EVERY  # test setup: a recording's hash interval
+crates/sim/src/determinism.rs ROLLBACK_EVERY  # test setup: rollback windows' spacing
+crates/sim/src/determinism.rs ROLLBACK_TICKS  # test setup: a rollback window's length
+crates/sim/src/determinism.rs TURN_DEGREES  # test setup: the proving ground's turn
+crates/sim/src/fog.rs COLUMNS  # the AreaMap grid's width where the ARE gives none (the saves' format)
+crates/sim/src/fog.rs MOST_COLUMNS  # the widest AreaMap grid kept (the saves' format)
+crates/sim/src/input.rs ALT_ATTACK  # bit flag: a command button
+crates/sim/src/input.rs ATTACK  # bit flag: a command button
+crates/sim/src/input.rs FORCE_DRAIN  # bit flag: a command button
+crates/sim/src/input.rs FORCE_GRIP  # bit flag: a command button
+crates/sim/src/input.rs FORCE_LIGHTNING  # bit flag: a command button
+crates/sim/src/input.rs FORCE_POWER  # bit flag: a command button
+crates/sim/src/input.rs GRENADE  # bit flag: a command button
+crates/sim/src/input.rs LAY_MINE  # bit flag: a command button
+crates/sim/src/input.rs MEDPAC  # bit flag: a command button
+crates/sim/src/input.rs SABER_STYLE  # bit flag: a command button
+crates/sim/src/input.rs SEATS  # a wire size: the seats a `Seat` can name
+crates/sim/src/input.rs SHIELD  # bit flag: a command button
+crates/sim/src/input.rs STEALTH  # bit flag: a command button
+crates/sim/src/input.rs STIM  # bit flag: a command button
+crates/sim/src/input.rs USE  # bit flag: a command button
+crates/sim/src/input.rs USE_HELD  # bit flag: a command button
+crates/sim/src/input.rs WALKING  # bit flag: a command button
+crates/sim/src/install.rs APART  # arrival placement: the spacing of players' candidate spots
+crates/sim/src/install.rs ARRIVAL_SEARCH_M  # arrival placement: the walkmesh search's depth
+crates/sim/src/install.rs FLOOR_BELOW  # arrival placement: the floor search's depth
+crates/sim/src/install.rs JUMP_FLOOR_STEPS  # jump placement: the floor search's depth
+crates/sim/src/install.rs JUMP_LINE_DROP_M  # jump placement: the walk back's tolerance
+crates/sim/src/install.rs JUMP_LINE_STEP_M  # jump placement: the walk back's sampling
+crates/sim/src/install.rs LIFTS  # arrival placement: drop heights tried
+crates/sim/src/install.rs OWN_FLOOR_M  # arrival placement: the own-floor search's reach
+crates/sim/src/install.rs RINGS  # arrival placement: candidate rings
+crates/sim/src/install.rs RING_STEP  # arrival placement: candidate rings' spacing
+crates/sim/src/install.rs VERSION  # format version
+crates/sim/src/install.rs WALKER_HALF_WIDTH_M  # jump placement: the tested column (KOTOR's walker is a point)
+crates/sim/src/inventory.rs BELT  # an equipment slot number
+crates/sim/src/inventory.rs BODY  # an equipment slot number
+crates/sim/src/inventory.rs COUNT  # the slot numbers' count
+crates/sim/src/inventory.rs CREATURE_ARMOUR  # an equipment slot number
+crates/sim/src/inventory.rs CREATURE_BITE  # an equipment slot number
+crates/sim/src/inventory.rs CREATURE_LEFT  # an equipment slot number
+crates/sim/src/inventory.rs CREATURE_RIGHT  # an equipment slot number
+crates/sim/src/inventory.rs CREDITS  # baseitems.2da row
+crates/sim/src/inventory.rs CRYSTAL  # upgradetypes.2da row
+crates/sim/src/inventory.rs FIRST_ITEM  # an object id range
+crates/sim/src/inventory.rs HANDS  # an equipment slot number
+crates/sim/src/inventory.rs HEAD  # an equipment slot number
+crates/sim/src/inventory.rs IMPLANT  # an equipment slot number
+crates/sim/src/inventory.rs LEFT_ARM  # an equipment slot number
+crates/sim/src/inventory.rs LEFT_WEAPON  # an equipment slot number
+crates/sim/src/inventory.rs LEFT_WEAPON_2  # an equipment slot number
+crates/sim/src/inventory.rs PARTY  # an object id
+crates/sim/src/inventory.rs RIGHT_ARM  # an equipment slot number
+crates/sim/src/inventory.rs RIGHT_WEAPON  # an equipment slot number
+crates/sim/src/inventory.rs RIGHT_WEAPON_2  # an equipment slot number
+crates/sim/src/inventory.rs SETS  # the weapon sets, slot numbers
+crates/sim/src/inventory/properties.rs ABILITY  # dialog.tlk line
+crates/sim/src/inventory/properties.rs ALL_SAVES  # Property::Save's code for all three
+crates/sim/src/inventory/properties.rs ANY  # a side limit row
+crates/sim/src/inventory/properties.rs CLASS  # dialog.tlk line
+crates/sim/src/inventory/properties.rs GENDER  # dialog.tlk line
+crates/sim/src/inventory/properties.rs RACE  # dialog.tlk line
+crates/sim/src/inventory/properties.rs SIDE  # dialog.tlk line
+crates/sim/src/inventory/properties.rs WHOLLY_DARK  # a side limit row
+crates/sim/src/inventory/properties.rs WHOLLY_LIGHT  # a side limit row
+crates/sim/src/inventory/workshop.rs REPAIR  # skills.2da row
+crates/sim/src/inventory/workshop.rs TREAT_INJURY  # skills.2da row
+crates/sim/src/inventory/workshop.rs UNMADE  # chemicalcreate.2da's group
+crates/sim/src/levels.rs BASE_FORMS  # spells.2da rows: TSL's executable's table of Forms by base class
+crates/sim/src/levels.rs PRESTIGE_POWERS  # classes.2da and spells.2da rows: TSL's executable's table of prestige grants
+crates/sim/src/levels.rs SKILLS  # skills.2da's row count
+crates/sim/src/minigame/course.rs ANIMS_KEPT  # a buffer's size: the animations a thing keeps playing
+crates/sim/src/minigame/course.rs FACTS_KEPT  # a buffer's size: the hits kept for the hooks
+crates/sim/src/minigame/mod.rs FIRST_ID  # an id block's start
+crates/sim/src/minigame/mod.rs RUNS  # an id block's spans: the runs a co-op race's ids make room for
+crates/sim/src/minigame/mod.rs RUN_SPAN  # an id block's span size
+crates/sim/src/minigame/rules.rs ALL  # the hooks' table
+crates/sim/src/minigame/rules.rs ENEMIES  # bit flag: a bullet's targets
+crates/sim/src/minigame/rules.rs PLAYER  # bit flag: a bullet's targets
+crates/sim/src/module.rs ALL  # every ObjectKind, an enum's list
+crates/sim/src/motion/anim.rs ANEW  # bit flag: how an animation is set
+crates/sim/src/motion/anim.rs HOLD_FULL  # bit flag: how an animation is set
+crates/sim/src/motion/anim.rs HOLD_MOVE  # bit flag: how an animation is set
+crates/sim/src/motion/anim.rs LEFT  # a naming table: the left side's quadrant codes and heights in transition names
+crates/sim/src/motion/anim.rs OVER_ANY  # bit flag: how an animation is set
+crates/sim/src/motion/anim.rs RIGHT  # a naming table: the right side's quadrant codes and heights in transition names
+crates/sim/src/motion/anim.rs WHEN_FREE  # bit flag: how an animation is set
+crates/sim/src/motion/mod.rs CARRIED  # bit flag: motion_flags
+crates/sim/src/motion/mod.rs DEAD  # bit flag: motion_flags
+crates/sim/src/motion/mod.rs DUCKED  # bit flag: motion_flags
+crates/sim/src/motion/mod.rs FALL  # bit flag: a step's events
+crates/sim/src/motion/mod.rs JUMP  # bit flag: a step's events
+crates/sim/src/motion/mod.rs JUMPED_BACK  # bit flag: motion_flags
+crates/sim/src/motion/mod.rs JUMP_PRESSED  # bit flag: motion_flags
+crates/sim/src/motion/mod.rs KNOCKBACK_HOLD  # bit flag: motion_flags
+crates/sim/src/motion/mod.rs LAND  # bit flag: a step's events
+crates/sim/src/motion/mod.rs LAND_HOLD  # bit flag: motion_flags
+crates/sim/src/motion/mod.rs NO_POWER  # bit flag: a step's events
+crates/sim/src/motion/mod.rs NUDGES  # a search grid: the 27 one-unit nudges' offsets
+crates/sim/src/motion/mod.rs PACED  # bit flag: motion_flags
+crates/sim/src/motion/mod.rs ROLL  # bit flag: a step's events
+crates/sim/src/motion/mod.rs ROLLING  # bit flag: motion_flags
+crates/sim/src/motion/mod.rs RUNNING_BACK  # bit flag: motion_flags
+crates/sim/src/motion/mod.rs SABER_ATTACK  # bit flag: a step's events
+crates/sim/src/motion/mod.rs SABER_ON  # bit flag: a step's events
+crates/sim/src/motion/mod.rs STEP  # bit flag: a step's events
+crates/sim/src/motion/mod.rs TOUCH_LIMIT  # a buffer's size: the most entities one step records as touched
+crates/sim/src/motion/mod.rs USE_SPENT  # bit flag: motion_flags
+crates/sim/src/motion/saber.rs FROM_QUADRANT  # a table of moves: what a creature swings from each quadrant (game facts)
+crates/sim/src/motion/saber.rs GROUP_SIZE  # the animation list's layout: animations per style group
+crates/sim/src/motion/slide.rs CLEAR  # the slide's slack along a plane; no playtester feels it
+crates/sim/src/motion/slide.rs PLANE_LIMIT  # the slide's bookkeeping: planes one sweep turns along
+crates/sim/src/motion/slide.rs PUSH_OFF  # a hair off a plane so the next trace does not graze it; no playtester feels it
+crates/sim/src/motion/slide.rs TRACE_LIMIT  # the slide's bookkeeping: traces one sweep may make
+crates/sim/src/moves.rs BUTTONS  # the moves script's button names table
+crates/sim/src/notice.rs CREDITS  # a screen notice's wire tag
+crates/sim/src/notice.rs DATAPAD  # a screen notice's wire tag
+crates/sim/src/notice.rs DEATH  # a screen notice's wire tag
+crates/sim/src/notice.rs END  # a screen notice's wire tag
+crates/sim/src/notice.rs GALAXY_MAP  # a screen notice's wire tag
+crates/sim/src/notice.rs LEVEL_UP  # a screen notice's wire tag
+crates/sim/src/notice.rs MESSAGE_BOX  # a screen notice's wire tag
+crates/sim/src/notice.rs MOVIE  # a screen notice's wire tag
+crates/sim/src/notice.rs NPCS  # the party table's size (K1's and TSL's NPC_* rows)
+crates/sim/src/notice.rs PARTY_SELECTION  # a screen notice's wire tag
+crates/sim/src/notice.rs PAZAAK  # a screen notice's wire tag
+crates/sim/src/notice.rs STORE  # a screen notice's wire tag
+crates/sim/src/notice.rs TUTORIAL  # a screen notice's wire tag
+crates/sim/src/notice.rs UPGRADE  # a screen notice's wire tag
+crates/sim/src/notice.rs WORKBENCH  # a screen notice's wire tag
+crates/sim/src/pack.rs GATHERED_VERSION  # format version
+crates/sim/src/pack.rs VERSION  # format version
+crates/sim/src/pazaak/game.rs OPPONENT  # a side's index
+crates/sim/src/pazaak/game.rs PLAYER  # a side's index
+crates/sim/src/pazaak/mod.rs LAST  # the last card's number (the cards' table)
+crates/sim/src/persona.rs FEMALE  # gender.2da row
+crates/sim/src/persona.rs GENDERS  # gender.2da's last row
+crates/sim/src/persona.rs MALE  # gender.2da row
+crates/sim/src/replay.rs VERSION  # format version
+crates/sim/src/rng.rs GOLDEN_64  # the generator's constant (SplitMix64)
+crates/sim/src/rng.rs MULTIPLIER  # the generator's constant (PCG)
+crates/sim/src/save.rs VERSION  # format version
+crates/sim/src/scaling.rs COUNTS  # a probe's cases
+crates/sim/src/script/actions.rs ACTIONS_PER_STEP  # engine guard: a queue's actions a step
+crates/sim/src/script/dialogue.rs COUNT  # wire: the answer byte's count bits
+crates/sim/src/script/dialogue.rs LEAVE  # wire: the answer byte's code
+crates/sim/src/script/dialogue.rs PLACES  # wire: the answer byte's reply places
+crates/sim/src/script/dialogue.rs REPLY_ANGLE  # bit flag: a reply's place among the angles
+crates/sim/src/script/dialogue.rs SKIP  # wire: the answer byte's code
+crates/sim/src/script/dialogue.rs WAIT_ANIMATION  # bit flag: the DLG's WaitFlags
+crates/sim/src/script/dialogue.rs WAIT_ANIMS  # bit flag: the DLG's WaitFlags
+crates/sim/src/script/dialogue.rs WAIT_FADE  # bit flag: WaitFlags
+crates/sim/src/script/dialogue.rs WAIT_VOICE  # bit flag: the DLG's WaitFlags
+crates/sim/src/script/effects.rs ALL  # enum order for the wire encoding
+crates/sim/src/script/effects.rs GUARD  # animation code space offset, an id
+crates/sim/src/script/effects.rs HURT  # animation code space offset, an id
+crates/sim/src/script/effects.rs MOST  # buffer size (weapondischarge.2da's shot columns)
+crates/sim/src/script/effects.rs ROWS  # animation code space bound, an id
+crates/sim/src/script/effects.rs SWING  # animation code space offset, an id
+crates/sim/src/script/engine.rs AI_HOOKS  # event hooks, a list
+crates/sim/src/script/engine.rs AREA  # iterator kind id
+crates/sim/src/script/engine.rs ATTACKER  # a `last` kind id
+crates/sim/src/script/engine.rs ATTACK_ACTION  # a `last` kind id
+crates/sim/src/script/engine.rs ATTACK_OBJECT  # a `last` kind id
+crates/sim/src/script/engine.rs ATTACK_POWER  # a `last` kind id
+crates/sim/src/script/engine.rs ATTACK_RESULT  # a `last` kind id
+crates/sim/src/script/engine.rs BLOCKING_CREATURE  # a `last` kind id
+crates/sim/src/script/engine.rs BLOCKING_DOOR  # a `last` kind id
+crates/sim/src/script/engine.rs CLOSED  # a `last` kind id
+crates/sim/src/script/engine.rs COMBAT_FEAT  # a `last` kind id
+crates/sim/src/script/engine.rs DAMAGE  # a `last` kind id
+crates/sim/src/script/engine.rs DAMAGER  # a `last` kind id
+crates/sim/src/script/engine.rs DARK_SIDE  # script constant: ALIGNMENT_*
+crates/sim/src/script/engine.rs DISARMED  # a `last` kind id
+crates/sim/src/script/engine.rs DISTURBED  # a `last` kind id
+crates/sim/src/script/engine.rs DISTURB_ITEM  # a `last` kind id
+crates/sim/src/script/engine.rs EFFECTS  # iterator kind id
+crates/sim/src/script/engine.rs FEAT_TALENTS  # a talent value's encoding
+crates/sim/src/script/engine.rs FORCE_POWER  # a `last` kind id
+crates/sim/src/script/engine.rs FOUND_ENEMY  # a `last` kind id
+crates/sim/src/script/engine.rs HEAL_TARGET  # a `last` kind id
+crates/sim/src/script/engine.rs HOSTILE  # a `last` kind id
+crates/sim/src/script/engine.rs INVENTORY  # iterator kind id
+crates/sim/src/script/engine.rs KILLER  # a `last` kind id
+crates/sim/src/script/engine.rs LIGHT_SIDE  # script constant: ALIGNMENT_*
+crates/sim/src/script/engine.rs LOCKED  # a `last` kind id
+crates/sim/src/script/engine.rs LOOPS_AT_ONCE  # script constant: the looping ANIMATION_* range
+crates/sim/src/script/engine.rs NEUTRAL  # script constant: ALIGNMENT_*
+crates/sim/src/script/engine.rs NPC_PLAYER  # script constant: NPC_PLAYER
+crates/sim/src/script/engine.rs OPENED  # a `last` kind id
+crates/sim/src/script/engine.rs PCS  # iterator kind id
+crates/sim/src/script/engine.rs PERCEIVED  # a `last` kind id
+crates/sim/src/script/engine.rs PERCEPTION  # a `last` kind id
+crates/sim/src/script/engine.rs PERSISTENT  # iterator kind id
+crates/sim/src/script/engine.rs POWER_LANDED  # a `last` kind id
+crates/sim/src/script/engine.rs PUPPETS_FACTION  # script constant: STANDARD_FACTION_PARTYPUPPET
+crates/sim/src/script/engine.rs REGARDS  # script constants: REPUTATION_TYPE_* names
+crates/sim/src/script/engine.rs SAVES  # script constants: SAVING_THROW_* names
+crates/sim/src/script/engine.rs SHAPE  # iterator kind id
+crates/sim/src/script/engine.rs SPEAKER  # a `last` kind id
+crates/sim/src/script/engine.rs SPELL  # a `last` kind id
+crates/sim/src/script/engine.rs SPELL_CASTER  # a `last` kind id
+crates/sim/src/script/engine.rs SPELL_HARMFUL  # a `last` kind id
+crates/sim/src/script/engine.rs SPELL_TARGET  # a `last` kind id
+crates/sim/src/script/engine.rs TRAP_DETECTED  # a `last` kind id
+crates/sim/src/script/engine.rs UNLOCKED  # a `last` kind id
+crates/sim/src/script/engine.rs USED  # a `last` kind id
+crates/sim/src/script/engine.rs VOLUMES  # TALKVOLUME_* names, the reaches' order
+crates/sim/src/script/engine.rs WEAPON  # a `last` kind id
+crates/sim/src/script/force.rs FORCE_CAMOUFLAGE  # spells.2da row (TSL's FORCE_POWER_FORCE_CAMOUFLAGE)
+crates/sim/src/script/influence.rs DARK_SIDE_CORRUPTION  # feat.2da row
+crates/sim/src/script/influence.rs JEDI_MASTER  # classes.2da row
+crates/sim/src/script/influence.rs LIGHT_SIDE_ENLIGHTENMENT  # feat.2da row
+crates/sim/src/script/influence.rs MIDDLE  # the alignment and influence scale's middle (0 to 100)
+crates/sim/src/script/influence.rs NPC_TAGS  # TSL's executable's companion tags by NPC_* number
+crates/sim/src/script/influence.rs SITH_LORD  # classes.2da row
+crates/sim/src/script/influence.rs TOP  # the alignment and influence scale's top (0 to 100)
+crates/sim/src/script/locks.rs DOOR_ACTIONS  # DOOR_ACTION_* script constants' names
+crates/sim/src/script/mod.rs CRITERIA  # script constants: CREATURE_TYPE_* names
+crates/sim/src/script/mod.rs FIRST_CUT_CLIP  # DLG value range: camera clips
+crates/sim/src/script/mod.rs FIRST_DIALOG_ANIMATION  # DLG value range: dialoganimations.2da rows
+crates/sim/src/script/mod.rs FLOOR_SEARCH_M  # placement: a place's floor search
+crates/sim/src/script/mod.rs HEARD  # perception kind id
+crates/sim/src/script/mod.rs HUNDREDTHS  # units: hundredths of a point
+crates/sim/src/script/mod.rs INAUDIBLE  # perception kind id
+crates/sim/src/script/mod.rs MOST_NESTED  # engine guard: ExecuteScript's nesting
+crates/sim/src/script/mod.rs PERCEPTIONS  # script constants: PERCEPTION_* names
+crates/sim/src/script/mod.rs RUNS_PER_STEP  # engine guard: script runs a step
+crates/sim/src/script/mod.rs SCRIPT_ROWS  # numbering: where TSL's scripts number animations.2da rows from
+crates/sim/src/script/mod.rs SEEN  # perception kind id
+crates/sim/src/script/mod.rs TRACE_LINES  # report buffer size
+crates/sim/src/script/mod.rs TRACE_TAIL  # report buffer size
+crates/sim/src/script/mod.rs VANISHED  # perception kind id
+crates/sim/src/script/party.rs ARMOR  # a FORFEIT_* script constant's bit
+crates/sim/src/script/party.rs DXUN_SWORD_ONLY  # a FORFEIT_* script constant's bit
+crates/sim/src/script/party.rs EVENT  # the user-defined event number TSL's duel scripts listen for
+crates/sim/src/script/party.rs FORCE_POWERS  # a FORFEIT_* script constant's bit
+crates/sim/src/script/party.rs INFLUENCE_SLOTS  # TSL's party table's influence slots (NPC_* count)
+crates/sim/src/script/party.rs ITEMS  # a FORFEIT_* script constant's bit
+crates/sim/src/script/party.rs ITEM_BUT_SHIELD  # a FORFEIT_* script constant's bit
+crates/sim/src/script/party.rs LIGHTSABER  # a FORFEIT_* script constant's bit
+crates/sim/src/script/party.rs PUPPETS  # TSL's PUP_* slots
+crates/sim/src/script/party.rs RANGED  # a FORFEIT_* script constant's bit
+crates/sim/src/script/party.rs WEAPONS  # a FORFEIT_* script constant's bit
+crates/sim/src/script/presentation.rs BAO_DUR  # TSL's NPC_BAO_DUR, a script constant
+crates/sim/src/script/presentation.rs DATAPAD_READ  # a local boolean's index
+crates/sim/src/script/presentation.rs ENDINGS  # TSL's ending movies' names
+crates/sim/src/script/presentation.rs ENGINE_SCRIPTS  # the engine's scripts' names
+crates/sim/src/script/presentation.rs INPUT_CLASSES  # a script constant's range: SetInputClass's highest
+crates/sim/src/script/presentation.rs K1_WINDOWS  # tutorial.2da rows
+crates/sim/src/script/presentation.rs NORMAL  # difficultyopt.2da row
+crates/sim/src/script/presentation.rs OVERLAY  # animations.2da row: diveroll
+crates/sim/src/script/state.rs ALL  # every use kind, a list
+crates/sim/src/script/state.rs BARK  # save tag
+crates/sim/src/script/state.rs FOLLOW_OWNER  # save tag
+crates/sim/src/script/state.rs SPELL_EVENT  # bit flag: a spell event's handle
+crates/sim/src/script/state.rs VALUES_KEPT  # memory: values kept before compaction
+crates/sim/src/script/workbench.rs ACQUIRED_CHEMICALS  # dialog.tlk line
+crates/sim/src/script/workbench.rs ACQUIRED_COMPONENTS  # dialog.tlk line
+crates/sim/src/script/workbench.rs TOO_FEW  # dialog.tlk line
+crates/sim/src/script/workbench.rs TOO_FEW_CHEMICALS  # dialog.tlk line
+crates/sim/src/script/workbench.rs UNSKILLED  # dialog.tlk line
+crates/sim/src/script/workbench.rs UPGRADED  # dialog.tlk line
+crates/sim/src/skeleton/data.rs LOOK_BONES  # bone names
+crates/sim/src/skeleton/data.rs MAX_BONES  # buffer size: a pose on the stack
+crates/sim/src/skeleton/matrix.rs ROOT  # Ghoul2's root matrix: pure math
+crates/sim/src/skeleton/mod.rs MAX_PUSH  # JA's Ghoul2 placement clamp for traced models, no rule a playtest tunes
+crates/sim/src/snapshot.rs ACTIVATE  # script constant: ANIMATION_PLACEABLE_* base
+crates/sim/src/snapshot.rs ALL  # every bit or variant, a list
+crates/sim/src/snapshot.rs ANIMLOOP  # snapshot field value
+crates/sim/src/snapshot.rs ANIMLOOPS  # script constant: the animloops' count
+crates/sim/src/snapshot.rs AS_PLACED  # snapshot field value
+crates/sim/src/snapshot.rs BAO_DUR  # talk-table strref
+crates/sim/src/snapshot.rs BASE_ITEMS  # baseitems.2da rows
+crates/sim/src/snapshot.rs CANNOT_EQUIP  # talk-table strref
+crates/sim/src/snapshot.rs CLOSED  # snapshot field value
+crates/sim/src/snapshot.rs DEAD  # snapshot field value
+crates/sim/src/snapshot.rs DEFAULT  # snapshot field value
+crates/sim/src/snapshot.rs DISABLED  # bit flag
+crates/sim/src/snapshot.rs KEPT_MS  # transport: how long a status waits for every view
+crates/sim/src/snapshot.rs LOCKED  # snapshot field value
+crates/sim/src/snapshot.rs OFF  # snapshot field value
+crates/sim/src/snapshot.rs ON  # snapshot field value
+crates/sim/src/snapshot.rs OPEN  # snapshot field value
+crates/sim/src/snapshot.rs PARTY_SEES  # bit flag
+crates/sim/src/snapshot.rs PLACED  # snapshot field value
+crates/sim/src/snapshot.rs PLAYING  # snapshot field value
+crates/sim/src/snapshot.rs STOPPED  # snapshot field value
+crates/sim/src/snapshot.rs UNLOCKED  # snapshot field value
+crates/sim/src/snapshot.rs VERSION  # format version
+crates/sim/src/spawner.rs FRACTIONAL  # fractionalcr.2da's shipped rows, for a level without the table
+crates/sim/src/spawner.rs FURTHEST  # a guard on the party challenge's search, past any challenge
+crates/sim/src/spawner.rs LEAST_STEP_M  # a guard on a body of no width
+crates/sim/src/spawner.rs TOP_UP_DRAWS  # a guard on a list the games never have
+crates/sim/src/stealth.rs KEY  # skills.2da keyability, where no library says
+crates/sim/src/stealth.rs NEEDS_RANKS  # skills.2da untrained, where no library says
+crates/sim/src/traps.rs DISARM  # KOTOR's animation id
+crates/sim/src/traps.rs RECOVER  # KOTOR's animation id
+crates/sim/src/traps.rs SET  # KOTOR's animation id
+crates/sim/src/visuals/mod.rs SEEN_MS  # transport: how long a fleeting visual waits for every view
+crates/sim/src/walk.rs CONTACT  # derived: two bodies' widths
+crates/sim/src/walk.rs IMMOBILE  # creaturespeed.2da row: NOMOVE
+crates/sim/src/walk.rs PASS  # derived: a body's width and the passing room
+crates/sim/src/world.rs ARENA  # the placeholder world's wanderers (no module), a test bed
+crates/sim/src/world.rs BODY  # a bit flag on entity numbers
+crates/sim/src/world.rs LIFE_MS  # the placeholder world's wanderers (no module), a test bed
+crates/sim/src/world.rs MAX_SEATS  # the most seats a world and its wire hold
+crates/sim/src/world.rs PREDICT_NEAR  # prediction's culling distance, no rule of the game
+crates/sim/src/world.rs SPAWN_EVERY_MS  # the placeholder world's wanderers (no module), a test bed
+crates/sim/src/world.rs WALKED  # a measure: how far a step must carry a body to count as walked
+crates/sim/src/world.rs WANDER_SPEED  # the placeholder world's wanderers (no module), a test bed
+crates/sim/src/world/coop_items.rs COMPANIONS  # a probe's fixture
+crates/sim/src/world/coop_items.rs COST  # a probe's fixture
+crates/sim/src/world/coop_items.rs DROPPED  # a probe's fixture
+crates/sim/src/world/coop_items.rs START  # a probe's fixture
+crates/sim/src/world/coop_items.rs STORE  # a probe's fixture
+crates/sim/src/world/coop_items.rs TAKEN  # a probe's fixture
+crates/sim/src/world/coop_items.rs XP  # a probe's fixture
+crates/sim/src/world/feats.rs CON  # a probe's fixture
+crates/sim/src/world/feats.rs GRANTED  # a probe's fixture
+crates/sim/src/world/feats.rs HP  # a probe's fixture
+crates/sim/src/world/feats.rs HURT  # a probe's stage: the companion's hit points
+crates/sim/src/world/feats.rs MASTER_TOUGHNESS  # a probe's fixture
+crates/sim/src/world/feats.rs START  # a probe's fixture
+crates/sim/src/world/feats.rs XP  # a probe's fixture
+crates/sim/src/world/galaxy.rs DANTOOINE  # the check's planets.2da row
+crates/sim/src/world/galaxy.rs STEPS  # the check's step count
+crates/sim/src/world/galaxy.rs TARIS  # the check's planets.2da row
+crates/sim/src/world/history.rs HISTORY  # a buffer size: the ticks of poses kept (bounds the rewind)
+crates/sim/src/world/interaction.rs FLOOR_SEARCH_M  # a trace's length looking for the floor
+crates/sim/src/world/locks.rs BLAST  # a talk table strref
+crates/sim/src/world/locks.rs BLAST_FAILED  # a talk table strref
+crates/sim/src/world/locks.rs BLAST_SUCCEEDED  # a talk table strref
+crates/sim/src/world/locks.rs CANNOT_USE_ITEM  # a talk table strref
+crates/sim/src/world/locks.rs CANNOT_USE_SKILL  # a talk table strref
+crates/sim/src/world/locks.rs CHECK  # a talk table strref
+crates/sim/src/world/locks.rs DISARM_MINE  # a talk table strref
+crates/sim/src/world/locks.rs DOOR  # KOTOR's animation id
+crates/sim/src/world/locks.rs FAILURE  # a talk table strref
+crates/sim/src/world/locks.rs KEY_ONLY  # a talk table strref
+crates/sim/src/world/locks.rs KEY_USED  # a talk table strref
+crates/sim/src/world/locks.rs LOCKED  # a talk table strref
+crates/sim/src/world/locks.rs LOCKED_WORD  # a talk table strref
+crates/sim/src/world/locks.rs MINE_SEEN  # a talk table strref
+crates/sim/src/world/locks.rs MINE_TRIGGERED  # a talk table strref
+crates/sim/src/world/locks.rs NOT_LOCKED  # a talk table strref
+crates/sim/src/world/locks.rs NOT_POSSIBLE  # a talk table strref
+crates/sim/src/world/locks.rs PLACEABLE  # KOTOR's animation id
+crates/sim/src/world/locks.rs RECOVER_MINE  # a talk table strref
+crates/sim/src/world/locks.rs SECURITY  # a talk table strref
+crates/sim/src/world/locks.rs SET_MINE  # a talk table strref
+crates/sim/src/world/locks.rs SNEAK_ATTACK  # a talk table strref
+crates/sim/src/world/locks.rs STEALTH_IN_COMBAT  # a talk table strref
+crates/sim/src/world/locks.rs STEALTH_OFF  # a talk table strref
+crates/sim/src/world/locks.rs STEALTH_ON  # a talk table strref
+crates/sim/src/world/locks.rs SUCCESS  # a talk table strref
+crates/sim/src/world/locks.rs TAKE_20  # a talk table strref
+crates/sim/src/world/movement.rs TOUCH  # the trace's surface epsilon twice over: a move's stopping gap, no rule
+crates/sim/src/world/objects.rs DOOR_BODY  # derived from sim::target's pick volumes
+crates/sim/src/world/objects.rs PLACEABLE_BODY  # derived from sim::target's pick volumes
+crates/sim/src/world/powers.rs HELD  # the held powers' list, no number
+crates/sim/src/world/powers.rs REGENERATE_FEAT  # feat.2da row (TSL's REGENERATE_VITALITY_POINTS)
+crates/sim/src/world/remains.rs BACKPACK  # placeables.2da row
+crates/sim/src/world/sabers.rs SABER  # a bit flag on a saber's entity number in bolt traces
+crates/sim/src/world/sabers.rs VIEW_REACH  # a geometric reach, longer than any throw's; not a game number

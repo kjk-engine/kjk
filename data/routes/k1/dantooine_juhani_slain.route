@@ -1,0 +1,54 @@
+# Dantooine, Juhani slain (K1): beaten in the grove, the fallen Padawan is
+# struck down rather than talked back to the light (no Persuade); the rest
+# as on the main route (which redeems her: she joins at the Council).
+# Starts from the main route's checkpoint at the grove:
+#   kjk playthrough k1 @dan_grove data/routes/k1/dantooine_juhani_slain.route --god
+say decided to slay you  # Juhani beaten: struck down
+to dan14_juhani
+fight 15                 # her ambush, the duel, her surrender and talk
+fight 15
+fight 25                 # the grove's kath hounds
+exit to14be              # back to the Enclave
+exit to14ae
+exit man14aa_door03
+use dan13_zhar           # Padawan
+talk
+use dan13_vandar         # the ruins of the dream
+talk
+save djs_dan_padawan
+exit dan13_door03
+exit man14aa_door04      # the ruins
+to dan15_trig01          # the ancient droid
+talk
+use RakataDoor1@2        # the life seal: Oceanic, Grassland, Arboreal
+fight 20
+say talk to the computer
+say insert your datapad
+say talk to the computer
+say retrieve your datapad
+say oceanic
+say grassland
+say arboreal
+use dan15_compb
+talk
+use RakataDoor1@1        # the death seal: Desert, Volcanic, Barren
+fight 20
+say talk to the computer
+say insert your datapad
+say talk to the computer
+say retrieve your datapad
+say desert
+say volcanic
+say barren
+use dan15_compw
+talk
+use man15_door03         # the sealed doors to the Star Map
+use dan15_door05
+to dan15_trig05
+talk
+save djs_dan_starmap
+exit man15_door02        # back to the Council: the four planets
+exit man14aa_door03
+to dan13_trig03
+talk
+save djs_dan_council

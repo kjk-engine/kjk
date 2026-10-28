@@ -1,0 +1,123 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "xtask"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.98"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+vfs = { path = "crates/vfs" }
+fmt_odyssey = { path = "crates/fmt_odyssey" }
+fmt_ja = { path = "crates/fmt_ja" }
+asset_odyssey = { path = "crates/asset_odyssey" }
+asset_ja = { path = "crates/asset_ja" }
+sim = { path = "crates/sim" }
+collision = { path = "crates/collision" }
+collision_odyssey = { path = "crates/collision_odyssey" }
+session = { path = "crates/session" }
+net = { path = "crates/net" }
+audio = { path = "crates/audio" }
+movie = { path = "crates/movie" }
+script_ncs = { path = "crates/script_ncs" }
+store = { path = "crates/store" }
+ui = { path = "crates/ui" }
+saves = { path = "crates/saves" }
+game = { path = "crates/game" }
+rules = { path = "crates/rules" }
+bumps = { path = "crates/bumps" }
+glam = "0.32.1"
+ragdoll = { path = "crates/ragdoll" }
+rapier3d = "0.36"
+# The view's mixer: a device through cpal, or captured offline; JA's sounds
+# are WAV (PCM) and MP3, movies' MP3 or FLAC.
+kira = { version = "0.12.5", default-features = false, features = ["cpal", "wav", "pcm", "mp3", "flac"] }
+# kira's own decoder, read directly: clips decoded whole and beds a piece at
+# a time as they play (`audio::Stream`) go through the same one.
+symphonia = { version = "0.6.1", default-features = false, features = ["wav", "pcm", "mp3", "flac"] }
+miniz_oxide = "0.9.1"
+lz4_flex = "0.14.0"
+blake3 = "1"
+libc = "0.2"
+# The setup's folder picker: the platform's own dialog (Windows, macOS; the
+# XDG portal on Linux and the Steam Deck).
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
+steamworks = "0.13"
+# The sim uses the ECS alone, never the Bevy app; `std` only, so it builds
+# without task pools, reflection and backtraces.
+bevy_ecs = { version = "0.19.1", default-features = false, features = ["std"] }
+console = { path = "crates/console" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tga"] }
+tracing-chrome = "0.7"
+clap = { version = "4.6.7", features = ["derive"] }
+bevy = { version = "0.19.1", default-features = false, features = [
+    "bevy_window",
+    "bevy_winit",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    # The shadow maps' depth read through a filtering sampler: the
+    # soft shadows' search for their casters (`odyssey.wgsl`).
+    "experimental_pbr_pcss",
+    "keyboard",
+    "mouse",
+    # The first-run setup (`game::setup`): its screen comes before any game
+    # is found, so it draws with Bevy's own UI and font, not KOTOR's.
+    "bevy_ui",
+    "bevy_ui_render",
+    "bevy_text",
+    "default_font",
+    # Its folder typed or pasted (`EditableText`, the system clipboard);
+    # the text input reads the pointer through UI picking (no mesh picking).
+    "bevy_ui_widgets",
+    "system_clipboard",
+    "bevy_picking",
+    "ui_picking",
+    "bevy_gilrs",
+    "bevy_log",
+    "png",
+    "trace",
+    "debug",
+    "multi_threaded",
+    "x11",
+    "wayland",
+] }
+
+# clippy.toml bans `unwrap_or_default()` so every fallback is named; this
+# lint would push the other way.
+[workspace.lints.clippy]
+unwrap_or_default = "allow"
+
+# Bevy is unusably slow unoptimised; our own crates stay at opt-level 0 so
+# they rebuild fast. Debug info is what fills a worktree's `target/`
+# (docs/IMPORT.md, part 3): our crates keep line tables (a backtrace still
+# names file and line), dependencies keep none.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
+
+# Our crates rebuild incrementally in release too (cargo never does so for
+# dependencies): a one-line change in `sim` took 137 s to a new `kjk`, the
+# launcher crate alone 123 s, and takes 12 s so; the sim runs no slower and
+# its hash is unchanged (docs/BUILD.md). CI builds once and turns it off.
+[profile.release]
+incremental = true
+
+# What players get (docs/RELEASE.md): `cargo build --profile dist -p
+# launcher --no-default-features`. Built once, so no incremental state;
+# fat LTO in one codegen unit, no symbols: 67 MB where thin LTO made 99 MB
+# (28 and 33 MB packed), for 16.5 minutes of build where thin took 7.5
+# (macOS arm64, 2026-10-27).
+[profile.dist]
+inherits = "release"
+incremental = false
+lto = "fat"
+codegen-units = 1
+strip = true

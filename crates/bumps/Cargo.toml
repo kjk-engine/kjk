@@ -1,0 +1,11 @@
+[package]
+name = "bumps"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A branch's format bumps and sim hash move, applied when it merges (bumps/README.md)."
+
+[lints]
+workspace = true

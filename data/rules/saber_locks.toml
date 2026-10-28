@@ -1,0 +1,289 @@
+[chapter]
+title = "Saber Locks"
+order = 22
+summary = """
+When two blades catch, the fighters are locked together and press [Attack]
+to push. The lock ends when one side pushes through, when time runs out,
+or when the two drift apart. The winner may break through the loser's
+guard or knock the loser down.
+"""
+
+[start]
+title = "Starting a Lock"
+summary = """
+A clash of blades outside a special attack starts a lock {saber_locks.start.clash_odds} times, and a
+blocked attack {saber_locks.start.block_odds} times ({saber_locks.start.block_odds_up}
+when the defender's offense is more than {saber_locks.start.up_levels:bare}
+above the attacker's). Both fighters must be on the ground, level, close
+and facing each other, and neither may be crouched, rolling, jumping or
+using a Force power.
+"""
+detail = """
+A downward attack locks high; a diagonal or side attack locks on its side.
+Otherwise the lock is chosen at random one time in {saber_locks.start.random_one_in:bare}.
+Two players lock only when friendly fire is on.
+"""
+
+[start.clash_odds]
+name = "Lock Chance: Clash"
+value = 2
+unit = "in 20"
+range = [0, 20]
+summary = "Two blades that clash start a lock {saber_locks.start.clash_odds} times."
+source = "JA: saber locks"
+see = "sim::world::sabers"
+
+[start.block_odds]
+name = "Lock Chance: Block"
+value = 1
+unit = "in 20"
+range = [0, 20]
+summary = "A blocked attack starts a lock {saber_locks.start.block_odds} times."
+source = "JA's legacy block"
+see = "sim::world::sabers"
+
+[start.block_odds_up]
+name = "Lock Chance: Stronger Defender"
+value = 3
+unit = "in 10"
+range = [0, 10]
+summary = "A blocked attack starts a lock {saber_locks.start.block_odds_up} times when the defender's offense is well above the attacker's."
+source = "JA's legacy block"
+see = "sim::world::sabers"
+
+[start.up_levels]
+name = "Stronger Defender"
+value = 1
+range = [0, 5]
+summary = "A defender whose offense is more than {saber_locks.start.up_levels} above the attacker's is well above it."
+source = "JA"
+see = "sim::world::sabers"
+
+[start.height]
+name = "Lock Height"
+value = 16.0
+unit = "units"
+range = [0.0, 64.0]
+summary = "Two fighters lock only when they stand within {saber_locks.start.height:m} of the same height."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::can_lock"
+
+[start.near]
+name = "Lock Distance: Nearest"
+value = 8.0
+unit = "units"
+range = [0.0, 64.0]
+summary = "Two fighters lock, and stay locked, only while at least {saber_locks.start.near:m} apart."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::can_lock"
+
+[start.far]
+name = "Lock Distance: Farthest"
+value = 80.0
+unit = "units"
+range = [16.0, 256.0]
+summary = "Two fighters lock, and stay locked, only while no more than {saber_locks.start.far:m} apart."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::can_lock"
+
+[start.facing]
+name = "Lock Facing"
+value = 0.4
+range = [-1.0, 1.0]
+summary = "Each fighter must face the other to lock: a facing of more than {saber_locks.start.facing}, where 1 is straight on and 0 is to the side."
+source = "JA: the front arc, at 0.4"
+see = "sim::combat::saber::lock::can_lock"
+
+[start.random_one_in]
+name = "Random Lock"
+value = 11
+range = [1, 100]
+summary = "When the attacks do not decide the lock, one is chosen at random one time in {saber_locks.start.random_one_in}."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::pick"
+
+[start.old_start]
+name = "Single Sabers: Starting Position"
+value = [0.5, 0.85, 0.75]
+labels = ["high and upper diagonals", "lower diagonals", "sides"]
+range = [0.0, 1.0]
+summary = "Two single sabers start a lock this far toward the winning end: {saber_locks.start.old_start[0]} high, {saber_locks.start.old_start[1]} low diagonal, {saber_locks.start.old_start[2]} side."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::opening"
+
+[start.old_distance]
+name = "Single Sabers: Lock Distance"
+value = [32.0, 48.0]
+labels = ["high", "the others"]
+unit = "units"
+range = [8.0, 80.0]
+summary = "Two single sabers close to {saber_locks.start.old_distance[0]:m} apart in a high lock and {saber_locks.start.old_distance[1]:m} in the others."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::opening"
+
+[start.new_near]
+name = "Paired and Double Blades: Losing Start"
+value = [0.5, 0.15, 0.25]
+labels = ["high and upper diagonals", "lower diagonals", "sides"]
+range = [0.0, 1.0]
+summary = "In a lock with two sabers or a double-bladed lightsaber, the side that starts behind starts this far toward its winning end: {saber_locks.start.new_near[0]} high, {saber_locks.start.new_near[1]} low diagonal, {saber_locks.start.new_near[2]} side."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::opening"
+
+[start.new_far]
+name = "Paired and Double Blades: Winning Start"
+value = [0.5, 0.85, 0.75]
+labels = ["high and upper diagonals", "lower diagonals", "sides"]
+range = [0.0, 1.0]
+summary = "In a lock with two sabers or a double-bladed lightsaber, the side that starts ahead starts this far toward its winning end: {saber_locks.start.new_far[0]} high, {saber_locks.start.new_far[1]} low diagonal, {saber_locks.start.new_far[2]} side."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::opening"
+
+[start.new_distance]
+name = "Paired and Double Blades: Lock Distance"
+value = 46.0
+unit = "units"
+range = [8.0, 80.0]
+summary = "In a lock with two sabers or a double-bladed lightsaber, the fighters close to {saber_locks.start.new_distance:m} apart."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::opening"
+
+[contest]
+title = "Pushing"
+summary = """
+Each press of [Attack] in a lock adds pushes equal to the style's level,
++{saber_locks.contest.strong_arm_hits:bare} with a Strength modifier of
++{saber_locks.contest.strong_arm:bare} or more, and 0-{saber_locks.contest.random_hits:bare}
+more at random. Each push moves the lock toward that fighter's winning end
+by its offense +{saber_locks.contest.strength_bonus:bare}.
+"""
+
+[contest.lock_ms]
+name = "Lock Duration"
+type = "u64"
+value = 10_000
+unit = "ms"
+range = [1000, 60000]
+summary = "A lock lasts at most {saber_locks.contest.lock_ms:s}, then breaks with no winner."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::LOCK_MS"
+
+[contest.strong_arm]
+name = "Strength Bonus"
+value = 2
+range = [0, 10]
+summary = "A character with a Strength modifier of +{saber_locks.contest.strong_arm:bare} or more pushes harder in a lock."
+source = "I22, ours"
+see = "sim::world::sabers"
+
+[contest.strong_arm_hits]
+name = "Strength Bonus Pushes"
+value = 1
+range = [0, 5]
+summary = "A strong character adds +{saber_locks.contest.strong_arm_hits:bare} push to each press in a lock."
+source = "I22, ours"
+see = "sim::combat::saber::lock::press_hits"
+
+[contest.random_hits]
+name = "Random Pushes"
+value = 2
+range = [0, 10]
+summary = "Each press in a lock adds 0-{saber_locks.contest.random_hits:bare} pushes at random."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::press_hits"
+
+[contest.strength_bonus]
+name = "Push Strength"
+value = 1
+range = [0, 10]
+summary = "Each push moves the lock by the fighter's offense +{saber_locks.contest.strength_bonus:bare}."
+source = "JA: saber locks"
+see = "sim::world::sabers"
+
+[end]
+title = "Breaking a Lock"
+summary = """
+The winner breaks through the loser's guard when its push strength and pushes
+left beat a roll of {saber_locks.end.super_break_roll[0]:bare}-{saber_locks.end.super_break_roll[1]:bare}.
+The loser cannot block until its stagger is over. Otherwise a winner with
+pushes left knocks the loser down; with none, both simply break away. A
+lock with no winner pushes both fighters apart.
+"""
+detail = """
+A creature knocked down by a lost lock may die of it. A party member is
+knocked unconscious instead. Plot characters are not affected.
+"""
+
+[end.super_break_roll]
+name = "Guard Break Roll"
+value = [2, 4]
+labels = ["least", "most"]
+range = [0, 20]
+summary = "A winner breaks through the loser's guard when its push strength and pushes left beat a roll of {saber_locks.end.super_break_roll[0]:bare}-{saber_locks.end.super_break_roll[1]:bare}."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::super_breaks"
+
+[end.defenceless_ms]
+name = "Guard Break Stagger"
+value = 250
+unit = "ms"
+range = [0, 2000]
+summary = "A fighter whose guard is broken cannot block for {saber_locks.end.defenceless_ms:s} after its stagger."
+source = "JA"
+see = "sim::world::sabers"
+
+[end.loss_down_ms]
+name = "Lock Knockdown"
+type = "u64"
+value = 1100
+unit = "ms"
+range = [0, 5000]
+summary = "The loser of a lock is knocked down for {saber_locks.end.loss_down_ms:s} when the winner has pushes left."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::LOSS_DOWN_MS"
+
+[end.loss_push]
+name = "Lock Knockback"
+value = 320.0
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "The loser of a lock is knocked back at {saber_locks.end.loss_push:m}."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::shove"
+
+[end.loss_lift]
+name = "Lock Knockback Lift"
+value = 100.0
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "The loser of a lock is lifted at {saber_locks.end.loss_lift:m}."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::shove"
+
+[end.apart_push]
+name = "Break Apart"
+value = 160.0
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "A lock with no winner pushes both fighters apart at {saber_locks.end.apart_push:m}."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::shove"
+
+[end.apart_lift]
+name = "Break Apart Lift"
+value = 150.0
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "A lock with no winner lifts both fighters at {saber_locks.end.apart_lift:m}."
+source = "JA: saber locks"
+see = "sim::combat::saber::lock::shove"
+
+[end.loss_kill]
+name = "Lock Death"
+value = 40
+unit = "%"
+range = [0, 100]
+summary = "A creature knocked down by a lost lock dies if a roll of 0-{saber_locks.end.loss_kill} is higher than its remaining vitality points as a percent of its maximum."
+source = "JA (C22)"
+see = "sim::combat::saber::lock::loss_kills"
+applies = ["kind:creature"]

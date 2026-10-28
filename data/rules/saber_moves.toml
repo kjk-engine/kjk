@@ -1,0 +1,782 @@
+[chapter]
+title = "Saber Moves"
+order = 21
+summary = """
+A blade's next move is chosen from [Attack], the movement keys and the
+style in use. Feats decide which styles a character can use and what each
+style's attacks carry. Swords, vibroblades and staves use the same moves as
+lightsabers.
+"""
+
+[styles]
+title = "Styles and Feats"
+summary = """
+Lightsaber or melee weapon proficiency grants the medium style, and
+Critical Strike improves it. Flurry grants the fast style and Power Attack
+the strong style. Two weapons fight in the dual style and a double-bladed
+weapon in the staff style. A style's level is its offense in clashes and
+saber locks.
+"""
+detail = """
+Each style's attacks carry its feat: Power Attack in the strong style,
+Critical Strike in the medium style, Flurry in the fast style, where the
+extra attack is the style's speed. The dual and staff styles carry no feat,
+and their offense is the character's Two-Weapon Fighting tier.
+"""
+applies = ["kind:lightsaber", "kind:melee", "feat:CRITICAL_STRIKE", "feat:FLURRY", "feat:POWER_ATTACK", "feat:TWO_WEAPON_FIGHTING"]
+
+[styles.medium_levels]
+name = "Medium Style Level"
+type = "u8"
+value = [2, 3, 3]
+labels = ["Critical Strike", "Improved", "Master"]
+range = [0, 3]
+summary = "The medium style's level is {saber_moves.styles.medium_levels[0]} with Critical Strike, {saber_moves.styles.medium_levels[1]} with Improved Critical Strike and {saber_moves.styles.medium_levels[2]} with Master Critical Strike. Without the feat it is 1."
+source = "I22 C8, ours"
+see = "sim::combat::saber::Kit::level"
+applies = ["feat:CRITICAL_STRIKE", "feat:IMPROVED_CRITICAL_STRIKE", "feat:MASTER_CRITICAL_STRIKE"]
+
+[styles.dueling]
+name = "Dueling Offense"
+type = "u8"
+value = 1
+range = [0, 3]
+summary = "Dueling adds +{saber_moves.styles.dueling} to offense in clashes and saber locks while wielding one blade and nothing in the off hand."
+source = "I22 C8, ours"
+see = "sim::combat::saber::Kit::offence"
+applies = ["feat:DUELING", "feat:ADVANCED_DUELING", "feat:MASTER_DUELING"]
+
+[styles.power_attack]
+name = "Power Attack Damage"
+type = "i8"
+value = [5, 8, 10]
+labels = ["Power Attack", "Improved", "Master"]
+unit = "HP"
+range = [0, 30]
+summary = "The strong style adds +{saber_moves.styles.power_attack[0]:bare} damage with Power Attack, +{saber_moves.styles.power_attack[1]:bare} with Improved Power Attack and +{saber_moves.styles.power_attack[2]:bare} with Master Power Attack."
+source = "KOTOR's Power Attack (I22 C8)"
+see = "sim::combat::saber::Kit::swing"
+applies = ["feat:POWER_ATTACK", "feat:IMPROVED_POWER_ATTACK", "feat:MASTER_POWER_ATTACK"]
+
+[styles.power_attack_penalty]
+name = "Power Attack Penalty"
+type = "i8"
+value = 3
+range = [0, 10]
+summary = "The strong style's Power Attack also has a -{saber_moves.styles.power_attack_penalty} to hit."
+source = "KOTOR's Power Attack (I22 C8)"
+see = "sim::combat::saber::Kit::swing"
+applies = ["feat:POWER_ATTACK", "feat:IMPROVED_POWER_ATTACK", "feat:MASTER_POWER_ATTACK"]
+
+[styles.critical_threat]
+name = "Critical Strike Threat"
+type = "u8"
+value = 2
+unit = "×"
+range = [1, 5]
+summary = "Critical Strike multiplies the medium style's critical threat range by {saber_moves.styles.critical_threat}, and by one more for each of Improved and Master Critical Strike."
+source = "KOTOR's Critical Strike (I22 C8)"
+see = "sim::combat::saber::Kit::swing"
+applies = ["feat:CRITICAL_STRIKE", "feat:IMPROVED_CRITICAL_STRIKE", "feat:MASTER_CRITICAL_STRIKE"]
+
+[styles.flurry_penalty]
+name = "Flurry Penalty"
+type = "i8"
+value = [4, 2]
+labels = ["Flurry", "Improved and Master"]
+range = [0, 10]
+summary = "The fast style's attacks have a -{saber_moves.styles.flurry_penalty[0]} to hit with Flurry and -{saber_moves.styles.flurry_penalty[1]} with Improved or Master Flurry."
+source = "KOTOR's Flurry (I22 C8)"
+see = "sim::combat::saber::Kit::swing"
+applies = ["feat:FLURRY", "feat:IMPROVED_FLURRY"]
+
+[styles.fast_transitions]
+name = "Fast Style Recovery"
+value = 1.5
+unit = "×"
+range = [0.25, 4.0]
+summary = "The fast style moves between attacks at {saber_moves.styles.fast_transitions} speed."
+source = "JA: saber move transitions"
+see = "sim::motion::play_speed"
+
+[styles.strong_transitions]
+name = "Strong Style Recovery"
+value = 0.75
+unit = "×"
+range = [0.25, 4.0]
+summary = "The strong style moves between attacks at {saber_moves.styles.strong_transitions} speed."
+source = "JA: saber move transitions"
+see = "sim::motion::play_speed"
+
+[costs]
+title = "Special Attack Costs"
+summary = """
+Special attacks cost a percent of the character's maximum Force points, or
+of stamina for a character without the Force. A special cannot be made
+without enough points.
+"""
+applies = ["kind:lightsaber", "kind:melee"]
+
+[costs.kata]
+name = "Kata Cost"
+type = "u16"
+value = 50
+unit = "%"
+range = [0, 100]
+summary = "A kata ([Attack] and [Alt attack] held, no movement keys) costs {saber_moves.costs.kata} of maximum Force points."
+source = "JA (rulebook 2.12)"
+see = "sim::motion::saber"
+
+[costs.forward_back]
+name = "Forward and Back Special Cost"
+type = "u16"
+value = 25
+unit = "%"
+range = [0, 100]
+summary = "The lunge, the flip, Death from Above, the jump and spin attacks, the stab down, the roll stab and the back-flip attack each cost {saber_moves.costs.forward_back} of maximum Force points."
+source = "JA (rulebook 2.12)"
+see = "sim::motion::saber"
+
+[costs.side]
+name = "Side Special Cost"
+type = "u16"
+value = 10
+unit = "%"
+range = [0, 100]
+summary = "A cartwheel or butterfly costs {saber_moves.costs.side} of maximum Force points."
+source = "JA (rulebook 2.12)"
+see = "sim::motion::saber"
+
+[timing]
+title = "Timing"
+summary = """
+A blade is ready for its next move when the last one's animation ends. A
+parry holds the blade by the character's defense level.
+"""
+applies = ["kind:lightsaber", "kind:melee"]
+
+[timing.fire_time_ms]
+name = "Move Delay"
+value = 100
+unit = "ms"
+range = [0, 1000]
+summary = "A move without an animation readies the blade after {saber_moves.timing.fire_time_ms:s}."
+source = "JA"
+see = "sim::motion::saber"
+
+[timing.parry_hold_ms]
+name = "Parry Delay"
+value = [500, 300, 150, 50]
+labels = ["defense 0", "defense 1", "defense 2", "defense 3"]
+unit = "ms"
+range = [0, 2000]
+summary = "A parry holds the blade {saber_moves.timing.parry_hold_ms[0]:s} at defense level 0, {saber_moves.timing.parry_hold_ms[1]:s} at 1, {saber_moves.timing.parry_hold_ms[2]:s} at 2 and {saber_moves.timing.parry_hold_ms[3]:s} at 3."
+source = "JA (rulebook 2.2)"
+see = "sim::motion::saber"
+applies = ["feat:JEDI_DEFENSE", "feat:ADVANCED_JEDI_DEFENSE", "feat:MASTER_JEDI_DEFENSE"]
+
+[timing.parry_debounce_ms]
+name = "Parry Recovery"
+value = 200
+unit = "ms"
+range = [0, 1000]
+summary = "Every parry holds the blade {saber_moves.timing.parry_debounce_ms:s} longer."
+source = "JA: parry timing"
+see = "sim::motion::saber"
+
+[timing.chain_cap]
+name = "Chain Count"
+type = "u8"
+value = 16
+range = [1, 255]
+summary = "Attacks in a chain are counted up to {saber_moves.timing.chain_cap}."
+source = "JA"
+see = "sim::motion::saber"
+
+[timing.roll_stab_ms]
+name = "Roll Stab"
+value = 250
+unit = "ms"
+range = [0, 1000]
+summary = "[Attack] in the last {saber_moves.timing.roll_stab_ms:s} of a forward roll makes a stab."
+source = "JA"
+see = "sim::motion::saber"
+
+[timing.flip_kick_ms]
+name = "Flip Kick"
+value = 250
+unit = "ms"
+range = [0, 1000]
+summary = "A double-bladed weapon kicks on [Alt attack] in the last {saber_moves.timing.flip_kick_ms:s} of a flip."
+source = "JA: knock-back"
+see = "sim::motion::saber"
+
+[chains]
+title = "Attack Chains"
+summary = """
+Each style ends a chain of attacks by its own limit. The strong style
+stops after a few attacks, sooner for a sharp turn between them. The fast
+and medium styles cut a long chain short when it goes on with a spinning
+attack, and the medium style stops after a few attacks besides. When a
+chain ends, the next attack returns the blade to ready.
+"""
+applies = ["kind:lightsaber", "kind:melee"]
+
+[chains.strong_single]
+name = "Strong Chain from Ready"
+value = [0, 1]
+labels = ["least", "most"]
+range = [0, 16]
+summary = "A strong style chain that starts from or ends at ready stops once it is longer than a roll of {saber_moves.chains.strong_single[0]}-{saber_moves.chains.strong_single[1]} attacks."
+source = "JA: attack chains"
+see = "sim::motion::saber"
+
+[chains.strong_limit]
+name = "Strong Chain"
+value = [2, 3]
+labels = ["least", "most"]
+range = [0, 16]
+summary = "A strong style chain stops once it is longer than a roll of {saber_moves.chains.strong_limit[0]}-{saber_moves.chains.strong_limit[1]} attacks."
+source = "JA: attack chains"
+see = "sim::motion::saber"
+
+[chains.strong_angles]
+name = "Strong Chain Turns"
+type = "u16"
+value = [135, 215]
+labels = ["least", "most"]
+unit = "°"
+range = [0, 360]
+summary = "A strong attack that turns less than {saber_moves.chains.strong_angles[0]} or more than {saber_moves.chains.strong_angles[1]} from the last one ends the chain at once."
+source = "JA: saber move transitions"
+see = "sim::motion::saber"
+
+[chains.strong_square]
+name = "Strong Chain Reversal"
+type = "u16"
+value = 180
+unit = "°"
+range = [0, 360]
+summary = "A strong attack that turns exactly {saber_moves.chains.strong_square} from the last one ends the chain after {saber_moves.chains.strong_square_chain:bare} attack. Any other turn ends it after {saber_moves.chains.strong_other_chain:bare}."
+source = "JA: attack chains"
+see = "sim::motion::saber"
+
+[chains.strong_square_chain]
+name = "Strong Chain Reversal Limit"
+value = 1
+range = [0, 16]
+summary = "A strong chain ends after {saber_moves.chains.strong_square_chain} attack when the next one reverses direction."
+source = "JA: attack chains"
+see = "sim::motion::saber"
+
+[chains.strong_other_chain]
+name = "Strong Chain Turn Limit"
+value = 2
+range = [0, 16]
+summary = "A strong chain ends after {saber_moves.chains.strong_other_chain} attacks when the next one turns."
+source = "JA: attack chains"
+see = "sim::motion::saber"
+
+[chains.tolerance]
+name = "Spinning Attack Limit"
+value = [5, 3]
+labels = ["fast", "medium"]
+range = [1, 16]
+summary = "A fast chain of {saber_moves.chains.tolerance[0]} or more attacks, or a medium chain of {saber_moves.chains.tolerance[1]} or more, that goes on with a spinning attack ends when a roll of 1 to its length is higher than that number."
+source = "JA: attack chains"
+see = "sim::motion::saber"
+
+[chains.medium_limit]
+name = "Medium Chain"
+value = [2, 5]
+labels = ["least", "most"]
+range = [0, 16]
+summary = "A medium style chain stops once it is longer than a roll of {saber_moves.chains.medium_limit[0]}-{saber_moves.chains.medium_limit[1]} attacks."
+source = "JA: attack chains"
+see = "sim::motion::saber"
+
+[specials]
+title = "Special Attacks"
+summary = """
+[Attack] with a movement key makes a special attack. [Forward]: the jump
+attack with two blades or a double-bladed weapon, the medium style's flip,
+the strong style's Death from Above, the fast style's lunge (crouched; the
+spin with two blades or a double-bladed weapon), or a stab down at an enemy
+lying ahead. [Backward]: the back-flip attack with a double-bladed weapon,
+or a back attack at an enemy behind. [Strafe left] or [Strafe right] with
+[Jump]: a cartwheel, or a butterfly with a double-bladed weapon. Two blades
+fought as one have only the lunge.
+"""
+applies = ["kind:lightsaber", "kind:melee"]
+
+[specials.jump_ground]
+name = "Jump Attack Height"
+value = 40.0
+unit = "units"
+range = [0.0, 128.0]
+summary = "The jump attacks of two blades and double-bladed weapons, and the back-flip attack, start on the ground or within {saber_moves.specials.jump_ground:m} of it."
+source = "JA: the attack chosen from movement"
+see = "sim::motion::saber"
+
+[specials.back_flip_jump]
+name = "Back-Flip Requirement"
+type = "u8"
+value = 2
+range = [0, 3]
+summary = "The back-flip attack requires Force Jump level {saber_moves.specials.back_flip_jump} or better."
+source = "JA's jump level 2"
+see = "sim::motion::saber"
+applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
+
+[specials.back_flip_lift]
+name = "Back-Flip Leap"
+value = 500.0
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "The back-flip attack leaps up at {saber_moves.specials.back_flip_lift:m}."
+source = "JA"
+see = "sim::motion::saber"
+
+[specials.leap_rise]
+name = "Leap Attack Rise"
+value = 100.0
+unit = "units/s"
+range = [0.0, 500.0]
+summary = "The flip and Death from Above are made while rising faster than {saber_moves.specials.leap_rise:m}."
+source = "JA: the attack chosen from movement"
+see = "sim::motion::saber"
+
+[specials.leap_ground]
+name = "Leap Attack Height"
+value = 32.0
+unit = "units"
+range = [0.0, 128.0]
+summary = "The flip and Death from Above are made within {saber_moves.specials.leap_ground:m} of the ground."
+source = "JA: the attack chosen from movement"
+see = "sim::motion::saber"
+
+[specials.flip_leap]
+name = "Flip Leap"
+value = [150.0, 400.0]
+labels = ["forward", "up"]
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "The medium style's flip leaps forward at {saber_moves.specials.flip_leap[0]:m} and up at {saber_moves.specials.flip_leap[1]:m}."
+source = "JA: the attack chosen from movement"
+see = "sim::motion::saber"
+
+[specials.strong_leap]
+name = "Death from Above Leap"
+value = [300.0, 280.0]
+labels = ["forward", "up"]
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "Death from Above leaps forward at {saber_moves.specials.strong_leap[0]:m} and up at {saber_moves.specials.strong_leap[1]:m}."
+source = "JA: the attack chosen from movement"
+see = "sim::motion::saber"
+
+[specials.lunge_speed]
+name = "Lunge Speed"
+value = 150.0
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "The fast style's lunge carries the character forward at {saber_moves.specials.lunge_speed:m}."
+source = "JA"
+see = "sim::motion::saber"
+
+[specials.stab_reach]
+name = "Stab Down Range"
+value = 164.0
+unit = "units"
+range = [0.0, 512.0]
+summary = "A stab down is made at an enemy lying within {saber_moves.specials.stab_reach:m} straight ahead."
+source = "JA: the downward stab"
+see = "sim::motion::saber"
+
+[specials.stab_box]
+name = "Stab Down Width"
+value = 15.0
+unit = "units"
+range = [0.0, 64.0]
+summary = "A stab down finds an enemy within {saber_moves.specials.stab_box:m} to either side of its line."
+source = "JA: the downward stab"
+see = "sim::motion::saber"
+
+[specials.back_reach]
+name = "Back Attack Range"
+value = 128.0
+unit = "units"
+range = [0.0, 512.0]
+summary = "[Backward] and [Attack] make a back attack at an enemy within {saber_moves.specials.back_reach:m} behind; otherwise a normal attack."
+source = "JA: the attack chosen from movement"
+see = "sim::motion::saber"
+
+[specials.back_box]
+name = "Back Attack Width"
+value = [15.0, 15.0, 8.0]
+labels = ["across", "along", "up"]
+unit = "units"
+range = [0.0, 64.0]
+summary = "A back attack finds an enemy within {saber_moves.specials.back_box[0]:m} to either side, {saber_moves.specials.back_box[1]:m} along and {saber_moves.specials.back_box[2]:m} up or down of its line."
+source = "JA: the attack chosen from movement"
+see = "sim::motion::saber"
+
+[specials.mirror_reach]
+name = "Double Attack Range"
+value = 100.0
+unit = "units"
+range = [0.0, 512.0]
+summary = "Two blades attack both sides, or front and back, at once when there is an enemy within {saber_moves.specials.mirror_reach:m} on each."
+source = "JA: the attack chosen from movement"
+see = "sim::motion::saber"
+
+[specials.mirror_box]
+name = "Double Attack Width"
+value = 12.0
+unit = "units"
+range = [0.0, 64.0]
+summary = "A double attack finds an enemy within {saber_moves.specials.mirror_box:m} to either side of its line."
+source = "JA"
+see = "sim::motion::saber"
+
+[specials.cartwheel_rise]
+name = "Cartwheel Rise"
+value = 20.0
+unit = "units/s"
+range = [0.0, 500.0]
+summary = "A cartwheel is made while rising faster than {saber_moves.specials.cartwheel_rise:m}."
+source = "JA: the attack chosen from movement"
+see = "sim::motion::saber"
+
+[specials.cartwheel_ground]
+name = "Cartwheel Height"
+value = 70.0
+unit = "units"
+range = [0.0, 256.0]
+summary = "A cartwheel is made within {saber_moves.specials.cartwheel_ground:m} of the ground."
+source = "JA: the attack chosen from movement"
+see = "sim::motion::saber"
+
+[specials.cartwheel_speed]
+name = "Cartwheel Speed"
+value = 190.0
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "A cartwheel or butterfly carries the character sideways at {saber_moves.specials.cartwheel_speed:m}."
+source = "JA"
+see = "sim::motion::saber"
+
+[specials.butterfly_lift]
+name = "Butterfly Leap"
+value = [350.0, 250.0]
+labels = ["right", "left"]
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "A butterfly leaps up at {saber_moves.specials.butterfly_lift[0]:m} to the right and {saber_moves.specials.butterfly_lift[1]:m} to the left."
+source = "JA"
+see = "sim::motion::saber"
+
+[specials.arial_lift]
+name = "Cartwheel Leap"
+value = [300.0, 350.0]
+labels = ["right", "left"]
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "A cartwheel leaps up at {saber_moves.specials.arial_lift[0]:m} to the right and {saber_moves.specials.arial_lift[1]:m} to the left."
+source = "JA"
+see = "sim::motion::saber"
+
+[specials.air_kick_above]
+name = "Air Kick Height"
+value = 64.0
+unit = "units"
+range = [0.0, 512.0]
+summary = "In the air, a double-bladed weapon makes an air kick when more than {saber_moves.specials.air_kick_above:m} above the ground and not about to land."
+source = "JA"
+see = "sim::motion::saber"
+
+[specials.ground_kick_above]
+name = "Ground Kick Height"
+value = 128.0
+unit = "units"
+range = [0.0, 512.0]
+summary = "Falling within {saber_moves.specials.ground_kick_above:m} of the ground, a double-bladed weapon makes a ground kick; higher, no kick."
+source = "JA"
+see = "sim::motion::saber"
+
+[creatures]
+title = "Creature Attacks"
+summary = """
+A creature's next attack in a chain mostly follows from where its last one
+ended, more so the higher its offense. From ready, it attacks by where its
+enemy stands.
+"""
+applies = ["kind:creature", "kind:lightsaber", "kind:melee"]
+
+[creatures.across_one_in]
+name = "Cross Attack"
+value = 3
+range = [1, 10]
+summary = "From a corner or side, a creature attacks across one time in {saber_moves.creatures.across_one_in}; otherwise it attacks on the diagonal, back up, or from the other side."
+source = "JA: the attack chosen from the enemy's quarter"
+see = "sim::motion::saber"
+
+[creatures.bounce_one_in]
+name = "Attack after Deflection"
+value = 4
+range = [1, 10]
+summary = "After its attack is deflected, a creature attacks from where the blade ended except one time in {saber_moves.creatures.bounce_one_in}."
+source = "JA"
+see = "sim::motion::saber"
+
+[creatures.side_across]
+name = "Enemy to the Side"
+value = 0.35
+range = [0.0, 1.0]
+summary = "A creature attacks side to side at an enemy more than {saber_moves.creatures.side_across} to the side (0 straight ahead, 1 directly to the side)."
+source = "JA: the attack chosen from the enemy's place"
+see = "sim::motion::saber"
+
+[creatures.side_diagonal]
+name = "Enemy off Center"
+value = 0.15
+range = [0.0, 1.0]
+summary = "A creature attacks on the diagonal at an enemy more than {saber_moves.creatures.side_diagonal} to the side, and top to bottom at one nearer the center."
+source = "JA: the attack chosen from the enemy's place"
+see = "sim::motion::saber"
+
+[creatures.above]
+name = "Enemy Above"
+value = 0.5
+range = [0.0, 1.0]
+summary = "A creature's diagonal attack swings upward at an enemy more than {saber_moves.creatures.above} above it (1 directly overhead)."
+source = "JA: the attack chosen from the enemy's place"
+see = "sim::motion::saber"
+
+[creatures.behind]
+name = "Enemy Behind"
+value = 0.75
+range = [0.0, 1.0]
+summary = "A creature in the fast style or with a double-bladed weapon stabs backward at an enemy more than {saber_moves.creatures.behind} behind it (1 directly behind)."
+source = "JA: the attack chosen from the enemy's place"
+see = "sim::motion::saber"
+
+[creatures.back_stab_reach]
+name = "Back Stab Range"
+value = 128.0
+unit = "units"
+range = [0.0, 512.0]
+summary = "A creature stabs backward only at an enemy within {saber_moves.creatures.back_stab_reach:m}."
+source = "JA: the attack chosen from the enemy's place"
+see = "sim::motion::saber"
+
+[kicks]
+title = "Kicks"
+summary = """
+A kick, a forward or back roll to the feet, or a hilt bash strikes the
+first target in its path once. It deals {saber_moves.kicks.points[0]:bare}%
+of the target's maximum vitality points ({saber_moves.kicks.points[1]:bare}%
+one time in {saber_moves.kicks.hardest_one_in:bare}) and throws it back. A
+target in the air, in the middle of an action or without a lightsaber is
+also knocked down.
+"""
+detail = """
+The spin kick strikes all around, the back-front kick to the front then the
+back, the split kick to the right and left.
+"""
+applies = ["kind:lightsaber", "kind:melee", "baseitem:Double_Bladed_Lightsaber"]
+
+[kicks.reach_times]
+name = "Kick Range"
+value = 1.5
+unit = "×"
+range = [0.0, 4.0]
+summary = "A kick reaches {saber_moves.kicks.reach_times} half the kicker's width, plus {saber_moves.kicks.staff_range:m} and {saber_moves.kicks.reach_pad:m}."
+source = "JA: knock-back"
+see = "sim::combat::saber::kick::REACH"
+
+[kicks.staff_range]
+name = "Kick Range Bonus"
+value = 16.0
+unit = "units"
+range = [0.0, 64.0]
+summary = "A kick reaches {saber_moves.kicks.staff_range:m} farther than the kicker's body."
+source = "JA: knock-back"
+see = "sim::combat::saber::kick::REACH"
+
+[kicks.reach_pad]
+name = "Kick Range Margin"
+value = 8.0
+unit = "units"
+range = [0.0, 64.0]
+summary = "A kick reaches a further {saber_moves.kicks.reach_pad:m}."
+source = "JA: knock-back"
+see = "sim::combat::saber::kick::REACH"
+
+[kicks.box]
+name = "Kick Width"
+value = 2.0
+unit = "units"
+range = [0.0, 16.0]
+summary = "A kick finds a target within {saber_moves.kicks.box:m} to either side of its line."
+source = "JA: knock-back"
+see = "sim::world::sabers"
+
+[kicks.window_ms]
+name = "Kick Timing"
+value = [250, 250]
+labels = ["after its start", "before its end"]
+unit = "ms"
+range = [0, 2000]
+summary = "A ground kick, a roll to the feet or a hilt bash strikes only from {saber_moves.kicks.window_ms[0]:s} after it starts until {saber_moves.kicks.window_ms[1]:s} before it ends."
+source = "JA: knock-back"
+see = "sim::combat::saber::kick::kick"
+
+[kicks.air_window_ms]
+name = "Air Kick Timing"
+value = [100, 250]
+labels = ["after its start", "before its end"]
+unit = "ms"
+range = [0, 2000]
+summary = "An air kick strikes only from {saber_moves.kicks.air_window_ms[0]:s} after it starts until {saber_moves.kicks.air_window_ms[1]:s} before it ends."
+source = "JA: knock-back"
+see = "sim::combat::saber::kick::kick"
+
+[kicks.spin_ms]
+name = "Spin Kick Timing"
+value = [400, 1200]
+labels = ["from", "to"]
+unit = "ms"
+range = [0, 4000]
+summary = "The spin kick strikes from {saber_moves.kicks.spin_ms[0]:s} to {saber_moves.kicks.spin_ms[1]:s} after it starts."
+source = "JA: knock-back"
+see = "sim::combat::saber::kick::kick"
+
+[kicks.spin_slice_ms]
+name = "Spin Kick Rate"
+value = 100
+unit = "ms"
+range = [1, 1000]
+summary = "The spin kick turns {saber_moves.kicks.spin_turn} clockwise every {saber_moves.kicks.spin_slice_ms:s}."
+source = "JA; the order ours"
+see = "sim::combat::saber::kick::kick"
+
+[kicks.spin_turn]
+name = "Spin Kick Turn"
+value = 45.0
+unit = "°"
+range = [0.0, 180.0]
+summary = "The spin kick turns {saber_moves.kicks.spin_turn} at each step."
+source = "JA: knock-back"
+see = "sim::combat::saber::kick::kick"
+
+[kicks.back_front_ms]
+name = "Back-Front Kick Timing"
+value = [250, 350, 450]
+labels = ["front from", "back from", "until"]
+unit = "ms"
+range = [0, 2000]
+summary = "The back-front kick strikes to the front from {saber_moves.kicks.back_front_ms[0]:s}, to the back from {saber_moves.kicks.back_front_ms[1]:s}, until {saber_moves.kicks.back_front_ms[2]:s} after it starts."
+source = "JA: knock-back"
+see = "sim::combat::saber::kick::kick"
+
+[kicks.back_front_reach]
+name = "Back-Front Kick Range"
+value = 20.0
+unit = "units"
+range = [0.0, 64.0]
+summary = "The back-front kick reaches {saber_moves.kicks.back_front_reach:m} farther."
+source = "JA: knock-back"
+see = "sim::combat::saber::kick::kick"
+
+[kicks.split_reach]
+name = "Split Kick Range"
+value = 10.0
+unit = "units"
+range = [0.0, 64.0]
+summary = "The split kick reaches {saber_moves.kicks.split_reach:m} farther."
+source = "JA: knock-back"
+see = "sim::combat::saber::kick::kick"
+
+[kicks.points]
+name = "Kick Damage"
+value = [2, 3]
+labels = ["most kicks", "the hardest"]
+unit = "points"
+range = [0, 20]
+summary = "A kick deals {saber_moves.kicks.points[0]:bare}% of the target's maximum vitality points, or {saber_moves.kicks.points[1]:bare}% on a hard kick."
+source = "JA (10 to 15 × 0.2)"
+see = "sim::world::sabers"
+
+[kicks.hardest_one_in]
+name = "Hard Kick Chance"
+value = 6
+range = [1, 20]
+summary = "One kick in {saber_moves.kicks.hardest_one_in} is a hard kick."
+source = "JA's roll of 10 to 15 at 15"
+see = "sim::world::sabers"
+
+[kicks.push]
+name = "Kick Knockback"
+value = [50.0, 100.0]
+labels = ["least", "most"]
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "A kick throws its target back at {saber_moves.kicks.push[0]:m} to {saber_moves.kicks.push[1]:m}."
+source = "JA: knock-back"
+see = "sim::combat::saber::kick::kick"
+
+[kicks.hard_push]
+name = "Heavy Kick Knockback"
+value = [75.0, 125.0]
+labels = ["least", "most"]
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "The spin, back-front and split kicks throw their target back at {saber_moves.kicks.hard_push[0]:m} to {saber_moves.kicks.hard_push[1]:m}."
+source = "JA: knock-back"
+see = "sim::combat::saber::kick::kick"
+
+[kicks.shove_from]
+name = "Shove Threshold"
+value = 75.0
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "A kick that throws its target back at {saber_moves.kicks.shove_from:m} or more may become a shove."
+source = "JA: knock-back"
+see = "sim::world::sabers"
+
+[kicks.shove_one_in]
+name = "Shove Chance"
+value = 3
+range = [1, 20]
+summary = "A strong kick becomes a shove one time in {saber_moves.kicks.shove_one_in}."
+source = "JA: knock-back"
+see = "sim::world::sabers"
+
+[kicks.shove]
+name = "Shove Knockback"
+value = 300.0
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "A shove throws its target back at {saber_moves.kicks.shove:m}."
+source = "JA: knock-back"
+see = "sim::world::sabers"
+
+[kicks.lift]
+name = "Kick Lift"
+value = 200.0
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "A kick lifts its target at {saber_moves.kicks.lift:m}."
+source = "JA: knock-back"
+see = "sim::combat::saber::kick::LIFT"
+
+[kicks.down_ms]
+name = "Kick Knockdown"
+type = "u64"
+value = 700
+unit = "ms"
+range = [0, 5000]
+summary = "A kick knocks a target down for {saber_moves.kicks.down_ms:s}."
+source = "JA: knockdown"
+see = "sim::combat::saber::kick::DOWN_MS"

@@ -1,0 +1,45 @@
+# Taris, the escape (K1, tar_m03ae Javyar's cantina, tar_m08aa Davik's
+# estate, the Ebon Hawk): the codes to Canderous, the estate, the pilot
+# Hudrow's codes, the hangar's security, Davik and Calo, away to
+# Dantooine. Starts from the Sith base's checkpoint:
+#   kjk playthrough k1 @sith_base_out data/routes/k1/taris_escape.route --god
+#
+# The Ebon Hawk's turrets are played (m12ab, a minigame, `turrets`): the
+# last fighter's death script takes the party on to the Ebon Hawk.
+exit tar02_lowdoor       # the elevator down (the papers shown to its guard)
+exit tar03_javydoor      # Javyar's cantina
+party 1,2                # Canderous (forced) and Carth
+say join up              # "Okay, let's join up..."
+to tar02_candtlk         # Canderous
+talk
+module tar_m08aa         # Malak's order; Canderous's speeder to the estate
+talk                     # Davik's tour, Calo, the guest rooms
+save davik
+fight 15                 # Davik's guards, come over to the party
+to tar08_cagerelease     # the torture room: the droids, then the cage
+fight 15                 # the cage's panel frees Hudrow only with no foe within
+use tar08_cagerelease    # 15 m of it (k_ptar_hudfree), else does nothing
+talk                     # Hudrow: the Ebon Hawk's codes
+save hudrow
+say slice the computer   # the estate's terminal: hangar security off
+say access system commands
+say disable hangar security
+say log out
+use tar08_terminala
+talk
+save hangar_open
+to tar08_hangara         # Davik and Calo at the Ebon Hawk
+talk
+fight 45                 # (Calo surrenders when Davik falls: his detonator;
+                         # both fall back across the hangar while they fight)
+save davik_dead
+gone Calo082             # Calo's body taken away: the ramp (k_ptar_ramp)
+                         # speaks only then
+use Ramp                 # aboard: Taris burns, the Sith fighters
+talk
+talk
+turrets                  # m12ab: the Sith fighters, the gun manned
+module ebo_m12aa         # the Ebon Hawk, on to Dantooine
+talk                     # Bastila: the Council; then the landing
+module danm13            # Dantooine, the Jedi Enclave's courtyard
+save dantooine

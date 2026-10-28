@@ -1,0 +1,320 @@
+[chapter]
+title = "Thrown and Lost Lightsabers"
+order = 23
+summary = """
+A thrown lightsaber flies out and back under the Force. A lightsaber knocked
+out of the air or out of a hand falls and lies on the ground until it is
+called back.
+"""
+
+[out]
+title = "Throw Lightsaber"
+summary = """
+A character with Throw Lightsaber (level 1) or Advanced Throw Lightsaber
+(level 2) throws a lightsaber with [Alt attack], blade ready, if it can pay
+the Force point cost. Not usable with a double-bladed lightsaber. The
+lightsaber flies out along the character's view and returns when [Alt
+attack] is released, when it hits or is blocked, when it is out too long or
+too far, or when the character can no longer use the Force. Force points do
+not regenerate while it flies. At level 2 it follows the crosshair.
+"""
+applies = ["spell:FORCE_POWER_LIGHT_SABER_THROW", "spell:FORCE_POWER_LIGHT_SABER_THROW_ADVANCED"]
+
+[out.cost]
+name = "Default Force Point Cost"
+value = 2000
+unit = "hundredths FP"
+range = [0, 10000]
+summary = "A throw costs {saber_throw.out.cost:fp} when the power has no cost of its own."
+source = "JA's 20"
+see = "sim::combat::saber::Kit::of"
+
+[out.clear_ahead]
+name = "Room to Throw"
+value = 80.0
+unit = "units"
+range = [0.0, 256.0]
+summary = "A lightsaber can only be thrown with {saber_throw.out.clear_ahead:m} of clear space ahead."
+source = "JA"
+see = "sim::combat::saber::throw::CLEAR_AHEAD"
+
+[out.out_speed]
+name = "Throw Speed"
+value = 400.0
+unit = "units/s"
+range = [50.0, 2000.0]
+summary = "A thrown lightsaber flies out at {saber_throw.out.out_speed:m}."
+source = "JA"
+see = "sim::combat::saber::throw::OUT_SPEED"
+
+[out.aimed_speed]
+name = "Guided Throw Speed"
+value = 500.0
+unit = "units/s"
+range = [50.0, 2000.0]
+summary = "A level 2 throw following the crosshair flies at {saber_throw.out.aimed_speed:m}."
+source = "JA"
+see = "sim::combat::saber::throw::AIMED_SPEED"
+
+[out.range_per_level]
+name = "Throw Range"
+value = 700.0
+unit = "units"
+range = [100.0, 5000.0]
+summary = "A thrown lightsaber returns once it is more than {saber_throw.out.range_per_level:m} per level of the throw from its owner."
+source = "JA"
+see = "sim::combat::saber::throw::RANGE_PER_LEVEL"
+
+[out.hold_ms]
+name = "Shortest Throw"
+type = "u64"
+value = 500
+unit = "ms"
+range = [0, 5000]
+summary = "Releasing [Alt attack] calls the lightsaber back only after it has been out {saber_throw.out.hold_ms:s}."
+source = "JA"
+see = "sim::combat::saber::throw::HOLD_MS"
+
+[out.max_out_ms]
+name = "Longest Throw"
+type = "u64"
+value = 6000
+unit = "ms"
+range = [500, 30000]
+summary = "A thrown lightsaber returns after {saber_throw.out.max_out_ms:s}, even with [Alt attack] held."
+source = "JA"
+see = "sim::combat::saber::throw::MAX_OUT_MS"
+
+[out.aim_l2_ms]
+name = "Guidance, Level 2"
+type = "u64"
+value = 400
+unit = "ms"
+range = [10, 5000]
+summary = "A level 2 throw turns toward the crosshair every {saber_throw.out.aim_l2_ms:s}."
+source = "JA"
+see = "sim::combat::saber::throw::AIM_L2_MS"
+
+[out.aim_l3_ms]
+name = "Guidance, Level 3"
+type = "u64"
+value = 100
+unit = "ms"
+range = [10, 5000]
+summary = "A level 3 throw turns toward the crosshair every {saber_throw.out.aim_l3_ms:s}. No power grants level 3."
+source = "JA"
+see = "sim::combat::saber::throw::AIM_L3_MS"
+
+[back]
+title = "Return"
+summary = """
+A returning lightsaber flies to its owner's hand, slowing as it nears, and
+passes through walls on the way. The owner catches it and is ready to fight
+a moment later.
+"""
+
+[back.home_speed]
+name = "Return Speed"
+value = [700.0, 900.0]
+labels = ["levels 1 and 2", "level 3"]
+unit = "units/s"
+range = [50.0, 2000.0]
+summary = "A returning lightsaber flies at {saber_throw.back.home_speed[0]:m} ({saber_throw.back.home_speed[1]:m} at level 3) until it nears its owner."
+source = "JA"
+see = "sim::combat::saber::throw::Thrown::home_speed"
+
+[back.slower]
+name = "Slowing"
+value = [200.0, 150.0, 100.0]
+labels = ["nearest", "near", "nearing"]
+unit = "units/s"
+range = [0.0, 900.0]
+summary = "A returning lightsaber slows by {saber_throw.back.slower[2]:m} within {saber_throw.back.slower_within[2]:m} of the hand, {saber_throw.back.slower[1]:m} within {saber_throw.back.slower_within[1]:m} and {saber_throw.back.slower[0]:m} within {saber_throw.back.slower_within[0]:m}."
+source = "JA"
+see = "sim::combat::saber::throw::Thrown::home_speed"
+
+[back.slower_within]
+name = "Slowing Distance"
+value = [64.0, 128.0, 256.0]
+labels = ["nearest", "near", "nearing"]
+unit = "units"
+range = [0.0, 1024.0]
+summary = "A returning lightsaber begins to slow {saber_throw.back.slower_within[2]:m} from the hand, and slows further at {saber_throw.back.slower_within[1]:m} and {saber_throw.back.slower_within[0]:m}."
+source = "JA"
+see = "sim::combat::saber::throw::Thrown::home_speed"
+
+[back.aim_back_ms]
+name = "Return Guidance"
+type = "u64"
+value = 50
+unit = "ms"
+range = [10, 1000]
+summary = "A returning lightsaber turns toward its owner's hand every {saber_throw.back.aim_back_ms:s}."
+source = "JA"
+see = "sim::combat::saber::throw::AIM_BACK_MS"
+
+[back.catch]
+name = "Catch Distance"
+value = 32.0
+unit = "units"
+range = [1.0, 128.0]
+summary = "A returning lightsaber is caught within {saber_throw.back.catch:m} of the hand."
+source = "JA"
+see = "sim::combat::saber::throw::CATCH"
+
+[back.catch_ms]
+name = "Catch Recovery"
+value = 300
+unit = "ms"
+range = [0, 2000]
+summary = "A character can attack again {saber_throw.back.catch_ms:s} after catching a lightsaber."
+source = "JA"
+see = "sim::combat::saber::throw::CATCH_MS"
+
+[hits]
+title = "Thrown Lightsaber Hits"
+summary = """
+A thrown lightsaber strikes any character but its owner that it passes
+close to and has a clear line to. A character able to block it parries it:
+if the blocker's defense level is higher than the level of the throw, the
+lightsaber is knocked to the ground; otherwise it returns. An unblocked hit
+damages the target, and the lightsaber returns.
+"""
+
+[hits.hit_out]
+name = "Reach Going Out"
+value = 50.0
+unit = "units"
+range = [0.0, 256.0]
+summary = "A thrown lightsaber flying out strikes a character within {saber_throw.hits.hit_out:m}."
+source = "JA"
+see = "sim::combat::saber::throw::Thrown::reach"
+
+[hits.hit_back]
+name = "Reach Returning"
+value = 30.0
+unit = "units"
+range = [0.0, 256.0]
+summary = "A returning lightsaber strikes a character within {saber_throw.hits.hit_back:m}."
+source = "JA"
+see = "sim::combat::saber::throw::Thrown::reach"
+
+[hits.hit_every_ms]
+name = "Strike Interval"
+type = "u64"
+value = 500
+unit = "ms"
+range = [0, 5000]
+summary = "A thrown lightsaber strikes or is blocked at most once every {saber_throw.hits.hit_every_ms:s}."
+source = "JA"
+see = "sim::combat::saber::throw::HIT_EVERY_MS"
+
+[hits.cadence_ms]
+name = "Throw Damage"
+type = "u32"
+value = 1000
+unit = "ms"
+range = [100, 6000]
+summary = "Each hit of a thrown lightsaber deals the lightsaber's damage for {saber_throw.hits.cadence_ms:s} of attacks."
+source = "ours (a delegated number)"
+see = "sim::combat::saber::throw::CADENCE_MS"
+
+[hits.knock_odds]
+name = "Knocked Down at Equal Level"
+value = 4
+unit = "in 10"
+range = [0, 10]
+summary = "A blocker whose defense level equals the level of the throw knocks the lightsaber to the ground {saber_throw.hits.knock_odds} times."
+source = "JA (rulebook 10.6)"
+see = "sim::combat::saber::throw::blocked_down"
+applies = ["feat:JEDI_DEFENSE", "feat:ADVANCED_JEDI_DEFENSE", "feat:MASTER_JEDI_DEFENSE"]
+
+[hits.half_size]
+name = "Thrown Lightsaber Size"
+value = 3.0
+unit = "units"
+range = [0.0, 16.0]
+summary = "A thrown lightsaber strikes walls and blades as a box {saber_throw.hits.half_size:m} to each side."
+source = "ours (a stand-in)"
+see = "sim::combat::saber::throw::HALF_SIZE"
+
+[down]
+title = "Knocked Down and Disarmed"
+summary = """
+A lightsaber knocked out of the air or out of its owner's hand falls and
+lies on the ground. Holding [Attack] calls it back after a short time, and
+it returns by itself after a longer one. Until then a character with one
+lightsaber cannot attack or block; a character with two fights with the
+left.
+"""
+detail = """
+A knockaway or a broken parry may disarm the loser if the winner's saber
+style is stronger. Two weapons and a double-bladed lightsaber count as the
+medium style.
+"""
+
+[down.disarm_odds]
+name = "Disarm Chance"
+value = [7, 3]
+labels = ["two styles stronger", "one style stronger"]
+unit = "in 10"
+range = [0, 10]
+summary = "A knockaway or broken parry disarms {saber_throw.down.disarm_odds[0]} times when the winner's style is two steps stronger than the loser's, {saber_throw.down.disarm_odds[1]} times when one step stronger."
+source = "JA: broken parries"
+see = "sim::combat::saber::clash::disarm"
+
+[down.disarm_least]
+name = "Disarm Force"
+value = 20.0
+unit = "units"
+range = [0.0, 100.0]
+summary = "A disarmed lightsaber flies off along the winner's swing, never slower than a swing of {saber_throw.down.disarm_least:m} per frame."
+source = "JA"
+see = "sim::world::sabers"
+
+[down.disarm_times]
+name = "Disarm Speed"
+value = 6.5
+unit = "×"
+range = [0.0, 20.0]
+summary = "A disarmed lightsaber flies off {saber_throw.down.disarm_times:bare} times as fast as the winner's swing."
+source = "JA"
+see = "sim::world::sabers"
+
+[down.knocked_speed]
+name = "Knocked Down Speed"
+value = 200.0
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "A lightsaber knocked out of the air flies off in the direction the blocker faces at {saber_throw.down.knocked_speed:m}."
+source = "JA (rulebook 10.6)"
+see = "sim::combat::saber::throw::KNOCKED_SPEED"
+
+[down.gravity]
+name = "Falling"
+value = 800.0
+unit = "units/s"
+range = [0.0, 4000.0]
+summary = "A falling lightsaber gains {saber_throw.down.gravity:m} of speed each second."
+source = "JA: gravity"
+see = "sim::combat::saber::throw::GRAVITY"
+
+[down.retrieve_ms]
+name = "Recall Delay"
+type = "u64"
+value = 3000
+unit = "ms"
+range = [0, 60000]
+summary = "A lightsaber on the ground cannot be called back for {saber_throw.down.retrieve_ms:s}."
+source = "JA: a thrown saber's return"
+see = "sim::combat::saber::throw::RETRIEVE_MS"
+
+[down.auto_return_ms]
+name = "Automatic Return"
+type = "u64"
+value = 20_000
+unit = "ms"
+range = [0, 120000]
+summary = "A lightsaber on the ground returns to its owner by itself after {saber_throw.down.auto_return_ms:s}."
+source = "JA"
+see = "sim::combat::saber::throw::AUTO_RETURN_MS"

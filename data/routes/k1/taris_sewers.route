@@ -1,0 +1,25 @@
+# Taris, the sewers (K1, tar_m05aa, tar_m05ab) to the Vulkar base: the
+# Gamorreans holding Zaalbar, Mission's door to him (he joins), Mission's
+# codes for the forcefield console, the Upper Sewers. Starts from the
+# Undercity route's checkpoint:
+#   kjk playthrough k1 @lower_sewers data/routes/k1/taris_sewers.route --god
+to tar04_gamraidleader@2 # the Gamorrean chief's camp
+fight 15
+save gamorreans
+if npc 8=0               # (its trigger, k_ptar_trigdoor, may have run it on
+use ptar_missdoor0       # the fight's way past: Zaalbar already joined)
+talk                     # Zaalbar's cell: Mission opens it (missdoor_dlg),
+end                      # he swears a life debt and joins; the party screen
+save zaalbar
+use tar05_ffcontrol      # the forcefield's console: Mission's codes
+talk                     # (tar05_ff_dlg2, run by its OnUsed)
+exit tar05_forcefield    # into the Upper Sewers
+save upper_sewers
+use tar05_severedarm     # a dead man's arm: his datapad, the synthesized odor
+put tar05_synthodor tar05_corpsepile  # IGN's way past the rancor: the bone
+talk                     # pile holds grenades; the odor brings it to eat
+save rancor_dead         # (tar05_pile_dlg)
+to tar05_elevator        # the Vulkars posted at the lift (no leaving in
+fight 15                 # a fight)
+exit tar05_elevator      # down to the Black Vulkar base
+save vulkar_base

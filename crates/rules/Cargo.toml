@@ -1,0 +1,17 @@
+[package]
+name = "rules"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The rulebook (`data/rules/*.toml`, `docs/RULEBOOK.md`): every number the
+# game's rules use, compiled into constants by `build.rs`, so the sim pays
+# nothing to read one and a rule's value can never differ from its page.
+
+[build-dependencies]
+toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
+
+[lints]
+workspace = true

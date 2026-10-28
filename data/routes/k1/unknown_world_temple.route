@@ -1,0 +1,68 @@
+# The Unknown World's temple (K1, unk_m44aa its floor, unk_m44ab its
+# catacombs, unk_m44ac its summit): the catacombs' tiles and the Builders'
+# computer, Bastila on the summit (redeemed in word, fled: the light side),
+# the field down, the Ebon Hawk mended and away to the Star Forge. Starts
+# from the temple's door, either tribe's way in:
+#   kjk playthrough k1 @uw_temple data/routes/k1/unknown_world_temple.route --god
+exit unk44_basedoor@1    # down to the catacombs
+save uw_catacombs
+fight 25
+# The tiles: each flips itself and its neighbours; the corners and the
+# middle stepped on once, the rest twice or not at all, lights all nine.
+# In from the east side, clear of the reset tile: 9, 8, 7, 8, 5, 2, 1, 2,
+# 3. Solo mode keeps the others off them.
+to 75.1,84.2
+solo on
+to 76.9,84.5
+to 76.9,88.1
+to 75.3,88.1
+to 73.2,88.1
+to 71.2,88.1
+to 73.2,88.1
+to 73.2,90.2
+to 73.2,92.35
+to 71.1,92.35
+to 73.2,92.35
+to 75.3,92.35
+until UNK_TILES=1        # the nine lit (k_punk_floorNN): the computer's door opens
+use unk44_rakcomp        # the Builders' computer: the summit opened
+talk
+solo off
+save uw_library
+exit RakataDoor4
+fight 25
+exit unk44_basedoor@2    # the summit
+save uw_summit
+# Bastila, Malak's now: the light side's answers. Her fight, then she flees
+# to the Star Forge.
+say no, bastila! don't go over to the dark side!
+say it's not too late, bastila
+say don't do this, bastila
+say i draw my power from the light now
+say that is how i know you will come back
+say learn from my mistakes
+say please, bastila
+say the dark lord revan is dead
+to unk44_bastcs
+talk
+fight 30
+talk
+save uw_bastila_fled
+use RakatCom             # the disruptor field and the temple's shield down
+talk
+if UNK_SHIELD_OFF=0       # the exit trigger's line took the computer's turn (a
+use RakatCom             # party member walked into it first): used again
+talk
+end
+save uw_field_down
+exit unk44_tpllckdoor    # down and out to the Ebon Hawk
+exit unk44_exitdoor
+exit unk41_goto41aad
+to unk41_goebon
+save uw_hawk
+use Hyperdrive           # the stabilizers fitted
+use ebo41_galaxymap      # the Star Forge
+travel 10
+talk
+module ebo_m12aa
+save star_forge

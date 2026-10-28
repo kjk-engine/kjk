@@ -1,0 +1,128 @@
+[chapter]
+title = "Encounters"
+order = 42
+summary = """
+An encounter creates its creatures when a creature hostile to them enters
+its area. In TSL, the encounter sets how many appear; in K1, the number
+depends on the levels of those who entered.
+"""
+
+[starting]
+title = "Triggering an Encounter"
+summary = """
+An active encounter triggers when a living creature hostile to its faction
+steps inside it; a player-only encounter triggers only for a party member.
+In TSL, it creates a random number of creatures between its recommended and
+maximum counts, unique creatures first. In K1, it weighs the levels of the
+hostile creatures within {encounters.starting.reach_m:bare} meters of the
+one who entered, adds its difficulty, and picks creatures of a matching
+challenge rating.
+"""
+detail = """
+In K1, each of those creatures counts 1.5 to the power of its level, or of
+half its level if it is not a party member. The party's challenge rating
+is ln(total ÷ 4) ÷ ln 1.5 + 0.5, rounded down.
+"""
+
+[starting.reach_m]
+name = "Challenge Range"
+value = 30.0
+unit = "m"
+range = [0.0, 200.0]
+summary = "In K1, hostile creatures within {encounters.starting.reach_m:bare} meters of the one who entered count toward an encounter's challenge."
+source = "K1's executable, ComputeSpawnPool"
+see = "sim::spawner::area_points"
+
+[starting.tolerance]
+name = "Challenge Tolerance"
+value = 10.0
+unit = "×"
+range = [1.0, 1000.0]
+summary = "In K1, the creatures picked may exceed the encounter's challenge by 1/{encounters.starting.tolerance:bare} of it."
+source = "K1's executable, BuildSpawnList"
+see = "sim::spawner::k1_initial"
+
+[starting.split_margin]
+name = "Split Margin"
+value = 0.001
+unit = "points"
+range = [0.0, 1.0]
+summary = "In K1, a strong creature is replaced by weaker ones only if each is worth more than {encounters.starting.split_margin} less."
+source = "K1's executable, BuildSpawnList"
+see = "sim::spawner::k1_split"
+
+[making]
+title = "Placing Creatures"
+summary = """
+Creatures appear one at a time. In TSL, they are spread across the
+encounter's spawn points; in K1, all appear at the spawn point farthest from
+the one who entered. A creature appears at the nearest open spot within
+{encounters.making.safe_reach_m:bare} meters of its spawn point. Failing
+that, it appears near the encounter itself, no more than
+{encounters.making.origin_reach_m:bare} meters away.
+"""
+
+[making.safe_reach_m]
+name = "Spawn Range"
+value = 20.0
+unit = "m"
+range = [0.0, 200.0]
+summary = "A creature appears at an open spot within {encounters.making.safe_reach_m:bare} meters of its spawn point."
+source = "both executables, ComputeSafeLocation"
+see = "sim::spawner::Ground::safe_location"
+
+[making.ring_reach_m]
+name = "Encounter Search Range"
+value = 20.0
+unit = "m"
+range = [0.0, 200.0]
+summary = "Without a usable spawn point, an open spot is searched for up to {encounters.making.ring_reach_m:bare} meters around the encounter."
+source = "both executables, ComputeNonVisibleLocation"
+see = "sim::spawner::Ground::out_of_sight"
+
+[making.origin_reach_m]
+name = "Encounter Range"
+value = 30.0
+unit = "m"
+range = [0.0, 200.0]
+summary = "A creature placed near the encounter appears no more than {encounters.making.origin_reach_m:bare} meters from it."
+source = "both executables, ComputeNonVisibleLocation"
+see = "sim::spawner::Ground::out_of_sight"
+
+[making.first_ring_m]
+name = "First Search"
+value = 1.0
+unit = "m"
+range = [0.0, 20.0]
+summary = "The search for an open spot starts {encounters.making.first_ring_m:bare} meter out and widens by one body's width at a time."
+source = "both executables"
+see = "sim::spawner::ring"
+
+[making.sight_rise_m]
+name = "Line of Sight Height"
+value = 1.0
+unit = "m"
+range = [0.0, 3.0]
+summary = "The line of sight from an encounter to a spot is checked {encounters.making.sight_rise_m:bare} meter above the floor."
+source = "ours"
+see = "sim::spawner::Ground::out_of_sight"
+
+[running]
+title = "Exhaustion and Reset"
+summary = """
+An encounter is exhausted when the last of its creatures dies or leaves; it
+then goes inactive. A resetting encounter becomes active again after its
+reset time or one game day, whichever comes first, up to its number of
+respawns (-1 for no limit), and triggers at once if a hostile creature
+stands inside. Its heartbeat runs only while it is active.
+"""
+
+[running.heartbeat_after_ms]
+name = "Heartbeat"
+type = "u64"
+value = 5999
+unit = "ms"
+range = [100, 600000]
+summary = "An active encounter's heartbeat script runs every {encounters.running.heartbeat_after_ms:s}."
+source = "both executables, CSWSEncounter::AIUpdate"
+see = "sim::world::spawners::heartbeat"

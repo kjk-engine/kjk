@@ -1,0 +1,57 @@
+# The Unknown World's other way (K1): the Elders' side, not The One's. At
+# their gate the Elders are won over (a Persuade: a persuasive build since
+# Korriban's), their scout held in The One's chamber is rescued (the
+# village turns on the party; The One falls), and their ritual opens the
+# temple. The temple itself is unknown_world_temple.route, from @el_temple.
+# Branches off the main route's checkpoint at the south beach:
+#   kjk playthrough k1 @uw_south data/routes/k1/unknown_world_elders.route --god
+use punk_shipparts       # the wreck's stabilizers
+fight 25
+to talktrig              # the Elders' hologram: the ring of force fields before
+talk                     # their gate stands till it lets the party in (unk41_holo03)
+say i spoke to you once before
+say my mind was destroyed
+say i cannot prove what is in my heart
+say how can i prove that
+say so if i save the prisoner you'll help me
+say i'll be back after i rescue that prisoner
+exit RakataDoor2         # the Elders' gate: the hologram, their council
+talk
+module unk_m42aa
+save el_elders_pact
+exit RakataDoor2         # to The One's village, a servant of the Elders now:
+exit unk41_goto41aarc    # his people waylay the party on the way
+exit unk41_goto41aad
+exit unk41_goto41ac
+exit unk41_blkdoor
+save el_village
+fight 40
+to unk43_onespk          # The One, in his chamber: fought
+talk
+while UNK_PRISONER=1     # the Elders' scout, freed (he speaks out of a
+fight 40                 # fight only; 2 once he is)
+use unk43_redpris
+talk
+end
+save el_rescued
+exit RakataDoor2         # back to the Elders
+exit unk41_goto41aabr
+exit unk41_goto41ada
+exit unk41_goto41abd
+exit RakataDoor2
+talk
+module unk_m42aa
+say i want to enter the temple now
+use unk42_redelder       # to the temple: their ritual (UNK_TEMPLEREADY)
+talk
+say i am looking for the secrets of the ancient rakata
+use unk42_raksupercomp   # their archive: the temple's shields
+talk
+save el_computer
+exit RakataDoor2
+exit unk41_goto41aarc
+fight 30                 # the rancors in the temple's grounds first (the
+to templetrig            # ritual's trigger is no conversation in a fight);
+                         # the ritual, Jolee and Juhani come
+talk
+save el_temple

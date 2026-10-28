@@ -1,0 +1,57 @@
+# Taris, the Sith base (K1, tar_m02ae the Upper City cantina, tar_m02ab
+# Upper City North, tar_m09aa the base, tar_m09ab the governor): Canderous's
+# deal, T3-M4 from Janice Nall, the base's door, the receptionist, the
+# droid at the elevator, the governor and the launch codes. Starts from the
+# swoop race's checkpoint (--mighty: the governor's Horror, Fear, Stasis
+# and medpacs against a god-mode player held at 1 HP can stall the fight
+# as the dice fall; the fights' balance is tested elsewhere):
+#   kjk playthrough k1 @bastila data/routes/k1/taris_sith_base.route --god --mighty
+talk                     # Carth and Bastila: ask around the cantinas
+exit tar02_aptdoor       # out to the South Apartments
+say that's right         # the Rodian: Canderous wants to see the swoop champion
+talk
+save canderous_called
+exit ptar_stnddr         # to Upper City South
+exit tar02_cantdoor      # the cantina
+to tar02_candtlk         # Canderous waits past the pazaak tables
+talk
+save canderous_deal
+exit ptar_stnddr         # out of the cantina
+exit UpperNorth          # on to Upper City North
+say canderous said       # Janice Nall: Canderous sent you...
+say for free             # ...and Davik would not like her keeping his droid
+use Janice021            # (across her counter)
+talk
+save t3m4
+party 7,0                # the selection her script shows: T3-M4 and Bastila
+equip g_w_blstrpstl001   # the blaster again (a scene armed the sword)
+to tar02_openbase        # up to the base's door (Bastila's banter on the way)
+leader 7                 # T3-M4 at the helm: the door's trigger wants him
+to tar02_openbase        # (k_ptar_openbase: he slices the lock)
+talk
+leader player
+exit tar02_sithdoor      # into the Sith base
+save sith_base
+say touch that alarm     # the receptionist: threatened, she runs (no alarm)
+say get out of here
+to tar09_rcptlk
+talk
+save sith_reception
+use tar09_highlocker     # the barracks' locker: the base's passcard
+fight 12
+save sith_passcard
+to wp_homebase           # the shield droid's room, before the elevator
+fight 40                 # and the war droids and barracks still after the
+                         # party (no leaving in a fight)
+exit ptar_elevdoor       # the passcard opens the elevator
+save governor
+to tar09_wppctalk        # the governor, a dark Jedi apprentice
+talk
+fight 15
+use DarkJediap091        # his remains: the Taris launch codes
+use tar09_strongbox0
+use tar09_strongbox1
+save launch_codes
+exit tar09_elevdoor      # down again
+exit ptar_secdoor        # out to Upper City North
+save sith_base_out

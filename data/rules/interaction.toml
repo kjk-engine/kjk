@@ -1,0 +1,190 @@
+[chapter]
+title = "Doors, Locks and Bashing"
+order = 52
+summary = """
+[Use] opens doors and containers, uses placeables and starts conversations.
+A locked door or container opens with its key, with the Security skill, or
+by bashing it open.
+"""
+
+[checks]
+title = "Skill Checks"
+summary = """
+A skill check is a d{interaction.checks.die:bare} roll + the character's
+skill total against a DC. A total equal to or higher than the DC succeeds.
+Out of combat, a character takes {interaction.checks.taken:bare} instead of
+rolling.
+"""
+detail = """
+The result of each check is shown in the feedback screen: the skill, the
+roll or "Take 20", the DC, and success or failure.
+"""
+applies = ["skill:Security", "skill:Demolitions"]
+
+[checks.die]
+name = "Die Roll"
+type = "u32"
+value = 20
+range = [2, 100]
+summary = "Skill checks, attack rolls, critical hits and saving throws are rolled on a d{interaction.checks.die:bare}."
+source = "K1's executable (KOTOR's d20)"
+see = "sim::world::locks::unlock, sim::combat::damage::assess, sim::world::powers"
+applies = ["skill:Security", "skill:Demolitions", "kind:weapon", "kind:grenade", "kind:force"]
+
+[checks.taken]
+name = "Take 20"
+type = "u8"
+value = 20
+range = [1, 100]
+summary = "Out of combat, a skill check counts as a roll of {interaction.checks.taken:bare}."
+source = "K1's executable"
+see = "sim::traps::sum"
+applies = ["skill:Security", "skill:Demolitions"]
+
+[security]
+title = "Locks and Security"
+summary = """
+A locked door or container opens if the party carries its key. Otherwise a
+character can use the Security skill, taking
+{interaction.security.unlock_ms:s}: a Security check, plus the bonus of
+the security spike used, against the lock's DC. A spike is used up only if
+the attempt fails.
+"""
+detail = """
+The character must have paid points into the Security skill. Some locks can
+only be opened with their key.
+"""
+applies = ["skill:Security", "baseitem:Security_Spikes", "kind:door", "kind:container"]
+
+[security.unlock_ms]
+name = "Unlock Time"
+type = "u64"
+value = 1500
+unit = "ms"
+range = [0, 30000]
+summary = "Using Security on a lock takes {interaction.security.unlock_ms:s}."
+source = "K1's executable (its open-lock action)"
+see = "sim::world::locks::begin"
+applies = ["skill:Security", "kind:door", "kind:container"]
+
+[skill_uses]
+title = "Using Skills"
+summary = """
+Security, disarming or recovering a mine, and laying a mine take time. The
+attempt is cancelled if the character moves more than
+{interaction.skill_uses.stay_m:bare} meters, attacks or falls.
+"""
+applies = ["skill:Security", "skill:Demolitions"]
+
+[skill_uses.stay_m]
+name = "Skill Use Movement"
+type = "f32"
+value = 0.5
+unit = "m"
+range = [0.0, 5.0]
+summary = "A character moving more than {interaction.skill_uses.stay_m:bare} meters cancels a skill use under way."
+source = "ours"
+see = "sim::world::traps::skill_uses"
+applies = ["skill:Security", "skill:Demolitions"]
+
+[using]
+title = "Use"
+summary = """
+[Use] uses the first door, container, placeable or creature in view within
+{interaction.using.distance:m}; a creature is spoken to from farther. Held,
+it tries again every {interaction.using.every_ms:s} until it uses
+something. The target must be within {interaction.using.height_reach_m:bare}
+meters above or below the character, with nothing blocking the view of it.
+"""
+applies = ["kind:door", "kind:container"]
+
+[using.distance]
+name = "Use Range"
+type = "f32"
+value = 64.0
+unit = "units"
+range = [16.0, 400.0]
+summary = "[Use] reaches a door, container or placeable within {interaction.using.distance:m}."
+source = "JA's use distance"
+see = "sim::world::key_use"
+applies = ["kind:door", "kind:container"]
+
+[using.slack_m]
+name = "Placeable Depth"
+type = "f32"
+value = 1.0
+unit = "m"
+range = [0.0, 5.0]
+summary = "A placeable set into a wall can be used if its center is no more than {interaction.using.slack_m:bare} meters inside the wall."
+source = "ours"
+see = "sim::world::key_use"
+applies = ["kind:container"]
+
+[using.every_ms]
+name = "Use Repeat"
+type = "u64"
+value = 100
+unit = "ms"
+range = [10, 2000]
+summary = "A held [Use] that finds nothing tries again every {interaction.using.every_ms:s}."
+source = "JA's use delay"
+see = "sim::world::interact"
+applies = ["kind:door", "kind:container"]
+
+[using.middle_m]
+name = "Target Height"
+type = "f32"
+value = 1.0
+unit = "m"
+range = [0.0, 3.0]
+summary = "A door or container must be in view at {interaction.using.middle_m:bare} meters above its base to be used."
+source = "ours"
+see = "sim::world::uses::Target::new"
+applies = ["kind:door", "kind:container"]
+
+[using.height_reach_m]
+name = "Use Height"
+type = "f32"
+value = 2.5
+unit = "m"
+range = [0.5, 10.0]
+summary = "A character can use a target up to {interaction.using.height_reach_m:bare} meters above or below it."
+source = "ours"
+see = "sim::world::uses::may_use"
+applies = ["kind:door", "kind:container"]
+
+[bashing]
+title = "Bashing"
+summary = """
+A locked door or container can be broken open by attacking it with a
+lightsaber, melee weapon, fists, blaster or grenade. Each hit deals its
+damage less the object's hardness, multiplied by
+{interaction.bashing.times:bare}. At 0
+vitality points the door or container breaks open.
+"""
+detail = """
+Plot doors and containers cannot be bashed. Only the party's attacks bash,
+unless a script orders a creature to bash.
+"""
+applies = ["kind:door", "kind:container", "kind:weapon", "kind:grenade"]
+
+[bashing.times]
+name = "Bash Damage"
+type = "i32"
+value = 7
+unit = "×"
+range = [1, 50]
+summary = "Damage against a door or container is multiplied by {interaction.bashing.times:bare}."
+source = "the owner's pace (2026-10-06)"
+see = "sim::world::objects::objects"
+applies = ["kind:door", "kind:container", "kind:weapon", "kind:grenade"]
+
+[bashing.object_defence]
+name = "Object Defense"
+type = "i8"
+value = -10
+range = [-10, 30]
+summary = "A door or container has a {interaction.bashing.object_defence:bare} modifier to its base Defense of 10, so only a roll of 1 misses."
+source = "K1's executable"
+see = "sim::world::objects::stand_in"
+applies = ["kind:door", "kind:container"]

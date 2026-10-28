@@ -1,0 +1,27 @@
+# Taris, the Lower City (K1, tar_m03aa, the Hidden Bek base tar_m11aa):
+# the gangs' fight, Gadon's papers for the Sith armour, the Sith post at
+# the Undercity elevator. Starts from the Upper City route's checkpoint:
+#   kjk playthrough k1 @lower_city data/routes/k1/taris_lower_city.route --god
+to tar03_gangcs          # the Vulkars beat the Beks (tar03_cutdlg),
+talk                     # then turn on a Sith patrol: you
+fight 25
+save lower_city_gangs
+equip g_a_clothes01      # the Sith armour off: the Beks let no Sith in
+say i need gadon         # Gadon's help; an ally against his enemies; let in?
+say an ally against all those enemies
+say going to let me in
+use tar03_hiddenbek      # the Hidden Bek at their door (tar03_hidbekguar)
+talk
+exit tar03_bekdoor       # into the Hidden Bek base
+save bek_base
+use GadonThek112         # Zaerdra stops you first (tar11_zaerdra111)
+talk
+use GadonThek112         # Gadon: Bastila, the race, the papers for the armour
+talk
+save bek_papers
+exit ptar_secdoor        # back out to the Lower City
+say security papers right here  # the papers, to the Sith post below
+use SithPatrol031        # the Sith post at the Undercity elevator
+talk
+exit tar04_elevdoor      # down to the Undercity
+save undercity

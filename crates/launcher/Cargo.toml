@@ -1,0 +1,53 @@
+[package]
+name = "launcher"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The library is `kjk` too, so its logs keep their `kjk::…` targets (the
+# game's read `kjk_game::…`).
+[lib]
+name = "kjk"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kjk"
+path = "src/kjk.rs"
+
+[dependencies]
+game.workspace = true
+bevy.workspace = true
+clap.workspace = true
+vfs.workspace = true
+fmt_odyssey.workspace = true
+script_ncs.workspace = true
+ui.workspace = true
+fmt_ja.workspace = true
+asset_odyssey.workspace = true
+asset_ja.workspace = true
+blake3.workspace = true
+console.workspace = true
+sim.workspace = true
+collision.workspace = true
+collision_odyssey.workspace = true
+session.workspace = true
+rules.workspace = true
+net.workspace = true
+serde_json.workspace = true
+saves.workspace = true
+image.workspace = true
+
+[features]
+default = ["probes", "steam"]
+# The verbs that check and measure rather than play (`kjk sim`, `kjk
+# collision`, `kjk combat`, ...; `src/verbs.rs`) and the probes they run,
+# the game's and the layers' (`game/probes`). `--no-default-features`
+# builds the game alone.
+probes = ["game/probes"]
+# Hosting and joining through Steam (`game/steam`); off, by address only.
+steam = ["game/steam"]
+
+[lints]
+workspace = true

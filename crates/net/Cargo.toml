@@ -1,0 +1,27 @@
+[package]
+name = "net"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+blake3.workspace = true
+miniz_oxide.workspace = true
+sim.workspace = true
+# Steam's relayed peer-to-peer messages (`io::steam`), beside UDP.
+steamworks = { workspace = true, optional = true }
+
+# The socket's receive buffer (`io::udp`), which std has no word for.
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[features]
+# The probes (`kjk <layer> probes`): checks, not the game.
+probes = []
+# Players join through Steam (`io::steam`) as well as by address.
+steam = ["dep:steamworks"]
+
+[lints]
+workspace = true

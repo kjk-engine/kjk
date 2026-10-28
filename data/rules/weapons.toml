@@ -1,0 +1,415 @@
+[chapter]
+title = "Weapons"
+order = 11
+summary = """
+Each kind of ranged weapon fires bolts at its own rate, speed and spread.
+A bolt deals the weapon's own damage, with its own critical threat range
+and damage type.
+"""
+detail = """
+A weapon's rate of fire also sets the size of each hit: a fast weapon deals
+light hits, a slow weapon heavy ones. The alternate fire of a ranged weapon
+is a feat attack.
+"""
+
+[bolt]
+title = "Blaster Bolts"
+summary = """
+Unless noted otherwise, a shot fires one bolt, which flies straight from
+just below and to the right of the eye. A lightsaber can block, deflect or
+reflect it.
+"""
+detail = """
+A player's shot flies toward the center of the screen; a creature's along
+its line of sight.
+"""
+
+[bolt.muzzle]
+name = "Muzzle"
+value = [12.0, 6.0, -6.0]
+labels = ["forward", "right", "up"]
+unit = "units"
+summary = "A bolt leaves the gun {weapons.bolt.muzzle[0]:m} forward of the eye, {weapons.bolt.muzzle[1]:m} to the right and {weapons.bolt.muzzle[2]:m} up."
+source = "JA: muzzle points"
+see = "sim::combat::weapons::primary"
+
+[bolt.spread]
+name = "Spread"
+value = 0.0
+unit = "°"
+range = [0.0, 45.0]
+summary = "A bolt may stray up to {weapons.bolt.spread:bare} degrees at random, up or down and left or right."
+source = "JA"
+see = "sim::combat::weapons::primary"
+
+[bolt.shards]
+name = "Bolts per Shot"
+type = "u8"
+value = 1
+range = [1, 20]
+summary = "Bolts per shot: {weapons.bolt.shards}."
+source = "JA"
+see = "sim::combat::weapons::primary"
+
+[bolt.half_size]
+name = "Bolt Width"
+value = 0.0
+unit = "units"
+range = [0.0, 16.0]
+summary = "A bolt strikes anything within {weapons.bolt.half_size:m} of its path."
+source = "JA"
+see = "sim::combat::weapons::primary"
+
+[bolt.blockable]
+name = "Deflectable"
+value = true
+summary = "A blaster bolt {weapons.bolt.blockable:can} be deflected by a lightsaber."
+source = "JA"
+see = "sim::combat::weapons::primary"
+applies = ["kind:lightsaber"]
+
+[pistol]
+title = "Blaster Pistols"
+summary = "Blaster pistols, heavy blasters and hold-out blasters fire slow, single, heavy shots. The alternate fire is Power Blast."
+applies = ["kind:pistol", "baseitem:Blaster_Pistol", "baseitem:Heavy_Blaster", "baseitem:Hold_Out_Blaster"]
+
+[pistol.refire_ms]
+name = "Rate of Fire"
+type = "u32"
+value = 800
+unit = "ms"
+range = [50, 5000]
+summary = "A blaster pistol fires once every {weapons.pistol.refire_ms:s}."
+source = "JA (the Bryar's fire interval); I23 table 1.2"
+see = "sim::combat::weapons::primary"
+
+[pistol.pair_gap]
+name = "Two Pistols' Turns"
+type = "u32"
+value = 500
+unit = "‰"
+range = [0, 1000]
+summary = "With a pistol in each hand the guns take turns, neither firing within {weapons.pistol.pair_gap:pct} of its refire after the other, and a Rapid Shot's left shot leaves that share of a burst's gap after the first."
+detail = "KOTOR's two pistols attack with each hand in a round."
+source = "ours, after KOTOR's off hand's attack"
+see = "sim::combat::pair::pull"
+
+[pistol.pair_aim]
+name = "Two Pistols' Aim"
+value = 3
+unit = "points"
+range = [0, 10]
+summary = "With a pistol in each hand, each gun gains {weapons.pistol.pair_aim:bare} to hit against the two-weapon penalties."
+detail = "Two pistols fire as one aimed pair, not two blades swung at once: the owner's playtest found the pair too inaccurate under KOTOR's two-weapon penalties alone, and asked for about 15% more hits (each point is 5% on the d20)."
+source = "the owner's playtest (2026-10-26)"
+see = "sim::combat::passive::hand_attack"
+
+[pistol.speed]
+name = "Bolt Speed"
+value = 1600.0
+unit = "units/s"
+range = [100.0, 10000.0]
+summary = "A blaster pistol's bolt flies at {weapons.pistol.speed:m}."
+source = "JA: projectile speed"
+see = "sim::combat::weapons::primary"
+
+[rifle]
+title = "Blaster Rifles"
+summary = "Blaster rifles and carbines fire a steady stream of bolts. The alternate fire is Rapid Shot."
+applies = ["kind:rifle", "baseitem:Blaster_Rifle", "baseitem:Blaster_Carbine"]
+
+[rifle.refire_ms]
+name = "Rate of Fire"
+type = "u32"
+value = 350
+unit = "ms"
+range = [50, 5000]
+summary = "A blaster rifle fires once every {weapons.rifle.refire_ms:s}."
+source = "JA (the E-11's fire interval); I23 table 1.2"
+see = "sim::combat::weapons::primary"
+
+[rifle.speed]
+name = "Bolt Speed"
+value = 2300.0
+unit = "units/s"
+range = [100.0, 10000.0]
+summary = "A blaster rifle's bolt flies at {weapons.rifle.speed:m}."
+source = "JA: projectile speed"
+see = "sim::combat::weapons::primary"
+
+[repeater]
+title = "Repeating Blasters"
+summary = "Repeating blasters and heavy repeating blasters fire a spray of small, quick bolts."
+applies = ["kind:heavy", "baseitem:Repeating_Blaster", "baseitem:Heavy_Repeating_Blaster"]
+
+[repeater.refire_ms]
+name = "Rate of Fire"
+type = "u32"
+value = 100
+unit = "ms"
+range = [20, 5000]
+summary = "A repeating blaster fires once every {weapons.repeater.refire_ms:s}."
+source = "JA (the repeater's fire interval); I23 table 1.2"
+see = "sim::combat::weapons::primary"
+
+[repeater.speed]
+name = "Bolt Speed"
+value = 1600.0
+unit = "units/s"
+range = [100.0, 10000.0]
+summary = "A repeating blaster's bolt flies at {weapons.repeater.speed:m}."
+source = "JA: projectile speed"
+see = "sim::combat::weapons::primary"
+
+[repeater.spread]
+name = "Spread"
+value = 1.4
+unit = "°"
+range = [0.0, 45.0]
+summary = "A repeating blaster's bolt may stray up to {weapons.repeater.spread:bare} degrees at random, up or down and left or right."
+source = "JA: projectile spread"
+see = "sim::combat::weapons::primary"
+
+[repeater.muzzle]
+name = "Muzzle"
+value = [12.0, 4.5, -6.0]
+labels = ["forward", "right", "up"]
+unit = "units"
+summary = "A repeating blaster's bolt leaves the gun {weapons.repeater.muzzle[0]:m} forward of the eye, {weapons.repeater.muzzle[1]:m} to the right and {weapons.repeater.muzzle[2]:m} up."
+source = "JA: the repeater's muzzle offset"
+see = "sim::combat::weapons::primary"
+
+[bowcaster]
+title = "Bowcaster"
+summary = "The bowcaster fires one slow, wide bolt with each pull of the trigger."
+applies = ["baseitem:Bowcaster"]
+
+[bowcaster.refire_ms]
+name = "Rate of Fire"
+type = "u32"
+value = 1000
+unit = "ms"
+range = [50, 5000]
+summary = "A bowcaster fires once every {weapons.bowcaster.refire_ms:s}."
+source = "JA (the bowcaster's fire interval); I23 table 1.2"
+see = "sim::combat::weapons::primary"
+
+[bowcaster.speed]
+name = "Bolt Speed"
+value = 1300.0
+unit = "units/s"
+range = [100.0, 10000.0]
+summary = "A bowcaster's bolt flies at {weapons.bowcaster.speed:m}."
+source = "JA: projectile speed"
+see = "sim::combat::weapons::primary"
+
+[bowcaster.half_size]
+name = "Bolt Width"
+value = 2.0
+unit = "units"
+range = [0.0, 16.0]
+summary = "A bowcaster's bolt strikes anything within {weapons.bowcaster.half_size:m} of its path."
+source = "JA: projectile size"
+see = "sim::combat::weapons::primary"
+
+[bowcaster.muzzle]
+name = "Muzzle"
+value = [12.0, 2.0, -6.0]
+labels = ["forward", "right", "up"]
+unit = "units"
+summary = "A bowcaster's bolt leaves the weapon {weapons.bowcaster.muzzle[0]:m} forward of the eye, {weapons.bowcaster.muzzle[1]:m} to the right and {weapons.bowcaster.muzzle[2]:m} up."
+source = "JA: the bowcaster's muzzle offset"
+see = "sim::combat::weapons::primary"
+
+[disruptor]
+title = "Disruptors"
+summary = "Disruptor pistols and disruptor rifles fire no bolt: the shot strikes the first thing in its path at once, and a lightsaber cannot deflect it. The alternate fire is Sniper Shot."
+applies = ["baseitem:Disrupter_Pistol", "baseitem:Disrupter_Rifle"]
+
+[disruptor.refire_ms]
+name = "Rate of Fire"
+type = "u32"
+value = 600
+unit = "ms"
+range = [50, 5000]
+summary = "A disruptor fires once every {weapons.disruptor.refire_ms:s}."
+source = "JA (the disruptor's fire interval); I23 table 1.2"
+see = "sim::combat::weapons::primary"
+
+[disruptor.muzzle]
+name = "Muzzle"
+value = [0.0, 0.0, 0.0]
+labels = ["forward", "right", "up"]
+unit = "units"
+summary = "A disruptor's shot starts from the eye: {weapons.disruptor.muzzle[0]:m} forward, {weapons.disruptor.muzzle[1]:m} to the right and {weapons.disruptor.muzzle[2]:m} up."
+source = "JA: the disruptor's shot"
+see = "sim::combat::weapons::primary"
+
+[disruptor.blockable]
+name = "Deflectable"
+value = false
+summary = "A disruptor's shot {weapons.disruptor.blockable:can} be deflected by a lightsaber."
+source = "JA"
+see = "sim::combat::weapons::primary"
+applies = ["kind:lightsaber"]
+
+[disruptor.range]
+name = "Range"
+value = 8192.0
+unit = "units"
+range = [100.0, 65536.0]
+summary = "A disruptor's shot reaches {weapons.disruptor.range:m}."
+source = "JA (the disruptor's range)"
+see = "sim::combat::weapons::HITSCAN_RANGE"
+
+[ion]
+title = "Ion Weapons"
+summary = "Ion blasters and ion rifles fire a wide bolt that passes through lightsaber blades."
+applies = ["baseitem:Ion_Blaster", "baseitem:Ion_Rifle"]
+
+[ion.refire_ms]
+name = "Rate of Fire"
+type = "u32"
+value = 500
+unit = "ms"
+range = [50, 5000]
+summary = "An ion weapon fires once every {weapons.ion.refire_ms:s}."
+source = "JA (the DEMP2's fire interval); I23 table 1.2"
+see = "sim::combat::weapons::primary"
+
+[ion.speed]
+name = "Bolt Speed"
+value = 1800.0
+unit = "units/s"
+range = [100.0, 10000.0]
+summary = "An ion bolt flies at {weapons.ion.speed:m}."
+source = "JA: projectile speed"
+see = "sim::combat::weapons::primary"
+
+[ion.half_size]
+name = "Bolt Width"
+value = 2.0
+unit = "units"
+range = [0.0, 16.0]
+summary = "An ion bolt strikes anything within {weapons.ion.half_size:m} of its path."
+source = "JA: projectile size"
+see = "sim::combat::weapons::primary"
+
+[ion.blockable]
+name = "Deflectable"
+value = false
+summary = "An ion bolt {weapons.ion.blockable:can} be deflected by a lightsaber."
+source = "JA"
+see = "sim::combat::weapons::primary"
+applies = ["kind:lightsaber"]
+
+[sonic]
+title = "Sonic Weapons"
+summary = "Sonic pistols and sonic rifles fire several shards with each shot. The first flies true and the others spread. Each shard deals an equal share of the shot's damage."
+applies = ["baseitem:Sonic_Pistol", "baseitem:Sonic_Rifle"]
+
+[sonic.refire_ms]
+name = "Rate of Fire"
+type = "u32"
+value = 700
+unit = "ms"
+range = [50, 5000]
+summary = "A sonic weapon fires once every {weapons.sonic.refire_ms:s}."
+source = "JA (the flechette's fire interval); I23 table 1.2"
+see = "sim::combat::weapons::primary"
+
+[sonic.speed]
+name = "Shard Speed"
+value = 3500.0
+unit = "units/s"
+range = [100.0, 10000.0]
+summary = "A sonic weapon's shards fly at {weapons.sonic.speed:m}."
+source = "JA: projectile speed"
+see = "sim::combat::weapons::primary"
+
+[sonic.spread]
+name = "Spread"
+value = 4.0
+unit = "°"
+range = [0.0, 45.0]
+summary = "Every shard but the first may stray up to {weapons.sonic.spread:bare} degrees at random, up or down and left or right."
+source = "JA: projectile spread"
+see = "sim::combat::weapons::primary"
+
+[sonic.shards]
+name = "Shards per Shot"
+type = "u8"
+value = 5
+range = [1, 20]
+summary = "Shards per shot: {weapons.sonic.shards}. Each deals an equal share of the shot's damage."
+source = "JA: shots per volley"
+see = "sim::combat::weapons::primary"
+
+[sonic.half_size]
+name = "Shard Width"
+value = 1.0
+unit = "units"
+range = [0.0, 16.0]
+summary = "A shard strikes anything within {weapons.sonic.half_size:m} of its path."
+source = "JA: projectile size"
+see = "sim::combat::weapons::primary"
+
+[flight]
+title = "Bolts in Flight"
+summary = "A bolt that strikes nothing does not fly forever."
+
+[flight.life_ms]
+name = "Bolt Duration"
+type = "u64"
+value = 10_000
+unit = "ms"
+range = [1000, 60000]
+summary = "A bolt that strikes nothing vanishes after {weapons.flight.life_ms:s}."
+source = "JA (a missile's think, 10 s on)"
+see = "sim::combat::weapons::BOLT_LIFE_MS"
+
+[unarmed]
+title = "Unarmed Combat"
+summary = """
+A character with nothing in its hands fights with its fists. An unarmed
+strike deals bludgeoning damage, plus the Strength modifier.
+"""
+detail = "Beasts fight with their own claws, bites and gores."
+applies = ["kind:unarmed"]
+
+[unarmed.dice]
+name = "Unarmed Dice"
+type = "u8"
+value = 1
+range = [0, 10]
+summary = "An unarmed strike rolls {weapons.unarmed.dice:bare}d{weapons.unarmed.die:bare} damage."
+source = "KOTOR's unarmed strike (1d3)"
+see = "sim::combat::sheet::Weapon::UNARMED"
+
+[unarmed.die]
+name = "Unarmed Die"
+type = "u8"
+value = 3
+range = [1, 20]
+summary = "An unarmed strike's damage die has {weapons.unarmed.die:bare} sides."
+source = "KOTOR's unarmed strike (1d3)"
+see = "sim::combat::sheet::Weapon::UNARMED"
+
+[unarmed.crit_threat]
+name = "Unarmed Critical Threat"
+type = "u8"
+value = 1
+range = [1, 20]
+summary = "Critical threat range: {weapons.unarmed.crit_threat:bare} (1 is a roll of 20 alone, 2 is 19-20)."
+source = "KOTOR's unarmed strike"
+see = "sim::combat::sheet::Weapon::UNARMED"
+
+[unarmed.crit_mult]
+name = "Unarmed Critical Multiplier"
+type = "u8"
+value = 2
+unit = "×"
+range = [1, 10]
+summary = "An unarmed critical hit multiplies the damage roll by {weapons.unarmed.crit_mult:bare}."
+source = "KOTOR's unarmed strike"
+see = "sim::combat::sheet::Weapon::UNARMED"

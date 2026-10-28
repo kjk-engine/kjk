@@ -1,0 +1,22 @@
+# Taris, the Undercity (K1, tar_m04aa) to the Lower Sewers: the elevator's
+# thugs and Shaleena, Hendar at the gate (out to kill the rakghoul hunting
+# him), Mission outside the gate (she joins), the sewers' door. Starts from
+# the Lower City route's checkpoint:
+#   kjk playthrough k1 @undercity data/routes/k1/taris_undercity.route --god
+talk                     # the elevator's toll thugs, then Shaleena
+save undercity_in
+to tar04_maingate        # Hendar runs for the gate (tar04_outwom043):
+talk                     # "open the gate, I will kill the rakghouls"
+to ta04_closegate        # out through the gate, as the scene runs the party:
+                         # it closes behind them, and the rakghoul comes
+fight 20                 # the rakghoul on his heels (HendarsFate)
+save hendar
+gone hendarsfate         # its body taken away: Mission's trigger
+                         # (k_ptar_miscrt_en) does nothing while it is there
+to tar04_spmission       # out of the trigger and in again (tar04_miscrt):
+to tar04_miscrt          # Mission, her Wookiee taken by Gamorreans
+until Tar_Mission=30     # (tar04_mission: she joins; on the way out already
+                         # when the fight left the party beyond her trigger)
+save mission
+exit TarisDoor3          # down into the Lower Sewers
+save lower_sewers

@@ -1,0 +1,50 @@
+[chapter]
+title = "Co-op Party"
+order = 43
+summary = """
+Each player past the first controls a party member. The party enters
+combat together, pauses together and leaves an area together.
+"""
+
+[seats]
+title = "Party Members by Player"
+summary = """
+A player loses control of a party member that leaves the party, dies or
+becomes the leader, or when the player drops. A player with no character
+then takes the first party member no one controls, a conscious one before
+an unconscious one. A player who drops keeps a reserved party member for
+{party.seats.keep_ms:s}; meanwhile it fights on its own and no other player
+can take it.
+"""
+applies = ["kind:companion"]
+
+[seats.keep_ms]
+name = "Reserved Party Member"
+type = "u64"
+value = 60_000
+unit = "ms"
+range = [0, 3600000]
+summary = "A party member stays reserved for its player for {party.seats.keep_ms:s} after that player's last command."
+source = "ours (I30 P5)"
+see = "sim::world::drivers::assign"
+applies = ["kind:companion"]
+
+[exits]
+title = "Leaving an Area"
+summary = """
+Walking into an exit asks the party to leave. A player is ready after
+walking into or using the exit, standing at it, or choosing Ready; a player
+with no character is always ready. The party leaves when every player is
+ready, or when the host forces it after {party.exits.force_after_ms:s}. The
+party cannot leave during combat.
+"""
+
+[exits.force_after_ms]
+name = "Force Exit"
+type = "u64"
+value = 5000
+unit = "ms"
+range = [0, 600000]
+summary = "The host may force the party to leave {party.exits.force_after_ms:s} after a player asks to leave."
+source = "ours (I30 P16)"
+see = "sim::world::party::ready"

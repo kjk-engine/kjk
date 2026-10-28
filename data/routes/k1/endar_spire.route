@@ -1,0 +1,59 @@
+# The Endar Spire, the bunks to Taris (K1, end_m01aa, end_m01ab): a soldier
+# with Security 2, the Starboard Section's way through by the terminal.
+#   kjk playthrough k1 end_m01aa data/routes/k1/endar_spire.route --god --skill security=2
+# Goals: launcher::playthrough. Method: docs/PLAYTESTS.md.
+talk
+use end_locker01
+equip
+talk                 # Trask joins; the party selection screen
+talk                 # Trask, back: switch to me and use the door
+leader 0             # Trask leads (the portrait click)
+use end_door01       # the bunk room's door: Trask, leading, unlocks it
+talk
+leader player
+at 30.5 21           # the corridor
+use end_door02       # room 3: locked; Trask asks to lead
+talk
+leader 0
+use end_door02       # Trask's Security tutorial
+talk
+unlock end_door02    # Security (--skill security=2)
+use end_door02       # room 3 opens: its scene
+talk
+leader player
+fight 25
+use end_door05       # north to room 4
+fight 25
+use end_door10_cut2
+talk
+fight 25
+at 29 92             # room 6b
+fight 25
+use end_door16       # north
+talk
+fight 25
+use end_door08       # the bridge
+at 31 140            # in
+fight 25             # (Trask: on to the escape pods, as it ends)
+use end_door15       # the bridge's east door (it wants the player past level 1)
+fight 25
+use end_door19       # room 8: Trask's last stand (end_cut01)
+talk
+exit end_door10      # to end_m01ab, the Starboard Section
+talk                 # Carth on the communicator
+fight 20
+at 62.3 103
+fight 20
+at 62.2 85
+fight 20
+to FootLker           # into the room with the footlocker (the walkthrough's room 2)
+fight 25
+use footlker         # parts and computer spikes (the walkthrough's room 2)
+say view starboard transport module  # the security terminal
+say overload power conduit
+use end_comp02       # the security terminal, sliced with the spikes
+talk
+use end_door04       # the pods' door (Carth behind it)
+use end_pod          # Carth's talk at the pods starts on the way
+module tar_m02af      # Taris, the South Apartments: Carth by your bed
+save taris_start      # the checkpoint taris_upper_city.route starts from

@@ -1,0 +1,71 @@
+[chapter]
+title = "Time and Messages"
+order = 95
+summary = """
+The game advances in steps of equal length, the same for every player.
+Messages over characters and objects stay for a set time.
+"""
+
+[tick]
+title = "Game Steps"
+summary = """
+The game advances {engine.tick.hz} times per second. After a pause, it makes
+up at most {engine.tick.most_catch_up:bare} steps at once; the rest of the
+time is lost.
+"""
+
+[tick.hz]
+name = "Steps per Second"
+type = "u32"
+value = 125
+range = [60, 250]
+summary = "The game advances {engine.tick.hz} times per second. Every movement, attack, effect and script runs on these steps."
+source = "the owner's Decision 3 (`ROADMAP.md`), after JA's"
+see = "sim::rate::TICK_HZ"
+
+[tick.most_catch_up]
+name = "Most Steps at Once"
+type = "u32"
+value = 8
+unit = "ticks"
+range = [1, 125]
+summary = "After a pause, the game makes up at most {engine.tick.most_catch_up:bare} steps at once. The rest of the time is lost."
+source = "ours"
+see = "sim::rate::Accumulator::advance"
+
+[shown]
+title = "Messages"
+summary = """
+A fade the game lifts on its own, a feedback message over an object and the
+experience for a kill each stay on screen for a set time.
+"""
+
+[shown.fade_lift_ms]
+name = "Fade In"
+type = "u32"
+value = 1000
+unit = "ms"
+range = [0, 10000]
+summary = "A fade the game lifts on its own, when an area has loaded or a conversation begins, clears over {engine.shown.fade_lift_ms:s}."
+source = "ours [verify in the game]"
+see = "sim::snapshot::LIFT_MS"
+
+[shown.feedback_ms]
+name = "Feedback"
+type = "u64"
+value = 5000
+unit = "ms"
+range = [500, 30000]
+summary = "Feedback such as \"Resisted\", \"Immune\" or \"Saved\" stays over its character or object for {engine.shown.feedback_ms:s}."
+source = "KOTOR's executable (`CSWCObject::SetFeedbackInfo`)"
+see = "sim::snapshot::Feedback::SHOWN_MS"
+
+[shown.kill_xp_ms]
+name = "Experience for a Kill"
+type = "u64"
+value = 3000
+unit = "ms"
+range = [500, 30000]
+summary = "The experience gained for a kill stays over the body for {engine.shown.kill_xp_ms:s}."
+source = "KOTOR's"
+see = "sim::snapshot::Kill::SHOWN_MS"

@@ -1,0 +1,46 @@
+# Taris, the Upper City (K1, tar_m02af to the Lower City's elevator): the
+# hideout, the Sith raid in the South Apartments, Sarna's invitation in
+# the Upper City cantina, her party in the North Apartments for the Sith
+# armour (IGN's way), past the elevator's guard. Starts from the Endar
+# Spire route's checkpoint:
+#   kjk playthrough k1 @taris_start data/routes/k1/taris_upper_city.route --god
+# Each `save` is a checkpoint a later segment starts from (`@NAME`).
+# Not taken yet: the North Apartments' interrogation, the armour from the
+# commander's remains (GameBanshee's way without the invitation).
+talk                     # Carth by the bed: who he is, Bastila, the Sith
+equip g_w_blstrpstl001   # the blaster from the Endar Spire: Taris's fights at range
+use tar02_playerbin      # the hideout's footlocker
+use tar02_aptdoor        # the door: the first time, take Carth (tar02_doordlg),
+talk                     # the party selection screen, then out
+module tar_m02aa         # the South Apartments
+save south_apts
+to SithTalk              # into the corridor: the Sith raid (tar02_preraid)
+fight 20                 # (the Duros left alive thanks you as it ends:
+                         # tar02_postraid, answered on the way out)
+save south_apts_patrol
+exit ptar_stnddr         # the South Apartments' door to Upper City South
+exit tar02_cantdoor      # the cantina
+save cantina
+say from the military base  # Sarna: off-worlder, the locals are no fun, the party
+say nice to meet you, sarna
+say not actually from taris
+say but the locals
+say pretty positive attitude
+say blow off steam
+say sounds good
+use Sarna021             # (tar02_sarna021: Tar_Sarna 99, the invitation)
+talk
+exit ptar_stnddr         # out of the cantina
+exit UpperNorth          # on to Upper City North
+exit tar02_door02ad      # the North Apartments
+to tar02_sartlk          # Sarna's party: the Sith drink themselves under
+talk
+save party
+use tar02_sithbp         # the backpack the party left: the Sith armour
+equip ptar_sitharmor
+save sith_armour
+exit ptar_stnddr         # back out to Upper City North
+use SithGuard            # the elevator's guard takes you for a Sith patrol
+talk
+exit tar02_lowdoor       # the elevator down to the Lower City
+save lower_city

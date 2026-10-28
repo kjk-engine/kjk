@@ -1,0 +1,321 @@
+[chapter]
+title = "Mines"
+order = 51
+summary = """
+Mines are found with Awareness, and set, disarmed or recovered with
+Demolitions. A hostile creature that walks into an armed mine sets it off.
+"""
+
+[detect]
+title = "Finding Mines"
+summary = """
+Every creature searches for mines every {traps.detect.every_ms:s}, up to
+{traps.detect.range_m:bare} meters beyond a mine's
+{world.ranges.trap_radius_m:bare} meter radius. A mine is found when
+Awareness + 1d{traps.detect.die:bare} + {traps.detect.base:bare} equals or
+beats the mine's DC. A running character suffers a
+-{traps.detect.running:bare} penalty.
+"""
+detail = """
+A creature does not search for the mines of its own faction or of a
+friendly faction. A mine found by one party member is found by the whole
+party.
+"""
+applies = ["kind:mine", "skill:Awareness"]
+
+[detect.every_ms]
+name = "Search Rate"
+type = "u64"
+value = 100
+unit = "ms"
+range = [10, 5000]
+summary = "Every creature searches for mines every {traps.detect.every_ms:s}. Awareness is always active."
+source = "K1's executable (S5)"
+see = "sim::world::traps::detect"
+applies = ["kind:mine", "skill:Awareness"]
+
+[detect.range_m]
+name = "Search Range"
+type = "f32"
+value = 20.0
+unit = "m"
+range = [1.0, 100.0]
+summary = "A creature searches for mines up to {traps.detect.range_m:bare} meters beyond a mine's radius."
+source = "K1's executable (S5)"
+see = "sim::world::traps::detect"
+applies = ["kind:mine", "skill:Awareness"]
+
+[detect.base]
+name = "Search Bonus"
+type = "i16"
+value = 10
+range = [0, 30]
+summary = "An Awareness check against a mine adds +{traps.detect.base:bare} to the roll."
+source = "K1's executable (S5)"
+see = "sim::traps::detects"
+applies = ["kind:mine", "skill:Awareness"]
+
+[detect.die]
+name = "Search Die"
+type = "u32"
+value = 10
+range = [1, 40]
+summary = "An Awareness check against a mine rolls 1d{traps.detect.die:bare}."
+source = "K1's executable (S5)"
+see = "sim::world::traps::detect"
+applies = ["kind:mine", "skill:Awareness"]
+
+[detect.running]
+name = "Running Penalty"
+type = "i16"
+value = 5
+unit = "points"
+range = [0, 20]
+summary = "A running character suffers a -{traps.detect.running:bare} penalty to Awareness checks against mines."
+source = "K1's executable (S5)"
+see = "sim::traps::detects"
+applies = ["kind:mine", "skill:Awareness"]
+
+[disarm]
+title = "Disarm Mine"
+summary = """
+Disarm Mine appears on the menu of a found mine within reach. Disarming
+takes {traps.disarm.ms:s}. The check is Demolitions + 1d{interaction.checks.die:bare}
+in combat, or Demolitions + {interaction.checks.taken:bare} out of combat,
+against the mine's disarm DC. A mine with a DC above
+{traps.disarm.hopeless_dc:bare} cannot be disarmed. Failing by more than
+{traps.disarm.springs_short_by:bare} sets off the mine.
+"""
+detail = """
+A mine set by the party is always disarmed. Moving, attacking or falling
+interrupts the attempt.
+"""
+applies = ["kind:mine", "skill:Demolitions"]
+
+[disarm.ms]
+name = "Disarm Time"
+type = "u64"
+value = 4500
+unit = "ms"
+range = [0, 30000]
+summary = "Disarming or recovering a mine takes {traps.disarm.ms:s}."
+source = "K1's executable (S7)"
+see = "sim::world::traps::skill_uses"
+applies = ["kind:mine", "skill:Demolitions"]
+
+[disarm.hopeless_dc]
+name = "Highest Disarm DC"
+type = "i16"
+value = 35
+range = [0, 255]
+summary = "A mine with a disarm DC above {traps.disarm.hopeless_dc:bare} cannot be disarmed."
+source = "K1's executable (S7)"
+see = "sim::traps::disarm"
+applies = ["kind:mine", "skill:Demolitions"]
+
+[disarm.springs_short_by]
+name = "Disarm Failure"
+type = "i16"
+value = 10
+unit = "points"
+range = [0, 40]
+summary = "Failing to disarm a mine by more than {traps.disarm.springs_short_by:bare} sets it off."
+source = "K1's executable (S7)"
+see = "sim::traps::disarm"
+applies = ["kind:mine", "skill:Demolitions"]
+
+[recover]
+title = "Recover Mine"
+summary = """
+Recovering a mine works as disarming, with +{traps.recover.harder:bare} to
+the DC. Failing by more than {traps.recover.springs_short_by:bare} sets off
+the mine. A recovered mine is added to the party's inventory.
+"""
+applies = ["kind:mine", "skill:Demolitions", "baseitem:Trap_Kit"]
+
+[recover.harder]
+name = "Recover DC"
+type = "u8"
+value = 10
+unit = "points"
+range = [0, 40]
+summary = "Attempting to recover a mine adds +{traps.recover.harder:bare} to the disarm DC."
+source = "K1's executable (S8)"
+see = "sim::traps::recover"
+applies = ["kind:mine", "skill:Demolitions"]
+
+[recover.springs_short_by]
+name = "Recover Failure"
+type = "i16"
+value = 5
+unit = "points"
+range = [0, 40]
+summary = "Failing to recover a mine by more than {traps.recover.springs_short_by:bare} sets it off."
+source = "K1's executable (S8)"
+see = "sim::traps::recover"
+applies = ["kind:mine", "skill:Demolitions"]
+
+[lay]
+title = "Set Mine"
+summary = """
+Set Mine places the most powerful mine the party carries. Setting takes
+{traps.lay.ms:s}, standing still. The check is made as for disarming,
+against the mine's set DC; a character with {traps.lay.ranks_for_bonus:bare}
+or more ranks in Demolitions gains a +{traps.lay.ranks_bonus:bare} bonus.
+The check's total is added to the mine's detect and disarm DCs. The party
+may have at most {traps.lay.most:bare} mines set in an area.
+"""
+detail = """
+A failed check sets nothing and keeps the mine, but in combat a check that
+fails by more than {traps.lay.lays_anyway_short_by:bare} sets the mine
+anyway. A set mine covers {traps.lay.half_m:bare} meters to each side.
+"""
+applies = ["kind:mine", "skill:Demolitions", "baseitem:Trap_Kit"]
+
+[lay.ms]
+name = "Set Time"
+type = "u64"
+value = 2000
+unit = "ms"
+range = [0, 30000]
+summary = "Setting a mine, or a mine on a door in TSL, takes {traps.lay.ms:s}."
+source = "K1's executable (S9)"
+see = "sim::world::traps::begin_laying"
+applies = ["kind:mine", "skill:Demolitions"]
+
+[lay.most]
+name = "Most Mines Set"
+type = "usize"
+value = 15
+range = [0, 100]
+summary = "The party may have at most {traps.lay.most:bare} mines set in an area."
+source = "K1's executable (S9)"
+see = "sim::world::traps::begin_laying"
+applies = ["kind:mine", "skill:Demolitions"]
+
+[lay.half_m]
+name = "Mine Area"
+type = "f32"
+value = 2.0
+unit = "m"
+range = [0.25, 10.0]
+summary = "A mine set by the party covers {traps.lay.half_m:bare} meters to each side."
+source = "K1's executable (S9)"
+see = "sim::world::traps::holds"
+applies = ["kind:mine"]
+
+[lay.ranks_for_bonus]
+name = "Set Bonus Ranks"
+type = "u8"
+value = 5
+range = [0, 40]
+summary = "A character with {traps.lay.ranks_for_bonus:bare} or more ranks in Demolitions, not counting bonuses, gains a bonus to set mines."
+source = "K1's executable (S9)"
+see = "sim::traps::lay"
+applies = ["kind:mine", "skill:Demolitions"]
+
+[lay.ranks_bonus]
+name = "Set Bonus"
+type = "i16"
+value = 2
+unit = "points"
+range = [0, 20]
+summary = "Enough ranks in Demolitions give a +{traps.lay.ranks_bonus:bare} bonus to set mines."
+source = "K1's executable (S9)"
+see = "sim::traps::lay"
+applies = ["kind:mine", "skill:Demolitions"]
+
+[lay.lays_anyway_short_by]
+name = "Set in Combat"
+type = "i16"
+value = 10
+unit = "points"
+range = [0, 40]
+summary = "In combat, a check to set a mine that fails by more than {traps.lay.lays_anyway_short_by:bare} sets the mine anyway."
+source = "K1's executable (S9, QUIRKS.md Q-0142)"
+see = "sim::traps::lay"
+applies = ["kind:mine", "skill:Demolitions"]
+
+[springing]
+title = "Triggering Mines"
+summary = """
+A creature hostile to a mine's owner sets the mine off by walking into it;
+a creature of the owner's faction never does. A creature carrying the
+mine's key disarms it instead. A one-shot mine is removed once it goes off.
+A trapped door or object goes off when it is opened or used.
+"""
+applies = ["kind:mine"]
+
+[door_mines]
+title = "Mines on Doors"
+summary = """
+In TSL, a mine can be set on a locked door. No die is rolled, even in
+combat. {traps.door_mines.blast_ms:s} later the mine blasts the lock:
+{traps.door_mines.blast_base:bare} + the setter's Demolitions ÷
+{traps.door_mines.demolitions_divisor:bare} + the mine's blast strength,
+against the lock's DC. A blasted door opens
+{traps.door_mines.open_after_ms:s} later, unlocked.
+"""
+detail = """
+A player sets the weakest mine that opens the lock, or else the strongest.
+A mine removed before it goes off does nothing.
+"""
+applies = ["kind:mine", "skill:Demolitions", "kind:door"]
+
+[door_mines.blast_ms]
+name = "Blast Time"
+type = "u64"
+value = 3000
+unit = "ms"
+range = [0, 30000]
+summary = "A mine on a door blasts the lock {traps.door_mines.blast_ms:s} after it is set."
+source = "TSL's executable (its set-mine action and door events)"
+see = "sim::world::traps::blasts"
+applies = ["kind:mine", "kind:door"]
+
+[door_mines.open_after_ms]
+name = "Door Opens"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [0, 30000]
+summary = "A blasted door opens {traps.door_mines.open_after_ms:s} after the blast."
+source = "TSL's executable"
+see = "sim::world::traps::blasts"
+applies = ["kind:mine", "kind:door"]
+
+[door_mines.blast_base]
+name = "Blast Base"
+type = "i16"
+value = 20
+range = [0, 60]
+summary = "A mine's blast against a lock starts at {traps.door_mines.blast_base:bare}."
+source = "TSL's executable (line 128535 shows it)"
+see = "sim::traps::blasts"
+applies = ["kind:mine", "kind:door"]
+
+[door_mines.demolitions_divisor]
+name = "Demolitions Bonus"
+type = "i16"
+value = 2
+range = [1, 10]
+summary = "A mine's blast against a lock adds the setter's Demolitions ÷ {traps.door_mines.demolitions_divisor:bare}, rounded down."
+source = "TSL's executable (line 128535)"
+see = "sim::traps::blasts"
+applies = ["kind:mine", "skill:Demolitions"]
+
+[door_mines.strength]
+name = "Blast Strength"
+type = "u8"
+value = [3, 9, 0, 3, 9, 0, 0, 0, 0, 0, 0, 3, 9, 0, 0, 9, 12, 9, 12, 0, 0, 9, 12]
+labels = ["row 4", "row 5", "row 6", "row 7", "row 8", "row 9", "row 10", "row 11", "row 12", "row 13", "row 14", "row 15", "row 16", "row 17", "row 18", "row 19", "row 20", "row 21", "row 22", "row 23", "row 24", "row 25", "row 26"]
+range = [0, 60]
+summary = """
+A mine's blast strength against a lock: average frag, plasma and sonic
+mines +{traps.door_mines.strength[0]:bare}, deadly and strong mines
++{traps.door_mines.strength[1]:bare}, devastating mines
++{traps.door_mines.strength[16]:bare}. Other mines add nothing.
+"""
+source = "TSL's executable's table"
+see = "sim::traps::blast_strength"
+applies = ["kind:mine", "baseitem:Trap_Kit", "kind:door"]

@@ -1,0 +1,149 @@
+[chapter]
+title = "Pazaak"
+order = 81
+summary = """
+The object of Pazaak is to reach {pazaak.sets.limit:bare} without going over.
+Each player builds a side deck of {pazaak.deck.side_deck:bare} cards, and
+{pazaak.deck.hand:bare} of them are drawn at random as the hand for the whole
+match. Each turn the main deck deals one card, and a player may play one card
+from the hand, then end the turn or stand. A total over
+{pazaak.sets.limit:bare} at the end of a turn loses the set. When both players
+stand, the higher total wins the set; a tie is replayed unless a Tie Breaker
+card was played. The first player to win {pazaak.sets.sets_to_win:bare} sets
+wins the match.
+"""
+
+[deck]
+title = "Decks"
+summary = """
+The main deck holds {pazaak.deck.main_copies:bare} of each card from 1 to
+{pazaak.deck.main_highest:bare} and is shuffled anew for each set. The side
+deck holds the cards the player chooses, and the hand is drawn from it.
+"""
+applies = ["baseitem:Pazaak_Card", "baseitem:Pazaak_Sideboard"]
+
+[deck.side_deck]
+name = "Side Deck"
+type = "usize"
+value = 10
+range = [4, 20]
+summary = "A side deck holds {pazaak.deck.side_deck:bare} cards."
+source = "KOTOR (the talk table's rules, 32842)"
+see = "sim::pazaak::game::Match::apply"
+
+[deck.hand]
+name = "Hand"
+type = "usize"
+value = 4
+range = [1, 10]
+summary = "{pazaak.deck.hand:bare} cards are drawn at random from the side deck as the hand for the whole match. Each card can be played once."
+source = "KOTOR (the talk table's rules, 32842)"
+see = "sim::pazaak::game::Match::apply"
+
+[deck.main_copies]
+name = "Main Deck Copies"
+type = "u8"
+value = 4
+range = [1, 10]
+summary = "The main deck holds {pazaak.deck.main_copies:bare} copies of each card."
+source = "KOTOR (the talk table's rules, 32842)"
+see = "sim::pazaak::game::Match::begin_set"
+
+[deck.main_highest]
+name = "Main Deck Highest Card"
+type = "u8"
+value = 10
+range = [1, 20]
+summary = "The main deck's cards run from 1 to {pazaak.deck.main_highest:bare}."
+source = "KOTOR (the talk table's rules, 32842)"
+see = "sim::pazaak::game::Match::begin_set"
+
+[sets]
+title = "Sets"
+summary = "A match is played in sets. A player who reaches {pazaak.sets.limit:bare}, or fills the table with {pazaak.sets.table:bare} cards, stands at once."
+
+[sets.limit]
+name = "Limit"
+type = "i8"
+value = 20
+range = [1, 60]
+summary = "A total over {pazaak.sets.limit:bare} at the end of a turn loses the set. A player who reaches {pazaak.sets.limit:bare} stands."
+source = "KOTOR (the talk table's rules, 32842)"
+see = "sim::pazaak::game::Match::end_turn"
+
+[sets.table]
+name = "Full Table"
+type = "usize"
+value = 9
+range = [1, 20]
+summary = "A player can have at most {pazaak.sets.table:bare} cards on the table in a set. The last card stands the player."
+source = "KOTOR (the talk table's rules, 32842)"
+see = "sim::pazaak::game::Side::forced"
+
+[sets.sets_to_win]
+name = "Sets to Win"
+type = "u8"
+value = 3
+range = [1, 10]
+summary = "The first player to win {pazaak.sets.sets_to_win:bare} sets wins the match."
+source = "KOTOR (the talk table's rules, 32842)"
+see = "sim::pazaak::game::Match::finish_set"
+
+[sets.opponent_ms]
+name = "Opponent's Turn"
+type = "u64"
+value = 900
+unit = "ms"
+range = [0, 10000]
+summary = "The opponent takes {pazaak.sets.opponent_ms:s} over its turn."
+source = "ours"
+see = "sim::pazaak::game::Match::begin_turn"
+
+[sets.set_ms]
+name = "Set Result"
+type = "u64"
+value = 2500
+unit = "ms"
+range = [0, 10000]
+summary = "A set's result is shown for {pazaak.sets.set_ms:s} before the next set begins."
+source = "ours"
+see = "sim::pazaak::game::Match::finish_set"
+
+[sets.end_ms]
+name = "Match Result"
+type = "u64"
+value = 3000
+unit = "ms"
+range = [0, 10000]
+summary = "The match's result is shown for {pazaak.sets.end_ms:s} before the match ends."
+source = "ours"
+see = "sim::pazaak::game::Match::finish_set"
+
+[opponent]
+title = "Opponent"
+summary = """
+The opponent plays a hand card to save itself from going over, choosing the
+play that comes nearest {pazaak.sets.limit:bare}. Against a player who stands,
+it stands once it is ahead, or tied at {pazaak.opponent.tie_stand_at:bare} or
+more; otherwise it plays a card to get ahead if it can. Before that, it plays a
+card only to pass {pazaak.opponent.stand_at:bare} without going over, and
+stands at {pazaak.opponent.stand_at:bare} or more.
+"""
+
+[opponent.stand_at]
+name = "Opponent Stands"
+type = "i16"
+value = 18
+range = [1, 20]
+summary = "The opponent stands at a total of {pazaak.opponent.stand_at:bare} or more."
+source = "ours"
+see = "sim::pazaak::game::Match::choice"
+
+[opponent.tie_stand_at]
+name = "Opponent Accepts a Tie"
+type = "i16"
+value = 17
+range = [1, 20]
+summary = "Against a player who stands, the opponent accepts a tie at a total of {pazaak.opponent.tie_stand_at:bare} or more."
+source = "ours"
+see = "sim::pazaak::game::Match::choice"

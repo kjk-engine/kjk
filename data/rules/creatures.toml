@@ -1,0 +1,67 @@
+[chapter]
+title = "Beasts and Fists"
+order = 53
+summary = """
+A beast with no weapon attacks once a round with its claws, bite or gore. A
+humanoid with no weapon fights with its fists.
+"""
+
+[beasts]
+title = "Beasts"
+summary = """
+A creature with no humanoid skeleton (beasts, droids and many aliens) and
+no weapon in hand attacks once a round when its target is within reach. The
+blow lands at the point in its attack animation where it strikes, if the
+target is still in reach, and deals the damage of its creature weapon.
+"""
+detail = """
+A creature that is flinching, knocked down or stunned loses its blow. Such
+a creature holding a weapon, such as a Gamorrean's axe, fights as a
+humanoid does.
+"""
+applies = ["kind:creature"]
+
+[fists]
+title = "Fists"
+summary = """
+A humanoid with no weapon in hand punches, left then right, once a round.
+Each punch deals 1-3 bludgeoning damage to an opponent in front of the
+attacker within {creatures.fists.reach_m:bare} meters of its body.
+"""
+detail = """
+With friendly fire off, a punch passes through party members. Fists can
+also bash open doors and containers.
+"""
+applies = ["kind:unarmed"]
+
+[fists.reach_m]
+name = "Punch Reach"
+type = "f32"
+value = 0.5
+unit = "m"
+range = [0.0, 3.0]
+summary = "A punch reaches {creatures.fists.reach_m:bare} meters past the attacker's body."
+source = "ours (about JA's punch)"
+see = "sim::world::strikes::fists"
+applies = ["kind:unarmed"]
+
+[fists.human_space_m]
+name = "Humanoid Body Size"
+type = "f32"
+value = 0.35
+unit = "m"
+range = [0.1, 2.0]
+summary = "A humanoid's body extends {creatures.fists.human_space_m:bare} meters from its center when its appearance gives no size."
+source = "K1's appearance.2da"
+see = "sim::world::strikes::humanoid_space"
+applies = ["kind:unarmed", "kind:player"]
+
+[fists.front]
+name = "Punch Arc"
+type = "f32"
+value = 0.707
+range = [-1.0, 1.0]
+summary = "A punch strikes only an opponent in front of the attacker, where the cosine of the angle from its facing is at least {creatures.fists.front:bare}."
+source = "ours"
+see = "sim::world::strikes::in_front"
+applies = ["kind:unarmed"]

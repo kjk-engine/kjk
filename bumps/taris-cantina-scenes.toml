@@ -1,0 +1,15 @@
+# Scripted walks out and scripted equips, from the Taris cantina and Lower
+# City apartments playtest: walkers open and pass doors that lead out (a
+# door's link is the player's click), wait behind a body walking their way,
+# push aside a body whose scene clip has played out; a forced move takes a
+# given-up walk up again until its timeout; a script's equip wears one of a
+# stack; ambient walkers stalled by drawn geometry walk on as KOTOR's walker
+# does. Scene walks (check 14): short scripted steps no longer given up at
+# once, a move after a walk given up walked anew, near-mesh starts, the
+# empty tag. Lines whose named speaker is absent are passed over. The party
+# table keeps a companion's template when a script adds it by template.
+sim = "walkers pass doors that lead out (`walk::passable`), wait behind walkers going their way (`Walker::waits_behind`), push aside bodies whose clip played out; forced moves retry until their timeout; `ActionEquipItem` and `ActionEquipMostDamaging*` wear one of a stack (`State::one_of`); a script's move out of a fight that stalls on pmove goes on KOTOR's walker to its next corner (`world::move_actors`, crowd walks); scene walks: a new walk never passes over its goal (`walk::next_corner`), a move after a walk given up walks anew (`Walker::begin_anew`), the way-there check plans from the mesh within a step (`walk::leads`), `GetObjectByTag(\"\")` is the player; a link whose entry's speaker is absent is passed over (`Step::speaker_here`); companions made from the party table's kept template (`party::Npc::template_data`, `Level::with_companions`); every party member comes along at an install, following or not (`install::assemble`)"
+
+[formats]
+save = "the party table keeps a companion's template made available by template (`party::Npc::template_data`, `sim::pack`'s creature encoding), so a module without it makes the companion all the same."
+replay = "the party table keeps a companion's template made available by template (`party::Npc::template_data`)."

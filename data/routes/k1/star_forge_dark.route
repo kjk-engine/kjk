@@ -1,0 +1,56 @@
+# The Star Forge's dark way (K1), Bastila at the party's side: the landing,
+# the decks, the command centre (Malak's scene, Bastila to her Battle
+# Meditation for the Sith), Malak's door, the six droid generators shut
+# down, Malak fought while he drains the captive Jedi until he falls; the
+# dark side's end. Starts from the dark branch's checkpoint:
+#   kjk playthrough k1 @dk_star_forge data/routes/k1/star_forge_dark.route --god
+party 0,3                # Bastila and HK-47: a gun for the decks' wall
+                         # turrets, out of a saber's reach
+exit ebn12_ebonexit      # down the ramp: the Jedi there, the dark Jedi
+talk
+fight 30
+save dk_sf_landed
+exit sta45a_west_45b     # deck one
+save dk_sf_deck2
+use sta45b_medium4       # by the way down: 3 computer spikes
+exit sta45b_sta45c       # deck two, to the command centre
+save dk_sf_command
+use sta45c_medium1       # the lower floor's container: 5 computer spikes
+use k45_door_bast1       # Malak's scene; Bastila to the Battle Meditation
+talk
+to k45_init_sith         # his dark Jedi, sworn to Malak: fought, the way on
+talk                     # opens
+fight 30
+save dk_sf_bastila
+to k45_strt_malak        # Bastila on the way: her Battle Meditation
+talk                     # (k_sta_bastila), then the fleet's scene (stunt_51a)
+to k45_strt_malak        # Malak at his door: the generators started
+talk
+save dk_sf_generators
+# Each generator's "Disable" costs computer spikes by the slicer's Computer
+# Use (k_psta_token: 8 at none, 3 at 20, 2 at 24). The route stands in the
+# levelled character's Computer Use, as Manaan's stands in its Persuade: the
+# party comes with 15 to 17 (at 20, five took 15 and the sixth was short), so
+# 24, the six taking 12.
+skill computer=24
+use k45_plc_assdroid     # each shut down (Computer Use, spikes)
+talk
+use k45_plc_mk2droid
+talk
+use k45_plc_mk4droid
+talk
+use k45_plc_excharge
+talk
+use k45_plc_prbdroid
+talk
+use k45_plc_wardroid
+talk
+fight 30
+exit sta45c_sta45d       # the viewing platform
+save dk_sf_malak
+to k45_init_malak        # Malak; between bouts he drains a captive Jedi
+talk                     # (eight of them) and is fought again
+while STA_MALAK_DEAD=0   # (each round a bout; his drains' scenes play
+fight 60                 # as they come; the loop reads its global once the
+end                      # world has settled, the playthrough's `Settle`)
+credits                  # the Forge destroyed, the ceremony, EndGame

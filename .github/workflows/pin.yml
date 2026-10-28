@@ -1,0 +1,71 @@
+name: pin
+
+# The merge's half of bumps/README.md: the bump files that reached main get
+# their format versions and the sim hash's pin (`cargo xtask pin`), tested
+# and committed to main. The automerge workflow calls this after its merge
+# (a merge made with GitHub's own token starts no push run); a merge or push
+# by hand starts it by its paths. One at a time, never cancelled: each run
+# takes every bump file on main as it finds it, so a run that finds none
+# does nothing, and one whose push loses to a newer commit fails and leaves
+# the files for the next run (the next merge's, or one started by hand).
+on:
+  push:
+    branches: [main]
+    paths: ["bumps/*.toml"]
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  pin:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pin
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          # The order the bump files were added in.
+          fetch-depth: 0
+
+      - name: Bump files
+        id: pending
+        run: |
+          if compgen -G "bumps/*.toml" > /dev/null; then
+            echo "any=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no bump files on main"
+          fi
+
+      - name: Toolchain
+        if: steps.pending.outputs.any
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.pending.outputs.any
+
+      - name: cargo xtask pin
+        if: steps.pending.outputs.any
+        run: cargo xtask pin --message "$RUNNER_TEMP/pin-message"
+
+      - name: approved tests
+        if: steps.pending.outputs.any
+        run: cargo test --release -p approved_tests
+
+      - name: Commit to main
+        if: steps.pending.outputs.any
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qa -F "$RUNNER_TEMP/pin-message"
+          if ! git push origin HEAD:main; then
+            echo "::error::main moved on while pinning; the next merge's run pins, or run this workflow by hand"
+            exit 1
+          fi

@@ -1,0 +1,108 @@
+name: manual
+
+# Started by hand: Actions → manual → Run workflow. macOS minutes count ten
+# times and Windows minutes twice against a private repo's allowance, so
+# the monthly run (the 1st) is the approved tests alone: the sim's hash and
+# the network on Windows and macOS (Decision 3), without clippy.
+on:
+  schedule:
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: Lint and run the approved tests on Windows and macOS
+        type: boolean
+        default: true
+      screenshots:
+        description: Open the kjk window under Bevy's CI harness and upload a frame (Linux, Windows, macOS)
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # Each job builds once (as ci.yml).
+  CARGO_INCREMENTAL: 0
+  # The same pin as ci.yml's (the approved test sim_determinism requires
+  # both to agree): every platform must reach it.
+  KJK_SIM_HASH: 73d8312db0807ddc2c1df843b555390ecd4c098b1b1c5491e8f20a5dade91620
+
+jobs:
+  platforms:
+    name: check (${{ matrix.os }})
+    if: github.event_name == 'schedule' || inputs.platforms
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # The sim must reach the same state on every platform (Decision 3):
+      # sim_determinism requires KJK_SIM_HASH. No Bevy is built here; the
+      # screenshot job builds and links kjk on each platform.
+      - name: approved tests
+        run: cargo test --release -p approved_tests
+
+      - name: clippy
+        if: github.event_name != 'schedule'
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  # Linux has no GPU on the runner, so it renders through Mesa's software
+  # Vulkan driver inside a virtual X server.
+  screenshot:
+    name: screenshot (${{ matrix.os }})
+    if: inputs.screenshots
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: >
+          sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev
+          libxkbcommon-dev libxkbcommon-x11-0 libasound2-dev libudev-dev mesa-vulkan-drivers xvfb
+
+      - name: Toolchain
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: screenshot
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: build
+        run: cargo build -p launcher --features bevy/bevy_ci_testing,bevy/png
+
+      - name: run (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          CI_TESTING_CONFIG: .github/ci-screenshot.ron
+        run: xvfb-run -s "-screen 0 1280x720x24" ./target/debug/kjk 2>&1 | tee kjk.log
+
+      - name: run
+        if: runner.os != 'Linux'
+        shell: bash
+        env:
+          CI_TESTING_CONFIG: .github/ci-screenshot.ron
+        run: ./target/debug/kjk 2>&1 | tee kjk.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshot-${{ matrix.os }}
+          path: |
+            screenshot-*.png
+            kjk.log

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Installed by `cargo xtask hooks`. Refuses a commit whose index holds working
+# memory, game data or the other shapes publish-check looks for.
+exec cargo xtask publish-check

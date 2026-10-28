@@ -1,0 +1,17 @@
+[package]
+name = "script_ncs"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+fmt_odyssey.workspace = true
+
+[features]
+# The probes (`kjk <layer> probes`): checks, not the game.
+probes = []
+
+[lints]
+workspace = true

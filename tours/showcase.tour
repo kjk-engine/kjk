@@ -1,0 +1,33 @@
+# The showcase tour: viewpoints across K1 and TSL, rendered headless into a
+# contact sheet and compared with the previous run (`kjk tour tours/showcase.tour`).
+#
+# One stop per line:
+#   <name> <game> <module> entry [yaw offset] [pitch] [fov]
+#   <name> <game> <module> at <x> <y> <z> <yaw> <pitch> [fov]
+# `entry` stands at the module's entry point, eye height 1.7 m, facing the
+# entry direction turned by the yaw offset (degrees). Pitch and fov default
+# to -5 and 75 (reone's first-person camera). Coordinates are game space.
+
+# K1
+endar_quarters      k1  end_m01aa   entry
+endar_windows       k1  end_m01aa   at 15.7 22.2 0.47 180 5
+endar_corridor      k1  end_m01aa   at 46.6 30 0.47 90 0
+taris_upper         k1  tar_m02aa   entry
+taris_lower         k1  tar_m05aa   entry
+dantooine_enclave   k1  danm13      entry
+dantooine_courtyard k1  danm14aa    entry
+tatooine_anchorhead k1  tat_m17aa   entry
+kashyyyk_walkway    k1  kas_m22aa   entry
+manaan_ahto         k1  manm26aa    entry
+korriban_dreshdae   k1  korr_m33aa  entry
+unknown_beach       k1  unk_m41aa   entry
+ebon_hawk           k1  ebo_m12aa   entry
+
+# TSL
+ebon_hawk_prologue  tsl 001ebo      entry
+peragus             tsl 101per      entry
+telos_citadel       tsl 203tel      entry
+nar_shaddaa         tsl 301nar      entry
+onderon             tsl 501ond      entry
+dantooine_khoonda   tsl 601dan      entry
+korriban_academy    tsl 701kor      entry

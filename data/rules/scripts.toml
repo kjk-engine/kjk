@@ -1,0 +1,440 @@
+[chapter]
+title = "Scripts"
+order = 90
+summary = """
+The games' own scripts run unchanged. A script that asks for a save, a skill
+rank, a distance or a power's cost gets the same answer as the rest of the
+game.
+"""
+
+[answers]
+title = "Script Checks"
+summary = """
+Checks made by scripts follow the same rules as combat. A script with no
+character behind it uses a Force power DC of {scripts.answers.no_caster_dc:bare}.
+"""
+detail = """
+Force power DC: 5 + the caster's level + Wisdom and Charisma modifiers +
+Force Focus. Force resistance: 1d20 + the caster's level against the
+target's Force resistance. Saving throws: 1d20 + the save against the DC; a
+creature immune to fear, mind effects, poison or paralysis is unaffected.
+Damage from scripts is still reduced by the target's resistances.
+"""
+applies = ["kind:force", "kind:creature"]
+
+[answers.no_caster_dc]
+name = "Base Force Power DC"
+type = "i32"
+value = 10
+range = [0, 40]
+summary = "Mines, objects and areas use a Force power DC of {scripts.answers.no_caster_dc:bare}."
+source = "ours: the d20 base DC"
+see = "sim::script::engine::Engine::call (GetSpellSaveDC)"
+applies = ["kind:force"]
+
+[answers.reflex_divisor]
+name = "Reflex Save for Half"
+type = "i32"
+value = 2
+range = [1, 10]
+summary = "A successful Reflex save against a grenade or mine divides the damage by {scripts.answers.reflex_divisor:bare}, rounded down."
+source = "the d20 rules (NWN's GetReflexAdjustedDamage)"
+see = "sim::script::engine::Engine::call (GetReflexAdjustedDamage)"
+applies = ["kind:grenade", "kind:mine"]
+
+[answers.assured_least]
+name = "Scripted Killing Blow"
+type = "i32"
+value = 1
+unit = "HP"
+range = [0, 100]
+summary = "A scripted killing blow deals the weapon's average damage, at least {scripts.answers.assured_least:bare} point."
+see = "sim::script::Step::assured"
+source = "ours"
+
+[talk]
+title = "Conversation"
+summary = """
+A character walks to within {scripts.talk.conversation_range:bare} meters
+of whoever it speaks to before a conversation begins. A spoken line is heard
+as far as its volume carries, and no farther than the listener's hearing.
+"""
+
+[talk.conversation_range]
+name = "Conversation Range"
+type = "f32"
+value = 4.0
+unit = "m"
+range = [1.0, 20.0]
+summary = "A conversation begins within {scripts.talk.conversation_range:bare} meters. A player may start one from as far."
+source = "reone (the longest distance a conversation starts at) [verify in K1's exe]"
+see = "sim::script::CONVERSATION_RANGE"
+applies = ["kind:creature", "kind:companion"]
+
+[talk.volume_reach]
+name = "Voice Range"
+type = "f32"
+value = [1000.0, 3.0, 250.0, 35.0, 1000.0]
+labels = ["talk", "whisper", "shout", "silent talk", "silent shout"]
+unit = "m"
+range = [0.0, 1000.0]
+summary = """
+A scripted line carries {scripts.talk.volume_reach[0]:bare} meters spoken,
+{scripts.talk.volume_reach[1]:bare} whispered, {scripts.talk.volume_reach[2]:bare}
+shouted, {scripts.talk.volume_reach[3]:bare} in silent talk and
+{scripts.talk.volume_reach[4]:bare} in a silent shout.
+"""
+source = "K1's executable"
+see = "sim::script::engine::volume_reach"
+
+[moves]
+title = "Movement"
+summary = """
+A scripted move stops within {scripts.moves.move_to_location_range:bare}
+meters of its destination. A character opens or uses a door or object from
+within {scripts.moves.door_reach:bare} meters.
+"""
+detail = """
+A move to a place that cannot be reached fails after
+{scripts.moves.grace_ms:s}. A move that stalls
+{scripts.moves.stuck_stalls:bare} times in a row ends where it stands.
+"""
+
+[moves.move_to_location_range]
+name = "Move Range"
+type = "f32"
+value = 1.0
+unit = "m"
+range = [0.1, 5.0]
+summary = "A scripted move to a place stops within {scripts.moves.move_to_location_range:bare} meter of it."
+source = "reone (the move-to-location action's reach) [verify in K1's exe]"
+see = "sim::script::engine::MOVE_TO_LOCATION_RANGE"
+
+[moves.arrival_floor]
+name = "Arrival Range"
+type = "f32"
+value = 0.1
+unit = "m"
+range = [0.0, 1.0]
+summary = "A scripted move is complete within {scripts.moves.arrival_floor:bare} meters of its destination, however close it was told to come."
+see = "sim::script::Step::advance"
+source = "ours"
+
+[moves.grace_ms]
+name = "Failed Move"
+type = "u64"
+value = 500
+unit = "ms"
+range = [0, 5000]
+summary = "A scripted move to a place that cannot be reached fails after {scripts.moves.grace_ms:s}."
+source = "ours"
+see = "sim::script::MOVE_GRACE_MS"
+
+[moves.check_ms]
+name = "Path Check"
+type = "u64"
+value = 250
+unit = "ms"
+range = [0, 5000]
+summary = "A scripted move is checked for a path for {scripts.moves.check_ms:s} after it may first fail. A path blocked later is walked into."
+source = "ours"
+see = "sim::script::MOVE_CHECK_MS"
+
+[moves.stuck_stalls]
+name = "Stuck"
+type = "u8"
+value = 6
+range = [1, 60]
+summary = "A character that stalls {scripts.moves.stuck_stalls:bare} times in a row is stuck: its scripted move ends where it stands, and it stops closing on its target."
+see = "sim::script::STUCK_STALLS"
+source = "ours"
+
+[moves.door_reach]
+name = "Use Range"
+type = "f32"
+value = 2.0
+unit = "m"
+range = [0.5, 10.0]
+summary = "A character opens, closes, uses, locks or unlocks a door or object from within {scripts.moves.door_reach:bare} meters."
+source = "reone (the default reach to an object) [verify in K1's exe]"
+see = "sim::script::actions::DOOR_REACH"
+applies = ["kind:door", "kind:container"]
+
+[moves.follow_least]
+name = "Follow Range"
+type = "f32"
+value = 0.5
+unit = "m"
+range = [0.1, 5.0]
+summary = "In TSL, a puppet follows its owner at no less than {scripts.moves.follow_least:bare} meters."
+source = "ours"
+see = "sim::script::engine::Engine::puppet_call"
+applies = ["kind:companion"]
+
+[moves.beside_m]
+name = "Party Member Placement"
+type = "f32"
+value = 1.0
+unit = "m"
+range = [0.5, 5.0]
+summary = "A party member added by a script appears {scripts.moves.beside_m:bare} meter to the player's left; a second appears to the right."
+see = "sim::script::beside"
+source = "ours"
+applies = ["kind:companion"]
+
+[moves.away]
+title = "Fleeing"
+summary = """
+A fleeing creature runs straight away from the threat. If no path leads
+there, it turns {scripts.moves.away.turn_step} at a time to either side,
+then tries again at the distance ÷ {scripts.moves.away.short_divisor:bare}.
+It does not move if it is already far enough.
+"""
+
+[moves.away.turn_step]
+name = "Flee Turn"
+type = "i32"
+value = 30
+unit = "°"
+range = [5, 90]
+summary = "Each try turns {scripts.moves.away.turn_step} further from straight away, left and right in turn."
+see = "sim::script::engine::Engine::away"
+source = "ours"
+
+[moves.away.turns]
+name = "Flee Headings"
+type = "i32"
+value = 12
+range = [1, 36]
+summary = "A fleeing creature tries {scripts.moves.away.turns:bare} headings at each distance, straight away first."
+see = "sim::script::engine::Engine::away"
+source = "ours"
+
+[moves.away.short_divisor]
+name = "Shorter Flight"
+type = "f32"
+value = 2.0
+range = [1.0, 10.0]
+summary = "If no heading leads the whole way, the distance is divided by {scripts.moves.away.short_divisor:bare} and tried again."
+see = "sim::script::engine::Engine::away"
+source = "ours"
+
+[wander]
+title = "Random Walk"
+summary = """
+A creature on a random walk wanders among random points near where it
+began, until its actions are cleared.
+"""
+detail = """
+Each point lies {scripts.wander.least_m:bare} to {scripts.wander.reach_m:bare}
+meters away. A new point is picked when the creature comes within
+{scripts.wander.reached_m:bare} meter, or after {scripts.wander.repick_ms:s}.
+"""
+applies = ["kind:creature"]
+
+[wander.reach_m]
+name = "Wander Range"
+type = "f32"
+value = 5.0
+unit = "m"
+range = [1.0, 50.0]
+summary = "A random walk's points lie at most {scripts.wander.reach_m:bare} meters from where it began."
+source = "ours [verify in K1's exe]"
+see = "sim::script::actions::WANDER_M"
+
+[wander.least_m]
+name = "Shortest Wander"
+type = "f32"
+value = 1.0
+unit = "m"
+range = [0.0, 10.0]
+summary = "A random walk's points lie at least {scripts.wander.least_m:bare} meter from where it began."
+source = "ours"
+see = "sim::script::Step::advance"
+
+[wander.reached_m]
+name = "Point Reached"
+type = "f32"
+value = 1.0
+unit = "m"
+range = [0.1, 10.0]
+summary = "Within {scripts.wander.reached_m:bare} meter of its point, a wandering creature picks the next one."
+source = "ours"
+see = "sim::script::Step::advance"
+
+[wander.arrive_m]
+name = "Wander Stop"
+type = "f32"
+value = 0.5
+unit = "m"
+range = [0.1, 10.0]
+summary = "A wandering creature walks to within {scripts.wander.arrive_m:bare} meters of its point."
+source = "ours"
+see = "sim::script::Step::advance"
+
+[wander.repick_ms]
+name = "Wander Time"
+type = "u64"
+value = 8000
+unit = "ms"
+range = [1000, 60000]
+summary = "A wandering creature heads for one point for at most {scripts.wander.repick_ms:s} before picking another."
+source = "ours [verify in K1's exe]"
+see = "sim::script::actions::WANDER_MS"
+
+[fights]
+title = "Scripted Attacks and Surrender"
+summary = """
+A scripted attack holds the attacker on its target until the end of its
+combat round. A melee attacker with its target in reach is in combat
+whether or not it hits.
+"""
+detail = """
+When a character surrenders, it and every creature within
+{scripts.fights.surrender_reach:bare} meters stop fighting, and it joins a
+neutral faction. A player character never surrenders.
+"""
+applies = ["kind:creature"]
+
+[fights.melee_reach]
+name = "Scripted Melee Range"
+type = "f32"
+value = 3.0
+unit = "m"
+range = [1.0, 10.0]
+summary = "For a scripted attack, a melee attacker reaches its target within {scripts.fights.melee_reach:bare} meters. A ranged attacker uses its weapon's range."
+source = "ours"
+see = "sim::script::Step::in_reach"
+applies = ["kind:melee", "kind:lightsaber", "kind:unarmed"]
+
+[fights.surrender_reach]
+name = "Surrender Range"
+type = "f32"
+value = 10.0
+unit = "m"
+range = [0.0, 100.0]
+summary = "Every creature within {scripts.fights.surrender_reach:bare} meters stops fighting the one who surrenders."
+source = "K1's `nwscript.nss` (`SurrenderToEnemies`)"
+see = "sim::script::engine::surrender"
+
+[sight]
+title = "Line of Sight"
+summary = """
+In TSL, a gunner checks whether it can shoot from a spot. The line runs
+between the two spots, clear of the floor, and through doors as they stand.
+"""
+
+[sight.clear_m]
+name = "Line of Sight Height"
+type = "f32"
+value = 0.1
+unit = "m"
+range = [0.0, 2.0]
+summary = "A gunner's line of sight runs {scripts.sight.clear_m:bare} meters above the floor."
+source = "ours"
+see = "sim::script::engine::Engine::call (HasLineOfSight)"
+
+[animations]
+title = "Scripted Animations"
+summary = """
+A scripted animation holds its character for one play of the animation, or
+for a looping animation's duration. A looping animation with a negative
+duration plays until another replaces it.
+"""
+
+[animations.unknown_ms]
+name = "Unknown Animation"
+type = "u32"
+value = 1000
+unit = "ms"
+range = [100, 10000]
+summary = "An animation of unknown length lasts {scripts.animations.unknown_ms:s}."
+source = "KOTOR's executable"
+see = "sim::script::engine::ANIMATION_MS"
+
+[animations.long_ms]
+name = "Long Animation"
+type = "u32"
+value = 30000
+unit = "ms"
+range = [1000, 600000]
+summary = "An animation of {scripts.animations.long_ms:s} or longer is not queued twice: the same animation queued after it is dropped."
+source = "ours"
+see = "sim::script::engine::Engine::queued_long"
+
+[clock]
+title = "Game Time"
+summary = """
+A game hour lasts as many real minutes as the module sets. A game second is
+a real second.
+"""
+
+[clock.minutes_per_hour]
+name = "Minutes per Hour"
+type = "u8"
+value = 2
+range = [1, 60]
+summary = "A game hour lasts {scripts.clock.minutes_per_hour:bare} real minutes where the module sets none."
+source = "KOTOR's default `Mod_MinPerHour`"
+see = "sim::script::engine::clock"
+
+[jumps]
+title = "Where a Jump Lands"
+summary = """
+A character a script moves by jumping, one a script creates and one an
+area places stands where the safe-location search puts it: on the walkmesh
+under its mark, clear of the living, in rings {scripts.jumps.ring_m:bare}
+meter apart out to {scripts.jumps.search_m:bare} meters, with a straight walk
+back to the mark. Party members arriving in an area stand within
+{scripts.jumps.party_m:bare} meters of the arrival.
+"""
+applies = ["kind:creature", "kind:companion"]
+
+[jumps.search_m]
+name = "Jump Search"
+type = "f32"
+value = 20.0
+unit = "m"
+range = [0.0, 100.0]
+summary = "A jump, or a character an area places or a script creates, finds a free place within {scripts.jumps.search_m:bare} meters of its mark."
+source = "K1's and TSL's executables (the safe-location search)"
+see = "sim::install::stand_among"
+
+[jumps.party_m]
+name = "Party Arrival Search"
+type = "f32"
+value = 10.0
+unit = "m"
+range = [0.0, 100.0]
+summary = "Companions arriving in an area stand within {scripts.jumps.party_m:bare} meters of the arrival, with no walk back to it."
+source = "ours [verify in K1's executable]"
+see = "sim::install::stand_among"
+
+[jumps.ring_m]
+name = "Jump Search Step"
+type = "f32"
+value = 1.0
+unit = "m"
+range = [0.1, 10.0]
+summary = "The safe-location search tries square rings {scripts.jumps.ring_m:bare} meter apart around the mark."
+source = "K1's and TSL's executables (the safe-location search)"
+see = "sim::install::stand_among"
+
+[hooks]
+title = "Events the Engine Raises"
+summary = """
+A creature whose walk runs into a closed door hears its OnBlocked event as
+the door stops it, and again every {scripts.hooks.blocked_every_ms:s} while
+the door stays shut.
+"""
+applies = ["kind:creature"]
+
+[hooks.blocked_every_ms]
+name = "Blocked Again"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [100, 10000]
+summary = "A creature held at a closed door hears its OnBlocked event again every {scripts.hooks.blocked_every_ms:s}."
+source = "ours [verify the executable's retry]"
+see = "sim::world::scripts::scripts"

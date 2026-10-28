@@ -1,0 +1,37 @@
+# The Unknown World's dark way (K1), from the temple's summit: Bastila,
+# Malak's now, joined; the Jedi with the party fight; the field down; on
+# the beach Carth flees and Mission and Zaalbar, turned on, are fought;
+# the Ebon Hawk mended and away to the Star Forge. Branches off the light
+# route's checkpoint at the summit:
+#   kjk playthrough k1 @uw_summit data/routes/k1/unknown_world_dark.route --god
+say =yes! together we can rule the galaxy!
+say i like this side of you
+say i am the lord of the sith
+say death to the jedi
+to unk44_bastcs
+talk
+fight 30                 # the Jedi with the party turn on you
+talk
+save dk_bastila_joined
+use RakatCom             # the disruptor field and the temple's shield down
+talk
+if UNK_SHIELD_OFF=0       # the exit trigger's line took the computer's turn (a
+use RakatCom             # party member walked into it first): used again
+talk
+end
+exit unk44_tpllckdoor
+exit unk44_exitdoor
+exit unk41_goto41aad
+save dk_beach
+to unk41_goebon          # Carth runs; Mission won't swear, Zaalbar won't
+fight 30                 # turn on her: both fought
+if in unk_m41aa          # still ashore (the fight kept the party off):
+to newfight              # out of the way aboard and in again, its script
+to unk41_goebon          # running as one enters
+end
+module ebo_m41aa
+use Hyperdrive
+use ebo41_galaxymap
+travel 10
+module ebo_m12aa
+save dk_star_forge

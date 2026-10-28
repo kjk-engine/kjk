@@ -1,0 +1,23 @@
+[package]
+name = "session"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+asset_ja.workspace = true
+asset_odyssey.workspace = true
+collision.workspace = true
+collision_odyssey.workspace = true
+fmt_odyssey.workspace = true
+script_ncs.workspace = true
+sim.workspace = true
+rules.workspace = true
+store.workspace = true
+miniz_oxide.workspace = true
+lz4_flex.workspace = true
+
+[lints]
+workspace = true

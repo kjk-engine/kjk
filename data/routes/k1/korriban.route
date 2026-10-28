@@ -1,0 +1,221 @@
+# Korriban (K1, korr_m33aa Dreshdae, korr_m33ab the way to the academy,
+# korr_m35aa the Sith academy, korr_m36aa the Valley of the Dark Lords,
+# korr_m34aa the Shyrack cave, korr_m38ab Tulak Hord's tomb, korr_m39aa
+# Naga Sadow's): into the academy, prestige with Master Uthar (the Code,
+# the Mandalorian's cache, the runaway students, Lashowe's holocron, Jorak
+# Uln's tablet), then the final test in Naga Sadow's tomb. Starts from the
+# Leviathan route's checkpoint (the Ebon Hawk away, at Korriban):
+#   kjk playthrough k1 @lev_escaped data/routes/k1/korriban.route --god
+exit ebn12_ebonexit      # down the ramp: Dreshdae's landing pad
+save korriban
+to kor33_portauthor      # the port authority (the fee paid), the Sith
+to kor33_shaardan        # bully, Lashowe's three: scenes on the way
+to kor33_lashowe
+exit kor33a_kor33b       # out to the academy's door
+to kor33_mekel
+use kor33_mekel
+talk
+use k33_academyguard     # no medallion, no entry
+talk
+save kor_guard
+say sure you want to die # back in: the thugs (their leader's medallion)
+exit kor33b_kor33a
+to kor33_portauthor
+fight 20
+use k33b_sththuglead
+fight 20
+save kor_medallion
+exit kor33a_kor33b
+use k33_academyguard     # sent to Yuthura, in the cantina
+talk
+exit kor33b_kor33a
+say [lie]                # ready to join the Sith: a lie
+to kor33_yuthura
+use kor33_yuthura
+talk
+talk                     # the academy: Uthar's welcome
+save kor_academy
+to k35_init_yuthura      # Yuthura outside your room: her plot, the Code
+talk
+save kor_yuthura
+skill persuade=20        # a persuasive build (her Persuades, Lashowe's)
+if KOR_YUTHURA2=0              # Yuthura's past, in three talks before
+say =tell me about yourself.   # Uthar names the final test (then she only
+                               # barks): at the tomb she is talked round
+say =i'll be going.
+use kor35_yuthura
+talk
+end
+say you mentioned you were from sleheyron
+say [persuade] i just would like to know more
+say =i'll be going.
+use kor35_yuthura
+talk
+say how did you become a sith?
+say i'd really like to hear the tale.
+say [persuade] i just thought we could become friends
+say =i'll be going.
+use kor35_yuthura
+talk
+save kor_yuthura_past
+say i know the code      # Uthar's test of the Code (its true-or-false
+say =passion.            # question drawn here is the passion one)
+say =strength.
+say =power.
+say =victory.
+say my chains are broken
+say i'll be on my way
+use kor35_utharwynn
+talk
+save kor_code
+to kor35_torturer        # the interrogator's Mandalorian: the serums
+say activate the serum console
+say =[inject truth serum: high dosage.]
+say activate the serum console
+say =[apply anti-serum: small dosage.]
+say activate the serum console
+say =[inject truth serum: high dosage.]
+say tell me where your weapon cache is
+use kor35_torturecomp
+talk
+talk
+save kor_cache
+say mandalorian prisoner's weapon cache
+say trap door
+say i'll be on my way
+use kor35_utharwynn
+talk
+save kor_prestige2
+skill persuade=20        # a persuasive build (the default rolls and may fail
+use kor35_lashowe        # her two Persuades): Lashowe's holocron, the valley
+talk
+save kor_lashowe
+exit kor35_kor36         # the Valley of the Dark Lords
+fight 20
+save kor_valley
+to k36_init_lashowe      # the tuk'ata mother; the holocron: Lashowe
+talk                     # turns on you over it
+fight 25
+talk
+use kor36_lashowe        # her remains: the holocron
+save kor_holocron
+to k36_trg_k34           # the Shyrack cave: the runaway students
+fight 20
+to k34_init_thalia
+talk
+fight 20
+save kor_students
+exit k34_trg_k36
+exit kor36_kor38b        # Tulak Hord's tomb: Jorak Uln
+fight 20
+save kor_tomb
+say open the door
+use k38b_plc_console
+talk
+say he's a fine leader   # his questions answered so Mekel is spared
+say accept the reward and assist
+say i share it
+say give him another chance
+say i pass on my knowledge
+to kor38b_jorakuln       # the gas, his questions, his fight, Mekel
+fight 25                 # Jorak at once, Mekel at his side (paced as JA's
+                         # Jedi, Jorak outlasted a wait and killed Mekel), and
+                         # the valley's beasts come for Mekel (k_pkor_spn_dyana)
+wait 10s                 # (Mekel's word, when he has one)
+save kor_jorak
+use kor38b_jorakuln      # his tablet
+exit kor38b_kor36
+to k36_trg_shywyrm       # back up the valley (a long climb, in legs)
+exit kor36_kor35
+save kor_academy_back
+say renegade students    # the deeds told to Uthar
+say i found jorak uln
+say tablet written by jorak uln
+say i have found a jedi holocron
+say i'll be on my way
+use kor35_utharwynn
+talk
+save kor_prestige
+use kor35_utharwynn      # the final test: Naga Sadow's tomb (korr_m39aa),
+talk                     # alone; sometimes a night's rest first
+if KOR_START_FINAL=0     # (then, in the morning, Uthar again: to the tomb)
+use kor35_utharwynn
+talk
+end
+save kor_sadow
+fight 30
+# The rings' console (four systems to the right pillar, one at a time,
+# each only onto a pillar it may rest on): fifteen moves.
+say from the left pillar
+say =the middle pillar.
+say from the left pillar
+say =the right pillar.
+say from the middle pillar
+say =the right pillar.
+say from the left pillar
+say =the middle pillar.
+say from the right pillar
+say =the left pillar.
+say from the right pillar
+say =the middle pillar.
+say from the left pillar
+say =the middle pillar.
+say from the left pillar
+say =the right pillar.
+say from the middle pillar
+say =the right pillar.
+say from the middle pillar
+say =the left pillar.
+say from the right pillar
+say =the left pillar.
+say from the middle pillar
+say =the right pillar.
+say from the left pillar
+say =the middle pillar.
+say from the left pillar
+say =the right pillar.
+say from the middle pillar
+say =the right pillar.
+use k39_plc_pillcomp
+talk
+save kor_rings
+to kor39_rancor          # the rancors; the lever unlocks the far rooms
+fight 25
+use k_kor_openlever
+use k39_plc_coldpill     # the cold grenade
+save kor_coldgren
+say special cold grenade # the acid pool frozen
+to k39_trg_initacid
+talk
+save kor_ice
+use k39_door_starmap     # the Star Map, the last
+to k_kor_star_map
+talk
+use k39_sabersarc        # the Sith lightsaber
+save kor_starmap
+say you ask for mercy? you, a sith?   # Uthar's test turned: with Yuthura
+say i can't talk about that.          # against him; then she turns, yields,
+say you could come with me.           # and is talked out of the Sith (her
+say [persuade] maybe you need to      # past heard; a neutral's Persuade),
+say there's still time to change that. # leaving the tomb open
+to k39_trg_initacid
+fight 30
+talk
+fight 30
+save kor_exam
+exit kor39_kor36            # out through the valley and the academy
+to k36_trg_shywyrm
+exit kor36_kor35
+fight 30
+exit kor35_kor33b
+exit kor33b_kor33a
+save kor_dreshdae
+exit k33_trg_ebonhawk       # aboard
+use GalaxyMap               # the Star Maps' coordinates: the Unknown World
+travel 9
+talk
+talk
+turrets                  # m12ab: the fighters; the disruptor field, the crash
+talk                     # (played before the checkpoint: no save in a
+talk                     # minigame)
+save unknown_world

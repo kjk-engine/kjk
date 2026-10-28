@@ -1,0 +1,83 @@
+# Tatooine, the Sand People's war (K1): Czerka's bounty taken at its word,
+# the enclave fought through and its chieftain killed (his gaffi stick and
+# the Dune Sea's map off his body), then the krayt dragon, the Star Map and
+# Calo Nord's ambush as on the main route (which makes peace, HK-47
+# speaking). Starts from the main route's checkpoint in the docking bay:
+#   kjk playthrough k1 @tatooine data/routes/k1/tatooine_sand_war.route --god
+exit TatooineDoor2@2     # into Anchorhead (the first is the bay's inner door)
+exit TatooineTransition@3  # the Czerka office (tat_m17ag)
+say about hunting licenses # the hunting license: the Sand People's tribe
+say no way to get a license
+say i will agree
+say go get to it
+use tat17_10czerk_01
+talk
+save tsw_tat_license
+exit TatooineDoor1       # back into Anchorhead
+to tat17_darkjedi01      # Malak's dark Jedi waylay you on the way to the gate:
+fight 20                 # fought where they stand, not dragged on to the
+                         # gate (they cut its guard down)
+to tat17_11guard_01
+use tat17_11guard_01     # the gate's guard: the license
+talk
+module tat_m18aa         # the Dune Sea
+save tsw_dune_sea
+to AreaTransition        # the Sand People on the dunes by the way on (no
+fight 30                 # leaving in a fight)
+exit AreaTransition      # the Sand People's territory (tat_m18ab)
+to tat18_sandspeak       # the enclave's gate and its guards
+fight 25
+exit TatooineDoor3       # the Sand People's enclave (tat_m20aa)
+save tsw_sand_enclave
+fight 20
+to tat20_09chief_01      # the chieftain and his warriors
+fight 25
+use tat20_09chief_01     # his remains: his gaffi stick, the Dune Sea's map
+save tsw_chieftain
+use tat20_ragpile@5      # bantha fodder, by the enclave's banthas
+exit TatooineDoor3@6     # out, and on to the Eastern Dune Sea
+exit AreaTransition@2    # (the chieftain's map: tat_KraytMap, its acquire hook)
+say have your fodder     # Komad's plan: the banthas lured onto his mines
+say what i can do
+use tat18_11komad_01
+talk
+save tsw_komad
+to tat18_bantha1|tat18_bantha2|tat18_bantha3  # any of the herd (one may
+use tat18_bantha1|tat18_bantha2|tat18_bantha3 # wander out past the dune edge):
+                         # it smells the fodder and the herd follows; the Sand
+                         # People howl: their ambush
+talk
+fight 60                 # (they gather by the herd, out past 30 m)
+save tsw_banthas
+use tat18_bantha1|tat18_bantha2|tat18_bantha3 # no foe left near
+                         # (k_ptat_banthdlg): the banthas led
+talk                     # to the cave, the krayt dragon out onto Komad's mines
+use tat18_11komad_01     # Komad: the hunt done
+talk
+save tsw_krayt
+use k_tat_star_map       # the Star Map in the dragon's cave
+talk
+save tsw_tat_star_map
+to tat_ambush_spawns     # by the Star Map: Calo Nord's ambush set (k_trg_calonord2)
+to tat_test              # out at the cave's mouth: Calo and his hunters
+talk
+fight 30
+save tsw_calo
+# The dune edge's trigger is a band along the sand's rims that turns the
+# party back; a walk west hugs the north rim, so it crosses the open sand
+# by the banthas' patrol to the arrival beside the way out.
+to tat18_wp_player2      # down the canyon's middle
+to tat18_wp_player1
+to WP_tat18_bantha1_04
+to WP_tat18_bantha1_03
+to tat18aa_tat18ac
+exit AreaTransition@1    # back to the Dune Sea (tat_m18aa)
+exit AreaTransition@3    # Anchorhead (tat_m17aa)
+exit TatooineTransition@1  # the docking bay (tat_m17ab)
+exit EbonHawk            # aboard
+use GalaxyMap            # the galaxy map: Kashyyyk
+travel 5
+module stunt_00          # the vision (stunt_00),
+module ebo_m12aa         # landed: Bastila on the Star Map in the forest
+talk
+save tsw_kashyyyk

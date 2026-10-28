@@ -1,0 +1,21 @@
+[package]
+name = "ui"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "KOTOR's screens without an engine: layouts drawn into a draw list, focus, input and intents."
+
+[dependencies]
+serde.workspace = true
+fmt_odyssey.workspace = true
+asset_odyssey.workspace = true
+vfs.workspace = true
+
+[features]
+# The probes (`kjk <layer> probes`): checks, not the game.
+probes = []
+
+[lints]
+workspace = true

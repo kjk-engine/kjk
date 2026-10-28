@@ -1,0 +1,24 @@
+# The phases of K1 a player can load straight into: each line a checkpoint
+# the chain keeps and its save's title, in story order. `kjk chain k1`
+# writes them as saves k1-01, k1-02, ... (the main checkout always, a
+# worktree with --saves), loaded from the Load screen or `kjk --load k1-05`.
+# A new game is the Endar Spire. Method: docs/PLAYTESTS.md.
+taris_start     Taris: the Upper City
+lower_city      Taris: the Lower City
+undercity       Taris: the Undercity
+lower_sewers    Taris: the sewers
+vulkar_base     Taris: the Black Vulkar base
+vulkar_out      Taris: the swoop race
+bastila         Taris: Bastila freed
+sith_base       Taris: the Sith base
+sith_base_out   Taris: the escape
+dantooine       Dantooine
+tatooine        Tatooine
+kashyyyk        Kashyyyk
+manaan          Manaan
+leviathan       The Leviathan
+korriban        Korriban
+unknown_world   The Unknown World
+uw_temple       The Unknown World: the temple
+star_forge      The Star Forge
+dk_star_forge   The Star Forge, the dark side's way

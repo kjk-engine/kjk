@@ -1,0 +1,122 @@
+# The Leviathan (K1, lev_m40aa the prison block, lev_m40ab the command
+# deck, lev_m40ad the bridge, lev_m40ac the hangar): the party in cells,
+# Canderous (the rescuer the Ebon Hawk's scene picked) breaks them out, the
+# bridge and Admiral Karath, the docking bay doors, Malak in the hangar,
+# then away. Starts from the Manaan route's checkpoint (the Hawk taken
+# aboard):
+#   kjk playthrough k1 @leviathan data/routes/k1/leviathan.route --god
+talk                     # the Sith take the crew; the Admiral's questions,
+talk                     # the cells; seat 0 then drives Canderous
+save lev_cand            # (SwitchPlayerCharacter), dumped in the med bay
+use medlock              # the medical bay's lockers
+use medlock2
+to starguard             # the guard down the slope: the starboard cell
+fight 15                 # block's key on him
+use starguard
+save lev_key
+to SithComM              # the computer room's two technicians
+fight 15
+use PlstcCrt@3
+use lev40_cell08@2       # the Rodian's cell (the key): his Ice Breaker
+use LevRodian
+talk
+save lev_icebreaker
+say use the ice breaker  # the computer room's terminal: the detention area
+say access system commands
+say open detention area
+use BrigComputer@2
+talk
+save lev_detention
+say unlock aft holding cells  # the detention terminal: the party free
+use BrigComputer@1
+talk                     # who goes where: the bridge for the three, the
+talk                     # Hawk for the rest
+save lev_freed
+use lev40_ptylocker      # everything the capture took
+use lev40_bpack          # its pack: 5 computer spikes (the Ice Breaker's
+                         # lent ones go back as its talk ends), for the
+                         # command deck's panel
+equip
+equip g_w_lghtsbr01
+to lev40_barlocker       # the room at the cell corridor's far end: its
+fight 20                 # five guards, then its lockers' 3 computer spikes
+use lev40_barlocker      # (the Star Forge's droid generators take them)
+to lev40_candship        # Canderous calls from the hangar (heard out
+talk                     # before the lift's own talk)
+say bridge
+use plev_elevctrl
+talk
+module lev_m40ab         # the command deck
+save lev_bridge_deck
+fight 25
+to ComputerPanel         # its terminal: every security door open
+fight 20
+say slice the computer
+say access system commands
+say open all security doors
+use ComputerPanel
+talk
+save lev_security
+use lev40_armory@1       # the armory: the space suits
+fight 20
+use lev40_suitplc
+save lev_suit
+use FootLker1            # the storage room's footlocker: 3 computer spikes
+exit lev40_storage       # into the bridge module (lev_m40ad)
+save lev_storage
+use PartPile1
+use lev40_airlockin@2    # out of the ship in the suit (it takes the
+use lev40_airlockout@2   # weapons off) and along the hull
+to lev40_airlockout@1
+use lev40_airlockout@1
+use lev40_airlockin@1
+equip g_w_lghtsbr01      # back inside: the blade again
+fight 20                 # the elite soldiers
+save lev_elite
+use lev40_stddoor@1
+to lev40_bdgunlock
+use lev40_bdgdoor        # the bridge: Karath, his guards, two Dark Jedi
+talk
+fight 30
+talk                     # his last words to Carth
+save lev_karath
+say open docking bay doors
+use BridgeComputer
+talk
+save lev_bay_open
+fight 60                 # stray Sith back down the corridor (no leaving
+exit lev40_cmddoor       # in a fight)
+fight 20
+say hangar
+use plev_elevctrl
+talk
+if in lev_m40ab          # "You must gather your party": a straggling fight
+fight 40                 # holds a companion back (troopers at Carth, Bastila
+gather                   # down till it is over): fought, the party gathered,
+say hangar               # the lift again
+use plev_elevctrl
+talk
+end
+module lev_m40ac         # the hangar deck
+save lev_hangar
+fight 30
+use lev40_hngcntrla      # its opening unlocks the second door
+fight 30
+use lev40_hngcntrlb
+to lev_invis_malak_conv  # Malak: who you are
+talk
+save lev_malak
+talk
+fight 20                 # the first bout; he falls back behind a door
+save lev_malak2
+to lev40_testpush        # round by the north doors: its trigger unlocks
+use lev40_blastdoorf     # his room, its opening the second bout
+talk
+fight 20
+talk                     # Bastila holds him off; Carth: to the Hawk
+save lev_bastila
+to lev40_jumpebon        # the hangar: aboard
+talk
+turrets                  # m12ab: the Sith fighters, the gun manned
+module ebo_m12aa         # away: Carth, the vision
+save lev_escaped

@@ -1,0 +1,10 @@
+# Encounter overrides for the Starboard Section (I28; our own data, see
+# crates/session/src/encounters.rs; never written into the game install).
+#
+# I22's co-op variant (section 11): four Sith Troopers and a heavy trooper
+# near where Carth joins, then two Sith and a trooper further on. Its rule
+# holds for any number of players: each player past the first adds half
+# again of every hostile's maximum, and from three players one more
+# trooper stands with the four (beside the first of them).
+per_player hp x0.5
+add end_sith01 end_sith01_coop by 1.0 0.0 0.0 if players >= 3

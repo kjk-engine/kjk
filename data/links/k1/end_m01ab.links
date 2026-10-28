@@ -1,0 +1,8 @@
+# Links of our own over the module's (crates/session/src/links.rs).
+#
+# KOTOR seals the Starboard Section's door back to the Command Module
+# (end_door07 is locked and static): the story never goes back. This link
+# opens the way for playtests that go there and back, and only with
+# `kjk --playtest-links` (session::Overrides::playtest_links).
+# The door arrives by the corridor it leads to, at wp_player01.
+end_door07 end_m01aa wp_player01

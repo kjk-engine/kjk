@@ -1,0 +1,129 @@
+name: ci
+
+# Pushes to main and pull requests: Linux only. Windows and macOS and the
+# screenshot runs are in manual.yml, started by hand from the Actions tab.
+# The repo is on GitHub's free plan, whose monthly minutes are few (Windows
+# costs double, macOS ten times): docs-only changes do not run CI, a newer
+# push cancels the run it overtakes, and so does a pull request's closing
+# (merged or not), whose own run skips every job. Only main saves the
+# rust caches; a pull request reads main's and never leaves its own behind.
+# Only the build job links Bevy, and it runs on main alone: clippy checks
+# every crate without code generation, and the approved tests build the sim,
+# collision and net alone (docs/TESTS.md).
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Each job builds once: the release profile's incremental cache
+  # (Cargo.toml) would only slow it and fill the rust cache.
+  CARGO_INCREMENTAL: 0
+  # The sim must reach the same state on every platform (Decision 3): the
+  # approved test sim_determinism requires this hash, here and in
+  # manual.yml. Branches never edit it: a bump file says the sim moves, and
+  # the merge pins it (bumps/README.md, pin.yml); `git log --grep "Pinned
+  # at merge"` is its history.
+  KJK_SIM_HASH: 73d8312db0807ddc2c1df843b555390ecd4c098b1b1c5491e8f20a5dade91620
+
+jobs:
+  # The approved tests and clippy are jobs of their own, side by side:
+  # each ~5 minutes, where one after the other took ~10 before a pull
+  # request could merge. Their rust caches are their own (the job is in
+  # the key).
+  tests:
+    name: tests (ubuntu-latest)
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml pins the version; this installs it.
+      - name: Toolchain
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: publish-check
+        run: cargo xtask publish-check
+
+      # Every dependency's licence on deny.toml's list, from crates.io only.
+      - name: licences
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses bans sources
+
+      - name: fmt
+        run: cargo fmt --all -- --check
+
+      # Determinism, collision probes, movement measures, the network; no
+      # Bevy.
+      - name: approved tests
+        run: cargo test --release -p approved_tests
+
+  clippy:
+    name: clippy (ubuntu-latest)
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # Bevy's window crates want these to type-check; the sound device
+      # (cpal) wants ALSA's.
+      - name: Linux packages
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      # The game without the verbs that check and measure and the layers'
+      # probes (the `probes` feature, on by default).
+      - name: clippy (no probes)
+        run: cargo clippy -p launcher --all-targets --no-default-features -- -D warnings
+
+  # kjk itself (the launcher, which links Bevy), so a change that only
+  # breaks the link or the binary is caught; it starts and prints its help.
+  # On main alone: a Bevy build costs ~20 minutes cold.
+  build:
+    name: build kjk (ubuntu-latest)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: build
+
+      - name: Linux packages
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
+
+      - name: build
+        run: cargo build -p launcher
+
+      - name: kjk --help
+        run: ./target/debug/kjk --help

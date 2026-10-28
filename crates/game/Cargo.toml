@@ -1,0 +1,61 @@
+[package]
+name = "game"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The runtime kjk plays in: the Bevy app, its views and screens, the sim's host, sessions."
+
+# The library is `kjk_game`, so its logs read `kjk_game::…` beside the
+# binary's `kjk::…`.
+[lib]
+name = "kjk_game"
+path = "src/lib.rs"
+
+[dependencies]
+audio.workspace = true
+movie.workspace = true
+bevy.workspace = true
+vfs.workspace = true
+fmt_odyssey.workspace = true
+script_ncs.workspace = true
+store.workspace = true
+ui.workspace = true
+fmt_ja.workspace = true
+asset_odyssey.workspace = true
+asset_ja.workspace = true
+blake3.workspace = true
+console.workspace = true
+sim.workspace = true
+collision.workspace = true
+collision_odyssey.workspace = true
+ragdoll.workspace = true
+session.workspace = true
+rules.workspace = true
+net.workspace = true
+serde_json.workspace = true
+saves.workspace = true
+image.workspace = true
+tracing-chrome.workspace = true
+rfd.workspace = true
+
+[features]
+# Hosting and joining through Steam as well as by address (`net/steam`).
+steam = ["net/steam"]
+# The layers' probes, and the game's own (`probe_kit`, `minigame_bot`, the
+# views' checks) that `launcher`'s verbs and the approved tests run; off,
+# the game alone. `launcher`'s own `probes` turns it on.
+probes = [
+    "collision/probes",
+    "collision_odyssey/probes",
+    "net/probes",
+    "ragdoll/probes",
+    "saves/probes",
+    "script_ncs/probes",
+    "sim/probes",
+    "ui/probes",
+]
+
+[lints]
+workspace = true

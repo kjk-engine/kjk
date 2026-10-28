@@ -1,0 +1,6 @@
+(
+    events: [
+        (120, NamedScreenshot("kjk")),
+        (180, AppExit),
+    ],
+)

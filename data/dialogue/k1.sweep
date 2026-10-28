@@ -1,0 +1,22 @@
+# The runs `kjk dialogue sweep k1 MODULE` films a module's conversations
+# from: a line each, the module then `kjk play`'s flags that set its story
+# up (`--arrive TAG`, `--global NAME=N`, `--talk TAG`, `--made
+# CLASS:PORTRAIT`, `--party TEMPLATE`, `--item`, `--skill`) and `--seconds
+# N` (how long the run is stepped looking for conversations, 60 by
+# default). A module with no line is run once from its entry, its own
+# triggers starting what they do, with no party (the Endar Spire's Trask
+# is no party member).
+
+# Taris, the apartment: the wake-up asks for a player with a class and a
+# gender (k_pend_bedtal), as character creation makes one. Carth stands in
+# the module; nobody is in the party yet.
+tar_m02af --made soldier:po_pmhc1
+
+# Davik's estate: Canderous brings the party in (taris_escape: Canderous
+# forced, Carth).
+tar_m08aa --party p_cand --party p_carth
+
+# The Leviathan's hangar: the trigger before Malak's door has his
+# conversation object start the scene with the player (k_plev_malacs_en),
+# Carth and Bastila with it (leviathan: the party out of the cells).
+lev_m40ac --talk lev_invis_malak_conv --party p_carth --party p_bastilla
