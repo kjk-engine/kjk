@@ -220,6 +220,10 @@ struct Step<'a> {
     /// What the party's blades may bash (`objects`): each door's or
     /// placeable's number among the level's entities, and its id.
     bashable: Vec<(u32, SimId)>,
+    /// The pick volumes (metres) of the placeables among them: what a
+    /// blade meets of one with no brushes of its own (a locker, a
+    /// footlocker), as a fist or a bolt does.
+    bashable_bodies: Vec<Body>,
     history: &'a History,
 }
 
@@ -301,6 +305,11 @@ pub(super) fn sabers(
         placed: Vec::new(),
         bodies: None,
         bashable: super::objects::bashable(placed.iter()),
+        bashable_bodies: super::objects::bodies(
+            placed
+                .iter()
+                .filter(|(_, object)| object.kind == crate::module::ObjectKind::Placeable),
+        ),
         history: &history,
     };
     step.pose();
@@ -667,7 +676,10 @@ impl Step<'_> {
 
     /// A party member's blade through a door or placeable that may be
     /// bashed (`objects`), JA's way: each segment meeting its collision is
-    /// a contact of the swing, worth as a cut through a body is.
+    /// a contact of the swing, worth as a cut through a body is; a
+    /// placeable's pick volume where it meets that first, before any wall
+    /// (a locker or a footlocker has no brushes: a fist and a bolt meet
+    /// that volume too).
     fn bash(&mut self, a: usize, segments: &[sweep::Segment], half: f32) {
         if self.bashable.is_empty() {
             return;
@@ -679,10 +691,19 @@ impl Step<'_> {
                 .filter(|_| met.fraction < 1.0)
                 .and_then(|entity| {
                     (self.bashable.iter()).find_map(|&(at, id)| (at == entity).then_some(id))
-                });
-            if let Some(object) = struck {
+                })
+                .map(|id| (id, met.fraction));
+            let picked = || {
+                (self.bashable_bodies.iter())
+                    .filter_map(|body| {
+                        let fraction = sweep::enters(segment, body, half)?;
+                        (fraction < met.fraction).then_some((SimId(body.entity & !BODY), fraction))
+                    })
+                    .min_by(|x, y| x.1.total_cmp(&y.1))
+            };
+            if let Some((object, fraction)) = struck.or_else(picked) {
                 let direction = blades::toward(segment.from, segment.to).unwrap_or([0.0; 3]);
-                let (worth, point) = (segment.worth(met.fraction), segment.at(met.fraction));
+                let (worth, point) = (segment.worth(fraction), segment.at(fraction));
                 self.men[a]
                     .f
                     .swing

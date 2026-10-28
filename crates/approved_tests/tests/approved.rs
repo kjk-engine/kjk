@@ -927,17 +927,20 @@ fn use_actions() {
 /// the player's blow on the locked gate takes off what it is worth less the
 /// gate's hardness and raises its `OnDamaged` with the player as damager;
 /// a creature outside the party hurts nothing; nor does a weapon on what is
-/// not locked, is plot, or out-hards it; a script's damage hurts what is
-/// not plot; Min1HP holds at 1; the gate's hit points gone, it breaks open,
-/// unlocked, its `OnDeath` raised, and neither closes nor takes more; a
-/// grenade blast's hit breaks a locked safe; a creature whose heartbeat
-/// asks `DoDoorAction(…, DOOR_ACTION_BASH)` breaks a locked box beside it;
-/// the player holding attack at the locked gate breaks it with its blaster
-/// and, empty-handed, with its fists (the sim's own shots and punches); the
+/// not locked, is plot, or out-hards it, though the one it out-hards hears
+/// it was attacked (`OnMeleeAttacked`, not `OnDamaged`); a script's damage
+/// hurts what is not plot; Min1HP holds at 1; the gate's hit points gone,
+/// it breaks open, unlocked, its `OnDeath` raised, and neither closes nor
+/// takes more; a grenade blast's hit breaks a locked safe; a creature whose
+/// heartbeat asks `DoDoorAction(…, DOOR_ACTION_BASH)` breaks a locked box
+/// beside it; the player holding attack at the locked gate breaks it with
+/// its blaster, empty-handed with its fists, and with a stun baton (the
+/// sim's own shots and punches); a baton with Door Cutting (TSL's plasma
+/// torch) breaks a gate of hardness 100 a plain baton leaves whole; the
 /// state round-trips; two runs end the same. The sim alone.
 #[test]
 fn bash_doors() {
-    probed("bash", &sim::objects::probes(), 14);
+    probed("bash", &sim::objects::probes(), 17);
 }
 
 /// Placeables' looks and the visuals on objects (proposed 2026-10-06, the

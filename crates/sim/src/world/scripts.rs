@@ -1016,11 +1016,14 @@ pub(super) fn scripts(
         raise_by(&view, state, object, Hook::Unlock, None, by);
     }
     // Doors and placeables struck: attacked in melee (its striker's weapon
-    // kept), damaged, and dying when they broke.
+    // kept), damaged where the blow told, and dying when they broke.
     for &(object, by, lost, broke) in &battered.0 {
         state.last.insert((object.0, script::last::ATTACKER), by.0);
         struck_with(state, by.0);
         raise(&view, state, ObjectId(object.0), Hook::Attacked, None);
+        if lost == 0 {
+            continue;
+        }
         state.last.insert((object.0, script::last::DAMAGER), by.0);
         state
             .last

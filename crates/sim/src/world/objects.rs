@@ -24,9 +24,13 @@
 //!   refuses to close it again); a placeable that holds things opens, any
 //!   other dies (its look, `snapshot::look`), as KOTOR's executable has it.
 //!
+//! - A weapon with TSL's Door Cutting (the plasma torch) takes all its hit
+//!   points at a blow, whatever its hardness.
+//!
 //! What it did is the scripts' (`Battered`, raised in `world::scripts`):
-//! `OnDamaged` with `GetLastDamager`, and on breaking `OnDeath` with
-//! `GetLastKiller`.
+//! `OnMeleeAttacked` with `GetLastAttacker` on every weapon's blow, one
+//! its hardness turned whole too; `OnDamaged` with `GetLastDamager` on one
+//! that told, and on breaking `OnDeath` with `GetLastKiller`.
 
 use bevy_ecs::prelude::*;
 
@@ -37,6 +41,7 @@ use super::{
     Streams,
 };
 use crate::combat::damage::{self, Blow, Relation, Source};
+use crate::combat::gear::weapon_traits;
 use crate::combat::sheet::Delivery;
 use crate::combat::sheet::{DAMAGE_TYPES, Guards};
 use crate::combat::{Location, Sheet};
@@ -169,8 +174,8 @@ pub(super) fn middle(body: &Body) -> [f32; 3] {
 }
 
 /// What blows did to doors and placeables this step, for the scripts: the
-/// object, who struck it, the whole hit points it lost, and whether it
-/// broke.
+/// object, who struck it, the whole hit points it lost (none for a
+/// weapon's blow its hardness turned), and whether it broke.
 #[derive(Resource, Default)]
 pub(crate) struct Battered(pub Vec<(SimId, SimId, u16, bool)>);
 
@@ -334,13 +339,25 @@ pub(super) fn objects(
             &mut streams.authority,
         );
         let worth = match source {
+            // TSL's Door Cutting (the plasma torch): a hit takes all its
+            // hit points, whatever its hardness.
+            Source::Weapon { weapon, .. } if weapon.traits & weapon_traits::DOOR_CUTTING != 0 => {
+                object
+                    .state
+                    .hit_points(&facts)
+                    .map_or(0, |(now, _)| now.max(0))
+                    * 100
+            }
             Source::Weapon { .. } | Source::Blast { .. } => {
                 assessed.damage.saturating_mul(BASH_TIMES)
             }
             _ => assessed.damage,
         };
         let (lost, broke) = land(&facts, &mut object.state, worth);
-        if lost == 0 {
+        // A weapon's blow that its hardness turned is an attack still: its
+        // `OnMeleeAttacked` runs (TSL's Peragus med bay door barks for a
+        // plasma torch), its `OnDamaged` not.
+        if lost == 0 && !matches!(source, Source::Weapon { .. }) {
             continue;
         }
         if broke {
