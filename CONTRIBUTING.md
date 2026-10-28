@@ -6,7 +6,7 @@ in the repository, by hand or with an agent of their own.
 
 ## Getting started
 
-1. Build and run it as [`README.md`](README.md) says ("Install").
+1. Build and run it as [`README.md`](README.md) says ("Development").
 2. Install the pre-commit hook, once per clone:
 
    ```bash
