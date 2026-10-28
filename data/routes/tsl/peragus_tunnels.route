@@ -13,10 +13,8 @@ use MilLowPlstcCylin # the supply barrel: miner's uniform, survey gear,
 equip                # (Atton's comm on the way in: advice only)
 use LowBroknDrd@3    # the broken droids by the first fuel pump
                      # (the second dead end's droid stays behind its sealed door)
-# BLOCKER (engine, 2026-10-28): from the first fuel pump no way is found
-# up the hallway past the damaged mining droid into the cave ("island 0:
-# every way shut"); stood in for by a move to the central console.
-goto 102per WP_SHFTCON_PC_JMP
+fight 30             # up the last hallway past the damaged mining droid
+                     # and through the cave's droids
 say access fuel containment functions # the containment console: the
 say shut down containment fields # fields down, the way out open
 say log out
