@@ -923,7 +923,8 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     let mut absent = false;
                     // A target there that cannot answer the goal as it is
                     // placed (an unlock of a thing not locked, a use of a
-                    // placeable not useable), hopeless as `absent` is: the
+                    // placeable not useable; an open door answers an unlock),
+                    // hopeless as `absent` is: the
                     // Harbinger's engine-deck route named the first of seven
                     // `MilLowFootLker`, a bare prop, and waited out its
                     // goal's time walking about it.
@@ -1197,7 +1198,8 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     match goal {
                                         Goal::Unlock(..)
                                             if matches!(data.kind, ObjectKind::Door | ObjectKind::Placeable)
-                                                && !state.locked(data.opens) =>
+                                                && !state.locked(data.opens)
+                                                && !(data.kind == ObjectKind::Door && state.state != 0) =>
                                         {
                                             Some("it is not locked (Security on it is refused)")
                                         }
