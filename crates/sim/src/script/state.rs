@@ -1499,6 +1499,10 @@ fn encode_action(out: &mut Writer, action: &Action) {
             out.u8(11);
             out.u32(talk.unwrap_or(u32::MAX));
         }
+        Action::Pause { talk } => {
+            out.u8(PAUSE);
+            out.u32(talk.unwrap_or(u32::MAX));
+        }
         Action::Talent { talent, target } => {
             out.u8(7);
             encode_use(out, Some(*talent));
@@ -1531,6 +1535,8 @@ fn encode_action(out: &mut Writer, action: &Action) {
 /// numbers, apart from the rest).
 const BARK: u8 = 43;
 const FOLLOW_OWNER: u8 = 57;
+/// A queued pause's code in a save.
+const PAUSE: u8 = 58;
 
 fn decode_action(input: &mut Reader) -> Result<Action, DecodeError> {
     let at = input.at();
@@ -1593,6 +1599,9 @@ fn decode_action(input: &mut Reader) -> Result<Action, DecodeError> {
             asker: optional_id(input)?,
         },
         11 => Action::Hold {
+            talk: optional_talk(input)?,
+        },
+        PAUSE => Action::Pause {
             talk: optional_talk(input)?,
         },
         7 => {

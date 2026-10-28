@@ -1,0 +1,7 @@
+# The sim's hash moves on purpose: a conversation pause keeps its place in
+# its caller's queue, and a queue cleared before it reached the front drops
+# it (Citadel Station's Czerka men, `a_czerkaint`).
+sim = "a conversation pause cleared from its caller's queue before it ran is dropped"
+
+[formats]
+save = "a queued conversation pause (`Action::Pause`, its conversation)."

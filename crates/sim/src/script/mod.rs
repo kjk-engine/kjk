@@ -2776,6 +2776,8 @@ impl Step<'_> {
                         self.resume(who, talk);
                         true
                     }
+                    // Its pause held since the script asked for it.
+                    Action::Pause { .. } => true,
                     Action::FollowOwner { .. } if player => true,
                     // Held while its owner is near (or it has none); farther,
                     // a run there and the follow again behind what waits,

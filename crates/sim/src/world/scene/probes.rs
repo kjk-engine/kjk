@@ -96,6 +96,7 @@ const PROBES: &[Probe] = &[
     ("wait_camera_clip_holds", wait_camera_clip_holds),
     ("pause_is_immediate", pause_is_immediate),
     ("pause_behind_actions", pause_behind_actions),
+    ("pause_cleared_with_its_queue", pause_cleared_with_its_queue),
     ("unskippable_line", unskippable_line),
     ("alien_speech", alien_speech),
     ("play_animation_lengths", play_animation_lengths),
@@ -229,6 +230,8 @@ vector Vector(float x=0.0f, float y=0.0f, float z=0.0f);
 location Location(vector vPosition, float fOrientation);
 // 20
 object CreateObject(int nObjectType, string sTemplate, location lLocation, int bUseAppearAnimation=FALSE);
+// 21
+void ClearAllActions();
 "#;
 
 /// The `ANIMATION_…` constants the probes play: a looping talk, a looping
@@ -283,7 +286,8 @@ fn tagged(tag: &str) -> [Op; 3] {
 ///   conversation's lock-orientation and head-follow lock lists;
 /// - `probe_pause` pauses its caller's conversation, waits 3 s and resumes
 ///   it; `probe_pause_late` waits 2 s first, then pauses, waits 1 s more and
-///   resumes;
+///   resumes; `probe_pause_cleared` pauses, queues the resume and clears
+///   its own queue;
 /// - `probe_bow_fast` bows at speed 2 and `probe_victory` cheers
 ///   (`ActionPlayAnimation`, fire and forget), `probe_talk_3s` talks for
 ///   3 s, `probe_talk_on` waits 1 s and talks on and on (a duration of −1),
@@ -340,6 +344,7 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
     let wait = |seconds| [Op::Const(Const::Float(seconds)), call(10, 1)];
     let pause = program(&[&[call(9, 0)][..], &wait(3.0), &[call(11, 0)]].concat());
     let pause_late = program(&[&wait(2.0)[..], &[call(9, 0)], &wait(1.0), &[call(11, 0)]].concat());
+    let pause_cleared = program(&[call(9, 0), call(11, 0), call(21, 0)]);
     let play = |animation: u16, speed, seconds| {
         [
             Op::Const(Const::Float(seconds)),
@@ -407,6 +412,7 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_lock_head", lock(8)),
             ("probe_pause", pause),
             ("probe_pause_late", pause_late),
+            ("probe_pause_cleared", pause_cleared),
             ("probe_bow_fast", program(&play(BOW, 2.0, 0.0))),
             ("probe_victory", program(&play(VICTORY, 1.0, 0.0))),
             ("probe_talk_3s", program(&play(TALK, 1.0, 3.0))),
@@ -2929,6 +2935,20 @@ fn pause_behind_actions() -> Found {
     check(
         seen == [(false, true), (true, false)],
         format!("(played, paused) at 2.5 s and 3.4 s: {seen:?}"),
+    )
+}
+
+/// The pause keeps its place in the caller's queue: the talker's line
+/// pauses, queues its resume and clears its own queue before either ran
+/// (Citadel Station's Czerka men, `a_czerkaint`, clear theirs to walk in):
+/// the pause went with the queue, as the executables' queued pause would
+/// never have run, and the line (1350 ms, a skip sent at 300 ms) has played
+/// by 2 s, not held for good.
+fn pause_cleared_with_its_queue() -> Found {
+    let seen = after_pause("probe_pause_cleared", &[2000])?;
+    check(
+        seen == [(true, false)],
+        format!("(played, paused) at 2 s: {seen:?}"),
     )
 }
 
