@@ -43,6 +43,10 @@ are next in [`ROADMAP.md`](ROADMAP.md)) and finished platform releases (the
 player's build and its first-run setup are in, [`docs/RELEASE.md`](docs/RELEASE.md)). Co-op has been
 played between two machines.
 
+**Before reporting a bug**, read [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md):
+janky cutscenes, unfinished menus, odd-looking bodies, approximate
+collision, combat rules still in flux, and how much has been played by hand.
+
 ## Install
 
 Two ways, both needing your own installs of the games (below):
@@ -157,6 +161,7 @@ Fighting in detail: [`docs/COMBAT.md`](docs/COMBAT.md).
 | `docs/` | how each part works and how to run it ([`docs/INDEX.md`](docs/INDEX.md)) |
 | `ROADMAP.md` | goals, principles, decisions, where it stands and what is next |
 | `QUIRKS.md` | reference behaviour reproduced on purpose, bugs included |
+| `KNOWN-ISSUES.md` | what is known to be broken or unfinished, so it need not be reported |
 
 ## Working on it
 

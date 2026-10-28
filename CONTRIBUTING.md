@@ -133,7 +133,8 @@ merge into `main`.
 
 ## Bug reports
 
-A useful report contains:
+Check [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md) first; what is listed there is
+known. A useful report contains:
 
 * the commit;
 * OS and GPU;
