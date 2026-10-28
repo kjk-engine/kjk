@@ -142,6 +142,7 @@ pub fn run(options: RunOptions) -> AppExit {
             }),
             ..default()
         }))
+        .add_plugins(crate::window_icon::WindowIconPlugin)
         .insert_resource(CaptureTarget::PrimaryWindow);
     }
     laps.lap("engine (window, render device)");

@@ -1,0 +1,3 @@
+// kjk.exe's icon (Explorer, the taskbar), rendered from docs/logo/kjk.svg
+// by `cargo xtask icon`.
+1 ICON "kjk.ico"

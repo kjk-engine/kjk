@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo/kjk.svg" alt="kjk" width="160"></p>
+
 # kjk
 
 A standalone game runtime in Rust (Bevy and wgpu) that plays the worlds,

@@ -41,9 +41,12 @@ The app's `Info.plist` carries the release tag's numbers (`v0.2.1` is
 0.2.1), 0.0.0 on a build that is not a release.
 `THIRD-PARTY-LICENSES.html` is written by `cargo about` (`about.toml`,
 `about.hbs`; `cargo install --locked cargo-about --features cli`), for
-the crates the player's build is made of. The macOS app's icon is drawn
-by `xtask` itself (`xtask/src/icon.rs`, made into an `.icns` by
-`iconutil`): our own design, no game's art.
+the crates the player's build is made of. The icons are the logo,
+`docs/logo/kjk.svg` (our own design, no game's art), rendered by `xtask`
+(`xtask/src/icon.rs`): the macOS app's as it packs (made into an
+`.icns` by `iconutil`); `kjk.exe`'s (`crates/launcher/kjk.ico`, built in
+through `kjk.rc`) and the window's (`crates/game/icon.png`) are kept in
+the repo and rendered again by `cargo xtask icon` when the logo changes.
 
 Sizes, macOS arm64 (2026-10-27):
 
