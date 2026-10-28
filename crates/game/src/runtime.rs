@@ -70,10 +70,16 @@ pub fn run(options: RunOptions) -> AppExit {
         }
     };
     eprintln!("run folder: {}", folder.display());
+    crate::crash::install_hook(folder.clone(), crate::crash::facts());
+    let player = crate::crash::PlayerRun::of(options.headless, &options.script);
+    if player.0 {
+        crate::crash::mark(&folder, crate::crash::PLAYER);
+    }
 
     let games = std::thread::spawn(options.games);
     let mut app = App::new();
     app.insert_resource(RunFolder(folder.clone()))
+        .insert_resource(player)
         .insert_resource(Manifest(serde_json::json!({
             "run": folder.file_name().map(|name| name.to_string_lossy().into_owned()),
             "git": env!("KJK_GIT_SHA"),
@@ -256,9 +262,13 @@ pub fn run(options: RunOptions) -> AppExit {
         crate::launch_times::LaunchTimesPlugin,
     ))
     .add_systems(Startup, (log_render_adapter, write_manifest).chain());
+    if menu {
+        app.add_systems(Startup, crate::crash::notice);
+    }
     laps.lap("game plugins");
     crate::launch_times::mark("app built");
     let exit = app.run();
+    crate::crash::mark(&folder, crate::crash::ENDED);
     if let Ok(games) = games.join() {
         add_games(&folder.join("manifest.json"), games);
     }
@@ -372,19 +382,12 @@ pub fn runs() -> PathBuf {
 }
 
 /// A player's build's oldest runs removed, so `keep` are left beside the
-/// one about to be made. Their names sort by their start.
+/// one about to be made, and the recent crashes (`crash::kept`). Their
+/// names sort by their start.
 fn prune_runs(runs: &Path, keep: usize) {
-    let Ok(entries) = std::fs::read_dir(runs) else {
-        return;
-    };
-    let mut folders: Vec<PathBuf> = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir())
-        .collect();
-    folders.sort();
-    let old = folders.len().saturating_sub(keep);
-    for folder in &folders[..old] {
+    let folders = crate::crash::run_folders(runs);
+    let kept = crate::crash::kept(folders.clone(), keep, SystemTime::now());
+    for folder in folders.iter().filter(|folder| !kept.contains(folder)) {
         let _ = std::fs::remove_dir_all(folder);
     }
 }
@@ -458,6 +461,10 @@ fn log_render_adapter(adapter: Res<RenderAdapterInfo>, mut facts: ResMut<DumpFac
         driver = %adapter.driver_info,
         "render adapter"
     );
+    crate::crash::set_adapter(&format!(
+        "{} {:?} ({})",
+        adapter.name, adapter.backend, adapter.driver_info
+    ));
     facts.0.insert(
         "render_adapter".into(),
         serde_json::json!({

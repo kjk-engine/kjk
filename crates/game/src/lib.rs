@@ -25,6 +25,7 @@ pub mod arena;
 mod armory;
 mod bark_view;
 pub mod battle_music;
+pub mod crash;
 mod blade_fx;
 mod blaster_view;
 mod body_marks;

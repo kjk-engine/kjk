@@ -134,7 +134,11 @@ use clap::{Parser, Subcommand};
 use vfs::{DirIndex, Game, Source};
 
 #[derive(Parser)]
-#[command(name = "kjk", about = "kjk: KOTOR worlds with Jedi Academy combat")]
+#[command(
+    name = "kjk",
+    about = "kjk: KOTOR worlds with Jedi Academy combat",
+    version = concat!(env!("KJK_VERSION"), " (", env!("KJK_GIT_SHA"), ")")
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,

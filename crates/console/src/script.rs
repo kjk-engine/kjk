@@ -57,6 +57,8 @@ pub enum Command {
     ClipAt(f64),
     /// Ends the run with success.
     Quit,
+    /// Panics, to prove what a crash leaves in the run's folder.
+    Crash,
 }
 
 /// A video of `frames` screenshots.
@@ -154,6 +156,7 @@ impl fmt::Display for Command {
             Command::Clip => f.write_str("clip"),
             Command::ClipAt(ms) => write!(f, "clip at {ms} ms"),
             Command::Quit => f.write_str("quit"),
+            Command::Crash => f.write_str("crash"),
         }
     }
 }
@@ -247,6 +250,7 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
                 file_stem(name).ok_or_else(|| error("names use letters, digits, '-' and '_'"))?,
             ),
             ("quit", []) => Command::Quit,
+            ("crash", []) => Command::Crash,
             ("ui", words) if !words.is_empty() => {
                 Command::Ui(words.iter().map(|word| word.to_string()).collect())
             }
@@ -342,7 +346,7 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
                 continue;
             }
             ("clip", _) => return Err(error(CLIP_USAGE)),
-            ("screenshot" | "dump" | "quit", _) => return Err(error("too many arguments")),
+            ("screenshot" | "dump" | "quit" | "crash", _) => return Err(error("too many arguments")),
             _ => return Err(error("unknown command")),
         };
         commands.push(command);

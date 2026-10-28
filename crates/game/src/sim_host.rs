@@ -1657,6 +1657,20 @@ fn advance(
             break;
         }
     }
+    // Where the play is, for a crash's report.
+    let (last, module) = (&authority.last, authority.world.level().name());
+    crate::crash::note(|crumbs| {
+        crumbs.tick = last.tick;
+        if crumbs.module != module {
+            module.clone_into(&mut crumbs.module);
+        }
+        let talk = last.talk.conversations.first();
+        if crumbs.conversation.as_ref().map(|(dialog, entry)| (dialog.as_str(), *entry))
+            != talk.map(|talk| (talk.dialog.as_str(), talk.entry))
+        {
+            crumbs.conversation = talk.map(|talk| (talk.dialog.clone(), talk.entry));
+        }
+    });
     // The views blend the frame's last two snapshots; the rest they read
     // from the list (all of them shared, none copied).
     let (previous, newest) = match &presented.1[fresh..] {
