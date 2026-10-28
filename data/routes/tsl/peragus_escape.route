@@ -1,0 +1,49 @@
+# Peragus, the escape (TSL, 103PER, 106PER to the Ebon Hawk): T3-M4 found
+# in the fuel pipe and rejoining, the concealed stash's Hangar 25 control
+# conduit, the emergency field shut down, the hangar's console (the
+# conduit replaced, the door open), the decontamination console, and
+# aboard the Ebon Hawk: the Sith boarders fought, the asteroid field
+# (keep our distance, someone may be alive: LSP), the escape, Kreia and
+# Atton. Starts from the Harbinger's checkpoint:
+#   kjk playthrough tsl @peragus_escape data/routes/tsl/peragus_escape.route --god
+# Walkthrough: DSimpson's "Escape from Peragus" (context/walkthroughs/tsl/).
+to WP_T3_DEAD          # T3 in the fuel pipe: he talks as the party comes up
+say Don't blame yourself # (+INF), and rejoins
+talk
+use OddCase          # the concealed stash: the Hangar 25 control conduit
+fight 30             # droids beyond the door
+say Shut down emergency field # the emergency field station: the exit
+say =Log out.        # ramp's field down
+use EmerStation
+talk
+fight 30             # the four droids where T3 was ambushed
+exit To_106PER       # up the ramp and right: into the hangar bay
+fight 30             # droids all the way back to the hangar controls
+leader 8             # T3 at the hangar console (DSimpson): the emergency
+say emergency control commands # controls, [Repair] the diagnostic,
+say run diagnostic   # [Computer] the sub-systems, the door to Hangar 25
+say check status of emergency # tried, the conduit replaced: the door
+say Open blast door to Hangar 25 # opens
+say Replace hangar control power conduit
+use HangarTer
+talk
+leader player
+fight 30             # droids down the curved halls and the mined ramps
+leader 8             # T3 at the decontamination console ([Computer]):
+say Slice the system # the console sliced, the decontamination shut down,
+say Access remote camera controls # the chamber opened
+say Decontamination Chamber
+say Attempt to shut down the decontamination system
+say Return to main console functions
+say Open decontamination chamber
+use DecCon
+talk
+leader player
+save peragus_hangar25
+leader 8             # past the chamber, T3 picks the low security door
+unlock PeragusDoor1@8 # (DC 25) into the room before the hangar
+leader player
+# Through the formerly poisonous room to Hangar 25 and the Ebon Hawk:
+# Atton wants the laser turret (DSimpson lets the troopers board and
+# fights them inside).
+exit TO_107PERm      # up the ramp: aboard

@@ -1,0 +1,70 @@
+# Peragus, the administration level again and the Harbinger (TSL, 101PER,
+# 151HAR to 153HAR): Kreia rejoins, Atton, HK-50 fought (the HK
+# vocabulator), the Harbinger: Kreia's influence (light), the bridge's
+# navicomputer sliced for the drift charts, the crew quarters, the engine
+# deck: Atton's bad feeling, Sion and Kreia, the maintenance doors and the
+# ion engines, out through the fuel pipe. Starts from the dormitories':
+#   kjk playthrough tsl @peragus_admin_again data/routes/tsl/peragus_harbinger.route --god
+# Walkthroughs: DSimpson's "The Administration Level Again", "Harbinger",
+# "Harbinger Crew Quarters", "Engine Deck, Harbinger"; GameBanshee's
+# (context/walkthroughs/tsl/).
+to WP_KREIA_SPAWN2    # forward from the turbolift: the door opens, Kreia
+say Then let's go    # rejoins
+talk
+gather
+fight 30             # Sith assassins following
+to tr_atton_see_hk   # on to Atton; HK-50 stops the party's flight and
+                     # admits the miners' deaths
+fight 30             # HK-50 and his four floating mines
+use HK50             # his remains: the HK vocabulator
+exit 151HARDoor      # up the ramp to the Harbinger
+# The Harbinger's command deck: Atton and Kreia argue; respect Kreia (+INF).
+say Forgive me, Kreia
+talk
+fight 30
+leader 0             # Atton at the navicomputer ([Computer], a spike):
+say Slice the navicomputer # the drift charts downloaded
+say Download the orbital drift charts
+say Log out
+use NavcomI
+talk
+fight 30             # Sith assassins in the halls
+unlock Hammerhead1@1 # back by the boarding ramp, the low security door
+unlock Hammerhead1@8 # (Atton's Security), and the next one
+leader player
+exit To_152HAR       # the crew quarters (open with the charts)
+use PCDoor           # the Exile's room: the armband, the datapad
+fight 30
+say Insert datapad   # the medical bay's console: the datapad inserted (the
+say Identify kolto tank # Exile was drugged here too), the tank identified
+say =Log out.
+use MedCon
+talk
+exit Door_To_153HAR  # the turbolift down to the engine deck
+# The engine deck: Atton's bad feeling (+INF: what's wrong, be careful);
+# Sion behind, Kreia seals the door and stays to fight him.
+say What's wrong
+say We'll have to be careful
+talk
+to Sion_Spawn        # on toward the intersection: Sion comes up behind,
+talk                 # Kreia seals the door and stays
+leader 0             # Atton slices the maintenance control: the doors to
+unlock Hammerhead1@4 # the low security door to the maintenance room
+say Slice the maintenance control system # the ion engines
+say Open maintenance doors
+say Log out
+use MainCon
+talk
+unlock Hammerhead1@3 # up the hall, the other low security door: a
+                     # footlocker of components and a workbench
+# BLOCKER (engine, 2026-10-28): `unlock MilLowFootLker@1` (DC 18) is never
+# reached: the walk stops 1.4 m off, making for a point inside it.
+leader player
+say Activate Engine Maintenance Procedure # the main ion engine control
+use EngCom
+talk
+say Atton, you need to trust me # through the next door Atton balks at the
+to AttonFuelBanter   # fuel pipe (LSP); Kreia and Sion
+talk
+exit TO_103PER       # through the fuel pipe, back into the fuel depot
+save peragus_escape
