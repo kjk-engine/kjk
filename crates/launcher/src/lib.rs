@@ -427,10 +427,26 @@ enum StoreVerb {
     Check,
 }
 
+/// The command line, parsed on a thread of its own. Unoptimised, clap's
+/// derive builds each subcommand tree in one frame, and they nest: `Command`
+/// (~450 KB) holds `Verb` (~500 KB), which holds `ScriptVerb` (~450 KB).
+/// That overflows Windows' 1 MB main thread before anything prints; macOS and
+/// Linux give the main thread 8 MB. Release frames are a fraction of that.
+fn parse_cli() -> Cli {
+    const STACK: usize = 8 << 20;
+    std::thread::Builder::new()
+        .name("cli".into())
+        .stack_size(STACK)
+        .spawn(Cli::parse)
+        .expect("the command line's thread starts")
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+}
+
 /// Parses the command line and runs what it asks for.
 pub fn run() -> ExitCode {
     launch_times::start();
-    let cli = Cli::parse();
+    let cli = parse_cli();
     let size = cli.size.unwrap_or(scene::HEADLESS_SIZE);
     if cli.playtest_links {
         lifecycle::open_playtest_links();
