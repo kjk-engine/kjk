@@ -3,8 +3,8 @@
 //! buttons by place, top to bottom, whatever the layout named them for
 //! (new game, load, movies, music, options): Solo, Host, Join, Options,
 //! Exit. Every other button and list (exit, more games, a mod's, the
-//! developers' warp, the module list) is hidden, as is the
-//! downloadable-content notice; Back does nothing here.
+//! developers' warp, the module list) is hidden; the downloadable-content
+//! notice shows the build. Back does nothing here.
 
 use fmt_odyssey::gui::Control;
 
@@ -32,7 +32,7 @@ const ENTRIES: [(&str, &str, Option<&str>); 5] = [
     ("BTN_OPTIONS", strings::EXIT, None),
 ];
 
-/// The downloadable-content notice, hidden with the controls not bound.
+/// The downloadable-content notice's label, which shows the build instead.
 const NEW_CONTENT: &str = "LBL_NEWCONTENT";
 
 /// A button or list of the layout that none of ours is on.
@@ -50,7 +50,7 @@ impl Screen for MainMenu {
         "mainmenu16x12"
     }
 
-    fn state(&self, control: &Control, _: &ViewModel) -> ControlState {
+    fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         let tag = control.tag.as_str();
         if let Some((_, words, _)) = ENTRIES.iter().find(|(button, ..)| *button == tag) {
             return ControlState {
@@ -68,7 +68,11 @@ impl Screen for MainMenu {
             },
             "LBL_BW" => image(Some("lbl_bwlogo".into())),
             "LBL_LUCAS" => image(Some("lbl_lucasarts".into())),
-            tag if tag == NEW_CONTENT || unbound(tag) => hidden(),
+            NEW_CONTENT => ControlState {
+                text: Some(strings::bytes(&vm.session.version)),
+                ..ControlState::default()
+            },
+            tag if unbound(tag) => hidden(),
             _ => ControlState::default(),
         }
     }

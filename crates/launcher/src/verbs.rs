@@ -1880,7 +1880,7 @@ fn sim(verb: SimVerb, size: (u32, u32)) -> ExitCode {
                 std::fs::read(path)
                     .map_err(|error| error.to_string())
                     .and_then(|bytes| {
-                        sim::Recording::decode(&bytes).map_err(|error| error.to_string())
+                        sim::Recording::from_file(&bytes).map_err(|error| error.to_string())
                     })
                     .map_err(|error| format!("{}: {error}", path.display()))
             }) {
