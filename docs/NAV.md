@@ -13,7 +13,12 @@ face a door or placeable stands on (its closed or in-place brushes, with
 a body's box), or three of four points of it over a placeable's footprint
 (its flat non-walkable faces), carries that entity; one with the level's own solid over its
 middle, from a step up to a body's height (a table's top, a prop drawn
-without a walkmesh), is `covered`. It bakes in under 10 ms, and is kept
+without a walkmesh), is `covered`; but a sliver, narrower than the
+10 cm column looked over each point with (its points lie on its edges, so
+the column meets a wall along one), is open where two faces it joins are:
+a body only crosses it (TSL's Peragus mining tunnels, where a 6 mm sliver
+along the hallway's wall past the damaged droid was the one way into the
+cave, and shut a third of the routes). It bakes in under 10 ms, and is kept
 with the area's collision in the store (`area-v6`). `sim::Level::nav` carries it; its digest joins the level's and the
 transition announcement's (`Mismatch::Nav`).
 
