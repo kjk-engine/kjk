@@ -331,7 +331,10 @@ So:
   hangar a tenth of a second after its menu); a fight never goes through
   a locked door to a foe (`Here::open_way`: pressing it is a route's
   `use`, its script the story's); a goal is hopeless early only out of
-  combat with nothing deferred before its time would run out; a `while`
+  combat with nothing deferred before its time would run out, as is one
+  whose target cannot answer it as it stands (an `unlock` of a thing not
+  locked, a `use` of a placeable not useable: the Harbinger's route named
+  the first of seven `MilLowFootLker`, a bare prop); a `while`
   leaves after `QUIET_ROUNDS` rounds in a row that changed nothing.
 - **A rule the chain finds gets a probe** (`kjk sim probes`; `use_scripts`
   has `held_use_once`, `key_use_foretold`, `has_spell_paid_for`,

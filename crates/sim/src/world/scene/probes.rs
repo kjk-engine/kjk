@@ -138,6 +138,7 @@ const PROBES: &[Probe] = &[
     ("walk_off_mesh_ends", walk_off_mesh_ends),
     ("door_goal_ends", door_goal_ends),
     ("stepped_walk_stalls", stepped_walk_stalls),
+    ("wedged_walk_goes_on_at_once", wedged_walk_goes_on_at_once),
     ("jump_fails_held", jump_fails_held),
     ("free_jump_fails", free_jump_fails),
     ("alternating_walk_stalls", alternating_walk_stalls),
@@ -477,7 +478,9 @@ fn body(arc: f32) -> Body {
 /// animations, whether a creature that walks (`WALKER`) joins it, whether
 /// the gate stands open leading out of the module, the mesh over its
 /// doorway, and whether the mesh goes on through the doorway to the far
-/// half, the gate shut.
+/// half, the gate shut, and whether a strip of mesh runs on east through
+/// the wall north of the doorway (a walkmesh under a wall's foot, which
+/// move_body's box does not pass).
 struct Stage {
     talk: Dlg,
     dialog: &'static str,
@@ -493,6 +496,7 @@ struct Stage {
     walker: bool,
     way_out: bool,
     through: bool,
+    over_wall: bool,
     /// The companion's attacks are assured (`EffectAssuredHit`).
     assured: bool,
     /// When the bolts of the guns' attack clips leave the gun
@@ -525,6 +529,7 @@ impl Default for Stage {
             walker: false,
             way_out: false,
             through: false,
+            over_wall: false,
             assured: false,
             discharges: BTreeMap::new(),
             brawling: false,
@@ -667,6 +672,9 @@ impl Ground {
         }
         if stage.through {
             floor.extend(quad([0.5, -5.5, 3.5, 5.5]));
+        }
+        if stage.over_wall {
+            floor.extend(quad([-0.5, 2.0, 2.0, 5.5]));
         }
         let mut nav = collision::nav::NavMesh::build(&floor, crate::walk::CLEARANCE * UNIT);
         if let Some(level) = ground.collision().level() {
@@ -3220,11 +3228,16 @@ fn walked(ground: &mut Ground, who: SimId, action: Queue, ms: u64) -> Track {
 /// The ground with the walker standing at `at`, the host and the talker
 /// aside, and (`held`) a party conversation holding the world.
 fn walking_ground(at: [f32; 2], held: bool) -> Result<(Ground, SimId), String> {
+    walking_on(Stage::default(), at, held)
+}
+
+/// `walking_ground` on `stage`.
+fn walking_on(stage: Stage, at: [f32; 2], held: bool) -> Result<(Ground, SimId), String> {
     let mut ground = Ground::staged(
         1,
         Stage {
             walker: true,
-            ..Stage::default()
+            ..stage
         },
     )?;
     let host = ground.body(0)?;
@@ -4469,6 +4482,35 @@ fn stepped_walk_stalls() -> Found {
     check(
         stalls.is_some_and(|stalls| stalls >= crate::script::STUCK_STALLS),
         format!("stalls up to {stalls:?} in 10 s, carried {carried} steps"),
+    )
+}
+
+/// A script's walk out of a scene along a strip of mesh that runs on
+/// through a wall (a walkmesh under a wall's foot): move_body's box stops at
+/// the wall, and the walk goes on on KOTOR's walker within a few steps, not
+/// after a second with no headway (`world::move_actors`; Peragus's Sith
+/// troopers boarding the Ebon Hawk, 107PER, stood a second at each gap
+/// between a barrel and a crate's edge), and comes out past the wall.
+fn wedged_walk_goes_on_at_once() -> Found {
+    let stage = Stage {
+        over_wall: true,
+        ..Stage::default()
+    };
+    let (from, to) = ([-3.0, 4.0], [1.5, 4.0]);
+    // The wall stands 3 m along; the walk ends within its range of the goal.
+    const WALL_ALONG: f32 = 3.0;
+    let (mut ground, walker) = walking_on(stage, from, false)?;
+    let track = walked(&mut ground, walker, move_to(to, false, None), 6000);
+    let stopped =
+        (1..track.at.len()).find(|&step| between(track.at[step - 1], track.at[step]) < 0.0005);
+    let carried = track.carried.iter().position(|carried| *carried);
+    let waited = stopped
+        .zip(carried)
+        .map(|(stopped, carried)| carried.saturating_sub(stopped));
+    let past = along(from, to, ground.at(walker));
+    check(
+        waited.is_some_and(|n| n < steps(rules::walking::route::STALL_MS) / 4) && past > WALL_ALONG,
+        format!("stopped at step {stopped:?}, carried from {carried:?}, {past:.2} m along"),
     )
 }
 

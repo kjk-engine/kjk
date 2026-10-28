@@ -116,11 +116,13 @@ fn collision_probes() {
     assert_eq!(probes.failed(), 0, "module probes failed");
 }
 
-/// `surfacemat.2da`'s grass column read per material (no installs needed;
-/// proposed 2026-10-08).
+/// `surfacemat.2da`'s grass column read per material, and the made-up
+/// walls, footprints and navigation meshes beside it (no installs needed;
+/// proposed 2026-10-08; the funnel past a gate between two blocks' corners
+/// 2026-10-28).
 #[test]
 fn surface_probes() {
-    probed("surfaces", &collision_odyssey::probes::probes(), 1);
+    probed("surfaces", &collision_odyssey::probes::probes(), 8);
 }
 
 fn near(what: &str, measured: f32, expected: f32, tolerance: f32) {
@@ -1276,7 +1278,7 @@ fn dialogue_coop() {
 /// alone. Approved by the owner 2026-10-17 (do what you think is best).
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 67);
+    probed("scene", &sim::scene_probes::all(), 68);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,

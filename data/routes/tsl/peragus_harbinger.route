@@ -57,8 +57,9 @@ use MainCon
 talk
 unlock Hammerhead1@3 # up the hall, the other low security door: a
                      # footlocker of components and a workbench
-# BLOCKER (engine, 2026-10-28): `unlock MilLowFootLker@1` (DC 18) is never
-# reached: the walk stops 1.4 m off, making for a point inside it.
+use CivilFootLker    # by the workbench: parts and spikes
+unlock MilLowFootLker@6 # the maintenance room's locked footlocker (DC 18;
+use MilLowFootLker@6 # the other six of the tag are empty props)
 leader player
 say Activate Engine Maintenance Procedure # the main ion engine control
 use EngCom
