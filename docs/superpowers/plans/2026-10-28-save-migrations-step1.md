@@ -66,7 +66,7 @@ dependencies.
 - Create: `crates/sim/src/fixtures.rs` (`pub mod fixtures;` in
   `crates/sim/src/lib.rs`)
 - Create: `crates/approved_tests/src/bin/save_fixture.rs`
-- Create: `crates/sim/tests/saves/save-59-72-20.kjkv` (written by the bin)
+- Create: `crates/approved_tests/saves/save-59-72-20.kjkv` (written by the bin)
 - Modify: `crates/approved_tests/tests/approved.rs` (new test)
 - Modify: `docs/TESTS.md` (entry for `old_saves_load`)
 
@@ -85,7 +85,7 @@ dependencies.
     `VERSION` constants.
   - `sim::fixtures::file_name(v: Versions) -> String`, giving
     `"save-{save}-{snapshot}-{pack}.kjkv"`.
-  - `sim::fixtures::DIR: &str = "crates/sim/tests/saves"` (from the
+  - `sim::fixtures::DIR: &str = "crates/approved_tests/saves"` (from the
     workspace root).
   - `sim::fixtures::restamp(save: &mut Save, level: &Level)`: sets
     `save.level` and `snapshot.place.digest` to the level's. Test-only
@@ -96,7 +96,7 @@ dependencies.
 - [ ] **Step 1: Write the failing test** in `approved.rs`:
 
 ```rust
-/// Every fixture under `crates/sim/tests/saves` (a code-built save from
+/// Every fixture under `crates/approved_tests/saves` (a code-built save from
 /// each pin that moved a stored format) loads on this build: decoded,
 /// re-encoded and decoded the same, and made a world on the proving
 /// ground (docs/superpowers/specs/2026-10-28-save-migrations-design.md 2a).
@@ -151,7 +151,7 @@ bump is at main + 1, and its fixture is written at pin.
 
 - [ ] **Step 4: Write the fixture.**
   Run: `cargo run --release -p approved_tests --bin save_fixture`
-  Expected: it prints `crates/sim/tests/saves/save-59-72-20.kjkv`.
+  Expected: it prints `crates/approved_tests/saves/save-59-72-20.kjkv`.
 
 - [ ] **Step 5: Run the test.**
   Run: `cargo test --release -p approved_tests old_saves_load`
@@ -161,7 +161,7 @@ bump is at main + 1, and its fixture is written at pin.
   the entries there. Run the gate, then commit:
 
 ```bash
-git add crates/sim/src/fixtures.rs crates/sim/src/lib.rs crates/sim/tests/saves crates/approved_tests docs/TESTS.md
+git add crates/sim/src/fixtures.rs crates/sim/src/lib.rs crates/approved_tests/saves crates/approved_tests docs/TESTS.md
 git commit -m "A code-built save from every format version, and the test that loads them all"
 ```
 
@@ -382,7 +382,7 @@ save = "saves before it read pack version 20, v0.1.0's"
     <migration text>.`;
   - a `breaking` bump appends `- <tag> N (<file>): <text>` to
     `bumps/BREAKING.md` and sets that format's `OLDEST` constant to `N`;
-  - if any stored format moved, `crates/sim/tests/saves/<new name>` is
+  - if any stored format moved, `crates/approved_tests/saves/<new name>` is
     written by `save_fixture` and `git add`ed.
 
 - [ ] **Step 1: Change `bump_version`** to return the version, then
@@ -392,13 +392,13 @@ save = "saves before it read pack version 20, v0.1.0's"
 
 - [ ] **Step 2: Handle `breaking`**: append to `BREAKING.md`, and rewrite
   `const OLDEST: u32 = <n>;` in the format's file (Task 3's constants).
-  Move every fixture under `crates/sim/tests/saves/` whose version of that
-  format is below `N` into `crates/sim/tests/saves/retired/` (`git mv`).
+  Move every fixture under `crates/approved_tests/saves/` whose version of that
+  format is below `N` into `crates/approved_tests/saves/retired/` (`git mv`).
   `old_saves_load` then checks those are refused.
 
 - [ ] **Step 3: Run `save_fixture`** after `sim_hash` (the bumps are
   applied by then), then `git add` its path. In `pin.yml`, the commit step
-  already uses `git commit -qa`, so add `git add crates/sim/tests/saves`
+  already uses `git commit -qa`, so add `git add crates/approved_tests/saves`
   before it.
 
 - [ ] **Step 4: Dry-run in a scratch worktree.**
@@ -410,7 +410,7 @@ save = "saves before it read pack version 20, v0.1.0's"
   4. Check that:
      - `since.rs` has `TRY_IT = 61` (or main + 1);
      - the history line carries "Old saves:";
-     - `crates/sim/tests/saves/save-61-72-20.kjkv` exists and is staged;
+     - `crates/approved_tests/saves/save-61-72-20.kjkv` exists and is staged;
      - `cargo test --release -p approved_tests old_saves_load` passes.
   5. Remove the worktree and its target dir.
 

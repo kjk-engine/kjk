@@ -105,7 +105,7 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 59: the party table keeps a companion's template made available by template
 /// (`party::Npc::template_data`, `sim::pack`'s creature encoding), so a module
 /// without it makes the companion all the same.
-const VERSION: u32 = 59 + crate::pending::SAVE;
+pub const VERSION: u32 = 59 + crate::pending::SAVE;
 
 /// The scripts' state (`script::State`): globals, objects' locals, events
 /// waiting and deferred code. `SimWorld::script_state` gives it, and

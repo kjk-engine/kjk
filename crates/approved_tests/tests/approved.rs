@@ -1,8 +1,9 @@
 //! The owner-approved scenarios (2026-09-30; `script_vm` and
 //! `weapon_holdings` 2026-10-01; the `dialogue_…` three 2026-10-02;
 //! `blank_cells_name_nothing` proposed 2026-10-02; `saves_round_trip`
-//! 2026-10-02; the I31 co-op ten 2026-10-03; `scene_mode` 2026-10-17), by
-//! the names approved.
+//! 2026-10-02; the I31 co-op ten 2026-10-03; `scene_mode` 2026-10-17;
+//! `old_saves_load` and `bump_files` proposed 2026-10-28), by the names
+//! approved.
 //! What each checks and how to re-pin: `docs/TESTS.md`.
 
 use approved_tests::{discovery, hash_left_to_merge, module_source, pinned_hash};
@@ -1767,4 +1768,59 @@ fn rulebook() {
         problems.len(),
         problems.join("\n  ")
     );
+}
+
+/// Every fixture in `crates/approved_tests/saves` (a code-built save from each
+/// pin that moved a stored format, `sim::fixtures`) loads on this build:
+/// decoded, re-encoded and decoded the same, and made a world on its level;
+/// the kitchen sink leaves no field at its start but those it names; and
+/// fixtures from before a `breaking` bump are refused by their version
+/// (docs/superpowers/specs/2026-10-28-save-migrations-design.md, 2a).
+#[test]
+fn old_saves_load() {
+    let dir = approved_tests::workspace().join(sim::fixtures::DIR);
+    let (level, sink) = sim::fixtures::kitchen_sink();
+    let set = |fields: &[&'static str]| {
+        fields
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    assert_eq!(
+        set(&sim::fixtures::left_at_start(&sink)),
+        set(sim::fixtures::LEFT_AT_START),
+        "the kitchen sink's fields at their start: give a new field a value in `sim::fixtures`, or name it in LEFT_AT_START with why"
+    );
+    let mut seen = 0;
+    for entry in std::fs::read_dir(&dir).expect("the fixtures folder") {
+        let path = entry.expect("a fixture").path();
+        if path.extension().is_none_or(|extension| extension != "kjkv") {
+            continue;
+        }
+        let bytes = std::fs::read(&path).expect("a fixture reads");
+        let mut save =
+            sim::Save::decode(&bytes).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        let again = sim::Save::decode(&save.encode()).expect("a re-encoded save decodes");
+        assert_eq!(again, save, "{}: re-encoding changes it", path.display());
+        sim::fixtures::restamp(&mut save, &level);
+        save.world(&level, 2, None)
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        seen += 1;
+    }
+    assert!(seen > 0, "no fixtures in {}", dir.display());
+    let newest = dir.join(sim::fixtures::file_name(sim::fixtures::current()));
+    assert!(
+        newest.exists() || approved_tests::stored_bumps_pending(),
+        "no fixture at this build's versions: `cargo run --release -p approved_tests --bin save_fixture`"
+    );
+    for entry in std::fs::read_dir(dir.join("retired")).into_iter().flatten() {
+        let path = entry.expect("a retired fixture").path();
+        let bytes = std::fs::read(&path).expect("a retired fixture reads");
+        let error = sim::Save::decode(&bytes).expect_err("a retired fixture is refused");
+        assert!(
+            error.to_string().contains("version"),
+            "{}: {error}",
+            path.display()
+        );
+    }
 }

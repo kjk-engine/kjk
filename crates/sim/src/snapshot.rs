@@ -173,7 +173,7 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// (`ObjectState::taken`); the goods carry what each container held open holds.
 /// 72: a swing's contact keeps whether its chance to be turned was drawn
 /// (`Contact::drawn`).
-const VERSION: u32 = 72 + crate::pending::SNAPSHOT;
+pub const VERSION: u32 = 72 + crate::pending::SNAPSHOT;
 
 /// An entity's identity in the sim, stable across save, load and replay.
 /// Handed out in order and never reused, so ordering by it is canonical.

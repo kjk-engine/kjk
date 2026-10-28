@@ -67,8 +67,8 @@ use script_ncs::catalog::Catalog;
 use script_ncs::vm::{self, Deferred, ObjectId, Program, Routines};
 
 pub use state::{
-    Delayed, DoorMine, Pending, Perceived, SkillUse, State, StealthXp, TrapState, UseKind, Watch,
-    Watched, global, set_global,
+    Delayed, DoorMine, Left, Pending, Perceived, SkillUse, State, StealthXp, TrapState, UseKind,
+    Watch, Watched, global, set_global,
 };
 
 /// `GetNearestCreature`'s criteria (`CREATURE_TYPE_*`).
