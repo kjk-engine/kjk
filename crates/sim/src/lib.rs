@@ -22,6 +22,7 @@ pub mod action;
 pub mod combat;
 pub mod creation;
 pub mod determinism;
+pub mod fixtures;
 pub mod fog;
 mod input;
 mod install;
@@ -31,6 +32,7 @@ pub mod levels;
 pub mod math;
 #[cfg(feature = "probes")]
 pub mod measure;
+mod migrate;
 pub mod minigame;
 pub mod module;
 pub mod moves;
@@ -53,6 +55,7 @@ mod save;
 #[cfg(feature = "probes")]
 pub mod scaling;
 pub mod script;
+pub mod since;
 pub mod skeleton;
 mod snapshot;
 pub mod spawner;
@@ -80,7 +83,7 @@ pub use snapshot::{
     RoomAnim, Screens, SimId, Snapshot, SnapshotHash, Spawned, Stash, Stashed, Status, StatusKind,
     Track, Transit, Transition, cannot_equip, lock, look, pin, room_key, sound, trap,
 };
-pub use wire::DecodeError;
+pub use wire::{DecodeError, Since, Stored};
 #[cfg(feature = "probes")]
 pub use world::aim_probes;
 pub use world::arena;
