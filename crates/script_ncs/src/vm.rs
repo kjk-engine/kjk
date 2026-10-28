@@ -150,6 +150,17 @@ pub enum Fault {
         wanted: &'static str,
         found: &'static str,
     },
+    /// A routine handed an argument of another type than its prototype's:
+    /// the script's own error, which the executables stop the run at too
+    /// (their routines' pops refuse a cell of another type, and the machine
+    /// ends the run on the refusal). TSL's floating mines, whose compiled
+    /// `break` leaves a local on the stack (`k_fm_die_custom`).
+    Argument {
+        offset: u32,
+        routine: String,
+        wanted: &'static str,
+        found: &'static str,
+    },
     /// A jump or resume point that is no instruction's start.
     Jump {
         offset: u32,
@@ -187,6 +198,7 @@ impl Fault {
             Fault::Underflow { .. } => "underflow",
             Fault::Overflow { .. } => "overflow",
             Fault::Type { .. } => "type",
+            Fault::Argument { .. } => "argument",
             Fault::Jump { .. } => "jump",
             Fault::DivideByZero { .. } => "divide by zero",
             Fault::Budget { .. } => "budget",
@@ -207,6 +219,15 @@ impl fmt::Display for Fault {
                 wanted,
                 found,
             } => write!(f, "{wanted} wanted, {found} found at {offset:#x}"),
+            Fault::Argument {
+                offset,
+                routine,
+                wanted,
+                found,
+            } => write!(
+                f,
+                "{routine}: {wanted} wanted, {found} found at {offset:#x}"
+            ),
             Fault::Jump { offset, to } => write!(f, "jump from {offset:#x} to {to:#x}"),
             Fault::DivideByZero { offset } => write!(f, "division by zero at {offset:#x}"),
             Fault::Budget { offset } => {
@@ -696,7 +717,12 @@ impl<'a> Machine<'a> {
                 Some(ty) => {
                     let value = self.pop()?;
                     if std::mem::discriminant(&value) != std::mem::discriminant(&Value::empty(ty)) {
-                        return Err(self.wrong(ty.name(), &value));
+                        return Err(Fault::Argument {
+                            offset: self.offset,
+                            routine: routine.name.clone(),
+                            wanted: ty.name(),
+                            found: value.kind(),
+                        });
                     }
                     value
                 }

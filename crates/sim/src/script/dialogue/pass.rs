@@ -344,10 +344,13 @@ impl Engine<'_> {
                 self.queue(caller, Action::Hold { talk })
             }
             SetCustomToken => {
-                self.state
-                    .talk
-                    .tokens
-                    .insert(int(args, 0), text(args, 1).to_string());
+                let (number, value) = (int(args, 0), text(args, 1).to_string());
+                self.report.talk.push(Line::Token {
+                    ms: self.view.now_ms,
+                    number,
+                    value: value.clone(),
+                });
+                self.state.talk.tokens.insert(number, value);
                 Value::Int(0)
             }
             GetScriptParameter => {
