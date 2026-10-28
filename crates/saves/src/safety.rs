@@ -85,7 +85,15 @@ pub fn backup_on_new_version(
             }
             to = backups.join(format!("{name}-{n}"));
         }
-        copy_tree(root, &to)?;
+        // Copied aside and renamed: a copy that fails (a full disk) leaves
+        // no backup that looks whole.
+        let partial = backups.join(format!("{name}.new"));
+        let _ = std::fs::remove_dir_all(&partial);
+        if let Err(error) = copy_tree(root, &partial) {
+            let _ = std::fs::remove_dir_all(&partial);
+            return Err(error);
+        }
+        std::fs::rename(&partial, &to).map_err(at(&to))?;
         prune(backups);
         Some(to)
     };

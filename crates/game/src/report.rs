@@ -22,6 +22,8 @@ const ISSUE: &str = "https://github.com/kjk-engine/kjk/issues/new?template=bug.y
 const LIMIT: usize = 25 * 1024 * 1024;
 /// How many reports are kept.
 const KEPT: usize = 20;
+/// How much of the run's log (or manifest, or crash) a report keeps: its end.
+const LOG_KEPT: usize = 4 * 1024 * 1024;
 /// The screenshot F12 took, in the run's folder.
 const SHOT: &str = "report.png";
 
@@ -241,6 +243,19 @@ fn data_text(segments: &[Part]) -> String {
         .collect()
 }
 
+/// `bytes`' last whole lines within `most` bytes (all of them when they fit).
+fn tail(bytes: Vec<u8>, most: usize) -> Vec<u8> {
+    if bytes.len() <= most {
+        return bytes;
+    }
+    let cut = bytes.len() - most;
+    let start = bytes[cut..]
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .map_or(bytes.len(), |at| cut + at + 1);
+    bytes[start..].to_vec()
+}
+
 /// The report's parts from `run` (the run's folder), with `note`, the world
 /// `now`, the settings' file and the breadcrumbs.
 fn gather(
@@ -260,7 +275,7 @@ fn gather(
     ];
     for name in ["manifest.json", "kjk.log", crate::crash::CRASH] {
         if let Ok(bytes) = std::fs::read(run.join(name)) {
-            parts.push(text(name, bytes));
+            parts.push(text(name, tail(bytes, LOG_KEPT)));
         }
     }
     let mut segments: Vec<Part> = std::fs::read_dir(run)
@@ -304,6 +319,12 @@ fn gather(
     let crumbs = crate::crash::crumbs().map_or_else(String::new, |crumbs| crumbs.to_string());
     parts.push(text("breadcrumbs.txt", crumbs.into_bytes()));
     parts
+}
+
+/// A game started: a report now is of it, not of a run that crashed
+/// before.
+pub fn game_started(world: &mut World) {
+    world.remove_resource::<CrashedRun>();
 }
 
 /// The run a report is of when it is not this one: the one that crashed

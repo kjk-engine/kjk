@@ -151,7 +151,7 @@ pub fn list(root: &Path) -> Listing {
                 if let Some(received) = received {
                     listing.received.insert(id.clone(), received);
                 }
-                if whole(&entry.path(), &meta).is_err() {
+                if damaged(&entry.path(), &meta) {
                     listing.damaged.push(id.clone());
                 }
                 listing.saves.push((id, meta));
@@ -186,10 +186,48 @@ pub fn read(root: &Path, id: &str) -> Result<(sim::Save, Meta), String> {
     Ok((save, meta))
 }
 
+/// What a listing found of a save's world, kept while its file and hash
+/// stay as they were: a listing hashes each world once, not on every
+/// screen that lists them.
+type Verdicts = BTreeMap<(PathBuf, u64, std::time::SystemTime, Option<String>), bool>;
+static VERDICTS: std::sync::Mutex<Verdicts> = std::sync::Mutex::new(BTreeMap::new());
+
+/// Whether the world in `folder` is not what `meta`'s hash says.
+fn damaged(folder: &Path, meta: &Meta) -> bool {
+    let file = std::fs::metadata(folder.join(WORLD));
+    let Some(key) = file.as_ref().ok().and_then(|file| {
+        Some((
+            folder.to_path_buf(),
+            file.len(),
+            file.modified().ok()?,
+            meta.blake3.clone(),
+        ))
+    }) else {
+        return whole(folder, meta).is_err();
+    };
+    let known = VERDICTS
+        .lock()
+        .ok()
+        .and_then(|verdicts| verdicts.get(&key).copied());
+    known.unwrap_or_else(|| {
+        let verdict = whole(folder, meta).is_err();
+        if let Ok(mut verdicts) = VERDICTS.lock() {
+            verdicts.insert(key, verdict);
+        }
+        verdict
+    })
+}
+
+/// How many worlds were hashed (`whole`), for the probes.
+#[cfg(feature = "probes")]
+pub(crate) static HASHED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// The world in `folder`, refused as damaged when it is not what `meta`'s
 /// hash says.
 fn whole(folder: &Path, meta: &Meta) -> Result<Vec<u8>, String> {
     let bytes = std::fs::read(folder.join(WORLD)).map_err(|error| error.to_string())?;
+    #[cfg(feature = "probes")]
+    HASHED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     match &meta.blake3 {
         Some(hash) if *hash != blake3::hash(&bytes).to_hex().as_str() => {
             Err("the save is damaged: its world is not the one saved".into())

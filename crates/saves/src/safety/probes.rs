@@ -13,7 +13,9 @@ use sim::probe::{Checks, check};
 /// - the backup on a new release: none without saves or for the same
 ///   release, a whole copy for a new one, five kept;
 /// - a write that fails leaves no half-written save;
-/// - a save that does not decode names the build that made it.
+/// - a save that does not decode names the build that made it;
+/// - a backup that fails part way leaves no backup folder;
+/// - listing again does not hash an unchanged save's world again.
 pub fn probes() -> Checks {
     let root = std::env::temp_dir().join(format!("kjk-save-safety-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -26,6 +28,11 @@ pub fn probes() -> Checks {
         ("autos_rotate", autos(&at("autos"))),
         ("failed_write_leaves_nothing", failed_write(&at("failed"))),
         ("refusal_names_build", names_build(&at("refused"))),
+        (
+            "backup_failed_leaves_nothing",
+            failed_backup(&at("failed-backup")),
+        ),
+        ("listing_hashes_once", hashes_once(&at("hashed"))),
     ];
     checks.extend(backups(&at("backups")));
     let _ = std::fs::remove_dir_all(&root);
@@ -142,6 +149,51 @@ fn names_build(root: &Path) -> Result<String, String> {
     check(
         refused.contains("made with v0.1.0 (ab12cd34)") && refused.contains(BACKUPS),
         refused,
+    )
+}
+
+/// A copy that fails part way (a link to nothing: it cannot be read) leaves
+/// no `update-*` folder, and the saves are not stamped, so the next launch
+/// tries again.
+fn failed_backup(at: &Path) -> Result<String, String> {
+    let (root, kept) = (at.join("saves"), at.join("save-backups"));
+    write_encoded(&root, Some(crate::QUICK), b"world", &meta("kept"))?;
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(at.join("nowhere"), root.join("broken")).map_err(io)?;
+    #[cfg(not(unix))]
+    return Ok("not on this OS (needs a symlink)".into());
+    let made = backup_on_new_version(&root, &kept, "v0.2.0", "ab12cd34ef");
+    let left: Vec<String> = std::fs::read_dir(&kept)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    check(
+        made.is_err() && left.is_empty() && !root.join(STAMP).exists(),
+        format!("{made:?}, left {left:?}"),
+    )
+}
+
+/// The second listing of an unchanged save hashes nothing; a changed world
+/// is hashed again and found damaged.
+fn hashes_once(root: &Path) -> Result<String, String> {
+    let id = write_encoded(root, None, b"KJKV world", &meta("hashed"))?;
+    let hashed = || crate::HASHED.load(std::sync::atomic::Ordering::Relaxed);
+    let before = hashed();
+    let (first, second) = (list(root), list(root));
+    let twice = hashed() - before;
+    std::fs::write(root.join(&id).join(crate::WORLD), b"KJKV other world").map_err(io)?;
+    let changed = list(root);
+    check(
+        twice == 1
+            && first.damaged.is_empty()
+            && second.damaged.is_empty()
+            && changed.damaged == [id],
+        format!(
+            "{twice} hashed for two listings, then damaged {:?}",
+            changed.damaged
+        ),
     )
 }
 

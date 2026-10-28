@@ -25,7 +25,9 @@ pub fn probes() -> Checks {
         ("zip_has_no_identity", no_identity()),
         ("settings_drop_host_id", drop_host_id()),
         ("zip_cap_drops_oldest_flight", cap()),
-        ("reports_keep_20", keep(&root)),
+        ("reports_keep_20", keep(&root.join("kept"))),
+        ("report_log_tail", log_tail(&root.join("run"))),
+        ("crashed_run_forgotten_in_play", forgotten()),
     ];
     let _ = std::fs::remove_dir_all(&root);
     checks
@@ -150,4 +152,37 @@ fn keep(root: &Path) -> Result<String, String> {
     }
     let count = std::fs::read_dir(root).map_or(0, |entries| entries.count());
     check(count == KEPT, format!("{count} kept"))
+}
+
+/// A run's log over `LOG_KEPT` goes in as its last whole lines.
+fn log_tail(run: &Path) -> Result<String, String> {
+    std::fs::create_dir_all(run).map_err(|error| error.to_string())?;
+    let log: String = (0..200_000)
+        .map(|n| format!("log line {n:06} of a long run\n"))
+        .collect();
+    std::fs::write(run.join("kjk.log"), &log).map_err(|error| error.to_string())?;
+    let parts = gather(run, "", None, None);
+    let text = parts
+        .iter()
+        .find(|part| part.name == "kjk.log")
+        .map(|part| String::from_utf8_lossy(&part.bytes).into_owned())
+        .unwrap_or_else(String::new);
+    check(
+        log.len() > LOG_KEPT
+            && text.len() <= LOG_KEPT
+            && text.starts_with("log line ")
+            && text.ends_with("log line 199999 of a long run\n"),
+        format!("{} of {} bytes kept", text.len(), log.len()),
+    )
+}
+
+/// A crashed run is reported from the main menu, not once a game is on.
+fn forgotten() -> Result<String, String> {
+    let mut world = World::new();
+    world.insert_resource(CrashedRun(PathBuf::from("crashed")));
+    game_started(&mut world);
+    check(
+        !world.contains_resource::<CrashedRun>(),
+        "a game's start forgets the crashed run".into(),
+    )
 }

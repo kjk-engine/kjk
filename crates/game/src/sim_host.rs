@@ -598,6 +598,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         app.insert_resource(WorldHere { alone });
         app.init_resource::<SelectedPower>();
         app.init_resource::<Loading>();
+        crate::report::game_started(app);
         app.insert_resource(Authority {
             world,
             clock: Accumulator::new(rate, last.tick),
@@ -1166,6 +1167,44 @@ struct AutosaveDue {
     tried: Option<Instant>,
 }
 
+impl AutosaveDue {
+    /// The authority's `installs` seen (`fresh` when it was just made: a
+    /// game started or loaded); whether an autosave became owed, which only
+    /// a player's game with `eligible` (live, Autosave on) owes.
+    fn observe(&mut self, installs: usize, fresh: bool, eligible: bool) -> bool {
+        if fresh {
+            *self = AutosaveDue::default();
+        }
+        if Some(installs) == self.installs {
+            return false;
+        }
+        self.installs = Some(installs);
+        self.owed = eligible;
+        eligible
+    }
+}
+
+/// The autosave owed at a game's first module and after each module
+/// entered, a new game's opening included after another game was played.
+#[cfg(feature = "probes")]
+pub fn autosave_probes() -> sim::probe::Checks {
+    let mut due = AutosaveDue::default();
+    let first = due.observe(0, true, true);
+    due.owed = false;
+    let same = due.observe(0, false, true);
+    let again = due.observe(0, true, true);
+    due.owed = false;
+    let entered = due.observe(1, false, true);
+    let off = AutosaveDue::default().observe(0, true, false);
+    vec![(
+        "autosave_owed_each_game",
+        sim::probe::check(
+            first && !same && entered && again && !off,
+            format!("first {first}, same {same}, entered {entered}, a new game {again}, off {off}"),
+        ),
+    )]
+}
+
 /// The autosave owed after each module installed (KOTOR's rule), once a
 /// second until nothing refuses it: a player's game, solo or hosting (the
 /// host's world is the authority), live, with Autosave on.
@@ -1180,15 +1219,12 @@ fn autosave(
     own: Option<Res<OwnSeat>>,
     made: Option<Res<crate::character::Made>>,
 ) {
-    if Some(authority.installs.len()) != due.installs {
-        due.installs = Some(authority.installs.len());
-        due.owed = player.is_some_and(|player| player.0)
-            && matches!(authority.source, Source::Live { .. })
-            && settings
-                .is_some_and(|settings| settings.value(crate::settings::AUTOSAVE) == Some("true"));
-        if due.owed {
-            info!(target: "saves", installs = authority.installs.len(), "autosave owed");
-        }
+    let eligible = player.is_some_and(|player| player.0)
+        && matches!(authority.source, Source::Live { .. })
+        && settings
+            .is_some_and(|settings| settings.value(crate::settings::AUTOSAVE) == Some("true"));
+    if due.observe(authority.installs.len(), authority.is_added(), eligible) {
+        info!(target: "saves", installs = authority.installs.len(), "autosave owed");
     }
     let now = Instant::now();
     if !due.owed
