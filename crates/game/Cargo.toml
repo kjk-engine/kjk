@@ -14,6 +14,9 @@ name = "kjk_game"
 path = "src/lib.rs"
 
 [dependencies]
+# The bug report: the machine's facts, and the zip it is kept in.
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 audio.workspace = true
 movie.workspace = true
 bevy.workspace = true

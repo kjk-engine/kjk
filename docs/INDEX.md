@@ -10,6 +10,7 @@ area you touch.
 |---|---|---|
 | [`BUILD.md`](BUILD.md) | toolchain pin, Windows MSVC requirement, first build, running `kjk` | before your first build |
 | [`RELEASE.md`](RELEASE.md) | the player's build (`cargo xtask dist`), its packages, the first-run setup, where a player's files go | before making a release, or touching the setup |
+| [`BUG-REPORTS.md`](BUG-REPORTS.md) | F12's bug report zip (what it holds, where it goes) and `kjk report show` / `replay` | before opening a player's report, or touching what a report holds |
 | [`RULEBOOK.md`](RULEBOOK.md) | every number the game's rules use and what it does, generated from `data/rules/*.toml` (`data/rules/README.md`); `kjk rules` adds the game data's | any number a rule plays by: change it there, never in code |
 | [`COMBAT.md`](COMBAT.md) | characters, sheets, factions, bodies, the combat systems of a step, the damage pipeline; `kjk combat` | touching fighting, sheets or the damage numbers |
 | [`FALLING.md`](FALLING.md) | party members downed at 0 HP, getting up when the fight ends, reviving by holding use, the whole party down as the loss and its box (I30 P11–P13); `kjk sim probes --only falls` | touching deaths, revives or what losing does |

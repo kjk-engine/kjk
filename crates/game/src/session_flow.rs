@@ -207,6 +207,7 @@ impl Plugin for SessionFlowPlugin {
 fn show_loading(ui: &mut Ui, image: Option<String>) {
     ui.vm.session = SessionView {
         image,
+        version: std::mem::take(&mut ui.vm.session.version),
         ..SessionView::default()
     };
     ui.stack.clear();

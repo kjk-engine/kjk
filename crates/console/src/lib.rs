@@ -348,6 +348,7 @@ fn run_queue(
                 exit.write(AppExit::Success);
                 return;
             }
+            Command::Crash => panic!("crash requested"),
             Command::Camera(pose) => camera.0 = Some(*pose),
             Command::Ui(words) => screens.0.push(words.clone()),
             Command::Vfx(words) => visuals.0.push(words.clone()),
@@ -581,7 +582,7 @@ fn run_queue(
                 false
             }
         }
-        Command::Quit => unreachable!("quit never becomes active"),
+        Command::Quit | Command::Crash => unreachable!("quit and crash never become active"),
     };
     if let (Some(at), Some((_, times))) = (clipped, &mut queue.clip) {
         times.push(at);

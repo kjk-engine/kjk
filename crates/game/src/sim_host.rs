@@ -454,6 +454,9 @@ struct Authority {
     generation: u32,
     /// The session: the server, the player's client, the loopback.
     solo: Solo,
+    /// A live world's ticks streamed to the run's folder (a replay's are
+    /// not).
+    flight: Option<crate::flight_writer::Flight>,
 }
 
 impl Plugin for SimHostPlugin {
@@ -470,7 +473,7 @@ impl Plugin for SimHostPlugin {
                 (
                     crate::swallow::hold_up.after(bevy::input::InputSystems),
                     (
-                        (advance, save_world)
+                        (advance, save_world, autosave)
                             .chain()
                             .run_if(resource_exists::<Authority>),
                         crate::net_join::advance.run_if(crate::net_join::joined),
@@ -563,6 +566,15 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         };
         let alone = listen.is_none();
         let folder = app.resource::<RunFolder>().0.clone();
+        let flight = matches!(source, Source::Live { .. }).then(|| {
+            crate::flight_writer::Flight::new(
+                &folder,
+                rate.hz(),
+                &last,
+                &world.level().id(),
+                world.script_state(),
+            )
+        });
         let solo = Solo::new(world.level(), request, rate, &last, listen, &folder)
             .map_err(|error| format!("the session: {error}"))?;
         let mut states = States::default();
@@ -586,6 +598,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         app.insert_resource(WorldHere { alone });
         app.init_resource::<SelectedPower>();
         app.init_resource::<Loading>();
+        crate::report::game_started(app);
         app.insert_resource(Authority {
             world,
             clock: Accumulator::new(rate, last.tick),
@@ -608,6 +621,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             installs: Vec::new(),
             generation: 0,
             solo,
+            flight,
         });
     }
     Ok(())
@@ -1031,55 +1045,26 @@ fn save_world(
     };
     let on_screen = asked.on_screen;
     let authority = &mut *authority;
-    let snapshot = authority.world.snapshot();
-    let hash = snapshot.hash();
-    let refused = if authority.job.is_some() {
-        Some("You cannot save while an area loads.".to_string())
-    } else if showing.is_some_and(|showing| showing.0) {
-        Some("You cannot save during a movie.".to_string())
-    } else {
-        let seat = own.map_or(Seat(0), |own| own.0);
-        saves::refusal(&snapshot, seat, authority.world.level())
-    };
-    let saved = match refused {
-        Some(why) => Err(why),
-        None => {
-            let meta = saves::Meta {
-                name: asked.name,
-                module: snapshot.place.as_ref().map_or_else(
-                    || authority.world.level().id().name,
-                    |place| place.module.clone(),
-                ),
-                area: asked.area,
-                saved: saves::now(),
-                seats: snapshot.seats(),
-                character: made.and_then(|made| made.0.clone()),
-            };
-            let tick = snapshot.tick;
-            let save = sim::Save {
-                hz: authority.setup.rate.hz(),
-                level: authority.world.level().id(),
-                script: authority.world.script_state().clone(),
-                snapshot,
-            };
-            let world = save.encode();
-            let written = crate::save_view::folder()
-                .ok_or_else(|| "no folder for saves here".to_string())
-                .and_then(|root| saves::write_encoded(&root, asked.slot.as_deref(), &world, &meta));
-            if let Ok(id) = &written {
-                // The whole save's hash (the VM's state too): a load of it
-                // says the same (`play::load`).
-                let bytes = blake3::hash(&world);
-                info!(target: "saves", id, tick, %hash, save = %bytes, "saved");
-                let host = settings.map_or_else(
-                    || crate::settings::Settings::load().host_id().to_string(),
-                    |settings| settings.host_id().to_string(),
-                );
-                send_copies(&mut authority.solo, host, id, &meta, &world);
-            }
-            written
-        }
-    };
+    let movie = showing.is_some_and(|showing| showing.0);
+    let seat = own.map_or(Seat(0), |own| own.0);
+    let character = made.and_then(|made| made.0.clone());
+    let saved = store(
+        authority,
+        Slot::Named(asked.slot),
+        asked.name,
+        asked.area,
+        character,
+        movie,
+        seat,
+    )
+    .map(|(id, meta, world)| {
+        let host = settings.map_or_else(
+            || crate::settings::Settings::load().host_id().to_string(),
+            |settings| settings.host_id().to_string(),
+        );
+        send_copies(&mut authority.solo, host, &id, &meta, &world);
+        id
+    });
     if let Err(why) = &saved {
         warn!(target: "saves", "not saved: {why}");
     }
@@ -1087,6 +1072,196 @@ fn save_world(
         result: saved,
         on_screen,
     });
+}
+
+/// The host's world now as a save's bytes (for a bug report), none
+/// without one.
+pub(crate) fn current_save(world: &mut World) -> Option<Vec<u8>> {
+    let mut authority = world.get_resource_mut::<Authority>()?;
+    let snapshot = authority.world.snapshot();
+    let save = sim::Save {
+        hz: authority.setup.rate.hz(),
+        level: authority.world.level().id(),
+        script: authority.world.script_state().clone(),
+        snapshot,
+    };
+    Some(save.encode())
+}
+
+/// Where a save goes: a slot (a new number without one), or the autosaves.
+enum Slot {
+    Named(Option<String>),
+    Auto,
+}
+
+/// The world saved into `slot`, named `name`, in the area called `area`,
+/// stamped with this build; its id, meta and bytes. Refused as KOTOR
+/// refuses (`saves::refusal` for `seat`), while a module loads and during a
+/// `movie`.
+fn store(
+    authority: &mut Authority,
+    slot: Slot,
+    name: String,
+    area: String,
+    character: Option<ui::intent::CharacterDesc>,
+    movie: bool,
+    seat: Seat,
+) -> Result<(String, saves::Meta, Vec<u8>), String> {
+    let snapshot = authority.world.snapshot();
+    let refused = if authority.job.is_some() {
+        Some("You cannot save while an area loads.".to_string())
+    } else if movie {
+        Some("You cannot save during a movie.".to_string())
+    } else {
+        saves::refusal(&snapshot, seat, authority.world.level())
+    };
+    if let Some(why) = refused {
+        return Err(why);
+    }
+    let hash = snapshot.hash();
+    let meta = saves::Meta {
+        name,
+        module: snapshot.place.as_ref().map_or_else(
+            || authority.world.level().id().name,
+            |place| place.module.clone(),
+        ),
+        area,
+        saved: saves::now(),
+        seats: snapshot.seats(),
+        character,
+        build: Some(env!("KJK_GIT_SHA").into()),
+        version: Some(env!("KJK_VERSION").into()),
+        formats: Some(saves::Formats {
+            save: sim::SAVE_FORMAT,
+            snapshot: sim::SNAPSHOT_FORMAT,
+        }),
+        ..saves::Meta::default()
+    };
+    let tick = snapshot.tick;
+    let save = sim::Save {
+        hz: authority.setup.rate.hz(),
+        level: authority.world.level().id(),
+        script: authority.world.script_state().clone(),
+        snapshot,
+    };
+    let world = save.encode();
+    let root = crate::save_view::folder().ok_or("no folder for saves here")?;
+    let id = match slot {
+        Slot::Named(slot) => saves::write_encoded(&root, slot.as_deref(), &world, &meta)?,
+        Slot::Auto => saves::write_auto(&root, &world, &meta)?,
+    };
+    // The whole save's hash (the VM's state too): a load of it says the
+    // same (`play::load`).
+    let bytes = blake3::hash(&world);
+    info!(target: "saves", id, tick, %hash, save = %bytes, "saved");
+    Ok((id, meta, world))
+}
+
+/// An autosave owed since a module was installed (`installs` counts them;
+/// none counted yet: the first module the game starts in is owed one too):
+/// tried each second until nothing refuses it.
+#[derive(Default)]
+struct AutosaveDue {
+    installs: Option<usize>,
+    owed: bool,
+    tried: Option<Instant>,
+}
+
+impl AutosaveDue {
+    /// The authority's `installs` seen (`fresh` when it was just made: a
+    /// game started or loaded); whether an autosave became owed, which only
+    /// a player's game with `eligible` (live, Autosave on) owes.
+    fn observe(&mut self, installs: usize, fresh: bool, eligible: bool) -> bool {
+        if fresh {
+            *self = AutosaveDue::default();
+        }
+        if Some(installs) == self.installs {
+            return false;
+        }
+        self.installs = Some(installs);
+        self.owed = eligible;
+        eligible
+    }
+}
+
+/// The autosave owed at a game's first module and after each module
+/// entered, a new game's opening included after another game was played.
+#[cfg(feature = "probes")]
+pub fn autosave_probes() -> sim::probe::Checks {
+    let mut due = AutosaveDue::default();
+    let first = due.observe(0, true, true);
+    due.owed = false;
+    let same = due.observe(0, false, true);
+    let again = due.observe(0, true, true);
+    due.owed = false;
+    let entered = due.observe(1, false, true);
+    let off = AutosaveDue::default().observe(0, true, false);
+    vec![(
+        "autosave_owed_each_game",
+        sim::probe::check(
+            first && !same && entered && again && !off,
+            format!("first {first}, same {same}, entered {entered}, a new game {again}, off {off}"),
+        ),
+    )]
+}
+
+/// The autosave owed after each module installed (KOTOR's rule), once a
+/// second until nothing refuses it: a player's game, solo or hosting (the
+/// host's world is the authority), live, with Autosave on.
+fn autosave(
+    mut authority: ResMut<Authority>,
+    mut due: Local<AutosaveDue>,
+    (player, settings): (
+        Option<Res<crate::crash::PlayerRun>>,
+        Option<Res<crate::settings::Settings>>,
+    ),
+    showing: Option<Res<crate::movie_view::Showing>>,
+    own: Option<Res<OwnSeat>>,
+    made: Option<Res<crate::character::Made>>,
+) {
+    let eligible = player.is_some_and(|player| player.0)
+        && matches!(authority.source, Source::Live { .. })
+        && settings
+            .is_some_and(|settings| settings.value(crate::settings::AUTOSAVE) == Some("true"));
+    if due.observe(authority.installs.len(), authority.is_added(), eligible) {
+        info!(target: "saves", installs = authority.installs.len(), "autosave owed");
+    }
+    let now = Instant::now();
+    if !due.owed
+        || due
+            .tried
+            .is_some_and(|tried| now - tried < Duration::from_secs(1))
+    {
+        return;
+    }
+    due.tried = Some(now);
+    let area = authority
+        .world
+        .level()
+        .module()
+        .map_or_else(String::new, |module| module.area_title.clone());
+    let movie = showing.is_some_and(|showing| showing.0);
+    let seat = own.map_or(Seat(0), |own| own.0);
+    let character = made.and_then(|made| made.0.clone());
+    match store(
+        &mut authority,
+        Slot::Auto,
+        area.clone(),
+        area,
+        character,
+        movie,
+        seat,
+    ) {
+        Ok(_) => due.owed = false,
+        // KOTOR's refusals pass: the autosave waits for them.
+        Err(why) if why.starts_with("You cannot save") => {
+            debug!(target: "saves", "autosave waits: {why}")
+        }
+        Err(why) => {
+            warn!(target: "saves", "no autosave: {why}");
+            due.owed = false;
+        }
+    }
 }
 
 /// The reload of the save `id` starts: its module planned as an install
@@ -1291,6 +1466,15 @@ fn advance(
                     } else {
                         recorder.install(announcement.clone());
                     }
+                }
+                // The flight recorder's segment for the module entered
+                // (a reload's too): it installs nothing.
+                if let Some(flight) = &mut authority.flight {
+                    flight.start(
+                        &after,
+                        &authority.world.level().id(),
+                        authority.world.script_state(),
+                    );
                 }
                 let census = after.census();
                 info!(
@@ -1591,6 +1775,9 @@ fn advance(
                 if let Some(recorder) = recorder {
                     recorder.record(msec, &input, &snapshot);
                 }
+                if let Some(flight) = &mut authority.flight {
+                    flight.tick(msec, &input, &snapshot);
+                }
                 for (seat, notice) in authority.world.take_notices() {
                     match notice {
                         sim::notice::Notice::Show(screen) => authority.solo.screen(seat, screen),
@@ -1657,6 +1844,23 @@ fn advance(
             break;
         }
     }
+    // Where the play is, for a crash's report.
+    let (last, module) = (&authority.last, authority.world.level().name());
+    crate::crash::note(|crumbs| {
+        crumbs.tick = last.tick;
+        if crumbs.module != module {
+            module.clone_into(&mut crumbs.module);
+        }
+        let talk = last.talk.conversations.first();
+        if crumbs
+            .conversation
+            .as_ref()
+            .map(|(dialog, entry)| (dialog.as_str(), *entry))
+            != talk.map(|talk| (talk.dialog.as_str(), talk.entry))
+        {
+            crumbs.conversation = talk.map(|talk| (talk.dialog.clone(), talk.entry));
+        }
+    });
     // The views blend the frame's last two snapshots; the rest they read
     // from the list (all of them shared, none copied).
     let (previous, newest) = match &presented.1[fresh..] {
@@ -1824,6 +2028,10 @@ fn write_session(
     }
     let authority = &mut *authority;
     authority.solo.shutdown(&folder.0);
+    // The flight recorder's last ticks, waited for on the disk.
+    if let Some(mut flight) = authority.flight.take() {
+        flight.flush(&authority.last);
+    }
     let Source::Live { recorder } = &mut authority.source else {
         return;
     };

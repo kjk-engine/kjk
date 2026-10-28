@@ -100,7 +100,7 @@ const PAGES: [Spec; 7] = [
                 ToggleAs("camera.invert", strings::INVERT_CAMERA),
             ),
             ("CB_LEVELUP", Greyed),
-            ("CB_AUTOSAVE", Greyed),
+            ("CB_AUTOSAVE", Toggle("game.autosave")),
             ("CB_REVERSE", Greyed),
             ("CB_DISABLEMOVE", Greyed),
             ("CB_REVERSE_INGAME", Hidden),

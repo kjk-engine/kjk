@@ -1,5 +1,6 @@
 //! The commit stamp both crates' build scripts write (`KJK_GIT_SHA`): the
-//! commit, with `-dirty` when the working tree had changes at build time.
+//! commit, with `-dirty` when the working tree had changes at build time;
+//! and the release (`KJK_VERSION`).
 //! `launcher/build.rs` reads this file by path.
 
 use std::path::Path;
@@ -28,10 +29,16 @@ pub fn git_sha<P: AsRef<Path>>(sources: &[P]) {
         "cargo:rustc-env=KJK_GIT_SHA={sha}{}",
         if dirty { "-dirty" } else { "" }
     );
+    // The release the build is from or after: the latest `v*` tag, which
+    // only moves when the owner tags a release (a build between releases
+    // keeps it).
+    let version = git(&["describe", "--tags", "--match", "v*", "--abbrev=0"])
+        .unwrap_or_else(|| "dev".to_string());
+    println!("cargo:rustc-env=KJK_VERSION={version}");
     for source in sources {
         println!("cargo:rerun-if-changed={}", source.as_ref().display());
     }
-    for name in ["HEAD", "packed-refs", "refs/heads"] {
+    for name in ["HEAD", "packed-refs", "refs/heads", "refs/tags"] {
         let path = git(&["rev-parse", "--path-format=absolute", "--git-path", name]);
         if let Some(path) = path.filter(|path| Path::new(path).exists()) {
             println!("cargo:rerun-if-changed={path}");

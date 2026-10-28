@@ -158,6 +158,7 @@ fn game_screen(loading: Res<Loading>, ui: Option<ResMut<Ui>>, mut ours: Local<bo
         image: loading.image_name.clone(),
         progress: Some(loading.progress),
         error: None,
+        version: std::mem::take(&mut ui.vm.session.version),
     };
     // A guest's galaxy map goes with the world it was shown in (the host
     // travelled).

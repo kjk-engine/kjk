@@ -215,7 +215,12 @@ impl Plugin for UiViewPlugin {
             warn!("the game's screens cannot be drawn (see above)");
         }
         let mut stack = Stack::new(ui::screens::open);
-        let vm = ViewModel::default();
+        let mut vm = ViewModel::default();
+        vm.session.version = format!(
+            "kjk {} ({})",
+            env!("KJK_VERSION"),
+            &env!("KJK_GIT_SHA")[..8.min(env!("KJK_GIT_SHA").len())]
+        );
         if let Some(start) = self.start
             && !stack.open(start, &vm)
         {
@@ -443,6 +448,12 @@ fn step(
     (presented, map): InGame,
     (showing, cursors, (mut picked, mut watch, mut swap)): HudPointer,
 ) {
+    let top = ui.stack.top().map(|screen| screen.0);
+    crate::crash::note(|crumbs| {
+        if crumbs.screen.as_deref() != top {
+            crumbs.screen = top.map(str::to_owned);
+        }
+    });
     // A movie over the screens takes the keys and the pointer.
     let movie = showing.is_some_and(|showing| showing.0);
     let (keys, mouse) = if movie { (None, None) } else { (keys, mouse) };

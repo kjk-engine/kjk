@@ -484,7 +484,6 @@ pub fn ja_skeleton(discovery: &Discovery) -> Result<(Gla, AnimationConfig), Stri
 /// The table from the JA install with the sim's skeleton (the hands'
 /// bones and the sabers blades are placed from,
 /// `sim::combat::saber::blades::SABERS`), or the stand-in (with why).
-#[cfg(feature = "probes")]
 pub fn anims(discovery: &Discovery) -> (AnimTable, String) {
     let loaded = crate::viewer_ja::stack(discovery).and_then(|stack| {
         let files = Files::new(&stack);

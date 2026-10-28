@@ -70,10 +70,21 @@ pub fn run(options: RunOptions) -> AppExit {
         }
     };
     eprintln!("run folder: {}", folder.display());
+    crate::crash::install_hook(folder.clone(), crate::crash::facts());
+    let player = crate::crash::PlayerRun::of(options.headless, &options.script);
+    let mut backup = None;
+    if player.0 {
+        crate::crash::mark(&folder, crate::crash::PLAYER);
+        backup = back_saves_up().err().map(crate::crash::BackupFailed);
+    }
 
     let games = std::thread::spawn(options.games);
     let mut app = App::new();
+    if let Some(backup) = backup {
+        app.insert_resource(backup);
+    }
     app.insert_resource(RunFolder(folder.clone()))
+        .insert_resource(player)
         .insert_resource(Manifest(serde_json::json!({
             "run": folder.file_name().map(|name| name.to_string_lossy().into_owned()),
             "git": env!("KJK_GIT_SHA"),
@@ -239,7 +250,10 @@ pub fn run(options: RunOptions) -> AppExit {
             crate::terminal::TerminalPlugin,
             crate::character::CharacterPlugin,
             crate::script_screens::ScriptScreensPlugin,
-            crate::save_view::SaveViewPlugin,
+            (
+                crate::save_view::SaveViewPlugin,
+                crate::report::ReportPlugin,
+            ),
         ));
         if black {
             app.insert_resource(ClearColor(Color::BLACK));
@@ -256,9 +270,13 @@ pub fn run(options: RunOptions) -> AppExit {
         crate::launch_times::LaunchTimesPlugin,
     ))
     .add_systems(Startup, (log_render_adapter, write_manifest).chain());
+    if menu {
+        app.add_systems(Startup, crate::crash::notice);
+    }
     laps.lap("game plugins");
     crate::launch_times::mark("app built");
     let exit = app.run();
+    crate::crash::mark(&folder, crate::crash::ENDED);
     if let Ok(games) = games.join() {
         add_games(&folder.join("manifest.json"), games);
     }
@@ -334,6 +352,25 @@ pub fn skinned(assets: GuiAssets, discovery: &vfs::Discovery) -> Result<GuiAsset
     Ok(assets.with_skin(vfs::Game::Kotor2, base))
 }
 
+/// Before a player's game first touches the saves with a new release, the
+/// whole saves' folder kept in `save-backups` beside it
+/// (`saves::backup_on_new_version`); not for saves elsewhere (`KJK_SAVES`).
+fn back_saves_up() -> Result<(), String> {
+    if std::env::var_os("KJK_SAVES").is_some() {
+        return Ok(());
+    }
+    let (Some(root), Some(folder)) = (crate::save_view::folder(), crate::settings::folder()) else {
+        return Ok(());
+    };
+    let backups = folder.join(saves::safety::BACKUPS);
+    let made =
+        saves::backup_on_new_version(&root, &backups, env!("KJK_VERSION"), env!("KJK_GIT_SHA"))?;
+    if let Some(made) = made {
+        eprintln!("the saves were kept in {}", made.display());
+    }
+    Ok(())
+}
+
 /// The games' facts into the manifest the run wrote.
 fn add_games(path: &std::path::Path, games: serde_json::Value) {
     let Some(mut manifest) = std::fs::read(path)
@@ -372,19 +409,12 @@ pub fn runs() -> PathBuf {
 }
 
 /// A player's build's oldest runs removed, so `keep` are left beside the
-/// one about to be made. Their names sort by their start.
+/// one about to be made, and the recent crashes (`crash::kept`). Their
+/// names sort by their start.
 fn prune_runs(runs: &Path, keep: usize) {
-    let Ok(entries) = std::fs::read_dir(runs) else {
-        return;
-    };
-    let mut folders: Vec<PathBuf> = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir())
-        .collect();
-    folders.sort();
-    let old = folders.len().saturating_sub(keep);
-    for folder in &folders[..old] {
+    let folders = crate::crash::run_folders(runs);
+    let kept = crate::crash::kept(folders.clone(), keep, SystemTime::now());
+    for folder in folders.iter().filter(|folder| !kept.contains(folder)) {
         let _ = std::fs::remove_dir_all(folder);
     }
 }
@@ -395,7 +425,7 @@ pub fn create_run_folder() -> std::io::Result<PathBuf> {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.as_secs());
     let (days, seconds) = (now / 86_400, now % 86_400);
-    let (year, month, day) = civil_from_days(days as i64);
+    let (year, month, day) = saves::civil_from_days(days as i64);
     let name = format!(
         "{year:04}{month:02}{day:02}-{:02}{:02}{:02}-{}",
         seconds / 3600,
@@ -410,20 +440,6 @@ pub fn create_run_folder() -> std::io::Result<PathBuf> {
     let folder = runs.join(name);
     std::fs::create_dir_all(&folder)?;
     Ok(folder)
-}
-
-/// Days since 1970-01-01 to (year, month, day), proleptic Gregorian.
-pub(crate) fn civil_from_days(days: i64) -> (i64, u32, u32) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    (year, month, day)
 }
 
 /// The run's log file, and with `KJK_PERF=1` a Chrome/Perfetto trace, as
@@ -458,6 +474,10 @@ fn log_render_adapter(adapter: Res<RenderAdapterInfo>, mut facts: ResMut<DumpFac
         driver = %adapter.driver_info,
         "render adapter"
     );
+    crate::crash::set_adapter(&format!(
+        "{} {:?} ({})",
+        adapter.name, adapter.backend, adapter.driver_info
+    ));
     facts.0.insert(
         "render_adapter".into(),
         serde_json::json!({

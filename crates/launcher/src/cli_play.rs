@@ -294,7 +294,7 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
 /// The recording in the file at `path`.
 pub(crate) fn read_recording(path: &std::path::Path) -> Result<sim::Recording, String> {
     let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
-    sim::Recording::decode(&bytes).map_err(|error| format!("{}: {error}", path.display()))
+    sim::Recording::from_file(&bytes).map_err(|error| format!("{}: {error}", path.display()))
 }
 
 /// The sheet `--class` names: `soldier`, `jedi` or `master`, after a colon

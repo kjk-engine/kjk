@@ -12,6 +12,8 @@ pub struct SessionView {
     pub progress: Option<f32>,
     /// Why the last attempt failed, for the message box.
     pub error: Option<String>,
+    /// The build ("kjk v0.1.0 (ab12cd34)"), in the main menu's corner.
+    pub version: String,
 }
 
 /// An action a key does, and the key it is on.

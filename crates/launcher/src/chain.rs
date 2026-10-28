@@ -776,7 +776,7 @@ fn write_saves(game: &str) -> Result<(Vec<String>, Vec<String>), String> {
             area: title.clone(),
             saved: now.saturating_sub(index as u64),
             seats: save.snapshot.seats(),
-            character: None,
+            ..saves::Meta::default()
         };
         saves::write_encoded(&root, Some(&id), &bytes, &meta)?;
         written.push(id);

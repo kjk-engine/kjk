@@ -88,7 +88,7 @@ fn run(root: &Path) -> Result<Checks, String> {
         area: "here".into(),
         saved: 1,
         seats: snapshot.seats(),
-        character: None,
+        ..Meta::default()
     };
     let save = sim::Save {
         hz: sim::TICK_HZ,

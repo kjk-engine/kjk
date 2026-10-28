@@ -71,11 +71,20 @@ pub enum Action {
     /// conversation (R5, `dialogue_view`).
     AcceptCall,
     EndCall,
+    /// Make a bug report (`report`).
+    Report,
 }
 
 /// Each action: its settings name, its label, its default key, and
 /// whether it is a movement key.
-const ACTIONS: [(Action, &str, &str, KeyCode, bool); 42] = [
+const ACTIONS: [(Action, &str, &str, KeyCode, bool); 43] = [
+    (
+        Action::Report,
+        "report",
+        "Report a bug",
+        KeyCode::F12,
+        false,
+    ),
     (Action::Forward, "forward", "Forward", KeyCode::KeyW, true),
     (
         Action::Backward,
@@ -427,7 +436,7 @@ pub struct Settings {
 }
 
 /// Each setting the screens change, and its default.
-const DEFAULTS: [(&str, &str); 17] = [
+const DEFAULTS: [(&str, &str); 18] = [
     ("mouse.sensitivity", "0.50"),
     ("camera.invert", "false"),
     ("camera.view", "third"),
@@ -445,7 +454,11 @@ const DEFAULTS: [(&str, &str); 17] = [
     ("display.shadows", "true"),
     ("display.soft_shadows", "true"),
     ("feedback.tutorials", "true"),
+    (AUTOSAVE, "true"),
 ];
+
+/// The key of Autosave (saving on each module entered, `sim_host::autosave`).
+pub(crate) const AUTOSAVE: &str = "game.autosave";
 
 /// Each part of the mix and the setting of its slider.
 const VOLUMES: [(Bus, &str); 4] = [
@@ -456,7 +469,7 @@ const VOLUMES: [(Bus, &str); 4] = [
 ];
 
 /// The key of this install's host id (`Settings::host_id`).
-const HOST_ID: &str = "host.id";
+pub(crate) const HOST_ID: &str = "host.id";
 
 /// The key of the layout of the key bindings a file was saved with, and
 /// the layout now: 2 moved the medpac, stim and shield to the number row,
@@ -474,7 +487,7 @@ const MOVED: [(&str, &str); 3] = [
 /// What a page's Default button puts back.
 fn page_keys(page: &str) -> &'static [&'static str] {
     match page {
-        "options_gameplay" => &["camera.invert"],
+        "options_gameplay" => &["camera.invert", AUTOSAVE],
         "options_mouse" => &["mouse.sensitivity", "mouse.reverse"],
         "options_sound" => &["sound.music", "sound.voice", "sound.effects", "sound.movie"],
         "options_graphics" => &["display.gamma", "display.shadows", "display.grass"],
@@ -577,6 +590,11 @@ impl Settings {
             settings.save();
         }
         settings
+    }
+
+    /// The file the settings are kept in, if any.
+    pub(crate) fn path(&self) -> Option<&std::path::Path> {
+        self.path.as_deref()
     }
 
     /// The value set for `key`, if any.

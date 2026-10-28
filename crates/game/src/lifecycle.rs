@@ -426,7 +426,6 @@ impl Installer {
     }
 
     /// The level an announcement names, built here and checked against it.
-    #[cfg(feature = "probes")]
     pub fn level_for(&self, announcement: &sim::Announcement) -> Result<sim::Level, String> {
         let prepared = self.prepare(&Request::of(announcement), false)?;
         prepared
