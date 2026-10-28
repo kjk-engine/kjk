@@ -37,6 +37,8 @@ net.workspace = true
 serde_json.workspace = true
 saves.workspace = true
 image.workspace = true
+# The window's icon (`src/window_icon.rs`), on bevy's own winit.
+winit = { version = "0.30", default-features = false }
 tracing-chrome.workspace = true
 rfd.workspace = true
 

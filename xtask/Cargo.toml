@@ -9,7 +9,9 @@ publish.workspace = true
 [dependencies]
 blake3.workspace = true
 bumps.workspace = true
-image.workspace = true
+image = { workspace = true, features = ["ico"] }
+# Renders the logo (docs/logo/kjk.svg) into the icons (`src/icon.rs`).
+resvg = { version = "0.49", default-features = false }
 serde_json.workspace = true
 rules.workspace = true
 
