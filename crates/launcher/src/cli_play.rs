@@ -48,7 +48,8 @@ pub(crate) struct PlayArgs {
     /// Q-0014) and the camera's (Q-0016)
     #[arg(long)]
     quirks: bool,
-    /// Write the body's pelvis, head, hands and feet every frame (CSV)
+    /// Write the body's pelvis, head, hands, feet, chest, shoulders and
+    /// elbows every frame (CSV; the nodes the body has)
     #[arg(long)]
     trace: Option<std::path::PathBuf>,
     /// Turn the first module's creatures with this tag hostile before

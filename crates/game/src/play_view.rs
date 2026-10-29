@@ -334,8 +334,18 @@ fn bodies_as_drawn(
 }
 
 /// The nodes a trace follows.
-const TRACED: [&str; 6] = [
-    "pelvis_g", "head_g", "lhand_g", "rhand_g", "lfoot_g", "rfoot_g",
+const TRACED: [&str; 11] = [
+    "pelvis_g",
+    "head_g",
+    "lhand_g",
+    "rhand_g",
+    "lfoot_g",
+    "rfoot_g",
+    "torsoupr_g",
+    "lbicep_g",
+    "rbicep_g",
+    "lforearm_g",
+    "rforearm_g",
 ];
 
 impl Plugin for PlayViewPlugin {
@@ -425,14 +435,15 @@ pub fn install(app: &mut World, setup: PlayViewSetup) {
         let trace = setup.trace.as_ref().and_then(|path| {
             use std::io::Write as _;
             let names = setup.body_rigs.first()?.node_names();
-            let nodes: Vec<usize> = TRACED
+            let found: Vec<(&str, usize)> = TRACED
                 .iter()
-                .filter_map(|t| names.iter().position(|n| n.eq_ignore_ascii_case(t)))
+                .filter_map(|t| Some((*t, names.iter().position(|n| n.eq_ignore_ascii_case(t))?)))
                 .collect();
+            let nodes: Vec<usize> = found.iter().map(|f| f.1).collect();
             let mut file = std::io::BufWriter::new(std::fs::File::create(path).ok()?);
-            let header: Vec<String> = TRACED
+            let header: Vec<String> = found
                 .iter()
-                .flat_map(|t| ["x", "y", "z"].map(|a| format!("{t}_{a}")))
+                .flat_map(|(t, _)| ["x", "y", "z"].map(|a| format!("{t}_{a}")))
                 .collect();
             writeln!(file, "ms,legs,torso,{},correction", header.join(",")).ok()?;
             Some((file, nodes))
