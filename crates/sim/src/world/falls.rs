@@ -167,7 +167,7 @@ fn arena_falls(arena: &super::arena::Rules, rows: &mut [Row], party: &[usize], n
 
 /// Up again (I30 P11): `RISE_HP`, the fall's pose given up for JA's
 /// get-up.
-fn stand(player: &mut MotionState, fighter: &mut Fighter, anims: &AnimTable) {
+pub(super) fn stand(player: &mut MotionState, fighter: &mut Fighter, anims: &AnimTable) {
     fighter.rise(RISE_HP);
     player.flags &= !motion::motion_flags::DEAD;
     motion::react(player, anims, Anim::BOTH_GETUP1, false);

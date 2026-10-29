@@ -1,15 +1,14 @@
 # Telos, the old military base (TSL, 232TEL), as far as the reactor: Bao-
 # Dur's fist through the force fields, the turrets and the base's droids,
 # the security control (the poison grates off), his Security on the
-# security doors, the reactor started (its turrets turn hostile). Not yet:
-# the codes' datapad, the bay control, the tank droid and the shuttle out
-# to the polar plateau. Starts from the Czerka site's checkpoint:
+# security doors, the reactor started (its turrets turn hostile); the
+# Exile fights the droids, Bao-Dur leads only to strike and unlock (the
+# rest: telos_base_shuttle). Starts from the Czerka site's checkpoint:
 #   kjk playthrough tsl @telos_military_base data/routes/tsl/telos_military_base.route --god
 # Walkthrough: DSimpson's "Old Military Base" (context/walkthroughs/tsl/).
-to TelosDoorFirst    # the party together at the first force field, for
-gather               # Bao-Dur's fist (he must stand within 10 m)
-use TelosDoorFirst
-talk
+gather               # the party together, then to the first force field
+use TelosDoorFirst   # for Bao-Dur's fist (he must stand within 10 m: a
+talk                 # press before he is near only finds it locked)
 use TurretA1         # the four turrets beyond, shot down (DSimpson: XP
 use TurretA2         # for the fight, none for the console)
 use TurretA3
@@ -17,35 +16,55 @@ say Slice into security terminal # the fourth, out of the room's sight,
 say Deactivate local turrets # turned off at the room's console ([Computer])
 use TermSA
 talk
-leader 1             # the next force field: Bao-Dur strikes it himself
-bash TelosDoor2@8    # (DSimpson: switch to Bao-Dur; a_ffield_baodur opens
-leader player        # it to his blow)
+fight 30             # the droids at the next force field, fought by the
+leader 1             # Exile; then Bao-Dur strikes it himself (DSimpson:
+bash TelosDoor2@8    # switch to Bao-Dur; a_ffield_baodur opens it to his
+leader player        # blow)
 save telos_base_halls
 fight 30             # the droids in the hall and the side passages
-leader 1             # Bao-Dur leads through the force fields, each to his
-bash TelosDoor2@5    # blow: the turrets' room's, its six droids and turrets
-fight 30             # fought (the workbench beside), the shuttle hangar's,
-bash TelosDoor2@6    # and down the lower passage the one to the left
+leader 1             # Bao-Dur's blow on each force field, the Exile leading
+bash TelosDoor2@5    # the fights beyond: the turrets' room's, its six
+leader player        # droids and turrets fought (the workbench beside),
+fight 30             # the shuttle hangar's, and down the lower passage the
+leader 1             # one to the left
+bash TelosDoor2@6
+leader player
+fight 30
+leader 1
 bash TelosDoor2@7
 leader player
+fight 30
 say Turn off the security gas vents # the security control: the poison
 use Security         # grates off
 talk
 save telos_base_security
-leader 1             # Bao-Dur leads to the reactor: his Security on the
-unlock TelosDoor3@1  # security doors (DC 28), his blow on the force fields,
-fight 30             # the droids fought on the way
+leader 1             # to the reactor: Bao-Dur's Security on the security
+unlock TelosDoor3@1  # doors (DC 28), his blow on the force fields, the
+leader player        # droids on the way fought by the Exile
+fight 30
+leader 1
 bash TelosDoor2@2
+leader player
 fight 30
+leader 1
 unlock TelosDoor3@2
+leader player
 fight 30
+leader 1
 unlock TelosDoor3@4
+leader player
 fight 30
+leader 1
 bash TelosDoor2@1
+leader player
 fight 30
+leader 1
 bash TelosDoor2@4
+leader player
 fight 30
+leader 1
 bash TelosDoor2@3
+leader player
 use Reactor          # the reactor started: its turrets turn hostile
 talk
 fight 30

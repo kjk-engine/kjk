@@ -4,8 +4,12 @@
 # lock; GetObjectByTag finds held items; a heavy repeater's holder answers
 # a blow with no clip; a companion spawned again replaces its last
 # creature (one made and destroyed in a step is never put in); the
-# companion leading the party punches at its player's press.
-sim = "Telos: queued pauses, self-opened doors' OnOpen, Lockable locks, held items by tag, one creature a companion, the led companion's punches"
+# companion leading the party punches at its player's press; the player
+# restrict mode ends with its module; a minigame's area takes no
+# companions (they wait in the module left); EffectResurrection raises the
+# dead; the companion led has its player's test aids; a punch thrown from
+# inside a bashable body's box lands on it.
+sim = "Telos: queued pauses, self-opened doors' OnOpen, Lockable locks, held items by tag, one creature a companion, the led companion's punches, restrict mode per module, no companions in a minigame, resurrection of the dead, the led companion's aids, punches from a doorway"
 
 [formats]
 save = "a queued conversation pause (`Action::Pause`, its conversation)."

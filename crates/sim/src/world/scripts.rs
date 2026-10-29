@@ -1754,6 +1754,15 @@ impl SimWorld {
         // Blows on their way and a screen still open are the left module's.
         state.strikes.clear();
         state.party.selection = None;
+        // The player restrict mode is the module's: TSL's asteroid walk
+        // sets it on entering (a_104per_enter, every time) and in the
+        // airlock before it (a_airlockout), and no script of the games
+        // ever turns it off. Carried on, it held for the rest of the game,
+        // and every hostile's AI that asks it (k_ai_master's perception
+        // and heartbeat) stood idle beside the player: Czerka's mercenaries
+        // in the Ithorian compound, and the companions' talk
+        // (k_hen_*dlg) refused.
+        state.party.restrict = false;
         // The left module's conversations end without their scripts
         // (those belong to the module left behind).
         state.talk.conversations.clear();

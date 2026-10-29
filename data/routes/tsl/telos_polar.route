@@ -1,0 +1,18 @@
+# Telos, the polar plateau (TSL, 261TEL): shot down, the party wakes
+# (Atton and Kreia; Bao-Dur out cold in the wreck), HK-50's three units
+# talk and are fought, their remains searched (DSimpson: the HK Control
+# Cluster's second part), and on to the small door at the plateau's centre,
+# where the Handmaiden sisters come out to take the party in. Starts from
+# the shuttle's checkpoint:
+#   kjk playthrough tsl @telos_polar data/routes/tsl/telos_polar.route --god
+# Walkthrough: DSimpson's "Telos - Hidden Base" (context/walkthroughs/tsl/).
+talk                 # the crash: the party wakes on the plateau
+talk                 # the three HK-50s: asked why, then the fight
+fight 30
+use HK501            # their remains
+use HK502
+use HK503
+to 261ExitDlgTrigger # the small door: the sisters come out, the party
+talk                 # taken in
+module 262tel
+save telos_academy

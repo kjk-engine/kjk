@@ -339,6 +339,7 @@ pub fn probes() -> crate::probe::Checks {
     checks.push(("leads_a_companion_while_switched", leads_while_switched()));
     checks.push(("install_after_switching_back", install_after_back()));
     checks.push(("led_companion_throws_punches", led_punches()));
+    checks.push(("led_companion_has_its_players_aids", led_aids()));
     checks
 }
 
@@ -381,6 +382,52 @@ fn leads_while_switched() -> Result<String, String> {
         ran > 0.2 && stood < 0.05 && leader.is_none(),
         format!(
             "the one led ran {ran:.2} m, the one switched to moved {stood:.2} m; its portrait clicked, the leader {leader:?}"
+        ),
+    )
+}
+
+/// The companion led (`Action::Lead`) has its player's test aids: with the
+/// player's own sheet immortal (`--god`), a blow that would kill the one
+/// led leaves it standing at its last hit point (TSL's Bao-Dur led through
+/// the old military base's force fields while its droids shot at him).
+fn led_aids() -> Result<String, String> {
+    let (mut world, _, standing) = switch_world(1, true)?;
+    world.add_player_flags(crate::combat::sheet::flags::IMMORTAL);
+    run(&mut world, 1, 0);
+    let mut input = TickInput::default();
+    input.insert(Seat(0), Command::default());
+    input.act(Seat(0), crate::action::Action::Lead(standing));
+    let tick = world.tick() + 1;
+    crate::step(&mut world, tick, &input, 8, StepReason::Authority);
+    let player = world
+        .snapshot()
+        .own(Seat(0))
+        .map(|own| own.id)
+        .ok_or("no player")?;
+    world
+        .world
+        .resource_mut::<super::super::Hits>()
+        .0
+        .push(super::super::Hit {
+            attacker: player,
+            target: standing,
+            source: crate::combat::damage::Source::Script {
+                damage: u16::MAX,
+                damage_type: None,
+                cast: false,
+                shot: None,
+                staged: false,
+            },
+            point: None,
+            direction: None,
+        });
+    let after = run(&mut world, 1, 0);
+    let fighter = after.get(standing).and_then(|entity| entity.fighter);
+    check(
+        fighter.is_some_and(|f| f.alive() && f.hp > 0),
+        format!(
+            "the one led after a killing blow: {:?}",
+            fighter.map(|f| (f.life, f.hp))
         ),
     )
 }
