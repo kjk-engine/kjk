@@ -1,0 +1,24 @@
+# Peragus, the mining tunnels (TSL, 101PER's hatch to 102PER): Atton on the
+# open hatch (the Jedi's sacrifice, LSP), the supply barrel's miner's
+# outfit, the droids, the containment console's fields shut down, and on
+# to the fuel depot. Starts from T3's checkpoint, the Exile back in command:
+#   kjk playthrough tsl @peragus_hatch data/routes/tsl/peragus_tunnels.route --god
+# Walkthrough: DSimpson's "Our Hero" and "Peragus Mining Tunnels",
+# GameBanshee's Mining Tunnels (context/walkthroughs/tsl/).
+say A Jedi's life is sacrifice # Atton on the hatch T3 opened: LSP
+talk
+exit To_102PER       # through the emergency hatch, into the tunnels
+use MilLowPlstcCylin # the supply barrel: miner's uniform, survey gear,
+                     # Telos mining shield, safety harness, medpac
+equip                # (Atton's comm on the way in: advice only)
+use LowBroknDrd@3    # the broken droids by the first fuel pump
+                     # (the second dead end's droid stays behind its sealed door)
+fight 30             # up the last hallway past the damaged mining droid
+                     # and through the cave's droids
+say access fuel containment functions # the containment console: the
+say shut down containment fields # fields down, the way out open
+say log out
+use Shftcom
+fight 30             # the spider droids behind the fields
+exit Door_To_103PER  # the far exit: the fuel depot's maintenance level
+save peragus_depot

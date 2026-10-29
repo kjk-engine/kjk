@@ -35,6 +35,11 @@ the games' own compiled scripts; nothing of them is in the repo.
   game's, so the reports list it apart from the faults, as a runaway
   (the sweeps among them). KOTOR counts a run and those it starts
   (`ExecuteScript`) together; here each counts its own.
+- A routine handed an argument of another type than its prototype's ends
+  the run too, as KOTOR's machine ends it (Q-0324: TSL's floating mines,
+  whose compiled `break` leaves a local on the stack). That is the game's
+  error, so the reports list it apart as well, as aborted (not in the
+  sweeps' faults).
 
 ## In the sim (`sim::script`, `world::scripts`)
 - A module's plan carries a `Library` (`Level::with_scripts`, in its

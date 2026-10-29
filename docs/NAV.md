@@ -13,7 +13,12 @@ face a door or placeable stands on (its closed or in-place brushes, with
 a body's box), or three of four points of it over a placeable's footprint
 (its flat non-walkable faces), carries that entity; one with the level's own solid over its
 middle, from a step up to a body's height (a table's top, a prop drawn
-without a walkmesh), is `covered`. It bakes in under 10 ms, and is kept
+without a walkmesh), is `covered`; but a sliver, narrower than the
+10 cm column looked over each point with (its points lie on its edges, so
+the column meets a wall along one), is open where two faces it joins are:
+a body only crosses it (TSL's Peragus mining tunnels, where a 6 mm sliver
+along the hallway's wall past the damaged droid was the one way into the
+cave, and shut a third of the routes). It bakes in under 10 ms, and is kept
 with the area's collision in the store (`area-v6`). `sim::Level::nav` carries it; its digest joins the level's and the
 transition announcement's (`Mismatch::Nav`).
 
@@ -55,7 +60,13 @@ counts 64 looks round it at 2 cm, which quantize that to about 186° to
 197°). Such an end can lie past a walker standing that near the portal,
 and taken as the funnel's side it turned the way back round it (Malak, a
 step from the Leviathan hangar's doorway, whose frame meets the wall
-beyond it at about 190°, walked 2 s away from it first). An end at an
+beyond it at about 190°, walked 2 s away from it first). So are both ends
+of a gate whose corners the apex stands beside neither of (farther from
+each than the end is stepped off its walls): between two blocks' corners
+the stepped gate lies aslant the bare portal, and a walker on the portal
+past it was sent back round one stepped end and then the other (TSL's
+Peragus hangar bay, 106PER, the start room's way to the lower door: the
+walk turned back and forth between two ways). Otherwise an end at an
 outside corner still bounds its side, so a walker beside a block's corner,
 clear of it, or in a doorway between two blocks' corners still turns round
 them stepped off their walls; a portal whose stepped ends pass each other
@@ -94,6 +105,12 @@ walker is a point on the walkmesh and meets nothing drawn; the mesh
 planned the leg, so it carries it: a tent's guy rope at waist height
 across the Outcast village's walkway (Taris, `tar_m04aa`) held each
 outcast's box until its walkway's forced move jumped it on, 30 s a leg.
+A step that went nowhere against a placeable it touched or the level's
+own solid on the way ahead (`walk::way_clear`; no body in it, nor a door)
+is that stall at once, not a second
+later: a mesh run on under a wall's foot or between a barrel and a crate's
+walkmesh edge held Peragus's Sith troopers boarding the Ebon Hawk (107PER)
+a second at each such gap, twenty times in the turret game.
 
 While a conversation holds the world (scene mode, S3) the walk is
 KOTOR's (`walk::kotor_step`, `docs/MOVEMENT.md`): a walk KOTOR's walker

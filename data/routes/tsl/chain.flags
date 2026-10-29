@@ -1,0 +1,5 @@
+# The flags every tsl route plays with in `kjk chain`, before its header's
+# own (`kjk chain --bare` leaves them out): blows that end fights quickly,
+# so a route tests what the scripts and the world do, not the fights'
+# balance (as k1's chain.flags).
+--mighty

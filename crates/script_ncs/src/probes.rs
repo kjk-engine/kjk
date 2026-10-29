@@ -532,6 +532,19 @@ pub fn all() -> Vec<Check> {
         Asm::default().op(float(1.0)).op(Jz(6)).op(Retn),
         "type",
     );
+    // A routine's argument of another type: the run stops there, as the
+    // executables stop it (TSL's floating mines, `k_fm_die_custom`).
+    p.faults(
+        "an argument of the wrong type",
+        Asm::default()
+            .op(object(0))
+            .op(Action {
+                routine: 4,
+                args: 1,
+            })
+            .op(Retn),
+        "argument",
+    );
     p.faults(
         "division by zero",
         Asm::default()

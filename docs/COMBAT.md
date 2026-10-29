@@ -224,7 +224,9 @@ Locked doors and containers break under the party's own blows, JA style
 (`module::bashable`): a door that is not scenery or a placeable, locked,
 not `Plot`, with hit points left (its `CurrentHP` less what it lost,
 `ObjectState::damage`). A saber's sweep meets its collision (each segment
-through it a contact of the swing), a fist its pick volume, a shot or
+through it a contact of the swing) or, a placeable's with no brushes (a
+locker), its pick volume; a fist or a stun baton (TSL's plasma torch
+too, which punches as fists do, a blow of the baton) its pick volume, a shot or
 bolt its brushes or, a player's own bolt, a placeable's pick volume too
 (a footlocker has no brushes: TSL's prologue's is shot open; companions'
 bolts fly past to their foes), any grenade's blast its middle (KOTOR's grenade script
@@ -232,14 +234,27 @@ asks for creatures alone). A blow is worth what it would be against a
 body that does not dodge (KOTOR's 95%) resisting its `Hardness` on every
 damage type, then `BASH_TIMES` (7) over: the owner's pace, a door in 10 to
 15 s of swinging (Taris's Low Security Door, 60 HP, Hardness 5: a saber
-about 10 s). `Min1HP` holds at 1. At none it breaks: unlocked, a shut door
-opened away from the blow's maker and never closed again, `OnDamaged`
-(`GetLastDamager`) on every blow and `OnDeath` (`GetLastKiller`) on the
-last; a script's damage hurts any object but a `Plot` one. Others' blows
+about 10 s). A weapon with TSL's Door Cutting (`itempropdef.2da` row 64,
+the plasma torch) takes all its hit points at a blow, whatever its
+hardness (Peragus's med bay door, Hardness 100, whose `a_plasmachk` asks
+for the property) [verify the executable's own rule]. `Min1HP` holds at
+1. At none it breaks: unlocked, a shut door opened away from the blow's
+maker and never closed again, `OnMeleeAttacked` (`GetLastAttacker`,
+`GetLastWeaponUsed`) on every weapon's blow, one its hardness turns
+whole too, `OnDamaged` (`GetLastDamager`) on every blow that tells, and
+`OnDeath` (`GetLastKiller`) on the last; a script's damage hurts any
+object but a `Plot` one. Others' blows
 do nothing, unless a script asks a creature to bash
 (`DoDoorAction(…, DOOR_ACTION_BASH)`, `k_ai_master`'s answer to a door in
 its way): it walks there and strikes a KOTOR attack of what it has in hand
-a round, swinging. A broken door plays its model's `busted` where its
+a round, swinging. A script's attack of a door or placeable
+(`ActionAttack` on an object, KOTOR's attack of one) strikes the same way,
+locked or not, with its `OnMeleeAttacked` on every blow, until it breaks;
+a player's too, once the player stands within `DOOR_REACH` of it (its
+legs are its seat's: the attack waits at the front of its queue,
+`SimWorld::assigned_strike`, and the playthrough harness walks it there).
+TSL's Peragus shift console, "[Destroy the console]", opens the
+dormitory door so. A broken door plays its model's `busted` where its
 `genericdoors.2da` row's `StaticAnim` names it (the executable's rule; no
 stock row does), else stands open. The target block shows a door's
 vitality once blows have told on it. Approved test `bash_doors`.

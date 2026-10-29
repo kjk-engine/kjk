@@ -65,6 +65,8 @@
 //! put g_i_synthodor tar05_corpsepile  # walk up, open it, put one in (its disturbed script)
 //! race                  # race the swoop minigame to its finish (`minigame_bot`)
 //! turrets               # man the Ebon Hawk's gun until the fighters are down
+//!                       # (Peragus' hangar: until its troopers are dead or
+//!                       # aboard, the module left for the boarded Ebon Hawk)
 //! pazaak                # stand until a pazaak match is played out (any match a
 //!                       # script starts is played as `pazaak::Match::advice` says)
 //! global K_STAR_MAP=10  # a script global set (a number, or true/false)
@@ -522,9 +524,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 let mut held = Vec::new();
                 // The goal's clock, held by progress only: foes losing hit
                 // points, a conversation reaching a line it had not, the way
-                // left growing shorter.
+                // left growing shorter, a minigame's scripts keeping count.
                 let mut clock_ms = started_ms;
                 let mut nodes: BTreeSet<(u32, u32)> = BTreeSet::new();
+                let mut counted: Option<BTreeMap<String, i32>> = None;
                 let mut foe_hp: BTreeMap<sim::SimId, i32> = BTreeMap::new();
                 let mut quiet_since: Option<u64> = None;
                 let mut fought = false;
@@ -918,6 +921,14 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     // heartbeat's time has passed (a spawn script's turn): a
                     // route naming what is not in the module.
                     let mut absent = false;
+                    // A target there that cannot answer the goal as it is
+                    // placed (an unlock of a thing not locked, a use of a
+                    // placeable not useable; an open door answers an unlock),
+                    // hopeless as `absent` is: the
+                    // Harbinger's engine-deck route named the first of seven
+                    // `MilLowFootLker`, a bare prop, and waited out its
+                    // goal's time walking about it.
+                    let mut cannot: Option<&'static str> = None;
                     // Whether the goal walks to its target this step.
                     let mut walked = false;
                     let walks = matches!(
@@ -1182,6 +1193,22 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             } else if let Some((index, at)) = found {
                                 let d = flat(at, me.position);
                                 let data = here.facts(index);
+                                cannot = data.as_ref().and_then(|data| {
+                                    let state = object_of(&here, index);
+                                    match goal {
+                                        Goal::Unlock(..)
+                                            if matches!(data.kind, ObjectKind::Door | ObjectKind::Placeable)
+                                                && !state.locked(data.opens)
+                                                && !(data.kind == ObjectKind::Door && state.state != 0) =>
+                                        {
+                                            Some("it is not locked (Security on it is refused)")
+                                        }
+                                        Goal::Use(_) if data.kind == ObjectKind::Placeable && !data.useable => {
+                                            Some("it is a placeable that is not useable")
+                                        }
+                                        _ => None,
+                                    }
+                                });
                                 // What the harness's click asks of it (as E,
                                 // the target block's first choice), and so
                                 // how near it is made from.
@@ -1358,8 +1385,17 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     // player attacks it, until it breaks
                                     // (unlocked).
                                     Goal::Bash(_) => {
+                                        // A blade or a baton steps in while it
+                                        // swings, as a fight's chase presses on
+                                        // into a wide body (`Chase::strike`),
+                                        // until the thing's own collision holds
+                                        // it: a walk to pick its lock ends up
+                                        // to 2 m off, out of a blow's reach
+                                        // (Peragus's locker between lockers).
+                                        let step_in = !ranged(&me) && d > melee_m().0;
                                         command = Command {
                                             buttons: buttons::ATTACK,
+                                            forward: if step_in { 127 } else { 0 },
                                             ..aiming(&player, &me, at)
                                         };
                                         met = object_of(&here, index).lock == sim::lock::UNLOCKED;
@@ -1570,9 +1606,22 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                                     e.kind == sim::Kind::Object(ObjectKind::Creature, index)
                                                 })
                                             });
+                                            // Or its own conversation of one
+                                            // line, said since the press: begun
+                                            // and over within a step, never
+                                            // seen playing (Peragus's sealed
+                                            // hatch, `a_compdlg`'s hint).
+                                            let one_line = talk_at_press.zip(target_id).is_some_and(|(from, id)| {
+                                                world.script_report().talk.get(from..).is_some_and(|lines| {
+                                                    lines.iter().any(|line| {
+                                                        matches!(line, Line::Bark { who, conversation: true, .. } if who.0 == id.0)
+                                                    })
+                                                })
+                                            });
                                             met = answered
                                                 || played_out
                                                 || barked
+                                                || one_line
                                                 || opened
                                                 || module_of(&last) != module;
                                         }
@@ -1672,6 +1721,19 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     {
                         clock_ms = hold;
                     }
+                    // A minigame ends when its scripts say, the player in its
+                    // seat meanwhile, as KOTOR's is: a global they set changing
+                    // is progress (Peragus' turret counts the troopers that
+                    // board the Ebon Hawk, `107PER_MG_EBON`, until all 25 have).
+                    if matches!(goal, Goal::Race | Goal::Turrets) {
+                        let numbers = &world.script_state().numbers;
+                        if counted.as_ref() != Some(numbers) {
+                            if counted.is_some() {
+                                clock_ms = hold;
+                            }
+                            counted = Some(numbers.clone());
+                        }
+                    }
                     let near_m = match goal {
                         Goal::Fight(radius) => stretched(*radius),
                         _ if fight_first => stretched(EXIT_FIGHT_M),
@@ -1768,7 +1830,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     } else {
                         off_mesh_since.get_or_insert(now);
                     }
-                    if absent {
+                    if absent || cannot.is_some() {
                         absent_since.get_or_insert(now);
                     } else {
                         absent_since = None;
@@ -1788,6 +1850,11 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         && no_way.as_ref().is_some_and(|(since, ..)| now >= since + NO_WAY_MS)
                     {
                         Some("no way there, nothing that shuts the player in changed and the goal no nearer")
+                    } else if still
+                        && cannot.is_some()
+                        && absent_since.is_some_and(|since| now >= since + sim::HEARTBEAT_MS)
+                    {
+                        cannot
                     } else if still
                         && absent_since.is_some_and(|since| now >= since + sim::HEARTBEAT_MS)
                     {
@@ -1906,8 +1973,48 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 && (near || reach.ways(&here, &player, (*id, *at), now).1))
                                 || near && walker.as_ref().is_some_and(|w| w.stalls > 2)
                         }));
+                    // A door or placeable a script's attack has the player
+                    // strike (`SimWorld::assigned_strike`): the sim strikes
+                    // it once the player stands within its reach, the
+                    // player's legs being its seat's. KOTOR's character walks
+                    // up to it by itself, so the harness walks there,
+                    // whatever the goal (TSL's Peragus shift console,
+                    // "[Destroy the console]").
+                    let assigned = world
+                        .assigned_strike(me.id)
+                        .filter(|_| talking.is_none())
+                        .and_then(|id| last.get(id))
+                        .filter(|e| {
+                            matches!(
+                                e.kind,
+                                sim::Kind::Object(ObjectKind::Door | ObjectKind::Placeable, _)
+                            )
+                        })
+                        .map(|e| e.position)
+                        .filter(|at| flat(*at, me.position) > sim::script::DOOR_REACH);
                     match foe_back {
-                        None => (back, back_walker) = (Chase::default(), None),
+                        None => {
+                            back = Chase::default();
+                            match assigned {
+                                None => back_walker = None,
+                                Some(at) => {
+                                    let w = back_walker.get_or_insert_with(|| here.approach(&player, at));
+                                    let walk = if !w.arrived(&player) && here.leads(player.origin, w.goal) {
+                                        w.command(here.level, &player, now, &|index| here.to_try(index))
+                                    } else {
+                                        Command {
+                                            forward: 127,
+                                            ..facing(&player, at)
+                                        }
+                                    };
+                                    command = Command {
+                                        buttons: command.buttons | pulse,
+                                        ..walk
+                                    };
+                                    walker = None;
+                                }
+                            }
+                        }
                         Some(foe) => {
                             let (strike, stepping) = back.strike(
                                 &mut back_walker, &here, &world, &mut reach, &player, &me, foe, now,
@@ -2282,13 +2389,14 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
             lines.extend(said.iter().map(|s| format!("{s} (to the player)")));
             let blockers: Vec<&Outcome> = outcomes.iter().filter(|o| !o.met).collect();
             outln!(
-                "playthrough: {} goals, {} met, {} blocked; {:.1} s of play; faults {}, runaways {}, gaps {}, missing scripts {}",
+                "playthrough: {} goals, {} met, {} blocked; {:.1} s of play; faults {}, runaways {}, aborted {}, gaps {}, missing scripts {}",
                 outcomes.len(),
                 outcomes.len() - blockers.len(),
                 blockers.len(),
                 last.time_ms as f64 / 1000.0,
                 report.faults.len(),
                 report.runaways.len(),
+                report.aborted.len(),
                 report.gaps.len(),
                 report.missing.len()
             );
@@ -2297,6 +2405,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
             }
             for runaway in &report.runaways {
                 outln!("  runaway: {runaway}");
+            }
+            for aborted in report.aborted.iter().collect::<BTreeSet<_>>() {
+                outln!("  aborted (the game's own error): {aborted}");
             }
             let mut gaps: Vec<(&String, &usize)> = report.gaps.iter().collect();
             gaps.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
@@ -2327,6 +2438,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 "wall_ms": began_wall.elapsed().as_millis(),
                 "faults": report.faults,
                 "runaways": report.runaways,
+                "aborted": report.aborted,
                 "gaps": report.gaps,
                 "missing": report.missing,
                 "runs": report.runs,
@@ -2469,11 +2581,10 @@ fn transcribe(
     let talk = &world.script_report().talk;
     if let Some(library) = world.level().scripts() {
         let text = |strref| installer.text(strref);
-        lines.extend(
-            talk.iter()
-                .skip(from)
-                .flat_map(|line| crate::transcript::transcript(&text, library, names, line)),
-        );
+        let mut tokens = crate::transcript::tokens(&talk[..from.min(talk.len())]);
+        lines.extend(talk.iter().skip(from).flat_map(|line| {
+            crate::transcript::transcript(&text, library, names, &mut tokens, line)
+        }));
     }
     talk.len()
 }

@@ -1,0 +1,58 @@
+# Peragus, T3-M4 alone (TSL, 106PER and 103PER): from the hangar bay down
+# to the fuel depot's sublevel for parts and mines, a mine on the cargo
+# hold's door, Hangar 25's console, the blast door to the fuel depot and
+# the fuel control station's emergency hatch; HK-50 shuts T3 down and play
+# goes back to the Exile. Starts from the administration level's checkpoint:
+#   kjk playthrough tsl @peragus_t3 data/routes/tsl/peragus_t3.route --god
+# Walkthrough: DSimpson's "T3's Grand Adventure" (context/walkthroughs/tsl/).
+# T3 in the hangar bay (DSimpson's "T3's Grand Adventure"): the two
+# footlockers and the broken droid, then the left door and the ramp down.
+unlock MilLowFootLker@1
+use MilLowFootLker@1
+unlock MilLowFootLker@3
+use MilLowFootLker@3
+use LowBroknDrd@1
+unlock PeragusDoor1@5 # the left door, locked: T3's Security
+fight 20             # the two droids past it
+exit Door_to_103PER2 # the ramp's bottom door: the fuel depot's sublevel
+use LowBroknDrd@4    # its broken droid: components
+fight 20
+use LowCorpse@2      # the corpse: a datapad, an ion striker, mines
+use LowBroknDrd@1    # parts for the hangar console
+equip
+exit DOOR_103PER2    # back up to the hangar
+fight 25             # the droids back on the ramps, shields up
+mine BlastDoor       # a mine on the sealed door (3C-FD behind it)
+use Cylinder1
+use Cylinder2
+unlock MilLowFootLker@2
+use MilLowFootLker@2
+# The lower door and up the ramp to Hangar 25's console (the Ebon Hawk in
+# its bay): the two footlockers, then the console.
+unlock PeragusDoor1@6 # the lower door, locked: T3 slides through
+unlock MilLowPlstcCylin@2 # up the ramp: two locked containers (DC 18)
+use MilLowPlstcCylin@2
+unlock MilLowPlstcCylin@3
+use MilLowPlstcCylin@3
+say replace the missing parts # [Repair] the console first takes its parts
+say emergency control commands # [Repair] the diagnostic reroutes the
+say run diagnostic   # missing parts; [Computer] the emergency
+say check status of emergency # sub-systems: open the blast door to the
+say open blast door to the fuel depot # fuel depot (a spike)
+say return to main functions
+say access hangar logs # docking and takeoff procedures: the download
+say docking and takeoff # fails
+say transmit
+say download
+say log out
+use HangarTer
+exit Door_to_103PER  # down the ramp: the blast door open, into the depot
+fight 20             # the hallway's droids, the ion striker's work
+# (the broken droid and footlocker on the way: not found by tag, skipped)
+fight 20
+say emergency system schematics # the fuel control station: open the
+say open emergency hatch # emergency hatch on the administration level
+use ComputerPanel
+talk                 # HK-50 zaps T3
+module 101per        # back to the Exile and Atton
+save peragus_hatch

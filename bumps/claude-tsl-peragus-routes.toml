@@ -1,0 +1,3 @@
+# The sim's hash moves on purpose: an equip of an item whose base item is
+# for the other kind (`baseitems.2da` `droidorhuman`) is refused.
+sim = "a droid wears only droids' items and a human only humans' (droidorhuman)"

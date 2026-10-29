@@ -1,0 +1,39 @@
+# Peragus, the fuel depot's maintenance level (TSL, 103PER): HK-50 and the
+# dead maintenance officer, the sonic imprint sensor, his voiceprint pieced
+# together (HK-50's playback, the security desk's log up the turbolift, the
+# maintenance console's log), the airlock opened, the floating mines, the
+# space suit, and out onto the asteroid. The way without Persuade
+# (DSimpson's "Maintenance, Peragus Fuel Depot"). Starts from the tunnels':
+#   kjk playthrough tsl @peragus_depot data/routes/tsl/peragus_depot.route --god
+# Walkthroughs: context/walkthroughs/tsl/.
+say Those miners could be hurt # HK-50's first talk: the hangar, the
+talk                 # override codes, the miners (LSP)
+use MainOffCorpse    # the maintenance officer's remains
+use MilHighPlstcCylin # across the hall: the sonic imprint sensor and its
+                     # datapad (the workbench beside it)
+say How can I get into the hangar bay again # [Sonic Sensor] his last
+say Can you play back the maintenance officer
+use HK50             # words, recorded
+talk
+fight 25             # the droids down the hall, the Mk II among them
+exit Door_to101PER   # the turbolift up to the administration level
+say check security records # the security desk: [Sonic Sensor] the mining
+say =[Sonic Sensor] Mining droid maintenance logs. # droid maintenance
+say log out          # logs, recorded
+use SecTer
+exit PERDoor103      # back down to the fuel depot
+say access maintenance logs # the maintenance station: [Sonic Sensor] the
+say =[Sonic Sensor] Access Log 253-15: Voiceprint ID
+say return to main console functions # voiceprint log recorded, then
+say Enter voiceprint code # the code
+say access emergency subroutines # entered; the airlock opened with the
+say check for exits  # maintenance officer's override
+say check airlock
+say maintenance officer override
+say log out
+use DroCon
+fight 15             # the floating mines past the door, from range
+use SpaceSuitLocker  # the airlock's storage locker: the space suit (a plot
+                     # item the airlock asks for, never worn)
+exit AirlockOuterDoor_103PER # out onto the asteroid's surface
+save peragus_asteroid

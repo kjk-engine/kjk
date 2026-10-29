@@ -1998,8 +1998,9 @@ fn write_transcript(
     let strref = |strref| installer.text(strref);
     let names = crate::transcript::speakers(&authority.last, level);
     let mut text = String::new();
+    let mut tokens = crate::transcript::tokens(&talk[..*written]);
     for line in &talk[*written..] {
-        for written in crate::transcript::transcript(&strref, library, &names, line) {
+        for written in crate::transcript::transcript(&strref, library, &names, &mut tokens, line) {
             text.push_str(&written);
             text.push('\n');
         }
