@@ -963,6 +963,9 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   them.
 - Status:     fixed (owner policy 2026-10-01, CHARACTER-LOOK): the sim turns
   frames and blends as `asset_ja::g2` does, with `sim::math`'s trigonometry.
+  Each joint stays on its parent as the lerped matrix keeps it (2026-10-29):
+  its place is lerped and the translation taken from the arc's turn; a
+  translation lerped alone tore the dual set's left arm to 1.2 m mid-step.
 - Ours:       `sim::skeleton::turn`, docs/SKELETON-SIM.md
 - Evidence:   `kjk sim skeleton`: the sim is the renderer within 0.0005
   units on frames, between frames and blending (before: 30 and 114);
@@ -1011,11 +1014,20 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   plays each living fighter's parts as the sim set them (`cast::Figure`,
   `g2::Player::adopt`) and turns its gripping hand onto the sim's blade (a
   reach of the upper arm and forearm, at most 30 cm at the wrist,
-  `asset_ja::rig::Reach`). With `--quirks` the view keeps the cgame's way.
+  `asset_ja::rig::Reach`) while its saber move cuts. Elsewhere (a start, a
+  return, a transition, a flip, a run), which cut nothing, the arm keeps
+  JA's pose and only the blade's direction follows the sim's: the reach
+  there pulled the longer KOTOR arm up to 30 cm off JA's every frame and
+  the elbow flipped (owner, 2026-10-29). With
+  `--quirks` the view keeps the cgame's way.
 - Ours:       `launcher::cast`, `launcher::sim_blades`, `asset_ja::rig`
 - Evidence:   `kjk play --sim-blades`: the drawn blade within 1 unit of the
   sim's on average and 0° apart (duel, solo), within 4 on the module's
-  saber creatures; CHARACTER-LOOK journal.
+  saber creatures; CHARACTER-LOOK journal. 2026-10-29, the arena's nine
+  medium attacks: the tips 5.5 cm apart in the swings (median; 90% within
+  16.7 cm, as before), up to 31 cm (median) in the starts; elbow steps
+  that outrun the hand (over 12 cm and 1.5 times the hand's, a 1/60 s
+  frame) 47 → 1.
 
 ### Q-0084 — A block by state judges where the blade met a box
 

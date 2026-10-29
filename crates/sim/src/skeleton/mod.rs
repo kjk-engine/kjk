@@ -232,12 +232,14 @@ impl Shown {
     /// showed).
     fn local(&self, data: &SkeletonData, bone: usize) -> Mat34 {
         let key = |frame: i32| decode(data.key(frame, bone));
+        let base = &data.bones()[bone].base;
+        let pivot = [base[0][3], base[1][3], base[2][3]];
         let shown = |frames: Frames| -> Local {
             let current = key(frames.current);
             if frames.lerp == 0.0 {
                 current
             } else {
-                mix_frames(current, key(frames.next), frames.lerp)
+                mix_frames(current, key(frames.next), frames.lerp, pivot)
             }
         };
         let toward = |frame: f32, next: i32| {
@@ -257,10 +259,11 @@ impl Shown {
                     from,
                     shown(under.start).0,
                     under.amount,
+                    pivot,
                 ),
                 None => from,
             };
-            local = mix_blend(from, local, shown(start).0, amount);
+            local = mix_blend(from, local, shown(start).0, amount, pivot);
         }
         matrix(&local)
     }
