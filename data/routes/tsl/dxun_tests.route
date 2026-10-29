@@ -64,7 +64,7 @@ say Press button.    # the cache's detonator (deton2), not Kumus's own
 use p_detonator_2
 talk
 fight 30             # the beasts the blast stirs (WP_ES_SPAWN_*)
-equip g_w_lghtsbr01  # the saber back in hand (a fight's chase took up a gun)
+equip g_w_lghtsbr03  # the saber back in hand (a fight's chase took up a gun)
 exit To_404          # into the cache the charges opened (404DXN)
 module 404dxn
 say Examine droid.   # the construction droids' foreman: examined, then

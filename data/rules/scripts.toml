@@ -87,6 +87,34 @@ shouted, {scripts.talk.volume_reach[3]:bare} in silent talk and
 source = "K1's executable"
 see = "sim::script::engine::volume_reach"
 
+[locals]
+title = "Local Numbers"
+summary = """
+An object keeps {scripts.locals.k1_numbers:bare} local numbers in KOTOR and
+{scripts.locals.tsl_numbers:bare} in KOTOR II, each one byte: a number from
+-128 to 127 is kept as its byte and read back from 0 to 255 (-1 reads 255);
+one outside that range, or at a slot past the last, is not kept, and such
+a slot reads 0.
+"""
+
+[locals.k1_numbers]
+name = "Local Numbers (KOTOR)"
+type = "i32"
+value = 8
+range = [1, 256]
+summary = "A KOTOR object keeps {scripts.locals.k1_numbers:bare} local numbers."
+source = "K1's executable (the var table's number accessors: index 0 to 7, a byte at +0xc; ExecuteCommandSetLocalNumber keeps only -128 to 127)"
+see = "sim::script::engine::local_number"
+
+[locals.tsl_numbers]
+name = "Local Numbers (KOTOR II)"
+type = "i32"
+value = 32
+range = [1, 256]
+summary = "A KOTOR II object keeps {scripts.locals.tsl_numbers:bare} local numbers."
+source = "TSL's executable (CSWVarTable::GetLocalNumber/SetLocalNumber: index 0 to 31, an unsigned byte; ExecuteCommandSetLocalNumber keeps only -128 to 127, GetLocalNumber's push zero-extends)"
+see = "sim::script::engine::local_number"
+
 [moves]
 title = "Movement"
 summary = """

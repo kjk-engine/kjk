@@ -511,6 +511,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ),
     ]);
     checks.push(("talk_across_height", across_height()));
+    checks.push(("use_from_action_point", action_point()));
     checks.extend(crate::target::probes());
     checks
 }
@@ -543,6 +544,39 @@ fn across_height() -> Result<String, String> {
     } else {
         Err(what)
     }
+}
+
+/// A container behind the wall, within reach of `BY_WALL`, its action
+/// point (`ObjectData::use_points`) on the player's side: used from there,
+/// the line of sight ending at that point (`Target::aimed`, TSL's
+/// `CSWSCreature::GetIsInUseRange`), as Korriban's Lonna Vash is searched
+/// from beside the force cage round her; the same container with no action
+/// point is not, its middle hidden by the wall.
+fn action_point() -> Result<String, String> {
+    let level = crate::determinism::proving_ground();
+    let me = floor_at(BY_WALL);
+    let player = crate::motion::MotionState::standing(me.map(|v| v / collision::UNIT), 0.0);
+    let placed = floor_at([1.5, 3.0]);
+    let point = floor_at([-0.3, 3.0]);
+    let mut chest = crate::module::ObjectData::bare(ObjectKind::Placeable, "caged", placed);
+    chest.container = true;
+    let may = |facts: &crate::module::ObjectData| {
+        let target =
+            super::Target::new(HIDDEN, None, placed).aimed(ObjectKind::Placeable, facts, me);
+        super::may_use(
+            &level,
+            None,
+            &player,
+            &target,
+            ObjectKind::Placeable,
+            Verb::Open,
+        )
+    };
+    let bare = may(&chest);
+    chest.use_points = vec![std::array::from_fn(|axis| point[axis] - placed[axis])];
+    let aimed = may(&chest);
+    let what = format!("with an action point {aimed}, without {bare}");
+    if aimed && !bare { Ok(what) } else { Err(what) }
 }
 
 /// The NPC probe's routines (`script_probes`).

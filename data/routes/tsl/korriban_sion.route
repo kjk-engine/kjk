@@ -1,0 +1,33 @@
+# Korriban, Darth Sion and the way out (TSL, 702KOR, 701KOR, to 003EBO):
+# back from the detention room, Sion in the central chamber with two Sith Assassins (asked how he
+# knows Kreia, what she wants with the Exile and what he wants with her,
+# told he will not harm her: no "don't let me stand in your way"), fought
+# until Kreia's voice: he cannot be defeated, flee (thanked, no -INF); the
+# Exile flees to the valley, Sion sending his assassins after a male Exile
+# ("She protects him. Shields him."); back aboard the Ebon Hawk, T3-M4's
+# message from Kelborn (thanked, +INF), Dxun next.
+# Starts from the detention room, the front door open:
+#   kjk playthrough tsl @korriban_vash data/routes/tsl/korriban_sion.route --god
+# Walkthroughs: DSimpson's "The Sith Academy" (its end), Kerbow's "Darth
+# Sion" (context/walkthroughs/tsl/).
+#
+# ASSUMES:
+# - Darth Sion (DarthSion) keeps one hit point (Min1HP); his user-defined
+#   script (k_sion_ud) starts Kreia's call (kreia_si) once he is wounded,
+#   and her scene's end the flight (sion start 2, a_to_701kor): the fight
+#   ends with the module, as `fight` ends on leaving it.
+say How do you know Kreia? # sion start 1 (male): his questions
+say What does Kreia want with me?
+say What do you want with her?
+say I will not let you harm her. # (not "If you want revenge on her, don't let me stand in your way")
+to tr_sion_fight     # the central chamber: Sion and his assassins
+talk
+say Thanks for the information. # kreia_si: flee (not "Now you tell me", nor "I won't run")
+fight 40             # the two Sith Assassins, then Sion to Kreia's call, and the flight
+module 701kor        # (sion start 2: Sion orders the hunt; a_to_701kor)
+fight 30             # any of Sion's hunters about the valley (a_sion_end)
+to to_ebonhawk_custom # aboard (tr_ehawk_custom: 003EBO_RETURN_DEST, StartNewModule)
+module 003ebo
+say Thanks T3. Please tell me what Kelborn said. # t3kelbrn (+INF): Kavar's message,
+talk                 # back to Dxun (Vash makes the fourth Jedi found)
+save korriban_done

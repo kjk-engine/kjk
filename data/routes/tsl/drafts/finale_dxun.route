@@ -18,7 +18,7 @@
 # the minefield's recovery.
 #
 # ASSUMES:
-# - The save stands in 003EBO after t3kelbrn (korriban_sion plays it:
+# - The save stands in 003EBO after t3kelbrn (korriban_secret_tomb plays it:
 #   "Thanks T3...", Kavar's message, so 403DXN_Return_Trigger is set).
 #   # UNSURE: if the message is still owed, a `talk` before `use Galaxymap`.
 # - The Queen's side (500OND_DarkSide_Iziz 0), Mandalore (NPC 2) joined on

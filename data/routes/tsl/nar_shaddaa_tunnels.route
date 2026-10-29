@@ -35,6 +35,7 @@ use MidCorpse@3      # the Old Beast Tender's keycard
 use MidCorpse@4      # a pit victim's remains (its loot rolled at the
 use DoorRing         # Exile's level: a security spike or not)
 fight 40
+equip w_melee_05     # Mira takes up a vibroblade: her own hands hold none
 bash HighSecuritDoor # the Sparring Room's locked door (DC 28, past Mira's
                      # Security without a spike): struck open
 say Access all available escape routes.
