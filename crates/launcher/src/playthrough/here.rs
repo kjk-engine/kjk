@@ -781,9 +781,9 @@ pub(super) fn walker_to(level: &sim::Level, from: &sim::motion::MotionState, at:
 }
 
 /// A stand round `at` (metres; one of rings of eight, within a talk's
-/// reach) that a way leads to, with a clear line from an eye there to
-/// object `index`'s middle (the line a use takes, `sim::target::in_sight`)
-/// and within the use's reach in height of it (`sim::uses::may_use`): the
+/// reach) that a way leads to, from which the sim lets the use through
+/// (`may_use`: the sim's own check, `SimWorld::may_use`, its line of sight
+/// and reach in height): the
 /// one nearest the player, as a player steps round to use it (KOTOR's use
 /// wants a clear line: Uthar behind his desk's side; Hrakert's airlock
 /// door behind its frame's edge; Kashyyyk's Star Map hologram, over the
@@ -792,9 +792,8 @@ pub(super) fn sighted_stand(
     here: &Here,
     player: &sim::motion::MotionState,
     at: [f32; 3],
-    index: u32,
+    may_use: &mut dyn FnMut(&sim::motion::MotionState) -> bool,
 ) -> Option<Walker> {
-    let middle = [at[0], at[1], at[2] + 1.0];
     let me = player.origin.map(|v| v * UNIT);
     [1.2f32, 2.0, 2.8]
         .into_iter()
@@ -806,11 +805,9 @@ pub(super) fn sighted_stand(
         })
         .map(|spot| (spot, walker_to(here.level, player, spot)))
         .filter(|(_, walker)| {
-            let eye = [walker.goal[0], walker.goal[1], walker.goal[2] + player.eye_height]
-                .map(|v| v * UNIT);
-            (walker.goal[2] * UNIT - at[2]).abs() <= sim::containers::REACH
-                && sim::target::in_sight(here.level, here.sight(), eye, middle, index)
-                && here.leads(player.origin, walker.goal)
+            let mut there = *player;
+            there.origin = walker.goal;
+            may_use(&there) && here.leads(player.origin, walker.goal)
         })
         .min_by(|a, b| flat(a.0, me).total_cmp(&flat(b.0, me)))
         .map(|(_, walker)| walker)

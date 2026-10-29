@@ -80,7 +80,10 @@ pub(super) fn applies(object: &Object, verb: Verb, alive: bool) -> bool {
 /// Whether `player` may use `target` (an object of `kind`) with `verb`:
 /// within the verb's reach across the floor and `HEIGHT_REACH_M` in
 /// height, and its eye in sight of the target (`target::in_sight`, doors
-/// as `states` has them).
+/// as `states` has them). A creature is talked to within reach whatever
+/// stands between, as KOTOR's conversation action asks only that its
+/// speaker come within range [verify in the exe]: Dantooine's
+/// Administrator across a desk taller than the player's eye.
 pub(super) fn may_use(
     level: &super::Level,
     states: Option<&[u8]>,
@@ -98,6 +101,9 @@ pub(super) fn may_use(
     let reach = reach(kind, verb);
     if dx * dx + dy * dy > reach * reach || dz.abs() > HEIGHT_REACH_M {
         return false;
+    }
+    if kind == ObjectKind::Creature && verb == Verb::Talk {
+        return true;
     }
     let mut eye = me;
     eye[2] += player.eye_height * UNIT;

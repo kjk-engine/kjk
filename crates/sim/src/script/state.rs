@@ -57,6 +57,11 @@ pub struct Pending {
     /// The body whose use raised it (a dialogue hook, an `OnUsed`): a
     /// conversation its run starts is that body's (R1, `Event::asker`).
     pub asker: Option<ObjectId>,
+    /// Its `GetRunScriptVar`: the party selection screen's script runs
+    /// with `party::ACCEPTED` once a player accepted the party (TSL's
+    /// `check_party_gui` keeps the party aboard the Ebon Hawk on 0, the
+    /// screen cancelled); 0 for any other.
+    pub script_var: i32,
 }
 
 impl Pending {
@@ -70,6 +75,7 @@ impl Pending {
             ai: false,
             leads: None,
             asker: None,
+            script_var: 0,
         }
     }
 }
@@ -1690,6 +1696,7 @@ fn encode_pendings(out: &mut Writer, pendings: &[Pending]) {
         out.u8(u8::from(pending.ai));
         out.u32(pending.leads.map_or(u32::MAX, |id| id.0));
         out.u32(pending.asker.map_or(u32::MAX, |id| id.0));
+        out.u32(pending.script_var as u32);
     }
 }
 
@@ -1708,6 +1715,7 @@ fn decode_pendings(input: &mut Reader) -> Result<Vec<Pending>, DecodeError> {
                 ai: input.u8()? != 0,
                 leads: optional_id(input)?,
                 asker: optional_id(input)?,
+                script_var: input.u32()? as i32,
             })
         })
         .collect()
