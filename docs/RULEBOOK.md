@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `5e5ed53e565d00a9`.
+Edition `6267b4fd47534089`.
 
 ## Contents
 
@@ -256,6 +256,9 @@ Edition `5e5ed53e565d00a9`.
 - [The Remote Droid](#remote)
   - [Launching](#remote-launch)
   - [Flying](#remote-flight)
+  - [Shock Bolt](#remote-bolt)
+  - [Sonic Blast](#remote-sonic)
+  - [Stim Dart](#remote-dart)
 - [Scripts](#scripts)
   - [Script Checks](#scripts-answers)
   - [Conversation](#scripts-talk)
@@ -9027,6 +9030,110 @@ A droid is a box 0.2 meters from its middle to each side.
 A droid stays within 20 meters of the nearest standing party member.
 
 <sub>Source: Ours. Code: `sim::world::remote::flight::fly`.</sub>
+
+### <a id="remote-bolt"></a>Shock Bolt
+
+The primary attack: a small shot along the droid's view that stings the
+first creature it meets. It hurts only a hostile already fighting the
+party that no script protects, and always by the same amount: the droid
+rolls no dice.
+
+<a id="remote-bolt-damage"></a>**Shock Bolt Damage** = **3 HP** · `remote.bolt.damage`
+
+A shock bolt deals 3 hit points, as the place it strikes scales them (no dice).
+
+<sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
+
+<a id="remote-bolt-cadence-ms"></a>**Shock Bolt Rate** = **0.6 seconds** (`600 ms`) · `remote.bolt.cadence_ms`
+
+A droid fires a shock bolt every 600 ms while the attack is held.
+
+<sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
+
+<a id="remote-bolt-range-m"></a>**Shock Bolt Range** = **30 m** · `remote.bolt.range_m`
+
+A shock bolt flies 30 meters.
+
+<sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
+
+### <a id="remote-sonic"></a>Sonic Blast
+
+The alternate attack: a short cone of sound that throws the fair hostiles
+in it back, as a weak Force Push does, and knocks the smaller ones down.
+It deals no damage.
+
+<a id="remote-sonic-reach-m"></a>**Sonic Blast Reach** = **6 m** · `remote.sonic.reach_m`
+
+A Sonic Blast reaches 6 meters.
+
+<sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
+
+<a id="remote-sonic-cone-deg"></a>**Sonic Blast Cone** = **60°** · `remote.sonic.cone_deg`
+
+A Sonic Blast spreads 60 degrees across.
+
+<sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
+
+<a id="remote-sonic-strength"></a>**Sonic Blast Strength** = **×0.5** · `remote.sonic.strength`
+
+A Sonic Blast throws as hard as 0.5 of a Force Push.
+
+<sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
+
+<a id="remote-sonic-knockdown-ms"></a>**Sonic Blast Knockdown** = **1 second** (`1000 ms`) · `remote.sonic.knockdown_ms`
+
+A Sonic Blast knocks a small enough creature down for 1000 ms.
+
+<sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
+
+<a id="remote-sonic-knockdown-size"></a>**Sonic Blast Knockdown Size** = **3 points** · `remote.sonic.knockdown_size`
+
+A Sonic Blast knocks down a creature of size 3 (`appearance.2da` sizecategory; 3 is medium) or smaller; a bigger one is only thrown.
+
+<sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
+
+<a id="remote-sonic-cooldown-ms"></a>**Sonic Blast Cooldown** = **8 seconds** (`8000 ms`) · `remote.sonic.cooldown_ms`
+
+A droid's Sonic Blast is ready again 8000 ms after it fires.
+
+<sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
+
+### <a id="remote-dart"></a>Stim Dart
+
+The third button: a dart at the party member under the crosshair, else the
+nearest one in range that needs it. A downed member gets up; a hurt one is
+healed a little. It does nothing to a member fighting a duel, nor once the
+whole party is down.
+
+<a id="remote-dart-range-m"></a>**Stim Dart Range** = **15 m** · `remote.dart.range_m`
+
+A stim dart reaches a party member 15 meters away.
+
+<sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
+
+<a id="remote-dart-revive-cooldown-ms"></a>**Stim Dart Revive Cooldown** = **25 seconds** (`25000 ms`) · `remote.dart.revive_cooldown_ms`
+
+After a dart revives someone it is ready again in 25000 ms.
+
+<sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
+
+<a id="remote-dart-heal-cooldown-ms"></a>**Stim Dart Heal Cooldown** = **12 seconds** (`12000 ms`) · `remote.dart.heal_cooldown_ms`
+
+After a dart heals someone it is ready again in 12000 ms.
+
+<sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
+
+<a id="remote-dart-heal-permille"></a>**Stim Dart Heal** = **10%** (`100 ‰`) · `remote.dart.heal_permille`
+
+A dart heals 10% of its target's most hit points.
+
+<sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
+
+<a id="remote-dart-revive-permille"></a>**Stim Dart Revive Health** = **25%** (`250 ‰`) · `remote.dart.revive_permille`
+
+A member a dart revives gets up with 25% of its most hit points.
+
+<sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
 
 ## <a id="scripts"></a>Scripts
 

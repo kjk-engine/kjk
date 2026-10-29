@@ -4,7 +4,11 @@
 //! that no script protects; its dart holds off a member fighting one a
 //! script protects, so a duel is won by its fighter alone.
 
+use bevy_ecs::prelude::*;
+
 use super::super::party::{self, Combatant, Rules};
+use super::super::scene::Held;
+use super::super::{Avatar, Clock, Fighting, Id, Object, Player, PlayerSheet, Talking};
 use crate::combat::Relation;
 use crate::combat::fighter::Life;
 use crate::combat::sheet::flags;
@@ -65,6 +69,12 @@ impl<'a> Gate<'a> {
         }
     }
 
+    /// The party's leader it judges by: whom the kit's hits are credited
+    /// to.
+    pub fn leader(&self) -> Option<SimId> {
+        self.leader
+    }
+
     fn find(&self, id: SimId) -> Option<&Target> {
         self.targets.iter().find(|target| target.who.id == id)
     }
@@ -114,4 +124,36 @@ impl<'a> Gate<'a> {
                 && self.fair(foe.who.id) == Fair::Protected
         })
     }
+}
+
+/// The gate over the world as it stands.
+#[allow(clippy::type_complexity)]
+pub(crate) fn of(world: &mut World) -> Gate<'_> {
+    let leader = super::credit(world);
+    let mut query = world.query::<(
+        &Id,
+        Option<&Avatar>,
+        Option<&Object>,
+        Option<&PlayerSheet>,
+        &Player,
+        &Fighting,
+    )>();
+    let world: &World = world;
+    let rows: Vec<_> = query.iter(world).collect();
+    let characters = party::combatants(rows.iter().copied());
+    let (held, talking) = (world.resource::<Held>(), &world.resource::<Talking>().0);
+    let targets = characters
+        .into_iter()
+        .zip(&rows)
+        .map(|(who, (_, _, object, sheet, ..))| Target {
+            who,
+            flags: super::super::sheet_of(*sheet, *object).flags,
+            talks: held.scene(talking, who.id),
+        })
+        .collect();
+    let rules = party::rules(
+        &world.resource::<super::super::Static>().0,
+        world.resource::<super::super::scripts::Scripts>(),
+    );
+    Gate::new(targets, leader, rules, world.resource::<Clock>().time_ms)
 }

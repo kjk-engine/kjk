@@ -131,6 +131,7 @@ fn lifted(at: [f32; 3]) -> [f32; 3] {
 
 pub(crate) mod flight;
 pub(crate) mod gate;
+pub(crate) mod kit;
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
