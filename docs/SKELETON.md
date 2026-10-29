@@ -17,7 +17,18 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   Ghoul2's arc; blends turn on the side that was the shorter when they
   began (so a pose swinging past half a turn does not flip), at the lerped
   matrix's pace, evened out as the gap nears half a turn (where Ghoul2's
-  bone shrinks to nothing and ours would whip).
+  bone shrinks to nothing and ours would whip). A key turns its bone about
+  the model's origin, so each mix lerps the joint's place and derives the
+  translation from the mixed turn (`g2::joint`): the joint stays on its
+  parent, as Ghoul2's lerped matrix keeps it. A translation lerped apart
+  from a slerped turn pulled joints off by the chord: the dual set's left
+  shoulder a metre from the chest, its upper arm 1.2 m long, for JA's
+  hilts and blade overlay (the drawn body takes rotations only and never
+  showed it), and the sim's blades, whose skeleton (`sim::skeleton::turn`)
+  mixes the same way.
+- `kjk play --trace` writes JA's shoulders, elbows and wrists
+  (`rig::JA_ARMS`, `ja_*` columns) beside the drawn arm nodes, in the same
+  world frame.
 - `Player::quirks` (off) reproduces Q-0003 (stray backward frame),
   Q-0004 (inverted captured weights), Q-0010, Q-0017 and Q-0028; all jolt
   visibly. Timing and blends: `G2-SPEC.md`.
@@ -32,6 +43,17 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
 - `rig::Grip`: the hilt hangs at KOTOR's `rhand` as K1 hangs weapons (blade
   +Z) and the hand turns so the blade points as JA's; fingers take KOTOR's
   `g2r1` pose (`Options::hold`). `rig::rebind` is probe (b), kept.
+- `rig::Reach` (`kjk play`): the gripping hand turns onto the sim's blade
+  and the upper arm and forearm carry the wrist up to `REACH` (0.3 m)
+  toward it (`game::cast`'s share). One solver (`rig::bend`): the arm's own
+  plane turned with the line from the shoulder, a nearly straight arm's
+  elbow fading toward hanging down, so the elbow never picks between
+  answers. The share is 1 only while the saber move cuts (an attack, a
+  special, a parry), eased in and out over `REACH_EASE_S` (0.08 s); in a
+  held stance `STANCE_REACH`, eased in over `STANCE_EASE_S` (0.3 s); 0
+  otherwise (a start, a return, a transition, a flip, a run: nothing is
+  cut; JA's arm is the truth): KOTOR's longer arm, pulled toward a blade
+  JA's shorter arm placed, flipped its elbow there.
 - `blade_lengths` (ignition, 60 fps), `saber_trail_ms` (trail life per move,
   from JA's saber move table: style moves, defensive moves, special trails).
 
