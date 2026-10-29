@@ -174,7 +174,11 @@ pub(crate) fn with_party_templates(level: Level, party: &crate::script::party::P
         .values()
         .filter(|npc| library.creature(&npc.template).is_none())
         .filter_map(|npc| {
-            let facts = crate::pack::creature_of(npc.template_data.as_deref()?)?;
+            let facts = crate::pack::creature_of(
+                npc.template_data.as_deref()?,
+                crate::wire::Versions::THIS_BUILD,
+            )
+            .ok()?;
             Some((npc.template.clone(), std::sync::Arc::new(facts)))
         })
         .collect();

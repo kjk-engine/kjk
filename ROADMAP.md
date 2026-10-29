@@ -77,6 +77,27 @@ mechanic that misfires); each kept or fixed quirk has an entry in
 
 ## Next
 
+The games are the content. The work is making their story play well in
+JA's format: polish, balance and design, not new generated content.
+
+- **A seat for every player**: a guest with no companion to drive (too few
+  in the party, or the story takes them away) flies a remote droid, like
+  Bao-Dur's remote, with a small kit to help the party, so nobody sits
+  and watches.
+- **Balance and feel**: the damage model, the curve across levels,
+  companions who join a fight at once, and a difficulty setting.
+- **Set-piece encounters** that play well in real time: the Rancor in
+  Taris's Undercity, Bandon, Calo Nord, the Krayt dragon, Malak; later
+  TSL's. Tuned through the rulebook and engine-wide encounter rules, not
+  per-module patches.
+- **UI design**: choosing Force powers, stims, shields and mines (a
+  stand-in today), inventory and item descriptions, orders to the party in
+  real time, and one scheme that also works on a gamepad
+  ([`KNOWN-ISSUES.md`](KNOWN-ISSUES.md)).
+- **Animation fit**: KOTOR bodies on JA clips, so limbs stop bending and
+  clipping (female characters worst).
+- **Hand playtests past Taris**, where only the automated playthrough has
+  been.
 - **Join codes**: co-op over the internet with no port to forward, through
   a small self-hostable server that introduces peers (UDP hole punching,
   with a relay where that fails). Releases carry no Steam; builds from
@@ -87,9 +108,7 @@ mechanic that misfires); each kept or fixed quirk has an entry in
 
 ## Later, in any order
 
-- JA maps as arenas, with KOTOR characters.
 - An optional visual upgrade, comparable with the original look.
-- New saber and blaster parts, powers and stances; duel challenges.
 - Compatibility with override-folder mods.
 - Tools: module inspector, script debugger, dialogue graph viewer, network
   session inspector.
@@ -97,6 +116,8 @@ mechanic that misfires); each kept or fixed quirk has an entry in
 
 ## Out of scope
 
+- New content beyond the games': new saber or blaster parts, powers,
+  stances, arenas from JA maps, or duel challenges.
 - Loading or writing original save games.
 - Running or patching the original executables.
 - Compatibility with Jedi Academy's multiplayer protocol or servers.

@@ -1719,7 +1719,11 @@ fn decode_pendings(input: &mut Reader) -> Result<Vec<Pending>, DecodeError> {
                 ai: input.u8()? != 0,
                 leads: optional_id(input)?,
                 asker: optional_id(input)?,
-                script_var: input.u32()? as i32,
+                script_var: if input.since(crate::since::save::CLAUDE_TSL_DANTOOINE) {
+                    input.u32()? as i32
+                } else {
+                    0
+                },
             })
         })
         .collect()

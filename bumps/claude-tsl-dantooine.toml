@@ -8,3 +8,6 @@ sim = "Dantooine: the party selection screen's exit script told the party was ac
 
 [formats]
 save = "a script waiting to run carries its run script var (`Pending::script_var`)."
+
+[migrations]
+save = "old saves read a waiting script's run script var as 0, none set"

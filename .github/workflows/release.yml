@@ -54,6 +54,12 @@ jobs:
         with:
           tool: cargo-about@0.9.3
 
+      # The sim steps alike on every OS (the pinned hash), or a player's
+      # recording would not replay on another's machine: a release whose
+      # sim differs here is not packed.
+      - name: sim determinism
+        run: cargo test --release -p approved_tests --test approved sim_determinism
+
       # The dist profile's build (the icon on macOS), the crates' licences,
       # packed. PowerShell, so Windows packs with its own tar (zips), not
       # Git Bash's.

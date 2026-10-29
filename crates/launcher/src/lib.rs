@@ -15,8 +15,10 @@ extern crate kjk_game;
 mod cli_host;
 mod cli_join;
 mod cli_play;
+mod levels;
 #[cfg(feature = "probes")]
 pub mod probes;
+mod report_verbs;
 mod resources;
 pub mod rig_measure;
 mod rules_page;
@@ -116,7 +118,7 @@ use kjk_game::{
 };
 #[cfg(feature = "probes")]
 use kjk_game::{
-    acting, cast, character, course, grass, material, minigame_bot, model_fx, net_feel, own_fx,
+    acting, cast, character, grass, material, minigame_bot, model_fx, net_feel, own_fx,
     pazaak_view, sim_host, skeleton, sound, stage, transcript, weapons, weather, workbench_view,
 };
 
@@ -134,7 +136,11 @@ use clap::{Parser, Subcommand};
 use vfs::{DirIndex, Game, Source};
 
 #[derive(Parser)]
-#[command(name = "kjk", about = "kjk: KOTOR worlds with Jedi Academy combat")]
+#[command(
+    name = "kjk",
+    about = "kjk: KOTOR worlds with Jedi Academy combat",
+    version = concat!(env!("KJK_VERSION"), " (", env!("KJK_GIT_SHA"), ")")
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -379,6 +385,12 @@ enum Command {
         #[command(subcommand)]
         verb: StoreVerb,
     },
+    /// A player's bug report (docs/BUG-REPORTS.md): what it says, and its
+    /// flight recording replayed
+    Report {
+        #[command(subcommand)]
+        verb: ReportVerb,
+    },
     #[cfg(feature = "probes")]
     #[command(flatten)]
     Verb(verbs::Verb),
@@ -406,6 +418,28 @@ enum MovieVerb {
         game: String,
         /// The movies, e.g. 01a legal; all of them when left out
         names: Vec<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ReportVerb {
+    /// The build, machine, note, breadcrumbs, crash, log's end, what the
+    /// flight segments span, and whether its data is this install's
+    Show { zip: std::path::PathBuf },
+    /// Replays the last flight segment headless and says whether it
+    /// matched
+    Replay {
+        zip: std::path::PathBuf,
+        /// Stop at the last checkpoint at or before this tick
+        #[arg(long)]
+        to_tick: Option<u64>,
+        /// Only check it; without, it also says how to watch it
+        #[arg(long)]
+        headless: bool,
+        /// Replay even when this install's data is not the player's
+        /// (another edition or a mod), up to where it diverges
+        #[arg(long)]
+        ignore_data: bool,
     },
 }
 
@@ -628,6 +662,15 @@ pub fn run() -> ExitCode {
         Some(Command::Movie { verb }) => match verb {
             MovieVerb::Check => movie_verbs::check(),
             MovieVerb::Import { game, names } => movie_verbs::import(&discover(), &game, &names),
+        },
+        Some(Command::Report { verb }) => match verb {
+            ReportVerb::Show { zip } => report_verbs::show(&zip),
+            ReportVerb::Replay {
+                zip,
+                to_tick,
+                headless,
+                ignore_data,
+            } => report_verbs::replay(&zip, to_tick, headless, ignore_data),
         },
         Some(Command::Store { verb }) => match verb {
             StoreVerb::Path => store_verbs::path(),
