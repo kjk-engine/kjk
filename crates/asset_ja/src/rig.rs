@@ -583,7 +583,15 @@ pub fn retarget_with(
 pub struct Posed {
     pub rotations: Vec<(usize, Quat)>,
     pub root: Option<(usize, Vec3)>,
+    /// JA's own joints in `JA_ARMS` order (KOTOR model space, metres, JA's
+    /// floor on the model's), for traces beside the drawn arms.
+    pub ja_arms: Vec<Vec3>,
 }
+
+/// JA's arm joints a `Posed` carries: each side's shoulder, elbow and wrist.
+pub const JA_ARMS: [&str; 6] = [
+    "rhumerus", "rradius", "rhand", "lhumerus", "lradius", "lhand",
+];
 
 /// `retarget_with` one moment at a time, for a player animated live: the
 /// skeletons are lined up once, then each JA pose (`g2::Player::pose`, one
@@ -603,6 +611,8 @@ pub struct Retargeter<'a> {
     carriers: Vec<usize>,
     /// JA's left and right hand bones.
     hands: Option<[usize; 2]>,
+    /// JA's `JA_ARMS` bones.
+    arm_bones: Vec<usize>,
 }
 
 impl<'a> Retargeter<'a> {
@@ -628,8 +638,10 @@ impl<'a> Retargeter<'a> {
             .bone("lhand")
             .zip(ja.bone("rhand"))
             .map(<[usize; 2]>::from);
+        let arm_bones = JA_ARMS.iter().filter_map(|name| ja.bone(name)).collect();
         Retargeter {
             arms,
+            arm_bones,
             carriers,
             hands,
             kotor,
@@ -794,7 +806,17 @@ impl<'a> Retargeter<'a> {
                 / kotor.animation_scale.max(f32::EPSILON);
             (root, offset)
         });
-        Posed { rotations, root }
+        let floor = Vec3::Z * crate::ORIGIN_HEIGHT;
+        let ja_arms = self
+            .arm_bones
+            .iter()
+            .map(|&b| TURN * (finals[b].point(ja.base(b)) + floor) + ground)
+            .collect();
+        Posed {
+            rotations,
+            root,
+            ja_arms,
+        }
     }
 }
 

@@ -443,7 +443,13 @@ pub fn install(app: &mut World, setup: PlayViewSetup) {
             let mut file = std::io::BufWriter::new(std::fs::File::create(path).ok()?);
             let header: Vec<String> = found
                 .iter()
-                .flat_map(|(t, _)| ["x", "y", "z"].map(|a| format!("{t}_{a}")))
+                .map(|(t, _)| *t)
+                .chain(asset_ja::rig::JA_ARMS)
+                .enumerate()
+                .flat_map(|(i, t)| {
+                    let ja = if i < found.len() { "" } else { "ja_" };
+                    ["x", "y", "z"].map(|a| format!("{ja}{t}_{a}"))
+                })
                 .collect();
             writeln!(file, "ms,legs,torso,{},correction", header.join(",")).ok()?;
             Some((file, nodes))
@@ -1535,12 +1541,13 @@ fn write_trace(
         let parent = parent.and_then(|p| world.get(p).copied()).unwrap_or(base);
         world.push(parent * local);
     }
-    let cells: Vec<String> = traced
+    let drawn = traced
         .iter()
-        .flat_map(|&n| {
-            let p = world.get(n).map_or(Vec3::ZERO, |t| t.translation);
-            [p.x, p.y, p.z].map(|v| format!("{v:.4}"))
-        })
+        .map(|&n| world.get(n).map_or(Vec3::ZERO, |t| t.translation));
+    let ja = posed.ja_arms.iter().map(|&p| base.transform_point(p));
+    let cells: Vec<String> = drawn
+        .chain(ja)
+        .flat_map(|p| [p.x, p.y, p.z].map(|v| format!("{v:.4}")))
         .collect();
     let _ = writeln!(
         file,

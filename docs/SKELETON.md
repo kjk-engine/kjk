@@ -17,7 +17,17 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   Ghoul2's arc; blends turn on the side that was the shorter when they
   began (so a pose swinging past half a turn does not flip), at the lerped
   matrix's pace, evened out as the gap nears half a turn (where Ghoul2's
-  bone shrinks to nothing and ours would whip).
+  bone shrinks to nothing and ours would whip). A key turns its bone about
+  the model's origin, so each mix lerps the joint's place and derives the
+  translation from the mixed turn (`g2::joint`): the joint stays on its
+  parent, as Ghoul2's lerped matrix keeps it. A translation lerped apart
+  from a slerped turn pulled joints off by the chord: the dual set's left
+  shoulder a metre from the chest, its upper arm 1.2 m long, for JA's
+  hilts and blade overlay (the drawn body takes rotations only and never
+  showed it). The sim's skeleton (`sim::skeleton::turn`) mixes its own.
+- `kjk play --trace` writes JA's shoulders, elbows and wrists
+  (`rig::JA_ARMS`, `ja_*` columns) beside the drawn arm nodes, in the same
+  world frame.
 - `Player::quirks` (off) reproduces Q-0003 (stray backward frame),
   Q-0004 (inverted captured weights), Q-0010, Q-0017 and Q-0028; all jolt
   visibly. Timing and blends: `G2-SPEC.md`.
