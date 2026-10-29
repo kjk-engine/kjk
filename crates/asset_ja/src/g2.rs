@@ -28,7 +28,8 @@
 //!
 //! Two frames, and a blend's two poses, are mixed along an arc rather than
 //! by the game's lerped matrices, which shrink a bone and whip it round on
-//! wide steps (see `mix_frames` and `mix_blend`).
+//! wide steps (see `mix_frames` and `mix_blend`), each joint kept on its
+//! parent as the lerped matrix keeps it (`joint`).
 
 use std::collections::BTreeMap;
 
@@ -191,15 +192,28 @@ impl BoneAnim {
 /// A bone's local transform (rotation, translation in metres).
 pub type Local = (Quat, Vec3);
 
-/// Two frames of one animation mixed as Ghoul2 lerps them: translation
-/// linearly, rotation along the arc Ghoul2's lerped matrix follows (the
-/// shorter one), at an even pace. Ghoul2's own matrix lerp rushes through
+/// Two frames of one animation mixed as Ghoul2 lerps them: the joint at
+/// `pivot` linearly (`joint`), rotation along the arc Ghoul2's lerped
+/// matrix follows (the shorter one), at an even pace. Ghoul2's own matrix lerp rushes through
 /// the middle of a wide step and shrinks the bone there; the dual and staff
 /// sets have left-arm steps of up to 177° between frames, which that rush
 /// turns into a whip. Both ends are fixed over the step, so the arc never
 /// changes sides.
-fn mix_frames(a: Local, b: Local, t: f32) -> Local {
-    (a.0.slerp(b.0, t).normalize(), a.1.lerp(b.1, t))
+fn mix_frames(a: Local, b: Local, t: f32, pivot: Vec3) -> Local {
+    let q = a.0.slerp(b.0, t).normalize();
+    (q, joint(a, b, t, pivot, q))
+}
+
+/// The translation that puts the joint of a bone whose base place is
+/// `pivot` where `a`'s and `b`'s, lerped, put it, once the bone is turned
+/// by `q`. A key turns its bone about the model's origin, its translation
+/// carrying the joint back (`pivot − turn · pivot` for a joint that stays
+/// on its parent); a turn mixed apart from a translation lerped alone would
+/// pull the joint off its parent by the chord between the two (the dual
+/// set's left shoulder a metre from the chest, its upper arm 1.2 m long).
+/// Ghoul2's lerped matrix keeps the joint in place.
+fn joint(a: Local, b: Local, t: f32, pivot: Vec3, q: Quat) -> Vec3 {
+    (a.1 + a.0 * pivot).lerp(b.1 + b.0 * pivot, t) - q * pivot
 }
 
 /// A blend from the captured pose `a` into the moving new animation `b`,
@@ -216,7 +230,7 @@ fn mix_frames(a: Local, b: Local, t: f32) -> Local {
 ///   would whip at full length (the strong style's `BOTH_S3_S1_TL` swings
 ///   the left upper arm 160° in 10 ms), so it eases into an even pace by
 ///   half a turn.
-fn mix_blend(a: Local, b: Local, start: Quat, t: f32) -> Local {
+fn mix_blend(a: Local, b: Local, start: Quat, t: f32, pivot: Vec3) -> Local {
     use std::f32::consts::{FRAC_PI_2, PI};
     let side = if a.0.dot(start) < 0.0 { -1.0 } else { 1.0 };
     let follow = if b.0.dot(start) < 0.0 { -b.0 } else { b.0 };
@@ -231,7 +245,8 @@ fn mix_blend(a: Local, b: Local, start: Quat, t: f32) -> Local {
         (1.0 - w) * polar + w * even
     };
     let f = if theta > 1e-6 { turned / theta } else { t };
-    (arc(a.0, target, f), a.1.lerp(b.1, t))
+    let q = arc(a.0, target, f);
+    (q, joint(a, b, t, pivot, q))
 }
 
 /// From `a` to `b` along their great circle at an even pace, the long way
@@ -458,11 +473,12 @@ impl<'a> Player<'a> {
         {
             let under_pose = (0..self.gla.bones.len())
                 .map(|b| {
+                    let pivot = self.base(b).1;
                     let show = |current: i32, new: i32, lerp: f32| {
                         if lerp == 0.0 {
                             self.frame(b, current)
                         } else {
-                            mix_frames(self.frame(b, current), self.frame(b, new), lerp)
+                            mix_frames(self.frame(b, current), self.frame(b, new), lerp, pivot)
                         }
                     };
                     let toward =
@@ -473,6 +489,7 @@ impl<'a> Player<'a> {
                         toward(from.frame, from.next),
                         show(current, new, lerp).0,
                         under.amount,
+                        pivot,
                     )
                 })
                 .collect();
@@ -588,12 +605,13 @@ impl<'a> Player<'a> {
                 continue;
             };
             states[bone] = state;
+            let pivot = self.base(bone).1;
             let show = |timing: Timing| {
                 let current = self.frame(bone, timing.current);
                 if timing.lerp == 0.0 {
                     current
                 } else {
-                    mix_frames(current, self.frame(bone, timing.new), timing.lerp)
+                    mix_frames(current, self.frame(bone, timing.new), timing.lerp, pivot)
                 }
             };
             let mut local = show(timing);
@@ -608,11 +626,11 @@ impl<'a> Player<'a> {
                 let captured = match recorded {
                     Some(&shown) => shown,
                     // Q-0004: the fraction on the wrong frame.
-                    None if self.quirks => mix_frames(next, held, back),
-                    None => mix_frames(held, next, back),
+                    None if self.quirks => mix_frames(next, held, back, pivot),
+                    None => mix_frames(held, next, back, pivot),
                 };
                 let reference = show(self.anims[&driver].timing(blend.start_ms)).0;
-                local = mix_blend(captured, local, reference, amount);
+                local = mix_blend(captured, local, reference, amount, pivot);
             }
             pose[bone] = local;
         }

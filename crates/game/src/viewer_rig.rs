@@ -191,8 +191,16 @@ fn load_with(
             powers: Vec::new(),
             ground: crate::rig_ground::Ground::default(),
             saber: Vec::new(),
+            // Named sequences of the pair's (style 6) or the staff's (7)
+            // hold their sabers.
+            style: if options.moves.contains("6_") || options.moves.contains("DUAL") {
+                rig_timeline::Style::Dual
+            } else if options.moves.contains("7_") || options.moves.contains("STAFF") {
+                rig_timeline::Style::Staff
+            } else {
+                rig_timeline::Style::Single
+            },
             moves,
-            style: rig_timeline::Style::Single,
             throws: Vec::new(),
             catches: Vec::new(),
         }
@@ -335,6 +343,18 @@ fn load_with(
                 (retargeted, 0.0)
             };
             ja_start = ja_from;
+            // Beside the trace, when each torso animation starts (s, on its
+            // clock), to name what a trace's sample plays.
+            if let Some(path) = options.trace {
+                let rows: String = moves
+                    .iter()
+                    .map(|(ms, name)| format!("{:.4},{name}\n", ja_from + ms / 1000.0))
+                    .collect();
+                let moves_path = path.with_extension("moves.csv");
+                if let Err(error) = std::fs::write(&moves_path, format!("t,move\n{rows}")) {
+                    notes.push(format!("{}: {error}", moves_path.display()));
+                }
+            }
             notes.extend(rig_timeline::measure(
                 &body,
                 &clip,
