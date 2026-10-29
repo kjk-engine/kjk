@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `2b8d7d9772757b9a`.
+Edition `5e5ed53e565d00a9`.
 
 ## Contents
 
@@ -255,6 +255,7 @@ Edition `2b8d7d9772757b9a`.
   - [Opponent](#pazaak-opponent)
 - [The Remote Droid](#remote)
   - [Launching](#remote-launch)
+  - [Flying](#remote-flight)
 - [Scripts](#scripts)
   - [Script Checks](#scripts-answers)
   - [Conversation](#scripts-talk)
@@ -8971,6 +8972,61 @@ A droid launches 1.5 meters above the body it leaves.
 With no body to launch from, a droid appears 1 meters behind the party's leader.
 
 <sub>Source: Ours. Code: `sim::world::remote::launch`.</sub>
+
+### <a id="remote-flight"></a>Flying
+
+A droid flies where its player looks, rises and sinks on the jump and
+crouch keys, and coasts a little as it stops. It hovers over the floor
+beneath it, can't pass through anything a player can't, stays near the
+party, and comes back behind the leader on Use or when stuck.
+
+<a id="remote-flight-speed-m"></a>**Flying Speed** = **6 m/s** · `remote.flight.speed_m`
+
+A droid flies at up to 6 meters a second.
+
+<sub>Source: Ours. Code: `sim::world::remote::flight::fly`.</sub>
+
+<a id="remote-flight-climb-m"></a>**Climbing Speed** = **3 m/s** · `remote.flight.climb_m`
+
+A droid rises or sinks at up to 3 meters a second.
+
+<sub>Source: Ours. Code: `sim::world::remote::flight::fly`.</sub>
+
+<a id="remote-flight-response"></a>**Response** = **6 /s** · `remote.flight.response`
+
+A droid's speed closes 6 times a second on the speed its keys ask for, so it coasts a moment as it stops.
+
+<sub>Source: Ours. Code: `sim::world::remote::flight::fly`.</sub>
+
+<a id="remote-flight-floor-min-m"></a>**Lowest Hover** = **1 m** · `remote.flight.floor_min_m`
+
+A droid hovers at least 1 meters over the floor beneath it.
+
+<sub>Source: Ours. Code: `sim::world::remote::flight::fly`.</sub>
+
+<a id="remote-flight-floor-max-m"></a>**Highest Hover** = **3 m** · `remote.flight.floor_max_m`
+
+A droid hovers at most 3 meters over the floor beneath it.
+
+<sub>Source: Ours. Code: `sim::world::remote::flight::fly`.</sub>
+
+<a id="remote-flight-floor-search-m"></a>**Floor Search** = **20 m** · `remote.flight.floor_search_m`
+
+A droid with no floor within 20 meters beneath it is lost and comes back behind the leader.
+
+<sub>Source: Ours. Code: `sim::world::remote::flight::floor`.</sub>
+
+<a id="remote-flight-half-size-m"></a>**Droid Size** = **0.2 m** · `remote.flight.half_size_m`
+
+A droid is a box 0.2 meters from its middle to each side.
+
+<sub>Source: TSL's remote. Code: `sim::world::remote::flight::fly`.</sub>
+
+<a id="remote-flight-leash-m"></a>**Leash** = **20 m** · `remote.flight.leash_m`
+
+A droid stays within 20 meters of the nearest standing party member.
+
+<sub>Source: Ours. Code: `sim::world::remote::flight::fly`.</sub>
 
 ## <a id="scripts"></a>Scripts
 

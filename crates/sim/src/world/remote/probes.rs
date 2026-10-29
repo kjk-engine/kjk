@@ -9,16 +9,20 @@ use crate::probe::{Checks, check};
 use crate::snapshot::{SimId, Snapshot};
 use crate::{Guests, WorldConfig};
 
+mod flight;
+
 /// The checks (`kjk sim probes`; see each).
 pub fn probes() -> Checks {
-    vec![
+    let mut checks = vec![
         ("droid_for_seatless_guest", seatless()),
         ("no_droid_solo", solo()),
         ("docks_when_companion_frees", docks()),
         ("launches_where_body_was", launches()),
         ("not_saved", not_saved()),
         ("minigame_no_droid", minigame()),
-    ]
+    ];
+    checks.extend(flight::probes());
+    checks
 }
 
 /// `seats` on the proving ground, no party: the guests have no body.

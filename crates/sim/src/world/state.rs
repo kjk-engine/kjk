@@ -422,7 +422,7 @@ impl SimWorld {
                     (scene::hold, hold_talkers).chain(),
                     (made_faces, minds::think.run_if(on_authority)).chain(),
                     powers::force,
-                    move_actors,
+                    (move_actors, remote::flight::fly).chain(),
                     fire,
                     sabers::sabers,
                     strikes::strikes,

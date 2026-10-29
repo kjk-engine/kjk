@@ -36,3 +36,84 @@ range = [0, 5]
 summary = "With no body to launch from, a droid appears {remote.launch.behind_m:bare} meters behind the party's leader."
 source = "Ours"
 see = "sim::world::remote::launch"
+
+[flight]
+title = "Flying"
+summary = """
+A droid flies where its player looks, rises and sinks on the jump and
+crouch keys, and coasts a little as it stops. It hovers over the floor
+beneath it, can't pass through anything a player can't, stays near the
+party, and comes back behind the leader on Use or when stuck.
+"""
+
+[flight.speed_m]
+name = "Flying Speed"
+value = 6.0
+unit = "m/s"
+range = [0, 20]
+summary = "A droid flies at up to {remote.flight.speed_m:bare} meters a second."
+source = "Ours"
+see = "sim::world::remote::flight::fly"
+
+[flight.climb_m]
+name = "Climbing Speed"
+value = 3.0
+unit = "m/s"
+range = [0, 20]
+summary = "A droid rises or sinks at up to {remote.flight.climb_m:bare} meters a second."
+source = "Ours"
+see = "sim::world::remote::flight::fly"
+
+[flight.response]
+name = "Response"
+value = 6.0
+unit = "/s"
+range = [0.1, 100]
+summary = "A droid's speed closes {remote.flight.response:bare} times a second on the speed its keys ask for, so it coasts a moment as it stops."
+source = "Ours"
+see = "sim::world::remote::flight::fly"
+
+[flight.floor_min_m]
+name = "Lowest Hover"
+value = 1.0
+unit = "m"
+range = [0, 10]
+summary = "A droid hovers at least {remote.flight.floor_min_m:bare} meters over the floor beneath it."
+source = "Ours"
+see = "sim::world::remote::flight::fly"
+
+[flight.floor_max_m]
+name = "Highest Hover"
+value = 3.0
+unit = "m"
+range = [0, 10]
+summary = "A droid hovers at most {remote.flight.floor_max_m:bare} meters over the floor beneath it."
+source = "Ours"
+see = "sim::world::remote::flight::fly"
+
+[flight.floor_search_m]
+name = "Floor Search"
+value = 20.0
+unit = "m"
+range = [1, 100]
+summary = "A droid with no floor within {remote.flight.floor_search_m:bare} meters beneath it is lost and comes back behind the leader."
+source = "Ours"
+see = "sim::world::remote::flight::floor"
+
+[flight.half_size_m]
+name = "Droid Size"
+value = 0.2
+unit = "m"
+range = [0.01, 1]
+summary = "A droid is a box {remote.flight.half_size_m:bare} meters from its middle to each side."
+source = "TSL's remote"
+see = "sim::world::remote::flight::fly"
+
+[flight.leash_m]
+name = "Leash"
+value = 20.0
+unit = "m"
+range = [1, 100]
+summary = "A droid stays within {remote.flight.leash_m:bare} meters of the nearest standing party member."
+source = "Ours"
+see = "sim::world::remote::flight::fly"

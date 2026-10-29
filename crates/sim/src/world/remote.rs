@@ -8,7 +8,9 @@ use collision::UNIT;
 use super::{Avatar, Id, Inputs, LEADER_SEAT, Player, SeatsHeld, lent};
 use crate::input::Seat;
 use crate::math::scale;
+use crate::motion::MotionState;
 use crate::remote::Remote;
+use crate::snapshot::SimId;
 
 /// The droids flying, by seat.
 #[derive(Resource, Default)]
@@ -51,12 +53,12 @@ pub(super) fn launch(world: &mut World) {
             .find(|(of, _)| of == seat)
             .map(|(_, at)| *at);
         let Some((at, yaw)) = from
-            .map(|at| (at, leader.map_or(0.0, |(_, yaw)| yaw)))
-            .or_else(|| leader.map(behind))
+            .map(|at| (lifted(at), leader.map_or(0.0, |(_, yaw)| yaw)))
+            .or_else(|| leader.map(placed_behind))
         else {
             continue;
         };
-        remotes.push(Remote::new(*seat, [at[0], at[1], at[2] + LIFT], yaw));
+        remotes.push(Remote::new(*seat, at, yaw));
     }
     remotes.sort_by_key(|remote| remote.seat);
     world.resource_mut::<Remotes>().0 = remotes;
@@ -67,26 +69,48 @@ const LIFT: f32 = rules::remote::launch::LIFT_M;
 /// How far behind the leader a droid with no body to launch from appears (m).
 const BEHIND: f32 = rules::remote::launch::BEHIND_M;
 
-/// Where the party's leader is (m) and which way it looks (degrees): seat
-/// 0's acting body, the companion leading when one does (`lent`).
-pub(super) fn leader(world: &mut World) -> Option<([f32; 3], f32)> {
+/// Where the party's leader is (m) and which way it looks (degrees).
+fn leader(world: &mut World) -> Option<([f32; 3], f32)> {
     let lent = lent(&world.resource::<super::scripts::Scripts>().state.party);
-    world
-        .query::<(&Id, &Player, Option<&Avatar>)>()
-        .iter(world)
-        .find(|(id, _, avatar)| match lent {
-            Some(lent) => id.0 == lent,
-            None => avatar.is_some_and(|avatar| avatar.0 == LEADER_SEAT),
+    let mut bodies = world.query::<(&Id, &Player, Option<&Avatar>)>();
+    lead(
+        lent,
+        bodies
+            .iter(world)
+            .map(|(id, player, avatar)| (id.0, &player.0, avatar.map(|a| a.0))),
+    )
+}
+
+/// The leader among `bodies` (id, movement, avatar's seat): seat 0's acting
+/// body, the companion leading when one does (`lent`); where it is (m) and
+/// which way it looks (degrees).
+pub(super) fn lead<'a>(
+    lent: Option<SimId>,
+    mut bodies: impl Iterator<Item = (SimId, &'a MotionState, Option<Seat>)>,
+) -> Option<([f32; 3], f32)> {
+    bodies
+        .find(|(id, _, seat)| match lent {
+            Some(lent) => *id == lent,
+            None => *seat == Some(LEADER_SEAT),
         })
-        .map(|(_, player, _)| (scale(player.0.origin, UNIT), player.0.view[1]))
+        .map(|(_, motion, _)| (scale(motion.origin, UNIT), motion.view[1]))
 }
 
-/// A place `BEHIND` the leader at `at`, looking along `yaw`.
-fn behind((at, yaw): ([f32; 3], f32)) -> ([f32; 3], f32) {
+/// A droid's place `BEHIND` and `LIFT` above the leader at `at`, looking
+/// along its `yaw`.
+pub(super) fn placed_behind((at, yaw): ([f32; 3], f32)) -> ([f32; 3], f32) {
     let (sin, cos) = crate::math::sin_cos_deg(yaw);
-    ([at[0] - BEHIND * cos, at[1] - BEHIND * sin, at[2]], yaw)
+    (
+        lifted([at[0] - BEHIND * cos, at[1] - BEHIND * sin, at[2]]),
+        yaw,
+    )
 }
 
+fn lifted(at: [f32; 3]) -> [f32; 3] {
+    [at[0], at[1], at[2] + LIFT]
+}
+
+pub(crate) mod flight;
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
