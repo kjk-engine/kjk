@@ -101,6 +101,27 @@ pub(crate) fn experience(source: &dyn Source) -> Experience {
             })
             .collect();
     }
+    // TSL's: `autobalance.2da`'s `CRMod` by row, `npc.2da`'s `PercentXP` of
+    // rows 13 and 14, as `CalculateDeathExperience` and
+    // `ApplyDeathExperience` read them by index.
+    if let Some(balance) = tables.table("autobalance") {
+        experience.balance_cr = (0..balance.row_labels.len())
+            .map(|row| {
+                balance
+                    .int(row, "crmod")
+                    .and_then(|value| value.try_into().ok())
+                    .unwrap_or(0)
+            })
+            .collect();
+    }
+    if let Some(npc) = tables.table("npc").filter(|npc| npc.row_labels.len() > 14) {
+        let percent = |row| {
+            npc.int(row, "percentxp")
+                .and_then(|value| value.try_into().ok())
+                .unwrap_or(0)
+        };
+        experience.percent = Some((percent(13), percent(14)));
+    }
     experience
 }
 
@@ -128,12 +149,55 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         experience(&files).kills
     };
     let wanted = vec![vec![100, 125], vec![75, 100]];
-    [("xp_kills_k1_heading", "c"), ("xp_kills_tsl_heading", "")]
-        .into_iter()
-        .map(|(name, prefix)| {
-            let kills = read(prefix);
-            let what = format!("{kills:?}");
-            (name, if kills == wanted { Ok(what) } else { Err(what) })
-        })
-        .collect()
+    let mut checks: Vec<(&'static str, Result<String, String>)> =
+        [("xp_kills_k1_heading", "c"), ("xp_kills_tsl_heading", "")]
+            .into_iter()
+            .map(|(name, prefix)| {
+                let kills = read(prefix);
+                let what = format!("{kills:?}");
+                (name, if kills == wanted { Ok(what) } else { Err(what) })
+            })
+            .collect();
+    checks.push(("xp_death_tsl", tsl_death()));
+    checks
+}
+
+/// TSL's death XP (`Experience::tsl_kill`, the executable's
+/// `CalculateDeathExperience` and `ApplyDeathExperience`): the row of the
+/// level the XP reaches, the rating capped at 30 (column 31 and on never
+/// read), an autobalanced creature's `CRMod` past the PC's level (at least
+/// 0), `GAME_XP_General`'s percent, rounded up; `PER_NPC_Bonus` a share
+/// by each member.
+fn tsl_death() -> Result<String, String> {
+    let kills: Vec<Vec<i32>> = (0..32)
+        .map(|row| (0..40).map(|rating| row * 100 + rating).collect())
+        .collect();
+    let experience = Experience {
+        kills,
+        balance_cr: vec![0, -3, -2],
+        percent: Some((75, 0)),
+        ..Experience::default()
+    };
+    let seen = [
+        experience.tsl_kill(3, 5.9, None, 3),
+        experience.tsl_kill(40, 35.0, None, 3),
+        experience.tsl_kill(10, 9.0, Some((1, 12)), 3),
+        experience.tsl_kill(10, 9.0, Some((2, 1)), 3),
+        Experience {
+            percent: Some((100, 10)),
+            ..experience.clone()
+        }
+        .tsl_kill(2, 1.0, None, 3),
+    ];
+    // Row 2, rating 5: 205 x 0.75 = 153.75, up to 154; row 30, rating 30:
+    // 3030 x 0.75 = 2272.5, 2273; row 9, 12 - 3 = 9: 909 x 0.75 = 681.75,
+    // 682; row 9, 1 - 2 below 0 so 0: 900 x 0.75 = 675; row 1, rating 1:
+    // 101 x (0.1 x 3 + 1) = 131.3, 132.
+    let wanted = [154, 2273, 682, 675, 132];
+    let what = format!("{seen:?}");
+    if seen == wanted {
+        Ok(what)
+    } else {
+        Err(format!("{what}, wanted {wanted:?}"))
+    }
 }

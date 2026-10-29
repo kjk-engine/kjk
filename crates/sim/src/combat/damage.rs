@@ -442,6 +442,12 @@ pub fn assess(
     let mut guarded = false;
     let mut saved = false;
     let mut damage_type = None;
+    // A test's mighty player (`kjk playthrough --mighty`): its blows count
+    // `MIGHTY_TIMES` over, scripts' as they are; a weapon's before its
+    // target's guards, as a stronger blow (a door's hardness of 125, the
+    // Sky Ramp's damaged force shield, meets ten times the blade's roll).
+    let mighty = attacker.is_some_and(|sheet| sheet.flags & flags::MIGHTY != 0)
+        && !matches!(blow.source, Source::Script { .. });
     let (sized, pushes) = match blow.source {
         Source::Script {
             damage,
@@ -511,6 +517,11 @@ pub fn assess(
             let odds = attacker.map(|sheet| odds(sheet, &weapon, target));
             let p = odds.map_or(1000, |(attack, defence)| margin(attack, defence));
             let roll = weapon_roll(&weapon, attacker, &mut stream_die(rng));
+            let roll = if mighty {
+                roll.saturating_mul(MIGHTY_TIMES)
+            } else {
+                roll
+            };
             let d20 = i64::from(rng.below(rules::interaction::checks::DIE)) + 1;
             let confirm = attacker
                 .zip(odds)
@@ -566,11 +577,7 @@ pub fn assess(
     } else {
         (located.saturating_mul(share) / 1000).max(rules::combat::damage::LEAST)
     };
-    // A test's mighty player (`kjk playthrough --mighty`): its blows count
-    // `MIGHTY_TIMES` over, scripts' as they are.
-    let mighty = attacker.is_some_and(|sheet| sheet.flags & flags::MIGHTY != 0)
-        && !matches!(blow.source, Source::Script { .. });
-    let damage = if mighty {
+    let damage = if mighty && !matches!(blow.source, Source::Weapon { .. }) {
         damage.saturating_mul(MIGHTY_TIMES)
     } else {
         damage
