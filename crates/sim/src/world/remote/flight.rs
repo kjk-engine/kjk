@@ -74,7 +74,8 @@ pub(in crate::world) fn fly(
         bodies
             .iter()
             .map(|(id, player, _, avatar)| (id.0, &player.0, avatar.map(|a| a.0))),
-    );
+    )
+    .map(|(_, at, yaw)| (at, yaw));
     // The standing party members (m), the leash's ends.
     let party: Vec<[f32; 3]> = bodies
         .iter()

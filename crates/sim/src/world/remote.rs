@@ -71,6 +71,18 @@ const BEHIND: f32 = rules::remote::launch::BEHIND_M;
 
 /// Where the party's leader is (m) and which way it looks (degrees).
 fn leader(world: &mut World) -> Option<([f32; 3], f32)> {
+    led(world).map(|(_, at, yaw)| (at, yaw))
+}
+
+/// Whom what a droid does is credited to: the party's leader (`lead`),
+/// downed or not. No script object is a droid, so a hit needs one for
+/// `GetLastAttacker`, `OnDamaged` and kill XP: the PC's, as KOTOR's
+/// scripts expect.
+pub(super) fn credit(world: &mut World) -> Option<SimId> {
+    led(world).map(|(id, ..)| id)
+}
+
+fn led(world: &mut World) -> Option<(SimId, [f32; 3], f32)> {
     let lent = lent(&world.resource::<super::scripts::Scripts>().state.party);
     let mut bodies = world.query::<(&Id, &Player, Option<&Avatar>)>();
     lead(
@@ -82,18 +94,25 @@ fn leader(world: &mut World) -> Option<([f32; 3], f32)> {
 }
 
 /// The leader among `bodies` (id, movement, avatar's seat): seat 0's acting
-/// body, the companion leading when one does (`lent`); where it is (m) and
-/// which way it looks (degrees).
+/// body, the companion leading when one does (`lent`); its id, where it is
+/// (m) and which way it looks (degrees).
 pub(super) fn lead<'a>(
     lent: Option<SimId>,
     mut bodies: impl Iterator<Item = (SimId, &'a MotionState, Option<Seat>)>,
-) -> Option<([f32; 3], f32)> {
+) -> Option<(SimId, [f32; 3], f32)> {
     bodies
         .find(|(id, _, seat)| match lent {
             Some(lent) => *id == lent,
             None => *seat == Some(LEADER_SEAT),
         })
-        .map(|(_, motion, _)| (scale(motion.origin, UNIT), motion.view[1]))
+        .map(|(id, motion, _)| (id, scale(motion.origin, UNIT), motion.view[1]))
+}
+
+impl super::SimWorld {
+    /// Whom a droid's hits are credited to now (`credit`).
+    pub fn remote_credit(&mut self) -> Option<SimId> {
+        credit(&mut self.world)
+    }
 }
 
 /// A droid's place `BEHIND` and `LIFT` above the leader at `at`, looking
@@ -111,6 +130,7 @@ fn lifted(at: [f32; 3]) -> [f32; 3] {
 }
 
 pub(crate) mod flight;
+pub(crate) mod gate;
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
