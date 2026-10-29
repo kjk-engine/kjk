@@ -69,15 +69,48 @@ fn arc(a: Quat, b: Quat, t: f32) -> Quat {
     ))
 }
 
-/// Two keys of one animation mixed: the place linearly, the turn along the
-/// shorter arc at an even pace.
-pub fn mix_frames(a: Local, b: Local, t: f32) -> Local {
+/// `v` turned by `q`.
+fn rotate(q: Quat, v: [f32; 3]) -> [f32; 3] {
+    let [w, x, y, z] = q;
+    let cross = |a: [f32; 3], b: [f32; 3]| {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    };
+    let u = [x, y, z];
+    let c = cross(u, v);
+    let cc = cross(u, c);
+    [0, 1, 2].map(|i| v[i] + 2.0 * (w * c[i] + cc[i]))
+}
+
+/// The place that puts the joint of a bone whose base place is `pivot`
+/// where `a`'s and `b`'s, lerped, put it, once the bone is turned by `q`
+/// (the renderer's `g2::joint`): a key turns its bone about the model's
+/// origin, so a place lerped apart from the turn would pull the joint off
+/// its parent by the chord between the two. Ghoul2's lerped matrix keeps
+/// the joint in place.
+fn joint(a: Local, b: Local, t: f32, pivot: [f32; 3], q: Quat) -> [f32; 3] {
+    let at = |(turn, place): Local| {
+        let turned = rotate(turn, pivot);
+        [0, 1, 2].map(|i| place[i] + turned[i])
+    };
+    let lerped = lerp3(at(a), at(b), t);
+    let turned = rotate(q, pivot);
+    [0, 1, 2].map(|i| lerped[i] - turned[i])
+}
+
+/// Two keys of one animation mixed: the joint at `pivot` linearly
+/// (`joint`), the turn along the shorter arc at an even pace.
+pub fn mix_frames(a: Local, b: Local, t: f32, pivot: [f32; 3]) -> Local {
     let near = if dot(a.0, b.0) < 0.0 {
         scale(b.0, -1.0)
     } else {
         b.0
     };
-    (arc(a.0, near, t), lerp3(a.1, b.1, t))
+    let q = arc(a.0, near, t);
+    (q, joint(a, b, t, pivot, q))
 }
 
 /// A blend from the pose it starts from (`a`) into the moving animation
@@ -86,7 +119,7 @@ pub fn mix_frames(a: Local, b: Local, t: f32) -> Local {
 /// as the animation swings past half a turn from `a`), at the pace Ghoul2's
 /// lerped matrix turns while the two are within a quarter turn, easing into
 /// an even pace by half a turn (where Ghoul2's bone shrinks to nothing).
-pub fn mix_blend(a: Local, b: Local, start: Quat, t: f32) -> Local {
+pub fn mix_blend(a: Local, b: Local, start: Quat, t: f32, pivot: [f32; 3]) -> Local {
     let side = if dot(a.0, start) < 0.0 { -1.0 } else { 1.0 };
     let follow = if dot(b.0, start) < 0.0 {
         scale(b.0, -1.0)
@@ -106,5 +139,6 @@ pub fn mix_blend(a: Local, b: Local, start: Quat, t: f32) -> Local {
         (1.0 - w) * polar + w * even
     };
     let f = if theta > 1e-4 { turned / theta } else { t };
-    (arc(a.0, target, f), lerp3(a.1, b.1, t))
+    let q = arc(a.0, target, f);
+    (q, joint(a, b, t, pivot, q))
 }

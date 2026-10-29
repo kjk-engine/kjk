@@ -1596,6 +1596,9 @@ pub fn shift(clip: &AnimationIr, node: &str, offset: Vec3) -> AnimationIr {
     clip
 }
 
+/// The nodes `measure` notes jolts of (the approved ceilings').
+const JOLTED: [&str; 5] = ["lfoot_g", "rfoot_g", "rhand_g", "lhand_g", "head_g"];
+
 /// How clean a clip plays on a body, from `[from, to)` seconds: the feet's
 /// slide while down (horizontal speed of an ankle held within 2 cm of its
 /// rest height for 60 ms or more)
@@ -1607,11 +1610,24 @@ pub fn measure(
     to: f32,
     csv: Option<&std::path::Path>,
 ) -> Vec<String> {
-    // The nodes this body has (`trace` skips the others).
-    let names: Vec<&str> = ["lfoot_g", "rfoot_g", "rhand_g", "lhand_g", "head_g"]
-        .into_iter()
-        .filter(|name| body.nodes.iter().any(|n| n.name.eq_ignore_ascii_case(name)))
-        .collect();
+    // The nodes this body has (`trace` skips the others); the chest and the
+    // arms' only for the trace's CSV, the jolts kept to the hands, feet and
+    // head (`JOLTED`).
+    let names: Vec<&str> = [
+        "lfoot_g",
+        "rfoot_g",
+        "rhand_g",
+        "lhand_g",
+        "head_g",
+        "torsoupr_g",
+        "lbicep_g",
+        "rbicep_g",
+        "lforearm_g",
+        "rforearm_g",
+    ]
+    .into_iter()
+    .filter(|name| body.nodes.iter().any(|n| n.name.eq_ignore_ascii_case(name)))
+    .collect();
     let trace: Vec<(f32, Vec<Vec3>)> = asset_ja::rig::trace(body, clip, &names)
         .into_iter()
         .filter(|(t, _)| *t >= from && *t < to)
@@ -1694,7 +1710,11 @@ pub fn measure(
             slides[0].0
         ));
     }
-    for (index, name) in names.iter().enumerate() {
+    for (index, name) in names
+        .iter()
+        .enumerate()
+        .filter(|(_, name)| JOLTED.contains(name))
+    {
         let mut jolts: Vec<(f32, f32)> = trace
             .windows(3)
             .filter_map(|w| {

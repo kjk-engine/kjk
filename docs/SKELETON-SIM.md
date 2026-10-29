@@ -28,7 +28,9 @@ range, frames per 50 ms, start ms, looping, blend: start, length, captured
 
 ## A bolt (`bolt`, model space, facing +X)
 - A compressed quaternion is made unit (`turn`). A part's two frames turn
-  along the shorter arc at an even pace, places lerped; a blend turns from
+  along the shorter arc at an even pace, each joint's place lerped and the
+  translation taken from the mixed turn (`joint`: the joint stays on its
+  parent, as Ghoul2's lerped matrix keeps it); a blend turns from
   the pose it starts from into the moving animation on the side that was
   the shorter when it began, at Ghoul2's lerped matrix's pace within a
   quarter turn, easing to an even pace by half a turn (the renderer's

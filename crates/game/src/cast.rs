@@ -109,9 +109,15 @@ const HOLSTER_BLEND_MS: f32 = 250.0;
 /// How long after a shot the gun is held fully aimed whatever else plays
 /// (ms): a shot always leaves along the barrel.
 const SHOT_AIM_MS: f64 = 150.0;
-/// Seconds a gripping hand takes to settle into a stance's pose or reach
-/// for the sim's blade again (`Figure::reach_share`).
-const REACH_EASE_S: f32 = 0.2;
+/// Seconds a gripping hand takes to reach for the sim's blade as a cut
+/// begins and to let go as it ends (`Figure::reach_share`): short, as JA's
+/// swings are (an attack lasts about 0.3 s), the arm solved smoothly all
+/// the while (`rig::bend`).
+const REACH_EASE_S: f32 = 0.08;
+/// Seconds a gripping hand takes to settle into a held stance's reach:
+/// longer, the stance's pose coming in after a return (at `REACH_EASE_S`
+/// the hand snapped up to `asset_ja::rig::REACH` across the chest).
+const STANCE_EASE_S: f32 = 0.3;
 /// How much a gripping hand reaches for the sim's blade in a held stance.
 const STANCE_REACH: f32 = 1.0;
 /// Where a gun's muzzle is held before the eyes looking through them
@@ -610,6 +616,10 @@ pub struct Figure {
     /// It stands in one of JA's held stances (`stance::holding`), and how
     /// much it breathes in it (`stance`).
     holding: bool,
+    /// Its saber move cuts (an attack, a special, a parry; not a start, a
+    /// return, a transition or none): only then do the hands reach for the
+    /// sim's blades in full (`reach_share`).
+    cuts: bool,
     breath: stance::Breath,
     /// Its left hand on a lone hilt (`Retargeter::pose`).
     off_hand: OffHand,
@@ -654,6 +664,7 @@ impl Figure {
             drawing: crate::draw_anim::Drawing::default(),
             aim_ms: None,
             holding: false,
+            cuts: false,
             breath: stance::Breath::default(),
             off_hand: OffHand::default(),
             reach: (1.0, None),
@@ -739,6 +750,10 @@ impl Figure {
                 Anim::TORSO_WEAPONREADY2 | Anim::TORSO_WEAPONREADY3
             );
         self.holding = stance::holding(&rig.sequences, (p.legs.anim, p.torso.anim));
+        self.cuts = entity.fighter.is_some_and(|f| {
+            let current = f.saber.current_move;
+            !current.idle() && !current.in_between()
+        });
         let posed = entity
             .fighter
             .filter(|f| f.alive() && !rig.quirks)
@@ -903,15 +918,21 @@ impl Figure {
     }
 
     /// How much its gripping hands move to put the drawn blades where the
-    /// sim's are (`Reach::share`) at `ms`: `STANCE_REACH` while it stands in
-    /// one of JA's held stances (`holding`; the reach keeps the forearm's
-    /// pitch, `rig::level`, so the stance keeps its shape), all otherwise;
-    /// eased over `REACH_EASE_S`. The blades always turn the sim's way.
+    /// sim's are (`Reach::share`) at `ms`: all while its saber move cuts
+    /// (`cuts`), eased over `REACH_EASE_S`; `STANCE_REACH` while it stands in
+    /// one of JA's held stances (`holding`), eased in over `STANCE_EASE_S`;
+    /// none otherwise (a start, a return, a transition, a flip, a run:
+    /// nothing is cut, and JA's arm is the truth). The blades always turn
+    /// the sim's way.
     fn reach_share(&mut self, ms: f64) -> f32 {
         let (share, was) = self.reach;
         let seconds = was.map_or(1.0, |was| ((ms - was) / 1000.0).clamp(0.0, 0.25) as f32);
-        let target = if self.holding { STANCE_REACH } else { 1.0 };
-        let share = crate::gait::ease(share, target, seconds / REACH_EASE_S);
+        let (target, ease) = match (self.cuts, self.holding) {
+            (true, _) => (1.0, REACH_EASE_S),
+            (false, true) => (STANCE_REACH, STANCE_EASE_S),
+            (false, false) => (0.0, REACH_EASE_S),
+        };
+        let share = crate::gait::ease(share, target, seconds / ease);
         self.reach = (share, Some(ms));
         share
     }

@@ -39,6 +39,8 @@ pub struct Setup {
     pub dressed: Arc<Mutex<Redressed>>,
     /// The weapons every seat was composed holding.
     pub weapons: [Option<ModelIr>; 2],
+    /// The bodies were named (`--body`): kept as named, never dressed.
+    pub named: bool,
 }
 
 /// A seat dressed again, its body in the scene: for `play_view`.
@@ -135,6 +137,9 @@ pub fn dress(
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
 ) {
     let wardrobe = &mut *wardrobe;
+    if wardrobe.setup.named {
+        return;
+    }
     wardrobe.enter(swap.level.name());
     let snapshot = presented.0.current();
     let dressed = wardrobe.setup.dressed.clone();

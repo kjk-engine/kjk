@@ -583,7 +583,15 @@ pub fn retarget_with(
 pub struct Posed {
     pub rotations: Vec<(usize, Quat)>,
     pub root: Option<(usize, Vec3)>,
+    /// JA's own joints in `JA_ARMS` order (KOTOR model space, metres, JA's
+    /// floor on the model's), for traces beside the drawn arms.
+    pub ja_arms: Vec<Vec3>,
 }
+
+/// JA's arm joints a `Posed` carries: each side's shoulder, elbow and wrist.
+pub const JA_ARMS: [&str; 6] = [
+    "rhumerus", "rradius", "rhand", "lhumerus", "lradius", "lhand",
+];
 
 /// `retarget_with` one moment at a time, for a player animated live: the
 /// skeletons are lined up once, then each JA pose (`g2::Player::pose`, one
@@ -603,8 +611,8 @@ pub struct Retargeter<'a> {
     carriers: Vec<usize>,
     /// JA's left and right hand bones.
     hands: Option<[usize; 2]>,
-    /// KOTOR's chest (`torsoupr_g`): where a reaching elbow tucks toward.
-    chest: Option<usize>,
+    /// JA's `JA_ARMS` bones.
+    arm_bones: Vec<usize>,
 }
 
 impl<'a> Retargeter<'a> {
@@ -630,12 +638,12 @@ impl<'a> Retargeter<'a> {
             .bone("lhand")
             .zip(ja.bone("rhand"))
             .map(<[usize; 2]>::from);
-        let chest = k.node("torsoupr_g");
+        let arm_bones = JA_ARMS.iter().filter_map(|name| ja.bone(name)).collect();
         Retargeter {
             arms,
+            arm_bones,
             carriers,
             hands,
-            chest,
             kotor,
             ja,
             k,
@@ -731,10 +739,7 @@ impl<'a> Retargeter<'a> {
         let mut turned: BTreeMap<usize, Quat> = reach
             .iter()
             .filter_map(|reach| Some((grips.get(reach.grip)?, reach)))
-            .flat_map(|(grip, reach)| {
-                let chest = self.chest.map(|chest| globals[chest].position);
-                reach_turns(&globals, grip, reach, chest)
-            })
+            .flat_map(|(grip, reach)| reach_turns(&globals, grip, reach))
             .collect();
         if !turned.is_empty() {
             globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
@@ -801,7 +806,17 @@ impl<'a> Retargeter<'a> {
                 / kotor.animation_scale.max(f32::EPSILON);
             (root, offset)
         });
-        Posed { rotations, root }
+        let floor = Vec3::Z * crate::ORIGIN_HEIGHT;
+        let ja_arms = self
+            .arm_bones
+            .iter()
+            .map(|&b| TURN * (finals[b].point(ja.base(b)) + floor) + ground)
+            .collect();
+        Posed {
+            rotations,
+            root,
+            ja_arms,
+        }
     }
 }
 
@@ -884,8 +899,7 @@ pub struct Reach {
     pub most: f32,
     /// How much the place is the KOTOR body's own (0 to 1: a blade held
     /// before a first-person eye) rather than where JA's shorter arm put
-    /// the sim's blade: the arm bends to it freely, and the off hand lets a
-    /// lone hilt go.
+    /// the sim's blade: the off hand lets a lone hilt go.
     pub free: f32,
 }
 
@@ -1254,12 +1268,7 @@ impl OffHand {
 /// onto the blade's direction, then the upper arm and forearm bent (two
 /// bones, in the plane the elbow is in) so the wrist is where that hand
 /// puts the blade's start on the muzzle.
-fn reach_turns(
-    globals: &[Frame],
-    grip: &Grip,
-    reach: &Reach,
-    chest: Option<Vec3>,
-) -> Vec<(usize, Quat)> {
+fn reach_turns(globals: &[Frame], grip: &Grip, reach: &Reach) -> Vec<(usize, Quat)> {
     let Some([upper, fore]) = grip.arm else {
         return Vec::new();
     };
@@ -1278,36 +1287,9 @@ fn reach_turns(
     let wanted = reach.muzzle - weapon_frame.point(reach.origin);
     let wrist = hand_frame.position;
     let wanted = wrist + (wanted - wrist).clamp_length_max(reach.most) * reach.share;
-    // The forearm keeps the pitch JA's pose gives it and the upper arm
-    // carries the wrist there from the shoulder (`level`); failing that,
-    // the arm turns at the shoulder and may straighten, but never folds
-    // past the span JA's pose gives it (shoulder to wrist): a longer KOTOR
-    // arm reaching for a blade placed by JA's shorter one would bend at
-    // the elbow and the wrist (a staff held out to the side). A place the
-    // KOTOR body chose (`Reach::free`) the arm bends to as it must.
-    let shoulder = globals[upper].position;
-    let span = wrist.distance(shoulder);
-    let kept = match (wanted - shoulder).try_normalize() {
-        Some(way) if wanted.distance(shoulder) < span => shoulder + way * span,
-        _ => wanted,
-    };
-    let ja_placed = || {
-        level(globals, [upper, fore], wrist, (wanted, chest))
-            .or_else(|| bend(globals, [upper, fore], wrist, kept))
-    };
-    let free = || bend(globals, [upper, fore], wrist, wanted);
-    let arm = match reach.free {
-        f if f <= 0.0 => ja_placed(),
-        f if f >= 1.0 => free(),
-        f => match (ja_placed(), free()) {
-            // Both turn the upper arm, then the forearm.
-            (Some(placed), Some(chosen)) => {
-                Some([0, 1].map(|bone| (placed[bone].0, placed[bone].1.slerp(chosen[bone].1, f))))
-            }
-            (placed, chosen) => chosen.or(placed),
-        },
-    };
-    let Some(arm) = arm else {
+    // One solver, whatever the place: the arm keeps its own plane as the
+    // wrist moves (`bend`), so the elbow never jumps between answers.
+    let Some(arm) = bend(globals, [upper, fore], wrist, wanted) else {
         return Vec::new();
     };
     let mut turns = arm.to_vec();
@@ -1315,81 +1297,9 @@ fn reach_turns(
     turns
 }
 
-/// The most the elbow bends in `level` (radians between the upper arm's
-/// line and the forearm's).
-const ELBOW_MOST: f32 = 150.0 * std::f32::consts::PI / 180.0;
-/// How far (metres, level) `level` draws the elbow in toward the chest
-/// from where a level forearm would put it.
-const ELBOW_IN: f32 = 0.08;
-
-/// The upper arm and forearm turned (globals) so the wrist, now at `wrist`,
-/// comes to `wanted`, the elbow where a forearm at the pitch it has (only
-/// turned about the vertical, the nearer way) would put it, drawn in
-/// `ELBOW_IN` toward `chest` (onto the circle of elbows that reach both
-/// the shoulder and `wanted`): the upper arm drops or swings from the
-/// shoulder rather than the elbow folding. `None` where no such forearm
-/// reaches (or the elbow would bend past `ELBOW_MOST`).
-fn level(
-    globals: &[Frame],
-    [upper, fore]: [usize; 2],
-    wrist: Vec3,
-    (wanted, chest): (Vec3, Option<Vec3>),
-) -> Option<[(usize, Quat); 2]> {
-    let (shoulder, elbow) = (globals[upper].position, globals[fore].position);
-    let (a, b) = (elbow.distance(shoulder), wrist.distance(elbow));
-    let forearm = (wrist - elbow).try_normalize()?;
-    let to = wanted - shoulder;
-    if !(a > 1e-3 && b > 1e-3 && to.is_finite()) {
-        return None;
-    }
-    // The forearm (pitch `sin`, `cos`; heading θ) puts the elbow at
-    // `wanted - b·F`, `a` from the shoulder: |to − b·F|² = a².
-    let (sin, cos) = (forearm.z, forearm.truncate().length());
-    let flat = to.truncate().length();
-    if cos < 1e-3 || flat < 1e-3 {
-        return None;
-    }
-    let c = (to.length_squared() + b * b - a * a - 2.0 * b * to.z * sin) / (2.0 * b * cos);
-    if c.abs() > flat {
-        return None;
-    }
-    let base = to.y.atan2(to.x);
-    let spread = (c / flat).acos();
-    let heading = |theta: f32| Vec3::new(cos * theta.cos(), cos * theta.sin(), sin);
-    let level_forearm = [heading(base + spread), heading(base - spread)]
-        .into_iter()
-        .max_by(|x, y| x.dot(forearm).total_cmp(&y.dot(forearm)))?;
-    let mut new_elbow = wanted - level_forearm * b;
-    // Drawn in toward the chest, then back onto the circle of elbows `a`
-    // from the shoulder and `b` from the wrist.
-    if let Some(chest) = chest {
-        let inward = (chest - new_elbow)
-            .truncate()
-            .extend(0.0)
-            .normalize_or_zero();
-        let d = to.length();
-        let axis = to / d;
-        let along = (a * a - b * b + d * d) / (2.0 * d);
-        let radius = (a * a - along * along).max(0.0).sqrt();
-        let centre = shoulder + axis * along;
-        let preferred = new_elbow + inward * ELBOW_IN;
-        let off = preferred - centre;
-        if let Some(round) = (off - axis * off.dot(axis)).try_normalize() {
-            new_elbow = centre + round * radius;
-        }
-    }
-    let upper_arm = (new_elbow - shoulder).try_normalize()?;
-    let new_forearm = (wanted - new_elbow).try_normalize()?;
-    if upper_arm.dot(new_forearm) < ELBOW_MOST.cos() {
-        return None;
-    }
-    let first = Quat::from_rotation_arc((elbow - shoulder).normalize_or_zero(), upper_arm);
-    let second = Quat::from_rotation_arc((first * forearm).normalize_or_zero(), new_forearm);
-    Some([
-        (upper, (first * globals[upper].rotation).normalize()),
-        (fore, (second * first * globals[fore].rotation).normalize()),
-    ])
-}
+/// How strongly a nearly straight arm's elbow side leans down in `bend`
+/// (metres: an arm bent by more than this keeps its own side).
+const ELBOW_HANG: f32 = 0.02;
 
 /// The upper arm and forearm turned (globals) so the wrist, now at `wrist`,
 /// comes to `wanted`: two bones, bending in the plane the elbow is in.
@@ -1408,9 +1318,16 @@ fn bend(
     }
     let d = to.length().clamp((a - b).abs() + 1e-4, a + b - 1e-4);
     let u = to.try_normalize()?;
-    // Toward the elbow's side, square to the shoulder-to-wrist line.
-    let elbow_side = (elbow - shoulder) - u * (elbow - shoulder).dot(u);
-    let v = elbow_side
+    // The elbow's side: the arm's own plane, turned as the line from the
+    // shoulder turns from the wrist to `wanted`, so it never depends on
+    // where the elbow happens to sit against the new line (which flips it
+    // as the line passes the elbow). A nearly straight arm has no plane:
+    // its side fades toward the elbow hanging down, never jumping.
+    let turn = Quat::from_rotation_arc((wrist - shoulder).try_normalize()?, u);
+    let turned = turn * (elbow - shoulder);
+    let down = Vec3::NEG_Z * ELBOW_HANG;
+    let square = |v: Vec3| v - u * v.dot(u);
+    let v = (square(turned) + square(down))
         .try_normalize()
         .unwrap_or_else(|| u.any_orthonormal_vector());
     let cos = ((a * a + d * d - b * b) / (2.0 * a * d)).clamp(-1.0, 1.0);

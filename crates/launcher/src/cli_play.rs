@@ -48,7 +48,8 @@ pub(crate) struct PlayArgs {
     /// Q-0014) and the camera's (Q-0016)
     #[arg(long)]
     quirks: bool,
-    /// Write the body's pelvis, head, hands and feet every frame (CSV)
+    /// Write the body's pelvis, head, hands, feet, chest, shoulders and
+    /// elbows every frame (CSV; the nodes the body has)
     #[arg(long)]
     trace: Option<std::path::PathBuf>,
     /// Turn the first module's creatures with this tag hostile before
@@ -303,6 +304,33 @@ pub(crate) fn read_recording(path: &std::path::Path) -> Result<sim::Recording, S
 /// blaster with the same numbers (`soldier@77`, a blaster rifle), a melee
 /// weapon with a vibroblade's (1d10, slashing; `jedi@5`, a vibroblade).
 pub(crate) fn player_sheet(class: &str) -> Result<sim::combat::Sheet, String> {
+    // The duels' saber fighter (`saber_verbs::jedi`): `duelist` one saber
+    // with every single-blade style, `@dual` two, `@staff` a staff; built
+    // with the probes, which hold the duels.
+    #[cfg(not(feature = "probes"))]
+    if class.starts_with("duelist") {
+        return Err(format!(
+            "--class {class}: duelist needs the `probes` feature"
+        ));
+    }
+    #[cfg(feature = "probes")]
+    if let Some(set) = class.strip_prefix("duelist") {
+        use sim::combat::saber::Style;
+        let style = match set {
+            "" => Style::Medium,
+            "@dual" => Style::Dual,
+            "@staff" => Style::Staff,
+            _ => {
+                return Err(format!(
+                    "--class {class}: duelist, duelist@dual or duelist@staff"
+                ));
+            }
+        };
+        return Ok(crate::saber_verbs::jedi(
+            crate::saber_verbs::weapons_for(style),
+            100,
+        ));
+    }
     let usage = || {
         format!(
             "--class {class}: soldier, droid, jedi or master, then :0 to :3 for its Jedi Defense, \
