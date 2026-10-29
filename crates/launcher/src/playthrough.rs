@@ -707,6 +707,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     }
                 }
                 if let Goal::Equip(named) = goal {
+                    let named = &named
+                        .as_deref()
+                        .map(|named| named_item(&world, &last, named).unwrap_or_else(|| named.to_string()));
                     let wear = equip(&world, &last, named.as_deref());
                     // Worn already (a scene armed it): nothing to do.
                     if named
@@ -1026,9 +1029,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         // (armour is refused while a fight goes on: the Sand
                         // People's robes taken off the fallen on the dunes).
                         Goal::Equip(Some(named)) => {
-                            met = wears(&world, &last, named);
+                            let named = named_item(&world, &last, named).unwrap_or_else(|| named.clone());
+                            met = wears(&world, &last, &named);
                             if !met {
-                                acts.extend(equip(&world, &last, Some(named)));
+                                acts.extend(equip(&world, &last, Some(&named)));
                             }
                         }
                         // One item a step, its sale seen before the next.
@@ -1239,6 +1243,19 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // nor a container, opened still (Korriban's
                                 // Lonna Vash, whose body's scene a trigger
                                 // plays before she is searched).
+                                met = true;
+                            } else if matches!(goal, Goal::Unlock(..))
+                                && found.is_some_and(|(index, _)| {
+                                    here.facts(index).is_some_and(|data| {
+                                        data.opens == sim::module::Opens::Locked
+                                            && object_of(&here, index).lock == sim::lock::UNLOCKED
+                                    })
+                                })
+                            {
+                                // Placed locked and unlocked in play already
+                                // (broken open by a blow in the fight round
+                                // it, Korriban's academy footlockers): its
+                                // lock is done with.
                                 met = true;
                             } else if let Some((index, at)) = found {
                                 let d = flat(at, me.position);

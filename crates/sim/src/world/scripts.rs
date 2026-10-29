@@ -319,8 +319,28 @@ fn kill_xp(view: &View, library: &script::Library, state: &script::State, dead: 
         {
             return None;
         }
-        let challenge = view.facts(dead)?.challenge;
-        Some(library.experience().kill(player.level, challenge))
+        let facts = view.facts(dead)?;
+        let experience = library.experience();
+        if crate::combat::passive::Game::named(&view.module.game)
+            != crate::combat::passive::Game::Tsl
+        {
+            return Some(experience.kill(player.level, facts.challenge));
+        }
+        // TSL's: by the level the PC's XP reaches; an autobalanced
+        // creature rated by its `MultiplierSet`'s `CRMod` past the PC's
+        // level, which the executable keeps as it spawned
+        // (`PCLevelAtSpawn`: `G_PC_LEVEL`) and kjk reads as it dies
+        // [verify: a level taken in between].
+        let xp = state.xp(crate::inventory::PARTY);
+        let potential = library.classes().potential_level(player.level, xp);
+        let autobalanced = (facts.multiplier_set != 0).then(|| {
+            let pc_level = script::global(&state.numbers, script::xp::PC_LEVEL)
+                .and_then(|level| u8::try_from(*level).ok())
+                .unwrap_or(player.level);
+            (facts.multiplier_set, pc_level)
+        });
+        let members = state.party.members.len() + 1;
+        Some(experience.tsl_kill(potential, facts.challenge, autobalanced, members))
     };
     worth().unwrap_or(0)
 }
