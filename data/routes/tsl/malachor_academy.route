@@ -27,11 +27,12 @@
 #   (tr_sionenter's switch back from the remote).
 #   The Exile's Persuade passes c_sc_per_lt's DC and his Awareness
 #   c_sc_awa_gt's.
-#   # UNSURE: the Proving Grounds' short way (FROM_903MALa north past the
-#   turret rooms to TO_903MALb, 47 m) is open; DSimpson walks the long loop
-#   by the workbench, which may be the only one.
-#   # UNSURE: whether Sion's last fall ends in his death on the last reply
-#   (E121's a_sion) or another fight; DSimpson: "Beat him four times".
+# BLOCKER: a_903kreia sends the Exile from the hallway (wp_903kreia_sp) to
+# wp_903kreia_1 inside, through d_entrance, which it opens 4 s later
+# (DelayCommand ActionOpenDoor); kjk's scripted move stalls at the shut door
+# and ends there, before the way out (TO_902MAL) the harness will not walk
+# into. Where the scene puts the Exile, in the academy:
+goto 903mal wp_903kreia_1
 fight 30             # the Elite Sith Assassin, then the hall's assassins
 fight 30
 fight 30

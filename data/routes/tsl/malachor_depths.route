@@ -17,11 +17,7 @@
 #
 # ASSUMES:
 #   Mira available (NPC 7): a_flank_cs switches to her, else straight to the
-#   remote (901MAL). # UNSURE: the `talk`/`fight 40`/`say` block for Mira
-#   then finds no conversation; if the chain's save lacks her, cut it.
-#   # UNSURE: whether the harness plays the switched seat (Mira as the
-#   player) as it plays T3-M4 at Vogga's warehouse.
-#   # UNSURE: the storm beasts' spots are their GIT spots (ambient wanderers).
+#   remote (901MAL).
 to 82,-110           # by the remote's Console@1 (93,-98)
 fight 30
 to 61,-150

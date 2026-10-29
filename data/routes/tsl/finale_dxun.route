@@ -59,6 +59,7 @@ say =Bao-Dur.        # "who else will accompany the expedition?"
 say =Atton.          # "And who else?"
 say Yes, I'm certain.
 say I'm ready. They should head out now.
+say [Awareness] I have to lead the group # Kreia: E33, "You... you are correct" (c_sc_awa_gt)
 talk                 # Kelborn: Kavar's message, the civil war, the split
 module 410dxn        # a_to_tomb: the party cleared, From_403DXN
 talk                 # Xarga: "Finally, we're close to our objective" (k_410_enter)

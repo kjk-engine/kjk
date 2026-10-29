@@ -24,6 +24,8 @@
 fight 20
 to Console@1         # the north buried ship (GameBanshee #2), the beasts by it (#3)
 fight 40
+to 151,-56           # down the east loop, wide of the rock pillar at
+to 154,-62           # 148,-63 (a walk hugging its foot wedges; SKIPPED.md)
 to tr_mira_han       # over the bridge: Mira wakes, Kreia, Hanharr (901mira)
 talk
 fight 40
