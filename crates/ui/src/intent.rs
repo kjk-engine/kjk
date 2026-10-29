@@ -226,6 +226,8 @@ pub enum Intent {
     Open(&'static str),
     /// Close the top screen.
     Close,
+    /// Make a bug report with the player's note (`report`).
+    Report(String),
     /// Open the named screen for something (`key_entry` for `forward`).
     OpenFor(&'static str, String),
     /// Close the top screen for the named one (the menu bar's tabs).

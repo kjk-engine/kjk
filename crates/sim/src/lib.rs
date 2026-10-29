@@ -22,6 +22,7 @@ pub mod action;
 pub mod combat;
 pub mod creation;
 pub mod determinism;
+pub mod fixtures;
 pub mod fog;
 mod input;
 mod install;
@@ -31,6 +32,7 @@ pub mod levels;
 pub mod math;
 #[cfg(feature = "probes")]
 pub mod measure;
+mod migrate;
 pub mod minigame;
 pub mod module;
 pub mod moves;
@@ -41,6 +43,7 @@ pub mod pazaak;
 mod pending {
     include!(concat!(env!("OUT_DIR"), "/pending.rs"));
 }
+pub mod flight;
 pub mod motion;
 pub mod persona;
 #[cfg(feature = "probes")]
@@ -52,6 +55,7 @@ mod save;
 #[cfg(feature = "probes")]
 pub mod scaling;
 pub mod script;
+pub mod since;
 pub mod skeleton;
 mod snapshot;
 pub mod spawner;
@@ -71,14 +75,15 @@ pub use instance::Instances;
 pub use rate::{Accumulator, MAX_CATCH_UP, TICK_HZ, TickRate};
 pub use replay::{Divergence, RecordedTick, Recorder, Recording};
 pub use rng::SimRng;
-pub use save::{Save, ScriptVmState};
+pub use save::{FORMAT as SAVE_FORMAT, Save, ScriptVmState};
+pub use snapshot::FORMAT as SNAPSHOT_FORMAT;
 pub use snapshot::{
     AreaSound, Busy, Census, Departing, Departure, EntityState, Fade, Feedback, Going, Kill, Kind,
     ObjectState, Parts, Place, Presented, PresentedEntity, Progress, ReadyCheck, RequestWait,
     RoomAnim, Screens, SimId, Snapshot, SnapshotHash, Spawned, Stash, Stashed, Status, StatusKind,
     Track, Transit, Transition, cannot_equip, lock, look, pin, room_key, sound, trap,
 };
-pub use wire::DecodeError;
+pub use wire::{DecodeError, Since, Stored};
 #[cfg(feature = "probes")]
 pub use world::aim_probes;
 pub use world::arena;
