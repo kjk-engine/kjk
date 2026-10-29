@@ -78,7 +78,16 @@ The **kind** tags are:
 - [ ] `choice` **The HK-50s** talked down, not fought.
 - [ ] `choice` **Hanharr instead of Mira** (the dark-side companion).
 - [ ] `feature` **Breath Control** is never actually cast; `--god` covers the poison gas in the Jekk'Jekk Tarr.
-- [ ] `feature` **Visas's ambush on the Ebon Hawk:** `003EBO_VISAS_ARRIVES` is set now, but the ambush hadn't played by the start of Goto's yacht.
+- [x] `feature` **Visas's ambush on the Ebon Hawk:** it plays at the start of nar_shaddaa_landing now (GetNPCSelectability's -1 for a companion not in the party table).
+- [ ] `blocker` **nar_shaddaa_zez:** Zez-Kai Ell teaches no form, because the chain's Exile is the dev soldier sheet (class 0) and masters teach only the Jedi classes 3-5. That form scene is also the only one that unlocks the safe house's door, so the route moves the party out with `goto 301nar wp_from_ebonhawk`. The real fix is a created Jedi Exile for the whole TSL chain (an owner call).
+- [ ] `feature` **`G_PC_LEVEL` is never set** (kjk sets it only at character creation), so `a_give_quest_ls` builds "g_w_lghtsbr0-1" and Visas's lightsaber part is not given. It goes with the soldier sheet.
+- [ ] `feature` **Visas's joining conversation is cut short** after the Handmaiden's line, because the game's own `a_next_scene` destroys the owner (VisasCut), so the lightsaber-part notice and the second `a_next_scene` never play. Check in the exe whether a conversation talks on after its owner is destroyed.
+- [ ] `side` **Goto's yacht:** the plasteel containers and the sentry droids' scavenging.
+- [ ] `side` **Goto's yacht:** T3-M4's combat upgrade, the Reset program and the lab station.
+- [ ] `choice` **The yacht hub scene's G0-T0 line** (Mira's plays instead).
+- [ ] `side` **The companion talks aboard after Nar Shaddaa,** and HK-47's rebuilding.
+- [ ] `side` **Fassa's passage** for Kahranna's family and Odis.
+- [ ] `feature` **T3-M4's Security checks** pass DC 28 doors with a total of 15. Check the roll against the exe.
 
 ## Later milestones
 
@@ -87,6 +96,7 @@ milestone's PR moves them here.
 
 ## Whole-game items
 
+- [ ] `feature` **The chain plays the dev soldier sheet,** not a created Exile. A Jedi Exile from character creation, with `G_PC_LEVEL` set, would let the masters teach their forms and give the quest lightsaber parts.
 - [ ] `choice` **The dark side playthrough,** start to end.
 - [ ] `choice` **A female Exile:** the Disciple joins, not the Handmaiden.
 - [ ] `choice` **Influence-gated content:** each companion's high and low influence talks, and the Jedi trainings (Atton, Bao-Dur, Mira, Handmaiden/Disciple, Visas).
