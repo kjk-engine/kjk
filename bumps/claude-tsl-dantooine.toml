@@ -1,0 +1,7 @@
+# The sim's hash moves on purpose: the party selection screen's exit
+# script runs with the run script var of a party accepted; a creature is
+# talked to within reach whatever stands between (no line of sight).
+sim = "Dantooine: the party selection screen's exit script told the party was accepted, a conversation begun across a counter"
+
+[formats]
+save = "a script waiting to run carries its run script var (`Pending::script_var`)."

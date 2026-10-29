@@ -125,6 +125,10 @@ void SetForfeitConditions(int nForfeitFlags);
 int GetLastForfeitViolation();
 // 25
 void ActionFollowOwner(float fRange = 2.5);
+// 26
+void ShowPartySelectionGUI(string sExitScript = "", int nForceNPC1 = -1, int nForceNPC2 = -1, int nAllowCancel = FALSE);
+// 27
+int GetRunScriptVar();
 "#;
 
 /// The global the player's alignment is kept in.
@@ -208,6 +212,19 @@ fn library() -> crate::script::Library {
         .op(int(BAO_DUR))
         .op(call(3, 2))
         .op(Op::Retn);
+    // The party selection screen, cancel allowed (the Ebon Hawk's ramp);
+    // its exit script's run script var (token 50).
+    let mut screen = Asm::default();
+    screen
+        .op(int(1))
+        .op(int(-1))
+        .op(int(-1))
+        .op(text("probe_party_exit"))
+        .op(call(26, 4))
+        .op(Op::Retn);
+    let mut exit = Asm::default();
+    token(&mut exit, 50, &[call(27, 0)]);
+    exit.op(Op::Retn);
     crate::probe::library(
         CATALOG,
         [
@@ -221,6 +238,8 @@ fn library() -> crate::script::Library {
             ("probe_bao_dur", bao_dur.build()),
             ("probe_spawned_twice", spawned_twice()),
             ("probe_second_atton", second_atton()),
+            ("probe_party_screen", screen.build()),
+            ("probe_party_exit", exit.build()),
         ],
     )
     .with_creatures(
@@ -460,7 +479,32 @@ pub fn probes() -> Checks {
     checks.push(("alignment_follows_influence", follows()));
     checks.push(("restrict_mode_ends_with_module", restrict_ends()));
     checks.push(("minigame_takes_no_companions", minigame_alone()));
+    checks.push(("party_screen_accepted", party_screen_accepted()));
     checks
+}
+
+/// The party selection screen shown, then closed by the player taking the
+/// party as it is: its exit script reads `party::ACCEPTED` as its run
+/// script var (TSL's Ebon Hawk ramp leaves the ship on it, stays on 0).
+fn party_screen_accepted() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    step(&mut world);
+    run(&mut world, "probe_party_screen");
+    step(&mut world);
+    let mut input = TickInput::default();
+    input.insert(Seat(0), crate::input::Command::default());
+    input.act(Seat(0), crate::action::Action::ChooseParty(None));
+    let tick = world.tick() + 1;
+    crate::step(&mut world, tick, &input, MSEC, StepReason::Authority);
+    let mut last = step(&mut world);
+    for _ in 0..3 {
+        last = step(&mut world);
+    }
+    let var = tokens(&last, 50..=50).concat();
+    check(
+        var == crate::script::party::ACCEPTED.to_string(),
+        format!("the exit script's run script var: {var}"),
+    )
 }
 
 /// Atton joined, then a minigame's area installed (Peragus's hangar

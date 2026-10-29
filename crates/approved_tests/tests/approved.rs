@@ -890,11 +890,13 @@ fn ui_loot() {
 /// joining on Telos), and the player restrict mode ending with its module
 /// (`restrict_mode_ends_with_module`: the asteroid walk's had held the
 /// AI idle on Telos), and a minigame's area taking no companions
-/// (`minigame_takes_no_companions`: Peragus's hangar turret). The sim
+/// (`minigame_takes_no_companions`: Peragus's hangar turret), and the
+/// party selection screen's exit script told the party was accepted
+/// (`party_screen_accepted`: the Ebon Hawk's ramp on Dantooine). The sim
 /// alone, on the proving ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 15);
+    probed("tsl", &sim::tsl_probes::probes(), 16);
 }
 
 /// The dead's remains (KOTOR's body bags; `sim::remains::probes`), owner
@@ -933,7 +935,9 @@ fn destroy_fades() {
 /// opens and closes the door within reach and not from afar, drops a
 /// stale verb, opens a container, fails a locked one (its script and the
 /// "locked" line), uses a placeable, talks to a creature at conversation
-/// range, refuses what a wall hides and a door closed on someone; a K1
+/// range, and one behind a wall within it (KOTOR's conversation needs
+/// no sight: Dantooine's Administrator across her desk), refuses what a
+/// wall hides and a door closed on someone; a K1
 /// container's use runs its `OnUsed`, locked (no "locked" line) or opening;
 /// scripts see who did it; two runs end the same. The sim alone.
 #[test]

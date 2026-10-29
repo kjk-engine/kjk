@@ -2300,7 +2300,11 @@ impl Step<'_> {
                 puppet_joins(self.library, self.view, self.state, self.out, *npc, who);
             }
         }
-        (!selection.exit.is_empty()).then(|| Pending::new(&selection.exit, player))
+        // Accepted, as every choice made here is: its script asks so.
+        (!selection.exit.is_empty()).then(|| Pending {
+            script_var: party::ACCEPTED,
+            ..Pending::new(&selection.exit, player)
+        })
     }
 
     /// The name of a member leaving the party for `wanted` whom a seat
@@ -3117,6 +3121,7 @@ impl Step<'_> {
                 ai: ai.then_some(pending.caller),
                 leads: pending.leads,
                 asker: pending.asker,
+                script_var: pending.script_var,
                 ..Event::default()
             };
             self.run(&pending.script, pending.caller, event, None);
