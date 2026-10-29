@@ -1,0 +1,78 @@
+# The Ravager, the command deck (TSL, 222TEL, 851NIH): Mandalore's last
+# word at the shuttle on Citadel Station (222mand start 1: "Let's go."),
+# the boarding (the shuttle's MalMov04, Mandalore and Zuka's
+# breach scene, 851mand, and Visas with Mandalore, 851visas); four proton
+# core sites mined with Zuka on the comlink (851dem, a site at each
+# tr_851dem trigger), in DSimpson's order: bomb site 1 (south-west), bomb
+# site 2 (the lower hallway's dead end), Colonel Tobin in his room (no
+# Persuade: fought), the "fourth" site north of Tobin as the third core,
+# whose reply fires the premature detonation (851exp: one core lost, a new
+# one owed from the missile bay); Visas's cell (851visdr: she meditates
+# once more, 851medit), and on to the bridge's door.
+# Starts from the finale's checkpoint (drafted by another agent):
+#   kjk playthrough tsl @finale_done data/routes/tsl/ravager_command_deck.route --god
+# Walkthrough: DSimpson's "The Ravager" (context/walkthroughs/tsl/,
+# gamefaqs/dsimpson_faq_walkthrough_v1.6.txt [TRVGR]); GameBanshee 57.
+# Left: the lockers (Locker_Nihlus) and the DC 55 security doors' rooms
+# (door_nih003, locked), the workbench; the missile bay is the next routes'
+# (after Nihilus, as DSimpson does it).
+#
+# ASSUMES:
+#   @finale_done stands in 222TEL with the fuel saboteurs dead, away from
+#   tr_mandalore (finale_citadel.route): 222mand's start 0 already answered
+#   there ("I'm not ready yet", Visas told to stay close, a_set_party), so
+#   tr_mandalore now opens start 1. # UNSURE: if the finale's run ends
+#   elsewhere (inside 851NIH), the `if in 222tel` block is skipped, its say
+#   inside it never queued.
+#   The party aboard is Mandalore (NPC 2) and Visas (NPC 9), as a_set_party
+#   and the finale's `party 9` left it.
+#   Revan was a man and light (101PER_Revan_End 0: the escape goes by
+#   Carth on 205TEL, the escape route).
+#   No Persuade for Tobin (851tobin R48/R49 need c_sc_per_gt): he is fought;
+#   Kerbow: no alignment change, Mandalore +INF.
+# Says are queued and taken by the next offer that has them, so each sits
+# before the goal that starts its conversation.
+if in 222tel
+say Let's go.        # 222mand start 1 ("Are your preparations complete?"):
+to tr_mandalore      # a_playmovie, a_to851: MalMov04 (by TO_851NIH)
+talk                 # # UNSURE: if the trigger fires once only, `use Mand`
+end
+module 851nih
+talk                 # the breach (RavagerIntro's 851mand, from OnEnter)
+talk                 # Visas and Mandalore (851visas). # UNSURE: who starts it
+fight 30             # the boarding hall's Sith
+# Bomb site 1, down the western corridor (mn_bomb1).
+say Set one of the proton cores # 851dem start 1: E1, then E4
+say Hold your position, and we'll set the rest of the charges.
+to tr_851dem@1
+talk
+fight 30
+# Bomb site 2, the lower hallway's dead end east of the central passage.
+say Set one of the proton cores # E6: two sites left
+say We'll see about placing the remaining two charges.
+to tr_851dem@2
+talk
+fight 30
+# Colonel Tobin in his room (DSimpson: "up through this area").
+say You made your choice, Tobin.
+say I've heard enough. Prepare to die. # a_hostile
+use tobin            # 851tobin. # UNSURE: he may start it as the party nears
+fight 30
+# The "fourth" bomb site north of Tobin's room (mn_bomb4): the third core.
+say Set one of the proton cores # E7: one core left
+say Hold on, we're almost done. # a_fire851expdlg: the premature detonation
+to tr_851dem@4
+talk
+talk                 # 851exp: Mandalore and Zuka, one more core owed
+fight 30
+# Visas's cell door (tr_visas_med) in the lower hallway by the bridge.
+say Is there anything you need from your cell? # 851visdr
+say Do whatever you feel you need to do. # a_visas_cs1: she walks in
+to tr_visas_med
+talk
+talk                 # her meditation (851medit, tr_visas_med2 as she enters
+                     # her chamber). # UNSURE: whether the player must follow
+fight 30             # the last room before the bridge
+exit TO_852NIH       # the bridge
+module 852nih
+save ravager_bridge
