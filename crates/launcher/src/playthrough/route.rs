@@ -21,6 +21,9 @@ pub(super) enum Goal {
     Bash(Target),
     /// A mine set on a door until it stands open (TSL).
     Mine(Target),
+    /// The mine the party sees nearest a place disarmed (Demolitions) from
+    /// where the player stands, tried again until it is gone.
+    Disarm([f32; 2]),
     /// An item's template the party carries, put into the container.
     Put(String, Target),
     /// A script global set: a number, or a boolean.
@@ -255,6 +258,10 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                 "unlock" => Goal::Unlock(target(a, None)?, b.map(str::to_string)),
                 "bash" => Goal::Bash(target(a, b)?),
                 "mine" => Goal::Mine(target(a, b)?),
+                "disarm" => match target(a, b)? {
+                    Target::Place(at) => Goal::Disarm(at),
+                    Target::Tag(..) => return Err("disarm: a place (X,Y), the mine nearest it".into()),
+                },
                 "put" => Goal::Put(
                     a.ok_or(format!("{part}: put TEMPLATE TAG"))?
                         .to_ascii_lowercase(),

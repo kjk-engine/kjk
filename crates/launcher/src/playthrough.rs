@@ -33,6 +33,8 @@
 //!                       # foes fought first, as `fight 25`)
 //! fight 15              # attack the nearest hostile within 15 m until none, and
 //!                       # none the party can get at keeps it in combat (`Chase`)
+//! disarm 52.4,-29.9     # disarm the mine the party sees nearest there (Demolitions),
+//!                       # from where the player stands, until it is gone
 //! equip                 # wear what the party carries, each in a free slot it fits
 //! equip ptar_sitharmor  # wear that item (a template), what its slot held off
 //! unlock end_door02     # walk up and pick its lock (Security, the player's ranks);
@@ -1021,6 +1023,18 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 == Some(*npc).filter(|npc| *npc != u8::MAX);
                         }
                         Goal::Solo(on) => met = world.script_state().party.solo == *on,
+                        // As a player disarms a mine it sees from beside it:
+                        // again after each try (`sim::traps::DISARM_MS`), a
+                        // failure or a blast, until none is left there.
+                        Goal::Disarm(at) => match mine_near(&here, *at) {
+                            None => met = true,
+                            Some(index) => {
+                                if now >= pressed_at + sim::traps::DISARM_MS + 4 * PRESS_MS {
+                                    input.act(Seat(0), Action::Disarm(index));
+                                    pressed_at = now.max(1);
+                                }
+                            }
+                        },
                         Goal::Credits => met = game_won,
                         // One item named: put on again each step until worn
                         // (armour is refused while a fight goes on: the Sand
