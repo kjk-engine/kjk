@@ -304,6 +304,25 @@ pub(crate) fn read_recording(path: &std::path::Path) -> Result<sim::Recording, S
 /// blaster with the same numbers (`soldier@77`, a blaster rifle), a melee
 /// weapon with a vibroblade's (1d10, slashing; `jedi@5`, a vibroblade).
 pub(crate) fn player_sheet(class: &str) -> Result<sim::combat::Sheet, String> {
+    // The duels' saber fighter (`saber_verbs::jedi`): `duelist` one saber
+    // with every single-blade style, `@dual` two, `@staff` a staff.
+    if let Some(set) = class.strip_prefix("duelist") {
+        use sim::combat::saber::Style;
+        let style = match set {
+            "" => Style::Medium,
+            "@dual" => Style::Dual,
+            "@staff" => Style::Staff,
+            _ => {
+                return Err(format!(
+                    "--class {class}: duelist, duelist@dual or duelist@staff"
+                ));
+            }
+        };
+        return Ok(crate::saber_verbs::jedi(
+            crate::saber_verbs::weapons_for(style),
+            100,
+        ));
+    }
     let usage = || {
         format!(
             "--class {class}: soldier, droid, jedi or master, then :0 to :3 for its Jedi Defense, \

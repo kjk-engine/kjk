@@ -37,10 +37,12 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   toward it (`game::cast`'s share). One solver (`rig::bend`): the arm's own
   plane turned with the line from the shoulder, a nearly straight arm's
   elbow fading toward hanging down, so the elbow never picks between
-  answers. The share is 0 in a saber move's start, return and transition
-  (nothing is cut; JA's arm is the truth) and eases in and out over
-  `REACH_EASE_S` (0.08 s): KOTOR's longer arm, pulled toward a blade JA's
-  shorter arm placed, flipped its elbow there.
+  answers. The share is 1 only while the saber move cuts (an attack, a
+  special, a parry), eased in and out over `REACH_EASE_S` (0.08 s); in a
+  held stance `STANCE_REACH`, eased in over `STANCE_EASE_S` (0.3 s); 0
+  otherwise (a start, a return, a transition, a flip, a run: nothing is
+  cut; JA's arm is the truth): KOTOR's longer arm, pulled toward a blade
+  JA's shorter arm placed, flipped its elbow there.
 - `blade_lengths` (ignition, 60 fps), `saber_trail_ms` (trail life per move,
   from JA's saber move table: style moves, defensive moves, special trails).
 

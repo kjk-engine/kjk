@@ -1011,10 +1011,11 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   plays each living fighter's parts as the sim set them (`cast::Figure`,
   `g2::Player::adopt`) and turns its gripping hand onto the sim's blade (a
   reach of the upper arm and forearm, at most 30 cm at the wrist,
-  `asset_ja::rig::Reach`). In a saber move's start, return or transition,
-  which cut nothing, the arm keeps JA's pose and only the blade's direction
-  follows the sim's: the reach there pulled the longer KOTOR arm up to 30
-  cm off JA's every frame and the elbow flipped (owner, 2026-10-29). With
+  `asset_ja::rig::Reach`) while its saber move cuts. Elsewhere (a start, a
+  return, a transition, a flip, a run), which cut nothing, the arm keeps
+  JA's pose and only the blade's direction follows the sim's: the reach
+  there pulled the longer KOTOR arm up to 30 cm off JA's every frame and
+  the elbow flipped (owner, 2026-10-29). With
   `--quirks` the view keeps the cgame's way.
 - Ours:       `launcher::cast`, `launcher::sim_blades`, `asset_ja::rig`
 - Evidence:   `kjk play --sim-blades`: the drawn blade within 1 unit of the
