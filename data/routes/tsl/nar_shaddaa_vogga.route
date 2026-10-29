@@ -12,6 +12,14 @@
 exit TO_301NAR       # back to the landing pad and aboard
 module 301nar
 to to_ebonhawk
+wait 3s
+if in 004ebo         # the Red Eclipse aboard, when the Exchange's notice
+say Give up the slave trade - or else. # has brought them (the Exile's
+say Then prepare to die. # levels make it so by now): fought, the Hawk
+to REAttack          # retaken, as nar_shaddaa_exchange does
+talk
+fight 40
+end
 module 003ebo
 party 4,6            # the Handmaiden and Kreia
 to tr_leave
