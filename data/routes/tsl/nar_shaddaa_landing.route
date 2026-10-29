@@ -1,0 +1,128 @@
+# Nar Shaddaa, the landing pad, the docks and the Refugee Sector (TSL,
+# 003EBO, 352NAR, 301NAR, 303NAR, 302NAR): the galaxy map to Nar Shaddaa,
+# Atton's landing talk, Goto's yacht's scene (352NAR), ashore; Quello told
+# his trash heap holds the Hawk up (no lie, no DSP); the first refugee
+# saved from the Exchange thugs and told the Exile was glad to help (LSP),
+# five credits for the second and Kreia's lesson considered (+INF), Rutum
+# taken under the Exile's protection (the thugs fought), Kreia's touch of
+# the true Nar Shaddaa, Geeda kept against Oondar (Oondar told to give the
+# Exchange the Exile's description, the Exchange's notice +1; Geeda's trade
+# routes: Dantooine's settled); the docks: Fassa's pylons (pylon 2
+# powered, the freighters ordered Silver Zephyr, Alakandor, Toorna's
+# Profits: the Exchange's notice +1) and Lootra's lost wife taken on; the
+# Refugee Sector: the toll's thugs intimidated and fought (+1), Aaida sent
+# to Lootra (LSP), the Serroco fought to their leader (+1). Ratrin's claim
+# on the Ebon Hawk, met on the way, is granted (LSP).
+# Starts from Dantooine's last checkpoint:
+#   kjk playthrough tsl @dantooine_done data/routes/tsl/nar_shaddaa_landing.route --god
+# Walkthrough: DSimpson's "Nar Shaddaa Main Area", "Docks Area" and
+# "Refugee Sector" (context/walkthroughs/tsl/).
+# Left: the swoop droid, the Exchange deal, the droid IT-31, the pazaak
+# den, Vogga's dance (Vogga's door is opened by it; his fuel and his help
+# against Goto go with it), Geriel, Nadaa, Saquesh, the airspeeder.
+use Galaxymap
+travel 6             # Nar Shaddaa (planetary.2da)
+say Then let's take the Ebon Hawk in for a landing
+talk                 # Atton aboard
+module 352nar        # Goto's yacht: the bounty's scene
+talk
+module 301nar
+talk                 # Atton's arrival talk
+say Junk? You're lucky my ship's gracing # Quello
+talk
+say Of course. Here, take five credits # the second refugee, met on the way
+say I... will consider what you have said # and Kreia's lesson (+INF)
+to 301RefEnc         # the first refugee
+say A bunch of corpses
+talk
+fight
+say I was glad to help # (LSP)
+use Refugee2
+talk
+to 301Mug            # Rutum
+say Leave this man alone
+say I will not allow you to harm him
+talk
+fight
+say Let them come
+use Rutum
+talk
+to 301KreiaTouch     # the true Nar Shaddaa
+talk
+say I don't see any customers waiting # Oondar's war on Geeda
+say Calm down, I just said
+say maybe I could talk to her, reach a compromise
+say A discount off your weapons and armor? All right, done
+use Oondar
+talk
+say Oondar across the way has a problem with you
+say That is acceptable
+use Geeda
+talk
+say Geeda offered me a discount, too
+say Then you'll have to do better
+say I'm not scared of the Exchange
+say Go tell the Exchange - and give them my description # the Exchange +1
+use Oondar
+talk
+say Oondar countered your offer with a threat from the Exchange
+say I'll stand with you
+use Geeda            # and the trade routes
+talk
+exit TO_303NAR       # the docks (Hanharr before Vogga, a scene)
+module 303nar
+wait 2s
+say How is business these days? # Fassa's pylons
+say Is there anything I can do to help prevent the hijackings?
+say What's wrong with the pylons?
+say I'll try to help.
+say I'll do my best.
+use Fassa
+talk
+say Toggle power to Pylon 2.
+say Log out.
+use ComputerPanel@1  # the pylon power console
+talk
+say Assign freighter priorities.
+say Assign 1st priority to Silver Zephyr.
+say Assign 2nd priority to Alakandor.
+say Assign 3rd priority to Toorna's Profits. # the Exchange +1
+say Log out.
+use ComputerPanel@2  # pylon 2's console
+talk
+use Fassa            # his reward
+talk
+say Sorry, I didn't know anyone was in here. # Lootra, in the flophouse
+say What do you mean?
+say I may be able to get into the Refugee Sector for you.
+say Nothing - I'd just like to help, if I can.
+say Let me go see what I can find out in the Refugee Sector.
+use Lootra
+talk
+exit TO_301NAR
+module 301nar        # (Ratrin's claim on the way: granted, LSP)
+exit TO_302NAR
+module 302nar
+say [Intimidate] If you're threatening me # the toll's thugs
+say No - you wanted a fight # the Exchange +1
+to exchthugs01
+talk
+fight 30
+gone ExchangeThug302_1 # both dead: Aaida's way out clear
+gone ExchangeThug302_2
+say I met a man named Lootra at the docks.
+say =The path is clear, the Exchange thugs have been dealt with. # (LSP)
+say I've been away from the Republic for a long time
+say You'd better go - he's waiting for you.
+use Aaida
+talk
+say I wanted to speak to your leader. # the Serroco's door guard
+say Why don't you go ahead and try?
+to serthugs01
+talk
+fight 30
+say I don't want any trouble - I'll be going now. # the Exchange +1
+to SerrocoLeader
+talk
+fight 30
+save nar_shaddaa_refugees

@@ -1214,6 +1214,10 @@ impl Engine<'_> {
                     | Effect::Shield { .. }
             );
             match leaf {
+                Effect::DeathKept => {
+                    self.state.kept.insert(target.0);
+                    carried.push(Effect::Death);
+                }
                 Effect::Visual { row: None, .. } => {}
                 Effect::Visual { .. } => carried.push(leaf.clone()),
                 _ if at_once || (lasting && until.is_some()) => carried.push(leaf.clone()),
@@ -2413,7 +2417,11 @@ impl Engine<'_> {
                 kind: effects::amount(int(args, 1)),
             }),
             EffectHeal => self.effect_value(Effect::Heal(effects::amount(int(args, 0)))),
-            EffectDeath => self.effect_value(Effect::Death),
+            // Its third argument, `nNoFadeAway`, keeps the body.
+            EffectDeath => self.effect_value(match int(args, 2) {
+                0 => Effect::Death,
+                _ => Effect::DeathKept,
+            }),
             EffectHealForcePoints => {
                 self.effect_value(Effect::HealForcePoints(effects::amount(int(args, 0))))
             }
@@ -3772,33 +3780,40 @@ impl Engine<'_> {
             | CreatureFlourishWeapon
             | ForceHeartbeat => self.force_call(bound, args),
             // The party table keeps one creature for each companion: one
-            // spawned again takes the place of the one it had, which goes
-            // [verify the executable's own handling]. TSL's Bao-Dur joins
-            // by being spawned, added, removed and spawned again
-            // (`a_baodur_join`); the first had stayed standing at the
-            // wreck, the one `GetObjectByTag("BaoDur")` then found, and his
-            // force-field punches asked it, not the one following, whether
-            // he stood near.
+            // spawned again while its creature is here is that creature,
+            // moved to the place, as the executable's `AddMember` moves a
+            // puppet that is here [verify the executable's own handling].
+            // TSL's Bao-Dur joins by being spawned, added, removed and
+            // spawned again (`a_baodur_join`): a second one had stayed at
+            // the wreck, the one `GetObjectByTag("BaoDur")` then found. And
+            // Nar Shaddaa's Atton, spawned to warn the player, is spawned
+            // again by the first line of the warning he speaks
+            // (`a_atton_cut_1`): another in his place had ended it.
             SpawnAvailableNPC => {
-                let had = u8::try_from(int(args, 0))
-                    .ok()
+                let npc = u8::try_from(int(args, 0)).ok();
+                let had = npc
                     .and_then(|npc| self.state.party.available.get(&npc))
                     .and_then(|slot| slot.object)
-                    .map(ObjectId);
-                if let Some(old) = had {
-                    self.out.changes.push(Change::Destroy {
-                        who: old,
-                        ms: 0,
-                        going: None,
-                    });
-                }
-                let made = u8::try_from(int(args, 0))
-                    .ok()
-                    .zip(self.place(args, 1))
-                    .and_then(|(npc, (at, yaw))| {
+                    .map(ObjectId)
+                    .filter(|old| self.exists(*old) && !self.destroyed(*old));
+                let spawned = match (had, self.place(args, 1)) {
+                    (Some(old), Some((at, yaw))) => {
+                        match self.out.made.iter_mut().find(|made| made.id == old) {
+                            Some(made) => (made.at, made.yaw) = (at, yaw),
+                            None => self.out.changes.push(Change::Jump {
+                                who: old,
+                                to: at,
+                                yaw,
+                            }),
+                        }
+                        Some(old)
+                    }
+                    (None, Some((at, yaw))) => npc.and_then(|npc| {
                         super::make_npc(self.library, self.view, self.state, self.out, npc, at, yaw)
-                    });
-                Value::Object(made.unwrap_or(ObjectId::INVALID))
+                    }),
+                    (_, None) => None,
+                };
+                Value::Object(spawned.unwrap_or(ObjectId::INVALID))
             }
             // The party table keeps the companion as it stands now.
             SaveNPCState => {
@@ -4997,6 +5012,15 @@ impl Engine<'_> {
     /// Whether `id` is an object of the world, those made this step counted.
     fn exists(&self, id: ObjectId) -> bool {
         self.view.thing(id).is_some() || self.out.made.iter().any(|made| made.id == id)
+    }
+
+    /// Whether a script destroyed `id` this step (`DestroyObject` with no
+    /// delay): it goes as the step's changes apply.
+    fn destroyed(&self, id: ObjectId) -> bool {
+        self.out
+            .changes
+            .iter()
+            .any(|change| matches!(change, Change::Destroy { who, ms: 0, .. } if *who == id))
     }
 
     /// Whether `id` is a creature (one made this step too).

@@ -274,6 +274,12 @@ fn library() -> crate::script::Library {
             ("probe_bao_dur", bao_dur.build()),
             ("probe_spawned_twice", spawned_twice()),
             ("probe_second_atton", second_atton()),
+            ("probe_spawned_again", spawned_again()),
+            ("probe_light_point", light_point()),
+            (
+                crate::script::presentation::SUMMARY_CLOSED,
+                summary_closed(),
+            ),
             ("probe_party_screen", screen.build()),
             ("probe_party_exit", exit.build()),
             ("probe_atton_beside", atton_beside.build()),
@@ -339,6 +345,46 @@ fn spawned_twice() -> Ncs {
     asm.op(call(13, 0)).op(call(12, 1));
     asm.op(int(ATTON)).op(call(14, 2));
     asm.op(int(ATTON)).op(call(15, 2)).op(Op::MovSp(-4));
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_spawned_again`: token 42 whether Atton spawned again at the
+/// player is the Atton already here (`GetObjectByTag`).
+fn spawned_again() -> Ncs {
+    let mut asm = Asm::default();
+    token(
+        &mut asm,
+        42,
+        &[
+            int(0),
+            text("atton"),
+            call(21, 2),
+            call(13, 0),
+            call(12, 1),
+            int(ATTON),
+            call(14, 2),
+            Op::Equal(fmt_odyssey::ncs::Pair::ObjectObject),
+        ],
+    );
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_light_point`: the player given a light side point, which the
+/// status summary tells.
+fn light_point() -> Ncs {
+    let mut asm = Asm::default();
+    asm.op(int(0)).op(int(1)).op(int(2)).op(call(13, 0));
+    asm.op(call(20, 4)).op(Op::Retn);
+    asm.build()
+}
+
+/// The probes' `k_align_movie`, run as the status summary closes: token 70
+/// set to 1.
+fn summary_closed() -> Ncs {
+    let mut asm = Asm::default();
+    token(&mut asm, 70, &[int(1)]);
     asm.op(Op::Retn);
     asm.build()
 }
@@ -512,6 +558,11 @@ pub fn probes() -> Checks {
     checks.push(("follow_owner_runs", follow_owner(false)));
     checks.push(("bao_dur_met", bao_dur_met()));
     checks.push(("spawned_twice_is_one", spawned_twice_is_one()));
+    checks.push(("spawned_again_is_the_same", spawned_again_is_the_same()));
+    checks.push((
+        "summary_closed_runs_align_movie",
+        summary_closed_runs_align_movie(),
+    ));
     checks.push(("cannot_equip_lines", cannot_equip_lines()));
     checks.push(("influence_starts", influence_starts()));
     checks.push(("alignment_follows_influence", follows()));
@@ -931,6 +982,41 @@ fn spawned_twice_is_one() -> Result<String, String> {
     check(
         told == ["0", "1"],
         format!("(a second, a first) atton: {told:?}"),
+    )
+}
+
+/// A companion spawned again in a later step while its creature is here
+/// (`SpawnAvailableNPC`) is that creature, moved: Nar Shaddaa's Atton,
+/// spawned to warn the player and spawned again by his warning's first
+/// line (`a_atton_cut_1`), speaks it to its end.
+fn spawned_again_is_the_same() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    run(&mut world, "probe_atton_beside");
+    step(&mut world);
+    run(&mut world, "probe_spawned_again");
+    step(&mut world);
+    run(&mut world, "probe_second_atton");
+    let told = tokens(&step(&mut world), 40..=42);
+    check(
+        told == ["0", "1", "1"],
+        format!("(a second, a first, the same) atton: {told:?}"),
+    )
+}
+
+/// TSL's executable runs `k_align_movie` as the player closes the status
+/// summary (`CSWGuiStatusSummary::HandleInputEvent`), which shows once
+/// statuses are told and no conversation holds the world: not before a
+/// status is told, then once. The Visas Marr movies, and so Visas's
+/// arrival on the Ebon Hawk, hang on it.
+fn summary_closed_runs_align_movie() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    let before = tokens(&step(&mut world), 70..=70);
+    run(&mut world, "probe_light_point");
+    step(&mut world);
+    let after = tokens(&step(&mut world), 70..=70);
+    check(
+        before == ["(unset)"] && after == ["1"],
+        format!("k_align_movie's token before {before:?}, after a light side point {after:?}"),
     )
 }
 

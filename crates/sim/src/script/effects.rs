@@ -132,6 +132,9 @@ pub enum Effect {
     },
     Heal(u16),
     Death,
+    /// `EffectDeath` with `nNoFadeAway`: dead, the body staying where it
+    /// fell, as one `SetIsDestroyable(FALSE)` keeps (`State::kept`).
+    DeathKept,
     /// Whole FP given or taken.
     HealForcePoints(u16),
     DamageForcePoints(u16),
@@ -202,7 +205,7 @@ impl Effect {
         match self {
             Effect::Damage { .. } => "EffectDamage".into(),
             Effect::Heal(_) => "EffectHeal".into(),
-            Effect::Death => "EffectDeath".into(),
+            Effect::Death | Effect::DeathKept => "EffectDeath".into(),
             Effect::HealForcePoints(_) => "EffectHealForcePoints".into(),
             Effect::DamageForcePoints(_) => "EffectDamageForcePoints".into(),
             Effect::Linked(_) => "EffectLinkEffects".into(),
@@ -232,6 +235,7 @@ impl Effect {
                 out.u16(*amount);
             }
             Effect::Death => out.u8(2),
+            Effect::DeathKept => out.u8(16),
             Effect::HealForcePoints(amount) => {
                 out.u8(3);
                 out.u16(*amount);
@@ -310,6 +314,7 @@ impl Effect {
             },
             1 => Effect::Heal(input.u16()?),
             2 => Effect::Death,
+            16 => Effect::DeathKept,
             3 => Effect::HealForcePoints(input.u16()?),
             4 => Effect::DamageForcePoints(input.u16()?),
             5 => Effect::Linked(
