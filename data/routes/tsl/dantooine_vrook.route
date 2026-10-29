@@ -1,6 +1,5 @@
 # Dantooine, Vrook found (TSL, 601DAN, 602DAN, 604DAN): Suulru given his
-# modulator and the 500 Jorran took (LSP), Zherron the two salvagers'
-# bodies and their will unchanged (LSP), the crystal cave's mercenary camp:
+# modulator and the 500 Jorran took (LSP), the crystal cave's mercenary camp:
 # here to rescue the Jedi (LSP), the captain and his men fought, Vrook out
 # of his cage (apologised to, Khoonda's coming attack); Azkul outside the
 # cave refused (his plans not to succeed: LSP) and his men fought, and the
@@ -16,11 +15,6 @@ module 602dan
 say Here is your modulator and the 500 credits # Suulru (LSP)
 use npc_suulru
 talk
-to npc_berun         # BLOCKER: by Berun's desk (dantooine_khoonda)
-say I have the bodies right here. # Zherron: the will unchanged (LSP)
-use npc_zherron
-talk
-to npc_berun         # BLOCKER: back by Berun's desk (dantooine_khoonda)
 exit To_601
 module 601dan
 exit To_604

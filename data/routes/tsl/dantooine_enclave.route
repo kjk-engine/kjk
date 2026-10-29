@@ -9,7 +9,8 @@
 # mercenaries' datapad (Azkul's orders for Vrook), the second salvager's
 # will left as it is, Gerevick's ambush at the fountain fought; at the camp
 # Jorran paid his 500 for Suulru's modulator and 1000 for his Jedi finds
-# (the emitter's and the energy cell's fixtures). Starts from the cave's
+# (the emitter's and the energy cell's fixtures), and Daraala the two
+# bodies and their will for no reward (LSP). Starts from the cave's
 # checkpoint:
 #   kjk playthrough tsl @dantooine_rewards data/routes/tsl/dantooine_enclave.route --god
 # Walkthrough: DSimpson's "The Enclave Courtyard Area" and "Enclave
@@ -62,5 +63,10 @@ talk
 say How much do you want for the Jedi artifacts? # and his finds
 say Here's 1000 credits.
 use npc_jorran
+talk
+say I'd like to talk to you about the dead salvagers. # Daraala: the
+say I found their bodies. # bodies and the will, no reward asked (LSP;
+say I require no reward. # Zherron's the BLOCKER in dantooine_khoonda)
+use npc_daraala
 talk
 save dantooine_camp
