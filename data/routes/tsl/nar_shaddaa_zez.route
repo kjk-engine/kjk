@@ -17,9 +17,19 @@ talk
 talk                 # the form taught (a_give_form): a_master_teach opens
                      # the safe house's secret door a_master_setup locked
 talk                 # his farewell: the Enclave on Dantooine
+say Could you help transport a family to Telos # Fassa, now the yacht is
+say The mother's name is Kahranna # gone: passage for Kahranna's family,
+say Do you have any need for pilots # and work for Odis the pilot (the
+say The refugee Odis # Exchange +1)
+use Fassa
+talk
 exit TO_301NAR       # out by that door and the flophouse to the landing pad
 module 301nar
 to to_ebonhawk
 module 003ebo        # aboard: G0-T0's remote, then Bao-Dur's upgrade of him
+talk
+say [Repair] Install the droid's processor # HK-47 rebuilt: Kodin's
+say [Repair] Reinforce the droid's damaged chassis # processor and the HK-50's
+use DrdParts         # chassis fitted, the last part bringing him round
 talk
 save nar_shaddaa_done

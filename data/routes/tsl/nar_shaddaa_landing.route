@@ -25,7 +25,12 @@ talk                 # Visas Marr's ambush aboard (the Telos movies' arrival)
 fight 30             # fought, spared ("I will not kill you", "I do not kill
 talk                 # a helpless opponent"), Atton in the medbay, the
 until npc 9=1        # Handmaiden's warning: Visas joined
+equip g_w_shortsbr01 # the short lightsaber from Visas's part in hand
 party 0,6            # ashore with Atton and Kreia (not Visas)
+say [Repair] Initialize the control cluster # HK-47's control cluster,
+say Step away.       # bought from Akkere on Dantooine, fitted
+use DrdParts
+talk
 use Galaxymap
 travel 6             # Nar Shaddaa (planetary.2da)
 say Then let's take the Ebon Hawk in for a landing
@@ -75,6 +80,31 @@ say Oondar countered your offer with a threat from the Exchange
 say I'll stand with you
 use Geeda            # and the trade routes
 talk
+say I'll be going now # Tienn Tubb at his garage, then TT-32 on the droid
+use Duros            # Kodin keeps (IT-31): the light way, a new droid
+talk                 # shield for T3 the reward (DSimpson)
+say What happened to him?
+say What would you like me to do?
+say Plans? What plans?
+say They aren't dangerous, are they?
+say New droid shield? Sure I can help you
+say I'll be going now
+to TT32Talk
+talk
+say I'm looking for an astromech droid # Kodin: IT-31 bought for 150
+say How about I buy that droid from you # ([Persuade]), then his parts:
+say [Persuade] 150 credits or nothing # the HK droid's processor
+say Let me see what else you have for sale # (DSimpson: buy it here)
+use Kodin
+talk
+buy hkpart01
+say I negotiated your release # IT-31 sent home ([Repair])
+say You're free to go - see you back at Tienn's garage
+use IT31
+talk
+say Very well. I'll be going now # TT-32: the shield
+use tt32
+talk
 exit TO_303NAR       # the docks (Hanharr before Vogga, a scene)
 module 303nar
 wait 2s
@@ -122,13 +152,59 @@ say I've been away from the Republic for a long time
 say You'd better go - he's waiting for you.
 use Aaida
 talk
-say I wanted to speak to your leader. # the Serroco's door guard
-say Why don't you go ahead and try?
-to serthugs01
+say How do the Serroco and Exchange get along? # Hussef, the refugees'
+say Is there anything I could help you with? # elder: the Serroco and the
+say I'll see what I can do. # Exchange heard of, more room for the camp
+use Hussef           # asked of us
 talk
-fight 30
-say I don't want any trouble - I'll be going now. # the Exchange +1
+say I wanted to speak to your leader. # the Serroco's door guard and their
+say [Persuade] The Exchange has been getting in his way # leader, talked
+to serthugs01        # round, not fought: the refugees left alone
+talk                 # ([Persuade]; the Exchange +1, DSimpson)
+say I don't like how you have been bullying the refugees
+say [Persuade/Intimidate] Stop harassing the refugees
+say I don't care. Just leave the refugees alone
+say Very good. Thanks.
 to SerrocoLeader
 talk
-fight 30
+say How did you become ill? # Geriel, the sick man by the entrance
+say I'll be going now.
+use Geriel
+talk
+say Spacer? No, I'm  # Kahranna, swindled of her passage, and Odis, a
+say Can I help?      # pilot without a ship: both to be found work
+say I'll try to find someone for you
+use Kahranna
+talk
+say What makes you think I do?
+say Why aren't you still flying?
+say If I hear of anyone looking for a pilot
+use Odis
+talk
+say What do you mean? # Nadaa: her daughter held for her debt
+say Can I help you get her back?
+say I could pay your debt for you
+use Nadaa
+talk
+say One of the refugees has a terrible disease # Saquesh, the Exchange's
+say [Persuade] If you don't relax your hold # overseer: his hold on the
+say All right. I'll take care of him # camp relaxed over Geriel
+use Overseer         # ([Persuade], the Exchange +1)
+talk
+say I'd like to talk with you about Adana # then Adana's debt settled
+say I would like to settle the debt # ([Persuade] for 600 credits or 700;
+say [Persuade] With her attitude # LSP, the Exchange +1)
+say Here are your
+use Overseer
+talk
+say [Treat Injury]   # Geriel treated ([Treat Injury], LSP)
+say I will accept the risk
+say You're welcome.
+say It is the way of the Jedi to help others
+use Geriel
+talk
+use Nadaa            # Nadaa's thanks, Adana free
+talk
+use Hussef           # Hussef's reward for the camp's room
+talk
 save nar_shaddaa_refugees

@@ -12,8 +12,10 @@
 # Walkthrough: DSimpson's "The Crystal/Kinrath Cave" (context/walkthroughs/tsl/).
 exit To_604
 module 604dan
-use cont_sensor      # the rubble: the three sensors
-say I'll keep that in mind. # Bao-Dur on them
+say You don't know about what? The sensors? # the rubble: the three
+say [Awareness] Can you examine one of the sensors? # sensors; Bao-Dur, asked
+say Good work Bao Dur # by the Exile's [Awareness], finds surveillance
+use cont_sensor      # gear in them (+INF)
 to tr_cont_cv
 talk
 say My apologies.    # Ahrnell: no gland asked
@@ -31,8 +33,10 @@ use crystal_cont     # the Exile's own crystal: Kreia's talk on it
 talk
 exit To_601
 module 601dan
-say Actually, I've found three of them. # Saedhe: the sensors sold
-say Here you go - I'll take the credits.
+say Actually, I've found three of them. # Saedhe: caught out on the
+say Not so fast - we found a little surprise # surveillance, and the light
+say Why is there surveillance equipment # way: he keeps the sensors for
+say You need the credits more than me # 3000 credits (LSP, DSimpson)
 use npc_saedhe
 talk
 save dantooine_rewards

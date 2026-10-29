@@ -1,0 +1,38 @@
+# Nar Shaddaa, Vogga's dance (TSL, 302NAR, 301NAR, 003EBO, 306NAR,
+# 303NAR), a branch from the Refugee Sector that rejoins nothing: a male
+# Exile brings the Handmaiden ashore (with Kreia), Vogga's Twi'lek domo on
+# the Promenade takes her as his dancer, the dance puts Vogga to sleep, and
+# woken, he agrees to ship fuel to Telos once Goto is dealt with (the
+# Exchange +1). Juma juice for the kath hounds and his hoard need stealth
+# (the flophouse's thieves overheard), which the chain's Exile has not.
+# Starts from the Refugee Sector's checkpoint:
+#   kjk playthrough tsl @nar_shaddaa_refugees data/routes/tsl/nar_shaddaa_vogga.route --god
+# Walkthrough: DSimpson's "Vogga the Hutt" and GameBanshee's Entertainment
+# Promenade (context/walkthroughs/tsl/).
+exit TO_301NAR       # back to the landing pad and aboard
+module 301nar
+to to_ebonhawk
+module 003ebo
+party 4,6            # the Handmaiden and Kreia
+to tr_leave
+module 301nar
+exit TO_306          # the Entertainment Promenade
+module 306nar
+say What's going on here? # Vogga's domo: his dancer gone, the Handmaiden
+say What sort of arrangement? # offered and willing
+say What about the Handmaiden?
+say You're willing to do this?
+say In that case, thank you.
+to tr_domoconv
+talk
+module 303nar        # to Vogga's room: the dance, Vogga asleep
+talk
+until 303NAR_Vogga_Asleep=1
+say Please wake him for me. # Vogga woken: the Exchange, Goto, and fuel
+say I wanted to know about the Exchange. # for Telos once Goto is dealt
+say What has Goto done to you? # with
+say If I can take care of Goto, will you agree to ship fuel
+say I just want to make sure Telos has fuel.
+use Vogga
+talk
+until 200TEL_Fuel=3

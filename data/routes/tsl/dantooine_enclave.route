@@ -53,6 +53,17 @@ use sal_corpse1@1
 to tr_gere_talk      # Gerevick's ambush at the fountain
 talk
 fight 40
+say Overload terminal # the storage room's console: overloaded (spikes),
+say 5 seconds.       # the conductors blown and the storage door opened
+use comp_cond        # (DSimpson)
+talk
+use MilLowFootLker@1 # the storage room's containers
+use MilLowFootLker@2
+use MilLowMetalBox@1
+use MilLowMetalBox@2
+use MilLowPlstcCylin@1
+use MilLowPlstcCylin@2
+use MilLowPlstcCylin@3
 exit To_605
 module 605dan
 say I'm here about Suulru's moisture vaporator. # Jorran at the camp
@@ -68,5 +79,20 @@ say I'd like to talk to you about the dead salvagers. # Daraala: the
 say I found their bodies. # bodies and the will, no reward asked (LSP;
 say I require no reward. # Zherron's the BLOCKER in dantooine_khoonda)
 use npc_daraala
+talk
+say Get to the point. # Ralon's "holocron": inspected ([Awareness]), a fake;
+say How much do you want for it # his family's need heard and 500 credits
+say Can I inspect the holocron # given (LSP)
+say That *is* a remarkable fake
+say That's all you can say?
+say So you didn't make this?
+say Wife and children?
+say How much money do you need?
+say Here's 500 credits
+use npc_ralon
+talk
+say [Persuade] Like your friend said, I'm not a salvager # Nallek, the
+say I'll be going.   # mercenary picking a fight: talked down ([Persuade])
+use npc_nallek
 talk
 save dantooine_camp
