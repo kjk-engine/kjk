@@ -1,0 +1,93 @@
+# Dxun, Mandalore's tests in the jungle (TSL, 403DXN, 402DXN): out past
+# the sentries, Kreia's voice at the young boma (Beast Trick learnt, the
+# boma fought), Kumus found on his ridge (Xarga's word, asked how he got
+# there, the bomas below him driven off and Kumus let go: DSimpson's
+# light way, Bao-Dur's +INF, no reward asked), the permacrete detonator by
+# the cache pressed and the bomas it stirs fought (Mandalore's test),
+# Kelborn the scout helped against the Onderon intruders (asked about the
+# ship and the corpse, "I am. Let's find them."), the two groups of scouts
+# fought and Kelborn told only that they would not talk, the zakkeg slain
+# and its ear taken; back in camp the ear for the gate guard and Kumus
+# safe for Xarga ("I'm glad I was able to return him safely": LSP).
+# Starts from the camp's checkpoint:
+#   kjk playthrough tsl @dxun_tests data/routes/tsl/dxun_tests.route --god
+# Walkthrough: DSimpson's "Mandalore" side quests "Find the Missing
+# Mandalorian", "Blow the Weapon's Cache", "Help Kelborn Wipe Out the
+# Intruders", "Kill the Zakkeg", "Learn Beast Trick"
+# (context/walkthroughs/tsl/).
+# Left: the cache itself (404DXN: mines on the floor, the droid foreman's
+# Computer, its droids bashed hostile), Davrel's rematch outside camp (he
+# comes only after the battle circle), the skeletal corpses behind the
+# zakkeg (LowSkelCorpse@2, @3: cheap, add them if the fight leaves them
+# reachable).
+#
+# ASSUMES:
+# - Xarga's missingm and the gate guard's zchallenge taken (dxun_camp),
+#   Mandalore's explosivesit started (a_es_start).
+# - Bao-Dur in the party for Kumus's thanks (c_con_baodurpm, R13 +INF);
+#   with the Handmaiden instead her R19 would be the line.
+# - UNSURE: tr_beast_control fires on the way north to Kumus (it stands at
+#   38, 80; Kumus's ridge is at 32, 134); fake_kreia speaks, Kreia being
+#   away. Its boma (boma_young_bc) is fought after.
+# - UNSURE: Kumus is spoken to from below his ridge (he stands 6 m above
+#   tr_kumustalk); `use kumus` after the bomas, as KOTOR asks only range.
+# - UNSURE: the zakkeg's remains are searched by its tag, as Telos's HK-50s'
+#   were (`use HK501`); the ear (zakkeg_ear) is in its inventory, the gate
+#   guard's R31 asks for it (c_hasitem).
+# - UNSURE: Kelborn's second group spawns as he walks to WP_KELBORN_ST
+#   (a_kel_wpwalk creates npc_2scout*); tr_secondscouts@1 is the nearer.
+exit To_402
+module 402dxn
+say I feel it.       # Kreia (or her voice) at the boma
+say [Beast Control] I'll try.
+say Can anything else be done with beasts? # Beast Trick (a_givepower)
+to tr_beast_control
+talk
+fight 20             # the boma that resists
+say Are you Kumus? Xarga thought you were dead.
+say How can I help?  # (twice: the first offer, then after his story)
+say So how did you get up there?
+say How can I help?
+say I'll go drive off these bomas, then.
+to tr_kumustalk
+talk
+fight 25             # the bomas below the ridge (boma_young_qu)
+gone boma_young_qu
+say He's just a veteran, like us. # Bao-Dur (+INF)
+use kumus            # let down, thanked, gone to camp (missingm)
+talk
+say Press button.    # the cache's detonator (deton2), not Kumus's own
+use p_detonator_2
+talk
+fight 30             # the beasts the blast stirs (WP_ES_SPAWN_*)
+say Why are you here? I thought all the patrols had been stopped. # Kelborn
+say A ship?
+say Any sign of a crew?
+say Take them out? Why?
+say I may be able to help. What's the plan?
+say I am. Let's find them.
+use kelborn
+talk
+to tr_firstscouts    # the first scouts (om_sc1)
+talk
+fight 30
+to tr_secondscouts@1 # the staging camp (om_sc2), the beasts with them
+talk
+fight 30
+say I came across two groups of scouts. # Kelborn at WP_KELBORN_ST
+say =Nothing you need to know about.
+use kelborn
+talk
+to tr_zakkeg_cv      # the zakkeg's scene (zakcv)
+talk
+fight 40             # the zakkeg
+use zakkeg           # its remains: the ear
+exit To_403
+module 403dxn
+say I defeated a zakkeg. Here is its ear as proof.
+use g_gate_guard
+talk
+say I'm glad I was able to return him safely. # Xarga (LSP)
+use xarga
+talk
+save dxun_tests_done

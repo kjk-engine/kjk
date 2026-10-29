@@ -1214,6 +1214,10 @@ impl Engine<'_> {
                     | Effect::Shield { .. }
             );
             match leaf {
+                Effect::DeathKept => {
+                    self.state.kept.insert(target.0);
+                    carried.push(Effect::Death);
+                }
                 Effect::Visual { row: None, .. } => {}
                 Effect::Visual { .. } => carried.push(leaf.clone()),
                 _ if at_once || (lasting && until.is_some()) => carried.push(leaf.clone()),
@@ -1795,7 +1799,7 @@ impl Engine<'_> {
                         || self.exists(id),
                 )
             }
-            GetFirstPC => self.first(caller, walk::PCS, self.pcs()),
+            GetFirstPC => self.first(caller, walk::PCS, self.controlled_pcs()),
             GetNextPC => self.next(caller, walk::PCS),
             // The first seat's PC leads, or the companion made leader
             // (`SetPartyLeader`, `Action::SetLeader`), which the first seat
@@ -2413,7 +2417,11 @@ impl Engine<'_> {
                 kind: effects::amount(int(args, 1)),
             }),
             EffectHeal => self.effect_value(Effect::Heal(effects::amount(int(args, 0)))),
-            EffectDeath => self.effect_value(Effect::Death),
+            // Its third argument, `nNoFadeAway`, keeps the body.
+            EffectDeath => self.effect_value(match int(args, 2) {
+                0 => Effect::Death,
+                _ => Effect::DeathKept,
+            }),
             EffectHealForcePoints => {
                 self.effect_value(Effect::HealForcePoints(effects::amount(int(args, 0))))
             }
@@ -3772,33 +3780,40 @@ impl Engine<'_> {
             | CreatureFlourishWeapon
             | ForceHeartbeat => self.force_call(bound, args),
             // The party table keeps one creature for each companion: one
-            // spawned again takes the place of the one it had, which goes
-            // [verify the executable's own handling]. TSL's Bao-Dur joins
-            // by being spawned, added, removed and spawned again
-            // (`a_baodur_join`); the first had stayed standing at the
-            // wreck, the one `GetObjectByTag("BaoDur")` then found, and his
-            // force-field punches asked it, not the one following, whether
-            // he stood near.
+            // spawned again while its creature is here is that creature,
+            // moved to the place, as the executable's `AddMember` moves a
+            // puppet that is here [verify the executable's own handling].
+            // TSL's Bao-Dur joins by being spawned, added, removed and
+            // spawned again (`a_baodur_join`): a second one had stayed at
+            // the wreck, the one `GetObjectByTag("BaoDur")` then found. And
+            // Nar Shaddaa's Atton, spawned to warn the player, is spawned
+            // again by the first line of the warning he speaks
+            // (`a_atton_cut_1`): another in his place had ended it.
             SpawnAvailableNPC => {
-                let had = u8::try_from(int(args, 0))
-                    .ok()
+                let npc = u8::try_from(int(args, 0)).ok();
+                let had = npc
                     .and_then(|npc| self.state.party.available.get(&npc))
                     .and_then(|slot| slot.object)
-                    .map(ObjectId);
-                if let Some(old) = had {
-                    self.out.changes.push(Change::Destroy {
-                        who: old,
-                        ms: 0,
-                        going: None,
-                    });
-                }
-                let made = u8::try_from(int(args, 0))
-                    .ok()
-                    .zip(self.place(args, 1))
-                    .and_then(|(npc, (at, yaw))| {
+                    .map(ObjectId)
+                    .filter(|old| self.exists(*old) && !self.destroyed(*old));
+                let spawned = match (had, self.place(args, 1)) {
+                    (Some(old), Some((at, yaw))) => {
+                        match self.out.made.iter_mut().find(|made| made.id == old) {
+                            Some(made) => (made.at, made.yaw) = (at, yaw),
+                            None => self.out.changes.push(Change::Jump {
+                                who: old,
+                                to: at,
+                                yaw,
+                            }),
+                        }
+                        Some(old)
+                    }
+                    (None, Some((at, yaw))) => npc.and_then(|npc| {
                         super::make_npc(self.library, self.view, self.state, self.out, npc, at, yaw)
-                    });
-                Value::Object(made.unwrap_or(ObjectId::INVALID))
+                    }),
+                    (_, None) => None,
+                };
+                Value::Object(spawned.unwrap_or(ObjectId::INVALID))
             }
             // The party table keeps the companion as it stands now.
             SaveNPCState => {
@@ -4999,6 +5014,15 @@ impl Engine<'_> {
         self.view.thing(id).is_some() || self.out.made.iter().any(|made| made.id == id)
     }
 
+    /// Whether a script destroyed `id` this step (`DestroyObject` with no
+    /// delay): it goes as the step's changes apply.
+    fn destroyed(&self, id: ObjectId) -> bool {
+        self.out
+            .changes
+            .iter()
+            .any(|change| matches!(change, Change::Destroy { who, ms: 0, .. } if *who == id))
+    }
+
     /// Whether `id` is a creature (one made this step too).
     fn is_creature(&self, id: ObjectId) -> bool {
         self.view
@@ -5040,6 +5064,24 @@ impl Engine<'_> {
     /// switched to in its place while it is.
     fn pcs(&self) -> Vec<ObjectId> {
         self.view.pcs(&self.state.party)
+    }
+
+    /// The PCs `GetFirstPC` walks: the creature each seat controls, the
+    /// first seat's the companion it leads while it does (`world::lent`).
+    /// KOTOR's player is the body it controls: TSL's scripts make the PC
+    /// lead again (`SetPartyLeader(NPC_PLAYER)`) before they move
+    /// `GetFirstPC()` (a_master_setup), and a trigger asking for
+    /// `GetFirstPC()` fires for the companion leading (Goto's yacht's
+    /// command centre, Mira at the head for the mines) [verify in the exe].
+    fn controlled_pcs(&self) -> Vec<ObjectId> {
+        let mut pcs = self.pcs();
+        if let Some(led) = crate::world::lent(&self.state.party).map(|body| ObjectId(body.0)) {
+            match pcs.first_mut() {
+                Some(first) => *first = led,
+                None => pcs.push(led),
+            }
+        }
+        pcs
     }
 
     /// The companion leading the party, if one does: the one whose guest's
@@ -5627,9 +5669,16 @@ impl Engine<'_> {
                 party.restrict = int(args, 0) != 0;
                 Value::Int(0)
             }
-            GetNPCSelectability => truth(npc.is_some_and(|npc| {
-                party.available.contains_key(&npc) && !party.unselectable.contains(&npc)
-            })),
+            // -1 for a companion not in the party table at all (TSL's
+            // nwscript.nss), else whether it may be picked: TSL's Ebon Hawk
+            // takes 1 or 0 as "available" (k_003ebo_enter, Visas's arrival
+            // asking she is not yet) [verify in the exe].
+            GetNPCSelectability => Value::Int(match npc {
+                Some(npc) if party.available.contains_key(&npc) => {
+                    i32::from(!party.unselectable.contains(&npc))
+                }
+                _ => -1,
+            }),
             SetNPCSelectability => {
                 if let Some(npc) = npc {
                     if int(args, 1) != 0 {

@@ -226,6 +226,13 @@ pub(super) fn take_away(
         .map(|(id, corpse)| (*id, *corpse))
         .collect();
     for (id, corpse) in due {
+        // One whose conversation still plays is left until it ends: the
+        // conversation is the object's, and goes on past its death (TSL's
+        // Visquis, killed by his own conversation's first line as Mira
+        // watches the monitor, `a_305end_setup0`) [verify in the exe].
+        if state.talk.conversations.iter().any(|c| c.owner.0 == id) {
+            continue;
+        }
         state.corpses.remove(&id);
         match corpse.bag {
             None => {

@@ -1,0 +1,61 @@
+# Telos, Atris's academy again (TSL, 262TEL, to Citadel Station 221TEL):
+# Kreia and Atris, the Darth Trayas past and present (kreatris); the
+# Handmaiden (male Exile) before her sisters, refusing to fight them, the
+# sisters fought, Atris's test of her (atrend1) and her fall to Atris's
+# lightning; the Exile at the door asking Atris to punish him instead and
+# to surrender (atrend2), Atris's flight to her meditation chamber; there,
+# the offer of mercy refused by her, Atris fought and beaten, then spared:
+# "I will not kill a helpless opponent", where the Sith strike from
+# (Malachor V, Kreia gone there), "I will do nothing - except tell you that
+# I am sorry"; the Handmaiden alive, her name given (handend, no alignment
+# or influence: DSimpson), and MalMov02 and MalMov01b to Citadel Station.
+# Starts from the academy's arrival:
+#   kjk playthrough tsl @telos_atris_again data/routes/tsl/finale_atris.route --god
+# Walkthrough: DSimpson's "Telos - Hidden Base Again"; GameBanshee 24
+# (context/walkthroughs/tsl/).
+# Left: nothing the scenes do not force.
+#
+# ASSUMES:
+# - Male Exile (000_PLAYER_GENDER): the Handmaiden's scenes (sisend,
+#   atrend1, atrend2, handend) play, not the female's Disciple ones.
+# - The Handmaiden fights alone, the player's seat on her (a_sisend and
+#   a_atrend1 use GetPartyLeader). # UNSURE: who leads (the party on
+#   arriving from 006EBO, SwitchPlayerCharacter or a leader change); see
+#   finale.md.
+# - The sisters' fight: sisend's own note says it ends when they are all
+#   killed or stunned; the headless fight kills them. # UNSURE: whether
+#   killing them weighs on the alignment (no script on R18 says so).
+# - Atris's fight with the Handmaiden ends scripted (atrend2's Force Wave,
+#   the Handmaiden left dying); a_atrend2 then puts the Exile at
+#   sp_pc_atrend2 and plays atrend2.
+# - atrruncs: Atris runs to MedChamber; tr_atrend3 inside it starts
+#   atrend3 start 0; she fights to a minimum of hit points, then start 1.
+#   # UNSURE: atrend3's start 1 condition (c_dark) is the chamber darkened
+#   after the fight, not the alignment.
+# - a_hand_pc_end (atrend3's last reply) raises the Handmaiden and starts
+#   handend; its end plays MalMov02, MalMov01b and starts 221TEL (no
+#   waypoint: the entry, -57.4, -23.0, by Lieutenant Grenn).
+talk                 # Kreia and Atris (kreatris)
+say =I will not fight you. # sisend: the Handmaiden to her sisters
+talk
+fight 30             # the sisters
+talk                 # atrend1: Atris and the Handmaiden
+fight 30             # Atris and the Handmaiden: the scene ends it
+say Do not harm her. If you wish to punish anyone, then punish me.
+say Surrender, Atris. I don't want to fight you.
+talk                 # atrend2: the Exile at the door
+talk                 # atrruncs: Atris runs
+to tr_atrend3        # her meditation chamber
+say I will not fight you - surrender, and I will spare you.
+talk                 # atrend3 start 0
+fight 30             # Atris, to her minimum
+say I will not kill a helpless opponent, Atris. # atrend3 start 1
+say We have greater problems, Atris - and there has been enough killing.
+say Can you tell me where the Sith are striking from? # Malachor V
+say I have heard enough - this matter is finished.
+say I will do nothing - except tell you that I am sorry.
+talk
+say It is good to hear your name. # handend
+talk
+module 221tel        # MalMov02, MalMov01b
+save telos_citadel_siege

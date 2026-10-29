@@ -470,6 +470,41 @@ pub(crate) fn assemble(
             missile: None,
         });
     }
+    // A seat playing a creature (`world::switch`): that creature, the
+    // scripts' PC, arrives where its seat's player does, and the seat's own
+    // benched character stands in the creature's place: TSL's Atton, played
+    // from the cantina back to the Ebon Hawk, stands on the waypoint whose
+    // trigger asks whether the PC entered it (`k_301_attonwarn2`).
+    let driven: Vec<(usize, usize)> = entities
+        .iter()
+        .enumerate()
+        .filter_map(|(at, entity)| match entity.kind {
+            Kind::Avatar(seat) => entities
+                .iter()
+                .position(|other| {
+                    matches!(other.kind, Kind::Object(..))
+                        && other.fighter.and_then(|f| f.mind.driver) == Some(seat)
+                })
+                .map(|creature| (at, creature)),
+            _ => None,
+        })
+        .collect();
+    for (avatar, creature) in driven {
+        let (a, c) = (entities[avatar], entities[creature]);
+        let swapped = |entity: EntityState, with: EntityState| {
+            let player = entity.player.zip(with.player).map(|(mut player, with)| {
+                player.origin = with.origin;
+                player
+            });
+            EntityState {
+                position: with.position,
+                player,
+                ..entity
+            }
+        };
+        entities[avatar] = swapped(a, c);
+        entities[creature] = swapped(c, a);
+    }
     // Arriving inside a trigger that leads out, or in an open door's
     // doorway, is not entering it (no bounce back): for each seat's player,
     // and the companion a guest drives as its seat (`world::drivers`). Any

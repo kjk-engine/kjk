@@ -1,0 +1,64 @@
+# Malachor V, the Trayus Academy and Darth Sion (TSL, 903MAL, 906MAL,
+# 903MAL, to 904MAL): the Elite Sith Assassin and the three groups of
+# assassins in the entrance hall, the right (east) door and the curved
+# hallway to the Proving Grounds (TO_906MALa), the Proving Grounds' turret
+# rooms and Sith fought to their other way back (TO_903MALb), the Dark Jedi
+# by Sion's chamber, and Darth Sion (tr_sion: n_darthsion002 at sp_sion,
+# the SionDoors locked): his first word ("I bear no hatred for you, but I
+# must pass"), four falls each with its talk (903sion, Sion's local number
+# 13 counting them: 1 start 5, 2 start 4, 3 start 2, 4 start 0), the last
+# his surrender, the truth that he can let go (light side), his death
+# (a_sion: the SionDoors unlocked), and on into the Trayus Core.
+# Starts from the remote's checkpoint (the Exile at the Academy's entrance,
+# Sion's entrance scene played):
+#   kjk playthrough tsl @malachor_academy data/routes/tsl/malachor_academy.route --god
+# Walkthrough: DSimpson's "The Trayus Academy", "The Trayus Proving
+# Grounds" and "The End Game" (context/walkthroughs/tsl/); GameBanshee
+# 61, 63; Kerbow [WMALTA], [WMALTS].
+# Left: the Trayus Crescent (905MAL, the west side: the same foes), the
+# Proving Grounds' workbench (99.89,-40.90) and its far south loop, the
+# metal boxes, every [Persuade]/[Awareness]/[Wisdom]/[Intelligence] line to
+# Sion (they only erode his will saves, Constitution and Wisdom).
+#
+# ASSUMES:
+#   The Exile alone (the party emptied on the surface), the player again
+#   (tr_sionenter's switch back from the remote).
+#   No Persuade (c_sc_per_lt 17 fails every [Persuade]): the plain replies.
+#   # UNSURE: the Proving Grounds' short way (FROM_903MALa north past the
+#   turret rooms to TO_903MALb, 47 m) is open; DSimpson walks the long loop
+#   by the workbench, which may be the only one.
+#   # UNSURE: whether Sion's last fall ends in his death on the last reply
+#   (E121's a_sion) or another fight; DSimpson: "Beat him four times".
+fight 30             # the Elite Sith Assassin, then the hall's assassins
+fight 30
+fight 30
+exit TO_906MALa      # the right door, the curved hallway: the Proving
+module 906mal        # Grounds
+fight 30
+fight 30             # the turret rooms (G_TURRETBL006)
+exit TO_903MALb      # back into the Academy, the east wing
+module 903mal
+fight 30             # the assassins and Dark Jedi by the metal boxes
+fight 30
+say Let us end this. I bear no hatred for you, but I must pass. # start 7
+to tr_sion           # Sion's chamber: Sion (903sion)
+talk
+say But you can be defeated # start 5 (his first fall)
+fight 40
+talk
+say Surrender now, Sion. I don't want to kill you. # start 4 (the second)
+fight 40
+talk
+say You only delay the inevitable, Sith Lord. # start 2 (the third)
+fight 40
+talk
+say You have already been defeated, Sion. # start 0 (the fourth, the last)
+say Because I was able to turn away from it. And you could not.
+say It is difficult, yes. But in making such decisions is what strength is.
+say It is possible to live without the Force. And die without it.
+say It is the truth, Sion... you feel it. Let go. # E117, E118, E120:
+fight 40             # a_sion: he dies
+talk
+exit TO_904MAL       # the Trayus Core
+module 904mal
+save malachor_core

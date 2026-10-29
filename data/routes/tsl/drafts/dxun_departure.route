@@ -1,0 +1,43 @@
+# Dxun, passage to Onderon (TSL, 403DXN, 501OND): Mandalore told of the
+# detonator (his reward) and asked whether the Exile has proven himself
+# (four tests: "You've made quite a reputation around here"), ready to go
+# now; Mandalore, Zuka and Kreia at the shuttle (mand_cs1), the Sith
+# assassins' attack on the camp (Zuka's alarm, Kelborn and Kumus joining
+# in) fought, Mandalore's "head to Iziz immediately", the party screen
+# with Mandalore made a companion (p_mand) and Mira chosen, the shuttle to
+# Iziz (OndMov05).
+# Starts from the tests' checkpoint:
+#   kjk playthrough tsl @dxun_tests_done data/routes/tsl/dxun_departure.route --god
+# Walkthrough: DSimpson's "Mandalore" (context/walkthroughs/tsl/).
+# Left: Kex's store, the lower camp's assassins if the fight ends first
+# (DSimpson: Mandalore may pull the party out before it is over).
+#
+# ASSUMES:
+# - Four of Mandalore's tests done (dxun_tests): c_pp_done (param 0) true.
+# - UNSURE: the reward talk (R32, R33) returns to Mandalore's hub so that
+#   "Have I proven myself yet?" is offered in the same conversation; if it
+#   ends, a second `use g_mandalore` is needed (start 10 again: E4).
+# - UNSURE: a_mand_cs1 plays mand_cs1 start 0 (the shuttle check, Kreia
+#   jumped to sp_mcs1_kreia though she is not in the party) and start 1
+#   (Kreia's speech to Mandalore) as two conversations.
+# - UNSURE: the assassins come as the party walks back through the hall
+#   (tr_sith_att_1, 2); sith_att's starts 0 and 3 to 6 are cut-ins of the
+#   fight, start 2 is Mandalore's call to leave (a_to_iziz: the party
+#   screen with Mandalore forced, its exit a_to_iziz2 to 501OND).
+# - Party for Onderon: Mandalore (NPC 2, forced) and Mira (NPC 7),
+#   DSimpson's light-side pick (Mira's bounty hunters and Anda lines).
+say I set off the permacrete detonator in the jungle.
+say Is there anything else I can do? # his reward (a_es_reward)
+say Have I proven myself yet?
+say I'm ready to go now. # a_open_door, a_mand_cs1
+use g_mandalore
+talk
+talk                 # Mandalore, Zuka and Kreia at the shuttle (mand_cs1)
+talk                 # Kreia's words to Mandalore (mand_cs1 start 1)
+party 2,7            # Mandalore (forced) and Mira
+to tr_sith_att_1     # the Sith assassins (sith_att): Zuka's alarm
+talk
+fight 40
+talk                 # Mandalore: off to Iziz, the party screen
+module 501ond
+save onderon_spaceport
