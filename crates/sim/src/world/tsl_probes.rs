@@ -129,6 +129,13 @@ void ActionFollowOwner(float fRange = 2.5);
 void ShowPartySelectionGUI(string sExitScript = "", int nForceNPC1 = -1, int nForceNPC2 = -1, int nAllowCancel = FALSE);
 // 27
 int GetRunScriptVar();
+// 28
+object GetFirstObjectInArea(object oArea = OBJECT_INVALID, int nObjectFilter = OBJECT_TYPE_CREATURE);
+// 29
+object GetNextObjectInArea(object oArea = OBJECT_INVALID, int nObjectFilter = OBJECT_TYPE_CREATURE);
+// 30
+object GetArea(object oTarget);
+int OBJECT_TYPE_CREATURE = 1;
 "#;
 
 /// The global the player's alignment is kept in.
@@ -225,6 +232,35 @@ fn library() -> crate::script::Library {
     let mut exit = Asm::default();
     token(&mut exit, 50, &[call(27, 0)]);
     exit.op(Op::Retn);
+    // Atton made beside the player, not joined; the area's first two
+    // creatures, whether each is (tokens 60 and 61).
+    let mut atton_beside = Asm::default();
+    atton_beside
+        .op(text(ATTON_TEMPLATE))
+        .op(int(ATTON))
+        .op(call(5, 2))
+        .op(Op::MovSp(-4));
+    atton_beside.op(call(13, 0)).op(call(12, 1));
+    atton_beside
+        .op(int(ATTON))
+        .op(call(14, 2))
+        .op(Op::MovSp(-4));
+    atton_beside.op(Op::Retn);
+    let mut in_area = Asm::default();
+    for (n, routine) in [(60, 28), (61, 29)] {
+        token(
+            &mut in_area,
+            n,
+            &[
+                int(1),
+                call(13, 0),
+                call(30, 1),
+                call(routine, 2),
+                call(16, 1),
+            ],
+        );
+    }
+    in_area.op(Op::Retn);
     crate::probe::library(
         CATALOG,
         [
@@ -240,6 +276,8 @@ fn library() -> crate::script::Library {
             ("probe_second_atton", second_atton()),
             ("probe_party_screen", screen.build()),
             ("probe_party_exit", exit.build()),
+            ("probe_atton_beside", atton_beside.build()),
+            ("probe_in_area", in_area.build()),
         ],
     )
     .with_creatures(
@@ -480,7 +518,44 @@ pub fn probes() -> Checks {
     checks.push(("restrict_mode_ends_with_module", restrict_ends()));
     checks.push(("minigame_takes_no_companions", minigame_alone()));
     checks.push(("party_screen_accepted", party_screen_accepted()));
+    checks.push(("area_iteration_skips_the_dead", area_skips_the_dead()));
     checks
+}
+
+/// Atton made beside the player (not joined): the area's creatures are
+/// the player and he; dead, the area's iteration passes him over
+/// (`k_battle_death`, the battle of Khoonda's end, counts on it).
+fn area_skips_the_dead() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    step(&mut world);
+    run(&mut world, "probe_atton_beside");
+    step(&mut world);
+    run(&mut world, "probe_in_area");
+    let alive = tokens(&step(&mut world), 60..=61);
+    let atton = world
+        .script_state()
+        .party
+        .available
+        .get(&(ATTON as u8))
+        .and_then(|npc| npc.object)
+        .ok_or("Atton not made")?;
+    for (id, mut fighting) in world
+        .world
+        .query::<(&Id, &mut Fighting)>()
+        .iter_mut(&mut world.world)
+    {
+        if id.0.0 == atton {
+            fighting.0.hp = 0;
+            fighting.0.life = crate::combat::Life::Dead;
+        }
+    }
+    step(&mut world);
+    run(&mut world, "probe_in_area");
+    let dead = tokens(&step(&mut world), 60..=61);
+    check(
+        alive == ["1", "1"] && dead == ["1", "0"],
+        format!("the area's first two creatures: Atton alive {alive:?}, dead {dead:?}"),
+    )
 }
 
 /// The party selection screen shown, then closed by the player taking the

@@ -892,11 +892,12 @@ fn ui_loot() {
 /// AI idle on Telos), and a minigame's area taking no companions
 /// (`minigame_takes_no_companions`: Peragus's hangar turret), and the
 /// party selection screen's exit script told the party was accepted
-/// (`party_screen_accepted`: the Ebon Hawk's ramp on Dantooine). The sim
-/// alone, on the proving ground.
+/// (`party_screen_accepted`: the Ebon Hawk's ramp on Dantooine), and the
+/// area's iteration passing over the dead (`area_iteration_skips_the_dead`:
+/// the battle of Khoonda's end). The sim alone, on the proving ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 16);
+    probed("tsl", &sim::tsl_probes::probes(), 17);
 }
 
 /// The dead's remains (KOTOR's body bags; `sim::remains::probes`), owner

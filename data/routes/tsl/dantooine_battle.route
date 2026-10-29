@@ -1,0 +1,28 @@
+# Dantooine, the battle of Khoonda and away (TSL, 602DAN, 601DAN, 003EBO):
+# Zherron's battle plans finalised (ready, no speech; Khoonda's defences
+# left as they stood: DSimpson, whatever is done, the side chosen wins),
+# Azkul in Khoonda's hall told he can still back away, Vrook come to fight
+# beside the Exile, the mercenaries fought, the Administrator's reward
+# left to rebuild Khoonda (LSP), Vrook's word after the battle (asked
+# through) and his form taught, and back aboard the Ebon Hawk (no Visas
+# Marr there yet: her ambush follows the Ravager's scene, not seen).
+# Starts from the attack's checkpoint:
+#   kjk playthrough tsl @dantooine_attack data/routes/tsl/dantooine_battle.route --god
+# Walkthrough: DSimpson's "The Mercenary Attack" (context/walkthroughs/tsl/).
+say I'm ready to finalize the battle plans. # Zherron
+say I'm certain. I've done all I can.
+say I'm ready!
+use npc_zherron
+talk
+talk                 # Azkul in the hall, Vrook come to help
+fight 120            # the mercenaries
+say I am happy to help. # the Administrator's thanks, and her reward
+say Please keep the credits # left to rebuild Khoonda (LSP)
+talk
+talk                 # Vrook's word after the battle
+talk
+exit To_601          # out to the landing pad
+module 601dan
+to to_ebonhawk       # aboard the Ebon Hawk
+module 003ebo        # the galaxy map next
+save dantooine_done

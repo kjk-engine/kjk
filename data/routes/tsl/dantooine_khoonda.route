@@ -6,7 +6,7 @@
 # Bao-Dur's Security; the "{Blast}" cylinder is left shut, see below), into
 # Khoonda: Suulru's vaporator (helped), Administrator Adare (the Ebon Hawk
 # owned, the Force's guidance, Vrook to be found first: the sublevel's
-# permission), Berun, Zherron (a hand offered: the kinrath job), and out to
+# permission), Berun, and out to
 # Saedhe by the cave (the atmospheric sensors asked after: DSimpson takes
 # his quest, not Berun's evidence). Starts from Telos's last checkpoint:
 #   kjk playthrough tsl @telos_done data/routes/tsl/dantooine_khoonda.route --god
@@ -46,18 +46,14 @@ use npc_terena
 talk
 use npc_berun        # Berun, asked through (his doubts of Zherron)
 talk
-say Neither one.     # Zherron: a hand offered, the kinrath job taken
-say I wanted to see if anyone needed a hand.
-say What sort of work do you have?
-say I'll see what I can do.
-use npc_zherron
-talk
-# BLOCKER: back by Berun's desk. From Zherron's post the walk to the front
-# door makes for a corner of the way 0.2 m from the foot of a nonwalk wall
-# at (-6.7, -14.8) that the navigation mesh has no edge for (a vertical
-# walkmesh face on the floor); the box meets its end on the next leg and
-# the walk turns there for good.
-to npc_berun
+# BLOCKER: Zherron's kinrath job left (and its reward, in dantooine_cave,
+# and the salvagers' will, given Daraala instead in dantooine_enclave):
+# every walk back from his post makes for a corner of the way 0.2 m from
+# the foot of the militia desk's sloped nonwalk walkmesh face at (-6.7,
+# -15.2), where the navigation mesh's rounding is cut short (the full
+# step off would leave the mesh: the gap is narrower than the JA box);
+# the box meets the slope's foot on the next leg, and the walk's sidesteps,
+# unwedging and backing off bring it back to that corner for good.
 exit To_601
 module 601dan
 use MilLowPlstcCylin@1 # by the crashed speeder
