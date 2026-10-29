@@ -1,0 +1,47 @@
+# Malachor V, Bao-Dur's remote (TSL, 901MAL, 902MAL, to 903MAL): played as
+# the remote (k_901mal_enter with MAL_TURNINTO_REMOTE: the party emptied,
+# SpawnAvailablePUP 0 at wp_remote_start, put in Bao-Dur's slot,
+# SwitchPlayerCharacter 1), Bao-Dur's hologram and his last orders (901bao:
+# 901MAL_REMOTE set), the four buried Republic ships' engine consoles primed
+# for the mass shadow generator (console, conmain: "Enter sequence for
+# priming mass shadow generator.", 901MAL_Mass_Shadow counted up), two on
+# the surface and two in the depths, the fourth firing sensorfi: Bao-Dur's
+# farewell, G0-T0 holding the remote, HK-47 and the HK-50s turning on
+# G0-T0 (light side), a_sensor_end: MalMov09 and the Exile back in the
+# Trayus Academy (From_902MAL), where tr_sionenter switches the player back
+# and plays Sion's entrance with Kreia's voice (903kreia: the assassins
+# summoned and sent into the shadows).
+# Starts from the depths' checkpoint (the remote standing at
+# wp_remote_start):
+#   kjk playthrough tsl @malachor_remote data/routes/tsl/malachor_remote.route --god
+# Walkthrough: DSimpson's "Bao-Dur's Remote" (context/walkthroughs/tsl/);
+# GameBanshee 59 (1a), 60; Kerbow [WMALBD].
+#
+# ASSUMES:
+#   The Exile killed the storm beasts on the remote's ways (the surface and
+#   depths routes): the remote has no weapons (sensor E3: "You have no
+#   offensive weapons"). # UNSURE: whether --god covers a switched seat's
+#   creature (the remote is not the Exile); a beast left alive may kill it.
+#   The light side (G_PC_Align_Val over 50): sensorfi's HK-47 branch (E38
+#   on) plays, not G0-T0's (E12).
+#   The consoles are taken in DSimpson's order; conmain (the depths'
+#   Console@2) refuses below three primed (c_global_lt 3: E6
+#   "UNSUFFICIENT POWER"), so it is the last.
+talk                 # Bao-Dur's hologram (901bao, a_sensor_cs)
+say Enter sequence for priming mass shadow generator. # console start 1
+say Log out.         # (E5: 1 found)
+use Console@1        # the north buried ship (124,16)
+say Enter sequence for priming mass shadow generator.
+say Log out.         # (E4: 2 found)
+use Console@2        # the south buried ship (-32,-195)
+exit TO_902MAL
+module 902mal
+say Enter sequence for priming mass shadow generator.
+say Log out.         # (E3: 3 found)
+use Console@1        # the depths' east ship (93,-99)
+say Enter sequence for priming mass shadow generator. # conmain: E2, 4
+use Console@2        # found; a_sensordlgfire (-55,-219)
+talk                 # sensorfi: Bao-Dur, G0-T0, HK-47 (a_sensor_end)
+module 903mal        # MalMov09; the Exile at From_902MAL
+talk                 # tr_sionenter: 903kreia, Sion and the assassins
+save malachor_academy
