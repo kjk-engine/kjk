@@ -458,7 +458,72 @@ pub fn probes() -> Checks {
     checks.push(("cannot_equip_lines", cannot_equip_lines()));
     checks.push(("influence_starts", influence_starts()));
     checks.push(("alignment_follows_influence", follows()));
+    checks.push(("restrict_mode_ends_with_module", restrict_ends()));
+    checks.push(("minigame_takes_no_companions", minigame_alone()));
     checks
+}
+
+/// Atton joined, then a minigame's area installed (Peragus's hangar
+/// turret), then a plain one: not in the minigame's, back in the next.
+fn minigame_alone() -> Result<String, String> {
+    let (mut world, level) = world()?;
+    step(&mut world);
+    run(&mut world, "probe_atton_joins");
+    step(&mut world);
+    let atton = world
+        .script_state()
+        .party
+        .available
+        .get(&(ATTON as u8))
+        .and_then(|npc| npc.object)
+        .ok_or("Atton not joined")?;
+    let module = (**level.module().ok_or("no module")?).clone();
+    let elsewhere = |name: &str| {
+        let mut module = module.clone();
+        module.name = name.into();
+        module
+    };
+    let turret = level
+        .clone()
+        .with_module(elsewhere("turret"))
+        .with_minigame(crate::minigame::Rules::bare(crate::minigame::Kind::Turret));
+    let there = |snapshot: &Snapshot| snapshot.entities.iter().any(|e| e.id.0 == atton);
+    let in_turret = world.install(turret, None).map_err(|e| e.to_string())?;
+    let after = world
+        .install(level.with_module(elsewhere("after")), None)
+        .map_err(|e| e.to_string())?;
+    check(
+        !there(&in_turret) && there(&after),
+        format!(
+            "Atton in the minigame's area {}, in the next {}",
+            there(&in_turret),
+            there(&after)
+        ),
+    )
+}
+
+/// The player restrict mode set (as the asteroid walk's entry script
+/// does), then the next module installed: restricted in the first, not in
+/// the next.
+fn restrict_ends() -> Result<String, String> {
+    let (mut world, level) = world()?;
+    step(&mut world);
+    let mut state = world.script_state().clone();
+    state.party.restrict = true;
+    world.set_script_state(state);
+    step(&mut world);
+    let before = world.script_state().party.restrict;
+    let mut elsewhere = (**level.module().ok_or("no module")?).clone();
+    elsewhere.name = "elsewhere".into();
+    world
+        .install(level.with_module(elsewhere), None)
+        .map_err(|error| error.to_string())?;
+    step(&mut world);
+    let after = world.script_state().party.restrict;
+    check(
+        before && !after,
+        format!("restricted {before} in the module, {after} in the next"),
+    )
 }
 
 /// Atton made available reads his base influence, Kreia unset.

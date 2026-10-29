@@ -197,6 +197,21 @@ fn chase_replan_m(ranged: bool) -> f32 {
     if ranged { REPLAN_M } else { CHASE_M }
 }
 
+/// The walk to `at` (metres): `walker` kept while its goal is within
+/// `REPLAN_M` of it, else planned again by `plan`. A walk left from a chase
+/// made for its foe, not for this target (Peragus's assassin droid fought
+/// off at the shift console, the player then walking for good to where it
+/// fell instead of back to the console a script had it strike).
+fn walk_for(walker: &mut Option<Walker>, at: [f32; 3], plan: impl FnOnce() -> Walker) -> &mut Walker {
+    if walker
+        .as_ref()
+        .is_some_and(|w| flat(w.goal.map(|v| v * UNIT), at) > REPLAN_M)
+    {
+        *walker = None;
+    }
+    walker.get_or_insert_with(plan)
+}
+
 /// How near (metres) a closed door is for walking to press use.
 const DOOR_NEAR_M: f32 = 2.5;
 /// How far ahead (metres) a step is checked for a transition out
@@ -708,11 +723,16 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     }
                     let now = last.time_ms;
                     // A conversation with the player, or with the companion
-                    // it moves (one a script started with the leader).
+                    // it moves (one a script started with the leader), or
+                    // the one holding every seat, the player's to answer
+                    // whichever body leads now (Bao-Dur's at the old
+                    // military base's first shield, begun as he led and
+                    // still under way once the Exile led again).
                     let talking = last
                         .talk
                         .holding(ObjectId(avatar.id.0))
                         .or_else(|| last.talk.holding(ObjectId(me.id.0)))
+                        .or_else(|| last.talk.party())
                         .cloned();
                     if let Some(talk) = &talking {
                         settle.partner = Some(talk.owner.0);
@@ -1998,7 +2018,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             match assigned {
                                 None => back_walker = None,
                                 Some(at) => {
-                                    let w = back_walker.get_or_insert_with(|| here.approach(&player, at));
+                                    let w = walk_for(&mut back_walker, at, || here.approach(&player, at));
                                     let walk = if !w.arrived(&player) && here.leads(player.origin, w.goal) {
                                         w.command(here.level, &player, now, &|index| here.to_try(index))
                                     } else {

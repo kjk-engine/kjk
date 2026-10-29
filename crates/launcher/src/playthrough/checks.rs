@@ -117,7 +117,28 @@ pub fn probes() -> sim::probe::Checks {
         })
         .chain(replans(&chase_once))
         .chain(picks())
+        .chain(walks_for())
         .chain(shut_doors(&base, &level))
+        .collect()
+}
+
+/// The walk to a target (`walk_for`): one made for another spot farther
+/// than `REPLAN_M` off (a chase's, for its foe) is planned again; one made
+/// for the target is kept.
+pub(super) fn walks_for() -> sim::probe::Checks {
+    let target = [0.0, 0.0, 0.0];
+    let cases: [(&'static str, f32, bool); 2] = [
+        ("walk_for_another_spot_planned_again", REPLAN_M + 2.0, true),
+        ("walk_for_its_target_kept", REPLAN_M / 2.0, false),
+    ];
+    cases
+        .into_iter()
+        .map(|(name, off, replanned)| {
+            let mut walker = Some(Walker::new([off / UNIT, 0.0, 0.0]));
+            let planned = walk_for(&mut walker, target, || Walker::new(target)).goal != [off / UNIT, 0.0, 0.0];
+            let detail = format!("a walk {off:.1} m off its target: planned again {planned}");
+            (name, if planned == replanned { Ok(detail) } else { Err(detail) })
+        })
         .collect()
 }
 

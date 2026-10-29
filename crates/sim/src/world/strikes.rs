@@ -301,8 +301,19 @@ pub(super) fn strikes(
 /// meets it: at its point nearest a striker standing at `origin` (units),
 /// as though a body stood there.
 fn nearest(body: &collision::Body, origin: Vec3) -> Standing {
-    let at: Vec3 = std::array::from_fn(|i| (origin[i] * UNIT).clamp(body.min[i], body.max[i]));
-    let point = math::scale(at, 1.0 / UNIT);
+    // Within the body's span on an axis, the thrower's own coordinate, not
+    // one scaled there and back: one standing in a force field's doorway
+    // touches it (no way to it at all, so in front), where the round trip
+    // left a hair's way off in any direction (TSL's Bao-Dur in the old
+    // military base's field by the reactor, punching the air).
+    let point: Vec3 = std::array::from_fn(|i| {
+        let at = origin[i] * UNIT;
+        if at < body.min[i] || at > body.max[i] {
+            at.clamp(body.min[i], body.max[i]) / UNIT
+        } else {
+            origin[i]
+        }
+    });
     Standing {
         id: SimId(body.entity & !super::BODY),
         origin: point,
