@@ -138,6 +138,7 @@ pub(super) fn strikes(
     clock: Res<Clock>,
     level: Res<Static>,
     mut hits: ResMut<Hits>,
+    scripts: Res<super::scripts::Scripts>,
     mut actors: Query<(
         &Id,
         Option<&Avatar>,
@@ -167,6 +168,11 @@ pub(super) fn strikes(
         .collect();
     bodies.sort_by_key(|body| body.id);
     let bashable = super::objects::bodies(placed.iter());
+    // The companion leading the party (`lent`) is its player's hands: it
+    // throws a punch at their press, and punches what may be bashed, as
+    // their own body does (TSL's Bao-Dur led to strike a force field open:
+    // `a_ffield_baodur`).
+    let lent = super::lent(&scripts.state.party);
     let mut rows: Vec<_> = actors.iter_mut().collect();
     rows.sort_by_key(|(id, ..)| id.0);
     for (id, avatar, object, sheet, mut player, mut fighting) in rows {
@@ -219,7 +225,7 @@ pub(super) fn strikes(
                 _ if !landing || held_up => None,
                 Some(_) => target,
                 None => {
-                    let party = in_party(avatar, fighter);
+                    let party = in_party(avatar, fighter) || lent == Some(id.0);
                     let apart = level.0.friendly_fire == FriendlyFire::Off && party;
                     // The party punches what may be bashed too (`objects`).
                     let near: Vec<Standing> = match party {
@@ -267,7 +273,7 @@ pub(super) fn strikes(
             // Not gripped, its hand out, changing weapons or down (as a
             // shot waits: `fire`).
             None => {
-                (avatar.is_some() || target.is_some())
+                (avatar.is_some() || lent == Some(id.0) || target.is_some())
                     && force.gripped_by.is_none()
                     && !force.hand_out(now)
                     && saber.change == Change::None
@@ -295,8 +301,19 @@ pub(super) fn strikes(
 /// meets it: at its point nearest a striker standing at `origin` (units),
 /// as though a body stood there.
 fn nearest(body: &collision::Body, origin: Vec3) -> Standing {
-    let at: Vec3 = std::array::from_fn(|i| (origin[i] * UNIT).clamp(body.min[i], body.max[i]));
-    let point = math::scale(at, 1.0 / UNIT);
+    // Within the body's span on an axis, the thrower's own coordinate, not
+    // one scaled there and back: one standing in a force field's doorway
+    // touches it (no way to it at all, so in front), where the round trip
+    // left a hair's way off in any direction (TSL's Bao-Dur in the old
+    // military base's field by the reactor, punching the air).
+    let point: Vec3 = std::array::from_fn(|i| {
+        let at = origin[i] * UNIT;
+        if at < body.min[i] || at > body.max[i] {
+            at.clamp(body.min[i], body.max[i]) / UNIT
+        } else {
+            origin[i]
+        }
+    });
     Standing {
         id: SimId(body.entity & !super::BODY),
         origin: point,

@@ -125,6 +125,15 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             ),
         ),
         (
+            "held_item_found_by_tag",
+            check(
+                notices
+                    .iter()
+                    .any(|(_, _, notice)| *notice == Notice::Said(GIVEN.into())),
+                format!("{notices:?}"),
+            ),
+        ),
+        (
             "scripts_tell_players",
             check(
                 [Seat(0), Seat(1)].iter().all(|seat| {
@@ -170,7 +179,8 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
 /// The near container's `OnOpen`: a message box for every player
 /// (`DisplayMessageBox(BOX)`), words for its opener
 /// (`SendMessageToPC(GetLastOpenedBy(), SAID)`). The one behind's:
-/// `CreateItemOnObject(GIVEN)` on itself.
+/// `CreateItemOnObject(GIVEN)` on itself, then its opener told the tag of
+/// what `GetObjectByTag(GIVEN)` finds: the item it now holds.
 const BOX: crate::notice::Screen = crate::notice::Screen::MessageBox { strref: 42 };
 const SAID: &str = "opened";
 const GIVEN: &str = "rifle";
@@ -186,6 +196,10 @@ void DisplayMessageBox(int nStrRef, string sIcon = "");
 object GetLastOpenedBy();
 // 3
 object CreateItemOnObject(string sItemTemplate, object oTarget = OBJECT_SELF, int nStackSize = 1);
+// 4
+object GetObjectByTag(string sTag, int nNth=0);
+// 5
+string GetTag(object oObject);
 "#;
     let mut asm = script_ncs::probes::Asm::default();
     asm.op(Op::Const(Const::String(Vec::new())))
@@ -213,6 +227,24 @@ object CreateItemOnObject(string sItemTemplate, object oTarget = OBJECT_SELF, in
             args: 3,
         })
         .op(Op::MovSp(-4))
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::String(GIVEN.as_bytes().to_vec())))
+        .op(Op::Action {
+            routine: 4,
+            args: 2,
+        })
+        .op(Op::Action {
+            routine: 5,
+            args: 1,
+        })
+        .op(Op::Action {
+            routine: 2,
+            args: 0,
+        })
+        .op(Op::Action {
+            routine: 0,
+            args: 2,
+        })
         .op(Op::Retn);
     crate::probe::library(
         CATALOG,

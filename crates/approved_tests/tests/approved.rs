@@ -406,7 +406,9 @@ fn script_room_clips() {
 /// of the swing that no way leads to, or that the walk to it arrived short
 /// of, is gone at straight, never swung at from where the walk ended (the
 /// Dantooine ruins' guard droids); a gun fires at a foe it sees within its
-/// reach, and from where it stands at one no way leads to. Needs `--features
+/// reach, and from where it stands at one no way leads to; a walk left from
+/// a chase is planned again for the target a script then has the player
+/// strike (`walk_for`: Peragus's shift console). Needs `--features
 /// rig` (kjk's library); no installs.
 /// (proposed 2026-10-13)
 #[test]
@@ -414,7 +416,7 @@ fn harness_chase() {
     #[cfg(not(feature = "rig"))]
     println!("harness_chase skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
-    probed("harness chase", &kjk::probes::chase(), 6);
+    probed("harness chase", &kjk::probes::chase(), 17);
 }
 
 #[cfg(feature = "rig")]
@@ -882,6 +884,20 @@ fn ui_loot() {
     probed("loot", &sim::containers::probes(), 5);
 }
 
+/// TSL's party rules (`sim::tsl_probes`): natural healing and its hold,
+/// influence, puppets, forfeits, the puppet's follow, Bao-Dur met and the
+/// lines it names, alignment following influence, and a companion spawned
+/// twice in one script standing once (`spawned_twice_is_one`, Bao-Dur
+/// joining on Telos), and the player restrict mode ending with its module
+/// (`restrict_mode_ends_with_module`: the asteroid walk's had held the
+/// AI idle on Telos), and a minigame's area taking no companions
+/// (`minigame_takes_no_companions`: Peragus's hangar turret). The sim
+/// alone, on the proving ground.
+#[test]
+fn tsl_party_rules() {
+    probed("tsl", &sim::tsl_probes::probes(), 15);
+}
+
 /// The dead's remains (KOTOR's body bags; `sim::remains::probes`), owner
 /// 2026-10-05: on the proving ground a creature holding droppable items and
 /// gold is killed, its body taken away after its appearance's delay and
@@ -1063,7 +1079,7 @@ fn fight_through_a_hold() {
 /// the snapshot; two runs end the same. The sim alone.
 #[test]
 fn fists_brawl() {
-    probed("fists", &sim::strikes::fist_probes(), 6);
+    probed("fists", &sim::strikes::fist_probes(), 7);
 }
 
 /// Weapons out and away (docs/COMBAT.md, "Weapons out and away"): on the
@@ -1279,7 +1295,7 @@ fn dialogue_coop() {
 /// alone. Approved by the owner 2026-10-17 (do what you think is best).
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 68);
+    probed("scene", &sim::scene_probes::all(), 69);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
@@ -1294,7 +1310,7 @@ fn party_calls() {
 /// proving ground; the sim alone.
 #[test]
 fn downed_and_revive() {
-    probed("falls", &sim::falls::probes(), 17);
+    probed("falls", &sim::falls::probes(), 18);
 }
 
 /// Items and levels in co-op (I31): `sim::coop_items::probes`, the
@@ -1335,7 +1351,7 @@ fn item_properties() {
 /// the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 13);
+    probed("switch", &sim::switch::probes(), 15);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and

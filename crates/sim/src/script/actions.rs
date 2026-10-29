@@ -45,8 +45,11 @@
 //! - **converse** (`ActionStartConversation`, after its move): asks for
 //!   the conversation (`script::dialogue`) and completes;
 //! - **hold** (`ActionResumeConversation`): the conversation its object
-//!   is in goes on, and completes (`ActionPauseConversation` holds at
-//!   once and queues nothing);
+//!   is in goes on, and completes;
+//! - **pause** (`ActionPauseConversation`): the conversation is held at
+//!   once (`dialogue`), and this completes when it reaches the front; a
+//!   queue cleared before then drops the pause with it, as the
+//!   executables' queued pause never ran (reone queues both);
 //! - **switch weapons** (TSL's `ActionSwitchWeapons`): the object's whole
 //!   queue cleared (this one with it), its weapon sets exchanged at once
 //!   (`items::State::switch_weapons`), and, in combat with a target, an
@@ -154,6 +157,12 @@ pub enum Action {
     Hold {
         talk: Option<u32>,
     },
+    /// `ActionPauseConversation`'s place in the queue (the pause itself held
+    /// at once), and the conversation whose script queued it: cleared
+    /// before it reaches the front, the pause is dropped.
+    Pause {
+        talk: Option<u32>,
+    },
     /// `ActionSwitchWeapons`.
     SwitchWeapons,
     Instant {
@@ -200,6 +209,7 @@ impl Action {
             Action::RandomWalk { .. } => "random walk",
             Action::Converse { .. } => "converse",
             Action::Hold { .. } => "hold",
+            Action::Pause { .. } => "pause",
             Action::SwitchWeapons => "switch weapons",
             Action::Instant { .. } => "instant",
             Action::Cast { .. } => "cast",
@@ -232,6 +242,7 @@ impl Action {
             Action::Jump { .. }
             | Action::Code { .. }
             | Action::Hold { .. }
+            | Action::Pause { .. }
             | Action::SwitchWeapons
             | Action::Instant { .. }
             | Action::Surrender

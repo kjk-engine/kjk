@@ -1,0 +1,54 @@
+# Telos, the Exchange (TSL, 208TEL, 203TEL, 204TEL): Loppak Slusk's
+# suites: his captain Benok set on us (fought), the Gamorrean boss, Slusk's
+# droids, then Slusk himself and Luxa: DSimpson's least violent way, Luxa
+# turned on and a deal with Slusk to leave the Ithorians alone; the force
+# cage's Ithorian freed from Slusk's terminal; back to Chodo, the reward
+# politely refused (LSP, the lightsaber's energy cell fixture). Starts from
+# the reception's checkpoint:
+#   kjk playthrough tsl @telos_exchange data/routes/tsl/telos_exchange.route --god
+# Walkthrough: DSimpson's "Working for the Ithorians", Mission #2, and
+# "Luxa, the Exchange and a Quarren Named Slusk" (context/walkthroughs/tsl/).
+say I'm here representing Chodo Habat # Slusk won't listen; Benok and his
+use door_203exlo     # goons attack
+talk
+fight 30
+save telos_benok
+bash door_203exes    # the next door, locked (DC 28, past Atton's Security):
+                     # bashed (DSimpson: Security or bash)
+use GamGuardLuxDoor  # up the hall, the Gamorrean boss at Slusk's door (one of
+talk                 # Luxa's): Slusk sends out two war droids
+fight 30
+say I just want you to leave the Ithorians alone # once the droids are
+say Can't we talk about this # down, Slusk's scene as his door opens
+say That sounds like a good offer # (a_luxa): Luxa comes in; his offer
+fight 30             # (Luxa's termination) taken, the least violent way
+                     # (DSimpson); Luxa and her Gamorreans turn on us,
+until 203TEL_Exchange_M=1 # and Slusk agrees to leave the Ithorians alone
+save telos_slusk_deal
+use CivilFootLker    # the office's footlocker and plasteel cylinders
+use MilHighPlstcCylin@1
+use MilHighPlstcCylin@2
+say [Computer] Bypass secure login # Slusk's terminal: the force cage's
+say Access remote camera controls # Ithorian freed
+say Holding cells
+say Deactivate Force Cage 2
+use term_slusk
+talk
+save telos_slusk_done
+exit Exchange        # out of the Exchange, and the terminal's transit back
+module 203tel        # to the Ithorian compound
+say Transit to another module
+say Residential Module 082 West
+use info_term
+talk
+module 204tel
+say I have convinced Loppak Slusk # Chodo: the Exchange dealt with; his gift
+say I cannot accept this from you # politely refused (LSP; the lightsaber
+say How did Czerka imbed # energy cell fixture all the same); Mission 3:
+say All right. I'll help you # Czerka's mainframe, a Czerka man in the
+say Go on...                 # cantina who may help
+say How do you propose
+say I will see what I can do
+use 204_Habat
+talk
+save telos_czerka_files

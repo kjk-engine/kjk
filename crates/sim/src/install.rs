@@ -239,8 +239,19 @@ pub(crate) fn assemble(
     let place = level.place().ok_or(InstallError::NoModule)?;
     let mut stash = before.stash.to_vec();
     let mut next_id = before.next_id;
-    let mut companions = companions(before, old);
-    for (id, template) in members {
+    // A minigame's area takes no companions: they wait in the module left
+    // (its stash, below) and arrive with the party in the next. Peragus's
+    // hangar turret ships its own Atton, out of the troopers' way, to speak
+    // its scenes; the party's Atton carried in stood in the hangar, fought
+    // the troopers as they came and fell in the turret's fire, and its last
+    // scene (turend, his) never began.
+    let minigame = level.minigame().is_some();
+    let mut companions = if minigame {
+        Vec::new()
+    } else {
+        companions(before, old)
+    };
+    for (id, template) in members.iter().filter(|_| !minigame) {
         if companions.iter().any(|(c, _)| c.id.0 == *id) {
             continue;
         }

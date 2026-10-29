@@ -219,6 +219,8 @@ fn library() -> crate::script::Library {
             ("probe_follow_far", follow_owner(FOLLOW_FAR)),
             ("probe_follow_near", follow_owner(FOLLOW_NEAR)),
             ("probe_bao_dur", bao_dur.build()),
+            ("probe_spawned_twice", spawned_twice()),
+            ("probe_second_atton", second_atton()),
         ],
     )
     .with_creatures(
@@ -262,6 +264,39 @@ fn atton_joins() -> Ncs {
     asm.op(call(13, 0)).op(call(12, 1));
     asm.op(int(ATTON)).op(call(14, 2));
     asm.op(int(ATTON)).op(call(15, 2)).op(Op::MovSp(-4));
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_spawned_twice`: Atton made available, then spawned twice at the
+/// player in one script, the second made a party member (TSL's
+/// `a_baodur_join` spawns Bao-Dur so).
+fn spawned_twice() -> Ncs {
+    let mut asm = Asm::default();
+    asm.op(text(ATTON_TEMPLATE))
+        .op(int(ATTON))
+        .op(call(5, 2))
+        .op(Op::MovSp(-4));
+    asm.op(call(13, 0)).op(call(12, 1));
+    asm.op(int(ATTON)).op(call(14, 2)).op(Op::MovSp(-4));
+    asm.op(call(13, 0)).op(call(12, 1));
+    asm.op(int(ATTON)).op(call(14, 2));
+    asm.op(int(ATTON)).op(call(15, 2)).op(Op::MovSp(-4));
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_second_atton`: token 40 whether a second object is tagged
+/// `atton`, 41 whether a first one is.
+fn second_atton() -> Ncs {
+    let mut asm = Asm::default();
+    for (n, nth) in [(40, 1), (41, 0)] {
+        token(
+            &mut asm,
+            n,
+            &[int(nth), text("atton"), call(21, 2), call(16, 1)],
+        );
+    }
     asm.op(Op::Retn);
     asm.build()
 }
@@ -419,10 +454,76 @@ pub fn probes() -> Checks {
     checks.push(("follow_owner_held", follow_owner(true)));
     checks.push(("follow_owner_runs", follow_owner(false)));
     checks.push(("bao_dur_met", bao_dur_met()));
+    checks.push(("spawned_twice_is_one", spawned_twice_is_one()));
     checks.push(("cannot_equip_lines", cannot_equip_lines()));
     checks.push(("influence_starts", influence_starts()));
     checks.push(("alignment_follows_influence", follows()));
+    checks.push(("restrict_mode_ends_with_module", restrict_ends()));
+    checks.push(("minigame_takes_no_companions", minigame_alone()));
     checks
+}
+
+/// Atton joined, then a minigame's area installed (Peragus's hangar
+/// turret), then a plain one: not in the minigame's, back in the next.
+fn minigame_alone() -> Result<String, String> {
+    let (mut world, level) = world()?;
+    step(&mut world);
+    run(&mut world, "probe_atton_joins");
+    step(&mut world);
+    let atton = world
+        .script_state()
+        .party
+        .available
+        .get(&(ATTON as u8))
+        .and_then(|npc| npc.object)
+        .ok_or("Atton not joined")?;
+    let module = (**level.module().ok_or("no module")?).clone();
+    let elsewhere = |name: &str| {
+        let mut module = module.clone();
+        module.name = name.into();
+        module
+    };
+    let turret = level
+        .clone()
+        .with_module(elsewhere("turret"))
+        .with_minigame(crate::minigame::Rules::bare(crate::minigame::Kind::Turret));
+    let there = |snapshot: &Snapshot| snapshot.entities.iter().any(|e| e.id.0 == atton);
+    let in_turret = world.install(turret, None).map_err(|e| e.to_string())?;
+    let after = world
+        .install(level.with_module(elsewhere("after")), None)
+        .map_err(|e| e.to_string())?;
+    check(
+        !there(&in_turret) && there(&after),
+        format!(
+            "Atton in the minigame's area {}, in the next {}",
+            there(&in_turret),
+            there(&after)
+        ),
+    )
+}
+
+/// The player restrict mode set (as the asteroid walk's entry script
+/// does), then the next module installed: restricted in the first, not in
+/// the next.
+fn restrict_ends() -> Result<String, String> {
+    let (mut world, level) = world()?;
+    step(&mut world);
+    let mut state = world.script_state().clone();
+    state.party.restrict = true;
+    world.set_script_state(state);
+    step(&mut world);
+    let before = world.script_state().party.restrict;
+    let mut elsewhere = (**level.module().ok_or("no module")?).clone();
+    elsewhere.name = "elsewhere".into();
+    world
+        .install(level.with_module(elsewhere), None)
+        .map_err(|error| error.to_string())?;
+    step(&mut world);
+    let after = world.script_state().party.restrict;
+    check(
+        before && !after,
+        format!("restricted {before} in the module, {after} in the next"),
+    )
 }
 
 /// Atton made available reads his base influence, Kreia unset.
@@ -696,6 +797,21 @@ fn bao_dur_met() -> Result<String, String> {
     check(
         !before && after,
         format!("before {before}, after SetInfluence(NPC_BAO_DUR, 50) {after}"),
+    )
+}
+
+/// A companion spawned twice in one script (`SpawnAvailableNPC`) stands
+/// once: the second takes the first one's place, the party table keeping
+/// one creature a companion.
+fn spawned_twice_is_one() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    run(&mut world, "probe_spawned_twice");
+    step(&mut world);
+    run(&mut world, "probe_second_atton");
+    let told = tokens(&step(&mut world), 40..=41);
+    check(
+        told == ["0", "1"],
+        format!("(a second, a first) atton: {told:?}"),
     )
 }
 

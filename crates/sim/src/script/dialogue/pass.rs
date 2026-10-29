@@ -330,14 +330,16 @@ impl Engine<'_> {
             }
             // The pause holds the conversation at once; the resume waits its
             // turn behind the caller's actions (S5), so a pause, some acting
-            // and a resume hold the line through the acting.
+            // and a resume hold the line through the acting. The pause keeps
+            // its place in the queue too: a clear before it reaches the
+            // front drops it (`Engine::clear_queue`).
             ActionPauseConversation => {
                 let talk = running(&self.state.talk, &self.event);
                 let host = view.host(&self.state.party);
                 if let Some(at) = self.state.talk.held_by(caller, talk, host) {
                     self.state.talk.conversations[at].paused = true;
                 }
-                Value::Int(0)
+                self.queue(caller, Action::Pause { talk })
             }
             ActionResumeConversation => {
                 let talk = running(&self.state.talk, &self.event);
