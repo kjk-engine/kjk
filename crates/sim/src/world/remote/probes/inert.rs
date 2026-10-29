@@ -4,9 +4,8 @@
 //! state and all.
 
 use super::super::super::SimWorld;
-use super::super::super::drivers::probes::{party_world, poke, scripts_of};
+use super::super::super::drivers::probes::{poke, scripts_of};
 use super::follows;
-use crate::Guests;
 use crate::input::{Command, Seat, TickInput};
 use crate::probe::{Checks, check};
 use crate::snapshot::Snapshot;
@@ -18,7 +17,7 @@ pub(super) fn probes() -> Checks {
 /// Seats 0 and 1 playing, the second companion out of the party: seat 2
 /// has no body.
 fn world() -> Result<SimWorld, String> {
-    let (mut world, _, [_, b]) = party_world(Guests::Companions, 3)?;
+    let (mut world, _, [_, b]) = super::companions(3)?;
     poke(&mut world, b, follows(None));
     scripts_of(&mut world).state.party.leave(1);
     Ok(world)

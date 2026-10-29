@@ -102,6 +102,7 @@ fn range(seats: u8) -> Result<Range, String> {
         ..WorldConfig::one_seat()
     };
     let mut world = SimWorld::new(config, level).map_err(|why| why.to_string())?;
+    super::settle(&mut world);
     let first = step(&mut world, seats, &[]);
     let leader = first.body(Seat(0)).ok_or("seat 0 has no body")?;
     let origin = leader.position;
@@ -428,7 +429,17 @@ fn dart() -> Result<String, String> {
     let after_revive = range.ready(1);
     let half = max / 2;
     let mut healer = self::range(2)?;
-    healer.edit(mate, move |fighter| fighter.hp = half);
+    // No fight about: the second fights the Min1HP duelist else (a duel).
+    for tag in [FOE, DUELIST, BIG, SECOND] {
+        let id = healer.id(tag)?;
+        healer.edit(id, |fighter| {
+            fighter.life = crate::combat::fighter::Life::Dead
+        });
+    }
+    healer.edit(mate, move |fighter| {
+        fighter.hp = half;
+        fighter.target = None;
+    });
     let from = over(&healer);
     healer.fire(2, 1, from, buttons::MEDPAC, mate)?;
     let healed = healer.hp(mate);

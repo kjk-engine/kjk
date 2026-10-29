@@ -22,11 +22,15 @@ pub(crate) struct Remotes(pub Vec<Remote>);
 pub(crate) struct Launched(pub Vec<(Seat, [f32; 3])>);
 
 /// Gives each held guest seat that spoke and drives no body a droid, and
-/// takes it from one that drives a body again. Runs on the authority, right
-/// after `drivers::assign`.
+/// takes it from one that drives a body again. Runs on the authority after
+/// `drivers::assign` and `scene::hold`.
 pub(super) fn launch(world: &mut World) {
     let launched = std::mem::take(&mut world.resource_mut::<Launched>().0);
     let playing = world.resource::<super::minigame::Minigame>().0.is_none();
+    let holds = holds(
+        world.resource::<super::scene::Held>(),
+        world.resource::<super::Module>().fade.as_ref(),
+    );
     let held = world.resource::<SeatsHeld>().0;
     let spoke: Vec<Seat> = {
         let inputs = &world.resource::<Inputs>().0;
@@ -44,7 +48,7 @@ pub(super) fn launch(world: &mut World) {
     let leader = leader(world);
     let mut remotes = std::mem::take(&mut world.resource_mut::<Remotes>().0);
     remotes.retain(|remote| flies(&remote.seat));
-    for seat in spoke.iter().filter(|seat| flies(seat)) {
+    for seat in spoke.iter().filter(|seat| flies(seat) && !holds) {
         if remotes.iter().any(|remote| remote.seat == *seat) {
             continue;
         }
@@ -62,6 +66,15 @@ pub(super) fn launch(world: &mut World) {
     }
     remotes.sort_by_key(|remote| remote.seat);
     world.resource_mut::<Remotes>().0 = remotes;
+}
+
+/// Whether the world holds the droids: a conversation holds it (every
+/// seat's body in one, or a party one: `scene::Held`), or a fade covers
+/// the screen (waiting, running or done). Hidden, their kit off; a guest
+/// who first speaks then gets none till it ends. A movie or a break holds
+/// the session itself: no step runs.
+pub(super) fn holds(held: &super::scene::Held, fade: Option<&crate::snapshot::Fade>) -> bool {
+    held.world || fade.is_some_and(|fade| fade.out)
 }
 
 /// How far above a body's origin a droid launches (m).

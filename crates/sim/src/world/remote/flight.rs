@@ -1,6 +1,8 @@
 //! How a droid flies (`remote.flight` in the rulebook): where its seat
 //! looks, hovering between its floor bounds, through nothing a player can't
 //! pass, leashed to the party; behind the leader again on Use or when lost.
+//! While the world holds (`super::holds`) it waits hidden where it is, and
+//! comes back behind the leader as the hold ends.
 
 use bevy_ecs::prelude::*;
 use collision::{Contents, Extents, UNIT};
@@ -53,8 +55,10 @@ fn inside_with(level: &Level, states: Option<&[u8]>, at: [f32; 3]) -> bool {
 
 /// Moves each droid by its seat's command. Runs on every step, so the
 /// views predict it.
+#[allow(clippy::too_many_arguments)]
 pub(in crate::world) fn fly(
     clock: Res<Clock>,
+    (held, module): (Res<super::super::scene::Held>, Res<super::super::Module>),
     inputs: Res<Inputs>,
     level: Res<Static>,
     objects: Query<&Object>,
@@ -82,16 +86,25 @@ pub(in crate::world) fn fly(
         .filter(|(_, _, fighting, avatar)| in_party(*avatar, &fighting.0) && fighting.0.alive())
         .map(|(_, player, ..)| scale(player.0.origin, UNIT))
         .collect();
+    let holds = super::holds(&held, module.fade.as_ref());
     for remote in &mut remotes.0 {
-        let Some(command) = inputs.0.get(remote.seat) else {
-            continue;
-        };
         let back = |remote: &mut crate::remote::Remote| {
             if let Some((at, yaw)) = leader.map(placed_behind) {
                 remote.at = at;
                 remote.yaw = yaw;
                 remote.velocity = [0.0; 3];
             }
+        };
+        if holds || remote.hidden {
+            remote.hidden = holds;
+            remote.velocity = [0.0; 3];
+            if !holds {
+                back(remote);
+            }
+            continue;
+        }
+        let Some(command) = inputs.0.get(remote.seat) else {
+            continue;
         };
         if command.buttons & buttons::USE != 0 {
             back(remote);

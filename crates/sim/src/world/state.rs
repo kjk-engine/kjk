@@ -415,11 +415,15 @@ impl SimWorld {
             (
                 party::breaks,
                 (
-                    (drivers::assign, remote::launch)
-                        .chain()
-                        .run_if(on_authority),
+                    drivers::assign.run_if(on_authority),
                     minigame::steer,
-                    (scene::hold, hold_talkers).chain(),
+                    // A droid launches by the hold the step begins under.
+                    (
+                        scene::hold,
+                        remote::launch.run_if(on_authority),
+                        hold_talkers,
+                    )
+                        .chain(),
                     (made_faces, minds::think.run_if(on_authority)).chain(),
                     powers::force,
                     (

@@ -11,6 +11,7 @@ use crate::{Guests, WorldConfig};
 
 mod flight;
 mod gate;
+mod holds;
 mod inert;
 mod kit;
 
@@ -28,6 +29,7 @@ pub fn probes() -> Checks {
     checks.extend(inert::probes());
     checks.extend(gate::probes());
     checks.extend(kit::probes());
+    checks.extend(holds::probes());
     checks
 }
 
@@ -42,7 +44,27 @@ fn bare_on(seats: u8, level: crate::Level) -> Result<SimWorld, String> {
         guests: Guests::Companions,
         ..WorldConfig::one_seat()
     };
-    SimWorld::new(config, level).map_err(|why| why.to_string())
+    let mut world = SimWorld::new(config, level).map_err(|why| why.to_string())?;
+    settle(&mut world);
+    Ok(world)
+}
+
+/// `party_world`, the fade its module loads under lifted.
+fn companions(seats: u8) -> Result<(SimWorld, crate::Level, [SimId; 2]), String> {
+    let (mut world, level, ids) = party_world(Guests::Companions, seats)?;
+    settle(&mut world);
+    Ok((world, level, ids))
+}
+
+/// Steps `world`, seat 0 alone standing, until the fade a module loads
+/// under no longer covers the screen: the droids wait it out
+/// (`remote::holds`).
+pub(super) fn settle(world: &mut SimWorld) {
+    for _ in 0..600 {
+        if !run(world, &[(0, 0)]).fade.is_some_and(|fade| fade.out) {
+            return;
+        }
+    }
 }
 
 /// `id` follows seat 0 (in the party) or no one (out of it).
@@ -85,7 +107,7 @@ fn solo() -> Result<String, String> {
 /// Seat 2 flies while the second companion is out of the party; it joins,
 /// and seat 2 drives it that step, its droid docked.
 fn docks() -> Result<String, String> {
-    let (mut world, _, [_, b]) = party_world(Guests::Companions, 3)?;
+    let (mut world, _, [_, b]) = companions(3)?;
     poke(&mut world, b, follows(None));
     scripts_of(&mut world).state.party.leave(1);
     let flying = run(&mut world, &[(0, 0), (1, 0), (2, 0)]);
@@ -108,7 +130,7 @@ fn docks() -> Result<String, String> {
 /// Seat 2 drives the second companion, which leaves the party: its droid
 /// launches 1.5 m above where the companion stood.
 fn launches() -> Result<String, String> {
-    let (mut world, _, [_, b]) = party_world(Guests::Companions, 3)?;
+    let (mut world, _, [_, b]) = companions(3)?;
     let driving = run(&mut world, &[(0, 0), (1, 0), (2, 0)]);
     if driving.body(Seat(2)).map(|entity| entity.id) != Some(b) {
         return Err("seat 2 does not drive the second companion".into());
