@@ -440,8 +440,11 @@ pub fn build_area(
             // A see-through mesh is drawn, never met (a light beam's,
             // a hologram's: the Sith academy's beam over Uthar boxed him
             // in, out of every player's reach); KOTOR meets walkmeshes
-            // only, and the walkmesh's edges keep bodies in.
-            if mesh.transparency_hint != 0 {
+            // only, and the walkmesh's edges keep bodies in. One drawn
+            // translucent by its alpha is see-through too (Khoonda's hall:
+            // the skylights' light shafts, `danfx_clouds` at alpha 0.6,
+            // stood the player in a box at the battle's start).
+            if mesh.transparency_hint != 0 || mesh.alpha < 1.0 {
                 *stats
                     .render_skipped
                     .entry("see-through".into())

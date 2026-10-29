@@ -1,0 +1,65 @@
+# Dantooine, the Khoonda Plains and Khoonda (TSL, 003EBO, 601DAN, 602DAN):
+# the galaxy map to Dantooine, Bao-Dur on the Exile's lightsaber, ashore
+# with Bao-Dur and Kreia (DSimpson: Bao-Dur for the sensors); Dillan's
+# greeting, the battered droid (no Awareness, Computer or Repair to see it
+# is broken: asked through), the landing pad's containers (one locked,
+# Bao-Dur's Security; the "{Blast}" cylinder is left shut, see below), into
+# Khoonda: Suulru's vaporator (helped), Administrator Adare (the Ebon Hawk
+# owned, the Force's guidance, Vrook to be found first: the sublevel's
+# permission), Berun, and out to
+# Saedhe by the cave (the atmospheric sensors asked after: DSimpson takes
+# his quest, not Berun's evidence). Starts from Telos's last checkpoint:
+#   kjk playthrough tsl @telos_done data/routes/tsl/dantooine_khoonda.route --god
+# Walkthrough: DSimpson's "Dantooine - Khoonda" (context/walkthroughs/tsl/).
+# Left: the pazaak Ithorian (a game of chance), the Rodian's crystals.
+use Galaxymap
+travel 0             # Dantooine (planetary.2da)
+talk                 # Bao-Dur's lightsaber talk as the Hawk lands
+party 1,6            # Bao-Dur and Kreia
+to tr_leave          # the ramp: the party screen, accepted
+module 601dan
+talk                 # Dillan's greeting off the ship
+use olddroid         # the battered protocol droid, asked through
+talk
+use MilLowPlstcCylin@2 # the landing pad's cylinders
+use MilLowPlstcCylin@3
+use MilLowPlstcCylin@4
+use CivilFootLker    # the Ithorian's footlocker (DSimpson: "goodies")
+leader 1             # the locked cylinder by Khoonda's wall (DC 18):
+unlock MilHighPlstcCylin # Bao-Dur's Security
+use MilHighPlstcCylin
+leader player
+# Left shut: the pad's "Plasteel Cylinder{Med, Blast}" (MilMidPlstcCylin),
+# which no key opens (KeyRequired, no key) and DSimpson mines open: TSL's
+# mine set on a container is not built (the sim's is a door's).
+exit To_602          # Khoonda's front door
+module 602dan
+say I'll see what I can do. # Suulru: Jorran's missing modulator
+use npc_suulru
+talk
+say I came in that ship, yes. # Administrator Adare
+say I'd prefer if you keep that quiet
+say The Force seems to have guided me here
+say He didn't send for me, but I would like to meet with him
+say I will make it my first priority. # the sublevel's permission
+use npc_terena
+talk
+use npc_berun        # Berun, asked through (his doubts of Zherron)
+talk
+# BLOCKER: Zherron's kinrath job left (and its reward, in dantooine_cave,
+# and the salvagers' will, given Daraala instead in dantooine_enclave):
+# every walk back from his post makes for a corner of the way 0.2 m from
+# the foot of the militia desk's sloped nonwalk walkmesh face at (-6.7,
+# -15.2), where the navigation mesh's rounding is cut short (the full
+# step off would leave the mesh: the gap is narrower than the JA box);
+# the box meets the slope's foot on the next leg, and the walk's sidesteps,
+# unwedging and backing off bring it back to that corner for good.
+exit To_601
+module 601dan
+use MilLowPlstcCylin@1 # by the crashed speeder
+say What are you doing out here? # Saedhe: the missing atmospheric sensors
+say I'll see what I can do.
+use npc_saedhe
+talk
+use MilLowPlstcCylin@5 # beside him
+save dantooine_plains
