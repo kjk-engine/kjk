@@ -305,7 +305,15 @@ pub(crate) fn read_recording(path: &std::path::Path) -> Result<sim::Recording, S
 /// weapon with a vibroblade's (1d10, slashing; `jedi@5`, a vibroblade).
 pub(crate) fn player_sheet(class: &str) -> Result<sim::combat::Sheet, String> {
     // The duels' saber fighter (`saber_verbs::jedi`): `duelist` one saber
-    // with every single-blade style, `@dual` two, `@staff` a staff.
+    // with every single-blade style, `@dual` two, `@staff` a staff; built
+    // with the probes, which hold the duels.
+    #[cfg(not(feature = "probes"))]
+    if class.starts_with("duelist") {
+        return Err(format!(
+            "--class {class}: duelist needs the `probes` feature"
+        ));
+    }
+    #[cfg(feature = "probes")]
     if let Some(set) = class.strip_prefix("duelist") {
         use sim::combat::saber::Style;
         let style = match set {
