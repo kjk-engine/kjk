@@ -1,0 +1,41 @@
+# Korriban, Darth Sion and the way out (TSL, 702KOR, 701KOR, to 003EBO):
+# back from the detention room, Sion in the central chamber with two Sith
+# Assassins (asked what he wants with Kreia, told he will not harm her:
+# no "don't let me stand in your way"), fought until Kreia's voice: he
+# cannot be defeated, flee (thanked, no -INF); the Exile flees to the
+# valley (Sion sends his assassins after a male Exile), back aboard the
+# Ebon Hawk, and T3-M4's message from Kelborn (thanked: +INF), Dxun next.
+# Starts from the detention room, the front door open:
+#   kjk playthrough tsl @korriban_vash data/routes/tsl/korriban_sion.route --god
+# Walkthroughs: DSimpson's "The Sith Academy" (its end) and "Onderon Finale"
+# (its start), Kerbow's "Darth Sion" and "Post Korriban Ebon Hawk"
+# (context/walkthroughs/tsl/).
+#
+# ASSUMES:
+# - Darth Sion (DarthSion) keeps one hit point (Min1HP); his user-defined
+#   script (k_sion_ud) starts Kreia's call (kreia_si) once he is wounded,
+#   and her scene's end the flight (sion start 2, a_to_701kor).
+#   # UNSURE: `fight` against a creature that cannot fall: the goal must end
+#   by Kreia's scene, not by "none hostile" (the assassins first: DSimpson
+#   kills them for the XP before Sion).
+# - The Kelborn message aboard (t3kelbrn, CUT_MSG_FROM_KELBORN in
+#   k_003ebo_enter) asks 502OND_End_First, 403DXN_Return_Trigger and
+#   000_Jedi_Found (Vash makes four: Vrook, Kavar, Zez-Kai Ell, Vash).
+#   # UNSURE: those three are what Onderon's first visit left; if the scene
+#   does not play, the `say` and `talk` below block and Dxun's draft starts
+#   without it.
+say What do you want with her? # sion start 1 (male): his questions
+say I will not let you harm her. # (not "If you want revenge on her, don't let me stand in your way")
+to tr_sion_fight     # the central chamber: Sion and his assassins
+talk
+say Thanks for the information. # kreia_si: flee (not "Now you tell me", nor "I won't run")
+fight 40             # the two Sith Assassins, then Sion to Kreia's call
+talk                 # Kreia: "He cannot be defeated... Flee." (a_open_door_ente)
+talk                 # the flight: Sion orders the hunt (sion start 2, a_to_701kor)
+module 701kor
+fight 30             # any assassins sent after the Exile (a_sion_end) # UNSURE: none may come
+to to_ebonhawk_custom # aboard (tr_ehawk_custom: 003EBO_RETURN_DEST, StartNewModule)
+module 003ebo
+say Thanks T3. Please tell me what Kelborn said. # t3kelbrn (+INF)
+talk
+save korriban_done

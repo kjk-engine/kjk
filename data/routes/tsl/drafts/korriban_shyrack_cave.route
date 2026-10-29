@@ -1,0 +1,48 @@
+# Korriban, the Shyrack Cave to the secret tomb (TSL, 710KOR, to 711KOR):
+# the half-eaten corpse's datapad by the entrance, the shyracks and deadly
+# tuk'ata fighting among themselves at the first turn (the Sith corpses and
+# the jar there), the tuk'ata packs the cave's triggers send down its long
+# chasm, the bridge and its cloaked Sith Assassins' ambush (a Sith corpse
+# at its end), the two jars past the bridge, the Hssiss by the sealed
+# tomb; Kreia's voice at the tomb (strong enough: the Exile goes on alone,
+# the companions sent back aboard the Ebon Hawk, RemoveNPCFromPartyToBase
+# in a_tomb) and into the tomb.
+# Starts from the cave's mouth:
+#   kjk playthrough tsl @korriban_cave data/routes/tsl/korriban_shyrack_cave.route --god
+# Walkthrough: DSimpson's "Shyrack Cave" (context/walkthroughs/tsl/).
+# Left: the cave's other jars, Sith corpses and rubble off the way
+# (CeramicJar@2-8, @11-12, skullcorpse@3-5, Rubble1@*): DSimpson's loop of
+# the side passages, random loot for fights.
+#
+# ASSUMES:
+# - The party is the Exile, Atton and Bao-Dur (korriban_valley).
+# - The Exile's alignment is 75 or more and the global G_PC_LEVEL above 9:
+#   sec_tomb's way in asks "not c_align_bet 26 74 and c_global_gt
+#   G_PC_LEVEL 9". # UNSURE: neither is known for the chain's save; short of
+#   either, Kreia's scene knocks the Exile down at the door (sec_tomb start
+#   3) and `module 711kor` blocks. G_PC_LEVEL is a script global the games'
+#   level-up scripts keep; check the engine sets it.
+# - The fights here are won with --god.
+use corpse_tukata    # the Half-Eaten Corpse's datapad on the cave's beasts
+fight 30
+use skullcorpse@1    # the first turn: the beasts' fight, its corpses and jar
+use skullcorpse@2
+use CeramicJar@1
+fight 30
+to wp_tukata_attack@4 # down the cave (tr_tukata_attack sends the packs)
+fight 30
+to wp_tukata_attack@2
+fight 30
+to wp_tukata_attack@3
+fight 30
+to tr_sith_ass       # the bridge: the cloaked Sith Assassins (a_sith_att)
+fight 30
+use skullcorpse@6    # at the bridge's end
+use CeramicJar@9     # past it
+use CeramicJar@10
+fight 30             # the Hssiss by the tomb
+say I will go on alone. # sec_tomb: Kreia at the sealed door (not "I'm not ready yet.")
+to tr_secret_tomb    # the companions held back, the Exile in alone (a_tomb)
+talk
+module 711kor
+save korriban_tomb

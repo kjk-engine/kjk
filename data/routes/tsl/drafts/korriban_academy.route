@@ -1,0 +1,81 @@
+# Korriban, back through the cave to the Sith Academy, to Master Vash (TSL,
+# 710KOR, 701KOR, 702KOR): out of the cleared cave, up the valley's path to
+# the Academy's open doors (the party's misgivings, kreia_ac), in: Darth
+# Sion meditating, his assassins sent to find the Exile and the doors
+# slammed shut, the entrance's tuk'ata; the student dorms' footlocker and
+# its recruits' datapad, the student terminal (a New Recruit's ID, logged
+# in, the Level One written test passed 5 of 5, the training room opened,
+# logged out to the assassins it sends), the gas-trapped hall and its
+# assassins, the training room (the training sequence begun, the starving
+# tuk'ata fought, failed for time: the detention room opened), Master Lonna
+# Vash dead in her cage (no DSP), her datapad and her lightsaber, the
+# detention terminal (logged in as Lonna Vash, the front door opened).
+# Starts from the tomb's back door, in the cave:
+#   kjk playthrough tsl @korriban_tomb_done data/routes/tsl/korriban_academy.route --god
+# Walkthroughs: DSimpson's "The Sith Academy", GameBanshee's "Sith Academy"
+# (context/walkthroughs/tsl/).
+# Left: the library (Access Learning Material opens it: its assassins, its
+# terminal, the Thorium Charges in mil_locker, Security only: bashed it
+# blows up, a_locker_boom), so Uthar's old room (door_thorium, the Sith
+# Holocron: Bastila's message only for a dark Revan); the locked diagonal
+# room (door_locked_dif, Security), the south passage's empty room and its
+# assassins (door_locked, tr_sith_ass_end); the dorms' locked and trapped
+# footlockers (footlocker_ll*, footlocker_mlt*, Security); the west hall's
+# datapads (Bag_datapad2, twilek_body).
+#
+# ASSUMES:
+# - The party is the Exile, Atton and Bao-Dur (korriban_secret_tomb's
+#   `party`). # UNSURE: if no party screen could be opened in the cave, the
+#   Exile is alone; nothing below needs a companion (no skill-gated reply
+#   is taken).
+# - The Exile has no Computer Use to speak of: the terminals' "[Computer]"
+#   student-ID lines (termquiz R17, termtrn R16) are not shown; the plain
+#   lines below are the same answers. termtort's "[Computer] Access system
+#   commands." has no skill check, only Vash's datapad (c_hasitem
+#   datapad_vash).
+# - tr_sion_fight, on the training hall's way, starts Sion's second scene
+#   only after Vash (sion start 1's c_global_lt). # UNSURE: if it fires on
+#   the way in, korriban_sion's goals come first.
+exit To_701          # out of the cave
+module 701kor
+to tr_acad_banter    # the Academy's open doors (kreia_ac)
+talk
+exit To_702          # the Sith Academy
+module 702kor
+talk                 # tr_enter: Sion meditating; "Her apprentice is here. Find him." the doors shut
+fight 30             # the entrance's tuk'ata, then the assassins in the hall
+use footlocker_comp  # the dorms' "Footlocker{Computer Datapad}": datapad_recruits
+fight 30
+say New Recruit      # termquiz: a new account (c_hasitem datapad_recruits)
+say =Enter 3401726-B853S5O0X001. # logged in with it
+say Take the Level one written test.
+say Begin test.
+say Freedon Nadd.    # not entombed upon Korriban
+say =Twenty.         # (not "Twenty-one." or "Twenty-two.")
+say Gizka.
+say I always lie.
+say passion - strength - power - victory.
+say Access Training Room. # LEVEL TWO ACCESS GRANTED: door_training unlocked
+say Log out.
+use computer_quiz    # the student terminal (OnUsed a_compdlg)
+talk
+fight 30             # the assassins logging out sends (a_fab_spawn)
+to tr_sith_ass_tr    # the gas-trapped hall (tr_gas_trap) to its end's assassins
+fight 30
+say Begin training sequence. # termtrn: the cages open (a_open_cages, a_tukata_attack)
+use computer_train   # behind door_training
+talk
+fight 30             # the starving tuk'ata (k_fab_tukata)
+use computer_train   # TRAINING FAILED, TIME ELAPSED: door_training and door_torture open
+talk
+say Vash... She was a member of the Jedi Council. # vash (not "I might have killed her myself", DSP)
+to tr_vash           # the detention room: Master Lonna Vash dead in her cage
+talk
+use vash_container   # her datapad (datapad_vash) and her lightsaber (a_open_vash_cage)
+say [Computer] Access system commands. # termtort, no skill check
+say Lonna Vash
+say Open Front Door. # a_open_frontdoor: door_enter unlocked
+say Log out.
+use computer_torture
+talk
+save korriban_vash
