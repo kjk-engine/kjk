@@ -66,8 +66,8 @@ type = "f32"
 value = 4.0
 unit = "m"
 range = [1.0, 20.0]
-summary = "A conversation begins within {scripts.talk.conversation_range:bare} meters. A player may start one from as far."
-source = "reone (the longest distance a conversation starts at) [verify in K1's exe]"
+summary = "A conversation begins within {scripts.talk.conversation_range:bare} meters. A player may start one from as far, measured across the floor: a speaker on a ledge above is talked to from below."
+source = "reone (the longest distance a conversation starts at; navigateTo's flat distance) [verify in K1's exe]"
 see = "sim::script::CONVERSATION_RANGE"
 applies = ["kind:creature", "kind:companion"]
 

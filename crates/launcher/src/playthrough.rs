@@ -1285,7 +1285,12 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 let usable = !stand_for_sight
                                     || index == u32::MAX
                                     || verb.is_none_or(|verb| world.may_use(&player, index, verb));
-                                let walker = walker.get_or_insert_with(|| here.approach(&player, at));
+                                let walker = walker.get_or_insert_with(|| match (verb, choice.zip(data.as_ref())) {
+                                    (Some(sim::action::Verb::Talk), Some((choice, data))) => {
+                                        here.approach_talk(&player, at, sim::target::reach(choice, data.kind))
+                                    }
+                                    _ => here.approach(&player, at),
+                                });
                                 // No way there (a locked door's doorway, a
                                 // body in the way) but near: straight at it.
                                 // Arrived short of it: the last stretch straight.

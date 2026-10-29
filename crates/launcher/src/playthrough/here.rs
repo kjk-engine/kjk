@@ -277,6 +277,36 @@ impl<'a> Here<'a> {
             })
             .unwrap_or(to)
     }
+
+    /// A walker to talk to a creature at `at` (metres) within `reach`
+    /// across the floor: `approach`'s, or, when no way leads there (the
+    /// speaker on a ledge no path climbs: Dxun's Kumus on his ridge), a
+    /// stand on the floor below within the reach that a way leads to, the
+    /// nearest the player first (a talk's reach is flat,
+    /// `sim::world::uses::may_use`).
+    pub(super) fn approach_talk(&self, player: &sim::motion::MotionState, at: [f32; 3], reach: f32) -> Walker {
+        let to = self.approach(player, at);
+        let from = sim::walk::back_on(self.level, player.origin).unwrap_or(player.origin);
+        if self.leads(from, to.goal) {
+            return to;
+        }
+        let me = player.origin.map(|v| v * UNIT);
+        let mut stands: Vec<(f32, Walker)> = TALK_RINGS
+            .iter()
+            .map(|share| share * reach)
+            .flat_map(|far| {
+                (0..16).map(move |k| {
+                    let angle = k as f32 * std::f32::consts::FRAC_PI_8;
+                    [at[0] + far * angle.cos(), at[1] + far * angle.sin(), me[2]]
+                })
+            })
+            .map(|side| walker_to(self.level, player, side))
+            .filter(|walker| self.leads(from, walker.goal))
+            .map(|walker| (flat(walker.goal.map(|v| v * UNIT), me), walker))
+            .collect();
+        stands.sort_by(|a, b| a.0.total_cmp(&b.0));
+        stands.into_iter().next().map_or(to, |(_, walker)| walker)
+    }
 }
 
 /// The instances tagged (or made from a template named) `tag`, by number:
@@ -357,6 +387,10 @@ pub(super) fn find_any(
 /// How far (metres) the player moves in one step to have been jumped
 /// there, not walked: a run covers some 5 cm a step.
 pub(super) const JUMPED_M: f32 = 1.0;
+
+/// The rings `Here::approach_talk` looks for a stand on, as shares of the
+/// talk's reach: inside it, so a walk arriving short still talks.
+const TALK_RINGS: [f32; 4] = [0.4, 0.55, 0.7, 0.8];
 
 /// The triggers that turned the player back this goal: one it stood in while
 /// a conversation held it and was then jumped out of (Tatooine's dune edge,

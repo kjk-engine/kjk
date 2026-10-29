@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `8ea24ec7f410316c`.
+Edition `a8825caa2419d5b6`.
 
 ## Contents
 
@@ -8986,9 +8986,9 @@ as far as its volume carries, and no farther than the listener's hearing.
 
 <a id="scripts-talk-conversation-range"></a>**Conversation Range** = **4 m** · `scripts.talk.conversation_range`
 
-A conversation begins within 4 meters. A player may start one from as far.
+A conversation begins within 4 meters. A player may start one from as far, measured across the floor: a speaker on a ledge above is talked to from below.
 
-<sub>Source: reone (the longest distance a conversation starts at) [verify in K1's exe]. Code: `sim::script::CONVERSATION_RANGE`.</sub>
+<sub>Source: reone (the longest distance a conversation starts at; navigateTo's flat distance) [verify in K1's exe]. Code: `sim::script::CONVERSATION_RANGE`.</sub>
 
 <a id="scripts-talk-volume-reach"></a>**Voice Range** = **1000 m / 3 m / 250 m / 35 m / 1000 m** (`1000 / 3 / 250 / 35 / 1000 m`) · `scripts.talk.volume_reach`
 

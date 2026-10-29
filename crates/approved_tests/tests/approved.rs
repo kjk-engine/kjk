@@ -942,13 +942,14 @@ fn destroy_fades() {
 /// stale verb, opens a container, fails a locked one (its script and the
 /// "locked" line), uses a placeable, talks to a creature at conversation
 /// range, and one behind a wall within it (KOTOR's conversation needs
-/// no sight: Dantooine's Administrator across her desk), refuses what a
+/// no sight: Dantooine's Administrator across her desk), one on a ledge
+/// above within it across the floor (Dxun's Kumus), refuses what a
 /// wall hides and a door closed on someone; a K1
 /// container's use runs its `OnUsed`, locked (no "locked" line) or opening;
 /// scripts see who did it; two runs end the same. The sim alone.
 #[test]
 fn use_actions() {
-    probed("use", &sim::uses::probes(), 1);
+    probed("use", &sim::uses::probes(), 37);
 }
 
 /// Bashing (`docs/COMBAT.md`): on the proving ground

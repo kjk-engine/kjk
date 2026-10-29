@@ -53,7 +53,9 @@ to tr_kumustalk
 talk
 fight 25             # the bomas below the ridge (boma_young_qu)
 gone boma_young_qu
-say He's just a veteran, like us. # Bao-Dur (+INF)
+to 32.7,130.6        # below his ridge, the party gathered (Bao-Dur's word
+gather               # wants him within 10 m of the Exile, who is jumped
+say He's just a veteran, like us. # to WP_KUMUSFREE_3: +INF)
 use kumus            # let down, thanked, gone to camp (missingm)
 talk
 say Press button.    # the cache's detonator (deton2), not Kumus's own

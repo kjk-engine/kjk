@@ -816,6 +816,17 @@ pub(super) fn seconds_ms(seconds: f32) -> u32 {
 /// Whether `animation` asked for `seconds` plays at once and loops until
 /// something else plays (`u32::MAX`): a looping constant of the low range
 /// given a negative duration.
+/// Who holds `item` (`GetItemPossessor`): the first PC for the party's
+/// own, none for one on the floor or unknown.
+fn possessor(state: &State, view: &View, item: ObjectId) -> ObjectId {
+    match state.items.get(&item.0) {
+        Some(held) if held.holder == inventory::PARTY => view.first_pc(&state.party),
+        Some(held) if held.holder == AREA.0 => ObjectId::INVALID,
+        Some(held) => ObjectId(held.holder),
+        None => ObjectId::INVALID,
+    }
+}
+
 fn loops_on(animation: u16, seconds: f32) -> bool {
     animation <= LOOPS_AT_ONCE && seconds < 0.0
 }
@@ -2010,6 +2021,18 @@ impl Engine<'_> {
                     .and_then(|spawn| spawn.last_entered)
                     .map(ObjectId),
             ),
+            // The module's acquire hook asked who came by it: the item's
+            // possessor, as TSL's own acquire scripts read it
+            // (`GetEnteringObject() == GetFirstPC()`: 402DXN's k_check_item
+            // for the zakkeg's ear, 404DXN's k_get_item), K1's asking for the
+            // item itself by `GetModuleItemAcquired` [verify in the exe].
+            GetEnteringObject
+                if caller == crate::script::MODULE
+                    && let Some(item) = self.event.entering
+                    && state.items.contains_key(&item.0) =>
+            {
+                Value::Object(possessor(state, view, item))
+            }
             GetEnteringObject
             | GetExitingObject
             | GetModuleItemAcquired
@@ -4791,13 +4814,7 @@ impl Engine<'_> {
                 let found = own.into_iter().chain(carried).map(|(id, _)| id).min();
                 Value::Object(found.map_or(ObjectId::INVALID, ObjectId))
             }
-            GetItemPossessor => Value::Object(match self.state.items.get(&item.0) {
-                Some(held) if held.holder == inventory::PARTY => view.first_pc(&self.state.party),
-                // One lying on the floor has none.
-                Some(held) if held.holder == AREA.0 => ObjectId::INVALID,
-                Some(held) => ObjectId(held.holder),
-                None => ObjectId::INVALID,
-            }),
+            GetItemPossessor => Value::Object(possessor(self.state, view, item)),
             GetBaseItemType => Value::Int(facts(self.state, catalog, item).map_or_else(
                 || self.library.constant("BASE_ITEM_INVALID").unwrap_or(256),
                 |facts| i32::from(facts.base_item),

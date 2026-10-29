@@ -232,7 +232,21 @@ location Location(vector vPosition, float fOrientation);
 object CreateObject(int nObjectType, string sTemplate, location lLocation, int bUseAppearAnimation=FALSE);
 // 21
 void ClearAllActions();
+// 22
+object GetEnteringObject();
+// 23
+void SetGlobalBoolean(string sIdentifier, int nValue);
+// 24
+object GetModuleItemAcquired();
+// 25
+int GetIsObjectValid(object oObject);
 "#;
+
+/// The globals `probe_acquired` sets: whether its `GetEnteringObject` was
+/// the first PC (TSL's acquire scripts' test), and whether
+/// `GetModuleItemAcquired` named an item (K1's).
+const ACQUIRED_BY_PC: &str = "probe_acquired_by_pc";
+const ACQUIRED_ITEM: &str = "probe_acquired_item";
 
 /// The `ANIMATION_…` constants the probes play: a looping talk, a looping
 /// sleep, a bow and a victory (fire and forget).
@@ -396,7 +410,20 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_open", program(&open)),
             ("probe_blocked", program(&[])),
             ("probe_area_exit", program(&[])),
-            ("probe_acquired", program(&[])),
+            (
+                "probe_acquired",
+                program(&[
+                    call(22, 0),
+                    call(3, 0),
+                    Op::Equal(fmt_odyssey::ncs::Pair::ObjectObject),
+                    Op::Const(Const::String(ACQUIRED_BY_PC.as_bytes().to_vec())),
+                    call(23, 2),
+                    call(24, 0),
+                    call(25, 1),
+                    Op::Const(Const::String(ACQUIRED_ITEM.as_bytes().to_vec())),
+                    call(23, 2),
+                ]),
+            ),
             ("probe_lost", program(&[])),
             ("probe_module_leave", program(&[])),
             ("probe_leave", leave),
@@ -4306,8 +4333,10 @@ fn leaving_heard() -> Found {
 }
 
 /// An item the party comes to hold runs the module's acquire hook once,
-/// and the same item gone from it its unacquire hook once
-/// (`Mod_OnUnAqreItem`).
+/// which sees the first PC as the one who came by it (`GetEnteringObject`,
+/// as TSL's 402DXN `k_check_item` asks for the zakkeg's ear) and the item
+/// as acquired (`GetModuleItemAcquired`, K1's); and the same item gone from
+/// it its unacquire hook once (`Mod_OnUnAqreItem`).
 fn item_lost_heard() -> Found {
     use crate::inventory::{FIRST_ITEM, Item, PARTY};
     let mut ground = Ground::staged(
@@ -4343,14 +4372,21 @@ fn item_lost_heard() -> Found {
     ground.world.set_script_state(state);
     ground.idle(100);
     let gained = runs(&ground);
+    // Its run saw the first PC come by it (`GetEnteringObject`) and the
+    // item itself (`GetModuleItemAcquired`).
+    let told = [ACQUIRED_BY_PC, ACQUIRED_ITEM]
+        .map(|name| ground.world.script_state().booleans.get(name).copied());
     let mut state = ground.world.script_state().clone();
     state.items.remove(&id);
     ground.world.set_script_state(state);
     ground.idle(100);
     let lost = runs(&ground);
     check(
-        gained == [1, 0] && lost == [1, 1],
-        format!("(acquired, lost) runs: after the gain {gained:?}, after the loss {lost:?}"),
+        gained == [1, 0] && lost == [1, 1] && told == [Some(true), Some(true)],
+        format!(
+            "(acquired, lost) runs: after the gain {gained:?}, after the loss {lost:?}; \
+             (by the first PC, the item named) {told:?}"
+        ),
     )
 }
 

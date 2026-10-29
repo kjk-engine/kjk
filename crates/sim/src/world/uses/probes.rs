@@ -510,8 +510,39 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             ),
         ),
     ]);
+    checks.push(("talk_across_height", across_height()));
     checks.extend(crate::target::probes());
     checks
+}
+
+/// How far above the player a ledge's speaker stands (metres): Dxun's
+/// Kumus on his ridge, 6.7 m over the path below it.
+const LEDGE_M: f32 = 6.7;
+
+/// A creature on a ledge `LEDGE_M` above, within a talk's reach across
+/// the floor, is talked to (`may_use`: the reach is flat, as reone's
+/// conversation walk measures it); a placeable as high is out of reach,
+/// and so is the same creature a step beyond the reach.
+fn across_height() -> Result<String, String> {
+    let level = crate::determinism::proving_ground();
+    let me = floor_at(NEAR);
+    let player = crate::motion::MotionState::standing(me.map(|v| v / collision::UNIT), 0.0);
+    let reach = super::reach(ObjectKind::Creature, Verb::Talk);
+    let up = |ahead: f32| [me[0] + ahead, me[1], me[2] + LEDGE_M];
+    let may = |at: [f32; 3], kind, verb| {
+        let creature = (kind == ObjectKind::Creature).then_some(at);
+        let target = super::Target::new(TALKER, creature, at);
+        super::may_use(&level, None, &player, &target, kind, verb)
+    };
+    let talked = may(up(reach - 0.5), ObjectKind::Creature, Verb::Talk);
+    let used = may(up(0.5), ObjectKind::Placeable, Verb::Use);
+    let beyond = may(up(reach + 0.5), ObjectKind::Creature, Verb::Talk);
+    let what = format!("talked {talked}, placeable used {used}, beyond reach {beyond}");
+    if talked && !used && !beyond {
+        Ok(what)
+    } else {
+        Err(what)
+    }
 }
 
 /// The NPC probe's routines (`script_probes`).

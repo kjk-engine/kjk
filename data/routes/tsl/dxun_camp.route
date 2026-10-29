@@ -15,21 +15,6 @@
 # telemetry (Repair, Computer and three Phase Pulse parts from random
 # cannoks), the battle circle (five duels under rules: no weapons, no
 # powers).
-#
-# ASSUMES:
-# - The party is the Exile, Mira and Bao-Dur (no Kreia: the sentries' and
-#   Mandalore's Kreia lines are skipped by their own conditions).
-# - Mandalore's tests: c_pp_done with param 0 (mandalor.dlg E19) asks for
-#   more than three of explosivesit 99, missingm 70/80, scouthunt 99,
-#   tsupport 99, tcannoks 99, battle_circle 90, zchallenge 99: four. This
-#   draft takes the four without skill checks: the detonator, Kumus,
-#   Kelborn's scouts and the zakkeg (DSimpson's "any one" is wrong).
-# - UNSURE: cs_tob_1 starts by itself on the first entry (Tobin and his
-#   captain stand in a cutscene room at 500, 68; k_402_enter names them).
-# - UNSURE: the sentries' first talk (sentry.dlg start 2) is started by
-#   TR_MEETMANDALORE's script, which spawns them (sp_n_mandalorian*).
-# - UNSURE: meetm_cs and Mandalore's first talk (start 3) are two
-#   conversations, k_403_enter starting the first on MEETMANDALOREPH.
 talk                 # Colonel Tobin's detachment (cs_tob_1)
 say What are you doing on Dxun? # the sentries (no Kreia: E15)
 say I was exploring. Who are you?
