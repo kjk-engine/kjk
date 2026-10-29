@@ -139,6 +139,10 @@ object GetArea(object oTarget);
 int GetNPCSelectability(int nNPC);
 // 32
 void SetNPCSelectability(int nNPC, int nSelectability);
+// 33
+void SetLocalBoolean(object oObject, int nIndex, int nValue);
+// 34
+int GetLocalBoolean(object oObject, int nIndex);
 int OBJECT_TYPE_CREATURE = 1;
 "#;
 
@@ -265,6 +269,18 @@ fn library() -> crate::script::Library {
         );
     }
     in_area.op(Op::Retn);
+    // Local boolean 50 set on OBJECT_INVALID and on the player, each read
+    // back (tokens 90 and 91).
+    let mut nothing = Asm::default();
+    for (n, owner) in [(90, Op::Const(Const::Object(1))), (91, call(13, 0))] {
+        nothing
+            .op(int(1))
+            .op(int(50))
+            .op(owner.clone())
+            .op(call(33, 3));
+        token(&mut nothing, n, &[int(50), owner, call(34, 2)]);
+    }
+    nothing.op(Op::Retn);
     crate::probe::library(
         CATALOG,
         [
@@ -288,6 +304,7 @@ fn library() -> crate::script::Library {
             ("probe_party_exit", exit.build()),
             ("probe_atton_beside", atton_beside.build()),
             ("probe_in_area", in_area.build()),
+            ("probe_locals_of_nothing", nothing.build()),
             ("probe_selectability", selectability()),
         ],
     )
@@ -594,12 +611,29 @@ pub fn probes() -> Checks {
     checks.push(("minigame_takes_no_companions", minigame_alone()));
     checks.push(("party_screen_accepted", party_screen_accepted()));
     checks.push(("area_iteration_skips_the_dead", area_skips_the_dead()));
+    checks.push(("locals_of_nothing", locals_of_nothing()));
     checks
 }
 
 /// Atton made beside the player (not joined): the area's creatures are
 /// the player and he; dead, the area's iteration passes him over
 /// (`k_battle_death`, the battle of Khoonda's end, counts on it).
+/// A local set on OBJECT_INVALID is kept nowhere and reads 0, as the
+/// executable's `ExecuteCommandSetLocalBoolean` sets nothing and its
+/// `GetLocal...` reads 0 when `GetGameObject` finds no object (403DXN's
+/// `tr_circle`, the battle circle's sergeant gone, read 1 there and took
+/// 50 XP from the party); the player's own local still holds.
+fn locals_of_nothing() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    step(&mut world);
+    run(&mut world, "probe_locals_of_nothing");
+    let read = tokens(&step(&mut world), 90..=91);
+    check(
+        read == ["0", "1"],
+        format!("local boolean 50 read back on OBJECT_INVALID and the player: {read:?}"),
+    )
+}
+
 fn area_skips_the_dead() -> Result<String, String> {
     let (mut world, _) = world()?;
     step(&mut world);

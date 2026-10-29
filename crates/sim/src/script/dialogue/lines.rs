@@ -43,8 +43,11 @@ impl Step<'_> {
     /// tagged so nearest the owner within `dialogue::speakers::REACH_M`,
     /// taken in the area's order as their search keeps its best (Q-0323:
     /// the first match's plain distance becomes the bar the later ones'
-    /// squared distances must meet). None when no one answers (a companion
-    /// not in the party). `OWNER` and `PLAYER` are no keywords here. An
+    /// squared distances must meet). One `SetForceAlwaysUpdate` flagged is
+    /// taken however far, its distance then the bar (TSL's
+    /// `GetNearestObjectByName` lets an object with that flag past the
+    /// radius: Dhagon's call to the throne room). None when no one answers
+    /// (a companion not in the party). `OWNER` and `PLAYER` are no keywords here. An
     /// owner without a place (none in the area) takes the first tagged
     /// [verify: the executables find none from an owner out of an area].
     pub(super) fn speaker_for(&self, tag: &str, owner: ObjectId) -> Option<ObjectId> {
@@ -65,7 +68,7 @@ impl Step<'_> {
             let squared: f32 = (0..3)
                 .map(|axis| (tagged.at[axis] - origin[axis]).powi(2))
                 .sum();
-            if squared <= bar {
+            if squared <= bar || self.state.always_update.contains(&tagged.id.0) {
                 bar = squared.sqrt();
                 found = Some(tagged.id);
             }
