@@ -20,6 +20,8 @@ leader player
 say Unlock hangar doors # its console: the hangar doors unlocked
 use TermB
 talk
+to TelosDoor2@7      # out of the bay control room the long way round
+to TelosDoor2@6      # (BLOCKER: the way past the barrels, see below)
 fight 60             # the tank droid let out of its room at the shuttle
 say Take the shuttle # the shuttle to the shielded mesa at the pole
 # BLOCKER: out of the bay control room by its door and the corridor's

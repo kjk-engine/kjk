@@ -28,7 +28,7 @@ The **kind** tags are:
 
 ## Telos (PR 14)
 
-- [ ] `blocker` **telos_base_shuttle:** the route leaves the bay control room by `TelosDoor2@7`/`@6`. The nav mesh blocks a face only when most of it lies under a placeable, so it plans between two barrels in the south doorway.
+- [ ] `blocker` **telos_base_shuttle:** the route leaves the bay control room by `TelosDoor2@7`/`@6`, before the tank droid's fight too (the chase after it made for the barrels' pocket once a body went round across). The nav mesh blocks a face only when most of it lies under a placeable, so it plans between two barrels in the south doorway.
 - [x] `side` **Ramana**'s quest: Harra heard, Doton Het beaten at pazaak for her (his end script takes the 1000 and asks again on a loss), Ramana set free (LSP) (telos_cantina_games, a branch from `telos_luxa` with a `gold` stand-in: the main line keeps its credits for Falt). Paying Doton 2000 is the other way; the "[Persuade] 1500" reply has only a [Failure] entry in the data.
 - [x] `side` **Mebla's pazaak record**: three wins for her Double card (telos_cantina_games).
 - [ ] `side` **The swoop record** on Citadel Station: a race is run (telos_cantina_games), but the bot's clean run (some 49 s, now that it shifts as a gear tops out, looks ahead by time and jumps the walls) takes the third best time, not Ov Darum's record of 41.27 s (k_207tel_enter's 4127 hundredths). DSimpson notes the PC game's record all but unreachable ("at best you can get second place").
