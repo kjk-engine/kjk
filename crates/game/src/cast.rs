@@ -387,6 +387,40 @@ pub fn blended(history: &[Arc<Snapshot>], id: SimId, ms: f64) -> Option<Blended>
     })
 }
 
+/// Seat `seat`'s remote droid at `ms` in `history`, as the camera follows
+/// it: a body standing at its place (units), looking along its yaw at
+/// `pitch`, its eyes at its middle. None while it waits out a hold
+/// (`Remote::hidden`) or has none.
+pub fn remote_at(history: &[Arc<Snapshot>], seat: Seat, ms: f64, pitch: f32) -> Option<Blended> {
+    let after = history.iter().position(|s| s.time_ms as f64 >= ms);
+    let (a, b) = match after {
+        Some(0) => (history.first()?, history.first()?),
+        Some(i) => (&history[i - 1], &history[i]),
+        None => (history.last()?, history.last()?),
+    };
+    let rb = b.remote(seat).filter(|remote| !remote.hidden)?;
+    let ra = a.remote(seat).filter(|remote| !remote.hidden).unwrap_or(rb);
+    let span = (b.time_ms - a.time_ms) as f64;
+    let t = if span > 0.0 {
+        ((ms - a.time_ms as f64) / span).clamp(0.0, 1.0) as f32
+    } else {
+        1.0
+    };
+    let origin = lerp(ra.at, rb.at, t).map(|metres| metres / UNIT);
+    let yaw = ra.yaw + angles::wrap_180(rb.yaw - ra.yaw) * t;
+    let mut state = MotionState::standing(origin, yaw);
+    state.eye_height = 0.0;
+    Some(Blended {
+        state,
+        origin,
+        view: [pitch, yaw, 0.0],
+        alive: true,
+        dead: false,
+        fighter: None,
+        thrown_at: None,
+    })
+}
+
 /// An entity of a snapshot by id (entities are ordered by id).
 /// A human's eyes over its soles (metres), where a body has no node to
 /// say (JA's own body's talk position, a free camera over an entry point,

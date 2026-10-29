@@ -17,6 +17,7 @@ pub(super) fn probes() -> Checks {
         ("leash_pulls_to_the_nearest", leash()),
         ("snaps_when_stuck", stuck()),
         ("recall", recall()),
+        ("slides_along_walls", slides()),
     ]
 }
 
@@ -174,5 +175,24 @@ fn recall() -> Result<String, String> {
     check(
         was > 5.0 && is <= 3.0,
         format!("{was:.1} m from the leader, then {is:.1} m after Use"),
+    )
+}
+
+/// Flown into a wall, then along it pressed half into it, it slides along
+/// the wall rather than sticking to it.
+fn slides() -> Result<String, String> {
+    let (mut world, _) = flying()?;
+    let mut at = [0.0; 3];
+    for _ in 0..400 {
+        at = droid(&fly(&mut world, keys(127, 0, 0, 0, 0.0)))?;
+    }
+    let mut along = at;
+    for _ in 0..125 {
+        along = droid(&fly(&mut world, keys(127, 127, 0, 0, 0.0)))?;
+    }
+    let moved = apart(at, along);
+    check(
+        moved >= 1.5,
+        format!("{moved:.2} m along the wall in a second pressed half into it"),
     )
 }

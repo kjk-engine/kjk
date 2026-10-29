@@ -139,6 +139,9 @@ struct Options {
     host_saves: Option<PathBuf>,
     /// `--preset exit`: the verdict also wants the ready check gone through.
     exit: bool,
+    /// `--preset remote`: the verdict also wants the guest's droid drawn on
+    /// both sides.
+    remote: bool,
     /// `--preset race` or `turret`: the verdict also wants each side's own
     /// run or gun (the minigame's co-op).
     minigame: Option<&'static str>,
@@ -157,6 +160,32 @@ const EXIT_PRESET: [(&str, &str); 7] = [
         "wait 8s; screenshot player-8s; wait 4s; ui ready; wait 3s; ui ready; wait 3s; \
          ui ready; wait 3s; ui ready; wait 3s; screenshot player-ready; wait 10s; dump player; \
          wait 8s; quit",
+    ),
+];
+
+/// `--preset remote`'s options: end_m01ab's start (as `--preset exit`),
+/// Trask not brought along: past Carth's call over the comm, the guest with no companion to drive flying a remote droid: up,
+/// ahead, turning, each button once (the dart has no one hurt to reach).
+const REMOTE_PRESET: [(&str, &str); 8] = [
+    ("stage", "end_m01ab"),
+    ("arrive", "from_01a"),
+    ("guests", "companions"),
+    ("seconds", "40"),
+    ("moves-host", "60s"),
+    (
+        "moves-join",
+        "16s yaw 90; 300ms jump yaw 90; 1200ms w yaw 90; 300ms attack yaw 90; 1s yaw 90; 300ms alt yaw 90; 1s yaw 90; 300ms medpac yaw 90; 30s yaw 90",
+    ),
+    (
+        "cmds-host",
+        "wait 11s; screenshot host-11s; wait 10s; screenshot host-remote; dump host-remote; \
+         wait 23s; dump host; quit",
+    ),
+    (
+        "cmds-join",
+        "wait 8s; screenshot player-8s; wait 9s; screenshot player-remote; wait 1300ms; \
+         screenshot player-kit; wait 1500ms; screenshot player-blast; dump player-remote; \
+         wait 10s; dump player; wait 8s; quit",
     ),
 ];
 
@@ -237,17 +266,19 @@ fn options(args: &[String]) -> Result<Options, String> {
         at += 2;
     }
     let preset = named.remove("preset");
+    let remote = preset.as_deref() == Some("remote");
     let (exit, minigame) = match preset.as_deref() {
-        None => (false, None),
+        None | Some("remote") => (false, None),
         Some("exit") => (true, None),
         Some("race") => (false, Some("race")),
         Some("turret") => (false, Some("turret")),
-        Some(other) => return Err(format!("--preset {other}: exit, race or turret")),
+        Some(other) => return Err(format!("--preset {other}: exit, race, turret or remote")),
     };
-    if exit {
-        for (key, value) in EXIT_PRESET {
-            named.entry(key).or_insert_with(|| value.to_string());
-        }
+    for (key, value) in (exit.then_some(EXIT_PRESET.as_slice()))
+        .or(remote.then_some(REMOTE_PRESET.as_slice()))
+        .unwrap_or(&[])
+    {
+        named.entry(key).or_insert_with(|| value.to_string());
     }
     for (key, value) in minigame.map_or_else(Vec::new, minigame_preset) {
         named.entry(key).or_insert(value);
@@ -319,6 +350,7 @@ fn options(args: &[String]) -> Result<Options, String> {
         camera: named.remove("camera"),
         host_saves: named.remove("host-saves").map(PathBuf::from),
         exit,
+        remote,
         minigame,
         stage,
     };
@@ -857,12 +889,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
         seats(&on_host),
         seats(&on_player)
     );
-    if on_host.len() < 2 || on_host.keys().ne(on_player.keys()) || apart > 0.05 {
+    // A guest flying a droid has no body: only the host is drawn.
+    let bodies = if options.remote { 1 } else { 2 };
+    if on_host.len() < bodies || on_host.keys().ne(on_player.keys()) || apart > 0.05 {
         failed.push("players drawn".to_string());
     }
     // A guest playing the host's party member is drawn as its seat's player
     // on the host (`cast::Cast::roster`).
-    if options.guests == "companions" {
+    if options.guests == "companions" && !options.remote {
         let driven = host_dump.contains("\"who\": \"player 1 (");
         let _ = writeln!(
             report,
@@ -934,6 +968,43 @@ pub fn run(args: &[String]) -> Result<(), String> {
         );
         if !went || agreed < 1 {
             failed.push("ready check".to_string());
+        }
+    }
+    // The remote preset: both sides drew the guest's droid, with its model,
+    // and its shock bolt and Sonic Blast went off (their waits set).
+    if options.remote {
+        let drawn = |dump: &str| {
+            let remotes = dump.find("\"remotes\"").map_or("", |at| &dump[at..]);
+            let model =
+                number_after(remotes, "seat") == Some(1.0) && !remotes.contains("\"model\": null");
+            let fired = remotes
+                .find("\"ready_ms\"")
+                .map(|at| &remotes[at..])
+                .and_then(|ready| {
+                    let open = ready.find('[')?;
+                    let close = ready.find(']')?;
+                    let waits: Vec<f64> = ready[open + 1..close]
+                        .split(',')
+                        .filter_map(|n| n.trim().parse().ok())
+                        .collect();
+                    Some(waits.len() == 3 && waits[0] > 0.0 && waits[1] > 0.0)
+                })
+                .unwrap_or(false);
+            (model, fired)
+        };
+        let mid = |run: &Path, name: &str| {
+            std::fs::read_to_string(run.join(format!("{name}.json"))).unwrap_or(String::new())
+        };
+        let (host, player) = (
+            drawn(&mid(&host_run, "host-remote")),
+            drawn(&mid(&player_run, "player-remote")),
+        );
+        let _ = writeln!(
+            report,
+            "- the guest's droid (drawn with its model, bolt and blast fired): the host {host:?}, the player {player:?} (shots `host-remote.png`, `player-remote.png`, `player-kit.png`)"
+        );
+        if !(host.0 && player.0 && player.1) {
+            failed.push("the remote droid".to_string());
         }
     }
     // A minigame preset: each side drew its own seat's run or gun mid-way.

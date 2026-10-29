@@ -335,6 +335,41 @@ fn kotor_view(
     }
 }
 
+/// The `spells.2da` rows whose icons stand for a droid's kit: the ion
+/// grenade (the shock bolt), the sonic grenade (the Sonic Blast) and a
+/// medpac (the stim dart).
+const REMOTE_ICONS: [usize; 3] = [95, 91, 64];
+
+/// KOTOR's HUD for a seat flying a remote droid: its three buttons, each
+/// with the seconds left before it is ready (none when it is).
+fn remote_view(
+    ui: &mut crate::ui_view::Ui,
+    remote: &sim::remote::Remote,
+    now_ms: u64,
+    keymap: &KeyMap,
+) -> ui::vm::HudView {
+    let actions = REMOTE_ICONS
+        .iter()
+        .zip(remote.ready_ms)
+        .map(|(&row, ready)| {
+            let icon = (ui.assets.as_mut())
+                .and_then(|assets| assets.cell("spells", row, "iconresref"))
+                .unwrap_or(String::new());
+            let left = ready.saturating_sub(now_ms);
+            (icon, (left > 0).then(|| left.div_ceil(1000) as u32))
+        })
+        .collect();
+    ui::vm::HudView {
+        actions,
+        action_keys: vec![
+            b"MB1".to_vec(),
+            b"MB2".to_vec(),
+            keymap.shown(Action::Medpac),
+        ],
+        ..ui::vm::HudView::default()
+    }
+}
+
 /// What `seat`'s player is in, for its portrait's icon (R10): only in a
 /// session of more than one seat (one player's HUD stays as it was).
 pub(crate) fn busy(snapshot: &sim::Snapshot, seat: sim::Seat) -> Option<ui::vm::Busy> {
@@ -463,16 +498,23 @@ fn show(
         return;
     };
     let snapshot = presented.0.current();
+    let keymap = keymap.as_deref().unwrap_or(KeyMap::defaults());
     let Some((entity, sheet)) = swap
         .as_ref()
         .and_then(|swap| crate::cast::body_sheet(snapshot, own.0, &swap.level))
     else {
+        // No body: a seat flying a droid has its kit's three buttons.
+        if let Some(ui) = ui.as_deref_mut() {
+            ui.vm.hud = snapshot
+                .remote(own.0)
+                .filter(|remote| !remote.hidden)
+                .map(|remote| remote_view(ui, remote, snapshot.time_ms, keymap));
+        }
         return;
     };
     let Some(fighter) = entity.fighter else {
         return;
     };
-    let keymap = keymap.as_deref().unwrap_or(KeyMap::defaults());
     // The selected power, among those its sheet knows.
     let choices = force::choices(&sheet.powers);
     let power = selected

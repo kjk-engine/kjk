@@ -126,7 +126,18 @@ pub(in crate::world) fn fly(
         let mut next: [f32; 3] = std::array::from_fn(|i| remote.at[i] + remote.velocity[i] * dt);
         let lost = match floor_with(level, states, next) {
             Some(floor) => {
-                next[2] = next[2].clamp(floor + FLOOR_MIN_M, floor + FLOOR_MAX_M);
+                // Under a low ceiling it hovers a box's height below it, so
+                // it never scrapes along it.
+                let low = floor + FLOOR_MIN_M;
+                let (from, to) = (
+                    [next[0], next[1], low],
+                    [next[0], next[1], floor + FLOOR_MAX_M + HALF_SIZE_M],
+                );
+                let up = level.with(states, |world| {
+                    world.trace(from, to, &Extents::POINT, Contents::SOLID)
+                });
+                let high = (up.end[2] - 2.0 * HALF_SIZE_M).max(low);
+                next[2] = next[2].clamp(low, high.min(floor + FLOOR_MAX_M));
                 false
             }
             None => true,
@@ -139,9 +150,24 @@ pub(in crate::world) fn fly(
             back(remote);
             continue;
         }
-        remote.at = trace.end;
-        if trace.fraction < 1.0 {
-            remote.velocity = [0.0; 3];
+        if trace.fraction >= 1.0 {
+            remote.at = trace.end;
+            continue;
+        }
+        // Stopped: it slides, each axis on its own, losing only the speed
+        // into what stopped it.
+        for axis in 0..3 {
+            let mut to = remote.at;
+            to[axis] = next[axis];
+            let part = level.with(states, |world| {
+                world.trace(remote.at, to, &BOX, Contents::SOLID)
+            });
+            if !part.start_solid {
+                remote.at = part.end;
+            }
+            if part.fraction < 1.0 {
+                remote.velocity[axis] = 0.0;
+            }
         }
     }
 }
