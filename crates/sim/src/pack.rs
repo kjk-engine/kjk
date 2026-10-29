@@ -270,6 +270,7 @@ fn encode_creature(facts: &ObjectData, out: &mut Writer) {
     out.f32(facts.personal_space);
     write_fixed(out, facts.strike.as_ref(), &Strike::BLANK, Strike::encode);
     out.f32(facts.challenge);
+    out.u8(facts.multiplier_set);
     out.string(&facts.name);
     out.u32(facts.inventory.len() as u32);
     for held in &facts.inventory {
@@ -327,6 +328,13 @@ fn decode_creature(input: &mut Reader) -> Result<ObjectData, DecodeError> {
     let personal_space = input.f32()?;
     let strike = read_fixed(input, &Strike::BLANK, Strike::decode, "strike flag")?;
     let challenge = input.f32()?;
+    // TSL's `MultiplierSet` (`ObjectData::multiplier_set`), kept since the
+    // finale's bump; none before.
+    let multiplier_set = if input.since(crate::since::pack::CLAUDE_TSL_FINALE) {
+        input.u8()?
+    } else {
+        0
+    };
     let name = input.string()?;
     let inventory = (0..input.u32()?)
         .map(|_| {
@@ -348,6 +356,7 @@ fn decode_creature(input: &mut Reader) -> Result<ObjectData, DecodeError> {
         yaw: 0.0,
         link: None,
         geometry: Vec::new(),
+        use_points: Vec::new(),
         opens: Opens::Never,
         state: 0,
         ways: crate::module::Ways::One,
@@ -360,6 +369,7 @@ fn decode_creature(input: &mut Reader) -> Result<ObjectData, DecodeError> {
         personal_space,
         strike,
         challenge,
+        multiplier_set,
         name,
         inventory,
         container: false,

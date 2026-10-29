@@ -26,7 +26,7 @@
 # - Bao-Dur in the party for his lines at Zuka's (c_con_baodurpm).
 # - Davrel waits by the sentries once beaten in the circle; the zakkeg is
 #   already slain, so his zakkeg reply (c_davrel) is not offered.
-equip g_w_lghtsbr01  # the saber in hand (the circle takes it, gives it back)
+equip saber          # the saber in hand (the circle takes it, gives it back)
 say What is the battle circle?
 say I want to fight in the battle circle.
 use npc_mandy_sarge  # Davrel: no weapons, no Force, no items
@@ -55,7 +55,7 @@ use npc_mandy_sarge  # Bralor: no terms
 talk
 fight 30
 talk                 # the champion's reward (a_give_q_reward)
-equip g_w_lghtsbr01
+equip saber
 use g_tresmillow004@7 # the camp's boxes and bags the party can walk to
 use g_tresmillow004@8 # (the east barracks' are on no way there; the high
 use g_tresmillow004@9 # case by the gate is not useable)

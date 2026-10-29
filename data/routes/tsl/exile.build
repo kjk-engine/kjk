@@ -42,14 +42,24 @@ feats EMPATHY
 skill-order persuade awareness computer security repair treat
 # Feats as the Sentinel's levels offer them: Gear Head (Computer Use,
 # Repair, Security), then each tier of Empathy and Gear Head as it opens,
-# Toughness between; after these the class's recommended.
-feat-order GEAR_HEAD IMPROVED_EMPATHY GEAR_HEAD_ADEPT TOUGHNESS MASTER__EMPATHY GEAR_HEAD_MASTER
+# Toughness between; then the Jedi Watchman's (the prestige class Kreia
+# offers from the fifteenth level, taken in finale_dxun: feat.2da's
+# jwa_list), the defensive ones first: Toughness's tiers, Jedi Defense's,
+# Conditioning's, and the saber's specialization; after these the class's
+# recommended.
+feat-order GEAR_HEAD IMPROVED_EMPATHY GEAR_HEAD_ADEPT TOUGHNESS MASTER__EMPATHY GEAR_HEAD_MASTER IMPROVED_TOUGHNESS ADVANCED_JEDI_DEFENSE CONDITIONING WEAPON_SPEC_LIGHTSABER MASTER_TOUGHNESS IMPROVED_CONDITIONING MASTER_JEDI_DEFENSE MASTER_CONDITIONING
 # Light-side powers before the class's recommended order (which puts the
 # dark Force Scream third): Burst of Speed and Force Valor to start, Cure
 # as soon as the sixth level opens it, Force Push and Stun for crowds,
-# Energy Resistance and Droid Stun after; then Heal, Knight's Valor and
-# Speed as they open.
-power-order FORCE_POWER_SPEED_BURST FORCE_POWER_FORCE_VALOR FORCE_POWER_CURE FORCE_POWER_FORCE_PUSH FORCE_POWER_STUN FORCE_POWER_RESIST_ENERGY_1 FORCE_POWER_DROID_STUN FORCE_POWER_HEAL FORCE_POWER_KNIGHT_VALOR FORCE_POWER_KNIGHT_SPEED
+# Energy Resistance and Droid Stun after, Force Aura, Force Body and Mind
+# Trick (so no early level falls back on the class's Force Scream); then
+# Heal, Knight's Valor and Speed as they open; then the Watchman's levels
+# (spells.2da's watchman column), light side first, so the class's order
+# never reaches a dark power: Master Valor and Speed, the Force Shield and
+# Armor, Master Heal, Force Resistance and Immunity, Revitalize's tiers,
+# the Barriers, Stasis and Stasis Field, the energy resistances, the droid
+# powers and Battle Meditation's tiers.
+power-order FORCE_POWER_SPEED_BURST FORCE_POWER_FORCE_VALOR FORCE_POWER_CURE FORCE_POWER_FORCE_PUSH FORCE_POWER_STUN FORCE_POWER_RESIST_ENERGY_1 FORCE_POWER_DROID_STUN FORCE_POWER_FORCE_AURA FORCE_POWER_FORCE_BODY FORCE_POWER_MIND_TRICK FORCE_POWER_HEAL FORCE_POWER_KNIGHT_VALOR FORCE_POWER_KNIGHT_SPEED FORCE_POWER_MASTER_VALOR FORCE_POWER_SPEED_MASTERY FORCE_POWER_FORCE_SHIELD FORCE_POWER_FORCE_ARMOR FORCE_POWER_MASTER_HEAL FORCE_POWER_RESIST_FORCE FORCE_POWER_FORCE_IMMUNITY FORCE_POWER_REVITALIZE FORCE_POWER_IMPROVED_REVITALIZE FORCE_POWER_FORCE_BARRIER FORCE_POWER_IMPROVED_FORCE_BARRIER FORCE_POWER_MASTER_FORCE_BARRIER FORCE_POWER_STASIS FORCE_POWER_MASS_STASIS FORCE_POWER_RESIST_ENERGY_2 FORCE_POWER_MASTER_ENERGY_RESISTANCE FORCE_POWER_DROID_DISABLE FORCE_POWER_DROID_DESTROY FORCE_POWER_IMPROVED_BATTLE_MEDITATION_PC FORCE_POWER_MASTER_BATTLE_MEDITATION_PC
 # Every fourth level's ability point: Intelligence twice (18 at the eighth
 # level, 7 skill points a level from then), then Charisma.
 raises int int cha cha cha

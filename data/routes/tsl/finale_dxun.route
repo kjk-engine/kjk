@@ -1,5 +1,6 @@
 # Dxun, the strike on the Sith camp (TSL, 003EBO, 401DXN, 403DXN, 410DXN):
-# the galaxy map to Dxun on Kelborn's message, ashore with Kreia and Visas
+# Kreia's prestige classes aboard (the Jedi Watchman taken, as the light
+# side Sentinel's), the galaxy map to Dxun on Kelborn's message, ashore with Kreia and Visas
 # Marr, the Mandalorian guide to the camp; Kelborn's news (Kavar's message,
 # Vaklu's coup on Iziz, Kreia on the transmissions from the jungle) and the
 # party split: Visas Marr leads the jungle strike with Bao-Dur and Atton,
@@ -18,28 +19,40 @@
 # the minefield's recovery.
 #
 # ASSUMES:
-# - The save stands in 003EBO after t3kelbrn (korriban_sion plays it:
+# - The save stands in 003EBO after t3kelbrn (korriban_secret_tomb plays it:
 #   "Thanks T3...", Kavar's message, so 403DXN_Return_Trigger is set).
-#   # UNSURE: if the message is still owed, a `talk` before `use Galaxymap`.
+# - Kreia's start 8 (the prestige classes) is the first her use offers
+#   aboard: start 7 (the Enclave) waits on all four masters found.
+# - Leaving for Dxun, the ramp first plays Atris's owed scene (262TEL,
+#   a_atriscs1) and comes back aboard at Dxun; the ramp again goes ashore.
 # - The Queen's side (500OND_DarkSide_Iziz 0), Mandalore (NPC 2) joined on
-#   the first Dxun visit, Visas Marr (9), Bao-Dur (1), Atton (0) selectable.
-#   # UNSURE: Kreia's selectability after Korriban (701KOR's OnEnter took it
-#   away there); the party screen offers whom the table holds.
+#   the first Dxun visit, Visas Marr (9), Bao-Dur (1), Atton (0) selectable,
+#   Kreia (6) too (k_003ebo_enter makes her so again).
 # - Kelborn's arrival talk starts itself (k_403_enter, the finale branch
 #   that spawns the companions at wp_end_* and has npc_kelborn start his
-#   conversation). # UNSURE: which of kelborn's starts plays (4: Tobin's,
-#   5: Kavar's); both end at the same leader pick.
+#   conversation): start 5, Kavar's message. k_403_enter first sends every
+#   companion to base (RemoveNPCFromPartyToBase, which deletes the creature
+#   at once) and makes each anew at its wp_end_ waypoint, Kreia with them.
 # - The split's replies are only there for companions selectable
 #   (c_cnpc_check reads GetNPCSelectability), so Visas, Bao-Dur and Atton
 #   must be; Kreia is never offered.
 # - 410DXN: the player is Visas (SwitchPlayerCharacter to
-#   403DXN_PARTY2_NPC1), Bao-Dur and Atton spawned at sp_cnpc2/3.
-#   # UNSURE: the harness's player seat follows the switch (see finale.md).
+#   403DXN_PARTY2_NPC1), Bao-Dur and Atton spawned at sp_cnpc2/3; the
+#   first seat drives her (`world::switch`).
+# - 410DXN's first tr_wave4 is a one-point trigger no one enters; the
+#   second is the ramp's.
 # - 410DXN's way into 411DXN: To_411 links From_410DXN, but 411DXN's
 #   waypoint of template from_410dxn is tagged From_231TEL_D, so the
 #   arrival falls back on 411DXN's entry (-0.2, 25.8), the same spot.
+say Yes, it was a sound, like power. # Kreia (start 8, c_pc_prestige: level 15, the
+say Jedi Watchmen should return to the galaxy, and I will be the first to restore them.
+use kreia            # light side past 75): the Sentinel's light prestige class,
+talk                 # the Jedi Watchman (a_pc_jedi: AddMultiClass 13)
 use Galaxymap
 travel 1             # Dxun (planetary.2da)
+to tr_leave          # the ramp: Atris's first scene is owed (a_atriscs1)
+module 262tel        # Atris and her Handmaidens on the missing sister
+module 003ebo        # back aboard, at Dxun (holo_dxn)
 party 6,9            # Kreia and Visas Marr ashore
 to tr_leave          # the ramp: the party screen, accepted
 module 401dxn
@@ -66,7 +79,7 @@ to tr_wave2
 fight 40
 to tr_wave3
 fight 40
-to tr_wave4@1
+to tr_wave4@2         # (the first tr_wave4 is a one-point trigger no one enters)
 fight 40
 use tomb_door@1      # the Sith Lieutenant and his soldier
 fight 30

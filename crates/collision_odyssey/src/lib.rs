@@ -143,6 +143,23 @@ impl Loader<'_> {
         Some(ModelIr::from_model(&model))
     }
 
+    /// Whether texture `name` blends additively (`blending additive`), by
+    /// its loose TXI, else the one its TPC carries.
+    fn additive(&self, name: &str) -> bool {
+        let txi = self
+            .source
+            .read(name, ResType::TXI)
+            .map(|bytes| fmt_odyssey::txi::Txi::parse(&bytes))
+            .or_else(|| {
+                let bytes = self.source.read(name, ResType::TPC)?;
+                Some(fmt_odyssey::texture::Texture::parse_tpc(&bytes).ok()?.txi)
+            });
+        txi.is_some_and(|txi| {
+            asset_odyssey::texture::TextureFacts::from_txi(&txi, false).blending
+                == asset_odyssey::texture::Blending::Additive
+        })
+    }
+
     fn walkmesh(&self, name: &str, kind: ResType) -> Option<Walkmesh> {
         let bytes = self.source.read(name, kind)?;
         Walkmesh::parse(&bytes).ok()
@@ -420,6 +437,7 @@ pub fn build_area(
         }
     }
 
+    let mut additive: BTreeMap<String, bool> = BTreeMap::new();
     for room in &area.rooms {
         let Some(model) = loader.model(&room.model) else {
             stats.rooms_without_model.push(room.model.clone());
@@ -444,7 +462,16 @@ pub fn build_area(
             // translucent by its alpha is see-through too (Khoonda's hall:
             // the skylights' light shafts, `danfx_clouds` at alpha 0.6,
             // stood the player in a box at the battle's start).
-            if mesh.transparency_hint != 0 || mesh.alpha < 1.0 {
+            // So is one whose texture adds its light to what lies behind
+            // (TXI `blending additive`): Korriban's secret tomb hangs a
+            // cloud of light (`beam21`, `korfx_clouds`) along the minefield
+            // in Dxun's vision, which stood the player off every mine.
+            let additive = mesh.texture.as_deref().is_some_and(|texture| {
+                *additive
+                    .entry(texture.to_string())
+                    .or_insert_with(|| loader.additive(texture))
+            });
+            if mesh.transparency_hint != 0 || mesh.alpha < 1.0 || additive {
                 *stats
                     .render_skipped
                     .entry("see-through".into())

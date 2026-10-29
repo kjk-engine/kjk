@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `a8fb6c0b1cdb6741`.
+Edition `b609bf78b1c5d49e`.
 
 ## Contents
 
@@ -256,6 +256,7 @@ Edition `a8fb6c0b1cdb6741`.
 - [Scripts](#scripts)
   - [Script Checks](#scripts-answers)
   - [Conversation](#scripts-talk)
+  - [Local Numbers and Booleans](#scripts-locals)
   - [Movement](#scripts-moves)
   - [Random Walk](#scripts-wander)
   - [Scripted Attacks and Surrender](#scripts-fights)
@@ -7016,7 +7017,7 @@ Skill checks, attack rolls, critical hits and saving throws are rolled on a d20.
 
 Out of combat, a skill check counts as a roll of 20.
 
-<sub>Source: K1's executable. Code: `sim::traps::sum`.</sub>
+<sub>Source: K1's executable; TSL's (CSWSObject::AIActionUnlockObject: 20 out of combat, 1 + rand % 20 in it, plus GetSkillRank's total and the spike's bonus, against GetOpenLockDC). Code: `sim::traps::sum`.</sub>
 
 ### <a id="interaction-security"></a>Locks and Security
 
@@ -7078,6 +7079,12 @@ A held [Use] that finds nothing tries again every 0.1 seconds.
 A door or container must be in view at 1 meters above its base to be used.
 
 <sub>Source: ours. Code: `sim::world::uses::Target::new`.</sub>
+
+<a id="interaction-using-action-sight-m"></a>**Action Point Height** = **1.5 m** · `interaction.using.action_sight_m`
+
+A placeable with action points must be in view at the nearest of them, 1.5 meters up, to be used: a cage or rail round it does not stop a character standing at its side.
+
+<sub>Source: TSL's executable (CSWSCreature::GetIsInUseRange: the line of sight to CSWSPlaceable::GetNearestActionPoint, 1.5 up at both ends) [verify in K1's]. Code: `sim::world::uses::Target::aimed`.</sub>
 
 <a id="interaction-using-height-reach-m"></a>**Use Height** = **2.5 m** · `interaction.using.height_reach_m`
 
@@ -7221,7 +7228,18 @@ and the enemy's challenge rating. Quests and conversations give experience
 as the story advances. In K1, level 2 requires 1,000 XP and level 20
 requires 190,000 XP.
 
-Every gain or loss of experience is shown to every player.
+Every gain or loss of experience is shown to every player. In KOTOR II a
+defeated enemy's experience reads the row of the level the main character's
+experience reaches and the enemy's rating, each at most
+30; an enemy scaled to the party rates
+as the main character's level when it appeared plus its scaling's change;
+the result is scaled by the game's experience percentage and rounded up.
+
+<a id="progression-experience-tsl-most"></a>**KOTOR II Experience Table Limit** = **30** · `progression.experience.tsl_most`
+
+KOTOR II reads a defeated enemy's experience at level and challenge rating 30 at most.
+
+<sub>Source: TSL's executable (CSWSCreature::CalculateDeathExperience: xptable.2da's row min(level - 1, 30), column min(rating + 1, 31) past `level`). Code: `sim::script::xp::Experience::tsl_kill`.</sub>
 
 ### <a id="progression-levels"></a>Gaining a Level
 
@@ -9001,6 +9019,40 @@ shouted, 35 in silent talk and
 1000 in a silent shout.
 
 <sub>Source: K1's executable. Code: `sim::script::engine::volume_reach`.</sub>
+
+### <a id="scripts-locals"></a>Local Numbers and Booleans
+
+An object keeps 8 local numbers in KOTOR and
+32 in KOTOR II, each one byte: a number from
+-128 to 127 is kept as its byte and read back from 0 to 255 (-1 reads 255);
+one outside that range, or at a slot past the last, is not kept, and such
+a slot reads 0. It keeps 96 local booleans in
+KOTOR and 160 in KOTOR II; one set past the
+last (or below the first) is not kept, and reads false.
+
+<a id="scripts-locals-k1-numbers"></a>**Local Numbers (KOTOR)** = **8** · `scripts.locals.k1_numbers`
+
+A KOTOR object keeps 8 local numbers.
+
+<sub>Source: K1's executable (the var table's number accessors: index 0 to 7, a byte at +0xc; ExecuteCommandSetLocalNumber keeps only -128 to 127). Code: `sim::script::engine::local_number`.</sub>
+
+<a id="scripts-locals-tsl-numbers"></a>**Local Numbers (KOTOR II)** = **32** · `scripts.locals.tsl_numbers`
+
+A KOTOR II object keeps 32 local numbers.
+
+<sub>Source: TSL's executable (CSWVarTable::GetLocalNumber/SetLocalNumber: index 0 to 31, an unsigned byte; ExecuteCommandSetLocalNumber keeps only -128 to 127, GetLocalNumber's push zero-extends). Code: `sim::script::engine::local_number`.</sub>
+
+<a id="scripts-locals-k1-booleans"></a>**Local Booleans (KOTOR)** = **96** · `scripts.locals.k1_booleans`
+
+A KOTOR object keeps 96 local booleans.
+
+<sub>Source: K1's executable (the var table's boolean accessors: an unsigned index of 0 to 0x5f, a bit of three 32-bit words). Code: `sim::script::engine::local_boolean`.</sub>
+
+<a id="scripts-locals-tsl-booleans"></a>**Local Booleans (KOTOR II)** = **160** · `scripts.locals.tsl_booleans`
+
+A KOTOR II object keeps 160 local booleans.
+
+<sub>Source: TSL's executable (CSWVarTable::GetLocalBoolean/SetLocalBoolean: an unsigned index of 0 to 0x9f, a bit of five 32-bit words). Code: `sim::script::engine::local_boolean`.</sub>
 
 ### <a id="scripts-moves"></a>Movement
 

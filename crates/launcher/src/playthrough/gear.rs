@@ -53,6 +53,34 @@ pub(super) fn strongest(
         .map(|(_, item)| item)
 }
 
+/// The template a route's `equip` names: `saber`, the strongest lightsaber
+/// the party carries or the player wears (by its damage's average, as its
+/// upgrades leave it: the treasure scripts' saber differs with the level
+/// the player has when they make it); any other word, that template.
+pub(super) fn named_item(world: &sim::SimWorld, snapshot: &Snapshot, named: &str) -> Option<String> {
+    if named != "saber" {
+        return Some(named.to_string());
+    }
+    let catalog = world.level().scripts()?.items();
+    let me = crate::cast::me(snapshot, Seat(0))?;
+    world
+        .script_state()
+        .items
+        .values()
+        .filter(|item| item.holder == sim::inventory::PARTY || item.holder == me.0)
+        .filter_map(|item| {
+            let facts = catalog.get(&item.template)?;
+            let weapon = facts.fitted(item.upgrades, &item.fitted, catalog).weapon?;
+            matches!(weapon.delivery, sim::combat::sheet::Delivery::Saber(_)).then_some(())?;
+            let twice_average = i32::from(weapon.dice) * (i32::from(weapon.die) + 1)
+                + i32::from(weapon.bonus_dice) * (i32::from(weapon.bonus_die) + 1)
+                + 2 * i32::from(weapon.damage_bonus);
+            Some((twice_average, item.template.clone()))
+        })
+        .max_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)))
+        .map(|(_, template)| template)
+}
+
 /// The dearest item the party carries that the store open to the player
 /// buys, sold to it: never a plot item nor what a player keeps to use
 /// (grenades, medpacs and the like; spikes, of the base items `kept`: the
@@ -157,7 +185,8 @@ pub(super) fn goods(world: &sim::SimWorld, snapshot: &Snapshot) -> serde_json::V
 }
 
 /// The first seat's own character as its levels made it: its career
-/// (class, levels), level, scores, skill ranks, feats and powers (by row).
+/// (class, levels), level, experience, scores, skill ranks, feats and
+/// powers (by row).
 fn player(world: &sim::SimWorld, snapshot: &Snapshot) -> serde_json::Value {
     use sim::combat::sheet::Rows;
     let Some((id, sheet)) = snapshot.own(Seat(0)).and_then(|own| Some((own.id, own.sheet?))) else {
@@ -168,6 +197,7 @@ fn player(world: &sim::SimWorld, snapshot: &Snapshot) -> serde_json::Value {
     json!({
         "career": world.script_state().careers.get(&id.0),
         "level": sheet.level,
+        "xp": world.script_state().xp(sim::inventory::PARTY),
         "abilities": sheet.abilities,
         "skills": sheet.skills,
         "feats": feats,
