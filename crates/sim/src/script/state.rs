@@ -285,6 +285,10 @@ pub struct State {
     /// TSL's `SetKeepStealthInDialog`: a conversation starting leaves its
     /// parties in stealth (KOTOR's client keeps it; not saved).
     pub keep_stealth: bool,
+    /// Statuses told that the status summary is still to show: it shows
+    /// once no conversation holds the world, and closing it runs
+    /// `presentation::SUMMARY_CLOSED` (KOTOR's client keeps it; not saved).
+    pub summary_owed: bool,
     /// The map page's return button as `SetReturnStrref` last set it:
     /// shown, label, confirm box. KOTOR's party table does not save it
     /// (`k_sup_guiopen` sets it anew each time an in-game screen opens,

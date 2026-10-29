@@ -2397,10 +2397,11 @@ impl Step<'_> {
                 }
                 continue;
             };
-            // The dead act on nothing (their queue waits, should they rise).
-            if thing.character.is_some() && thing.dead() {
-                continue;
-            }
+            // The dead act on nothing (their queue waits, should they rise),
+            // but for a conversation queued for them to start: TSL's dead
+            // Visquis, his own conversation's owner, starts Kreia's scene
+            // after it (`a_start_kreend`) [verify in the exe].
+            let dead = thing.character.is_some() && thing.dead();
             let player = thing.kind.is_none();
             for _ in 0..ACTIONS_PER_STEP {
                 if self.runs >= RUNS_PER_STEP {
@@ -2410,6 +2411,9 @@ impl Step<'_> {
                 else {
                     break;
                 };
+                if dead && !matches!(front.action, Action::Converse { .. }) {
+                    break;
+                }
                 let starting = front.started_ms.is_none();
                 let started = *front.started_ms.get_or_insert(now);
                 let action = front.action.clone();
@@ -3354,6 +3358,7 @@ pub fn run_due(
     pazaak::engaged_stop_watching(&mut step);
     step.levels();
     step.state.dress_changed(library.items(), view, step.out);
+    step.summary_closed();
     // A module a script started: the party leaves it as this step ends,
     // so its leaving's events run now, in the module they belong to.
     if step.out.new_module.is_some() {

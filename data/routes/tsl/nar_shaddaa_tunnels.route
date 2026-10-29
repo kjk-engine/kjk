@@ -1,0 +1,55 @@
+# Nar Shaddaa, the Jekk'Jekk Tarr and Visquis's stronghold (TSL, 303NAR,
+# 304NAR, 305NAR): the Exile into the Jekk'Jekk Tarr (Kreia's Breath
+# Control), its patrons fought to Visquis's flight, the Twi'lek attendants
+# calmed and sent to safety (LSP twice), down into the vent tunnels' maze to
+# the sealed stronghold door; Mira's fight with Hanharr in the pit, the
+# kath hounds, the Old Beast Tender's keycard and the ring door, a high
+# security door sliced (a pit victim's security spike), the emergency tunnel
+# control opening the vent tunnels; the Exile in, to Visquis: no trouble
+# sought, the bounty asked after, Visquis spared from his Ubese (LSP);
+# Goto's droids take the Exile, Zez-Kai Ell finds Mira, Kreia raises
+# Hanharr, Mira back with the companions, and T3-M4 sold into Vogga's
+# droid warehouse.
+# Starts from the flophouse's checkpoint:
+#   kjk playthrough tsl @nar_shaddaa_flophouse data/routes/tsl/nar_shaddaa_tunnels.route --god
+# Walkthrough: DSimpson's "Meeting with the Exchange" and "Visquis's Lair"
+# (context/walkthroughs/tsl/).
+exit TO_304NAR@2     # the Jekk'Jekk Tarr (the transition past its door)
+module 304nar
+talk                 # Visquis's welcome, Kreia's Breath Control
+fight 40             # the patrons
+to tr_visleaveconv   # Visquis leaves for his stronghold
+fight 40
+say Calm down, I mean you no harm. Where is Visquis? # (LSP)
+say Get to safety. I'll handle your master. # (LSP)
+use TwilekAtt
+talk
+exit TO_305NAR       # the vent tunnels
+module 305nar
+talk
+use HighSecurityDoorInterior # the sealed door: Mira in the pit
+talk
+talk
+fight 40             # Hanharr, then the kath hounds
+use MidCorpse@3      # the Old Beast Tender's keycard
+use MidCorpse@4      # a pit victim's security spike
+use DoorRing
+fight 40
+unlock HighSecuritDoor g_i_secspike01
+say Access all available escape routes.
+say Activate emergency escape route and leave.
+use 305term          # the emergency tunnel control
+talk
+talk                 # the alarm; the Exile let in
+say I'm not looking for trouble # Visquis (LSP)
+say Because you've all put a bounty on my head
+say I only just arrived on Nar Shaddaa # (LSP)
+say Enough - why did you put a bounty on me?
+say Leave him alone! # (LSP)
+to 305Precog         # the pit: Visquis, Goto's droids, Mira, Kreia, T3 sold
+talk
+talk
+talk
+module 303nar
+wait 2s
+save nar_shaddaa_t3

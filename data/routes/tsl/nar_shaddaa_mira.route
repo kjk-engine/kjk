@@ -1,0 +1,30 @@
+# Nar Shaddaa, Mira in the Exile's place (TSL, 301NAR, 303NAR, 306NAR,
+# 304NAR): on the way to the Jekk'Jekk Tarr Atton's warning and his
+# antidote packs (high influence), Mira's warning of
+# the trap (the Exile's lightsaber, she sees, is none) and Atton's scene:
+# played as Atton in the cantina, the Twin Suns fought and killed, Atton
+# back at the Hawk to warn Kreia and Bao-Dur before the Zhugs come; Mira's
+# safe house, her gas, and Mira in the Exile's environment suit at the
+# Jekk'Jekk Tarr, played to Visquis's chamber, caught; the Exile wakes in
+# the flophouse to Zez-Kai Ell, who goes after her.
+# Starts from Visquis's call:
+#   kjk playthrough tsl @nar_shaddaa_visquis data/routes/tsl/nar_shaddaa_mira.route --god
+# Walkthrough: DSimpson's "Meeting with the Exchange" (context/walkthroughs/tsl/).
+exit TO_303NAR       # Atton's warning by the docks' door
+talk
+module 303nar
+to tr_303mira_conv   # Mira's warning, then Atton in the cantina
+talk
+talk
+fight 30             # Atton and the Twin Suns
+talk
+module 301nar        # Atton back at the Hawk; Mira's safe house
+talk
+wait 10s
+module 304nar        # Mira in the suit
+talk
+use Visquis
+talk
+module 303nar        # the Exile wakes: Zez-Kai Ell
+talk
+save nar_shaddaa_flophouse

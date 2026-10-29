@@ -894,10 +894,14 @@ fn ui_loot() {
 /// party selection screen's exit script told the party was accepted
 /// (`party_screen_accepted`: the Ebon Hawk's ramp on Dantooine), and the
 /// area's iteration passing over the dead (`area_iteration_skips_the_dead`:
-/// the battle of Khoonda's end). The sim alone, on the proving ground.
+/// the battle of Khoonda's end), and a companion spawned again while its
+/// creature is here being that creature (`spawned_again_is_the_same`:
+/// Atton's warning on Nar Shaddaa), and `k_align_movie` run as the status
+/// summary closes (`summary_closed_runs_align_movie`: Visas Marr's
+/// arrival). The sim alone, on the proving ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 17);
+    probed("tsl", &sim::tsl_probes::probes(), 19);
 }
 
 /// The dead's remains (KOTOR's body bags; `sim::remains::probes`), owner

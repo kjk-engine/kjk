@@ -59,6 +59,8 @@ void SaveNPCState(int nNPC);
 object SpawnAvailableNPC(int nNPC, location lPosition);
 // 12
 location GetLocation(object oObject);
+// 13
+void DestroyObject(object oDestroy, float fDelay=0.0f, int bNoFade = FALSE, float fDelayUntilFade = 0.0f, int nHideFeedback = 0);
 "#;
     let call = |routine: u16, args: u8| Op::Action { routine, args };
     let int = |value: i32| Op::Const(Const::Int(value));
@@ -95,13 +97,24 @@ location GetLocation(object oObject);
     token(&mut back, 9, &[int(0), made, call(9, 2), call(6, 1)], false);
     token(&mut back, 10, &switch(i32::from(UNKNOWN)), false);
     back.op(Op::Retn);
-    // `probe_keep`: `SaveNPCState(STANDING)`; `probe_spawn`: 11
+    // `probe_keep`: `SaveNPCState(STANDING)`; `probe_spawn`: the standing
+    // one destroyed, as the games' scripts send a companion away, then 11
     // `GetTag(SpawnAvailableNPC(STANDING, GetLocation(GetFirstPC())))`.
     let mut keep = script_ncs::probes::Asm::default();
     keep.op(int(i32::from(STANDING)))
         .op(call(10, 1))
         .op(Op::Retn);
     let mut spawn = script_ncs::probes::Asm::default();
+    let standing = Op::Const(Const::String(TEMPLATES[1].1.as_bytes().to_vec()));
+    spawn
+        .op(int(0))
+        .op(Op::Const(Const::Float(0.0)))
+        .op(int(0))
+        .op(Op::Const(Const::Float(0.0)))
+        .op(int(0))
+        .op(standing)
+        .op(call(9, 2))
+        .op(call(13, 5));
     let made_here = [
         call(4, 0),
         call(12, 1),
