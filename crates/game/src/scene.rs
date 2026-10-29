@@ -214,7 +214,6 @@ impl Plugin for ScenePlugin {
         .init_resource::<SceneLights>()
         .init_resource::<CarriedLights>()
         .init_resource::<crate::blaster_view::ShotLights>()
-        .init_resource::<BodyLights>()
         .init_resource::<ScrollingMaterials>()
         .init_resource::<FlipBooks>()
         .init_resource::<LiveBlades>()

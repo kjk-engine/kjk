@@ -86,6 +86,7 @@ impl Plugin for OwnFxPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Movers>()
             .init_resource::<BodyClips>()
+            .init_resource::<crate::scene::BodyLights>()
             .configure_sets(
                 PostUpdate,
                 (Posed, Drawn)
