@@ -25,7 +25,8 @@ talk                 # Visas Marr's ambush aboard (the Telos movies' arrival)
 fight 30             # fought, spared ("I will not kill you", "I do not kill
 talk                 # a helpless opponent"), Atton in the medbay, the
 until npc 9=1        # Handmaiden's warning: Visas joined
-equip g_w_shortsbr01 # the short lightsaber from Visas's part in hand
+equip saber          # the lightsaber from Visas's part in hand (a_give_quest_ls
+                     # picks it by the Exile's level: a double-bladed one now)
 party 0,6            # ashore with Atton and Kreia (not Visas)
 say [Repair] Initialize the control cluster # HK-47's control cluster,
 say Step away.       # bought from Akkere on Dantooine, fitted
