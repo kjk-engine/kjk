@@ -14,14 +14,11 @@ say What happens now?
 say I urge you to reconsider.
 to tr_zez351conv     # Zez-Kai Ell
 talk
-talk                 # the form taught
+talk                 # the form taught (a_give_form): a_master_teach opens
+                     # the safe house's secret door a_master_setup locked
 talk                 # his farewell: the Enclave on Dantooine
-# BLOCKER: the chain's Exile is the dev soldier sheet (no character
-# creation), and TSL's master teaches a form only to a Jedi class
-# (c_chkform_next); the form's node (a_master_teach) is the only one that
-# unlocks the safe house's door a_master_setup locked, so the party is
-# moved out to the landing pad.
-goto 301nar WP_from_ebonhawk
+exit TO_301NAR       # out by that door and the flophouse to the landing pad
+module 301nar
 to to_ebonhawk
 module 003ebo        # aboard: G0-T0's remote, then Bao-Dur's upgrade of him
 talk

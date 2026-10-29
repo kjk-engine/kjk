@@ -1127,3 +1127,23 @@ pub(super) fn level_due(world: &sim::SimWorld, snapshot: &Snapshot) -> Option<u8
                 .map_or(0, |(class, _)| *class)
         })
 }
+
+/// The picks `plan` makes for the player's next level of `class`
+/// (`Classes::planned`).
+pub(super) fn planned(
+    world: &sim::SimWorld,
+    snapshot: &Snapshot,
+    class: u8,
+    plan: &sim::levels::Plan,
+) -> Option<sim::levels::Choices> {
+    let avatar = snapshot.own(Seat(0))?;
+    let sheet = avatar.sheet?;
+    let classes = world.level().scripts()?.classes();
+    let career = world
+        .script_state()
+        .careers
+        .get(&avatar.id.0)
+        .cloned()
+        .unwrap_or_else(|| vec![(class, sheet.level)]);
+    classes.planned(&sheet, &career, class, plan)
+}

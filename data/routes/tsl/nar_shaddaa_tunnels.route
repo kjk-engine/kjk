@@ -32,10 +32,11 @@ talk
 talk
 fight 40             # Hanharr, then the kath hounds
 use MidCorpse@3      # the Old Beast Tender's keycard
-use MidCorpse@4      # a pit victim's security spike
-use DoorRing
+use MidCorpse@4      # a pit victim's remains (its loot rolled at the
+use DoorRing         # Exile's level: a security spike or not)
 fight 40
-unlock HighSecuritDoor g_i_secspike01
+bash HighSecuritDoor # the Sparring Room's locked door (DC 28, past Mira's
+                     # Security without a spike): struck open
 say Access all available escape routes.
 say Activate emergency escape route and leave.
 use 305term          # the emergency tunnel control
