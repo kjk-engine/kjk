@@ -11,3 +11,6 @@ sim = "Nar Shaddaa: EffectDeath keeping the body, kept bodies the module's own, 
 
 [formats]
 save = "an effect value may be EffectDeath keeping the body (`Effect::DeathKept`)."
+
+[migrations]
+save = "old saves read as before: EffectDeath keeping the body is a new effect code (16) no older save holds"
