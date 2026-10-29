@@ -13,3 +13,6 @@ sim = "Telos: queued pauses, self-opened doors' OnOpen, Lockable locks, held ite
 
 [formats]
 save = "a queued conversation pause (`Action::Pause`, its conversation)."
+
+[migrations]
+save = "old saves read as before: a queued pause is a new action code (58) no older save holds"

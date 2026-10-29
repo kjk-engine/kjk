@@ -1,8 +1,9 @@
 //! The owner-approved scenarios (2026-09-30; `script_vm` and
 //! `weapon_holdings` 2026-10-01; the `dialogue_…` three 2026-10-02;
 //! `blank_cells_name_nothing` proposed 2026-10-02; `saves_round_trip`
-//! 2026-10-02; the I31 co-op ten 2026-10-03; `scene_mode` 2026-10-17), by
-//! the names approved.
+//! 2026-10-02; the I31 co-op ten 2026-10-03; `scene_mode` 2026-10-17;
+//! `old_saves_load` and `bump_files` proposed 2026-10-28), by the names
+//! approved.
 //! What each checks and how to re-pin: `docs/TESTS.md`.
 
 use approved_tests::{discovery, hash_left_to_merge, module_source, pinned_hash};
@@ -1213,7 +1214,7 @@ fn save(root: &std::path::Path, world: &mut sim::SimWorld, slot: Option<&str>) -
         area: "here".into(),
         saved: saves::now(),
         seats: snapshot.seats(),
-        character: None,
+        ..saves::Meta::default()
     };
     let save = sim::Save {
         hz: sim::TICK_HZ,
@@ -1430,6 +1431,25 @@ fn feats() {
 fn save_copy_round_trip() {
     probed("save copies", &saves::copies::probes(), 12);
     probed("save refusals", &saves::refusal_probes(), 14);
+}
+
+/// The saves' safety net (`saves::safety_probes`): the meta's new fields
+/// and an older meta, a damaged save listed and refused, one without a hash
+/// trusted, autosaves rotating, the backup before a new release, a failed
+/// write leaving nothing, a refusal naming the build that made the save;
+/// no install.
+#[test]
+fn save_safety() {
+    probed("save safety", &saves::safety_probes(), 11);
+}
+
+/// The flight recorder's file (`sim::flight::probes`): the pinned run kept
+/// by a recorder and the flight side by side replays alike, a file cut
+/// anywhere in its last chunk or bent there keeps the whole chunks, an
+/// empty one is refused, and a replay may skip the data check; no install.
+#[test]
+fn flight_recorder() {
+    probed("flight", &sim::flight::probes(), 6);
 }
 
 /// A save copy in parts on the wire (I30 P17):
@@ -1788,4 +1808,178 @@ fn rulebook() {
         problems.len(),
         problems.join("\n  ")
     );
+}
+
+/// Every fixture in `crates/approved_tests/saves` (a code-built save from each
+/// pin that moved a stored format, `sim::fixtures`) loads on this build:
+/// decoded, re-encoded and decoded the same, and made a world on its level;
+/// the kitchen sink leaves no field at its start but those it names; and
+/// fixtures from before a `breaking` bump are refused by their version
+/// (docs/superpowers/specs/2026-10-28-save-migrations-design.md, 2a).
+#[test]
+fn old_saves_load() {
+    let dir = approved_tests::workspace().join(sim::fixtures::DIR);
+    let (level, sink) = sim::fixtures::kitchen_sink();
+    let set = |fields: &[&'static str]| {
+        fields
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    assert_eq!(
+        set(&sim::fixtures::left_at_start(&sink)),
+        set(sim::fixtures::LEFT_AT_START),
+        "the kitchen sink's fields at their start: give a new field a value in `sim::fixtures`, or name it in LEFT_AT_START with why"
+    );
+    let mut seen = 0;
+    for entry in std::fs::read_dir(&dir).expect("the fixtures folder") {
+        let path = entry.expect("a fixture").path();
+        if path.extension().is_none_or(|extension| extension != "kjkv") {
+            continue;
+        }
+        let bytes = std::fs::read(&path).expect("a fixture reads");
+        let name = path
+            .file_name()
+            .expect("a fixture's name")
+            .to_string_lossy();
+        let versions = sim::fixtures::versions_of(&name)
+            .unwrap_or_else(|| panic!("{name}: not a fixture's name"));
+        // Older than a pending `breaking` bump: its pin retires it.
+        if sim::fixtures::refused(versions) {
+            let error = sim::Save::decode(&bytes)
+                .map(|_| ())
+                .expect_err("a fixture before a breaking bump is refused");
+            assert!(error.to_string().contains("version"), "{name}: {error}");
+            seen += 1;
+            continue;
+        }
+        let mut save =
+            sim::Save::decode(&bytes).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        let again = sim::Save::decode(&save.encode()).expect("a re-encoded save decodes");
+        assert_eq!(again, save, "{}: re-encoding changes it", path.display());
+        sim::fixtures::restamp(&mut save, &level);
+        save.world(&level, 2, None)
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        seen += 1;
+    }
+    assert!(seen > 0, "no fixtures in {}", dir.display());
+    let newest = dir.join(sim::fixtures::file_name(sim::fixtures::current()));
+    assert!(
+        newest.exists() || approved_tests::stored_bumps_pending(),
+        "no fixture at this build's versions: `cargo run --release -p approved_tests --bin save_fixture`"
+    );
+    // The kitchen sink as this build writes it, damaged three ways: each
+    // refused, none a panic.
+    let first = sink.encode();
+    let mut newer = first.clone();
+    newer[4..8].copy_from_slice(&(sim::fixtures::current().save + 1).to_le_bytes());
+    let mut companion = sink.clone();
+    let npc = companion
+        .script
+        .party
+        .available
+        .values_mut()
+        .find(|npc| npc.template_data.is_some())
+        .expect("the kitchen sink keeps a companion's template");
+    npc.template_data = Some(vec![0xff; 3].into());
+    let damaged = [
+        ("a newer build's", newer, "version"),
+        ("half of one", first[..first.len() / 2].to_vec(), "save"),
+        (
+            "a broken companion's",
+            companion.encode(),
+            "a kept companion",
+        ),
+    ];
+    for (what, bytes, says) in damaged {
+        let error = sim::Save::decode(&bytes)
+            .map(|_| ())
+            .expect_err(what)
+            .to_string();
+        assert!(error.contains(says), "{what}: {error}");
+    }
+    // The network's snapshots stay at this build's version alone
+    // (`Snapshot::decode`): checked once a stored snapshot is older than
+    // this build's, which no fixture is yet.
+    for entry in std::fs::read_dir(dir.join("retired")).into_iter().flatten() {
+        let path = entry.expect("a retired fixture").path();
+        let bytes = std::fs::read(&path).expect("a retired fixture reads");
+        let error = sim::Save::decode(&bytes)
+            .map(|_| ())
+            .expect_err("a retired fixture is refused");
+        assert!(
+            error.to_string().contains("version"),
+            "{}: {error}",
+            path.display()
+        );
+    }
+}
+
+/// Bump files say how old saves are read (bumps/README.md): a format saves
+/// hold, bumped without `[migrations]` or `breaking`, is refused, as is a
+/// migration of a format not bumped; and pending bumps of one format get
+/// ordered named versions (`sim::since`).
+#[test]
+fn bump_files() {
+    let cases: &[(&str, &str, Result<(), &str>)] = &[
+        (
+            "ok.toml",
+            "[formats]\nsnapshot = \"x\"\n[migrations]\nsnapshot = \"old: none\"\n",
+            Ok(()),
+        ),
+        (
+            "breaks.toml",
+            "breaking = \"why\"\n[formats]\nsave = \"x\"\n",
+            Ok(()),
+        ),
+        ("net.toml", "[formats]\ninstall = \"x\"\n", Ok(())),
+        (
+            "bare.toml",
+            "[formats]\npack = \"x\"\n",
+            Err("pack: say how old saves are read"),
+        ),
+        (
+            "stray.toml",
+            "[formats]\nsave = \"x\"\n[migrations]\nsave = \"y\"\nsnapshot = \"z\"\n",
+            Err("snapshot is not bumped"),
+        ),
+        (
+            "2026-fix.toml",
+            "[formats]\nsave = \"x\"\n[migrations]\nsave = \"y\"\n",
+            Err("not a name"),
+        ),
+        (
+            "net-migrated.toml",
+            "[formats]\ninstall = \"x\"\n[migrations]\ninstall = \"y\"\n",
+            Err("install is not stored in saves"),
+        ),
+    ];
+    for (name, text, expected) in cases {
+        let got = bumps::parse_file(name, text).map(|_| ());
+        match expected {
+            Ok(()) => assert!(got.is_ok(), "{name}: {got:?}"),
+            Err(part) => assert!(
+                got.as_ref().is_err_and(|error| error.contains(part)),
+                "{name}: {got:?}"
+            ),
+        }
+    }
+    let migrated = "[formats]\nsave = \"x\"\n[migrations]\nsave = \"y\"\n";
+    let mut two = vec![
+        bumps::parse_file("b-later.toml", migrated).expect("a migrated bump"),
+        bumps::parse_file("a-first.toml", migrated).expect("a migrated bump"),
+    ];
+    two.sort_by(|a, b| a.path.cmp(&b.path));
+    assert_eq!(
+        bumps::pending_since(&two, "save"),
+        vec![("A_FIRST".to_string(), 1), ("B_LATER".to_string(), 2)]
+    );
+    // A name a pinned bump took, or two files of one name, is refused by
+    // the file: its `since` constant would be another's.
+    let pinned = "pub mod save {\n    pub const A_FIRST: crate::Since = crate::Since(crate::Stored::Save, 60);\n}\n";
+    let reused = bumps::clashes(&two, pinned).expect_err("a pinned name reused");
+    assert!(reused.contains("a-first.toml"), "{reused}");
+    two.push(bumps::parse_file("a_first.toml", migrated).expect("a migrated bump"));
+    let twice = bumps::clashes(&two, "").expect_err("two files of one name");
+    assert!(twice.contains("a_first.toml"), "{twice}");
 }

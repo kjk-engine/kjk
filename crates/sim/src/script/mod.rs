@@ -67,8 +67,8 @@ use script_ncs::catalog::Catalog;
 use script_ncs::vm::{self, Deferred, ObjectId, Program, Routines};
 
 pub use state::{
-    Delayed, DoorMine, Pending, Perceived, SkillUse, State, StealthXp, TrapState, UseKind, Watch,
-    Watched, global, set_global,
+    Delayed, DoorMine, Left, Pending, Perceived, SkillUse, State, StealthXp, TrapState, UseKind,
+    Watch, Watched, global, set_global,
 };
 
 /// `GetNearestCreature`'s criteria (`CREATURE_TYPE_*`).
@@ -3458,7 +3458,11 @@ fn make_npc(
     let id = match library.creature(&slot.template) {
         Some(_) => make(library, view, state, out, &slot.template, at, yaw)?,
         None => {
-            let facts = crate::pack::creature_of(slot.template_data.as_deref()?)?;
+            let facts = crate::pack::creature_of(
+                slot.template_data.as_deref()?,
+                crate::wire::Versions::THIS_BUILD,
+            )
+            .ok()?;
             make_of(library, view, state, out, Arc::new(facts), at, yaw)
         }
     };

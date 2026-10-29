@@ -22,8 +22,11 @@ on:
       - "docs/**"
       - "*.md"
 
+# A merged pull request's closing run has main as its ref: keyed on the
+# event and the pull request's branch, it cancels that pull request's runs
+# and not the push to main beside it.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 env:
