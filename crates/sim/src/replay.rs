@@ -180,15 +180,30 @@ impl Recording {
         levels: &mut dyn FnMut(&Announcement) -> Result<Level, String>,
         watch: &mut dyn FnMut(&Snapshot),
     ) -> Result<Snapshot, Divergence> {
+        self.play_checked(level, levels, watch, true)
+    }
+
+    /// The same; with `check_data` false the levels' data need not be what
+    /// the recording was made with (another edition, a mod): it steps on,
+    /// and says where it diverged.
+    pub fn play_checked(
+        &self,
+        level: &Level,
+        levels: &mut dyn FnMut(&Announcement) -> Result<Level, String>,
+        watch: &mut dyn FnMut(&Snapshot),
+        check_data: bool,
+    ) -> Result<Snapshot, Divergence> {
         let failed = |tick: u64, reason: String| Divergence {
             tick,
             recorded: SnapshotHash([0; 32]),
             replayed: SnapshotHash([0; 32]),
             reason: Some(reason),
         };
-        self.level
-            .check(level)
-            .map_err(|error| failed(self.start.tick, error.to_string()))?;
+        if check_data {
+            self.level
+                .check(level)
+                .map_err(|error| failed(self.start.tick, error.to_string()))?;
+        }
         let mut world = SimWorld::from_snapshot(&self.start, level.clone())
             .map_err(|error| failed(self.start.tick, error.to_string()))?;
         world.set_script_state(self.script.clone());
@@ -223,9 +238,11 @@ impl Recording {
             }
             while let Some(announcement) = installs.next_if(|a| a.tick == number) {
                 let next = levels(announcement).map_err(|reason| failed(number, reason))?;
-                announcement
-                    .check(&next)
-                    .map_err(|mismatch| failed(number, mismatch.to_string()))?;
+                if check_data {
+                    announcement
+                        .check(&next)
+                        .map_err(|mismatch| failed(number, mismatch.to_string()))?;
+                }
                 last = world
                     .install(next, announcement.arrival())
                     .map_err(|error| failed(number, error.to_string()))?;
@@ -289,6 +306,16 @@ impl Recording {
         out.0
     }
 
+    /// A recording's file (`KJKR`), or a flight recorder's segment
+    /// (`KJKF`, `flight::read`).
+    pub fn from_file(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if crate::flight::sniff(bytes) {
+            crate::flight::read(bytes)
+        } else {
+            Self::decode(bytes)
+        }
+    }
+
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut input = Reader::new("recording", bytes);
         input.header(MAGIC, VERSION)?;
@@ -326,12 +353,12 @@ impl Recording {
     }
 }
 
-fn encode_tick(msec: u32, input: &TickInput, out: &mut Writer) {
+pub(crate) fn encode_tick(msec: u32, input: &TickInput, out: &mut Writer) {
     out.u16(u16::try_from(msec).expect("a tick is under a minute"));
     input.encode(out);
 }
 
-fn decode_tick(input: &mut Reader) -> Result<RecordedTick, DecodeError> {
+pub(crate) fn decode_tick(input: &mut Reader) -> Result<RecordedTick, DecodeError> {
     let msec = u32::from(input.u16()?);
     Ok(RecordedTick {
         msec,

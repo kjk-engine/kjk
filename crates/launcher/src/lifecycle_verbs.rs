@@ -11,27 +11,7 @@ use vfs::{Discovery, Game};
 
 use crate::lifecycle::*;
 
-/// The level a snapshot is in (its module planned here, entered at its
-/// entry, for `seats` players, its encounters for the players it was
-/// planned for), checked to be the one the snapshot names.
-pub fn level_of_place(
-    installer: &Installer,
-    place: &sim::Place,
-    seats: u8,
-) -> Result<Level, String> {
-    let request = installer
-        .request(&place.module, None, seats)
-        .with_players(place.players);
-    let prepared = installer.prepare(&request, false)?;
-    let level = prepared.plan.level;
-    if level.digest() != place.digest {
-        return Err(format!(
-            "{}: the data here is not the data the snapshot was taken with",
-            place.module
-        ));
-    }
-    Ok(level)
-}
+pub use crate::levels::level_of_place;
 
 fn census_json(census: &sim::Census) -> serde_json::Value {
     serde_json::json!({ "live": census.live, "left_behind": census.stashed })

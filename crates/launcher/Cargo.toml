@@ -38,6 +38,8 @@ net.workspace = true
 serde_json.workspace = true
 saves.workspace = true
 image.workspace = true
+# `kjk report`: a player's bug report opened.
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [build-dependencies]
 # kjk.exe's icon (`kjk.rc`), through the toolchain's resource compiler.
