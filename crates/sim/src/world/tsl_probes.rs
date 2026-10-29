@@ -135,6 +135,10 @@ object GetFirstObjectInArea(object oArea = OBJECT_INVALID, int nObjectFilter = O
 object GetNextObjectInArea(object oArea = OBJECT_INVALID, int nObjectFilter = OBJECT_TYPE_CREATURE);
 // 30
 object GetArea(object oTarget);
+// 31
+int GetNPCSelectability(int nNPC);
+// 32
+void SetNPCSelectability(int nNPC, int nSelectability);
 int OBJECT_TYPE_CREATURE = 1;
 "#;
 
@@ -284,6 +288,7 @@ fn library() -> crate::script::Library {
             ("probe_party_exit", exit.build()),
             ("probe_atton_beside", atton_beside.build()),
             ("probe_in_area", in_area.build()),
+            ("probe_selectability", selectability()),
         ],
     )
     .with_creatures(
@@ -385,6 +390,24 @@ fn light_point() -> Ncs {
 fn summary_closed() -> Ncs {
     let mut asm = Asm::default();
     token(&mut asm, 70, &[int(1)]);
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_selectability`: `GetNPCSelectability` in tokens 80 to 82, of
+/// Bao-Dur never made available, then of Atton made available, then of
+/// Atton made unselectable (`SetNPCSelectability(NPC_ATTON, 0)`).
+fn selectability() -> Ncs {
+    let mut asm = Asm::default();
+    let selectability = |npc: i32| [int(npc), call(31, 1)];
+    token(&mut asm, 80, &selectability(BAO_DUR));
+    asm.op(text(ATTON_TEMPLATE))
+        .op(int(ATTON))
+        .op(call(5, 2))
+        .op(Op::MovSp(-4));
+    token(&mut asm, 81, &selectability(ATTON));
+    asm.op(int(0)).op(int(ATTON)).op(call(32, 2));
+    token(&mut asm, 82, &selectability(ATTON));
     asm.op(Op::Retn);
     asm.build()
 }
@@ -559,6 +582,7 @@ pub fn probes() -> Checks {
     checks.push(("bao_dur_met", bao_dur_met()));
     checks.push(("spawned_twice_is_one", spawned_twice_is_one()));
     checks.push(("spawned_again_is_the_same", spawned_again_is_the_same()));
+    checks.push(("selectability_of_the_unknown", selectability_told()));
     checks.push((
         "summary_closed_runs_align_movie",
         summary_closed_runs_align_movie(),
@@ -1000,6 +1024,20 @@ fn spawned_again_is_the_same() -> Result<String, String> {
     check(
         told == ["0", "1", "1"],
         format!("(a second, a first, the same) atton: {told:?}"),
+    )
+}
+
+/// `GetNPCSelectability` is -1 for a companion not in the party table
+/// (TSL's nwscript.nss), else 1 or 0 as it may be picked: the Ebon Hawk's
+/// Visas Marr arrives only while she is not yet available
+/// (`k_003ebo_enter`'s test of 1 or 0).
+fn selectability_told() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    run(&mut world, "probe_selectability");
+    let told = tokens(&step(&mut world), 80..=82);
+    check(
+        told == ["-1", "1", "0"],
+        format!("(never available, available, unselectable): {told:?}"),
     )
 }
 

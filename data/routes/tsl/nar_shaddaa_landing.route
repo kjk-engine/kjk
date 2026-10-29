@@ -1,5 +1,6 @@
 # Nar Shaddaa, the landing pad, the docks and the Refugee Sector (TSL,
-# 003EBO, 352NAR, 301NAR, 303NAR, 302NAR): the galaxy map to Nar Shaddaa,
+# 003EBO, 352NAR, 301NAR, 303NAR, 302NAR): Visas Marr's ambush aboard the
+# Ebon Hawk, fought and spared, and her joining; the galaxy map to Nar Shaddaa,
 # Atton's landing talk, Goto's yacht's scene (352NAR), ashore; Quello told
 # his trash heap holds the Hawk up (no lie, no DSP); the first refugee
 # saved from the Exchange thugs and told the Exile was glad to help (LSP),
@@ -20,6 +21,11 @@
 # Left: the swoop droid, the Exchange deal, the droid IT-31, the pazaak
 # den, Vogga's dance (Vogga's door is opened by it; his fuel and his help
 # against Goto go with it), Geriel, Nadaa, Saquesh, the airspeeder.
+talk                 # Visas Marr's ambush aboard (the Telos movies' arrival)
+fight 30             # fought, spared ("I will not kill you", "I do not kill
+talk                 # a helpless opponent"), Atton in the medbay, the
+until npc 9=1        # Handmaiden's warning: Visas joined
+party 0,6            # ashore with Atton and Kreia (not Visas)
 use Galaxymap
 travel 6             # Nar Shaddaa (planetary.2da)
 say Then let's take the Ebon Hawk in for a landing

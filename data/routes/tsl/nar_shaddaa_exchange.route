@@ -6,9 +6,8 @@
 # good word with the Exchange (+3: DSimpson's way to its notice, the gap
 # the landing pad's heartbeat asks of eight before Visquis calls); the
 # slavers' ambush on the way back, the Ebon Hawk retaken from the Red
-# Eclipse (Cahhmakt refused: the slave trade not dealt with, fought), T3
-# and HK-47's scene aboard; out with Bao-Dur and Kreia, and Visquis's call
-# to the Jekk'Jekk Tarr.
+# Eclipse (Cahhmakt refused: the slave trade not dealt with, fought); out
+# with Bao-Dur and Kreia, and Visquis's call to the Jekk'Jekk Tarr.
 # Starts from the Refugee Sector's checkpoint:
 #   kjk playthrough tsl @nar_shaddaa_refugees data/routes/tsl/nar_shaddaa_exchange.route --god
 # Walkthrough: DSimpson's "Meeting with the Exchange" (context/walkthroughs/tsl/).
@@ -47,8 +46,7 @@ say Then prepare to die.
 to REAttack
 talk
 fight 40
-module 003ebo        # retaken: T3 and HK-47
-talk
+module 003ebo        # retaken (T3 and HK-47's scene waits on HK-47 rebuilt)
 party 1,6            # Bao-Dur and Kreia
 to tr_leave
 module 301nar

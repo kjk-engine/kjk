@@ -1799,7 +1799,7 @@ impl Engine<'_> {
                         || self.exists(id),
                 )
             }
-            GetFirstPC => self.first(caller, walk::PCS, self.pcs()),
+            GetFirstPC => self.first(caller, walk::PCS, self.controlled_pcs()),
             GetNextPC => self.next(caller, walk::PCS),
             // The first seat's PC leads, or the companion made leader
             // (`SetPartyLeader`, `Action::SetLeader`), which the first seat
@@ -5066,6 +5066,24 @@ impl Engine<'_> {
         self.view.pcs(&self.state.party)
     }
 
+    /// The PCs `GetFirstPC` walks: the creature each seat controls, the
+    /// first seat's the companion it leads while it does (`world::lent`).
+    /// KOTOR's player is the body it controls: TSL's scripts make the PC
+    /// lead again (`SetPartyLeader(NPC_PLAYER)`) before they move
+    /// `GetFirstPC()` (a_master_setup), and a trigger asking for
+    /// `GetFirstPC()` fires for the companion leading (Goto's yacht's
+    /// command centre, Mira at the head for the mines) [verify in the exe].
+    fn controlled_pcs(&self) -> Vec<ObjectId> {
+        let mut pcs = self.pcs();
+        if let Some(led) = crate::world::lent(&self.state.party).map(|body| ObjectId(body.0)) {
+            match pcs.first_mut() {
+                Some(first) => *first = led,
+                None => pcs.push(led),
+            }
+        }
+        pcs
+    }
+
     /// The companion leading the party, if one does: the one whose guest's
     /// act this run answers (`Event::leads`), else the one made leader
     /// (`world::lent`).
@@ -5651,9 +5669,16 @@ impl Engine<'_> {
                 party.restrict = int(args, 0) != 0;
                 Value::Int(0)
             }
-            GetNPCSelectability => truth(npc.is_some_and(|npc| {
-                party.available.contains_key(&npc) && !party.unselectable.contains(&npc)
-            })),
+            // -1 for a companion not in the party table at all (TSL's
+            // nwscript.nss), else whether it may be picked: TSL's Ebon Hawk
+            // takes 1 or 0 as "available" (k_003ebo_enter, Visas's arrival
+            // asking she is not yet) [verify in the exe].
+            GetNPCSelectability => Value::Int(match npc {
+                Some(npc) if party.available.contains_key(&npc) => {
+                    i32::from(!party.unselectable.contains(&npc))
+                }
+                _ => -1,
+            }),
             SetNPCSelectability => {
                 if let Some(npc) = npc {
                     if int(args, 1) != 0 {

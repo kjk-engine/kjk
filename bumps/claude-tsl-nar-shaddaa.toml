@@ -3,8 +3,11 @@
 # a companion spawned again while its creature is here is that creature,
 # moved (SpawnAvailableNPC); a seat playing a creature arrives with it on
 # its player's spot; a dead owner's conversation talks on, its body left
-# until it ends, and a dead creature starts a conversation queued for it.
-sim = "Nar Shaddaa: EffectDeath keeping the body, kept bodies the module's own, k_align_movie as the status summary closes, a companion spawned again moved, the played creature on the arrival spot, the dead's conversations"
+# until it ends, and a dead creature starts a conversation queued for it;
+# GetFirstPC is the companion the first seat leads while it does (Goto's
+# yacht's command centre, Mira at the head); GetNPCSelectability is -1 for
+# a companion not in the party table (Visas's ambush on the Ebon Hawk).
+sim = "Nar Shaddaa: EffectDeath keeping the body, kept bodies the module's own, k_align_movie as the status summary closes, a companion spawned again moved, the played creature on the arrival spot, the dead's conversations, GetFirstPC the companion led, GetNPCSelectability -1 for one not in the party table"
 
 [formats]
 save = "an effect value may be EffectDeath keeping the body (`Effect::DeathKept`)."

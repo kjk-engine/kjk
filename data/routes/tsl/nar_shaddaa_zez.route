@@ -1,0 +1,28 @@
+# Nar Shaddaa's safe house and away (TSL, 303NAR, 301NAR, 003EBO): Zez-Kai
+# Ell's questions asked through to "What happens now?" and the Jedi he
+# left; urged to reconsider (DSimpson's light side), so he teaches a form
+# and goes to Dantooine's Enclave; back aboard the Ebon Hawk, G0-T0's
+# remote and Bao-Dur's first upgrade of G0-T0 (the Hawk's scenes of a
+# boarding).
+# Starts from the safe house's checkpoint:
+#   kjk playthrough tsl @nar_shaddaa_zez data/routes/tsl/nar_shaddaa_zez.route --god
+# Walkthrough: DSimpson's "Nar Shaddaa Finale" and "Post Nar Shaddaa Ebon
+# Hawk" (context/walkthroughs/tsl/).
+# Left: the companions' talks aboard, HK-47's rebuilding, Fassa's passage
+# for Kahranna's family and Odis.
+say What happens now?
+say I urge you to reconsider.
+to tr_zez351conv     # Zez-Kai Ell
+talk
+talk                 # the form taught
+talk                 # his farewell: the Enclave on Dantooine
+# BLOCKER: the chain's Exile is the dev soldier sheet (no character
+# creation), and TSL's master teaches a form only to a Jedi class
+# (c_chkform_next); the form's node (a_master_teach) is the only one that
+# unlocks the safe house's door a_master_setup locked, so the party is
+# moved out to the landing pad.
+goto 301nar WP_from_ebonhawk
+to to_ebonhawk
+module 003ebo        # aboard: G0-T0's remote, then Bao-Dur's upgrade of him
+talk
+save nar_shaddaa_done

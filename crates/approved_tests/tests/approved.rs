@@ -901,7 +901,7 @@ fn ui_loot() {
 /// arrival). The sim alone, on the proving ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 19);
+    probed("tsl", &sim::tsl_probes::probes(), 20);
 }
 
 /// The dead's remains (KOTOR's body bags; `sim::remains::probes`), owner
@@ -1359,7 +1359,7 @@ fn item_properties() {
 /// the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 15);
+    probed("switch", &sim::switch::probes(), 16);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and

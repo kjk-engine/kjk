@@ -18,6 +18,8 @@ const STANDING: u8 = 3;
 const TEMPLATES: [(u8, &str); 2] = [(MADE, "probe_switch"), (STANDING, "probe_switch_b")];
 /// A number no companion has.
 const UNKNOWN: u8 = 7;
+/// The custom token `probe_first` sets to `GetTag(GetFirstPC())`.
+const FIRST_TOKEN: i32 = 12;
 
 /// The probes' scripts (`script`), each setting custom tokens everyone sees
 /// (`Snapshot::talk`):
@@ -29,7 +31,8 @@ const UNKNOWN: u8 = 7;
 /// - `probe_sw_back`: 7 `SwitchPlayerCharacter(NPC_PLAYER)`, then 8
 ///   `GetTag(GetFirstPC())` (the player's own: no tag), 9
 ///   `GetIsPC(GetObjectByTag(the made companion))`, 10
-///   `SwitchPlayerCharacter(UNKNOWN)`.
+///   `SwitchPlayerCharacter(UNKNOWN)`;
+/// - `probe_first`: `FIRST_TOKEN` `GetTag(GetFirstPC())`.
 fn library() -> crate::script::Library {
     use fmt_odyssey::ncs::{Const, Op};
     const CATALOG: &str = r#"
@@ -124,11 +127,16 @@ void DestroyObject(object oDestroy, float fDelay=0.0f, int bNoFade = FALSE, floa
     ];
     token(&mut spawn, 11, &made_here, true);
     spawn.op(Op::Retn);
+    // `probe_first`: 12 `GetTag(GetFirstPC())`.
+    let mut first = script_ncs::probes::Asm::default();
+    token(&mut first, FIRST_TOKEN, &first_tag, true);
+    first.op(Op::Retn);
     let scripts = TEMPLATES.iter().map(|(npc, _)| to(*npc)).chain([
         ("probe_sw_seen".to_string(), seen.build()),
         ("probe_sw_back".to_string(), back.build()),
         ("probe_keep".to_string(), keep.build()),
         ("probe_spawn".to_string(), spawn.build()),
+        ("probe_first".to_string(), first.build()),
     ]);
     let creatures = TEMPLATES
         .iter()
@@ -353,7 +361,37 @@ pub fn probes() -> crate::probe::Checks {
     checks.push(("install_after_switching_back", install_after_back()));
     checks.push(("led_companion_throws_punches", led_punches()));
     checks.push(("led_companion_has_its_players_aids", led_aids()));
+    checks.push(("led_companion_is_first_pc", led_first_pc()));
     checks
+}
+
+/// Seat 0 leading `body` (the portrait click, `Action::Lead`): the step.
+fn lead(world: &mut SimWorld, body: SimId) -> Snapshot {
+    let mut input = TickInput::default();
+    input.insert(Seat(0), Command::default());
+    input.act(Seat(0), crate::action::Action::Lead(body));
+    let tick = world.tick() + 1;
+    crate::step(world, tick, &input, 8, StepReason::Authority)
+}
+
+/// `GetFirstPC()` is the body the first seat controls: the standing
+/// companion while it leads, the player's own once its portrait takes the
+/// lead back (TSL's Goto's yacht: the command centre's trigger, asking
+/// for `GetFirstPC()`, entered by Mira at the head of the party).
+fn led_first_pc() -> Result<String, String> {
+    let (mut world, _, standing) = switch_world(1, true)?;
+    let start = run(&mut world, 1, 0);
+    let own = start.own(Seat(0)).map(|e| e.id).ok_or("no player")?;
+    let first = |world: &mut SimWorld, body: SimId| {
+        lead(world, body);
+        queue(world, "probe_first");
+        tokens(&run(world, 1, 0), FIRST_TOKEN..=FIRST_TOKEN).concat()
+    };
+    let (led, back) = (first(&mut world, standing), first(&mut world, own));
+    check(
+        led == TEMPLATES[1].1 && back.is_empty(),
+        format!("GetFirstPC()'s tag with the companion leading {led:?}, the player again {back:?}"),
+    )
 }
 
 /// Seat 0 switched to the made companion leads through the standing one
@@ -373,13 +411,6 @@ fn leads_while_switched() -> Result<String, String> {
         .switched_body()
         .map(SimId)
         .ok_or("nothing switched to")?;
-    let lead = |world: &mut SimWorld, body: SimId| {
-        let mut input = TickInput::default();
-        input.insert(Seat(0), Command::default());
-        input.act(Seat(0), crate::action::Action::Lead(body));
-        let tick = world.tick() + 1;
-        crate::step(world, tick, &input, 8, StepReason::Authority)
-    };
     lead(&mut world, standing);
     let mut walked = switched.clone();
     for _ in 0..RUN_STEPS {
@@ -407,11 +438,7 @@ fn led_aids() -> Result<String, String> {
     let (mut world, _, standing) = switch_world(1, true)?;
     world.add_player_flags(crate::combat::sheet::flags::IMMORTAL);
     run(&mut world, 1, 0);
-    let mut input = TickInput::default();
-    input.insert(Seat(0), Command::default());
-    input.act(Seat(0), crate::action::Action::Lead(standing));
-    let tick = world.tick() + 1;
-    crate::step(&mut world, tick, &input, 8, StepReason::Authority);
+    lead(&mut world, standing);
     let player = world
         .snapshot()
         .own(Seat(0))
@@ -451,11 +478,7 @@ fn led_aids() -> Result<String, String> {
 fn led_punches() -> Result<String, String> {
     let (mut world, _, standing) = switch_world(1, true)?;
     run(&mut world, 1, 0);
-    let mut input = TickInput::default();
-    input.insert(Seat(0), Command::default());
-    input.act(Seat(0), crate::action::Action::Lead(standing));
-    let tick = world.tick() + 1;
-    crate::step(&mut world, tick, &input, 8, StepReason::Authority);
+    lead(&mut world, standing);
     {
         let mut ids = world.world.query::<(bevy_ecs::entity::Entity, &Id)>();
         let body = ids
