@@ -3,11 +3,10 @@
 # on them; no Awareness or Repair to open one), Ahrnell the rock-collecting
 # mercenary (apologised to, left with his gland: DSimpson's every way to it
 # is dark), Kreia on the cave's memories, a crystal formation disturbed:
-# the hatchlings fought (no Matriarch without Zherron's job), the formations and
-# the Exile's own crystal (Kreia's talk on it); back to Saedhe (the
-# sensors sold for 3000: the surveillance and the light path's refusal are
-# asked only of one who opened them); Zherron's reward is left (the
-# BLOCKER in dantooine_khoonda). Starts from the plains' checkpoint:
+# the Matriarch and her brood fought (Zherron's job brings her), her remains,
+# the formations and the Exile's own crystal (Kreia's talk on it); back to
+# Saedhe (the surveillance found, the sensors left him for 3000: LSP) and
+# to Zherron for the job's 2000 credits. Starts from the plains' checkpoint:
 #   kjk playthrough tsl @dantooine_plains data/routes/tsl/dantooine_cave.route --god
 # Walkthrough: DSimpson's "The Crystal/Kinrath Cave" (context/walkthroughs/tsl/).
 exit To_604
@@ -25,8 +24,9 @@ use g_merc_pat
 talk
 to tr_kreia_crystal  # Kreia: the crystals hold the Force, Revan passed here
 talk
-use cryform_bl@1     # a formation disturbed: the hatchlings (the Matriarch
-fight 60             # comes only for one given Zherron's kinrath job)
+use cryform_bl@1     # a formation disturbed: the Matriarch and her brood
+fight 60             # (she comes for one given Zherron's kinrath job)
+use g_kinrath_mom    # her remains
 use cryform_bl@2     # the other formations
 use cryform_bl@3
 use crystal_cont     # the Exile's own crystal: Kreia's talk on it
@@ -39,4 +39,11 @@ say Why is there surveillance equipment # way: he keeps the sensors for
 say You need the credits more than me # 3000 credits (LSP, DSimpson)
 use npc_saedhe
 talk
+exit To_602
+module 602dan
+say I cleared out the kinrath cave. # Zherron's reward (2000)
+use npc_zherron
+talk
+exit To_601
+module 601dan
 save dantooine_rewards

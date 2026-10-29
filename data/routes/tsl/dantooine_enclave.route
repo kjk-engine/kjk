@@ -1,6 +1,7 @@
 # Dantooine, the Enclave courtyard and the sublevel (TSL, 605DAN, 610DAN):
 # by the east way into the courtyard, Daraala at the salvagers' camp (just
-# visiting, on to the ruins: her two dead salvagers to find), the Enclave's
+# visiting, on to the ruins: her two dead salvagers to find), Dopak given
+# Zherron's message ("Go ahead"), the Enclave's
 # ruin seen, Taepalae's salvagers out of the Enclave (no fight); in the
 # sublevel, the laigreks round Jorran's room fought and Jorran let out (told
 # truly they are dead, sent off to the camp: DSimpson's light way), the
@@ -27,6 +28,10 @@ say Why won't anyone help me?
 say I'm going to the ruins.
 say I'll be going now.
 use npc_daraala
+talk
+say I have a message for you. From Zherron. # Dopak, the mercenaries'
+say He says, # captain: Zherron's word given (he turns on
+use npc_dopak        # Azkul in the battle)
 talk
 to tr_enclave_cam    # the Enclave's ruin
 talk
@@ -77,7 +82,7 @@ use npc_jorran
 talk
 say I'd like to talk to you about the dead salvagers. # Daraala: the
 say I found their bodies. # bodies and the will, no reward asked (LSP;
-say I require no reward. # Zherron's the BLOCKER in dantooine_khoonda)
+say I require no reward. # the will to Zherron is a `choice` left)
 use npc_daraala
 talk
 say Get to the point. # Ralon's "holocron": inspected ([Awareness]), a fake;

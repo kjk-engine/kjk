@@ -10,7 +10,7 @@
 //! order, so the result depends on nothing but the state.
 
 use crate::brush::{self, Clip, Swept};
-use crate::{CollisionWorld, Contents, Extents, Level, Surface, Trace};
+use crate::{CollisionWorld, Contents, Extents, Level, Shape, Surface, Trace};
 
 /// One actor's box in the world (metres).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -56,9 +56,18 @@ impl<'a> Bodies<'a> {
     }
 }
 
-impl CollisionWorld for Bodies<'_> {
-    fn trace(&self, start: [f32; 3], end: [f32; 3], extents: &Extents, mask: Contents) -> Trace {
-        let mut trace = self.world.trace(start, end, extents, mask);
+impl Bodies<'_> {
+    /// The bodies `extents` meets swept from `start` to `end`, after the
+    /// world's `trace`. A body is a box square to the axes, so a box round
+    /// across meets it as the box does.
+    fn bodies_after(
+        &self,
+        mut trace: Trace,
+        start: [f32; 3],
+        end: [f32; 3],
+        extents: &Extents,
+        mask: Contents,
+    ) -> Trace {
         if trace.all_solid {
             return trace;
         }
@@ -102,6 +111,24 @@ impl CollisionWorld for Bodies<'_> {
             trace.end = std::array::from_fn(|i| start[i] + trace.fraction * (end[i] - start[i]));
         }
         trace
+    }
+}
+
+impl CollisionWorld for Bodies<'_> {
+    fn trace(&self, start: [f32; 3], end: [f32; 3], extents: &Extents, mask: Contents) -> Trace {
+        let trace = self.world.trace(start, end, extents, mask);
+        self.bodies_after(trace, start, end, extents, mask)
+    }
+
+    fn sweep(&self, start: [f32; 3], end: [f32; 3], shape: &Shape, mask: Contents) -> Trace {
+        match shape {
+            Shape::Box(extents) => self.trace(start, end, extents, mask),
+            Shape::Upright(extents) => {
+                let trace = self.world.sweep(start, end, shape, mask);
+                self.bodies_after(trace, start, end, extents, mask)
+            }
+            Shape::Capsule(capsule) => self.trace(start, end, &capsule.bounds(), mask),
+        }
     }
 
     fn point_contents(&self, point: [f32; 3], mask: Contents) -> Contents {

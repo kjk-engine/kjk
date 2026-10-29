@@ -6,7 +6,8 @@
 # Bao-Dur's Security; the "{Blast}" cylinder is left shut, see below), into
 # Khoonda: Suulru's vaporator (helped), Administrator Adare (the Ebon Hawk
 # owned, the Force's guidance, Vrook to be found first: the sublevel's
-# permission), Berun, and out to
+# permission), Berun, Zherron (the kinrath job, and Berun's doubts laid
+# before him: a message for Dopak), and out to
 # Saedhe by the cave (the atmospheric sensors asked after: DSimpson takes
 # his quest, not Berun's evidence). Starts from Telos's last checkpoint:
 #   kjk playthrough tsl @telos_done data/routes/tsl/dantooine_khoonda.route --god
@@ -79,15 +80,17 @@ say So what could I do to help
 say I'll be going now
 use npc_berun
 talk
-# BLOCKER: Zherron's kinrath job and Berun's message for Dopak left (and
-# the job's reward, in dantooine_cave, and the salvagers' will, given
-# Daraala instead in dantooine_enclave): every walk back from his post makes
-# for a corner of the way at the militia desk (-6.9, -15.3), where the free
-# floor is a diagonal channel between the desk's sloped nonwalk foot and
-# the wall, about a body wide; the walk reaches the corner and makes for
-# the next straight across the desk's foot, its sidesteps bring it back to
-# the corner, and the party's floating remote stands in the channel's
-# mouth (SKIPPED.md).
+say Neither one.      # Zherron: a hand offered, the kinrath job taken
+say I wanted to see if anyone needed a hand.
+say What sort of work do you have?
+say I'll see what I can do.
+use npc_zherron
+talk
+say Berun asked me to investigate you. # Berun's doubts laid before him
+say He wants to try reaching a compromise # (DSimpson: it
+say [Persuade] I think he's wrong, and I think I can help you. # changes
+use npc_zherron      # nothing): his message for Dopak, the mercenary
+talk                 # captain by the Enclave's courtyard
 exit To_601
 module 601dan
 use MilLowPlstcCylin@1 # by the crashed speeder

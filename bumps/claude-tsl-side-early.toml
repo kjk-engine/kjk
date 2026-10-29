@@ -7,5 +7,11 @@
 # line's scripts run before its replies are offered, as both executables'
 # SendDialogEntry does (Ralon's [Awareness] reply); a creature its
 # appearance gives no movement (NOMOVE: a turret) moves not at all and is
-# pushed by no blow (Telos's hidden turrets ran at JA's pace in a fight).
-sim = "TSL side content, early planets: exits entered by the leading companion, the area's OnEnter for the party's companions too, a line's scripts before its replies, immobile creatures never move"
+# pushed by no blow (Telos's hidden turrets ran at JA's pace in a fight);
+# a body moves against the level as its box round across (an upright
+# cylinder), as KOTOR tests a move by the creature's personal space across
+# its way whichever way it goes: JA's square box reached √2 of its half-size
+# into a diagonal wall (Khoonda's office and hall joined by a diagonal
+# channel a box could not pass); the walls standing in for KOTOR's point
+# on the walkmesh it meets as the box.
+sim = "TSL side content, early planets: exits entered by the leading companion, the area's OnEnter for the party's companions too, a line's scripts before its replies, immobile creatures never move, a body round across against the level"

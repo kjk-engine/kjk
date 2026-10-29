@@ -116,6 +116,12 @@ const STEP_MS: u64 = 8;
 const HOLD_MS: u64 = 30_000;
 const HELD_STEPS: u64 = 6000;
 
+/// How much later than a round a blow may land when the beast's pacing
+/// between blows took it out of its reach at the round, and it stepped in
+/// again first (ms; the room's walls are off the axes, and a body's path
+/// round its quarry along them is its own).
+const PACED_LATE_MS: u64 = 375;
+
 /// What a run saw: when the beast began its attacks and when the dummy
 /// took its hits (sim ms), the hits' weapons, what was said, until when
 /// the beast was held, the last snapshot.
@@ -359,7 +365,11 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         (
             "a_round_apart",
             check(
-                !apart.is_empty() && apart.iter().all(|gap| *gap == ROUND_MS),
+                !apart.is_empty()
+                    && apart.contains(&ROUND_MS)
+                    && apart
+                        .iter()
+                        .all(|gap| (ROUND_MS..ROUND_MS + PACED_LATE_MS).contains(gap)),
                 format!("{apart:?} ms apart"),
             ),
         ),

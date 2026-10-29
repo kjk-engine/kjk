@@ -9,30 +9,48 @@ use super::*;
 pub(super) fn other_weapon(world: &sim::SimWorld, snapshot: &Snapshot, ranged: bool) -> Option<Action> {
     let catalog = world.level().scripts()?.items();
     let hand = sim::inventory::slots::RIGHT_WEAPON;
-    // Only what the one wielding it is trained for (the equip screen
-    // refuses the rest: Mira has no melee proficiency).
     let feats = crate::cast::me(snapshot, Seat(0))
         .and_then(|me| snapshot.get(me)?.sheet)
         .map(|sheet| sheet.feats);
-    snapshot
+    let candidates: Vec<(u32, sim::combat::sheet::Weapon, Vec<u16>, u32)> = snapshot
         .goods
         .carried(sim::inventory::PARTY)
         .filter_map(|(id, item)| {
             let facts = catalog.get(&item.template)?;
-            if feats.is_some_and(|feats| !sim::combat::passive::may_equip(&feats, &facts.needs)) {
-                return None;
-            }
-            let weapon = facts
-                .fitted(item.upgrades, &item.fitted, catalog)
-                .weapon
-                .filter(|weapon| weapon.delivery.ranged() != ranged)?;
+            let weapon = facts.fitted(item.upgrades, &item.fitted, catalog).weapon?;
+            Some((id, weapon, facts.needs.clone(), facts.slots))
+        })
+        .collect();
+    strongest(&candidates, feats.as_ref(), ranged).map(|item| Action::Equip { item, slot: hand })
+}
+
+/// Of `candidates` (an item, the weapon it is, the feats it needs and the
+/// slots it goes in), the strongest for the right hand by twice its average
+/// damage, the first on a tie, of the kind other than `ranged` (a blade
+/// when true, a gun when false); only one `feats` is trained for (the
+/// equip screen refuses the rest: Mira has no melee proficiency), all
+/// without a sheet.
+pub(super) fn strongest(
+    candidates: &[(u32, sim::combat::sheet::Weapon, Vec<u16>, u32)],
+    feats: Option<&sim::combat::sheet::Rows<4>>,
+    ranged: bool,
+) -> Option<u32> {
+    let hand = sim::inventory::slots::RIGHT_WEAPON;
+    candidates
+        .iter()
+        .filter(|(_, weapon, needs, slots)| {
+            feats.is_none_or(|feats| sim::combat::passive::may_equip(feats, needs))
+                && weapon.delivery.ranged() != ranged
+                && slots & 1 << hand != 0
+        })
+        .map(|(id, weapon, ..)| {
             let twice_average = i32::from(weapon.dice) * (i32::from(weapon.die) + 1)
                 + i32::from(weapon.bonus_dice) * (i32::from(weapon.bonus_die) + 1)
                 + 2 * i32::from(weapon.damage_bonus);
-            (facts.slots & 1 << hand != 0).then_some((twice_average, id))
+            (twice_average, *id)
         })
         .max_by_key(|(strength, id)| (*strength, std::cmp::Reverse(*id)))
-        .map(|(_, item)| Action::Equip { item, slot: hand })
+        .map(|(_, item)| item)
 }
 
 /// The dearest item the party carries that the store open to the player

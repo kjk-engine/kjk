@@ -111,6 +111,42 @@ pub(crate) enum Swept {
     /// An upright capsule: spheres of `radius` at ± `offset` (Z) around the
     /// traced point, which is the capsule's centre.
     Capsule { radius: f32, offset: f32 },
+    /// An upright cylinder: `radius` across round the traced point, from
+    /// `low` to `high` (Z) about it; a box whose footprint is round
+    /// (`Shape::Upright`).
+    Upright { radius: f32, low: f32, high: f32 },
+}
+
+impl Swept {
+    /// The cylinder standing in for `extents`, a box centred across: as
+    /// tall, and round with its X half-size.
+    pub(crate) fn upright(extents: &crate::Extents) -> Swept {
+        Swept::Upright {
+            radius: (extents.maxs[0] - extents.mins[0]) * 0.5,
+            low: extents.mins[2],
+            high: extents.maxs[2],
+        }
+    }
+
+    /// The shape against a solid of `contents`: one not of the level's own
+    /// solid (the walls along a walkmesh's outline and round placeables'
+    /// footprints, `WALK_CLIP`; the containment audit's `PLAYER_CLIP`) is
+    /// met by the box a body round across stands for, as those walls are
+    /// set back by its half-width to stand in for KOTOR's point on the
+    /// walkmesh.
+    pub(crate) fn against(&self, contents: crate::Contents) -> Swept {
+        match *self {
+            Swept::Upright { radius, low, high }
+                if !contents.intersects(crate::Contents::SOLID) =>
+            {
+                Swept::Box {
+                    mins: [-radius, -radius, low],
+                    maxs: [radius, radius, high],
+                }
+            }
+            other => other,
+        }
+    }
 }
 
 impl Swept {
@@ -136,6 +172,15 @@ impl Swept {
                 let moved = plane.dist + radius;
                 let centre = |p: [f32; 3]| [p[0], p[1], p[2] + z];
                 (dot(centre(start), n) - moved, dot(centre(end), n) - moved)
+            }
+            Swept::Upright { radius, low, high } => {
+                // As the box, but across it reaches its radius whichever
+                // way the plane faces: a box's corner reaches √2 of its
+                // half-size toward a wall at 45°.
+                let across = (n[0] * n[0] + n[1] * n[1]).sqrt();
+                let z = if n[2] < 0.0 { high } else { low };
+                let moved = plane.dist + radius * across - z * n[2];
+                (dot(start, n) - moved, dot(end, n) - moved)
             }
         }
     }

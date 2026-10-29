@@ -48,9 +48,9 @@ The **kind** tags are:
 
 ## Dantooine (PR 15)
 
-- [ ] `blocker` **Khoonda's militia desk corner (-6.9, -15.3):** every walk back from Zherron's post sticks there. Mapped (2026-10-29): the Administrator's office joins the hall only through a diagonal channel between the desk's sloped nonwalk foot and the wall, one body wide; the navigation mesh's corner there is stepped off short (the full step would leave the mesh), the walk makes from it straight for the next corner across the desk's foot, and its sidesteps and backing off bring it back to the corner, which resets its stalls. Behind it: Zherron's kinrath job, Dopak's message, the defence tasks (the office's door to the turret room is the master card key's, reached through the channel), Akkere's hydrospanner (in the second assault droid). The fix belongs to the walk (a corner reached again without headway) or the mesh (a funnel leg checked for the box), measured on `kjk collision walk` across modules.
-- [ ] `side` **Zherron's kinrath job** and its 2000-credit reward (blocked by the desk corner above).
-- [ ] `side` **The cave Matriarch**, who only spawns with Zherron's job.
+- [x] `blocker` **Khoonda's militia desk corner (-6.9, -15.3):** the office joins the hall by a diagonal channel 1.05 m across between the desk's sloped nonwalk foot and the wall, which JA's square box (0.76 m, but 1.08 m measured across a 45° channel) could not pass; KOTOR tests a creature's move by its personal space across its way whichever way it goes (TSL's `CSWSCreature::WalkUpdateLocationTestDistance` hands `CSWSArea::NoNonWalkPolysDetailed` the appearance's `perspace`, and `CSWCollisionMesh::NoNonWalkPolys` sweeps the path widened by it). A body now moves against the level's solid as its box round across (`collision::Shape::Upright`); the walls standing in for KOTOR's point on the walkmesh (outline and footprint walls) it meets as the box (collision probes `upright face`, `upright diagonal`, `upright outline`; sim probes `body_channel_shapes`, `body_runs_a_diagonal_channel`).
+- [x] `side` **Zherron's kinrath job** and its 2000-credit reward (dantooine_khoonda, dantooine_cave).
+- [x] `side` **The cave Matriarch**, who only spawns with Zherron's job: fought, her remains searched (dantooine_cave).
 - [ ] `choice` **The will given to Zherron**: the chain gives it to Daraala.
 - [x] `skill` **The battered droid's diagnostic and repair** (Computer, Repair), and the mechanic persuaded the Exile is no Jedi (dantooine_khoonda).
 - [x] `skill` **The sensor surveillance branch**: Bao-Dur, asked by the Exile's [Awareness], finds the surveillance gear (+INF); Saedhe caught out on it, the sensors left him for 3000 credits (LSP) (dantooine_cave).
@@ -61,12 +61,16 @@ The **kind** tags are:
 - [ ] `feature` **The landing pad's "Plasteel Cylinder{Med, Blast}":** DSimpson mines it open, and kjk can set mines on doors only.
 - [ ] `side` **The pazaak Ithorian.**
 - [x] `side` **Nallek**: talked down ([Persuade], "I'm a warrior, like yourself") (dantooine_enclave).
-- [ ] `side` **Dopak's message.**
-- [ ] `side` **Khoonda's defence tasks** (turrets, mines, droids, militia) before the battle: written once (Zherron's tasks, the turrets to hostiles, the medic droid, the assault droids, the recruits, Akkere's hydrospanner and thorium) and taken out again: the start of dantooine_battle stands in the office, behind the desk corner. Laying mines at a place has no harness goal.
-- [ ] `side` **Akkere's hydrospanner.**
+- [x] `side` **Dopak's message**: Berun's doubts laid before Zherron ([Persuade]), his message ("Go ahead") given Dopak, and Zherron told (dantooine_khoonda, dantooine_enclave, dantooine_vrook).
+- [x] `side` **Khoonda's defence tasks** before the battle (dantooine_battle): Zherron's list heard; Suulru, Akkere, Dillan and Jorran recruited; the three assault droids reactivated (Akkere's four parts bought); the four wounded militia treated by hand ([Treat Injury], LSP each); the side security door sealed ([Repair]).
+- [ ] `skill` **The medic droid** (four parts) is left for the hand treatment: Dxun's droid carrier counts on the parts the party carries (eleven left after Dantooine).
+- [ ] `skill` **The turret and droid bay consoles**: slicing and reprogramming ask about a dozen computer spikes; Akkere's stock is two (bought for the storage room and Dxun).
+- [ ] `feature` **Khoonda's mines**: no harness goal recovers or lays a mine at a place.
+- [x] `side` **Akkere's hydrospanner**: found in the third assault droid, his story heard and believed, 500 credits given (LSP), and he joins the militia (dantooine_battle).
+- [ ] `side` **Akkere's thorium charges** (1000 credits): the light way recruits him by the hydrospanner instead.
 - [ ] `side` **The lightsaber build:** the lens fixture comes only from a forged will.
 - [ ] `feature` **The party swap before the battle** (Handmaiden in, Kreia out): the harness has no goal to open the party screen away from the Hawk.
-- [x] `choice` **Berun's conversation**: DSimpson's light way, his doubts of Zherron asked after and a look into him taken on (dantooine_khoonda). His message to Dopak through Zherron waits on the desk corner (the blocker above).
+- [x] `choice` **Berun's conversation**: DSimpson's light way, his doubts of Zherron asked after and a look into him taken on (dantooine_khoonda). His message to Dopak through Zherron is delivered (above).
 - [ ] `choice` **The mercenaries' side**, Azkul joined, the dark side Vrook rescue.
 
 ## Nar Shaddaa (PR 16)

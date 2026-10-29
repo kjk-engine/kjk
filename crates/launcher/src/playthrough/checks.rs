@@ -584,3 +584,66 @@ pub fn fallen_probes() -> sim::probe::Checks {
         case("fallen_without_remains_left_nothing", None, false, shoved_to, true),
     ]
 }
+
+/// The probes of the harness's weapon draw (`gear::strongest`, as `bash`
+/// and the swap back from a gun draw): of the weapons carried, the
+/// strongest of the kind asked for that the wielder is trained for; a
+/// vibroblade passed over by one without melee proficiency (Mira), who then
+/// draws her blaster, the gun asked for when no blade is trained for; a
+/// weapon for the left hand alone never drawn into the right; a tie to the
+/// first carried.
+pub fn draw_probes() -> sim::probe::Checks {
+    use sim::combat::sheet::{Blaster, Delivery, Rows, Weapon, feats};
+    use sim::inventory::slots;
+    let made = |item: u32, delivery: Delivery, dice: u8, die: u8, need: u16, slot: u8| {
+        let weapon = Weapon {
+            delivery,
+            dice,
+            die,
+            ..Weapon::UNARMED
+        };
+        (item, weapon, vec![need], 1 << slot)
+    };
+    let carried = [
+        made(1, Delivery::Melee, 1, 6, feats::PROFICIENCY_MELEE, slots::RIGHT_WEAPON),
+        made(2, Delivery::Melee, 2, 6, feats::PROFICIENCY_MELEE, slots::RIGHT_WEAPON),
+        made(3, Delivery::Melee, 3, 8, feats::PROFICIENCY_MELEE, slots::LEFT_WEAPON),
+        made(4, Delivery::Blaster(Blaster::Pistol), 1, 6, feats::PROFICIENCY_BLASTER, slots::RIGHT_WEAPON),
+        made(5, Delivery::Blaster(Blaster::Pistol), 1, 6, feats::PROFICIENCY_BLASTER, slots::RIGHT_WEAPON),
+    ];
+    let trained = |rows: &[u16]| rows.iter().fold(Rows::<4>::default(), |all, row| all.with(*row));
+    let soldier = trained(&[feats::PROFICIENCY_MELEE, feats::PROFICIENCY_BLASTER]);
+    let scout = trained(&[feats::PROFICIENCY_BLASTER]);
+    let all = trained(&[feats::PROFICIENCY_ALL]);
+    let draws = |feats: Option<&Rows<4>>| {
+        let blade = super::gear::strongest(&carried, feats, true);
+        (blade, blade.or_else(|| super::gear::strongest(&carried, feats, false)))
+    };
+    let (soldier_blade, _) = draws(Some(&soldier));
+    let (scout_blade, scout_draw) = draws(Some(&scout));
+    let (all_blade, _) = draws(Some(&all));
+    let (sheetless_blade, _) = draws(None);
+    vec![
+        (
+            "draw_strongest_trained_blade",
+            sim::probe::check(
+                soldier_blade == Some(2),
+                format!("one trained in melee draws the 2d6 vibroblade, not the 1d6 or the left hand's 3d8: {soldier_blade:?}"),
+            ),
+        ),
+        (
+            "draw_passes_over_untrained_blade",
+            sim::probe::check(
+                scout_blade.is_none() && scout_draw == Some(4),
+                format!("one without melee proficiency draws no blade ({scout_blade:?}) and her first blaster instead ({scout_draw:?})"),
+            ),
+        ),
+        (
+            "draw_proficiency_all",
+            sim::probe::check(
+                all_blade == Some(2) && sheetless_blade == Some(2),
+                format!("Proficiency All trains every weapon ({all_blade:?}), and with no sheet nothing is passed over ({sheetless_blade:?})"),
+            ),
+        ),
+    ]
+}
