@@ -4,37 +4,39 @@
 # there, the bomas below him driven off and Kumus let go: DSimpson's
 # light way, Bao-Dur's +INF, no reward asked), the permacrete detonator by
 # the cache pressed and the bomas it stirs fought (Mandalore's test),
+# the cache the charges opened (404DXN: its droid foreman examined and
+# bashed, the utility droids fought, its boxes searched),
 # Kelborn the scout helped against the Onderon intruders (asked about the
 # ship and the corpse, "I am. Let's find them."), the two groups of scouts
 # fought and Kelborn told only that they would not talk, the zakkeg slain
 # and its ear taken; back in camp the ear for the gate guard and Kumus
-# safe for Xarga ("I'm glad I was able to return him safely": LSP).
+# safe for Xarga ("I'm glad I was able to return him safely": LSP), and
+# Mandalore told of the detonator (his reward).
 # Starts from the camp's checkpoint:
 #   kjk playthrough tsl @dxun_tests data/routes/tsl/dxun_tests.route --god
 # Walkthrough: DSimpson's "Mandalore" side quests "Find the Missing
 # Mandalorian", "Blow the Weapon's Cache", "Help Kelborn Wipe Out the
 # Intruders", "Kill the Zakkeg", "Learn Beast Trick"
 # (context/walkthroughs/tsl/).
-# Left: the cache itself (404DXN: mines on the floor, the droid foreman's
-# Computer, its droids bashed hostile), Davrel's rematch outside camp (he
-# comes only after the battle circle), the skeletal corpses behind the
-# zakkeg (LowSkelCorpse@2, @3: cheap, add them if the fight leaves them
-# reachable).
+# Left: the cache's two keyed boxes (no key exists: SKIPPED.md), Davrel's
+# rematch outside camp (dxun_circle, after the battle circle).
 #
 # ASSUMES:
 # - Xarga's missingm and the gate guard's zchallenge taken (dxun_camp),
 #   Mandalore's explosivesit started (a_es_start).
 # - Bao-Dur in the party for Kumus's thanks (c_con_baodurpm, R13 +INF);
 #   with the Handmaiden instead her R19 would be the line.
-# - UNSURE: tr_beast_control fires on the way north to Kumus (it stands at
-#   38, 80; Kumus's ridge is at 32, 134); fake_kreia speaks, Kreia being
-#   away. Its boma (boma_young_bc) is fought after.
-# - UNSURE: Kumus is spoken to from below his ridge (he stands 6 m above
-#   tr_kumustalk); `use kumus` after the bomas, as KOTOR asks only range.
-# - UNSURE: the zakkeg's remains are searched by its tag, as Telos's HK-50s'
-#   were (`use HK501`); the ear (zakkeg_ear) is in its inventory, the gate
-#   guard's R31 asks for it (c_hasitem).
-# - UNSURE: Kelborn's second group spawns as he walks to WP_KELBORN_ST
+# - tr_beast_control fires on the way north to Kumus (it stands at 38, 80;
+#   Kumus's ridge is at 32, 134); fake_kreia speaks, Kreia being away, and
+#   teaches Beast Trick. Its boma (boma_young_bc) is fought after.
+# - Kumus is spoken to from below his ridge (he stands 6 m above
+#   tr_kumustalk, probe talk_across_height). The party waits east of the
+#   ridge's foot: a_kumus_free jumps the Exile to WP_KUMUSFREE_3 (40, 129)
+#   and c_con_baodurpm wants Bao-Dur within 10 m of him after it (from
+#   the trigger's spot he is 10.5 m off and the line never plays).
+# - The zakkeg's remains are searched by its tag; the ear (zakkeg_ear) is
+#   in its inventory, the gate guard's R31 asks for it (c_hasitem).
+# - Kelborn's second group spawns as he walks to WP_KELBORN_ST
 #   (a_kel_wpwalk creates npc_2scout*); tr_secondscouts@1 is the nearer.
 exit To_402
 module 402dxn
@@ -53,8 +55,8 @@ to tr_kumustalk
 talk
 fight 25             # the bomas below the ridge (boma_young_qu)
 gone boma_young_qu
-to 32.7,130.6        # below his ridge, the party gathered (Bao-Dur's word
-gather               # wants him within 10 m of the Exile, who is jumped
+to 36.5,130.5        # east of his ridge's foot, the party gathered (Bao-Dur's
+gather               # word wants him within 10 m of the Exile, who is jumped
 say He's just a veteran, like us. # to WP_KUMUSFREE_3: +INF)
 use kumus            # let down, thanked, gone to camp (missingm)
 talk
@@ -62,6 +64,30 @@ say Press button.    # the cache's detonator (deton2), not Kumus's own
 use p_detonator_2
 talk
 fight 30             # the beasts the blast stirs (WP_ES_SPAWN_*)
+equip g_w_lghtsbr01  # the saber back in hand (a fight's chase took up a gun)
+exit To_404          # into the cache the charges opened (404DXN)
+module 404dxn
+say Examine droid.   # the construction droids' foreman: examined, then
+say Bash droid.      # bashed (no Computer way to stop them: DSimpson)
+use utildroid_mk2
+talk
+fight 40             # the utility droids, all hostile (a_make_hostile)
+unlock g_tresmilhig007@1 # the cache's boxes: two locked (DC 18), the
+use g_tresmilhig007@1 # rest open (the two keyed ones have no key: left)
+unlock g_tresmilhig007@2
+use g_tresmilhig007@2
+unlock g_tresmillow008@1
+use g_tresmillow008@1
+unlock g_tresmillow008@2
+use g_tresmillow008@2
+use g_tresmillow006@1
+use g_tresmillow006@2
+use g_tresmillow006@3
+use g_tresmillow006@4
+use g_tresmillow006@5
+use g_tresmillow006@6
+exit To_402DXN
+module 402dxn
 say Why are you here? I thought all the patrols had been stopped. # Kelborn
 say A ship?
 say Any sign of a crew?
@@ -73,6 +99,7 @@ talk
 to tr_firstscouts    # the first scouts (om_sc1)
 talk
 fight 30
+use g_tressklcorp001@2 # the skeletal corpse down the side path
 to tr_secondscouts@1 # the staging camp (om_sc2), the beasts with them
 talk
 fight 30
@@ -84,6 +111,8 @@ to tr_zakkeg_cv      # the zakkeg's scene (zakcv)
 talk
 fight 40             # the zakkeg
 use zakkeg           # its remains: the ear
+use g_tressklcorp004 # the two skeletal corpses behind it
+use g_tressklcorp005
 exit To_403
 module 403dxn
 say I defeated a zakkeg. Here is its ear as proof.
@@ -91,5 +120,9 @@ use g_gate_guard
 talk
 say I'm glad I was able to return him safely. # Xarga (LSP)
 use xarga
+talk
+say I set off the permacrete detonator in the jungle. # Mandalore: the
+say Is there anything else I can do? # charges, his reward (a_es_reward)
+use g_mandalore
 talk
 save dxun_tests_done

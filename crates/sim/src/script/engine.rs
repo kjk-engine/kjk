@@ -1744,6 +1744,14 @@ impl Engine<'_> {
                 }
                 Value::Int(0)
             }
+            // An object that is not (OBJECT_INVALID) keeps no locals: TSL's
+            // executable's commands set nothing and read 0 when
+            // `GetGameObject` finds none [verify in K1's].
+            GetLocalBoolean | GetLocalNumber | SetLocalBoolean | SetLocalNumber
+                if object(args, 0) == ObjectId::INVALID =>
+            {
+                Value::Int(0)
+            }
             GetLocalBoolean | GetLocalNumber => {
                 let kind = u8::from(bound == GetLocalNumber);
                 let key = (
@@ -2184,7 +2192,7 @@ impl Engine<'_> {
             // How often the original stepped an object or a mind far from
             // the player (TSL's budget): here every one is stepped every
             // tick, so these change nothing.
-            SetForceAlwaysUpdate | SetCreatureAILevel | ResetCreatureAILevel => Value::Int(0),
+            SetCreatureAILevel | ResetCreatureAILevel => Value::Int(0),
             // TSL's (its AI's gunners finding a place to shoot from): sight
             // between the two places as given (scripts pass positions: the
             // feet), as its executable traces them, through the doors as
@@ -3717,6 +3725,22 @@ impl Engine<'_> {
                     self.state.unoriented.remove(&who.0);
                 } else {
                     self.state.unoriented.insert(who.0);
+                }
+                Value::Int(0)
+            }
+            // TSL's: the object updated wherever it stands, and so found by a
+            // conversation's line beyond the speakers' reach (the
+            // executable's `ExecuteCommandForceAlwaysUpdate` sets the flag
+            // `GetNearestObjectByName` lets past its radius): Kavar and
+            // Talia in 512OND's throne room, 1400 m from Dhagon's office.
+            SetForceAlwaysUpdate => {
+                let who = object(args, 0);
+                if who != ObjectId::INVALID {
+                    if int(args, 1) != 0 {
+                        self.state.always_update.insert(who.0);
+                    } else {
+                        self.state.always_update.remove(&who.0);
+                    }
                 }
                 Value::Int(0)
             }
@@ -5771,7 +5795,9 @@ impl Host for Engine<'_> {
         // (`super::Traced`).
         let shown = match &value {
             Value::Int(_) if routine.ret == script_ncs::Type::Void => None,
-            Value::Int(_) | Value::Object(_) | Value::String(_) => Some(value.clone()),
+            Value::Int(_) | Value::Float(_) | Value::Object(_) | Value::String(_) => {
+                Some(value.clone())
+            }
             _ => None,
         };
         let call = super::CallLine {

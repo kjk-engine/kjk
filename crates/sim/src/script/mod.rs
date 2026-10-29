@@ -2158,6 +2158,7 @@ impl CallLine {
         }
         let _ = match &call.value {
             Some(vm::Value::Int(v)) => write!(line, " = {v}"),
+            Some(vm::Value::Float(v)) => write!(line, " = {v}"),
             Some(vm::Value::Object(id)) => write!(line, " = {}", name(*id)),
             Some(vm::Value::String(text)) if !text.is_empty() => write!(line, " = {text:?}"),
             _ => Ok(()),

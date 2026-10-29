@@ -23,18 +23,18 @@
 # - docalibi at Riiken's step (a_alibi_start); Mandalore and Mira in the
 #   party (Mandalore's lines in d_thug, nikko, al_droid and mp_128).
 # - At least 25 credits for 1B-8D (R24 is gated by c_chkcredits).
-# - UNSURE: the cantina's bouncer (can_boun, tr_bouncer_talk) only talks:
+# - the cantina's bouncer (can_boun, tr_bouncer_talk) only talks:
 #   no reply asked.
-# - UNSURE: Kiph's first talk (start 1) goes through E38 (his business,
+# - Kiph's first talk (start 1) goes through E38 (his business,
 #   c_local_notset) before the hub where R20 "I have the remains of
 #   S-0D3" is offered; if E38 ends the talk, `use kiph` again (start 2's
 #   E0 leads to the same hub).
-# - UNSURE: Nikko's R30 (the motive) needs a_alibi_motive (Panar's R36 or
+# - Nikko's R30 (the motive) needs a_alibi_motive (Panar's R36 or
 #   Kiph's R35) first, and c_alibi_check gates R25, R21, R16 by stage;
 #   answered here in DSimpson's order.
 # - a_alibi_end loads 502OND at From_Alibi1 (Riiken's start 2, the major's
 #   start 5, Riiken's start 6), a_alibi_end3 loads 512OND at From_Alibi2;
-#   UNSURE: Dhagon's first talk starts from tr_alibi_end2 in his office.
+#   Dhagon's first talk starts by itself there (tr_alibi_end2).
 exit To_512
 module 512ond
 exit To_503          # the cantina
@@ -47,13 +47,13 @@ say Can I talk with you about Captain Sullio's murder? # Nikko
 say Someone was saying that Sullio deeply humiliated Dhagon
 say What happened on the night of the murder?
 say Where did you find the body?
-say Nothing. Never mind.
+say Tell me how you know Dhagon.
+say I'll be going.   # not his pazaak
 use npc_nikko
 talk
 exit To_502          # out to the Western Square
 module 512ond
-use alibi_garbage    # the trash heap (al_trash)
-talk
+use alibi_garbage    # the trash heap (al_trash: a bark, the dried blood)
 use alibi_droid      # S-0D3's remains (al_droid)
 talk
 exit To_503
@@ -69,7 +69,7 @@ module 512ond
 say 1B-8D, I need to know if you have any parts # the droid vendor
 say I want to buy those parts.
 say Here's 25 credits.
-use 128
+use npc_128          # by its template: its tag is the number 128
 talk
 exit To_503
 module 503ond
@@ -87,14 +87,11 @@ say Nikko can explain it.
 say They were friends. Sometimes friends tease each other.
 say That's true. Nikko saw him come from his office.
 say I want to talk with the doctor. # a_alibi_end3
-talk                 # Riiken (start 2)
-talk                 # the major (start 5)
-talk                 # Riiken (start 6)
-module 512ond
 say Mandalore said you might be able to help me out. # Dhagon Ghent
 say It is a Jedi Master.
 say Can you get in touch with someone inside the Palace?
 say Who has them?    # Bakkel's gang (cantinarats)
-to tr_alibi_end2
-talk
+talk                 # Riiken, his major, Riiken again: one conversation
+module 512ond        # (a_alibi_end3 loads the square at From_Alibi2)
+talk                 # Dhagon in his office (tr_alibi_end2, by itself)
 save onderon_dhagon

@@ -1,30 +1,73 @@
-# Dxun, the jungle landing (TSL, 003EBO, 401DXN): the galaxy map to
-# Onderon, Atton's blockade talk and Colonel Tobin's hail (attond), the run
-# for the jungle moon (no turret: "I'll man the turret" loads 421DXN's
-# minigame, left out), the reception aboard on Dxun (ond_rece: Onderon
-# asked after, Kreia's outpost; Atton stays with the Hawk), ashore with
-# Mira and Bao-Dur, the Zhug bounty hunters' camp on the far path: Dezanti
-# asked who he is, Mira backed against him (+INF, DSimpson's "a real
-# bounty hunter"), no surrender and the Duros fought, their camp's
-# containers searched, and on into the jungle (402DXN).
+# Dxun, the jungle landing (TSL, 003EBO, 421DXN, 401DXN): the galaxy map
+# to Onderon, Atton's blockade talk and Colonel Tobin's hail (attond), the
+# Exile at the Ebon Hawk's turret ("I'll man the turret": 421DXN's
+# minigame, six fighters shot down, 600 XP) and Atton's word that they
+# must land, the reception aboard on Dxun (ond_rece: Onderon asked after,
+# Kreia's outpost; Atton stays with the Hawk), ashore with Mira and
+# Bao-Dur: the crashed droid carrier (its salvageable parts, the skeletal
+# corpse, the rusted computer port [Repair]ed and its core [Computer]
+# repaired, the remote droids back on line), the three remote droids
+# reactivated as DSimpson does (the first's weaponry, targeting and
+# shields, the second's weaponry),
+# the skeletal corpse in the open ground, the Zhug bounty hunters' camp
+# on the far path: Dezanti asked who he is, Mira backed against him (+INF,
+# DSimpson's "a real bounty hunter"), no surrender and the Duros fought,
+# their camp's containers searched, the wreckage and the skeletal corpse
+# behind it, and on into the jungle (402DXN).
 # Starts from Nar Shaddaa's last checkpoint:
 #   kjk playthrough tsl @nar_shaddaa_done data/routes/tsl/dxun_landing.route --god
 # Walkthrough: DSimpson's "Onderon / Dxun" and "Dxun Jungle, Ebon Hawk
 # Area" (context/walkthroughs/tsl/).
-# Left: the turret minigame (600 XP), the three remote droids and the
-# droid carrier's rusted computer port (Repair parts, Computer spikes), the
-# skeletal corpses past the boma and maalraas on the side path, and the
+# Left: the reactor overloads (they blow the droids up), the rest of the
+# droids' systems and patrol mode (the parts left are Zuka's wires'), the
 # Zhugs' ground bag (GroundBagMetalCase: a placeable not useable).
+#
+# ASSUMES:
+# - The party carries repair parts and computer spikes from the planets
+#   before (15 parts, 2 spikes on the Sentinel's chain); the Exile's
+#   Repair 5 and Computer 10 make the port 2 parts, its core 1 spike and
+#   each droid's system 2 or 3 parts.
+equip g_w_lghtsbr01  # the Exile's own lightsaber in hand (003EBO_PC_Lightsaber)
 use Galaxymap
 travel 7             # Onderon (planetary.2da): the blockade, 003EBO again
-say We'd better run for it. To the moon. # not the turret (a_to_421dxn)
-talk                 # Atton (attond): Tobin's hail, the hits, the movies
+say I'll man the turret. # a_to_421dxn
+talk                 # Atton (attond): Tobin's hail, the hits
+module 421dxn
+turrets              # the fighters, until the minigame's end leaves
+talk                 # Atton after the turret (attond start 1): the movies
 say We need to get to Onderon. # the reception (ond_rece, a_dxun_cs)
 say Let's head to the outpost, then.
 talk
 party 7,1            # Mira (the Zhugs) and Bao-Dur (Kumus)
 to tr_leave          # the ramp: the party screen, accepted
 module 401dxn
+use exp_comp@1       # the droid carrier's salvageable parts
+use exp_comp@2
+use g_tressklcorp004 # the skeletal corpse by the carrier
+say [Repair] Fix the computer port.
+say [Computer] Access system commands.
+say [Computer] Repair computer core.
+say [Computer] Return to root menu.
+say Log out.
+use comp_port        # under the carrier (br_term)
+talk
+say Reactivate the droid.
+say Optimize droid's weaponry.
+say Optimize droid's targeting systems.
+say Activate droid's shields.
+say =Leave it alone.
+use TDROID3          # on the other path up
+talk
+say Reactivate the droid.
+say Optimize droid's weaponry.
+say =Leave it alone.
+use TDROID           # the open ground
+talk
+use g_tressklcorp005 # its skeletal corpse
+say Reactivate the droid.
+say =Leave it alone.
+use TDROID2          # the last before the Zhugs' wreck
+talk
 say =Who are you?    # Dezanti Zhug (tr_zhugtalk): on the way Atton's two
 say You really think you can take on Mira? # reports and Mira's mines
 say There's no way I'm going to surrender to you.
@@ -33,6 +76,8 @@ talk
 fight 30             # Dezanti and his two brothers (duros_bh)
 use zhug_chest       # the Zhugs' camp
 use MilHighPlstcCylin
+use millowwreckage   # the wreckage up the path left, the corpse behind it
+use g_tressklcorp006
 exit To_402          # into the jungle
 module 402dxn
 save dxun_jungle

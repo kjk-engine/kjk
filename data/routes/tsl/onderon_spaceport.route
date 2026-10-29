@@ -2,6 +2,8 @@
 # 512OND): Queen Talia and Master Kavar in the throne room (cs_tal_1),
 # Mandalore on Iziz and his doctor friend (501_mand), the port master's
 # starport visa (asked about the lockdown, the checkpoints and the visa),
+# the beast rider asked about his kind, his boma loose and slain, his
+# credits thanked for as not needed (LSP),
 # the checkpoint guard answered plainly (no trader's lie, no "powerful
 # Jedi": the bounty hunters' leader then has no tale from the guard), the
 # Merchant Quarter: the journalist Vaklu's soldiers take for a spy (a
@@ -17,35 +19,46 @@
 #   kjk playthrough tsl @onderon_spaceport data/routes/tsl/onderon_spaceport.route --god
 # Walkthrough: DSimpson's "Onderon Port", "Iziz Merchant Quarter" and
 # "Iziz: Western Square" (context/walkthroughs/tsl/).
-# Left: the beast rider's boma (a fight; refusing his credits is an LSP),
-# Margar's, Gegorran's and 1B-8D's stores, the news holograms, the visa
+# Left: Margar's, Gegorran's and 1B-8D's stores, the news holograms, the visa
 # beggars (Terlyn and Tolas by the starport gate), Anda (Vaklu's side
 # only), Gelesi, Bostuco, Hanharr's starport trigger (not in the party).
 #
 # ASSUMES:
 # - The party is the Exile, Mandalore and Mira (dxun_departure).
-# - UNSURE: cs_tal_1 opens the module by itself (k_501_enter, the first
-#   entry) and tr_mand_intro by the shuttle starts 501_mand at once.
-# - UNSURE: the journalist's [Persuade] (R14) passes on the Exile's own
+# - cs_tal_1 opens the module by itself (k_501_enter, the first
+#   entry) and tr_mand_intro by the shuttle starts 501_mand at once:
+#   both play as dxun_departure's last fight ends, before its save.
+# - the journalist's [Persuade] (R14) passes on the Exile's own
 #   Persuade (E14 is gated, E12 is the failure: the journalist is taken,
 #   no DSP). With Affect Mind, R19 [Force Persuade] is offered too; the
 #   say asks for R14 either way.
-# - UNSURE: the politics (al_poli start 0) hub: after the three questions
+# - the politics (al_poli start 0) hub: after the three questions
 #   it may end on "I don't want to get involved" (then the Queen line is
 #   start 1's, met on a later pass) or run on into start 1's question.
-# - UNSURE: Ponlar's riot (mp_ponla start 2) comes on a second pass by the
+# - Not met: Ponlar's riot (mp_ponla start 2) comes on a second pass by the
 #   market; this route passes it once. The escape (onderon_kavar) may meet
 #   it: "I won't fight civilians" is the line that keeps out of it.
-# - UNSURE: tr_bh1_talk starts the Rodians (bounty1) only on the way back
+# - tr_bh1_talk starts the Rodians (bounty1) only on the way back
 #   from Dhagon's office (DSimpson: a precognition first, tr_bh_cv).
-talk                 # Queen Talia and Kavar (cs_tal_1)
-talk                 # Mandalore on Iziz (501_mand)
 say There's a lockdown? # the port master (tr_port_master)
 say Military checkpoints? Are they looking for something?
 say What's a starport visa?
 say Can I go now?
 to tr_port_master
 talk
+equip g_w_lghtsbr01  # the saber in hand
+say I am no merchant. # the beast rider by his cages (beastrdr)
+say Who are you?
+say Tell me about the beast-riders.
+say I'll be going now.
+use beast_rider
+talk
+say Thank you for the credits, they aren't necessary. # his apology, once
+say I'll be going now. # the boma is slain (start 3: LSP, his credits)
+to tr_boma_attack    # his boma gets loose as the Exile walks off
+talk
+fight 20             # the frenzied boma (boma_frenzy)
+talk                 # the beast rider's apology, by itself
 say My business is my own. # the checkpoint guard (tr_cp_guard)
 say My ship has no corporate affiliations.
 say No, nothing to sell.

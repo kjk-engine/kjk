@@ -149,6 +149,10 @@ pub struct State {
     /// Creatures `SetOrientOnClick(FALSE)` keeps from turning in their
     /// conversations (TSL).
     pub unoriented: BTreeSet<u32>,
+    /// Objects `SetForceAlwaysUpdate(TRUE)` flagged (TSL): a conversation
+    /// finds one of them as a line's speaker however far it stands from the
+    /// owner (`dialogue::Step::speaker_for`).
+    pub always_update: BTreeSet<u32>,
     /// Who stands in each trigger (by the trigger's id), for its enter and
     /// exit events.
     pub occupants: BTreeMap<u32, Vec<u32>>,
@@ -670,6 +674,10 @@ impl State {
         for object in &self.unoriented {
             out.u32(*object);
         }
+        out.u32(self.always_update.len() as u32);
+        for object in &self.always_update {
+            out.u32(*object);
+        }
         out.u32(self.uncommandable.len() as u32);
         for object in &self.uncommandable {
             out.u32(*object);
@@ -980,6 +988,11 @@ impl State {
         }
         for _ in 0..input.u32()? {
             state.unoriented.insert(input.u32()?);
+        }
+        if input.since(crate::since::save::CLAUDE_TSL_ONDERON) {
+            for _ in 0..input.u32()? {
+                state.always_update.insert(input.u32()?);
+            }
         }
         for _ in 0..input.u32()? {
             state.uncommandable.insert(input.u32()?);

@@ -79,6 +79,7 @@ const PROBES: &[Probe] = &[
     ("listener_tag_missing", listener_tag_missing),
     ("listener_previous_speaker", listener_previous_speaker),
     ("listener_self", listener_self),
+    ("far_speaker_always_update", far_speaker_always_update),
     ("same_speaker_to_player", same_speaker_to_player),
     ("replies_offered_turn", replies_offered_turn),
     ("reply_picked_turn", reply_picked_turn),
@@ -2675,6 +2676,35 @@ fn listener_self() -> Found {
     check(
         missing.is_err() && named == Ok(Some(ObjectId(talker.0))),
         format!("by a missing speaker {missing:?}, by the talker named to {named:?}"),
+    )
+}
+
+/// TSL: a line whose `Speaker` stands farther from the owner than the
+/// speakers' reach (`dialogue::speakers::REACH_M`) is passed over, unless
+/// `SetForceAlwaysUpdate` flagged it (`State::always_update`): then it says
+/// the line, as TSL's `GetNearestObjectByName` lets such an object past
+/// its radius (512OND: Dhagon's call to the throne room, Kavar and Talia
+/// 1400 m off, flagged by `a_force_update` the line before).
+fn far_speaker_always_update() -> Found {
+    let far = [-5.0 - 1.5 * rules::dialogue::speakers::REACH_M, 0.0];
+    let shown = |flagged: bool| -> Result<bool, String> {
+        let stage = Stage {
+            talk: in_turn(&["", "buddy", ""]),
+            ..Stage::default()
+        };
+        let (mut ground, [_, _, buddy]) = placed(stage, far)?;
+        if flagged {
+            let mut state = ground.world.script_state().clone();
+            state.always_update.insert(buddy.0);
+            ground.world.set_script_state(state);
+        }
+        begin(&mut ground)?;
+        Ok(ground.until_entry(1).is_ok())
+    };
+    let (plain, flagged) = (shown(false)?, shown(true)?);
+    check(
+        !plain && flagged,
+        format!("the far companion's line shown unflagged {plain}, flagged {flagged}"),
     )
 }
 

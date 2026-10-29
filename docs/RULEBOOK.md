@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `a8825caa2419d5b6`.
+Edition `a8fb6c0b1cdb6741`.
 
 ## Contents
 
@@ -8717,10 +8717,11 @@ A speaker turns its body until the listener is within its head's turning arc, le
 ### <a id="dialogue-speakers"></a>Who Says a Line
 
 A line naming a speaker is said by the character nearest the conversation's
-owner with that tag, within 1000 meters. When no
-one with that tag is there (a companion not in the party), the line is passed
-over before its condition is checked, and the conversation takes the next
-line instead.
+owner with that tag, within 1000 meters; in TSL
+one a script has flagged with SetForceAlwaysUpdate is found however far off
+(a throne room shown from across the city). When no one with that tag is
+there (a companion not in the party), the line is passed over before its
+condition is checked, and the conversation takes the next line instead.
 
 <a id="dialogue-speakers-reach-m"></a>**Speaker Search** = **1000 m** · `dialogue.speakers.reach_m`
 
