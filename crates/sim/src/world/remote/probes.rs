@@ -10,6 +10,7 @@ use crate::snapshot::{SimId, Snapshot};
 use crate::{Guests, WorldConfig};
 
 mod flight;
+mod inert;
 
 /// The checks (`kjk sim probes`; see each).
 pub fn probes() -> Checks {
@@ -22,6 +23,7 @@ pub fn probes() -> Checks {
         ("minigame_no_droid", minigame()),
     ];
     checks.extend(flight::probes());
+    checks.extend(inert::probes());
     checks
 }
 
