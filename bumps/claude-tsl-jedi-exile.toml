@@ -1,0 +1,8 @@
+# The sim's hash moves on purpose: XP the party gains sets TSL's
+# G_PC_LEVEL to the level it reaches (the executable's ReceiveExperience);
+# AddMultiClass gives a player the class with no levels and the party the
+# XP its next level asks; TSL's creation grants the class's player feats
+# (`_pc_granted`); a power's spells.2da level of 0 is open from the first
+# level and the prestige classes read their own columns; a build's plan
+# picks a level before the class's order.
+sim = "The Jedi Exile: G_PC_LEVEL from the XP received, AddMultiClass unlevelled with the next level's XP, TSL's player feats at creation, powers open from level 0, prestige classes' powers, planned level-ups"

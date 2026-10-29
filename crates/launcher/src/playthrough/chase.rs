@@ -79,6 +79,8 @@ pub(super) struct Chase {
     pub(super) unhurt: Option<(sim::SimId, i32, u64)>,
     /// A gun taken up for a foe out of every way's reach.
     pub(super) armed_far: bool,
+    /// The foe a walk stalled on and on to: shot from where the player is.
+    pub(super) lost: Option<sim::SimId>,
 }
 
 impl Chase {
@@ -120,10 +122,18 @@ impl Chase {
         let ranged = ranged(me);
         let d = flat(at, me.position);
         let seen = here.sees(player, id);
-        // One no way leads to but seen (a turret on the Star Forge's wall):
-        // shot from here, a gun taken up for it.
+        // One no way leads to but seen (a turret on the Star Forge's wall),
+        // or one the walk to stalled on and on (Peragus's assassin droid
+        // shooting from past the dormitories' wreckage, its way blocked):
+        // shot from here, a gun taken up for it, as a player would.
         let (_, routable) = reach.ways(here, player, (id, at), now);
-        let far_shot = !routable && seen && d <= GUN_M;
+        // A gun in hand needs no way, only sight: it gives up the walk
+        // sooner (Telos's tank droid shot from past the bay's barrels).
+        let gives_up = if ranged { RANGED_LOST_STALLS } else { LOST_STALLS };
+        if walker.as_ref().is_some_and(|w| w.stalls > gives_up) {
+            self.lost = Some(id);
+        }
+        let far_shot = (!routable || self.lost == Some(id)) && seen && d <= GUN_M;
         if far_shot && !ranged && !self.armed_far {
             acts.extend(other_weapon(world, here.snapshot, false));
             self.armed_far = true;

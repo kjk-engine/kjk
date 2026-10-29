@@ -56,6 +56,9 @@ pub struct Class {
     pub power_picks: Vec<u8>,
     /// Feats granted at a class level: (level, `feat.2da` row).
     pub granted: Vec<(u8, u16)>,
+    /// Feats character creation grants besides (TSL's `<class>_pc_granted`:
+    /// the Exile's old soldier's feats), by `feat.2da` row.
+    pub pc_granted: Vec<u16>,
     /// Feats it may pick, recommended first.
     pub feats: Vec<u16>,
     /// Powers it may pick: (the class level it may from, `spells.2da`
@@ -197,6 +200,19 @@ impl Choices {
     }
 }
 
+/// A build's picks for its levels (a playtest's written plan): skills in
+/// the order their ranks are bought, feats and powers in the order they
+/// are picked, each before the class's own recommended order (the game's
+/// picks, `Classes::auto`); the ability raised at each level that raises
+/// one, in turn, past its end the class's primary.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Plan {
+    pub skills: Vec<u8>,
+    pub feats: Vec<u16>,
+    pub powers: Vec<u16>,
+    pub abilities: Vec<u8>,
+}
+
 /// What a level of a class offers a character: the class level and total
 /// level it reaches, feats and powers to pick, and whether an ability
 /// rises.
@@ -248,6 +264,17 @@ impl Classes {
     /// The XP the level after `level` asks, if there is one.
     pub fn next(&self, level: u8) -> Option<i32> {
         self.levels.get(usize::from(level)).copied()
+    }
+
+    /// The level a character of `level` with `xp` reaches: its own, and
+    /// each after it the XP is enough for (TSL's
+    /// `CSWSCreatureStats::GetPotentialLevel`).
+    pub fn potential_level(&self, level: u8, xp: i32) -> u8 {
+        let mut reached = level;
+        while self.may_level(reached, xp) && reached < u8::MAX {
+            reached += 1;
+        }
+        reached
     }
 
     /// What a level of `class` offers a character with `sheet` and
@@ -436,12 +463,33 @@ impl Classes {
     /// order (each as high as it may go before the next), its recommended
     /// feats and powers that may be picked, in order.
     pub fn auto(&self, sheet: &Sheet, career: &Career, class: u8) -> Option<Choices> {
+        self.planned(sheet, career, class, &Plan::default())
+    }
+
+    /// The picks `plan` makes for a level of `class` (`auto`'s, the plan's
+    /// orders first): its ability raised, skill ranks in the plan's order
+    /// then the class's, feats and powers in the plan's order then the
+    /// class's recommended, each that may be picked.
+    pub fn planned(
+        &self,
+        sheet: &Sheet,
+        career: &Career,
+        class: u8,
+        plan: &Plan,
+    ) -> Option<Choices> {
         let offer = self.offer(sheet, career, class)?;
         let of = &self.classes[usize::from(class)];
-        let ability = offer.ability.then_some(of.primary);
+        let raises = usize::from(offer.level / levels::ABILITY_EVERY);
+        let ability = offer.ability.then(|| {
+            raises
+                .checked_sub(1)
+                .and_then(|at| plan.abilities.get(at))
+                .copied()
+                .unwrap_or(of.primary)
+        });
         let mut skills = [0u8; SKILLS];
         let mut points = self.skill_points(of, sheet, ability);
-        for &skill in &of.skill_order {
+        for &skill in plan.skills.iter().chain(&of.skill_order) {
             let skill = usize::from(skill);
             let cost = Self::rank_cost(of, skill);
             let most = Self::most(of, skill, offer.level);
@@ -453,7 +501,7 @@ impl Classes {
         let grown = Self::raised(Self::grown(sheet, of, offer), ability);
         let mut feats = known_feats(sheet, of, offer.class_level);
         let mut picked = Vec::new();
-        for &feat in &of.feats {
+        for &feat in plan.feats.iter().chain(&of.feats) {
             if picked.len() < usize::from(offer.feats) && self.may_feat(of, feat, &feats, &grown) {
                 picked.push(feat);
                 feats.push(feat);
@@ -461,7 +509,8 @@ impl Classes {
         }
         let mut powers = known_powers(sheet);
         let mut taught = Vec::new();
-        for &(_, power) in &of.powers {
+        let recommended = of.powers.iter().map(|(_, power)| power);
+        for &power in plan.powers.iter().chain(recommended) {
             if taught.len() < usize::from(offer.powers)
                 && self.may_power(of, power, &powers, offer.class_level)
             {
@@ -643,6 +692,14 @@ impl Classes {
             }
             out.bytes(&class.class_skills.map(u8::from));
             out.section(&class.skill_order);
+            // Only TSL's tables grant them, so K1's classes keep their digest.
+            if !class.pc_granted.is_empty() {
+                out.string("pc granted");
+                out.u32(class.pc_granted.len() as u32);
+                for feat in &class.pc_granted {
+                    out.u16(*feat);
+                }
+            }
         }
         out.u32(self.levels.len() as u32);
         for xp in &self.levels {

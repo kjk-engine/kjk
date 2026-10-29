@@ -234,6 +234,7 @@ impl Engine<'_> {
                     xp.current = 0;
                     xp.enabled = false;
                     self.out.reward(self.state, amount);
+                    super::xp::tell_pc_level(self.library, self.view, self.state);
                 }
                 Value::Int(0)
             }

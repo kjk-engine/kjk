@@ -1,0 +1,55 @@
+# The Jedi Exile the TSL chain plays (chain.flags passes it to every
+# route): made by TSL's own character creation at the new game the
+# prologue starts, and levelled by this plan from then on. The build is a
+# light-side Jedi Sentinel made to open the most of what the story gates on
+# a skill. Reader: `launcher::playthrough::build`; rules: `sim::creation`,
+# `sim::levels`.
+
+# The Sentinel has the most skill points of the three Jedi classes (3 a
+# level, before Intelligence) and the most class skills that the story
+# asks for (Awareness, Computer Use, Persuade, Security, Treat Injury).
+class sentinel
+# A man: the Handmaiden joins (the Disciple goes with a woman), as the
+# walkthroughs the routes follow play it.
+sex male
+portrait po_pmha01
+name Exile
+
+# TSL's point-buy: 30 points from 8 in each (a point a raise to 14, two to
+# 16, three to 18). Intelligence 16 (10 points) for 24 skill points at the
+# first level and 6 a level after, and Computer Use, Repair and Security;
+# Charisma 14 (6) for Persuade and the influence it brings; Wisdom 12 (4)
+# for Awareness and Treat Injury and the Force points; Dexterity 12 (4) and
+# Constitution 12 (4) for defence and vitality; Strength 10 (2), since the
+# chain's fights are not what it tests (chain.flags' --mighty).
+abilities 10 12 12 16 12 14
+
+# The first level's 24 points: the five class skills the story checks at 4
+# (the most a first level allows), and Repair, a cross-class skill at two
+# points a rank, at its most of 2 (Peragus's and Dantooine's droids and
+# terminals). Stealth and Demolitions are left: no route needs them.
+skills computer=4 awareness=4 persuade=4 security=4 treat=4 repair=2
+# The first level's one feat: Empathy, more Persuade, Awareness and Treat
+# Injury.
+feats EMPATHY
+
+# Each level-up spends its points in this order, each skill to the most its
+# level allows before the next: Persuade first (the most conversations and
+# influence), then Awareness, Computer Use, Security, Repair (when its
+# cross-class most rises, every other level) and Treat Injury. What is left
+# goes in the class's own order (kjk does not keep unspent points over as
+# TSL's level-up screen can).
+skill-order persuade awareness computer security repair treat
+# Feats as the Sentinel's levels offer them: Gear Head (Computer Use,
+# Repair, Security), then each tier of Empathy and Gear Head as it opens,
+# Toughness between; after these the class's recommended.
+feat-order GEAR_HEAD IMPROVED_EMPATHY GEAR_HEAD_ADEPT TOUGHNESS MASTER__EMPATHY GEAR_HEAD_MASTER
+# Light-side powers before the class's recommended order (which puts the
+# dark Force Scream third): Burst of Speed and Force Valor to start, Cure
+# as soon as the sixth level opens it, Force Push and Stun for crowds,
+# Energy Resistance and Droid Stun after; then Heal, Knight's Valor and
+# Speed as they open.
+power-order FORCE_POWER_SPEED_BURST FORCE_POWER_FORCE_VALOR FORCE_POWER_CURE FORCE_POWER_FORCE_PUSH FORCE_POWER_STUN FORCE_POWER_RESIST_ENERGY_1 FORCE_POWER_DROID_STUN FORCE_POWER_HEAL FORCE_POWER_KNIGHT_VALOR FORCE_POWER_KNIGHT_SPEED
+# Every fourth level's ability point: Intelligence twice (18 at the eighth
+# level, 7 skill points a level from then), then Charisma.
+raises int int cha cha cha

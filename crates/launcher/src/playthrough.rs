@@ -108,6 +108,7 @@ use vfs::{Discovery, Game};
 use crate::lifecycle::Installer;
 use crate::minigame_bot::{PRESS_MS, pressed};
 mod route;
+pub mod build;
 pub(crate) use route::*;
 mod here;
 use here::*;
@@ -288,6 +289,9 @@ const SETTLED_STEPS: u32 = 2;
 const HELD_GOALS: u64 = 9;
 /// How many stalls a walk with no body in its way takes before it backs off.
 const LOST_STALLS: u8 = 8;
+/// How many stalls a chase with a gun in hand takes before it shoots from
+/// where it stands, its foe in sight and range.
+const RANGED_LOST_STALLS: u8 = 2;
 
 /// What a run starts from and how long each goal may take.
 pub struct Options {
@@ -311,6 +315,9 @@ pub struct Options {
     /// Where `save` goals write their checkpoints (`--save-to`; by default
     /// beside the others, `checkpoint`): a chain's run folder.
     pub save_to: Option<PathBuf>,
+    /// A build's text (`--build`, `build::parse`): the character a new
+    /// game makes, and the plan every level taken follows.
+    pub build: Option<String>,
 }
 
 /// Plays `options.route` from `options.module`; see the module's notes.
@@ -322,6 +329,15 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
             let (anims, _) = crate::stage::anims(discovery);
             let installer = Installer::new(discovery, game, Arc::new(anims))?;
             let kept = kept_base_items(installer.base_resolver()?)?;
+            let build = options
+                .build
+                .as_deref()
+                .map(|text| {
+                    let resolver = installer.base_resolver()?;
+                    let table = |name: &str| resolver.two_da(name).ok_or(format!("{name}.2da: not read"));
+                    build::parse(text, &table("feat")?, &table("spells")?)
+                })
+                .transpose()?;
             let rate = TickRate::default();
             let world = match options.module.strip_prefix('@') {
                 Some(name) => {
@@ -357,6 +373,17 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         .plan
                         .commit(&mut world)
                         .map_err(|e| e.to_string())?;
+                    // A new game: the build's character made, as character
+                    // creation makes it (god mode holding on its sheet).
+                    if let Some(build) = &build {
+                        let made = crate::persona::Made::Desc(&build.made);
+                        crate::persona::start(&mut world, installer.base_resolver()?, 1, Some(made))?;
+                        world.add_player_flags(
+                            options.sheet.flags
+                                & (sim::combat::sheet::flags::IMMORTAL
+                                    | sim::combat::sheet::flags::MIGHTY),
+                        );
+                    }
                     world
                 }
             };
@@ -589,12 +616,13 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     met = true;
                 } else if let Some(class) = level_due(&world, &last) {
                     // A level the party's XP allows, taken at once as a
-                    // player would, in the class taken last (the game's
-                    // picks): one a goal.
-                    acts.push(Action::LevelUp(sim::levels::Choices {
+                    // player would, in the class taken last: the build's
+                    // plan's picks, else the game's. One a goal.
+                    let planned = build.as_ref().and_then(|build| planned(&world, &last, class, &build.plan));
+                    acts.push(Action::LevelUp(planned.unwrap_or(sim::levels::Choices {
                         class,
                         ..sim::levels::Choices::default()
-                    }));
+                    })));
                 }
                 if let Goal::Solo(on) = goal {
                     acts.push(Action::Solo(*on));

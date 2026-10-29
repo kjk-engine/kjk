@@ -1673,12 +1673,22 @@ fn hold_and_resume() {
 /// class's rows, the feat it grants, the feat picked or the game's, the
 /// ranks bought, four times a level's points), nothing worn or held,
 /// neutral; refused past the points, the ranks' points or cap, a feat's
-/// need or one pick too many; a seat's player made so (its sheet, full hit
-/// points, its career in the snapshot, its persona); `sim::player_probes`,
-/// no install.
+/// need or one pick too many; TSL's player feats granted besides; a build's
+/// planned level-up picks before the class's; a seat's player made so (its
+/// sheet, full hit points, its career in the snapshot, its persona);
+/// `sim::player_probes`, no install.
 #[test]
 fn player_creation() {
-    probed("creation", &sim::player_probes::creation(), 7);
+    probed("creation", &sim::player_probes::creation(), 9);
+}
+
+/// TSL's player's level as the scripts read it (`G_PC_LEVEL`, set by the
+/// XP the party gains) and `AddMultiClass` on a player (the class taken up
+/// unlevelled, the party given its next level's XP); `sim::player_probes`,
+/// no install.
+#[test]
+fn player_levels_told() {
+    probed("levels told", &sim::player_probes::levels_told(), 1);
 }
 
 /// The scripts read a player's persona of its own character (`GetGender`,
