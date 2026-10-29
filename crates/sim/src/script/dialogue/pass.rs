@@ -127,7 +127,10 @@ pub(in crate::script) fn advance(step: &mut Step) {
     // to T3-M4, made for it, while its opening conversation plays). Nor is
     // a party member knocked out: it gets up again (`Thing::dead_for_good`;
     // Atton, poisoned in Peragus' hangar bay, falls as his escape's scene
-    // begins).
+    // begins). An owner dead but not taken away talks on: its conversation
+    // is the object's, which stays (TSL's Visquis, killed by his own
+    // conversation's script as Mira watches the monitor, `a_305end_setup0`,
+    // and the scene goes on) [verify in the exe].
     let made: Vec<ObjectId> = step.out.made.iter().map(|made| made.id).collect();
     let gone: Vec<u32> = step
         .state
@@ -141,6 +144,7 @@ pub(in crate::script) fn advance(step: &mut Step) {
                 [c.owner, c.pc]
             };
             them.iter().any(|id| match view.thing(*id) {
+                Some(_) if *id == c.owner && c.owner != c.listener && c.owner != c.pc => false,
                 Some(thing) => thing.dead_for_good(),
                 None => !made.contains(id),
             })

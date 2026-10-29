@@ -1354,11 +1354,23 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     && object_of(&here, index).state
                                         != data.as_ref().map_or(0, |d| d.state);
                                 // A creature started talking with the player
-                                // on its own (a guard who stops you): the use
-                                // is answered. A thing's own scene is not its
-                                // use (the galaxy map's tutorial, played as
-                                // the party walks up, opens no planets).
-                                let spoke = creature && talking.as_ref().is_some_and(|talk| {
+                                // on its own (a guard who stops you), or a
+                                // locked door its press failed to open
+                                // speaking (its `OnFailToOpen` conversation:
+                                // Visquis's sealed door, whose scene hands the
+                                // player to Mira far from it): the use is
+                                // answered.
+                                // A placeable's own scene is not its use (the
+                                // galaxy map's tutorial, played as the party
+                                // walks up, opens no planets).
+                                // An unlocked door's own scene is no answer
+                                // (Peragus's prison door, Kreia speaking
+                                // through it as the player comes).
+                                let sealed = index != u32::MAX
+                                    && data.as_ref().is_some_and(|d| {
+                                        d.kind == ObjectKind::Door && object_of(&here, index).locked(d.opens)
+                                    });
+                                let spoke = (creature || sealed) && talking.as_ref().is_some_and(|talk| {
                                     [talk.owner, talk.speaker].iter().any(|id| {
                                         last.get(sim::SimId(id.0)).is_some_and(|e| {
                                             matches!(e.kind, sim::Kind::Object(_, i) if i == index)

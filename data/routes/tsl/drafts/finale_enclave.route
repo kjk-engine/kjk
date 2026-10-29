@@ -1,0 +1,65 @@
+# Dantooine again, the rebuilt Enclave and the Jedi Masters (TSL, 003EBO,
+# 601DAN, 605DAN, 650DAN, 006EBO, 262TEL): Kreia aboard calls the Exile to
+# the Enclave ("there is something there that you must hear"), the galaxy
+# map to Dantooine, ashore with Kreia and Visas Marr, across the Khoonda
+# Plains into the Enclave Courtyard and the rebuilt Jedi Enclave; Kreia
+# rests in the courtyard and the party is sent off (a_650removeparty), the
+# Exile alone before Vrook, Zez-Kai Ell and Kavar (no alignment in their
+# talk), the Masters' judgement and Kreia's answer; out of the Enclave to
+# the Ebon Hawk (k_006ebo): Atton on the Handmaiden taking Kreia to Atris,
+# Telos next, Visas Marr's talk (male Exile), and TelMov15 to Atris's
+# academy.
+# Starts from the Ebon Hawk after Onderon:
+#   kjk playthrough tsl @onderon_won data/routes/tsl/finale_enclave.route --god
+# Walkthrough: DSimpson's "Dantooine Again"; GameBanshee 53
+# (context/walkthroughs/tsl/).
+# Left: anything owed elsewhere first (DSimpson: Geeda's routes, HK-47's
+# pacifist package; the chain has neither), the Enclave's corpses and
+# locked footlocker.
+#
+# ASSUMES:
+# - All four Masters found and alive (Vrook, Zez-Kai Ell, Vash dead on
+#   Korriban, Kavar), so 000_Jedi_Found is 4: k_enter_605 plays the rebuilt
+#   Enclave's room animations and sets 650DAN_Rebuilt, and 650jedi's start 6
+#   (the Masters alive) plays, not the dark side's starts 1 to 5.
+# - Kreia's call (kreia start 7, "We must go to Dantooine, to the Enclave")
+#   answers a use aboard. # UNSURE: she may start it herself on entry, then
+#   `talk` instead of `use kreia`.
+# - The Hawk lands at 601DAN as before (dantooine_khoonda), the ramp's party
+#   screen taking Kreia and Visas. 605DAN's To_650 is open once the Enclave
+#   is rebuilt (605DAN_Enclave_Open). # UNSURE: no landing scene on Dantooine.
+# - 650DAN: KreiaArriveParty (with Kreia along) plays 650kreia start 0 (she
+#   sits; "Very well. I shall return shortly." answers her, the Awareness
+#   reply needs the skill); the walk to the Masters is scripted
+#   (a_move_pc_tag2/3, a_jediarrive); KreiaArrive is on the way.
+#   # UNSURE: how many conversations the Council, Kreia and krehand1 make;
+#   the `talk`s below are a guess.
+# - Trans006EBO's heartbeat (k_006ebo) moves the party to 006EBO once
+#   650DAN_006EBO_Trans is set.
+# - 006EBO (male): attonend, then a_load006end has Visas Marr start
+#   visasend (WP_650END_PC_0); visasend's a_load262 plays TelMov15 and
+#   starts 262TEL at FROM_006EBO.
+use kreia            # "We must go to Dantooine, to the Enclave" # UNSURE: see above
+use Galaxymap
+travel 0             # Dantooine (planetary.2da)
+party 6,9            # Kreia and Visas Marr
+to tr_leave          # the ramp: the party screen
+module 601dan
+exit To_605@1        # the courtyard's east way
+module 605dan
+exit To_650          # the rebuilt Jedi Enclave
+module 650dan
+say Very well. I shall return shortly. # Kreia rests (650kreia start 0)
+to KreiaArriveParty
+talk
+to KreiaArrive       # the Council chamber's approach
+talk                 # Vrook, Zez-Kai Ell and Kavar (650jedi start 6)
+talk                 # Kreia's answer to the Council
+talk                 # the Exile wakes: Force Enlightenment
+to Trans006EBO       # out of the Enclave: aboard (k_006ebo)
+module 006ebo
+say Then we're going to Telos. We have no choice. # attonend
+talk
+talk                 # Visas Marr (visasend): a_load262
+module 262tel        # TelMov15, FROM_006EBO
+save telos_atris_again

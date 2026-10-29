@@ -306,6 +306,7 @@ pub const LEFT_AT_START: &[&str] = &[
     "script.movie_runs",
     "script.no_clicks_until",
     "script.keep_stealth",
+    "script.summary_owed",
     "script.encounter_creatures",
 ];
 
@@ -428,6 +429,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         movie_runs: _,
         no_clicks_until: _,
         keep_stealth: _,
+        summary_owed: _,
         return_button: _,
         encounters: _,
         encounter_creatures: _,
@@ -443,7 +445,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         watch, reputation, traps, skill_uses, door_mines, last_detect_ms,
         perception, stealth_xp, stealth_loss, pazaak, pazaak_won, components,
         chemicals, hoards, beats, transit, movies, movie_runs, no_clicks_until,
-        keep_stealth, return_button, encounters, encounter_creatures, floor,
+        keep_stealth, summary_owed, return_button, encounters, encounter_creatures, floor,
     );
     out
 }

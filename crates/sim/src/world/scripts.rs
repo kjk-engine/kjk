@@ -1288,6 +1288,7 @@ pub(super) fn scripts(
         || !state.actions.is_empty()
         || state.delayed.iter().any(|d| d.due_ms <= now)
         || conversing
+        || state.summary_owed
         || !talk.released.is_empty()
         || !talk.barks.is_empty()
         || script::levelling::due(library, state, &view);
@@ -1753,6 +1754,9 @@ impl SimWorld {
         state.watch = Watch::default();
         // Blows on their way and a screen still open are the left module's.
         state.strikes.clear();
+        // The bodies kept after death are the left module's (their ids are
+        // its own: kept on, they named creatures of the next one).
+        state.kept.clear();
         state.party.selection = None;
         // The player restrict mode is the module's: TSL's asteroid walk
         // sets it on entering (a_104per_enter, every time) and in the

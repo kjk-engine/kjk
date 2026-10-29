@@ -1,0 +1,75 @@
+# Dxun, Freedon Nadd's tomb, and the Basilisk to Iziz (TSL, 411DXN, 403DXN,
+# 511OND): still as Visas Marr's squad, Xarga on the tomb, the Sith Captain
+# sending his sparring warriors, the two barriers, the Dark Jedi
+# Apprentices at the sealed tomb door, the east wing's beast trainers and
+# the Ancient Terminal's lever (the door unlocked), the Sith Captain and his
+# troopers, the ritual broken: the Sith Master's temptation refused (3 LSP,
+# "I will not... be tempted") and the Sith Master and Dark Jedi Masters
+# fought, Freedon Nadd's sarcophagus and mummy searched; Xarga takes the
+# squad back (a_leave_411: the Exile the player again). At the camp Zuka's
+# salvaged Basilisk War Droid, the party screen (Kreia forced, Mandalore
+# taken), and the drop into Iziz's ruined Merchant Quarter.
+# Starts from the Jungle Tomb's checkpoint:
+#   kjk playthrough tsl @dxun_sith_tomb data/routes/tsl/finale_sith_tomb.route --god
+# Walkthrough: DSimpson's "Tomb of Freedon Nadd" and "Onderon Civil War";
+# GameBanshee 50 (context/walkthroughs/tsl/).
+# Left: the side rooms past the entrance (SW: grenadiers, the broken
+# medical droid, puzz_sw; SE: war droids, the workbench, the broken droid,
+# puzz_se, the Dark Side Energy taint_ds), the west wing (its Ancient
+# Terminal does what the east one does; the second Dark Side Energy,
+# taint_ds2: a Will save, a DSP on failing it), the Sith Master's loot.
+#
+# ASSUMES:
+# - The squad is Visas Marr leading, Bao-Dur and Atton; the Exile and Kreia
+#   wait at the camp (403DXN_PARTY2_NPC1..3 = 9, 1, 0).
+# - Xarga's tomb talk (start 0) starts itself on entering: k_411_enter has
+#   xarga start a conversation. # UNSURE: it may wait for tr_intro_dlg.
+# - sw_door and se_door ("Barrier", KeyRequired, not Locked) open to a use.
+# - The tomb door (sarc_door, locked, plot) opens to the east Ancient
+#   Terminal's lever (a_open_door).
+# - Xarga's last talk (start 1) comes at tr_leave_411 once the ritual is
+#   broken. # UNSURE: who starts it.
+# - Zuka's Basilisk talk starts itself in 403DXN (k_403_enter, the
+#   411DXN_Complete branch: Zuka to wp_basilisk_zuka, then his talk).
+# - a_to_iziz's party screen forces Kreia (NPC 6); Mandalore (2) is added
+#   (AddAvailableNPCByTemplate p_mand) and taken, as DSimpson does.
+#   # UNSURE: which of a_to_iziz's two ShowPartySelectionGUI calls runs
+#   (one forces 2, the other 6); `party 6,2` answers either.
+# - a_to_iziz2 plays OndMov07 and starts 511OND at From_403DXN.
+talk                 # Xarga: the Tomb of Freedon Nadd (411xarga start 0)
+to tr_intro_dlg      # the Sith Captain and his sparring warriors (sithcapt)
+talk
+fight 40
+use sw_door          # the first barrier (k_door_airlock)
+fight 40
+use se_door          # the second barrier
+fight 40             # the Dark Jedi Apprentices before the tomb door
+use nw_door@1        # the east wing
+fight 40
+to tr_beast_tamer    # the Sith training boma (beast_ta)
+talk
+fight 40
+say [Lower lever.]
+use anc_terminal     # the east Ancient Terminal: the tomb door unlocked
+fight 40             # attacked again on the way back
+use sarc_door        # the inner tomb
+to tr_ritual_sc_1    # the ritual: the Sith Captain sent out (ritlead start 0)
+talk
+fight 40             # the Sith Captain and his troopers
+say I will not walk the path of the dark side! # ritlead start 1
+say It's not too late for you. You can come back to the light.
+say I will not... be tempted. That path leads to the dark side. # (3 LSP)
+to tr_ritual_sc_2    # the ritual broken
+talk
+fight 40             # the Sith Master and the Dark Jedi Masters
+use d_sithsarc       # Freedon Nadd's sarcophagus
+use corpse           # his mummy: Freedon Nadd's Short Lightsaber
+say I'm ready to go. What happened with # Xarga start 1
+to tr_leave_411
+talk
+module 403dxn        # a_leave_411: the Exile again, From_411DXN2
+party 6,2            # Kreia (forced) and Mandalore into the Basilisk
+say =I'm ready to go. # Zuka: the Basilisk War Droid
+talk
+module 511ond        # a_to_iziz2: OndMov07, From_403DXN
+save onderon_civil_war
