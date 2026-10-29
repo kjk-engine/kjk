@@ -429,10 +429,11 @@ pub fn run(discovery: &Discovery, game: &str, module: &str, run: &Run) -> ExitCo
         } = play(&installer, module, run)?;
         let report = world.script_report();
         let talk = |strref| installer.text(strref);
+        let mut tokens = std::collections::BTreeMap::new();
         let mut lines: Vec<String> = report
             .talk
             .iter()
-            .flat_map(|line| transcript(&talk, &library, &names, line))
+            .flat_map(|line| transcript(&talk, &library, &names, &mut tokens, line))
             .collect();
         lines.extend(carried(&world, &run.items));
         let entries = report

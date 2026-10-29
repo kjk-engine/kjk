@@ -71,6 +71,10 @@ pub struct Face {
 /// move_body's step (18 units, metres): a steep face no taller is stepped over.
 const STEP_RISE: f32 = STEP_HEIGHT * crate::UNIT;
 
+/// A face narrower than this (metres, seen from above) is a sliver
+/// (`Face::sliver`): the width of the column `mark` looks for furniture in.
+const SLIVER: f32 = 0.1;
+
 /// Where a point is looked for over a footprint (`mark`): a thin column
 /// from under the face to a step over it.
 const FOOTPRINT: crate::Extents = crate::Extents {
@@ -478,11 +482,10 @@ impl NavMesh {
             maxs: [self.radius, self.radius, 1.6],
         };
         let column = crate::Extents {
-            mins: [-0.05, -0.05, 0.5],
-            maxs: [0.05, 0.05, 1.6],
+            mins: [-SLIVER / 2.0, -SLIVER / 2.0, 0.5],
+            maxs: [SLIVER / 2.0, SLIVER / 2.0, 1.6],
         };
         let entities: Vec<u32> = level.entities().collect();
-        let mut tagged = 0;
         for face in &mut self.faces {
             let points = [
                 face.centre,
@@ -512,9 +515,35 @@ impl NavMesh {
                 .filter(|&&at| level.level_overlaps(at, &column, crate::Contents::SOLID))
                 .count();
             face.covered = face.entity.is_none() && under >= 3;
-            tagged += usize::from(face.entity.is_some() || face.covered);
         }
-        tagged
+        // A sliver, narrower than the column the points are looked over
+        // with, has no floor of its own: its points lie on its edges, and
+        // the column over them meets whatever wall stands along one, as a
+        // corridor's wall beside a 6 mm sliver joining its two rooms'
+        // floors (TSL's Peragus mining tunnels, the hallway past the
+        // damaged droid). A body only crosses it, between the faces it
+        // joins, so where two of them are open it is open too.
+        let slivers: Vec<bool> = self.faces.iter().map(Face::sliver).collect();
+        let open: Vec<bool> = self
+            .faces
+            .iter()
+            .zip(&slivers)
+            .map(|(face, sliver)| !sliver && !face.covered)
+            .collect();
+        for (face, sliver) in self.faces.iter_mut().zip(&slivers) {
+            if *sliver && face.covered {
+                let joined = face
+                    .portals
+                    .iter()
+                    .filter(|portal| open[portal.to as usize])
+                    .count();
+                face.covered = joined < 2;
+            }
+        }
+        self.faces
+            .iter()
+            .filter(|face| face.entity.is_some() || face.covered)
+            .count()
     }
 
     /// Numbers the islands; how many.
@@ -942,10 +971,17 @@ impl NavMesh {
             // (`inside_corner`), which a way bends round little if at all:
             // stepped off the walls there, such an end can lie past a walker
             // standing that near the portal, and taken as the funnel's side it
-            // turned the way back round it. An end at an outside corner (one
-            // a way bends round) still bounds its side, and a gate collapsed
-            // to its middle is never passed over, even with the middle behind
-            // the apex.
+            // turned the way back round it. So too both ends of a gate whose
+            // corners the apex stands beside neither of (farther from each
+            // than it is stepped off its walls): between two blocks' corners
+            // the stepped gate lies aslant the bare portal, and a walker on
+            // the portal, past the stepped gate, was sent back round one
+            // stepped end and then the other (TSL's Peragus hangar bay,
+            // 106PER: the start room's way to the lower door zig-zagged, and
+            // the walk turned back and forth between two ways). Beside one
+            // block's corner (in a doorway), an end at an outside corner
+            // still bounds its side, and a gate collapsed to its middle is
+            // never passed over, even with the middle behind the apex.
             let (drop_left, drop_right) = ends
                 .get(at)
                 .filter(|((left_bare, _), (right_bare, _))| {
@@ -956,7 +992,14 @@ impl NavMesh {
                         && off_stretch(apex, (*left_bare, *right_bare)) < self.radius
                 })
                 .map_or((false, false), |&(left_end, right_end)| {
-                    (self.inside_corner(left_end), self.inside_corner(right_end))
+                    let beside = |(bare, stepped): (Vec3, Vec3)| {
+                        flat_length(apex, bare) <= flat_length(stepped, bare)
+                    };
+                    let neither = !beside(left_end) && !beside(right_end);
+                    (
+                        neither || self.inside_corner(left_end),
+                        neither || self.inside_corner(right_end),
+                    )
                 });
             if drop_left && drop_right {
                 at += 1;
@@ -1210,6 +1253,18 @@ impl Face {
     /// hair beyond), seen from above.
     fn holds(&self, point: Vec3) -> bool {
         self.height_at(point).is_some()
+    }
+
+    /// Whether the face is narrower, seen from above, than the column
+    /// `mark` looks over its points with (`SLIVER`): twice its area over
+    /// its longest edge.
+    fn sliver(&self) -> bool {
+        let [a, b, c] = self.corners;
+        let area = cross_z(sub(b, a), sub(c, a)).abs();
+        let longest = flat_length(a, b)
+            .max(flat_length(b, c))
+            .max(flat_length(c, a));
+        area < SLIVER * longest
     }
 
     /// The face's height at `point`'s x and y, if they fall inside it

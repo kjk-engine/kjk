@@ -16,7 +16,8 @@
 //! - the routines in a world: `SWMG_GetObjectName`, the Dexterity-scaled
 //!   lateral acceleration (TSL's) and the speeds refused, upgrades 0, the
 //!   script stopped at `SWMG_SetPlayerInvincibility`; the forfeit globals;
-//!   107per's bolts on the area's creatures and walls.
+//!   107per's bolts on the area's creatures and walls; a conversation the
+//!   scripts start while it plays answered by the player.
 
 use fmt_odyssey::ncs::{Const, Op};
 use script_ncs::probes::Asm;
@@ -50,6 +51,10 @@ pub fn probes() -> Checks {
         ("routines", routines().unwrap_or_else(Err)),
         ("forfeit_globals", forfeit().unwrap_or_else(Err)),
         ("world_turret", world_turret().unwrap_or_else(Err)),
+        (
+            "talk_answered_while_playing",
+            talk_while_playing().unwrap_or_else(Err),
+        ),
     ]
 }
 
@@ -542,6 +547,16 @@ fn world(
     (name, game): (&str, &str),
     placed: Vec<ObjectData>,
 ) -> Result<SimWorld, String> {
+    world_in(rules, (name, game), placed, scripts())
+}
+
+/// `world` with `library` its scripts and conversations.
+fn world_in(
+    rules: &Rules,
+    (name, game): (&str, &str),
+    placed: Vec<ObjectData>,
+    library: crate::script::Library,
+) -> Result<SimWorld, String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
     data.name = name.into();
@@ -551,7 +566,7 @@ fn world(
     let level: Level = ground
         .with_module(data)
         .with_minigame(rules.clone())
-        .with_scripts(scripts());
+        .with_scripts(library);
     let config = WorldConfig {
         sheet: Sheet::dev_soldier(),
         ..WorldConfig::one_seat()
@@ -728,5 +743,74 @@ fn world_turret() -> Result<Result<String, String>, String> {
         format!(
             "107per: on the creature {hit:?}, on the wall {wall:?}; elsewhere {elsewhere:?} (struck, bolts flying)"
         ),
+    ))
+}
+
+/// A conversation the scripts start while the turret plays is the
+/// player's to answer, as TSL's 107per ends: Atton's `turend`, its reply
+/// loading the boarded Ebon Hawk. The minigame parks what moves the
+/// player, never its answer: the last reply ("Goodbye.") ends it.
+fn talk_while_playing() -> Result<Result<String, String>, String> {
+    use crate::script::dialogue::{Line, Pick, Start, answer};
+    let rules = turret();
+    let at = crate::determinism::ground_point(-3.0, 2.0, 0.0);
+    let placed = vec![ObjectData::creature(
+        "probe_gunner",
+        "probe_gunner",
+        at,
+        Sheet::commoner(),
+    )];
+    let dialogues = [(
+        "probe_talk".to_string(),
+        crate::script::dialogue_probes::talking(2, ""),
+    )]
+    .into();
+    let library = scripts().with_dialogues(dialogues, std::collections::BTreeMap::new());
+    let mut world = world_in(&rules, ("107per", "tsl"), placed, library)?;
+    let start = world.snapshot();
+    let player = start
+        .body(Seat(0))
+        .map(|body| body.id.0)
+        .ok_or("no player")?;
+    let owner = start
+        .entities
+        .iter()
+        .find(|entity| entity.id.0 != player && entity.fighter.is_some())
+        .map(|entity| entity.id.0)
+        .ok_or("no gunner")?;
+    let mut state = world.script_state().clone();
+    state.talk.asked.push(Start {
+        owner: ObjectId(owner),
+        pc: ObjectId(player),
+        asker: ObjectId(player),
+        dialog: "probe_talk".into(),
+        bark: false,
+    });
+    world.set_script_state(state);
+    let mut still = TickInput::default();
+    still.insert(Seat(0), Command::default());
+    let tick = advance(&mut world, 0, 2, &still);
+    let begun = world.snapshot().talk.conversations.first().map(|c| c.id);
+    let mut goodbye = TickInput::default();
+    goodbye.insert(
+        Seat(0),
+        Command {
+            reply: answer(0, Pick::Reply(1)),
+            ..Command::default()
+        },
+    );
+    // 8 s: the line played and its last reply taken.
+    advance(&mut world, tick, 1000, &goodbye);
+    let ended = begun.is_some_and(|id| {
+        world
+            .script_report()
+            .talk
+            .iter()
+            .any(|line| matches!(line, Line::Ended { id: of, aborted: false, .. } if *of == id))
+    });
+    let playing = world.snapshot().minigame.is_some();
+    Ok(check(
+        ended && playing,
+        format!("begun {begun:?}, ended by its reply {ended}, the turret still playing {playing}"),
     ))
 }

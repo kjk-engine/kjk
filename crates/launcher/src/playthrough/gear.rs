@@ -108,6 +108,7 @@ pub(super) fn equip(world: &sim::SimWorld, snapshot: &Snapshot, named: Option<&s
     let Some(library) = world.level().scripts() else {
         return Vec::new();
     };
+    let race = snapshot.get(me).and_then(|e| e.sheet).map(|sheet| sheet.race);
     let items = &world.script_state().items;
     let mut worn: u32 = items
         .values()
@@ -120,9 +121,12 @@ pub(super) fn equip(world: &sim::SimWorld, snapshot: &Snapshot, named: Option<&s
         .filter(|(_, item)| item.holder == sim::inventory::PARTY)
         .filter(|(_, item)| named.is_none_or(|named| item.template.eq_ignore_ascii_case(named)))
     {
+        // Only what the player's race may wear (`ItemFacts::fits`), as the
+        // equip screen lists.
         let slots = library
             .items()
             .get(&item.template)
+            .filter(|facts| race.is_none_or(|race| facts.fits(race)))
             .map_or(0, |facts| facts.slots);
         if named.is_some() {
             if let Some(slot) = (0..32u8).find(|bit| slots & (1 << bit) != 0) {

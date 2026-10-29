@@ -117,11 +117,13 @@ fn collision_probes() {
     assert_eq!(probes.failed(), 0, "module probes failed");
 }
 
-/// `surfacemat.2da`'s grass column read per material (no installs needed;
-/// proposed 2026-10-08).
+/// `surfacemat.2da`'s grass column read per material, and the made-up
+/// walls, footprints and navigation meshes beside it (no installs needed;
+/// proposed 2026-10-08; the funnel past a gate between two blocks' corners
+/// 2026-10-28).
 #[test]
 fn surface_probes() {
-    probed("surfaces", &collision_odyssey::probes::probes(), 1);
+    probed("surfaces", &collision_odyssey::probes::probes(), 8);
 }
 
 fn near(what: &str, measured: f32, expected: f32, tolerance: f32) {
@@ -487,7 +489,7 @@ mod rig {
 /// `nwscript.nss` declares (`kjk script check`).
 #[test]
 fn script_vm() {
-    passed("script", &script_ncs::probes::all(), 29);
+    passed("script", &script_ncs::probes::all(), 30);
 
     let discovery = discovery();
     for game in [vfs::Game::Kotor1, vfs::Game::Kotor2] {
@@ -928,17 +930,20 @@ fn use_actions() {
 /// the player's blow on the locked gate takes off what it is worth less the
 /// gate's hardness and raises its `OnDamaged` with the player as damager;
 /// a creature outside the party hurts nothing; nor does a weapon on what is
-/// not locked, is plot, or out-hards it; a script's damage hurts what is
-/// not plot; Min1HP holds at 1; the gate's hit points gone, it breaks open,
-/// unlocked, its `OnDeath` raised, and neither closes nor takes more; a
-/// grenade blast's hit breaks a locked safe; a creature whose heartbeat
-/// asks `DoDoorAction(…, DOOR_ACTION_BASH)` breaks a locked box beside it;
-/// the player holding attack at the locked gate breaks it with its blaster
-/// and, empty-handed, with its fists (the sim's own shots and punches); the
+/// not locked, is plot, or out-hards it, though the one it out-hards hears
+/// it was attacked (`OnMeleeAttacked`, not `OnDamaged`); a script's damage
+/// hurts what is not plot; Min1HP holds at 1; the gate's hit points gone,
+/// it breaks open, unlocked, its `OnDeath` raised, and neither closes nor
+/// takes more; a grenade blast's hit breaks a locked safe; a creature whose
+/// heartbeat asks `DoDoorAction(…, DOOR_ACTION_BASH)` breaks a locked box
+/// beside it; the player holding attack at the locked gate breaks it with
+/// its blaster, empty-handed with its fists, and with a stun baton (the
+/// sim's own shots and punches); a baton with Door Cutting (TSL's plasma
+/// torch) breaks a gate of hardness 100 a plain baton leaves whole; the
 /// state round-trips; two runs end the same. The sim alone.
 #[test]
 fn bash_doors() {
-    probed("bash", &sim::objects::probes(), 14);
+    probed("bash", &sim::objects::probes(), 19);
 }
 
 /// Placeables' looks and the visuals on objects (proposed 2026-10-06, the
@@ -1274,7 +1279,7 @@ fn dialogue_coop() {
 /// alone. Approved by the owner 2026-10-17 (do what you think is best).
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 67);
+    probed("scene", &sim::scene_probes::all(), 68);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
@@ -1320,7 +1325,7 @@ fn item_uses() {
 /// alone, no install.
 #[test]
 fn item_properties() {
-    probed("item properties", &sim::inventory::probes::probes(), 25);
+    probed("item properties", &sim::inventory::probes::probes(), 26);
 }
 
 /// `SwitchPlayerCharacter` (K1's Leviathan, TSL's many): `sim::switch::probes`,

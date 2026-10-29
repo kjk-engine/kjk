@@ -1400,10 +1400,29 @@ impl Thing {
         self.hp.is_some_and(|(hp, _)| hp <= 0)
     }
 
+    /// Whether it is dead for good: `dead`, but not a party member knocked
+    /// out (`Character::downed`), who gets up again where it fell.
+    pub fn dead_for_good(&self) -> bool {
+        self.dead() && !self.character.is_some_and(|character| character.downed)
+    }
+
     /// Whether blows may break it open (`module::bashable`).
     pub fn bashable(&self) -> bool {
         let locked = self.locked == Some(true);
         (self.facts.as_deref()).is_some_and(|facts| crate::module::bashable(facts, locked, self.hp))
+    }
+
+    /// Whether it is a door or placeable a script's attack strikes
+    /// (`Action::Attack` on an object): no character, of either kind.
+    pub fn struck_as_object(&self) -> bool {
+        self.character.is_none()
+            && matches!(self.kind, Some(ObjectKind::Door | ObjectKind::Placeable))
+    }
+
+    /// Whether a script's attack may still break it: as `bashable`, locked
+    /// or not (KOTOR's attack of an object is no Bash of a lock).
+    pub fn breakable(&self) -> bool {
+        (self.facts.as_deref()).is_some_and(|facts| crate::module::bashable(facts, true, self.hp))
     }
 }
 
@@ -1967,6 +1986,9 @@ pub struct Report {
     /// Runs stopped at the instruction limit, as KOTOR's machine stops
     /// them: the games' own endless loops, not ours.
     pub runaways: Vec<String>,
+    /// Runs stopped at a routine's argument of the wrong type, as KOTOR's
+    /// machine stops them (`vm::Fault::Argument`): the games' own errors.
+    pub aborted: Vec<String>,
     /// Scripts named to run that the library does not have, by times
     /// named: nothing runs (the games ship hooks naming scripts they lack).
     pub missing: BTreeMap<String, usize>,
@@ -2627,6 +2649,43 @@ impl Step<'_> {
                         };
                         self.goal(id, point, wander::ARRIVE_M, false);
                         false
+                    }
+                    // A script's attack on a door or placeable, KOTOR's
+                    // attack of an object (no fighter to fight it, no Bash
+                    // of a lock): within reach, a blow a round of what is in
+                    // hand, as a script's bash (`State::bashes`, which hurts
+                    // it locked or not and raises its `OnMeleeAttacked`),
+                    // until it breaks or is gone. A creature walks up to it;
+                    // a player's legs are its seat's, so the player strikes
+                    // once it stands within reach, the attack kept at the
+                    // front of its queue meanwhile (`SimWorld::assigned_strike`).
+                    // TSL's Peragus shift console, "[Destroy the console]",
+                    // has the Exile attack it; its `OnMeleeAttacked` opens
+                    // the dormitory door. (Dropped for a player before, the
+                    // door stayed shut.)
+                    &Action::Attack { target, .. }
+                        if self.view.thing(target).is_some_and(Thing::struck_as_object) =>
+                    {
+                        let breakable = self.view.thing(target).is_some_and(Thing::breakable);
+                        if breakable {
+                            if starting {
+                                self.attacking(id, None);
+                            }
+                            let near = match self.view.place(Target::Object(target)) {
+                                Some((at, _)) if player => flat(thing.position, at) <= DOOR_REACH,
+                                Some(_) => self.within_reach(id, &thing, false, target, |_| {}),
+                                None => false,
+                            };
+                            if near && now >= started + ROUND_MS {
+                                self.state.bashes.push((target.0, who.0));
+                                if let Some(front) =
+                                    self.state.actions.get_mut(&id).and_then(|q| q.first_mut())
+                                {
+                                    front.started_ms = Some(now);
+                                }
+                            }
+                        }
+                        !breakable
                     }
                     Action::Attack { .. } if player => true,
                     Action::Attack { target, passive } => {
@@ -3620,6 +3679,10 @@ fn finish(
         }
         Err(fault @ vm::Fault::Budget { .. }) => {
             report.runaways.push(format!("{script}: {fault}"));
+            None
+        }
+        Err(fault @ vm::Fault::Argument { .. }) => {
+            report.aborted.push(format!("{script}: {fault}"));
             None
         }
         // A stop the executables make too (`minigame::aborts`): no fault.

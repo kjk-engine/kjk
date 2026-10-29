@@ -1016,11 +1016,14 @@ pub(super) fn scripts(
         raise_by(&view, state, object, Hook::Unlock, None, by);
     }
     // Doors and placeables struck: attacked in melee (its striker's weapon
-    // kept), damaged, and dying when they broke.
+    // kept), damaged where the blow told, and dying when they broke.
     for &(object, by, lost, broke) in &battered.0 {
         state.last.insert((object.0, script::last::ATTACKER), by.0);
         struck_with(state, by.0);
         raise(&view, state, ObjectId(object.0), Hook::Attacked, None);
+        if lost == 0 {
+            continue;
+        }
         state.last.insert((object.0, script::last::DAMAGER), by.0);
         state
             .last
@@ -1677,6 +1680,18 @@ impl SimWorld {
     /// Whom scripted attacks have objects fight now, by id.
     pub fn script_intents(&self) -> &BTreeMap<u32, Intent> {
         &self.world.resource::<Scripts>().state.intents
+    }
+
+    /// The door or placeable a script's attack has `who` (a player) strike
+    /// now, at the front of its queue: struck once it stands within
+    /// `script::DOOR_REACH` of it, its legs its seat's (`Action::Attack` on
+    /// an object). TSL's Peragus shift console's "[Destroy the console]".
+    pub fn assigned_strike(&self, who: SimId) -> Option<SimId> {
+        let state = &self.world.resource::<Scripts>().state;
+        match state.actions.get(&who.0)?.first()?.action {
+            crate::script::actions::Action::Attack { target, .. } => Some(SimId(target.0)),
+            _ => None,
+        }
     }
 
     /// What the scripts did, for reports.

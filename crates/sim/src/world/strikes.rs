@@ -36,6 +36,11 @@
 //! front within reach (`FRONT`): its target if that is one, else the
 //! nearest; with friendly fire off the party's fists pass through the party
 //! as its shots do (`Targets::met_by`).
+//!
+//! A stun baton (`baseitems.2da` row 1, TSL's plasma torch among them: no
+//! blade the weapon step swings, `combat::saber::Held::Other`) strikes as
+//! the fists do, its blow a hit of the baton itself, so the party breaks a
+//! door with it as with any blow (`objects`; the torch's Door Cutting).
 
 use bevy_ecs::prelude::*;
 use collision::UNIT;
@@ -171,19 +176,24 @@ pub(super) fn strikes(
         let facts = object.and_then(|object| object.facts.as_ref());
         let fighter = &mut fighting.0;
         let sheet = sheet_of(sheet, object);
-        if !fighter.alive() || held(&sheet, fighter).delivery != Delivery::Unarmed {
+        let in_hand = held(&sheet, fighter);
+        if !fighter.alive() || !matches!(in_hand.delivery, Delivery::Unarmed | Delivery::Baton) {
             continue;
         }
         let personal_space = facts.map_or(0.0, |facts| facts.personal_space);
         let beast = facts.and_then(|facts| facts.strike);
-        // A punch under way is the one before the chain's next.
+        // A punch under way is the one before the chain's next; a stun
+        // baton's (or TSL's plasma torch's) is a blow of what is in hand.
         let (strike, space) = match beast {
             Some(strike) => (strike, personal_space),
             None => (
-                fists(punch_hit_ms(
-                    anims,
-                    punch(fighter.saber.chain.wrapping_add(1)),
-                )),
+                Strike {
+                    weapon: (in_hand.delivery == Delivery::Baton).then_some(in_hand),
+                    ..fists(punch_hit_ms(
+                        anims,
+                        punch(fighter.saber.chain.wrapping_add(1)),
+                    ))
+                },
                 humanoid_space(personal_space),
             ),
         };

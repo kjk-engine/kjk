@@ -10,6 +10,16 @@ prologue_hull         Ebon Hawk: the outer hull
 prologue_garage       Ebon Hawk: the garage
 prologue_hyperdrive   Ebon Hawk: the hyperdrive mended
 peragus_start         Peragus
+peragus_morgue        Peragus: the morgue
+peragus_t3            Peragus: T3-M4's part
+peragus_hatch         Peragus: the mining tunnels
+peragus_depot         Peragus: the fuel depot
+peragus_asteroid      Peragus: the asteroid's surface
+peragus_admin_again   Peragus: back to the administration level
+peragus_escape        Peragus: back from the Harbinger
+peragus_hangar25      Peragus: Hangar 25
+peragus_escaped       Ebon Hawk: escaped from Peragus
+telos_arrival         Telos: Citadel Station
 cold_harbinger        The Harbinger (cold)
 cold_telos            Telos: Citadel Station (cold)
 cold_telos_polar      Telos: the polar plateau (cold)

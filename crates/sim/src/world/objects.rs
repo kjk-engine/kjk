@@ -11,6 +11,9 @@
 //!   script asks (`DoDoorAction(…, DOOR_ACTION_BASH)`: `k_ai_master` for a
 //!   door in its way): a KOTOR attack of what it has in hand a round
 //!   (`script::State::bashes`), with a swing.
+//! - A script's attack of a door or placeable (`ActionAttack` on an
+//!   object, a player's too: TSL's Peragus shift console) strikes the same
+//!   way, a blow a round within reach, and hurts it locked or not.
 //! - Any grenade's blast reaches what may be bashed (`world::fly`), KOTOR's
 //!   grenade script asking for creatures alone.
 //! - A blow is worth what it would be against a body that does not dodge
@@ -24,9 +27,13 @@
 //!   refuses to close it again); a placeable that holds things opens, any
 //!   other dies (its look, `snapshot::look`), as KOTOR's executable has it.
 //!
+//! - A weapon with TSL's Door Cutting (the plasma torch) takes all its hit
+//!   points at a blow, whatever its hardness.
+//!
 //! What it did is the scripts' (`Battered`, raised in `world::scripts`):
-//! `OnDamaged` with `GetLastDamager`, and on breaking `OnDeath` with
-//! `GetLastKiller`.
+//! `OnMeleeAttacked` with `GetLastAttacker` on every weapon's blow, one
+//! its hardness turned whole too; `OnDamaged` with `GetLastDamager` on one
+//! that told, and on breaking `OnDeath` with `GetLastKiller`.
 
 use bevy_ecs::prelude::*;
 
@@ -37,6 +44,7 @@ use super::{
     Streams,
 };
 use crate::combat::damage::{self, Blow, Relation, Source};
+use crate::combat::gear::weapon_traits;
 use crate::combat::sheet::Delivery;
 use crate::combat::sheet::{DAMAGE_TYPES, Guards};
 use crate::combat::{Location, Sheet};
@@ -169,8 +177,8 @@ pub(super) fn middle(body: &Body) -> [f32; 3] {
 }
 
 /// What blows did to doors and placeables this step, for the scripts: the
-/// object, who struck it, the whole hit points it lost, and whether it
-/// broke.
+/// object, who struck it, the whole hit points it lost (none for a
+/// weapon's blow its hardness turned), and whether it broke.
 #[derive(Resource, Default)]
 pub(crate) struct Battered(pub Vec<(SimId, SimId, u16, bool)>);
 
@@ -190,8 +198,15 @@ fn stand_in(hardness: u8, most: i32) -> Sheet {
 }
 
 /// What `source` may do to `facts` as `state` leaves it, by a party member
-/// (`party`) or not: whether it is hurt at all.
-pub(crate) fn hurts(source: &Source, facts: &ObjectData, state: &ObjectState, party: bool) -> bool {
+/// (`party`) or not, a script's blow (`ordered`: a bash, an attack of the
+/// object) or not: whether it is hurt at all.
+pub(crate) fn hurts(
+    source: &Source,
+    facts: &ObjectData,
+    state: &ObjectState,
+    party: bool,
+    ordered: bool,
+) -> bool {
     // A door that is scenery never breaks: its collision has no way open.
     let scenery = facts.kind == ObjectKind::Door && facts.opens == crate::module::Opens::Never;
     if facts.toughness.plot || scenery || state.broken(facts) || state.hit_points(facts).is_none() {
@@ -199,7 +214,10 @@ pub(crate) fn hurts(source: &Source, facts: &ObjectData, state: &ObjectState, pa
     }
     match source {
         Source::Script { .. } | Source::Death => true,
-        Source::Weapon { .. } | Source::Blast { .. } => party && state.bashable(facts),
+        // A script's blow lands locked or not: a bash is asked only of
+        // what is locked, an attack of an object of anything that breaks
+        // (`script::Thing::breakable`).
+        Source::Weapon { .. } | Source::Blast { .. } => ordered || party && state.bashable(facts),
         Source::Power { .. } => false,
     }
 }
@@ -310,7 +328,7 @@ pub(super) fn objects(
             share: 1000,
             area: false,
         });
-        if !hurts(&source, &facts, &object.state, party || ordered) {
+        if !hurts(&source, &facts, &object.state, party, ordered) {
             continue;
         }
         if ordered {
@@ -334,13 +352,25 @@ pub(super) fn objects(
             &mut streams.authority,
         );
         let worth = match source {
+            // TSL's Door Cutting (the plasma torch): a hit takes all its
+            // hit points, whatever its hardness.
+            Source::Weapon { weapon, .. } if weapon.traits & weapon_traits::DOOR_CUTTING != 0 => {
+                object
+                    .state
+                    .hit_points(&facts)
+                    .map_or(0, |(now, _)| now.max(0))
+                    * 100
+            }
             Source::Weapon { .. } | Source::Blast { .. } => {
                 assessed.damage.saturating_mul(BASH_TIMES)
             }
             _ => assessed.damage,
         };
         let (lost, broke) = land(&facts, &mut object.state, worth);
-        if lost == 0 {
+        // A weapon's blow that its hardness turned is an attack still: its
+        // `OnMeleeAttacked` runs (TSL's Peragus med bay door barks for a
+        // plasma torch), its `OnDamaged` not.
+        if lost == 0 && !matches!(source, Source::Weapon { .. }) {
             continue;
         }
         if broke {

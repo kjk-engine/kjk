@@ -1,0 +1,77 @@
+# Peragus, the administration level (TSL, 101PER): the Exile wakes in the
+# medical bay, finds Kreia in the morgue, fights through the droids to the
+# administration centre, frees Atton and calls T3-M4 on the comm (light
+# side answers). Starts from the prologue's checkpoint:
+#   kjk playthrough tsl @peragus_start data/routes/tsl/peragus_admin.route --god
+# The walkthroughs this follows: Dan Simpson's GameFAQs FAQ (v1.6, its
+# [PRAGS] chapter) and GameBanshee's KotOR II locations; the maintainer's
+# offline copies are in `context/walkthroughs/tsl/`.
+# Goals: launcher::playthrough. Method: docs/PLAYTESTS.md.
+# The medical bay: the Exile wakes in kolto tank 3.
+say medical bay functions # the medical computer: open the morgue and the
+say unlock door to morgue # medical storage room, then log out
+say storage
+say log out
+use MedCom
+use MilLowPlstcCylin@1 # the med lab's plasteel container
+use MilLowPlstcCylin@4 # the storage room's two containers: medpacs and
+use MilLowPlstcCylin@5 # chemicals
+use LowCorpse@3      # the morgue's body at the back: the plasma torch; Kreia
+                     # wakes and talks (the morgue's alignment trigger)
+# Kreia in the morgue: light side answers (DSimpson's K-tree), ending on
+# "I'll return soon to make sure you're all right" (LSP)
+say I'll return soon
+talk
+talk                 # then her conversation itself
+save peragus_morgue
+equip plasmatorch    # the torch in hand: the damaged door south of the morgue
+bash MedBayDoor      # struck open
+use LowCorpse@4      # the corpse past the door: a vibroblade
+use BrokenDroidMining@1 # a broken droid: an optimized droid interface
+equip w_melee_05     # the vibroblade in hand
+equip                # and what else fits
+fight 20             # the hallway's droids, two and two
+use 102PERDoor       # the emergency hatch to the mining tunnels: sealed;
+                     # Kreia's voice in the Exile's mind
+to LowCorpse@1       # the security room
+use LowCorpse@1      # its corpse
+bash SecLoc          # the locked locker, DC 28: struck open (Security is
+use SecLoc           # better, for its XP; this Exile has too little)
+say check security records # the security desk's logs: the administration
+say administration console # console's "maintenance" (the droids' override)
+say log out
+use SecTer
+use GuardRoomDr      # Kreia warns of the droids in the guard room:
+talk                 # Precognition
+fight 15             # its three droids; the Exile levels up
+bash CivilFootLker@1 # two locked footlockers, struck open: a stealth field
+use CivilFootLker@1  # generator, ion grenades, medpacs
+bash CivilFootLker@2
+use CivilFootLker@2
+save peragus_guardroom
+# The administration center: six droids, killed for their XP (DSimpson),
+# then the console's override switch drops the prison's force field.
+to Adm_Console
+fight 25
+say control override switch
+say activate the switch
+use Adm_Console
+fight 25             # the droids up the lower right ramp
+use MilLowPlstcCylin@3 # the ramp's containers
+use MilLowPlstcCylin@2
+# Atton in the prison (Kreia's vision on the way): Revan light side and a
+# man, "I trust you" (LSP), then to the console's comm (DSimpson's A-tree).
+say I was led to believe that Revan saved
+say Revan was a man
+say I trust you
+use PrisonRoomDr
+talk
+until in 101per
+save peragus_atton
+# The comm: hangar bay 25, T3-M4 answers; play goes to T3 in the hangar.
+say access comm system
+say =Hangar Bay 25.
+say can you read me
+use Adm_Console
+module 106per        # T3 in the hangar bay
+save peragus_t3

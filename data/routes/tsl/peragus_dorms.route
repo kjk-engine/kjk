@@ -1,0 +1,48 @@
+# Peragus, the asteroid's surface and the dormitories (TSL, 104PER and
+# 105PER): across the scaffolding to Atton's comm and the Harbinger's
+# arrival, then the dormitories: the shift console's lockdown ended and
+# its ventilation shut, the holologs read at the log terminal, Coorta's
+# body by the turbolift, and the code entered in reverse (7, 5, 13, 17, 3).
+# Starts from the fuel depot's checkpoint:
+#   kjk playthrough tsl @peragus_asteroid data/routes/tsl/peragus_dorms.route --god
+# Walkthroughs: DSimpson's "Space... The Current Frontier", "The
+# Dormitories", "Getting Out of the Dormitory Level"; GameBanshee's
+# Asteroid Exterior and Dormitories (context/walkthroughs/tsl/).
+to SionArrives       # across the platform to the window: Atton's comm, the
+talk                 # Harbinger docking (Sion among the corpses)
+exit To_105PER       # into the dormitories' airlock
+fight 20             # the two droids past it
+use MilLowPlstcCylin # its plasteel container
+fight 25             # the droids and the cold turrets
+# The shift console offers this Exile no [Repair] or [Computer] (no ranks
+# in either), so DSimpson's third way: [Destroy] it to open the dormitory
+# door (250 XP); the dormitories stay full of gas.
+say Destroy the console
+use ShiftConsole
+talk
+gone ShiftConsole    # the Exile strikes the console until it breaks: the
+to WP_GASDEATH5      # dormitory door opens; into the east dormitory
+fight 25             # the droids in the dormitory halls
+use Refresher        # the second room's refresher: the mine foreman's log
+say insert mine foreman hololog # the log terminal: the foreman's entry,
+say Much Trouble     # Sien on Coorta and the Exchange (a hololog), then
+say =Log out.        # log out
+use Mincon
+talk                 # the terminal's menu
+talk                 # Sien's hololog
+talk                 # the menu again
+# The turbolift terminal by Coorta's body. The code as the transmission
+# gave it fails; the camera log shows Coorta's end (HK-50's droids) and
+# that the code goes in reverse; entered so it opens (DSimpson).
+pick 1,2,3,17,13,5,7,4 # open the door, enter the code manually: 3, 17, 13,
+use TurboConsole     # 5, 7 (incorrect), log out
+talk
+pick 2               # the camera logs: Coorta and his crew at the door,
+use TurboConsole     # HK-50's droids
+talk
+talk
+pick 1,2,7,5,13,17,3,1,2 # the code in reverse: 7, 5, 13, 17, 3; log out
+use TurboConsole
+talk
+exit Door_To_101PER  # the turbolift up to the administration level
+save peragus_admin_again
