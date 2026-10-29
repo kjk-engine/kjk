@@ -225,6 +225,12 @@ pub(crate) enum Verb {
         #[command(subcommand)]
         verb: ScriptVerb,
     },
+    /// The co-op remote droid: its duel census (every module's scripted
+    /// rounds and whether a protection the droid's gate reads covers each)
+    Remote {
+        #[command(subcommand)]
+        verb: RemoteVerb,
+    },
     /// Launches `kjk play` headless a few times and tables where each
     /// launch's time went (its loading phases, and when it was loaded, built,
     /// spawned and warmed), for finding and watching load costs
@@ -551,6 +557,9 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 report.as_deref(),
             ),
         },
+        Verb::Remote {
+            verb: RemoteVerb::Census { game },
+        } => remote_census::census(&discover(), &game),
         Verb::LaunchReport { stage, runs } => launch_report::launch_report(&stage, runs),
         Verb::Script { verb } => match verb {
             ScriptVerb::Dis {
@@ -1340,6 +1349,18 @@ pub(crate) enum DialogueVerb {
         /// children's part)
         #[arg(long, hide = true)]
         report: Option<std::path::PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum RemoteVerb {
+    /// Every module's own scripts read for a scripted round (a creature
+    /// turned hostile, the fight ended by script), and whether the module
+    /// protects its fighter as the droid's gate reads it (Min1HP, plot);
+    /// the rest listed [verify]
+    Census {
+        /// k1 or tsl
+        game: String,
     },
 }
 
