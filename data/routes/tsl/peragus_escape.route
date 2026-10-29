@@ -68,6 +68,8 @@ save peragus_escaped
 # Kreia, sent to the port room (DSimpson's light side answer about Atton
 # at her end), then back to Atton (his LSP), then the galaxy map, open once
 # Kreia has been heard:
+say When you lost your hand # on her hand, the one way that loses her no
+say If I felt the loss of your hand # influence (DSimpson: pity is -INF)
 say The fool has a name
 use kreia            # in the crew quarters: 003kreia
 talk

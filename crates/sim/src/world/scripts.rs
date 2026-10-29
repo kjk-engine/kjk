@@ -1217,6 +1217,7 @@ pub(super) fn scripts(
             raise(&view, state, id, Hook::Death, None);
             let xp = kill_xp(&view, library, state, id);
             state.reward(xp, &mut scripts.notices);
+            script::xp::tell_pc_level(library, &view, state);
             if xp > 0 {
                 progressed.0.kills.push(crate::snapshot::Kill {
                     dead: id.0,

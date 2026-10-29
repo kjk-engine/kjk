@@ -164,6 +164,11 @@ pub(crate) enum Verb {
         /// (default kjk-artifacts/checkpoints/GAME)
         #[arg(long)]
         save_to: Option<std::path::PathBuf>,
+        /// A build file (`playthrough::build`): the character a new game
+        /// makes through character creation, and the plan its level-ups
+        /// follow
+        #[arg(long)]
+        build: Option<std::path::PathBuf>,
     },
     /// A game's routes (`data/routes/<game>/`) played through as the chain
     /// they make, each from the checkpoint its header names, the branches
@@ -410,7 +415,15 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             skills,
             blocks,
             save_to,
+            build,
         } => {
+            let build = match build.as_deref().map(std::fs::read_to_string).transpose() {
+                Ok(build) => build,
+                Err(error) => {
+                    eprintln!("--build: {error}");
+                    return ExitCode::from(2);
+                }
+            };
             // A file of goals, or the goals themselves.
             let path = std::path::Path::new(&route);
             let route = match std::fs::read_to_string(path) {
@@ -450,6 +463,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                         listen,
                         fail_fast: blocks.fail_fast(),
                         save_to,
+                        build,
                     },
                 ),
                 Err(error) => {

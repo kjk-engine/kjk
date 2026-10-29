@@ -15,12 +15,30 @@ use sim::levels::{Class, Classes, Needs, SKILLS};
 
 use crate::sheets::Tables;
 
-/// `spells.2da`'s column for a Jedi class, by its feat code.
-const POWER_COLUMNS: [(&str, &str); 3] = [
+/// `spells.2da`'s column for a Jedi class, by its feat code: the three
+/// base classes, and TSL's six prestige classes (`CSWSpell::GetSpellLevel`
+/// reads one for each).
+const POWER_COLUMNS: [(&str, &str); 9] = [
     ("jgd", "guardian"),
     ("jcn", "consular"),
     ("jsn", "sentinel"),
+    ("jwm", "weapmstr"),
+    ("jma", "jedimaster"),
+    ("jwa", "watchman"),
+    ("sma", "marauder"),
+    ("sld", "sithlord"),
+    ("sas", "assassin"),
 ];
+
+/// A class's level for a power in its `spells.2da` column: from that level
+/// (0: any), none when -1 (`CSWSCreatureStats::CanChooseSpell` refuses only
+/// the column's 0xff).
+fn power_level(table: &TwoDa, power: usize, column: &str) -> Option<u8> {
+    table
+        .int(power, column)
+        .and_then(|value| u8::try_from(value).ok())
+        .filter(|level| *level != u8::MAX)
+}
 
 /// The 2DAs' abilities (`primaryabil`, `keyability`), strength to
 /// charisma.
@@ -120,6 +138,12 @@ fn class(tables: &mut Tables, classes: &TwoDa, row: usize) -> Class {
             if let Some(level) = granted.filter(|level| *level > 0) {
                 class.granted.push((level, feat as u16));
             }
+            // TSL's creation grants a feat whose `_pc_granted` is 1
+            // (`CSWClass::IsPCGrantedFeat`, read by the creation screens'
+            // `CSWCLevelUpStats::AddGrantedFeats`).
+            if table.int(feat, &format!("{feats}_pc_granted")) == Some(1) {
+                class.pc_granted.push(feat as u16);
+            }
         }
         let list = format!("{feats}_list");
         let picked = rows.filter(|&feat| {
@@ -140,22 +164,11 @@ fn class(tables: &mut Tables, classes: &TwoDa, row: usize) -> Class {
                 .int(power, "usertype")
                 .and_then(|value| i32::try_from(value).ok())
                 == Some(1)
-                && table
-                    .int(power, column)
-                    .and_then(|value| u8::try_from(value).ok())
-                    .is_some_and(|from| from > 0)
+                && power_level(&table, power, column).is_some()
         });
         class.powers = ordered(&table, rows, "light_recom")
             .into_iter()
-            .map(|power| {
-                (
-                    table
-                        .int(power, column)
-                        .and_then(|value| value.try_into().ok())
-                        .unwrap_or(1),
-                    power as u16,
-                )
-            })
+            .filter_map(|power| Some((power_level(&table, power, column)?, power as u16)))
             .collect();
     }
     if let Some(table) = tables.table("skills") {
