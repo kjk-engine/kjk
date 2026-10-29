@@ -27,7 +27,8 @@
 #   before (15 parts, 2 spikes on the Sentinel's chain); the Exile's
 #   Repair 5 and Computer 10 make the port 2 parts, its core 1 spike and
 #   each droid's system 2 or 3 parts.
-equip g_w_lghtsbr01  # the Exile's own lightsaber in hand (003EBO_PC_Lightsaber)
+equip g_w_lghtsbr03  # the Exile's own lightsaber in hand (003EBO_PC_Lightsaber; its
+                     # template is a_give_quest_ls's pick for the Exile's level)
 use Galaxymap
 travel 7             # Onderon (planetary.2da): the blockade, 003EBO again
 say I'll man the turret. # a_to_421dxn

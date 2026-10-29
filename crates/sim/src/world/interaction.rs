@@ -270,15 +270,21 @@ pub(super) fn interact(
             if held || keyed == Some(index) {
                 continue;
             }
-            let Some(placed) = objects[at].1.facts.as_ref().map(|facts| facts.position) else {
+            let Some(facts) = objects[at].1.facts.clone() else {
                 continue;
             };
+            let placed = facts.position;
             let creature = standing.iter().find(|(id, ..)| *id == objects[at].0.0);
             if !uses::applies(&objects[at].1, verb, creature.is_some_and(|c| c.3)) {
                 continue;
             }
             let creature = creature.map(|(_, origin, ..)| scale(*origin, UNIT));
-            let target = uses::Target::new(index, creature, placed);
+            let kind = objects[at].1.kind;
+            let target = uses::Target::new(index, creature, placed).aimed(
+                kind,
+                &facts,
+                scale(user.origin, UNIT),
+            );
             let states = states.get_or_insert_with(|| {
                 level.0.states(
                     objects
@@ -286,7 +292,6 @@ pub(super) fn interact(
                         .map(|(_, object)| (object.index, &object.state)),
                 )
             });
-            let kind = objects[at].1.kind;
             if unclickable(kind, verb)
                 || fighting.is_some_and(|fighting| !fighting.0.alive())
                 || reviving.0 & party::bit(seat) != 0

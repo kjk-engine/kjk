@@ -90,9 +90,9 @@ The **kind** tags are:
 - [ ] `choice` **The yacht hub scene's G0-T0 line** (Mira's plays instead).
 - [ ] `side` **The companion talks aboard after Nar Shaddaa,** and HK-47's rebuilding.
 - [ ] `side` **Fassa's passage** for Kahranna's family and Odis.
-- [ ] `feature` **T3-M4's Security checks** pass DC 28 doors with a total of 15. Check the roll against the exe.
+- [x] `feature` **T3-M4's Security checks** pass DC 28 doors with a total of 15: right by TSL's exe. `CSWSObject::AIActionUnlockObject` takes 20 out of combat (1 + rand % 20 in it), adds `GetSkillRank`'s total (ranks, ability, feats, effects) and the spike's bonus, and opens on that sum against `GetOpenLockDC`, as kjk does (`world::locks::unlock`): 20 + 15 = 35 against 28. The feedback's "total" is the skill's, before the 20. Nothing to change (Korriban's PR).
 
-## Onderon and Dxun, the first visit (PR to come)
+## Onderon and Dxun, the first visit (PR 19)
 
 - [x] `side` **The Ebon Hawk's turret** at the blockade (421DXN, six fighters, 600 XP): the Exile mans it (dxun_landing).
 - [x] `side` **The droid carrier's computer port and the remote droids** (Repair, Computer): the port repaired, its core [Computer]ed, the three droids reactivated, the first's weaponry, targeting and shields, the second's weaponry (dxun_landing).
@@ -122,7 +122,27 @@ The **kind** tags are:
 - [ ] `side` **Margar's, Gegorran's and 1B-8D's stores, the news holograms.**
 - [x] `side` **Mandalore's back room** on the return: its lock [Security]ed, its boxes and bag searched (dxun_return).
 - [x] `side` **The camp's boxes and bags** (dxun_circle).
-- [ ] `feature` **The harness's chase takes up a gun** for a foe it cannot reach and keeps it: the routes put the Exile's lightsaber back in hand (`equip g_w_lghtsbr01`).
+- [ ] `feature` **The harness's chase takes up a gun** for a foe it cannot reach and keeps it: the routes put the Exile's lightsaber back in hand (`equip g_w_lghtsbr03`).
+
+## Korriban (PR to come)
+
+- [x] `side` **Kreia's histories** at the four tombs and the excavation, the corpses' warning and the skeletal corpses searched (their Hssiss fought); Ajunta Pall's [Awareness] reply, "No one is beneath redemption" (LSP, +INF) (korriban_valley).
+- [x] `side` **The landing talk's questions** to Kreia, and the party's banter at the cave and the Academy (korriban_valley).
+- [x] `side` **The Academy in full** (korriban_academy): the west hall's datapads, every footlocker [Security]ed, the library opened from the student terminal, its terminal restored by [Computer], the Thorium datapad, the military locker [Security]ed for the Thorium Charges, Uthar's room blown open with them (his holocron broken by the blast, as its bark says), the difficult door and the south passage [Security]ed, every assassin ambush fought.
+- [x] `side` **Sion asked everything** (how he knows Kreia, what she wants with the Exile, what he wants with her) before the fight (korriban_sion).
+- [x] `side` **The secret tomb in full** (korriban_secret_tomb): the side rooms of the first and second visions, the dead Jedi's datapads, Ludo Kressh's armband and sword, the crypt rooms.
+- [ ] `skill` **The student ID by [Computer]** (termquiz's "[Computer] Bypass login", termtrn's "[Computer]" ID): the recruits' datapad's ID is taken instead (DSimpson's way, the same XP).
+- [ ] `skill` **The minefield disarmed**: the Exile has no Demolitions (skills.2da: not used untrained), so the vision's mines are sprung by walking over them; "[Demolitions] Let me go first this time" is not offered.
+- [ ] `choice` **The dark ways**: Vash's body scorned (DSP), Sion's "don't let me stand in your way", the visions' dark replies (Malak followed, the troops ordered to charge, Kreia attacked), Kreia's counsel spurned (-INF).
+- [ ] `choice` **The third vision's other answers**: stand back and watch, or side with the companions; the Exile protects Kreia (LSP).
+- [ ] `feature` **The party screen away from the Hawk**: out of the tomb the Exile walks back aboard alone and takes Atton and Bao-Dur up at the ramp for the Academy (korriban_secret_tomb, korriban_academy); DSimpson opens the party screen in the cave. The harness has no goal to open it away from the Hawk (see Dantooine).
+- [x] `feature` **TSL's kill XP**: xptable.2da heads its ratings `0`, `1`, … where K1's are `c0`, `c1`, …, so no TSL death gave XP and the chain's Exile came to Korriban at level 9, short of the secret tomb's gate (G_PC_LEVEL over 9). `CSWSCreature::CalculateDeathExperience` reads the column after `level` by the rating; probe `xp_kills_tsl_heading`. The Exile now lands on Korriban at level 14, so the routes take DSimpson's order (the cave and the tomb before the Academy).
+- [x] `side` **The earlier routes with the Exile's new levels**: the random lightsaber `a_give_quest_ls` makes for the Exile's level is now `g_w_lghtsbr03` (the Dxun and Onderon routes equip it); the Enclave's stuck door and the Jekk'Jekk Tarr's sparring-room door are struck with a vibroblade taken up (`equip w_melee_05`), the hands holding none; Dxun's hall fight may now chase down the lower camp's assassins too, so its walk there is played only while still in camp (dxun_departure).
+- [x] `feature` **The 107PER turret is played**: the playthrough's turret bot shoots the area's troopers when the course has no fighters (TSL's 107PER, whose bolts meet the area), as a player does; it had waited for all 25 to board, and one stuck by a crate never did.
+- [ ] `feature` **TSL's kill XP, the rest of `CalculateDeathExperience`**: its row is the level the PC's XP reaches (kjk: the sheet's level), a creature with an autobalance row rates as its level plus `autobalance.2da`'s `crmod`, and the sum is scaled by `npc.2da`'s `GAME_XP_General` (100). Not done [verify in the exe].
+- [x] `feature` **A placeable used from its action point**: TSL's `CSWSCreature::GetIsInUseRange` looks from the user to the placeable's nearest action point (`CSWSPlaceable::GetNearestActionPoint`, its walkmesh's use positions), 1.5 m up; kjk looked at its middle, so Lonna Vash's body could not be searched through the force cage round her. Probe `use_from_action_point` [verify in K1's exe].
+- [x] `feature` **Local numbers are bytes, as both executables keep them** (the owner's ruling on PR 19): K1's var table has 8 numbers, TSL's 32 (`CSWVarTable::Get/SetLocalNumber`), each an unsigned byte. `ExecuteCommandSetLocalNumber` keeps only -128 to 127 (stored as its byte, so -1 reads back 255) and ignores anything else; a slot past the last keeps nothing and reads 0. kjk kept the whole int in any slot. The save is unchanged: a wider number from an older save reads as its byte. Probes `local_numbers_k1`, `local_numbers_tsl`. Not changed: the booleans' slots (K1 96, TSL 160 in the exes), which kjk does not bound.
+- [x] `feature` **A room mesh that blends additively is not met** (TXI `blending additive`): the secret tomb's cloud of light over the minefield (`korfx_clouds`) had stood the Exile off every mine. Probe `additive_texture_not_met`.
 
 ## Later milestones
 
@@ -132,7 +152,7 @@ milestone's PR moves them here.
 ## Whole-game items
 
 - [x] `feature` **The chain plays a created Jedi Exile** (`exile.build`, chain.flags): TSL's creation of a light-side Sentinel, levelled by the build's plan; the masters teach their forms (Vrook, Zez-Kai Ell).
-- [ ] `feature` **Prestige classes** are not reached: Kreia offers one (`c_pc_prestige`, `a_pc_jedi`'s `AddMultiClass`) from level 15, and the chain's Exile is level 7 leaving Nar Shaddaa. The engine side is there (the class taken up unlevelled with the next level's XP, its powers from its own `spells.2da` column); a route for it waits for the later planets.
+- [ ] `feature` **Prestige classes** are not reached: Kreia offers one (`c_pc_prestige`, `a_pc_jedi`'s `AddMultiClass`) from level 15; with kill XP the chain's Exile reaches 15 on Korriban, and the offer is not taken yet. The engine side is there (the class taken up unlevelled with the next level's XP, its powers from its own `spells.2da` column); a route for it waits for the later planets.
 - [ ] `choice` **Kreia's influence at Azkul's offer:** "I cannot allow your plans to succeed" (dantooine_vrook) costs Kreia 8; the other light-side way through his job offer is not checked.
 - [ ] `feature` **Unspent skill points:** TSL's level-up keeps them for later; kjk's spends them (the build's plan puts what is left in the class's order).
 - [ ] `choice` **The dark side playthrough,** start to end.

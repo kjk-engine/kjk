@@ -12,7 +12,7 @@ fate), a male Exile (the Handmaiden's scenes on Telos).
 
 Dxun's tombs fall here: in DSimpson's order the first Onderon/Dxun visit
 ends with Mandalore joining, Korriban follows, and Kelborn's message
-(t3kelbrn, played at the end of korriban_sion) calls the Exile back to
+(t3kelbrn, played at the end of korriban_secret_tomb) calls the Exile back to
 Dxun for the split.
 
 ## Routes and checkpoints

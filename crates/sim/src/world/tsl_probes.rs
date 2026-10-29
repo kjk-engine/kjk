@@ -143,6 +143,10 @@ void SetNPCSelectability(int nNPC, int nSelectability);
 void SetLocalBoolean(object oObject, int nIndex, int nValue);
 // 34
 int GetLocalBoolean(object oObject, int nIndex);
+// 35
+void SetLocalNumber(object oObject, int nIdx, int nValue);
+// 36
+int GetLocalNumber(object oObject, int nIdx);
 int OBJECT_TYPE_CREATURE = 1;
 "#;
 
@@ -281,6 +285,18 @@ fn library() -> crate::script::Library {
         token(&mut nothing, n, &[int(50), owner, call(34, 2)]);
     }
     nothing.op(Op::Retn);
+    // The player's local numbers set and read back (tokens 100 to 105, the
+    // cases of `LOCAL_NUMBERS`).
+    let mut numbers = Asm::default();
+    for (n, (index, value)) in (100..).zip(LOCAL_NUMBERS) {
+        numbers
+            .op(int(value))
+            .op(int(index))
+            .op(call(13, 0))
+            .op(call(35, 3));
+        token(&mut numbers, n, &[int(index), call(13, 0), call(36, 2)]);
+    }
+    numbers.op(Op::Retn);
     crate::probe::library(
         CATALOG,
         [
@@ -305,6 +321,7 @@ fn library() -> crate::script::Library {
             ("probe_atton_beside", atton_beside.build()),
             ("probe_in_area", in_area.build()),
             ("probe_locals_of_nothing", nothing.build()),
+            ("probe_local_numbers", numbers.build()),
             ("probe_selectability", selectability()),
         ],
     )
@@ -612,6 +629,16 @@ pub fn probes() -> Checks {
     checks.push(("party_screen_accepted", party_screen_accepted()));
     checks.push(("area_iteration_skips_the_dead", area_skips_the_dead()));
     checks.push(("locals_of_nothing", locals_of_nothing()));
+    for (name, game, wanted) in [
+        ("local_numbers_k1", "k1", ["255", "0", "127", "5", "0", "0"]),
+        (
+            "local_numbers_tsl",
+            "tsl",
+            ["255", "0", "127", "5", "5", "0"],
+        ),
+    ] {
+        checks.push((name, local_numbers(game, wanted)));
+    }
     checks
 }
 
@@ -623,6 +650,28 @@ pub fn probes() -> Checks {
 /// `GetLocal...` reads 0 when `GetGameObject` finds no object (403DXN's
 /// `tr_circle`, the battle circle's sergeant gone, read 1 there and took
 /// 50 XP from the party); the player's own local still holds.
+/// The local numbers set (index, value) by `probe_local_numbers`: -1, 200
+/// (out of a byte's signed range), 127, the last of K1's eight slots, the
+/// first past them, and one past TSL's 32.
+const LOCAL_NUMBERS: [(i32, i32); 6] = [(0, -1), (1, 200), (2, 127), (7, 5), (8, 5), (32, 5)];
+
+/// Each game's local numbers as its executable keeps them
+/// (`script::engine::local_number`): a byte read back unsigned (-1 reads
+/// 255), a number outside -128 to 127 not kept, K1's eight slots and TSL's
+/// 32, nothing past them.
+fn local_numbers(game: &str, wanted: [&str; 6]) -> Result<String, String> {
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.game = game.into();
+    let level = ground.with_module(data).with_scripts(library());
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    step(&mut world);
+    run(&mut world, "probe_local_numbers");
+    let read = tokens(&step(&mut world), 100..=105);
+    check(read == wanted, format!("{game}: {read:?}"))
+}
+
 fn locals_of_nothing() -> Result<String, String> {
     let (mut world, _) = world()?;
     step(&mut world);

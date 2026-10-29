@@ -8,12 +8,29 @@
 //!   ahead, round the buoys in the way (a TSL race's mines too, jumped when
 //!   close).
 //! - The turret: the view turned to the nearest fighter, ahead of it by the
-//!   bolts' flight, fire held while the aim is on it.
+//!   bolts' flight, fire held while the aim is on it; in a turret with no
+//!   fighters, whose bolts meet the area (TSL's 107PER: the Sith troopers
+//!   running at the Ebon Hawk), the nearest foe there, as a player shoots
+//!   them.
 
 use bevy::math::{Quat, Vec3};
 use collision::trig;
 use sim::minigame::{Course, Rules};
 use sim::{Command, buttons};
+
+/// Where `snapshot`'s living creatures not of the party stand (metres,
+/// their bodies' origins, as the course's places are): what a turret's
+/// bolts meet in an area (`sim::world::minigame`'s `area_bodies`), so a
+/// turret with no fighters shoots at them (`turret`).
+pub fn area_foes(snapshot: &sim::Snapshot) -> Vec<[f32; 3]> {
+    snapshot
+        .entities
+        .iter()
+        .filter(|e| e.player.is_some() && e.fighter.is_some_and(|f| f.alive()))
+        .filter(|e| !sim::party_member(e))
+        .map(|e| e.position)
+        .collect()
+}
 
 /// How long a driver's key is pressed, then let go (ms): fire in a race,
 /// use and a medpac in a playthrough.
@@ -48,13 +65,15 @@ pub const GEAR: &str = "MIN_RACE_GEAR";
 /// filming them, and the playthrough's goals); `None` for another name or
 /// out of a minigame. A race keeps the script's gear (`GEAR`: the run's
 /// own in a co-op race, else `real`); the turret turns the view, a race
-/// keeps the view it had.
+/// keeps the view it had. `foes`: where the area's foes stand (metres), for
+/// a turret with no fighters (`turret`).
 pub fn drive(
     name: &str,
     command: Command,
     (rules, course): (Option<&Rules>, Option<&Course>),
     real: Option<i32>,
     now_ms: u64,
+    foes: &[[f32; 3]],
 ) -> Option<Command> {
     let (rules, course) = (rules?, course?);
     let gear = sim::script::global(&course.overlay.numbers, GEAR)
@@ -66,7 +85,7 @@ pub fn drive(
             angles: command.angles,
             ..race(rules, course, gear, now_ms)
         }),
-        "turrets" => Some(turret(rules, course)),
+        "turrets" => Some(turret(rules, course, foes)),
         _ => None,
     }
 }
@@ -202,8 +221,9 @@ fn unrotate([x, y, z, w]: [f32; 4], v: [f32; 3]) -> [f32; 3] {
 }
 
 /// The turret's command: the view's angles turned to the nearest fighter,
-/// fire held while the aim is on it.
-pub fn turret(rules: &Rules, course: &Course) -> Command {
+/// fire held while the aim is on it; with no fighters in the course, the
+/// nearest of `foes` (metres) instead.
+pub fn turret(rules: &Rules, course: &Course, foes: &[[f32; 3]]) -> Command {
     let mut command = Command::default();
     // Bolts leave the muzzles along the barrels, which are tilted from the
     // view: aim them, not the view, at the fighter.
@@ -241,10 +261,16 @@ pub fn turret(rules: &Rules, course: &Course) -> Command {
         }
         there
     };
+    let nearest = |a: &[f32; 3], b: &[f32; 3]| length(toward(*a)).total_cmp(&length(toward(*b)));
     let target = (1..rules.followers())
         .filter(|&n| course.movers[n].alive)
         .map(lead)
-        .min_by(|a, b| length(toward(*a)).total_cmp(&length(toward(*b))));
+        .min_by(nearest)
+        .or_else(|| {
+            (rules.followers() <= 1)
+                .then(|| foes.iter().copied().min_by(nearest))
+                .flatten()
+        });
     let want = match target {
         Some(there) => {
             let d = toward(there);

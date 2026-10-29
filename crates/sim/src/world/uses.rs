@@ -30,6 +30,9 @@ pub fn reach(kind: ObjectKind, verb: Verb) -> f32 {
 /// door's or a container's middle.
 pub const MIDDLE_M: f32 = rules::interaction::using::MIDDLE_M;
 
+/// How far above a placeable's action point its line of sight ends.
+pub const ACTION_SIGHT_M: f32 = rules::interaction::using::ACTION_SIGHT_M;
+
 /// How far above or below a player (metres) what it uses may stand.
 pub const HEIGHT_REACH_M: f32 = rules::interaction::using::HEIGHT_REACH_M;
 
@@ -42,6 +45,20 @@ pub(super) struct Target {
 }
 
 impl Target {
+    /// This target as a use from `from` (metres) sees it: a placeable with
+    /// action points (`ObjectData::use_points`) at the nearest of them,
+    /// `ACTION_SIGHT_M` up, as TSL's `CSWSCreature::GetIsInUseRange` looks
+    /// (Korriban's Lonna Vash, searched from beside the force cage round
+    /// her body); anything else at its middle.
+    pub fn aimed(mut self, kind: ObjectKind, facts: &ObjectData, from: [f32; 3]) -> Target {
+        if kind == ObjectKind::Placeable
+            && let Some(point) = facts.nearest_use_point(from)
+        {
+            self.middle = [point[0], point[1], point[2] + ACTION_SIGHT_M];
+        }
+        self
+    }
+
     /// A creature at its body's origin (metres), aimed at its eyes (over
     /// a counter it stands behind); anything else where it was placed,
     /// aimed at its middle.

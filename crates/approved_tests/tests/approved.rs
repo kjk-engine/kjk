@@ -123,7 +123,7 @@ fn collision_probes() {
 /// 2026-10-28).
 #[test]
 fn surface_probes() {
-    probed("surfaces", &collision_odyssey::probes::probes(), 8);
+    probed("surfaces", &collision_odyssey::probes::probes(), 9);
 }
 
 fn near(what: &str, measured: f32, expected: f32, tolerance: f32) {
@@ -902,7 +902,7 @@ fn ui_loot() {
 /// arrival). The sim alone, on the proving ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 20);
+    probed("tsl", &sim::tsl_probes::probes(), 22);
 }
 
 /// The dead's remains (KOTOR's body bags; `sim::remains::probes`), owner
@@ -949,7 +949,7 @@ fn destroy_fades() {
 /// scripts see who did it; two runs end the same. The sim alone.
 #[test]
 fn use_actions() {
-    probed("use", &sim::uses::probes(), 37);
+    probed("use", &sim::uses::probes(), 38);
 }
 
 /// Bashing (`docs/COMBAT.md`): on the proving ground
@@ -1371,6 +1371,13 @@ fn switch_player_character() {
 fn encounters_count_drivers() {
     probed("scaling", &sim::scaling::probes(), 12);
     probed("encounter count", &session::encounters::probes(), 3);
+}
+
+/// A death's XP read from either game's `xptable.2da` heading
+/// (`session::journal::probes`); no install.
+#[test]
+fn kill_xp_tables() {
+    probed("kill xp tables", &session::journal::probes(), 2);
 }
 
 /// Minigames in co-op (`docs/MINIGAMES.md`):

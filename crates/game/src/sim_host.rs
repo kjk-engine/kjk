@@ -1706,6 +1706,7 @@ fn advance(
                             )
                             .copied(),
                             start_ms,
+                            &crate::minigame_bot::area_foes(&authority.last),
                         )
                         .unwrap_or_else(|| aimed(command, &authority.last, level, tag));
                         #[cfg(not(feature = "probes"))]

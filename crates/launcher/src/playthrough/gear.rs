@@ -91,7 +91,8 @@ pub(super) fn goods(world: &sim::SimWorld, snapshot: &Snapshot) -> serde_json::V
 }
 
 /// The first seat's own character as its levels made it: its career
-/// (class, levels), level, scores, skill ranks, feats and powers (by row).
+/// (class, levels), level, experience, scores, skill ranks, feats and
+/// powers (by row).
 fn player(world: &sim::SimWorld, snapshot: &Snapshot) -> serde_json::Value {
     use sim::combat::sheet::Rows;
     let Some((id, sheet)) = snapshot.own(Seat(0)).and_then(|own| Some((own.id, own.sheet?))) else {
@@ -102,6 +103,7 @@ fn player(world: &sim::SimWorld, snapshot: &Snapshot) -> serde_json::Value {
     json!({
         "career": world.script_state().careers.get(&id.0),
         "level": sheet.level,
+        "xp": world.script_state().xp(sim::inventory::PARTY),
         "abilities": sheet.abilities,
         "skills": sheet.skills,
         "feats": feats,

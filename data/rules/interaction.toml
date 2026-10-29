@@ -37,7 +37,7 @@ type = "u8"
 value = 20
 range = [1, 100]
 summary = "Out of combat, a skill check counts as a roll of {interaction.checks.taken:bare}."
-source = "K1's executable"
+source = "K1's executable; TSL's (CSWSObject::AIActionUnlockObject: 20 out of combat, 1 + rand % 20 in it, plus GetSkillRank's total and the spike's bonus, against GetOpenLockDC)"
 see = "sim::traps::sum"
 applies = ["skill:Security", "skill:Demolitions"]
 
@@ -141,6 +141,17 @@ summary = "A door or container must be in view at {interaction.using.middle_m:ba
 source = "ours"
 see = "sim::world::uses::Target::new"
 applies = ["kind:door", "kind:container"]
+
+[using.action_sight_m]
+name = "Action Point Height"
+type = "f32"
+value = 1.5
+unit = "m"
+range = [0.0, 3.0]
+summary = "A placeable with action points must be in view at the nearest of them, {interaction.using.action_sight_m:bare} meters up, to be used: a cage or rail round it does not stop a character standing at its side."
+source = "TSL's executable (CSWSCreature::GetIsInUseRange: the line of sight to CSWSPlaceable::GetNearestActionPoint, 1.5 up at both ends) [verify in K1's]"
+see = "sim::world::uses::Target::aimed"
+applies = ["kind:container"]
 
 [using.height_reach_m]
 name = "Use Height"

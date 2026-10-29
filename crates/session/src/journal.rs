@@ -77,10 +77,18 @@ pub(crate) fn experience(source: &dyn Source) -> Experience {
             .collect();
     }
     if let Some(kills) = tables.table("xptable") {
-        let ratings: Vec<String> = (0..)
-            .map(|rating| format!("c{rating}"))
-            .take_while(|column| kills.column(column).is_some())
-            .collect();
+        // K1 heads its challenge ratings `c0`, `c1`, …; TSL `0`, `1`, … (its
+        // `CSWSCreature::CalculateDeathExperience` reads the column after
+        // `level` by the rating's number).
+        let named = |prefix: &str| -> Vec<String> {
+            (0..)
+                .map(|rating| format!("{prefix}{rating}"))
+                .take_while(|column| kills.column(column).is_some())
+                .collect()
+        };
+        let ratings = Some(named("c"))
+            .filter(|columns| !columns.is_empty())
+            .unwrap_or_else(|| named(""));
         experience.kills = (0..kills.row_labels.len())
             .map(|row| {
                 let worth = |column: &String| {
@@ -94,4 +102,38 @@ pub(crate) fn experience(source: &dyn Source) -> Experience {
             .collect();
     }
     experience
+}
+
+/// The kills' table read from either game's heading (`experience`): K1's
+/// `c0`, `c1`, … and TSL's `0`, `1`, …, each a death's XP by the party's
+/// level and the challenge rating. TSL's had read as no ratings at all, so
+/// no death there gave XP (the chain's Exile came to Korriban two levels
+/// short of the secret tomb's gate). No install.
+pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
+    use asset_odyssey::made::Files;
+    use fmt_odyssey::twoda::TwoDa;
+    let read = |prefix: &str| {
+        let table = TwoDa {
+            columns: ["level", &format!("{prefix}0"), &format!("{prefix}1")]
+                .map(|name| name.as_bytes().to_vec())
+                .to_vec(),
+            row_labels: vec![b"0".to_vec(), b"1".to_vec()],
+            cells: [["1", "100", "125"], ["2", "75", "100"]]
+                .map(|row| row.map(|cell| cell.as_bytes().to_vec()).to_vec())
+                .to_vec(),
+            column_separator: b'\t',
+            row_separator: b'\t',
+        };
+        let files = Files([("xptable.2da".to_string(), table.write())].into());
+        experience(&files).kills
+    };
+    let wanted = vec![vec![100, 125], vec![75, 100]];
+    [("xp_kills_k1_heading", "c"), ("xp_kills_tsl_heading", "")]
+        .into_iter()
+        .map(|(name, prefix)| {
+            let kills = read(prefix);
+            let what = format!("{kills:?}");
+            (name, if kills == wanted { Ok(what) } else { Err(what) })
+        })
+        .collect()
 }

@@ -283,6 +283,7 @@ pub(crate) fn proving_ground_named(name: &str) -> Level {
         yaw: TURN_DEGREES,
         link: None,
         geometry: Vec::new(),
+        use_points: Vec::new(),
         opens: Opens::Never,
         state: 0,
         ways: crate::module::Ways::One,
