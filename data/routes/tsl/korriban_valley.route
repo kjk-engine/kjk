@@ -1,0 +1,78 @@
+# Korriban, the landing and the Valley of Dark Lords (TSL, 003EBO, 701KOR,
+# to 710KOR): the galaxy map to Korriban, the landing talk aboard (Kreia
+# asked what happened here and whether Sith live on it; she will not walk
+# Korriban's surface and keeps the engines primed, no -INF), ashore with
+# Atton and Bao-Dur (Kreia cannot be picked: 701KOR's OnEnter takes her
+# selectability away), the intro walk off the ramp with Kreia's voice over
+# the plundered tombs; down the valley, Kreia's history at each tomb and
+# the excavation, her warning on the corpses, the skeletal corpses searched
+# and their Hssiss fought; the party's banter at the shyrack cave's mouth,
+# Kreia's word that the Exile is strong enough, the two shyracks that come
+# out, and into the cave.
+# Starts from Onderon's first visit, the Ebon Hawk at Dxun:
+#   kjk playthrough tsl @onderon_first_done data/routes/tsl/korriban_valley.route --god
+# Walkthrough: DSimpson's "Korriban" and "Valley of the Dark Lords"
+# (context/walkthroughs/tsl/): DSimpson's order, the cave and the secret
+# tomb before the Academy (the tomb asks a level over 9, sec_tomb's
+# c_global_gt G_PC_LEVEL 9; the chain's Exile lands at 14).
+#
+# ASSUMES:
+# - Atton (NPC 0) and Bao-Dur (NPC 1) are in the party table and selectable,
+#   Korriban open on the galaxy map (planetary.2da row 3).
+# - The party waits together before each banter trigger (`gather`): the
+#   companions' lines ask them within 10 m (c_con_*pm).
+use Galaxymap
+travel 3             # Korriban (planetary.2da)
+say What happened here? # kor_int: the landing talk, Kreia asked about Korriban
+say Do you think there are any living Sith here?
+say Let's head out, then.
+say Why won't you come with me?
+say Korriban doesn't look that bad. I'm not afraid.
+say Very well. Stay here and keep the engines primed # (not "Fine. I didn't want your company anyway", -INF)
+talk
+party 0,1            # Atton and Bao-Dur (Kreia is unselectable on Korriban)
+to tr_leave          # the ramp: the party screen, accepted
+module 701kor
+talk                 # tr_intro: Kreia's voice as the party walks off the ramp (kreia_kr)
+# Kreia's histories at the tombs (tr_hist_*, kreia_kr starts 1-5: "Tell me
+# more." and the questions after, never "Enough with the history. Be
+# silent.", -INF), her word on the corpses (corpse_warn, start 6) and the
+# skeletal corpses searched (corpse_tr_hss*: each calls two cloaked Hssiss,
+# kreia_kr start 7 the first time: "What are these guardians?", not "These
+# creatures shouldn't be much challenge.", -INF). The first reply each
+# time is the one taken.
+to tr_hist_sadow     # Naga Sadow's tomb
+talk
+to tr_hist_hord      # Tulak Hord's
+talk
+to corpse_warn@1     # Kreia on the corpses (start 6), heard before one is searched
+talk
+use corpse_tr_hssiss
+talk
+fight 20
+use corpse_tr_hss001
+fight 20
+use corpse_tr_hss002
+fight 20
+use corpse_tr_hss003
+fight 20
+to tr_hist_pall      # Ajunta Pall's: "[Awareness] You sound like you disapprove.",
+talk                 # "No one is beneath redemption, Kreia. No one." (LSP, +INF)
+to tr_hist_ragnos    # Marka Ragnos's
+talk
+use corpse_tr_hss004
+fight 20
+to tr_hist_excav     # the excavation
+talk
+use corpse_tr_hss005
+fight 20
+use corpse_tr_hss006
+fight 20
+to 74,72             # short of the cave's mouth: the party together for its banter
+gather
+to tr_cave_banter    # the party at the cave's mouth, Kreia's advice (kreia_cv)
+talk
+fight 20             # the two shyracks her scene spawns (tr_shyrak, sp_g_shyrack)
+exit To_710          # the Shyrack Cave
+module 710kor
+save korriban_cave

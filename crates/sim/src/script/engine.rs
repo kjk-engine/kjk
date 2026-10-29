@@ -1752,28 +1752,47 @@ impl Engine<'_> {
             {
                 Value::Int(0)
             }
-            GetLocalBoolean | GetLocalNumber => {
-                let kind = u8::from(bound == GetLocalNumber);
+            GetLocalBoolean => {
                 let key = (
                     local_owner(&self.view.module.name, object(args, 0)),
-                    kind,
+                    0,
                     int(args, 1),
                 );
                 Value::Int(state.locals.get(&key).copied().unwrap_or(0))
             }
-            SetLocalBoolean | SetLocalNumber => {
-                let kind = u8::from(bound == SetLocalNumber);
+            // A local number is a byte in one of the game's slots
+            // (`local_number`): read back unsigned, set only from -128 to
+            // 127, nothing kept past the last slot.
+            GetLocalNumber => {
                 let key = (
                     local_owner(&self.view.module.name, object(args, 0)),
-                    kind,
+                    1,
                     int(args, 1),
                 );
-                let value = if kind == 0 {
-                    i32::from(int(args, 2) != 0)
-                } else {
-                    int(args, 2)
-                };
-                state.locals.insert(key, value);
+                let kept = state.locals.get(&key).copied().unwrap_or(0);
+                Value::Int(local_number(&view.module.game, int(args, 1), kept).unwrap_or(0))
+            }
+            SetLocalNumber => {
+                let key = (
+                    local_owner(&self.view.module.name, object(args, 0)),
+                    1,
+                    int(args, 1),
+                );
+                let value = int(args, 2);
+                if (-128..=127).contains(&value)
+                    && let Some(byte) = local_number(&self.view.module.game, int(args, 1), value)
+                {
+                    state.locals.insert(key, byte);
+                }
+                Value::Int(0)
+            }
+            SetLocalBoolean => {
+                let key = (
+                    local_owner(&self.view.module.name, object(args, 0)),
+                    0,
+                    int(args, 1),
+                );
+                state.locals.insert(key, i32::from(int(args, 2) != 0));
                 Value::Int(0)
             }
             // No tag is the player's (its creature has none): reone's
@@ -5816,6 +5835,20 @@ impl Host for Engine<'_> {
         self.report.keep(super::Traced::Call(Box::new(call)));
         Ok(value)
     }
+}
+
+/// Local number `index` of `game` holding `value`, as the games' var tables
+/// keep one: a byte, read back unsigned (-1 reads 255; a save from before
+/// keeps a wider number, read as its byte too); `None` past the last slot
+/// (K1 keeps `rules::scripts::locals::K1_NUMBERS`, TSL `TSL_NUMBERS`), where
+/// nothing is kept and 0 is read.
+pub(crate) fn local_number(game: &str, index: i32, value: i32) -> Option<i32> {
+    let slots = if game == TSL {
+        rules::scripts::locals::TSL_NUMBERS
+    } else {
+        rules::scripts::locals::K1_NUMBERS
+    };
+    (0..slots).contains(&index).then_some(value & 0xff)
 }
 
 /// Whose locals `id`'s are: an object's own; the module's and the

@@ -41,6 +41,8 @@ say Leave quickly before more # Jorran sent to the camp
 use jorr_door
 talk
 use sal_corpse1@2    # the first dead salvager
+equip w_melee_05      # a blade in hand to strike the door with (the hands hold
+                     # none here: fists do nothing past its hardness)
 bash Enclave_Door_Stuck@1 # the stuck door on the way round
 leader 1             # the library's security door (DC 28): Bao-Dur's
 unlock Enclave_Security_Door # Security

@@ -5,6 +5,9 @@
 //! opening to show it (`opening2`, its own or a supermodel's). K1's and
 //! TSL's door models all slide or vanish in place, both openings the same:
 //! every shipped door opens one way.
+//!
+//! And each placeable's action points (`ObjectData::use_points`): the two
+//! use positions its walkmesh (`<model>.pwk`) keeps.
 
 use std::collections::BTreeMap;
 
@@ -25,13 +28,41 @@ const SUPERMODELS: usize = 4;
 /// placements in its instances' order).
 pub(crate) fn fill(source: &dyn Source, data: &mut ModuleData, area: &AreaIr) {
     let mut known: BTreeMap<&str, Ways> = BTreeMap::new();
+    let mut points: BTreeMap<&str, Vec<[f32; 3]>> = BTreeMap::new();
     for (placement, instance) in data.placements.iter_mut().zip(&area.instances) {
-        let (Placement::Own(facts), Kind::Door, Some(model)) =
-            (placement, instance.kind, &instance.model)
-        else {
+        let (Placement::Own(facts), Some(model)) = (placement, &instance.model) else {
             continue;
         };
-        facts.ways = *known.entry(model).or_insert_with(|| ways(source, model));
+        match instance.kind {
+            Kind::Door => facts.ways = *known.entry(model).or_insert_with(|| ways(source, model)),
+            Kind::Placeable => {
+                facts.use_points = points
+                    .entry(model)
+                    .or_insert_with(|| use_points(source, model))
+                    .clone();
+            }
+            _ => {}
+        }
+    }
+}
+
+/// A placeable model's action points: its walkmesh's two relative use
+/// positions (the header's first two), the second only when it is not the
+/// origin, none when the first is (TSL's
+/// `CSWSPlaceable::GetNearestActionPoint` then takes the placeable's
+/// position) [verify in K1's exe].
+pub(crate) fn use_points(source: &dyn Source, model: &str) -> Vec<[f32; 3]> {
+    let Some(walkmesh) = source
+        .read(&model.to_ascii_lowercase(), ResType::PWK)
+        .and_then(|bytes| Walkmesh::parse(&bytes).ok())
+    else {
+        return Vec::new();
+    };
+    let [first, second, ..] = walkmesh.use_positions;
+    match (first == [0.0; 3], second == [0.0; 3]) {
+        (true, _) => Vec::new(),
+        (false, true) => vec![first],
+        (false, false) => vec![first, second],
     }
 }
 

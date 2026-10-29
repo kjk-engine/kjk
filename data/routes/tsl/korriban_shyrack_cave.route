@@ -7,21 +7,18 @@
 # tomb; Kreia's voice at the tomb (strong enough: the Exile goes on alone,
 # the companions sent back aboard the Ebon Hawk, RemoveNPCFromPartyToBase
 # in a_tomb) and into the tomb.
-# Starts from the cave's mouth:
+# Starts at the cave's mouth:
 #   kjk playthrough tsl @korriban_cave data/routes/tsl/korriban_shyrack_cave.route --god
 # Walkthrough: DSimpson's "Shyrack Cave" (context/walkthroughs/tsl/).
-# Left: the cave's other jars, Sith corpses and rubble off the way
-# (CeramicJar@2-8, @11-12, skullcorpse@3-5, Rubble1@*): DSimpson's loop of
-# the side passages, random loot for fights.
+# Also DSimpson's loop of the side passages: every jar and Sith corpse,
+# with the tuk'ata packs their triggers send.
 #
 # ASSUMES:
 # - The party is the Exile, Atton and Bao-Dur (korriban_valley).
-# - The Exile's alignment is 75 or more and the global G_PC_LEVEL above 9:
-#   sec_tomb's way in asks "not c_align_bet 26 74 and c_global_gt
-#   G_PC_LEVEL 9". # UNSURE: neither is known for the chain's save; short of
-#   either, Kreia's scene knocks the Exile down at the door (sec_tomb start
-#   3) and `module 711kor` blocks. G_PC_LEVEL is a script global the games'
-#   level-up scripts keep; check the engine sets it.
+# - The Exile's alignment is 75 or more and G_PC_LEVEL above 9 (the level
+#   the party's XP reaches): sec_tomb's way in asks "not c_align_bet 26 74
+#   and c_global_gt G_PC_LEVEL 9"; short of either, Kreia's scene knocks
+#   the Exile down at the door (sec_tomb start 3).
 # - The fights here are won with --god.
 use corpse_tukata    # the Half-Eaten Corpse's datapad on the cave's beasts
 fight 30
@@ -29,9 +26,23 @@ use skullcorpse@1    # the first turn: the beasts' fight, its corpses and jar
 use skullcorpse@2
 use CeramicJar@1
 fight 30
-to wp_tukata_attack@4 # down the cave (tr_tukata_attack sends the packs)
+use CeramicJar@2     # the south loop's jars and corpses
+use skullcorpse@3
+use skullcorpse@4
+use CeramicJar@3
+use CeramicJar@4
+fight 30
+to wp_tukata_attack@4 # down the cave's long chasm: its tuk'ata triggers
+fight 30             # (tr_tukata_attack) fire as the party passes, each pack
+use CeramicJar@6     # sent from a wp_tukata_attack
+use skullcorpse@5
+use CeramicJar@8
 fight 30
 to wp_tukata_attack@2
+fight 30
+use CeramicJar@7
+fight 30
+use CeramicJar@5
 fight 30
 to wp_tukata_attack@3
 fight 30
@@ -40,6 +51,8 @@ fight 30
 use skullcorpse@6    # at the bridge's end
 use CeramicJar@9     # past it
 use CeramicJar@10
+use CeramicJar@11
+use CeramicJar@12
 fight 30             # the Hssiss by the tomb
 say I will go on alone. # sec_tomb: Kreia at the sealed door (not "I'm not ready yet.")
 to tr_secret_tomb    # the companions held back, the Exile in alone (a_tomb)

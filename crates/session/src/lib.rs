@@ -20,7 +20,7 @@ mod doors;
 pub mod encounters;
 pub mod imported;
 mod items;
-mod journal;
+pub mod journal;
 mod library;
 pub mod links;
 mod minigame;
