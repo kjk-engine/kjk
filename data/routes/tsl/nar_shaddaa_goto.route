@@ -35,7 +35,9 @@ talk
 fight 30             # the floating mines
 to Door@1
 fight 30             # the droids beyond
-use g0t0droid@32     # its remains: the containment cells' codes
+to g0t0droid@32      # the droid holding the containment cells' codes
+fight 20             # (out of the first fight's reach at T3's level)
+use g0t0droid@32     # its remains: the codes
 say Program Library.
 say Upload programs.
 say Return to main menu.
