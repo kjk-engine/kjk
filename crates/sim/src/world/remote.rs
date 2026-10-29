@@ -46,6 +46,16 @@ pub(super) fn launch(world: &mut World) {
         .collect();
     let flies = |seat: &Seat| playing && spoke.contains(seat) && !bodied.contains(seat);
     let leader = leader(world);
+    let level = world.resource::<super::Static>().0.clone();
+    let states = {
+        let mut objects = world.query::<&super::Object>();
+        level.states(
+            objects
+                .iter(world)
+                .map(|object| (object.index, &object.state)),
+        )
+    };
+    let states = states.as_deref();
     let mut remotes = std::mem::take(&mut world.resource_mut::<Remotes>().0);
     remotes.retain(|remote| flies(&remote.seat));
     for seat in spoke.iter().filter(|seat| flies(seat) && !holds) {
@@ -57,8 +67,11 @@ pub(super) fn launch(world: &mut World) {
             .find(|(of, _)| of == seat)
             .map(|(_, at)| *at);
         let Some((at, yaw)) = from
-            .map(|at| (lifted(at), leader.map_or(0.0, |(_, yaw)| yaw)))
-            .or_else(|| leader.map(placed_behind))
+            .map(|at| {
+                let up = flight::cleared(&level, states, at, lifted(at));
+                (up, leader.map_or(0.0, |(_, yaw)| yaw))
+            })
+            .or_else(|| leader.map(|lead| flight::behind(&level, states, lead)))
         else {
             continue;
         };

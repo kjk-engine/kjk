@@ -18,6 +18,7 @@ pub(super) fn probes() -> Checks {
         ("snaps_when_stuck", stuck()),
         ("recall", recall()),
         ("slides_along_walls", slides()),
+        ("back_to_a_wall", backed()),
     ]
 }
 
@@ -194,5 +195,41 @@ fn slides() -> Result<String, String> {
     check(
         moved >= 1.5,
         format!("{moved:.2} m along the wall in a second pressed half into it"),
+    )
+}
+
+/// The leader's back to a wall: recalled, the droid comes back on the
+/// leader's side of it, never inside it.
+fn backed() -> Result<String, String> {
+    let (mut world, first) = flying()?;
+    let at = leader(&first)?;
+    // The wall behind seat 0 (its yaw is 0: behind is -X).
+    let level = world.level().clone();
+    let behind = [at[0] - 20.0, at[1], at[2] + 1.0];
+    let hit = level.line(None, [at[0], at[1], at[2] + 1.0], behind);
+    let wall_x = hit.end[0];
+    let units = 1.0 / collision::UNIT;
+    {
+        let mut bodies = world.world.query::<(
+            &super::super::super::Avatar,
+            &mut super::super::super::Player,
+        )>();
+        for (avatar, mut player) in bodies.iter_mut(&mut world.world) {
+            if avatar.0 == Seat(0) {
+                player.0.origin[0] = (wall_x + 0.45) * units;
+                player.0.view[1] = 0.0;
+            }
+        }
+    }
+    let back = droid(&fly(&mut world, keys(0, 0, 0, buttons::USE, 0.0)))?;
+    let after = fly(&mut world, keys(0, 0, 0, 0, 0.0));
+    let body = leader(&after)?;
+    let seen = level
+        .line(None, [body[0], body[1], body[2] + 1.0], back)
+        .fraction
+        >= 1.0;
+    check(
+        !flight::inside(&level, back) && back[0] > wall_x && seen,
+        format!("the wall at x {wall_x:.2}, the droid back at {back:?}, the leader sees it {seen}"),
     )
 }

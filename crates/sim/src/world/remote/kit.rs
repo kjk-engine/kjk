@@ -233,11 +233,23 @@ struct Scene<'a> {
 }
 
 impl Scene<'_> {
+    /// Whether nothing solid stands between `from` and `to` (m), nor
+    /// around `from`.
+    fn clear(&self, from: Vec3, to: Vec3) -> bool {
+        let line = self.level.line(self.states, from, to);
+        !line.start_solid && line.fraction >= 1.0
+    }
+
     /// How far (m) a line from `from` along `aim` goes within `range`
     /// before the level stops it.
     fn open(&self, from: Vec3, aim: Vec3, range: f32) -> f32 {
         let to = math::mad(from, range, aim);
-        self.level.line(self.states, from, to).fraction * range
+        let line = self.level.line(self.states, from, to);
+        if line.start_solid {
+            0.0
+        } else {
+            line.fraction * range
+        }
     }
 
     /// The first body of those `taking` that a line from `from` (m) along
@@ -279,7 +291,7 @@ impl Scene<'_> {
                 let nearest: Vec3 = std::array::from_fn(|i| from[i].clamp(min[i], max[i]));
                 math::dot(toward, aim) >= half
                     && math::length(math::sub(nearest, from)) <= SONIC_REACH_M
-                    && self.level.line(self.states, from, centre).fraction >= 1.0
+                    && self.clear(from, centre)
             })
             .collect()
     }
@@ -297,9 +309,7 @@ impl Scene<'_> {
             (self.bodies.iter().enumerate())
                 .filter(|(_, body)| body.party && body.needs())
                 .filter(|(_, body)| away(body) <= DART_RANGE_M)
-                .filter(|(_, body)| {
-                    self.level.line(self.states, from, body.centre()).fraction >= 1.0
-                })
+                .filter(|(_, body)| self.clear(from, body.centre()))
                 .min_by(|(_, a), (_, b)| {
                     (!a.downed, away(a))
                         .partial_cmp(&(!b.downed, away(b)))

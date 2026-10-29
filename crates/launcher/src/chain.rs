@@ -895,7 +895,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 eprintln!("{}: not cached: {error}", route.name);
             }
         }
-        if outcome.ended == Ended::Met {
+        // A chaos run's checkpoints carry its droids' seats and fights: the
+        // plain chain's kept ones and the owner's saves are not theirs.
+        if outcome.ended == Ended::Met && !options.droids {
             folder.promote(&options.game, route);
         }
         done.insert(index, outcome);
@@ -982,7 +984,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
         std::thread::sleep(Duration::from_millis(100));
     }
     folder.close(&plan, &done);
-    if options.saves || !in_worktree() {
+    if (options.saves || !in_worktree()) && !options.droids {
         report_saves(&options.game);
     }
     let count = |ended: Ended| done.values().filter(|d| d.ended == ended).count();
@@ -1093,6 +1095,28 @@ fn stories(root: &Path, names: &[&str]) -> BTreeMap<String, serde_json::Value> {
         .collect()
 }
 
+/// Whether route `name`'s run at `root` had droids flying and pressing.
+fn flew(root: &Path, name: &str) -> bool {
+    let Some(run) = std::fs::read_to_string(root.join(format!("{name}.log")))
+        .ok()
+        .and_then(|log| {
+            log.lines()
+                .rev()
+                .find_map(|line| line.strip_prefix("transcript and recording: "))
+                .map(|run| run.trim().to_string())
+        })
+    else {
+        return false;
+    };
+    let facts = std::fs::read_to_string(Path::new(&run).join("facts.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok());
+    facts.is_some_and(|facts| {
+        facts["droids"]["droid_steps"].as_u64().unwrap_or(0) > 0
+            && facts["droids"]["kit_presses"].as_u64().unwrap_or(0) > 0
+    })
+}
+
 /// The newest chain of `game` played without droids whose routes kept
 /// their stories: the run folder a chaos chain is told against.
 fn plain(game: &str, other_than: &Path) -> Option<PathBuf> {
@@ -1121,8 +1145,18 @@ fn plain(game: &str, other_than: &Path) -> Option<PathBuf> {
 }
 
 /// Whether every route's story at `root` equals the last plain chain's,
-/// module left by module left; the first difference of each said.
+/// module left by module left, and its droids flew and their kits went off
+/// (else the stories match for nothing); the first difference of each said.
 fn same_story(game: &str, root: &Path, names: &[&str]) -> bool {
+    let idle: Vec<&str> = names
+        .iter()
+        .copied()
+        .filter(|name| !flew(root, name))
+        .collect();
+    if !idle.is_empty() {
+        println!("story state: no droid flew or fired in {}", idle.join(", "));
+        return false;
+    }
     let Some(reference) = plain(game, root) else {
         println!("story state: no plain chain of {game} to tell against (run `kjk chain {game}` first)");
         return false;

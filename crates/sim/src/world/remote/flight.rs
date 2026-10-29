@@ -42,6 +42,29 @@ fn floor_with(level: &Level, states: Option<&[u8]>, at: [f32; 3]) -> Option<f32>
     (!trace.start_solid && trace.fraction < 1.0).then_some(trace.end[2])
 }
 
+/// As far from `from` toward `to` (m) as a droid's box goes before what is
+/// solid (doors as `states` has them): `from` itself if it starts inside.
+pub(crate) fn cleared(
+    level: &Level,
+    states: Option<&[u8]>,
+    from: [f32; 3],
+    to: [f32; 3],
+) -> [f32; 3] {
+    let trace = level.with(states, |world| world.trace(from, to, &BOX, Contents::SOLID));
+    if trace.start_solid { from } else { trace.end }
+}
+
+/// Behind the leader at `lead` (`placed_behind`), but on the leader's side
+/// of any wall or door there: traced from over the leader to that spot.
+pub(crate) fn behind(
+    level: &Level,
+    states: Option<&[u8]>,
+    lead: ([f32; 3], f32),
+) -> ([f32; 3], f32) {
+    let (spot, yaw) = placed_behind(lead);
+    (cleared(level, states, super::lifted(lead.0), spot), yaw)
+}
+
 /// Whether a droid's box at `at` (m) is inside the level.
 pub(crate) fn inside(level: &Level, at: [f32; 3]) -> bool {
     inside_with(level, None, at)
@@ -89,7 +112,7 @@ pub(in crate::world) fn fly(
     let holds = super::holds(&held, module.fade.as_ref());
     for remote in &mut remotes.0 {
         let back = |remote: &mut crate::remote::Remote| {
-            if let Some((at, yaw)) = leader.map(placed_behind) {
+            if let Some((at, yaw)) = leader.map(|lead| behind(level, states, lead)) {
                 remote.at = at;
                 remote.yaw = yaw;
                 remote.velocity = [0.0; 3];
