@@ -501,6 +501,7 @@ crates/sim/src/script/mod.rs SEEN  # perception kind id
 crates/sim/src/script/mod.rs TRACE_LINES  # report buffer size
 crates/sim/src/script/mod.rs TRACE_TAIL  # report buffer size
 crates/sim/src/script/mod.rs VANISHED  # perception kind id
+crates/sim/src/script/party.rs ACCEPTED  # the party selection screen's exit script var, accepted
 crates/sim/src/script/party.rs ARMOR  # a FORFEIT_* script constant's bit
 crates/sim/src/script/party.rs DXUN_SWORD_ONLY  # a FORFEIT_* script constant's bit
 crates/sim/src/script/party.rs EVENT  # the user-defined event number TSL's duel scripts listen for

@@ -1253,6 +1253,14 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // checked again from each new spot (a fight on
                                 // the way that pushed the player off it: foes
                                 // at Hrakert's airlock).
+                                // The sim's own check of the use, from where
+                                // the player stands (`SimWorld::may_use`).
+                                let verb = choice.zip(data.as_ref()).and_then(|(choice, data)| {
+                                    match sim::target::ask(choice, index, data.kind)? {
+                                        Action::Use { verb, .. } => Some(verb),
+                                        _ => None,
+                                    }
+                                });
                                 if matches!(goal, Goal::Use(_))
                                     && sighted.is_none_or(|from| flat(from, me.position) > SIGHT_MOVED_M)
                                     && !(stand_for_sight && walker.as_ref().is_some_and(|w| !w.arrived(&player)))
@@ -1260,17 +1268,23 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     && index != u32::MAX
                                     && let Some((choice, data)) = choice.zip(data.as_ref())
                                     && d <= sim::target::reach(choice, data.kind)
+                                    && let Some(verb) = verb
                                 {
                                     sighted = Some(me.position);
-                                    let eye = mind::eye(&player).map(|v| v * UNIT);
-                                    let middle = [at[0], at[1], at[2] + 1.0];
-                                    if !sim::target::in_sight(&level, here.sight(), eye, middle, index)
-                                        && let Some(stand) = sighted_stand(&here, &player, at, index)
+                                    if !world.may_use(&player, index, verb)
+                                        && let Some(stand) =
+                                            sighted_stand(&here, &player, at, &mut |body| world.may_use(body, index, verb))
                                     {
                                         walker = Some(stand);
                                         stand_for_sight = true;
                                     }
                                 }
+                                // Come to the stand short of its point (a
+                                // walk arrives within a margin) where the use
+                                // is still refused: the last step onto it.
+                                let usable = !stand_for_sight
+                                    || index == u32::MAX
+                                    || verb.is_none_or(|verb| world.may_use(&player, index, verb));
                                 let walker = walker.get_or_insert_with(|| here.approach(&player, at));
                                 // No way there (a locked door's doorway, a
                                 // body in the way) but near: straight at it.
@@ -1283,7 +1297,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         walked = true;
                                         pulse
                                     },
-                                    ..if routed || d > STRAIGHT_M {
+                                    ..if stand_for_sight && arrived && !usable {
+                                        sim::walk::toward(&player, walker.goal)
+                                    } else if routed || d > STRAIGHT_M {
                                         walker.command_round(
                                             &level,
                                             &player,
@@ -1460,7 +1476,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     // player waits, out of its way: Bastila
                                     // after Brejik's fall goes for her sword).
                                     Goal::Use(_) if busy => command = facing(&player, at),
-                                    Goal::Use(_) if !near || (stand_for_sight && !arrived) => {
+                                    Goal::Use(_) if !near || (stand_for_sight && !(arrived && usable)) => {
                                         command = walking();
                                         met = opened || spoke;
                                     }

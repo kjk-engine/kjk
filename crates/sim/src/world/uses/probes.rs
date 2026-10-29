@@ -26,7 +26,7 @@ object GetLastSpeaker();
 // 5
 object GetClickingObject();
 "#;
-const SAYS: [(&str, u16, &str); 7] = [
+const SAYS: [(&str, u16, &str); 8] = [
     ("probe_opened", 1, "opened"),
     ("probe_closed", 2, "closed"),
     ("probe_failed", 1, "failed"),
@@ -34,6 +34,7 @@ const SAYS: [(&str, u16, &str); 7] = [
     ("probe_hidden", 3, "hidden"),
     ("probe_talk", 4, "talked"),
     ("probe_click", 5, "clicked"),
+    ("probe_across", 4, "across"),
 ];
 
 fn library() -> crate::script::Library {
@@ -67,6 +68,9 @@ const HIDDEN: u32 = 6;
 /// settler, whose `OnUsed` writes the journal).
 const STRONGBOX: u32 = 7;
 const CASKET: u32 = 8;
+/// A creature behind the wall, within a talk's reach of `BY_WALL`: one
+/// across a counter (Dantooine's Administrator behind her desk).
+const ACROSS: u32 = 9;
 
 /// Where the player stands for a step, on the ground's own axes (metres
 /// from the doorway's middle; x through the door, y along the wall).
@@ -80,7 +84,7 @@ const BY_TALKER: [f32; 2] = [-2.5, 1.0];
 /// A step: where seat 0 stands, whether it is down, and its Uses.
 type Step = ([f32; 2], bool, &'static [(u32, Verb)]);
 
-const STEPS: [Step; 17] = [
+const STEPS: [Step; 18] = [
     (FAR, false, &[(GATE, Verb::Open)]),
     (NEAR, false, &[(GATE, Verb::Open)]),
     (NEAR, false, &[(GATE, Verb::Open)]),
@@ -101,6 +105,7 @@ const STEPS: [Step; 17] = [
     (NEAR, false, &[(TALKER, Verb::Talk)]),
     (NEAR, false, &[(STRONGBOX, Verb::Open)]),
     (NEAR, false, &[(CASKET, Verb::Open)]),
+    (BY_WALL, false, &[(ACROSS, Verb::Talk)]),
     (NEAR, true, &[(PANEL, Verb::Use)]),
 ];
 
@@ -204,6 +209,13 @@ fn scenario() -> Result<Ran, String> {
                     "probe_used",
                 )
             },
+            thing(
+                ObjectKind::Creature,
+                "across",
+                [1.0, 2.6],
+                "ScriptDialogue",
+                "probe_across",
+            ),
         ]
         .map(Placement::Own),
     );
@@ -452,7 +464,11 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ),
         (
             "dead_refused",
-            check(!said(16, "used"), format!("{notices:?}")),
+            check(!said(17, "used"), format!("{notices:?}")),
+        ),
+        (
+            "talk_needs_no_sight",
+            check(said(16, "across"), format!("{notices:?}")),
         ),
         ("uses_heard", {
             use super::super::UseCame::{Clicked, Opened, Refused, Used};
@@ -480,7 +496,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         (
             "target_candidates",
             check(
-                targets == [GATE, CHEST, SAFE, PANEL, HIDDEN, STRONGBOX, CASKET],
+                targets == [GATE, CHEST, SAFE, PANEL, HIDDEN, STRONGBOX, CASKET, ACROSS],
                 format!("{targets:?}"),
             ),
         ),

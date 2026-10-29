@@ -2928,9 +2928,16 @@ impl Engine<'_> {
             ),
             GetFirstObjectInArea | GetFirstInPersistentObject | GetFirstObjectInShape => {
                 let (kind, objects) = match bound {
+                    // The area's objects of the type, but the dead for good
+                    // [verify in the exe]: TSL's battle of Khoonda ends when
+                    // a mercenary's death script, counting the area's
+                    // hostile creatures, finds none (`k_battle_death`), its
+                    // own dying body among them otherwise.
                     GetFirstObjectInArea => {
                         let filter = int(args, 1);
-                        let all = view.things.iter().filter(|t| self.of_type(t, filter));
+                        let all = view.things.iter().filter(|t| {
+                            self.of_type(t, filter) && !(t.character.is_some() && t.dead_for_good())
+                        });
                         (walk::AREA, all.map(|t| t.id).collect())
                     }
                     // An encounter's: the area's objects of the type over

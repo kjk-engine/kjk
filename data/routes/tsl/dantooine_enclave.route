@@ -1,0 +1,72 @@
+# Dantooine, the Enclave courtyard and the sublevel (TSL, 605DAN, 610DAN):
+# by the east way into the courtyard, Daraala at the salvagers' camp (just
+# visiting, on to the ruins: her two dead salvagers to find), the Enclave's
+# ruin seen, Taepalae's salvagers out of the Enclave (no fight); in the
+# sublevel, the laigreks round Jorran's room fought and Jorran let out (told
+# truly they are dead, sent off to the camp: DSimpson's light way), the
+# first dead salvager, the stuck door struck open, the library's security
+# door (Bao-Dur's Security), the Disciple asked through, the dead
+# mercenaries' datapad (Azkul's orders for Vrook), the second salvager's
+# will left as it is, Gerevick's ambush at the fountain fought; at the camp
+# Jorran paid his 500 for Suulru's modulator and 1000 for his Jedi finds
+# (the emitter's and the energy cell's fixtures), and Daraala the two
+# bodies and their will for no reward (LSP). Starts from the cave's
+# checkpoint:
+#   kjk playthrough tsl @dantooine_rewards data/routes/tsl/dantooine_enclave.route --god
+# Walkthrough: DSimpson's "The Enclave Courtyard Area" and "Enclave
+# Sublevel" (context/walkthroughs/tsl/).
+# Left: Ralon's holocron (both light ways ask Awareness 4 to see it is
+# fake: a_ralo_dialogue), Nallek's fight, the protocol droids and the
+# conduits (Repair parts and spikes), the storage room's overload.
+exit To_605@1        # the courtyard's east way, by the mercenaries' camp
+module 605dan
+say I'm just visiting. # Daraala: her dead salvagers
+say Why don't you think I will find anything?
+say Surely there's something left.
+say Why won't anyone help me?
+say I'm going to the ruins.
+say I'll be going now.
+use npc_daraala
+talk
+to tr_enclave_cam    # the Enclave's ruin
+talk
+to tr_taep_conv      # Taepalae's salvagers leave the Enclave
+talk
+exit To_610
+module 610dan
+to wp_jorr_pc        # Jorran's room: its laigreks fought first
+fight 40
+say The laigreks in this area are dead.
+say Leave quickly before more # Jorran sent to the camp
+use jorr_door
+talk
+use sal_corpse1@2    # the first dead salvager
+bash Enclave_Door_Stuck@1 # the stuck door on the way round
+leader 1             # the library's security door (DC 28): Bao-Dur's
+unlock Enclave_Security_Door # Security
+leader player
+to tr_disciple       # the Disciple, asked through
+talk
+use deadmerc_cont    # the dead mercenaries' datapad: Vrook to the cave
+say Don't change the will. # the second salvager's will
+use sal_corpse1@1
+to tr_gere_talk      # Gerevick's ambush at the fountain
+talk
+fight 40
+exit To_605
+module 605dan
+say I'm here about Suulru's moisture vaporator. # Jorran at the camp
+say I don't care. Just give me the modulator.
+say Fine, here's 500 credits.
+use npc_jorran
+talk
+say How much do you want for the Jedi artifacts? # and his finds
+say Here's 1000 credits.
+use npc_jorran
+talk
+say I'd like to talk to you about the dead salvagers. # Daraala: the
+say I found their bodies. # bodies and the will, no reward asked (LSP;
+say I require no reward. # Zherron's the BLOCKER in dantooine_khoonda)
+use npc_daraala
+talk
+save dantooine_camp

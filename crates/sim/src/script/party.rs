@@ -51,6 +51,11 @@ pub struct Selection {
     pub forced: Vec<u8>,
 }
 
+/// The screen's exit script's `GetRunScriptVar` once a player accepted
+/// the party; 0 is the screen cancelled (TSL's `nAllowCancel`): the Ebon
+/// Hawk's ramp (`check_party_gui`) leaves on the one, stays on the other.
+pub const ACCEPTED: i32 = 1;
+
 /// A puppet the party table knows (TSL's `AddAvailablePUP*`): the template
 /// it is made from, its creature in this module if one, the companion it
 /// belongs to (`AssignPUP`), and whether it is in the party

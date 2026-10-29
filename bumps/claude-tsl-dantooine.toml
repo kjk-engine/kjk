@@ -1,0 +1,13 @@
+# The sim's hash moves on purpose: the party selection screen's exit
+# script runs with the run script var of a party accepted; a creature is
+# talked to within reach whatever stands between (no line of sight); the
+# area's iteration (GetFirstObjectInArea) passes over the dead. (Collision:
+# a mesh drawn translucent by its alpha is not met; that is level data, in
+# the levels' digests, not the hash.)
+sim = "Dantooine: the party selection screen's exit script told the party was accepted, a conversation begun across a counter, the area's iteration without the dead"
+
+[formats]
+save = "a script waiting to run carries its run script var (`Pending::script_var`)."
+
+[migrations]
+save = "old saves read a waiting script's run script var as 0, none set"
