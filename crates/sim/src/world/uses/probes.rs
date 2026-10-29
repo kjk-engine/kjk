@@ -516,11 +516,16 @@ void ActionUseObject(object oPlaceable);
 void ActionInteractObject(object oPlaceable);
 // 7
 object GetLastOpenedBy();
+// 8
+void ActionOpenDoor(object oDoor);
+// 9
+void ActionLockObject(object oTarget);
 "#;
 
 /// Spawn scripts that use the object tagged so (by routine), the panel's
-/// `OnUsed`, which tells the player its user's tag, and the gate's
-/// `OnOpen`, which tells its opener's.
+/// `OnUsed`, which tells the player its user's tag, the gate's `OnOpen`,
+/// which tells its opener's, and heartbeats that open and lock their own
+/// door.
 fn npc_library() -> crate::script::Library {
     use fmt_odyssey::ncs::{Const, Op};
     let uses = |routine: u16, tag: &str| {
@@ -556,6 +561,13 @@ fn npc_library() -> crate::script::Library {
         .op(Op::Retn);
         asm.build()
     };
+    let on_itself = |routine: u16| {
+        let mut asm = script_ncs::probes::Asm::default();
+        asm.op(Op::Const(Const::Object(0)))
+            .op(Op::Action { routine, args: 1 })
+            .op(Op::Retn);
+        asm.build()
+    };
     crate::probe::library(
         NPC_CATALOG,
         [
@@ -563,18 +575,35 @@ fn npc_library() -> crate::script::Library {
             ("probe_doorman", uses(6, "gate")),
             ("probe_used_by", tells(1)),
             ("probe_opened_by", tells(7)),
+            ("probe_opens_itself", on_itself(8)),
+            ("probe_locks_itself", on_itself(9)),
         ],
     )
 }
 
 /// How long the NPC probe runs at most (8 ms steps).
 const NPC_STEPS: usize = 500;
+/// How long the self-opening gate's run lasts (8 ms steps): past its
+/// first heartbeat.
+const SELF_OPEN_STEPS: usize = 1000;
 
 /// The NPC probe's run: each step's gate state, what the panel and the
 /// gate told the player and at which step, the last snapshot.
 type NpcRan = (Vec<u8>, Vec<(usize, String)>, crate::Snapshot);
 
 fn npc_scenario() -> Result<NpcRan, String> {
+    ground_scenario(&[("OnOpen", "probe_opened_by")], None, true, NPC_STEPS)
+}
+
+/// The proving ground with its gate's `scripts` (and, given, whether its
+/// lock may be locked again), the NPCs (`npcs`: the worker and the
+/// doorman) or none, run for `steps`.
+fn ground_scenario(
+    scripts: &[(&str, &str)],
+    lockable: Option<bool>,
+    npcs: bool,
+    steps: usize,
+) -> Result<NpcRan, String> {
     use crate::module::{ObjectData, Placement};
     use crate::notice::Notice;
     use crate::{StepReason, TickInput, WorldConfig};
@@ -584,7 +613,19 @@ fn npc_scenario() -> Result<NpcRan, String> {
     let Some(Placement::Own(gate)) = data.placements.first_mut() else {
         return Err("the ground's first object is not its door".into());
     };
-    gate.scripts = vec![("OnOpen".into(), "probe_opened_by".into())];
+    gate.scripts = scripts
+        .iter()
+        .map(|(hook, script)| ((*hook).into(), (*script).into()))
+        .collect();
+    if let Some(lockable) = lockable {
+        gate.lock = Some(crate::module::Lock {
+            lockable,
+            ..gate
+                .lock
+                .clone()
+                .unwrap_or_else(crate::module::Lock::default)
+        });
+    }
     let thing = |kind, tag: &str, at, hook: &str, script: &str| ObjectData {
         kind,
         tag: tag.into(),
@@ -592,34 +633,34 @@ fn npc_scenario() -> Result<NpcRan, String> {
         scripts: vec![(hook.into(), script.into())],
         ..ObjectData::unknown(tag, floor_at(at), 0.0)
     };
-    data.placements.extend(
-        [
-            thing(
-                ObjectKind::Placeable,
-                "panel",
-                [-4.5, 3.0],
-                "OnUsed",
-                "probe_used_by",
-            ),
-            thing(
-                ObjectKind::Creature,
-                "worker",
-                [-2.0, 4.5],
-                "ScriptSpawn",
-                "probe_worker",
-            ),
-            // Out of the door's reach. Its box is square to the world, not
-            // the turned ground, so at v = -3.0 it would stand in the ramp.
-            thing(
-                ObjectKind::Creature,
-                "doorman",
-                [-3.5, -2.0],
-                "ScriptSpawn",
-                "probe_doorman",
-            ),
-        ]
-        .map(Placement::Own),
-    );
+    let others = [
+        thing(
+            ObjectKind::Placeable,
+            "panel",
+            [-4.5, 3.0],
+            "OnUsed",
+            "probe_used_by",
+        ),
+        thing(
+            ObjectKind::Creature,
+            "worker",
+            [-2.0, 4.5],
+            "ScriptSpawn",
+            "probe_worker",
+        ),
+        // Out of the door's reach. Its box is square to the world, not
+        // the turned ground, so at v = -3.0 it would stand in the ramp.
+        thing(
+            ObjectKind::Creature,
+            "doorman",
+            [-3.5, -2.0],
+            "ScriptSpawn",
+            "probe_doorman",
+        ),
+    ];
+    if npcs {
+        data.placements.extend(others.map(Placement::Own));
+    }
     // The floor as a navigation mesh, for the creatures' walks (the ground
     // has none of its own).
     let floor = [[-7.5, -5.5], [7.5, -5.5], [7.5, 5.5], [-7.5, 5.5]].map(floor_at);
@@ -650,7 +691,7 @@ fn npc_scenario() -> Result<NpcRan, String> {
     let mut gates = Vec::new();
     let mut told = Vec::new();
     let mut last = None;
-    for step in 0..NPC_STEPS {
+    for step in 0..steps {
         let snapshot = crate::step(
             &mut world,
             step as u64 + 1,
@@ -1407,6 +1448,28 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
         .collect();
     let hearing = hearing_scenario();
     let again = npc_scenario().map(|(_, _, last)| last.hash());
+    let itself = ground_scenario(
+        &[
+            ("OnHeartbeat", "probe_opens_itself"),
+            ("OnOpen", "probe_opened_by"),
+        ],
+        None,
+        false,
+        SELF_OPEN_STEPS,
+    );
+    let locked: Result<Vec<_>, String> = [false, true]
+        .into_iter()
+        .map(|lockable| {
+            let script = [("OnHeartbeat", "probe_locks_itself")];
+            ground_scenario(&script, Some(lockable), false, SELF_OPEN_STEPS).map(|(_, _, last)| {
+                last.entities
+                    .iter()
+                    .find(|entity| matches!(entity.kind, crate::Kind::Object(_, GATE)))
+                    .and_then(|entity| entity.object)
+                    .map(|object| object.lock == crate::snapshot::lock::LOCKED)
+            })
+        })
+        .collect();
     let opened_at = gates.iter().position(|state| *state == 1);
     let told_by = |tag: &str| -> Vec<usize> {
         told.iter()
@@ -1433,6 +1496,26 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
                 opened.len() == 1 && opened_at.is_some_and(|step| opened[0] >= step),
                 format!("opened at step {opened_at:?}, told {told:?}"),
             ),
+        ),
+        (
+            "door_opening_itself_runs_on_open",
+            match itself {
+                Ok((gates, told, _)) => check(
+                    gates.contains(&1) && told.iter().filter(|(_, by)| by == "gate").count() == 1,
+                    format!("the gate open {}, told {told:?}", gates.contains(&1)),
+                ),
+                Err(why) => Err(why),
+            },
+        ),
+        (
+            "only_lockable_locks",
+            match locked {
+                Ok(locked) => check(
+                    locked == [Some(false), Some(true)],
+                    format!("locked after its heartbeat, unlockable and lockable: {locked:?}"),
+                ),
+                Err(why) => Err(why),
+            },
         ),
         (
             "made_placeable_blocks",

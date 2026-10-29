@@ -523,6 +523,7 @@ crates/sim/src/script/presentation.rs OVERLAY  # animations.2da row: diveroll
 crates/sim/src/script/state.rs ALL  # every use kind, a list
 crates/sim/src/script/state.rs BARK  # save tag
 crates/sim/src/script/state.rs FOLLOW_OWNER  # save tag
+crates/sim/src/script/state.rs PAUSE  # save tag
 crates/sim/src/script/state.rs SPELL_EVENT  # bit flag: a spell event's handle
 crates/sim/src/script/state.rs VALUES_KEPT  # memory: values kept before compaction
 crates/sim/src/script/workbench.rs ACQUIRED_CHEMICALS  # dialog.tlk line

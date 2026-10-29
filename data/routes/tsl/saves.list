@@ -20,6 +20,12 @@ peragus_escape        Peragus: back from the Harbinger
 peragus_hangar25      Peragus: Hangar 25
 peragus_escaped       Ebon Hawk: escaped from Peragus
 telos_arrival         Telos: Citadel Station
+telos_exchange        Telos: the Bumani Exchange
+telos_planet          Telos: the Restoration Zone
+telos_military_base   Telos: the old military base
+telos_polar           Telos: the polar plateau
+telos_academy         Telos: Atris's academy
+telos_done            Ebon Hawk: leaving Telos
 cold_harbinger        The Harbinger (cold)
 cold_telos            Telos: Citadel Station (cold)
 cold_telos_polar      Telos: the polar plateau (cold)

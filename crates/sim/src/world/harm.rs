@@ -342,12 +342,19 @@ pub(super) fn hurt(
                         pushed(&mut player.0, &mut fighting.0, centre, now);
                     }
                 }
-                // A downed party member up again (I30 P11's rise).
+                // A downed party member up again (I30 P11's rise); one dead
+                // gets up too, as KOTOR's resurrection raises the dead
+                // (TSL's academy: Bao-Dur spawned in his cell, killed where
+                // he lies by `EffectDeath`, and raised as the cells open,
+                // `a_shutdowncells`, to speak to the Exile).
                 ScriptEffect::Resurrection => {
-                    if let Some(at) = at
-                        && actors[at].5.0.downed()
-                    {
-                        actors[at].5.0.rise(falls::RISE_HP);
+                    if let Some(at) = at {
+                        let (.., player, fighting) = &mut actors[at];
+                        if fighting.0.downed() {
+                            fighting.0.rise(falls::RISE_HP);
+                        } else if fighting.0.dead() {
+                            falls::stand(&mut player.0, &mut fighting.0, &level.0.anims);
+                        }
                     }
                 }
                 _ => {}
@@ -444,6 +451,20 @@ pub(super) fn hurt(
     if hits.is_empty() {
         return;
     }
+    // The companion leading the party (`lent`) is the first seat's body as
+    // well: its player's aids are its own (Bao-Dur led to the old military
+    // base's force fields and security doors on Telos).
+    let lent = super::lent(&scripts.state.party);
+    let leader_aids = actors
+        .iter()
+        .find(|(_, avatar, object, ..)| {
+            object.is_none() && avatar.is_some_and(|a| a.0 == LEADER_SEAT)
+        })
+        .and_then(|(.., sheet, _, _)| *sheet)
+        .map_or(0, |sheet| {
+            sheet.0.flags
+                & (crate::combat::sheet::flags::IMMORTAL | crate::combat::sheet::flags::MIGHTY)
+        });
     // Who each character is, as the pipeline asks it.
     let who: Vec<(Sheet, Side)> = actors
         .iter()
@@ -454,6 +475,9 @@ pub(super) fn hurt(
                 effects::sheet_now(sheet_of(*sheet, *object), &fighting.0, clock.time_ms);
             if let (Some(avatar), Some(_)) = (avatar, object) {
                 sheet.flags |= aids(avatar.0);
+            }
+            if object.is_some() && lent == Some(id.0) {
+                sheet.flags |= leader_aids;
             }
             let side = side_of(id.0, *avatar, &fighting.0, &sheet);
             (sheet, side)

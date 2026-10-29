@@ -12,7 +12,11 @@ to WP_T3_DEAD          # T3 in the fuel pipe: he talks as the party comes up
 say Don't blame yourself # (+INF), and rejoins
 talk
 use OddCase          # the concealed stash: the Hangar 25 control conduit
-fight 30             # droids beyond the door
+to G_T_SONIC02_EMER1 # the three charges in the fuel lines set off (the
+fight 30             # station's own words: disarm or detonate them): the
+gone G_T_SONIC02_EMER2 # mine by the stash walked into, the small doorway's
+gone G_T_SONIC02_EMER3 # and the one inside the door by the ramp sprung in
+                     # the fight with the droids (as DSimpson warns)
 say Shut down emergency field # the emergency field station: the exit
 say =Log out.        # ramp's field down
 use EmerStation

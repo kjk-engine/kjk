@@ -491,11 +491,31 @@ pub(super) fn can_cast(view: &View, thing: &Thing, row: u16) -> bool {
 
 /// `who` stops what it does and fights no more: its queue cleared (unless
 /// not commandable), out of combat.
-fn stop(state: &mut State, out: &mut Out, who: ObjectId) {
+fn stop(state: &mut State, out: &mut Out, view: &View, who: ObjectId) {
     if !state.uncommandable.contains(&who.0) {
-        state.actions.remove(&who.0);
+        clear_queue(state, view, who);
     }
     out.changes.push(Change::CancelCombat { who });
+}
+
+/// `who`'s queue cleared. A conversation pause still in it, one that never
+/// reached the front, is dropped with it: the executables queue the pause
+/// as they queue the resume (reone's `PauseConversationAction`), so a clear
+/// before it ran leaves the conversation going on. Citadel Station's Czerka
+/// men pause their line, clear their own queues and walk in (`a_czerkaint`):
+/// their resume, cleared too, would otherwise hold it for good.
+fn clear_queue(state: &mut State, view: &View, who: ObjectId) {
+    let Some(queue) = state.actions.remove(&who.0) else {
+        return;
+    };
+    let host = view.host(&state.party);
+    for queued in queue {
+        if let Action::Pause { talk } = queued.action
+            && let Some(at) = state.talk.held_by(who, talk, host)
+        {
+            state.talk.conversations[at].paused = false;
+        }
+    }
 }
 
 /// `caller` gives up (`SurrenderToEnemies`; Calo Nord when Davik falls,
@@ -534,7 +554,7 @@ pub(super) fn surrender(
         if thing.id != caller && distance(from, thing.position) > SURRENDER_REACH {
             continue;
         }
-        stop(state, out, thing.id);
+        stop(state, out, view, thing.id);
         if !keeps {
             for lasting in c.lasting.iter().flatten().filter(|l| l.by == thing.id.0) {
                 state.removed.push((thing.id.0, Some(lasting.id), after));
@@ -878,6 +898,7 @@ impl Engine<'_> {
     fn tagged<'a>(&'a self, tag: &str) -> impl Iterator<Item = super::Tagged> + 'a {
         let catalog = self.library.items();
         let wanted = key(tag);
+        let wanted_held = wanted.clone();
         let lying = self
             .state
             .lying_in(&self.view.module.name)
@@ -893,7 +914,36 @@ impl Engine<'_> {
                 kind: None,
                 at: lying.at,
             });
-        tagged(self.view, &self.out.made, tag).chain(lying)
+        // Then the items held here, as the games keep every item an object
+        // (a key or a datapad in a pocket is found): the party's, at the
+        // first PC, and those of an object in this area, at it. TSL's
+        // Czerka droid B-4D4 asks whether Opo Chano's credentials are
+        // anywhere (`c_havecreds`: `GetObjectByTag("DroidTechCreds")`).
+        let pc = self.view.first_pc(&self.state.party);
+        let held = self
+            .state
+            .items
+            .iter()
+            .filter(move |(_, item)| {
+                self.state
+                    .item_facts(catalog, &item.template)
+                    .is_some_and(|facts| facts.tag == wanted_held)
+            })
+            .filter_map(move |(id, item)| {
+                let at = if item.holder == crate::inventory::PARTY {
+                    self.position(pc)?
+                } else {
+                    self.position(ObjectId(item.holder))?
+                };
+                Some(super::Tagged {
+                    id: ObjectId(*id),
+                    kind: None,
+                    at,
+                })
+            });
+        tagged(self.view, &self.out.made, tag)
+            .chain(lying)
+            .chain(held)
     }
 
     /// The `nth` (from 1) nearest object to `from` tagged `tag`, but itself.
@@ -1449,7 +1499,7 @@ impl Engine<'_> {
     /// `who`'s queue cleared (unless it is not commandable) and its fight
     /// over: a surrender's.
     fn stop(&mut self, who: ObjectId) {
-        stop(self.state, self.out, who);
+        stop(self.state, self.out, self.view, who);
     }
 
     /// Whether `who`'s queue holds an animation of `LONG_ANIMATION_MS` or
@@ -3714,7 +3764,27 @@ impl Engine<'_> {
             | SetFakeCombatState
             | CreatureFlourishWeapon
             | ForceHeartbeat => self.force_call(bound, args),
+            // The party table keeps one creature for each companion: one
+            // spawned again takes the place of the one it had, which goes
+            // [verify the executable's own handling]. TSL's Bao-Dur joins
+            // by being spawned, added, removed and spawned again
+            // (`a_baodur_join`); the first had stayed standing at the
+            // wreck, the one `GetObjectByTag("BaoDur")` then found, and his
+            // force-field punches asked it, not the one following, whether
+            // he stood near.
             SpawnAvailableNPC => {
+                let had = u8::try_from(int(args, 0))
+                    .ok()
+                    .and_then(|npc| self.state.party.available.get(&npc))
+                    .and_then(|slot| slot.object)
+                    .map(ObjectId);
+                if let Some(old) = had {
+                    self.out.changes.push(Change::Destroy {
+                        who: old,
+                        ms: 0,
+                        going: None,
+                    });
+                }
                 let made = u8::try_from(int(args, 0))
                     .ok()
                     .zip(self.place(args, 1))
@@ -4165,7 +4235,7 @@ impl Engine<'_> {
                 // What it plays stops too, even a clip that outlasts its
                 // queued time.
                 if !state.uncommandable.contains(&caller.0) {
-                    state.actions.remove(&caller.0);
+                    clear_queue(state, self.view, caller);
                     self.out.changes.push(Change::Clear { who: caller });
                 }
                 Value::Int(0)

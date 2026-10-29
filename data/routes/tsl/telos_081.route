@@ -1,0 +1,107 @@
+# Telos, Residential 082 East and Entertainment Module 081 (TSL, 203TEL,
+# 202TEL): free on the station, the A apartments' footlockers (A2's owner
+# comes in: just looking around), the information terminal's map, the
+# shuttle to 081, the Sullustan the mercenaries hassle (we fight them: LSP,
+# and refuse his reward: LSP), 081's terminal, the TSF office: the droid's
+# paperwork, our things from the storage lockers, Lieutenant Grenn's work
+# (the new fuel source, the bounties). Starts from the arrest's checkpoint:
+#   kjk playthrough tsl @telos_free data/routes/tsl/telos_081.route --god
+# Walkthrough: DSimpson's "Residential 082 East" and "Entertainment Module
+# 081" (context/walkthroughs/tsl/).
+use ComplexA         # the A block
+use Apartment@4     # A2
+use CivilFootLker@2  # its footlocker: the owner comes in
+say Just looking around
+talk
+use Apartment_Falt   # A3
+use CivilFootLker@1  # no one rushes to its defence
+say =Log out.        # the information terminal: the map downloaded, this
+use info_term        # level a transit stop
+talk
+exit Ent081          # the shuttle to Entertainment Module 081
+module 202tel
+save telos_081
+say his side of the story # the Sullustan hassled by two mercenaries: we
+say I think you should leave now # take his side and fight them (LSP)
+say You asked for it
+say Why are they allowed # then his thanks, as the fight ends: a reward
+say You should leave # refused (LSP)
+say Keep your credits
+to tr_mercs
+talk
+fight 20
+talk
+say =Log out.        # 081's information terminal
+use info_term
+talk
+use 202_TSFDroid     # the droid: the ship and T3 gone, our things in the
+talk                 # storage room, which it opens
+use LockerTSF        # the storage room's lockers: our things in the
+use LockerTSF1       # detainee lockers, and the others' too (DSimpson)
+use LockerTSFINV@1
+use LockerTSFINV@2
+use LockerTSFINV@3
+use LockerTSFINV@4
+use LockerTSFINV@5
+equip
+save telos_tsf
+# Lieutenant Grenn: how the station will survive without Peragus (the new
+# fuel source), and his work: the bounties (Batono, the escaped criminals).
+say How will you recover
+say If I can help, I'd like to
+say Do you have any work
+say Tell me about the bounties
+say Tell me about Batono
+say I'll see what I can dig up
+say I have some other questions about the bounties
+say Tell me about the criminals
+say I'll see what I can dig up
+use 202_Gren
+talk
+use 202_Gren         # again: his work
+talk
+save telos_grenn
+exit d_Docks         # down to Dock Module 126 (DSimpson's bounty leads)
+module 201tel
+say =Log out.        # the docks' information terminal
+use info_term
+talk
+say looking for a man named Batono # the Czerka officer by dock 3's door:
+say You don't know? # Batono a Czerka employee, no more
+say Czerka employee?
+say =I'll be going now. # not the threat (DSP)
+use czerka_dock
+talk
+say information about a passenger # the Duros at dock 3's counter: the
+say protecting a killer # false Batu Rem's passage ([Persuade], then 25
+say He left no other evidence # credits): he came from Nar Shaddaa
+say [Persuade]
+say Twenty-five credits it is
+say =Batu Rem.
+use dockduros
+talk
+save telos_docks
+exit Urban           # back up to 081 and Grenn: the false Batu Rem's
+module 202tel        # passage (his reward: Armorply Plating)
+say I found some information about Batu Rem
+say The assassin Batu Rem
+say He arrived from Nar Shaddaa
+use 202_Gren
+talk
+exit d_Suburban      # to Residential 082 East and the Czerka offices: Jana
+module 203tel        # Lorso on Batono, who spent time with the Ithorians
+exit Czerka          # (the escaped criminals are with her)
+module 209tel
+save telos_czerka
+say =I'll be going now. # B-4D4 at the door: Lorso expects us
+say Wait! You're the criminals # the escaped criminals with Lorso: shuttled
+use 203_Lorso        # to the planet; they flee (the bounty goes on there)
+talk
+say Does the name Batono # Lorso: Batono, a former employee who spent time
+say He's gone missing # with the Ithorians; a reward for his whereabouts
+say My reasons are my own # (we promise nothing)
+say If I find no truth
+say =I'll be going now.
+use 203_Lorso
+talk
+save telos_lorso

@@ -1,0 +1,53 @@
+# Telos, Atris's secret academy (TSL, 262TEL, to the Ebon Hawk, 003EBO):
+# the Handmaidens' welcome (weapons laid down: LSP), Kreia's mind on
+# Atton, Atris's judgement on DSimpson's Light Path (the Persuade check
+# failed with this Exile's ranks, still the Light Path), the cells: Kreia,
+# Bao-Dur raised as they open (LSP, +INF; he comes along: the party
+# Bao-Dur and Kreia), T3-M4 in his force cage (LSP, +INF), the loading
+# ramp; aboard, the Handmaidens with Atris, T3's holo of the Exile's
+# trial and the Jedi Masters' whereabouts, and the Handmaiden joining
+# (+INF twice). Ends on the Ebon Hawk, the galaxy map next (Dantooine).
+# Starts from the polar plateau's checkpoint:
+#   kjk playthrough tsl @telos_academy data/routes/tsl/telos_academy.route --god
+# Walkthroughs: DSimpson's "Telos - Hidden Base" and "The Ebon Hawk"
+# (context/walkthroughs/tsl/).
+say All right - we mean no harm # the Handmaidens: weapons down (LSP)
+talk
+talk                 # Kreia and Atton in the cell
+say Tell me what you've done with my friends first # Atris, the Light Path
+say It was not my intention to come here, Atris
+say I'm not here to debate the Council's decision
+say I am looking for my ship so I can leave Telos
+say =The destruction of Peragus was an accident.
+say Why don't you tell me?
+say Why is Telos so important?
+say But the Sith attacked me on Peragus - the battle destroyed the colony
+say The Sith came for me on Peragus, to kill me
+say I don't know. Perhaps they were
+say If so, then I offer you my help
+say I am not doing this out of fear # the Persuade check, failed
+say Where can I find my companions?
+say Then I'll be going now.
+talk
+say The woman here is a Jedi, Atris, one of the Council # Kreia at the cell
+say Look, we need to leave, so let's go # door
+say Is Atton okay?
+say He can sleep on the ship. Let's go
+use PrisonDoor
+talk
+say There is nothing to apologize for # Bao-Dur up as the cells open (LSP,
+say A Jedi academy - concealed on the northern pole of Telos # +INF)
+say Are you well enough to travel?
+say Come with me, then. I could use your help
+talk
+party 1,6            # Bao-Dur and Kreia; Atton sleeps it off aboard
+say It wasn't your fault they took the ship # T3-M4 in his force cage (LSP,
+to T3Enter           # +INF)
+talk
+say Enter the Ebon Hawk # the loading ramp
+to tr_setup_ebo
+talk
+say I will take whatever help I can get # aboard: the Handmaiden joins
+say Look, forget Atton. Take the regular quarters # (+INF twice)
+module 003ebo
+save telos_done

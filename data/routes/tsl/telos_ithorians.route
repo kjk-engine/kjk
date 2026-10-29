@@ -1,0 +1,105 @@
+# Telos, the Ithorians (TSL, 203TEL, 204TEL): Residential 082 West's
+# terminal, the Ithorian compound's receptionist, Chodo Habat (the
+# Ithorians' side, DSimpson's light side: we will guard their new droid
+# intelligence), and Batono's hiding place ([Persuade] for Grenn's sake,
+# our word given). Starts from the Czerka offices' checkpoint:
+#   kjk playthrough tsl @telos_lorso data/routes/tsl/telos_ithorians.route --god
+# Walkthrough: DSimpson's "Working for the Ithorians" and the Batono
+# bounty in "Entertainment Module 081" (context/walkthroughs/tsl/).
+exit Czerka          # out of the Czerka offices, and left to 082 West
+module 203tel
+exit to_204TEL
+module 204tel
+say =Log out.        # 082 West's information terminal
+use info_term
+talk
+say Moza sent me     # the receptionist: here to see Chodo Habat
+use 204_Ith_Rec
+talk
+say Yes, I'll see it to you safely # Chodo: the droid intelligence to see
+say I'll return with the droid intelligence # safely from Bay Two
+use 204_Habat
+talk
+save telos_chodo
+say Do you know anything about a man named Batono # Chodo again: Batono
+say Are you sure? Lorso # hides in apartment C1 (the passkey), our word
+say [Persuade]          # given to tell no one
+say I give you my word
+use 204_Habat
+talk
+save telos_batono
+exit to_203TEL       # back to 082 East and apartment C1 (the passkey)
+module 203tel
+say You're Batono, right? # Batono: the light way, convinced to come
+say Lieutenant Grenn sent me # forward, with us to the TSF
+say It's the right thing
+say If it's your safety
+say The TSF can put you under
+say I can protect you
+say I was a Jedi
+say Come with me
+use d_apartmentc1
+use 203_batono
+talk
+to tr_batonoambush   # Lorso's mercenaries on the way out: fought
+talk
+fight 30
+talk                 # Batono to Grenn: the bounty and a bonus
+module 202tel
+save telos_droid
+exit d_Docks         # Mission 1: the droid intelligence at Bay Two
+module 201tel
+say I'm helping the Ithorians, yes # two Czerka men in the hall want us
+say It has nothing to do with money # to reconsider their offer: turned
+say No, and if there's nothing else, I'll be going now # down (DSimpson)
+to tr_czerkaintercept
+talk
+say =Chodo Habat sent me to help deliver the replacement restoration droid.
+use 201_ith_door     # the Ithorian at the middle dock lets us in
+talk
+use TermAirlock2     # the console: the bay doors opened
+talk
+say Yes, I'll get the droid back to the Ithorians # into the bay: the
+to tr_droidint       # thugs waiting for the droid, fought (DSimpson: 2
+talk                 # melee, 3 blasters); a modified hold-out blaster on
+fight 30             # one of them; the droid to be taken back to Chodo
+talk
+save telos_droid_saved
+say Yes, follow me to the Ithorian Compound # the droid: led to Chodo
+say I'll go speak with him # (the droid at work, our reward: Infiltrator
+use DrdIth           # Gloves); Mission 2, Loppak Slusk of the Exchange
+talk
+module 204tel
+talk
+save telos_slusk_asked
+say Transit to another module
+say Entertainment Module 081 # the terminal's transit to 081, and the
+use info_term        # cantina: Luxa, guarded by Gamorreans
+talk
+module 202tel
+exit d_Cantina@3
+module 207tel
+say Yes, go on       # Luxa: she would be Citadel's boss in Slusk's place;
+say You're Exchange? # she gets us into the Exchange suites if we take
+say What do you mean? # care of him (a deal)
+say I'm capable, yes
+say How would this work?
+say It's a deal
+use 207_Luxa
+talk
+save telos_luxa
+exit d_Cantina_main  # out, and back to 082 East: the Exchange's door
+module 202tel
+exit d_Suburban
+module 203tel
+to tr_partybreakin@2 # Kreia, as we come up to the Exchange: Chodo needs
+talk                 # our help
+say =Luxa sent me.   # the guard outside the Bumani Exchange Corp.: let in
+use 203_thugd1
+talk
+exit Exchange
+module 208tel
+say [Persuade] Of course # Vula at reception: no mistake, the first room's
+to tr_vula_talk      # guards kept out ([Persuade])
+talk
+save telos_exchange
