@@ -1404,10 +1404,11 @@ fn minigame_coop() {
 /// the host's runs the travel script, which hears the planet;
 /// `EndGame(TRUE)` and K1's argument-less `EndGame()` lose the game,
 /// `EndGame(FALSE)` shows both the end, after the credits when
-/// `StartCreditSequence` started them; the sim alone.
+/// `StartCreditSequence` started them or TSL's ending movie rolled them;
+/// the sim alone.
 #[test]
 fn galaxy_and_end() {
-    probed("galaxy and end", &sim::galaxy::probes(), 6);
+    probed("galaxy and end", &sim::galaxy::probes(), 7);
 }
 
 /// Pazaak (`docs/PAZAAK.md`): `sim::pazaak::probes`, on decks of our own:

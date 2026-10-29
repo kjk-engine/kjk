@@ -31,6 +31,10 @@ talk                 # Bao-Dur's hologram (901bao, a_sensor_cs)
 say Enter sequence for priming mass shadow generator. # console start 1
 say Log out.         # (E5: 1 found)
 use Console@1        # the north buried ship (124,16)
+to 151,-56           # down the east loop, wide of the rock pillar at
+to 154,-62           # 148,-63 (its drawn slope overhangs the walkable floor:
+                     # a walk hugging its footprint wedges the remote there)
+to tr_mira_han       # where Mira woke, and on west
 say Enter sequence for priming mass shadow generator.
 say Log out.         # (E4: 2 found)
 use Console@2        # the south buried ship (-32,-195)
@@ -41,7 +45,9 @@ say Log out.         # (E3: 3 found)
 use Console@1        # the depths' east ship (93,-99)
 say Enter sequence for priming mass shadow generator. # conmain: E2, 4
 use Console@2        # found; a_sensordlgfire (-55,-219)
-talk                 # sensorfi: Bao-Dur, G0-T0, HK-47 (a_sensor_end)
+talk                 # (conmain's end)
+talk                 # sensorfi: Bao-Dur's farewell, G0-T0 holding the remote
+                     # (a_sensor_end)
 module 903mal        # MalMov09; the Exile at From_902MAL
 talk                 # tr_sionenter: 903kreia, Sion and the assassins
 save malachor_academy

@@ -43,6 +43,7 @@ talk
 talk                 # as Mira: 902mira start 0, Hanharr comes (a_mira)
 say There's no need for this - you don't owe me a life debt # start 1
 say I won't kill you, Hanharr, no matter what you've done.
+say So you serve Kreia now? # (E15's question, back to the choice)
 say I will not kill you in cold blood.
 say Then that is something I will face, Hanharr # a_mira: to the remote
 fight 40             # Hanharr (Hanharr2) to his last HP (k_hanharr_ud)
