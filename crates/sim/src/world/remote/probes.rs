@@ -24,6 +24,7 @@ pub fn probes() -> Checks {
         ("launches_where_body_was", launches()),
         ("not_saved", not_saved()),
         ("minigame_no_droid", minigame()),
+        ("phantom_never_drives", phantom()),
     ];
     checks.extend(flight::probes());
     checks.extend(inert::probes());
@@ -204,4 +205,23 @@ fn position(snapshot: &Snapshot, id: SimId) -> Result<[f32; 3], String> {
         .get(id)
         .map(|entity| entity.position)
         .ok_or(format!("no {id:?}"))
+}
+
+/// A phantom seat (`SimWorld::set_phantoms`: the chain's chaos droids)
+/// flies a droid with both companions free, and seat 1 still takes one.
+fn phantom() -> Result<String, String> {
+    let (mut world, _, ids) = companions(3)?;
+    world.set_phantoms(1 << 2);
+    let after = run(&mut world, &[(0, 0), (1, 0), (2, 0)]);
+    let one = after.body(Seat(1)).map(|entity| entity.id);
+    check(
+        one.is_some_and(|id| ids.contains(&id))
+            && after.body(Seat(2)).is_none()
+            && droids(&after) == [2],
+        format!(
+            "seat 1 drives {one:?}, seat 2 {:?}, droids {:?}",
+            after.body(Seat(2)).map(|entity| entity.id),
+            droids(&after)
+        ),
+    )
 }

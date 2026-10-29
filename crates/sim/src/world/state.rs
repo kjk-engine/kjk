@@ -277,6 +277,7 @@ impl SimWorld {
             ready: snapshot.ready.clone(),
         });
         world.insert_resource(drivers::Kept(snapshot.kept.clone()));
+        world.init_resource::<drivers::Phantoms>();
         world.insert_resource(remote::Remotes(snapshot.remotes.clone()));
         world.init_resource::<remote::Launched>();
         world.init_resource::<party::Asked>();
