@@ -136,6 +136,8 @@ The **kind** tags are:
 - [x] `side` **The camp's boxes and bags** (dxun_circle).
 - [ ] `feature` **The harness's chase takes up a gun** for a foe it cannot reach and keeps it: the routes put the Exile's lightsaber back in hand (`equip saber`).
 
+- [ ] `blocker` **dxun_departure: Mandalore's walk at (-23.0, 111.9).** When his conversation ends on the beat of his heartbeat, `k_mandalore_ud` (403DXN_Camp_Visited 2, set by the conversation's end script) queues his patrol (wp_mandalore_move3, move2, a bark) ahead of the `ActionStartConversation` `a_mand_cs1` delays half a second, and his KOTOR walk to wp_mandalore_move3 jitters there for good, so mand_cs1 never starts; the route waits 2 s before talking to him. The walk's stall is the thing to fix (it stalls on the finale's binary too).
+
 ## Korriban (PR 20)
 
 - [x] `side` **Kreia's histories** at the four tombs and the excavation, the corpses' warning and the skeletal corpses searched (their Hssiss fought); Ajunta Pall's [Awareness] reply, "No one is beneath redemption" (LSP, +INF) (korriban_valley).
