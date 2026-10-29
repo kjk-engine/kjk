@@ -85,6 +85,13 @@ pub(super) fn punch_reach(personal_space: f32) -> f32 {
     reach(&fists(0), humanoid_space(personal_space))
 }
 
+/// How far a player's punch reaches (metres, centre to centre): a
+/// humanoid's personal space, `FIST_M` past it, and the target's body (the
+/// playthrough's chase steps in to it with nothing in hand).
+pub fn player_punch_reach_m() -> f32 {
+    punch_reach(0.0) * UNIT
+}
+
 /// A humanoid's personal space: its own, else `HUMAN_SPACE_M`.
 pub(crate) fn humanoid_space(personal_space: f32) -> f32 {
     if personal_space > 0.0 {

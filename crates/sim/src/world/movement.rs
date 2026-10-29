@@ -353,6 +353,15 @@ pub(super) fn move_actors(
         } else {
             command_for(&inputs.0, seat, &player.0, &fighting.0, clock.time_ms)
         };
+        // A creature its appearance gives no movement (`moverate` NOMOVE,
+        // both rates none: a turret) moves not at all, in a fight too (JA's
+        // pace there let Telos's hidden turrets chase the Exile out of their
+        // alcove into the Exchange's doorway); it turns and attacks.
+        if seat.is_none() && rates().is_some_and(|(walk, run)| walk <= 0.0 && run <= 0.0) {
+            command.forward = 0;
+            command.right = 0;
+            command.up = 0;
+        }
         // KOTOR's stealth disables the run (`world::covert`), as a worn
         // item's Special Walk does: its axes held to a walk's, as JA's client
         // sends a walk.

@@ -53,6 +53,11 @@ impl Run {
 
     /// `new`'s with `count` companions, all on the one spot.
     fn with(player: (f32, f32), count: usize) -> Result<Run, String> {
+        Run::with_body(player, count, body())
+    }
+
+    /// `with`'s, the companions' bodies `made`.
+    fn with_body(player: (f32, f32), count: usize, made: Body) -> Result<Run, String> {
         let ground = crate::determinism::proving_ground();
         let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
         // 3 m behind the player, who arrives at (-4, 0) in the room's
@@ -61,7 +66,7 @@ impl Run {
         for _ in 0..count {
             data.placements.push(Placement::Own(ObjectData {
                 sheet: Some(Sheet::dev_soldier()),
-                body: Some(body()),
+                body: Some(made),
                 ..ObjectData::bare(ObjectKind::Creature, "buddy", at)
             }));
         }
@@ -193,6 +198,50 @@ pub fn probes() -> Checks {
     };
     let mut checks: Checks = Vec::new();
     let mut put = |name: &'static str, ok: bool, what: String| checks.push((name, check(ok, what)));
+    // A body its appearance gives no movement (`moverate` NOMOVE: a
+    // turret), its mind following the player, in a fight and out: it moves
+    // not at all (Telos's hidden turrets ran at JA's pace in a fight).
+    let immobile = Body {
+        movement: 1,
+        walk_mps: 0.0,
+        run_mps: 0.0,
+        ..body()
+    };
+    match Run::with_body((3.2, 5.4), 1, immobile) {
+        Ok(mut still) => {
+            let from = still.origin(still.buddy);
+            still.hold(keys(90.0, 127, false), 704);
+            let calm = still.origin(still.buddy);
+            // Both in a fight now (JA's pace), the player running back.
+            let mut snapshot = still.last.clone();
+            let now = snapshot.time_ms;
+            for entity in &mut snapshot.entities {
+                if let Some(fighter) = entity.fighter.as_mut() {
+                    fighter.combat_until = now + 60_000;
+                }
+            }
+            let fought = SimWorld::from_snapshot(&snapshot, still.level.clone())
+                .map_err(|e| e.to_string())
+                .map(|world| {
+                    still.world = world;
+                    still.last = snapshot;
+                    still.hold(keys(270.0, 127, false), 704);
+                    still.origin(still.buddy)
+                });
+            let moved = |at: Option<crate::math::Vec3>| {
+                from.zip(at).map(|(a, b)| crate::math::flat_distance(a, b))
+            };
+            let (calm, fought) = (moved(calm), fought.map(moved));
+            // A unit or two: the step's settling where it stands.
+            let still_enough = |d: Option<f32>| d.is_some_and(|d| d < 4.0);
+            put(
+                "immobile_body_never_moves",
+                still_enough(calm) && fought.as_ref().is_ok_and(|d| still_enough(*d)),
+                format!("moved {calm:?} units out of a fight, {fought:?} in one"),
+            );
+        }
+        Err(error) => put("immobile_ground", false, error),
+    }
     // Along the room's half, 12 m across (`determinism::proving_ground`):
     // away from the companion, then back. The keys' yaw turns from where
     // the player arrives facing, along the room.

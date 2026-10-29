@@ -86,7 +86,15 @@ pub fn probes() -> sim::probe::Checks {
     let (close, swing) = melee_m();
     let blade = sim::combat::Sheet::dev_jedi();
     let gun = sim::combat::Sheet::dev_soldier();
-    let cases: [(&'static str, sim::combat::Sheet, f32, bool, bool, i8); 6] = [
+    // Fists reach shorter than a blade: the chase steps in to the sim's own
+    // punch (Telos's Entertainment Module, two mercenaries at the bar: the
+    // Exile stood 1.3 m off, inside a blade's reach and out of his punch's,
+    // pressing attack at the air).
+    let fists = sim::combat::Sheet::commoner();
+    let punch = sim::player_punch_reach_m();
+    let cases: [(&'static str, sim::combat::Sheet, f32, bool, bool, i8); 8] = [
+        ("chase_punches_stepping_in", fists, punch * 0.9, false, true, 127),
+        ("chase_out_of_a_punch_walks_in", fists, punch + 0.1, false, false, 127),
         ("chase_swings_stepping_in", blade, (close + swing) / 2.0, false, true, 127),
         ("chase_swings_standing_within_reach", blade, close / 2.0, false, true, 0),
         ("chase_goes_straight_at_one_no_way_leads_to", blade, swing + 0.6, false, false, 127),

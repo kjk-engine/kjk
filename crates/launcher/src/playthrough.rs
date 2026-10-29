@@ -1031,6 +1031,18 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 acts.extend(equip(&world, &last, Some(named)));
                             }
                         }
+                        // One a step, its purchase seen before the next;
+                        // once the world has settled (a store a script opens
+                        // a moment after its line, as Kodin's does).
+                        Goal::Buy(template, count) => {
+                            met = gear::carried(&last, template) >= *count;
+                            if !met && talking.is_none() && settle.settled() {
+                                match gear::purchase(&last, template) {
+                                    Ok(buy) => acts.extend(buy),
+                                    Err(why) => held.push(why),
+                                }
+                            }
+                        }
                         // One item a step, its sale seen before the next.
                         Goal::Sell(gold) => {
                             met = last.goods.gold >= *gold;
@@ -1470,6 +1482,25 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         // it: a walk to pick its lock ends up
                                         // to 2 m off, out of a blow's reach
                                         // (Peragus's locker between lockers).
+                                        // Nothing in hand: the strongest weapon
+                                        // the party carries drawn first, as a
+                                        // player arms to break a door (fists
+                                        // took a minute and more on Dantooine's
+                                        // stuck Enclave door, a blade seconds).
+                                        let unarmed = me.sheet.is_some_and(|sheet| {
+                                            matches!(
+                                                sheet.main_weapon().delivery,
+                                                sim::combat::sheet::Delivery::Unarmed
+                                            )
+                                        });
+                                        if unarmed {
+                                            // A blade if one is trained for,
+                                            // else a gun: its bolts strike too.
+                                            acts.extend(
+                                                other_weapon(&world, &last, true)
+                                                    .or_else(|| other_weapon(&world, &last, false)),
+                                            );
+                                        }
                                         let step_in = !ranged(&me) && d > melee_m().0;
                                         command = Command {
                                             buttons: buttons::ATTACK,

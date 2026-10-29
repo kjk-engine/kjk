@@ -9,11 +9,19 @@ use super::*;
 pub(super) fn other_weapon(world: &sim::SimWorld, snapshot: &Snapshot, ranged: bool) -> Option<Action> {
     let catalog = world.level().scripts()?.items();
     let hand = sim::inventory::slots::RIGHT_WEAPON;
+    // Only what the one wielding it is trained for (the equip screen
+    // refuses the rest: Mira has no melee proficiency).
+    let feats = crate::cast::me(snapshot, Seat(0))
+        .and_then(|me| snapshot.get(me)?.sheet)
+        .map(|sheet| sheet.feats);
     snapshot
         .goods
         .carried(sim::inventory::PARTY)
         .filter_map(|(id, item)| {
             let facts = catalog.get(&item.template)?;
+            if feats.is_some_and(|feats| !sim::combat::passive::may_equip(&feats, &facts.needs)) {
+                return None;
+            }
             let weapon = facts
                 .fitted(item.upgrades, &item.fitted, catalog)
                 .weapon
@@ -46,6 +54,46 @@ pub(super) fn sale(world: &sim::SimWorld, snapshot: &Snapshot, kept: &[u16]) -> 
         .map(|(_, item)| Action::Sell {
             store: trade.store,
             item,
+        })
+}
+
+/// How many of `template` the party carries.
+pub(super) fn carried(snapshot: &Snapshot, template: &str) -> u32 {
+    snapshot
+        .goods
+        .carried(sim::inventory::PARTY)
+        .filter(|(_, item)| item.template.eq_ignore_ascii_case(template))
+        .map(|(_, item)| u32::from(item.stack.max(1)))
+        .sum()
+}
+
+/// One of `template` bought from the store open to the player, as its
+/// screen's buy button sends it: the first of its stock with that
+/// template; why not, with none open or none in its stock.
+pub(super) fn purchase(snapshot: &Snapshot, template: &str) -> Result<Option<Action>, String> {
+    let Some(me) = crate::cast::me(snapshot, Seat(0)) else {
+        return Ok(None);
+    };
+    let Some((_, trade)) = snapshot.goods.trades.iter().find(|(who, _)| *who == me.0) else {
+        return Ok(None);
+    };
+    snapshot
+        .goods
+        .carried(trade.store)
+        .find(|(_, item)| item.template.eq_ignore_ascii_case(template))
+        .map(|(item, _)| {
+            Some(Action::Buy {
+                store: trade.store,
+                item,
+            })
+        })
+        .ok_or_else(|| {
+            let held: Vec<&str> = snapshot
+                .goods
+                .carried(trade.store)
+                .map(|(_, item)| item.template.as_str())
+                .collect();
+            format!("buy: the store holds no {template} (it holds {held:?})")
         })
 }
 
