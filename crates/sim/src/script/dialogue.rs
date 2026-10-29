@@ -694,6 +694,13 @@ impl Conversation {
         self.paused || self.waits_for != ObjectId::INVALID
     }
 
+    /// Whether its line has played and replies are offered: an answer is
+    /// taken from then (`Step::offer_replies` chooses them at the line's
+    /// end).
+    pub fn offers(&self) -> bool {
+        self.until_ms == u64::MAX && !self.replies.is_empty()
+    }
+
     /// `body` comes to stand in it (R3, R4). A PC answers its story
     /// replies itself (`pc`): no one asks the host in any more (R5).
     fn take_in(&mut self, body: ObjectId, pc: bool) {

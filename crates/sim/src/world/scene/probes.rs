@@ -150,6 +150,8 @@ const PROBES: &[Probe] = &[
 
 /// A step's length (ms).
 const STEP_MS: u64 = 8;
+/// How long an answer waits for a line to play (steps): 8 s.
+const REPLIES_UP_STEPS: usize = 1000;
 
 /// How many steps last `ms`.
 fn steps(ms: u64) -> usize {
@@ -888,6 +890,7 @@ impl Ground {
             if self.last.talk.conversations.is_empty() {
                 return Ok(());
             }
+            self.replies_up();
             for reply in &mut self.replies {
                 *reply = answer(*reply, Pick::Reply(GOODBYE));
             }
@@ -950,10 +953,31 @@ impl Ground {
         }
     }
 
-    /// Seat 0 answers `pick`, a step.
+    /// Seat 0 answers `pick`, a step; a reply once the replies are up.
     fn answer(&mut self, pick: Pick) {
+        if matches!(pick, Pick::Reply(_) | Pick::Point(_)) {
+            self.replies_up();
+        }
         self.replies[0] = answer(self.replies[0], pick);
         self.step();
+    }
+
+    /// Steps until no line under way is still playing: its replies are
+    /// chosen as it ends (`Step::offer_replies`), and an answer counts from
+    /// then.
+    fn replies_up(&mut self) {
+        for _ in 0..REPLIES_UP_STEPS {
+            let playing = self
+                .last
+                .talk
+                .conversations
+                .iter()
+                .any(|c| c.until_ms != u64::MAX && !c.on_hold());
+            if !playing {
+                return;
+            }
+            self.step();
+        }
     }
 
     /// The line under way: the entry shown and its listener.

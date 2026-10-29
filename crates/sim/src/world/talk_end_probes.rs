@@ -191,6 +191,29 @@ pub(super) fn step(world: &mut SimWorld, tick: u64, input: &TickInput) -> Snapsh
     crate::step(world, tick, input, MSEC, StepReason::Authority)
 }
 
+/// Whether the first conversation's replies are up (`Conversation::offers`:
+/// an answer counts from then, as the UI sends one).
+pub(super) fn offered(snapshot: &Snapshot) -> bool {
+    snapshot
+        .talk
+        .conversations
+        .first()
+        .is_some_and(|c| c.offers())
+}
+
+/// The seat's command answering `pick`.
+fn picking(pick: Pick) -> TickInput {
+    let mut input = TickInput::default();
+    input.insert(
+        Seat(0),
+        Command {
+            reply: answer(0, pick),
+            ..Command::default()
+        },
+    );
+    input
+}
+
 /// What the player was told (`Notice::Said`), in order.
 pub(super) fn told(world: &mut SimWorld, into: &mut Vec<String>) {
     into.extend(
@@ -305,25 +328,22 @@ fn ends(ending: Ending) -> Result<Vec<String>, String> {
         Ending::Leave => Some(Pick::Leave),
         Ending::OneLiner | Ending::NothingToSay => None,
     };
-    // The pick held (one answer, however many steps carry it) until the
-    // replies are up and it is taken.
-    let mut input = TickInput::default();
-    if let Some(pick) = pick {
-        input.insert(
-            Seat(0),
-            Command {
-                reply: answer(0, pick),
-                ..Command::default()
-            },
-        );
-    }
+    // The pick sent once the replies are up (the line played), held (one
+    // answer, however many steps carry it) until it is taken; a leave at
+    // once.
+    let mut up = false;
     for _ in 0..ANSWER_STEPS {
         tick += 1;
+        let input = match pick {
+            Some(pick) if up || pick == Pick::Leave => picking(pick),
+            _ => still.clone(),
+        };
         let snapshot = step(&mut world, tick, &input);
         told(&mut world, &mut said);
         if snapshot.talk.conversations.is_empty() {
             return Ok(said);
         }
+        up |= offered(&snapshot);
     }
     Err(format!(
         "the conversation did not end: {:?}; told {said:?}",
@@ -482,19 +502,19 @@ fn owner_lost(lost: Lost) -> Result<(bool, bool), String> {
         .conversations
         .iter()
         .any(|c| c.id == id);
-    let mut input = TickInput::default();
-    input.insert(
-        Seat(0),
-        Command {
-            reply: answer(0, Pick::Reply(1)),
-            ..Command::default()
-        },
-    );
+    let mut up = offered(&world.snapshot());
     for _ in 0..ANSWER_STEPS {
         tick += 1;
-        if step(&mut world, tick, &input).talk.conversations.is_empty() {
+        let input = if up {
+            picking(Pick::Reply(1))
+        } else {
+            still.clone()
+        };
+        let snapshot = step(&mut world, tick, &input);
+        if snapshot.talk.conversations.is_empty() {
             break;
         }
+        up |= offered(&snapshot);
     }
     let ended = |aborted: bool| {
         world.script_report().talk.iter().any(|line| {

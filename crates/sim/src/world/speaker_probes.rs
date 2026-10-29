@@ -8,7 +8,15 @@
 //! another `near_late` 1.5 m off (taken: 2.25 is within 3).
 //! A start naming a speaker no one answers to is passed over before its
 //! condition runs (it would tell the player "asked").
+//!
+//! A line's replies are chosen once it has played, after its scripts ran
+//! (TSL's `CSWSDialog::SendDialogEntry`: the line's Script, Script2, then
+//! `CSWSObject::SendDialogReplies` once `IsDialogDelay` is over): the
+//! entry's script tells "line" before the first reply's condition tells
+//! "asked" (as the conversation starts, kjk asks it once more first, to
+//! know a one-liner), and no reply is offered while the line plays.
 
+use super::SimWorld;
 use super::talk_end_probes::{CATALOG, by_entry, call, id_of, step, told, world_with};
 use crate::combat::Sheet;
 use crate::input::{Command, Seat, TickInput};
@@ -52,6 +60,16 @@ fn asked() -> fmt_odyssey::ncs::Ncs {
     asm.build()
 }
 
+/// `SendMessageToPC(GetFirstPC(), "line")`.
+fn says_line() -> fmt_odyssey::ncs::Ncs {
+    let mut asm = Asm::default();
+    asm.op(Op::Const(Const::String(b"line".to_vec())))
+        .op(call(1, 0))
+        .op(call(0, 2))
+        .op(Op::Retn);
+    asm.build()
+}
+
 /// A DLG whose start links lead, in order, to entries said by `speakers`,
 /// the first link's condition `probe_asked`.
 fn naming(speakers: &[&str]) -> Dlg {
@@ -83,17 +101,25 @@ fn library() -> crate::script::Library {
         ("probe_absent", naming(&["absent", ""])),
         ("probe_first_bar", naming(&["far_first"])),
         ("probe_nearest", naming(&["NEAR_LATE"])),
+        ("probe_script_first", {
+            let mut dlg = talking(2, "probe_line");
+            dlg.entries[0].links[0].active.script = "probe_asked".into();
+            dlg
+        }),
     ]
     .map(|(name, dlg)| (name.to_string(), dlg))
     .into();
-    crate::probe::library(CATALOG, [("probe_asked", asked())])
-        .with_dialogues(dialogues, BTreeMap::new())
+    crate::probe::library(
+        CATALOG,
+        [("probe_asked", asked()), ("probe_line", says_line())],
+    )
+    .with_dialogues(dialogues, BTreeMap::new())
 }
 
-/// `dialog` started by the owner with the player: its first line's entry,
-/// who says it (by tag, `owner` for the owner) and what the player was
-/// told.
-fn first_line(dialog: &str) -> Result<(u32, String, Vec<String>), String> {
+/// The world with the owner and the bodies placed, `dialog` asked to
+/// start by the owner with the player: the world, the placed ids (the
+/// owner first) and the next tick.
+fn started(dialog: &str) -> Result<(SimWorld, Vec<u32>, u64), String> {
     let at = |(dx, dy): (f32, f32)| by_entry(dx, dy);
     let placed = std::iter::once(("owner", OWNER_AT))
         .chain(BODIES)
@@ -116,10 +142,24 @@ fn first_line(dialog: &str) -> Result<(u32, String, Vec<String>), String> {
         bark: false,
     });
     world.set_script_state(state);
+    Ok((world, ids, 2))
+}
+
+/// A seat's still command (its first answer byte only starts its count).
+fn still() -> TickInput {
     let mut still = TickInput::default();
     still.insert(Seat(0), Command::default());
+    still
+}
+
+/// `dialog` started by the owner with the player: its first line's entry,
+/// who says it (by tag, `owner` for the owner) and what the player was
+/// told.
+fn first_line(dialog: &str) -> Result<(u32, String, Vec<String>), String> {
+    let (mut world, ids, from) = started(dialog)?;
+    let still = still();
     let mut said = Vec::new();
-    for tick in 2..6 {
+    for tick in from..from + 4 {
         let snapshot = step(&mut world, tick, &still);
         told(&mut world, &mut said);
         if let Some(talk) = snapshot.talk.conversations.first() {
@@ -132,6 +172,27 @@ fn first_line(dialog: &str) -> Result<(u32, String, Vec<String>), String> {
         }
     }
     Err(format!("{dialog} did not start"))
+}
+
+/// `probe_script_first` played until its replies are up: what the player
+/// was told, in order, and whether any reply was offered while the line
+/// played.
+fn replies_after_line() -> Result<(Vec<String>, bool), String> {
+    let (mut world, _, from) = started("probe_script_first")?;
+    let still = still();
+    let (mut said, mut early) = (Vec::new(), false);
+    for tick in from..from + 1000 {
+        let snapshot = step(&mut world, tick, &still);
+        told(&mut world, &mut said);
+        if let Some(talk) = snapshot.talk.conversations.first() {
+            if talk.until_ms != u64::MAX {
+                early |= !talk.replies.is_empty();
+            } else if !talk.replies.is_empty() {
+                return Ok((said, early));
+            }
+        }
+    }
+    Err(format!("no replies offered; told {said:?}"))
 }
 
 pub fn probes() -> Checks {
@@ -156,6 +217,15 @@ pub fn probes() -> Checks {
         (
             "speaker_nearest_the_owner_any_case",
             line("probe_nearest", (0, "near_late 3", true)),
+        ),
+        (
+            "replies_chosen_after_the_lines_scripts",
+            replies_after_line().and_then(|(said, early)| {
+                check(
+                    said.ends_with(&["line".to_string(), "asked".to_string()]) && !early,
+                    format!("told {said:?}, a reply offered while the line played: {early}"),
+                )
+            }),
         ),
     ]
 }

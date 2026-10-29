@@ -15,9 +15,10 @@
 #   kjk playthrough tsl @dantooine_rewards data/routes/tsl/dantooine_enclave.route --god
 # Walkthrough: DSimpson's "The Enclave Courtyard Area" and "Enclave
 # Sublevel" (context/walkthroughs/tsl/).
-# Left: Ralon's holocron (both light ways ask Awareness 4 to see it is
-# fake: a_ralo_dialogue), Nallek's fight, the protocol droids and the
-# conduits (Repair parts and spikes), the storage room's overload.
+# Ralon's holocron at the camp: seen to be fake and 500 credits given him
+# anyway (DSimpson's light way, LSP).
+# Left: Nallek's fight, the protocol droids and the conduits (Repair parts
+# and spikes), the storage room's overload.
 exit To_605@1        # the courtyard's east way, by the mercenaries' camp
 module 605dan
 say I'm just visiting. # Daraala: her dead salvagers
@@ -27,6 +28,18 @@ say Why won't anyone help me?
 say I'm going to the ruins.
 say I'll be going now.
 use npc_daraala
+talk
+say Get to the point. # Ralon's holocron, DSimpson's light way: inspected,
+say How much do you want for it? # seen to be fake ([Awareness] over 4:
+say Can I inspect the holocron? # a_ralo_dialogue, as the line shows it),
+say That *is* a remarkable fake # then 500 credits for him anyway (LSP)
+say That's all you can say?
+say So you didn't make this?
+say Wife and children?
+say How much money do you need?
+say Here's 500 credits.
+say I have to go.
+use npc_ralon
 talk
 to tr_enclave_cam    # the Enclave's ruin
 talk

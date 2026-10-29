@@ -111,18 +111,45 @@ fn player(world: &sim::SimWorld, snapshot: &Snapshot) -> serde_json::Value {
     })
 }
 
-/// What the equip screen would send to wear what the party carries: each
-/// item in the first slot it fits that the player does not wear yet; or,
-/// `named`, that item in the first slot it fits, worn or not.
-/// Whether the player wears an item of template `named`.
+/// Whether `template` is one `named` names: the template itself, or, with
+/// `*` in it, any template the pattern matches (`*` any run of characters,
+/// case aside), for an item the game picks at random, as the Exile's own
+/// lightsaber is (`a_give_quest_ls` rolls its kind and its tier at the
+/// player's level): `g_w_*sbr*` any lightsaber.
+pub(super) fn names(named: &str, template: &str) -> bool {
+    let (named, template) = (named.to_ascii_lowercase(), template.to_ascii_lowercase());
+    let Some((first, tail)) = named.split_once('*') else {
+        return named == template;
+    };
+    let Some(mut rest) = template.strip_prefix(first) else {
+        return false;
+    };
+    let parts: Vec<&str> = tail.split('*').collect();
+    let Some((last, middle)) = parts.split_last() else {
+        return false;
+    };
+    for part in middle {
+        match rest.find(part) {
+            Some(at) => rest = &rest[at + part.len()..],
+            None => return false,
+        }
+    }
+    rest.ends_with(last)
+}
+
+/// Whether the player wears an item of template `named` (`names`).
 pub(super) fn wears(world: &sim::SimWorld, snapshot: &Snapshot, named: &str) -> bool {
     crate::cast::me(snapshot, Seat(0)).is_some_and(|me| {
         world.script_state().items.values().any(|item| {
-            item.holder == me.0 && item.slot.is_some() && item.template.eq_ignore_ascii_case(named)
+            item.holder == me.0 && item.slot.is_some() && names(named, &item.template)
         })
     })
 }
 
+/// What the equip screen would send to wear what the party carries: each
+/// item in the first slot it fits that the player does not wear yet; or,
+/// `named` (`names`), the first such item made (the lowest id) in the first
+/// slot it fits, worn or not.
 pub(super) fn equip(world: &sim::SimWorld, snapshot: &Snapshot, named: Option<&str>) -> Vec<Action> {
     let Some(me) = crate::cast::me(snapshot, Seat(0)) else {
         return Vec::new();
@@ -141,7 +168,7 @@ pub(super) fn equip(world: &sim::SimWorld, snapshot: &Snapshot, named: Option<&s
     for (id, item) in items
         .iter()
         .filter(|(_, item)| item.holder == sim::inventory::PARTY)
-        .filter(|(_, item)| named.is_none_or(|named| item.template.eq_ignore_ascii_case(named)))
+        .filter(|(_, item)| named.is_none_or(|named| names(named, &item.template)))
     {
         // Only what the player's race may wear (`ItemFacts::fits`), as the
         // equip screen lists.

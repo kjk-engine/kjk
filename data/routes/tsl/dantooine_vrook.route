@@ -2,8 +2,8 @@
 # modulator and the 500 Jorran took (LSP), the crystal cave's mercenary camp:
 # here to rescue the Jedi (LSP), the captain and his men fought, Vrook out
 # of his cage (apologised to, Khoonda's coming attack); Azkul outside the
-# cave refused (his plans not to succeed: LSP) and his men fought, and the
-# Administrator's master card key for Khoonda's defence. Starts from the
+# cave told a [Lie] (his job taken, no DSP, Kreia's "Well maneuvered!"),
+# and the Administrator's master card key for Khoonda's defence. Starts from the
 # salvagers' camp:
 #   kjk playthrough tsl @dantooine_camp data/routes/tsl/dantooine_vrook.route --god
 # Walkthrough: DSimpson's "Return to the Crystal Cave" and "The Mercenary
@@ -27,14 +27,13 @@ fight 60
 talk                 # Vrook out of his cage
 use MilLowMetalBox@1 # the camp's boxes
 use MilLowMetalBox@2
-say I've learned that you are planning an assault # Azkul: refused (LSP)
-say I would never help you.
-say I'm not interested.
-say I cannot allow your plans to succeed.
+say I've learned that you are planning an assault # Azkul: his job taken
+say I would never help you. # by a [Lie] (no DSP, his men not hostile:
+say What do you have in mind? # DSimpson's way to decide later; Kreia's
+say [Lie] Okay, I'll help you. # word, not her loss), Khoonda defended after
 exit To_601
 module 601dan
 talk
-fight 60             # his men
 exit To_602
 module 602dan
 use npc_terena       # the master card key: Khoonda's defence

@@ -156,7 +156,7 @@ impl Step<'_> {
                 .push(crate::script::Change::Gather { around, who });
         }
         self.out.lift_fade(self.view);
-        self.show(id, entry, replies);
+        self.show(id, entry);
     }
 
     /// A player's use of one in another player's own conversation (R3):

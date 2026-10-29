@@ -50,7 +50,7 @@ The **kind** tags are:
 - [ ] `choice` **The will given to Zherron**: the chain gives it to Daraala.
 - [x] `skill` **The battered droid's diagnostic and repair** (Computer, Repair), and the mechanic persuaded the Exile is no Jedi (dantooine_khoonda).
 - [ ] `skill` **The sensor surveillance branch** (Computer, Awareness).
-- [ ] `skill` **Ralon's holocron:** both light-side ways need Awareness 4, which the Sentinel now has (10 by the Enclave); the route still leaves it.
+- [x] `skill` **Ralon's holocron:** played in dantooine_enclave by DSimpson's light way (the fake seen, 500 credits given, LSP). His [Awareness] reply (R50) checks the local E37's own script sets (`a_ralo_dialogue`, Awareness over 4), which needed the engine to choose a line's replies after its scripts, at the line's end, as TSL's `CSWSDialog::SendDialogEntry` does.
 - [ ] `skill` **The protocol droids, conduits and storage overload** in the Enclave sublevel.
 - [ ] `skill` **Jorran's Persuade:** "I saved your life" asks Persuade over 11, the chain's Exile has 11 there; he is paid. As Corrun Falt's: the check and the total are the exe's, and exile.build's Persuade is at its most.
 - [ ] `feature` **The landing pad's "Plasteel Cylinder{Med, Blast}":** DSimpson mines it open, and kjk can set mines on doors only.
@@ -153,7 +153,7 @@ milestone's PR moves them here.
 
 - [x] `feature` **The chain plays a created Jedi Exile** (`exile.build`, chain.flags): TSL's creation of a light-side Sentinel, levelled by the build's plan; the masters teach their forms (Vrook, Zez-Kai Ell).
 - [ ] `feature` **Prestige classes** are not reached: Kreia offers one (`c_pc_prestige`, `a_pc_jedi`'s `AddMultiClass`) from level 15; with kill XP the chain's Exile reaches 15 on Korriban, and the offer is not taken yet. The engine side is there (the class taken up unlevelled with the next level's XP, its powers from its own `spells.2da` column); a route for it waits for the later planets.
-- [ ] `choice` **Kreia's influence at Azkul's offer:** "I cannot allow your plans to succeed" (dantooine_vrook) costs Kreia 8; the other light-side way through his job offer is not checked.
+- [x] `choice` **Kreia's influence at Azkul's offer:** "I cannot allow your plans to succeed" costs Kreia's influence (E41, `a_influence_dec`). dantooine_vrook now takes his job by "[Lie] Okay, I'll help you." (R57: no DSP, his men not hostile, Kreia's "Well maneuvered!" with `a_influence_inc`), DSimpson's way to decide later, and dantooine_battle defends Khoonda as before.
 - [x] `feature` **Unspent skill points** are kept for the next level, which adds its own to them (TSL's `CSWCLevelUpStats::AddSkillPointsPerLevel`; K1 saves them as TSL does, the creature's `SkillPoints`): `State::unspent`, `Classes::take`. exile.build's `bank` keeps what its skill order cannot spend, so Repair's rank waits for the point a level before left, and Demolitions, last in its order, takes the rest (Korriban's `c_sc_dem_gt`, over 5), not Stealth. Probe `unspent skill points kept` (`player_creation`).
 - [ ] `choice` **The dark side playthrough,** start to end.
 - [ ] `choice` **A female Exile:** the Disciple joins, not the Handmaiden.

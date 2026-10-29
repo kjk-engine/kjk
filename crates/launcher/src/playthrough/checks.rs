@@ -119,7 +119,29 @@ pub fn probes() -> sim::probe::Checks {
         .chain(picks())
         .chain(walks_for())
         .chain(shut_doors(&base, &level))
+        .chain(equip_patterns())
         .collect()
+}
+
+/// An `equip` goal's template, or its pattern (`gear::names`): the
+/// Exile's own lightsaber, whatever `a_give_quest_ls` rolled, is
+/// `g_w_*sbr*`.
+fn equip_patterns() -> sim::probe::Checks {
+    [
+        ("equip_names_its_template", "g_w_lghtsbr03", "G_W_LGHTSBR03", true),
+        ("equip_names_no_other", "g_w_lghtsbr03", "g_w_lghtsbr04", false),
+        ("equip_pattern_double_saber", "g_w_*sbr*", "g_w_dblsbr002", true),
+        ("equip_pattern_short_saber", "g_w_*sbr*", "g_w_shortsbr02", true),
+        ("equip_pattern_no_pistol", "g_w_*sbr*", "g_w_blstrpstl01", false),
+        ("equip_pattern_whole_end", "g_w_*sbr", "g_w_lghtsbr03", false),
+    ]
+    .into_iter()
+    .map(|(name, named, template, want)| {
+        let names = super::gear::names(named, template);
+        let detail = format!("{named} names {template}: {names}");
+        (name, if names == want { Ok(detail) } else { Err(detail) })
+    })
+    .collect()
 }
 
 /// The walk to a target (`walk_for`): one made for another spot farther

@@ -222,14 +222,9 @@ impl Step<'_> {
             self.state.talk.conversations[at].waits_for = ObjectId::INVALID;
             return;
         }
-        let (entry, speaker, owner, pc) = (c.entry, c.speaker, c.owner, c.pc);
-        let library = self.library;
-        let Some(dlg) = library.dialogue(&c.dialog) else {
-            return;
-        };
+        let (entry, speaker) = (c.entry, c.speaker);
         if self.interjection(id, speaker) {
-            let replies = self.offer(dlg, id, entry, owner, pc);
-            self.show(id, entry, replies);
+            self.show(id, entry);
         }
     }
 
