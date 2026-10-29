@@ -64,6 +64,12 @@ impl super::SimWorld {
     pub fn set_phantoms(&mut self, seats: u64) {
         self.world.resource_mut::<Phantoms>().0 = seats;
     }
+
+    /// Holds `seats` seats (`Snapshot::seats_held`), as a host would: a
+    /// test's phantoms' room. An install keeps it.
+    pub fn set_seats_held(&mut self, seats: u8) {
+        self.world.resource_mut::<SeatsHeld>().0 = seats.min(crate::MAX_SEATS);
+    }
 }
 
 #[derive(Resource, Default)]

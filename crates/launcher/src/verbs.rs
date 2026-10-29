@@ -164,6 +164,10 @@ pub(crate) enum Verb {
         /// (default kjk-artifacts/checkpoints/GAME)
         #[arg(long)]
         save_to: Option<std::path::PathBuf>,
+        /// `chaos`: two phantom guests fly remote droids at random, every
+        /// button of their kit pressed; the story kept as a plain run's
+        #[arg(long, value_parser = ["chaos"])]
+        droids: Option<String>,
     },
     /// A game's routes (`data/routes/<game>/`) played through as the chain
     /// they make, each from the checkpoint its header names, the branches
@@ -214,6 +218,10 @@ pub(crate) enum Verb {
         /// always writes them
         #[arg(long)]
         saves: bool,
+        /// `chaos`: every route with two chaos droids, its story at every
+        /// module left compared with the last plain chain's
+        #[arg(long, value_parser = ["chaos"])]
+        droids: Option<String>,
     },
     /// Conversations (I18): a module's DLGs, and conversations run headless
     Dialogue {
@@ -416,6 +424,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             skills,
             blocks,
             save_to,
+            droids,
         } => {
             // A file of goals, or the goals themselves.
             let path = std::path::Path::new(&route);
@@ -456,6 +465,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                         listen,
                         fail_fast: blocks.fail_fast(),
                         save_to,
+                        droids: droids.is_some(),
                     },
                 ),
                 Err(error) => {
@@ -477,6 +487,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             no_cache,
             dry_run,
             saves,
+            droids,
         } => chain::run(
             &discover(),
             &chain::Options {
@@ -494,6 +505,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 cache: !no_cache,
                 dry_run,
                 saves,
+                droids: droids.is_some(),
             },
         ),
         Verb::Dialogue { verb } => match verb {
