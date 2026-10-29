@@ -138,7 +138,7 @@ remade, not the run the chain would make. `--skill NAME=RANK`,
 No window: the authority stepped as fast as it goes, a player driven goal
 by goal (`launcher::playthrough` lists the goals: `talk`, `pick`, `say`, `party`, `travel`, `to`,
 `at`, `use`, `exit`, `fight`, `race` and `turrets` (a minigame played to
-its end, `MINIGAMES.md`), `pazaak`, `equip` (`equip TEMPLATE`: that item),
+its end, `MINIGAMES.md`), `pazaak`, `equip` (`equip TEMPLATE`: that item; `equip saber`: the strongest lightsaber the party has),
 `put`, `save NAME` (a checkpoint; `@NAME` for the module starts from it), `unlock` (Security, with a spike
 the party carries if named), `bash` (struck with what is in hand until its lock breaks), `leader`, `solo`, `levelup`, `sell`, `credits`, `wait`, `until`,
 `module`, `if` and `while` blocks closed by `end`; and, for what a route stands in for, `global`,

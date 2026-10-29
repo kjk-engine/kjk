@@ -952,9 +952,7 @@ impl Engine<'_> {
                     at,
                 })
             });
-        tagged(self.view, &self.out.made, tag)
-            .chain(lying)
-            .chain(held)
+        tagged(self.view, self.out, tag).chain(lying).chain(held)
     }
 
     /// The `nth` (from 1) nearest object to `from` tagged `tag`, but itself.
@@ -1752,13 +1750,18 @@ impl Engine<'_> {
             {
                 Value::Int(0)
             }
+            // A local boolean is a bit of the game's slots (`local_boolean`):
+            // nothing kept past the last, which reads false.
             GetLocalBoolean => {
                 let key = (
                     local_owner(&self.view.module.name, object(args, 0)),
                     0,
                     int(args, 1),
                 );
-                Value::Int(state.locals.get(&key).copied().unwrap_or(0))
+                let kept = local_boolean(&view.module.game, int(args, 1))
+                    .then(|| state.locals.get(&key).copied())
+                    .flatten();
+                Value::Int(kept.unwrap_or(0))
             }
             // A local number is a byte in one of the game's slots
             // (`local_number`): read back unsigned, set only from -128 to
@@ -1792,7 +1795,9 @@ impl Engine<'_> {
                     0,
                     int(args, 1),
                 );
-                state.locals.insert(key, i32::from(int(args, 2) != 0));
+                if local_boolean(&view.module.game, int(args, 1)) {
+                    state.locals.insert(key, i32::from(int(args, 2) != 0));
+                }
                 Value::Int(0)
             }
             // No tag is the player's (its creature has none): reone's
@@ -2759,9 +2764,21 @@ impl Engine<'_> {
                     })
                     .unwrap_or(0),
             ),
+            // TSL's leaves a player's own character as it is: its
+            // `ExecuteCommandChangeToStandardFaction` (and `ChangeFaction`)
+            // passes over a creature whose stats are a PC's, so Dxun's
+            // battle circle (`a_circle_fight`, `tr_circle`: the PC to
+            // Friendly 1 after each match) does not turn every Friendly 2
+            // creature on the Exile (Dantooine's salvagers at the Enclave)
+            // [verify in K1's exe: K1 keeps setting it].
             ChangeToStandardFaction => {
                 let who = object(args, 0);
-                if let (Some(_), Ok(faction)) = (self.character(who), u8::try_from(int(args, 1))) {
+                let tsl = crate::combat::passive::Game::named(&view.module.game)
+                    == crate::combat::passive::Game::Tsl;
+                let own = view.thing(who).is_some_and(|thing| thing.kind.is_none());
+                if let (Some(_), Ok(faction), false) =
+                    (self.character(who), u8::try_from(int(args, 1)), tsl && own)
+                {
                     self.out.changes.push(Change::Faction { who, faction });
                 }
                 Value::Int(0)
@@ -4920,7 +4937,14 @@ impl Engine<'_> {
                         self.out.statuses.push(StatusKind::Lost);
                     }
                     self.state.destroy_item(self.out, item);
-                } else if let Some(thing) = view.thing(item) {
+                } else if let Some(thing) = view.thing(item).filter(|thing| {
+                    !(thing.character.is_some() && self.state.kept.contains(&item.0))
+                }) {
+                    // A creature `SetIsDestroyable(FALSE)` keeps is not
+                    // destroyed: TSL's `CSWSCreature::EventHandler` passes
+                    // the destroy event over for one not destroyable
+                    // (506OND's `a_end_game` destroys Tobin's body, then
+                    // raises him for Kreia's scene) [verify in K1's exe].
                     self.out.changes.push(Change::Destroy {
                         who: item,
                         ms: seconds_ms(float(args, 1)),
@@ -5071,7 +5095,8 @@ impl Engine<'_> {
 
     /// Whether `id` is an object of the world, those made this step counted.
     fn exists(&self, id: ObjectId) -> bool {
-        self.view.thing(id).is_some() || self.out.made.iter().any(|made| made.id == id)
+        (self.view.thing(id).is_some() || self.out.made.iter().any(|made| made.id == id))
+            && !self.out.deleted.contains(&id)
     }
 
     /// Whether a script destroyed `id` this step (`DestroyObject` with no
@@ -5660,6 +5685,13 @@ impl Engine<'_> {
                     if let Some(slot) = self.state.party.available.get_mut(&npc) {
                         slot.object = None;
                     }
+                    // Deleted at once (`KillNPCObject`): the area's enter
+                    // script that sends the party to base then finds the
+                    // companion gone and makes it anew (403DXN's
+                    // `k_403_enter` on the return for the strike on the
+                    // tomb: `SpawnAvailableNPC` where `GetObjectByTag`
+                    // finds none).
+                    self.out.deleted.push(who);
                     self.out.changes.push(Change::fade_away(who, kind));
                 }
                 truth(sent.is_some())
@@ -5849,6 +5881,19 @@ pub(crate) fn local_number(game: &str, index: i32, value: i32) -> Option<i32> {
         rules::scripts::locals::K1_NUMBERS
     };
     (0..slots).contains(&index).then_some(value & 0xff)
+}
+
+/// Whether `game`'s objects keep local boolean `index`: K1's
+/// `rules::scripts::locals::K1_BOOLEANS` slots, TSL's `TSL_BOOLEANS` (both
+/// executables' var tables test the index unsigned, so one below 0 is past
+/// them too).
+pub(crate) fn local_boolean(game: &str, index: i32) -> bool {
+    let slots = if game == TSL {
+        rules::scripts::locals::TSL_BOOLEANS
+    } else {
+        rules::scripts::locals::K1_BOOLEANS
+    };
+    (0..slots).contains(&index)
 }
 
 /// Whose locals `id`'s are: an object's own; the module's and the

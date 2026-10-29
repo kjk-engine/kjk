@@ -297,6 +297,7 @@ pub(crate) fn proving_ground_named(name: &str) -> Level {
         personal_space: 0.0,
         strike: None,
         challenge: 0.0,
+        multiplier_set: 0,
         name: String::new(),
         inventory: Vec::new(),
         container: false,

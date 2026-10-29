@@ -111,8 +111,9 @@ exit TO_302NAR
 module 302nar
 say [Intimidate] If you're threatening me # the toll's thugs
 say No - you wanted a fight # the Exchange +1
-to exchthugs01
-talk
+to exchthugs01       # their trigger has the first thug come and talk; if he
+use ExchangeThug302_1 # wanders off before he reaches the Exile, the Exile
+talk                 # goes up to him (excthg1 either way)
 fight 30
 gone ExchangeThug302_1 # both dead: Aaida's way out clear
 gone ExchangeThug302_2

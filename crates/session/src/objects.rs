@@ -157,6 +157,7 @@ fn object(instance: &Instance, talk: Option<&Tlk>) -> ObjectData {
         personal_space: 0.0,
         strike: None,
         challenge: 0.0,
+        multiplier_set: 0,
         name: name(instance, talk),
         inventory: Vec::new(),
         container: instance.container == Some(true),

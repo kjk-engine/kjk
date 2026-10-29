@@ -23,18 +23,19 @@
 # - The squad is Visas Marr leading, Bao-Dur and Atton; the Exile and Kreia
 #   wait at the camp (403DXN_PARTY2_NPC1..3 = 9, 1, 0).
 # - Xarga's tomb talk (start 0) starts itself on entering: k_411_enter has
-#   xarga start a conversation. # UNSURE: it may wait for tr_intro_dlg.
+#   xarga start a conversation.
 # - sw_door and se_door ("Barrier", KeyRequired, not Locked) open to a use.
 # - The tomb door (sarc_door, locked, plot) opens to the east Ancient
 #   Terminal's lever (a_open_door).
 # - Xarga's last talk (start 1) comes at tr_leave_411 once the ritual is
-#   broken. # UNSURE: who starts it.
+#   broken: he starts it.
 # - Zuka's Basilisk talk starts itself in 403DXN (k_403_enter, the
 #   411DXN_Complete branch: Zuka to wp_basilisk_zuka, then his talk).
-# - a_to_iziz's party screen forces Kreia (NPC 6); Mandalore (2) is added
-#   (AddAvailableNPCByTemplate p_mand) and taken, as DSimpson does.
-#   # UNSURE: which of a_to_iziz's two ShowPartySelectionGUI calls runs
-#   (one forces 2, the other 6); `party 6,2` answers either.
+# - a_to_iziz's party screen forces Kreia (NPC 6); Mandalore (2) is taken
+#   with her, as DSimpson does (the strike squad, Atton, Bao-Dur and Visas
+#   Marr, is unselectable after the tomb: a_leave_411).
+#   a_to_iziz opens the screen forcing Kreia, then again forcing none;
+#   `party 6,2` answers both.
 # - a_to_iziz2 plays OndMov07 and starts 511OND at From_403DXN.
 talk                 # Xarga: the Tomb of Freedon Nadd (411xarga start 0)
 to tr_intro_dlg      # the Sith Captain and his sparring warriors (sithcapt)

@@ -899,10 +899,14 @@ fn ui_loot() {
 /// creature is here being that creature (`spawned_again_is_the_same`:
 /// Atton's warning on Nar Shaddaa), and `k_align_movie` run as the status
 /// summary closes (`summary_closed_runs_align_movie`: Visas Marr's
-/// arrival). The sim alone, on the proving ground.
+/// arrival), and each game's local boolean slots (K1's 96, TSL's 160:
+/// `local_booleans_k1`, `local_booleans_tsl`), and the player's own
+/// character kept out of `ChangeToStandardFaction` in TSL
+/// (`pc_faction_tsl`: Dxun's battle circle). The sim alone, on the proving
+/// ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 22);
+    probed("tsl", &sim::tsl_probes::probes(), 27);
 }
 
 /// The dead's remains (KOTOR's body bags; `sim::remains::probes`), owner
@@ -1373,11 +1377,12 @@ fn encounters_count_drivers() {
     probed("encounter count", &session::encounters::probes(), 3);
 }
 
-/// A death's XP read from either game's `xptable.2da` heading
-/// (`session::journal::probes`); no install.
+/// A death's XP read from either game's `xptable.2da` heading, and TSL's
+/// death XP as its executable works it out (`session::journal::probes`); no
+/// install.
 #[test]
 fn kill_xp_tables() {
-    probed("kill xp tables", &session::journal::probes(), 2);
+    probed("kill xp tables", &session::journal::probes(), 3);
 }
 
 /// Minigames in co-op (`docs/MINIGAMES.md`):

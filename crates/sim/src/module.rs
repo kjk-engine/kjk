@@ -220,6 +220,9 @@ pub struct ObjectData {
     /// A creature's `ChallengeRating`: the XP its death gives the party
     /// (`script::xp`); 0 for other kinds.
     pub challenge: f32,
+    /// A TSL creature's `MultiplierSet`: its `autobalance.2da` row (0 none),
+    /// which its death's XP rates by (`CRMod`) instead of `challenge`.
+    pub multiplier_set: u8,
     /// Its name as the game shows it (`GetName`): a creature's first and
     /// last names, another's localized name; empty for none.
     pub name: String,
@@ -509,6 +512,10 @@ impl ObjectData {
             out.string("challenge");
             out.f32(self.challenge);
         }
+        if self.multiplier_set != 0 {
+            out.string("balance");
+            out.u8(self.multiplier_set);
+        }
         if !self.inventory.is_empty() {
             out.string("items");
             out.u32(self.inventory.len() as u32);
@@ -646,6 +653,7 @@ impl ObjectData {
             personal_space: 0.0,
             strike: None,
             challenge: 0.0,
+            multiplier_set: 0,
             name: String::new(),
             inventory: Vec::new(),
             container: false,

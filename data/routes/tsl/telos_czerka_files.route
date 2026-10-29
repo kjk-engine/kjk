@@ -30,6 +30,9 @@ say All right. I'll be going now
 use 207_Falt
 talk
 save telos_falt
+to 3.0,-17.0         # out round the patrons by the bar's side (the walrusman and
+to 4.8,-22.0         # his neighbour, nudged into the way, can hem the player in
+                     # with Atton behind)
 exit d_Cantina_main  # to 082 East's B block: Opo Chano, who needs his
 module 202tel        # Czerka contract to pay an Exchange loan
 exit d_Suburban

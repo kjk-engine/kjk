@@ -148,12 +148,14 @@ pub(super) struct Tagged {
 /// Every object tagged `tag` (any case, `key`): the world's, then those
 /// made this step, as KOTOR's `CreateObject` makes one at once (Ahto's
 /// module load makes the arbiter its area's enter script then sends to the
-/// party; a DLG's speaker made by the node before).
+/// party; a DLG's speaker made by the node before); none deleted this step
+/// (`Out::deleted`).
 pub(super) fn tagged<'a>(
     view: &'a View,
-    made: &'a [Made],
+    out: &'a Out,
     tag: &str,
 ) -> impl Iterator<Item = Tagged> + 'a {
+    let made = &out.made;
     let tag = key(tag);
     let placed = view.things.iter().map(|thing| {
         let tagged = Tagged {
@@ -175,6 +177,7 @@ pub(super) fn tagged<'a>(
         .chain(made)
         .filter(move |(of, _)| *of == tag)
         .map(|(_, tagged)| tagged)
+        .filter(|tagged| !out.deleted.contains(&tagged.id))
 }
 
 /// The `nth` (from 1) nearest of `found` (distance, object), ties by id;
@@ -1702,6 +1705,12 @@ pub struct Out {
     pub worn_before: BTreeMap<u32, Vec<items::Worn>>,
     /// Objects scripts made this step, in id order from `View::next_id`.
     pub made: Vec<Made>,
+    /// Objects the executable deletes at once rather than as the step
+    /// ends, so no script or conversation finds them for the rest of it
+    /// (TSL's `RemoveNPCFromPartyToBase`: `CSWPartyTable::KillNPCObject`
+    /// deletes the companion's creature then and there). Their
+    /// `Change::Destroy` takes them out of the world.
+    pub deleted: Vec<ObjectId>,
     /// The minigame as this step's scripts left it, once one changed it
     /// (`script::minigame`): what they read from then on.
     pub minigame: Option<crate::minigame::Course>,

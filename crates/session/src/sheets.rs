@@ -329,6 +329,10 @@ fn creature(tables: &mut Tables, root: &GffStruct, object: &mut ObjectData) {
     };
     object.hit_points = hp("CurrentHitPoints").zip(hp("HitPoints"));
     object.challenge = root.float("ChallengeRating").unwrap_or(0.0);
+    object.multiplier_set = root
+        .uint("MultiplierSet")
+        .and_then(|set| u8::try_from(set).ok())
+        .unwrap_or(0);
     let talk = tables.source.talk();
     let named = |label| crate::objects::shown(&localized(root.get(label)), talk.as_deref());
     object.name = crate::objects::full_name(named("FirstName"), named("LastName"));
@@ -528,6 +532,7 @@ pub(crate) fn creature_template(tables: &mut Tables, template: &str) -> Option<O
         personal_space: 0.0,
         strike: None,
         challenge: 0.0,
+        multiplier_set: 0,
         name: String::new(),
         inventory: Vec::new(),
         container: false,
@@ -584,6 +589,7 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
         personal_space: 0.0,
         strike: None,
         challenge: 0.0,
+        multiplier_set: 0,
         name: crate::objects::shown(&localized(root.get("LocName")), talk.as_deref()),
         inventory: crate::items::held(tables, root, true),
         container: asset_odyssey::module::container(root) == Some(true),

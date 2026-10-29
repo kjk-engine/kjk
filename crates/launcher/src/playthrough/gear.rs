@@ -27,6 +27,34 @@ pub(super) fn other_weapon(world: &sim::SimWorld, snapshot: &Snapshot, ranged: b
         .map(|(_, item)| Action::Equip { item, slot: hand })
 }
 
+/// The template a route's `equip` names: `saber`, the strongest lightsaber
+/// the party carries or the player wears (by its damage's average, as its
+/// upgrades leave it: the treasure scripts' saber differs with the level
+/// the player has when they make it); any other word, that template.
+pub(super) fn named_item(world: &sim::SimWorld, snapshot: &Snapshot, named: &str) -> Option<String> {
+    if named != "saber" {
+        return Some(named.to_string());
+    }
+    let catalog = world.level().scripts()?.items();
+    let me = crate::cast::me(snapshot, Seat(0))?;
+    world
+        .script_state()
+        .items
+        .values()
+        .filter(|item| item.holder == sim::inventory::PARTY || item.holder == me.0)
+        .filter_map(|item| {
+            let facts = catalog.get(&item.template)?;
+            let weapon = facts.fitted(item.upgrades, &item.fitted, catalog).weapon?;
+            matches!(weapon.delivery, sim::combat::sheet::Delivery::Saber(_)).then_some(())?;
+            let twice_average = i32::from(weapon.dice) * (i32::from(weapon.die) + 1)
+                + i32::from(weapon.bonus_dice) * (i32::from(weapon.bonus_die) + 1)
+                + 2 * i32::from(weapon.damage_bonus);
+            Some((twice_average, item.template.clone()))
+        })
+        .max_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)))
+        .map(|(_, template)| template)
+}
+
 /// The dearest item the party carries that the store open to the player
 /// buys, sold to it: never a plot item nor what a player keeps to use
 /// (grenades, medpacs and the like; spikes, of the base items `kept`: the

@@ -16,7 +16,23 @@ and the enemy's challenge rating. Quests and conversations give experience
 as the story advances. In K1, level 2 requires 1,000 XP and level 20
 requires 190,000 XP.
 """
-detail = "Every gain or loss of experience is shown to every player."
+detail = """
+Every gain or loss of experience is shown to every player. In KOTOR II a
+defeated enemy's experience reads the row of the level the main character's
+experience reaches and the enemy's rating, each at most
+{progression.experience.tsl_most:bare}; an enemy scaled to the party rates
+as the main character's level when it appeared plus its scaling's change;
+the result is scaled by the game's experience percentage and rounded up.
+"""
+
+[experience.tsl_most]
+name = "KOTOR II Experience Table Limit"
+type = "usize"
+value = 30
+range = [1, 50]
+summary = "KOTOR II reads a defeated enemy's experience at level and challenge rating {progression.experience.tsl_most:bare} at most."
+source = "TSL's executable (CSWSCreature::CalculateDeathExperience: xptable.2da's row min(level - 1, 30), column min(rating + 1, 31) past `level`)"
+see = "sim::script::xp::Experience::tsl_kill"
 
 [levels]
 title = "Gaining a Level"

@@ -19,6 +19,8 @@ fight 30
 use 203_Moza         # Moza in the vivarium: his key to Chodo's office
 talk
 save telos_chodo_office
+to -26.5,-25.0       # off Moza's smuggled plant (his talk can leave the player
+                     # standing in its footprint, an island of the nav mesh)
 to Chodo_M_Return    # Chodo's office, opened with Moza's key: the
 talk                 # mercenaries holding him take us lightly, fought
 fight 30

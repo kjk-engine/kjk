@@ -19,7 +19,8 @@ use crate::{StepReason, TickInput};
 /// `DestroyObject` on it mid-fade changing nothing (its fade goes on to
 /// its end), its remains then standing where it lay: a
 /// placeable with no tag, named and drawn as its bag's row, holding the
-/// rifle, the medpac and the gold; the kept one stays and leaves nothing. A
+/// rifle, the medpac and the gold; the kept one stays, a `DestroyObject` on
+/// it refused, and leaves nothing. A
 /// save made then holds the remains and what they hold; the world loaded
 /// from it opens them, takes all, closes them, and they go. The player
 /// running through where the first lies leaves its body where it fell
@@ -213,8 +214,12 @@ fn creature(snapshot: &Snapshot, index: u32) -> Option<&EntityState> {
 }
 
 /// The death script that keeps its creature: `SetIsDestroyable(FALSE)`;
-/// and one destroying the fallen one (`DestroyObject(GetObjectByTag(
-/// "fallen"))`), run as its body fades.
+/// and one destroying the fallen one and the kept one
+/// (`DestroyObject(GetObjectByTag(..))`), run as the fallen one's body
+/// fades: the kept one is not destroyed (TSL's `CSWSCreature::EventHandler`
+/// passes `EVENT_DESTROY_OBJECT` over for a creature not destroyable, so
+/// 506OND's `a_end_game` destroys Tobin's body and finds him still there to
+/// raise for Kreia's scene) [verify in K1's exe].
 fn keeping_script() -> crate::script::Library {
     use fmt_odyssey::ncs::{Const, Op};
     const CATALOG: &str = r#"
@@ -235,18 +240,20 @@ object GetObjectByTag(string sTag, int nNth=0);
     })
     .op(Op::Retn);
     let mut destroy = script_ncs::probes::Asm::default();
-    destroy
-        .op(Op::Const(Const::Int(0)))
-        .op(Op::Const(Const::String(b"fallen".to_vec())))
-        .op(Op::Action {
-            routine: 2,
-            args: 2,
-        })
-        .op(Op::Action {
-            routine: 1,
-            args: 1,
-        })
-        .op(Op::Retn);
+    for tag in [&b"fallen"[..], b"kept"] {
+        destroy
+            .op(Op::Const(Const::Int(0)))
+            .op(Op::Const(Const::String(tag.to_vec())))
+            .op(Op::Action {
+                routine: 2,
+                args: 2,
+            })
+            .op(Op::Action {
+                routine: 1,
+                args: 1,
+            });
+    }
+    destroy.op(Op::Retn);
     crate::probe::library(
         CATALOG,
         [

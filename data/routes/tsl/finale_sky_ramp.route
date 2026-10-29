@@ -1,0 +1,74 @@
+# Onderon, the ruined Merchant Quarter and the Sky Ramp (TSL, 511OND,
+# 504OND, 506OND): the Basilisk landed among Vaklu's troops (the
+# Royalist soldier's alarm), the troops fought, Captain Bostuco's word that
+# the Sky Ramp is overrun and Talia, Kavar and Kadron's scene in the
+# Palace; up the Sky Ramp: the first platform's troopers, the barracks
+# retaken (the Royalist Sergeant sends two men after the Exile), the Turret
+# Control Tower's door [Security]ed, its console: Bostuco's access code,
+# the lower force shield deactivated; the troopers at the shield told to surrender, Bostuco on
+# the second shield, the fleeing cowards let go ("I will not harm you if
+# you leave now"), the damaged upper shield bashed through with the saber,
+# the Sith Lords and turrets at the top, into the Royal Palace.
+# Starts from the Basilisk's landing:
+#   kjk playthrough tsl @onderon_civil_war data/routes/tsl/finale_sky_ramp.route --god
+# Walkthrough: DSimpson's "Onderon Civil War" and "The Sky Ramp";
+# GameBanshee 48 and 51 (context/walkthroughs/tsl/).
+# Left: the tower's turret (term_acc's "Control the turret.", 505OND: five
+# of its eight fighters stop at their tracks' last keys, out of the gun's
+# reach, so the minigame never ends; SKIPPED.md), the barracks' lockers and
+# workbench, the power conductors (xterm1, xterm2: they blow up on the
+# party).
+#
+# ASSUMES:
+# - The party is the Exile, Kreia and Mandalore (finale_sith_tomb).
+# - Bostuco's scenes in 511OND (cs_tal_3 starts 1, 2, 3) play at
+#   tr_cs_tal_3; Bostuco then runs ahead to the Sky Ramp.
+# - 511OND's To_504 links From_510OND, which 504OND does not have: the
+#   arrival falls back on 504OND's entry (78.7, 16.2), by From_502OND.
+# - door_tower is Locked (OpenLockDC 28, no key): the Exile's Security.
+# - term_acc start 0 (c_local_notset and c_global_eq) offers Bostuco's code;
+#   once in, "Deactivate forceshield barrier." (a_kill_barrier).
+# - ffield_upper (KeyRequired, Locked; Hardness 125: a permanent damage
+#   resistance of 125 against every damage type but base damage,
+#   CSWSDoor::PostProcess) stays up on the Queen's side (a_kill_barrier
+#   opens it only for Vaklu's); Bao-Dur, whose blow opens it
+#   (a_ffield_baodur), is on Dxun, so the saber bashes it, Bostuco's way:
+#   a blow worth more than its hardness (--mighty's).
+say The Mandalorian exploits have left a profound impact # ro_sold, Mandalore
+talk                 # "A Basilisk? A Basilisk here?" (k_511_enter)
+to tr_cs_tal_3       # Bostuco; Talia, Kavar and Kadron in the Palace (cs_tal_3)
+talk                 # (its last lines: "This way, this way to the Sky Ramp!")
+fight 40             # Vaklu's troops in the Merchant Quarter
+exit To_504
+module 504ond
+to tr_trooper1       # ro_trp1: "A Jedi... here? Men, attack!"
+talk
+fight 40
+use door_barrack     # the barracks (k_barrack_open)
+fight 30
+use RepSold          # ro_brck: "Hold your fire, they're with us!"; two follow
+unlock door_tower    # the Turret Control Tower ([Security], DC 28)
+use door_tower
+fight 30             # the tower's troops
+say Enter Bostuco's access code. # term_acc start 0
+say Deactivate forceshield barrier.
+use term_acc
+to tr_trooper2       # ro_trp2 at the lower shield
+say Surrender now. Why lose your life for General Vaklu's ambitions?
+talk
+fight 40
+to tr_bost_2         # Bostuco: the second force shield, damaged
+talk
+fight 40             # the mines and the ramp's troopers
+say I will not harm you if you leave now. # ro_trp3: the cowards let go
+to tr_trooper3
+talk
+fight 40             # the Sith Lord who cut them down, his line
+bash ffield_upper    # the damaged upper force shield, by the saber (Bostuco's "bash
+                     # your way through it"; its Hardness a resistance of 125)
+fight 40
+to tr_officer_3      # the top platform: Sith Lords and turrets
+fight 40
+exit To_506
+module 506ond
+save onderon_royal_palace
