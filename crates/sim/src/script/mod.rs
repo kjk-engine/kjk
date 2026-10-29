@@ -3490,6 +3490,9 @@ fn make_npc(
         if let Some(career) = state.careers.remove(&kept.from) {
             state.careers.insert(id.0, career);
         }
+        if let Some(points) = state.unspent.remove(&kept.from) {
+            state.unspent.insert(id.0, points);
+        }
         if let Some(xp) = state.xp.remove(&kept.from) {
             state.xp.insert(id.0, xp);
         }

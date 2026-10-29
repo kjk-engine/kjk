@@ -1139,11 +1139,12 @@ pub(super) fn planned(
     let avatar = snapshot.own(Seat(0))?;
     let sheet = avatar.sheet?;
     let classes = world.level().scripts()?.classes();
-    let career = world
-        .script_state()
+    let state = world.script_state();
+    let career = state
         .careers
         .get(&avatar.id.0)
         .cloned()
         .unwrap_or_else(|| vec![(class, sheet.level)]);
-    classes.planned(&sheet, &career, class, plan)
+    let banked = state.unspent.get(&avatar.id.0).copied().unwrap_or(0);
+    classes.planned(&sheet, &career, class, plan, banked)
 }

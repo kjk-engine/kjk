@@ -1,0 +1,11 @@
+# The sim's hash moves on purpose: the skill points a level leaves unspent
+# are kept for the next, which adds its own to them (both games' level-up
+# stats, TSL's `CSWCLevelUpStats::AddSkillPointsPerLevel`), so a companion
+# whose class order is spent keeps its last points instead of losing them.
+sim = "skill points left unspent at a level are kept for the next"
+
+[formats]
+save = "the script state keeps the skill points each character left unspent (`State::unspent`)."
+
+[migrations]
+save = "old saves read no points unspent: every level spent or lost them all"

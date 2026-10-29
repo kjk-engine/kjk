@@ -36,7 +36,7 @@ The **kind** tags are:
 - [ ] `side` **The Handmaiden duels and sparring** at the academy.
 - [ ] `side` **Kreia's and Atton's influence talks.**
 - [ ] `skill` **The Czerka console's [Computer] option** never appeared.
-- [ ] `skill` **Corrun Falt** is persuaded down to 500 credits ("If Lorso's dirty", Persuade over 4), but the first check ("Of course not", over 10) fails: the chain's level 5 Exile has Persuade 10, so he is still paid.
+- [ ] `skill` **Corrun Falt** is persuaded down to 500 credits ("If Lorso's dirty", Persuade over 4), but the first check ("Of course not", over 10) fails: the chain's level 5 Exile has Persuade 10, so he is still paid. kjk's check is TSL's: `c_sc_per_gt` asks `GetSkillRank` over its parameter, and the exe's `CSWSCreatureStats::GetSkillRank` totals the ranks, the ability, items, effects and the Empathy line's best tier (+1, +2, +3). Persuade is the first of exile.build's order at its most every level, and its reasons buy Charisma 14 and raise it from the twelfth level only, so the build keeps it: faithful to this Exile.
 - [ ] `skill` **Atris's Persuade** fails at the chain's ranks (still the Light Path).
 - [ ] `choice` **The bay doors:** only "Come with me" with Bao-Dur and Kreia was played; the other party choices weren't.
 - [ ] `choice` **The Exchange's and Czerka's dark side or mercenary paths** on Citadel Station, and the Ithorians betrayed.
@@ -52,7 +52,7 @@ The **kind** tags are:
 - [ ] `skill` **The sensor surveillance branch** (Computer, Awareness).
 - [ ] `skill` **Ralon's holocron:** both light-side ways need Awareness 4, which the Sentinel now has (10 by the Enclave); the route still leaves it.
 - [ ] `skill` **The protocol droids, conduits and storage overload** in the Enclave sublevel.
-- [ ] `skill` **Jorran's Persuade:** "I saved your life" asks Persuade over 11, the chain's Exile has 11 there; he is paid.
+- [ ] `skill` **Jorran's Persuade:** "I saved your life" asks Persuade over 11, the chain's Exile has 11 there; he is paid. As Corrun Falt's: the check and the total are the exe's, and exile.build's Persuade is at its most.
 - [ ] `feature` **The landing pad's "Plasteel Cylinder{Med, Blast}":** DSimpson mines it open, and kjk can set mines on doors only.
 - [ ] `side` **The pazaak Ithorian.**
 - [ ] `side` **Nallek.**
@@ -84,7 +84,7 @@ The **kind** tags are:
 - [x] `feature` **Visas's ambush on the Ebon Hawk:** it plays at the start of nar_shaddaa_landing now (GetNPCSelectability's -1 for a companion not in the party table).
 - [x] `blocker` **nar_shaddaa_zez:** Zez-Kai Ell teaches the Sentinel's next form (`a_give_form`, Ataru after Vrook's Shien) and his scene opens the safe house's door, so the route walks out through it (nar_shaddaa_zez, no `goto`).
 - [x] `feature` **`G_PC_LEVEL`** follows the XP the party gains (TSL's `ReceiveExperience`), so `a_give_quest_ls` gives Visas's part as the game's treasure for the Exile's level (a short lightsaber, nar_shaddaa_landing).
-- [ ] `feature` **Visas's joining conversation is cut short** after the Handmaiden's line, because the game's own `a_next_scene` destroys the owner (VisasCut), so the lightsaber-part notice and the second `a_next_scene` never play. Check in the exe whether a conversation talks on after its owner is destroyed.
+- [x] `feature` **Visas's joining conversation ends at the Handmaiden's line**, as in TSL: that line's `a_next_scene` (parameter 1) spawns Visas, resets the Ebon Hawk and destroys its owner VisasCut at once. TSL's exe keeps a conversation on its owner (`CSWSObject::StartDialog`, the main loop's `UpdateDialog` on the owner), and `DestroyObject`'s event deletes a destroyable creature that is not the player's or the party's whatever it is doing (`CSWSCreature::EventHandler`), its conversation with it. So the lightsaber-part notice (the part is given at "My lightsaber... you have destroyed it", `a_give_quest_ls`) and R176's second `a_next_scene` are never reached in the game either. Probe `owner_destroyed_cut_short` (`talk ends`).
 - [ ] `side` **Goto's yacht:** the plasteel containers and the sentry droids' scavenging.
 - [ ] `side` **Goto's yacht:** T3-M4's combat upgrade, the Reset program and the lab station.
 - [ ] `choice` **The yacht hub scene's G0-T0 line** (Mira's plays instead).
@@ -154,7 +154,7 @@ milestone's PR moves them here.
 - [x] `feature` **The chain plays a created Jedi Exile** (`exile.build`, chain.flags): TSL's creation of a light-side Sentinel, levelled by the build's plan; the masters teach their forms (Vrook, Zez-Kai Ell).
 - [ ] `feature` **Prestige classes** are not reached: Kreia offers one (`c_pc_prestige`, `a_pc_jedi`'s `AddMultiClass`) from level 15; with kill XP the chain's Exile reaches 15 on Korriban, and the offer is not taken yet. The engine side is there (the class taken up unlevelled with the next level's XP, its powers from its own `spells.2da` column); a route for it waits for the later planets.
 - [ ] `choice` **Kreia's influence at Azkul's offer:** "I cannot allow your plans to succeed" (dantooine_vrook) costs Kreia 8; the other light-side way through his job offer is not checked.
-- [ ] `feature` **Unspent skill points:** TSL's level-up keeps them for later; kjk's spends them (the build's plan puts what is left in the class's order).
+- [x] `feature` **Unspent skill points** are kept for the next level, which adds its own to them (TSL's `CSWCLevelUpStats::AddSkillPointsPerLevel`; K1 saves them as TSL does, the creature's `SkillPoints`): `State::unspent`, `Classes::take`. exile.build's `bank` keeps what its skill order cannot spend, so Repair's rank waits for the point a level before left, and Demolitions, last in its order, takes the rest (Korriban's `c_sc_dem_gt`, over 5), not Stealth. Probe `unspent skill points kept` (`player_creation`).
 - [ ] `choice` **The dark side playthrough,** start to end.
 - [ ] `choice` **A female Exile:** the Disciple joins, not the Handmaiden.
 - [ ] `choice` **Influence-gated content:** each companion's high and low influence talks, and the Jedi trainings (Atton, Bao-Dur, Mira, Handmaiden/Disciple, Visas).

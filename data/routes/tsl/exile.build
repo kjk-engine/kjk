@@ -27,7 +27,7 @@ abilities 10 12 12 16 12 14
 # The first level's 24 points: the five class skills the story checks at 4
 # (the most a first level allows), and Repair, a cross-class skill at two
 # points a rank, at its most of 2 (Peragus's and Dantooine's droids and
-# terminals). Stealth and Demolitions are left: no route needs them.
+# terminals). Stealth and Demolitions are left at the first level.
 skills computer=4 awareness=4 persuade=4 security=4 treat=4 repair=2
 # The first level's one feat: Empathy, more Persuade, Awareness and Treat
 # Injury.
@@ -36,10 +36,15 @@ feats EMPATHY
 # Each level-up spends its points in this order, each skill to the most its
 # level allows before the next: Persuade first (the most conversations and
 # influence), then Awareness, Computer Use, Security, Repair (when its
-# cross-class most rises, every other level) and Treat Injury. What is left
-# goes in the class's own order (kjk does not keep unspent points over as
-# TSL's level-up screen can).
-skill-order persuade awareness computer security repair treat
+# cross-class most rises, every other level) and Treat Injury, then
+# Demolitions (cross-class too) for Korriban's vision of Dxun's minefield
+# ("[Demolitions] Let me go first", c_sc_dem_gt: over 5) and its mines.
+# What is left is kept for the next level, as TSL's level-up screen keeps
+# unspent points: the odd point of a level whose Repair most did not rise
+# buys the next level's rank, and none goes to Stealth (the class's order
+# would put it there), which no route needs.
+skill-order persuade awareness computer security repair treat demolitions
+bank
 # Feats as the Sentinel's levels offer them: Gear Head (Computer Use,
 # Repair, Security), then each tier of Empathy and Gear Head as it opens,
 # Toughness between; after these the class's recommended.
