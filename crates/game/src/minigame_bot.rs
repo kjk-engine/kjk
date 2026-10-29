@@ -32,12 +32,25 @@ const BUOY_ROOM_M: f32 = 2.0;
 const WALL_ROOM_M: f32 = 1.0;
 /// How near a thing in the way a TSL race's swoop jumps (metres).
 const JUMP_AHEAD_M: f32 = 12.0;
+/// How far ahead a TSL race's driver looks, at least, in the seconds the
+/// swoop takes to get there: a pad, a buoy, the jump (its swoop tops
+/// 200 m/s, where the metres above are a fraction of a second; the jump's
+/// by the world's distance to the thing's box, measured on Telos's track:
+/// later or sooner, the swoop comes down on the walls).
+const PAD_AHEAD_S: f32 = 2.0;
+const BUOY_AHEAD_S: f32 = 1.2;
+const JUMP_AHEAD_S: f32 = 0.1;
 /// How fast the swoop is steered toward where it heads (a second, per
 /// metre off), at most (metres a second).
 const STEER_GAIN: f32 = 2.0;
 const STEER_MAX: f32 = 30.0;
+/// The share of its gear's top speed a TSL race's swoop shifts at.
+const TOPPED_OUT: f32 = 0.97;
 /// How near the aim must be to fire (degrees).
 const ON_TARGET_DEG: f32 = 4.0;
+
+/// A box: its middle and half its size along each axis.
+type Box3 = ([f32; 3], [f32; 3]);
 
 /// The global the race's script keeps its gear in (below 0 in the
 /// countdown).
@@ -84,7 +97,12 @@ pub fn race(rules: &Rules, course: &Course, gear: i32, now_ms: u64) -> Command {
         return command;
     };
     let mover = &course.movers[0];
-    if (0..5).contains(&gear) && pressed(now_ms) {
+    // A TSL race's shift counts only once the gear's speed is reached: one
+    // pressed early only sets the gear's slower acceleration again
+    // (`onaccelerate`), so the driver shifts as the gear tops out, as a
+    // player watches the meter fill (the first gear at once).
+    let topped = !rules.tsl || gear == 0 || mover.speed >= mover.max_speed * TOPPED_OUT;
+    if (0..5).contains(&gear) && topped && pressed(now_ms) {
         command.buttons |= buttons::ATTACK;
     }
     let track = rules.player.path.at(mover.track);
@@ -103,12 +121,19 @@ pub fn race(rules: &Rules, course: &Course, gear: i32, now_ms: u64) -> Command {
         (world_at, track[0])
     };
     let ahead = |y: f32, reach: f32| y > at[1] + 4.0 && y < at[1] + reach;
+    let reach = |metres: f32, seconds: f32| {
+        if rules.tsl {
+            metres.max(mover.speed * seconds)
+        } else {
+            metres
+        }
+    };
     // The nearest pad ahead, else the middle of the track.
     let pad = (1..rules.followers())
         .filter(|&n| rules.enemies[n - 1].trigger && course.movers[n].alive)
         .filter_map(|n| course.position(rules, n))
         .map(frame)
-        .filter(|there| ahead(there[1], PAD_AHEAD_M))
+        .filter(|there| ahead(there[1], reach(PAD_AHEAD_M, PAD_AHEAD_S)))
         .min_by(|a, b| a[1].total_cmp(&b[1]));
     let mut heading = pad.map_or(centre, |pad| pad[0]);
     // The nearest buoy in the way (a TSL race's mines too): round it on
@@ -121,7 +146,8 @@ pub fn race(rules: &Rules, course: &Course, gear: i32, now_ms: u64) -> Command {
         .filter(|&n| rules.tsl && !rules.enemies[n - 1].trigger && course.movers[n].alive)
         .filter_map(|n| {
             let radius = course.movers[n].radius;
-            Some((frame(course.position(rules, n)?), [radius; 3]))
+            let world = course.position(rules, n)?;
+            Some(((frame(world), [radius; 3]), (world, [radius; 3])))
         });
     // A box in the frame: its corners' bounds there (K1's as it is).
     let framed = |centre: [f32; 3], extent: [f32; 3]| {
@@ -145,28 +171,43 @@ pub fn race(rules: &Rules, course: &Course, gear: i32, now_ms: u64) -> Command {
             [0, 1, 2].map(|i| (high[i] - low[i]) / 2.0),
         )
     };
-    let blocks: Vec<([f32; 3], [f32; 3])> = rules
+    // Each thing in the way: its box in the frame, and in the world.
+    let blocks: Vec<(Box3, Box3)> = rules
         .obstacles
         .iter()
         .zip(&course.stills)
         .filter(|(_, still)| !still.gone)
-        .map(|(obstacle, _)| framed(obstacle.centre, obstacle.extent))
+        .map(|(obstacle, _)| {
+            let (centre, extent) = framed(obstacle.centre, obstacle.extent);
+            ((centre, extent), (obstacle.centre, obstacle.extent))
+        })
         .chain(mines)
         .collect();
     let in_way = blocks
         .iter()
-        .filter(|([x, y, z], extent)| {
+        .filter(|(([x, y, z], extent), _)| {
             let room = extent[0] + mover.radius + BUOY_ROOM_M;
             // A TSL race meets only what lies at the swoop's height.
             let level = !rules.tsl || (at[2] - z).abs() <= extent[2] + mover.radius;
-            ahead(y + extent[1], BUOY_AHEAD_M) && (heading - x).abs() < room && level
+            // A TSL race's swoop, near the tunnel's walls, also meets what
+            // stands where it is now (the pillars along the sides).
+            let near = (heading - x).abs() < room || rules.tsl && (at[0] - x).abs() < room;
+            ahead(y + extent[1], reach(BUOY_AHEAD_M, BUOY_AHEAD_S)) && near && level
         })
-        .min_by(|a, b| a.0[1].total_cmp(&b.0[1]));
-    if let Some(&(centre_of, extent)) = in_way {
+        .min_by(|a, b| a.0.0[1].total_cmp(&b.0.0[1]));
+    if let Some(&((centre_of, extent), (world, world_extent))) = in_way {
         let x = centre_of[0];
         let room = extent[0] + mover.radius + BUOY_ROOM_M;
-        // Close, and the swoop on the ground: over it (a TSL race's jump).
-        if rules.tsl && centre_of[1] - at[1] < JUMP_AHEAD_M && mover.offset[2] <= 2.0 {
+        // Close, and the swoop on the ground: over it (a TSL race's jump),
+        // timed by how far its box is in the world (the frame's distances
+        // bend with the track's curve).
+        let gap = [0, 1, 2]
+            .map(|i| ((world[i] - world_at[i]).abs() - world_extent[i]).max(0.0))
+            .iter()
+            .map(|d| d * d)
+            .sum::<f32>()
+            .sqrt();
+        if rules.tsl && gap < reach(JUMP_AHEAD_M, JUMP_AHEAD_S) && mover.offset[2] <= 2.0 {
             command.up = 127;
         }
         let (left, right) = (x - room, x + room);
