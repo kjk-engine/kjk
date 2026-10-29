@@ -9,17 +9,15 @@
 #   kjk playthrough tsl @dxun_return data/routes/tsl/dxun_return.route --god
 # Walkthrough: DSimpson's "Dxun, Finale (For Now)"
 # (context/walkthroughs/tsl/).
-# Left: Mandalore's back room (locked_door: three boxes, MilHighMetalBox,
-# MilMidMetalBox@1 and @3, and CivilBagStrap@3; DSimpson says it may be
-# searched now), the assassins' remains about the camp.
+# Left: the assassins' remains about the camp.
 #
 # ASSUMES:
 # - Mandalore (NPC 2) a companion from here on (a_set_return), Mira in
 #   the party.
-# - UNSURE: mand_cs2 starts by itself as the shuttle lands (k_403_enter,
+# - mand_cs2 starts by itself as the shuttle lands (k_403_enter,
 #   502OND_End_First set) and Atton's part (a_atton_mandcs2,
 #   a_destroy_atton) plays out in it.
-# - UNSURE: Kelborn is spawned in Mandalore's room as npc_kelborn (the
+# - Kelborn is spawned in Mandalore's room as npc_kelborn (the
 #   403DXN template's tag, not 402DXN's "kelborn"); his start 1
 #   (c_post_403) asks no reply.
 # - The guide (man_guide, manguide.dlg) takes the party to 401DXN
@@ -30,6 +28,11 @@ say Where are the other clans?
 talk
 use npc_kelborn      # Kelborn in charge (start 1)
 talk
+unlock locked_door   # Mandalore's back room ([Security], DC 28; DSimpson:
+use g_tresmilhig004  # he won't care now): its three metal boxes and the bag
+use g_tresmilmid004@1
+use g_tresmilmid004@3
+use g_trescivil002@3
 say =Let's go.       # the Mandalorian guide
 use man_guide
 talk

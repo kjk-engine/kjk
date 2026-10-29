@@ -125,10 +125,11 @@ see = "sim::script::dialogue"
 title = "Who Says a Line"
 summary = """
 A line naming a speaker is said by the character nearest the conversation's
-owner with that tag, within {dialogue.speakers.reach_m:bare} meters. When no
-one with that tag is there (a companion not in the party), the line is passed
-over before its condition is checked, and the conversation takes the next
-line instead.
+owner with that tag, within {dialogue.speakers.reach_m:bare} meters; in TSL
+one a script has flagged with SetForceAlwaysUpdate is found however far off
+(a throne room shown from across the city). When no one with that tag is
+there (a companion not in the party), the line is passed over before its
+condition is checked, and the conversation takes the next line instead.
 """
 
 [speakers.reach_m]
