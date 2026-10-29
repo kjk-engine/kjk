@@ -289,9 +289,6 @@ const SETTLED_STEPS: u32 = 2;
 const HELD_GOALS: u64 = 9;
 /// How many stalls a walk with no body in its way takes before it backs off.
 const LOST_STALLS: u8 = 8;
-/// How many stalls a chase with a gun in hand takes before it shoots from
-/// where it stands, its foe in sight and range.
-const RANGED_LOST_STALLS: u8 = 2;
 
 /// What a run starts from and how long each goal may take.
 pub struct Options {

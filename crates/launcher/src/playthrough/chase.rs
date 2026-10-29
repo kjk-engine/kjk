@@ -127,10 +127,7 @@ impl Chase {
         // shooting from past the dormitories' wreckage, its way blocked):
         // shot from here, a gun taken up for it, as a player would.
         let (_, routable) = reach.ways(here, player, (id, at), now);
-        // A gun in hand needs no way, only sight: it gives up the walk
-        // sooner (Telos's tank droid shot from past the bay's barrels).
-        let gives_up = if ranged { RANGED_LOST_STALLS } else { LOST_STALLS };
-        if walker.as_ref().is_some_and(|w| w.stalls > gives_up) {
+        if walker.as_ref().is_some_and(|w| w.stalls > LOST_STALLS) {
             self.lost = Some(id);
         }
         let far_shot = (!routable || self.lost == Some(id)) && seen && d <= GUN_M;
