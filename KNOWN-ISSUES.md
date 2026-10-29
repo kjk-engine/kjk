@@ -9,6 +9,11 @@ story, or anything much worse than described ([`CONTRIBUTING.md`](CONTRIBUTING.m
 - The rest of KOTOR 1 is only checked by an automated playthrough: it can be finished, but may look or play wrong.
 - KOTOR II is played only as far as Peragus.
 - Co-op is far less tested than single player.
+- A co-op guest's remote droid is new: its camera does not look up or down,
+  its HUD buttons have no icons yet, and its shots have no bolt or ring of
+  their own. Fights the scripts end themselves that no protection covers
+  (`kjk remote census k1|tsl`, the `[verify]` rows: 23 in K1, 17 in TSL)
+  are checked only by `kjk chain k1 --droids chaos`; TSL past Peragus not at all.
 
 ## Looks
 

@@ -1,6 +1,6 @@
 # The remote droid: a seat for every guest (design, 2026-10-29)
 
-Status: approved by the owner 2026-10-29. Nothing is built.
+Status: approved by the owner 2026-10-29; built on claude/remote-droid (rulings in its plan ledger: no `Kind::Remote`, the droid is a world resource).
 
 ## Why
 
