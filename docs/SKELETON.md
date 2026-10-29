@@ -24,7 +24,8 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   from a slerped turn pulled joints off by the chord: the dual set's left
   shoulder a metre from the chest, its upper arm 1.2 m long, for JA's
   hilts and blade overlay (the drawn body takes rotations only and never
-  showed it). The sim's skeleton (`sim::skeleton::turn`) mixes its own.
+  showed it), and the sim's blades, whose skeleton (`sim::skeleton::turn`)
+  mixes the same way.
 - `kjk play --trace` writes JA's shoulders, elbows and wrists
   (`rig::JA_ARMS`, `ja_*` columns) beside the drawn arm nodes, in the same
   world frame.

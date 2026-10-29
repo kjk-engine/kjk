@@ -963,6 +963,9 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   them.
 - Status:     fixed (owner policy 2026-10-01, CHARACTER-LOOK): the sim turns
   frames and blends as `asset_ja::g2` does, with `sim::math`'s trigonometry.
+  Each joint stays on its parent as the lerped matrix keeps it (2026-10-29):
+  its place is lerped and the translation taken from the arc's turn; a
+  translation lerped alone tore the dual set's left arm to 1.2 m mid-step.
 - Ours:       `sim::skeleton::turn`, docs/SKELETON-SIM.md
 - Evidence:   `kjk sim skeleton`: the sim is the renderer within 0.0005
   units on frames, between frames and blending (before: 30 and 114);
