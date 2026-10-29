@@ -5,7 +5,9 @@
 //! level of its class taken from nothing (`levels::Classes::take`, the
 //! rules a level-up follows): the class's hit die and CON modifier, its
 //! attack, saves and defence, the feats the class grants, the feats picked
-//! (the game's picks for those left unpicked), the skill ranks bought. It
+//! (the game's picks for those left unpicked), the skill ranks bought, and
+//! the feats TSL's creation grants a player besides (`Class::pc_granted`:
+//! `CSWGuiFeatsCharGen::InitiateFeats` asks `AddGrantedFeats` for them). It
 //! knows no powers: neither game's creation offers them (TSL's Jedi first
 //! level would pick two, `classpowergain.2da`; its creation screens have no
 //! such step and its character is saved knowing none). It wears and holds
@@ -80,7 +82,17 @@ pub fn sheet(
         powers: Vec::new(),
         ..classes.complete(&unmade, &none, &creation.choices)
     };
-    classes.take(&unmade, &none, &choices).ok_or(Refused::Level)
+    let (mut sheet, career) = classes
+        .take(&unmade, &none, &choices)
+        .ok_or(Refused::Level)?;
+    let of = &classes.classes[usize::from(choices.class)];
+    for &feat in &of.pc_granted {
+        if !sheet.feats.has(feat) {
+            sheet.feats.insert(feat);
+            crate::combat::passive::learn(&mut sheet, feat, 0);
+        }
+    }
+    Ok((sheet, career))
 }
 
 /// A character of `abilities` and `faction` before its first level: level

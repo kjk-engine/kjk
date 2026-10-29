@@ -1,8 +1,8 @@
 # Dantooine, the Khoonda Plains and Khoonda (TSL, 003EBO, 601DAN, 602DAN):
 # the galaxy map to Dantooine, Bao-Dur on the Exile's lightsaber, ashore
 # with Bao-Dur and Kreia (DSimpson: Bao-Dur for the sensors); Dillan's
-# greeting, the battered droid (no Awareness, Computer or Repair to see it
-# is broken: asked through), the landing pad's containers (one locked,
+# greeting, the battered droid ([Computer] diagnosed, [Repair]ed, and the
+# mechanic [Persuade]d the Exile is no Jedi), the landing pad's containers (one locked,
 # Bao-Dur's Security; the "{Blast}" cylinder is left shut, see below), into
 # Khoonda: Suulru's vaporator (helped), Administrator Adare (the Ebon Hawk
 # owned, the Force's guidance, Vrook to be found first: the sublevel's
@@ -19,7 +19,7 @@ party 1,6            # Bao-Dur and Kreia
 to tr_leave          # the ramp: the party screen, accepted
 module 601dan
 talk                 # Dillan's greeting off the ship
-use olddroid         # the battered protocol droid, asked through
+use olddroid         # the battered protocol droid: its diagnostic and repair
 talk
 use MilLowPlstcCylin@2 # the landing pad's cylinders
 use MilLowPlstcCylin@3

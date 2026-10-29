@@ -5,7 +5,8 @@
 //! class takes of the portrait, level 1, the hit die and CON modifier, the
 //! skill points spent (K1's half of the class's and the INT modifier, TSL's
 //! whole, times 4), the feats its first level grants, no powers, and the
-//! globals a new game sets (TSL's `G_PC_LEVEL`, `G_PC_Align_Val`). A game
+//! globals a new game sets (TSL's `G_PC_LEVEL`, `G_PC_Align_Val`), and
+//! TSL's player feats and its powers open from level 0. A game
 //! not installed is skipped.
 
 use std::sync::Arc;
@@ -34,6 +35,9 @@ const GAMES: [Creations; 2] = [
         ["po_pmha01", "po_pfha01"],
     ),
 ];
+
+/// `spells.2da`'s Force Push.
+const FORCE_PUSH: u16 = 23;
 
 /// `portraits.2da`'s body column a class takes (`persona::build`).
 fn body_column(class: u8) -> &'static str {
@@ -130,6 +134,12 @@ fn made(installer: &Installer, module: &str, (class, portrait): (u8, &str)) -> R
         .filter(|(level, _)| *level == 1)
         .map(|(_, feat)| *feat)
         .collect();
+    // TSL's player feats granted besides (`_pc_granted`), and a power its
+    // `spells.2da` column opens at level 0 (Force Push) among those its
+    // levels may pick.
+    let pc_granted = of_class.pc_granted.iter().all(|feat| sheet.feats.has(*feat))
+        && (!whole || !of_class.pc_granted.is_empty());
+    let push = !whole || of_class.powers.contains(&(0, FORCE_PUSH));
     let powers = (0..sim::combat::sheet::Rows::<5>::ROWS)
         .filter(|power| sheet.powers.has(*power))
         .count();
@@ -148,7 +158,7 @@ fn made(installer: &Installer, module: &str, (class, portrait): (u8, &str)) -> R
     let facts = format!(
         "appearance {} (portrait's {body}), level {}, hp {} ({hp}), skills {:?} spent {spent} \
          of {points}, granted {granted:?} known {}, {powers} powers, G_PC_LEVEL {:?}, \
-         G_PC_Align_Val {:?}",
+         G_PC_Align_Val {:?}, player feats {pc_granted}, Force Push {push}",
         persona.appearance,
         sheet.level,
         sheet.max_hp,
@@ -164,7 +174,9 @@ fn made(installer: &Installer, module: &str, (class, portrait): (u8, &str)) -> R
             && spent_right(spent)
             && granted.iter().all(|feat| sheet.feats.has(*feat))
             && powers == 0
-            && told,
+            && told
+            && pc_granted
+            && push,
         facts,
     )
 }

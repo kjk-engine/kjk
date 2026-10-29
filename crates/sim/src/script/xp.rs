@@ -103,6 +103,31 @@ pub fn holder(view: &View, state: &State, who: ObjectId) -> u32 {
     }
 }
 
+/// The global TSL's scripts read the player's level from.
+pub const PC_LEVEL: &str = "G_PC_LEVEL";
+
+/// XP the party gains is the player's character's too (TSL's
+/// `CSWSCreature::ReceiveExperience`, for its player character): it tells
+/// the campaign's scripts the level that XP reaches, its own and each after
+/// it the XP is enough for (`CSWSCreatureStats::GetPotentialLevel`), in
+/// `G_PC_LEVEL` where the global catalogue declares it (K1's does not; a
+/// module with none, any).
+/// Read by the quest rewards and random loot (`a_give_quest_ls`,
+/// `k_inc_treas_k2`).
+pub(crate) fn tell_pc_level(library: &Library, view: &View, state: &mut State) {
+    let declared = super::engine::declared(view.module, PC_LEVEL, crate::module::Global::Number);
+    let level = view
+        .party
+        .first()
+        .and_then(|pc| view.thing(*pc))
+        .and_then(|thing| thing.character)
+        .map(|character| character.worn.level);
+    if let (true, Some(level)) = (declared, level) {
+        let reached = library.classes().potential_level(level, state.xp(PARTY));
+        super::state::set_global(&mut state.numbers, PC_LEVEL, i32::from(reached));
+    }
+}
+
 impl State {
     /// `holder`'s XP.
     pub fn xp(&self, holder: u32) -> i32 {
@@ -165,6 +190,7 @@ impl Engine<'_> {
                     } else {
                         self.out.reward(self.state, amount);
                     }
+                    tell_pc_level(self.library, self.view, self.state);
                 } else {
                     self.state.give_xp(holder, amount);
                 }
@@ -179,6 +205,7 @@ impl Engine<'_> {
                 let share = i64::from(xp) * i64::from(int(args, 1)) / 100;
                 let share = share.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
                 self.out.story_xp(self.state, share);
+                tell_pc_level(self.library, self.view, self.state);
                 Value::Int(0)
             }
             _ => {

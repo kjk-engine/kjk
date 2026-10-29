@@ -9,7 +9,7 @@ use crate::combat::sheet::races;
 use crate::creation::{self, Creation, Refused};
 use crate::input::{Command, Seat, TickInput};
 use crate::inventory::{Catalog, ItemFacts, PARTY, slots};
-use crate::levels::{Choices, Class, Classes, Needs, SKILLS};
+use crate::levels::{Choices, Class, Classes, Needs, Plan, SKILLS};
 use crate::persona::{self, FEMALE, MALE, Persona};
 use crate::probe::{Checks, check};
 use crate::script::{MODULE, Pending};
@@ -21,6 +21,8 @@ const GRANTED: u16 = 5;
 const RECOMMENDED: u16 = 10;
 const PICKED: u16 = 11;
 const NEEDS_PICKED: u16 = 12;
+/// The feat TSL's creation grants a player besides (`Class::pc_granted`).
+const PC_GRANTED: u16 = 13;
 /// The made character's persona's appearance and portrait.
 const APPEARANCE: u16 = 95;
 const PORTRAIT: u16 = 2;
@@ -37,6 +39,7 @@ fn classes() -> Classes {
         feat_picks: vec![1; 20],
         power_picks: vec![0; 20],
         granted: vec![(1, GRANTED)],
+        pc_granted: vec![PC_GRANTED],
         feats: vec![RECOMMENDED, PICKED, NEEDS_PICKED],
         class_skills: std::array::from_fn(|skill| skill < 4),
         skill_order: (0..SKILLS as u8).collect(),
@@ -47,8 +50,8 @@ fn classes() -> Classes {
         ..Needs::default()
     };
     Classes {
-        classes: vec![class],
-        levels: vec![0, 1000],
+        classes: vec![class.clone(), class],
+        levels: vec![0, 1000, 3000, 6000],
         needs: [(NEEDS_PICKED, needs)].into(),
         ..Classes::default()
     }
@@ -189,6 +192,17 @@ pub fn creation() -> Checks {
         check(refusals == expected, format!("{refusals:?}")),
     ));
 
+    checks.push((
+        "TSL's creation grants the class's player feats besides",
+        check(
+            first
+                .as_ref()
+                .is_ok_and(|(sheet, _)| sheet.feats.has(PC_GRANTED)),
+            format!("{first:?}"),
+        ),
+    ));
+    checks.push(planned(&classes));
+
     let mut world = world(Vec::new(), "", Catalog::default());
     let made_world = world.create(&made(vec![PICKED]));
     let after = step(&mut world, None);
@@ -216,6 +230,96 @@ pub fn creation() -> Checks {
         check(refused.is_err(), format!("{refused:?}")),
     ));
     checks
+}
+
+/// A build's plan picks a level before the class's order: its skills
+/// first (the level's 2 points all on the first), its feat, its ability at the fourth level; the game's picks
+/// (`auto`) are the plan left empty.
+fn planned(classes: &Classes) -> (&'static str, Result<String, String>) {
+    let made = creation::sheet(classes, &made(vec![PICKED]), 2);
+    let Ok((sheet, career)) = made else {
+        return ("a level-up's planned picks", Err(format!("{made:?}")));
+    };
+    let plan = Plan {
+        skills: vec![3, 2],
+        feats: vec![NEEDS_PICKED],
+        powers: Vec::new(),
+        abilities: vec![4],
+    };
+    let picked = classes.planned(&sheet, &career, 0, &plan);
+    let auto = classes.auto(&sheet, &career, 0);
+    let fourth = crate::combat::Sheet { level: 3, ..sheet };
+    let raised = classes
+        .planned(&fourth, &career, 0, &plan)
+        .and_then(|c| c.ability);
+    (
+        "a level-up's planned picks: the plan's skills and feat first, its ability at the fourth level",
+        check(
+            picked.as_ref().is_some_and(|c| {
+                c.skills[3] == 2
+                    && c.skills[2] == 0
+                    && c.skills[0] == 0
+                    && c.feats == [NEEDS_PICKED]
+            }) && auto
+                .as_ref()
+                .is_some_and(|c| c.skills[0] == 1 && c.feats == [RECOMMENDED])
+                && raised == Some(4),
+            format!("{picked:?}, the game's {auto:?}, the fourth level raises {raised:?}"),
+        ),
+    )
+}
+
+/// The script `probe_xp`: `GiveXPToCreature(GetFirstPC(), 500)`, then
+/// `AddMultiClass(1, GetFirstPC())`.
+fn xp_script() -> (Vec<(&'static str, fmt_odyssey::ncs::Ncs)>, &'static str) {
+    use fmt_odyssey::ncs::{Const, Op};
+    const CATALOG: &str = r#"
+// 0
+object GetFirstPC();
+// 1
+void GiveXPToCreature(object oCreature, int nGiveXPAmount);
+// 2
+void AddMultiClass(int nClassType, object oSource);
+"#;
+    let call = |routine: u16, args: u8| Op::Action { routine, args };
+    let mut asm = script_ncs::probes::Asm::default();
+    asm.op(Op::Const(Const::Int(500)))
+        .op(call(0, 0))
+        .op(call(1, 2))
+        .op(call(0, 0))
+        .op(Op::Const(Const::Int(1)))
+        .op(call(2, 2))
+        .op(Op::Retn);
+    (vec![("probe_xp", asm.build())], CATALOG)
+}
+
+/// TSL's player levels as its executable keeps them: XP the party gains
+/// tells the scripts the level it reaches (`G_PC_LEVEL`,
+/// `CSWSCreature::ReceiveExperience`), and `AddMultiClass` gives the player
+/// the class with no levels and the party the XP its next level asks
+/// (`ExecuteCommandAddMultiClass`), so the next level-up is of that class.
+pub fn levels_told() -> Checks {
+    let (scripts, catalog) = xp_script();
+    let mut world = world(scripts, catalog, Catalog::default());
+    let made = world.create(&made(vec![PICKED]));
+    let mut state = world.script_state().clone();
+    state.pending.push(Pending::new("probe_xp", MODULE));
+    world.set_script_state(state);
+    let after = step(&mut world, None);
+    let state = world.script_state();
+    let level = crate::script::global(&state.numbers, crate::script::xp::PC_LEVEL).copied();
+    let xp = state.xp(PARTY);
+    let career = after
+        .body(Seat(0))
+        .and_then(|me| state.careers.get(&me.id.0))
+        .cloned();
+    vec![(
+        "XP received tells G_PC_LEVEL its level; AddMultiClass gives the class unlevelled and the next level's XP",
+        check(
+            made.is_ok() && level == Some(2) && xp == 1000 && career == Some(vec![(0, 1), (1, 0)]),
+            format!("{made:?}: G_PC_LEVEL {level:?}, XP {xp}, career {career:?}"),
+        ),
+    )]
 }
 
 /// The script `probe_persona`, setting custom tokens: 1 `GetGender`, 2

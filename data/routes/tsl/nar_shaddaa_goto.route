@@ -89,8 +89,11 @@ fight 30
 leader 7             # Mira at the head: Goto's mines do not see her
 to 351_Mine_Dlg      # Goto activates the mines
 talk
-fight 30
+leader player        # the Exile leads the fight: the Sentinel's sixth
+fight 30             # level's Force Immunity (stun) holds against the
+                     # sentry droid's stun ray, which keeps Mira stunned
 use g0t0droid@27     # the mine codes
+leader 7
 to 351_Hub_Dlg       # the command centre
 talk
 fight 30             # the droids behind the minefield

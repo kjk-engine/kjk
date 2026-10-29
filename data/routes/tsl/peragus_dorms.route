@@ -14,14 +14,19 @@ exit To_105PER       # into the dormitories' airlock
 fight 20             # the two droids past it
 use MilLowPlstcCylin # its plasteel container
 fight 25             # the droids and the cold turrets
-# The shift console offers this Exile no [Repair] or [Computer] (no ranks
-# in either), so DSimpson's third way: [Destroy] it to open the dormitory
-# door (250 XP); the dormitories stay full of gas.
-say Destroy the console
+# The shift console, DSimpson's way: [Repair] rerouted with a part, through
+# the camera controls the east dormitory's ventilation shut with a spike
+# [Computer], and the dormitories' lockdown ended (the door opens).
+say Reroute the main console system
+say Access remote camera controls
+say Dormitory East
+say Shut down the dormitory ventilation
+say Return to main functions
+say End dormitory emergency lockdown
+say Log out
 use ShiftConsole
 talk
-gone ShiftConsole    # the Exile strikes the console until it breaks: the
-to WP_GASDEATH5      # dormitory door opens; into the east dormitory
+to WP_GASDEATH5      # into the east dormitory, its gas shut off
 fight 25             # the droids in the dormitory halls
 use Refresher        # the second room's refresher: the mine foreman's log
 say insert mine foreman hololog # the log terminal: the foreman's entry,

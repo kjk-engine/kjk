@@ -69,8 +69,14 @@ pub fn due(library: &super::Library, state: &State, view: &View) -> bool {
 
 impl super::engine::Engine<'_> {
     /// `AddMultiClass`: `who` takes up `class` (a player becoming a Jedi on
-    /// Dantooine) with a level in it at once, the game's picks [verify: the
-    /// level-up screen the game shows then].
+    /// Dantooine, TSL's Exile a prestige class) with no levels in it yet
+    /// (`CSWSCreatureStats::AddClass`). A player's party is given the XP
+    /// its next level asks (TSL's `ExecuteCommandAddMultiClass`:
+    /// `DistributeExperience` of `GetExpNeededForLevelUp` less its XP; K1's
+    /// [verify in the exe]), so its next level-up is of the new class; a
+    /// companion, whose XP is the party's, takes a level in it at once with
+    /// the game's picks, as TSL's auto level-up does after the XP it gives
+    /// it.
     pub(super) fn multiclass(&mut self, who: ObjectId, class: Option<u8>) {
         let classes = self.library.classes();
         let Some((class, character)) = class.zip(self.view.thing(who).and_then(|t| t.character))
@@ -82,8 +88,18 @@ impl super::engine::Engine<'_> {
         if career.iter().any(|(had, _)| *had == class) {
             return;
         }
-        // Taken up with no levels yet: the level is its first.
         career.push((class, 0));
+        if self.view.party.contains(&who) {
+            self.report
+                .line(format!("#{} takes up class {class} ({career:?})", who.0));
+            self.state.careers.insert(who.0, career);
+            let needed = classes.next(sheet.level).unwrap_or(0) - self.state.xp(PARTY);
+            if needed > 0 {
+                self.out.reward(self.state, needed);
+                super::xp::tell_pc_level(self.library, self.view, self.state);
+            }
+            return;
+        }
         if let Some(choices) = classes.auto(&sheet, &career, class)
             && let Some((after, career)) = classes.take(&sheet, &career, &choices)
         {
