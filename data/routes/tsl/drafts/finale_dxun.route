@@ -1,0 +1,77 @@
+# Dxun, the strike on the Sith camp (TSL, 003EBO, 401DXN, 403DXN, 410DXN):
+# the galaxy map to Dxun on Kelborn's message, ashore with Kreia and Visas
+# Marr, the Mandalorian guide to the camp; Kelborn's news (Kavar's message,
+# Vaklu's coup on Iziz, Kreia on the transmissions from the jungle) and the
+# party split: Visas Marr leads the jungle strike with Bao-Dur and Atton,
+# the Exile and Kreia kept for Iziz; the Jungle Tomb played as Visas
+# (a_to_tomb, k_410_enter's SwitchPlayerCharacter): Xarga, the perimeter
+# sensor not bothered with, the mines and the Sith camp, the turret ramp's
+# waves, the lieutenant and the two Sith Lords past the tomb doors, and
+# into Freedon Nadd's tomb.
+# Starts from Korriban's last checkpoint (aboard, Kelborn's message heard):
+#   kjk playthrough tsl @korriban_done data/routes/tsl/finale_dxun.route --god
+# Walkthrough: DSimpson's "Onderon Finale" and "The Dxun Jungle Tomb";
+# GameBanshee 49 (context/walkthroughs/tsl/).
+# Left: the perimeter sensor (stealth, Bao-Dur's codes, a detonation pack),
+# the Turret and Droid Power Generators ([Repair]), the Sith camp's Security
+# Terminal ("Foothold": [Computer], 10 spikes), its footlocker and metal box,
+# the minefield's recovery.
+#
+# ASSUMES:
+# - The save stands in 003EBO after t3kelbrn (korriban_sion plays it:
+#   "Thanks T3...", Kavar's message, so 403DXN_Return_Trigger is set).
+#   # UNSURE: if the message is still owed, a `talk` before `use Galaxymap`.
+# - The Queen's side (500OND_DarkSide_Iziz 0), Mandalore (NPC 2) joined on
+#   the first Dxun visit, Visas Marr (9), Bao-Dur (1), Atton (0) selectable.
+#   # UNSURE: Kreia's selectability after Korriban (701KOR's OnEnter took it
+#   away there); the party screen offers whom the table holds.
+# - Kelborn's arrival talk starts itself (k_403_enter, the finale branch
+#   that spawns the companions at wp_end_* and has npc_kelborn start his
+#   conversation). # UNSURE: which of kelborn's starts plays (4: Tobin's,
+#   5: Kavar's); both end at the same leader pick.
+# - The split's replies are only there for companions selectable
+#   (c_cnpc_check reads GetNPCSelectability), so Visas, Bao-Dur and Atton
+#   must be; Kreia is never offered.
+# - 410DXN: the player is Visas (SwitchPlayerCharacter to
+#   403DXN_PARTY2_NPC1), Bao-Dur and Atton spawned at sp_cnpc2/3.
+#   # UNSURE: the harness's player seat follows the switch (see finale.md).
+# - 410DXN's way into 411DXN: To_411 links From_410DXN, but 411DXN's
+#   waypoint of template from_410dxn is tagged From_231TEL_D, so the
+#   arrival falls back on 411DXN's entry (-0.2, 25.8), the same spot.
+use Galaxymap
+travel 1             # Dxun (planetary.2da)
+party 6,9            # Kreia and Visas Marr ashore
+to tr_leave          # the ramp: the party screen, accepted
+module 401dxn
+say Let's go to your camp.
+use man_guide        # the Mandalorian guide by the Hawk (k_401enter, WP_MANSPAWN)
+module 403dxn        # a_guide2_camp
+say Visas Marr would be ideal for the the job. # (sic) the strike's leader
+say =Bao-Dur.        # "who else will accompany the expedition?"
+say =Atton.          # "And who else?"
+say Yes, I'm certain.
+say I'm ready. They should head out now.
+talk                 # Kelborn: Kavar's message, the civil war, the split
+module 410dxn        # a_to_tomb: the party cleared, From_403DXN
+talk                 # Xarga: "Finally, we're close to our objective" (k_410_enter)
+say We shouldn't even bother with the sensor # no stealth in the squad
+to tr_relay_conv     # Xarga: "Hold a moment. Past the mines..." (start 1)
+talk
+fight 40             # the mines, the sensor's Sith Elite Troopers
+to tr_sith_camp      # the camp: troopers, grenadiers, chain gun turrets
+fight 40
+to tr_wave1          # the ramp: the turrets and war droids, wave by wave
+fight 40
+to tr_wave2
+fight 40
+to tr_wave3
+fight 40
+to tr_wave4@1
+fight 40
+use tomb_door@1      # the Sith Lieutenant and his soldier
+fight 30
+use tomb_door@2      # the two Sith Lords
+fight 30
+exit To_411
+module 411dxn
+save dxun_sith_tomb
