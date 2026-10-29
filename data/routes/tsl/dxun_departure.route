@@ -24,7 +24,7 @@
 #   Mandalore forced, its exit a_to_iziz2 to 501OND).
 # - Party for Onderon: Mandalore (NPC 2, forced) and Mira (NPC 7),
 #   DSimpson's light-side pick (Mira's bounty hunters and Anda lines).
-equip g_w_lghtsbr01  # the saber in hand
+equip saber          # the saber in hand
 say Have I proven myself yet? # (four tests: the hub says so itself)
 say I'm ready to go now. # a_open_door, a_mand_cs1
 say Let's go.
@@ -36,10 +36,10 @@ party 2,7            # Mandalore (forced) and Mira
 to tr_sith_att_1     # the Sith assassins (sith_att): Zuka's alarm
 talk
 fight 40
-if in 403dxn         # the lower camp's assassins (DSimpson: don't forget
-to tr_sith_att_2     # them; k_403_hb waits for its tr_sith_att's word),
-fight 30             # unless they came up to the hall's fight and fell
-end                  # there, the call already made:
+if in 403dxn         # still in camp (the hall's fight may chase down the
+to tr_sith_att_2     # lower camp's too): the lower camp's assassins
+fight 30             # (DSimpson: don't forget them; k_403_hb waits for its
+end                  # tr_sith_att's word):
 module 501ond        # Mandalore's call to Iziz and the party screen come
                      # as the last falls, the throne room and his word on
                      # Iziz as the shuttle lands
