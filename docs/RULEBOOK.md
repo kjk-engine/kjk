@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `8ea24ec7f410316c`.
+Edition `2b8d7d9772757b9a`.
 
 ## Contents
 
@@ -253,6 +253,8 @@ Edition `8ea24ec7f410316c`.
   - [Decks](#pazaak-deck)
   - [Sets](#pazaak-sets)
   - [Opponent](#pazaak-opponent)
+- [The Remote Droid](#remote)
+  - [Launching](#remote-launch)
 - [Scripts](#scripts)
   - [Script Checks](#scripts-answers)
   - [Conversation](#scripts-talk)
@@ -8942,6 +8944,33 @@ The opponent stands at a total of 18 or more.
 Against a player who stands, the opponent accepts a tie at a total of 17 or more.
 
 <sub>Source: ours. Code: `sim::pazaak::game::Match::choice`.</sub>
+
+## <a id="remote"></a>The Remote Droid
+
+In co-op, a player with no party member to play flies a remote droid, like
+Bao-Dur's remote. It can't be hurt or seen. It opens nothing and talks to
+no one, and no script ever counts it. It hovers near the party and helps a
+little: a weak shot, a sonic shove and a stim dart.
+
+A droid is made for a player the moment the party has no one free for
+them, and docks as soon as one is free. Saves never hold one.
+
+### <a id="remote-launch"></a>Launching
+
+A droid launches from the body its player just let go, else just behind
+the party's leader.
+
+<a id="remote-launch-lift-m"></a>**Launch Height** = **1.5 m** · `remote.launch.lift_m`
+
+A droid launches 1.5 meters above the body it leaves.
+
+<sub>Source: Ours. Code: `sim::world::remote::launch`.</sub>
+
+<a id="remote-launch-behind-m"></a>**Launch Distance Behind** = **1 m** · `remote.launch.behind_m`
+
+With no body to launch from, a droid appears 1 meters behind the party's leader.
+
+<sub>Source: Ours. Code: `sim::world::remote::launch`.</sub>
 
 ## <a id="scripts"></a>Scripts
 

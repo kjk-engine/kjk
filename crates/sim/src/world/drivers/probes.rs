@@ -246,7 +246,10 @@ fn ground() -> Result<(Level, [u32; 2]), String> {
 /// companions in the party following seat 0, as `AddPartyMember` leaves
 /// them (made again from its snapshot and script state, as a save loads):
 /// the world, its level and the companions' ids in the party's order.
-fn party_world(guests: Guests, seats: u8) -> Result<(SimWorld, Level, [SimId; 2]), String> {
+pub(in crate::world) fn party_world(
+    guests: Guests,
+    seats: u8,
+) -> Result<(SimWorld, Level, [SimId; 2]), String> {
     party_on(ground()?, guests, seats)
 }
 
@@ -898,7 +901,11 @@ fn command(forward: i8) -> Command {
 }
 
 /// One step of 8 ms with a command for each of `seats` (seat, forward).
-fn run_as(world: &mut SimWorld, seats: &[(u8, i8)], reason: StepReason) -> Snapshot {
+pub(in crate::world) fn run_as(
+    world: &mut SimWorld,
+    seats: &[(u8, i8)],
+    reason: StepReason,
+) -> Snapshot {
     let mut input = TickInput::default();
     for &(seat, forward) in seats {
         input.insert(Seat(seat), command(forward));
@@ -907,13 +914,17 @@ fn run_as(world: &mut SimWorld, seats: &[(u8, i8)], reason: StepReason) -> Snaps
     crate::step(world, tick, &input, 8, reason)
 }
 
-fn run(world: &mut SimWorld, seats: &[(u8, i8)]) -> Snapshot {
+pub(in crate::world) fn run(world: &mut SimWorld, seats: &[(u8, i8)]) -> Snapshot {
     run_as(world, seats, StepReason::Authority)
 }
 
 /// `id`'s fight and movement changed between steps, as a script or a blow
 /// would change them.
-fn poke(world: &mut SimWorld, id: SimId, change: impl Fn(&mut Fighter, &mut MotionState)) {
+pub(in crate::world) fn poke(
+    world: &mut SimWorld,
+    id: SimId,
+    change: impl Fn(&mut Fighter, &mut MotionState),
+) {
     let mut actors = world.world.query::<(&Id, &mut Fighting, &mut Player)>();
     for (who, mut fighting, mut player) in actors.iter_mut(&mut world.world) {
         if who.0 == id {
@@ -922,7 +933,9 @@ fn poke(world: &mut SimWorld, id: SimId, change: impl Fn(&mut Fighter, &mut Moti
     }
 }
 
-fn scripts_of(world: &mut SimWorld) -> Mut<'_, super::super::scripts::Scripts> {
+pub(in crate::world) fn scripts_of(
+    world: &mut SimWorld,
+) -> Mut<'_, super::super::scripts::Scripts> {
     world.world.resource_mut::<super::super::scripts::Scripts>()
 }
 

@@ -1163,6 +1163,9 @@ pub struct Snapshot {
     pub departing: Vec<Departing>,
     /// The in-game screens as scripts leave them (`Screens`).
     pub screens: Screens,
+    /// The seats' remote droids, by seat (`crate::remote`): made again each
+    /// step, never saved.
+    pub remotes: Vec<crate::remote::Remote>,
     pub(crate) shared: SimRng,
     pub(crate) authority: SimRng,
     pub(crate) next_id: u32,
@@ -1678,6 +1681,7 @@ impl Snapshot {
             out.u32(going.fade_ms);
         }
         self.screens.encode(out);
+        crate::remote::encode(&self.remotes, out);
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -1804,6 +1808,11 @@ impl Snapshot {
             });
         }
         let screens = Screens::decode(&mut input)?;
+        let remotes = if input.since(crate::since::snapshot::REMOTE_DROID) {
+            crate::remote::decode(&mut input)?
+        } else {
+            Vec::new()
+        };
         let stash = match stash {
             Some(stash) => stash.clone(),
             None => Stash::read(&mut input)?,
@@ -1845,11 +1854,17 @@ impl Snapshot {
             visuals,
             departing,
             screens,
+            remotes,
             shared,
             authority,
             next_id,
             seats_held,
         })
+    }
+
+    /// `seat`'s remote droid, if it flies one.
+    pub fn remote(&self, seat: Seat) -> Option<&crate::remote::Remote> {
+        self.remotes.iter().find(|remote| remote.seat == seat)
     }
 }
 

@@ -149,6 +149,8 @@ impl Save {
         })?;
         let mut snapshot = self.snapshot.clone();
         snapshot.seats_held = self.seats_for(seats);
+        // The world makes its droids again (`crate::remote`).
+        snapshot.remotes.clear();
         crate::containers::let_go(&mut snapshot, level);
         if let Some(tick) = tick {
             snapshot.tick = tick;
@@ -186,7 +188,15 @@ impl Save {
         out.u32(self.hz);
         out.u32(crate::pack::VERSION);
         self.level.write(&mut out);
-        out.section(&self.snapshot.encode());
+        // A save holds no droid (`crate::remote`).
+        let snapshot = if self.snapshot.remotes.is_empty() {
+            self.snapshot.encode()
+        } else {
+            let mut grounded = self.snapshot.clone();
+            grounded.remotes.clear();
+            grounded.encode()
+        };
+        out.section(&snapshot);
         let mut script = Writer::default();
         self.script.encode(&mut script);
         out.section(&script.0);

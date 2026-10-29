@@ -1,0 +1,38 @@
+[chapter]
+title = "The Remote Droid"
+order = 82
+summary = """
+In co-op, a player with no party member to play flies a remote droid, like
+Bao-Dur's remote. It can't be hurt or seen. It opens nothing and talks to
+no one, and no script ever counts it. It hovers near the party and helps a
+little: a weak shot, a sonic shove and a stim dart.
+"""
+detail = """
+A droid is made for a player the moment the party has no one free for
+them, and docks as soon as one is free. Saves never hold one.
+"""
+
+[launch]
+title = "Launching"
+summary = """
+A droid launches from the body its player just let go, else just behind
+the party's leader.
+"""
+
+[launch.lift_m]
+name = "Launch Height"
+value = 1.5
+unit = "m"
+range = [0, 5]
+summary = "A droid launches {remote.launch.lift_m:bare} meters above the body it leaves."
+source = "Ours"
+see = "sim::world::remote::launch"
+
+[launch.behind_m]
+name = "Launch Distance Behind"
+value = 1.0
+unit = "m"
+range = [0, 5]
+summary = "With no body to launch from, a droid appears {remote.launch.behind_m:bare} meters behind the party's leader."
+source = "Ours"
+see = "sim::world::remote::launch"

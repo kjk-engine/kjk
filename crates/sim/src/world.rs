@@ -64,6 +64,7 @@ mod history;
 pub mod item_uses;
 pub mod locks;
 pub mod objects;
+pub mod remote;
 pub mod uses;
 pub use history::REWIND_MS;
 pub(crate) mod covert;

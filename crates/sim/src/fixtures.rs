@@ -261,6 +261,8 @@ pub const LEFT_AT_START: &[&str] = &[
     "snapshot.ready",
     "snapshot.departing",
     "snapshot.authority",
+    // Never saved: the world makes the droids again (`crate::remote`).
+    "snapshot.remotes",
     // Need a module's sounds, a conversation, a minigame, pazaak,
     // a map, scripts' visuals.
     "snapshot.area_sound",
@@ -350,6 +352,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         visuals: _,
         departing: _,
         screens: _,
+        remotes: _,
         shared: _,
         authority: _,
         next_id: _,
@@ -358,7 +361,8 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         tick, time_ms, place, entities, transition, stash, area_sound, fade,
         world_fade_in, video_effect, talk, goods, spawned, progress, personas,
         seats_held, lost, in_combat, paused_by, ready, kept, leading, minigame,
-        pazaak, explored, visuals, departing, screens, shared, authority, next_id,
+        pazaak, explored, visuals, departing, screens, remotes, shared, authority,
+        next_id,
     );
     let State {
         numbers: _,

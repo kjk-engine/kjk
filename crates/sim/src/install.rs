@@ -546,6 +546,8 @@ pub(crate) fn assemble(
         // The party table's map carries on; the next snapshot tells the new
         // area's return button.
         screens: before.screens,
+        // The droids are made again by the party in the new area.
+        remotes: Vec::new(),
         // An arrival is never lost.
         lost: None,
         // A new area: no fight, no break, no proposal (`world::party`).

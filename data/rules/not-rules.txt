@@ -405,6 +405,9 @@ crates/sim/src/pazaak/mod.rs LAST  # the last card's number (the cards' table)
 crates/sim/src/persona.rs FEMALE  # gender.2da row
 crates/sim/src/persona.rs GENDERS  # gender.2da's last row
 crates/sim/src/persona.rs MALE  # gender.2da row
+crates/sim/src/remote.rs KIT_BOLT  # an index into a droid's cooldowns
+crates/sim/src/remote.rs KIT_DART  # an index into a droid's cooldowns
+crates/sim/src/remote.rs KIT_SONIC  # an index into a droid's cooldowns
 crates/sim/src/replay.rs VERSION  # format version
 crates/sim/src/rng.rs GOLDEN_64  # the generator's constant (SplitMix64)
 crates/sim/src/rng.rs MULTIPLIER  # the generator's constant (PCG)

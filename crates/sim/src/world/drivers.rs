@@ -123,6 +123,8 @@ pub(super) fn assign(world: &mut World) {
     // and playing no player of its own, spoke this step; one body a seat.
     let mut keeping: Vec<Seat> = Vec::new();
     let mut released = Vec::new();
+    // The seats that let a body go, for their droids to launch from it.
+    let mut freed: Vec<(Seat, Entity)> = Vec::new();
     // The seats whose creatures left the party, in seat order.
     let mut benched: Vec<Seat> = Vec::new();
     for member in &mut members {
@@ -141,6 +143,7 @@ pub(super) fn assign(world: &mut World) {
                 benched.push(seat);
             }
             member.driver = None;
+            freed.push((seat, member.entity));
             // Why the seat let it go, for its conversation (R12): one the
             // host now leads it through goes on, the host's.
             let why = if member.dead {
@@ -207,6 +210,14 @@ pub(super) fn assign(world: &mut World) {
     }
     kept.sort_by_key(|kept| kept.seat);
     world.resource_mut::<Kept>().0 = kept;
+    let launched = freed
+        .into_iter()
+        .filter_map(|(seat, entity)| {
+            let origin = world.get::<Player>(entity)?.0.origin;
+            Some((seat, crate::math::scale(origin, collision::UNIT)))
+        })
+        .collect();
+    world.resource_mut::<super::remote::Launched>().0 = launched;
     // A released body's conversation is interrupted, its match paused or
     // ended and its trade ended (R12) in the step's dialogue and pazaak
     // passes.
@@ -241,6 +252,6 @@ pub(super) fn assign(world: &mut World) {
 }
 
 #[cfg(feature = "probes")]
-mod probes;
+pub(in crate::world) mod probes;
 #[cfg(feature = "probes")]
 pub use probes::probes;
