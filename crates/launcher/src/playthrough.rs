@@ -1379,7 +1379,12 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 met = true;
                             } else if let Some((index, at)) = found {
                                 let data = here.facts(index);
-                                let at = Here::use_point(me.position, at, data.as_deref());
+                                // A blow is an attack, made at the thing
+                                // itself, not a use.
+                                let at = match goal {
+                                    Goal::Bash(_) => at,
+                                    _ => Here::use_point(me.position, at, data.as_deref()),
+                                };
                                 let d = flat(at, me.position);
                                 cannot = data.as_ref().and_then(|data| {
                                     let state = object_of(&here, index);
