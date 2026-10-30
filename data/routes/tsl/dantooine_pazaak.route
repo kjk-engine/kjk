@@ -9,8 +9,11 @@
 # GameBanshee's Khoonda Plains).
 # Starts from the Khoonda Plains' checkpoint:
 #   kjk playthrough tsl @dantooine_plains data/routes/tsl/dantooine_pazaak.route --god
-# The party's own credits carry his table (250 a game, 1000 lost at the
-# armor game), its losses paid from what it won.
+# The party's own credits carry his table (250 a game), its losses paid
+# from what it won.
+# BLOCKER: they do not carry the armor game after two losses (1000 each;
+# the bot plays the opponents' own AI and loses about half), so a stand-in
+# brings the credits for it (SKIPPED.md).
 say Do you have any cards I could buy?
 use npc_pato
 talk
@@ -29,6 +32,7 @@ say Let's play another game. # his end script starts the talk again
 talk
 pazaak
 end
+gold 10000           # the stand-in (BLOCKER above)
 while npc_pato.b45=0 # the armor game, until won
 say Let's play for the armor components.
 say Let's play then.

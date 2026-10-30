@@ -8,8 +8,9 @@
 # BLOCKER: the party's own credits on Telos's first cantina visit do not
 # carry Doton Het's 1000-credit wager game after a loss (the main line
 # keeps them for Falt, and the loot a player would sell for more is kept
-# for later), so a stand-in brings them (SKIPPED.md).
-gold 3000
+# for later), so a stand-in brings them (SKIPPED.md): enough for a run of
+# losses, as the bot plays the opponents' own AI and loses about half.
+gold 10000
 say I want to race.  # the swoop master: the entry fee talked down
 say [Persuade] That's a little steep # ([Persuade] over 6)
 say Don't worry, I will
