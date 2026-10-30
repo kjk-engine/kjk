@@ -689,7 +689,7 @@ pub fn probes() -> Checks {
     ] {
         checks.push((name, local_booleans(game, wanted)));
     }
-    for (name, game, wanted) in [("pc_faction_k1", "k1", "1"), ("pc_faction_tsl", "tsl", "0")] {
+    for (name, game, wanted) in [("pc_faction_k1", "k1", "0"), ("pc_faction_tsl", "tsl", "0")] {
         checks.push((name, pc_faction(game, wanted)));
     }
     for (name, game, wanted) in [
@@ -759,11 +759,9 @@ fn local_booleans(game: &str, wanted: [&str; 6]) -> Result<String, String> {
 }
 
 /// The player's own character moved to Hostile 1 by
-/// `ChangeToStandardFaction`: K1 moves it [verify in K1's exe]; TSL's
-/// executable passes over a creature whose stats are a PC's (its
-/// `ExecuteCommandChangeToStandardFaction` tests `CSWSCreatureStats`'s PC
-/// flag), so the Exile stays in the player's faction after Dxun's battle
-/// circle.
+/// `ChangeToStandardFaction`: neither executable moves it (K1's and TSL's
+/// `ExecuteCommandChangeFaction` test `CSWSCreatureStats`'s PC flag first),
+/// so the Exile stays in the player's faction after Dxun's battle circle.
 fn pc_faction(game: &str, wanted: &str) -> Result<String, String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
