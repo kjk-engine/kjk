@@ -102,13 +102,17 @@ pub(super) fn fire(
             fighter.shooting.alt_held = held & buttons::ALT_ATTACK != 0;
             fighter.pack.hold(held);
             fighter.pack.charging_from = None;
+            // An item's use with it (KOTOR's stun or knockdown ends the
+            // action under way).
+            items::break_off(fighter, clock.time_ms);
             continue;
         }
         // The bar's size is the sheet's own (`Sheet::pool`), whatever runs
         // on it; the rest reads what runs on it.
         let base = sheet_of(sheet, object);
         let sheet = effects::sheet_now(base, fighter, clock.time_ms);
-        // An item: used on a press; the weapon waits for it.
+        // An item: its use begun on a press (spent then), landing at its
+        // end; the weapon waits for it.
         let authority = clock.reason != StepReason::Predict;
         let held_buttons = if fighter.alive() {
             fighter.last_command.buttons
@@ -128,7 +132,7 @@ pub(super) fn fire(
             authority,
             scripted,
         );
-        // The item leaves its holder's goods as it is used
+        // The item leaves its holder's goods as its use begins
         // (`item_uses::spend`).
         if let Some(row) = row.filter(|_| authority) {
             spent.0.push((id.0, row));
@@ -157,16 +161,13 @@ pub(super) fn fire(
                 }
             }
         }
-        if used {
-            let wait = fighter
-                .pack
-                .using
-                .map_or(items::QUICK_MS, |(_, until)| (until - clock.time_ms) as i32);
+        if let Some((_, until)) = fighter.pack.using.filter(|_| used) {
+            let wait = until.saturating_sub(clock.time_ms) as i32;
             fighter.weapon_wait_ms = fighter.weapon_wait_ms.max(wait);
         }
         if used || fighter.pack.using.is_some() {
-            // A gun's timer runs on while a heal is used (a blade's runs in
-            // its own step), so it is ready when the heal lands.
+            // A gun's timer runs on while an item is used (a blade's runs
+            // in its own step), so it is ready when the use lands.
             if !used && held(&sheet, fighter).delivery.ranged() {
                 weapons::count_down(&mut fighter.weapon_wait_ms, clock.msec);
             }

@@ -1,0 +1,4 @@
+# The sim's hash moves on purpose: every consumable's use (medpac, antidote,
+# stim, shield, squad stim) runs KOTOR's use time and lands at its end, its
+# user playing `inject` or `activate` meanwhile (`combat::items::press`).
+sim = "item uses play their clip and land at the use's end (issue 45)"

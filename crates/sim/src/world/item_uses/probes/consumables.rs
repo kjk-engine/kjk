@@ -7,7 +7,8 @@
 //! - its usable kinds become the party's goods, those for its race: not
 //!   the repair kit;
 //! - a grenade charged and thrown leaves its stack as it flies;
-//! - a medpac used leaves its stack as its use begins;
+//! - a medpac used leaves its stack as its use begins, and lands in the
+//!   step after (a step is longer than the use);
 //! - the last frag thrown: the stack is gone, and its kind;
 //! - the inventory's Use Item: a medpac used on the host, one fewer, its
 //!   heal begun on the next step as its button's; a thermal detonator
@@ -36,11 +37,12 @@ const FRAGS: usize = 1;
 const THERMALS: usize = 2;
 const TRINKETS: usize = 3;
 
-/// The steps after which a grenade has flown, a medpac is in use, the
-/// last frag has flown, Use Item used a medpac, refused a grenade (the
+/// The steps after which a grenade has flown, a medpac is in use, its use
+/// has landed, the last frag has flown, Use Item used a medpac, refused a grenade (the
 /// medpac's heal begun meanwhile) and refused the trinket.
 const THROWN: usize = 2;
 const HEALING: usize = 4;
+const HEALED: usize = 5;
 const LAST_THROWN: usize = 7;
 const USED: usize = 8;
 const REFUSED: usize = 9;
@@ -119,6 +121,7 @@ pub(super) fn cases(ran: &Ran) -> Checks {
     };
     let fighter = |step: usize| ran.host(step).and_then(|host| host.fighter);
     let healing = fighter(HEALING).and_then(|fighter| fighter.pack.using);
+    let healed = fighter(HEALED).map(|fighter| fighter.pack.using);
     let used_pack = fighter(REFUSED).map(|fighter| (fighter.pack.using, fighter.pack.queued));
     let last_used = fighter(THROWN).map(|fighter| fighter.pack.last.0);
     let use_item = Action::UseItem {
@@ -148,8 +151,14 @@ pub(super) fn cases(ran: &Ran) -> Checks {
             check(
                 healing.is_some_and(|(row, _)| row == MEDPAC)
                     && stack(HEALING, MEDPACS) == 2
-                    && ran.kinds(HEALING) == [(MEDPAC, 2), (FRAG, 1), (THERMAL, 1)],
-                format!("using {healing:?}, {}", seen(HEALING)),
+                    && healed.is_some_and(|using| using.is_none())
+                    && stack(HEALED, MEDPACS) == 2
+                    && ran.kinds(HEALED) == [(MEDPAC, 2), (FRAG, 1), (THERMAL, 1)],
+                format!(
+                    "using {healing:?}, {}; then {healed:?}, {}",
+                    seen(HEALING),
+                    seen(HEALED)
+                ),
             ),
         ),
         (

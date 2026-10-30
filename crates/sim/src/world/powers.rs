@@ -1806,23 +1806,11 @@ impl Cast<'_, '_> {
         }
         let sheet = self.person(at).sheet;
         let pool = self.person(at).pool;
-        let (me, origin) = (self.person(at).id, self.person(at).ps.origin);
+        let origin = self.person(at).ps.origin;
         let fighter = &mut self.fighters[at];
-        // Items run out: a heal lands, a shield or a stim ends; Affliction
-        // and Plague sap.
-        let library = self.library;
-        let scripted = |row: u16| library.is_some_and(|library| library.impact(row).is_some());
-        let healed = items::settle(fighter, &sheet, now, self.authority, scripted);
-        if let Some(row) = healed.filter(|_| self.authority) {
-            let id = script_ncs::vm::ObjectId(me.0);
-            self.casts.push(crate::script::Cast {
-                caster: id,
-                row,
-                target: id,
-                at: scale(origin, collision::UNIT),
-                caught: Vec::new(),
-            });
-        }
+        // Items run out: a shield or a stim ends (a use lands in the
+        // firing step, `items::press`); Affliction and Plague sap.
+        items::settle(fighter, now);
         fighter.effects.sap(now);
         effects::worn(fighter, &sheet, pool, (now, self.tick));
         if self.authority {
