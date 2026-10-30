@@ -240,15 +240,10 @@ fn fill(save: &mut Save, ground: &Level) {
     );
 }
 
-/// `save`'s level stamp and place digest made `level`'s: what a load does
-/// once its data changed (part 3 of the design does it at load; till then
-/// only the fixtures need it, as the proving ground's digest moves with
-/// the code that builds it).
-pub fn restamp(save: &mut Save, level: &Level) {
-    save.level = level.id();
-    if let Some(place) = &mut save.snapshot.place {
-        place.digest = level.digest();
-    }
+/// The module the kitchen sink left before the proving ground, kept in its
+/// stash.
+pub fn left() -> Level {
+    proving_ground_named(LEFT)
 }
 
 /// The fields of the kitchen sink still at their start (the snapshot's
