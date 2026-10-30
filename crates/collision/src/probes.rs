@@ -386,6 +386,66 @@ pub fn synthetic() -> Probes {
         near(as_capsule.end[0] - as_box.end[0], expected, 2e-3),
     );
 
+    // The body round across (`Shape::Upright`): against a face square to
+    // the axes it stops where the box does; against an upright wall at 45
+    // degrees by its radius, where the box's corner reaches √2 of it.
+    let at_face =
+        |shape: &Shape| block.sweep([3.0, 0.0, 0.0], [0.0, 0.0, 0.0], shape, Contents::SOLID);
+    let (as_box, upright) = (
+        at_face(&Shape::Box(player)),
+        at_face(&Shape::Upright(player)),
+    );
+    probes.check(
+        "upright face",
+        "running square at a face, the body round across stops where the box does",
+        Some(upright),
+        near(upright.end[0], as_box.end[0], 1e-5),
+    );
+    let mut builder = LevelBuilder::new();
+    builder.triangle(
+        [[4.0, 0.0, -2.0], [0.0, 4.0, -2.0], [2.0, 2.0, 4.0]],
+        Tag::level(Contents::SOLID, 0),
+    );
+    let diagonal_wall = builder.build();
+    let at_wall =
+        |shape: &Shape| diagonal_wall.sweep([0.0; 3], [3.0, 3.0, 0.0], shape, Contents::SOLID);
+    let (as_box, upright) = (
+        at_wall(&Shape::Box(player)),
+        at_wall(&Shape::Upright(player)),
+    );
+    // How far short of the wall each origin stops, along its normal: the
+    // box's corner by √2 − 1 of its half-size further than the round body.
+    let short = |t: &Trace| (4.0 - t.end[0] - t.end[1]) * std::f32::consts::FRAC_1_SQRT_2;
+    let farther = player.maxs[0] * (std::f32::consts::SQRT_2 - 1.0);
+    probes.check(
+        "upright diagonal",
+        &format!(
+            "running at an upright wall at 45 degrees, the body round across gets {farther:.3} m closer than the box, whose corner leads"
+        ),
+        Some(upright),
+        near(short(&as_box) - short(&upright), farther, 1e-3),
+    );
+    // The walls standing in for KOTOR's point on the walkmesh (set back by
+    // the box's half-width) it meets as the box.
+    let mut builder = LevelBuilder::new();
+    builder.triangle(
+        [[4.0, 0.0, -2.0], [0.0, 4.0, -2.0], [2.0, 2.0, 4.0]],
+        Tag::level(Contents::WALK_CLIP, 0),
+    );
+    let outline = builder.build();
+    let at_outline =
+        |shape: &Shape| outline.sweep([0.0; 3], [3.0, 3.0, 0.0], shape, Contents::PLAYER_SOLID);
+    let (as_box, upright) = (
+        at_outline(&Shape::Box(player)),
+        at_outline(&Shape::Upright(player)),
+    );
+    probes.check(
+        "upright outline",
+        "running at a walkmesh outline's wall at 45 degrees, the body round across stops where the box does",
+        Some(upright),
+        near(upright.end[0], as_box.end[0], 1e-5) && upright.fraction < 1.0,
+    );
+
     // A door's brushes: solid in state 0 only.
     let mut builder = LevelBuilder::new();
     builder.aabb(

@@ -108,6 +108,7 @@ use vfs::{Discovery, Game};
 use crate::lifecycle::Installer;
 use crate::minigame_bot::{PRESS_MS, pressed};
 mod route;
+pub mod build;
 pub(crate) use route::*;
 mod here;
 use here::*;
@@ -196,6 +197,21 @@ const CHASE_M: f32 = 1.0;
 /// `REPLAN_M`. Every chase of a foe goes by it (`Chase`).
 fn chase_replan_m(ranged: bool) -> f32 {
     if ranged { REPLAN_M } else { CHASE_M }
+}
+
+/// The walk to `at` (metres): `walker` kept while its goal is within
+/// `REPLAN_M` of it, else planned again by `plan`. A walk left from a chase
+/// made for its foe, not for this target (Peragus's assassin droid fought
+/// off at the shift console, the player then walking for good to where it
+/// fell instead of back to the console a script had it strike).
+fn walk_for(walker: &mut Option<Walker>, at: [f32; 3], plan: impl FnOnce() -> Walker) -> &mut Walker {
+    if walker
+        .as_ref()
+        .is_some_and(|w| flat(w.goal.map(|v| v * UNIT), at) > REPLAN_M)
+    {
+        *walker = None;
+    }
+    walker.get_or_insert_with(plan)
 }
 
 /// How near (metres) a closed door is for walking to press use.
@@ -300,6 +316,9 @@ pub struct Options {
     /// Two phantom guests fly remote droids at random, every button of
     /// their kit pressed (`--droids chaos`, `chaos`).
     pub droids: bool,
+    /// A build's text (`--build`, `build::parse`): the character a new
+    /// game makes, and the plan every level taken follows.
+    pub build: Option<String>,
 }
 
 /// Plays `options.route` from `options.module`; see the module's notes.
@@ -311,6 +330,15 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
             let (anims, _) = crate::stage::anims(discovery);
             let installer = Installer::new(discovery, game, Arc::new(anims))?;
             let kept = kept_base_items(installer.base_resolver()?)?;
+            let build = options
+                .build
+                .as_deref()
+                .map(|text| {
+                    let resolver = installer.base_resolver()?;
+                    let table = |name: &str| resolver.two_da(name).ok_or(format!("{name}.2da: not read"));
+                    build::parse(text, &table("feat")?, &table("spells")?)
+                })
+                .transpose()?;
             let rate = TickRate::default();
             let world = match options.module.strip_prefix('@') {
                 Some(name) => {
@@ -346,6 +374,17 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         .plan
                         .commit(&mut world)
                         .map_err(|e| e.to_string())?;
+                    // A new game: the build's character made, as character
+                    // creation makes it (god mode holding on its sheet).
+                    if let Some(build) = &build {
+                        let made = crate::persona::Made::Desc(&build.made);
+                        crate::persona::start(&mut world, installer.base_resolver()?, 1, Some(made))?;
+                        world.add_player_flags(
+                            options.sheet.flags
+                                & (sim::combat::sheet::flags::IMMORTAL
+                                    | sim::combat::sheet::flags::MIGHTY),
+                        );
+                    }
                     world
                 }
             };
@@ -582,12 +621,13 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     met = true;
                 } else if let Some(class) = level_due(&world, &last) {
                     // A level the party's XP allows, taken at once as a
-                    // player would, in the class taken last (the game's
-                    // picks): one a goal.
-                    acts.push(Action::LevelUp(sim::levels::Choices {
+                    // player would, in the class taken last: the build's
+                    // plan's picks, else the game's. One a goal.
+                    let planned = build.as_ref().and_then(|build| planned(&world, &last, class, &build.plan));
+                    acts.push(Action::LevelUp(planned.unwrap_or(sim::levels::Choices {
                         class,
                         ..sim::levels::Choices::default()
-                    }));
+                    })));
                 }
                 if let Goal::Solo(on) = goal {
                     acts.push(Action::Solo(*on));
@@ -675,6 +715,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     }
                 }
                 if let Goal::Equip(named) = goal {
+                    let named = &named
+                        .as_deref()
+                        .map(|named| named_item(&world, &last, named).unwrap_or_else(|| named.to_string()));
                     let wear = equip(&world, &last, named.as_deref());
                     // Worn already (a scene armed it): nothing to do.
                     if named
@@ -716,11 +759,16 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     }
                     let now = last.time_ms;
                     // A conversation with the player, or with the companion
-                    // it moves (one a script started with the leader).
+                    // it moves (one a script started with the leader), or
+                    // the one holding every seat, the player's to answer
+                    // whichever body leads now (Bao-Dur's at the old
+                    // military base's first shield, begun as he led and
+                    // still under way once the Exile led again).
                     let talking = last
                         .talk
                         .holding(ObjectId(avatar.id.0))
                         .or_else(|| last.talk.holding(ObjectId(me.id.0)))
+                        .or_else(|| last.talk.party())
                         .cloned();
                     if let Some(talk) = &talking {
                         settle.partner = Some(talk.owner.0);
@@ -989,9 +1037,22 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         // (armour is refused while a fight goes on: the Sand
                         // People's robes taken off the fallen on the dunes).
                         Goal::Equip(Some(named)) => {
-                            met = wears(&world, &last, named);
+                            let named = named_item(&world, &last, named).unwrap_or_else(|| named.clone());
+                            met = wears(&world, &last, &named);
                             if !met {
-                                acts.extend(equip(&world, &last, Some(named)));
+                                acts.extend(equip(&world, &last, Some(&named)));
+                            }
+                        }
+                        // One a step, its purchase seen before the next;
+                        // once the world has settled (a store a script opens
+                        // a moment after its line, as Kodin's does).
+                        Goal::Buy(template, count) => {
+                            met = gear::carried(&last, template) >= *count;
+                            if !met && talking.is_none() && settle.settled() {
+                                match gear::purchase(&last, template) {
+                                    Ok(buy) => acts.extend(buy),
+                                    Err(why) => held.push(why),
+                                }
                             }
                         }
                         // One item a step, its sale seen before the next.
@@ -1065,6 +1126,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     (Some(rules), Some(course)),
                                     gear,
                                     now,
+                                    &crate::minigame_bot::area_foes(&last),
                                 ) {
                                     command = played;
                                 }
@@ -1188,6 +1250,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             } else if matches!(goal, Goal::Use(_))
                                 && found.is_some_and(|(index, _)| {
                                     talks.ended_with(index, stepped_from)
+                                        && !here.facts(index).is_some_and(|data| data.container)
                                         && here
                                             .entity(index)
                                             .is_some_and(|e| e.fighter.is_some_and(|f| f.alive()))
@@ -1196,7 +1259,23 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // Its conversation played out in the goal
                                 // before (Bastila's after the swoop's
                                 // fight): the use is done. Not one dead
-                                // since (the chieftain's remains to loot).
+                                // since (the chieftain's remains to loot),
+                                // nor a container, opened still (Korriban's
+                                // Lonna Vash, whose body's scene a trigger
+                                // plays before she is searched).
+                                met = true;
+                            } else if matches!(goal, Goal::Unlock(..))
+                                && found.is_some_and(|(index, _)| {
+                                    here.facts(index).is_some_and(|data| {
+                                        data.opens == sim::module::Opens::Locked
+                                            && object_of(&here, index).lock == sim::lock::UNLOCKED
+                                    })
+                                })
+                            {
+                                // Placed locked and unlocked in play already
+                                // (broken open by a blow in the fight round
+                                // it, Korriban's academy footlockers): its
+                                // lock is done with.
                                 met = true;
                             } else if let Some((index, at)) = found {
                                 let d = flat(at, me.position);
@@ -1241,6 +1320,14 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // checked again from each new spot (a fight on
                                 // the way that pushed the player off it: foes
                                 // at Hrakert's airlock).
+                                // The sim's own check of the use, from where
+                                // the player stands (`SimWorld::may_use`).
+                                let verb = choice.zip(data.as_ref()).and_then(|(choice, data)| {
+                                    match sim::target::ask(choice, index, data.kind)? {
+                                        Action::Use { verb, .. } => Some(verb),
+                                        _ => None,
+                                    }
+                                });
                                 if matches!(goal, Goal::Use(_))
                                     && sighted.is_none_or(|from| flat(from, me.position) > SIGHT_MOVED_M)
                                     && !(stand_for_sight && walker.as_ref().is_some_and(|w| !w.arrived(&player)))
@@ -1248,18 +1335,29 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     && index != u32::MAX
                                     && let Some((choice, data)) = choice.zip(data.as_ref())
                                     && d <= sim::target::reach(choice, data.kind)
+                                    && let Some(verb) = verb
                                 {
                                     sighted = Some(me.position);
-                                    let eye = mind::eye(&player).map(|v| v * UNIT);
-                                    let middle = [at[0], at[1], at[2] + 1.0];
-                                    if !sim::target::in_sight(&level, here.sight(), eye, middle, index)
-                                        && let Some(stand) = sighted_stand(&here, &player, at, index)
+                                    if !world.may_use(&player, index, verb)
+                                        && let Some(stand) =
+                                            sighted_stand(&here, &player, at, &mut |body| world.may_use(body, index, verb))
                                     {
                                         walker = Some(stand);
                                         stand_for_sight = true;
                                     }
                                 }
-                                let walker = walker.get_or_insert_with(|| here.approach(&player, at));
+                                // Come to the stand short of its point (a
+                                // walk arrives within a margin) where the use
+                                // is still refused: the last step onto it.
+                                let usable = !stand_for_sight
+                                    || index == u32::MAX
+                                    || verb.is_none_or(|verb| world.may_use(&player, index, verb));
+                                let walker = walker.get_or_insert_with(|| match (verb, choice.zip(data.as_ref())) {
+                                    (Some(sim::action::Verb::Talk), Some((choice, data))) => {
+                                        here.approach_talk(&player, at, sim::target::reach(choice, data.kind))
+                                    }
+                                    _ => here.approach(&player, at),
+                                });
                                 // No way there (a locked door's doorway, a
                                 // body in the way) but near: straight at it.
                                 // Arrived short of it: the last stretch straight.
@@ -1271,7 +1369,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         walked = true;
                                         pulse
                                     },
-                                    ..if routed || d > STRAIGHT_M {
+                                    ..if stand_for_sight && arrived && !usable {
+                                        sim::walk::toward(&player, walker.goal)
+                                    } else if routed || d > STRAIGHT_M {
                                         walker.command_round(
                                             &level,
                                             &player,
@@ -1326,11 +1426,23 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     && object_of(&here, index).state
                                         != data.as_ref().map_or(0, |d| d.state);
                                 // A creature started talking with the player
-                                // on its own (a guard who stops you): the use
-                                // is answered. A thing's own scene is not its
-                                // use (the galaxy map's tutorial, played as
-                                // the party walks up, opens no planets).
-                                let spoke = creature && talking.as_ref().is_some_and(|talk| {
+                                // on its own (a guard who stops you), or a
+                                // locked door its press failed to open
+                                // speaking (its `OnFailToOpen` conversation:
+                                // Visquis's sealed door, whose scene hands the
+                                // player to Mira far from it): the use is
+                                // answered.
+                                // A placeable's own scene is not its use (the
+                                // galaxy map's tutorial, played as the party
+                                // walks up, opens no planets).
+                                // An unlocked door's own scene is no answer
+                                // (Peragus's prison door, Kreia speaking
+                                // through it as the player comes).
+                                let sealed = index != u32::MAX
+                                    && data.as_ref().is_some_and(|d| {
+                                        d.kind == ObjectKind::Door && object_of(&here, index).locked(d.opens)
+                                    });
+                                let spoke = (creature || sealed) && talking.as_ref().is_some_and(|talk| {
                                     [talk.owner, talk.speaker].iter().any(|id| {
                                         last.get(sim::SimId(id.0)).is_some_and(|e| {
                                             matches!(e.kind, sim::Kind::Object(_, i) if i == index)
@@ -1400,6 +1512,25 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         // it: a walk to pick its lock ends up
                                         // to 2 m off, out of a blow's reach
                                         // (Peragus's locker between lockers).
+                                        // Nothing in hand: the strongest weapon
+                                        // the party carries drawn first, as a
+                                        // player arms to break a door (fists
+                                        // took a minute and more on Dantooine's
+                                        // stuck Enclave door, a blade seconds).
+                                        let unarmed = me.sheet.is_some_and(|sheet| {
+                                            matches!(
+                                                sheet.main_weapon().delivery,
+                                                sim::combat::sheet::Delivery::Unarmed
+                                            )
+                                        });
+                                        if unarmed {
+                                            // A blade if one is trained for,
+                                            // else a gun: its bolts strike too.
+                                            acts.extend(
+                                                other_weapon(&world, &last, true)
+                                                    .or_else(|| other_weapon(&world, &last, false)),
+                                            );
+                                        }
                                         let step_in = !ranged(&me) && d > melee_m().0;
                                         command = Command {
                                             buttons: buttons::ATTACK,
@@ -1448,7 +1579,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     // player waits, out of its way: Bastila
                                     // after Brejik's fall goes for her sword).
                                     Goal::Use(_) if busy => command = facing(&player, at),
-                                    Goal::Use(_) if !near || (stand_for_sight && !arrived) => {
+                                    Goal::Use(_) if !near || (stand_for_sight && !(arrived && usable)) => {
                                         command = walking();
                                         met = opened || spoke;
                                     }
@@ -2006,7 +2137,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             match assigned {
                                 None => back_walker = None,
                                 Some(at) => {
-                                    let w = back_walker.get_or_insert_with(|| here.approach(&player, at));
+                                    let w = walk_for(&mut back_walker, at, || here.approach(&player, at));
                                     let walk = if !w.arrived(&player) && here.leads(player.origin, w.goal) {
                                         w.command(here.level, &player, now, &|index| here.to_try(index))
                                     } else {
@@ -2302,9 +2433,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             Notice::Show(Screen::Pazaak) => {
                                 said.push(format!("{at} [a pazaak match]"));
                             }
-                            Notice::Show(Screen::Credits) => {
+                            Notice::Show(screen) if screen.rolls_credits() => {
                                 credits_rolled = true;
-                                said.push(format!("{at} [the credits]"));
+                                let movie = screen.movie_name().map_or_else(String::new, |name| format!(" ({name})"));
+                                said.push(format!("{at} [the credits{movie}]"));
                             }
                             Notice::Show(Screen::End) if credits_rolled => {
                                 game_won = true;
@@ -2328,7 +2460,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         left_by_exit = via.as_ref().is_some_and(|data| data.exit().is_some());
                         left_through = via.map(|data| data.tag.clone());
                         transcribed =
-                            transcribe(&installer, &world, &names, transcribed, &mut lines);
+                            transcribe(&installer, &world, (&names, &last), transcribed, &mut lines);
                         let request = installer.request_from(
                             &last,
                             &transition.module,
@@ -2393,7 +2525,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion), (input, &mut watch, &last));
             }
             let report = world.script_report();
-            transcribe(&installer, &world, &names, transcribed, &mut lines);
+            transcribe(&installer, &world, (&names, &last), transcribed, &mut lines);
             lines.extend(said.iter().map(|s| format!("{s} (to the player)")));
             let blockers: Vec<&Outcome> = outcomes.iter().filter(|o| !o.met).collect();
             outln!(
@@ -2578,12 +2710,12 @@ fn replans(
 }
 
 /// The report's conversation lines from `from` on, as the running
-/// module's conversations and speakers have them, added to `lines`: how
-/// many the report has.
+/// module's conversations and speakers have them (the player's tokens the
+/// first seat's in `last`), added to `lines`: how many the report has.
 fn transcribe(
     installer: &Installer,
     world: &sim::SimWorld,
-    names: &std::collections::BTreeMap<u32, String>,
+    (names, last): (&std::collections::BTreeMap<u32, String>, &Snapshot),
     from: usize,
     lines: &mut Vec<String>,
 ) -> usize {
@@ -2591,8 +2723,9 @@ fn transcribe(
     if let Some(library) = world.level().scripts() {
         let text = |strref| installer.text(strref);
         let mut tokens = crate::transcript::tokens(&talk[..from.min(talk.len())]);
+        let player = sim::persona::of(&last.personas, Seat(0));
         lines.extend(talk.iter().skip(from).flat_map(|line| {
-            crate::transcript::transcript(&text, library, names, &mut tokens, line)
+            crate::transcript::transcript(&text, library, names, (&mut tokens, player), line)
         }));
     }
     talk.len()

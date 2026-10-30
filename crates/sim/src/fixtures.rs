@@ -179,6 +179,7 @@ fn fill(save: &mut Save, ground: &Level) {
     script.listening.insert(2);
     script.uncommandable.insert(2);
     script.unoriented.insert(2);
+    script.always_update.insert(2);
     script.pazaak_won = true;
     script.last_detect_ms = 2_000;
     script.next = 9;
@@ -308,6 +309,7 @@ pub const LEFT_AT_START: &[&str] = &[
     "script.movie_runs",
     "script.no_clicks_until",
     "script.keep_stealth",
+    "script.summary_owed",
     "script.encounter_creatures",
 ];
 
@@ -380,6 +382,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         last: _,
         uncommandable: _,
         unoriented: _,
+        always_update: _,
         occupants: _,
         spawned: _,
         perceived: _,
@@ -432,6 +435,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         movie_runs: _,
         no_clicks_until: _,
         keep_stealth: _,
+        summary_owed: _,
         return_button: _,
         encounters: _,
         encounter_creatures: _,
@@ -440,14 +444,14 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
     check!("script", save.script, blank;
         numbers, booleans, strings, places, unescapable, left, locals, pending,
         delayed, next, actions, locations, last, uncommandable, unoriented,
-        occupants, spawned, perceived, rounds, effects, spell_events, applied,
+        always_update, occupants, spawned, perceived, rounds, effects, spell_events, applied,
         removed, bashes, next_effect, listening, patterns, items, next_item,
         gold, purses, party, talk, heartless, trades, journal, xp, careers,
         levelling, strikes, swung, known, kept, galaxy, corpses, goals, intents,
         watch, reputation, traps, skill_uses, door_mines, last_detect_ms,
         perception, stealth_xp, stealth_loss, pazaak, pazaak_won, components,
         chemicals, hoards, beats, transit, movies, movie_runs, no_clicks_until,
-        keep_stealth, return_button, encounters, encounter_creatures, floor,
+        keep_stealth, summary_owed, return_button, encounters, encounter_creatures, floor,
     );
     out
 }

@@ -17,10 +17,10 @@ talk
 leader 0
 use end_door02       # Trask's Security tutorial
 talk
-unlock end_door02    # Security (--skill security=2)
+leader player        # the player's own hands: room 3's scene is played
+unlock end_door02    # with whoever leads (GetFirstPC); Security (--skill security=2)
 use end_door02       # room 3 opens: its scene
 talk
-leader player
 fight 25
 use end_door05       # north to room 4
 fight 25

@@ -322,6 +322,66 @@ enum Lost {
     Dead,
 }
 
+/// A dead creature with a conversation queued for it to start
+/// (`ActionStartConversation`) starts it, though the dead act on nothing
+/// else: TSL's Visquis, dead, starts Kreia's scene (`a_start_kreend`).
+/// Whether the conversation began, and whether a walk queued after it was
+/// left waiting.
+fn dead_starts_its_conversation() -> Result<(bool, bool), String> {
+    use crate::script::actions::{Action as Queue, Queued};
+    let at = by_entry(1.5, 0.0);
+    let placed = vec![ObjectData::creature(
+        "buddy",
+        "buddy",
+        at,
+        Sheet::commoner(),
+    )];
+    let (mut world, first) = world_with(placed, None, library())?;
+    let owner = id_of(&mut world, first)?;
+    let mut tick = 1;
+    let player = step(&mut world, tick, &TickInput::default())
+        .body(Seat(0))
+        .map(|entity| entity.id.0)
+        .ok_or("no player")?;
+    let mut fighters = world.world.query::<(&Id, &mut Fighting)>();
+    for (own, mut fighting) in fighters.iter_mut(&mut world.world) {
+        if own.0.0 == owner {
+            fighting.0.hp = 0;
+            fighting.0.life = Life::Dead;
+        }
+    }
+    let mut state = world.script_state().clone();
+    let queued = |action| Queued {
+        action,
+        started_ms: None,
+    };
+    state.actions.insert(
+        owner,
+        vec![
+            queued(Queue::Converse {
+                with: ObjectId(player),
+                dialog: "probe_talk".into(),
+                asker: None,
+            }),
+            queued(Queue::Wait { ms: 1000 }),
+        ],
+    );
+    world.set_script_state(state);
+    let mut still = TickInput::default();
+    still.insert(Seat(0), Command::default());
+    let mut began = false;
+    for _ in 0..5 {
+        tick += 1;
+        began |= !step(&mut world, tick, &still).talk.conversations.is_empty();
+    }
+    let waiting = world
+        .script_state()
+        .actions
+        .get(&owner)
+        .is_some_and(|queue| queue.iter().any(|q| matches!(q.action, Queue::Wait { .. })));
+    Ok((began, waiting))
+}
+
 /// A party member's conversation with the player (TSL's Atton starting
 /// Peragus' escape), its owner `lost` as its first line plays; then its
 /// last reply taken: whether it was still under way after the fall, and
@@ -501,12 +561,25 @@ pub fn probes() -> Checks {
                 Err(why) => Err(why),
             },
         ),
+        // A dead owner is still there, its conversation the object's: TSL's
+        // `miraend` goes on past its owner's death, which its own first
+        // line's script deals (`a_305end_setup0`, Visquis) [verify in the exe].
         (
-            "owner_dead_cuts_it_short",
+            "owner_dead_talks_on",
             match owner_lost(Lost::Dead) {
                 Ok((on, cut)) => check(
-                    !on && cut,
+                    on && !cut,
                     format!("under way after the death {on}, cut short {cut}"),
+                ),
+                Err(why) => Err(why),
+            },
+        ),
+        (
+            "dead_starts_its_conversation",
+            match dead_starts_its_conversation() {
+                Ok((began, waiting)) => check(
+                    began && waiting,
+                    format!("the conversation began {began}, the walk after it waits {waiting}"),
                 ),
                 Err(why) => Err(why),
             },

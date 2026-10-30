@@ -125,6 +125,33 @@ void SetForfeitConditions(int nForfeitFlags);
 int GetLastForfeitViolation();
 // 25
 void ActionFollowOwner(float fRange = 2.5);
+// 26
+void ShowPartySelectionGUI(string sExitScript = "", int nForceNPC1 = -1, int nForceNPC2 = -1, int nAllowCancel = FALSE);
+// 27
+int GetRunScriptVar();
+// 28
+object GetFirstObjectInArea(object oArea = OBJECT_INVALID, int nObjectFilter = OBJECT_TYPE_CREATURE);
+// 29
+object GetNextObjectInArea(object oArea = OBJECT_INVALID, int nObjectFilter = OBJECT_TYPE_CREATURE);
+// 30
+object GetArea(object oTarget);
+// 31
+int GetNPCSelectability(int nNPC);
+// 32
+void SetNPCSelectability(int nNPC, int nSelectability);
+// 33
+void SetLocalBoolean(object oObject, int nIndex, int nValue);
+// 34
+int GetLocalBoolean(object oObject, int nIndex);
+// 35
+void SetLocalNumber(object oObject, int nIdx, int nValue);
+// 36
+int GetLocalNumber(object oObject, int nIdx);
+// 37
+void ChangeToStandardFaction(object oCreatureToChange, int nStandardFaction);
+// 38
+int GetStandardFaction(object oObject);
+int OBJECT_TYPE_CREATURE = 1;
 "#;
 
 /// The global the player's alignment is kept in.
@@ -188,11 +215,17 @@ fn library() -> crate::script::Library {
     pup.op(int(OTHER)).op(call(15, 2)).op(Op::MovSp(-4));
     pup.op(Op::Retn);
     // The companion sent to base (token 30 whether it went); the duel's
-    // rules set (31 the last broken: none).
+    // rules set (31 the last broken: none); 32 whether the same script
+    // still finds its creature by tag (`KillNPCObject` deleted it).
     let mut base = Asm::default();
     token(&mut base, 30, &[int(OTHER), call(22, 1)]);
     base.op(int(20)).op(call(23, 1));
     token(&mut base, 31, &[call(24, 0)]);
+    token(
+        &mut base,
+        32,
+        &[int(0), text(COMPANION), call(21, 2), call(16, 1)],
+    );
     base.op(Op::Retn);
     // A puppet's follow, far and near; Bao-Dur met.
     let follow_owner = |range: f32| {
@@ -208,6 +241,91 @@ fn library() -> crate::script::Library {
         .op(int(BAO_DUR))
         .op(call(3, 2))
         .op(Op::Retn);
+    // The party selection screen, cancel allowed (the Ebon Hawk's ramp);
+    // its exit script's run script var (token 50).
+    let mut screen = Asm::default();
+    screen
+        .op(int(1))
+        .op(int(-1))
+        .op(int(-1))
+        .op(text("probe_party_exit"))
+        .op(call(26, 4))
+        .op(Op::Retn);
+    let mut exit = Asm::default();
+    token(&mut exit, 50, &[call(27, 0)]);
+    exit.op(Op::Retn);
+    // Atton made beside the player, not joined; the area's first two
+    // creatures, whether each is (tokens 60 and 61).
+    let mut atton_beside = Asm::default();
+    atton_beside
+        .op(text(ATTON_TEMPLATE))
+        .op(int(ATTON))
+        .op(call(5, 2))
+        .op(Op::MovSp(-4));
+    atton_beside.op(call(13, 0)).op(call(12, 1));
+    atton_beside
+        .op(int(ATTON))
+        .op(call(14, 2))
+        .op(Op::MovSp(-4));
+    atton_beside.op(Op::Retn);
+    let mut in_area = Asm::default();
+    for (n, routine) in [(60, 28), (61, 29)] {
+        token(
+            &mut in_area,
+            n,
+            &[
+                int(1),
+                call(13, 0),
+                call(30, 1),
+                call(routine, 2),
+                call(16, 1),
+            ],
+        );
+    }
+    in_area.op(Op::Retn);
+    // Local boolean 50 set on OBJECT_INVALID and on the player, each read
+    // back (tokens 90 and 91).
+    let mut nothing = Asm::default();
+    for (n, owner) in [(90, Op::Const(Const::Object(1))), (91, call(13, 0))] {
+        nothing
+            .op(int(1))
+            .op(int(50))
+            .op(owner.clone())
+            .op(call(33, 3));
+        token(&mut nothing, n, &[int(50), owner, call(34, 2)]);
+    }
+    nothing.op(Op::Retn);
+    // The player's local numbers set and read back (tokens 100 to 105, the
+    // cases of `LOCAL_NUMBERS`).
+    let mut numbers = Asm::default();
+    for (n, (index, value)) in (100..).zip(LOCAL_NUMBERS) {
+        numbers
+            .op(int(value))
+            .op(int(index))
+            .op(call(13, 0))
+            .op(call(35, 3));
+        token(&mut numbers, n, &[int(index), call(13, 0), call(36, 2)]);
+    }
+    numbers.op(Op::Retn);
+    // Local booleans set at `LOCAL_BOOLEANS`, tokens 120 on each read back.
+    let mut booleans = Asm::default();
+    for (n, index) in (120..).zip(LOCAL_BOOLEANS) {
+        booleans
+            .op(int(1))
+            .op(int(index))
+            .op(call(13, 0))
+            .op(call(33, 3));
+        token(&mut booleans, n, &[int(index), call(13, 0), call(34, 2)]);
+    }
+    booleans.op(Op::Retn);
+    // The player moved to Hostile 1; token 110 its standard faction, read
+    // a step later.
+    let mut pc_faction = Asm::default();
+    pc_faction.op(int(1)).op(call(13, 0)).op(call(37, 2));
+    pc_faction.op(Op::Retn);
+    let mut pc_faction_read = Asm::default();
+    token(&mut pc_faction_read, 110, &[call(13, 0), call(38, 1)]);
+    pc_faction_read.op(Op::Retn);
     crate::probe::library(
         CATALOG,
         [
@@ -219,6 +337,24 @@ fn library() -> crate::script::Library {
             ("probe_follow_far", follow_owner(FOLLOW_FAR)),
             ("probe_follow_near", follow_owner(FOLLOW_NEAR)),
             ("probe_bao_dur", bao_dur.build()),
+            ("probe_spawned_twice", spawned_twice()),
+            ("probe_second_atton", second_atton()),
+            ("probe_spawned_again", spawned_again()),
+            ("probe_light_point", light_point()),
+            (
+                crate::script::presentation::SUMMARY_CLOSED,
+                summary_closed(),
+            ),
+            ("probe_party_screen", screen.build()),
+            ("probe_party_exit", exit.build()),
+            ("probe_atton_beside", atton_beside.build()),
+            ("probe_in_area", in_area.build()),
+            ("probe_locals_of_nothing", nothing.build()),
+            ("probe_local_numbers", numbers.build()),
+            ("probe_pc_faction", pc_faction.build()),
+            ("probe_local_booleans", booleans.build()),
+            ("probe_pc_faction_read", pc_faction_read.build()),
+            ("probe_selectability", selectability()),
         ],
     )
     .with_creatures(
@@ -262,6 +398,97 @@ fn atton_joins() -> Ncs {
     asm.op(call(13, 0)).op(call(12, 1));
     asm.op(int(ATTON)).op(call(14, 2));
     asm.op(int(ATTON)).op(call(15, 2)).op(Op::MovSp(-4));
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_spawned_twice`: Atton made available, then spawned twice at the
+/// player in one script, the second made a party member (TSL's
+/// `a_baodur_join` spawns Bao-Dur so).
+fn spawned_twice() -> Ncs {
+    let mut asm = Asm::default();
+    asm.op(text(ATTON_TEMPLATE))
+        .op(int(ATTON))
+        .op(call(5, 2))
+        .op(Op::MovSp(-4));
+    asm.op(call(13, 0)).op(call(12, 1));
+    asm.op(int(ATTON)).op(call(14, 2)).op(Op::MovSp(-4));
+    asm.op(call(13, 0)).op(call(12, 1));
+    asm.op(int(ATTON)).op(call(14, 2));
+    asm.op(int(ATTON)).op(call(15, 2)).op(Op::MovSp(-4));
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_spawned_again`: token 42 whether Atton spawned again at the
+/// player is the Atton already here (`GetObjectByTag`).
+fn spawned_again() -> Ncs {
+    let mut asm = Asm::default();
+    token(
+        &mut asm,
+        42,
+        &[
+            int(0),
+            text("atton"),
+            call(21, 2),
+            call(13, 0),
+            call(12, 1),
+            int(ATTON),
+            call(14, 2),
+            Op::Equal(fmt_odyssey::ncs::Pair::ObjectObject),
+        ],
+    );
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_light_point`: the player given a light side point, which the
+/// status summary tells.
+fn light_point() -> Ncs {
+    let mut asm = Asm::default();
+    asm.op(int(0)).op(int(1)).op(int(2)).op(call(13, 0));
+    asm.op(call(20, 4)).op(Op::Retn);
+    asm.build()
+}
+
+/// The probes' `k_align_movie`, run as the status summary closes: token 70
+/// set to 1.
+fn summary_closed() -> Ncs {
+    let mut asm = Asm::default();
+    token(&mut asm, 70, &[int(1)]);
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_selectability`: `GetNPCSelectability` in tokens 80 to 82, of
+/// Bao-Dur never made available, then of Atton made available, then of
+/// Atton made unselectable (`SetNPCSelectability(NPC_ATTON, 0)`).
+fn selectability() -> Ncs {
+    let mut asm = Asm::default();
+    let selectability = |npc: i32| [int(npc), call(31, 1)];
+    token(&mut asm, 80, &selectability(BAO_DUR));
+    asm.op(text(ATTON_TEMPLATE))
+        .op(int(ATTON))
+        .op(call(5, 2))
+        .op(Op::MovSp(-4));
+    token(&mut asm, 81, &selectability(ATTON));
+    asm.op(int(0)).op(int(ATTON)).op(call(32, 2));
+    token(&mut asm, 82, &selectability(ATTON));
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_second_atton`: token 40 whether a second object is tagged
+/// `atton`, 41 whether a first one is.
+fn second_atton() -> Ncs {
+    let mut asm = Asm::default();
+    for (n, nth) in [(40, 1), (41, 0)] {
+        token(
+            &mut asm,
+            n,
+            &[int(nth), text("atton"), call(21, 2), call(16, 1)],
+        );
+    }
     asm.op(Op::Retn);
     asm.build()
 }
@@ -419,10 +646,259 @@ pub fn probes() -> Checks {
     checks.push(("follow_owner_held", follow_owner(true)));
     checks.push(("follow_owner_runs", follow_owner(false)));
     checks.push(("bao_dur_met", bao_dur_met()));
+    checks.push(("spawned_twice_is_one", spawned_twice_is_one()));
+    checks.push(("spawned_again_is_the_same", spawned_again_is_the_same()));
+    checks.push(("selectability_of_the_unknown", selectability_told()));
+    checks.push((
+        "summary_closed_runs_align_movie",
+        summary_closed_runs_align_movie(),
+    ));
     checks.push(("cannot_equip_lines", cannot_equip_lines()));
     checks.push(("influence_starts", influence_starts()));
     checks.push(("alignment_follows_influence", follows()));
+    checks.push(("restrict_mode_ends_with_module", restrict_ends()));
+    checks.push(("minigame_takes_no_companions", minigame_alone()));
+    checks.push(("party_screen_accepted", party_screen_accepted()));
+    checks.push(("area_iteration_skips_the_dead", area_skips_the_dead()));
+    checks.push(("locals_of_nothing", locals_of_nothing()));
+    for (name, game, wanted) in [
+        (
+            "local_booleans_k1",
+            "k1",
+            ["1", "-2147483648", "0", "0", "0", "0"],
+        ),
+        (
+            "local_booleans_tsl",
+            "tsl",
+            ["1", "-2147483648", "1", "-2147483648", "0", "0"],
+        ),
+    ] {
+        checks.push((name, local_booleans(game, wanted)));
+    }
+    for (name, game, wanted) in [("pc_faction_k1", "k1", "1"), ("pc_faction_tsl", "tsl", "0")] {
+        checks.push((name, pc_faction(game, wanted)));
+    }
+    for (name, game, wanted) in [
+        ("local_numbers_k1", "k1", ["255", "0", "127", "5", "0", "0"]),
+        (
+            "local_numbers_tsl",
+            "tsl",
+            ["255", "0", "127", "5", "5", "0"],
+        ),
+    ] {
+        checks.push((name, local_numbers(game, wanted)));
+    }
     checks
+}
+
+/// Atton made beside the player (not joined): the area's creatures are
+/// the player and he; dead, the area's iteration passes him over
+/// (`k_battle_death`, the battle of Khoonda's end, counts on it).
+/// A local set on OBJECT_INVALID is kept nowhere and reads 0, as the
+/// executable's `ExecuteCommandSetLocalBoolean` sets nothing and its
+/// `GetLocal...` reads 0 when `GetGameObject` finds no object (403DXN's
+/// `tr_circle`, the battle circle's sergeant gone, read 1 there and took
+/// 50 XP from the party); the player's own local still holds.
+/// The local numbers set (index, value) by `probe_local_numbers`: -1, 200
+/// (out of a byte's signed range), 127, the last of K1's eight slots, the
+/// first past them, and one past TSL's 32.
+const LOCAL_NUMBERS: [(i32, i32); 6] = [(0, -1), (1, 200), (2, 127), (7, 5), (8, 5), (32, 5)];
+
+/// Each game's local numbers as its executable keeps them
+/// (`script::engine::local_number`): a byte read back unsigned (-1 reads
+/// 255), a number outside -128 to 127 not kept, K1's eight slots and TSL's
+/// 32, nothing past them.
+fn local_numbers(game: &str, wanted: [&str; 6]) -> Result<String, String> {
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.game = game.into();
+    let level = ground.with_module(data).with_scripts(library());
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    step(&mut world);
+    run(&mut world, "probe_local_numbers");
+    let read = tokens(&step(&mut world), 100..=105);
+    check(read == wanted, format!("{game}: {read:?}"))
+}
+
+/// The local booleans set and read back by `probe_local_booleans`: the
+/// first, K1's last (95), its first past them (96), TSL's last (159), its
+/// first past them (160), and one below 0.
+const LOCAL_BOOLEANS: [i32; 6] = [0, 95, 96, 159, 160, -1];
+
+/// Each game's local booleans as its executable keeps them
+/// (`script::engine::local_boolean`): K1's var table 96 bits, TSL's 160,
+/// an index tested unsigned; none past them kept, read false; a true one
+/// read as its bit in its word (`local_boolean_read`: 95 and 159 are bit 31,
+/// 96 is bit 0 of TSL's fourth word).
+fn local_booleans(game: &str, wanted: [&str; 6]) -> Result<String, String> {
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.game = game.into();
+    let level = ground.with_module(data).with_scripts(library());
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    step(&mut world);
+    run(&mut world, "probe_local_booleans");
+    let read = tokens(&step(&mut world), 120..=125);
+    check(read == wanted, format!("{game}: {read:?}"))
+}
+
+/// The player's own character moved to Hostile 1 by
+/// `ChangeToStandardFaction`: K1 moves it [verify in K1's exe]; TSL's
+/// executable passes over a creature whose stats are a PC's (its
+/// `ExecuteCommandChangeToStandardFaction` tests `CSWSCreatureStats`'s PC
+/// flag), so the Exile stays in the player's faction after Dxun's battle
+/// circle.
+fn pc_faction(game: &str, wanted: &str) -> Result<String, String> {
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.game = game.into();
+    let level = ground.with_module(data).with_scripts(library());
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    step(&mut world);
+    run(&mut world, "probe_pc_faction");
+    step(&mut world);
+    run(&mut world, "probe_pc_faction_read");
+    let read = tokens(&step(&mut world), 110..=110);
+    check(
+        read == [wanted],
+        format!("{game}: the player's faction after the change {read:?}"),
+    )
+}
+
+fn locals_of_nothing() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    step(&mut world);
+    run(&mut world, "probe_locals_of_nothing");
+    let read = tokens(&step(&mut world), 90..=91);
+    check(
+        read == ["0", "262144"],
+        format!(
+            "local boolean 50 (bit 18 of its word) read back on OBJECT_INVALID and the player: {read:?}"
+        ),
+    )
+}
+
+fn area_skips_the_dead() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    step(&mut world);
+    run(&mut world, "probe_atton_beside");
+    step(&mut world);
+    run(&mut world, "probe_in_area");
+    let alive = tokens(&step(&mut world), 60..=61);
+    let atton = world
+        .script_state()
+        .party
+        .available
+        .get(&(ATTON as u8))
+        .and_then(|npc| npc.object)
+        .ok_or("Atton not made")?;
+    for (id, mut fighting) in world
+        .world
+        .query::<(&Id, &mut Fighting)>()
+        .iter_mut(&mut world.world)
+    {
+        if id.0.0 == atton {
+            fighting.0.hp = 0;
+            fighting.0.life = crate::combat::Life::Dead;
+        }
+    }
+    step(&mut world);
+    run(&mut world, "probe_in_area");
+    let dead = tokens(&step(&mut world), 60..=61);
+    check(
+        alive == ["1", "1"] && dead == ["1", "0"],
+        format!("the area's first two creatures: Atton alive {alive:?}, dead {dead:?}"),
+    )
+}
+
+/// The party selection screen shown, then closed by the player taking the
+/// party as it is: its exit script reads `party::ACCEPTED` as its run
+/// script var (TSL's Ebon Hawk ramp leaves the ship on it, stays on 0).
+fn party_screen_accepted() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    step(&mut world);
+    run(&mut world, "probe_party_screen");
+    step(&mut world);
+    let mut input = TickInput::default();
+    input.insert(Seat(0), crate::input::Command::default());
+    input.act(Seat(0), crate::action::Action::ChooseParty(None));
+    let tick = world.tick() + 1;
+    crate::step(&mut world, tick, &input, MSEC, StepReason::Authority);
+    let mut last = step(&mut world);
+    for _ in 0..3 {
+        last = step(&mut world);
+    }
+    let var = tokens(&last, 50..=50).concat();
+    check(
+        var == crate::script::party::ACCEPTED.to_string(),
+        format!("the exit script's run script var: {var}"),
+    )
+}
+
+/// Atton joined, then a minigame's area installed (Peragus's hangar
+/// turret), then a plain one: not in the minigame's, back in the next.
+fn minigame_alone() -> Result<String, String> {
+    let (mut world, level) = world()?;
+    step(&mut world);
+    run(&mut world, "probe_atton_joins");
+    step(&mut world);
+    let atton = world
+        .script_state()
+        .party
+        .available
+        .get(&(ATTON as u8))
+        .and_then(|npc| npc.object)
+        .ok_or("Atton not joined")?;
+    let module = (**level.module().ok_or("no module")?).clone();
+    let elsewhere = |name: &str| {
+        let mut module = module.clone();
+        module.name = name.into();
+        module
+    };
+    let turret = level
+        .clone()
+        .with_module(elsewhere("turret"))
+        .with_minigame(crate::minigame::Rules::bare(crate::minigame::Kind::Turret));
+    let there = |snapshot: &Snapshot| snapshot.entities.iter().any(|e| e.id.0 == atton);
+    let in_turret = world.install(turret, None).map_err(|e| e.to_string())?;
+    let after = world
+        .install(level.with_module(elsewhere("after")), None)
+        .map_err(|e| e.to_string())?;
+    check(
+        !there(&in_turret) && there(&after),
+        format!(
+            "Atton in the minigame's area {}, in the next {}",
+            there(&in_turret),
+            there(&after)
+        ),
+    )
+}
+
+/// The player restrict mode set (as the asteroid walk's entry script
+/// does), then the next module installed: restricted in the first, not in
+/// the next.
+fn restrict_ends() -> Result<String, String> {
+    let (mut world, level) = world()?;
+    step(&mut world);
+    let mut state = world.script_state().clone();
+    state.party.restrict = true;
+    world.set_script_state(state);
+    step(&mut world);
+    let before = world.script_state().party.restrict;
+    let mut elsewhere = (**level.module().ok_or("no module")?).clone();
+    elsewhere.name = "elsewhere".into();
+    world
+        .install(level.with_module(elsewhere), None)
+        .map_err(|error| error.to_string())?;
+    step(&mut world);
+    let after = world.script_state().party.restrict;
+    check(
+        before && !after,
+        format!("restricted {before} in the module, {after} in the next"),
+    )
 }
 
 /// Atton made available reads his base influence, Kreia unset.
@@ -480,7 +956,9 @@ fn influence() -> Result<String, String> {
 
 /// The puppet given to a companion comes with it as it joins (made beside
 /// it, in the party), and leaves with it sent to base, the companion's
-/// creature gone and the table still knowing both.
+/// creature gone at once (the script that sent it finds no creature by its
+/// tag: TSL's `KillNPCObject` deletes it, so 403DXN's `k_403_enter` makes
+/// Kreia anew) and the table still knowing both.
 fn puppets() -> Result<String, String> {
     let (mut world, _) = world()?;
     step(&mut world);
@@ -506,7 +984,7 @@ fn puppets() -> Result<String, String> {
     let after = step(&mut world);
     let party = &world.script_state().party;
     let puppet = party.puppets.get(&(PUP as u8));
-    let sent = tokens(&after, 30..=31) == ["1", "0"]
+    let sent = tokens(&after, 30..=32) == ["1", "0", "0"]
         && !party.has(OTHER as u8)
         && party
             .available
@@ -519,7 +997,7 @@ fn puppets() -> Result<String, String> {
         format!(
             "puppet made {made:?}, owner {owner:?}, joined {joined:?}, its companion {companion:?}; \
              sent to base {:?}, its creature {:?}, the puppet {puppet:?}",
-            tokens(&after, 30..=31),
+            tokens(&after, 30..=32),
             party.available.get(&(OTHER as u8)).map(|npc| npc.object),
         ),
     )
@@ -696,6 +1174,70 @@ fn bao_dur_met() -> Result<String, String> {
     check(
         !before && after,
         format!("before {before}, after SetInfluence(NPC_BAO_DUR, 50) {after}"),
+    )
+}
+
+/// A companion spawned twice in one script (`SpawnAvailableNPC`) stands
+/// once: the second takes the first one's place, the party table keeping
+/// one creature a companion.
+fn spawned_twice_is_one() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    run(&mut world, "probe_spawned_twice");
+    step(&mut world);
+    run(&mut world, "probe_second_atton");
+    let told = tokens(&step(&mut world), 40..=41);
+    check(
+        told == ["0", "1"],
+        format!("(a second, a first) atton: {told:?}"),
+    )
+}
+
+/// A companion spawned again in a later step while its creature is here
+/// (`SpawnAvailableNPC`) is that creature, moved: Nar Shaddaa's Atton,
+/// spawned to warn the player and spawned again by his warning's first
+/// line (`a_atton_cut_1`), speaks it to its end.
+fn spawned_again_is_the_same() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    run(&mut world, "probe_atton_beside");
+    step(&mut world);
+    run(&mut world, "probe_spawned_again");
+    step(&mut world);
+    run(&mut world, "probe_second_atton");
+    let told = tokens(&step(&mut world), 40..=42);
+    check(
+        told == ["0", "1", "1"],
+        format!("(a second, a first, the same) atton: {told:?}"),
+    )
+}
+
+/// `GetNPCSelectability` is -1 for a companion not in the party table
+/// (TSL's nwscript.nss), else 1 or 0 as it may be picked: the Ebon Hawk's
+/// Visas Marr arrives only while she is not yet available
+/// (`k_003ebo_enter`'s test of 1 or 0).
+fn selectability_told() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    run(&mut world, "probe_selectability");
+    let told = tokens(&step(&mut world), 80..=82);
+    check(
+        told == ["-1", "1", "0"],
+        format!("(never available, available, unselectable): {told:?}"),
+    )
+}
+
+/// TSL's executable runs `k_align_movie` as the player closes the status
+/// summary (`CSWGuiStatusSummary::HandleInputEvent`), which shows once
+/// statuses are told and no conversation holds the world: not before a
+/// status is told, then once. The Visas Marr movies, and so Visas's
+/// arrival on the Ebon Hawk, hang on it.
+fn summary_closed_runs_align_movie() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    let before = tokens(&step(&mut world), 70..=70);
+    run(&mut world, "probe_light_point");
+    step(&mut world);
+    let after = tokens(&step(&mut world), 70..=70);
+    check(
+        before == ["(unset)"] && after == ["1"],
+        format!("k_align_movie's token before {before:?}, after a light side point {after:?}"),
     )
 }
 

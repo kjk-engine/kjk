@@ -1,0 +1,48 @@
+# Malachor V, the depths (TSL, 902MAL), then Mira against Hanharr: the
+# storm beasts on the remote's later ways killed, the Greater Storm Beast's
+# gate (SealDoors: k902boss, 902boss: both portcullises shut behind the
+# Exile, StormBeastGBoss fought, 902boss start 1 opens them), north to the
+# Trayus Academy's steps (tr_london_bridge: flank, the Sith Assassins bow;
+# a_flank_cs hands the player to Mira, SwitchPlayerCharacter 7, by
+# sp_mira). Played as Mira: 902mira's opening, Hanharr fought
+# (k_hanharr_ud at his last HP: 902mira start 1), spared (no LSP or DSP,
+# Kerbow), and a_mira's end: MAL_TURNINTO_REMOTE, Bao-Dur's remote on the
+# surface (901MAL's wp_remote_start).
+# Starts from the surface's checkpoint:
+#   kjk playthrough tsl @malachor_depths data/routes/tsl/malachor_depths.route --god
+# Walkthrough: DSimpson's "Malachor Depths" and "Mira vs. Hanharr"
+# (context/walkthroughs/tsl/); GameBanshee 60; Kerbow [WMALMD], [WMALMH].
+# Left: the corpses' loot, the dead end to the Academy's view, DSimpson's
+# tip of walking past the Greater Storm Beast by the right wall.
+#
+# ASSUMES:
+#   Mira available (NPC 7): a_flank_cs switches to her, else straight to the
+#   remote (901MAL).
+to 82,-110           # by the remote's Console@1 (93,-98)
+fight 30
+to 61,-150
+fight 30
+to 52,-177
+fight 30
+to 16,-204
+fight 30
+to -17,-166
+fight 30
+to -60,-178          # by the remote's Console@2 (-55,-219, conmain)
+fight 30
+to SealDoors         # the gate: the doors close, the Greater Storm Beast
+talk                 # 902boss start 0 (a_902boss_cs)
+fight 40
+talk                 # 902boss start 1: the doors open
+to tr_london_bridge  # the Academy's steps: the assassins bow (flank)
+talk
+talk                 # as Mira: 902mira start 0, Hanharr comes (a_mira)
+say There's no need for this - you don't owe me a life debt # start 1
+say I won't kill you, Hanharr, no matter what you've done.
+say So you serve Kreia now? # (E15's question, back to the choice)
+say I will not kill you in cold blood.
+say Then that is something I will face, Hanharr # a_mira: to the remote
+fight 40             # Hanharr (Hanharr2) to his last HP (k_hanharr_ud)
+talk                 # 902mira start 1: "Kill me..."
+module 901mal        # Bao-Dur's remote at wp_remote_start
+save malachor_remote

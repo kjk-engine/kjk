@@ -1,0 +1,119 @@
+# Telos, Czerka's files (TSL, 202TEL, 207TEL, 203TEL, 209TEL, 204TEL):
+# Chodo's Mission 3: Corrun Falt in the cantina, who points at B-4D4; Opo
+# Chano's droid credentials in 082 East's B2 (his Exchange debt paid);
+# B-4D4 reprogrammed at the Ithorians and played as him in the Czerka
+# offices (Lorso lied to, the astromech lied to, the mainframe copied and
+# our record erased); back to Chodo. Starts from the Exchange route's
+# checkpoint:
+#   kjk playthrough tsl @telos_czerka_files data/routes/tsl/telos_czerka_files.route --god
+# Walkthrough: DSimpson's "Working for the Ithorians", Mission #3
+# (context/walkthroughs/tsl/).
+say Transit to another module # the terminal's transit to 081 and the cantina
+say Entertainment Module 081
+use info_term
+talk
+module 202tel
+say Just let me shop. # the Dobo brothers' shop: Dendis buys what we carry,
+use Dendis           # enough for Corrun Falt's price (our Persuade fails
+sell 1200            # him, DSimpson pays the thousand)
+exit d_Cantina@3
+module 207tel
+say Tell me about Lorso   # Corrun Falt by the dancers' platform: dirt on
+say Maybe I can help you  # Lorso, the mainframe; B-4D4 the way in, Opo
+say There are some files  # Chano's credentials the way to him
+say Something like that
+say So how do I get in?
+say [Persuade] Of course not
+say Here you go, 1,000 credits
+say But how would I get access to B-4D4
+say All right. I'll be going now
+use 207_Falt
+talk
+save telos_falt
+to 3.0,-17.0         # out round the patrons by the bar's side (the walrusman and
+to 4.8,-22.0         # his neighbour, nudged into the way, can hem the player in
+                     # with Atton behind)
+exit d_Cantina_main  # to 082 East's B block: Opo Chano, who needs his
+module 202tel        # Czerka contract to pay an Exchange loan
+exit d_Suburban
+module 203tel
+say Your droid technician credentials
+say I need to borrow Czerka's administrative droid
+say Because I need him
+say You can't? Why not?
+say Your contract?
+say Credits? What for?
+say A loan? From whom?
+say Hey, I answered
+say I could give you an extension
+say I'll be back when I have the credits
+use ComplexB
+use Apartment@1
+use 203_Chano
+talk
+save telos_chano
+say Transit to another module # to the Ithorian compound: Chodo lends the
+say Residential Module 082 West # 2500 credits for Chano's loan
+use info_term
+talk
+module 204tel
+say I need 2,500 credits to pay off
+use 204_Habat
+talk
+say Transit to another module # back to Chano: his loan paid, the credits
+say Residential Module 082 East # not to be repaid (LSP), the credentials
+use info_term        # ours
+talk
+module 203tel
+say Yes, here: 2500 credits
+say Keep the money in return for the credentials
+use Apartment@1
+use 203_Chano
+talk
+save telos_credentials
+exit Czerka          # B-4D4 at the Czerka offices' desk: he comes with us
+module 209tel        # on the credentials, to be reprogrammed by Chodo's
+say I need you to come with me # technicians
+say I have my droid technician credentials right here
+say Let's go now
+use 203_b4d4
+talk
+module 204tel
+talk                 # Chodo: B-4D4 reprogrammed; we play him now
+say I understand     # Chodo's briefing: the files, and a lie allowed
+use 204_Habat
+talk
+save telos_b4d4
+exit to_203TEL       # B-4D4 back to the Czerka offices: Lorso lied to
+module 203tel        # (income discrepancies to check in the mainframe)
+exit Czerka
+module 209tel
+say There are some files that I must access in the mainframe
+say [Lie] There are some discrepancies
+say Thank you, Mistress Lorso
+use 203_Lorso
+talk
+to 203_t1n1          # the mainframe room: T1-N1 talked round (no choices
+talk                 # past the first), and out on its rampage
+say Copy the necessary files # the mainframe: the files copied, our record
+say Erase all data   # erased
+say =Yes.
+say =Log out.
+use 203_mainframe
+talk
+save telos_files
+exit Czerka          # the files to Chodo, by the terminal's transit
+module 203tel
+say Transit to another module
+say Residential Module 082 West
+use info_term
+talk
+module 204tel
+say Yes. I have transferred them # the files handed over; B-4D4 lets go
+say I assure you that I will cause no trouble # (no lie), and we are
+use 204_Habat        # ourselves again
+talk
+say I'm glad I could help # Chodo: the files to the TSF; Bao-Dur at RZ-0031
+use 204_Habat        # can find the Ebon Hawk, an Ithorian shuttle in Bay
+talk                 # Two to reach him; and his healing (+Force)
+save telos_rescue

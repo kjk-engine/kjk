@@ -7,7 +7,7 @@ story, or anything much worse than described ([`CONTRIBUTING.md`](CONTRIBUTING.m
 
 - Only the Endar Spire and parts of Taris are well tested by hand; reports from later planets help most.
 - The rest of KOTOR 1 is only checked by an automated playthrough: it can be finished, but may look or play wrong.
-- KOTOR II is played only as far as Peragus.
+- KOTOR II past Peragus is only checked by an automated playthrough (a created Jedi Exile, to the credits).
 - Co-op is far less tested than single player.
 - A co-op guest's remote droid is new: its camera does not look up or down,
   its HUD buttons have no icons yet, and its shots have no bolt or ring of

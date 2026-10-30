@@ -1,0 +1,53 @@
+# Nar Shaddaa, the Exchange's notice and the Red Eclipse (TSL, 302NAR,
+# 301NAR, 303NAR, 306NAR, 004EBO, 003EBO): back on the landing pad the
+# Red Eclipse slavers seize Quello's pad; the Exchange's deal with Squik
+# walked in on (the boss's men fought; the Exchange +1), Lootra and Aaida
+# reunited (LSP; the Exchange +1), Kaalah-Nah met: with the Refugee
+# Sector's work (Saquesh's hold relaxed, Adana freed) the Exchange's notice
+# reaches the eight the landing pad's heartbeat asks before Visquis calls
+# without paying her 2000 credits for a good word (DSimpson's way); the
+# slavers' ambush on the way back, the Ebon Hawk retaken from the Red
+# Eclipse (Cahhmakt refused: the slave trade not dealt with, fought); out
+# with Bao-Dur and Kreia, and Visquis's call to the Jekk'Jekk Tarr.
+# Starts from the Refugee Sector's checkpoint:
+#   kjk playthrough tsl @nar_shaddaa_refugees data/routes/tsl/nar_shaddaa_exchange.route --god
+# Walkthrough: DSimpson's "Meeting with the Exchange" (context/walkthroughs/tsl/).
+exit TO_301NAR
+module 301nar
+to RedEclipseArrival # Quello and the Red Eclipse
+talk
+use door_thug_1      # the Exchange's back room by the pad: the boss
+to tr_thugboss       # kills Squik over the deal, and his men turn on us
+talk
+fight 30
+exit TO_303NAR
+module 303nar
+say No thanks necessary, I'm just glad I was able to help. # (LSP)
+use Lootra           # reunited (the Exchange +1)
+talk
+exit TO_301NAR
+module 301nar
+exit TO_306          # the Entertainment Promenade (the Twin Suns watch)
+module 306nar
+say I'll be going now.
+use Kaalanah         # Kaalah-Nah met
+talk
+exit TO_301
+module 301nar
+to RedEclipseAttack  # the slavers' ambush
+talk
+fight 30
+to to_ebonhawk_custom
+module 004ebo        # the Red Eclipse aboard
+say Give up the slave trade - or else.
+say Then prepare to die.
+to REAttack
+talk
+fight 40
+module 003ebo        # retaken (T3 and HK-47's scene waits on HK-47 rebuilt)
+party 1,6            # Bao-Dur and Kreia
+to tr_leave
+module 301nar
+talk                 # Visquis's call
+wait 10s
+save nar_shaddaa_visquis

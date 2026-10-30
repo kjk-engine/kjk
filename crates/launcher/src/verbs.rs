@@ -168,6 +168,11 @@ pub(crate) enum Verb {
         /// button of their kit pressed; the story kept as a plain run's
         #[arg(long, value_parser = ["chaos"])]
         droids: Option<String>,
+        /// A build file (`playthrough::build`): the character a new game
+        /// makes through character creation, and the plan its level-ups
+        /// follow
+        #[arg(long)]
+        build: Option<std::path::PathBuf>,
     },
     /// A game's routes (`data/routes/<game>/`) played through as the chain
     /// they make, each from the checkpoint its header names, the branches
@@ -425,7 +430,15 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             blocks,
             save_to,
             droids,
+            build,
         } => {
+            let build = match build.as_deref().map(std::fs::read_to_string).transpose() {
+                Ok(build) => build,
+                Err(error) => {
+                    eprintln!("--build: {error}");
+                    return ExitCode::from(2);
+                }
+            };
             // A file of goals, or the goals themselves.
             let path = std::path::Path::new(&route);
             let route = match std::fs::read_to_string(path) {
@@ -466,6 +479,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                         fail_fast: blocks.fail_fast(),
                         save_to,
                         droids: droids.is_some(),
+                        build,
                     },
                 ),
                 Err(error) => {
@@ -998,7 +1012,7 @@ pub(crate) enum CollisionVerb {
         /// End, x,y,z metres
         #[arg(value_parser = parse_point)]
         to: [f32; 3],
-        /// point, player (JA's standing box), crouch or capsule
+        /// point, player (JA's standing box), body (that box round across, as a body moves), crouch or capsule
         #[arg(long, default_value = "player")]
         shape: String,
         /// Which doors are open: openable, closed or all

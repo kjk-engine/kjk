@@ -504,6 +504,7 @@ crates/sim/src/script/mod.rs SEEN  # perception kind id
 crates/sim/src/script/mod.rs TRACE_LINES  # report buffer size
 crates/sim/src/script/mod.rs TRACE_TAIL  # report buffer size
 crates/sim/src/script/mod.rs VANISHED  # perception kind id
+crates/sim/src/script/party.rs ACCEPTED  # the party selection screen's exit script var, accepted
 crates/sim/src/script/party.rs ARMOR  # a FORFEIT_* script constant's bit
 crates/sim/src/script/party.rs DXUN_SWORD_ONLY  # a FORFEIT_* script constant's bit
 crates/sim/src/script/party.rs EVENT  # the user-defined event number TSL's duel scripts listen for
@@ -517,7 +518,6 @@ crates/sim/src/script/party.rs RANGED  # a FORFEIT_* script constant's bit
 crates/sim/src/script/party.rs WEAPONS  # a FORFEIT_* script constant's bit
 crates/sim/src/script/presentation.rs BAO_DUR  # TSL's NPC_BAO_DUR, a script constant
 crates/sim/src/script/presentation.rs DATAPAD_READ  # a local boolean's index
-crates/sim/src/script/presentation.rs ENDINGS  # TSL's ending movies' names
 crates/sim/src/script/presentation.rs ENGINE_SCRIPTS  # the engine's scripts' names
 crates/sim/src/script/presentation.rs INPUT_CLASSES  # a script constant's range: SetInputClass's highest
 crates/sim/src/script/presentation.rs K1_WINDOWS  # tutorial.2da rows
@@ -526,6 +526,7 @@ crates/sim/src/script/presentation.rs OVERLAY  # animations.2da row: diveroll
 crates/sim/src/script/state.rs ALL  # every use kind, a list
 crates/sim/src/script/state.rs BARK  # save tag
 crates/sim/src/script/state.rs FOLLOW_OWNER  # save tag
+crates/sim/src/script/state.rs PAUSE  # save tag
 crates/sim/src/script/state.rs SPELL_EVENT  # bit flag: a spell event's handle
 crates/sim/src/script/state.rs VALUES_KEPT  # memory: values kept before compaction
 crates/sim/src/script/workbench.rs ACQUIRED_CHEMICALS  # dialog.tlk line
@@ -597,6 +598,7 @@ crates/sim/src/world/feats.rs MASTER_TOUGHNESS  # a probe's fixture
 crates/sim/src/world/feats.rs START  # a probe's fixture
 crates/sim/src/world/feats.rs XP  # a probe's fixture
 crates/sim/src/world/galaxy.rs DANTOOINE  # the check's planets.2da row
+crates/sim/src/world/galaxy.rs ENDING  # the check's movie names (a_playgoodmovie's)
 crates/sim/src/world/galaxy.rs STEPS  # the check's step count
 crates/sim/src/world/galaxy.rs TARIS  # the check's planets.2da row
 crates/sim/src/world/history.rs HISTORY  # a buffer size: the ticks of poses kept (bounds the rewind)
@@ -636,3 +638,4 @@ crates/sim/src/world/powers.rs REGENERATE_FEAT  # feat.2da row (TSL's REGENERATE
 crates/sim/src/world/remains.rs BACKPACK  # placeables.2da row
 crates/sim/src/world/sabers.rs SABER  # a bit flag on a saber's entity number in bolt traces
 crates/sim/src/world/sabers.rs VIEW_REACH  # a geometric reach, longer than any throw's; not a game number
+crates/sim/src/notice.rs ENDING_MOVIES  # TSL's ending movies' names (the executable's own)

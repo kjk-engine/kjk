@@ -22,12 +22,20 @@ use crate::wire::Writer;
 
 /// The XP tables: `plot.2da` (label, XP) by row, and `xptable.2da`'s XP a
 /// death gives by the party's level (row) and the challenge rating
-/// (column `c0`, `c1`, …).
+/// (column `c0`, `c1`, …); TSL's `autobalance.2da` `CRMod` by row, and
+/// `npc.2da`'s `PercentXP` of its rows 13 (`GAME_XP_General`) and 14
+/// (`PER_NPC_Bonus`), which TSL's executable scales a death's XP by.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Experience {
     pub plots: Vec<(String, i32)>,
     pub kills: Vec<Vec<i32>>,
+    pub balance_cr: Vec<i32>,
+    pub percent: Option<(i32, i32)>,
 }
+
+/// The highest row and challenge rating TSL's `CalculateDeathExperience`
+/// reads `xptable.2da` at (`min(level - 1, 30)`, `min(rating, 30)`).
+const TSL_MOST: usize = rules::progression::experience::TSL_MOST;
 
 impl Experience {
     /// Plot row `row`'s XP.
@@ -56,6 +64,42 @@ impl Experience {
         row.get(column).copied().unwrap_or(0)
     }
 
+    /// What a death gives in TSL (`CSWSCreature::ApplyDeathExperience`,
+    /// `CalculateDeathExperience`): `xptable.2da` at the row of the level
+    /// the PC's XP reaches (`potential`) and the creature's rating (an
+    /// autobalanced one's, `autobalanced`: its `CRMod` past the PC's level,
+    /// at least 0), both at most 30; times `GAME_XP_General`'s percent and,
+    /// `PER_NPC_Bonus` above 0, its share by each party member; rounded up.
+    pub fn tsl_kill(
+        &self,
+        potential: u8,
+        challenge: f32,
+        autobalanced: Option<(u8, u8)>,
+        members: usize,
+    ) -> i32 {
+        let rating = match autobalanced {
+            Some((set, pc_level)) => {
+                let crmod = self.balance_cr.get(usize::from(set)).copied().unwrap_or(0);
+                (i32::from(pc_level.max(1)) + crmod).max(0)
+            }
+            None => challenge as i32,
+        };
+        let row = usize::from(potential.max(1) - 1).min(TSL_MOST);
+        let column = usize::try_from(rating).unwrap_or(0).min(TSL_MOST);
+        let base = self
+            .kills
+            .get(row.min(self.kills.len().saturating_sub(1)))
+            .and_then(|row| row.get(column.min(row.len().saturating_sub(1))))
+            .copied()
+            .unwrap_or(0) as f32;
+        let (general, per_npc) = self.percent.unwrap_or((100, 0));
+        let mut xp = base * general as f32 / 100.0;
+        if per_npc > 0 {
+            xp *= per_npc as f32 / 100.0 * members as f32 + 1.0;
+        }
+        xp.ceil() as i32
+    }
+
     pub(crate) fn digest_into(&self, out: &mut Writer) {
         out.u32(self.plots.len() as u32);
         for (label, xp) in &self.plots {
@@ -68,6 +112,16 @@ impl Experience {
             for xp in row {
                 out.u32(*xp as u32);
             }
+        }
+        // TSL's alone, so K1's digest stays.
+        if !self.balance_cr.is_empty() || self.percent.is_some() {
+            out.u32(self.balance_cr.len() as u32);
+            for crmod in &self.balance_cr {
+                out.u32(*crmod as u32);
+            }
+            let (general, per_npc) = self.percent.unwrap_or((100, 0));
+            out.u32(general as u32);
+            out.u32(per_npc as u32);
         }
     }
 }
@@ -100,6 +154,31 @@ pub fn holder(view: &View, state: &State, who: ObjectId) -> u32 {
         PARTY
     } else {
         items::holder(view, who)
+    }
+}
+
+/// The global TSL's scripts read the player's level from.
+pub const PC_LEVEL: &str = "G_PC_LEVEL";
+
+/// XP the party gains is the player's character's too (TSL's
+/// `CSWSCreature::ReceiveExperience`, for its player character): it tells
+/// the campaign's scripts the level that XP reaches, its own and each after
+/// it the XP is enough for (`CSWSCreatureStats::GetPotentialLevel`), in
+/// `G_PC_LEVEL` where the global catalogue declares it (K1's does not; a
+/// module with none, any).
+/// Read by the quest rewards and random loot (`a_give_quest_ls`,
+/// `k_inc_treas_k2`).
+pub(crate) fn tell_pc_level(library: &Library, view: &View, state: &mut State) {
+    let declared = super::engine::declared(view.module, PC_LEVEL, crate::module::Global::Number);
+    let level = view
+        .party
+        .first()
+        .and_then(|pc| view.thing(*pc))
+        .and_then(|thing| thing.character)
+        .map(|character| character.worn.level);
+    if let (true, Some(level)) = (declared, level) {
+        let reached = library.classes().potential_level(level, state.xp(PARTY));
+        super::state::set_global(&mut state.numbers, PC_LEVEL, i32::from(reached));
     }
 }
 
@@ -165,6 +244,7 @@ impl Engine<'_> {
                     } else {
                         self.out.reward(self.state, amount);
                     }
+                    tell_pc_level(self.library, self.view, self.state);
                 } else {
                     self.state.give_xp(holder, amount);
                 }
@@ -179,6 +259,7 @@ impl Engine<'_> {
                 let share = i64::from(xp) * i64::from(int(args, 1)) / 100;
                 let share = share.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
                 self.out.story_xp(self.state, share);
+                tell_pc_level(self.library, self.view, self.state);
                 Value::Int(0)
             }
             _ => {

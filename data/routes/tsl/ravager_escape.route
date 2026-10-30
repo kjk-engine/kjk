@@ -1,0 +1,54 @@
+# The Ravager's end and the way to Malachor V (TSL, 851NIH, 205TEL,
+# 907MAL, to 901MAL): the maintenance bay's missile bay control (851com:
+# the launch sequence activated, the emergency override, a_global_set
+# 851NIH_Missile_Bay 1), the missile's proton core taken (851mis:
+# 851NIH_Missile_Bay 2, 851NIH_Bomb_Ravager 2), the last core set at bomb
+# site 3 (851dem E8: "That's the last of them", 851NIH_Bomb_Ravager 3), out
+# by the boarding hall (tr_222esc's 222tel: leave for good, a_escape_851:
+# MalMov05). Revan light (101PER_Revan_End 0): Citadel Station, Grenn and
+# Admiral Onasi (205TEL's carthend, from tr_carth at the entry: Revan's
+# sake, "Safe journey, exile", Bastila's scene), its end (EndConversation
+# a_901jump: TelMov02, HypMov01, MalMov07, MalMov08, 907MAL_CUTSCENE 2),
+# Traya and Sion in the Trayus Core (907MAL's krecut1), and the Ebon Hawk
+# down on Malachor V's surface (a_kreiacut: 901MAL), the Exile alone.
+# Starts from the bridge's checkpoint:
+#   kjk playthrough tsl @ravager_escape data/routes/tsl/ravager_escape.route --god
+# Walkthrough: DSimpson's "Ravager - Bridge" (its end) and "Malachor V -
+# Endgame" (context/walkthroughs/tsl/); Kerbow [WRAVDN]; GameBanshee 57-58.
+#
+# ASSUMES:
+#   852NIH_Nihilus_Dead 1, 851NIH_Bomb_Ravager 1 (three cores set, one lost:
+#   the command deck's route); the party Mandalore and Visas.
+#   Revan a man (c_chkrevsex: the "him" replies) and light
+#   (101PER_Revan_End 0, a_setrevangood: 205TEL, not straight to 907MAL).
+#   The Exile is male (Grenn's "sir", c_ismale).
+say Activate the launch sequence. # 851com (R1 needs 851NIH_Missile_Bay 0)
+say Override the emergency sequence. # E2 (E3's warning only while
+say Log out.         # 851NIH_Bomb_Ravager is 0)
+use 851com           # the missile bay control by the workbench
+say Remove the proton core. # 851mis start 1
+use 851mis           # the missile
+say Set one of the proton cores # 851dem start 1, E8: the last of them
+say We're out of here. Expect us soon. # R15 (852NIH_Nihilus_Dead 1)
+to tr_851dem@3       # bomb site 3, the lower hallway's dead end (mn_bomb3)
+talk
+fight 30
+say Leave the Ravager for good. # 222tel start 0 (Nihilus dead, cores > 2)
+to tr_222esc         # the boarding hall: the shuttle
+talk                 # a_escape_851: MalMov05
+if in 205tel         # Citadel Station: Grenn and Admiral Onasi (tr_carth)
+say Very well. Lead on.
+say Grenn said you wanted to speak to me about a mutual acquaintance.
+say Did you know him?
+say =Why?            # (not "Why did he ask that?", offered later)
+say You cannot give up hope.
+say Why did he ask that?
+say How did you know Revan?
+say Revan's ship?
+say Do you want me to tell you what I find?
+talk                 # carthend; "Safe journey, exile", Bastila
+end
+module 907mal        # a_901jump's movies; Traya and Sion (k_907_enter)
+talk                 # krecut1: Sion crushed; a_kreiacut: 901MAL
+module 901mal        # the Ebon Hawk down, the Exile alone (k_901mal_enter)
+save malachor_surface

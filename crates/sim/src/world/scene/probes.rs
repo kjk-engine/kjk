@@ -79,6 +79,7 @@ const PROBES: &[Probe] = &[
     ("listener_tag_missing", listener_tag_missing),
     ("listener_previous_speaker", listener_previous_speaker),
     ("listener_self", listener_self),
+    ("far_speaker_always_update", far_speaker_always_update),
     ("same_speaker_to_player", same_speaker_to_player),
     ("replies_offered_turn", replies_offered_turn),
     ("reply_picked_turn", reply_picked_turn),
@@ -96,6 +97,7 @@ const PROBES: &[Probe] = &[
     ("wait_camera_clip_holds", wait_camera_clip_holds),
     ("pause_is_immediate", pause_is_immediate),
     ("pause_behind_actions", pause_behind_actions),
+    ("pause_cleared_with_its_queue", pause_cleared_with_its_queue),
     ("unskippable_line", unskippable_line),
     ("alien_speech", alien_speech),
     ("play_animation_lengths", play_animation_lengths),
@@ -229,7 +231,23 @@ vector Vector(float x=0.0f, float y=0.0f, float z=0.0f);
 location Location(vector vPosition, float fOrientation);
 // 20
 object CreateObject(int nObjectType, string sTemplate, location lLocation, int bUseAppearAnimation=FALSE);
+// 21
+void ClearAllActions();
+// 22
+object GetEnteringObject();
+// 23
+void SetGlobalBoolean(string sIdentifier, int nValue);
+// 24
+object GetModuleItemAcquired();
+// 25
+int GetIsObjectValid(object oObject);
 "#;
+
+/// The globals `probe_acquired` sets: whether its `GetEnteringObject` was
+/// the first PC (TSL's acquire scripts' test), and whether
+/// `GetModuleItemAcquired` named an item (K1's).
+const ACQUIRED_BY_PC: &str = "probe_acquired_by_pc";
+const ACQUIRED_ITEM: &str = "probe_acquired_item";
 
 /// The `ANIMATION_…` constants the probes play: a looping talk, a looping
 /// sleep, a bow and a victory (fire and forget).
@@ -283,7 +301,8 @@ fn tagged(tag: &str) -> [Op; 3] {
 ///   conversation's lock-orientation and head-follow lock lists;
 /// - `probe_pause` pauses its caller's conversation, waits 3 s and resumes
 ///   it; `probe_pause_late` waits 2 s first, then pauses, waits 1 s more and
-///   resumes;
+///   resumes; `probe_pause_cleared` pauses, queues the resume and clears
+///   its own queue;
 /// - `probe_bow_fast` bows at speed 2 and `probe_victory` cheers
 ///   (`ActionPlayAnimation`, fire and forget), `probe_talk_3s` talks for
 ///   3 s, `probe_talk_on` waits 1 s and talks on and on (a duration of −1),
@@ -340,6 +359,7 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
     let wait = |seconds| [Op::Const(Const::Float(seconds)), call(10, 1)];
     let pause = program(&[&[call(9, 0)][..], &wait(3.0), &[call(11, 0)]].concat());
     let pause_late = program(&[&wait(2.0)[..], &[call(9, 0)], &wait(1.0), &[call(11, 0)]].concat());
+    let pause_cleared = program(&[call(9, 0), call(11, 0), call(21, 0)]);
     let play = |animation: u16, speed, seconds| {
         [
             Op::Const(Const::Float(seconds)),
@@ -391,7 +411,20 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_open", program(&open)),
             ("probe_blocked", program(&[])),
             ("probe_area_exit", program(&[])),
-            ("probe_acquired", program(&[])),
+            (
+                "probe_acquired",
+                program(&[
+                    call(22, 0),
+                    call(3, 0),
+                    Op::Equal(fmt_odyssey::ncs::Pair::ObjectObject),
+                    Op::Const(Const::String(ACQUIRED_BY_PC.as_bytes().to_vec())),
+                    call(23, 2),
+                    call(24, 0),
+                    call(25, 1),
+                    Op::Const(Const::String(ACQUIRED_ITEM.as_bytes().to_vec())),
+                    call(23, 2),
+                ]),
+            ),
             ("probe_lost", program(&[])),
             ("probe_module_leave", program(&[])),
             ("probe_leave", leave),
@@ -407,6 +440,7 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_lock_head", lock(8)),
             ("probe_pause", pause),
             ("probe_pause_late", pause_late),
+            ("probe_pause_cleared", pause_cleared),
             ("probe_bow_fast", program(&play(BOW, 2.0, 0.0))),
             ("probe_victory", program(&play(VICTORY, 1.0, 0.0))),
             ("probe_talk_3s", program(&play(TALK, 1.0, 3.0))),
@@ -1498,7 +1532,8 @@ fn probe_rounds() -> crate::combat::rounds::Table {
 /// `c2a1` to `c2a5`; a baton's Power Attack `g1a1` and a blade's `f2a3`;
 /// bare hands `g8a*`. The target answers a hit with the table's damage
 /// clip, a miss with a parry holding a weapon and a dodge bare-handed, and
-/// the blow lands at the swing's `hit1`.
+/// the blow lands at the swing's `hit1`. One holding a heavy repeater (class
+/// 9, past the table's columns) answers with nothing, not a panic.
 fn round_clips_by_wield() -> Found {
     use crate::combat::Delivery;
     use crate::combat::rounds::{Answer, Side};
@@ -1568,10 +1603,22 @@ fn round_clips_by_wield() -> Found {
         .map(|(name, got, _)| format!("{name}: {got:?}"))
         .collect();
     let answer = |landed, target| table.answer(C2A1, Answer::of_round(landed, target), target);
+    let heavy = Sheet {
+        weapons: [
+            Some(Weapon {
+                delivery: Delivery::Blaster(crate::combat::sheet::Blaster::Repeater),
+                base_item: 24,
+                ..Weapon::UNARMED
+            }),
+            None,
+        ],
+        ..Sheet::commoner()
+    };
     let answers = [
         answer(true, side(&blade)),
         answer(false, side(&baton)),
         answer(false, side(&bare)),
+        answer(true, side(&heavy)),
     ];
     // K1's classes with a weapon in each hand go by the left one's.
     let pair = |right: Delivery, left: Delivery| {
@@ -1587,7 +1634,13 @@ fn round_clips_by_wield() -> Found {
     let hits = [table.hit_ms(C2A1), table.hit_ms(G1A1), table.hit_ms(B5A1)];
     check(
         wrong.is_empty()
-            && answers == [Some(PROBE_DAMAGE), Some(PROBE_PARRY), Some(PROBE_DODGE)]
+            && answers
+                == [
+                    Some(PROBE_DAMAGE),
+                    Some(PROBE_PARRY),
+                    Some(PROBE_DODGE),
+                    None,
+                ]
             && hits == [Some(1267), Some(500), None]
             && classes == [4, 0, 8],
         format!("{wrong:?}; answers {answers:?}; hits {hits:?}; classes {classes:?}"),
@@ -2626,6 +2679,35 @@ fn listener_self() -> Found {
     )
 }
 
+/// TSL: a line whose `Speaker` stands farther from the owner than the
+/// speakers' reach (`dialogue::speakers::REACH_M`) is passed over, unless
+/// `SetForceAlwaysUpdate` flagged it (`State::always_update`): then it says
+/// the line, as TSL's `GetNearestObjectByName` lets such an object past
+/// its radius (512OND: Dhagon's call to the throne room, Kavar and Talia
+/// 1400 m off, flagged by `a_force_update` the line before).
+fn far_speaker_always_update() -> Found {
+    let far = [-5.0 - 1.5 * rules::dialogue::speakers::REACH_M, 0.0];
+    let shown = |flagged: bool| -> Result<bool, String> {
+        let stage = Stage {
+            talk: in_turn(&["", "buddy", ""]),
+            ..Stage::default()
+        };
+        let (mut ground, [_, _, buddy]) = placed(stage, far)?;
+        if flagged {
+            let mut state = ground.world.script_state().clone();
+            state.always_update.insert(buddy.0);
+            ground.world.set_script_state(state);
+        }
+        begin(&mut ground)?;
+        Ok(ground.until_entry(1).is_ok())
+    };
+    let (plain, flagged) = (shown(false)?, shown(true)?);
+    check(
+        !plain && flagged,
+        format!("the far companion's line shown unflagged {plain}, flagged {flagged}"),
+    )
+}
+
 /// S2: the talker speaks twice running, naming no listener: its second
 /// line is said to the host, and turns the talker back to it.
 fn same_speaker_to_player() -> Found {
@@ -2929,6 +3011,20 @@ fn pause_behind_actions() -> Found {
     check(
         seen == [(false, true), (true, false)],
         format!("(played, paused) at 2.5 s and 3.4 s: {seen:?}"),
+    )
+}
+
+/// The pause keeps its place in the caller's queue: the talker's line
+/// pauses, queues its resume and clears its own queue before either ran
+/// (Citadel Station's Czerka men, `a_czerkaint`, clear theirs to walk in):
+/// the pause went with the queue, as the executables' queued pause would
+/// never have run, and the line (1350 ms, a skip sent at 300 ms) has played
+/// by 2 s, not held for good.
+fn pause_cleared_with_its_queue() -> Found {
+    let seen = after_pause("probe_pause_cleared", &[2000])?;
+    check(
+        seen == [(true, false)],
+        format!("(played, paused) at 2 s: {seen:?}"),
     )
 }
 
@@ -4267,8 +4363,10 @@ fn leaving_heard() -> Found {
 }
 
 /// An item the party comes to hold runs the module's acquire hook once,
-/// and the same item gone from it its unacquire hook once
-/// (`Mod_OnUnAqreItem`).
+/// which sees the first PC as the one who came by it (`GetEnteringObject`,
+/// as TSL's 402DXN `k_check_item` asks for the zakkeg's ear) and the item
+/// as acquired (`GetModuleItemAcquired`, K1's); and the same item gone from
+/// it its unacquire hook once (`Mod_OnUnAqreItem`).
 fn item_lost_heard() -> Found {
     use crate::inventory::{FIRST_ITEM, Item, PARTY};
     let mut ground = Ground::staged(
@@ -4304,14 +4402,21 @@ fn item_lost_heard() -> Found {
     ground.world.set_script_state(state);
     ground.idle(100);
     let gained = runs(&ground);
+    // Its run saw the first PC come by it (`GetEnteringObject`) and the
+    // item itself (`GetModuleItemAcquired`).
+    let told = [ACQUIRED_BY_PC, ACQUIRED_ITEM]
+        .map(|name| ground.world.script_state().booleans.get(name).copied());
     let mut state = ground.world.script_state().clone();
     state.items.remove(&id);
     ground.world.set_script_state(state);
     ground.idle(100);
     let lost = runs(&ground);
     check(
-        gained == [1, 0] && lost == [1, 1],
-        format!("(acquired, lost) runs: after the gain {gained:?}, after the loss {lost:?}"),
+        gained == [1, 0] && lost == [1, 1] && told == [Some(true), Some(true)],
+        format!(
+            "(acquired, lost) runs: after the gain {gained:?}, after the loss {lost:?}; \
+             (by the first PC, the item named) {told:?}"
+        ),
     )
 }
 

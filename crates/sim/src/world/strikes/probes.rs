@@ -116,6 +116,15 @@ const STEP_MS: u64 = 8;
 const HOLD_MS: u64 = 30_000;
 const HELD_STEPS: u64 = 6000;
 
+/// How much later than a round a blow may land when the beast's pacing
+/// between blows took it out of its reach at the round (ms): KOTOR's attack
+/// walks to its target until it reaches it, so the attack begins once it
+/// has stepped in again. Where the round finds it hangs on its path round
+/// the dummy along the ground's off-axis walls: met as the box, they turned
+/// it 6 cm sooner and the fourth round found it in reach; met round across,
+/// it stood 2.56 m off, just past its reach, and struck 128 ms late.
+const PACED_LATE_MS: u64 = 375;
+
 /// What a run saw: when the beast began its attacks and when the dummy
 /// took its hits (sim ms), the hits' weapons, what was said, until when
 /// the beast was held, the last snapshot.
@@ -359,7 +368,11 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         (
             "a_round_apart",
             check(
-                !apart.is_empty() && apart.iter().all(|gap| *gap == ROUND_MS),
+                !apart.is_empty()
+                    && apart.contains(&ROUND_MS)
+                    && apart
+                        .iter()
+                        .all(|gap| (ROUND_MS..ROUND_MS + PACED_LATE_MS).contains(gap)),
                 format!("{apart:?} ms apart"),
             ),
         ),
@@ -765,7 +778,35 @@ pub fn fist_probes() -> Vec<(&'static str, Result<String, String>)> {
                 format!("{again:?}"),
             ),
         ),
+        ("punch_lands_from_a_doorway", doorway_punch()),
     ]
+}
+
+/// A thrower standing inside a bashable body's box (a force field's
+/// doorway) touches it, so whichever way it faces the body is in front of
+/// its punch (`nearest`, `in_front`).
+fn doorway_punch() -> Result<String, String> {
+    let origin = [1422.7007, 7747.086, 295.0653];
+    let door = collision::Body {
+        entity: 7 | super::super::BODY,
+        min: [35.2, 196.2, 6.9],
+        max: [36.5, 197.4, 9.9],
+        contents: collision::Contents::default(),
+    };
+    let faced: Vec<bool> = [0.0f32, 90.0, 175.3, 270.0]
+        .into_iter()
+        .map(|yaw| {
+            let ps = motion::MotionState::standing(origin, yaw);
+            let body = nearest(&door, ps.origin);
+            in_front(&ps, &[body], SimId(1), None, |_| true).is_some_and(|met| met.id == SimId(7))
+        })
+        .collect();
+    let detail = format!("met facing 0, 90, 175.3, 270 degrees: {faced:?}");
+    if faced.iter().all(|met| *met) {
+        Ok(detail)
+    } else {
+        Err(detail)
+    }
 }
 
 /// How long the sheathing run lasts: 2700 steps of 8 ms.

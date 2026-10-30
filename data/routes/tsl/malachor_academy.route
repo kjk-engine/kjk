@@ -1,0 +1,76 @@
+# Malachor V, the Trayus Academy and Darth Sion (TSL, 903MAL, 906MAL,
+# 903MAL, to 904MAL): the Elite Sith Assassin and the three groups of
+# assassins in the entrance hall, the right (east) door and the curved
+# hallway to the Proving Grounds (TO_906MALa), the Proving Grounds' turret
+# rooms and Sith fought to their other way back (TO_903MALb), the Dark Jedi
+# by Sion's chamber, and Darth Sion (tr_sion: n_darthsion002 at sp_sion,
+# the SionDoors locked): his first word ("I bear no hatred for you, but I
+# must pass"), four falls each with its talk (903sion, Sion's local number
+# 13 counting them: 1 start 5, 2 start 4, 3 start 2, 4 start 0), the last
+# his surrender, the truth that he can let go (light side), his death
+# (a_sion: the SionDoors unlocked), and on into the Trayus Core.
+# Starts from the remote's checkpoint (the Exile at the Academy's entrance,
+# Sion's entrance scene played):
+#   kjk playthrough tsl @malachor_academy data/routes/tsl/malachor_academy.route --god
+# Walkthrough: DSimpson's "The Trayus Academy", "The Trayus Proving
+# Grounds" and "The End Game" (context/walkthroughs/tsl/); GameBanshee
+# 61, 63; Kerbow [WMALTA], [WMALTS].
+# Left: the Trayus Crescent (905MAL, the west side: the same foes), the
+# Proving Grounds' workbench (99.89,-40.90) and its far south loop, the
+# metal boxes. Sion is asked about Kreia, the Academy and Revan, and his
+# will eroded where the Exile's skills reach: [Persuade] at his first word
+# and his third fall, [Awareness] at his second (the [Intelligence] and
+# [Wisdom] lines are their alternatives).
+#
+# ASSUMES:
+#   The Exile alone (the party emptied on the surface), the player again
+#   (tr_sionenter's switch back from the remote).
+#   The Exile's Persuade passes c_sc_per_lt's DC and his Awareness
+#   c_sc_awa_gt's.
+# BLOCKER: a_903kreia sends the Exile from the hallway (wp_903kreia_sp) to
+# wp_903kreia_1 inside, through d_entrance, which it opens 4 s later
+# (DelayCommand ActionOpenDoor); kjk's scripted move stalls at the shut door
+# and ends there, before the way out (TO_902MAL) the harness will not walk
+# into. Where the scene puts the Exile, in the academy:
+goto 903mal wp_903kreia_1
+fight 30             # the Elite Sith Assassin, then the hall's assassins
+fight 30
+fight 30
+exit TO_906MALa      # the right door, the curved hallway: the Proving
+module 906mal        # Grounds
+fight 30
+fight 30             # the turret rooms (G_TURRETBL006)
+exit TO_903MALb      # back into the Academy, the east wing
+module 903mal
+fight 30             # the assassins and Dark Jedi by the metal boxes
+fight 30
+say Where is Kreia, Sion? # 903sion start 7: E24
+say What is this place? # E12 to E16: the Trayus Academy, Revan
+say But where did it come from?
+say Do you know what happened to Revan? # E18, E22, E23
+say Your master is using you. # E7
+say [Persuade] She has already abandoned you, Sion. # E9 [Success]
+say I can hear it in your voice # E10: a_erode_sion, then E3, E4: a_sion
+to tr_sion           # Sion's chamber: Sion (903sion)
+talk
+say This battle was never about the flesh # start 5 (his first fall)
+fight 40
+talk
+say [Awareness] Kreia respects one who can turn away from power # start 4
+say Yet I survived. And I am strong enough to face you now. # E75, E80, E81
+say Surrender now, Sion. I don't want to kill you. # (the second fall)
+fight 40
+talk
+say [Persuade] Sion, even should you beat me # start 2 (the third): E101,
+fight 40             # a_erode_sion
+talk
+say You have already been defeated, Sion. # start 0 (the fourth, the last)
+say Because I was able to turn away from it. And you could not.
+say It is difficult, yes. But in making such decisions is what strength is.
+say It is possible to live without the Force. And die without it.
+say It is the truth, Sion... you feel it. Let go. # E117, E118, E120:
+fight 40             # a_sion: he dies
+talk
+exit TO_904MAL       # the Trayus Core
+module 904mal
+save malachor_core

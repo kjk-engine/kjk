@@ -26,7 +26,7 @@ impl Step<'_> {
 
     /// The first object tagged `tag` (`script::tagged`).
     pub(super) fn first_tagged(&self, tag: &str) -> Option<ObjectId> {
-        crate::script::tagged(self.view, &self.out.made, tag)
+        crate::script::tagged(self.view, self.out, tag)
             .next()
             .map(|tagged| tagged.id)
     }
@@ -43,8 +43,11 @@ impl Step<'_> {
     /// tagged so nearest the owner within `dialogue::speakers::REACH_M`,
     /// taken in the area's order as their search keeps its best (Q-0323:
     /// the first match's plain distance becomes the bar the later ones'
-    /// squared distances must meet). None when no one answers (a companion
-    /// not in the party). `OWNER` and `PLAYER` are no keywords here. An
+    /// squared distances must meet). One `SetForceAlwaysUpdate` flagged is
+    /// taken however far, its distance then the bar (TSL's
+    /// `GetNearestObjectByName` lets an object with that flag past the
+    /// radius: Dhagon's call to the throne room). None when no one answers
+    /// (a companion not in the party). `OWNER` and `PLAYER` are no keywords here. An
     /// owner without a place (none in the area) takes the first tagged
     /// [verify: the executables find none from an owner out of an area].
     pub(super) fn speaker_for(&self, tag: &str, owner: ObjectId) -> Option<ObjectId> {
@@ -61,11 +64,11 @@ impl Step<'_> {
         let reach = rules::dialogue::speakers::REACH_M;
         let mut bar = reach * reach;
         let mut found = None;
-        for tagged in crate::script::tagged(self.view, &self.out.made, tag) {
+        for tagged in crate::script::tagged(self.view, self.out, tag) {
             let squared: f32 = (0..3)
                 .map(|axis| (tagged.at[axis] - origin[axis]).powi(2))
                 .sum();
-            if squared <= bar {
+            if squared <= bar || self.state.always_update.contains(&tagged.id.0) {
                 bar = squared.sqrt();
                 found = Some(tagged.id);
             }
@@ -82,9 +85,14 @@ impl Step<'_> {
             .is_some_and(|node| self.speaker_for(&node.speaker, owner).is_some())
     }
 
-    /// Shows `entry` (its replies already chosen), runs its scripts, and
-    /// times the line.
-    pub(super) fn show(&mut self, id: u32, entry: u32, replies: Vec<u32>) {
+    /// Shows `entry`, runs its scripts, then offers its replies those
+    /// scripts' state lets through, and times the line: both executables'
+    /// `SendDialogEntry` runs an entry's two scripts before it sends its
+    /// replies (`SendDialogReplies`, each reply's condition checked
+    /// there), so a line's script may open a reply of its own (TSL's
+    /// Ralon: `a_ralo_dialogue` notes the Exile's Awareness as the fake is
+    /// shown, and "That *is* a remarkable fake" asks it).
+    pub(super) fn show(&mut self, id: u32, entry: u32) {
         let now = self.view.now_ms;
         let library = self.library;
         let Some(c) = self.state.talk.conversations.iter().find(|c| c.id == id) else {
@@ -100,7 +108,9 @@ impl Step<'_> {
         };
         let speaker = self.speaker(&node.speaker, owner);
         if !self.interjection(id, speaker) {
-            // Held, the line it waits to say kept.
+            // Held, the line it waits to say kept, with the replies as they
+            // stand now (offered anew once it plays).
+            let replies = self.offer(dlg, id, entry, owner, pc);
             if let Some(at) = self.state.talk.index(id) {
                 let c = &mut self.state.talk.conversations[at];
                 (c.entry, c.speaker, c.replies) = (entry, speaker, replies);
@@ -117,7 +127,6 @@ impl Step<'_> {
         let variant = self.state.talk.conversations[at].entry_variant(entry, alien);
         let voice = library.entry_voice(dlg, node, variant);
         let voiced = alien || !node.sound.is_empty() || !node.vo.is_empty();
-        let auto = replies.len() == 1 && dlg.replies[replies[0] as usize].is_silent();
         // A line that waits on its camera model's clip lasts its own timer
         // (`line_ms`) raised to the clip, as the K1 and TSL executables end a
         // line once its timer and every wait its flags name are done.
@@ -152,18 +161,15 @@ impl Step<'_> {
             let c = &mut self.state.talk.conversations[at];
             c.entry = entry;
             c.speaker = speaker;
-            c.replies = replies.clone();
+            c.replies.clear();
             c.shown_ms = now;
             c.until_ms = now + length;
-            c.auto = auto;
+            c.auto = false;
             c.marks.clear();
             c.camera = 0;
             c.waits_for = ObjectId::INVALID;
             c.locked |= story_line(library, dlg, entry);
             c.angle = c.entry_angle(entry, node);
-            if !replies.is_empty() {
-                c.offer_angles(dlg, &replies);
-            }
         }
         let listener = self.listener_for(node, speaker, &self.state.talk.conversations[at], player);
         self.says(at, speaker, listener);
@@ -175,14 +181,6 @@ impl Step<'_> {
             speaker,
             voice: voice.map(|(name, _)| name.to_string()),
         });
-        if !auto && !replies.is_empty() {
-            self.line(Line::Offered {
-                ms: now,
-                id,
-                dialog,
-                replies,
-            });
-        }
         self.progress(node);
         self.node_fade(&node.fade);
         for (who, animation) in gestures {
@@ -193,6 +191,29 @@ impl Step<'_> {
         }
         for call in [&node.script, &node.script2] {
             self.call(call, id, owner, pc);
+        }
+        // The scripts may have ended it, or moved it on.
+        let Some(at) = self.state.talk.index(id) else {
+            return;
+        };
+        if self.state.talk.conversations[at].entry != entry {
+            return;
+        }
+        let replies = self.offer(dlg, id, entry, owner, pc);
+        let auto = replies.len() == 1 && dlg.replies[replies[0] as usize].is_silent();
+        let c = &mut self.state.talk.conversations[at];
+        c.replies = replies.clone();
+        c.auto = auto;
+        if !replies.is_empty() {
+            c.offer_angles(dlg, &replies);
+        }
+        if !auto && !replies.is_empty() {
+            self.line(Line::Offered {
+                ms: now,
+                id,
+                dialog,
+                replies,
+            });
         }
     }
 
@@ -254,10 +275,12 @@ impl Step<'_> {
             self.out.statuses.push(crate::snapshot::StatusKind::Journal);
             let xp = self.library.quest_xp(&node.quest, entry);
             self.out.story_xp(self.state, xp);
+            crate::script::xp::tell_pc_level(self.library, self.view, self.state);
         }
         if let Some(xp) = self.library.experience().plot(node.plot_index) {
             self.out
                 .story_xp(self.state, (xp as f32 * node.plot_xp) as i32);
+            crate::script::xp::tell_pc_level(self.library, self.view, self.state);
         }
     }
 

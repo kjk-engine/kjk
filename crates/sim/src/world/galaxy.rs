@@ -11,7 +11,10 @@
 //! - `EndGame(TRUE)`, and `EndGame()` as K1's older scripts call it, lose
 //!   the game (`Snapshot::lost`) and show no end; `EndGame(FALSE)` (Manaan's
 //!   sentence) shows both seats the end and loses nothing, and after
-//!   `StartCreditSequence` (K1's ending) the credits come first.
+//!   `StartCreditSequence` (K1's ending) the credits come first; TSL's
+//!   ending queues its last movie, MalMov12, whose second part is the
+//!   credits' roll, before `EndGame(FALSE)`: the movie rolls the credits
+//!   (`Screen::rolls_credits`) and the end follows it.
 //!
 //! For the approved test `galaxy_and_end`.
 
@@ -45,6 +48,10 @@ void ShowGalaxyMap(int nPlanet);
 void EndGame(int nShowEndGameGui=TRUE);
 // 8
 void StartCreditSequence(int bTransparentBackground);
+// 9
+void QueueMovie(string sMovie, int nSkippable = TRUE);
+// 10
+void PlayMovieQueue(int nAllowSkips = TRUE);
 "#;
 
 const TARIS: u8 = 1;
@@ -86,15 +93,44 @@ fn travel() -> Ncs {
     asm.build()
 }
 
-/// `EndGame` with `shown` as its argument, or none; the credits started
-/// first when `credits`.
-fn end(credits: bool, shown: Option<u8>) -> Ncs {
+/// What comes before the end: nothing, K1's credit sequence, or TSL's
+/// light ending's movies.
+#[derive(Clone, Copy)]
+enum Before {
+    Nothing,
+    Sequence,
+    Ending,
+}
+
+/// TSL's light ending's movies (`a_playgoodmovie`), the last one the
+/// credits'.
+const ENDING: [&str; 3] = ["MalMov11a", "MalMov11b", "MalMov12"];
+
+/// `EndGame` with `shown` as its argument, or none, after `before`.
+fn end(before: Before, shown: Option<u8>) -> Ncs {
     let mut asm = script_ncs::probes::Asm::default();
-    if credits {
-        int(&mut asm, 0).op(Op::Action {
-            routine: 8,
-            args: 1,
-        });
+    match before {
+        Before::Nothing => {}
+        Before::Sequence => {
+            int(&mut asm, 0).op(Op::Action {
+                routine: 8,
+                args: 1,
+            });
+        }
+        Before::Ending => {
+            for movie in ENDING {
+                int(&mut asm, 1)
+                    .op(Op::Const(Const::String(movie.into())))
+                    .op(Op::Action {
+                        routine: 9,
+                        args: 2,
+                    });
+            }
+            int(&mut asm, 0).op(Op::Action {
+                routine: 10,
+                args: 1,
+            });
+        }
     }
     if let Some(shown) = shown {
         int(&mut asm, shown);
@@ -228,36 +264,51 @@ fn ending() -> Checks {
     [
         (
             "end_lost_with_death_screen",
-            false,
+            Before::Nothing,
             Some(1),
             true,
             Vec::new(),
         ),
-        ("end_lost_by_default", false, None, true, Vec::new()),
+        (
+            "end_lost_by_default",
+            Before::Nothing,
+            None,
+            true,
+            Vec::new(),
+        ),
         (
             "end_without_death_screen",
-            false,
+            Before::Nothing,
             Some(0),
             false,
             both(&[Screen::End]),
         ),
         (
             "end_after_credits",
-            true,
+            Before::Sequence,
             Some(0),
             false,
             both(&[Screen::Credits, Screen::End]),
         ),
+        (
+            "end_after_ending_movie",
+            Before::Ending,
+            Some(0),
+            false,
+            both(&[Screen::queued_movie("malmov12", true, 1), Screen::End]),
+        ),
     ]
     .into_iter()
-    .map(|(name, credits, shown, loses, wanted)| {
-        let result = run(end(credits, shown), &steps).and_then(|(snapshots, notices)| {
+    .map(|(name, before, shown, loses, wanted)| {
+        let result = run(end(before, shown), &steps).and_then(|(snapshots, notices)| {
             let lost = snapshots.last().and_then(|last| last.lost);
             let mut screens: Vec<(u8, Screen)> = notices
                 .iter()
                 .flatten()
                 .filter_map(|(seat, notice)| match notice {
-                    Notice::Show(screen @ (Screen::End | Screen::Credits)) => {
+                    // The end, and what rolled the credits before it.
+                    Notice::Show(screen @ Screen::End) => Some((seat.0, screen.clone())),
+                    Notice::Show(screen) if screen.rolls_credits() => {
                         Some((seat.0, screen.clone()))
                     }
                     _ => None,

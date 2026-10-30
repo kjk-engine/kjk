@@ -30,6 +30,9 @@ pub fn reach(kind: ObjectKind, verb: Verb) -> f32 {
 /// door's or a container's middle.
 pub const MIDDLE_M: f32 = rules::interaction::using::MIDDLE_M;
 
+/// How far above a placeable's action point its line of sight ends.
+pub const ACTION_SIGHT_M: f32 = rules::interaction::using::ACTION_SIGHT_M;
+
 /// How far above or below a player (metres) what it uses may stand.
 pub const HEIGHT_REACH_M: f32 = rules::interaction::using::HEIGHT_REACH_M;
 
@@ -42,6 +45,20 @@ pub(super) struct Target {
 }
 
 impl Target {
+    /// This target as a use from `from` (metres) sees it: a placeable with
+    /// action points (`ObjectData::use_points`) at the nearest of them,
+    /// `ACTION_SIGHT_M` up, as TSL's `CSWSCreature::GetIsInUseRange` looks
+    /// (Korriban's Lonna Vash, searched from beside the force cage round
+    /// her body); anything else at its middle.
+    pub fn aimed(mut self, kind: ObjectKind, facts: &ObjectData, from: [f32; 3]) -> Target {
+        if kind == ObjectKind::Placeable
+            && let Some(point) = facts.nearest_use_point(from)
+        {
+            self.middle = [point[0], point[1], point[2] + ACTION_SIGHT_M];
+        }
+        self
+    }
+
     /// A creature at its body's origin (metres), aimed at its eyes (over
     /// a counter it stands behind); anything else where it was placed,
     /// aimed at its middle.
@@ -80,7 +97,12 @@ pub(super) fn applies(object: &Object, verb: Verb, alive: bool) -> bool {
 /// Whether `player` may use `target` (an object of `kind`) with `verb`:
 /// within the verb's reach across the floor and `HEIGHT_REACH_M` in
 /// height, and its eye in sight of the target (`target::in_sight`, doors
-/// as `states` has them).
+/// as `states` has them). A creature is talked to within reach across the
+/// floor whatever stands between and however far above or below, as
+/// KOTOR's conversation action asks only that its speaker come within
+/// range on the ground's plane (reone's `navigateTo`, a flat distance)
+/// [verify in the exe]: Dantooine's Administrator across a desk taller than
+/// the player's eye, Dxun's Kumus on his ridge 6 m above the path.
 pub(super) fn may_use(
     level: &super::Level,
     states: Option<&[u8]>,
@@ -96,7 +118,13 @@ pub(super) fn may_use(
         target.at[2] - me[2],
     );
     let reach = reach(kind, verb);
-    if dx * dx + dy * dy > reach * reach || dz.abs() > HEIGHT_REACH_M {
+    if dx * dx + dy * dy > reach * reach {
+        return false;
+    }
+    if kind == ObjectKind::Creature && verb == Verb::Talk {
+        return true;
+    }
+    if dz.abs() > HEIGHT_REACH_M {
         return false;
     }
     let mut eye = me;

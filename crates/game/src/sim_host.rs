@@ -1706,6 +1706,7 @@ fn advance(
                             )
                             .copied(),
                             start_ms,
+                            &crate::minigame_bot::area_foes(&authority.last),
                         )
                         .unwrap_or_else(|| aimed(command, &authority.last, level, tag));
                         #[cfg(not(feature = "probes"))]
@@ -2000,7 +2001,10 @@ fn write_transcript(
     let mut text = String::new();
     let mut tokens = crate::transcript::tokens(&talk[..*written]);
     for line in &talk[*written..] {
-        for written in crate::transcript::transcript(&strref, library, &names, &mut tokens, line) {
+        let player = sim::persona::of(&authority.last.personas, sim::Seat(0));
+        for written in
+            crate::transcript::transcript(&strref, library, &names, (&mut tokens, player), line)
+        {
             text.push_str(&written);
             text.push('\n');
         }

@@ -1,0 +1,106 @@
+# Onderon, the Iziz spaceport to Captain Riiken (TSL, 501OND, 502OND,
+# 512OND): Queen Talia and Master Kavar in the throne room (cs_tal_1),
+# Mandalore on Iziz and his doctor friend (501_mand), the port master's
+# starport visa (asked about the lockdown, the checkpoints and the visa),
+# the beast rider asked about his kind, his boma loose and slain, his
+# credits thanked for as not needed (LSP),
+# the checkpoint guard answered plainly (no trader's lie, no "powerful
+# Jedi": the bounty hunters' leader then has no tale from the guard), the
+# Merchant Quarter: the journalist Vaklu's soldiers take for a spy (a
+# warrant and proof asked for, then [Persuade]: LSP), the Gran and the
+# Twi'lek's politics (the Queen the rightful ruler), Ponlar's crowd
+# answered for the Republic (not "The Queen should listen to the will of
+# her people": the Queen's side), the Western Square: the thugs after the
+# Exile's bounty fought, Dhagon Ghent's office (arrested, ask Riiken),
+# the Rodian bounty hunters (Mira defended: +INF) fought; back to Captain
+# Riiken by the air defense tower: Dhagon in custody for Captain Sullio's
+# murder, how to clear him (docalibi).
+# Starts from Dxun's departure checkpoint:
+#   kjk playthrough tsl @onderon_spaceport data/routes/tsl/onderon_spaceport.route --god
+# Walkthrough: DSimpson's "Onderon Port", "Iziz Merchant Quarter" and
+# "Iziz: Western Square" (context/walkthroughs/tsl/).
+# Left: Margar's, Gegorran's and 1B-8D's stores, the news holograms, the visa
+# beggars (Terlyn and Tolas by the starport gate), Anda (Vaklu's side
+# only), Gelesi, Bostuco, Hanharr's starport trigger (not in the party).
+#
+# ASSUMES:
+# - The party is the Exile, Mandalore and Mira (dxun_departure).
+# - cs_tal_1 opens the module by itself (k_501_enter, the first
+#   entry) and tr_mand_intro by the shuttle starts 501_mand at once:
+#   both play as dxun_departure's last fight ends, before its save.
+# - the journalist's [Persuade] (R14) passes on the Exile's own
+#   Persuade (E14 is gated, E12 is the failure: the journalist is taken,
+#   no DSP). With Affect Mind, R19 [Force Persuade] is offered too; the
+#   say asks for R14 either way.
+# - the politics (al_poli start 0) hub: after the three questions
+#   it may end on "I don't want to get involved" (then the Queen line is
+#   start 1's, met on a later pass) or run on into start 1's question.
+# - Not met: Ponlar's riot (mp_ponla start 2) comes on a second pass by the
+#   market; this route passes it once. The escape (onderon_kavar) may meet
+#   it: "I won't fight civilians" is the line that keeps out of it.
+# - tr_bh1_talk starts the Rodians (bounty1) only on the way back
+#   from Dhagon's office (DSimpson: a precognition first, tr_bh_cv).
+say There's a lockdown? # the port master (tr_port_master)
+say Military checkpoints? Are they looking for something?
+say What's a starport visa?
+say Can I go now?
+to tr_port_master
+talk
+equip saber          # the saber in hand
+say I am no merchant. # the beast rider by his cages (beastrdr)
+say Who are you?
+say Tell me about the beast-riders.
+say I'll be going now.
+use beast_rider
+talk
+say Thank you for the credits, they aren't necessary. # his apology, once
+say I'll be going now. # the boma is slain (start 3: LSP, his credits)
+to tr_boma_attack    # his boma gets loose as the Exile walks off
+talk
+fight 20             # the frenzied boma (boma_frenzy)
+talk                 # the beast rider's apology, by itself
+say My business is my own. # the checkpoint guard (tr_cp_guard)
+say My ship has no corporate affiliations.
+say No, nothing to sell.
+to tr_cp_guard
+talk
+exit To_502
+module 502ond
+say Do you have some sort of warrant? # the journalist (intgate)
+say Do you have proof of any sort?
+say [Persuade] You're violating this man's rights # (LSP)
+to tr_interrogate
+talk
+say What do you think of Queen Talia? # the Gran and the Twi'lek (al_poli)
+say I don't know much about General Vaklu.
+say There would be deep consequences if Onderon secedes
+say Who do you trust more?
+say The Queen is Onderon's rightful ruler.
+to tr_alien_politic
+talk
+say Surely the Republic does something in return for you? # Ponlar
+to tr_market_mob
+talk
+exit To_512
+module 512ond
+talk                 # the bounty thugs' leader (th_lead)
+fight 30
+say Where is he?     # Dhagon's thug at his office
+say Mandalore, could Dhagon have done this?
+say What tower?
+say Thanks for the information.
+say I'm not going to let you insult my companion. # the Rodians (Mira +INF)
+to tr_dhagon_office
+talk
+to tr_bh1_talk       # the Rodian bounty hunters on the way back (bounty1)
+talk
+fight 30
+exit To_502
+module 502ond
+say Do you have a man named Dhagon Ghent in custody? # Riiken
+say Who got murdered?
+say How long is Dhagon going to be questioned?
+say How can I eliminate him as a suspect? # a_alibi_start
+use g_riiken
+talk
+save onderon_alibi

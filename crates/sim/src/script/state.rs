@@ -57,6 +57,11 @@ pub struct Pending {
     /// The body whose use raised it (a dialogue hook, an `OnUsed`): a
     /// conversation its run starts is that body's (R1, `Event::asker`).
     pub asker: Option<ObjectId>,
+    /// Its `GetRunScriptVar`: the party selection screen's script runs
+    /// with `party::ACCEPTED` once a player accepted the party (TSL's
+    /// `check_party_gui` keeps the party aboard the Ebon Hawk on 0, the
+    /// screen cancelled); 0 for any other.
+    pub script_var: i32,
 }
 
 impl Pending {
@@ -70,6 +75,7 @@ impl Pending {
             ai: false,
             leads: None,
             asker: None,
+            script_var: 0,
         }
     }
 }
@@ -143,6 +149,10 @@ pub struct State {
     /// Creatures `SetOrientOnClick(FALSE)` keeps from turning in their
     /// conversations (TSL).
     pub unoriented: BTreeSet<u32>,
+    /// Objects `SetForceAlwaysUpdate(TRUE)` flagged (TSL): a conversation
+    /// finds one of them as a line's speaker however far it stands from the
+    /// owner (`dialogue::Step::speaker_for`).
+    pub always_update: BTreeSet<u32>,
     /// Who stands in each trigger (by the trigger's id), for its enter and
     /// exit events.
     pub occupants: BTreeMap<u32, Vec<u32>>,
@@ -279,6 +289,10 @@ pub struct State {
     /// TSL's `SetKeepStealthInDialog`: a conversation starting leaves its
     /// parties in stealth (KOTOR's client keeps it; not saved).
     pub keep_stealth: bool,
+    /// Statuses told that the status summary is still to show: it shows
+    /// once no conversation holds the world, and closing it runs
+    /// `presentation::SUMMARY_CLOSED` (KOTOR's client keeps it; not saved).
+    pub summary_owed: bool,
     /// The map page's return button as `SetReturnStrref` last set it:
     /// shown, label, confirm box. KOTOR's party table does not save it
     /// (`k_sup_guiopen` sets it anew each time an in-game screen opens,
@@ -660,6 +674,10 @@ impl State {
         for object in &self.unoriented {
             out.u32(*object);
         }
+        out.u32(self.always_update.len() as u32);
+        for object in &self.always_update {
+            out.u32(*object);
+        }
         out.u32(self.uncommandable.len() as u32);
         for object in &self.uncommandable {
             out.u32(*object);
@@ -970,6 +988,11 @@ impl State {
         }
         for _ in 0..input.u32()? {
             state.unoriented.insert(input.u32()?);
+        }
+        if input.since(crate::since::save::CLAUDE_TSL_ONDERON) {
+            for _ in 0..input.u32()? {
+                state.always_update.insert(input.u32()?);
+            }
         }
         for _ in 0..input.u32()? {
             state.uncommandable.insert(input.u32()?);
@@ -1499,6 +1522,10 @@ fn encode_action(out: &mut Writer, action: &Action) {
             out.u8(11);
             out.u32(talk.unwrap_or(u32::MAX));
         }
+        Action::Pause { talk } => {
+            out.u8(PAUSE);
+            out.u32(talk.unwrap_or(u32::MAX));
+        }
         Action::Talent { talent, target } => {
             out.u8(7);
             encode_use(out, Some(*talent));
@@ -1531,6 +1558,8 @@ fn encode_action(out: &mut Writer, action: &Action) {
 /// numbers, apart from the rest).
 const BARK: u8 = 43;
 const FOLLOW_OWNER: u8 = 57;
+/// A queued pause's code in a save.
+const PAUSE: u8 = 58;
 
 fn decode_action(input: &mut Reader) -> Result<Action, DecodeError> {
     let at = input.at();
@@ -1593,6 +1622,9 @@ fn decode_action(input: &mut Reader) -> Result<Action, DecodeError> {
             asker: optional_id(input)?,
         },
         11 => Action::Hold {
+            talk: optional_talk(input)?,
+        },
+        PAUSE => Action::Pause {
             talk: optional_talk(input)?,
         },
         7 => {
@@ -1681,6 +1713,7 @@ fn encode_pendings(out: &mut Writer, pendings: &[Pending]) {
         out.u8(u8::from(pending.ai));
         out.u32(pending.leads.map_or(u32::MAX, |id| id.0));
         out.u32(pending.asker.map_or(u32::MAX, |id| id.0));
+        out.u32(pending.script_var as u32);
     }
 }
 
@@ -1699,6 +1732,11 @@ fn decode_pendings(input: &mut Reader) -> Result<Vec<Pending>, DecodeError> {
                 ai: input.u8()? != 0,
                 leads: optional_id(input)?,
                 asker: optional_id(input)?,
+                script_var: if input.since(crate::since::save::CLAUDE_TSL_DANTOOINE) {
+                    input.u32()? as i32
+                } else {
+                    0
+                },
             })
         })
         .collect()

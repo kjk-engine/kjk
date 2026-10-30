@@ -266,7 +266,32 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         "nav_past_gate_between_corners",
         nav_past_gate_between_corners(),
     ));
+    checks.push(("additive_texture_not_met", additive_texture()));
     checks
+}
+
+/// A room mesh whose texture blends additively is drawn, never met
+/// (`Loader::additive`, read by `build_area`): Korriban's secret tomb hangs
+/// such a cloud of light (`korfx_clouds`) along the minefield of Dxun's
+/// vision. One with its own blending, or with none, is met.
+fn additive_texture() -> Result<String, String> {
+    let files = asset_odyssey::made::Files(
+        [
+            ("cloud.txi", "blending additive\n"),
+            ("leaves.txi", "blending punchthrough\n"),
+            ("wall.txi", "decal 0\n"),
+        ]
+        .map(|(name, text)| (name.to_string(), text.as_bytes().to_vec()))
+        .into(),
+    );
+    let loader = crate::Loader { source: &files };
+    let seen = ["cloud", "leaves", "wall", "none"].map(|name| loader.additive(name));
+    let what = format!("{seen:?}");
+    if seen == [true, false, false, false] {
+        Ok(what)
+    } else {
+        Err(what)
+    }
 }
 
 /// Surfaces with row 1 walkable, for made-up walkmeshes.

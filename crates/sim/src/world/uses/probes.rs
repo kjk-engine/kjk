@@ -26,7 +26,7 @@ object GetLastSpeaker();
 // 5
 object GetClickingObject();
 "#;
-const SAYS: [(&str, u16, &str); 7] = [
+const SAYS: [(&str, u16, &str); 8] = [
     ("probe_opened", 1, "opened"),
     ("probe_closed", 2, "closed"),
     ("probe_failed", 1, "failed"),
@@ -34,6 +34,7 @@ const SAYS: [(&str, u16, &str); 7] = [
     ("probe_hidden", 3, "hidden"),
     ("probe_talk", 4, "talked"),
     ("probe_click", 5, "clicked"),
+    ("probe_across", 4, "across"),
 ];
 
 fn library() -> crate::script::Library {
@@ -67,6 +68,9 @@ const HIDDEN: u32 = 6;
 /// settler, whose `OnUsed` writes the journal).
 const STRONGBOX: u32 = 7;
 const CASKET: u32 = 8;
+/// A creature behind the wall, within a talk's reach of `BY_WALL`: one
+/// across a counter (Dantooine's Administrator behind her desk).
+const ACROSS: u32 = 9;
 
 /// Where the player stands for a step, on the ground's own axes (metres
 /// from the doorway's middle; x through the door, y along the wall).
@@ -80,7 +84,7 @@ const BY_TALKER: [f32; 2] = [-2.5, 1.0];
 /// A step: where seat 0 stands, whether it is down, and its Uses.
 type Step = ([f32; 2], bool, &'static [(u32, Verb)]);
 
-const STEPS: [Step; 17] = [
+const STEPS: [Step; 18] = [
     (FAR, false, &[(GATE, Verb::Open)]),
     (NEAR, false, &[(GATE, Verb::Open)]),
     (NEAR, false, &[(GATE, Verb::Open)]),
@@ -101,6 +105,7 @@ const STEPS: [Step; 17] = [
     (NEAR, false, &[(TALKER, Verb::Talk)]),
     (NEAR, false, &[(STRONGBOX, Verb::Open)]),
     (NEAR, false, &[(CASKET, Verb::Open)]),
+    (BY_WALL, false, &[(ACROSS, Verb::Talk)]),
     (NEAR, true, &[(PANEL, Verb::Use)]),
 ];
 
@@ -204,6 +209,13 @@ fn scenario() -> Result<Ran, String> {
                     "probe_used",
                 )
             },
+            thing(
+                ObjectKind::Creature,
+                "across",
+                [1.0, 2.6],
+                "ScriptDialogue",
+                "probe_across",
+            ),
         ]
         .map(Placement::Own),
     );
@@ -452,7 +464,11 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ),
         (
             "dead_refused",
-            check(!said(16, "used"), format!("{notices:?}")),
+            check(!said(17, "used"), format!("{notices:?}")),
+        ),
+        (
+            "talk_needs_no_sight",
+            check(said(16, "across"), format!("{notices:?}")),
         ),
         ("uses_heard", {
             use super::super::UseCame::{Clicked, Opened, Refused, Used};
@@ -480,7 +496,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         (
             "target_candidates",
             check(
-                targets == [GATE, CHEST, SAFE, PANEL, HIDDEN, STRONGBOX, CASKET],
+                targets == [GATE, CHEST, SAFE, PANEL, HIDDEN, STRONGBOX, CASKET, ACROSS],
                 format!("{targets:?}"),
             ),
         ),
@@ -494,8 +510,73 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             ),
         ),
     ]);
+    checks.push(("talk_across_height", across_height()));
+    checks.push(("use_from_action_point", action_point()));
     checks.extend(crate::target::probes());
     checks
+}
+
+/// How far above the player a ledge's speaker stands (metres): Dxun's
+/// Kumus on his ridge, 6.7 m over the path below it.
+const LEDGE_M: f32 = 6.7;
+
+/// A creature on a ledge `LEDGE_M` above, within a talk's reach across
+/// the floor, is talked to (`may_use`: the reach is flat, as reone's
+/// conversation walk measures it); a placeable as high is out of reach,
+/// and so is the same creature a step beyond the reach.
+fn across_height() -> Result<String, String> {
+    let level = crate::determinism::proving_ground();
+    let me = floor_at(NEAR);
+    let player = crate::motion::MotionState::standing(me.map(|v| v / collision::UNIT), 0.0);
+    let reach = super::reach(ObjectKind::Creature, Verb::Talk);
+    let up = |ahead: f32| [me[0] + ahead, me[1], me[2] + LEDGE_M];
+    let may = |at: [f32; 3], kind, verb| {
+        let creature = (kind == ObjectKind::Creature).then_some(at);
+        let target = super::Target::new(TALKER, creature, at);
+        super::may_use(&level, None, &player, &target, kind, verb)
+    };
+    let talked = may(up(reach - 0.5), ObjectKind::Creature, Verb::Talk);
+    let used = may(up(0.5), ObjectKind::Placeable, Verb::Use);
+    let beyond = may(up(reach + 0.5), ObjectKind::Creature, Verb::Talk);
+    let what = format!("talked {talked}, placeable used {used}, beyond reach {beyond}");
+    if talked && !used && !beyond {
+        Ok(what)
+    } else {
+        Err(what)
+    }
+}
+
+/// A container behind the wall, within reach of `BY_WALL`, its action
+/// point (`ObjectData::use_points`) on the player's side: used from there,
+/// the line of sight ending at that point (`Target::aimed`, TSL's
+/// `CSWSCreature::GetIsInUseRange`), as Korriban's Lonna Vash is searched
+/// from beside the force cage round her; the same container with no action
+/// point is not, its middle hidden by the wall.
+fn action_point() -> Result<String, String> {
+    let level = crate::determinism::proving_ground();
+    let me = floor_at(BY_WALL);
+    let player = crate::motion::MotionState::standing(me.map(|v| v / collision::UNIT), 0.0);
+    let placed = floor_at([1.5, 3.0]);
+    let point = floor_at([-0.3, 3.0]);
+    let mut chest = crate::module::ObjectData::bare(ObjectKind::Placeable, "caged", placed);
+    chest.container = true;
+    let may = |facts: &crate::module::ObjectData| {
+        let target =
+            super::Target::new(HIDDEN, None, placed).aimed(ObjectKind::Placeable, facts, me);
+        super::may_use(
+            &level,
+            None,
+            &player,
+            &target,
+            ObjectKind::Placeable,
+            Verb::Open,
+        )
+    };
+    let bare = may(&chest);
+    chest.use_points = vec![std::array::from_fn(|axis| point[axis] - placed[axis])];
+    let aimed = may(&chest);
+    let what = format!("with an action point {aimed}, without {bare}");
+    if aimed && !bare { Ok(what) } else { Err(what) }
 }
 
 /// The NPC probe's routines (`script_probes`).
@@ -516,11 +597,16 @@ void ActionUseObject(object oPlaceable);
 void ActionInteractObject(object oPlaceable);
 // 7
 object GetLastOpenedBy();
+// 8
+void ActionOpenDoor(object oDoor);
+// 9
+void ActionLockObject(object oTarget);
 "#;
 
 /// Spawn scripts that use the object tagged so (by routine), the panel's
-/// `OnUsed`, which tells the player its user's tag, and the gate's
-/// `OnOpen`, which tells its opener's.
+/// `OnUsed`, which tells the player its user's tag, the gate's `OnOpen`,
+/// which tells its opener's, and heartbeats that open and lock their own
+/// door.
 fn npc_library() -> crate::script::Library {
     use fmt_odyssey::ncs::{Const, Op};
     let uses = |routine: u16, tag: &str| {
@@ -556,6 +642,13 @@ fn npc_library() -> crate::script::Library {
         .op(Op::Retn);
         asm.build()
     };
+    let on_itself = |routine: u16| {
+        let mut asm = script_ncs::probes::Asm::default();
+        asm.op(Op::Const(Const::Object(0)))
+            .op(Op::Action { routine, args: 1 })
+            .op(Op::Retn);
+        asm.build()
+    };
     crate::probe::library(
         NPC_CATALOG,
         [
@@ -563,18 +656,35 @@ fn npc_library() -> crate::script::Library {
             ("probe_doorman", uses(6, "gate")),
             ("probe_used_by", tells(1)),
             ("probe_opened_by", tells(7)),
+            ("probe_opens_itself", on_itself(8)),
+            ("probe_locks_itself", on_itself(9)),
         ],
     )
 }
 
 /// How long the NPC probe runs at most (8 ms steps).
 const NPC_STEPS: usize = 500;
+/// How long the self-opening gate's run lasts (8 ms steps): past its
+/// first heartbeat.
+const SELF_OPEN_STEPS: usize = 1000;
 
 /// The NPC probe's run: each step's gate state, what the panel and the
 /// gate told the player and at which step, the last snapshot.
 type NpcRan = (Vec<u8>, Vec<(usize, String)>, crate::Snapshot);
 
 fn npc_scenario() -> Result<NpcRan, String> {
+    ground_scenario(&[("OnOpen", "probe_opened_by")], None, true, NPC_STEPS)
+}
+
+/// The proving ground with its gate's `scripts` (and, given, whether its
+/// lock may be locked again), the NPCs (`npcs`: the worker and the
+/// doorman) or none, run for `steps`.
+fn ground_scenario(
+    scripts: &[(&str, &str)],
+    lockable: Option<bool>,
+    npcs: bool,
+    steps: usize,
+) -> Result<NpcRan, String> {
     use crate::module::{ObjectData, Placement};
     use crate::notice::Notice;
     use crate::{StepReason, TickInput, WorldConfig};
@@ -584,7 +694,19 @@ fn npc_scenario() -> Result<NpcRan, String> {
     let Some(Placement::Own(gate)) = data.placements.first_mut() else {
         return Err("the ground's first object is not its door".into());
     };
-    gate.scripts = vec![("OnOpen".into(), "probe_opened_by".into())];
+    gate.scripts = scripts
+        .iter()
+        .map(|(hook, script)| ((*hook).into(), (*script).into()))
+        .collect();
+    if let Some(lockable) = lockable {
+        gate.lock = Some(crate::module::Lock {
+            lockable,
+            ..gate
+                .lock
+                .clone()
+                .unwrap_or_else(crate::module::Lock::default)
+        });
+    }
     let thing = |kind, tag: &str, at, hook: &str, script: &str| ObjectData {
         kind,
         tag: tag.into(),
@@ -592,34 +714,34 @@ fn npc_scenario() -> Result<NpcRan, String> {
         scripts: vec![(hook.into(), script.into())],
         ..ObjectData::unknown(tag, floor_at(at), 0.0)
     };
-    data.placements.extend(
-        [
-            thing(
-                ObjectKind::Placeable,
-                "panel",
-                [-4.5, 3.0],
-                "OnUsed",
-                "probe_used_by",
-            ),
-            thing(
-                ObjectKind::Creature,
-                "worker",
-                [-2.0, 4.5],
-                "ScriptSpawn",
-                "probe_worker",
-            ),
-            // Out of the door's reach. Its box is square to the world, not
-            // the turned ground, so at v = -3.0 it would stand in the ramp.
-            thing(
-                ObjectKind::Creature,
-                "doorman",
-                [-3.5, -2.0],
-                "ScriptSpawn",
-                "probe_doorman",
-            ),
-        ]
-        .map(Placement::Own),
-    );
+    let others = [
+        thing(
+            ObjectKind::Placeable,
+            "panel",
+            [-4.5, 3.0],
+            "OnUsed",
+            "probe_used_by",
+        ),
+        thing(
+            ObjectKind::Creature,
+            "worker",
+            [-2.0, 4.5],
+            "ScriptSpawn",
+            "probe_worker",
+        ),
+        // Out of the door's reach. Its box is square to the world, not
+        // the turned ground, so at v = -3.0 it would stand in the ramp.
+        thing(
+            ObjectKind::Creature,
+            "doorman",
+            [-3.5, -2.0],
+            "ScriptSpawn",
+            "probe_doorman",
+        ),
+    ];
+    if npcs {
+        data.placements.extend(others.map(Placement::Own));
+    }
     // The floor as a navigation mesh, for the creatures' walks (the ground
     // has none of its own).
     let floor = [[-7.5, -5.5], [7.5, -5.5], [7.5, 5.5], [-7.5, 5.5]].map(floor_at);
@@ -650,7 +772,7 @@ fn npc_scenario() -> Result<NpcRan, String> {
     let mut gates = Vec::new();
     let mut told = Vec::new();
     let mut last = None;
-    for step in 0..NPC_STEPS {
+    for step in 0..steps {
         let snapshot = crate::step(
             &mut world,
             step as u64 + 1,
@@ -1407,6 +1529,28 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
         .collect();
     let hearing = hearing_scenario();
     let again = npc_scenario().map(|(_, _, last)| last.hash());
+    let itself = ground_scenario(
+        &[
+            ("OnHeartbeat", "probe_opens_itself"),
+            ("OnOpen", "probe_opened_by"),
+        ],
+        None,
+        false,
+        SELF_OPEN_STEPS,
+    );
+    let locked: Result<Vec<_>, String> = [false, true]
+        .into_iter()
+        .map(|lockable| {
+            let script = [("OnHeartbeat", "probe_locks_itself")];
+            ground_scenario(&script, Some(lockable), false, SELF_OPEN_STEPS).map(|(_, _, last)| {
+                last.entities
+                    .iter()
+                    .find(|entity| matches!(entity.kind, crate::Kind::Object(_, GATE)))
+                    .and_then(|entity| entity.object)
+                    .map(|object| object.lock == crate::snapshot::lock::LOCKED)
+            })
+        })
+        .collect();
     let opened_at = gates.iter().position(|state| *state == 1);
     let told_by = |tag: &str| -> Vec<usize> {
         told.iter()
@@ -1433,6 +1577,26 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
                 opened.len() == 1 && opened_at.is_some_and(|step| opened[0] >= step),
                 format!("opened at step {opened_at:?}, told {told:?}"),
             ),
+        ),
+        (
+            "door_opening_itself_runs_on_open",
+            match itself {
+                Ok((gates, told, _)) => check(
+                    gates.contains(&1) && told.iter().filter(|(_, by)| by == "gate").count() == 1,
+                    format!("the gate open {}, told {told:?}", gates.contains(&1)),
+                ),
+                Err(why) => Err(why),
+            },
+        ),
+        (
+            "only_lockable_locks",
+            match locked {
+                Ok(locked) => check(
+                    locked == [Some(false), Some(true)],
+                    format!("locked after its heartbeat, unlockable and lockable: {locked:?}"),
+                ),
+                Err(why) => Err(why),
+            },
         ),
         (
             "made_placeable_blocks",

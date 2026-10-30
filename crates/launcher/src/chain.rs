@@ -344,6 +344,12 @@ impl Inputs {
     /// for a module), its route's text and its arguments (`arguments`).
     fn key(&self, start: &[u8], route: &str, arguments: &[String]) -> String {
         let mut hasher = blake3::Hasher::new();
+        // A build file a flag names is read by the run: its text counts.
+        let builds: Vec<u8> = arguments
+            .windows(2)
+            .filter(|pair| pair[0] == "--build")
+            .flat_map(|pair| std::fs::read(&pair[1]).unwrap_or_else(|_| Vec::new()))
+            .collect();
         let arguments = arguments.join("\n");
         for part in [
             CACHE_VERSION.as_bytes(),
@@ -353,6 +359,7 @@ impl Inputs {
             start,
             route.as_bytes(),
             arguments.as_bytes(),
+            &builds,
         ] {
             hasher.update(&(part.len() as u64).to_le_bytes());
             hasher.update(part);

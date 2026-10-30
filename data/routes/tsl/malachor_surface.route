@@ -1,0 +1,40 @@
+# Malachor V, the surface (TSL, 901MAL): the Exile alone by the wrecked
+# Ebon Hawk (k_901mal_enter takes every companion out of the party), the
+# storm beasts on the ways the remote takes later killed (DSimpson: "It's
+# helpful for later to kill all the Storm Beasts"), the poison vents'
+# traps (G_T_TRAP012, the green cracks) left to the walker; over the bridge
+# Mira wakes and Kreia sends Hanharr after her (tr_mira_han: 901mira, Mira
+# spawned for the scene), and west into the depths.
+# Starts from the Ravager's last checkpoint:
+#   kjk playthrough tsl @malachor_surface data/routes/tsl/malachor_surface.route --god
+# Walkthrough: DSimpson's "Malachor V - Endgame" (context/walkthroughs/tsl/,
+# [MLCRV]); GameBanshee 59; Kerbow [WMALEH].
+# Left: the corpses' loot (HighCorpse, MidCorpse, LowCorpse), the beasts in
+# the far east loop (169,-118 to 201,-98).
+#
+# ASSUMES:
+#   Mira (NPC 7) is an available companion (CHOICES: she joined, Hanharr
+#   did not), so tr_mira_han's IsAvailableCreature(7) plays her scene and
+#   902MAL's flank later hands the player to Mira.
+#   The buried ships' consoles (Console@1 north, Console@2 south) do
+#   nothing for the Exile (console start 1 needs 901MAL_REMOTE): not used.
+#   The storm beasts wander (k_def_amb_storm's ActionRandomWalk), so the
+#   route fights what it meets by the places the remote goes later: the
+#   buried ships' consoles (GameBanshee's #2 and #5) and the way between.
+fight 20
+to Console@1         # the north buried ship (GameBanshee #2), the beasts by it (#3)
+fight 40
+to 151,-56           # down the east loop, wide of the rock pillar at
+to 154,-62           # 148,-63 (a walk hugging its foot wedges; SKIPPED.md)
+to 146,-95           # and down the middle of the channel south of it,
+to 149,-102          # wide of the drawn wall along its east side (the
+to 153,-106          # walk's corner at its north end, hugged, wedged the
+to 158,-111          # body too; SKIPPED.md)
+to tr_mira_han       # over the bridge: Mira wakes, Kreia, Hanharr (901mira)
+talk
+fight 40
+to Console@2         # the south buried ship (#5)
+fight 40
+exit TO_902MAL       # the depths (#6)
+module 902mal
+save malachor_depths

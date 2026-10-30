@@ -239,8 +239,19 @@ pub(crate) fn assemble(
     let place = level.place().ok_or(InstallError::NoModule)?;
     let mut stash = before.stash.to_vec();
     let mut next_id = before.next_id;
-    let mut companions = companions(before, old);
-    for (id, template) in members {
+    // A minigame's area takes no companions: they wait in the module left
+    // (its stash, below) and arrive with the party in the next. Peragus's
+    // hangar turret ships its own Atton, out of the troopers' way, to speak
+    // its scenes; the party's Atton carried in stood in the hangar, fought
+    // the troopers as they came and fell in the turret's fire, and its last
+    // scene (turend, his) never began.
+    let minigame = level.minigame().is_some();
+    let mut companions = if minigame {
+        Vec::new()
+    } else {
+        companions(before, old)
+    };
+    for (id, template) in members.iter().filter(|_| !minigame) {
         if companions.iter().any(|(c, _)| c.id.0 == *id) {
             continue;
         }
@@ -458,6 +469,41 @@ pub(crate) fn assemble(
             sheet: avatar.sheet,
             missile: None,
         });
+    }
+    // A seat playing a creature (`world::switch`): that creature, the
+    // scripts' PC, arrives where its seat's player does, and the seat's own
+    // benched character stands in the creature's place: TSL's Atton, played
+    // from the cantina back to the Ebon Hawk, stands on the waypoint whose
+    // trigger asks whether the PC entered it (`k_301_attonwarn2`).
+    let driven: Vec<(usize, usize)> = entities
+        .iter()
+        .enumerate()
+        .filter_map(|(at, entity)| match entity.kind {
+            Kind::Avatar(seat) => entities
+                .iter()
+                .position(|other| {
+                    matches!(other.kind, Kind::Object(..))
+                        && other.fighter.and_then(|f| f.mind.driver) == Some(seat)
+                })
+                .map(|creature| (at, creature)),
+            _ => None,
+        })
+        .collect();
+    for (avatar, creature) in driven {
+        let (a, c) = (entities[avatar], entities[creature]);
+        let swapped = |entity: EntityState, with: EntityState| {
+            let player = entity.player.zip(with.player).map(|(mut player, with)| {
+                player.origin = with.origin;
+                player
+            });
+            EntityState {
+                position: with.position,
+                player,
+                ..entity
+            }
+        };
+        entities[avatar] = swapped(a, c);
+        entities[creature] = swapped(c, a);
     }
     // Arriving inside a trigger that leads out, or in an open door's
     // doorway, is not entering it (no bounce back): for each seat's player,

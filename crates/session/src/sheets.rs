@@ -329,6 +329,10 @@ fn creature(tables: &mut Tables, root: &GffStruct, object: &mut ObjectData) {
     };
     object.hit_points = hp("CurrentHitPoints").zip(hp("HitPoints"));
     object.challenge = root.float("ChallengeRating").unwrap_or(0.0);
+    object.multiplier_set = root
+        .uint("MultiplierSet")
+        .and_then(|set| u8::try_from(set).ok())
+        .unwrap_or(0);
     let talk = tables.source.talk();
     let named = |label| crate::objects::shown(&localized(root.get(label)), talk.as_deref());
     object.name = crate::objects::full_name(named("FirstName"), named("LastName"));
@@ -515,6 +519,7 @@ pub(crate) fn creature_template(tables: &mut Tables, template: &str) -> Option<O
         yaw: 0.0,
         link: None,
         geometry: Vec::new(),
+        use_points: Vec::new(),
         opens: Opens::Never,
         state: 0,
         ways: sim::module::Ways::One,
@@ -527,6 +532,7 @@ pub(crate) fn creature_template(tables: &mut Tables, template: &str) -> Option<O
         personal_space: 0.0,
         strike: None,
         challenge: 0.0,
+        multiplier_set: 0,
         name: String::new(),
         inventory: Vec::new(),
         container: false,
@@ -567,6 +573,10 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
         yaw: 0.0,
         link: None,
         geometry: walkmesh_footprint(tables, root.int("Appearance")),
+        use_points: placeable_model(tables, root.int("Appearance"))
+            .map_or_else(Vec::new, |model| {
+                crate::doors::use_points(tables.source, &model)
+            }),
         opens: if locked { Opens::Locked } else { Opens::Never },
         state: 0,
         ways: sim::module::Ways::One,
@@ -579,6 +589,7 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
         personal_space: 0.0,
         strike: None,
         challenge: 0.0,
+        multiplier_set: 0,
         name: crate::objects::shown(&localized(root.get("LocName")), talk.as_deref()),
         inventory: crate::items::held(tables, root, true),
         container: asset_odyssey::module::container(root) == Some(true),
@@ -614,6 +625,14 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
     })
 }
 
+/// The model `placeables.2da` names for a placeable's appearance.
+fn placeable_model(tables: &mut Tables, appearance: Option<i64>) -> Option<String> {
+    appearance
+        .and_then(|row| usize::try_from(row).ok())
+        .and_then(|row| tables.text("placeables", row, "modelname"))
+        .filter(|model| !model.is_empty() && model != "****")
+}
+
 /// A placeable template's collision footprint: the cells of a grid of
 /// `FOOTPRINT_CELL_M` squares over its walkmesh (`<model>.pwk`, the model
 /// `placeables.2da` names by its appearance, as a placement's collision is
@@ -622,11 +641,7 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
 /// its height the walkmesh's; only those along the footprint's edge (no
 /// body comes inside). None without a walkmesh.
 fn walkmesh_footprint(tables: &mut Tables, appearance: Option<i64>) -> Vec<[f32; 3]> {
-    let model = appearance
-        .and_then(|row| usize::try_from(row).ok())
-        .and_then(|row| tables.text("placeables", row, "modelname"))
-        .filter(|model| !model.is_empty() && model != "****");
-    let walkmesh = model
+    let walkmesh = placeable_model(tables, appearance)
         .and_then(|model| {
             tables
                 .source

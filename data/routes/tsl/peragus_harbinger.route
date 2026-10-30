@@ -22,12 +22,12 @@ exit 151HARDoor      # up the ramp to the Harbinger
 say Forgive me, Kreia
 talk
 fight 30
-leader 0             # Atton at the navicomputer ([Computer], a spike):
-say Slice the navicomputer # the drift charts downloaded
-say Download the orbital drift charts
-say Log out
+say Reroute the navicomputer # the Exile's [Repair], a part (the spikes kept
+say Download the orbital drift charts # for the engine deck): the drift
+say Log out          # charts downloaded
 use NavcomI
 talk
+leader 0             # Atton leads
 fight 30             # Sith assassins in the halls
 unlock Hammerhead1@1 # back by the boarding ramp, the low security door
 unlock Hammerhead1@8 # (Atton's Security), and the next one

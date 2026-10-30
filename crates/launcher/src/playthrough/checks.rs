@@ -86,7 +86,15 @@ pub fn probes() -> sim::probe::Checks {
     let (close, swing) = melee_m();
     let blade = sim::combat::Sheet::dev_jedi();
     let gun = sim::combat::Sheet::dev_soldier();
-    let cases: [(&'static str, sim::combat::Sheet, f32, bool, bool, i8); 6] = [
+    // Fists reach shorter than a blade: the chase steps in to the sim's own
+    // punch (Telos's Entertainment Module, two mercenaries at the bar: the
+    // Exile stood 1.3 m off, inside a blade's reach and out of his punch's,
+    // pressing attack at the air).
+    let fists = sim::combat::Sheet::commoner();
+    let punch = sim::player_punch_reach_m();
+    let cases: [(&'static str, sim::combat::Sheet, f32, bool, bool, i8); 8] = [
+        ("chase_punches_stepping_in", fists, punch * 0.9, false, true, 127),
+        ("chase_out_of_a_punch_walks_in", fists, punch + 0.1, false, false, 127),
         ("chase_swings_stepping_in", blade, (close + swing) / 2.0, false, true, 127),
         ("chase_swings_standing_within_reach", blade, close / 2.0, false, true, 0),
         ("chase_goes_straight_at_one_no_way_leads_to", blade, swing + 0.6, false, false, 127),
@@ -117,7 +125,28 @@ pub fn probes() -> sim::probe::Checks {
         })
         .chain(replans(&chase_once))
         .chain(picks())
+        .chain(walks_for())
         .chain(shut_doors(&base, &level))
+        .collect()
+}
+
+/// The walk to a target (`walk_for`): one made for another spot farther
+/// than `REPLAN_M` off (a chase's, for its foe) is planned again; one made
+/// for the target is kept.
+pub(super) fn walks_for() -> sim::probe::Checks {
+    let target = [0.0, 0.0, 0.0];
+    let cases: [(&'static str, f32, bool); 2] = [
+        ("walk_for_another_spot_planned_again", REPLAN_M + 2.0, true),
+        ("walk_for_its_target_kept", REPLAN_M / 2.0, false),
+    ];
+    cases
+        .into_iter()
+        .map(|(name, off, replanned)| {
+            let mut walker = Some(Walker::new([off / UNIT, 0.0, 0.0]));
+            let planned = walk_for(&mut walker, target, || Walker::new(target)).goal != [off / UNIT, 0.0, 0.0];
+            let detail = format!("a walk {off:.1} m off its target: planned again {planned}");
+            (name, if planned == replanned { Ok(detail) } else { Err(detail) })
+        })
         .collect()
 }
 
@@ -553,5 +582,68 @@ pub fn fallen_probes() -> sim::probe::Checks {
         case("fallen_looked_for_where_its_remains_stand", Some(taken_at), false, taken_at, false),
         case("fallen_remains_emptied_by_the_use", Some(taken_at), true, taken_at, true),
         case("fallen_without_remains_left_nothing", None, false, shoved_to, true),
+    ]
+}
+
+/// The probes of the harness's weapon draw (`gear::strongest`, as `bash`
+/// and the swap back from a gun draw): of the weapons carried, the
+/// strongest of the kind asked for that the wielder is trained for; a
+/// vibroblade passed over by one without melee proficiency (Mira), who then
+/// draws her blaster, the gun asked for when no blade is trained for; a
+/// weapon for the left hand alone never drawn into the right; a tie to the
+/// first carried.
+pub fn draw_probes() -> sim::probe::Checks {
+    use sim::combat::sheet::{Blaster, Delivery, Rows, Weapon, feats};
+    use sim::inventory::slots;
+    let made = |item: u32, delivery: Delivery, dice: u8, die: u8, need: u16, slot: u8| {
+        let weapon = Weapon {
+            delivery,
+            dice,
+            die,
+            ..Weapon::UNARMED
+        };
+        (item, weapon, vec![need], 1 << slot)
+    };
+    let carried = [
+        made(1, Delivery::Melee, 1, 6, feats::PROFICIENCY_MELEE, slots::RIGHT_WEAPON),
+        made(2, Delivery::Melee, 2, 6, feats::PROFICIENCY_MELEE, slots::RIGHT_WEAPON),
+        made(3, Delivery::Melee, 3, 8, feats::PROFICIENCY_MELEE, slots::LEFT_WEAPON),
+        made(4, Delivery::Blaster(Blaster::Pistol), 1, 6, feats::PROFICIENCY_BLASTER, slots::RIGHT_WEAPON),
+        made(5, Delivery::Blaster(Blaster::Pistol), 1, 6, feats::PROFICIENCY_BLASTER, slots::RIGHT_WEAPON),
+    ];
+    let trained = |rows: &[u16]| rows.iter().fold(Rows::<4>::default(), |all, row| all.with(*row));
+    let soldier = trained(&[feats::PROFICIENCY_MELEE, feats::PROFICIENCY_BLASTER]);
+    let scout = trained(&[feats::PROFICIENCY_BLASTER]);
+    let all = trained(&[feats::PROFICIENCY_ALL]);
+    let draws = |feats: Option<&Rows<4>>| {
+        let blade = super::gear::strongest(&carried, feats, true);
+        (blade, blade.or_else(|| super::gear::strongest(&carried, feats, false)))
+    };
+    let (soldier_blade, _) = draws(Some(&soldier));
+    let (scout_blade, scout_draw) = draws(Some(&scout));
+    let (all_blade, _) = draws(Some(&all));
+    let (sheetless_blade, _) = draws(None);
+    vec![
+        (
+            "draw_strongest_trained_blade",
+            sim::probe::check(
+                soldier_blade == Some(2),
+                format!("one trained in melee draws the 2d6 vibroblade, not the 1d6 or the left hand's 3d8: {soldier_blade:?}"),
+            ),
+        ),
+        (
+            "draw_passes_over_untrained_blade",
+            sim::probe::check(
+                scout_blade.is_none() && scout_draw == Some(4),
+                format!("one without melee proficiency draws no blade ({scout_blade:?}) and her first blaster instead ({scout_draw:?})"),
+            ),
+        ),
+        (
+            "draw_proficiency_all",
+            sim::probe::check(
+                all_blade == Some(2) && sheetless_blade == Some(2),
+                format!("Proficiency All trains every weapon ({all_blade:?}), and with no sheet nothing is passed over ({sheetless_blade:?})"),
+            ),
+        ),
     ]
 }

@@ -1,0 +1,82 @@
+# Telos, Citadel Station under the Sith (TSL, 221TEL, 220TEL, 222TEL): in
+# the Ithorian compound, the TSF's headquarters, Lieutenant Grenn's account
+# of the attack and Zherron's men punching through the Sith at the module
+# door, the Sith Assassins and the floating mines fought; Mandalore off to
+# gather his warriors ("See you soon."), Major Riiken's fuel sabotage quest
+# taken; Residential 082 East: the TSF officer's covering fire, the Sith
+# Commandos and turrets; Entertainment Module 081: the commandos, Mandalore,
+# the wounded Onderon soldier patched up by [Treat Injury] and taken along,
+# Kelborn and Zuka at the docking module's door (not ready yet; Visas Marr
+# insists on coming: the party screen), the TSF station retaken from the
+# fuel saboteurs (the Bonus Quest: Fuel Sabotage), and back to Mandalore,
+# ready for the Ravager.
+# Starts from Citadel Station's arrival:
+#   kjk playthrough tsl @telos_citadel_siege data/routes/tsl/finale_citadel.route --god
+# Walkthrough: DSimpson's "Telos - Citadel Station Again"; GameBanshee 54,
+# 55 and 56 (context/walkthroughs/tsl/).
+# Left: Chodo Habat and Moza (221TEL, the other way), Ent 081's merchant
+# room and workbench, the TSF armory (empty), Carth's cameo (222_carth).
+# The Ravager's route starts here: `say =Let's go.` then `to tr_mandalore`
+# and `talk` (222mand start 1, a_playmovie MalMov03, a_mandalore to 851NIH).
+#
+# ASSUMES:
+# - The party arriving from 262TEL: the Exile and whom a_hand_pc_end leaves
+#   (DSimpson: Atton); the party screen at 222mand sets it.
+# - Lieutenant Grenn's talk and Mandalore's leaving (221mand) played as the
+#   party arrived (finale_atris's last fight).
+# - Lieutenant Grenn's talk starts itself at tr_221_enter (the entry stands
+#   in it), its Zherron branch (c_global_eq: Zherron led Khoonda's militia,
+#   dantooine_battle) playing; zherron's own talk (dan_lead, start 0) at
+#   tr_dantooine: Zherron starts it.
+# - tr_mandalore (221TEL) plays 221mand: Mandalore leaves (a_mandalore).
+# - Major Riiken is spawned, tag ond_lead (221_riiken.utc, dialog riiken;
+#   the dark side's ondlead shares the tag): he was freed on Onderon.
+# - 220TEL: tsflead (tsf_lead) starts at tr_220_enter or on sight.
+#   tr_220_enter starts it.
+# - 222TEL: tr_mandalorians (-16.2, -57.4) spawns 222_kelborn, 222_zuka and
+#   Mandalore (mand) and plays 222mand start 0 once; "I'm not ready yet."
+#   and "Good. Stay close to me." both reach a_set_party, the party screen
+#   with Visas Marr (9) forced; Mandalore joins on the Ravager.
+#   tr_mandalore (-15.5, -66.2, by TO_851NIH) plays start 1 while Mand is
+#   there: the Ravager route's.
+# - d_tsfsecurity's OnOpen (a_tsfsecurity) turns the fuel_sith hostile;
+#   their deaths close fuel_sith (600 XP).
+# - The wounded soldier (talia_wound, tag wound_sold, ondwound) only talks
+#   when used: the Exile's [Treat Injury] patches him up.
+                     # (Lieutenant Grenn's arrival talk, Zherron's men breaking
+                     # through, played as finale_atris arrived: grenn)
+fight 40             # the Sith Assassins at the module door, the floating mines
+                     # (Mandalore leaving to gather his warriors, 221mand at
+                     # tr_mandalore, played as the party came in: finale_atris)
+say I will see what I can do. # Major Riiken: the fuel controls (riiken)
+use ond_lead
+to tr_dantooine      # Zherron: "Now let's punch a hole" (zherron)
+talk
+exit to_220TEL       # Residential 082 East
+module 220tel
+say I'll see what I can do. # the TSF officer (tsflead)
+to tr_220_enter
+talk
+fight 40             # the Sith Commandos and the turrets
+exit d_urban         # Entertainment Module 081
+module 222tel
+fight 40             # the commandos on the way
+say Are you all right? # the wounded Onderon soldier (ondwound): patched up by the
+say Where are your squadmates? # Exile's [Treat Injury] and taken along
+say [Treat Injury] It looks bad, but you should be able to pull through.
+say Can you fight?
+say All right then, let's go.
+use wound_sold
+talk
+say =I'm not ready yet. # Mandalore (222mand start 0)
+say Good. Stay close to me. # Visas Marr
+party 9              # the party screen: Visas Marr (forced)
+to tr_mandalorians   # Mandalore, Kelborn and Zuka spawned; 222mand start 0
+talk                 # (not tr_mandalore beyond it: start 1's first reply
+                     # is "Let's go.", the Ravager)
+use d_tsfstation     # the TSF station
+fight 40
+use d_tsfsecurity    # the fuel saboteurs (a_tsfsecurity)
+fight 40
+gone fuel_sith       # Fuel Sabotage done; Mandalore waits by TO_851NIH
+save finale_done     # (not at tr_mandalore: its 222mand start 1 would open)

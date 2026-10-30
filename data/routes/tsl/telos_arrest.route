@@ -1,0 +1,25 @@
+# Telos, the arrest (TSL, 201TEL, 202TEL, 203TEL): Lieutenant Grenn meets
+# the Ebon Hawk at Dock Module 126 and takes the party into custody (we
+# cooperate), the handmaiden steals the ship, the false Batu Rem's attempt
+# in the TSF cells (he opens the force cages: a fight), the apartment in
+# Residential 082 East, the two calls on the wall terminal (Moza for the
+# Ithorians, B-4D4 and Jana Lorso for Czerka), Kreia and Atton on the
+# Force, and Grenn back to release us. Starts from Peragus' last checkpoint:
+#   kjk playthrough tsl @telos_arrival data/routes/tsl/telos_arrest.route --god
+# Walkthrough: DSimpson's "A Warm Greeting" (context/walkthroughs/tsl/).
+talk                 # 201bay: Grenn's arrest; the ship and T3 taken, the cells
+fight 20             # 202grenn: the assassin opens the cages (1000 XP)
+talk                 # Grenn back, the apartment in 082 (203grenn: rest)
+talk                 # Atton: "answer the terminal"
+use ComputerPanel    # the first call: Moza for Chodo Habat (DSimpson: hear
+talk                 # out the side we will take, the Ithorians)
+talk                 # Moza in the apartment; we rest again
+use ComputerPanel    # the second call, as it rings
+talk                 # B-4D4 puts Jana Lorso through
+talk                 # B-4D4
+talk                 # Lorso: Czerka's offer
+talk                 # Atton: back to bed
+talk                 # Kreia and Atton on the Force (veteran)
+talk                 # Grenn: released from house arrest, the Ebon Hawk's
+                     # paperwork at the TSF station in 081
+save telos_free

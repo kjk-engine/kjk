@@ -205,10 +205,13 @@ impl Table {
     }
 
     /// The clip `target` answers swing `row` with as `answer`; none where
-    /// the table leaves it empty.
+    /// the table leaves it empty, or has no column for the target's class (a
+    /// heavy repeater's 9, past `combatanimations.2da`'s `…8`: the Unknown
+    /// World's dark way had a Sith trooper holding one struck [verify the
+    /// executable's answer]).
     pub fn answer(&self, row: u16, answer: Answer, target: Side) -> Option<u16> {
         let class = target.class();
-        let cell = self.answers.get(&row)?.cells[usize::from(class)][answer as usize];
+        let cell = self.answers.get(&row)?.cells.get(usize::from(class))?[answer as usize];
         (cell != NONE).then_some(cell)
     }
 

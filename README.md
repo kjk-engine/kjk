@@ -73,6 +73,7 @@ Every key rebinds in the options; fighting in detail is in
 ## Status
 
 KOTOR 1 plays from the Endar Spire to the credits, light and dark side.
+KOTOR II plays from Peragus to the credits as a created Jedi Exile.
 
 - **World:** KOTOR's modules with JA's movement and camera, doors, effects, music, voice and movies.
 - **Story:** the games' own scripts run on our NWScript VM: dialogue, journal, XP, party, items, stores.
@@ -81,8 +82,7 @@ KOTOR 1 plays from the Endar Spire to the credits, light and dark side.
 - **Minigames:** pazaak, swoop racing, the Ebon Hawk's turret.
 - **Saves:** from the menus, F5 / F9 quick save and load.
 
-Not yet: TSL's campaign past Peragus. **Before reporting a bug, read
-[`KNOWN-ISSUES.md`](KNOWN-ISSUES.md).**
+**Before reporting a bug, read [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md).**
 
 ## Development
 

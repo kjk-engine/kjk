@@ -148,12 +148,14 @@ pub(super) struct Tagged {
 /// Every object tagged `tag` (any case, `key`): the world's, then those
 /// made this step, as KOTOR's `CreateObject` makes one at once (Ahto's
 /// module load makes the arbiter its area's enter script then sends to the
-/// party; a DLG's speaker made by the node before).
+/// party; a DLG's speaker made by the node before); none deleted this step
+/// (`Out::deleted`).
 pub(super) fn tagged<'a>(
     view: &'a View,
-    made: &'a [Made],
+    out: &'a Out,
     tag: &str,
 ) -> impl Iterator<Item = Tagged> + 'a {
+    let made = &out.made;
     let tag = key(tag);
     let placed = view.things.iter().map(|thing| {
         let tagged = Tagged {
@@ -175,6 +177,7 @@ pub(super) fn tagged<'a>(
         .chain(made)
         .filter(move |(of, _)| *of == tag)
         .map(|(_, tagged)| tagged)
+        .filter(|tagged| !out.deleted.contains(&tagged.id))
 }
 
 /// The `nth` (from 1) nearest of `found` (distance, object), ties by id;
@@ -1702,6 +1705,12 @@ pub struct Out {
     pub worn_before: BTreeMap<u32, Vec<items::Worn>>,
     /// Objects scripts made this step, in id order from `View::next_id`.
     pub made: Vec<Made>,
+    /// Objects the executable deletes at once rather than as the step
+    /// ends, so no script or conversation finds them for the rest of it
+    /// (TSL's `RemoveNPCFromPartyToBase`: `CSWPartyTable::KillNPCObject`
+    /// deletes the companion's creature then and there). Their
+    /// `Change::Destroy` takes them out of the world.
+    pub deleted: Vec<ObjectId>,
     /// The minigame as this step's scripts left it, once one changed it
     /// (`script::minigame`): what they read from then on.
     pub minigame: Option<crate::minigame::Course>,
@@ -2158,6 +2167,7 @@ impl CallLine {
         }
         let _ = match &call.value {
             Some(vm::Value::Int(v)) => write!(line, " = {v}"),
+            Some(vm::Value::Float(v)) => write!(line, " = {v}"),
             Some(vm::Value::Object(id)) => write!(line, " = {}", name(*id)),
             Some(vm::Value::String(text)) if !text.is_empty() => write!(line, " = {text:?}"),
             _ => Ok(()),
@@ -2300,7 +2310,11 @@ impl Step<'_> {
                 puppet_joins(self.library, self.view, self.state, self.out, *npc, who);
             }
         }
-        (!selection.exit.is_empty()).then(|| Pending::new(&selection.exit, player))
+        // Accepted, as every choice made here is: its script asks so.
+        (!selection.exit.is_empty()).then(|| Pending {
+            script_var: party::ACCEPTED,
+            ..Pending::new(&selection.exit, player)
+        })
     }
 
     /// The name of a member leaving the party for `wanted` whom a seat
@@ -2393,10 +2407,11 @@ impl Step<'_> {
                 }
                 continue;
             };
-            // The dead act on nothing (their queue waits, should they rise).
-            if thing.character.is_some() && thing.dead() {
-                continue;
-            }
+            // The dead act on nothing (their queue waits, should they rise),
+            // but for a conversation queued for them to start: TSL's dead
+            // Visquis, his own conversation's owner, starts Kreia's scene
+            // after it (`a_start_kreend`) [verify in the exe].
+            let dead = thing.character.is_some() && thing.dead();
             let player = thing.kind.is_none();
             for _ in 0..ACTIONS_PER_STEP {
                 if self.runs >= RUNS_PER_STEP {
@@ -2406,6 +2421,9 @@ impl Step<'_> {
                 else {
                     break;
                 };
+                if dead && !matches!(front.action, Action::Converse { .. }) {
+                    break;
+                }
                 let starting = front.started_ms.is_none();
                 let started = *front.started_ms.get_or_insert(now);
                 let action = front.action.clone();
@@ -2776,6 +2794,8 @@ impl Step<'_> {
                         self.resume(who, talk);
                         true
                     }
+                    // Its pause held since the script asked for it.
+                    Action::Pause { .. } => true,
                     Action::FollowOwner { .. } if player => true,
                     // Held while its owner is near (or it has none); farther,
                     // a run there and the follow again behind what waits,
@@ -3115,6 +3135,7 @@ impl Step<'_> {
                 ai: ai.then_some(pending.caller),
                 leads: pending.leads,
                 asker: pending.asker,
+                script_var: pending.script_var,
                 ..Event::default()
             };
             self.run(&pending.script, pending.caller, event, None);
@@ -3347,6 +3368,7 @@ pub fn run_due(
     pazaak::engaged_stop_watching(&mut step);
     step.levels();
     step.state.dress_changed(library.items(), view, step.out);
+    step.summary_closed();
     // A module a script started: the party leaves it as this step ends,
     // so its leaving's events run now, in the module they belong to.
     if step.out.new_module.is_some() {

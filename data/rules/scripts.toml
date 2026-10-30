@@ -66,8 +66,8 @@ type = "f32"
 value = 4.0
 unit = "m"
 range = [1.0, 20.0]
-summary = "A conversation begins within {scripts.talk.conversation_range:bare} meters. A player may start one from as far."
-source = "reone (the longest distance a conversation starts at) [verify in K1's exe]"
+summary = "A conversation begins within {scripts.talk.conversation_range:bare} meters. A player may start one from as far, measured across the floor: a speaker on a ledge above is talked to from below."
+source = "reone (the longest distance a conversation starts at; navigateTo's flat distance) [verify in K1's exe]"
 see = "sim::script::CONVERSATION_RANGE"
 applies = ["kind:creature", "kind:companion"]
 
@@ -86,6 +86,54 @@ shouted, {scripts.talk.volume_reach[3]:bare} in silent talk and
 """
 source = "K1's executable"
 see = "sim::script::engine::volume_reach"
+
+[locals]
+title = "Local Numbers and Booleans"
+summary = """
+An object keeps {scripts.locals.k1_numbers:bare} local numbers in KOTOR and
+{scripts.locals.tsl_numbers:bare} in KOTOR II, each one byte: a number from
+-128 to 127 is kept as its byte and read back from 0 to 255 (-1 reads 255);
+one outside that range, or at a slot past the last, is not kept, and such
+a slot reads 0. It keeps {scripts.locals.k1_booleans:bare} local booleans in
+KOTOR and {scripts.locals.tsl_booleans:bare} in KOTOR II; one set past the
+last (or below the first) is not kept, and reads false.
+"""
+
+[locals.k1_numbers]
+name = "Local Numbers (KOTOR)"
+type = "i32"
+value = 8
+range = [1, 256]
+summary = "A KOTOR object keeps {scripts.locals.k1_numbers:bare} local numbers."
+source = "K1's executable (the var table's number accessors: index 0 to 7, a byte at +0xc; ExecuteCommandSetLocalNumber keeps only -128 to 127)"
+see = "sim::script::engine::local_number"
+
+[locals.tsl_numbers]
+name = "Local Numbers (KOTOR II)"
+type = "i32"
+value = 32
+range = [1, 256]
+summary = "A KOTOR II object keeps {scripts.locals.tsl_numbers:bare} local numbers."
+source = "TSL's executable (CSWVarTable::GetLocalNumber/SetLocalNumber: index 0 to 31, an unsigned byte; ExecuteCommandSetLocalNumber keeps only -128 to 127, GetLocalNumber's push zero-extends)"
+see = "sim::script::engine::local_number"
+
+[locals.k1_booleans]
+name = "Local Booleans (KOTOR)"
+type = "i32"
+value = 96
+range = [1, 1024]
+summary = "A KOTOR object keeps {scripts.locals.k1_booleans:bare} local booleans."
+source = "K1's executable (the var table's boolean accessors: an unsigned index of 0 to 0x5f, a bit of three 32-bit words)"
+see = "sim::script::engine::local_boolean"
+
+[locals.tsl_booleans]
+name = "Local Booleans (KOTOR II)"
+type = "i32"
+value = 160
+range = [1, 1024]
+summary = "A KOTOR II object keeps {scripts.locals.tsl_booleans:bare} local booleans."
+source = "TSL's executable (CSWVarTable::GetLocalBoolean/SetLocalBoolean: an unsigned index of 0 to 0x9f, a bit of five 32-bit words)"
+see = "sim::script::engine::local_boolean"
 
 [moves]
 title = "Movement"

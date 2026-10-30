@@ -1,0 +1,38 @@
+# Telos, the old military base after the reactor (TSL, 232TEL): the
+# reactor room's turrets, the droid recharging station's security door
+# (Bao-Dur's Security) and its footlocker's datapad (the shuttle's codes),
+# the bay control room (Bao-Dur's Security on its door) and its console
+# opening the hangar doors, the tank droid let out at the shuttle, and the
+# shuttle to the shielded mesa at the pole (the HK-50s' scene after). Starts
+# from the reactor's checkpoint:
+#   kjk playthrough tsl @telos_reactor data/routes/tsl/telos_base_shuttle.route --god
+# Walkthrough: DSimpson's "Old Military Base" (context/walkthroughs/tsl/).
+fight 30             # the reactor room's turrets, hostile now
+leader 1             # back to the recharging station, its lower doors open
+unlock TelosDoor3@3  # now: Bao-Dur's Security on its security door
+leader player
+use CivilFootLkerS   # the footlocker's datapad: the shuttle's codes
+use MetalBoxP@2      # and the metal box beside it
+fight 40             # its droids
+leader 1             # the bay control room by the shuttle: Bao-Dur's
+unlock Door_BC       # Security on its door
+leader player
+say Unlock hangar doors # its console: the hangar doors unlocked
+use TermB
+talk
+say Take the shuttle # the shuttle to the shielded mesa at the pole
+# BLOCKER: out of the bay control room by its door and the corridor's
+# force fields, not across the barrels in its south doorway: the walk's
+# navigation mesh tags a face under a placeable's footprint only when most
+# of the face is, so the way between those barrels' footprints (shut to
+# KOTOR's walker) is planned and the walk wedges there; the tank droid let
+# out of its room at the shuttle is fought once out (a chase at it from the
+# control room takes that way too).
+to TelosDoor2@7
+to TelosDoor2@6
+fight 60             # the tank droid
+to tr_shuttle_launch # the shuttle's scene, the tank droid fallen
+talk
+talk                 # the HK-50s at the bay control: one sent to the pole
+module 261tel        # shot down on the polar plateau
+save telos_polar

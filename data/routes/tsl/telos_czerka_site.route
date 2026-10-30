@@ -1,0 +1,26 @@
+# Telos, the Czerka site (TSL, 233TEL): the sentry droid and the mercenary
+# behind her mines, the base camp's mercenaries (they would collect our
+# bounty: fought), the landing pad's turrets and guards, its console (Bao-
+# Dur finds no ship but a blip on the power grid, and a shuttle in the
+# military base), the last mercenaries by the mined entrance, and into the
+# old military base. Starts from the Restoration Zone's checkpoint:
+#   kjk playthrough tsl @telos_czerka_site data/routes/tsl/telos_czerka_site.route --god
+# Walkthrough: DSimpson's "Czerka Excavation Site" (context/walkthroughs/tsl/).
+fight 30             # the sentry droid ahead
+to 233_mercdm_talk   # the mercenary behind her mines, and her droids
+talk
+fight 30
+to 233_mercc_talk    # the base camp: the mercenaries talk, then fight
+talk
+fight 40
+use padpanel         # the landing pad's console (its turrets and guards
+talk                 # fought on the way); its scene leaves Bao-Dur leading
+use MilLowPlstcCylin # (tr_baodurpad's SetPartyLeader) until the military
+                     # base's first entry gives the Exile back (k_232_enter's
+                     # SetPartyLeader(NPC_PLAYER) for GetFirstPC, the one led);
+                     # the pad's plasteel container
+fight 40             # down the ramp: the mercenaries left by the mined
+use MilHighPlstcCylin # entrance; its container
+exit to_232TEL       # into the old military base
+module 232tel
+save telos_military_base

@@ -1,0 +1,76 @@
+# Onderon, Master Kavar and the escape from Iziz (TSL, 512OND, 503OND,
+# 502OND, 501OND, 403DXN): Bakkel in the beast-riders' room told she has
+# Dhagon's discs and offered to sell them (she attacks), her gang fought,
+# her remains searched (the encrypted holodisks, an open starport visa),
+# the open visa given to Terlyn for her family by the starport gate (LSP),
+# the holodisks for Dhagon and the meeting called (Talia's doubts and
+# Kavar leaving the Palace, a_dhagon), Kavar in the cantina (surprised to
+# see him alive, asked why the Exile was cast out: Colonel Tobin
+# interrupts), Tobin's men fought (Mira on lines of fire), the escape
+# fought through the Western Square, the Merchant Quarter and its turrets
+# to the spaceport, Mandalore at the shuttle, and back to Dxun (OndMov06).
+# Starts from Dhagon's checkpoint:
+#   kjk playthrough tsl @onderon_dhagon data/routes/tsl/onderon_kavar.route --god
+# Walkthrough: DSimpson's "Iziz Cantina" ("The Meeting", "Get Out of
+# Onderon") (context/walkthroughs/tsl/).
+# Left: the other open visa's buyers (Xaart, Gormo: the Rodians' visa is
+# not looted and Kiph's slicing not bought), Tobin's
+# deal (Vaklu's side only: tobin.dlg start 0).
+#
+# ASSUMES:
+# - cantinarats active: k_503_enter spawns Bakkel (tag bakkel, from
+#   npc_bakkel) at wp_bakkel and takes Panar away.
+# - Bakkel's remains are searched by her tag, as Telos's HK-50s'
+#   were; the holodisks are what Dhagon's R16 asks (c_holo_check).
+# - Dhagon's "Contact the Jedi Master now." runs on into his
+#   start 3 (the throne-room cut) in the same conversation; a_dhagon then
+#   loads 503OND at From_502OND_Dhagon, where Kavar's talk starts
+#   (tr_end_kavar). The throne-room lines are Kavar's and Talia's, 1400 m
+#   off in 512OND: found because a_force_update flagged them
+#   (SetForceAlwaysUpdate, probe far_speaker_always_update).
+# - Kavar's talk runs on into Tobin's interruption (one conversation);
+#   Mira's lines of fire answered with the harness's first reply.
+# - The light way: the Queen's side never taken against (no Vaklu line,
+#   no Anda), so Tobin does not come back with his deal (tobin.dlg).
+# - the escape's foes (c_endgame: the turret_iziz creatures in
+#   502OND, end_mark's soldiers) are fought by `fight` and the exits; the
+#   civilians are left alone.
+exit To_503
+module 503ond
+say You have something that belongs to Dhagon Ghent. # Bakkel
+say I was hoping I might be able to buy any holodisks
+use bakkel
+talk
+fight 20             # Bakkel and her gang (a_bakkel_attack)
+use bakkel           # her remains: the encrypted holodisks
+exit To_502          # out to the Western Square
+module 512ond
+exit To_502          # Terlyn by the starport gate: Bakkel's open visa
+module 502ond        # for her family (a_visa_quest: LSP, 700 XP)
+say I found an open starport visa in my travels.
+use terlyn
+talk
+exit To_512
+module 512ond
+say I got the holodisks from Bakkel. # Dhagon (start 2)
+say Contact the Jedi Master now.
+use dhagon
+talk
+module 503ond        # the meeting (a_dhagon)
+say Master Kavar? I didn't know you were still alive.
+say I want to know why I was cast out of the Jedi Order. # a_endgame
+talk                 # Kavar, then Colonel Tobin interrupting: one talk
+fight 30             # Tobin's men in the cantina
+exit To_502
+module 512ond
+fight 30
+exit To_502
+module 502ond
+fight 40             # the turrets and soldiers (c_endgame)
+exit To_501
+module 501ond
+talk                 # Mandalore: the shuttle ahead (end_mand)
+say [Return to Dxun.]
+use shuttle_iziz     # a_to_dxun (OndMov06)
+module 403dxn
+save dxun_return

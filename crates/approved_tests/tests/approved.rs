@@ -123,7 +123,7 @@ fn collision_probes() {
 /// 2026-10-28).
 #[test]
 fn surface_probes() {
-    probed("surfaces", &collision_odyssey::probes::probes(), 8);
+    probed("surfaces", &collision_odyssey::probes::probes(), 9);
 }
 
 fn near(what: &str, measured: f32, expected: f32, tolerance: f32) {
@@ -406,7 +406,9 @@ fn script_room_clips() {
 /// of the swing that no way leads to, or that the walk to it arrived short
 /// of, is gone at straight, never swung at from where the walk ended (the
 /// Dantooine ruins' guard droids); a gun fires at a foe it sees within its
-/// reach, and from where it stands at one no way leads to. Needs `--features
+/// reach, and from where it stands at one no way leads to; a walk left from
+/// a chase is planned again for the target a script then has the player
+/// strike (`walk_for`: Peragus's shift console). Needs `--features
 /// rig` (kjk's library); no installs.
 /// (proposed 2026-10-13)
 #[test]
@@ -414,7 +416,7 @@ fn harness_chase() {
     #[cfg(not(feature = "rig"))]
     println!("harness_chase skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
-    probed("harness chase", &kjk::probes::chase(), 6);
+    probed("harness chase", &kjk::probes::chase(), 17);
 }
 
 #[cfg(feature = "rig")]
@@ -607,6 +609,116 @@ fn blank_cells_name_nothing() {
         .map(|instance| instance.model.as_deref())
         .collect();
     assert_eq!(models, [Some("plc_chair"), None], "the placeables' models");
+}
+
+/// The games' data as co-op compares it (`vfs::fingerprint`): what a play
+/// leaves in JA's `base/` (saves, screenshots, demos, settings, logs, the
+/// game's libraries, folder metadata) is not game data, a model's
+/// `animation.cfg` is; a patched archive is named by itself; twelve mod
+/// archives stay within a handshake's groups; a file browser's metadata in
+/// KOTOR's folders is not game data either. No installs (approved
+/// 2026-10-30).
+#[test]
+fn coop_data_check() {
+    use vfs::fingerprint::{Fingerprint, MAX_WORLD_GROUPS, fingerprint};
+    use vfs::{DirIndex, Game};
+
+    // A data root holding `files` (path under `folder`, contents).
+    let print = |game: Game, name: &str, folder: &str, files: &[(&str, &str)]| -> Fingerprint {
+        let root = std::env::temp_dir().join(format!(
+            "kjk-coop-data-{}-{}-{name}",
+            std::process::id(),
+            game.key()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        for (path, contents) in files {
+            let path = root.join(folder).join(path);
+            std::fs::create_dir_all(path.parent().expect("under the root")).expect("a folder");
+            std::fs::write(path, contents).expect("a file");
+        }
+        let index = DirIndex::build(&root).expect("the index");
+        let print = fingerprint(game, &index, None).expect("the fingerprint");
+        std::fs::remove_dir_all(&root).expect("cleaned up");
+        print
+    };
+    let ja = |name: &str, files: &[(&str, &str)]| print(Game::JediAcademy, name, "base", files);
+    let stock = [
+        ("assets0.pk3", "zero"),
+        ("assets1.pk3", "one"),
+        ("models/players/kyle/model.glm", "kyle"),
+        (
+            "models/players/_humanoid/animation.cfg",
+            "BOTH_DEATH1 0 21 -1 20",
+        ),
+    ];
+    let played = [
+        ("saves/auto.sav", "save"),
+        ("screenshots/shot0001.jpg", "shot"),
+        ("demos/duel.dm_26", "demo"),
+        ("jaconfig.cfg", "seta r_mode 4"),
+        ("qconsole.log", "log"),
+        ("jampgamex86.dll", "dll"),
+        ("cgame.dylib", "dylib"),
+        ("jampgame.bundle/contents/macos/jampgame", "bundle"),
+        (".ds_store", "finder"),
+    ];
+
+    let fresh = ja("fresh", &stock);
+    let after_a_play = ja("played", &[&stock[..], &played[..]].concat());
+    assert_eq!(fresh.world(), after_a_play.world(), "a played-in base/");
+    assert_eq!(after_a_play.files, stock.len(), "the files covered");
+
+    let patched = stock.map(|(path, contents)| {
+        (
+            path,
+            if path == "assets1.pk3" {
+                "patched"
+            } else {
+                contents
+            },
+        )
+    });
+    let (host, other) = (fresh.world(), ja("patched", &patched).world());
+    let differ: Vec<&str> = host
+        .groups
+        .iter()
+        .filter(|group| !other.groups.contains(group))
+        .map(|(name, _)| name.as_str())
+        .collect();
+    assert_eq!(differ, ["base/assets1.pk3"], "the groups that differ");
+
+    let names: Vec<String> = (0..12).map(|n| format!("mod{n:02}.pk3")).collect();
+    let mods: Vec<(&str, &str)> = names.iter().map(|name| (name.as_str(), "mod")).collect();
+    let world = ja("mods", &mods).world();
+    let groups: Vec<&str> = world.groups.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(groups.len(), MAX_WORLD_GROUPS, "twelve archives' groups");
+    assert_eq!(groups[0], "base", "the archives past the seventh");
+    assert_eq!(
+        groups[MAX_WORLD_GROUPS - 1],
+        "base/mod06.pk3",
+        "the seventh"
+    );
+
+    let kotor = [
+        ("chitin.key", "key"),
+        ("dialog.tlk", "tlk"),
+        ("override/appearance.2da", "2DA V2.b"),
+        ("modules/end_m01aa.rim", "rim"),
+    ];
+    let browsed = [
+        ("override/.ds_store", "finder"),
+        ("override/thumbs.db", "explorer"),
+        ("modules/desktop.ini", "explorer"),
+    ];
+    let fresh = print(Game::Kotor1, "fresh", "", &kotor);
+    let browsed = print(
+        Game::Kotor1,
+        "browsed",
+        "",
+        &[&kotor[..], &browsed[..]].concat(),
+    );
+    assert_eq!(fresh.world(), browsed.world(), "KOTOR's browsed folders");
+    assert_eq!(browsed.files, kotor.len(), "KOTOR's files covered");
 }
 
 /// Areas' grass and weather from the ARE (`docs/GRASS-WEATHER.md`):
@@ -882,6 +994,31 @@ fn ui_loot() {
     probed("loot", &sim::containers::probes(), 5);
 }
 
+/// TSL's party rules (`sim::tsl_probes`): natural healing and its hold,
+/// influence, puppets, forfeits, the puppet's follow, Bao-Dur met and the
+/// lines it names, alignment following influence, and a companion spawned
+/// twice in one script standing once (`spawned_twice_is_one`, Bao-Dur
+/// joining on Telos), and the player restrict mode ending with its module
+/// (`restrict_mode_ends_with_module`: the asteroid walk's had held the
+/// AI idle on Telos), and a minigame's area taking no companions
+/// (`minigame_takes_no_companions`: Peragus's hangar turret), and the
+/// party selection screen's exit script told the party was accepted
+/// (`party_screen_accepted`: the Ebon Hawk's ramp on Dantooine), and the
+/// area's iteration passing over the dead (`area_iteration_skips_the_dead`:
+/// the battle of Khoonda's end), and a companion spawned again while its
+/// creature is here being that creature (`spawned_again_is_the_same`:
+/// Atton's warning on Nar Shaddaa), and `k_align_movie` run as the status
+/// summary closes (`summary_closed_runs_align_movie`: Visas Marr's
+/// arrival), and each game's local boolean slots (K1's 96, TSL's 160:
+/// `local_booleans_k1`, `local_booleans_tsl`), and the player's own
+/// character kept out of `ChangeToStandardFaction` in TSL
+/// (`pc_faction_tsl`: Dxun's battle circle). The sim alone, on the proving
+/// ground.
+#[test]
+fn tsl_party_rules() {
+    probed("tsl", &sim::tsl_probes::probes(), 27);
+}
+
 /// The dead's remains (KOTOR's body bags; `sim::remains::probes`), owner
 /// 2026-10-05: on the proving ground a creature holding droppable items and
 /// gold is killed, its body taken away after its appearance's delay and
@@ -918,12 +1055,15 @@ fn destroy_fades() {
 /// opens and closes the door within reach and not from afar, drops a
 /// stale verb, opens a container, fails a locked one (its script and the
 /// "locked" line), uses a placeable, talks to a creature at conversation
-/// range, refuses what a wall hides and a door closed on someone; a K1
+/// range, and one behind a wall within it (KOTOR's conversation needs
+/// no sight: Dantooine's Administrator across her desk), one on a ledge
+/// above within it across the floor (Dxun's Kumus), refuses what a
+/// wall hides and a door closed on someone; a K1
 /// container's use runs its `OnUsed`, locked (no "locked" line) or opening;
 /// scripts see who did it; two runs end the same. The sim alone.
 #[test]
 fn use_actions() {
-    probed("use", &sim::uses::probes(), 1);
+    probed("use", &sim::uses::probes(), 38);
 }
 
 /// Bashing (`docs/COMBAT.md`): on the proving ground
@@ -1063,7 +1203,7 @@ fn fight_through_a_hold() {
 /// the snapshot; two runs end the same. The sim alone.
 #[test]
 fn fists_brawl() {
-    probed("fists", &sim::strikes::fist_probes(), 6);
+    probed("fists", &sim::strikes::fist_probes(), 7);
 }
 
 /// Weapons out and away (docs/COMBAT.md, "Weapons out and away"): on the
@@ -1279,7 +1419,7 @@ fn dialogue_coop() {
 /// alone. Approved by the owner 2026-10-17 (do what you think is best).
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 68);
+    probed("scene", &sim::scene_probes::all(), 70);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
@@ -1294,7 +1434,7 @@ fn party_calls() {
 /// proving ground; the sim alone.
 #[test]
 fn downed_and_revive() {
-    probed("falls", &sim::falls::probes(), 17);
+    probed("falls", &sim::falls::probes(), 18);
 }
 
 /// Items and levels in co-op (I31): `sim::coop_items::probes`, the
@@ -1335,7 +1475,7 @@ fn item_properties() {
 /// the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 13);
+    probed("switch", &sim::switch::probes(), 16);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and
@@ -1345,6 +1485,14 @@ fn switch_player_character() {
 fn encounters_count_drivers() {
     probed("scaling", &sim::scaling::probes(), 12);
     probed("encounter count", &session::encounters::probes(), 3);
+}
+
+/// A death's XP read from either game's `xptable.2da` heading, and TSL's
+/// death XP as its executable works it out (`session::journal::probes`); no
+/// install.
+#[test]
+fn kill_xp_tables() {
+    probed("kill xp tables", &session::journal::probes(), 3);
 }
 
 /// Minigames in co-op (`docs/MINIGAMES.md`):
@@ -1366,10 +1514,11 @@ fn minigame_coop() {
 /// the host's runs the travel script, which hears the planet;
 /// `EndGame(TRUE)` and K1's argument-less `EndGame()` lose the game,
 /// `EndGame(FALSE)` shows both the end, after the credits when
-/// `StartCreditSequence` started them; the sim alone.
+/// `StartCreditSequence` started them or TSL's ending movie rolled them;
+/// the sim alone.
 #[test]
 fn galaxy_and_end() {
-    probed("galaxy and end", &sim::galaxy::probes(), 6);
+    probed("galaxy and end", &sim::galaxy::probes(), 7);
 }
 
 /// Pazaak (`docs/PAZAAK.md`): `sim::pazaak::probes`, on decks of our own:
@@ -1648,12 +1797,22 @@ fn hold_and_resume() {
 /// class's rows, the feat it grants, the feat picked or the game's, the
 /// ranks bought, four times a level's points), nothing worn or held,
 /// neutral; refused past the points, the ranks' points or cap, a feat's
-/// need or one pick too many; a seat's player made so (its sheet, full hit
-/// points, its career in the snapshot, its persona); `sim::player_probes`,
-/// no install.
+/// need or one pick too many; TSL's player feats granted besides; a build's
+/// planned level-up picks before the class's; a seat's player made so (its
+/// sheet, full hit points, its career in the snapshot, its persona);
+/// `sim::player_probes`, no install.
 #[test]
 fn player_creation() {
-    probed("creation", &sim::player_probes::creation(), 7);
+    probed("creation", &sim::player_probes::creation(), 9);
+}
+
+/// TSL's player's level as the scripts read it (`G_PC_LEVEL`, set by the
+/// XP the party gains) and `AddMultiClass` on a player (the class taken up
+/// unlevelled, the party given its next level's XP); `sim::player_probes`,
+/// no install.
+#[test]
+fn player_levels_told() {
+    probed("levels told", &sim::player_probes::levels_told(), 1);
 }
 
 /// The scripts read a player's persona of its own character (`GetGender`,

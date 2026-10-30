@@ -18,9 +18,15 @@ use crate::snapshot::{Screens, Transit};
 /// executables, `ShowSWInGameGui`): it sets the map page's return button.
 pub const SCREEN_OPENED: &str = "k_sup_guiopen";
 
+/// The script TSL's executable runs as the player closes the status
+/// summary (`CSWGuiStatusSummary::HandleInputEvent`): it plays the Visas
+/// Marr movies once the player's alignment has gone far enough, and so
+/// sends Visas to the Ebon Hawk (`003EBO_VISAS_ARRIVES`). K1 has none.
+pub const SUMMARY_CLOSED: &str = "k_align_movie";
+
 /// The scripts the engine runs of its own accord, which a module's library
 /// gathers whoever names them.
-pub const ENGINE_SCRIPTS: [&str; 1] = [SCREEN_OPENED];
+pub const ENGINE_SCRIPTS: [&str; 2] = [SCREEN_OPENED, SUMMARY_CLOSED];
 
 /// A combat round and a turn, in seconds, as both games' executables count
 /// them (`TimeConversions`, not `nwscript.nss`'s; a turn in rounds).
@@ -31,9 +37,6 @@ const ROUNDS_A_TURN: f32 = rules::dialogue::clock::ROUNDS_A_TURN;
 /// difficulty option exists (`GetGameDifficulty`).
 const NORMAL: i32 = 1;
 
-/// TSL's two endings: queueing one counts the game complete
-/// (`OnGameComplete`).
-const ENDINGS: [&str; 2] = ["malmov12", "malmov14"];
 const GAME_COMPLETE: &str = "GBL_GAME_COMPLETE";
 
 /// The one animation `PlayOverlayAnimation` plays (its executable acts on
@@ -95,6 +98,27 @@ impl State {
                 query,
                 disabled,
             },
+        }
+    }
+}
+
+impl super::Step<'_> {
+    /// KOTOR's status summary, as its client shows it: the step's statuses
+    /// owe one, which shows once no conversation holds the world (the
+    /// client gathers them meanwhile); the player then closes it, and TSL's
+    /// executable runs `SUMMARY_CLOSED` (taken as closed at once here: no
+    /// player waits on it headless [verify in the exe]).
+    pub(super) fn summary_closed(&mut self) {
+        self.state.summary_owed |= !self.out.statuses.is_empty();
+        let talking = self.state.talk.holds_world(&self.view.seat_bodies());
+        if !self.state.summary_owed || talking || self.out.new_module.is_some() {
+            return;
+        }
+        self.state.summary_owed = false;
+        if self.library.program(SUMMARY_CLOSED).is_some() {
+            let closed = super::Pending::new(SUMMARY_CLOSED, super::MODULE);
+            self.state.pending.push(closed);
+            self.run_pending();
         }
     }
 }
@@ -269,7 +293,7 @@ impl Engine<'_> {
     /// `QueueMovie`: the movie joins the queue with its own skip; one of
     /// TSL's endings counts the game complete.
     fn queue_movie(&mut self, movie: &str, skippable: bool) {
-        if ENDINGS
+        if crate::notice::ENDING_MOVIES
             .iter()
             .any(|ending| ending.eq_ignore_ascii_case(movie))
             && declared(self.view.module, GAME_COMPLETE, Global::Number)

@@ -71,6 +71,9 @@ fight 20                 # beaten near to death, he hears the party out
 talk
 save kas_freyyr
 exit Exit                # back up to the Upper Shadowlands
+to 56.4,205.4            # past the tach standing by the slope's foot on its
+to 56.6,200.5            # free side (a body round across makes for the side
+                         # between it and the slope, where the box kept off)
 use kas24_gorwook_01     # Gorwooken at the lift: he knows Chuundar was crossed
 talk
 fight 20

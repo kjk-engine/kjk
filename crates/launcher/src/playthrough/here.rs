@@ -277,6 +277,36 @@ impl<'a> Here<'a> {
             })
             .unwrap_or(to)
     }
+
+    /// A walker to talk to a creature at `at` (metres) within `reach`
+    /// across the floor: `approach`'s, or, when no way leads there (the
+    /// speaker on a ledge no path climbs: Dxun's Kumus on his ridge), a
+    /// stand on the floor below within the reach that a way leads to, the
+    /// nearest the player first (a talk's reach is flat,
+    /// `sim::world::uses::may_use`).
+    pub(super) fn approach_talk(&self, player: &sim::motion::MotionState, at: [f32; 3], reach: f32) -> Walker {
+        let to = self.approach(player, at);
+        let from = sim::walk::back_on(self.level, player.origin).unwrap_or(player.origin);
+        if self.leads(from, to.goal) {
+            return to;
+        }
+        let me = player.origin.map(|v| v * UNIT);
+        let mut stands: Vec<(f32, Walker)> = TALK_RINGS
+            .iter()
+            .map(|share| share * reach)
+            .flat_map(|far| {
+                (0..16).map(move |k| {
+                    let angle = k as f32 * std::f32::consts::FRAC_PI_8;
+                    [at[0] + far * angle.cos(), at[1] + far * angle.sin(), me[2]]
+                })
+            })
+            .map(|side| walker_to(self.level, player, side))
+            .filter(|walker| self.leads(from, walker.goal))
+            .map(|walker| (flat(walker.goal.map(|v| v * UNIT), me), walker))
+            .collect();
+        stands.sort_by(|a, b| a.0.total_cmp(&b.0));
+        stands.into_iter().next().map_or(to, |(_, walker)| walker)
+    }
 }
 
 /// The instances tagged (or made from a template named) `tag`, by number:
@@ -357,6 +387,10 @@ pub(super) fn find_any(
 /// How far (metres) the player moves in one step to have been jumped
 /// there, not walked: a run covers some 5 cm a step.
 pub(super) const JUMPED_M: f32 = 1.0;
+
+/// The rings `Here::approach_talk` looks for a stand on, as shares of the
+/// talk's reach: inside it, so a walk arriving short still talks.
+const TALK_RINGS: [f32; 4] = [0.4, 0.55, 0.7, 0.8];
 
 /// The triggers that turned the player back this goal: one it stood in while
 /// a conversation held it and was then jumped out of (Tatooine's dune edge,
@@ -781,9 +815,9 @@ pub(super) fn walker_to(level: &sim::Level, from: &sim::motion::MotionState, at:
 }
 
 /// A stand round `at` (metres; one of rings of eight, within a talk's
-/// reach) that a way leads to, with a clear line from an eye there to
-/// object `index`'s middle (the line a use takes, `sim::target::in_sight`)
-/// and within the use's reach in height of it (`sim::uses::may_use`): the
+/// reach) that a way leads to, from which the sim lets the use through
+/// (`may_use`: the sim's own check, `SimWorld::may_use`, its line of sight
+/// and reach in height): the
 /// one nearest the player, as a player steps round to use it (KOTOR's use
 /// wants a clear line: Uthar behind his desk's side; Hrakert's airlock
 /// door behind its frame's edge; Kashyyyk's Star Map hologram, over the
@@ -792,9 +826,8 @@ pub(super) fn sighted_stand(
     here: &Here,
     player: &sim::motion::MotionState,
     at: [f32; 3],
-    index: u32,
+    may_use: &mut dyn FnMut(&sim::motion::MotionState) -> bool,
 ) -> Option<Walker> {
-    let middle = [at[0], at[1], at[2] + 1.0];
     let me = player.origin.map(|v| v * UNIT);
     [1.2f32, 2.0, 2.8]
         .into_iter()
@@ -806,11 +839,9 @@ pub(super) fn sighted_stand(
         })
         .map(|spot| (spot, walker_to(here.level, player, spot)))
         .filter(|(_, walker)| {
-            let eye = [walker.goal[0], walker.goal[1], walker.goal[2] + player.eye_height]
-                .map(|v| v * UNIT);
-            (walker.goal[2] * UNIT - at[2]).abs() <= sim::containers::REACH
-                && sim::target::in_sight(here.level, here.sight(), eye, middle, index)
-                && here.leads(player.origin, walker.goal)
+            let mut there = *player;
+            there.origin = walker.goal;
+            may_use(&there) && here.leads(player.origin, walker.goal)
         })
         .min_by(|a, b| flat(a.0, me).total_cmp(&flat(b.0, me)))
         .map(|(_, walker)| walker)
@@ -1078,21 +1109,73 @@ pub(super) fn straggling(keepers: &[Keeper], mates: &[(sim::SimId, [f32; 3])], m
         .max_by(f32::total_cmp)
 }
 
+/// The body the first seat plays: the companion it was switched to
+/// (`SwitchPlayerCharacter`, `Party::switched_body`), else its own
+/// character.
+fn played<'a>(world: &sim::SimWorld, snapshot: &'a Snapshot) -> Option<&'a sim::EntityState> {
+    let own = snapshot.own(Seat(0))?;
+    Some(
+        world
+            .script_state()
+            .party
+            .switched_body()
+            .and_then(|id| snapshot.get(sim::SimId(id)))
+            .filter(|body| body.sheet.is_some())
+            .unwrap_or(own),
+    )
+}
+
 /// The class the player would take a level in now, if the party's XP
-/// allows one: the class it took last, else row 0 (a career not begun
-/// here: its sheet's).
+/// allows one: the class the body it plays took last (a companion it was
+/// switched to levels in its own, with the game's picks, as TSL's level-up screen levels the
+/// character the player controls: Visas Marr in Dxun's jungle), else row
+/// 0 for its own character (a career not begun here: its sheet's).
 pub(super) fn level_due(world: &sim::SimWorld, snapshot: &Snapshot) -> Option<u8> {
-    let avatar = snapshot.own(Seat(0))?;
-    let sheet = avatar.sheet?;
+    let own = snapshot.own(Seat(0))?;
+    let body = played(world, snapshot)?;
+    let sheet = body.sheet?;
     let state = world.script_state();
     let classes = world.level().scripts()?.classes();
+    // A companion's career not begun here is its template's classes.
+    let refused = BTreeSet::new();
+    let template = || {
+        Here::new(world.level(), snapshot, &refused)
+            .facts_of(body)
+            .and_then(|facts| facts.classes.last().map(|(class, _)| *class))
+    };
+    let last = state
+        .careers
+        .get(&body.id.0)
+        .and_then(|career| career.last().map(|(class, _)| *class))
+        .or_else(|| (body.id != own.id).then(template).flatten());
+    if body.id != own.id && last.is_none() {
+        return None;
+    }
     classes
         .may_level(sheet.level, state.xp(sim::inventory::PARTY))
-        .then(|| {
-            state
-                .careers
-                .get(&avatar.id.0)
-                .and_then(|career| career.last())
-                .map_or(0, |(class, _)| *class)
-        })
+        .then(|| last.unwrap_or(0))
+}
+
+/// The picks `plan` makes for the player's next level of `class`
+/// (`Classes::planned`); none for a companion the seat plays (the game's
+/// picks).
+pub(super) fn planned(
+    world: &sim::SimWorld,
+    snapshot: &Snapshot,
+    class: u8,
+    plan: &sim::levels::Plan,
+) -> Option<sim::levels::Choices> {
+    let avatar = snapshot.own(Seat(0))?;
+    if played(world, snapshot)?.id != avatar.id {
+        return None;
+    }
+    let sheet = avatar.sheet?;
+    let classes = world.level().scripts()?.classes();
+    let career = world
+        .script_state()
+        .careers
+        .get(&avatar.id.0)
+        .cloned()
+        .unwrap_or_else(|| vec![(class, sheet.level)]);
+    classes.planned(&sheet, &career, class, plan)
 }

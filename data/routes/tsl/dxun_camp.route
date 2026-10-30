@@ -1,0 +1,42 @@
+# Dxun, the jungle to Mandalore's camp (TSL, 402DXN, 403DXN): Colonel
+# Tobin's scene sending a detachment to Dxun (cs_tob_1), the Mandalorian
+# sentries at their barricade (asked what they do on Dxun, the Exile only
+# exploring, "Lead on, then": no fight, no DSP), the walk into the camp
+# (meetm_cs) and Mandalore: Onderon asked after, the price of passage
+# (pricepassage) and his own test, the permacrete charges by the cache
+# (explosivesit); Xarga's missing recruit (missingm: Kumus's gear, to be
+# brought back) and the gate guard's zakkeg (zchallenge), taken.
+# Starts from the jungle's checkpoint:
+#   kjk playthrough tsl @dxun_jungle data/routes/tsl/dxun_camp.route --god
+# Walkthrough: DSimpson's "Dxun Jungle, Main Area" and "Mandalore"
+# (context/walkthroughs/tsl/).
+# Left: the sealed cache by the dead Mandalorian (DxunCache_imp: Thorium
+# charges from Dantooine or Korriban), Kex's store, Zuka's navigational
+# telemetry (Repair, Computer and three Phase Pulse parts from random
+# cannoks), the battle circle (five duels under rules: no weapons, no
+# powers).
+talk                 # Colonel Tobin's detachment (cs_tob_1)
+say What are you doing on Dxun? # the sentries (no Kreia: E15)
+say I was exploring. Who are you?
+say Lead on, then.   # a_to_mandalore: 403DXN at WP_MEETMANDALORE
+to TR_MEETMANDALORE
+talk
+module 403dxn
+talk                 # the walk in (meetm_cs)
+say I'm trying to get to Onderon, do you know how I can get there?
+say How can I prove myself?
+say So there's nothing you can think of? # the charges (a_es_start)
+say I'll see what I can do.
+talk                 # Mandalore (start 3)
+say I might. Who are you? # Xarga's recruit
+say Why do you want the body?
+say If I find Kumus' body, I will bring back his gear.
+use xarga
+talk
+say =Larger beasts?  # the gate guard (not "What did you mean by larger beasts?")
+say What's a zakkeg?
+say I can defeat it.
+say We'll see. I'll be back after I've defeated one.
+use g_gate_guard
+talk
+save dxun_tests

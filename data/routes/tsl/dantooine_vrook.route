@@ -1,0 +1,46 @@
+# Dantooine, Vrook found (TSL, 601DAN, 602DAN, 604DAN): Suulru given his
+# modulator and the 500 Jorran took (LSP), Zherron told Dopak has his
+# message, the crystal cave's mercenary camp:
+# here to rescue the Jedi (LSP), the captain and his men fought, Vrook out
+# of his cage (apologised to, Khoonda's coming attack); Azkul outside the
+# cave refused (his plans not to succeed: LSP) and his men fought, and the
+# Administrator's master card key for Khoonda's defence. Starts from the
+# salvagers' camp:
+#   kjk playthrough tsl @dantooine_camp data/routes/tsl/dantooine_vrook.route --god
+# Walkthrough: DSimpson's "Return to the Crystal Cave" and "The Mercenary
+# Attack" (context/walkthroughs/tsl/).
+exit To_601@2        # back by the courtyard's east way
+module 601dan
+exit To_602
+module 602dan
+say Here is your modulator and the 500 credits # Suulru (LSP)
+use npc_suulru
+talk
+say I gave Dopak your message. # Zherron: Dopak's answer told
+use npc_zherron
+talk
+exit To_601
+module 601dan
+exit To_604
+module 604dan
+say I'm here to rescue the Jedi. # the mercenaries holding Vrook (LSP)
+say I don't want to fight, but I can't let you take Vrook
+to tr_merc_cave
+talk
+fight 60
+talk                 # Vrook out of his cage
+use MilLowMetalBox@1 # the camp's boxes
+use MilLowMetalBox@2
+say I've learned that you are planning an assault # Azkul: refused (LSP)
+say I would never help you.
+say I'm not interested.
+say I cannot allow your plans to succeed.
+exit To_601
+module 601dan
+talk
+fight 60             # his men
+exit To_602
+module 602dan
+use npc_terena       # the master card key: Khoonda's defence
+talk
+save dantooine_attack

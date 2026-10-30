@@ -1,0 +1,84 @@
+# Dxun, the battle circle and Zuka's relay (TSL, 403DXN, 402DXN): the
+# sergeant asked what the battle circle is and the Exile fights in it on
+# its terms, every weapon taken for fist and foot (a_set_forfeit, the
+# forfeit conditions): Davrel; Kex with swords, the sergeant asked what
+# would be fitting ("an honorable choice"); Tagren; Kelborn, who vouches
+# for the Exile after his scouts, with the camp's long blade; Bralor with
+# no terms, and the Exile is the battle circle's champion; Zuka's relay
+# dish (asked what is wrong, [Computer] help offered, Bao-Dur's word,
+# the cannoks that ate the phase-pulse converter), its broken wires
+# [Repair]ed and its telemetry core tried (one spike short); outside the camp Davrel's challenge to the death refused
+# twice (DSimpson's light way: he goes, dishonoured); before Zuka the
+# camp's boxes and bags searched (Mandalore's back room is shut until the
+# return).
+# Starts from the tests' checkpoint:
+#   kjk playthrough tsl @dxun_tests_done data/routes/tsl/dxun_circle.route --god
+# Walkthrough: DSimpson's "Mandalore" side quests "Win in the Battle
+# Circle" and "Repair the Navigational Telemetry"
+# (context/walkthroughs/tsl/).
+# Left: the telemetry computer's core (4 spikes at the Exile's Computer,
+# the party carries 3: SKIPPED.md), so the phase-pulse parts' cannoks are
+# not hunted.
+#
+# ASSUMES:
+# - Kelborn's scouts done (dxun_tests): the sergeant's start 7 has him
+#   vouch for the Exile (c_global_eq), so Kelborn and Bralor follow.
+# - Bao-Dur in the party for his lines at Zuka's (c_con_baodurpm).
+# - Davrel waits by the sentries once beaten in the circle; the zakkeg is
+#   already slain, so his zakkeg reply (c_davrel) is not offered.
+equip saber          # the saber in hand (the circle takes it, gives it back)
+say What is the battle circle?
+say I want to fight in the battle circle.
+use npc_mandy_sarge  # Davrel: no weapons, no Force, no items
+talk
+fight 30
+talk                 # the sergeant: the match is over
+say I want to fight in the battle circle.
+say What would be appropriate?
+say Let's fight with swords, as you suggested.
+use npc_mandy_sarge  # Kex, the challenger: the Exile's terms
+talk
+fight 30
+talk
+say I want to fight in the battle circle.
+use npc_mandy_sarge  # Tagren: fist and foot; Kelborn vouches after
+talk
+fight 30
+talk
+say I want to fight in the battle circle.
+use npc_mandy_sarge  # Kelborn: the long blade only
+talk
+fight 30
+talk
+say I want to fight in the battle circle.
+use npc_mandy_sarge  # Bralor: no terms
+talk
+fight 30
+talk                 # the champion's reward (a_give_q_reward)
+equip saber
+use g_tresmillow004@7 # the camp's boxes and bags the party can walk to
+use g_tresmillow004@8 # (the east barracks' are on no way there; the high
+use g_tresmillow004@9 # case by the gate is not useable)
+use g_tresmillow004@10
+use g_trescivil002@1
+use g_trescivil002@2
+say What's the problem? # Zuka at his console (a_wire_explode)
+say [Computer] I've had some practice
+say Then let's get to work fixing it.
+use zuka
+talk
+say [Repair] Fix the broken wires.
+use bwire
+talk
+say [Computer] Reprogram the core. # the telemetry computer up the ramp
+use tele_comp
+talk
+say I don't want to kill you. I refuse. # Davrel by the sentries
+say I will not fight you. I refuse your challenge.
+exit To_402
+module 402dxn
+use npc_davrel
+talk
+exit To_403
+module 403dxn
+save dxun_champion

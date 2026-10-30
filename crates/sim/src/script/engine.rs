@@ -491,11 +491,31 @@ pub(super) fn can_cast(view: &View, thing: &Thing, row: u16) -> bool {
 
 /// `who` stops what it does and fights no more: its queue cleared (unless
 /// not commandable), out of combat.
-fn stop(state: &mut State, out: &mut Out, who: ObjectId) {
+fn stop(state: &mut State, out: &mut Out, view: &View, who: ObjectId) {
     if !state.uncommandable.contains(&who.0) {
-        state.actions.remove(&who.0);
+        clear_queue(state, view, who);
     }
     out.changes.push(Change::CancelCombat { who });
+}
+
+/// `who`'s queue cleared. A conversation pause still in it, one that never
+/// reached the front, is dropped with it: the executables queue the pause
+/// as they queue the resume (reone's `PauseConversationAction`), so a clear
+/// before it ran leaves the conversation going on. Citadel Station's Czerka
+/// men pause their line, clear their own queues and walk in (`a_czerkaint`):
+/// their resume, cleared too, would otherwise hold it for good.
+fn clear_queue(state: &mut State, view: &View, who: ObjectId) {
+    let Some(queue) = state.actions.remove(&who.0) else {
+        return;
+    };
+    let host = view.host(&state.party);
+    for queued in queue {
+        if let Action::Pause { talk } = queued.action
+            && let Some(at) = state.talk.held_by(who, talk, host)
+        {
+            state.talk.conversations[at].paused = false;
+        }
+    }
 }
 
 /// `caller` gives up (`SurrenderToEnemies`; Calo Nord when Davik falls,
@@ -534,7 +554,7 @@ pub(super) fn surrender(
         if thing.id != caller && distance(from, thing.position) > SURRENDER_REACH {
             continue;
         }
-        stop(state, out, thing.id);
+        stop(state, out, view, thing.id);
         if !keeps {
             for lasting in c.lasting.iter().flatten().filter(|l| l.by == thing.id.0) {
                 state.removed.push((thing.id.0, Some(lasting.id), after));
@@ -796,6 +816,17 @@ pub(super) fn seconds_ms(seconds: f32) -> u32 {
 /// Whether `animation` asked for `seconds` plays at once and loops until
 /// something else plays (`u32::MAX`): a looping constant of the low range
 /// given a negative duration.
+/// Who holds `item` (`GetItemPossessor`): the first PC for the party's
+/// own, none for one on the floor or unknown.
+fn possessor(state: &State, view: &View, item: ObjectId) -> ObjectId {
+    match state.items.get(&item.0) {
+        Some(held) if held.holder == inventory::PARTY => view.first_pc(&state.party),
+        Some(held) if held.holder == AREA.0 => ObjectId::INVALID,
+        Some(held) => ObjectId(held.holder),
+        None => ObjectId::INVALID,
+    }
+}
+
 fn loops_on(animation: u16, seconds: f32) -> bool {
     animation <= LOOPS_AT_ONCE && seconds < 0.0
 }
@@ -878,6 +909,7 @@ impl Engine<'_> {
     fn tagged<'a>(&'a self, tag: &str) -> impl Iterator<Item = super::Tagged> + 'a {
         let catalog = self.library.items();
         let wanted = key(tag);
+        let wanted_held = wanted.clone();
         let lying = self
             .state
             .lying_in(&self.view.module.name)
@@ -893,7 +925,34 @@ impl Engine<'_> {
                 kind: None,
                 at: lying.at,
             });
-        tagged(self.view, &self.out.made, tag).chain(lying)
+        // Then the items held here, as the games keep every item an object
+        // (a key or a datapad in a pocket is found): the party's, at the
+        // first PC, and those of an object in this area, at it. TSL's
+        // Czerka droid B-4D4 asks whether Opo Chano's credentials are
+        // anywhere (`c_havecreds`: `GetObjectByTag("DroidTechCreds")`).
+        let pc = self.view.first_pc(&self.state.party);
+        let held = self
+            .state
+            .items
+            .iter()
+            .filter(move |(_, item)| {
+                self.state
+                    .item_facts(catalog, &item.template)
+                    .is_some_and(|facts| facts.tag == wanted_held)
+            })
+            .filter_map(move |(id, item)| {
+                let at = if item.holder == crate::inventory::PARTY {
+                    self.position(pc)?
+                } else {
+                    self.position(ObjectId(item.holder))?
+                };
+                Some(super::Tagged {
+                    id: ObjectId(*id),
+                    kind: None,
+                    at,
+                })
+            });
+        tagged(self.view, self.out, tag).chain(lying).chain(held)
     }
 
     /// The `nth` (from 1) nearest object to `from` tagged `tag`, but itself.
@@ -1164,6 +1223,10 @@ impl Engine<'_> {
                     | Effect::Shield { .. }
             );
             match leaf {
+                Effect::DeathKept => {
+                    self.state.kept.insert(target.0);
+                    carried.push(Effect::Death);
+                }
                 Effect::Visual { row: None, .. } => {}
                 Effect::Visual { .. } => carried.push(leaf.clone()),
                 _ if at_once || (lasting && until.is_some()) => carried.push(leaf.clone()),
@@ -1449,7 +1512,7 @@ impl Engine<'_> {
     /// `who`'s queue cleared (unless it is not commandable) and its fight
     /// over: a surrender's.
     fn stop(&mut self, who: ObjectId) {
-        stop(self.state, self.out, who);
+        stop(self.state, self.out, self.view, who);
     }
 
     /// Whether `who`'s queue holds an animation of `LONG_ANIMATION_MS` or
@@ -1679,28 +1742,64 @@ impl Engine<'_> {
                 }
                 Value::Int(0)
             }
-            GetLocalBoolean | GetLocalNumber => {
-                let kind = u8::from(bound == GetLocalNumber);
-                let key = (
-                    local_owner(&self.view.module.name, object(args, 0)),
-                    kind,
-                    int(args, 1),
-                );
-                Value::Int(state.locals.get(&key).copied().unwrap_or(0))
+            // An object that is not (OBJECT_INVALID) keeps no locals: TSL's
+            // executable's commands set nothing and read 0 when
+            // `GetGameObject` finds none [verify in K1's].
+            GetLocalBoolean | GetLocalNumber | SetLocalBoolean | SetLocalNumber
+                if object(args, 0) == ObjectId::INVALID =>
+            {
+                Value::Int(0)
             }
-            SetLocalBoolean | SetLocalNumber => {
-                let kind = u8::from(bound == SetLocalNumber);
+            // A local boolean is a bit of the game's slots (`local_boolean`):
+            // nothing kept past the last, which reads false. A true one reads
+            // as its bit lies in its 32-bit word (`local_boolean_read`).
+            GetLocalBoolean => {
+                let index = int(args, 1);
                 let key = (
                     local_owner(&self.view.module.name, object(args, 0)),
-                    kind,
+                    0,
+                    index,
+                );
+                let kept = local_boolean(&view.module.game, index)
+                    .then(|| state.locals.get(&key).copied())
+                    .flatten();
+                Value::Int(local_boolean_read(index, kept.unwrap_or(0) != 0))
+            }
+            // A local number is a byte in one of the game's slots
+            // (`local_number`): read back unsigned, set only from -128 to
+            // 127, nothing kept past the last slot.
+            GetLocalNumber => {
+                let key = (
+                    local_owner(&self.view.module.name, object(args, 0)),
+                    1,
                     int(args, 1),
                 );
-                let value = if kind == 0 {
-                    i32::from(int(args, 2) != 0)
-                } else {
-                    int(args, 2)
-                };
-                state.locals.insert(key, value);
+                let kept = state.locals.get(&key).copied().unwrap_or(0);
+                Value::Int(local_number(&view.module.game, int(args, 1), kept).unwrap_or(0))
+            }
+            SetLocalNumber => {
+                let key = (
+                    local_owner(&self.view.module.name, object(args, 0)),
+                    1,
+                    int(args, 1),
+                );
+                let value = int(args, 2);
+                if (-128..=127).contains(&value)
+                    && let Some(byte) = local_number(&self.view.module.game, int(args, 1), value)
+                {
+                    state.locals.insert(key, byte);
+                }
+                Value::Int(0)
+            }
+            SetLocalBoolean => {
+                let key = (
+                    local_owner(&self.view.module.name, object(args, 0)),
+                    0,
+                    int(args, 1),
+                );
+                if local_boolean(&view.module.game, int(args, 1)) {
+                    state.locals.insert(key, i32::from(int(args, 2) != 0));
+                }
                 Value::Int(0)
             }
             // No tag is the player's (its creature has none): reone's
@@ -1745,7 +1844,7 @@ impl Engine<'_> {
                         || self.exists(id),
                 )
             }
-            GetFirstPC => self.first(caller, walk::PCS, self.pcs()),
+            GetFirstPC => self.first(caller, walk::PCS, self.controlled_pcs()),
             GetNextPC => self.next(caller, walk::PCS),
             // The first seat's PC leads, or the companion made leader
             // (`SetPartyLeader`, `Action::SetLeader`), which the first seat
@@ -1956,6 +2055,18 @@ impl Engine<'_> {
                     .and_then(|spawn| spawn.last_entered)
                     .map(ObjectId),
             ),
+            // The module's acquire hook asked who came by it: the item's
+            // possessor, as TSL's own acquire scripts read it
+            // (`GetEnteringObject() == GetFirstPC()`: 402DXN's k_check_item
+            // for the zakkeg's ear, 404DXN's k_get_item), K1's asking for the
+            // item itself by `GetModuleItemAcquired` [verify in the exe].
+            GetEnteringObject
+                if caller == crate::script::MODULE
+                    && let Some(item) = self.event.entering
+                    && state.items.contains_key(&item.0) =>
+            {
+                Value::Object(possessor(state, view, item))
+            }
             GetEnteringObject
             | GetExitingObject
             | GetModuleItemAcquired
@@ -2107,7 +2218,7 @@ impl Engine<'_> {
             // How often the original stepped an object or a mind far from
             // the player (TSL's budget): here every one is stepped every
             // tick, so these change nothing.
-            SetForceAlwaysUpdate | SetCreatureAILevel | ResetCreatureAILevel => Value::Int(0),
+            SetCreatureAILevel | ResetCreatureAILevel => Value::Int(0),
             // TSL's (its AI's gunners finding a place to shoot from): sight
             // between the two places as given (scripts pass positions: the
             // feet), as its executable traces them, through the doors as
@@ -2363,7 +2474,11 @@ impl Engine<'_> {
                 kind: effects::amount(int(args, 1)),
             }),
             EffectHeal => self.effect_value(Effect::Heal(effects::amount(int(args, 0)))),
-            EffectDeath => self.effect_value(Effect::Death),
+            // Its third argument, `nNoFadeAway`, keeps the body.
+            EffectDeath => self.effect_value(match int(args, 2) {
+                0 => Effect::Death,
+                _ => Effect::DeathKept,
+            }),
             EffectHealForcePoints => {
                 self.effect_value(Effect::HealForcePoints(effects::amount(int(args, 0))))
             }
@@ -2651,9 +2766,21 @@ impl Engine<'_> {
                     })
                     .unwrap_or(0),
             ),
+            // TSL's leaves a player's own character as it is: its
+            // `ExecuteCommandChangeToStandardFaction` (and `ChangeFaction`)
+            // passes over a creature whose stats are a PC's, so Dxun's
+            // battle circle (`a_circle_fight`, `tr_circle`: the PC to
+            // Friendly 1 after each match) does not turn every Friendly 2
+            // creature on the Exile (Dantooine's salvagers at the Enclave)
+            // [verify in K1's exe: K1 keeps setting it].
             ChangeToStandardFaction => {
                 let who = object(args, 0);
-                if let (Some(_), Ok(faction)) = (self.character(who), u8::try_from(int(args, 1))) {
+                let tsl = crate::combat::passive::Game::named(&view.module.game)
+                    == crate::combat::passive::Game::Tsl;
+                let own = view.thing(who).is_some_and(|thing| thing.kind.is_none());
+                if let (Some(_), Ok(faction), false) =
+                    (self.character(who), u8::try_from(int(args, 1)), tsl && own)
+                {
                     self.out.changes.push(Change::Faction { who, faction });
                 }
                 Value::Int(0)
@@ -2878,9 +3005,16 @@ impl Engine<'_> {
             ),
             GetFirstObjectInArea | GetFirstInPersistentObject | GetFirstObjectInShape => {
                 let (kind, objects) = match bound {
+                    // The area's objects of the type, but the dead for good
+                    // [verify in the exe]: TSL's battle of Khoonda ends when
+                    // a mercenary's death script, counting the area's
+                    // hostile creatures, finds none (`k_battle_death`), its
+                    // own dying body among them otherwise.
                     GetFirstObjectInArea => {
                         let filter = int(args, 1);
-                        let all = view.things.iter().filter(|t| self.of_type(t, filter));
+                        let all = view.things.iter().filter(|t| {
+                            self.of_type(t, filter) && !(t.character.is_some() && t.dead_for_good())
+                        });
                         (walk::AREA, all.map(|t| t.id).collect())
                     }
                     // An encounter's: the area's objects of the type over
@@ -3632,6 +3766,22 @@ impl Engine<'_> {
                 }
                 Value::Int(0)
             }
+            // TSL's: the object updated wherever it stands, and so found by a
+            // conversation's line beyond the speakers' reach (the
+            // executable's `ExecuteCommandForceAlwaysUpdate` sets the flag
+            // `GetNearestObjectByName` lets past its radius): Kavar and
+            // Talia in 512OND's throne room, 1400 m from Dhagon's office.
+            SetForceAlwaysUpdate => {
+                let who = object(args, 0);
+                if who != ObjectId::INVALID {
+                    if int(args, 1) != 0 {
+                        self.state.always_update.insert(who.0);
+                    } else {
+                        self.state.always_update.remove(&who.0);
+                    }
+                }
+                Value::Int(0)
+            }
             // TSL's: whether the creature holds the meditative stance, which
             // only its stance action puts it in (the executable's
             // `AIActionStanceMeditative`): no action here takes that stance
@@ -3714,14 +3864,41 @@ impl Engine<'_> {
             | SetFakeCombatState
             | CreatureFlourishWeapon
             | ForceHeartbeat => self.force_call(bound, args),
+            // The party table keeps one creature for each companion: one
+            // spawned again while its creature is here is that creature,
+            // moved to the place, as the executable's `AddMember` moves a
+            // puppet that is here [verify the executable's own handling].
+            // TSL's Bao-Dur joins by being spawned, added, removed and
+            // spawned again (`a_baodur_join`): a second one had stayed at
+            // the wreck, the one `GetObjectByTag("BaoDur")` then found. And
+            // Nar Shaddaa's Atton, spawned to warn the player, is spawned
+            // again by the first line of the warning he speaks
+            // (`a_atton_cut_1`): another in his place had ended it.
             SpawnAvailableNPC => {
-                let made = u8::try_from(int(args, 0))
-                    .ok()
-                    .zip(self.place(args, 1))
-                    .and_then(|(npc, (at, yaw))| {
+                let npc = u8::try_from(int(args, 0)).ok();
+                let had = npc
+                    .and_then(|npc| self.state.party.available.get(&npc))
+                    .and_then(|slot| slot.object)
+                    .map(ObjectId)
+                    .filter(|old| self.exists(*old) && !self.destroyed(*old));
+                let spawned = match (had, self.place(args, 1)) {
+                    (Some(old), Some((at, yaw))) => {
+                        match self.out.made.iter_mut().find(|made| made.id == old) {
+                            Some(made) => (made.at, made.yaw) = (at, yaw),
+                            None => self.out.changes.push(Change::Jump {
+                                who: old,
+                                to: at,
+                                yaw,
+                            }),
+                        }
+                        Some(old)
+                    }
+                    (None, Some((at, yaw))) => npc.and_then(|npc| {
                         super::make_npc(self.library, self.view, self.state, self.out, npc, at, yaw)
-                    });
-                Value::Object(made.unwrap_or(ObjectId::INVALID))
+                    }),
+                    (_, None) => None,
+                };
+                Value::Object(spawned.unwrap_or(ObjectId::INVALID))
             }
             // The party table keeps the companion as it stands now.
             SaveNPCState => {
@@ -4165,7 +4342,7 @@ impl Engine<'_> {
                 // What it plays stops too, even a clip that outlasts its
                 // queued time.
                 if !state.uncommandable.contains(&caller.0) {
-                    state.actions.remove(&caller.0);
+                    clear_queue(state, self.view, caller);
                     self.out.changes.push(Change::Clear { who: caller });
                 }
                 Value::Int(0)
@@ -4699,13 +4876,7 @@ impl Engine<'_> {
                 let found = own.into_iter().chain(carried).map(|(id, _)| id).min();
                 Value::Object(found.map_or(ObjectId::INVALID, ObjectId))
             }
-            GetItemPossessor => Value::Object(match self.state.items.get(&item.0) {
-                Some(held) if held.holder == inventory::PARTY => view.first_pc(&self.state.party),
-                // One lying on the floor has none.
-                Some(held) if held.holder == AREA.0 => ObjectId::INVALID,
-                Some(held) => ObjectId(held.holder),
-                None => ObjectId::INVALID,
-            }),
+            GetItemPossessor => Value::Object(possessor(self.state, view, item)),
             GetBaseItemType => Value::Int(facts(self.state, catalog, item).map_or_else(
                 || self.library.constant("BASE_ITEM_INVALID").unwrap_or(256),
                 |facts| i32::from(facts.base_item),
@@ -4768,7 +4939,14 @@ impl Engine<'_> {
                         self.out.statuses.push(StatusKind::Lost);
                     }
                     self.state.destroy_item(self.out, item);
-                } else if let Some(thing) = view.thing(item) {
+                } else if let Some(thing) = view.thing(item).filter(|thing| {
+                    !(thing.character.is_some() && self.state.kept.contains(&item.0))
+                }) {
+                    // A creature `SetIsDestroyable(FALSE)` keeps is not
+                    // destroyed: TSL's `CSWSCreature::EventHandler` passes
+                    // the destroy event over for one not destroyable
+                    // (506OND's `a_end_game` destroys Tobin's body, then
+                    // raises him for Kreia's scene) [verify in K1's exe].
                     self.out.changes.push(Change::Destroy {
                         who: item,
                         ms: seconds_ms(float(args, 1)),
@@ -4919,7 +5097,17 @@ impl Engine<'_> {
 
     /// Whether `id` is an object of the world, those made this step counted.
     fn exists(&self, id: ObjectId) -> bool {
-        self.view.thing(id).is_some() || self.out.made.iter().any(|made| made.id == id)
+        (self.view.thing(id).is_some() || self.out.made.iter().any(|made| made.id == id))
+            && !self.out.deleted.contains(&id)
+    }
+
+    /// Whether a script destroyed `id` this step (`DestroyObject` with no
+    /// delay): it goes as the step's changes apply.
+    fn destroyed(&self, id: ObjectId) -> bool {
+        self.out
+            .changes
+            .iter()
+            .any(|change| matches!(change, Change::Destroy { who, ms: 0, .. } if *who == id))
     }
 
     /// Whether `id` is a creature (one made this step too).
@@ -4963,6 +5151,24 @@ impl Engine<'_> {
     /// switched to in its place while it is.
     fn pcs(&self) -> Vec<ObjectId> {
         self.view.pcs(&self.state.party)
+    }
+
+    /// The PCs `GetFirstPC` walks: the creature each seat controls, the
+    /// first seat's the companion it leads while it does (`world::lent`).
+    /// KOTOR's player is the body it controls: TSL's scripts make the PC
+    /// lead again (`SetPartyLeader(NPC_PLAYER)`) before they move
+    /// `GetFirstPC()` (a_master_setup), and a trigger asking for
+    /// `GetFirstPC()` fires for the companion leading (Goto's yacht's
+    /// command centre, Mira at the head for the mines) [verify in the exe].
+    fn controlled_pcs(&self) -> Vec<ObjectId> {
+        let mut pcs = self.pcs();
+        if let Some(led) = crate::world::lent(&self.state.party).map(|body| ObjectId(body.0)) {
+            match pcs.first_mut() {
+                Some(first) => *first = led,
+                None => pcs.push(led),
+            }
+        }
+        pcs
     }
 
     /// The companion leading the party, if one does: the one whose guest's
@@ -5481,6 +5687,13 @@ impl Engine<'_> {
                     if let Some(slot) = self.state.party.available.get_mut(&npc) {
                         slot.object = None;
                     }
+                    // Deleted at once (`KillNPCObject`): the area's enter
+                    // script that sends the party to base then finds the
+                    // companion gone and makes it anew (403DXN's
+                    // `k_403_enter` on the return for the strike on the
+                    // tomb: `SpawnAvailableNPC` where `GetObjectByTag`
+                    // finds none).
+                    self.out.deleted.push(who);
                     self.out.changes.push(Change::fade_away(who, kind));
                 }
                 truth(sent.is_some())
@@ -5550,9 +5763,16 @@ impl Engine<'_> {
                 party.restrict = int(args, 0) != 0;
                 Value::Int(0)
             }
-            GetNPCSelectability => truth(npc.is_some_and(|npc| {
-                party.available.contains_key(&npc) && !party.unselectable.contains(&npc)
-            })),
+            // -1 for a companion not in the party table at all (TSL's
+            // nwscript.nss), else whether it may be picked: TSL's Ebon Hawk
+            // takes 1 or 0 as "available" (k_003ebo_enter, Visas's arrival
+            // asking she is not yet) [verify in the exe].
+            GetNPCSelectability => Value::Int(match npc {
+                Some(npc) if party.available.contains_key(&npc) => {
+                    i32::from(!party.unselectable.contains(&npc))
+                }
+                _ => -1,
+            }),
             SetNPCSelectability => {
                 if let Some(npc) = npc {
                     if int(args, 1) != 0 {
@@ -5628,7 +5848,9 @@ impl Host for Engine<'_> {
         // (`super::Traced`).
         let shown = match &value {
             Value::Int(_) if routine.ret == script_ncs::Type::Void => None,
-            Value::Int(_) | Value::Object(_) | Value::String(_) => Some(value.clone()),
+            Value::Int(_) | Value::Float(_) | Value::Object(_) | Value::String(_) => {
+                Some(value.clone())
+            }
             _ => None,
         };
         let call = super::CallLine {
@@ -5646,6 +5868,47 @@ impl Host for Engine<'_> {
         };
         self.report.keep(super::Traced::Call(Box::new(call)));
         Ok(value)
+    }
+}
+
+/// Local number `index` of `game` holding `value`, as the games' var tables
+/// keep one: a byte, read back unsigned (-1 reads 255; a save from before
+/// keeps a wider number, read as its byte too); `None` past the last slot
+/// (K1 keeps `rules::scripts::locals::K1_NUMBERS`, TSL `TSL_NUMBERS`), where
+/// nothing is kept and 0 is read.
+pub(crate) fn local_number(game: &str, index: i32, value: i32) -> Option<i32> {
+    let slots = if game == TSL {
+        rules::scripts::locals::TSL_NUMBERS
+    } else {
+        rules::scripts::locals::K1_NUMBERS
+    };
+    (0..slots).contains(&index).then_some(value & 0xff)
+}
+
+/// Whether `game`'s objects keep local boolean `index`: K1's
+/// `rules::scripts::locals::K1_BOOLEANS` slots, TSL's `TSL_BOOLEANS` (both
+/// executables' var tables test the index unsigned, so one below 0 is past
+/// them too).
+pub(crate) fn local_boolean(game: &str, index: i32) -> bool {
+    let slots = if game == TSL {
+        rules::scripts::locals::TSL_BOOLEANS
+    } else {
+        rules::scripts::locals::K1_BOOLEANS
+    };
+    (0..slots).contains(&index)
+}
+
+/// What `GetLocalBoolean` reads of local boolean `index`, `set` or not:
+/// both executables' `CSWVarTable::GetLocalBoolean` mask the bit in its
+/// word (`1 << index` masked, the shift's count taken modulo 32 as x86's
+/// `shl` takes it) and `ExecuteCommandGetLocalValue` pushes that as it is,
+/// not 1: true reads 1 only for indices 0, 32, 64 and so on, and a script's
+/// `== TRUE` on another is false, as in the games.
+pub(crate) fn local_boolean_read(index: i32, set: bool) -> i32 {
+    if set {
+        1i32.wrapping_shl(index as u32)
+    } else {
+        0
     }
 }
 

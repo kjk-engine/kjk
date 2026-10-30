@@ -1,0 +1,42 @@
+# Dxun, back from Iziz to the Ebon Hawk (TSL, 403DXN, 401DXN, 003EBO):
+# Mandalore's word at the shuttle (mand_cs2: he travels with the Exile to
+# gather the clans; asked about Clan Ordo and where the other clans are),
+# Atton's word that the Hawk is patched up, Kelborn left in charge in
+# Mandalore's room (he will send word when Onderon changes), the
+# Mandalorian guide back to the landing, and aboard the Ebon Hawk: the
+# first visit to Onderon done, Korriban next.
+# Starts from the return's checkpoint:
+#   kjk playthrough tsl @dxun_return data/routes/tsl/dxun_return.route --god
+# Walkthrough: DSimpson's "Dxun, Finale (For Now)"
+# (context/walkthroughs/tsl/).
+# Left: the assassins' remains about the camp.
+#
+# ASSUMES:
+# - Mandalore (NPC 2) a companion from here on (a_set_return), Mira in
+#   the party.
+# - mand_cs2 starts by itself as the shuttle lands (k_403_enter,
+#   502OND_End_First set) and Atton's part (a_atton_mandcs2,
+#   a_destroy_atton) plays out in it.
+# - Kelborn is spawned in Mandalore's room as npc_kelborn (the
+#   403DXN template's tag, not 402DXN's "kelborn"); his start 1
+#   (c_post_403) asks no reply.
+# - The guide (man_guide, manguide.dlg) takes the party to 401DXN
+#   (a_guide2_camp); the Hawk's own ramp trigger (to_ebonhawk) takes it
+#   aboard. Kelborn's message to return comes later (the finale).
+say Isn't Clan Ordo enough for you? # Mandalore (mand_cs2)
+say Where are the other clans?
+talk
+use npc_kelborn      # Kelborn in charge (start 1)
+talk
+unlock locked_door   # Mandalore's back room ([Security], DC 28; DSimpson:
+use g_tresmilhig004  # he won't care now): its three metal boxes and the bag
+use g_tresmilmid004@1
+use g_tresmilmid004@3
+use g_trescivil002@3
+say =Let's go.       # the Mandalorian guide
+use man_guide
+talk
+module 401dxn
+to to_ebonhawk       # aboard
+module 003ebo
+save onderon_first_done

@@ -36,6 +36,9 @@ const USER: &str = "probe_user";
 /// (`guest_leads_its_acts`).
 const LEADS: &str = "probe_leads";
 const LED: &str = "probe_led";
+/// The area's OnEnter counting who enters (`ENTERED`, a global).
+const ENTERED_SCRIPT: &str = "probe_area_enter";
+const ENTERED: &str = "probe_entered";
 
 /// The checks (`kjk sim probes`; see each part).
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
@@ -50,6 +53,8 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("leader_by_body_seat_0s_only", leader_by_body()));
     checks.push(("leader_keeps_the_view", leader_view()));
     checks.push(("leader_uses_from_its_body", leader_uses()));
+    checks.push(("leader_walks_out", leader_walks_out()));
+    checks.push(("area_entered_by_the_party", entered_by_the_party()));
     checks.push(("guest_leads_its_acts", guest_leads()));
     checks.extend(kept_for_seats());
     match scenario() {
@@ -136,6 +141,8 @@ void SignalEvent(object oObject, event evToRun);
 event EventUserDefined(int nUserDefinedEventNumber);
 // 11
 void SetGlobalNumber(string sIdentifier, int nValue);
+// 12
+int GetGlobalNumber(string sIdentifier);
 "#;
     let call = |routine: u16, args: u8| Op::Action { routine, args };
     let icon = || Op::Const(Const::String(Vec::new()));
@@ -188,10 +195,22 @@ void SetGlobalNumber(string sIdentifier, int nValue);
         .op(Op::Const(Const::String(LED.as_bytes().to_vec())))
         .op(call(11, 2))
         .op(Op::Retn);
+    // `SetGlobalNumber(ENTERED, GetGlobalNumber(ENTERED) + 1)`: the area's
+    // OnEnter (`entered_by_the_party`).
+    let mut entered = script_ncs::probes::Asm::default();
+    entered
+        .op(Op::Const(Const::String(ENTERED.as_bytes().to_vec())))
+        .op(call(12, 1))
+        .op(Op::Const(Const::Int(1)))
+        .op(Op::Add(fmt_odyssey::ncs::Pair::IntInt))
+        .op(Op::Const(Const::String(ENTERED.as_bytes().to_vec())))
+        .op(call(11, 2))
+        .op(Op::Retn);
     crate::probe::library(
         CATALOG,
         [
             (PCS, asm.build()),
+            (ENTERED_SCRIPT, entered.build()),
             (LEADS, leads.build()),
             (AI, moves.build()),
             (STORY, moves.build()),
@@ -499,6 +518,67 @@ fn leader_uses() -> Result<String, String> {
             "leading {:?}; the door {gate:?}; the chest a step after opening {held:?}",
             after.leading
         ),
+    )
+}
+
+/// A companion leading walks the party out: the ground's door, open and
+/// leading out, its doorway entered by the leader while the player's own
+/// character stands 4 m off, asks the transition, as TSL's area
+/// transitions answer the leader the player controls (Bao-Dur, leading
+/// after 233TEL's landing pad, walks the party into the old military
+/// base); the doorway was once checked against the player's own body only.
+fn leader_walks_out() -> Result<String, String> {
+    const GATE: u32 = 0;
+    let (level, numbers) = ground()?;
+    let mut data = (**level.module().ok_or("the ground has no module")?).clone();
+    if let Some(Placement::Own(gate)) = data.placements.get_mut(GATE as usize) {
+        gate.state = 1;
+        gate.link = Some(crate::module::Link {
+            module: "elsewhere".into(),
+            tag: String::new(),
+            destination: None,
+        });
+    }
+    let (mut world, _, [_, b]) =
+        party_on((level.with_module(data), numbers), Guests::Companions, 1)?;
+    scripts_of(&mut world).state.party.leader = Some(1);
+    let own = world.snapshot().own(Seat(0)).map(|entity| entity.id);
+    let own = own.ok_or("seat 0 has no own character")?;
+    for (id, [x, y]) in [(b, [0.0, 0.0]), (own, [-4.0, 0.0])] {
+        let at = crate::determinism::ground_point(x, y, 0.0);
+        poke(&mut world, id, |_, ps| {
+            ps.origin[0] = at[0] / collision::UNIT;
+            ps.origin[1] = at[1] / collision::UNIT;
+        });
+    }
+    let went = (0..4)
+        .map(|_| run(&mut world, &[(0, 0)]))
+        .find_map(|snapshot| snapshot.transition);
+    check(
+        went.as_ref().is_some_and(|t| t.module == "elsewhere"),
+        format!("the transition {went:?}"),
+    )
+}
+
+/// The area's OnEnter runs for the player and for each companion the
+/// party brings in: arriving in a module whose area counts its entries,
+/// the player and the two companions make three, as the executables raise
+/// the area's entered event for every creature added to it (TSL's
+/// `k_232_enter` gives the Exile back when the one entering is the leader
+/// `GetFirstPC` names, Bao-Dur after the landing pad).
+fn entered_by_the_party() -> Result<String, String> {
+    let (mut world, ..) = party_world(Guests::Companions, 1)?;
+    let ground = exit_ground()?;
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.area_scripts = vec![("OnEnter".into(), ENTERED_SCRIPT.into())];
+    world
+        .install(ground.with_module(data), None)
+        .map_err(|error| error.to_string())?;
+    run(&mut world, &[(0, 0)]);
+    let count = crate::script::global(&scripts_of(&mut world).state.numbers, ENTERED).copied();
+    check(
+        count == Some(3),
+        format!("the area's OnEnter ran {count:?} times"),
     )
 }
 

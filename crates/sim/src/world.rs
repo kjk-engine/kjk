@@ -889,7 +889,8 @@ impl SimWorld {
     /// `uses::may_use`): an object that takes the verb (a creature living),
     /// within the verb's reach across the floor and `uses::HEIGHT_REACH_M`
     /// in height, its eye in sight of the object's middle (`uses::MIDDLE_M`
-    /// over where it stands) past nothing but the object, doors as they
+    /// over where it stands; a placeable's nearest action point,
+    /// `uses::Target::aimed`) past nothing but the object, doors as they
     /// stand. For a driver choosing where to stand to use something.
     pub fn may_use(&mut self, user: &MotionState, index: u32, verb: Verb) -> bool {
         let mut objects = self.world.query::<(&Id, &Object)>();
@@ -901,9 +902,10 @@ impl SimWorld {
         else {
             return false;
         };
-        let Some(placed) = object.facts.as_ref().map(|facts| facts.position) else {
+        let Some(facts) = object.facts.as_deref() else {
             return false;
         };
+        let placed = facts.position;
         let body = bodies
             .iter(world)
             .find(|(of, ..)| of.0 == id.0)
@@ -911,7 +913,11 @@ impl SimWorld {
         if !uses::applies(object, verb, body.is_some_and(|(_, alive)| alive)) {
             return false;
         }
-        let target = uses::Target::new(index, body.map(|(at, _)| at), placed);
+        let target = uses::Target::new(index, body.map(|(at, _)| at), placed).aimed(
+            object.kind,
+            facts,
+            scale(user.origin, UNIT),
+        );
         let level = &world.resource::<Static>().0;
         let states = level.states(
             objects

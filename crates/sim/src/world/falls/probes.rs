@@ -28,6 +28,7 @@ const CASES: &[(&str, Case)] = &[
     ("downed_keeps_its_bytes", kept),
     ("party_member_downed", downed),
     ("death_on_the_downed", death),
+    ("raised_from_death", raised_from_death),
     ("fall_is_no_death", fall_is_no_death),
     ("get_up_at_combat_end", get_up),
     ("whole_party_down", whole_party_down),
@@ -386,6 +387,40 @@ fn death() -> Result<String, String> {
         }
     }
     Ok("EffectDeath kills a companion standing or downed; a hit does not kill the downed".into())
+}
+
+/// EffectResurrection raises the dead, a companion killed by EffectDeath
+/// and a hostile creature killed by a blow: standing again, its hit points
+/// `RISE_HP`, no longer lying (TSL's academy raises Bao-Dur, killed where
+/// he lies in his cell, as the cells open).
+fn raised_from_death() -> Result<String, String> {
+    for who in [Who::Ally, Who::Foe] {
+        let mut run = Run::new(2, false)?;
+        run.step(&[]);
+        match who {
+            Who::Ally => run.effect(who, Effect::Death),
+            _ => run.hit(who, u16::MAX),
+        }
+        run.step(&[]);
+        let dead = run.life(who).0;
+        run.effect(who, Effect::Resurrection);
+        run.step(&[]);
+        let (life, hp) = run.life(who);
+        let lying = run
+            .last
+            .get(run.id(who))
+            .and_then(|entity| entity.player)
+            .is_some_and(|ps| ps.flags & crate::motion::motion_flags::DEAD != 0);
+        if dead != Life::Dead || life != Life::Alive || hp < RISE_HP || lying {
+            return Err(format!(
+                "{who:?}: {dead:?}, then {life:?} at {hp} HP/100, lying {lying}"
+            ));
+        }
+    }
+    Ok(
+        "a companion killed by EffectDeath and a creature killed by a blow stand again, RISE_HP"
+            .into(),
+    )
 }
 
 /// Going down raises no death (no killer recorded); dying does.

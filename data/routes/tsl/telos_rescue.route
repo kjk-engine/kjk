@@ -1,0 +1,46 @@
+# Telos, the Ithorians saved (TSL, 204TEL, 203TEL, 201TEL): Chodo's Mission
+# 4: on the way to the docks Moza calls for help, Czerka's mercenaries in
+# the compound fought room by room, Moza in the vivarium (his key; no
+# reward asked: LSP), Chodo freed in his office; then Bay Two's Ithorian
+# shuttle to the planet. Starts from the Czerka files' checkpoint:
+#   kjk playthrough tsl @telos_rescue data/routes/tsl/telos_rescue.route --god
+# Walkthrough: DSimpson's "Working for the Ithorians", Mission #4
+# (context/walkthroughs/tsl/).
+exit to_203TEL       # out towards the docks
+module 203tel
+to tr_moza_czerka@2  # Moza calls: Czerka's mercenaries in the compound
+talk
+save telos_moza_call
+exit to_204TEL       # back to the compound: the mercenaries and droids
+module 204tel        # fought room by room
+fight 30
+use Door_Ith_01
+fight 30
+use 203_Moza         # Moza in the vivarium: his key to Chodo's office
+talk
+save telos_chodo_office
+to -26.5,-25.0       # off Moza's smuggled plant (his talk can leave the player
+                     # standing in its footprint, an island of the nav mesh)
+to Chodo_M_Return    # Chodo's office, opened with Moza's key: the
+talk                 # mercenaries holding him take us lightly, fought
+fight 30
+talk                 # Chodo and Moza; his thanks (no reward asked: LSP)
+save telos_shuttle
+say Transit to another module # the terminal's transit to the docks, Bay
+say Dock Module 126  # Two's Ithorian: Chodo's shuttle to RZ-0031
+use info_term
+talk
+module 201tel
+say I'm to take an orbital shuttle
+use 201_ith_door
+talk
+say Open access hallway door # the airlock's console still reads the bay as
+use TermAirlock2     # open (we left it by B-4D4's walk out): pressed once
+talk                 # to set it right, then the bay opened, and aboard
+say Open Bay 2 door
+use TermAirlock2
+talk
+to tr_shuttle_1      # the Ithorian shuttle: Grenn and Admiral Onasi on
+talk                 # the comm before we leave (the Republic waits and sees)
+module 231tel        # down to the Restoration Zone (shot down: Bao-Dur)
+save telos_planet

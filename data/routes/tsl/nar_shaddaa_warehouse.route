@@ -1,0 +1,47 @@
+# Nar Shaddaa, Vogga's droid warehouse and away to Goto's yacht (TSL,
+# 303NAR, 301NAR, 351NAR): played as T3-M4, C6-E3's complaint, C7-E3's
+# assignment, C6-E3's offer and C7-E3 tricked into his own deactivation,
+# the inner warehouse opened, the door's rotation puzzle (center and left
+# counter-clockwise, right clockwise), B-4R5's transponder codes and blank
+# card, the three HK-50s fought, T3 out; Atton, Mira joining, Tienn Tubb
+# changing the Ebon Hawk's ID signature to one of Vogga's freighters, Mira
+# and T3-M4 sent aboard (DSimpson: Mira for the mines, T3 for the
+# computers), and the Hawk taken by Goto's yacht: Goto's talk with the
+# Exile.
+# Starts from T3-M4's checkpoint:
+#   kjk playthrough tsl @nar_shaddaa_t3 data/routes/tsl/nar_shaddaa_warehouse.route --god
+# Walkthrough: DSimpson's "Vogga's Warehouse" (context/walkthroughs/tsl/).
+use C6E3
+talk
+say [Persuade] Dwoooooo
+say Dwoooooo.
+use C7E3             # assigned to C6-E3
+talk
+use C6E3             # his offer
+talk
+use C7E3             # deactivated
+talk
+fight 20
+talk                 # C6-E3 opens the inner warehouse
+say Rotate center block counter-clockwise.
+say Rotate left-most block counter-clockwise.
+say Rotate right-most block clockwise.
+use Door_Controls
+talk
+use B4R5             # the codes and the blank card
+talk
+to tr_hk50attack     # the HK-50s
+talk
+fight 30
+use HK50@1           # their remains searched: one carries the chassis
+use HK50@2           # HK-47 needs (a_hk50cut gives it to one at random)
+use HK50@3
+use HK50@4
+to tr_t3m4exit
+talk                 # Mira joins; Tienn Tubb
+say Mira.            # sent aboard
+say T3-M4.
+talk
+module 351nar        # Goto's yacht
+talk
+save nar_shaddaa_yacht

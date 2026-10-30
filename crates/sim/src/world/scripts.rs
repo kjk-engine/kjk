@@ -319,8 +319,28 @@ fn kill_xp(view: &View, library: &script::Library, state: &script::State, dead: 
         {
             return None;
         }
-        let challenge = view.facts(dead)?.challenge;
-        Some(library.experience().kill(player.level, challenge))
+        let facts = view.facts(dead)?;
+        let experience = library.experience();
+        if crate::combat::passive::Game::named(&view.module.game)
+            != crate::combat::passive::Game::Tsl
+        {
+            return Some(experience.kill(player.level, facts.challenge));
+        }
+        // TSL's: by the level the PC's XP reaches; an autobalanced
+        // creature rated by its `MultiplierSet`'s `CRMod` past the PC's
+        // level, which the executable keeps as it spawned
+        // (`PCLevelAtSpawn`: `G_PC_LEVEL`) and kjk reads as it dies
+        // [verify: a level taken in between].
+        let xp = state.xp(crate::inventory::PARTY);
+        let potential = library.classes().potential_level(player.level, xp);
+        let autobalanced = (facts.multiplier_set != 0).then(|| {
+            let pc_level = script::global(&state.numbers, script::xp::PC_LEVEL)
+                .and_then(|level| u8::try_from(*level).ok())
+                .unwrap_or(player.level);
+            (facts.multiplier_set, pc_level)
+        });
+        let members = state.party.members.len() + 1;
+        Some(experience.tsl_kill(potential, facts.challenge, autobalanced, members))
     };
     worth().unwrap_or(0)
 }
@@ -1217,6 +1237,7 @@ pub(super) fn scripts(
             raise(&view, state, id, Hook::Death, None);
             let xp = kill_xp(&view, library, state, id);
             state.reward(xp, &mut scripts.notices);
+            script::xp::tell_pc_level(library, &view, state);
             if xp > 0 {
                 progressed.0.kills.push(crate::snapshot::Kill {
                     dead: id.0,
@@ -1288,6 +1309,7 @@ pub(super) fn scripts(
         || !state.actions.is_empty()
         || state.delayed.iter().any(|d| d.due_ms <= now)
         || conversing
+        || state.summary_owed
         || !talk.released.is_empty()
         || !talk.barks.is_empty()
         || script::levelling::due(library, state, &view);
@@ -1753,7 +1775,19 @@ impl SimWorld {
         state.watch = Watch::default();
         // Blows on their way and a screen still open are the left module's.
         state.strikes.clear();
+        // The bodies kept after death are the left module's (their ids are
+        // its own: kept on, they named creatures of the next one).
+        state.kept.clear();
         state.party.selection = None;
+        // The player restrict mode is the module's: TSL's asteroid walk
+        // sets it on entering (a_104per_enter, every time) and in the
+        // airlock before it (a_airlockout), and no script of the games
+        // ever turns it off. Carried on, it held for the rest of the game,
+        // and every hostile's AI that asks it (k_ai_master's perception
+        // and heartbeat) stood idle beside the player: Czerka's mercenaries
+        // in the Ithorian compound, and the companions' talk
+        // (k_hen_*dlg) refused.
+        state.party.restrict = false;
         // The left module's conversations end without their scripts
         // (those belong to the module left behind).
         state.talk.conversations.clear();
@@ -1825,9 +1859,36 @@ impl SimWorld {
                 }
             };
             queue(Hook::ModuleLoad, MODULE, None);
-            for (_, player) in players {
-                queue(Hook::Enter, MODULE, Some(player));
-                queue(Hook::Enter, AREA, Some(player));
+            for (_, player) in &players {
+                queue(Hook::Enter, MODULE, Some(*player));
+                queue(Hook::Enter, AREA, Some(*player));
+            }
+            // The area's OnEnter hears each companion the party brings in
+            // too, in the party's order, as the executables raise the
+            // area's entered event for every creature added to it (TSL's
+            // CSWSArea::AddObjectToArea signals script event 12 for a
+            // creature, a player's or not; the module's OnClientEnter is a
+            // client's alone). So a script asking whether the one entering
+            // is GetFirstPC finds the leader among them while a companion
+            // leads (232TEL's k_232_enter gives the Exile back after
+            // Bao-Dur led the party in). The order [verify in the exe].
+            let bodies: BTreeSet<u32> = self
+                .world
+                .query::<&Id>()
+                .iter(&self.world)
+                .map(|id| id.0.0)
+                .collect();
+            let companions: Vec<ObjectId> = state
+                .party
+                .members
+                .iter()
+                .filter_map(|npc| state.party.available.get(npc)?.object)
+                .filter(|object| bodies.contains(object))
+                .map(ObjectId)
+                .filter(|object| !players.iter().any(|(_, player)| player == object))
+                .collect();
+            for companion in companions {
+                queue(Hook::Enter, AREA, Some(companion));
             }
         }
         self.world.insert_resource(carried);

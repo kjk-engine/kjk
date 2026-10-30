@@ -1,0 +1,212 @@
+# Nar Shaddaa, the landing pad, the docks and the Refugee Sector (TSL,
+# 003EBO, 352NAR, 301NAR, 303NAR, 302NAR): Visas Marr's ambush aboard the
+# Ebon Hawk, fought and spared, and her joining; the galaxy map to Nar Shaddaa,
+# Atton's landing talk, Goto's yacht's scene (352NAR), ashore; Quello told
+# his trash heap holds the Hawk up (no lie, no DSP); the first refugee
+# saved from the Exchange thugs and told the Exile was glad to help (LSP),
+# five credits for the second and Kreia's lesson considered (+INF), Rutum
+# taken under the Exile's protection (the thugs fought), Kreia's touch of
+# the true Nar Shaddaa, Geeda kept against Oondar (Oondar told to give the
+# Exchange the Exile's description, the Exchange's notice +1; Geeda's trade
+# routes: Dantooine's settled); the docks: Fassa's pylons (pylon 2
+# powered, the freighters ordered Silver Zephyr, Alakandor, Toorna's
+# Profits: the Exchange's notice +1) and Lootra's lost wife taken on; the
+# Refugee Sector: the toll's thugs intimidated and fought (+1), Aaida sent
+# to Lootra (LSP), the Serroco fought to their leader (+1). Ratrin's claim
+# on the Ebon Hawk, met on the way, is granted (LSP).
+# Starts from Dantooine's last checkpoint:
+#   kjk playthrough tsl @dantooine_done data/routes/tsl/nar_shaddaa_landing.route --god
+# Walkthrough: DSimpson's "Nar Shaddaa Main Area", "Docks Area" and
+# "Refugee Sector" (context/walkthroughs/tsl/).
+# Left: the swoop droid, the Exchange deal, the droid IT-31, the pazaak
+# den, Vogga's dance (Vogga's door is opened by it; his fuel and his help
+# against Goto go with it), Geriel, Nadaa, Saquesh, the airspeeder.
+talk                 # Visas Marr's ambush aboard (the Telos movies' arrival)
+fight 30             # fought, spared ("I will not kill you", "I do not kill
+talk                 # a helpless opponent"), Atton in the medbay, the
+until npc 9=1        # Handmaiden's warning: Visas joined
+equip saber          # the lightsaber from Visas's part in hand (a_give_quest_ls
+                     # picks it by the Exile's level: a double-bladed one now)
+party 0,6            # ashore with Atton and Kreia (not Visas)
+say [Repair] Initialize the control cluster # HK-47's control cluster,
+say Step away.       # bought from Akkere on Dantooine, fitted
+use DrdParts
+talk
+use Galaxymap
+travel 6             # Nar Shaddaa (planetary.2da)
+say Then let's take the Ebon Hawk in for a landing
+talk                 # Atton aboard
+module 352nar        # Goto's yacht: the bounty's scene
+talk
+module 301nar
+talk                 # Atton's arrival talk
+say Junk? You're lucky my ship's gracing # Quello
+talk
+say Of course. Here, take five credits # the second refugee, met on the way
+say I... will consider what you have said # and Kreia's lesson (+INF)
+to 301RefEnc         # the first refugee
+say A bunch of corpses
+talk
+fight
+say I was glad to help # (LSP)
+use Refugee2
+talk
+to 301Mug            # Rutum
+say Leave this man alone
+say I will not allow you to harm him
+talk
+fight
+say Let them come
+use Rutum
+talk
+to 301KreiaTouch     # the true Nar Shaddaa
+talk
+say I don't see any customers waiting # Oondar's war on Geeda
+say Calm down, I just said
+say maybe I could talk to her, reach a compromise
+say A discount off your weapons and armor? All right, done
+use Oondar
+talk
+say Oondar across the way has a problem with you
+say That is acceptable
+use Geeda
+talk
+say Geeda offered me a discount, too
+say Then you'll have to do better
+say I'm not scared of the Exchange
+say Go tell the Exchange - and give them my description # the Exchange +1
+use Oondar
+talk
+say Oondar countered your offer with a threat from the Exchange
+say I'll stand with you
+use Geeda            # and the trade routes
+talk
+say I'll be going now # Tienn Tubb at his garage, then TT-32 on the droid
+use Duros            # Kodin keeps (IT-31): the light way, a new droid
+talk                 # shield for T3 the reward (DSimpson)
+say What happened to him?
+say What would you like me to do?
+say Plans? What plans?
+say They aren't dangerous, are they?
+say New droid shield? Sure I can help you
+say I'll be going now
+to TT32Talk
+talk
+say I'm looking for an astromech droid # Kodin: IT-31 bought for 150
+say How about I buy that droid from you # ([Persuade]), then his parts:
+say [Persuade] 150 credits or nothing # the HK droid's processor
+say Let me see what else you have for sale # (DSimpson: buy it here)
+use Kodin
+talk
+buy hkpart01
+say I negotiated your release # IT-31 sent home ([Repair])
+say You're free to go - see you back at Tienn's garage
+use IT31
+talk
+say Very well. I'll be going now # TT-32: the shield
+use tt32
+talk
+exit TO_303NAR       # the docks (Hanharr before Vogga, a scene)
+module 303nar
+wait 2s
+say How is business these days? # Fassa's pylons
+say Is there anything I can do to help prevent the hijackings?
+say What's wrong with the pylons?
+say I'll try to help.
+say I'll do my best.
+use Fassa
+talk
+say Toggle power to Pylon 2.
+say Log out.
+use ComputerPanel@1  # the pylon power console
+talk
+say Assign freighter priorities.
+say Assign 1st priority to Silver Zephyr.
+say Assign 2nd priority to Alakandor.
+say Assign 3rd priority to Toorna's Profits. # the Exchange +1
+say Log out.
+use ComputerPanel@2  # pylon 2's console
+talk
+use Fassa            # his reward
+talk
+say Sorry, I didn't know anyone was in here. # Lootra, in the flophouse
+say What do you mean?
+say I may be able to get into the Refugee Sector for you.
+say Nothing - I'd just like to help, if I can.
+say Let me go see what I can find out in the Refugee Sector.
+use Lootra
+talk
+exit TO_301NAR
+module 301nar        # (Ratrin's claim on the way: granted, LSP)
+exit TO_302NAR
+module 302nar
+say [Intimidate] If you're threatening me # the toll's thugs
+say No - you wanted a fight # the Exchange +1
+to exchthugs01       # their trigger has the first thug come and talk; if he
+use ExchangeThug302_1 # wanders off before he reaches the Exile, the Exile
+talk                 # goes up to him (excthg1 either way)
+fight 30
+gone ExchangeThug302_1 # both dead: Aaida's way out clear
+gone ExchangeThug302_2
+say I met a man named Lootra at the docks.
+say =The path is clear, the Exchange thugs have been dealt with. # (LSP)
+say I've been away from the Republic for a long time
+say You'd better go - he's waiting for you.
+use Aaida
+talk
+say How do the Serroco and Exchange get along? # Hussef, the refugees'
+say Is there anything I could help you with? # elder: the Serroco and the
+say I'll see what I can do. # Exchange heard of, more room for the camp
+use Hussef           # asked of us
+talk
+say I wanted to speak to your leader. # the Serroco's door guard and their
+say [Persuade] The Exchange has been getting in his way # leader, talked
+to serthugs01        # round, not fought: the refugees left alone
+talk                 # ([Persuade]; the Exchange +1, DSimpson)
+say I don't like how you have been bullying the refugees
+say [Persuade/Intimidate] Stop harassing the refugees
+say I don't care. Just leave the refugees alone
+say Very good. Thanks.
+to SerrocoLeader
+talk
+say How did you become ill? # Geriel, the sick man by the entrance
+say I'll be going now.
+use Geriel
+talk
+say Spacer? No, I'm  # Kahranna, swindled of her passage, and Odis, a
+say Can I help?      # pilot without a ship: both to be found work
+say I'll try to find someone for you
+use Kahranna
+talk
+say What makes you think I do?
+say Why aren't you still flying?
+say If I hear of anyone looking for a pilot
+use Odis
+talk
+say What do you mean? # Nadaa: her daughter held for her debt
+say Can I help you get her back?
+say I could pay your debt for you
+use Nadaa
+talk
+say One of the refugees has a terrible disease # Saquesh, the Exchange's
+say [Persuade] If you don't relax your hold # overseer: his hold on the
+say All right. I'll take care of him # camp relaxed over Geriel
+use Overseer         # ([Persuade], the Exchange +1)
+talk
+say I'd like to talk with you about Adana # then Adana's debt settled
+say I would like to settle the debt # ([Persuade] for 600 credits or 700;
+say [Persuade] With her attitude # LSP, the Exchange +1)
+say Here are your
+use Overseer
+talk
+say [Treat Injury]   # Geriel treated ([Treat Injury], LSP)
+say I will accept the risk
+say You're welcome.
+say It is the way of the Jedi to help others
+use Geriel
+talk
+use Nadaa            # Nadaa's thanks, Adana free
+talk
+use Hussef           # Hussef's reward for the camp's room
+talk
+save nar_shaddaa_refugees

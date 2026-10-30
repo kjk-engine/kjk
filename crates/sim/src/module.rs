@@ -180,6 +180,12 @@ pub struct ObjectData {
     /// its own frame, in pairs (what one made in play collides as,
     /// `world::move_actors`).
     pub geometry: Vec<[f32; 3]>,
+    /// A placeable's action points: its walkmesh's two use positions
+    /// (`<model>.pwk`), in its own frame (metres), where a character stands
+    /// to use it; none for one whose first is the origin, as TSL's
+    /// `CSWSPlaceable::GetNearestActionPoint` then takes the placeable's
+    /// own position (`nearest_use_point`).
+    pub use_points: Vec<[f32; 3]>,
     /// Doors: whether a player can open it.
     pub opens: Opens,
     /// A door's state at load (`AnimationState`: 0 closed, 1 and 2 open);
@@ -214,6 +220,9 @@ pub struct ObjectData {
     /// A creature's `ChallengeRating`: the XP its death gives the party
     /// (`script::xp`); 0 for other kinds.
     pub challenge: f32,
+    /// A TSL creature's `MultiplierSet`: its `autobalance.2da` row (0 none),
+    /// which its death's XP rates by (`CRMod`) instead of `challenge`.
+    pub multiplier_set: u8,
     /// Its name as the game shows it (`GetName`): a creature's first and
     /// last names, another's localized name; empty for none.
     pub name: String,
@@ -392,6 +401,29 @@ impl ObjectData {
     }
 
     /// Its facts in one fixed encoding, for a digest.
+    /// The action point (`use_points`) nearest `from` (metres), in the
+    /// world: as TSL's `CSWSPlaceable::GetNearestActionPoint` picks it for
+    /// a use (`CSWSCreature::GetUseRange`), the second only when it is not
+    /// the origin; `None` without any (the placeable's position is used).
+    pub fn nearest_use_point(&self, from: [f32; 3]) -> Option<[f32; 3]> {
+        // `yaw` is in degrees, turned as the collision's placements are.
+        let (sin, cos) = self.yaw.to_radians().sin_cos();
+        let world = |p: &[f32; 3]| {
+            [
+                self.position[0] + p[0] * cos - p[1] * sin,
+                self.position[1] + p[0] * sin + p[1] * cos,
+                self.position[2] + p[2],
+            ]
+        };
+        let far = |p: &[f32; 3]| {
+            (p[0] - from[0]).powi(2) + (p[1] - from[1]).powi(2) + (p[2] - from[2]).powi(2)
+        };
+        self.use_points
+            .iter()
+            .map(world)
+            .min_by(|a, b| far(a).total_cmp(&far(b)))
+    }
+
     pub(crate) fn digest_into(&self, out: &mut Writer) {
         out.u8(self.kind.index());
         out.string(&self.tag);
@@ -412,6 +444,15 @@ impl ObjectData {
         out.u32(self.geometry.len() as u32);
         for point in &self.geometry {
             for value in point {
+                out.f32(*value);
+            }
+        }
+        // Only a placeable with action points names them, so the rest keep
+        // their digests.
+        if !self.use_points.is_empty() {
+            out.string("use points");
+            out.u32(self.use_points.len() as u32);
+            for value in self.use_points.iter().flatten() {
                 out.f32(*value);
             }
         }
@@ -470,6 +511,10 @@ impl ObjectData {
         if self.challenge != 0.0 {
             out.string("challenge");
             out.f32(self.challenge);
+        }
+        if self.multiplier_set != 0 {
+            out.string("balance");
+            out.u8(self.multiplier_set);
         }
         if !self.inventory.is_empty() {
             out.string("items");
@@ -594,6 +639,7 @@ impl ObjectData {
             yaw,
             link: None,
             geometry: Vec::new(),
+            use_points: Vec::new(),
             opens: Opens::Never,
             state: 0,
             ways: Ways::One,
@@ -607,6 +653,7 @@ impl ObjectData {
             personal_space: 0.0,
             strike: None,
             challenge: 0.0,
+            multiplier_set: 0,
             name: String::new(),
             inventory: Vec::new(),
             container: false,

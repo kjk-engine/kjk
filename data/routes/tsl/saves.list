@@ -20,6 +20,55 @@ peragus_escape        Peragus: back from the Harbinger
 peragus_hangar25      Peragus: Hangar 25
 peragus_escaped       Ebon Hawk: escaped from Peragus
 telos_arrival         Telos: Citadel Station
+telos_exchange        Telos: the Bumani Exchange
+telos_planet          Telos: the Restoration Zone
+telos_military_base   Telos: the old military base
+telos_polar           Telos: the polar plateau
+telos_academy         Telos: Atris's academy
+telos_done            Ebon Hawk: leaving Telos
+dantooine_plains      Dantooine: the Khoonda Plains
+dantooine_rewards     Dantooine: back from the crystal cave
+dantooine_camp        Dantooine: back from the Enclave sublevel
+dantooine_attack      Dantooine: before the mercenaries' attack
+dantooine_done        Ebon Hawk: leaving Dantooine
+nar_shaddaa_refugees  Nar Shaddaa: the Refugee Sector
+nar_shaddaa_visquis   Nar Shaddaa: Visquis's call
+nar_shaddaa_flophouse Nar Shaddaa: the flophouse, after Mira's trap
+nar_shaddaa_t3        Nar Shaddaa: T3-M4 at Vogga's warehouse
+nar_shaddaa_yacht     Nar Shaddaa: Goto's yacht
+nar_shaddaa_exile     Nar Shaddaa: the Exile freed on Goto's yacht
+nar_shaddaa_bridge    Nar Shaddaa: Goto's yacht's bridge
+nar_shaddaa_zez       Nar Shaddaa: Zez-Kai Ell's safe house
+nar_shaddaa_done      Ebon Hawk: leaving Nar Shaddaa
+dxun_jungle          Dxun: the jungle, from the landing
+dxun_tests           Dxun: Mandalore's camp, the tests taken
+dxun_tests_done      Dxun: Mandalore's camp, four tests done
+dxun_champion        Dxun: Mandalore's camp, the battle circle's champion
+onderon_spaceport    Onderon: the Iziz spaceport
+onderon_alibi        Onderon: Riiken asked about Dhagon
+onderon_dhagon       Onderon: Dhagon Ghent freed
+dxun_return          Dxun: back from Iziz
+onderon_first_done   Ebon Hawk: leaving Dxun
+korriban_cave         Korriban: the Shyrack Cave
+korriban_tomb         Korriban: the secret tomb, alone
+korriban_tomb_done    Ebon Hawk: back from the secret tomb
+korriban_academy      Korriban: the Sith Academy
+korriban_vash         Korriban: Master Vash found
+korriban_done         Ebon Hawk: leaving Korriban
+dxun_sith_tomb        Dxun: Freedon Nadd's tomb (the strike squad)
+onderon_civil_war     Onderon: the Basilisk in the Merchant Quarter
+onderon_royal_palace  Onderon: the Royal Palace
+onderon_won           Ebon Hawk: leaving Onderon
+telos_atris_again     Telos: Atris's academy again
+telos_citadel_siege   Telos: Citadel Station under the Sith
+finale_done           Telos: Citadel Station, ready for the Ravager
+ravager_bridge        The Ravager: the bridge
+ravager_escape        The Ravager: Nihilus dead, the last core owed
+malachor_surface      Malachor V: the surface, the Exile alone
+malachor_depths       Malachor V: the depths
+malachor_remote       Malachor V: Bao-Dur's remote
+malachor_academy      Malachor V: the Trayus Academy
+malachor_core         Malachor V: the Trayus Core
 cold_harbinger        The Harbinger (cold)
 cold_telos            Telos: Citadel Station (cold)
 cold_telos_polar      Telos: the polar plateau (cold)

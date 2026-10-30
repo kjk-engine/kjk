@@ -270,15 +270,21 @@ pub(super) fn interact(
             if held || keyed == Some(index) {
                 continue;
             }
-            let Some(placed) = objects[at].1.facts.as_ref().map(|facts| facts.position) else {
+            let Some(facts) = objects[at].1.facts.clone() else {
                 continue;
             };
+            let placed = facts.position;
             let creature = standing.iter().find(|(id, ..)| *id == objects[at].0.0);
             if !uses::applies(&objects[at].1, verb, creature.is_some_and(|c| c.3)) {
                 continue;
             }
             let creature = creature.map(|(_, origin, ..)| scale(*origin, UNIT));
-            let target = uses::Target::new(index, creature, placed);
+            let kind = objects[at].1.kind;
+            let target = uses::Target::new(index, creature, placed).aimed(
+                kind,
+                &facts,
+                scale(user.origin, UNIT),
+            );
             let states = states.get_or_insert_with(|| {
                 level.0.states(
                     objects
@@ -286,7 +292,6 @@ pub(super) fn interact(
                         .map(|(_, object)| (object.index, &object.state)),
                 )
             });
-            let kind = objects[at].1.kind;
             if unclickable(kind, verb)
                 || fighting.is_some_and(|fighting| !fighting.0.alive())
                 || reviving.0 & party::bit(seat) != 0
@@ -352,7 +357,10 @@ pub(super) fn interact(
         let standing = fighting.is_none_or(|fighting| fighting.0.alive());
         // An open door that leads out stops nothing, so walking into its
         // doorway is running into it: entering it asks, once, as entering
-        // a trigger does; the seat is its tenant until it steps out.
+        // a trigger does; the seat is its tenant until it steps out. The
+        // first seat enters with the companion it leads while one leads
+        // (TSL's area transitions answer the party leader the player
+        // controls: Bao-Dur leaving 233TEL after the pad's scene).
         for (id, object) in objects.iter_mut() {
             if object.kind != ObjectKind::Door {
                 continue;
@@ -365,7 +373,7 @@ pub(super) fn interact(
             };
             let inside = standing
                 && object.state.state != 0
-                && in_doorway(&level.0, object.index, ps.origin, ps.maxs_z);
+                && in_doorway(&level.0, object.index, user.origin, user.maxs_z);
             let tenant = object.state.tenants & bit != 0;
             if inside && !tenant {
                 object.state.tenants |= bit;
@@ -375,7 +383,7 @@ pub(super) fn interact(
             }
         }
         // Triggers.
-        let body = scale(ps.origin, UNIT);
+        let body = scale(user.origin, UNIT);
         for (id, object) in objects.iter_mut() {
             if object.kind != ObjectKind::Trigger {
                 continue;

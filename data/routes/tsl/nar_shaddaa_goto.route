@@ -1,0 +1,127 @@
+# Nar Shaddaa, Goto's yacht (TSL, 351NAR, 007EBO, 303NAR): Goto's talk to
+# its end (the proximity alarm); Mira and T3-M4 on the yacht: the utility
+# droid's Shutdown program, the Security Console's Count entered (2:
+# DSimpson's) and its Overload downloaded, the floating mines and the
+# droids beyond, the Command Console (the programs uploaded, the
+# containment cells unlocked with the codes the droid by it carried, and
+# shut down), T3-M4 through the cells' locked door to the damaged droid's
+# turret codes, the turrets shut down (they turn on the droids), the
+# audience chamber fought through and the Exile freed; the Auxiliary
+# Console's power codes (the containment cells and the docking hatch seal
+# to the secondary supply: the cloaking device is there already), the hub's
+# Command Console's power system unlocked, Mira at the head for Goto's
+# mines and the command centre's minefield, the mine codes from the droid
+# that carried them, T3-M4 through the bridge's locked door, the Bridge
+# Command Console (the minefield shut down, then the power: the cloaking
+# device fails), the bounty hunters fought back to the Ebon Hawk; Mira's
+# word of Zez-Kai Ell, G0-T0 joining aboard and back to Nar Shaddaa's safe
+# house.
+# Starts from Goto's yacht's checkpoint:
+#   kjk playthrough tsl @nar_shaddaa_yacht data/routes/tsl/nar_shaddaa_goto.route --god
+# Walkthrough: DSimpson's "Goto's Yacht" (context/walkthroughs/tsl/).
+# Left: the far rooms' plasteel containers, the sentry droids' scavenging
+# (in the ship's far hold), the Reset program and the lab station.
+talk                 # Goto's talk, to the proximity alarm
+use g0t0kevin        # the utility droid: Shutdown
+talk
+use MilLowPlstcCylin@1 # the container by it
+say Attempt to enter the Count.
+say =Enter 2.
+say Download program
+say Upgrade droid combat algorithms # T3-M4's own combat upgrade (DEX)
+say Log out.
+use gotoarmory@2     # the Security Console
+talk
+fight 30             # the floating mines
+to Door@1
+fight 30             # the droids beyond
+to g0t0droid@32      # the droid holding the containment cells' codes
+fight 20             # (out of the first fight's reach at T3's level)
+use g0t0droid@32     # its remains: the codes
+say Program Library.
+say Upload programs.
+say Return to main menu.
+say Unlock Restricted System.
+say Unlock Containment Cell System.
+say Return to main menu.
+say Systems Control.
+say =Access Containment Cells.
+say Run program: Shut down.
+say Log out.
+use M478Console@4    # the Command Console
+talk
+leader 8             # T3-M4 picks the cells' door (DC 28)
+unlock Door@15
+use g0t0droid@28     # the damaged droid in the second cell: the turret codes
+talk
+say Unlock Restricted System.
+say Unlock Turret System.
+say Return to main menu.
+say Systems Control.
+say =Access Turret Defense.
+say =Run program: Shut Down.
+say Log out.
+use M478Console@4    # the turrets shut down: they target everything
+talk
+unlock Door@14       # on towards the audience chamber
+fight 15             # the guard droids by it (not the ship's far rooms)
+leader 8             # T3-M4 at the T section's security door
+unlock Door@13
+leader player
+fight 15             # the audience chamber's turrets
+to wp_pc_rescue2     # the Exile freed
+fight 15
+save nar_shaddaa_exile
+say Acquire Power Distribution Access Code.
+say Access Primary Power Supply System.
+say Switch containment cells to secondary system.
+say Switch cloaking device to secondary system.
+say Switch docking hatch
+say Return to main menu.
+say Log out.
+use gotoarmory@1     # the Auxiliary Console
+talk
+leader 8             # T3-M4 at the audience chamber's door
+unlock Door@13
+leader player
+say Unlock Restricted System.
+say Unlock Power Distribution System
+say Log out.
+use M478Console@2    # the power system unlocked
+talk
+fight 30
+leader 7             # Mira at the head: Goto's mines do not see her
+to 351_Mine_Dlg      # Goto activates the mines
+talk
+leader player        # the Exile leads the fight: the Sentinel's sixth
+fight 30             # level's Force Immunity (stun) holds against the
+                     # sentry droid's stun ray, which keeps Mira stunned
+use g0t0droid@27     # the mine codes
+leader 7
+to 351_Hub_Dlg       # the command centre
+talk
+fight 30             # the droids behind the minefield
+leader 8             # T3-M4 at the bridge's door
+unlock Door@10
+leader 7
+fight 30
+say Unlock Restricted System.
+say Unlock Minefield System.
+say Return to main menu.
+say Systems Control.
+say =Access Minefield.
+say =Run program: Shut Down.
+say Return to Systems Control.
+say =Access Power Distribution.
+say =Run program: Shut down.
+say Log out.
+use ComputerPanel@1  # the Bridge Command Console
+talk
+save nar_shaddaa_bridge
+leader player
+exit TO_003EBO       # the bounty hunters fought back to the Ebon Hawk
+module 007ebo
+talk                 # Mira's word of Zez-Kai Ell; G0-T0
+talk
+module 303nar        # the safe house
+save nar_shaddaa_zez
