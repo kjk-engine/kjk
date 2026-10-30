@@ -937,6 +937,11 @@ impl SimWorld {
         &self.world.resource::<Static>().0
     }
 
+    /// The modules left behind, as they were left (`Snapshot::stash`).
+    pub fn stash(&self) -> &Stash {
+        &self.world.resource::<Module>().stash
+    }
+
     fn advance(&mut self, tick: u64, input: &TickInput, msec: u32, reason: StepReason) {
         {
             let mut clock = self.world.resource_mut::<Clock>();
