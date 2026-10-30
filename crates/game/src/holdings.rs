@@ -20,6 +20,7 @@ use bevy::prelude::*;
 use sim::SimId;
 use sim::combat::sheet::Sheet;
 
+use crate::armory::Rearm;
 use crate::weapons::{Armed, Hands, Hide, Owner, Place, Wielded, place};
 
 /// Weapons never held: despawned, their blades' indices returned to retire
@@ -397,6 +398,39 @@ pub fn probes() -> Vec<Check> {
             let detail = format!(
                 "the last weapon armed held, the others despawned; retired blades {retired:?}"
             );
+            (ok, detail)
+        }),
+    );
+
+    // A seat armed again while it plays a companion: its own character
+    // takes them, the companion keeps what it holds.
+    let mut led = Bench::new();
+    let (composed, companions, sword) = (led.weapon(0), led.weapon(1), led.weapon(2));
+    let (own, its) = (led.hands(), led.hands());
+    let mut leading = Holdings::default();
+    leading.seed([(seat0, arms(&composed)), (creature, arms(&companions))]);
+    let armed = led.run(|commands, sheet| {
+        leading.wield((ids[0], Some(seat0)), sheet, own, commands);
+        leading.wield((ids[1], Some(creature)), sheet, its, commands);
+        let rearm = Rearm {
+            owner: seat0,
+            id: ids[0],
+            sheet: *sheet,
+            arms: arms(&sword),
+            generation: 0,
+            draws: false,
+        };
+        leading.rearm(rearm.holder(), sheet, rearm.arms, commands)
+    });
+    check(
+        "armed while leading through a companion",
+        armed.map(|retired| {
+            let ok = retired == [0]
+                && led.gone(&composed)
+                && led.holds(&leading, (ids[0], &own), &sword)
+                && led.holds(&leading, (ids[1], &its), &companions);
+            let detail =
+                format!("the seat's own character holds it, the companion its own; retired blades {retired:?}");
             (ok, detail)
         }),
     );

@@ -149,6 +149,14 @@ pub struct Rearm {
     pub draws: bool,
 }
 
+impl Rearm {
+    /// Who takes them: the character whose sheet names them, even while its
+    /// seat plays a companion (a save made so, or an item equipped so).
+    pub fn holder(&self) -> (Owner, Option<SimId>) {
+        (self.owner, Some(self.id))
+    }
+}
+
 /// Characters armed this frame, for `play_view`.
 #[derive(Resource, Default)]
 pub struct Rearms(pub Vec<Rearm>);
