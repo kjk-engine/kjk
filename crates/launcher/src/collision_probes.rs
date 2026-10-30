@@ -12,11 +12,13 @@ use vfs::Discovery;
 
 use crate::collision_verbs::{ClipChoice, Doors, Loaded, load, set_doors, write_facts};
 
-/// A shape by name: `point`, `player`, `crouch`, `capsule` (the player's).
+/// A shape by name: `point`, `player` (its box), `body` (the player's box round
+/// across, as it moves), `crouch`, `capsule` (the player's).
 pub fn shape(name: &str) -> Option<Shape> {
     Some(match name {
         "point" => Shape::Box(Extents::POINT),
         "player" => Shape::Box(player()),
+        "body" => Shape::Upright(player()),
         "crouch" => Shape::Box(collision::probes::crouched()),
         "capsule" => Shape::Capsule(Capsule::from_extents(&player())),
         _ => return None,

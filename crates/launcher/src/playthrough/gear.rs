@@ -9,22 +9,48 @@ use super::*;
 pub(super) fn other_weapon(world: &sim::SimWorld, snapshot: &Snapshot, ranged: bool) -> Option<Action> {
     let catalog = world.level().scripts()?.items();
     let hand = sim::inventory::slots::RIGHT_WEAPON;
-    snapshot
+    let feats = crate::cast::me(snapshot, Seat(0))
+        .and_then(|me| snapshot.get(me)?.sheet)
+        .map(|sheet| sheet.feats);
+    let candidates: Vec<(u32, sim::combat::sheet::Weapon, Vec<u16>, u32)> = snapshot
         .goods
         .carried(sim::inventory::PARTY)
         .filter_map(|(id, item)| {
             let facts = catalog.get(&item.template)?;
-            let weapon = facts
-                .fitted(item.upgrades, &item.fitted, catalog)
-                .weapon
-                .filter(|weapon| weapon.delivery.ranged() != ranged)?;
+            let weapon = facts.fitted(item.upgrades, &item.fitted, catalog).weapon?;
+            Some((id, weapon, facts.needs.clone(), facts.slots))
+        })
+        .collect();
+    strongest(&candidates, feats.as_ref(), ranged).map(|item| Action::Equip { item, slot: hand })
+}
+
+/// Of `candidates` (an item, the weapon it is, the feats it needs and the
+/// slots it goes in), the strongest for the right hand by twice its average
+/// damage, the first on a tie, of the kind other than `ranged` (a blade
+/// when true, a gun when false); only one `feats` is trained for (the
+/// equip screen refuses the rest: Mira has no melee proficiency), all
+/// without a sheet.
+pub(super) fn strongest(
+    candidates: &[(u32, sim::combat::sheet::Weapon, Vec<u16>, u32)],
+    feats: Option<&sim::combat::sheet::Rows<4>>,
+    ranged: bool,
+) -> Option<u32> {
+    let hand = sim::inventory::slots::RIGHT_WEAPON;
+    candidates
+        .iter()
+        .filter(|(_, weapon, needs, slots)| {
+            feats.is_none_or(|feats| sim::combat::passive::may_equip(feats, needs))
+                && weapon.delivery.ranged() != ranged
+                && slots & 1 << hand != 0
+        })
+        .map(|(id, weapon, ..)| {
             let twice_average = i32::from(weapon.dice) * (i32::from(weapon.die) + 1)
                 + i32::from(weapon.bonus_dice) * (i32::from(weapon.bonus_die) + 1)
                 + 2 * i32::from(weapon.damage_bonus);
-            (facts.slots & 1 << hand != 0).then_some((twice_average, id))
+            (twice_average, *id)
         })
         .max_by_key(|(strength, id)| (*strength, std::cmp::Reverse(*id)))
-        .map(|(_, item)| Action::Equip { item, slot: hand })
+        .map(|(_, item)| item)
 }
 
 /// The template a route's `equip` names: `saber`, the strongest lightsaber
@@ -74,6 +100,46 @@ pub(super) fn sale(world: &sim::SimWorld, snapshot: &Snapshot, kept: &[u16]) -> 
         .map(|(_, item)| Action::Sell {
             store: trade.store,
             item,
+        })
+}
+
+/// How many of `template` the party carries.
+pub(super) fn carried(snapshot: &Snapshot, template: &str) -> u32 {
+    snapshot
+        .goods
+        .carried(sim::inventory::PARTY)
+        .filter(|(_, item)| item.template.eq_ignore_ascii_case(template))
+        .map(|(_, item)| u32::from(item.stack.max(1)))
+        .sum()
+}
+
+/// One of `template` bought from the store open to the player, as its
+/// screen's buy button sends it: the first of its stock with that
+/// template; why not, with none open or none in its stock.
+pub(super) fn purchase(snapshot: &Snapshot, template: &str) -> Result<Option<Action>, String> {
+    let Some(me) = crate::cast::me(snapshot, Seat(0)) else {
+        return Ok(None);
+    };
+    let Some((_, trade)) = snapshot.goods.trades.iter().find(|(who, _)| *who == me.0) else {
+        return Ok(None);
+    };
+    snapshot
+        .goods
+        .carried(trade.store)
+        .find(|(_, item)| item.template.eq_ignore_ascii_case(template))
+        .map(|(item, _)| {
+            Some(Action::Buy {
+                store: trade.store,
+                item,
+            })
+        })
+        .ok_or_else(|| {
+            let held: Vec<&str> = snapshot
+                .goods
+                .carried(trade.store)
+                .map(|(_, item)| item.template.as_str())
+                .collect();
+            format!("buy: the store holds no {template} (it holds {held:?})")
         })
 }
 

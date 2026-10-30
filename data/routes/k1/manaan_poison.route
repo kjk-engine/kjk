@@ -23,6 +23,9 @@ talk
 save mpo_starmap
 exit ManaanDoor2         # back into the station
 fight 30
+to 208.6,90.6        # past the Republic soldier standing in the neck of the
+to 208.7,93.2        # way up, on his free side (a body round across makes
+                     # for his side of it, where the box kept to the other)
 to man_bandon_talker     # Darth Bandon and two Dark Jedi by the submersible
 fight 30
 use man28_sub            # up to the embassy

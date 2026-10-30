@@ -366,11 +366,22 @@ impl Level {
     }
 
     /// Whether a box of `extents` standing at `at` overlaps (or touches) a
-    /// brush of the level's own (no entity's) made of contents in `mask`.
-    pub fn level_overlaps(&self, at: [f32; 3], extents: &Extents, mask: Contents) -> bool {
-        let swept = Swept::Box {
-            mins: extents.mins,
-            maxs: extents.maxs,
+    /// brush of the level's own (no entity's) made of contents in `mask`;
+    /// with `upright`, the box round across (`Shape::Upright`).
+    pub fn level_overlaps(
+        &self,
+        at: [f32; 3],
+        extents: &Extents,
+        upright: bool,
+        mask: Contents,
+    ) -> bool {
+        let swept = if upright {
+            Swept::upright(extents)
+        } else {
+            Swept::Box {
+                mins: extents.mins,
+                maxs: extents.maxs,
+            }
         };
         let min = std::array::from_fn(|i| at[i] + extents.mins[i]);
         let max = std::array::from_fn(|i| at[i] + extents.maxs[i]);
@@ -379,6 +390,7 @@ impl Level {
             if !overlaps && brush.slot == u32::MAX && brush.tag.contents.intersects(mask) {
                 let planes =
                     &self.planes[brush.first as usize..(brush.first + brush.count) as usize];
+                let swept = swept.against(brush.tag.contents);
                 overlaps = brush::clip(planes, at, at, &swept) == Clip::AllSolid;
             }
         });
@@ -1113,7 +1125,8 @@ impl Found {
         swept: &Swept,
     ) {
         let planes = &level.planes[brush.first as usize..(brush.first + brush.count) as usize];
-        self.record(index, brush::clip(planes, start, end, swept));
+        let swept = swept.against(brush.tag.contents);
+        self.record(index, brush::clip(planes, start, end, &swept));
     }
 
     fn record(&mut self, index: u32, clip: Clip) {
@@ -1223,6 +1236,17 @@ impl CollisionWorld for Stated<'_> {
     fn sweep(&self, start: [f32; 3], end: [f32; 3], shape: &Shape, mask: Contents) -> Trace {
         match shape {
             Shape::Box(extents) => self.trace(start, end, extents, mask),
+            Shape::Upright(extents) => {
+                let reach = (extents.mins, extents.maxs);
+                self.level.sweep_with(
+                    start,
+                    end,
+                    Swept::upright(extents),
+                    reach,
+                    mask,
+                    self.states,
+                )
+            }
             Shape::Capsule(capsule) => self.level.capsule(start, end, capsule, mask, self.states),
         }
     }

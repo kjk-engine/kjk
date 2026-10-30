@@ -32,6 +32,10 @@ use Console@1        # the north buried ship (124,16)
 to 151,-56           # down the east loop, wide of the rock pillar at
 to 154,-62           # 148,-63 (its drawn slope overhangs the walkable floor:
                      # a walk hugging its footprint wedges the remote there)
+to 146,-95           # and down the middle of the channel south of it, wide
+to 149,-102          # of the drawn wall along its east side (the walk's
+to 153,-106          # corner at its north end, hugged, wedged the body too)
+to 158,-111
 to tr_mira_han       # where Mira woke, and on west
 say Enter sequence for priming mass shadow generator.
 say Log out.         # (E4: 2 found)

@@ -49,6 +49,7 @@ const PHASES: &[Phase] = &[
     watch,
     watch_more,
     watch_held,
+    script_opens_reply,
     exits,
     endings,
 ];
@@ -1219,6 +1220,13 @@ void DelayCommand(float fSeconds, action aActionToDelay);
     leave_ops.push(Op::Const(Const::String(b"elsewhere".to_vec())));
     leave_ops.push(call(13, 8));
     let leave = program(&leave_ops);
+    // `GetGlobalNumber("probe_global") == 1`, as a link's condition.
+    let set = condition(&[
+        Op::Const(Const::String(b"probe_global".to_vec())),
+        call(14, 1),
+        Op::Const(Const::Int(1)),
+        Op::Equal(Pair::IntInt),
+    ]);
     // `GetGlobalNumber("probe_wait") == 0`, as a link's condition.
     let unset = condition(&[
         Op::Const(Const::String(b"probe_wait".to_vec())),
@@ -1270,6 +1278,10 @@ void DelayCommand(float fSeconds, action aActionToDelay);
     // "Again." offered while `probe_wait` is unset.
     let mut chime3 = said_by("buddy");
     chime3.entries[0].links[usize::from(AGAIN)].active.script = "probe_unset".into();
+    // "Again." offered once `probe_global` is set: by the line's own
+    // script, which runs before its replies are offered.
+    let mut opened = talking(2, "probe_global");
+    opened.entries[0].links[usize::from(AGAIN)].active.script = "probe_set".into();
     let dialogues: BTreeMap<String, Dlg> = [
         ("probe_talk", talk),
         ("probe_bark", talking(0, "")),
@@ -1282,6 +1294,7 @@ void DelayCommand(float fSeconds, action aActionToDelay);
         ("probe_chime", chime),
         ("probe_chime2", chime2),
         ("probe_chime3", chime3),
+        ("probe_opened", opened),
         ("probe_pause", talking(2, "probe_pause")),
         ("probe_deal_later", talking(2, "probe_later")),
     ]
@@ -1301,6 +1314,7 @@ void DelayCommand(float fSeconds, action aActionToDelay);
             ("probe_global", global),
             ("probe_leave", leave),
             ("probe_unset", unset),
+            ("probe_set", set),
             ("probe_busy", busy),
             ("probe_pause", pause),
             ("probe_later", later),
@@ -3916,6 +3930,29 @@ fn watch_held(run: &mut Run) -> Result<Vec<Case>, String> {
             ),
         ),
     ])
+}
+
+/// A line's script runs before its replies are offered, as both
+/// executables' `SendDialogEntry` runs an entry's scripts and then sends
+/// its replies (each one's condition checked there): "Again.", offered
+/// only once `probe_global` is set, is offered by the line whose script
+/// sets it (TSL's Ralon: `a_ralo_dialogue` notes the Exile's Awareness as
+/// the fake holocron is shown, and the reply that calls it a fake asks).
+fn script_opens_reply(run: &mut Run) -> Result<Vec<Case>, String> {
+    let mut state = run.world.script_state().clone();
+    state.numbers.remove("probe_global");
+    run.world.set_script_state(state);
+    let id = run.start(0, BARKER, "probe_opened")?;
+    let offered = run.conversation(id).map(|c| c.replies);
+    run.goodbye();
+    let both = [AGAIN, GOODBYE].map(u32::from).to_vec();
+    Ok(vec![(
+        "line_script_before_replies",
+        check(
+            offered.as_ref() == Some(&both),
+            format!("offered {offered:?}"),
+        ),
+    )])
 }
 
 /// R11, P16: the host walks into the way out while the guests' companions

@@ -1,0 +1,74 @@
+# Telos, the cantina's games (TSL, 207tel, 211tel, 203tel), a branch from
+# Luxa's deal that rejoins nothing: a swoop race on the circuit, Mebla's
+# pazaak record and Ramana's freedom ("High Stakes"). The main line
+# keeps its credits for Falt; a player with credits to spare plays these
+# on the first cantina visit (DSimpson's "Telos: Side Quests", GameBanshee's
+# Cantina and Residential 082 East). Starts from Luxa's checkpoint:
+#   kjk playthrough tsl @telos_luxa data/routes/tsl/telos_cantina_games.route --god
+gold 3000            # a stand-in for the credits a player brings who has
+                     # sold the loot the chain keeps for later
+say I want to race.  # the swoop master: the entry fee talked down
+say [Persuade] That's a little steep # ([Persuade] over 6)
+say Don't worry, I will
+use SwoopMC
+talk
+race                 # 211tel, back to the cantina's pits at its end: the
+say I'll be going now # bot's clean run (some 49 s) takes the third best
+talk                 # time; Ov Darum's record (41.27 s) is not reached
+say Let's play.      # Mebla: 40 credits a game, three wins for her
+say We'll play for credits # record and her Double card; her end script
+use Mebla            # starts her conversation again with the result
+talk
+pazaak
+while 202TEL_Mebla=0 # each win counts (a_global_inc), a loss nothing
+say Yes, for credits
+talk
+pazaak
+end
+while 202TEL_Mebla=1
+say Yes, for credits
+talk
+pazaak
+end
+while 202TEL_Mebla=2
+say Yes, for credits
+talk
+pazaak
+end
+talk                 # three: her lucky card given up
+until 202TEL_Mebla=4
+exit d_Cantina_main  # out to 081 and down to Residential 082 East
+module 202tel
+exit d_Suburban      # Harra, whose Ramana a Twi'lek won from him at
+module 203tel        # pazaak
+use door_a1
+say What is this predicament
+say But you did.
+say Of course, you did make her a slave
+say Perhaps I could be of assistance
+say I'll see what I can do
+use harra
+talk
+until 203TEL_Harra=1
+exit Ent081          # back to the cantina: Doton Het, who holds her
+module 202tel
+exit d_Cantina@3
+module 207tel
+say I've come on behalf of Harra
+say How about you wager her on a game of pazaak
+say 1000 credits it is
+use doton
+talk
+say I am taking you back to Harra # his end script starts the talk again
+say Let's go         # with the result, at once: won, Ramana handed over
+say You're free now, Ramana # and the party taken to 082 East, where her
+say Then you can do whatever you wish # meeting with Harra plays: set free,
+pazaak               # not made to dance (LSP)
+while 203TEL_Ramana=0 # lost: the 1000 taken, and asked again
+say I'd like to try again
+say 1000 credits it is
+talk
+pazaak
+end
+module 203tel
+until 203TEL_Ramana=4

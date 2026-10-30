@@ -135,7 +135,17 @@ impl Chase {
             acts.extend(other_weapon(world, here.snapshot, false));
             self.armed_far = true;
         }
-        let (close, swing) = melee_m();
+        // Fists (and a baton, which punches as they do) reach shorter
+        // than a blade: stepped in to the sim's own punch (`strikes`).
+        let punching = me.sheet.is_some_and(|sheet| {
+            matches!(sheet.main_weapon().delivery, sim::combat::sheet::Delivery::Unarmed)
+        });
+        let (close, swing) = if punching {
+            let punch = sim::player_punch_reach_m();
+            (punch * PUNCH_IN, punch)
+        } else {
+            melee_m()
+        };
         let within = match (ranged, far_shot) {
             (true, true) => GUN_M,
             (true, false) => SHOOT_M,
@@ -205,6 +215,10 @@ impl Chase {
         (straight, true)
     }
 }
+
+/// How far into a punch's reach (its share) the chase steps before it
+/// stops pressing on: a little inside, as a foe sways back.
+const PUNCH_IN: f32 = 0.8;
 
 /// A conversation with the player (`Talks`): its id, its owner's object
 /// number, and when it ended.

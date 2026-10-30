@@ -13,6 +13,8 @@ fight 20                 # beaten near to death, he hears the party out
 talk
 save kch_freyyr
 exit Exit                # back up to the Upper Shadowlands
+to 56.4,205.4            # past the tach standing by the slope's foot on its
+to 56.6,200.5            # free side (as kashyyyk)
 use kas24_gorwook_01     # Gorwooken at the lift
 talk
 fight 20

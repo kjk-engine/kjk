@@ -530,6 +530,12 @@ pub(super) fn hurt(
             effects::extra_attacks(&theirs.force, &theirs.effects, clock.time_ms)
                 + crate::combat::forms::extra_attacks(&who[by].0)
         });
+        // A creature its appearance gives no movement (`moverate` NOMOVE:
+        // a turret) is pushed by no blow: KOTOR moves it not at all.
+        let immobile = actors[at]
+            .2
+            .and_then(|object| object.facts.as_ref()?.body)
+            .is_some_and(|body| body.walk_mps <= 0.0 && body.run_mps <= 0.0);
         let (_, avatar, _, _, player, fighting) = &mut actors[at];
         // The dead take nothing more; the downed nothing but the story's
         // death.
@@ -727,7 +733,7 @@ pub(super) fn hurt(
             scene_held.scene(&talking.0, hit.target) || scene_held.scene(&talking.0, hit.attacker);
         let staged = death::in_place(&hit.source, scene);
         let in_place = resolved.died && !was_down && staged;
-        if let Some((push, timer)) = resolved.push.filter(|_| !staged) {
+        if let Some((push, timer)) = resolved.push.filter(|_| !staged && !immobile) {
             ps.velocity = math::add(ps.velocity, push);
             if ps.hold_ms == 0 {
                 ps.hold_ms = timer;

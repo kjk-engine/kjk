@@ -6,15 +6,39 @@
 # Bao-Dur's Security; the "{Blast}" cylinder is left shut, see below), into
 # Khoonda: Suulru's vaporator (helped), Administrator Adare (the Ebon Hawk
 # owned, the Force's guidance, Vrook to be found first: the sublevel's
-# permission), Berun, and out to
+# permission), Berun, Zherron (the kinrath job, and Berun's doubts laid
+# before him: a message for Dopak), and out to
 # Saedhe by the cave (the atmospheric sensors asked after: DSimpson takes
 # his quest, not Berun's evidence). Starts from Telos's last checkpoint:
 #   kjk playthrough tsl @telos_done data/routes/tsl/dantooine_khoonda.route --god
-# Walkthrough: DSimpson's "Dantooine - Khoonda" (context/walkthroughs/tsl/).
-# Left: the pazaak Ithorian (a game of chance), the Rodian's crystals.
+say [Repair] Diagnose the droid # the old HK unit's remains in the cargo
+say [Repair] Take the vocabulator # hold: HK-47's rebuilding begun, the
+say Step away.       # vocabulator from Peragus fitted
+use DrdParts
+talk
+say As many as want to come with us # aboard after Telos (Bao-Dur's talk on
+                     # the Exile's lightsaber and his work on T3 as the
+                     # party walks), Kreia's talks
+say They're my friends, not my followers # (DSimpson's light answers):
+say Does the fact they obey me upset you # those who follow us, then her
+say No, what?        # past ([Intelligence]), her story's vision after
+say They are my friends, not tools
+say I had other questions
+say Kreia, what are you
+say [Intelligence] Then what were you?
+say I still wish to hear the story
+use kreia
+talk
+say Never mind. I'll be going now # her word after the vision (1000 XP)
+talk
+say Let's play pazaak # Atton: a hand of pazaak, Republic Senate rules,
+say Let's just play for practice, then # for practice (his past waits on
+use atton            # more of his influence)
+talk
+pazaak
 use Galaxymap
-travel 0             # Dantooine (planetary.2da)
-talk                 # Bao-Dur's lightsaber talk as the Hawk lands
+travel 0             # Dantooine (planetary.2da); Bao-Dur's lightsaber talk
+                     # played as the party walked aboard
 party 1,6            # Bao-Dur and Kreia
 to tr_leave          # the ramp: the party screen, accepted
 module 601dan
@@ -25,6 +49,11 @@ use MilLowPlstcCylin@2 # the landing pad's cylinders
 use MilLowPlstcCylin@3
 use MilLowPlstcCylin@4
 use CivilFootLker    # the Ithorian's footlocker (DSimpson: "goodies")
+say I'd like to see your wares # Akkere's stall by Khoonda's door: the
+use npc_akkere       # droid's part HK-47 will need (DSimpson: buy it
+talk                 # here), and a computer spike for the Enclave's
+buy hkpart03         # storage room
+buy g_i_progspike01 3
 leader 1             # the locked cylinder by Khoonda's wall (DC 18):
 unlock MilHighPlstcCylin # Bao-Dur's Security
 use MilHighPlstcCylin
@@ -44,16 +73,24 @@ say He didn't send for me, but I would like to meet with him
 say I will make it my first priority. # the sublevel's permission
 use npc_terena
 talk
-use npc_berun        # Berun, asked through (his doubts of Zherron)
+say Who are you?      # Berun (DSimpson's light way): his doubts of
+say It sounds like you don't approve of him # Zherron, and a look into
+say Can't anyone do something about it # him asked of us
+say So what could I do to help
+say I'll be going now
+use npc_berun
 talk
-# BLOCKER: Zherron's kinrath job left (and its reward, in dantooine_cave,
-# and the salvagers' will, given Daraala instead in dantooine_enclave):
-# every walk back from his post makes for a corner of the way 0.2 m from
-# the foot of the militia desk's sloped nonwalk walkmesh face at (-6.7,
-# -15.2), where the navigation mesh's rounding is cut short (the full
-# step off would leave the mesh: the gap is narrower than the JA box);
-# the box meets the slope's foot on the next leg, and the walk's sidesteps,
-# unwedging and backing off bring it back to that corner for good.
+say Neither one.      # Zherron: a hand offered, the kinrath job taken
+say I wanted to see if anyone needed a hand.
+say What sort of work do you have?
+say I'll see what I can do.
+use npc_zherron
+talk
+say Berun asked me to investigate you. # Berun's doubts laid before him
+say He wants to try reaching a compromise # (DSimpson: it
+say [Persuade] I think he's wrong, and I think I can help you. # changes
+use npc_zherron      # nothing): his message for Dopak, the mercenary
+talk                 # captain by the Enclave's courtyard
 exit To_601
 module 601dan
 use MilLowPlstcCylin@1 # by the crashed speeder

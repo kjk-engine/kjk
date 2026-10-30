@@ -14,10 +14,11 @@ to 233_mercc_talk    # the base camp: the mercenaries talk, then fight
 talk
 fight 40
 use padpanel         # the landing pad's console (its turrets and guards
-talk                 # fought on the way)
-leader player        # the pad's scene leaves Bao-Dur leading
-                     # (tr_baodurpad's SetPartyLeader): the Exile again
-use MilLowPlstcCylin # the pad's plasteel container
+talk                 # fought on the way); its scene leaves Bao-Dur leading
+use MilLowPlstcCylin # (tr_baodurpad's SetPartyLeader) until the military
+                     # base's first entry gives the Exile back (k_232_enter's
+                     # SetPartyLeader(NPC_PLAYER) for GetFirstPC, the one led);
+                     # the pad's plasteel container
 fight 40             # down the ramp: the mercenaries left by the mined
 use MilHighPlstcCylin # entrance; its container
 exit to_232TEL       # into the old military base

@@ -458,7 +458,7 @@ impl Level {
     }
 
     /// Whether a standing body fits with its origin at `at` (units): the
-    /// box move_body moves, against the level as built, its middle not over a
+    /// body move_body moves (its box, round across), against the level as built, its middle not over a
     /// placeable's footprint (inside the walls that ring it, which a box
     /// standing there does not touch; KOTOR's walker never stands there).
     pub fn fits(&self, at: math::Vec3) -> bool {
@@ -474,7 +474,12 @@ impl Level {
             at[2] + (crate::motion::SOLE_Z - crate::motion::STEP_HEIGHT) * UNIT,
         ];
         self.with(None, |world| {
-            let trace = world.trace(at, at, &extents, Contents::PLAYER_SOLID);
+            let trace = world.sweep(
+                at,
+                at,
+                &collision::Shape::Upright(extents),
+                Contents::PLAYER_SOLID,
+            );
             let under = world.trace(at, below, &Extents::POINT, Contents::NONWALK);
             !trace.start_solid && !(under.fraction < 1.0 && under.entity.is_some())
         })
@@ -493,7 +498,7 @@ impl Level {
             mins: [-half, -half, crate::motion::SOLE_Z * UNIT],
             maxs: [half, half, crate::motion::STAND_HEIGHT * UNIT],
         };
-        !level.level_overlaps(scale(at, UNIT), &extents, Contents::SOLID)
+        !level.level_overlaps(scale(at, UNIT), &extents, true, Contents::SOLID)
     }
 
     /// Whether nothing solid stands between `from` and `to` (units), doors

@@ -52,10 +52,7 @@ impl Step<'_> {
             })
             .map(|link| link.index);
         match next {
-            Some(entry) => {
-                let replies = self.offer(dlg, id, entry, owner, pc);
-                self.show(id, entry, replies);
-            }
+            Some(entry) => self.show(id, entry),
             None => self.end(id, false),
         }
     }

@@ -132,6 +132,7 @@ pub use world::spawner_probes;
 #[cfg(feature = "probes")]
 pub use world::speaker_probes;
 pub use world::strikes;
+pub use world::strikes::player_punch_reach_m;
 pub use world::switch;
 #[cfg(feature = "probes")]
 pub use world::talk_end_probes;

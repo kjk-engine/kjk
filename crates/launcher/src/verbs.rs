@@ -991,7 +991,7 @@ pub(crate) enum CollisionVerb {
         /// End, x,y,z metres
         #[arg(value_parser = parse_point)]
         to: [f32; 3],
-        /// point, player (JA's standing box), crouch or capsule
+        /// point, player (JA's standing box), body (that box round across, as a body moves), crouch or capsule
         #[arg(long, default_value = "player")]
         shape: String,
         /// Which doors are open: openable, closed or all

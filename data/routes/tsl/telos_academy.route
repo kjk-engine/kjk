@@ -44,6 +44,26 @@ party 1,6            # Bao-Dur and Kreia; Atton sleeps it off aboard
 say It wasn't your fault they took the ship # T3-M4 in his force cage (LSP,
 to T3Enter           # +INF)
 talk
+say I'm looking for a fight # the Handmaiden sisters' duels (DSimpson's
+say Teaching?        # "Echani sparring"): on the dojo's mat, gear off,
+say Then I'll be happy to oblige # hands and feet only
+use Sister5@1        # five bouts, each won bout's talk asking the next:
+talk                 # one sister, then a higher form, then free of
+fight 20             # restriction, then a pair, then five at once
+talk
+fight 20
+talk
+fight 20
+talk
+fight 20
+talk
+fight 30
+until 262TEL_Echani_Fights=6 # all five won (750 XP)
+equip g_a_clothes01  # what the mat took off worn again, as it was
+equip a_belt_03
+equip 100_fore01
+equip 100_mask01
+equip a_shield_01
 say Enter the Ebon Hawk # the loading ramp
 to tr_setup_ebo
 talk

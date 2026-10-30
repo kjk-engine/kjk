@@ -183,6 +183,19 @@ impl Capsule {
 pub enum Shape {
     Box(Extents),
     Capsule(Capsule),
+    /// A box centred across, its footprint round (an upright cylinder of
+    /// its X half-size, as tall): a character's body against the level.
+    /// KOTOR tests a creature's move by its personal space across the way
+    /// it goes, whichever way that is (TSL's
+    /// CSWSCreature::WalkUpdateLocationTestDistance hands
+    /// CSWSArea::NoNonWalkPolysDetailed the appearance's `perspace`, and
+    /// CSWCollisionMesh::NoNonWalkPolys sweeps the path widened by it), so
+    /// a body as wide as a square box toward an axis is no wider toward a
+    /// diagonal wall. Against an axis-aligned face, a box's. The walls
+    /// standing in for KOTOR's point on the walkmesh (its outline's and
+    /// placeables' footprints', set back by the box's half-width) it meets
+    /// as the box.
+    Upright(Extents),
 }
 
 /// The outcome of a trace.
@@ -254,10 +267,11 @@ pub trait CollisionWorld {
     fn trace(&self, start: [f32; 3], end: [f32; 3], extents: &Extents, mask: Contents) -> Trace;
 
     /// Sweeps `shape` from `start` to `end`. A world that has no capsule
-    /// clip of its own ([`BoxWorld`]) sweeps the capsule's box.
+    /// or cylinder clip of its own ([`BoxWorld`], whose solids are all
+    /// axis-aligned) sweeps the shape's box.
     fn sweep(&self, start: [f32; 3], end: [f32; 3], shape: &Shape, mask: Contents) -> Trace {
         match shape {
-            Shape::Box(extents) => self.trace(start, end, extents, mask),
+            Shape::Box(extents) | Shape::Upright(extents) => self.trace(start, end, extents, mask),
             Shape::Capsule(capsule) => self.trace(start, end, &capsule.bounds(), mask),
         }
     }
