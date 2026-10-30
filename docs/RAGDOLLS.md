@@ -89,8 +89,9 @@ deterministic and costs the sim nothing. Rapier, 120 steps a second.
   neck skinned beside the chest). A mesh all the limb's goes with it whole.
 - Every open loop of edges at the joint, the cut's or the model's own (a
   sleeve, an armhole; two pinched through one corner each closed), is
-  closed by a cap fanned from its middle. A lightsaber's is seared, glowing
-  at its rim and cooling over 3 s to a burn (metal: hot to scorched); its
+  closed by a cap fanned from its middle, lit as the body it is cut from. A
+  lightsaber's is seared, glowing at its rim whatever the light and cooling
+  over 3 s to a burn (metal: hot to scorched); its
   cut puffs JA's `saber/saber_cut` and both wounds smoulder (black smoke)
   for 0.9 s. A blade's is raw (metal: bare) and puffs nothing. A droid of
   rigid pieces needs no cutting: its pieces go with their nodes.

@@ -11,10 +11,11 @@
 //! way the blade went. The scene parts the body's skinned meshes where the
 //! limb hangs (`ragdoll::cut`): the stump and the limb each keep their own
 //! triangles, skinned so nothing stretches, and each wound is closed by a
-//! cap. A lightsaber's is seared, glowing at its rim and cooling over
-//! seconds to a dark burn (on a droid, hot metal to scorched), and puffs
-//! JA's `saber/saber_cut` (sparks, steam, smoke); a blade's is raw flesh
-//! (on a droid, bare metal), and puffs nothing.
+//! cap, lit as the body is. A lightsaber's is seared, glowing at its rim
+//! whatever the light and cooling over seconds to a dark burn (on a droid,
+//! hot metal to scorched), and puffs JA's `saber/saber_cut` (sparks, steam,
+//! smoke); a blade's is raw flesh (on a droid, bare metal), and puffs
+//! nothing.
 //!
 //! The marks a blade burnt on the body (`body_marks`) are parted with each
 //! mesh they lie on, by the same cut: the stump keeps its half, the limb
@@ -215,6 +216,10 @@ pub type Owed = (Vec<Entity>, Sever);
 #[derive(Resource, Default)]
 pub struct Cuts(pub Vec<Owed>);
 
+/// A wound's cap: a cut never parts one again.
+#[derive(Component)]
+pub struct WoundCap;
+
 /// A seared cap cooling: since when (animation s, from its first frame).
 #[derive(Component)]
 pub struct Searing {
@@ -347,28 +352,46 @@ type Skinned = (
 const WOUND_REACH: f32 = 0.2;
 
 /// How a piece hung on a body is drawn: in the body's material, or as a
-/// cap (seared, cooling, by a lightsaber's).
-enum Look<'a> {
-    Body(&'a MeshMaterial3d<OdysseyMaterial>),
+/// cap in the body's light (seared, cooling, by a lightsaber's).
+#[derive(Clone, Copy)]
+enum Look {
+    Body,
     Cap {
-        material: &'a Handle<StandardMaterial>,
         colours: [[f32; 4]; 2],
         searing: bool,
     },
 }
 
-/// Hangs `piece`, skinned by `skin`, on the node entity `on`.
+/// What `hang` draws with: the commands and the meshes and materials.
+type Drawing<'a, 'w, 's> = (
+    &'a mut Commands<'w, 's>,
+    &'a mut Assets<Mesh>,
+    &'a mut Assets<OdysseyMaterial>,
+);
+
+/// Hangs `piece`, skinned by `skin`, on the node entity `on`, by the body
+/// material `body`.
 fn hang(
-    (commands, meshes): (&mut Commands, &mut Assets<Mesh>),
+    (commands, meshes, materials): Drawing,
     (piece, skin, on): (&SkinnedMesh, &Skin, Entity),
-    look: &Look,
+    body: &MeshMaterial3d<OdysseyMaterial>,
+    look: Look,
 ) {
     if piece.indices.is_empty() {
         return;
     }
-    let colours = match look {
-        Look::Cap { colours, .. } => Some(*colours),
-        Look::Body(_) => None,
+    let (colours, material) = match look {
+        Look::Body => (None, body.0.clone()),
+        Look::Cap { colours, searing } => {
+            let Some(body) = materials.get(&body.0) else {
+                return;
+            };
+            let mut cap = body.clone().bare();
+            if searing {
+                cap.params.self_illum = Vec4::ONE;
+            }
+            (Some(colours), materials.add(cap))
+        }
     };
     let mut spawned = commands.spawn((
         Mesh3d(meshes.add(bevy_mesh(piece, colours))),
@@ -376,16 +399,17 @@ fn hang(
         Transform::IDENTITY,
         bevy::camera::visibility::NoFrustumCulling,
         Piece,
+        MeshMaterial3d(material),
     ));
     match look {
-        Look::Body(material) => spawned.insert((*material).clone()),
-        Look::Cap {
-            material,
-            searing: true,
-            ..
-        } => spawned.insert((MeshMaterial3d((*material).clone()), Searing { since: None })),
-        Look::Cap { material, .. } => spawned.insert(MeshMaterial3d((*material).clone())),
-    };
+        Look::Body => {}
+        Look::Cap { searing, .. } => {
+            spawned.insert(WoundCap);
+            if searing {
+                spawned.insert(Searing { since: None });
+            }
+        }
+    }
     let child = spawned.id();
     commands.entity(on).add_child(child);
 }
@@ -394,7 +418,7 @@ fn hang(
 /// meshes, where everything is and the skins' bind poses.
 type Scene<'a, 'w, 's> = (
     &'a Query<'w, 's, &'static Children>,
-    &'a Query<'w, 's, Skinned>,
+    &'a Query<'w, 's, Skinned, Without<WoundCap>>,
     &'a Query<'w, 's, (&'static GlobalTransform, &'static Transform)>,
     &'a Assets<SkinnedMeshInverseBindposes>,
 );
@@ -430,8 +454,8 @@ pub fn apply(
         Option<ResMut<crate::combat_fx::Bursts>>,
         ResMut<Smoulders>,
     ),
-    (mut meshes, mut caps): (ResMut<Assets<Mesh>>, ResMut<Assets<StandardMaterial>>),
-    skinned: Query<Skinned>,
+    (mut meshes, mut materials): (ResMut<Assets<Mesh>>, ResMut<Assets<OdysseyMaterial>>),
+    skinned: Query<Skinned, Without<WoundCap>>,
     (children, globals, binds): Places,
     (pieces, marks): (Query<(), With<Piece>>, Marks),
     (mut made, mut facts): (Local<(usize, usize)>, ResMut<console::DumpFacts>),
@@ -454,13 +478,7 @@ pub fn apply(
         let stump_node = part.parent.map(|p| template.parts[p].node);
         let gone = under(rest, part.node);
         let model = crate::ragdolls::model_space(rest, |_, _, rest| rest);
-        let cap_material = caps.add(StandardMaterial {
-            base_color: Color::WHITE,
-            unlit: true,
-            ..default()
-        });
         let cap = Look::Cap {
-            material: &cap_material,
             colours: wound_colours(sever.edge, template.material),
             searing: sever.edge == Edge::Saber,
         };
@@ -577,13 +595,15 @@ pub fn apply(
                         }
                     }
                     let on = (&goes, skin, parent.parent());
-                    hang((&mut commands, &mut meshes), on, &Look::Body(material));
+                    let drawing = (&mut commands, &mut *meshes, &mut *materials);
+                    hang(drawing, on, material, Look::Body);
                     let wounds = [(stays.caps(&wound(stump))), goes.caps(&wound(root))];
                     for wound in &wounds {
                         hang(
-                            (&mut commands, &mut meshes),
+                            (&mut commands, &mut *meshes, &mut *materials),
                             (wound, skin, parent.parent()),
-                            &cap,
+                            material,
+                            cap,
                         );
                     }
                     let mut body = commands.entity(entity);
@@ -597,9 +617,10 @@ pub fn apply(
                 (None, Some(slot)) | (Some(slot), None) => {
                     let wound = whole.caps(&wound(slot));
                     hang(
-                        (&mut commands, &mut meshes),
+                        (&mut commands, &mut *meshes, &mut *materials),
                         (&wound, skin, parent.parent()),
-                        &cap,
+                        material,
+                        cap,
                     );
                 }
                 (None, None) => {}
@@ -655,8 +676,8 @@ pub fn apply(
                     model,
                     joint,
                     (&children, &skinned, &globals, &binds),
-                    (&mut commands, &mut meshes),
-                    &cap,
+                    (&mut commands, &mut *meshes, &mut *materials),
+                    cap,
                 );
             }
         }
@@ -673,13 +694,13 @@ fn close_model(
     model: Entity,
     joint: Vec3,
     (children, skinned, globals, binds): Scene<'_, '_, '_>,
-    (commands, meshes): (&mut Commands, &mut Assets<Mesh>),
-    cap: &Look,
+    (commands, meshes, materials): Drawing,
+    cap: Look,
 ) {
     let mut below = vec![model];
     while let Some(at) = below.pop() {
         below.extend(children.get(at).into_iter().flatten().copied());
-        let Ok((_, mesh3d, skin, _, parent, _)) = skinned.get(at) else {
+        let Ok((_, mesh3d, skin, material, parent, _)) = skinned.get(at) else {
             continue;
         };
         let Some(whole) = meshes.get(&mesh3d.0).and_then(piece) else {
@@ -709,7 +730,12 @@ fn close_model(
             within: WOUND_REACH,
             slot: slot as u16,
         });
-        hang((commands, meshes), (&wound, skin, parent.parent()), cap);
+        hang(
+            (&mut *commands, &mut *meshes, &mut *materials),
+            (&wound, skin, parent.parent()),
+            material,
+            cap,
+        );
     }
 }
 
@@ -746,13 +772,13 @@ pub fn smoulder(
     });
 }
 
-/// Cools the seared caps: their glow fades to a burn over `COOLING`, then
-/// stays.
+/// Cools the seared caps: their glow, which no light needs, fades to a burn
+/// the light shows over `COOLING`, then stays.
 pub fn cool(
     time: Res<Time>,
     held: Res<console::AnimationTime>,
-    mut caps: ResMut<Assets<StandardMaterial>>,
-    mut searing: Query<(Entity, &mut Searing, &MeshMaterial3d<StandardMaterial>)>,
+    mut caps: ResMut<Assets<OdysseyMaterial>>,
+    mut searing: Query<(Entity, &mut Searing, &MeshMaterial3d<OdysseyMaterial>)>,
     mut commands: Commands,
 ) {
     let now = crate::scene::animation_seconds(&time, &held);
@@ -762,8 +788,9 @@ pub fn cool(
         if let Some(mut material) = caps.get_mut(&material.0) {
             // Fast at first, as a cut stops glowing.
             let glow = 1.0 - 0.75 * cooled * (2.0 - cooled);
-            material.base_color =
-                crate::scene::stored(Color::srgb(glow, glow * (1.0 - 0.3 * cooled), glow));
+            material.params.tint = Vec4::new(glow, glow * (1.0 - 0.3 * cooled), glow, 1.0);
+            let heat = (1.0 - cooled) * (1.0 - cooled);
+            material.params.self_illum = Vec4::new(heat, heat, heat, 1.0);
         }
         if cooled >= 1.0 {
             commands.entity(entity).remove::<Searing>();
