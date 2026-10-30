@@ -2023,12 +2023,23 @@ impl Engine<'_> {
             }
             GetNearestCreature => Value::Object(self.nearest_creature(args)),
             // In combat, fake combat (`SetFakeCombatState`) too unless TSL's
-            // second argument asks for real combat only.
+            // second argument asks for real combat only. An attack it has
+            // queued counts already (reone's `AttackObjectAction::onQueued`),
+            // before it reaches its target: Kashyyyk's mykal, whose
+            // heartbeat wanders it off while out of combat.
             GetIsInCombat => {
+                let who = object(args, 0);
                 let only_real = args.len() > 1 && int(args, 1) != 0;
+                let attacking = (self.state.actions.get(&who.0)).is_some_and(|queue| {
+                    (queue.iter()).any(|queued| {
+                        matches!(queued.action, Action::Attack { passive: false, .. })
+                    })
+                });
                 truth(
-                    self.character(object(args, 0))
-                        .is_some_and(|c| c.in_combat && !(only_real && c.fake_combat)),
+                    attacking
+                        || self
+                            .character(who)
+                            .is_some_and(|c| c.in_combat && !(only_real && c.fake_combat)),
                 )
             }
             ActionAttack => {
