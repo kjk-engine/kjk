@@ -118,6 +118,9 @@ pub struct CharacterView {
     /// Its next level, while it may take one: the class it takes it in (its
     /// latest) and what it may pick.
     pub next_level: Option<(u8, PicksView)>,
+    /// That level with the game's picks (`sim::levels::Classes::auto`): what
+    /// Auto Level Up asks.
+    pub auto_level: Option<AutoLevelView>,
     /// What the party carries: each item's id, how it shows, where it may
     /// be worn and whether this member may use it.
     pub owned: Vec<Owned>,
@@ -125,6 +128,18 @@ pub struct CharacterView {
     pub worn: Vec<(u8, Owned)>,
     /// The party's credits.
     pub credits: i32,
+}
+
+/// The game's picks for a level: its class, the ability raised, the skill
+/// ranks added, the feats and powers (`classes.2da`, `feat.2da`, `spells.2da`
+/// rows).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AutoLevelView {
+    pub class: u8,
+    pub ability: Option<u8>,
+    pub skills: [u8; 8],
+    pub feats: Vec<u16>,
+    pub powers: Vec<u16>,
 }
 
 /// An item in play: its object id, how it shows, the `INVENTORY_SLOT_*`
@@ -189,6 +204,9 @@ pub struct MemberView {
     /// The equip page dresses it: the player's own character, or for the
     /// host a companion no seat plays (I30 P14).
     pub dresses: bool,
+    /// The party's XP lets it take a level, and this player gives it (as
+    /// `dresses`): the mark over its portraits.
+    pub may_level: bool,
     /// What the player playing it is in, its portrait's icon (R10).
     pub busy: Option<Busy>,
     /// Its body (`sim::SimId`): what a click on its portrait or its icon
@@ -406,10 +424,11 @@ pub struct UpgradeChoice {
     pub fits: bool,
 }
 
-/// A level to take (`ShowLevelUpGUI`): the class (a `classes.2da` row)
-/// and the level reached.
+/// A level to take (`ShowLevelUpGUI`): who takes it (its object id), the
+/// class (a `classes.2da` row) and the level reached.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct LevelUpView {
+    pub who: u32,
     pub class: u8,
     pub level: u8,
     /// Skill ranks now.
@@ -444,8 +463,6 @@ pub struct HudView {
     pub actions: Vec<(String, Option<u32>)>,
     /// The key that uses each action, as the screens name it (`3`, `F`).
     pub action_keys: Vec<Vec<u8>>,
-    /// The character may take a level.
-    pub level_up: bool,
     /// The status icons lit (`LBL_JOURNAL`, `LBL_PLOTXP`, …): what the
     /// last status summary told, a moment ago.
     pub lit: Vec<&'static str>,

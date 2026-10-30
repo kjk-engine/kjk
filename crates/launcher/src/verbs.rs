@@ -1498,7 +1498,7 @@ pub(crate) enum ScriptVerb {
         module: String,
     },
     /// Levels checked end to end: the classes read, the game's XP boost,
-    /// a companion levelling on its own, the player's level asked (picks
+    /// a companion's level waiting then asked, the player's level asked (picks
     /// refused, then taken), a save
     Levels {
         /// k1 or tsl

@@ -123,6 +123,8 @@ pub use world::pace_probes;
 pub use world::pair_probes;
 pub use world::party;
 #[cfg(feature = "probes")]
+pub use world::party_fights_probes;
+#[cfg(feature = "probes")]
 pub use world::player_probes;
 #[cfg(feature = "probes")]
 pub use world::presentation_probes;

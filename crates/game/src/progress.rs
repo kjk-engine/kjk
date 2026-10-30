@@ -1,7 +1,6 @@
 //! The story's progress on the HUD (I19), from the presented snapshot's
-//! (`sim::Progress`): the level-up mark while the player's character may
-//! take a level; the game's "Journal Updated:" with the quest's name in the
-//! feedback log, with the journal's sound (`ui_sounds`); and KOTOR's
+//! (`sim::Progress`): the game's "Journal Updated:" with the quest's name in
+//! the feedback log, with the journal's sound (`ui_sounds`); and KOTOR's
 //! status summary (`ui::screens::status_summary`)
 //! of what the scripts told the party (`Progress::statuses`).
 //!
@@ -224,7 +223,7 @@ pub fn marks(
     ui: Option<ResMut<Ui>>,
     (cues, mut told): (Option<ResMut<crate::sound::Cues>>, ResMut<Told>),
 ) {
-    let (Some(own), Some(mut ui)) = (own, ui) else {
+    let (Some(_), Some(mut ui)) = (own, ui) else {
         return;
     };
     let (ui, seen) = (&mut *ui, &mut *seen);
@@ -330,15 +329,7 @@ pub fn marks(
             }
         })
         .collect();
-    let level = swap
-        .as_ref()
-        .zip(crate::cast::levelling(snapshot, own.0))
-        .map(|(swap, levelling)| crate::cast::worn_sheet(snapshot, levelling, &swap.level).level);
-    let may_level = level
-        .zip(library)
-        .is_some_and(|(level, library)| library.classes().may_level(level, progress.xp));
     if let Some(hud) = ui.vm.hud.as_mut() {
-        hud.level_up = may_level;
         hud.lit = if now < seen.lit_until {
             seen.lit.clone()
         } else {
