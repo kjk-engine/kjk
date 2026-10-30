@@ -49,6 +49,7 @@ pub mod persona;
 #[cfg(feature = "probes")]
 pub mod probe;
 mod rate;
+pub mod remote;
 mod replay;
 pub mod rng;
 mod save;
@@ -131,6 +132,8 @@ pub use world::presentation_probes;
 #[cfg(feature = "probes")]
 pub use world::regen_probes;
 pub use world::remains;
+#[cfg(feature = "probes")]
+pub use world::remote::probes as remote_probes;
 #[cfg(feature = "probes")]
 pub use world::scene_probes;
 #[cfg(feature = "probes")]

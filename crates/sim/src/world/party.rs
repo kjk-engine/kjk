@@ -69,7 +69,7 @@ pub struct Combatant {
 }
 
 impl Combatant {
-    fn side(&self) -> crate::module::Side {
+    pub(super) fn side(&self) -> crate::module::Side {
         crate::module::Side {
             id: self.id.0,
             faction: self.faction,
@@ -175,7 +175,7 @@ fn duel(characters: &[Combatant], rules: Rules<'_>, now: u64) -> bool {
 
 /// The characters as the in-combat test sees them.
 #[allow(clippy::type_complexity)]
-fn combatants<'a>(
+pub(super) fn combatants<'a>(
     actors: impl Iterator<
         Item = (
             &'a Id,
@@ -208,7 +208,7 @@ fn combatants<'a>(
 }
 
 /// The in-combat test's rules for `level` as `scripts` left the factions.
-fn rules<'a>(level: &'a Level, scripts: &'a super::scripts::Scripts) -> Rules<'a> {
+pub(super) fn rules<'a>(level: &'a Level, scripts: &'a super::scripts::Scripts) -> Rules<'a> {
     let module = level.module();
     Rules {
         repute: module.map(|module| module.repute.with(&scripts.state.reputation)),

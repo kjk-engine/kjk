@@ -28,7 +28,7 @@ pub(super) fn track(metres: f32, length: f32) -> Path {
 
 /// A race: the player down a 100 m track, a pad 10 m along it, its hooks
 /// named (`OnHeartbeat`, `OnHitFollower`) so they are raised.
-fn race() -> Rules {
+pub(crate) fn race() -> Rules {
     let hooks = Hooks::from_labels(&[
         ("OnHeartbeat".into(), "heart".into()),
         ("OnHitFollower".into(), "pad".into()),

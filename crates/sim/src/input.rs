@@ -140,6 +140,11 @@ impl TickInput {
         self.commands.get(&seat)
     }
 
+    /// Takes a seat's command away, returning it.
+    pub fn remove(&mut self, seat: Seat) -> Option<Command> {
+        self.commands.remove(&seat)
+    }
+
     /// Sets how many milliseconds behind the authority `seat`'s player saw
     /// the world (the time its presented view showed, against the tick its
     /// command is for); 0 clears it.

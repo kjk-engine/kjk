@@ -723,10 +723,7 @@ impl View {
     /// doors by the camera's box. Nothing happens with no one to watch.
     fn third_person(&mut self, ms: f64, frame_ms: f32) {
         let own = self.own.at(self.me, ms);
-        let Some(at) = self
-            .watched
-            .and_then(|id| cast::blended_for(&self.history, id, ms, own.as_ref()))
-        else {
+        let Some(at) = self.subject(ms, own.as_ref()) else {
             return;
         };
         let walls = (&self.level, self.doors.as_deref());
@@ -738,6 +735,16 @@ impl View {
             frame_ms,
             &trace,
         );
+    }
+
+    /// Whom the camera follows at `ms`: the seat's remote droid while it
+    /// flies one (no party member to drive, the world not held), else the
+    /// watched body.
+    fn subject(&self, ms: f64, own: Option<&cast::Own<'_>>) -> Option<cast::Blended> {
+        cast::remote_at(&self.history, self.cast.seat, ms, 0.0).or_else(|| {
+            self.watched
+                .and_then(|id| cast::blended_for(&self.history, id, ms, own))
+        })
     }
 
     /// One step of the view to `ms`, `frame_ms` after the last.
@@ -1325,10 +1332,7 @@ fn draw(
             &view.close,
         );
     }
-    let Some(at) = view
-        .watched
-        .and_then(|watched| cast::blended_for(&view.history, watched, ms, own.as_ref()))
-    else {
+    let Some(at) = view.subject(ms, own.as_ref()) else {
         // No one to look through: the own head shown, its flashes whole.
         view.first.show(&mut visibility);
         eyes.0 = None;

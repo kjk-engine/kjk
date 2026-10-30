@@ -210,6 +210,7 @@ pub fn run(options: RunOptions) -> AppExit {
                 crate::script_fx::ScriptFxPlugin,
                 crate::blaster_view::BlasterViewPlugin,
                 crate::grenade_view::GrenadeViewPlugin,
+                crate::remote_view::RemoteViewPlugin,
                 // The game's logos open the menu (not a run's own session,
                 // nor one opening on a save or back from a game); a headless
                 // one is a check that wants the menu at once, and skips them

@@ -17,6 +17,11 @@ save south_apts
 to SithTalk              # into the corridor: the Sith raid (tar02_preraid)
 fight 20                 # (the Duros left alive thanks you as it ends:
                          # tar02_postraid, answered on the way out)
+wait 8s                  # pacing: its thanks start at the way out only if the
+                         # Duros is out of combat by then (k_ptar_dur_tr, one
+                         # shot), 8 s after the fight's last blow
+                         # (combat.timing.combat_ms); a quick fight (`--droids
+                         # chaos`) left too soon and the thanks never came
 save south_apts_patrol
 exit ptar_stnddr         # the South Apartments' door to Upper City South
 exit tar02_cantdoor      # the cantina

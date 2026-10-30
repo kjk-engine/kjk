@@ -164,6 +164,10 @@ pub(crate) enum Verb {
         /// (default kjk-artifacts/checkpoints/GAME)
         #[arg(long)]
         save_to: Option<std::path::PathBuf>,
+        /// `chaos`: two phantom guests fly remote droids at random, every
+        /// button of their kit pressed; the story kept as a plain run's
+        #[arg(long, value_parser = ["chaos"])]
+        droids: Option<String>,
         /// A build file (`playthrough::build`): the character a new game
         /// makes through character creation, and the plan its level-ups
         /// follow
@@ -219,6 +223,11 @@ pub(crate) enum Verb {
         /// always writes them
         #[arg(long)]
         saves: bool,
+        /// `chaos`: every route alone, from the plain chain's checkpoint,
+        /// with two chaos droids; its story changes at every module left,
+        /// against the last plain chain's, listed for review
+        #[arg(long, value_parser = ["chaos"])]
+        droids: Option<String>,
     },
     /// Conversations (I18): a module's DLGs, and conversations run headless
     Dialogue {
@@ -229,6 +238,12 @@ pub(crate) enum Verb {
     Script {
         #[command(subcommand)]
         verb: ScriptVerb,
+    },
+    /// The co-op remote droid: its duel census (every module's scripted
+    /// rounds and whether a protection the droid's gate reads covers each)
+    Remote {
+        #[command(subcommand)]
+        verb: RemoteVerb,
     },
     /// Launches `kjk play` headless a few times and tables where each
     /// launch's time went (its loading phases, and when it was loaded, built,
@@ -416,6 +431,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             skills,
             blocks,
             save_to,
+            droids,
             build,
         } => {
             let build = match build.as_deref().map(std::fs::read_to_string).transpose() {
@@ -464,6 +480,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                         listen,
                         fail_fast: blocks.fail_fast(),
                         save_to,
+                        droids: droids.is_some(),
                         build,
                     },
                 ),
@@ -486,6 +503,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             no_cache,
             dry_run,
             saves,
+            droids,
         } => chain::run(
             &discover(),
             &chain::Options {
@@ -503,6 +521,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 cache: !no_cache,
                 dry_run,
                 saves,
+                droids: droids.is_some(),
             },
         ),
         Verb::Dialogue { verb } => match verb {
@@ -566,6 +585,9 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 report.as_deref(),
             ),
         },
+        Verb::Remote {
+            verb: RemoteVerb::Census { game },
+        } => remote_census::census(&discover(), &game),
         Verb::LaunchReport { stage, runs } => launch_report::launch_report(&stage, runs),
         Verb::Script { verb } => match verb {
             ScriptVerb::Dis {
@@ -1358,6 +1380,18 @@ pub(crate) enum DialogueVerb {
         /// children's part)
         #[arg(long, hide = true)]
         report: Option<std::path::PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum RemoteVerb {
+    /// Every module's own scripts read for a scripted round (a creature
+    /// turned hostile, the fight ended by script), and whether the module
+    /// protects its fighter as the droid's gate reads it (Min1HP, plot);
+    /// the rest listed [verify]
+    Census {
+        /// k1 or tsl
+        game: String,
     },
 }
 

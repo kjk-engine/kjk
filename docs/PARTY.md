@@ -65,7 +65,8 @@
   `dialogue_coop`'s (`sim::coop_talk`, its `exits` phase).
   Approved tests `party_calls` and `hold_and_resume`.
 - Tab makes the next party member lead (seat 0 only; `leader_view`); a
-  seat watching another's body follows the next with N.
+  seat with no party member free flies a remote droid (`COOP.md`), and
+  one whose body is down watches the next with N.
 - While a companion leads (`world::lent`), the party goes with the body
   played: the other companions and the player's own character, by its mind
   (`world::minds`), follow it, leash to it and join its fights, and its
