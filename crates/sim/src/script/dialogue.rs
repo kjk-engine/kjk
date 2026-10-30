@@ -278,17 +278,24 @@ fn holds_world(conversations: &[Conversation], seat_bodies: &[ObjectId]) -> bool
                 .all(|body| conversations.iter().any(|c| c.holds(*body)))
 }
 
-/// How long the line `node` lasts (ms): its voice's length (`voice`: its
-/// own or its alien speech's, `Library::entry_voice`), or with none
-/// or one under `MIN_VOICE_MS` its text's (`READ_TENTHS_MS_PER_CHAR` a
-/// character of the text as stored, its developer notes and tokens counted
-/// [verify]), raised to its `Delay`, to its voice's length where its wait
-/// flags hold it for the voice, to its fade's end where they hold it for its
-/// fade (`fade_ms`), and to `LEAST_LINE_MS`. A line with no wait
-/// flags in an animated cut lasts nothing: the cut's animation times it. As
-/// the games' loader has it, a `Delay` counts as a wait flag and a voiced
-/// line (`voiced`: naming a voice of its own or alien speech) with neither
-/// waits for its voice.
+/// How long the line `node` lasts (ms): with a `Delay`, that delay; with
+/// none, its voice's length (`voice`: its own or its alien speech's,
+/// `Library::entry_voice`), or with none or one under `MIN_VOICE_MS` its
+/// text's (`READ_TENTHS_MS_PER_CHAR` a character of the text as stored, its
+/// developer notes and tokens counted, as TSL's `CSWSDialog::SetDialogDelay`
+/// counts the talk table's string). Either is raised to its voice's length
+/// where its wait flags hold it for the voice, to its fade's end where they
+/// hold it for its fade (`fade_ms`), and to `LEAST_LINE_MS`. A line with no
+/// wait flags in an animated cut lasts nothing: the cut's animation times
+/// it. As the games' loader has it, a `Delay` counts as a wait flag and a
+/// voiced line (`voiced`: naming a voice of its own or alien speech) with
+/// neither waits for its voice. TSL's `SetDialogDelay` reads a delayed
+/// line's text or voice time only for a conversation no player is in (its
+/// `CSWSDialogPlayer` list empty) and the line has replies linked; every
+/// conversation here is held with a player (`Conversation::pc`), so a
+/// `Delay` alone times it: the minefield vision's "{Mandalorians rush in
+/// the room ready for battle}" lasts its 3 s, not its note's 5.4 s
+/// [verify in K1's exe].
 fn line_ms(
     library: &super::Library,
     node: &Node,
@@ -297,7 +304,9 @@ fn line_ms(
 ) -> u64 {
     let voice = u64::from(voice.unwrap_or(0));
     let chars = shown_text(library, node).chars().count() as u64;
-    let base = if voice >= MIN_VOICE_MS {
+    let base = if node.delay.is_some() {
+        0
+    } else if voice >= MIN_VOICE_MS {
         voice
     } else {
         chars * READ_TENTHS_MS_PER_CHAR / 10
@@ -692,6 +701,13 @@ impl Conversation {
     /// no mark meanwhile.
     pub fn on_hold(&self) -> bool {
         self.paused || self.waits_for != ObjectId::INVALID
+    }
+
+    /// Whether its line has played and replies are offered: an answer is
+    /// taken from then (`Step::offer_replies` chooses them at the line's
+    /// end).
+    pub fn offers(&self) -> bool {
+        self.until_ms == u64::MAX && !self.replies.is_empty()
     }
 
     /// `body` comes to stand in it (R3, R4). A PC answers its story

@@ -117,6 +117,9 @@ pub trait Screen: Send + Sync {
     }
     /// Adjusts the layout once it is loaded (a box grown for its text).
     fn shape(&self, _gui: &mut Gui) {}
+    /// Adjusts the layout once it is loaded and shaped, measuring its words
+    /// in the fonts `source` draws with (a message box grown to them).
+    fn fit(&mut self, _gui: &mut Gui, _textures: &mut dyn Textures, _source: Source) {}
     /// The control focused when the screen opens.
     fn first_focus(&self) -> Option<&str> {
         None
@@ -517,6 +520,7 @@ impl Stack {
                             None => {}
                         }
                         entry.screen.shape(&mut gui);
+                        entry.screen.fit(&mut gui, assets, source);
                         entry.gui = Some(gui);
                         entry.source = source;
                     }
@@ -789,10 +793,16 @@ impl Entry {
         {
             edit.type_text(&input.text);
         }
-        if notches != 0.0
-            && let Some((tag, _)) = &under
-        {
-            self.scroll(gui, vm, Some(tag.as_str()), -notches as i32);
+        // The wheel scrolls the list under the pointer, read (a message)
+        // or chosen.
+        let wheeled = pointed.filter(|_| notches != 0.0).and_then(|at| {
+            gui.walk()
+                .filter(|control| control.kind == Kind::ListBox && contains(control, at))
+                .filter(|control| !self.state(control, vm).hidden)
+                .last()
+        });
+        if let Some(list) = wheeled {
+            self.scroll(gui, vm, Some(list.tag.as_str()), -notches as i32);
         }
         if input.click
             && under.is_none()
@@ -1053,9 +1063,13 @@ impl Entry {
         let Some((count, shown)) = self.rows(gui, vm, &tag) else {
             return;
         };
+        let follows = self
+            .view(gui, vm, &tag)
+            .and_then(|(_, view)| view)
+            .is_some_and(|view| view.follow);
         let cursor = self.lists.entry(tag).or_default();
         let last = count.saturating_sub(shown) as i32;
-        if !cursor.pinned {
+        if follows && !cursor.pinned {
             // Scrolling a list that followed its end starts from there.
             cursor.first = last.max(0) as usize;
             cursor.pinned = true;
