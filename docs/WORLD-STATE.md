@@ -1036,14 +1036,14 @@ Stealth XP is not raised yet.
   primary ability, skill ranks in the recommended order (each as high as
   it may go before the next) [verify], recommended feats and powers in
   order.
-- **When:** the party's XP (its pool) decides. A companion no seat drives
-  takes every level it may at once, with the game's picks (the owner's
-  choice). One a guest drives waits for its guest's `Action::LevelUp`, as
-  a player does (I30 P15); the step its guest drops, it takes those levels
-  with the game's picks. A player takes one when it asks: the level-up screen's picks as an action
-  (`Action::LevelUp`, into `State::levelling`), the feats and powers it
-  leaves unpicked and the ability point it leaves unspent the game's
-  (`Classes::complete`), checked. The sheet rides in the snapshot
+- **When:** the party's XP (its pool) decides, and a level waits until it
+  is asked: a player's own, a guest's for the companion it drives (I30
+  P15), the host's for a companion no seat drives, one a guest dropped
+  included (`Action::LevelUpOn`, by `items::may_dress`). The level-up
+  screen's picks as an action (`Action::LevelUp`, or `LevelUpOn`, into
+  `State::levelling`), the feats and powers it leaves unpicked and the
+  ability point it leaves unspent the game's (`Classes::complete`),
+  checked. The harness asks every level at once, the game's picks. The sheet rides in the snapshot
   (`Change::Sheet`); the career (classes and levels taken) is kept in the
   scripts' state (`State::careers`, a save carries it, KJKV 14), and
   `GetLevelByClass`, `GetClassByPosition` read it; `GetHitDice` the sheet.

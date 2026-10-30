@@ -532,17 +532,6 @@ pub fn worn_sheet(snapshot: &Snapshot, entity: &EntityState, level: &sim::Level)
     }
 }
 
-/// The character `seat`'s levels go to (`Action::LevelUp`): its body, but
-/// its own character while a companion leads the party.
-pub fn levelling(snapshot: &Snapshot, seat: Seat) -> Option<&EntityState> {
-    let body = snapshot.body(seat)?;
-    if snapshot.leading == Some(body.id) {
-        snapshot.own(seat)
-    } else {
-        Some(body)
-    }
-}
-
 /// The party as `seat` sees it, as the bar, the HUD, the pages and their 3D
 /// view list it: its body (`Snapshot::body`: its avatar, the companion it
 /// drives, I31, or the one leading) first. The party's own order is the

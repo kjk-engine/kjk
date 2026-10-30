@@ -69,6 +69,7 @@ const GROUPS: &[Group] = &[
     ("blade taken", sim::strikes::blade_taken_probes),
     ("minds", sim::minds_probes),
     ("pace", sim::pace_probes::probes),
+    ("party fights", sim::party_fights_probes::probes),
     ("body", sim::motion::body_probes::probes),
     ("talk ends", sim::talk_end_probes::probes),
     ("speakers", sim::speaker_probes::probes),

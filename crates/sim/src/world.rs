@@ -85,6 +85,8 @@ pub mod pace_probes;
 pub mod pair_probes;
 pub mod party;
 #[cfg(feature = "probes")]
+pub mod party_fights_probes;
+#[cfg(feature = "probes")]
 pub mod player_probes;
 mod powers;
 #[cfg(feature = "probes")]
