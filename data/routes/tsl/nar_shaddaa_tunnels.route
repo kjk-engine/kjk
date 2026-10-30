@@ -17,8 +17,12 @@
 exit TO_304NAR@2     # the Jekk'Jekk Tarr (the transition past its door)
 module 304nar
 talk                 # Visquis's welcome, Kreia's Breath Control
+cast 270             # Breath Control (a_givebreathcon's GrantSpell): poison
+                     # immunity against the vents' gas (a_gas_dmg passes over
+                     # one under its effect, GetHasSpellEffect 270)
 fight 40             # the patrons
 to tr_visleaveconv   # Visquis leaves for his stronghold
+cast 270             # again, should it have run out
 fight 40
 say Calm down, I mean you no harm. Where is Visquis? # (LSP)
 say Get to safety. I'll handle your master. # (LSP)

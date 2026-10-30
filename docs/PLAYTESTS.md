@@ -196,9 +196,10 @@ They sit beside the owner's own saves (numbered ids, untouched) on the
 Load screen. A number whose checkpoint the chain has not kept (its route
 never met) keeps the save it had. A run in a worktree writes none, as its
 binary is not the one the owner plays, unless given `--saves`. A save
-made with other level data than the build's is refused at load ("the
-game's data is not what the save was made with"): run the chain again on
-the new build. TSL's `cold` saves come from `tsl/planets.route`, whose
+made with other level data than the build's loads re-stamped with the
+build's (a `save-migrate` line in the log); a checkpoint the chain itself
+loads is still refused unless `--stale`: run the chain again on the new
+build. TSL's `cold` saves come from `tsl/planets.route`, whose
 `goto`s stand in for the story between Peragus and each planet: the
 area plays, its story's earlier state is missing.
 
