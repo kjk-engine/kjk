@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b609bf78b1c5d49e`.
+Edition `b5ef3e3536d29097`.
 
 ## Contents
 
@@ -8660,8 +8660,8 @@ how the party is gathered in co-op, and how scripts count rounds and turns.
 
 A voiced line lasts as long as its voice. A line with no voice, or a voice
 shorter than 0.15 seconds, lasts as long as its text takes
-to read. A line's own delay can lengthen it, and its wait flag can hold it
-for the whole voice. In an animated cutscene, a line with no wait flag or
+to read. A line with its own delay lasts that delay instead, and its wait
+flag can hold it for the whole voice. In an animated cutscene, a line with no wait flag or
 delay lasts only as long as its animation.
 
 <a id="dialogue-lines-read-tenths-ms-per-char"></a>**Reading Time** = **1125** · `dialogue.lines.read_tenths_ms_per_char`
