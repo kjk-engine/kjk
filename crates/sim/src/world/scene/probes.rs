@@ -112,6 +112,7 @@ const PROBES: &[Probe] = &[
     ("arrives_exactly", arrives_exactly),
     ("move_to_object_range", move_to_object_range),
     ("goes_round_a_body", goes_round_a_body),
+    ("corner_skip_short_of_a_wall", corner_skip_short_of_a_wall),
     ("gives_up_blocked", gives_up_blocked),
     ("bump_rules", bump_rules),
     ("pushes_idle_aside", pushes_idle_aside),
@@ -3645,6 +3646,34 @@ fn goes_round_a_body() -> Found {
     check(
         nearest >= 0.76 && off <= 0.1 && track.ended().is_some(),
         format!("{nearest:.2} m from the body at the nearest, {off:.3} m off the end"),
+    )
+}
+
+/// A stalled walk (`walk::next_corner` with `skip`) passes over the first
+/// corner it stands within a body and a half of, and a second only where the
+/// way straight on to the one after lies open: 301NAR's walk out past IT-31
+/// (the player at (-23.72, 25.73), its corners 0.4 m and 1.3 m off round a
+/// wall's end, the third 20 m away through the wall) keeps the second; with
+/// every way open it makes for the third, as before.
+fn corner_skip_short_of_a_wall() -> Found {
+    let metres = |[x, y]: [f32; 2]| [x / UNIT, y / UNIT, 10.28 / UNIT];
+    let at = metres([-23.72, 25.73]);
+    let corners = [
+        [-23.33, 25.85],
+        [-23.30, 24.47],
+        [-29.78, 6.13],
+        [-54.75, -5.16],
+    ]
+    .map(metres);
+    let walled = |_: [f32; 3], to: [f32; 3]| to != corners[2];
+    let next = |open: &dyn Fn([f32; 3], [f32; 3]) -> bool| {
+        crate::walk::next_corner(&corners, at, true, false, open)
+    };
+    let (kept, open) = (next(&walled), next(&|_, _| true));
+    let none = crate::walk::next_corner(&corners, at, true, false, &|_, _| false);
+    check(
+        kept == Some(corners[1]) && open == Some(corners[2]) && none == Some(corners[1]),
+        format!("the wall's way on shut: {kept:?}; every way open: {open:?}; none: {none:?}"),
     )
 }
 

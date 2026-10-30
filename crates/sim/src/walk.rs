@@ -607,7 +607,25 @@ pub fn why_none(level: &Level, from: Vec3, to: Vec3) -> String {
 /// corner, beyond the corner (a route from beside a corner may turn back
 /// round it first). One it only stands beside, short of the way on, is
 /// still to be gone round.
-fn next_corner(corners: &[Vec3], at: Vec3, skip: bool, fresh: bool) -> Option<Vec3> {
+///
+/// One corner is passed over so; a second only where the way from `at`
+/// straight on to the one after it lies open (`open`, `over_mesh`), else
+/// that second is kept. Skipped regardless, Nar Shaddaa's Refugee Sector
+/// walk past IT-31 (standing 0.4 m from the corner round a wall's end,
+/// which the player could not get near inside their personal spaces)
+/// passed over that corner and the next, 1.3 m off, and made for one 20 m
+/// away through the wall, four times over. The first is not held to it:
+/// kept, a corner reached again and again counts its walk's stalls afresh,
+/// and a way an open door's leaf shuts (301NAR's narshaddaadoor01, on the
+/// way to Geriel) was never given up for another [verify in the exe:
+/// KOTOR's walker skips no corner; this rule is ours].
+pub(crate) fn next_corner(
+    corners: &[Vec3],
+    at: Vec3,
+    skip: bool,
+    fresh: bool,
+    open: &dyn Fn(Vec3, Vec3) -> bool,
+) -> Option<Vec3> {
     let near = if skip {
         rules::walking::route::SKIP_PASSES * PASS
     } else {
@@ -619,6 +637,7 @@ fn next_corner(corners: &[Vec3], at: Vec3, skip: bool, fresh: bool) -> Option<Ve
     // scene, the player's). A chase planned anew as its quarry moves still
     // passes over a goal it stands beside.
     let last = corners.len().saturating_sub(1);
+    let passed_over = std::cell::Cell::new(false);
     let done = |index: usize| {
         let corner = corners[index];
         let near = if fresh && index == last {
@@ -626,16 +645,25 @@ fn next_corner(corners: &[Vec3], at: Vec3, skip: bool, fresh: bool) -> Option<Ve
         } else {
             near
         };
-        if math::flat_distance(corner, at) <= near {
+        let next = corners.get(index + 1);
+        let within = |near: f32| {
+            math::flat_distance(corner, at) <= near
+                || next.is_some_and(|next| {
+                    let way = math::sub(*next, corner);
+                    let from = math::sub(at, corner);
+                    let length = way[0] * way[0] + way[1] * way[1];
+                    let t = (way[0] * from[0] + way[1] * from[1]) / length.max(f32::EPSILON);
+                    t > 0.0 && math::flat_distance(from, math::scale(way, t.min(1.0))) <= near
+                })
+        };
+        if within(REACHED) {
             return true;
         }
-        corners.get(index + 1).is_some_and(|next| {
-            let way = math::sub(*next, corner);
-            let from = math::sub(at, corner);
-            let length = way[0] * way[0] + way[1] * way[1];
-            let t = (way[0] * from[0] + way[1] * from[1]) / length.max(f32::EPSILON);
-            t > 0.0 && math::flat_distance(from, math::scale(way, t.min(1.0))) <= near
-        })
+        let over = near > REACHED
+            && within(near)
+            && (!passed_over.get() || next.is_none_or(|next| open(at, *next)));
+        passed_over.set(passed_over.get() || over);
+        over
     };
     (0..corners.len())
         .find(|&index| !done(index))
@@ -692,6 +720,25 @@ pub fn straight(level: &Level, from: Vec3, to: Vec3) -> bool {
     let length = (way[0] * way[0] + way[1] * way[1]).sqrt();
     let steps = (length / STRAIGHT_STEP).ceil().max(1.0) as u32;
     (1..=steps).all(|step| stands(level, math::mad(from, step as f32 / steps as f32, way)))
+}
+
+/// Whether the line from `from` to `to` (origins, units) keeps over the
+/// navigation mesh's open faces (none under furniture) at every
+/// `STRAIGHT_STEP` between them: the mesh's own word on a way, which a box
+/// grazing the wall it runs along (`straight`) does not wait for.
+pub fn over_mesh(level: &Level, from: Vec3, to: Vec3) -> bool {
+    let Some(nav) = level.nav() else {
+        return true;
+    };
+    let drop = (rules::walking::route::DROP_STEPS * motion::STEP_HEIGHT + 1.0) * UNIT;
+    let way = math::sub(to, from);
+    let length = (way[0] * way[0] + way[1] * way[1]).sqrt();
+    let steps = (length / STRAIGHT_STEP).ceil().max(1.0) as u32;
+    (1..steps).all(|step| {
+        let at = soles(math::mad(from, step as f32 / steps as f32, way));
+        nav.locate(at, drop, 0.5)
+            .is_some_and(|face| !nav.faces[face as usize].covered)
+    })
 }
 
 /// How far apart `straight` looks along its line (units).
@@ -972,7 +1019,11 @@ impl Walker {
         let under = back.filter(|on| math::flat_distance(*on, at) <= REACHED);
         self.waypoint = route_round(level, at, self.goal, state, walled)
             .or_else(|| route_round(level, under?, self.goal, state, walled))
-            .and_then(|corners| next_corner(&corners, at, skip, self.since_ms == 0))
+            .and_then(|corners| {
+                next_corner(&corners, at, skip, self.since_ms == 0, &|from, to| {
+                    over_mesh(level, from, to)
+                })
+            })
             .or(back.filter(|_| under.is_none()));
         self.best = f32::MAX;
     }
@@ -995,7 +1046,10 @@ impl Walker {
             return;
         }
         let dir = [way[0] / length, way[1] / length];
-        // The nearest body ahead, within a pass of the way.
+        // The nearest body ahead, within a pass of the way; or one it
+        // touches, slid along it past its middle (IT-31 on 301NAR's way out
+        // of Geeda's nook, met head-on and slid round into the pocket
+        // between it and a wall's end, already behind the stalled walk).
         let blocking = bodies
             .iter()
             .filter_map(|body| {
@@ -1003,7 +1057,8 @@ impl Walker {
                 let ahead = rel[0] * dir[0] + rel[1] * dir[1];
                 let side = rel[0] * dir[1] - rel[1] * dir[0];
                 let at_goal = math::flat_distance(*body, self.goal) < PASS;
-                (ahead > 0.0
+                let touching = math::flat_distance(*body, at) < PASS;
+                ((ahead > 0.0 || touching)
                     && ahead < (length + PASS).min(rules::walking::route::AHEAD_PASSES * PASS)
                     && side.abs() < PASS
                     && !at_goal)
@@ -1134,8 +1189,9 @@ impl Walker {
 /// of one at `at` making for `corner` that it goes round by: a spot a body
 /// fits on (`Level::fits`, standing on the mesh's floor there as KOTOR's
 /// walker holds it, `LIFT` over it) over the navigation mesh, clear of
-/// every body at `bodies`, beside the body across the way, the nearer the
-/// corner; the wider when a crowd takes both near ones. `None` when none
+/// every body at `bodies`, beside the body across the way, one the corner
+/// is straight on from before one it is not, then the nearer the corner;
+/// the wider when a crowd takes both near ones. `None` when none
 /// is. Tested at the walker's own height, a floor a few millimetres
 /// higher beside it (Chuundar's wooden throne room) had put every side in
 /// the floor, and the player stood pressed into Freyyr for good.
@@ -1150,6 +1206,10 @@ fn beside(level: &Level, at: Vec3, corner: Vec3, body: Vec3, bodies: &[Vec3]) ->
     let length = math::flat_length([way[0], way[1], 0.0]).max(f32::EPSILON);
     let across = [-way[1] / length, way[0] / length];
     let flat_to = |p: Vec3| ((p[0] - corner[0]).powi(2) + (p[1] - corner[1]).powi(2)).sqrt();
+    // A side the corner lies straight on from (`straight`) before one a
+    // wall stands between: the nearer of IT-31's two sides was the pocket
+    // the walk had slid into, round a wall's end from its corner.
+    let walled = |p: Vec3| !straight(level, p, corner);
     // A side clear of every body (in a crowd, a listener to Gorton Colu's
     // speech beside the one ahead): the nearer, else one wider.
     let clear = |p: &Vec3| {
@@ -1176,7 +1236,11 @@ fn beside(level: &Level, at: Vec3, corner: Vec3, body: Vec3, bodies: &[Vec3]) ->
                 }
             })
             .filter(|p| clear(p) && level.fits(*p))
-            .min_by(|a, b| flat_to(*a).total_cmp(&flat_to(*b)))
+            .min_by(|a, b| {
+                walled(*a)
+                    .cmp(&walled(*b))
+                    .then(flat_to(*a).total_cmp(&flat_to(*b)))
+            })
     })
 }
 
