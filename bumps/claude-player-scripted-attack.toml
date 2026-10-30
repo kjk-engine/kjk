@@ -1,4 +1,0 @@
-# The sim's hash moves on purpose: a script's attack of a door or
-# placeable strikes it (a blow a round within reach, locked or not), a
-# player's too once within reach (TSL's Peragus shift console).
-sim = "a script's ActionAttack on a door or placeable strikes it, a player's too once within reach"

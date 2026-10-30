@@ -21,6 +21,8 @@ on:
     paths-ignore:
       - "docs/**"
       - "*.md"
+  # pin.yml starts it on its `pin` branch, whose pull request starts none.
+  workflow_dispatch:
 
 # A merged pull request's closing run has main as its ref: keyed on the
 # event and the pull request's branch, it cancels that pull request's runs
@@ -39,7 +41,7 @@ env:
   # manual.yml. Branches never edit it: a bump file says the sim moves, and
   # the merge pins it (bumps/README.md, pin.yml); `git log --grep "Pinned
   # at merge"` is its history.
-  KJK_SIM_HASH: 195c028d7cf09f6acf3213f0a9a4a6a6c8f0e2d9e573ce374f2537f5fffeeb05
+  KJK_SIM_HASH: 4d8a734512fdcd5776573c7252ecf4c8e1d6ed440dc708a4b90e22e773976c8e
 
 jobs:
   # The approved tests and clippy are jobs of their own, side by side:
