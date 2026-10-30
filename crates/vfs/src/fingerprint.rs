@@ -42,10 +42,24 @@ pub fn covered(game: Game, key: &str) -> bool {
         Game::Kotor1 | Game::Kotor2 => {
             KOTOR_FILES.contains(&key) || KOTOR_FOLDERS.iter().any(|dir| key.starts_with(dir))
         }
-        // The configs in base/ are written by the game when the player
-        // changes settings.
-        Game::JediAcademy => key.starts_with("base/") && !key.ends_with(".cfg"),
+        Game::JediAcademy => key.strip_prefix("base/").is_some_and(crate::ja::game_data),
     }
+}
+
+/// The most groups a world names (`WorldData::groups`), as many as a join
+/// handshake carries per game.
+pub const MAX_WORLD_GROUPS: usize = 8;
+
+/// The group a covered file is digested in: its first path component (the
+/// file name, for files at the root). JA's loaded PK3s are groups of their
+/// own (`base/assets0.pk3`), the first `MAX_WORLD_GROUPS - 1` in name
+/// order, so a refusal names the archive that differs; the rest of `base/`
+/// is `base`.
+fn group_of<'a>(game: Game, key: &'a str, own: &[&str]) -> &'a str {
+    if game == Game::JediAcademy && own.contains(&key) {
+        return key;
+    }
+    key.split_once('/').map_or(key, |(first, _)| first)
 }
 
 /// The groups a game's worlds are built from (its tables, modules,
@@ -58,7 +72,7 @@ pub fn world_group(game: Game, group: &str) -> bool {
             group,
             "chitin.key" | "data" | "dialog.tlk" | "modules" | "override" | "patch.erf" | "rims"
         ),
-        Game::JediAcademy => group == "base",
+        Game::JediAcademy => group == "base" || group.starts_with("base/"),
     }
 }
 
@@ -229,10 +243,16 @@ fn compute(
     let header = format!("{VERSION}\ngame {}\n", game.key());
     let mut whole = blake3::Hasher::new();
     whole.update(header.as_bytes());
+    let own: Vec<&str> = lines
+        .iter()
+        .map(|(key, _)| key.as_str())
+        .filter(|key| key.strip_prefix("base/").is_some_and(crate::ja::root_pk3))
+        .take(MAX_WORLD_GROUPS - 1)
+        .collect();
     let mut groups: BTreeMap<String, (blake3::Hasher, usize)> = BTreeMap::new();
     for (key, line) in &lines {
         whole.update(line.as_bytes());
-        let group = key.split_once('/').map_or(key.as_str(), |(first, _)| first);
+        let group = group_of(game, key, &own);
         let slot = groups.entry(group.to_string()).or_insert_with(|| {
             let mut hasher = blake3::Hasher::new();
             hasher.update(header.as_bytes());
