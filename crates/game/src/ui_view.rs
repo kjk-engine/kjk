@@ -708,6 +708,7 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
     );
     out.quads.extend(minimap.and_then(|minimap| minimap.arrow));
     if !banner {
+        ui::screens::hud::effects(&gui, vm, &mut painter, &mut out);
         ui::screens::hud::busy(&gui, vm, &mut painter, &mut out);
         ui::screens::hud::action_keys(&gui, vm, &mut painter, &mut out);
     }

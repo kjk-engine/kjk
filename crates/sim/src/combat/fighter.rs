@@ -641,6 +641,19 @@ impl Fighter {
         self.life == Life::Downed
     }
 
+    /// Debilitated at `now`, as KOTOR's `CSWSCreature::IsDebilitated` has
+    /// it (its portrait's `LBL_DEBILATATED`): not standing, held (C11's
+    /// hold), or under a KOTOR state but confusion (a creature's or a
+    /// droid's, which leave it acting).
+    pub fn debilitated(&self, now: u64) -> bool {
+        use super::effects::state;
+        let force = &self.force;
+        !self.alive()
+            || force.stunned_until > now
+            || (force.state_until > now
+                && !matches!(force.state, 0 | state::CONFUSED | state::DROID_CONFUSED))
+    }
+
     /// Dead: no getting up.
     pub fn dead(&self) -> bool {
         self.life == Life::Dead

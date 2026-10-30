@@ -648,6 +648,8 @@ fn effect_type(modifies: Modifies, amount: i16) -> &'static str {
         Modifies::TrueSeeing => "EFFECT_TYPE_TRUESEEING",
         Modifies::Blind => "EFFECT_TYPE_BLINDNESS",
         Modifies::Regenerate => "EFFECT_TYPE_REGENERATE",
+        // KOTOR's `EFFECT_ICON` has no `EFFECT_TYPE_*` of its own.
+        Modifies::Icon => "EFFECT_TYPE_INVALIDEFFECT",
         // TSL's executable names no type for these (a state's is its own,
         // `GetEffectType`).
         Modifies::State
@@ -2503,8 +2505,21 @@ impl Engine<'_> {
                     .collect();
                 self.effect_value(Effect::Linked(parts))
             }
-            // The icon is the views' (the buff bar); the effect is the same.
-            SetEffectIcon => args.first().cloned().unwrap_or(Value::Int(0)),
+            // An icon linked before the effect, as KOTOR's
+            // `ExecuteCommandSetEffectIcon` links its `EFFECT_ICON`: it
+            // lasts as the effect does (`Modifies::Icon`, the HUD's arrows).
+            SetEffectIcon => match self.effect_arg(args, 0) {
+                Some(effect) => {
+                    let row = int(args, 1).clamp(0, i32::from(i16::MAX)) as i16;
+                    let icon = Effect::Modifier {
+                        modifies: Modifies::Icon,
+                        amount: row,
+                        of: 0,
+                    };
+                    self.effect_value(Effect::Linked(vec![icon, effect]))
+                }
+                None => args.first().cloned().unwrap_or(Value::Int(0)),
+            },
             ApplyEffectToObject => {
                 if let Some(effect) = self.effect_arg(args, 1) {
                     let seconds = float(args, 3);
