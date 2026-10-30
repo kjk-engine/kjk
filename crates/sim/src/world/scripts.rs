@@ -1859,36 +1859,17 @@ impl SimWorld {
                 }
             };
             queue(Hook::ModuleLoad, MODULE, None);
+            // The area's OnEnter hears each player's own character alone,
+            // even while a companion leads: TSL's `RunModule` adds the
+            // player loaded from `Mod_PlayerList` (stored from the player's
+            // character, not the leader) with the entered event, then
+            // `CreateParty` adds the companions without it, and the leader
+            // the party table keeps takes control after (`CrownFutureLeader`).
+            // So 232TEL's k_232_enter, asking whether the one entering is
+            // GetFirstPC, gives the Exile back after Bao-Dur led the party in.
             for (_, player) in &players {
                 queue(Hook::Enter, MODULE, Some(*player));
                 queue(Hook::Enter, AREA, Some(*player));
-            }
-            // The area's OnEnter hears each companion the party brings in
-            // too, in the party's order, as the executables raise the
-            // area's entered event for every creature added to it (TSL's
-            // CSWSArea::AddObjectToArea signals script event 12 for a
-            // creature, a player's or not; the module's OnClientEnter is a
-            // client's alone). So a script asking whether the one entering
-            // is GetFirstPC finds the leader among them while a companion
-            // leads (232TEL's k_232_enter gives the Exile back after
-            // Bao-Dur led the party in). The order [verify in the exe].
-            let bodies: BTreeSet<u32> = self
-                .world
-                .query::<&Id>()
-                .iter(&self.world)
-                .map(|id| id.0.0)
-                .collect();
-            let companions: Vec<ObjectId> = state
-                .party
-                .members
-                .iter()
-                .filter_map(|npc| state.party.available.get(npc)?.object)
-                .filter(|object| bodies.contains(object))
-                .map(ObjectId)
-                .filter(|object| !players.iter().any(|(_, player)| player == object))
-                .collect();
-            for companion in companions {
-                queue(Hook::Enter, AREA, Some(companion));
             }
         }
         self.world.insert_resource(carried);

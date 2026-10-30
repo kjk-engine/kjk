@@ -54,7 +54,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("leader_keeps_the_view", leader_view()));
     checks.push(("leader_uses_from_its_body", leader_uses()));
     checks.push(("leader_walks_out", leader_walks_out()));
-    checks.push(("area_entered_by_the_party", entered_by_the_party()));
+    checks.push(("area_entered_by_the_player_alone", entered_by_the_party()));
     checks.push(("guest_leads_its_acts", guest_leads()));
     checks.extend(kept_for_seats());
     match scenario() {
@@ -557,12 +557,11 @@ fn leader_walks_out() -> Result<String, String> {
     )
 }
 
-/// The area's OnEnter runs for the player and for each companion the
-/// party brings in: arriving in a module whose area counts its entries,
-/// the player and the two companions make three, as the executables raise
-/// the area's entered event for every creature added to it (TSL's
-/// `k_232_enter` gives the Exile back when the one entering is the leader
-/// `GetFirstPC` names, Bao-Dur after the landing pad).
+/// The area's OnEnter runs for the player alone: arriving in a module
+/// whose area counts its entries with two companions makes one, as TSL's
+/// `RunModule` adds the player with the entered event and `CreateParty`
+/// the companions without it (`k_232_enter` gives the Exile back when the
+/// one entering is `GetFirstPC`, the player's own character).
 fn entered_by_the_party() -> Result<String, String> {
     let (mut world, ..) = party_world(Guests::Companions, 1)?;
     let ground = exit_ground()?;
@@ -574,7 +573,7 @@ fn entered_by_the_party() -> Result<String, String> {
     run(&mut world, &[(0, 0)]);
     let count = crate::script::global(&scripts_of(&mut world).state.numbers, ENTERED).copied();
     check(
-        count == Some(3),
+        count == Some(1),
         format!("the area's OnEnter ran {count:?} times"),
     )
 }
