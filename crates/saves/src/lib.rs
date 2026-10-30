@@ -179,7 +179,7 @@ pub fn read(root: &Path, id: &str) -> Result<(sim::Save, Meta), String> {
             _ => String::new(),
         };
         format!(
-            "save {id}: {error}{made}. The saves as they were before each new release are kept in {}; an autosave, or the release that made it, may load it",
+            "save {id}: {error}{made}. Copies from before each release are in {}; an autosave, or the release that made it, may load it",
             safety::BACKUPS
         )
     })?;
@@ -304,8 +304,11 @@ fn write_files(
     // the new one whole.
     for (name, bytes) in [(WORLD, world), (META, text.as_slice())] {
         let path = fresh.join(name);
-        let written =
-            std::fs::write(&path, bytes).and_then(|()| std::fs::File::open(&path)?.sync_all());
+        // The handle that wrote it: Windows refuses to flush a read-only one.
+        let written = std::fs::File::create(&path).and_then(|mut file| {
+            std::io::Write::write_all(&mut file, bytes)?;
+            file.sync_all()
+        });
         if let Err(error) = written {
             // A full disk: nothing half-written is left.
             let _ = remove(&fresh);

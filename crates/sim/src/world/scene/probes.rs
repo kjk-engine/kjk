@@ -136,7 +136,7 @@ const PROBES: &[Probe] = &[
     ("item_lost_heard", item_lost_heard),
     ("walk_opens_door", walk_opens_door),
     ("blocked_by_door", blocked_by_door),
-    ("party_stops_at_door", party_stops_at_door),
+    ("party_waits_for_door", party_waits_for_door),
     ("walk_off_mesh_ends", walk_off_mesh_ends),
     ("door_goal_ends", door_goal_ends),
     ("stepped_walk_stalls", stepped_walk_stalls),
@@ -150,6 +150,8 @@ const PROBES: &[Probe] = &[
 
 /// A step's length (ms).
 const STEP_MS: u64 = 8;
+/// How long an answer waits for a line to play (steps): 8 s.
+const REPLIES_UP_STEPS: usize = 1000;
 
 /// How many steps last `ms`.
 fn steps(ms: u64) -> usize {
@@ -888,6 +890,7 @@ impl Ground {
             if self.last.talk.conversations.is_empty() {
                 return Ok(());
             }
+            self.replies_up();
             for reply in &mut self.replies {
                 *reply = answer(*reply, Pick::Reply(GOODBYE));
             }
@@ -950,10 +953,31 @@ impl Ground {
         }
     }
 
-    /// Seat 0 answers `pick`, a step.
+    /// Seat 0 answers `pick`, a step; a reply once the replies are up.
     fn answer(&mut self, pick: Pick) {
+        if matches!(pick, Pick::Reply(_) | Pick::Point(_)) {
+            self.replies_up();
+        }
         self.replies[0] = answer(self.replies[0], pick);
         self.step();
+    }
+
+    /// Steps until no line under way is still playing: its replies are
+    /// chosen as it ends (`Step::offer_replies`), and an answer counts from
+    /// then.
+    fn replies_up(&mut self) {
+        for _ in 0..REPLIES_UP_STEPS {
+            let playing = self
+                .last
+                .talk
+                .conversations
+                .iter()
+                .any(|c| c.until_ms != u64::MAX && !c.on_hold());
+            if !playing {
+                return;
+            }
+            self.step();
+        }
     }
 
     /// The line under way: the entry shown and its listener.
@@ -2817,9 +2841,10 @@ fn line_delay_raises() -> Found {
     lasts(line(&"x".repeat(40), Some(6), 0, None), 6000)
 }
 
-/// S5: a `Delay` under the text's length changes nothing.
+/// S5: a `Delay` under the text's length is the line's length, the text
+/// not read (TSL's `CSWSDialog::SetDialogDelay` with a player in it).
 fn line_delay_short() -> Found {
-    lasts(line(&"x".repeat(40), Some(2), 0, None), 4500)
+    lasts(line(&"x".repeat(40), Some(2), 0, None), 2000)
 }
 
 /// S5: a line with no text and no voice lasts the least, 10 ms.
@@ -2955,12 +2980,14 @@ fn unskippable_line() -> Found {
 /// of their own, no `Speaker`) play it as `probe_talk`'s walk draws the
 /// variants, 3 then 1, and last as long; the third, of a race with nothing
 /// for the emotion, and the fourth, naming its speaker, play none, the
-/// walk moving on all the same.
+/// walk moving on all the same. The lines have no `Delay`, which would
+/// time them instead.
 fn alien_speech() -> Found {
     let mut talk = in_turn(&["", "", "", "talker"]);
     talk.alien_race_owner = 1;
     for node in &mut talk.entries {
         node.emotion = 1;
+        node.delay = None;
     }
     talk.entries[2].alien_race = 2;
     let stage = Stage {
@@ -4541,8 +4568,12 @@ fn blocked_by_door() -> Found {
 
 /// S3: the companion's and the host's walks through the shut gate, the
 /// world held (the party opens nothing, S4): neither crosses the panel nor
-/// opens it, and each move ends.
-fn party_stops_at_door() -> Found {
+/// opens it, and each walk, finding no way, waits out KOTOR's pathfinding
+/// wait and looks again (`walk::pathfind_wait_ms`), its move kept; the gate
+/// opened by itself (`AssignCommand(oDoor, ActionOpenDoor(oDoor))`, as
+/// a_903kreia opens d_entrance 4 s after sending the Exile through it),
+/// the walk goes through and arrives.
+fn party_waits_for_door() -> Found {
     let mut found = Vec::new();
     for party in [BUDDY, u32::MAX] {
         let mut ground = through_ground()?;
@@ -4553,13 +4584,26 @@ fn party_stops_at_door() -> Found {
         ground.put(who, BEFORE_GATE);
         ground.step();
         let (track, past, opened) = through_gate(&mut ground, who, 3000);
-        found.push((track.ended().is_some(), past, opened));
+        let waiting = track.ended().is_none();
+        ground.run_script("probe_open", GATE)?;
+        let mut arrived = None;
+        for step in 0..steps(8000) {
+            ground.step();
+            if ground.queued(who) == 0 {
+                arrived = Some(step);
+                break;
+            }
+        }
+        let off = between(ground.at(who), floor_at(PAST_GATE));
+        found.push((waiting, past, opened, arrived, off));
     }
     check(
-        found
-            .iter()
-            .all(|&(ended, past, opened)| ended && past <= 0.0 && !opened),
-        format!("(companion, host): (move ended, front past the panel m, gate opened) {found:?}"),
+        found.iter().all(|&(waiting, past, opened, arrived, off)| {
+            waiting && past <= 0.0 && !opened && arrived.is_some() && off <= 0.1
+        }),
+        format!(
+            "(companion, host): (still walking at 3 s, front past the shut panel m, opened by it, arrived at step after the gate opened, m off the end) {found:?}"
+        ),
     )
 }
 

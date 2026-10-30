@@ -40,7 +40,9 @@ use crate::math;
 use crate::module::ObjectData;
 use crate::module::{ModuleData, ObjectKind, Spot};
 use crate::motion::{self, MotionState};
-use crate::snapshot::{EntityState, Kind, ObjectState, SimId, Snapshot, SnapshotHash, Stashed};
+use crate::snapshot::{
+    EntityState, Kind, ObjectState, Place, SimId, Snapshot, SnapshotHash, Stashed,
+};
 use crate::wire::{DecodeError, Reader, Writer, read_fixed, write_fixed};
 use crate::world::{Digests, Level, SimWorld, in_doorway};
 
@@ -103,7 +105,67 @@ impl fmt::Display for InstallError {
 
 impl std::error::Error for InstallError {}
 
+/// A module stamped with other data than this build reads it with (its
+/// `Place::digest`): a save's own, or one it left behind, taken on with
+/// the level's digest (the save migrations design, part 3). kjk reading the
+/// same game differently (collision, nav, anims, scripts) or the player's
+/// files changing leaves the saved state as right as it was; another game,
+/// module or player count is still refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Restamp {
+    pub module: String,
+    pub from: [u8; 32],
+    pub to: [u8; 32],
+}
+
+impl Restamp {
+    /// Whether `stamped` is `here`, or is but for its digest.
+    pub fn matches(stamped: &Place, here: &Place) -> bool {
+        stamped.game == here.game
+            && stamped.module == here.module
+            && stamped.players == here.players
+    }
+
+    /// `stamped` taken on as `here`: none when it is `here` already or is
+    /// another place.
+    pub fn of(stamped: &Place, here: &Place) -> Option<Restamp> {
+        (Restamp::matches(stamped, here) && stamped.digest != here.digest).then(|| Restamp {
+            module: here.module.clone(),
+            from: stamped.digest,
+            to: here.digest,
+        })
+    }
+}
+
+impl fmt::Display for Restamp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let short = |digest: &[u8; 32]| -> String {
+            digest[..4]
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect()
+        };
+        write!(
+            f,
+            "{} data changed since the save ({} → {}), re-stamped",
+            self.module,
+            short(&self.from),
+            short(&self.to)
+        )
+    }
+}
+
 impl SimWorld {
+    /// What installing `level` re-stamps: the module's place left behind
+    /// with other data, if it was (`assemble` takes it on).
+    pub fn stale_stamp(&self, level: &Level) -> Option<Restamp> {
+        let here = level.place()?;
+        self.stash()
+            .iter()
+            .find(|stashed| stashed.place.module == here.module)
+            .and_then(|stashed| Restamp::of(&stashed.place, &here))
+    }
+
     /// Installs `level`'s module, arriving at the door or waypoint tagged
     /// `arrival` (else the module's entry): see the module documentation.
     /// The world is unchanged on an error.
@@ -300,9 +362,11 @@ pub(crate) fn assemble(
         .iter()
         .position(|stashed| stashed.place.module == place.module)
         .map(|at| stash.remove(at));
+    // Left with other data than the level's: re-stamped when only the
+    // digest moved (`Restamp`), as a save loads after an update.
     if stashed
         .as_ref()
-        .is_some_and(|stashed| stashed.place != place)
+        .is_some_and(|stashed| !Restamp::matches(&stashed.place, &place))
     {
         return Err(InstallError::StashChanged {
             module: place.module,
@@ -947,7 +1011,7 @@ pub(crate) fn jump_place(
             (stand[2] + motion::SOLE_Z) * UNIT,
         ];
         let way = math::sub(mark, from);
-        let steps = ((way[0].hypot(way[1]) / JUMP_LINE_STEP_M).ceil() as u32).max(1);
+        let steps = ((math::flat_length(way) / JUMP_LINE_STEP_M).ceil() as u32).max(1);
         (1..=steps).all(|k| {
             let at = math::mad(from, k as f32 / steps as f32, way);
             nav.locate(at, JUMP_LINE_DROP_M, JUMP_LINE_DROP_M).is_some()

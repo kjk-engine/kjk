@@ -119,7 +119,12 @@ nearer its corner (`Walker::keep_headway`), so it does not plan again
 short of one; a walk going nowhere stalls and gives up as before, whatever
 moves it (move_body's steps where the mesh has no floor ahead, or the walker
 held still). A walk with no
-route is given up, as KOTOR's walker gives up when path-finding fails. A
+route stands and looks again after KOTOR's pathfinding wait, 2 s and
+(rand() % 100) / 50 s more (TSL's `CSWSCreature::AIActionMoveToPoint`
+puts `AddPathfindingWaitActionToFront` before the move when `PlotPath`
+fails; its `HandlePathfindError` only logs, so it never gives the move
+up): a scene that opens a door a moment after sending a walker through
+it (`a_903kreia`, d_entrance 4 s on) has it walk through once it opens. A
 new walk (no corner yet) is not stalled: planned as one, it passed over a
 goal within a skip of it, and a scripted step of a metre or so was given
 up at once (`Walker::command_round`). A body whose box its step would enter (not one at the walk's

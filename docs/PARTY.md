@@ -67,6 +67,16 @@
 - Tab makes the next party member lead (seat 0 only; `leader_view`); a
   seat with no party member free flies a remote droid (`COOP.md`), and
   one whose body is down watches the next with N.
+- While a companion leads (`world::lent`), the party goes with the body
+  played: the other companions and the player's own character, by its mind
+  (`world::minds`), follow it, leash to it and join its fights, and its
+  player's keys drive the one led alone. Taking the lead back ends what the
+  player's own character was doing.
+- A party member nobody plays joins a fight the party is in, a foe in sight
+  aiming at one of the party or one of them at it, when its script names no
+  foe (`joins`; KOTOR's AI scripts answer only the moments they are told of).
+  It starts no fight of its own; not in solo mode, a scene, or moved by a
+  script. Probes `kjk sim probes "party fights"`.
 - Switched to another character (`SwitchPlayerCharacter`, `world::switch`),
   seat 0 leads through a companion the same way (`world::lent`): the one
   switched to stands as the seat's own character would, its portrait takes

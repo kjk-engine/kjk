@@ -596,6 +596,22 @@ pub(super) fn fell(here: &Here, fallen: &BTreeMap<u32, Fell>, tag: &str, nth: Op
     }
 }
 
+/// What in the module holds an item of `template` (`state`'s items, not the
+/// party's): remains or a creature, its number and place.
+pub(super) fn holder_of(here: &Here, state: &sim::script::State, template: &str) -> Option<(u32, [f32; 3])> {
+    state
+        .items
+        .values()
+        .filter(|item| item.holder != sim::inventory::PARTY && item.template.eq_ignore_ascii_case(template))
+        .find_map(|item| {
+            let entity = here.snapshot.get(sim::SimId(item.holder))?;
+            match entity.kind {
+                sim::Kind::Object(_, index) => Some((index, entity.position)),
+                _ => None,
+            }
+        })
+}
+
 /// The remains standing nearest `lay` within `REMAINS_M` still holding
 /// something (`state`'s items; one emptied waits to be closed and go): their
 /// number and place.
@@ -1156,6 +1172,41 @@ pub(super) fn level_due(world: &sim::SimWorld, snapshot: &Snapshot) -> Option<u8
         .then(|| last.unwrap_or(0))
 }
 
+/// The companions no seat plays that may take a level now, each with the
+/// game's picks for it in the class it took last (else its template's
+/// last), as the host's Auto Level Up asks them.
+pub(super) fn companion_levels_due(
+    world: &sim::SimWorld,
+    snapshot: &Snapshot,
+) -> Vec<(u32, sim::levels::Choices)> {
+    let state = world.script_state();
+    let Some(library) = world.level().scripts() else {
+        return Vec::new();
+    };
+    let xp = state.xp(sim::inventory::PARTY);
+    let instances = sim::Instances::in_snapshot(world.level(), snapshot);
+    state
+        .party
+        .available
+        .values()
+        .filter_map(|npc| {
+            let id = npc.object?;
+            let entity = snapshot.get(sim::SimId(id))?;
+            let data = instances.of_entity(entity)?;
+            let sheet = entity.sheet.or(data.sheet)?;
+            let followed = entity.fighter?.mind;
+            (followed.leader == Some(Seat(0))
+                && followed.driver.is_none()
+                && library.classes().may_level(sheet.level, xp))
+            .then_some(())?;
+            let career = state.careers.get(&id).unwrap_or(&data.classes);
+            let &(class, _) = career.last()?;
+            let banked = state.unspent.get(&id).copied().unwrap_or(0);
+            Some((id, library.classes().auto(&sheet, career, class, banked)?))
+        })
+        .collect()
+}
+
 /// The picks `plan` makes for the player's next level of `class`
 /// (`Classes::planned`); none for a companion the seat plays (the game's
 /// picks).
@@ -1171,11 +1222,12 @@ pub(super) fn planned(
     }
     let sheet = avatar.sheet?;
     let classes = world.level().scripts()?.classes();
-    let career = world
-        .script_state()
+    let state = world.script_state();
+    let career = state
         .careers
         .get(&avatar.id.0)
         .cloned()
         .unwrap_or_else(|| vec![(class, sheet.level)]);
-    classes.planned(&sheet, &career, class, plan)
+    let banked = state.unspent.get(&avatar.id.0).copied().unwrap_or(0);
+    classes.planned(&sheet, &career, class, plan, banked)
 }

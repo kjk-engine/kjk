@@ -9,7 +9,8 @@
 //!    (`GrantFeat`): 3 HP more, one a level.
 //! 2. The armour is worn now.
 //! 3. The party has the XP for level 4, whose class grants Master
-//!    Toughness: the die, CON, 2 for the two Toughness feats and 3 for
+//!    Toughness, and the host asks it (the game's picks): the die, CON, 2
+//!    for the two Toughness feats and 3 for
 //!    Master Toughness's earlier levels. Hurt to 10 HP before it, it is
 //!    whole at its new most after (both games' level-up).
 //!
@@ -207,7 +208,13 @@ fn scenario() -> Result<Ran, String> {
         ],
         Vec::new(),
         vec![dress(plate, slots::BODY)],
-        Vec::new(),
+        vec![Action::LevelUpOn {
+            who: ally,
+            choices: Choices {
+                class: START.0,
+                ..Choices::default()
+            },
+        }],
     ];
     let (mut snapshots, mut notices, mut worn) = (Vec::new(), Vec::new(), Vec::new());
     for (at, actions) in steps.into_iter().enumerate() {
@@ -641,7 +648,9 @@ fn levels() -> (&'static str, Result<String, String>) {
         class(&[], &[(1, feats::FORCE_SENSITIVE)]),
     ]);
     let take = |classes: &Classes, sheet: &Sheet, career: &Career, choices: &Choices| {
-        classes.take(sheet, career, choices).map(|(sheet, _)| sheet)
+        classes
+            .take(sheet, career, choices, 0)
+            .map(|(sheet, ..)| sheet)
     };
     // Level 4 raises an ability: strength.
     let soldier_level = |feats| Choices {
@@ -691,7 +700,7 @@ fn levels() -> (&'static str, Result<String, String>) {
         &soldier_level(vec![toughness]),
     );
     let auto = classes
-        .auto(&soldier(&[]), &career, 0)
+        .auto(&soldier(&[]), &career, 0, 0)
         .map(|choices| choices.feats);
     (
         "level_up_feats",

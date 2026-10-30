@@ -13,6 +13,8 @@ fight 30
 to 233_mercc_talk    # the base camp: the mercenaries talk, then fight
 talk
 fight 40
+wait 8s              # out of combat: tr_baodurpad by the console plays its
+                     # scene only for a PC GetIsInCombat calls out of it
 use padpanel         # the landing pad's console (its turrets and guards
 talk                 # fought on the way); its scene leaves Bao-Dur leading
 use MilLowPlstcCylin # (tr_baodurpad's SetPartyLeader) until the military

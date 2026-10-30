@@ -33,6 +33,12 @@
 //!                       # foes fought first, as `fight 25`)
 //! fight 15              # attack the nearest hostile within 15 m until none, and
 //!                       # none the party can get at keeps it in combat (`Chase`)
+//! disarm 52.4,-29.9     # disarm the mine the party sees nearest there (Demolitions),
+//!                       # from where the player stands, until it is gone
+//! use item:phasepulseps # what holds that item: remains searched (their creature
+//!                       # fallen in a route before, no tag left), a foe fought
+//! cast 270              # cast that power (spells.2da row) on the player from
+//!                       # its power list, until its effect lasts on it
 //! equip                 # wear what the party carries, each in a free slot it fits
 //! equip ptar_sitharmor  # wear that item (a template), what its slot held off
 //! unlock end_door02     # walk up and pick its lock (Security, the player's ranks);
@@ -144,6 +150,9 @@ const SIGHT_MOVED_M: f32 = 0.5;
 /// together and a use before took its own bag's neighbour, another's
 /// still standing (each use loots one, so all are looted).
 const REMAINS_M: f32 = 3.0;
+/// How long (ms) a `cast` waits on a cast before trying again: past the
+/// longest conjure and cast time a power takes (`spells.2da`).
+const CAST_AGAIN_MS: u64 = 3000;
 
 /// What a sale keeps, by `baseitems.2da` label: security and programming
 /// spikes (and parts, the latter's row).
@@ -629,6 +638,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         ..sim::levels::Choices::default()
                     })));
                 }
+                // The companions' levels too, each the game's picks.
+                for (who, choices) in companion_levels_due(&world, &last) {
+                    acts.push(Action::LevelUpOn { who, choices });
+                }
                 if let Goal::Solo(on) = goal {
                     acts.push(Action::Solo(*on));
                 }
@@ -1032,6 +1045,29 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 == Some(*npc).filter(|npc| *npc != u8::MAX);
                         }
                         Goal::Solo(on) => met = world.script_state().party.solo == *on,
+                        // As a player disarms a mine it sees from beside it:
+                        // again after each try (`sim::traps::DISARM_MS`), a
+                        // failure or a blast, until none is left there.
+                        Goal::Disarm(at) => match mine_near(&here, *at) {
+                            None => met = true,
+                            Some(index) => {
+                                if now >= pressed_at + sim::traps::DISARM_MS + 4 * PRESS_MS {
+                                    input.act(Seat(0), Action::Disarm(index));
+                                    pressed_at = now.max(1);
+                                }
+                            }
+                        },
+                        // As a player casts from the power list: again after
+                        // each cast's time, until the power's effect lasts on
+                        // the player (one it cannot pay for is never cast).
+                        Goal::Cast(row) => match under(&last, *row) {
+                            Some((_, true)) => met = true,
+                            Some((me, false)) if now >= pressed_at + CAST_AGAIN_MS => {
+                                input.act(Seat(0), Action::Cast { row: *row, target: me });
+                                pressed_at = now.max(1);
+                            }
+                            _ => {}
+                        },
                         Goal::Credits => met = game_won,
                         // One item named: put on again each step until worn
                         // (armour is refused while a fight goes on: the Sand
@@ -1148,7 +1184,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         | Goal::Put(_, target) => {
                             let lay = match target {
                                 Target::Tag(tag, nth) => fell(&here, &fallen, tag, *nth),
-                                Target::Place(_) => None,
+                                Target::Place(_) | Target::Holding(_) => None,
                             };
                             // One dead whose body the engine has yet to make
                             // its remains is waited for: the remains nearest
@@ -1183,6 +1219,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                                 .map(|lay| (u32::MAX, lay.at))
                                         })
                                 }
+                                Target::Holding(template) => holder_of(&here, world.script_state(), template),
                                 Target::Place([x, y]) => Some((u32::MAX, [*x, *y, me.position[2]])),
                             };
                             seen_target |= found.is_some();
@@ -1205,6 +1242,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 && matches!(goal, Goal::Use(_))
                                 && !laid_out
                                 && (pressed_ever
+                                    || taken
                                     || module_of(&last) != module
                                     || matches!(target, Target::Tag(tag, _)
                                         if used_tags.contains(&tag.to_ascii_lowercase())))
@@ -1378,6 +1416,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                             now,
                                             &|i| here.to_try(i),
                                             &|face| round && here.walls(face),
+                                            false,
                                         )
                                     } else {
                                         Command {
@@ -2139,7 +2178,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 Some(at) => {
                                     let w = walk_for(&mut back_walker, at, || here.approach(&player, at));
                                     let walk = if !w.arrived(&player) && here.leads(player.origin, w.goal) {
-                                        w.command(here.level, &player, now, &|index| here.to_try(index))
+                                        w.command_eager(here.level, &player, now, &|index| here.to_try(index))
                                     } else {
                                         Command {
                                             forward: 127,

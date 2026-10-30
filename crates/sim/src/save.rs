@@ -4,6 +4,7 @@
 //!
 //! Not a KOTOR save: original save games are out of scope (`ROADMAP.md`).
 
+use crate::install::{InstallError, Restamp};
 use crate::snapshot::{Kind, Snapshot};
 use crate::wire::{DecodeError, Reader, Stored, Writer};
 use crate::world::{Level, LevelId, SimWorld};
@@ -144,25 +145,54 @@ pub struct Save {
     /// it, so a host at another rate refuses the save.
     pub hz: u32,
     /// The level the snapshot is in: loading it needs that level (a
-    /// module's is planned from `snapshot.place`), and refuses another.
+    /// module's is planned from `snapshot.place`), and refuses another; its
+    /// digest is re-stamped when only the data moved (`restamp`).
     pub level: LevelId,
     pub snapshot: Snapshot,
     pub script: ScriptVmState,
 }
 
 impl Save {
+    /// What loading in `level` re-stamps (the save migrations design, part
+    /// 3): none when the save is stamped with `level`'s data already, else
+    /// its digest, taken on. Refused when `level` is another level (or
+    /// game, or player count): only the data under it may have changed.
+    /// The modules it left are re-stamped as they are entered
+    /// (`SimWorld::stale_stamp`).
+    pub fn restamp(&self, level: &Level) -> Result<Option<Restamp>, String> {
+        let here = level.id();
+        let same = self.level.name == here.name
+            && match (&self.snapshot.place, level.place()) {
+                (Some(stamped), Some(place)) => Restamp::matches(stamped, &place),
+                (None, None) => true,
+                _ => false,
+            };
+        if !same {
+            let error = InstallError::WrongLevel {
+                snapshot: self.level.name.clone(),
+                level: here.name,
+            };
+            return Err(format!("{error}: the save was made in another level"));
+        }
+        Ok((self.level.digest != here.digest).then_some(Restamp {
+            module: here.name,
+            from: self.level.digest,
+            to: here.digest,
+        }))
+    }
+
     /// The world going on from this save in `level` (the level it was
-    /// made in, else refused), for a session that holds `seats`: the save's
+    /// made in, re-stamped with its data if that changed, else refused:
+    /// `restamp`), for a session that holds `seats`: the save's
     /// own count does not fix it (I31: guests take its companions), though
     /// every player of its own keeps a seat. Numbered from `tick` when given,
     /// as a running session's ticks only rise (the reload after the party
     /// fell, I30 P13). The menu's load and the reload both make it here.
     /// No container is held open in it (`containers::let_go`).
     pub fn world(&self, level: &Level, seats: u8, tick: Option<u64>) -> Result<SimWorld, String> {
-        self.level.check(level).map_err(|error| {
-            format!("{error}: the game's data is not what the save was made with")
-        })?;
+        self.restamp(level)?;
         let mut snapshot = self.snapshot.clone();
+        snapshot.place = level.place();
         snapshot.seats_held = self.seats_for(seats);
         // The world makes its droids again (`crate::remote`).
         snapshot.remotes.clear();

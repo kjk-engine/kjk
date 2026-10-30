@@ -259,6 +259,7 @@ pub(super) fn containers(
             | Action::EquipOn { .. }
             | Action::UnequipFrom { .. }
             | Action::LevelUp(_)
+            | Action::LevelUpOn { .. }
             | Action::Unlock { .. }
             | Action::ChooseParty(_)
             | Action::ShowParty
@@ -288,6 +289,7 @@ pub(super) fn containers(
             | Action::SwitchWeaponsOn { .. }
             | Action::Assemble { .. }
             | Action::Form(_)
+            | Action::Cast { .. }
             | Action::ScreenOpened
             | Action::Forfeit
             | Action::Arena(_) => continue,

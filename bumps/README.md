@@ -33,6 +33,16 @@ While the file is there:
 - Each format's version is one above `main`'s (the sim's `build.rs` adds
   the bumps pending), so the branch refuses `main`'s saves and snapshots
   and `main` the branch's, as a bump always did.
+- Pending files are numbered in the order they reached `main`, never by
+  name (`bumps::arrival`, read from git): first those on `main`, as its
+  first-parent history added them; then the branch's own, as the branch
+  added them; then any not committed yet, by name. A file merged later
+  takes the next number even when it sorts first, so a number a build of
+  `main` gave (and its saves carry) keeps its meaning through later merges
+  and the pin. A branch numbers `main`'s files as `main` does (`origin/main`,
+  else `main`: fetch to see its latest) and its own after them, as the merge
+  will unless another merges first. Two or more pending files need the git
+  history: a shallow clone is refused (CI checks out with `fetch-depth: 0`).
 - `sim_determinism` still checks every way agrees, but leaves the final
   hash to the merge when the file has `sim` or bumps `snapshot`. Without
   a bump file the hash must stay `main`'s: an unexpected move fails, as
@@ -96,9 +106,9 @@ is the merge's.
 ## At merge
 
 `.github/workflows/pin.yml` runs on `main` after a pull request with a bump
-file merges (a merge or push to `main` starts it by its paths). It runs `cargo xtask pin`: each bump, in the files' name order
-(as the build numbers them on a branch), takes the next version with its history
-line; the files are removed; the pinned determinism run's hash is written
+file merges (a merge or push to `main` starts it by its paths). It runs `cargo xtask pin`: each bump, in the order the files reached
+`main` (as `main`'s builds numbered them in between), takes the next
+version with its history line; the files are removed; the pinned determinism run's hash is written
 into both workflows. Then the approved tests run on the result, and it is
 committed as "Pinned at merge: …", naming every version and the hash
 old → new, onto the `pin` branch made anew from `main`. `main`'s ruleset

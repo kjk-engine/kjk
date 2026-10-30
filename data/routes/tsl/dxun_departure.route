@@ -28,7 +28,6 @@ equip saber          # the saber in hand
 say Have I proven myself yet? # (four tests: the hub says so itself)
 say I'm ready to go now. # a_open_door, a_mand_cs1
 say Let's go.
-wait 2s              # BLOCKER: off the beat of Mandalore's heartbeat (below)
 use g_mandalore
 talk
 talk                 # Mandalore, Zuka and Kreia at the shuttle (mand_cs1)

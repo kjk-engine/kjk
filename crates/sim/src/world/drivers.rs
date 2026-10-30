@@ -278,6 +278,10 @@ pub(super) fn assign(world: &mut World) {
 }
 
 #[cfg(feature = "probes")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "checks and traces set up their own cases on one machine"
+)]
 pub(in crate::world) mod probes;
 #[cfg(feature = "probes")]
 pub use probes::probes;
