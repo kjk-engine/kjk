@@ -165,6 +165,13 @@ pub enum Action {
     /// stance column, `combat::forms`): the seat's body's, one it knows; no
     /// action, no cost, in a fight too.
     Form(u16),
+    /// Cast power `row` (`spells.2da`) at `target` (by script object id),
+    /// as KOTOR's power list does: the seat's body queues the cast as
+    /// `ActionCastSpellAtObject` would, one it knows and can pay for when
+    /// the cast begins (`script::Step::cast`). JA's force button
+    /// (`Command::force`) casts only the powers JA has a shape for; this
+    /// casts any (TSL's Breath Control against the Jekk'Jekk Tarr's gas).
+    Cast { row: u16, target: u32 },
     /// The seat opened an in-game screen (the map, the inventory, the
     /// journal, …): the host runs `k_sup_guiopen`, as KOTOR does each time
     /// one opens, which sets the map page's return button
@@ -322,6 +329,7 @@ const SWITCH_WEAPONS: u8 = 51;
 const SWITCH_WEAPONS_ON: u8 = 52;
 const FORFEIT: u8 = 53;
 const ARENA: u8 = 54;
+const CAST: u8 = 55;
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -496,6 +504,11 @@ impl Action {
                 out.u8(FORM);
                 out.u16(*row);
             }
+            Action::Cast { row, target } => {
+                out.u8(CAST);
+                out.u16(*row);
+                out.u32(*target);
+            }
             Action::Assemble { item, changes } => {
                 out.u8(ASSEMBLE);
                 out.u32(*item);
@@ -635,6 +648,10 @@ impl Action {
                 row: input.u16()?,
             },
             FORM => Action::Form(input.u16()?),
+            CAST => Action::Cast {
+                row: input.u16()?,
+                target: input.u32()?,
+            },
             SWITCH_WEAPONS => Action::SwitchWeapons,
             SWITCH_WEAPONS_ON => Action::SwitchWeaponsOn { who: input.u32()? },
             ASSEMBLE => {
@@ -703,6 +720,7 @@ impl Action {
             | Action::SwitchWeaponsOn { .. }
             | Action::Assemble { .. }
             | Action::Form(_)
+            | Action::Cast { .. }
             | Action::ScreenOpened
             | Action::Forfeit
             | Action::Arena(_) => None,

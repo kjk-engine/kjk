@@ -85,13 +85,8 @@ impl Step<'_> {
             .is_some_and(|node| self.speaker_for(&node.speaker, owner).is_some())
     }
 
-    /// Shows `entry`, runs its scripts, then offers its replies those
-    /// scripts' state lets through, and times the line: both executables'
-    /// `SendDialogEntry` runs an entry's two scripts before it sends its
-    /// replies (`SendDialogReplies`, each reply's condition checked
-    /// there), so a line's script may open a reply of its own (TSL's
-    /// Ralon: `a_ralo_dialogue` notes the Exile's Awareness as the fake is
-    /// shown, and "That *is* a remarkable fake" asks it).
+    /// Shows `entry`, times the line and runs its scripts; its replies are
+    /// chosen once the line has played (`offer_replies`).
     pub(super) fn show(&mut self, id: u32, entry: u32) {
         let now = self.view.now_ms;
         let library = self.library;
@@ -108,12 +103,11 @@ impl Step<'_> {
         };
         let speaker = self.speaker(&node.speaker, owner);
         if !self.interjection(id, speaker) {
-            // Held, the line it waits to say kept, with the replies as they
-            // stand now (offered anew once it plays).
-            let replies = self.offer(dlg, id, entry, owner, pc);
+            // Held, the line it waits to say kept.
             if let Some(at) = self.state.talk.index(id) {
                 let c = &mut self.state.talk.conversations[at];
-                (c.entry, c.speaker, c.replies) = (entry, speaker, replies);
+                (c.entry, c.speaker) = (entry, speaker);
+                c.replies.clear();
                 c.marks.clear();
             }
             return;
@@ -192,15 +186,31 @@ impl Step<'_> {
         for call in [&node.script, &node.script2] {
             self.call(call, id, owner, pc);
         }
-        // The scripts may have ended it, or moved it on.
+    }
+
+    /// The replies of the line conversation `id` shows, chosen now it has
+    /// played: TSL's `CSWSDialog::SendDialogEntry` sets the line's delay,
+    /// runs its Script and Script2, then `CSWSObject::SendDialogReplies`,
+    /// which waits while `IsDialogDelay` holds before
+    /// `CSWSDialog::SendDialogReplies` checks each reply's conditions; so
+    /// what the line's scripts set, and what was done while it played, is
+    /// what they read (Ralon's E37, `a_ralo_dialogue`, sets the local his
+    /// [Awareness] reply checks) [verify in K1's exe]. One silent reply is
+    /// taken at once (`Conversation::auto`); others are offered.
+    pub(super) fn offer_replies(&mut self, id: u32) {
+        let library = self.library;
+        let Some(c) = self.state.talk.conversations.iter().find(|c| c.id == id) else {
+            return;
+        };
+        let (entry, owner, pc, dialog) = (c.entry, c.owner, c.pc, c.dialog.clone());
+        let Some(dlg) = library.dialogue(&dialog) else {
+            return;
+        };
+        let replies = self.offer(dlg, id, entry, owner, pc);
+        let auto = replies.len() == 1 && dlg.replies[replies[0] as usize].is_silent();
         let Some(at) = self.state.talk.index(id) else {
             return;
         };
-        if self.state.talk.conversations[at].entry != entry {
-            return;
-        }
-        let replies = self.offer(dlg, id, entry, owner, pc);
-        let auto = replies.len() == 1 && dlg.replies[replies[0] as usize].is_silent();
         let c = &mut self.state.talk.conversations[at];
         c.replies = replies.clone();
         c.auto = auto;
@@ -209,7 +219,7 @@ impl Step<'_> {
         }
         if !auto && !replies.is_empty() {
             self.line(Line::Offered {
-                ms: now,
+                ms: self.view.now_ms,
                 id,
                 dialog,
                 replies,

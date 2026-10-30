@@ -157,7 +157,7 @@ fn quick(
     // A level without classes (the course) takes the persona only.
     let unmade = sim::creation::unmade(abilities, 0);
     let skills = classes(world)
-        .and_then(|classes| classes.auto(&unmade, &Vec::new(), class))
+        .and_then(|classes| classes.auto(&unmade, &Vec::new(), class, 0))
         .map_or([0; 8], |picks| picks.skills);
     Ok(CharacterDesc {
         class,
