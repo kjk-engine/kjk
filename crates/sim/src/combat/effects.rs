@@ -147,6 +147,11 @@ pub enum Modifies {
     /// `EffectRegenerate`: its `of` hit points every amount ms (from when
     /// it took hold, `Lasting::at`, the last time it healed after).
     Regenerate,
+    /// `SetEffectIcon`'s icon on the effect it is linked to, for as long:
+    /// its amount the `effecticon.2da` row. Changes nothing; the HUD counts
+    /// the good and the bad on each portrait (KOTOR's
+    /// `CSWSEffectListHandler::OnApplyEffectIcon`, `effects::icons`).
+    Icon,
 }
 
 /// The id a character's poison goes by among its effects (`GetFirstEffect`,
@@ -154,7 +159,7 @@ pub enum Modifies {
 pub const POISON_ID: u32 = u32::MAX - 1;
 
 impl Modifies {
-    const ALL: [Modifies; 30] = [
+    const ALL: [Modifies; 31] = [
         Modifies::Ability,
         Modifies::Defence,
         Modifies::Save,
@@ -185,6 +190,7 @@ impl Modifies {
         Modifies::VpRegen,
         Modifies::FpRegen,
         Modifies::Regenerate,
+        Modifies::Icon,
     ];
 
     pub fn index(self) -> u8 {
@@ -565,6 +571,14 @@ impl Effects {
             .filter(|l| l.modifies == Modifies::Visual)
             .map(|l| (l.amount as u16, l.until, l.by))
             .chain(light)
+    }
+
+    /// The `effecticon.2da` rows of the icons running at `now`
+    /// (`Modifies::Icon`), in the order they took hold.
+    pub fn icons(&self, now: u64) -> impl Iterator<Item = u16> + '_ {
+        self.running(now)
+            .filter(|l| l.modifies == Modifies::Icon)
+            .map(|l| l.amount as u16)
     }
 
     /// The running state that holds over the others (`state`): the highest
@@ -1075,7 +1089,8 @@ pub fn sheet_now(sheet: Sheet, fighter: &Fighter, now: u64) -> Sheet {
             | Modifies::Faction
             | Modifies::VpRegen
             | Modifies::FpRegen
-            | Modifies::Regenerate => {}
+            | Modifies::Regenerate
+            | Modifies::Icon => {}
         }
     }
     sheet.defence = sheet.defence.saturating_add(defence);
