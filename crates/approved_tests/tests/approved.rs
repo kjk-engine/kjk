@@ -611,29 +611,37 @@ fn blank_cells_name_nothing() {
     assert_eq!(models, [Some("plc_chair"), None], "the placeables' models");
 }
 
-/// JA's data as co-op compares it (`vfs::fingerprint`): what a play leaves
-/// in `base/` (saves, screenshots, demos, settings, logs, the game's
-/// libraries, folder metadata) is not game data, a model's `animation.cfg`
-/// is; a patched archive is named by itself; twelve mod archives stay
-/// within a handshake's groups. No installs (approved 2026-10-30).
+/// The games' data as co-op compares it (`vfs::fingerprint`): what a play
+/// leaves in JA's `base/` (saves, screenshots, demos, settings, logs, the
+/// game's libraries, folder metadata) is not game data, a model's
+/// `animation.cfg` is; a patched archive is named by itself; twelve mod
+/// archives stay within a handshake's groups; a file browser's metadata in
+/// KOTOR's folders is not game data either. No installs (approved
+/// 2026-10-30).
 #[test]
-fn ja_data_check() {
+fn coop_data_check() {
     use vfs::fingerprint::{Fingerprint, MAX_WORLD_GROUPS, fingerprint};
     use vfs::{DirIndex, Game};
 
-    let ja = |name: &str, files: &[(&str, &str)]| -> Fingerprint {
-        let root = std::env::temp_dir().join(format!("kjk-ja-data-{}-{name}", std::process::id()));
+    // A data root holding `files` (path under `folder`, contents).
+    let print = |game: Game, name: &str, folder: &str, files: &[(&str, &str)]| -> Fingerprint {
+        let root = std::env::temp_dir().join(format!(
+            "kjk-coop-data-{}-{}-{name}",
+            std::process::id(),
+            game.key()
+        ));
         let _ = std::fs::remove_dir_all(&root);
         for (path, contents) in files {
-            let path = root.join("base").join(path);
-            std::fs::create_dir_all(path.parent().expect("under base/")).expect("a folder");
+            let path = root.join(folder).join(path);
+            std::fs::create_dir_all(path.parent().expect("under the root")).expect("a folder");
             std::fs::write(path, contents).expect("a file");
         }
         let index = DirIndex::build(&root).expect("the index");
-        let print = fingerprint(Game::JediAcademy, &index, None).expect("the fingerprint");
+        let print = fingerprint(game, &index, None).expect("the fingerprint");
         std::fs::remove_dir_all(&root).expect("cleaned up");
         print
     };
+    let ja = |name: &str, files: &[(&str, &str)]| print(Game::JediAcademy, name, "base", files);
     let stock = [
         ("assets0.pk3", "zero"),
         ("assets1.pk3", "one"),
@@ -690,6 +698,27 @@ fn ja_data_check() {
         "base/mod06.pk3",
         "the seventh"
     );
+
+    let kotor = [
+        ("chitin.key", "key"),
+        ("dialog.tlk", "tlk"),
+        ("override/appearance.2da", "2DA V2.b"),
+        ("modules/end_m01aa.rim", "rim"),
+    ];
+    let browsed = [
+        ("override/.ds_store", "finder"),
+        ("override/thumbs.db", "explorer"),
+        ("modules/desktop.ini", "explorer"),
+    ];
+    let fresh = print(Game::Kotor1, "fresh", "", &kotor);
+    let browsed = print(
+        Game::Kotor1,
+        "browsed",
+        "",
+        &[&kotor[..], &browsed[..]].concat(),
+    );
+    assert_eq!(fresh.world(), browsed.world(), "KOTOR's browsed folders");
+    assert_eq!(browsed.files, kotor.len(), "KOTOR's files covered");
 }
 
 /// Areas' grass and weather from the ARE (`docs/GRASS-WEATHER.md`):

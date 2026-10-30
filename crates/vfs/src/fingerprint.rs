@@ -40,7 +40,9 @@ const KOTOR_FOLDERS: &[&str] = &[
 pub fn covered(game: Game, key: &str) -> bool {
     match game {
         Game::Kotor1 | Game::Kotor2 => {
-            KOTOR_FILES.contains(&key) || KOTOR_FOLDERS.iter().any(|dir| key.starts_with(dir))
+            let name = key.rsplit('/').next().unwrap_or(key);
+            (KOTOR_FILES.contains(&key) || KOTOR_FOLDERS.iter().any(|dir| key.starts_with(dir)))
+                && !crate::system_file(name)
         }
         Game::JediAcademy => key.strip_prefix("base/").is_some_and(crate::ja::game_data),
     }

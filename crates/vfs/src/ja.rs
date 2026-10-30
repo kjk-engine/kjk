@@ -92,12 +92,11 @@ pub fn pak_order(a: &str, b: &str) -> Ordering {
 
 /// What the game, the store or the system writes into `base/`: saves,
 /// screenshots, demos, settings and logs, the game's own libraries, and
-/// folder metadata. None is an asset. Settings and logs only at the
-/// folder's root: a model's `animation.cfg` is data.
+/// folder metadata (`crate::system_file`). None is an asset. Settings and
+/// logs only at the folder's root: a model's `animation.cfg` is data.
 const NOT_DATA_FOLDERS: &[&str] = &["saves/", "screenshots/", "demos/"];
 const NOT_DATA_ROOT_EXTENSIONS: &[&str] = &[".cfg", ".log"];
 const NOT_DATA_EXTENSIONS: &[&str] = &[".dll", ".so", ".dylib", ".exe"];
-const NOT_DATA_NAMES: &[&str] = &[".ds_store", "thumbs.db", "desktop.ini"];
 
 /// Whether a lowercased path under `base/` is game data: a PK3, or a loose
 /// file the engine could read in place of an archive's.
@@ -112,7 +111,7 @@ pub fn game_data(rest: &str) -> bool {
                 .iter()
                 .any(|ext| name.ends_with(ext)))
         || NOT_DATA_EXTENSIONS.iter().any(|ext| name.ends_with(ext))
-        || NOT_DATA_NAMES.contains(&name)
+        || crate::system_file(name)
         || rest.contains(".bundle/"))
 }
 
