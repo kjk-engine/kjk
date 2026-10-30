@@ -779,10 +779,13 @@ pub(crate) fn from_save(
     seats: u8,
     tick: Option<u64>,
 ) -> Result<(sim::SimWorld, sim::Announcement), String> {
+    if let Some(restamp) = save.restamp(level)? {
+        bevy::log::warn!(target: "save-migrate", "{restamp}");
+    }
     let mut world = save.world(level, seats, tick)?;
     let again = sim::Save {
         hz: save.hz,
-        level: save.level.clone(),
+        level: level.id(),
         snapshot: world.snapshot(),
         script: world.script_state().clone(),
     };

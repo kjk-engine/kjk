@@ -438,6 +438,7 @@ pub fn probes() -> Checks {
         ("regenerate", regenerate()),
         ("faction_modifier", faction_modifier()),
         ("casts", casts()),
+        ("player_casts", player_casts()),
         ("surrender_queued", surrender_queued()),
         ("use_skill_stealth", use_skill_stealth()),
         ("lasting_at_once_stays", lasting_at_once_stays()),
@@ -1029,6 +1030,50 @@ fn casts() -> Result<String, String> {
         format!(
             "fake (hand, impact at 0.3 s, at 1.8 s, unpaid) {fake:?}; unknown {unknown:?}; \
              cheat at 1 s {early:?}, at 1.8 s {late:?}"
+        ),
+    )
+}
+
+/// The player's casts from the power list (`action::Action::Cast`, as
+/// bytes and back): one it does not know does nothing; one it knows runs
+/// its impact after its cast time (not before) and is paid for.
+fn player_casts() -> Result<String, String> {
+    let (mut world, player, ..) = world(soldier(&[]))?;
+    let cast = crate::action::Action::Cast {
+        row: CAST_ROW,
+        target: player.0,
+    };
+    let bytes = crate::action::Action::from_bytes(&cast.to_bytes()) == Ok(cast.clone());
+    let press = |world: &mut SimWorld| {
+        let mut input = TickInput::default();
+        input.insert(Seat(0), crate::input::Command::default());
+        input.act(Seat(0), cast.clone());
+        let tick = world.tick() + 1;
+        crate::step(world, tick, &input, MSEC, StepReason::Authority);
+    };
+    alter(&mut world, player, |f| f.fp = 100 * 100);
+    press(&mut world);
+    let unknown = tokens(&wait(&mut world, 2000), 30..=30);
+    for (id, mut sheet) in world
+        .world
+        .query::<(&Id, &mut super::PlayerSheet)>()
+        .iter_mut(&mut world.world)
+    {
+        if id.0 == player {
+            sheet.0.powers.insert(CAST_ROW);
+        }
+    }
+    press(&mut world);
+    let early = tokens(&wait(&mut world, 1000), 30..=30);
+    let before = fighter(&mut world, player).map_or(0, |f| f.fp);
+    let late = tokens(&wait(&mut world, 800), 30..=30);
+    // Its 20 FP paid as it lands (less the little regained meanwhile).
+    let paid = before - fighter(&mut world, player).map_or(0, |f| f.fp);
+    check(
+        bytes && unknown == ["-"] && early == ["-"] && late == ["1"] && paid > 15 * 100,
+        format!(
+            "bytes {bytes}; unknown {unknown:?}; known at 1 s {early:?}, at 1.8 s {late:?}; \
+             paid {paid} hundredths of FP"
         ),
     )
 }

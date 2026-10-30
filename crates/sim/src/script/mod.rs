@@ -2865,9 +2865,9 @@ impl Step<'_> {
     /// and cast time (`spells.2da` `conjtime` + `casttime`), done then. A
     /// real one is paid for then (none for a `cheat`'s) and its impact
     /// script runs at the target; a fake one does nothing more. A real one
-    /// by a player (its powers are its seat's), by one not commandable, or
-    /// of a power it does not know or cannot pay for (but a cheat's), does
-    /// nothing.
+    /// by one not commandable, or of a power it does not know or cannot pay
+    /// for (but a cheat's), does nothing. A player casts as a creature does,
+    /// as the games' PC is one (its power list's cast, `action::Action::Cast`).
     fn cast(
         &mut self,
         thing: &Thing,
@@ -2879,9 +2879,8 @@ impl Step<'_> {
         let now = self.view.now_ms;
         let ms = self.library.spell(row).cast_ms;
         if starting {
-            let able = thing.kind.is_some()
-                && thing.character.is_some()
-                && (cheat || engine::can_cast(self.view, thing, row));
+            let able =
+                thing.character.is_some() && (cheat || engine::can_cast(self.view, thing, row));
             if !fake && (!able || self.state.uncommandable.contains(&who.0)) {
                 return true;
             }
@@ -3502,6 +3501,9 @@ fn make_npc(
         }
         if let Some(career) = state.careers.remove(&kept.from) {
             state.careers.insert(id.0, career);
+        }
+        if let Some(points) = state.unspent.remove(&kept.from) {
+            state.unspent.insert(id.0, points);
         }
         if let Some(xp) = state.xp.remove(&kept.from) {
             state.xp.insert(id.0, xp);

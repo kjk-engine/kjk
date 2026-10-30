@@ -240,15 +240,10 @@ fn fill(save: &mut Save, ground: &Level) {
     );
 }
 
-/// `save`'s level stamp and place digest made `level`'s: what a load does
-/// once its data changed (part 3 of the design does it at load; till then
-/// only the fixtures need it, as the proving ground's digest moves with
-/// the code that builds it).
-pub fn restamp(save: &mut Save, level: &Level) {
-    save.level = level.id();
-    if let Some(place) = &mut save.snapshot.place {
-        place.digest = level.digest();
-    }
+/// The module the kitchen sink left before the proving ground, kept in its
+/// stash.
+pub fn left() -> Level {
+    proving_ground_named(LEFT)
 }
 
 /// The fields of the kitchen sink still at their start (the snapshot's
@@ -294,6 +289,7 @@ pub const LEFT_AT_START: &[&str] = &[
     "script.items",
     "script.trades",
     "script.careers",
+    "script.unspent",
     "script.levelling",
     "script.known",
     "script.reputation",
@@ -402,6 +398,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         journal: _,
         xp: _,
         careers: _,
+        unspent: _,
         levelling: _,
         strikes: _,
         swung: _,
@@ -443,7 +440,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         always_update, occupants, spawned, perceived, rounds, effects, spell_events, applied,
         removed, bashes, next_effect, listening, patterns, items, next_item,
         gold, purses, party, talk, heartless, trades, journal, xp, careers,
-        levelling, strikes, swung, known, kept, galaxy, corpses, goals, intents,
+        unspent, levelling, strikes, swung, known, kept, galaxy, corpses, goals, intents,
         watch, reputation, traps, skill_uses, door_mines, last_detect_ms,
         perception, stealth_xp, stealth_loss, pazaak, pazaak_won, components,
         chemicals, hoards, beats, transit, movies, movie_runs, no_clicks_until,
