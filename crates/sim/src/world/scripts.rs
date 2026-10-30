@@ -1334,18 +1334,7 @@ pub(super) fn scripts(
                 .into_iter()
                 .map(|kind| crate::snapshot::Status { kind, at_ms: now }),
         );
-        progressed
-            .0
-            .feedback
-            .extend(
-                out.feedback
-                    .into_iter()
-                    .map(|(over, strref)| crate::snapshot::Feedback {
-                        over: over.0,
-                        strref,
-                        at_ms: now,
-                    }),
-            );
+        float(&mut progressed.0, out.feedback, now);
         scripts.area_sound = out.area_sound;
         scripts.fade = out.fade;
         scripts.world_fade_in = out.world_fade_in;
@@ -1365,8 +1354,10 @@ pub(super) fn scripts(
         door_speaks(&view, &mut scripts.state, &out.changes, &doors);
         super::traps::forget(&mut scripts.state, &out.changes);
         scripts.changes = out.changes;
-        // What the engine's own work told this step (`world::traps`).
+        // What the engine's own work told this step (`world::traps`), and
+        // floated (a skill check's outcome over its user).
         scripts.notices.extend(out.notices);
+        float(&mut progressed.0, out.feedback, now);
         scripts.state.goals.clear();
     }
     // A co-op race leaves once its runs have finished, or the first long
@@ -1895,4 +1886,20 @@ impl SimWorld {
         }
         self.world.insert_resource(carried);
     }
+}
+
+/// The feedback the step floated over objects (`Progress::feedback`), from
+/// `now`.
+fn float(progress: &mut crate::snapshot::Progress, feedback: Vec<(ObjectId, u32)>, now: u64) {
+    progress
+        .feedback
+        .extend(
+            feedback
+                .into_iter()
+                .map(|(over, strref)| crate::snapshot::Feedback {
+                    over: over.0,
+                    strref,
+                    at_ms: now,
+                }),
+        );
 }

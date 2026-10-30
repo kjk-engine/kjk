@@ -3,7 +3,8 @@
 //! over its dead, "XP 25" in KOTOR's magenta, following its head's node on
 //! the screen and fading out over `Kill::SHOWN_MS` (`ui::screens::floaty`);
 //! the feedback scripts float (`Progress::feedback`, `DisplayFeedBackText`:
-//! "Resisted", "Immune", "Saved") over `Feedback::SHOWN_MS`; the damage a
+//! "Resisted", "Immune", "Saved") over `Feedback::SHOWN_MS`, and a skill
+//! check's outcome over its user, starred (`*failure*`: `STARRED`); the damage a
 //! hit does, as the K1 executable floats it (`Damages`); none while the one
 //! it floats over is off the screen or behind the camera.
 
@@ -139,7 +140,10 @@ fn show(
             0 => None,
             strref => text(strref),
         };
-        let words = words.unwrap_or_else(|| BAD_STRREF.to_vec());
+        let mut words = words.unwrap_or_else(|| BAD_STRREF.to_vec());
+        if STARRED.contains(&feedback.strref) {
+            words = [b"*", &words[..], b"*"].concat();
+        }
         let color = FEEDBACK_COLOR;
         (
             feedback.over,
@@ -222,6 +226,18 @@ pub fn damage_probes() -> sim::probe::Checks {
         ),
     )]
 }
+
+/// A skill check's outcome floating over its user (`sim::locks::floats`),
+/// which K1's client draws between stars: `*failure*`.
+const STARRED: [u32; 4] = {
+    use sim::locks::lines;
+    [
+        lines::SUCCESS,
+        lines::FAILURE,
+        lines::SKILL_TOO_LOW,
+        lines::IMPOSSIBLE,
+    ]
+};
 
 /// What KOTOR floats for a feedback row with no strref.
 const BAD_STRREF: &[u8] = b"BAD STRREF";

@@ -374,24 +374,39 @@ pub struct Security {
     pub spike: Option<u32>,
 }
 
+/// What the character choosing brings to a mine: offered only with ranks in
+/// Demolitions (K1's menu asks the skill's use as it does Security's), with
+/// whether the mine's row has a kit to recover (`recover`) and, in TSL,
+/// whether the party carries a kit to set on a shut door (`door_mine`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Demolitions {
+    pub recover: bool,
+    pub door_mine: bool,
+}
+
 /// What may be done to an object of `kind` with `facts` in `state`: a
 /// locked door or container is opened (tried with the party's key, else
 /// its fail-to-open script) or unlocked by a character with `security`
 /// (and the spike carried, if any) unless only its key opens it;
 /// a shut door or a container opened; an open door closed where it may be
-/// (`uses::closable`), and used; a useable placeable used; a creature not hostile that speaks (a
-/// conversation or a dialogue hook) talked to; a disarmable trap the party
-/// detected disarmed, or recovered where its row has a kit (`recoverable`);
-/// in TSL, a mine set on a shut door where the party carries one (`mine`).
-/// Nothing else.
+/// (`uses::closable`), and used; a useable placeable used; a creature not
+/// hostile that speaks (a conversation or a dialogue hook) talked to; by a
+/// character with `demolitions`, a disarmable trap the party detected
+/// disarmed, or recovered where its row has a kit, and in TSL a mine set on
+/// a shut door where the party carries one. Nothing else.
 pub fn choices(
     kind: ObjectKind,
     facts: &crate::module::ObjectData,
     state: crate::snapshot::ObjectState,
     hostile: bool,
     security: Option<Security>,
-    (recoverable, mine): (bool, bool),
+    demolitions: Option<Demolitions>,
 ) -> Vec<Choice> {
+    let Demolitions { recover, door_mine } = demolitions.unwrap_or(Demolitions {
+        recover: false,
+        door_mine: false,
+    });
+    let skilled = demolitions.is_some();
     let locked = state.locked(facts.opens);
     let key_only = facts.lock.as_ref().is_some_and(|lock| lock.key_required);
     let unlock = || {
@@ -403,7 +418,7 @@ pub fn choices(
         all
     };
     let shut_door = |mut all: Vec<Choice>| {
-        all.extend(mine.then_some(Choice::Mine));
+        all.extend((skilled && door_mine).then_some(Choice::Mine));
         all
     };
     match kind {
@@ -417,11 +432,12 @@ pub fn choices(
         ObjectKind::Placeable if facts.container => vec![Choice::Open],
         ObjectKind::Placeable => vec![Choice::Use],
         ObjectKind::Trigger
-            if state.trap & crate::snapshot::trap::PARTY_SEES != 0
+            if skilled
+                && state.trap & crate::snapshot::trap::PARTY_SEES != 0
                 && facts.trap.as_ref().is_some_and(|trap| trap.disarmable) =>
         {
             let mut all = vec![Choice::Disarm];
-            if recoverable {
+            if recover {
                 all.push(Choice::Recover);
             }
             all
@@ -458,11 +474,13 @@ pub fn ask(choice: Choice, object: u32, kind: ObjectKind) -> Option<crate::actio
 }
 
 /// How far (metres, across the floor) a choice reaches: its verb's
-/// (`world::uses::reach`); an item its spell's; Security and a revive a
-/// container's.
+/// (`world::uses::reach`); an item its spell's; a mine's disarm or recover
+/// `traps::REACH_M` from its middle; Security and a revive a container's.
 pub fn reach(choice: Choice, kind: ObjectKind) -> f32 {
-    if let Choice::Item { reach_dm, .. } = choice {
-        return f32::from(reach_dm) / 10.0;
+    match choice {
+        Choice::Item { reach_dm, .. } => return f32::from(reach_dm) / 10.0,
+        Choice::Disarm | Choice::Recover => return crate::traps::REACH_M,
+        _ => {}
     }
     match ask(choice, 0, kind) {
         Some(crate::action::Action::Use { verb, .. }) => crate::uses::reach(kind, verb),
@@ -511,12 +529,12 @@ pub struct Spot {
 }
 
 impl Spot {
-    /// `choice` on an object of `kind` standing at `feet`: within
-    /// `ARRIVE` of the choice's reach of it.
+    /// `choice` on an object of `kind` standing at `feet`: within the
+    /// choice's `arrival`.
     pub fn plain(feet: Vec3, choice: Choice, kind: ObjectKind) -> Spot {
         Spot {
             at: feet,
-            within: reach(choice, kind) * ARRIVE,
+            within: arrival(choice, kind),
         }
     }
 
@@ -559,14 +577,30 @@ impl Spot {
     }
 
     /// How far from `at` (metres, across the floor) a walk to do `choice`
-    /// here heads: halfway into the arrival; a trap's at the arrival's
-    /// edge, outside the trap's circle (`traps::RADIUS_M`), as KOTOR
-    /// disarms from beside a mine, not on it.
+    /// here heads: halfway into the arrival; a trap's `TRAP_CLEAR_M`
+    /// outside the trap's circle (`traps::RADIUS_M`), as KOTOR disarms from
+    /// beside a mine, never on it: the stop of a run slides on.
     pub fn stand_off(&self, choice: Choice) -> f32 {
         match choice {
-            Choice::Disarm | Choice::Recover => self.within * rules::targeting::walk::TRAP_SHARE,
+            Choice::Disarm | Choice::Recover => trap_stand_off(),
             _ => self.within * rules::targeting::walk::SHARE,
         }
+    }
+}
+
+/// How far from a mine (metres, across the floor) a walk to disarm or
+/// recover it stops.
+fn trap_stand_off() -> f32 {
+    crate::traps::RADIUS_M + TRAP_CLEAR_M
+}
+
+/// How near its target (metres, across the floor) a walk to do `choice`
+/// has arrived: `ARRIVE` of its reach; a trap's `TRAP_ARRIVE_M` beyond
+/// where it stops (`trap_stand_off`), still outside the trap.
+fn arrival(choice: Choice, kind: ObjectKind) -> f32 {
+    match choice {
+        Choice::Disarm | Choice::Recover => trap_stand_off() + TRAP_ARRIVE_M,
+        _ => reach(choice, kind) * ARRIVE,
     }
 }
 
@@ -586,6 +620,10 @@ pub const WALK_MS: u64 = rules::targeting::walk::WALK_MS;
 const STALLS: u8 = rules::targeting::walk::STALLS;
 /// What share of a choice's reach a walk ends within.
 const ARRIVE: f32 = rules::targeting::walk::ARRIVE;
+/// How far outside a mine's circle a walk to it stops, and how much
+/// farther it has arrived (metres).
+const TRAP_CLEAR_M: f32 = rules::targeting::walk::TRAP_CLEAR_M;
+const TRAP_ARRIVE_M: f32 = rules::targeting::walk::TRAP_ARRIVE_M;
 /// How far (metres) a target may move before its walk is planned again.
 const MOVED: f32 = rules::targeting::walk::MOVED;
 

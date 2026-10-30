@@ -2139,11 +2139,19 @@ impl Cast {
                 .to_array()
                 .map(|v| v / 100.0);
             let (look, clip) = match &member.body.look {
-                Look::Retargeted { gait, .. } => (
+                Look::Retargeted {
+                    gait, acted, shows, ..
+                } => (
                     "retargeted",
                     Some(serde_json::json!({
                         "gait": gait.as_ref().map(|gait| gait.facts()),
                         "breath": member.figure.breath.weight(),
+                        // How much of each scripted or engine clip shows
+                        // over the pose (a mine's disarm, Security).
+                        "acted": shows
+                            .shown(acted, ms, (member.figure.breath.wield, None))
+                            .map(|(clip, _, weight)| (clip.clip().name.clone(), weight))
+                            .collect::<Vec<_>>(),
                     })),
                 ),
                 Look::Ja => ("ja", None),
@@ -2989,9 +2997,12 @@ fn place(
     // Guns in hand or on their way to or from the holsters (`draw_anim`)
     // keep the arms the pose's.
     let readying = drawn.is_some_and(|drawn| drawn.in_hand || drawn.stow > 0.0);
-    let still =
-        held.is_some() || (x * x + y * y).sqrt() < STILL_SPEED && at.alive && !armed && !readying;
     let acting = held.or(at.fighter.and_then(|f| f.acting));
+    // One that hides the equipped items (Security, a mine's) puts the gun
+    // away as it begins: the gun going does not break it off.
+    let hiding = acting.is_some_and(|acting| acting::hides_items(&acting, ms));
+    let still = held.is_some()
+        || (x * x + y * y).sqrt() < STILL_SPEED && at.alive && (hiding || !armed && !readying);
     if let Some(playing) = &mut body.playing {
         playing.clear();
     }

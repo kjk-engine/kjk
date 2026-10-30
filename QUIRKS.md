@@ -1993,3 +1993,34 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Evidence:   `context/artifacts/2026-10-30-door-use/SURVEY.md` (rules
   12-21); the probes `target_close_offered` (approved test `use_actions`)
   and `door_closed_by_choice` (`use_walk`).
+
+### Q-0335 — out of combat a failed skill use floats "Skill Too Low", even one that sets the mine off
+
+- Reference:  K1 (the executable's disarm, recover and open-lock actions
+  send the check's result with a code the client floats by; the client's
+  feedback handler)
+- Behaviour:  out of combat, where the check takes 20, any failure is sent
+  as "skill too low" before the code for a mine going off is asked, so a
+  mine that a bad failure sets off still floats `*Skill Too Low*` over its
+  disarmer (in combat such a failure floats nothing). A lock of DC 60 or
+  more floats `*Impossible*` instead. In combat a failure floats
+  `*failure*`; a mine's success `*success*`; Security's success nothing.
+- Expected:   the float telling what happened (the mine went off).
+- Status:     reproduced.
+- Ours:       `sim::locks::floats`
+- Evidence:   `context/artifacts/2026-10-30-mine-security/SURVEY.md`; the
+  probe `skill_floats` (`traps_lifecycle`).
+
+### Q-0336 — the float over a skill's user drops the skill's name past 20 characters
+
+- Reference:  K1 (the client's feedback handler: `"%s *%s*"`, and
+  `"*%s*"` when the first is 21 characters or more)
+- Behaviour:  "Disable Mine *success*" and "Recover Mine *Skill Too Low*" are
+  too long, so the mines' floats are the outcome alone; only Security's
+  in-combat failure keeps its name ("Security *failure*").
+- Expected:   one form for every skill.
+- Status:     partly: ours floats the outcome alone for every skill (the
+  float rides the scripts' feedback line, which carries one strref), so
+  Security's in-combat failure reads `*failure*` [verify against K1].
+- Ours:       `game::floaty_view` (`STARRED`), `sim::locks::floats`
+- Evidence:   `context/artifacts/2026-10-30-mine-security/SURVEY.md`.

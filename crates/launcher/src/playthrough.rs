@@ -2693,7 +2693,7 @@ fn click(goal: &Goal, data: &ObjectData, state: sim::ObjectState) -> Option<sim:
         (Goal::Put(..), _) => Some(Choice::Open),
         (_, ObjectKind::Creature) => Some(Choice::Talk),
         (_, ObjectKind::Door | ObjectKind::Placeable) => {
-            sim::target::choices(data.kind, data, state, false, None, (false, false))
+            sim::target::choices(data.kind, data, state, false, None, None)
                 .first()
                 .copied()
         }

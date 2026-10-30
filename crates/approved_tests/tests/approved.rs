@@ -1168,6 +1168,17 @@ fn traps_lifecycle() {
     probed("traps", &sim::traps::probes(), 20);
 }
 
+/// Disarming a mine in one choice (owner's playtest, 2026-10-30: "fiddly
+/// and sometimes leads to you detonating it"): on the proving ground the
+/// player chooses Disarm on a K1 mine (its 1.5 m octagon, hostile) straight
+/// on, at an angle, from the side, already running and from beside it;
+/// walked there, it stops outside the mine's circle, never sets it off,
+/// and disarms it. The sim alone. [awaiting the owner's approval]
+#[test]
+fn mine_walk() {
+    probed("mine walk", &sim::traps::walk_probes(), 5);
+}
+
 /// Stealth and Awareness (`docs/COMBAT.md`),
 /// owner 2026-10-04: item skill bonuses worn, the spot and listen scores
 /// at fixed rolls, stealth turned on and refused, ended by attacking,

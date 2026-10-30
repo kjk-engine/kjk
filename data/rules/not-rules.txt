@@ -614,6 +614,7 @@ crates/sim/src/world/locks.rs CHECK  # a talk table strref
 crates/sim/src/world/locks.rs DISARM_MINE  # a talk table strref
 crates/sim/src/world/locks.rs DOOR  # KOTOR's animation id
 crates/sim/src/world/locks.rs FAILURE  # a talk table strref
+crates/sim/src/world/locks.rs IMPOSSIBLE  # a talk table strref
 crates/sim/src/world/locks.rs KEY_ONLY  # a talk table strref
 crates/sim/src/world/locks.rs KEY_USED  # a talk table strref
 crates/sim/src/world/locks.rs LOCKED  # a talk table strref
@@ -626,6 +627,7 @@ crates/sim/src/world/locks.rs PLACEABLE  # KOTOR's animation id
 crates/sim/src/world/locks.rs RECOVER_MINE  # a talk table strref
 crates/sim/src/world/locks.rs SECURITY  # a talk table strref
 crates/sim/src/world/locks.rs SET_MINE  # a talk table strref
+crates/sim/src/world/locks.rs SKILL_TOO_LOW  # a talk table strref
 crates/sim/src/world/locks.rs SNEAK_ATTACK  # a talk table strref
 crates/sim/src/world/locks.rs STEALTH_IN_COMBAT  # a talk table strref
 crates/sim/src/world/locks.rs STEALTH_OFF  # a talk table strref

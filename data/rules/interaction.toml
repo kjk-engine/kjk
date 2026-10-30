@@ -52,7 +52,10 @@ the attempt fails.
 """
 detail = """
 The character must have paid points into the Security skill. Some locks can
-only be opened with their key.
+only be opened with their key. A failed attempt may be tried again; its
+outcome floats over the character as in KOTOR: *failure* in combat, *Skill
+Too Low* out of combat where taking 20 is not enough, *Impossible* for a
+lock of DC {interaction.security.impossible_dc:bare} or more.
 """
 applies = ["skill:Security", "baseitem:Security_Spikes", "kind:door", "kind:container"]
 
@@ -65,6 +68,16 @@ range = [0, 30000]
 summary = "Using Security on a lock takes {interaction.security.unlock_ms:s}."
 source = "K1's executable (its open-lock action)"
 see = "sim::world::locks::begin"
+applies = ["skill:Security", "kind:door", "kind:container"]
+
+[security.impossible_dc]
+name = "Impossible Lock"
+type = "u8"
+value = 60
+range = [0, 255]
+summary = "A lock of DC {interaction.security.impossible_dc:bare} or more that taking 20 does not open is told as Impossible."
+source = "K1's executable (its open-lock action's feedback)"
+see = "sim::locks::floats"
 applies = ["skill:Security", "kind:door", "kind:container"]
 
 [skill_uses]
