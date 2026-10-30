@@ -63,6 +63,9 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
     if let Some(deal) = name.strip_prefix("store_confirm:") {
         return Some(Box::new(store::Confirm::new(deal)?));
     }
+    if let Some(to) = name.strip_prefix("quit_confirm:") {
+        return Some(Box::new(options_in_game::Quit::new(to)?));
+    }
     if let Some(asked) = name.strip_prefix("save_overwrite:") {
         return Some(Box::new(save_load::Overwrite::new(asked)));
     }
