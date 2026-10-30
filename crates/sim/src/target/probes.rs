@@ -156,7 +156,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             (false, false),
         )
     };
-    use Choice::{Mine, Open, Talk, Unlock, Use};
+    use Choice::{Close, Mine, Open, Talk, Unlock, Use};
     let (door, place, creature) = (
         ObjectKind::Door,
         ObjectKind::Placeable,
@@ -177,7 +177,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     let want = [
         vec![Open],
         locked.clone(),
-        vec![Use],
+        vec![Close, Use],
         vec![Open],
         locked,
         vec![Use],
@@ -224,6 +224,42 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             mined == [vec![Open, Mine], vec![Use]]
                 && ask(Mine, 7, door) == Some(crate::action::Action::Mine(7)),
             format!("{mined:?}"),
+        ),
+    ));
+    // Close (QUIRKS.md Q-0330) only on an open door the player could open
+    // again: not one only scripts open, not one leading out, not one
+    // broken open.
+    let scripted = made(door, Opens::Never, false, "");
+    let leads_out = crate::module::ObjectData {
+        link: Some(crate::module::Link {
+            module: "elsewhere".into(),
+            tag: String::new(),
+            destination: None,
+        }),
+        ..made(door, Opens::Yes, false, "")
+    };
+    let sturdy = crate::module::ObjectData {
+        hit_points: Some((10, 10)),
+        ..made(door, Opens::Yes, false, "")
+    };
+    let broken = crate::snapshot::ObjectState { damage: 10, ..open };
+    let closes = [
+        (&scripted, open),
+        (&leads_out, open),
+        (&sturdy, broken),
+        (&sturdy, open),
+    ]
+    .map(|(facts, state)| choices(door, facts, state, false, None, (false, false)));
+    checks.push((
+        "target_close_offered",
+        check(
+            closes == [vec![Use], vec![Use], vec![Use], vec![Close, Use]]
+                && ask(Close, 7, door)
+                    == Some(crate::action::Action::Use {
+                        object: 7,
+                        verb: crate::action::Verb::Close,
+                    }),
+            format!("{closes:?}"),
         ),
     ));
     // A walk keeps the player's hand and power; its own key cancels it.

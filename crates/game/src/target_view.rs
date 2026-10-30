@@ -81,6 +81,7 @@ impl Targeted {
 mod lines {
     pub const OPEN: u32 = 365;
     pub const USE: u32 = 366;
+    pub const CLOSE: u32 = 1582;
     pub const DIALOG: u32 = 371;
     pub const SECURITY: u32 = 255;
     pub const TREAT_INJURY: u32 = 257;
@@ -92,8 +93,8 @@ mod lines {
 /// A choice's icon, by the kind of its object (an item's its own).
 fn icon(choice: Choice, kind: ObjectKind) -> &'static str {
     match (choice, kind) {
-        (Choice::Open, ObjectKind::Door) => "i_opendoor",
-        (Choice::Open, _) => "i_openplace",
+        (Choice::Open | Choice::Close, ObjectKind::Door) => "i_opendoor",
+        (Choice::Open | Choice::Close, _) => "i_openplace",
         (Choice::Use, _) => "i_useplace",
         (Choice::Talk, _) => "i_dialog",
         (Choice::Unlock { .. }, _) => "isk_security",
@@ -587,6 +588,7 @@ fn target(
             let mut label = say(match choice {
                 Choice::Open => lines::OPEN,
                 Choice::Use => lines::USE,
+                Choice::Close => lines::CLOSE,
                 Choice::Talk => lines::DIALOG,
                 Choice::Unlock { .. } => lines::SECURITY,
                 Choice::Revive => lines::TREAT_INJURY,

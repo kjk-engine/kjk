@@ -315,6 +315,9 @@ pub enum Choice {
     Open,
     /// A useable placeable; an open door (its click script).
     Use,
+    /// An open door the player could open again, closed (QUIRKS.md
+    /// Q-0330: KOTOR's player never closes a door).
+    Close,
     /// A creature that speaks.
     Talk,
     /// Security, with a spike the party carries (by script object id) or
@@ -351,8 +354,8 @@ pub struct Security {
 /// locked door or container is opened (tried with the party's key, else
 /// its fail-to-open script) or unlocked by a character with `security`
 /// (and the spike carried, if any) unless only its key opens it;
-/// a shut door or a container opened; an open door
-/// or a useable placeable used; a creature not hostile that speaks (a
+/// a shut door or a container opened; an open door closed where it may be
+/// (`uses::closable`), and used; a useable placeable used; a creature not hostile that speaks (a
 /// conversation or a dialogue hook) talked to; a disarmable trap the party
 /// detected disarmed, or recovered where its row has a kit (`recoverable`);
 /// in TSL, a mine set on a shut door where the party carries one (`mine`).
@@ -382,6 +385,9 @@ pub fn choices(
     match kind {
         ObjectKind::Door if locked && state.state == 0 => shut_door(unlock()),
         ObjectKind::Door if state.state == 0 => shut_door(vec![Choice::Open]),
+        ObjectKind::Door if crate::uses::closable(facts, &state) => {
+            vec![Choice::Close, Choice::Use]
+        }
         ObjectKind::Door => vec![Choice::Use],
         ObjectKind::Placeable if facts.container && locked => unlock(),
         ObjectKind::Placeable if facts.container => vec![Choice::Open],
@@ -420,6 +426,7 @@ pub fn ask(choice: Choice, object: u32, kind: ObjectKind) -> Option<crate::actio
         (Choice::Recover, _) => return Some(Action::Recover(object)),
         (Choice::Mine, _) => return Some(Action::Mine(object)),
         (Choice::Open, _) | (Choice::Use, ObjectKind::Door) => Verb::Open,
+        (Choice::Close, _) => Verb::Close,
         (Choice::Use, _) => Verb::Use,
         (Choice::Talk, _) => Verb::Talk,
     };

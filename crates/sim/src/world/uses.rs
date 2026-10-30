@@ -93,20 +93,35 @@ impl Target {
     }
 }
 
-/// Whether `object` takes `verb`: a door opens and closes, a container
-/// opens, a useable placeable is used, a living creature is talked to.
-/// Nothing else, and nothing without facts.
+/// Whether `object` takes `verb`: a door opens, and closes where it may
+/// (`closable`), a container opens, a useable placeable is used, a living
+/// creature is talked to. Nothing else, and nothing without facts.
 pub(super) fn applies(object: &Object, verb: Verb, alive: bool) -> bool {
     let Some(facts) = object.facts.as_deref() else {
         return false;
     };
     match (object.kind, verb) {
-        (ObjectKind::Door, Verb::Open | Verb::Close) => true,
+        (ObjectKind::Door, Verb::Open) => true,
+        (ObjectKind::Door, Verb::Close) => closable(facts, &object.state),
         (ObjectKind::Placeable, Verb::Open) => facts.container,
         (ObjectKind::Placeable, Verb::Use) => facts.useable && !facts.container,
         (ObjectKind::Creature, Verb::Talk) => alive,
         _ => false,
     }
+}
+
+/// Whether a player may close a door with `facts` in `state` (QUIRKS.md
+/// Q-0330, the owner's: KOTOR's player closes none): open, not broken
+/// open, not leading out, and one it could open again itself (not locked,
+/// not a door only scripts open), so a close never shuts it out of a way
+/// the story opened. Who stands in its doorway stops it too (the host,
+/// `interaction::in_doorway`).
+pub fn closable(facts: &ObjectData, state: &crate::snapshot::ObjectState) -> bool {
+    facts.kind == ObjectKind::Door
+        && state.state != 0
+        && state.opens(facts.opens)
+        && !state.broken(facts)
+        && facts.exit().is_none()
 }
 
 /// Whether `player` may use `target` (an object of `kind`) with `verb`:

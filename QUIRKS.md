@@ -1968,3 +1968,28 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   two exits to the blast's end, one a local deeper); the probe "an
   argument of the wrong type" (`kjk script probes`); the
   `peragus_harbinger` route (15 runs aborted, no faults).
+
+### Q-0330 — The player cannot close an open door
+
+- Reference:  K1 and TSL (the executables' default action and action menu
+  for a door: `CClientExoAppInternal::GetDefaultActions` offers Open only
+  while the door is shut, `CSWCDoor::GetTargetActions` nothing on an open
+  one; no close-door icon in either game); reone (an open door is not
+  selectable)
+- Behaviour:  a door the player opened stays open; only scripts close
+  doors (`ActionCloseDoor`, `DoDoorAction`). Taris's sewer doors, once
+  opened, cannot be shut behind the party.
+- Expected:   the owner's report (2026-10-30): "same sewer doors can't be
+  closed once opened".
+- Status:     fixed (approved 2026-10-30, the owner): an open door offers
+  Close (K1's word, 1582; the open-door icon) before Use, where the player
+  could open it again itself: not locked, not a door only scripts open, not
+  broken open, not leading out. It is closed from the same range as it is
+  opened (its action point, below), not on anyone standing in its doorway,
+  and runs its `OnClosed`; its closing clip and its closed collision
+  follow. The host refuses a Close on any other door.
+- Ours:       `sim::world::uses::closable`, `sim::target::choices`,
+  `game::target_view`
+- Evidence:   `context/artifacts/2026-10-30-door-use/SURVEY.md` (rules
+  12-21); the probes `target_close_offered` (approved test `use_actions`)
+  and `door_closed_by_choice` (`use_walk`).

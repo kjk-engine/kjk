@@ -709,7 +709,11 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   fail-to-open script and "Locked"), Security, Security with the best
   spike carried (owner, 2026-10-09: Open is the default; Security only
   for a body with ranks in it and not on a lock only its key opens, as
-  K1); an open door: Use (its `OnClick`); a
+  K1); an open door: Use (its `OnClick`), and before it Close (1582, the
+  open-door icon) where the player could open it again (not locked, not
+  one only scripts open, not broken open, not leading out; nobody in its
+  doorway, the host checks; its `OnClosed` runs). KOTOR offers nothing on
+  an open door: Close is the owner's (QUIRKS.md Q-0330); a
   creature not hostile that speaks: Dialog; a hostile one shows its name
   and vitality, both red, and the items the player's body wears that it
   may use on a foe with a use left (a droid's stun ray or flamethrower:

@@ -2031,12 +2031,15 @@ const GATE_POINTS: [[f32; 3]; 2] = [[-0.9, 0.0, 0.0], [0.9, 0.0, 0.0]];
 /// ended against the wall's face).
 const ALONG_WALL: [f32; 2] = [-1.0, 4.0];
 
-/// The gate's walk: the gate given action points (`GATE_POINTS`) and its
-/// `OnOpen`; the player from `ALONG_WALL` chooses Open, is walked to the
-/// point on its side and opens it. Where it stood when it asked to open
-/// (the ground's own axes) and whether the gate stood open.
-fn door_scenario() -> Result<([f32; 2], bool), String> {
+/// The gate's walk and close (QUIRKS.md Q-0330): the gate given action
+/// points (`GATE_POINTS`) and its `OnOpen` and `OnClosed`; the player from
+/// `ALONG_WALL` chooses Open, is walked to the point on its side and opens
+/// it, then chooses Close where it stands. Where it stood when it asked to
+/// open (the ground's own axes), whether the gate stood open, and whether
+/// it was closed by the choice with its `OnClosed` heard.
+fn door_scenario() -> Result<([f32; 2], bool, bool), String> {
     use crate::module::Placement;
+    use crate::notice::Notice;
 
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
@@ -2044,7 +2047,10 @@ fn door_scenario() -> Result<([f32; 2], bool), String> {
         return Err("the ground's first object is not its door".into());
     };
     gate.use_points = GATE_POINTS.to_vec();
-    gate.scripts = vec![("OnOpen".into(), "probe_opened".into())];
+    gate.scripts = vec![
+        ("OnOpen".into(), "probe_opened".into()),
+        ("OnClosed".into(), "probe_closed".into()),
+    ];
     let (kept, mut world) = walk_world(data, crate::combat::Sheet::dev_soldier())?;
     let gate_state = |snapshot: &crate::Snapshot| {
         snapshot
@@ -2054,14 +2060,18 @@ fn door_scenario() -> Result<([f32; 2], bool), String> {
             .and_then(|entity| entity.object)
             .map_or(0, |gate| gate.state)
     };
-    let (mut stood, mut opened) = (None, false);
-    let open = Choosing {
-        stand: Some(ALONG_WALL),
+    let choose = |choice| Choosing {
+        stand: None,
         run_in: 0,
         object: GATE,
         kind: ObjectKind::Door,
-        choice: crate::target::Choice::Open,
+        choice,
         cancel_at: None,
+    };
+    let (mut stood, mut opened) = (None, false);
+    let open = Choosing {
+        stand: Some(ALONG_WALL),
+        ..choose(crate::target::Choice::Open)
     };
     walk_and_choose(&kept, &mut world, &open, |asked, last, _| {
         if asked && stood.is_none() {
@@ -2074,6 +2084,14 @@ fn door_scenario() -> Result<([f32; 2], bool), String> {
         opened = gate_state(last) != 0;
         opened
     })?;
+    let mut heard = false;
+    let close = choose(crate::target::Choice::Close);
+    let closed = walk_and_choose(&kept, &mut world, &close, |_, _, notices| {
+        heard |= notices
+            .iter()
+            .any(|(_, notice)| *notice == Notice::Said("closed".into()));
+        heard
+    })?;
     let stood = stood.ok_or("the open was never asked")?;
     // Back on the ground's own axes.
     let (o, ex, ey) = (
@@ -2084,7 +2102,11 @@ fn door_scenario() -> Result<([f32; 2], bool), String> {
     let rel = crate::math::sub(stood, o);
     let axis = |to: [f32; 3]| crate::math::sub(to, o);
     let on = |a: [f32; 3]| rel[0] * a[0] + rel[1] * a[1];
-    Ok(([on(axis(ex)), on(axis(ey))], opened))
+    Ok((
+        [on(axis(ex)), on(axis(ey))],
+        opened,
+        heard && gate_state(&closed.last) == 0,
+    ))
 }
 
 /// The walk's checks: from the entry the player walks to a panel out of
@@ -2093,22 +2115,31 @@ fn door_scenario() -> Result<([f32; 2], bool), String> {
 /// cancels the walk and nothing is used; two runs end the same; from
 /// beside the wall the player walks to the gate's action point on its side
 /// (KOTOR's `CSWSCreature::GetUseRange`), off the wall's face, and opens
-/// it. For the approved test `use_walk`.
+/// it, then closes it with Close, its `OnClosed` heard (QUIRKS.md Q-0330).
+/// For the approved test `use_walk`.
 pub fn walk_probes() -> Vec<(&'static str, Result<String, String>)> {
     let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
     let door = match door_scenario() {
-        Ok((stood, opened)) => {
+        Ok((stood, opened, closed)) => {
             let [px, py, _] = GATE_POINTS[0];
             let off_point = ((stood[0] - px).powi(2) + (stood[1] - py).powi(2)).sqrt();
-            vec![(
-                "walk_to_door_action_point",
-                check(
-                    opened
-                        && off_point <= crate::target::door_point_reach()
-                        && stood[0] <= -DOOR_FACE_CLEAR_M,
-                    format!("opened {opened}, stood at {stood:?}, {off_point:.2} m off the point"),
+            vec![
+                (
+                    "walk_to_door_action_point",
+                    check(
+                        opened
+                            && off_point <= crate::target::door_point_reach()
+                            && stood[0] <= -DOOR_FACE_CLEAR_M,
+                        format!(
+                            "opened {opened}, stood at {stood:?}, {off_point:.2} m off the point"
+                        ),
+                    ),
                 ),
-            )]
+                (
+                    "door_closed_by_choice",
+                    check(closed, format!("closed with its OnClosed {closed}")),
+                ),
+            ]
         }
         Err(why) => vec![("door_scenario", Err(why))],
     };
