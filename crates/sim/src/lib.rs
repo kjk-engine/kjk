@@ -74,7 +74,7 @@ mod wire;
 mod world;
 
 pub use input::{Command, Seat, TickInput, buttons};
-pub use install::{Announcement, InstallError, Mismatch, WALKER_HALF_WIDTH_M, counts};
+pub use install::{Announcement, InstallError, Mismatch, Restamp, WALKER_HALF_WIDTH_M, counts};
 pub use instance::Instances;
 pub use rate::{Accumulator, MAX_CATCH_UP, TICK_HZ, TickRate};
 pub use replay::{Divergence, RecordedTick, Recorder, Recording};

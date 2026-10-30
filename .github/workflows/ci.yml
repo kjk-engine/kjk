@@ -54,6 +54,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The order the pending bump files reached main numbers them.
+          fetch-depth: 0
 
       # rust-toolchain.toml pins the version; this installs it.
       - name: Toolchain
@@ -86,6 +89,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The order the pending bump files reached main numbers them.
+          fetch-depth: 0
 
       - name: Toolchain
         run: rustup toolchain install
@@ -116,6 +122,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The order the pending bump files reached main numbers them.
+          fetch-depth: 0
 
       - name: Toolchain
         run: rustup toolchain install
