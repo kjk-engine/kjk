@@ -24,6 +24,7 @@ crates/sim/src/action.rs HOLSTER  # a player action's wire tag
 crates/sim/src/action.rs LEAD  # a player action's wire tag
 crates/sim/src/action.rs LEAVE  # a player action's wire tag
 crates/sim/src/action.rs LEVEL_UP  # a player action's wire tag
+crates/sim/src/action.rs LEVEL_UP_ON  # a player action's wire tag
 crates/sim/src/action.rs MINE  # a player action's wire tag
 crates/sim/src/action.rs OPEN  # a player action's wire tag
 crates/sim/src/action.rs PAZAAK  # a player action's wire tag

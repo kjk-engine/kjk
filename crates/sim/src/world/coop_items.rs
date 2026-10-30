@@ -11,13 +11,15 @@
 //! 2. The host cannot take `a`'s blade off; seat 1 cannot wear the host's
 //!    crown (worn, not the party's) nor sell it or `a`'s blade (worn).
 //! 3. Seat 1 takes the blade off `a` and sells it.
-//! 4. The party has XP for two levels: `b` takes both at once, `a` waits.
+//! 4. The party has XP for two levels: `a` and `b` both wait.
 //! 5. Seat 1 asks a level in a class `a` does not have: refused, told to
-//!    seat 1.
+//!    seat 1. It asks one for `b` (the host's to give: refused); the host
+//!    asks one for `b` and `b` takes it.
 //! 6. Seat 1 asks a level with its own picks: `a` takes one, the next
 //!    still waits.
-//! 7. Seat 1 drops (no command), its picks sent anyway: `a` takes the
-//!    waiting level with the game's picks; the host dresses `a`.
+//! 7. Seat 1 drops (no command), its picks sent anyway: nothing taken, `a`
+//!    waits on; the host dresses `a`.
+//! 8. The host asks `a`'s waiting level, and `a` takes it.
 //!
 //! Who drives `a` is `drivers::assign`'s, at the top of each step: seat 1
 //! takes the first party member free in step 0, and drops it in step 7.
@@ -248,7 +250,11 @@ fn scenario() -> Result<Ran, String> {
     let equip_on = |who, item, slot| Action::EquipOn { who, item, slot };
     let weapon = slots::RIGHT_WEAPON;
     // Each step's actions, by seat.
-    let steps: [Vec<(u8, Action)>; 8] = [
+    let level_up_on = |who| Action::LevelUpOn {
+        who,
+        choices: picks(START.0),
+    };
+    let steps: [Vec<(u8, Action)>; 9] = [
         vec![
             (0, Action::Open(locker)),
             (0, equip_on(a, robe, slots::BODY)),
@@ -297,12 +303,17 @@ fn scenario() -> Result<Ran, String> {
             (1, sell(blades[0])),
         ],
         Vec::new(),
-        vec![(1, Action::LevelUp(picks(1)))],
+        vec![
+            (1, Action::LevelUp(picks(1))),
+            (1, level_up_on(b)),
+            (0, level_up_on(b)),
+        ],
         vec![(1, Action::LevelUp(picks(START.0)))],
         vec![
             (0, equip_on(a, robe, slots::BODY)),
             (1, Action::LevelUp(picks(START.0))),
         ],
+        vec![(0, level_up_on(a))],
     ];
     let (mut snapshots, mut states, mut notices) = (Vec::new(), Vec::new(), Vec::new());
     for (at, actions) in steps.into_iter().enumerate() {
@@ -538,14 +549,18 @@ fn cases(ran: &Ran) -> Vec<(&'static str, Result<String, String>)> {
             ),
         ),
         (
-            "undriven_levels_at_once",
+            "undriven_waits_for_the_host",
             check(
-                seen.sheet(4, b).0 == 5
-                    && ran.states[4].careers.get(&b) == Some(&vec![(START.0, 5)]),
+                seen.sheet(4, b).0 == START.1
+                    && seen.sheet(5, b).0 == START.1 + 1
+                    && ran.states[5].careers.get(&b) == Some(&vec![(START.0, START.1 + 1)])
+                    && seen.told(5, 1, &Notice::NotYours { by: None }) == 1,
                 format!(
-                    "b {:?}, career {:?}",
+                    "b {:?} then {:?}, career {:?}, notices {:?}",
                     seen.sheet(4, b),
-                    ran.states[4].careers.get(&b)
+                    seen.sheet(5, b),
+                    ran.states[5].careers.get(&b),
+                    ran.notices
                 ),
             ),
         ),
@@ -586,9 +601,9 @@ fn cases(ran: &Ran) -> Vec<(&'static str, Result<String, String>)> {
             ),
         ),
         (
-            "drop_takes_the_waiting_level",
+            "drop_leaves_the_level_waiting",
             check(
-                seen.driver(DROPPED, a).is_none() && seen.sheet(DROPPED, a).0 == START.1 + 2,
+                seen.driver(DROPPED, a).is_none() && seen.sheet(DROPPED, a).0 == START.1 + 1,
                 format!(
                     "a {:?}, driver {:?}",
                     seen.sheet(DROPPED, a),
@@ -599,13 +614,19 @@ fn cases(ran: &Ran) -> Vec<(&'static str, Result<String, String>)> {
         (
             "dropped_picks_not_taken",
             check(
-                seen.sheet(DROPPED, a).1[1] == seen.sheet(6, a).1[1]
-                    && seen.sheet(DROPPED, a).1[0] > seen.sheet(6, a).1[0],
+                seen.sheet(DROPPED, a).1 == seen.sheet(6, a).1,
                 format!(
                     "a's skills {:?} then {:?}",
                     seen.sheet(6, a).1,
                     seen.sheet(DROPPED, a).1
                 ),
+            ),
+        ),
+        (
+            "host_levels_after_drop",
+            check(
+                seen.sheet(DROPPED + 1, a).0 == START.1 + 2,
+                format!("a {:?}", seen.sheet(DROPPED + 1, a)),
             ),
         ),
         (
