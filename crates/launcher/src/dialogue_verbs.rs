@@ -433,7 +433,7 @@ pub fn run(discovery: &Discovery, game: &str, module: &str, run: &Run) -> ExitCo
         let mut lines: Vec<String> = report
             .talk
             .iter()
-            .flat_map(|line| transcript(&talk, &library, &names, &mut tokens, line))
+            .flat_map(|line| transcript(&talk, &library, &names, (&mut tokens, None), line))
             .collect();
         lines.extend(carried(&world, &run.items));
         let entries = report

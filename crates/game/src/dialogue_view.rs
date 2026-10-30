@@ -237,11 +237,21 @@ pub(crate) struct Fill<'a> {
 }
 
 impl<'a> Fill<'a> {
-    /// For the player whose character is `pc` in `snapshot`.
+    /// For the player whose character is `pc` in `snapshot`, or who drives
+    /// it: a companion the first seat was switched to or leads with
+    /// (`Snapshot::leading`) speaks with that player's tokens, as TSL's
+    /// `CSWTlkTable::GetTokenValue` fills `<FirstName>` from the party
+    /// table's player name whoever the player controls (Visas Marr asked
+    /// "What happened with <FirstName>?" on Dxun).
     pub fn to(snapshot: &'a sim::Snapshot, pc: script_ncs::vm::ObjectId) -> Fill<'a> {
+        let driven = snapshot.leading == Some(sim::SimId(pc.0));
         Fill {
             told: &snapshot.talk,
-            pc: crate::persona::of_character(snapshot, pc.0),
+            pc: crate::persona::of_character(snapshot, pc.0).or_else(|| {
+                driven
+                    .then(|| sim::persona::of(&snapshot.personas, sim::Seat(0)))
+                    .flatten()
+            }),
         }
     }
 }
@@ -250,7 +260,7 @@ impl<'a> Fill<'a> {
 /// `<FirstName>` its name (a player has a first name only), a pair such as
 /// `<man/woman>` or `<sir/madam>` the first for a man, the second for a
 /// woman.
-fn player_token(token: &str, pc: &sim::persona::Persona) -> Option<String> {
+pub(crate) fn player_token(token: &str, pc: &sim::persona::Persona) -> Option<String> {
     match token {
         "FullName" | "FirstName" => Some(pc.name.clone()),
         _ => {

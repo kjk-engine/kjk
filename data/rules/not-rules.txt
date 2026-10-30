@@ -515,7 +515,6 @@ crates/sim/src/script/party.rs RANGED  # a FORFEIT_* script constant's bit
 crates/sim/src/script/party.rs WEAPONS  # a FORFEIT_* script constant's bit
 crates/sim/src/script/presentation.rs BAO_DUR  # TSL's NPC_BAO_DUR, a script constant
 crates/sim/src/script/presentation.rs DATAPAD_READ  # a local boolean's index
-crates/sim/src/script/presentation.rs ENDINGS  # TSL's ending movies' names
 crates/sim/src/script/presentation.rs ENGINE_SCRIPTS  # the engine's scripts' names
 crates/sim/src/script/presentation.rs INPUT_CLASSES  # a script constant's range: SetInputClass's highest
 crates/sim/src/script/presentation.rs K1_WINDOWS  # tutorial.2da rows
@@ -596,6 +595,7 @@ crates/sim/src/world/feats.rs MASTER_TOUGHNESS  # a probe's fixture
 crates/sim/src/world/feats.rs START  # a probe's fixture
 crates/sim/src/world/feats.rs XP  # a probe's fixture
 crates/sim/src/world/galaxy.rs DANTOOINE  # the check's planets.2da row
+crates/sim/src/world/galaxy.rs ENDING  # the check's movie names (a_playgoodmovie's)
 crates/sim/src/world/galaxy.rs STEPS  # the check's step count
 crates/sim/src/world/galaxy.rs TARIS  # the check's planets.2da row
 crates/sim/src/world/history.rs HISTORY  # a buffer size: the ticks of poses kept (bounds the rewind)
@@ -635,3 +635,4 @@ crates/sim/src/world/powers.rs REGENERATE_FEAT  # feat.2da row (TSL's REGENERATE
 crates/sim/src/world/remains.rs BACKPACK  # placeables.2da row
 crates/sim/src/world/sabers.rs SABER  # a bit flag on a saber's entity number in bolt traces
 crates/sim/src/world/sabers.rs VIEW_REACH  # a geometric reach, longer than any throw's; not a game number
+crates/sim/src/notice.rs ENDING_MOVIES  # TSL's ending movies' names (the executable's own)

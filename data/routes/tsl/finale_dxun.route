@@ -1,6 +1,5 @@
 # Dxun, the strike on the Sith camp (TSL, 003EBO, 401DXN, 403DXN, 410DXN):
-# Kreia's prestige classes aboard (the Jedi Watchman taken, as the light
-# side Sentinel's), the galaxy map to Dxun on Kelborn's message, ashore with Kreia and Visas
+# the galaxy map to Dxun on Kelborn's message, ashore with Kreia and Visas
 # Marr, the Mandalorian guide to the camp; Kelborn's news (Kavar's message,
 # Vaklu's coup on Iziz, Kreia on the transmissions from the jungle) and the
 # party split: Visas Marr leads the jungle strike with Bao-Dur and Atton,
@@ -21,8 +20,8 @@
 # ASSUMES:
 # - The save stands in 003EBO after t3kelbrn (korriban_secret_tomb plays it:
 #   "Thanks T3...", Kavar's message, so 403DXN_Return_Trigger is set).
-# - Kreia's start 8 (the prestige classes) is the first her use offers
-#   aboard: start 7 (the Enclave) waits on all four masters found.
+# - Kreia's prestige classes were taken leaving Nar Shaddaa
+#   (nar_shaddaa_zez).
 # - Leaving for Dxun, the ramp first plays Atris's owed scene (262TEL,
 #   a_atriscs1) and comes back aboard at Dxun; the ramp again goes ashore.
 # - The Queen's side (500OND_DarkSide_Iziz 0), Mandalore (NPC 2) joined on
@@ -44,10 +43,6 @@
 # - 410DXN's way into 411DXN: To_411 links From_410DXN, but 411DXN's
 #   waypoint of template from_410dxn is tagged From_231TEL_D, so the
 #   arrival falls back on 411DXN's entry (-0.2, 25.8), the same spot.
-say Yes, it was a sound, like power. # Kreia (start 8, c_pc_prestige: level 15, the
-say Jedi Watchmen should return to the galaxy, and I will be the first to restore them.
-use kreia            # light side past 75): the Sentinel's light prestige class,
-talk                 # the Jedi Watchman (a_pc_jedi: AddMultiClass 13)
 use Galaxymap
 travel 1             # Dxun (planetary.2da)
 to tr_leave          # the ramp: Atris's first scene is owed (a_atriscs1)
@@ -64,6 +59,7 @@ say =Bao-Dur.        # "who else will accompany the expedition?"
 say =Atton.          # "And who else?"
 say Yes, I'm certain.
 say I'm ready. They should head out now.
+say [Awareness] I have to lead the group # Kreia: E33, "You... you are correct" (c_sc_awa_gt)
 talk                 # Kelborn: Kavar's message, the civil war, the split
 module 410dxn        # a_to_tomb: the party cleared, From_403DXN
 talk                 # Xarga: "Finally, we're close to our objective" (k_410_enter)

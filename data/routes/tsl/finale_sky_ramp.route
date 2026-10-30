@@ -13,9 +13,9 @@
 #   kjk playthrough tsl @onderon_civil_war data/routes/tsl/finale_sky_ramp.route --god
 # Walkthrough: DSimpson's "Onderon Civil War" and "The Sky Ramp";
 # GameBanshee 48 and 51 (context/walkthroughs/tsl/).
-# Left: the tower's turret (term_acc's "Control the turret.", 505OND: five
-# of its eight fighters stop at their tracks' last keys, out of the gun's
-# reach, so the minigame never ends; SKIPPED.md), the barracks' lockers and
+# The tower's turret (term_acc's "Control the turret.", 505OND) is manned
+# once the shield is down.
+# Left: the barracks' lockers and
 # workbench, the power conductors (xterm1, xterm2: they blow up on the
 # party).
 #
@@ -53,6 +53,9 @@ fight 30             # the tower's troops
 say Enter Bostuco's access code. # term_acc start 0
 say Deactivate forceshield barrier.
 use term_acc
+say Control the turret. # term_acc again: 505OND, the tower's gun
+use term_acc
+turrets              # the eight fighters (800 XP), back at From_505OND
 to tr_trooper2       # ro_trp2 at the lower shield
 say Surrender now. Why lose your life for General Vaklu's ambitions?
 talk

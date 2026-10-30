@@ -22,19 +22,22 @@ pub fn text(talk: Talk, node: &Node) -> String {
 
 /// The transcript's lines for one report line, text resolved and
 /// `<CUSTOMn>` filled from `tokens`, the values the report's lines before
-/// it set (`Line::Token`, which updates them and writes nothing).
+/// it set (`Line::Token`, which updates them and writes nothing), and the
+/// player's own tokens from `player` (`<FirstName>`: the first seat's
+/// player, the party's own character, whoever it drives).
 pub fn transcript(
     talk: Talk,
     library: &Library,
     names: &BTreeMap<u32, String>,
-    tokens: &mut BTreeMap<i32, String>,
+    (tokens, player): (&mut BTreeMap<i32, String>, Option<&sim::persona::Persona>),
     line: &Line,
 ) -> Vec<String> {
     if let Line::Token { number, value, .. } = line {
         tokens.insert(*number, value.clone());
         return Vec::new();
     }
-    let talk = |strref| talk(strref).map(|text| filled(&text, tokens));
+    let tokens = &*tokens;
+    let talk = |strref| talk(strref).map(|text| filled(&text, tokens, player));
     let who = |id: ObjectId| {
         names
             .get(&id.0)
@@ -48,7 +51,9 @@ pub fn transcript(
                 let list = if entry { &dlg.entries } else { &dlg.replies };
                 list.get(index as usize)
             })
-            .map_or_else(String::new, |node| filled(&text(&talk, node), tokens))
+            .map_or_else(String::new, |node| {
+                filled(&text(&talk, node), tokens, player)
+            })
     };
     let at = |ms: u64| format!("{:>8.2}s", ms as f64 / 1000.0);
     match line {
@@ -156,13 +161,42 @@ pub fn tokens(lines: &[Line]) -> BTreeMap<i32, String> {
     tokens
 }
 
-/// `text` with each `<CUSTOMn>` that `tokens` holds filled in.
-fn filled(text: &str, tokens: &BTreeMap<i32, String>) -> String {
-    tokens
+/// `text` with each `<CUSTOMn>` that `tokens` holds filled in, and the
+/// player's tokens `player` answers (`dialogue_view::player_token`).
+fn filled(
+    text: &str,
+    tokens: &BTreeMap<i32, String>,
+    player: Option<&sim::persona::Persona>,
+) -> String {
+    let text = tokens
         .iter()
         .fold(text.to_string(), |text, (number, value)| {
             text.replace(&format!("<CUSTOM{number}>"), value)
-        })
+        });
+    let Some(pc) = player else {
+        return text;
+    };
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    while let Some(open) = rest.find('<') {
+        out.push_str(&rest[..open]);
+        let token = &rest[open..];
+        match token.find('>') {
+            Some(close) => {
+                match crate::dialogue_view::player_token(&token[1..close], pc) {
+                    Some(value) => out.push_str(&value),
+                    None => out.push_str(&token[..=close]),
+                }
+                rest = &token[close + 1..];
+            }
+            None => {
+                out.push_str(token);
+                rest = "";
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Each object's name for the transcript: its tag, the player "player".
@@ -179,4 +213,45 @@ pub fn speakers(snapshot: &sim::Snapshot, level: &sim::Level) -> BTreeMap<u32, S
             Some((entity.id.0, name))
         })
         .collect()
+}
+
+/// The player's tokens filled in a transcript's words (`filled`): the
+/// first name and a gender's pair from the first seat's player, after the
+/// scripts' `<CUSTOMn>`; without a player they stand as they are.
+#[cfg(feature = "probes")]
+pub fn probes() -> sim::probe::Checks {
+    let exile = sim::persona::Persona {
+        seat: sim::Seat(0),
+        appearance: 0,
+        gender: 0,
+        portrait: 0,
+        name: "Exile".into(),
+    };
+    let tokens = BTreeMap::from([(5, "Telos".to_string())]);
+    [
+        (
+            "transcript_first_name",
+            "I'm ready to go. What happened with <FirstName>?",
+            Some(&exile),
+            "I'm ready to go. What happened with Exile?",
+        ),
+        (
+            "transcript_gender_pair",
+            "Yes, <sir/madam>. To <CUSTOM5>, <FullName>.",
+            Some(&exile),
+            "Yes, sir. To Telos, Exile.",
+        ),
+        (
+            "transcript_no_player",
+            "What happened with <FirstName>?",
+            None,
+            "What happened with <FirstName>?",
+        ),
+    ]
+    .into_iter()
+    .map(|(name, text, player, wanted)| {
+        let got = filled(text, &tokens, player);
+        (name, sim::probe::check(got == wanted, format!("{got:?}")))
+    })
+    .collect()
 }

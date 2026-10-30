@@ -1,7 +1,9 @@
 # The Ravager, the bridge (TSL, 852NIH, back to 851NIH): the rooms of
 # Sith and Dark Jedi to the bridge's door, Visas's last warning (852Visas:
 # ready), the long walk to Darth Nihilus (852nih: the party raised in his
-# grip, "I will not let you destroy Telos", then the fight), his roar at
+# grip, "I will not let you destroy Telos", the [Intelligence] truth that
+# Kreia lied and his hunger will undo him: he drains the Exile, reels and
+# falls, "Even now, the hunger is consuming you", then the fight), his roar at
 # half his health (852nih start 1: Visas asked to break his link to the
 # ship, no sacrifice), the fight to his death, Visas taking off his mask
 # and the mask given (852end: a_give_item, Force points), what she saw, and
@@ -12,8 +14,8 @@
 # Walkthrough: DSimpson's "Ravager - Bridge" (context/walkthroughs/tsl/);
 # GameBanshee 58; Kerbow [WRAVBR], [WRAVDN].
 # Left: the lockers (one behind the locked door_nih004 north of the second
-# room), the [Intelligence]/[Wisdom] lines to Nihilus (c_ac_int_gt and its
-# kin: they only weaken him).
+# room); Visas's offer of herself (R63, c_influence_gt: the line chosen
+# keeps her out of it).
 #
 # ASSUMES:
 #   Visas (NPC 9) and Mandalore (NPC 2) in the party. Visas's influence
@@ -28,20 +30,19 @@ say I am ready. Let's end this. # 852visas at the bridge's door
 to 852Visas
 talk
 say I will not let you destroy Telos. # 852nih start 0 (k_852nih: the party
-say Then let us end this. # lifted, 852Nih); a_nihilus: the fight
+say [Intelligence] Kreia has lied to you # lifted, 852Nih); c_ac_int_gt
+say If you use your power here # E43, E44: he feeds on the Exile and falls
+say Even now, the hunger is consuming you. # a_nihilus: the fight
 to 852nih            # the long walk down the bridge
 talk
 say Can you disrupt that link somehow? # start 1 at half his health
-fight 40             # (k_nihilus_ud); Visas holds him (E30: stunned)
-talk
-while 852NIH_Nihilus_Dead=0
-fight 40
-end
 say Visas... what are you doing? # 852end (a_start_ending)
 say Look upon his face, then bring me the mask. # the mask (+Force points)
 say Tell me what you saw.
 say Then let this ship die, as it should have years ago. # a_end
-talk
+while 852NIH_Nihilus_Dead=0 # (k_nihilus_ud: Visas holds him, E30 stunned)
+fight 40
+end                  # (852end plays as he dies)
 exit TO_852NIH       # back to the command deck (851NIH's FROM_852NIH)
 module 851nih
 save ravager_escape

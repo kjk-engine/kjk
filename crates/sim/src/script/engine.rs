@@ -1751,17 +1751,19 @@ impl Engine<'_> {
                 Value::Int(0)
             }
             // A local boolean is a bit of the game's slots (`local_boolean`):
-            // nothing kept past the last, which reads false.
+            // nothing kept past the last, which reads false. A true one reads
+            // as its bit lies in its 32-bit word (`local_boolean_read`).
             GetLocalBoolean => {
+                let index = int(args, 1);
                 let key = (
                     local_owner(&self.view.module.name, object(args, 0)),
                     0,
-                    int(args, 1),
+                    index,
                 );
-                let kept = local_boolean(&view.module.game, int(args, 1))
+                let kept = local_boolean(&view.module.game, index)
                     .then(|| state.locals.get(&key).copied())
                     .flatten();
-                Value::Int(kept.unwrap_or(0))
+                Value::Int(local_boolean_read(index, kept.unwrap_or(0) != 0))
             }
             // A local number is a byte in one of the game's slots
             // (`local_number`): read back unsigned, set only from -128 to
@@ -5894,6 +5896,20 @@ pub(crate) fn local_boolean(game: &str, index: i32) -> bool {
         rules::scripts::locals::K1_BOOLEANS
     };
     (0..slots).contains(&index)
+}
+
+/// What `GetLocalBoolean` reads of local boolean `index`, `set` or not:
+/// both executables' `CSWVarTable::GetLocalBoolean` mask the bit in its
+/// word (`1 << index` masked, the shift's count taken modulo 32 as x86's
+/// `shl` takes it) and `ExecuteCommandGetLocalValue` pushes that as it is,
+/// not 1: true reads 1 only for indices 0, 32, 64 and so on, and a script's
+/// `== TRUE` on another is false, as in the games.
+pub(crate) fn local_boolean_read(index: i32, set: bool) -> i32 {
+    if set {
+        1i32.wrapping_shl(index as u32)
+    } else {
+        0
+    }
 }
 
 /// Whose locals `id`'s are: an object's own; the module's and the

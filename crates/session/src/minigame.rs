@@ -99,6 +99,20 @@ fn path(source: &dyn Source, name: &str, place: [f32; 3]) -> (Path, String) {
                 })
                 .collect()
         });
+    // A hook carried by a node above it that the clip moves (505OND's
+    // fighters: `path_dummy02` keyed, the hook under it keyed only in its
+    // turn): its keys are the chain's, posed down to the hook as the model
+    // draws it (`anim::posed`), at every key time of the chain.
+    if let (Some(clip), Some(at)) = (clip.as_ref(), hook_index(&ir))
+        && let Some(path) = carried(
+            &ir,
+            clip,
+            (at, scale),
+            [0, 1, 2].map(|i| place[i] + rest[i]),
+        )
+    {
+        return (path, spelled(Some(&model), name));
+    }
     let path = Path {
         origin: [0, 1, 2].map(|i| place[i] + rest[i]),
         handles,
@@ -114,6 +128,119 @@ fn path(source: &dyn Source, name: &str, place: [f32; 3]) -> (Path, String) {
         length: clip.as_ref().map_or(0.0, |clip| clip.length),
     };
     (path, spelled(Some(&model), name))
+}
+
+/// The track model's hook node.
+fn hook_index(ir: &ModelIr) -> Option<usize> {
+    ir.nodes
+        .iter()
+        .position(|node| node.name.eq_ignore_ascii_case(HOOK))
+}
+
+/// The path of hook `hook` when `clip` moves a node above it: each key time
+/// of the chain from the root to the hook, the hook's place posed there (an
+/// offset from its rest place, `origin`) and its turn; `None` when no node
+/// above the hook is keyed (the hook's own keys are its path).
+fn carried(
+    ir: &ModelIr,
+    clip: &AnimationIr,
+    (hook, scale): (usize, f32),
+    origin: [f32; 3],
+) -> Option<Path> {
+    let bound = clip.bind(ir);
+    let mut chain = Vec::new();
+    let mut at = ir.nodes.get(hook)?.parent;
+    while let Some(node) = at {
+        chain.push(node);
+        at = ir.nodes[node].parent;
+    }
+    let keyed = |node: usize| {
+        bound
+            .get(node)
+            .copied()
+            .flatten()
+            .and_then(|t| clip.tracks.get(t))
+    };
+    if !chain.iter().any(|&node| {
+        keyed(node).is_some_and(|t| !t.positions.is_empty() || !t.orientations.is_empty())
+    }) {
+        return None;
+    }
+    chain.push(hook);
+    let mut times: Vec<f32> = chain
+        .iter()
+        .filter_map(|&node| keyed(node))
+        .flat_map(|t| {
+            t.positions
+                .iter()
+                .map(|k| k.0)
+                .chain(t.orientations.iter().map(|k| k.0))
+        })
+        .collect();
+    times.sort_by(f32::total_cmp);
+    times.dedup();
+    let rest = ir.nodes[hook].world;
+    let posed = |t: f32| asset_odyssey::anim::posed(ir, (clip, &bound), scale, hook, t);
+    Some(Path {
+        origin,
+        rest: turn_of(&rest),
+        positions: times
+            .iter()
+            .map(|&t| {
+                let m = posed(t);
+                (t, [0, 1, 2].map(|i| m[i][3] - rest[i][3]))
+            })
+            .collect(),
+        handles: Vec::new(),
+        orientations: times.iter().map(|&t| (t, turn_of(&posed(t)))).collect(),
+        length: clip.length,
+    })
+}
+
+/// A transform's turn as a quaternion (x, y, z, w), from its rotation
+/// (row-major, as `NodeIr::world`).
+fn turn_of(m: &[[f32; 4]; 4]) -> [f32; 4] {
+    let trace = m[0][0] + m[1][1] + m[2][2];
+    let q = if trace > 0.0 {
+        let s = (trace + 1.0).sqrt() * 2.0;
+        [
+            (m[2][1] - m[1][2]) / s,
+            (m[0][2] - m[2][0]) / s,
+            (m[1][0] - m[0][1]) / s,
+            0.25 * s,
+        ]
+    } else if m[0][0] > m[1][1] && m[0][0] > m[2][2] {
+        let s = (1.0 + m[0][0] - m[1][1] - m[2][2]).sqrt() * 2.0;
+        [
+            0.25 * s,
+            (m[0][1] + m[1][0]) / s,
+            (m[0][2] + m[2][0]) / s,
+            (m[2][1] - m[1][2]) / s,
+        ]
+    } else if m[1][1] > m[2][2] {
+        let s = (1.0 + m[1][1] - m[0][0] - m[2][2]).sqrt() * 2.0;
+        [
+            (m[0][1] + m[1][0]) / s,
+            0.25 * s,
+            (m[1][2] + m[2][1]) / s,
+            (m[0][2] - m[2][0]) / s,
+        ]
+    } else {
+        let s = (1.0 + m[2][2] - m[0][0] - m[1][1]).sqrt() * 2.0;
+        [
+            (m[0][2] + m[2][0]) / s,
+            (m[1][2] + m[2][1]) / s,
+            0.25 * s,
+            (m[1][0] - m[0][1]) / s,
+        ]
+    };
+    let n = q
+        .iter()
+        .map(|v| v * v)
+        .sum::<f32>()
+        .sqrt()
+        .max(f32::EPSILON);
+    q.map(|v| v / n)
 }
 
 /// The node named `name` under `node`.
@@ -324,4 +451,86 @@ pub fn rules(source: &dyn Source, ir: &MiniGameIr, per_player_hp: f32) -> Rules 
         per_player_hp,
         tsl: ir.tsl,
     }
+}
+
+/// A fighter's hook carried by a keyed node above it (`carried`), on a
+/// track model made here: `dummy` keyed 10 m along x over two seconds,
+/// turned a quarter round at its end, the hook 1 m up from it and keyed
+/// in nothing; the path follows the dummy (the hook's place 5 m along at
+/// a second, 10 m at the end), held at the clip's length; a hook keyed
+/// itself keeps its own keys.
+pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
+    let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
+    use asset_odyssey::anim::NodeTrack;
+    use asset_odyssey::model::{IDENTITY, NodeIr};
+    let node = |name: &str, parent: Option<usize>, translation: [f32; 3]| NodeIr {
+        name: name.into(),
+        parent,
+        translation,
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        world: IDENTITY,
+        animated: true,
+    };
+    let mut hook = node(HOOK, Some(1), [0.0, 0.0, 1.0]);
+    hook.world[2][3] = 1.0;
+    let ir = ModelIr {
+        name: "track".into(),
+        supermodel: None,
+        nodes: vec![
+            node("track", None, [0.0; 3]),
+            node("dummy", Some(0), [0.0; 3]),
+            hook,
+        ],
+        meshes: Vec::new(),
+        lights: Vec::new(),
+        emitters: Vec::new(),
+        animations: Vec::new(),
+        animation_scale: 1.0,
+        affected_by_fog: false,
+        refusals: Vec::new(),
+    };
+    let quarter = [
+        0.0,
+        0.0,
+        std::f32::consts::FRAC_1_SQRT_2,
+        std::f32::consts::FRAC_1_SQRT_2,
+    ];
+    let clip = |keyed: &str| AnimationIr {
+        name: TRACK_CLIP.into(),
+        length: 2.0,
+        transition: 0.0,
+        root: None,
+        tracks: vec![NodeTrack {
+            node: keyed.into(),
+            positions: vec![(0.0, [0.0; 3]), (2.0, [10.0, 0.0, 0.0])],
+            orientations: vec![(0.0, [0.0, 0.0, 0.0, 1.0]), (2.0, quarter)],
+        }],
+        settings: Vec::new(),
+        events: Vec::new(),
+    };
+    let origin = [100.0, 0.0, 1.0];
+    let close = |a: [f32; 3], b: [f32; 3]| (0..3).all(|i| (a[i] - b[i]).abs() < 1e-3);
+    let carried_path = carried(&ir, &clip("dummy"), (2, 1.0), origin);
+    let own = carried(&ir, &clip(HOOK), (2, 1.0), origin);
+    vec![
+        (
+            "track_hook_carried",
+            match &carried_path {
+                Some(path) => {
+                    let (mid, end, after) = (path.at(1.0), path.at(2.0), path.at(5.0));
+                    check(
+                        close(mid, [105.0, 0.0, 1.0])
+                            && close(end, [110.0, 0.0, 1.0])
+                            && close(after, end),
+                        format!("at 1 s {mid:?}, at 2 s {end:?}, past the end {after:?}"),
+                    )
+                }
+                None => Err("the dummy's keys were not taken".into()),
+            },
+        ),
+        (
+            "track_hook_own_keys",
+            check(own.is_none(), format!("{:?}", own.map(|p| p.positions))),
+        ),
+    ]
 }

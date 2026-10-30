@@ -37,9 +37,6 @@ const ROUNDS_A_TURN: f32 = rules::dialogue::clock::ROUNDS_A_TURN;
 /// difficulty option exists (`GetGameDifficulty`).
 const NORMAL: i32 = 1;
 
-/// TSL's two endings: queueing one counts the game complete
-/// (`OnGameComplete`).
-const ENDINGS: [&str; 2] = ["malmov12", "malmov14"];
 const GAME_COMPLETE: &str = "GBL_GAME_COMPLETE";
 
 /// The one animation `PlayOverlayAnimation` plays (its executable acts on
@@ -296,7 +293,7 @@ impl Engine<'_> {
     /// `QueueMovie`: the movie joins the queue with its own skip; one of
     /// TSL's endings counts the game complete.
     fn queue_movie(&mut self, movie: &str, skippable: bool) {
-        if ENDINGS
+        if crate::notice::ENDING_MOVIES
             .iter()
             .any(|ending| ending.eq_ignore_ascii_case(movie))
             && declared(self.view.module, GAME_COMPLETE, Global::Number)

@@ -1,0 +1,94 @@
+# Malachor V, the Trayus Core to the end credits (TSL, 904MAL): Kreia as
+# Darth Traya at the heart of the Core (CompAtt: k_compatt walks the player
+# to wp_kreia_player, 904Kreia; 904MAL_Kreia_Battle 0, start 3: asked
+# everything (Atris, why she did this, how she used the Exile, why him,
+# what happens now), the offer to save her, refused, Malachor's mass shadow
+# generator held over her, "Then let us end this."), fought to half her health
+# (k_kreia_userdef: start 2, 904MAL_Kreia_Battle 1 to 2: a hand lost; the
+# light side's "I will not strike a defenseless opponent"), the three
+# floating lightsabers (LightsaberFloat) and Traya fought until she falls
+# (start 1: 2 to 3), her last words: there is still time to save her, the
+# future she sees for the galaxy (the Republic, Dantooine, Nar Shaddaa,
+# Onderon, Korriban), "Rest now", her death (E108, R110 for the light side),
+# the light ending (E109 a_playgoodmovie: MalMov11a, MalMov11b, MalMov12),
+# and the game's end (R112 a_end_game: GBL_GAME_COMPLETE, UnlockAllSongs,
+# EndGame(FALSE)).
+# Starts from the Academy's checkpoint:
+#   kjk playthrough tsl @malachor_core data/routes/tsl/malachor_core.route --god
+# Walkthrough: DSimpson's "The End Game" (context/walkthroughs/tsl/);
+# GameBanshee 64; Kerbow [WMALTT], [CREDIT].
+# Left: the corpses by the side bridges. Each friend's future is the one
+# its own globals and influence give (c_npc_evil, c_global_gt).
+#
+# ASSUMES:
+#   The Exile alone; 904MAL_Kreia_Battle 0; G_PC_Align_Val above 50 (light:
+#   R110, not c_dark's R113/R111; a_end_game's light branch).
+#   904MAL_Atton_End 0: AttonEnd (k_attonend) does nothing in the game as
+#   shipped (Atton's dying scene, 904atton, is cut content: nothing sets
+#   the global).
+#   Telos, Dantooine, Nar Shaddaa and Onderon each answer by their globals
+#   (500OND_Civil_War, 602DAN_END, the Exchange's and Czerka's): every
+#   branch leads to the next question asked here, so none is assumed.
+#   The credits: TSL's ending calls no StartCreditSequence. a_playgoodmovie
+#   queues MalMov11a, MalMov11b and MalMov12, whose last 326 s are
+#   Credits.bik's roll; a_end_game's EndGame(FALSE) then goes to the main
+#   menu (CClientExoAppInternal's end pending: the module unloaded, the
+#   main menu shown). `credits` is met by the ending movie, then the end
+#   (`Screen::rolls_credits`).
+say There is much I must ask you. # start 3 (k_compatt): E96
+say Why did you destroy Atris? # E81 to E84, then E89 or E85
+say She never mentioned such feelings.
+say I know. I... could not love her back.
+say Why have you done this? # E74 to E78
+say If you hate the Force, why do you use it? # E79, E80
+say You were manipulating me all along. # E66, E68
+say So you used me to get revenge on Sion and the others. # E69 to E73
+say Why me? # E58, E59
+say But there were other Jedi you could have chosen. # E61 to E65
+say What happens now? # E56
+say I will not fight you. # E57
+say It's not too late, Kreia. I can save you, if you'll let me. # E47 to E53
+say Malachor has not changed... only you have. # E54, E55
+say This Academy here won't last, Kreia. # E92 to E95 (light: E93)
+say If I had to, I would. You have to be stopped. # E43 to E46
+say Then let us end this. # R47: a_atkonend, the fight
+to CompAtt           # the Core's first bridge: k_compatt, 904Kreia
+talk
+say Yield, Kreia. You need not die. # start 2 at half her health: a hand
+say I am Jedi, and I will not strike a defenseless opponent. # lost (light)
+while 904MAL_Kreia_Battle=1
+fight 60
+end                  # (start 2 plays as she falls: a_kreia_fight)
+say Kreia, there is still time to save you. # start 1, her second fall
+say What happens now? # E209 to E212
+say I will follow Revan, as I did a decade ago. # E214
+say You spoke of the future. # E113 to E115
+say What will happen to my friends? # E117 to E119
+say Tell me of Mira.
+say And Mandalore?
+say What of the Mandalorians?
+say And Visas? What of her?
+say Did I save her?
+say And the Handmaiden?
+say The Handmaiden?
+say But what about Atton?
+say And you?
+say Did you love me?
+say And Bao-Dur - and the droids?
+say And Revan? He came here, was here. What happened to him?
+say Why?
+say Why did you not follow him?
+say I would see this future... the future of the galaxy.
+say What of the Republic?
+say The Sith have already struck against the Republic.
+say But we've fought the Sith.
+say Tell me of Dantooine.
+say And Nar Shaddaa?
+say What about Onderon?
+say Tell me about Korriban.
+say Rest now, Kreia. Your time in this place is over. # E108: her death,
+while 904MAL_Kreia_Battle=2 # R110, E109 a_playgoodmovie, R112 a_end_game
+fight 60             # Traya and the three lightsabers
+end
+credits              # MalMov11a, MalMov11b, MalMov12 (the credits),
+                     # EndGame(FALSE): the main menu

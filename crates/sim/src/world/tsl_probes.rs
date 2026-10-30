@@ -662,8 +662,16 @@ pub fn probes() -> Checks {
     checks.push(("area_iteration_skips_the_dead", area_skips_the_dead()));
     checks.push(("locals_of_nothing", locals_of_nothing()));
     for (name, game, wanted) in [
-        ("local_booleans_k1", "k1", ["1", "1", "0", "0", "0", "0"]),
-        ("local_booleans_tsl", "tsl", ["1", "1", "1", "1", "0", "0"]),
+        (
+            "local_booleans_k1",
+            "k1",
+            ["1", "-2147483648", "0", "0", "0", "0"],
+        ),
+        (
+            "local_booleans_tsl",
+            "tsl",
+            ["1", "-2147483648", "1", "-2147483648", "0", "0"],
+        ),
     ] {
         checks.push((name, local_booleans(game, wanted)));
     }
@@ -720,7 +728,9 @@ const LOCAL_BOOLEANS: [i32; 6] = [0, 95, 96, 159, 160, -1];
 
 /// Each game's local booleans as its executable keeps them
 /// (`script::engine::local_boolean`): K1's var table 96 bits, TSL's 160,
-/// an index tested unsigned; none past them kept, read false.
+/// an index tested unsigned; none past them kept, read false; a true one
+/// read as its bit in its word (`local_boolean_read`: 95 and 159 are bit 31,
+/// 96 is bit 0 of TSL's fourth word).
 fn local_booleans(game: &str, wanted: [&str; 6]) -> Result<String, String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
@@ -764,8 +774,10 @@ fn locals_of_nothing() -> Result<String, String> {
     run(&mut world, "probe_locals_of_nothing");
     let read = tokens(&step(&mut world), 90..=91);
     check(
-        read == ["0", "1"],
-        format!("local boolean 50 read back on OBJECT_INVALID and the player: {read:?}"),
+        read == ["0", "262144"],
+        format!(
+            "local boolean 50 (bit 18 of its word) read back on OBJECT_INVALID and the player: {read:?}"
+        ),
     )
 }
 

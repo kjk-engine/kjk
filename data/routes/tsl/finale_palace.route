@@ -71,6 +71,8 @@ unlock door_secsouth # Kiph's room: Locked, [Security] DC 28
 use door_secsouth
 fight 40             # the Vaklu captain's men
 say Why would you work with General Vaklu? # Kiph (not "Give me a reason I
+say [Awareness] I don't believe a word you've said. # E26 (c_sc_awa_gt)
+say [Awareness] I can tell you aren't lying about that. # E28, E29
 say I need access to the console. # shouldn't kill you": its first reply
 say =Just leave.     # is "You set off one trap too many", DSP)
 use kiph

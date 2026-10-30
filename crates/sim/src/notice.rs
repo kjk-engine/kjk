@@ -238,6 +238,14 @@ fn padded(name: &str) -> [u8; 16] {
     padded
 }
 
+/// TSL's two endings, the light side's and the dark side's: the movie that
+/// closes each (`a_playgoodmovie`, `a_playbadmovie`) ends in the credits
+/// (MalMov12 and MalMov14, six minutes each, `Credits.bik`'s roll after
+/// their first half minute), and queueing one counts the game complete
+/// (`CClientExoApp::AddMovieToMovieQueue` calls `OnGameComplete` for these
+/// two names).
+pub const ENDING_MOVIES: [&str; 2] = ["malmov12", "malmov14"];
+
 /// A resref `padded` made.
 fn unpadded(name: &[u8; 16]) -> String {
     let end = name.iter().position(|b| *b == 0).unwrap_or(name.len());
@@ -257,6 +265,23 @@ impl Screen {
             name: padded(name),
             skippable,
             run,
+        }
+    }
+
+    /// Whether the end credits roll on this screen: K1's
+    /// `StartCreditSequence`, or one of TSL's ending movies, whose last
+    /// 326 s are `Credits.bik`'s roll (no TSL script starts the credit
+    /// sequence; its executable's `EndGame` goes to the main menu).
+    pub fn rolls_credits(&self) -> bool {
+        match self {
+            Screen::Credits => true,
+            Screen::Movie { name, .. } => {
+                let name = unpadded(name);
+                ENDING_MOVIES
+                    .iter()
+                    .any(|ending| ending.eq_ignore_ascii_case(&name))
+            }
+            _ => false,
         }
     }
 
