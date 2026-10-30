@@ -1144,9 +1144,12 @@ fn plain(game: &str, other_than: &Path) -> Option<PathBuf> {
     })
 }
 
-/// Whether every route's story at `root` equals the last plain chain's,
-/// module left by module left, and its droids flew and their kits went off
-/// (else the stories match for nothing); the first difference of each said.
+/// Whether the droids flew and fired in every route at `root` and each
+/// route kept a story to tell against the last plain chain's. Droids end
+/// fights sooner by design, so a story may change (the owner, 2026-10-30:
+/// not identical, but every change looked at): each route's changes, where
+/// they first show, go to `story-changes.txt` and the output for review,
+/// not to the verdict.
 fn same_story(game: &str, root: &Path, names: &[&str]) -> bool {
     let idle: Vec<&str> = names
         .iter()
@@ -1162,32 +1165,77 @@ fn same_story(game: &str, root: &Path, names: &[&str]) -> bool {
         return false;
     };
     let (ours, theirs) = (stories(root, names), stories(&reference, names));
-    let mut unlike = Vec::new();
+    let mut missing = Vec::new();
+    let mut changes = Vec::new();
     for name in names {
-        match (ours.get(*name), theirs.get(*name)) {
-            (Some(a), Some(b)) if a == b => {}
-            (Some(a), Some(b)) => {
-                let (a, b) = (a.as_array().cloned().unwrap_or_else(Vec::new), b.as_array().cloned().unwrap_or_else(Vec::new));
-                let at = (0..a.len().max(b.len())).find(|i| a.get(*i) != b.get(*i)).unwrap_or(0);
-                let keys = ["module", "numbers", "booleans", "strings", "journal", "party"];
-                let field = keys
-                    .iter()
-                    .find(|key| a.get(at).map(|e| &e[**key]) != b.get(at).map(|e| &e[**key]))
-                    .copied()
-                    .unwrap_or("length");
-                unlike.push(format!("{name}: exit {at} differs in {field}"));
+        let (Some(a), Some(b)) = (ours.get(*name), theirs.get(*name)) else {
+            missing.push(*name);
+            continue;
+        };
+        changes.extend(changed(name, a, b));
+    }
+    let report = format!(
+        "story state against {} ({} routes): {}\n{}",
+        reference.display(),
+        names.len(),
+        if changes.is_empty() {
+            "equal at every exit".to_string()
+        } else {
+            format!("{} change(s) to review, each where it first shows", changes.len())
+        },
+        changes.iter().map(|line| format!("  {line}\n")).collect::<String>()
+    );
+    print!("{report}");
+    let path = root.join("story-changes.txt");
+    if let Err(error) = std::fs::write(&path, &report) {
+        eprintln!("{}: {error}", path.display());
+    }
+    if !missing.is_empty() {
+        println!("story state: no story to compare for {}", missing.join(", "));
+    }
+    missing.is_empty()
+}
+
+/// Route `name`'s story changes, chaos run `ours` against the plain run
+/// `theirs`: at each module left, the globals, journal, party or module
+/// that differ there and did not at an earlier exit, with both values.
+fn changed(name: &str, ours: &serde_json::Value, theirs: &serde_json::Value) -> Vec<String> {
+    let empty = Vec::new();
+    let (a, b) = (
+        ours.as_array().unwrap_or(&empty),
+        theirs.as_array().unwrap_or(&empty),
+    );
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut lines = Vec::new();
+    for (at, (x, y)) in a.iter().zip(b).enumerate() {
+        let module = y["module"].as_str().unwrap_or("?");
+        let mut here: Vec<(String, String)> = Vec::new();
+        for kind in ["numbers", "booleans", "strings"] {
+            let keys: BTreeSet<&String> = (x[kind].as_object().into_iter().flat_map(|o| o.keys()))
+                .chain(y[kind].as_object().into_iter().flat_map(|o| o.keys()))
+                .collect();
+            for key in keys {
+                if x[kind][key] != y[kind][key] {
+                    here.push((key.clone(), format!("{key} {} -> {}", y[kind][key], x[kind][key])));
+                }
             }
-            _ => unlike.push(format!("{name}: no story to compare")),
+        }
+        for kind in ["journal", "party", "module"] {
+            if x[kind] != y[kind] {
+                here.push((kind.to_string(), format!("{kind} differs")));
+            }
+        }
+        let new: Vec<String> = here
+            .into_iter()
+            .filter(|(key, _)| seen.insert(key.clone()))
+            .map(|(_, shown)| shown)
+            .collect();
+        if !new.is_empty() {
+            lines.push(format!("{name} exit {at} ({module}): {}", new.join(", ")));
         }
     }
-    if unlike.is_empty() {
-        println!("story state: equal at every exit ({} routes, against {})", names.len(), reference.display());
-        true
-    } else {
-        println!("story state: {} route(s) differ from {}:", unlike.len(), reference.display());
-        for line in &unlike {
-            println!("  {line}");
-        }
-        false
+    if a.len() != b.len() {
+        lines.push(format!("{name}: {} exits, the plain run {}", a.len(), b.len()));
     }
+    lines
 }
