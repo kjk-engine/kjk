@@ -8,9 +8,8 @@
 # Tie Breaker card (DSimpson's and GameBanshee's Entertainment Promenade).
 # Starts from the Refugee Sector's checkpoint:
 #   kjk playthrough tsl @nar_shaddaa_refugees data/routes/tsl/nar_shaddaa_pazaak.route --god
-gold 4000            # a stand-in for the credits a player brings to the
-                     # den's tables (100 a game, the champion's 500), the
-                     # main line's kept for later
+# The party's own credits carry the den's tables (100 a game, the
+# champion's 500), its losses paid from what it won.
 exit TO_301NAR
 module 301nar
 exit TO_306          # the Entertainment Promenade

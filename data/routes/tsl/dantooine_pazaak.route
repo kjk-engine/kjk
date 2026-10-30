@@ -9,8 +9,8 @@
 # GameBanshee's Khoonda Plains).
 # Starts from the Khoonda Plains' checkpoint:
 #   kjk playthrough tsl @dantooine_plains data/routes/tsl/dantooine_pazaak.route --god
-gold 8000            # a stand-in for the credits a player brings to his
-                     # table, the main line's kept for later
+# The party's own credits carry his table (250 a game, 1000 lost at the
+# armor game), its losses paid from what it won.
 say Do you have any cards I could buy?
 use npc_pato
 talk
