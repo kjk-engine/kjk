@@ -945,7 +945,7 @@ pub(crate) fn jump_place(
             (stand[2] + motion::SOLE_Z) * UNIT,
         ];
         let way = math::sub(mark, from);
-        let steps = ((way[0].hypot(way[1]) / JUMP_LINE_STEP_M).ceil() as u32).max(1);
+        let steps = ((math::flat_length(way) / JUMP_LINE_STEP_M).ceil() as u32).max(1);
         (1..=steps).all(|k| {
             let at = math::mad(from, k as f32 / steps as f32, way);
             nav.locate(at, JUMP_LINE_DROP_M, JUMP_LINE_DROP_M).is_some()
