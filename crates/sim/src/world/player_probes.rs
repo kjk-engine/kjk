@@ -132,7 +132,7 @@ pub fn creation() -> Checks {
     checks.push((
         "the first level: d8 + CON, the class's rows, granted and picked feats, ranks",
         check(
-            first.as_ref().is_ok_and(|(sheet, career)| {
+            first.as_ref().is_ok_and(|(sheet, career, unspent)| {
                 sheet.level == 1
                     && sheet.max_hp == 8 + 2
                     && sheet.saves == [1, 2, 0]
@@ -141,6 +141,7 @@ pub fn creation() -> Checks {
                     && !sheet.feats.has(RECOMMENDED)
                     && sheet.skills[..2] == [4, 4]
                     && career == &vec![(0, 1)]
+                    && *unspent == 0
             }),
             format!("{first:?}"),
         ),
@@ -148,7 +149,7 @@ pub fn creation() -> Checks {
     checks.push((
         "made with nothing worn or held, neutral, human, of its faction",
         check(
-            first.as_ref().is_ok_and(|(sheet, _)| {
+            first.as_ref().is_ok_and(|(sheet, ..)| {
                 sheet.weapons == [None, None]
                     && sheet.items.iter().all(Option::is_none)
                     && sheet.good_evil == 50
@@ -164,7 +165,7 @@ pub fn creation() -> Checks {
         check(
             games
                 .as_ref()
-                .is_ok_and(|(sheet, _)| sheet.feats.has(RECOMMENDED) && !sheet.feats.has(PICKED)),
+                .is_ok_and(|(sheet, ..)| sheet.feats.has(RECOMMENDED) && !sheet.feats.has(PICKED)),
             format!("{games:?}"),
         ),
     ));
@@ -197,11 +198,12 @@ pub fn creation() -> Checks {
         check(
             first
                 .as_ref()
-                .is_ok_and(|(sheet, _)| sheet.feats.has(PC_GRANTED)),
+                .is_ok_and(|(sheet, ..)| sheet.feats.has(PC_GRANTED)),
             format!("{first:?}"),
         ),
     ));
     checks.push(planned(&classes));
+    checks.push(banked(&classes));
 
     let mut world = world(Vec::new(), "", Catalog::default());
     let made_world = world.create(&made(vec![PICKED]));
@@ -237,7 +239,7 @@ pub fn creation() -> Checks {
 /// (`auto`) are the plan left empty.
 fn planned(classes: &Classes) -> (&'static str, Result<String, String>) {
     let made = creation::sheet(classes, &made(vec![PICKED]), 2);
-    let Ok((sheet, career)) = made else {
+    let Ok((sheet, career, _)) = made else {
         return ("a level-up's planned picks", Err(format!("{made:?}")));
     };
     let plan = Plan {
@@ -245,12 +247,13 @@ fn planned(classes: &Classes) -> (&'static str, Result<String, String>) {
         feats: vec![NEEDS_PICKED],
         powers: Vec::new(),
         abilities: vec![4],
+        bank: false,
     };
-    let picked = classes.planned(&sheet, &career, 0, &plan);
-    let auto = classes.auto(&sheet, &career, 0);
+    let picked = classes.planned(&sheet, &career, 0, &plan, 0);
+    let auto = classes.auto(&sheet, &career, 0, 0);
     let fourth = crate::combat::Sheet { level: 3, ..sheet };
     let raised = classes
-        .planned(&fourth, &career, 0, &plan)
+        .planned(&fourth, &career, 0, &plan, 0)
         .and_then(|c| c.ability);
     (
         "a level-up's planned picks: the plan's skills and feat first, its ability at the fourth level",
@@ -265,6 +268,54 @@ fn planned(classes: &Classes) -> (&'static str, Result<String, String>) {
                 .is_some_and(|c| c.skills[0] == 1 && c.feats == [RECOMMENDED])
                 && raised == Some(4),
             format!("{picked:?}, the game's {auto:?}, the fourth level raises {raised:?}"),
+        ),
+    )
+}
+
+/// A plan that banks: the second level's 2 points on skill 0 alone, which
+/// takes one rank to its most (5), the other kept (both games keep a
+/// level's unspent points, TSL's `CSWCLevelUpStats::AddSkillPointsPerLevel`
+/// adding the next level's to them); the third level spends its 2 and the
+/// kept one on skill 3; the 3 points refused without the one kept.
+fn banked(classes: &Classes) -> (&'static str, Result<String, String>) {
+    let made = creation::sheet(classes, &made(vec![PICKED]), 2);
+    let Ok((sheet, career, _)) = made else {
+        return ("unspent skill points kept", Err(format!("{made:?}")));
+    };
+    let only = |skill| Plan {
+        skills: vec![skill],
+        bank: true,
+        ..Plan::default()
+    };
+    let second = classes.planned(&sheet, &career, 0, &only(0), 0);
+    let taken = second
+        .as_ref()
+        .and_then(|choices| classes.take(&sheet, &career, choices, 0));
+    let Some((after, career, kept)) = taken else {
+        return ("unspent skill points kept", Err(format!("{second:?}")));
+    };
+    let third = classes.planned(&after, &career, 0, &only(3), kept);
+    let spent = |banked| {
+        third
+            .as_ref()
+            .and_then(|choices| classes.take(&after, &career, choices, banked))
+            .map(|(.., left)| left)
+    };
+    (
+        "unspent skill points kept: a plan that banks keeps the rest, the next level spends it with its own",
+        check(
+            second
+                .as_ref()
+                .is_some_and(|c| c.skills == [1, 0, 0, 0, 0, 0, 0, 0])
+                && kept == 1
+                && third.as_ref().is_some_and(|c| c.skills[3] == 3)
+                && spent(kept) == Some(0)
+                && spent(0).is_none(),
+            format!(
+                "second {second:?}, kept {kept}, third {third:?}, left {:?}, without the kept {:?}",
+                spent(kept),
+                spent(0)
+            ),
         ),
     )
 }
@@ -320,6 +371,82 @@ pub fn levels_told() -> Checks {
             format!("{made:?}: G_PC_LEVEL {level:?}, XP {xp}, career {career:?}"),
         ),
     )]
+}
+
+/// A creature outside the party running `AddMultiClass(1, OBJECT_SELF)` on
+/// a module of `game`: its career and XP, and the party's XP. K1's
+/// `ExecuteCommandAddMultiClass` gives any creature the class unlevelled
+/// and the party the XP its next level asks; TSL's gives one outside the
+/// party that XP itself and levels it at once (`AutoLevelup`).
+fn multiclassed(game: &str) -> Result<(Option<crate::levels::Career>, i32, i32), String> {
+    use fmt_odyssey::ncs::{Const, Op};
+    const CATALOG: &str = r#"
+// 0
+void AddMultiClass(int nClassType, object oSource);
+"#;
+    let mut asm = script_ncs::probes::Asm::default();
+    asm.op(Op::Const(Const::Object(0)))
+        .op(Op::Const(Const::Int(1)))
+        .op(Op::Action {
+            routine: 0,
+            args: 2,
+        })
+        .op(Op::Retn);
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.game = game.into();
+    let first = data.placements.len() as u32;
+    let at = super::talk_end_probes::by_entry(2.0, 0.0);
+    data.placements.push(crate::module::Placement::Own(
+        crate::module::ObjectData::creature(
+            "stranger",
+            "stranger",
+            at,
+            crate::combat::Sheet::commoner(),
+        ),
+    ));
+    let library = crate::probe::library(CATALOG, [("probe_multiclass", asm.build())])
+        .with_items(Catalog::default())
+        .with_classes(classes());
+    let level = ground.with_module(data).with_scripts(library);
+    let mut world =
+        SimWorld::new(WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    let stranger = super::talk_end_probes::id_of(&mut world, first)?;
+    let mut state = world.script_state().clone();
+    state.pending.push(Pending::new(
+        "probe_multiclass",
+        script_ncs::vm::ObjectId(stranger),
+    ));
+    world.set_script_state(state);
+    step(&mut world, None);
+    let state = world.script_state();
+    Ok((
+        state.careers.get(&stranger).cloned(),
+        state.xp(stranger),
+        state.xp(PARTY),
+    ))
+}
+
+/// `multiclassed` in each game.
+pub fn multiclass_outside_party() -> Checks {
+    let k1 = multiclassed("k1");
+    let tsl = multiclassed("tsl");
+    vec![
+        (
+            "K1's AddMultiClass: a stranger's class unlevelled, the party given its next level's XP",
+            check(
+                matches!(&k1, Ok((Some(career), 0, party)) if career.last() == Some(&(1, 0)) && *party > 0),
+                format!("career, own XP, party XP: {k1:?}"),
+            ),
+        ),
+        (
+            "TSL's AddMultiClass: a stranger given the XP itself and a level of the class at once",
+            check(
+                matches!(&tsl, Ok((Some(career), own, 0)) if career.last() == Some(&(1, 1)) && *own > 0),
+                format!("career, own XP, party XP: {tsl:?}"),
+            ),
+        ),
+    ]
 }
 
 /// The script `probe_persona`, setting custom tokens: 1 `GetGender`, 2

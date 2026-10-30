@@ -115,6 +115,19 @@ pub(super) fn seat_actions(
                     None => continue,
                 }
             }
+            // A power cast from KOTOR's power list: queued on the seat's
+            // acting body as `ActionCastSpellAtObject` queues it, the cast's
+            // step refusing one it does not know or cannot pay for.
+            Action::Cast { row, target } => {
+                let cast = script::actions::Action::Cast {
+                    row: *row,
+                    target: script::actions::Target::Object(ObjectId(*target)),
+                    fake: false,
+                    cheat: false,
+                };
+                state.queue(acting(view, seat.0, player), cast);
+                Ok(())
+            }
             // KOTOR runs its screen script each time an in-game screen opens.
             Action::ScreenOpened => {
                 let script = script::presentation::SCREEN_OPENED;

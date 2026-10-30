@@ -179,7 +179,7 @@ pub fn read(root: &Path, id: &str) -> Result<(sim::Save, Meta), String> {
             _ => String::new(),
         };
         format!(
-            "save {id}: {error}{made}. The saves as they were before each new release are kept in {}; an autosave, or the release that made it, may load it",
+            "save {id}: {error}{made}. Copies from before each release are in {}; an autosave, or the release that made it, may load it",
             safety::BACKUPS
         )
     })?;

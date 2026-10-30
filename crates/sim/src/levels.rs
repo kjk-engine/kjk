@@ -211,6 +211,10 @@ pub struct Plan {
     pub feats: Vec<u16>,
     pub powers: Vec<u16>,
     pub abilities: Vec<u8>,
+    /// The points the plan's skills cannot take are kept for a later level
+    /// (both games' level-up screens leave them unspent) rather than spent
+    /// in the class's order.
+    pub bank: bool,
 }
 
 /// What a level of a class offers a character: the class level and total
@@ -459,23 +463,27 @@ impl Classes {
     }
 
     /// The game's picks for a level of `class` (KOTOR's automatic level
-    /// up): the class's primary ability, skill ranks in its recommended
-    /// order (each as high as it may go before the next), its recommended
-    /// feats and powers that may be picked, in order.
-    pub fn auto(&self, sheet: &Sheet, career: &Career, class: u8) -> Option<Choices> {
-        self.planned(sheet, career, class, &Plan::default())
+    /// up) by a character with `banked` points left from its levels before:
+    /// the class's primary ability, skill ranks in its recommended order
+    /// (each as high as it may go before the next), its recommended feats
+    /// and powers that may be picked, in order.
+    pub fn auto(&self, sheet: &Sheet, career: &Career, class: u8, banked: u8) -> Option<Choices> {
+        self.planned(sheet, career, class, &Plan::default(), banked)
     }
 
     /// The picks `plan` makes for a level of `class` (`auto`'s, the plan's
-    /// orders first): its ability raised, skill ranks in the plan's order
-    /// then the class's, feats and powers in the plan's order then the
-    /// class's recommended, each that may be picked.
+    /// orders first): its ability raised, skill ranks bought with the
+    /// level's points and the `banked` ones in the plan's order then the
+    /// class's (unless the plan banks what is left), feats and powers in
+    /// the plan's order then the class's recommended, each that may be
+    /// picked.
     pub fn planned(
         &self,
         sheet: &Sheet,
         career: &Career,
         class: u8,
         plan: &Plan,
+        banked: u8,
     ) -> Option<Choices> {
         let offer = self.offer(sheet, career, class)?;
         let of = &self.classes[usize::from(class)];
@@ -488,8 +496,13 @@ impl Classes {
                 .unwrap_or(of.primary)
         });
         let mut skills = [0u8; SKILLS];
-        let mut points = self.skill_points(of, sheet, ability);
-        for &skill in plan.skills.iter().chain(&of.skill_order) {
+        let mut points = banked.saturating_add(self.skill_points(of, sheet, ability));
+        let class_order = if plan.bank {
+            &[][..]
+        } else {
+            &of.skill_order[..]
+        };
+        for &skill in plan.skills.iter().chain(class_order) {
             let skill = usize::from(skill);
             let cost = Self::rank_cost(of, skill);
             let most = Self::most(of, skill, offer.level);
@@ -531,7 +544,7 @@ impl Classes {
     /// ability point it leaves unspent, taken from the game's picks (the
     /// level-up screen offers no feats or powers yet).
     pub fn complete(&self, sheet: &Sheet, career: &Career, choices: &Choices) -> Choices {
-        let Some(auto) = self.auto(sheet, career, choices.class) else {
+        let Some(auto) = self.auto(sheet, career, choices.class, 0) else {
             return choices.clone();
         };
         let mut done = choices.clone();
@@ -574,16 +587,20 @@ impl Classes {
         grown
     }
 
-    /// `choices` taken by a character with `sheet` and `career`: its new
-    /// sheet and career, or `None` when the picks are not the level's to
-    /// make (a class it has not, more picks than offered, a feat or power
-    /// it may not have, skill points overspent, ranks past the most).
+    /// `choices` taken by a character with `sheet`, `career` and `banked`
+    /// points left from its levels before: its new sheet and career and the
+    /// points it leaves unspent (the level's added to those banked, TSL's
+    /// `CSWCLevelUpStats::AddSkillPointsPerLevel`), or `None` when the picks
+    /// are not the level's to make (a class it has not, more picks than
+    /// offered, a feat or power it may not have, skill points overspent,
+    /// ranks past the most).
     pub fn take(
         &self,
         sheet: &Sheet,
         career: &Career,
         choices: &Choices,
-    ) -> Option<(Sheet, Career)> {
+        banked: u8,
+    ) -> Option<(Sheet, Career, u8)> {
         let offer = self.offer(sheet, career, choices.class)?;
         let of = &self.classes[usize::from(choices.class)];
         if choices.ability.is_some() != offer.ability
@@ -606,9 +623,8 @@ impl Classes {
                 return None;
             }
         }
-        if spent > u32::from(self.skill_points(of, sheet, choices.ability)) {
-            return None;
-        }
+        let points = u32::from(banked) + u32::from(self.skill_points(of, sheet, choices.ability));
+        let left = points.checked_sub(spent)?;
         let mut grown = Self::raised(Self::grown(sheet, of, offer), choices.ability);
         let mut feats = known_feats(sheet, of, offer.class_level);
         for &feat in &choices.feats {
@@ -651,7 +667,7 @@ impl Classes {
                 grown.powers.insert(power);
             }
         }
-        Some((grown, career))
+        Some((grown, career, left.min(u32::from(u8::MAX)) as u8))
     }
 
     pub(crate) fn digest_into(&self, out: &mut Writer) {

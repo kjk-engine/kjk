@@ -692,12 +692,16 @@ impl SimWorld {
             .find(|(_, avatar, ..)| avatar.0 == seat)
             .map(|(id, _, sheet, fighting)| (id.0, sheet, fighting))
             .ok_or(format!("seat {} has no character", seat.0))?;
-        let (made, career) = crate::creation::sheet(&classes, creation, sheet.0.faction)
-            .map_err(|refused| format!("creation refused: {refused:?}"))?;
+        let (made, career, unspent) =
+            crate::creation::sheet(&classes, creation, sheet.0.faction)
+                .map_err(|refused| format!("creation refused: {refused:?}"))?;
         sheet.0 = made;
         fighting.0 = Fighter::of(&made);
         let mut state = self.script_state().clone();
         state.careers.insert(id.0, career);
+        if unspent > 0 {
+            state.unspent.insert(id.0, unspent);
+        }
         // A new game tells the campaign's scripts the made character's level
         // and alignment where its globals keep them (TSL's `G_PC_LEVEL`,
         // `G_PC_Align_Val`; K1 declares neither).
@@ -937,6 +941,11 @@ impl SimWorld {
         &self.world.resource::<Static>().0
     }
 
+    /// The modules left behind, as they were left (`Snapshot::stash`).
+    pub fn stash(&self) -> &Stash {
+        &self.world.resource::<Module>().stash
+    }
+
     fn advance(&mut self, tick: u64, input: &TickInput, msec: u32, reason: StepReason) {
         {
             let mut clock = self.world.resource_mut::<Clock>();
@@ -1100,8 +1109,8 @@ fn sheet_of(sheet: Option<&PlayerSheet>, object: Option<&Object>) -> Sheet {
 }
 
 /// The faction a character fights for: the one a script set
-/// (`ChangeToStandardFaction`, a player's too, as the original engine sets
-/// any creature's; joining the party sets the player's), else its sheet's
+/// (`ChangeToStandardFaction`, any creature's but the player's own; joining
+/// the party sets the player's), else its sheet's
 /// (a player's sheet is the player's faction).
 fn faction_of(fighter: &Fighter, sheet: &Sheet) -> u8 {
     fighter.faction.unwrap_or(sheet.faction)

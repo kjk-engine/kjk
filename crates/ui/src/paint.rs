@@ -640,33 +640,47 @@ impl<'a> Painter<'a> {
         else {
             return;
         };
-        let shown = if view.fit {
-            view.rows.len()
-        } else {
-            rows_that_fit(list, Some(view))
-        };
         let height = proto_height(proto, Some(view));
         let clip = rect_of(list);
         let mut top = -view.offset;
         let mut first = view.first;
+        let room = list.extent.top + list.extent.height - proto.extent.top;
+        let mut each = |row: &Row| {
+            if view.fit {
+                row_height(&mut *self.textures, self.source, proto, true, &row.text)
+            } else {
+                height
+            }
+        };
         if view.follow {
-            let room = list.extent.top + list.extent.height - proto.extent.top;
             let mut used = 0;
             first = view.rows.len();
             while first > 0 {
-                let at = &view.rows[first - 1];
-                let each = if view.fit {
-                    row_height(&mut *self.textures, self.source, proto, true, &at.text)
-                } else {
-                    height
-                } + list.padding;
-                if used + each > room {
+                let step = each(&view.rows[first - 1]) + list.padding;
+                if used + step > room {
                     break;
                 }
-                used += each;
+                used += step;
                 first -= 1;
             }
         }
+        let shown = match (view.fit, view.roll) {
+            // Rising rows are cut where they leave the list.
+            (true, Some(_)) => view.rows.len(),
+            // From the first, the rows whole in the list (at least that one).
+            (true, None) => {
+                let mut used = 0;
+                let whole = view.rows[first.min(view.rows.len())..]
+                    .iter()
+                    .take_while(|row| {
+                        used += each(row) + list.padding;
+                        used - list.padding <= room
+                    })
+                    .count();
+                whole.max(1)
+            }
+            (false, _) => rows_that_fit(list, Some(view)),
+        };
         for index in (first..view.rows.len()).take(shown) {
             let row = &view.rows[index];
             let mut placed = proto.clone();
