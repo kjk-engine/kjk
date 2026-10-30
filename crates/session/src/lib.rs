@@ -42,7 +42,7 @@ use sim::{Announcement, InstallError, Level, Mismatch, SimWorld, WorldConfig};
 
 pub use library::{clip_names, clip_probes};
 pub use objects::module_data;
-pub use sheets::speed_probes;
+pub use sheets::{BulkRow, bulk_census, bulk_probes, speed_probes};
 
 /// What to install: a module of a game, arriving at a door or waypoint (or
 /// the module's entry), for a world of `seats` players.

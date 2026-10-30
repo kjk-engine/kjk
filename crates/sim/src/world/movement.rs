@@ -481,7 +481,7 @@ pub(super) fn move_actors(
         };
         // A made box it stands in (made where it stood) holds it not: it
         // walks out of it.
-        let mine = body(id.0, &player.0);
+        let mine = body(id.0, &player.0, None);
         // A seat's player meets a body it touches as one it stands inside:
         // it slides along it, as K1's player slides along a creature
         // (Q-0267), rather than being held by its box's corner. In

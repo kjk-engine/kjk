@@ -58,12 +58,14 @@ struct Body {
     max_hp: i32,
     /// `appearance.2da` sizecategory (3, medium, where unknown).
     size: u8,
+    /// Where its model is drawn, if JA does not pose it (`world::body`).
+    bulk: Option<crate::module::Bulk>,
 }
 
 impl Body {
     /// Its box (m).
     fn bounds(&self) -> (Vec3, Vec3) {
-        let body = super::super::body(self.id, &self.motion);
+        let body = super::super::body(self.id, &self.motion, self.bulk.as_ref());
         (body.min, body.max)
     }
 
@@ -218,6 +220,7 @@ fn bodies(world: &mut World) -> Vec<Body> {
                     .and_then(|object| object.facts.as_ref())
                     .and_then(|facts| facts.body)
                     .map_or(3, |body| body.size),
+                bulk: super::super::object_bulk(object).copied(),
             }
         })
         .collect();

@@ -168,12 +168,12 @@ pub(super) fn strikes(
     // Everyone as they stand after the moves, by id.
     let mut bodies: Vec<Standing> = actors
         .iter()
-        .map(|(id, avatar, _, _, player, fighting)| {
+        .map(|(id, avatar, object, _, player, fighting)| {
             let ps = &player.0;
             Standing {
                 id: id.0,
                 origin: ps.origin,
-                chest: mind::chest(ps),
+                chest: mind::chest_of(ps, super::object_bulk(object)),
                 alive: fighting.0.alive(),
                 party: in_party(avatar, &fighting.0),
             }

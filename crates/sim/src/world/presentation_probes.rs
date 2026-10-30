@@ -339,6 +339,7 @@ fn world() -> Result<(SimWorld, Level), String> {
                     bag: 0,
                     destroy_ms: 0,
                     fade_ms: None,
+                    bulk: None,
                 }),
                 scripts: vec![("ScriptDialogue".into(), "probe_numbers".into())],
                 ..thing(ObjectKind::Creature, TALKER, at(-1.6, 1.0))

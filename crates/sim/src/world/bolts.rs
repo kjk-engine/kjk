@@ -51,14 +51,17 @@ pub(super) fn fly(
     );
     let targets = Targets::of(
         level.0.friendly_fire,
-        actors.iter().map(|(id, avatar, _, _, player, fighting)| {
-            (
-                id.0,
-                &player.0,
-                fighting.0.alive(),
-                in_party(avatar, &fighting.0),
-            )
-        }),
+        actors
+            .iter()
+            .map(|(id, avatar, object, _, player, fighting)| {
+                (
+                    id.0,
+                    &player.0,
+                    object_bulk(object),
+                    fighting.0.alive(),
+                    in_party(avatar, &fighting.0),
+                )
+            }),
     );
     let mut actors: Vec<_> = actors.iter_mut().collect();
     actors.sort_by_key(|(id, ..)| id.0);
@@ -71,7 +74,9 @@ pub(super) fn fly(
     let chests: Vec<(SimId, [f32; 3])> = actors
         .iter()
         .filter(|(.., fighting)| fighting.0.alive())
-        .map(|(id, .., player, _)| (id.0, mind::chest(&player.0)))
+        .map(|(id, _, object, _, player, _)| {
+            (id.0, mind::chest_of(&player.0, object_bulk(*object)))
+        })
         .collect();
     // The placeables that may be bashed, as a player's own bolt meets them:
     // their bodies, as a fist does (a footlocker has no brushes to stop a

@@ -92,8 +92,22 @@ pub fn aim_for(player: &MotionState, camera: Vec3) -> [i8; 3] {
 
 /// Its chest: what others aim at (units).
 pub fn chest(player: &MotionState) -> Vec3 {
+    chest_of(player, None)
+}
+
+/// What others aim at of a body (units): a humanoid's chest, the middle of
+/// JA's box; a body met where its model is drawn (`world::body`), the
+/// middle of its model's height over its origin (a hovering droid's, not
+/// the floor under it).
+pub fn chest_of(player: &MotionState, bulk: Option<&crate::module::Bulk>) -> Vec3 {
     let [x, y, z] = player.origin;
-    [x, y, z + player.maxs_z * 0.5]
+    match bulk {
+        Some(bulk) => {
+            let middle = (bulk.min[2] + bulk.max[2]) * 0.5 / collision::UNIT;
+            [x, y, z + crate::motion::SOLE_Z + middle]
+        }
+        None => [x, y, z + player.maxs_z * 0.5],
+    }
 }
 
 /// Where a creature looks at `target` (units): a gunner at its chest, where

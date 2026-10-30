@@ -181,7 +181,17 @@ pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<
             // an object's is where it stands (its facts' for one placed, but
             // one play made, as remains, stands where it was made: its
             // template's facts are not there).
-            let feet = entity.player.as_ref().map_or(entity.position, feet_of);
+            let mut feet = entity.player.as_ref().map_or(entity.position, feet_of);
+            // A creature JA does not pose is picked where its model is
+            // drawn (`world::body`): as far across as it reaches, from its
+            // lowest to its highest (a probe droid floats).
+            let (radius, height) = match crate::world::bulk_of(Some(facts)) {
+                Some(bulk) if kind == ObjectKind::Creature => {
+                    feet[2] += bulk.min[2];
+                    (bulk.reach(), bulk.max[2] - bulk.min[2])
+                }
+                _ => (radius, height),
+            };
             Some(Candidate {
                 index,
                 kind,

@@ -925,7 +925,8 @@ pub(crate) fn player_command(
     }
 }
 
-/// `command` turned to look at the chest of the creature tagged `tag`
+/// `command` turned to look at the chest (`mind::chest_of`: a hovering
+/// droid's middle) of the creature tagged `tag`
 /// nearest seat 0 in `last`, the living first (unchanged with none):
 /// scripted fights that hit, and stay on the body when it falls, for
 /// filming them.
@@ -944,14 +945,15 @@ fn aimed(command: Command, last: &Snapshot, level: &Level, tag: &str) -> Command
         .entities
         .iter()
         .filter(|e| tagged(e))
-        .filter_map(|e| Some((!e.fighter?.alive(), e.player?)))
-        .min_by(|(a_dead, a), (b_dead, b)| {
+        .filter_map(|e| Some((!e.fighter?.alive(), e.player?, e)))
+        .min_by(|(a_dead, a, _), (b_dead, b, _)| {
             a_dead.cmp(b_dead).then(distance(a).total_cmp(&distance(b)))
         });
-    let Some((_, them)) = nearest else {
+    let Some((_, them, entity)) = nearest else {
         return command;
     };
-    let (pitch, yaw) = mind::aim(mind::crosshair(&me), mind::chest(&them));
+    let chest = mind::chest_of(&them, sim::bulk_of(objects.of_entity(entity)));
+    let (pitch, yaw) = mind::aim(mind::crosshair(&me), chest);
     Command {
         angles: mind::looking(&me, pitch, yaw).angles,
         ..command

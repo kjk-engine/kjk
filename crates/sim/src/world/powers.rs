@@ -72,6 +72,8 @@ struct Person {
     ps: MotionState,
     /// Alive before the powers: an area power takes no corpse.
     alive: bool,
+    /// Where its model is drawn, if JA does not pose it (`world::body`).
+    bulk: Option<crate::module::Bulk>,
 }
 
 impl Person {
@@ -277,6 +279,7 @@ pub(super) fn force(
                 sheet,
                 ps: player.0,
                 alive: fighting.0.alive(),
+                bulk: super::object_bulk(*object).copied(),
             }
         })
         .collect();
@@ -291,10 +294,10 @@ pub(super) fn force(
         people: &people,
         targets: Targets::of(
             level.0.friendly_fire(),
-            people
-                .iter()
-                .zip(&fighters)
-                .map(|(person, fighter)| (person.id, &person.ps, fighter.alive(), person.party)),
+            people.iter().zip(&fighters).map(|(person, fighter)| {
+                let bulk = person.bulk.as_ref();
+                (person.id, &person.ps, bulk, fighter.alive(), person.party)
+            }),
         ),
         views: people
             .iter()

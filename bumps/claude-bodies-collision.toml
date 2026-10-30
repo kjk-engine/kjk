@@ -1,0 +1,12 @@
+# The sim's hash moves on purpose: a body whose model JA's animations do not
+# pose (beasts, droids, aliens with skeletons of their own) is met by shots,
+# blades and the crosshair where its model is drawn (`module::Bulk`, the box
+# round its drawn meshes at rest, as reone picks a creature), not by JA's
+# player box at its feet (issue 49: the rancor, the hovering probe droid).
+sim = "a body whose model JA does not pose is met where its model is drawn (its rest box), not by JA's player box"
+
+[formats]
+pack = "a creature template's body carries where its model is drawn (`module::Body::bulk`)."
+
+[migrations]
+pack = "old saves read no bulk: a companion template kept in a save is met by JA's box, as every body was"

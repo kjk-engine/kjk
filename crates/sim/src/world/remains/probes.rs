@@ -289,6 +289,7 @@ fn ground() -> Result<(crate::Level, SimWorld, u32), String> {
         bag: 2,
         destroy_ms: 2000,
         fade_ms: Some(600),
+        bulk: None,
     };
     let fallen = ObjectData {
         inventory: vec![

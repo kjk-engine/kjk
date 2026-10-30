@@ -458,7 +458,7 @@ pub(super) fn scripts(
                 id: id.0.0,
                 origin: ps.origin,
                 eye: mind::eye(ps),
-                chest: mind::chest(ps),
+                chest: mind::chest_of(ps, super::bulk_of(data)),
                 alive: fighting.is_none_or(|fighting| fighting.0.alive()),
                 senses: data.and_then(|data| data.senses),
                 // An attack out of stealth stays hidden until its opener

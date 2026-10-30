@@ -503,6 +503,7 @@ fn body(arc: f32) -> Body {
         bag: 0,
         destroy_ms: 0,
         fade_ms: None,
+        bulk: None,
     }
 }
 
@@ -3850,7 +3851,7 @@ fn body_overlap_not_buried() -> Found {
             ],
             0.0,
         );
-        crate::world::body(SimId(100), &other)
+        crate::world::body(SimId(100), &other, None)
     };
     let other = |inside: f32| off(inside, 0.0);
     // How far apart `me` and `other` stand (units, their middles from
@@ -3880,7 +3881,7 @@ fn body_overlap_not_buried() -> Found {
             ..Command::default()
         };
         for tick in 0..steps {
-            let mine = crate::world::met_as(&crate::world::body(SimId(1), &me), true);
+            let mine = crate::world::met_as(&crate::world::body(SimId(1), &me, None), true);
             let inside = crate::world::clear_of(&mine, &others);
             let before = me.origin;
             crate::motion::move_body(
@@ -3918,7 +3919,7 @@ fn body_overlap_not_buried() -> Found {
     let (slant, _) = stood(Some(8.0), -127, 127);
     // A gap of the trace's own (a move stopped by it leaves that much).
     let gap = -collision::CONTACT_GAP / UNIT;
-    let mine = crate::world::body(SimId(1), &standing);
+    let mine = crate::world::body(SimId(1), &standing, None);
     let passed = |seated: bool| {
         crate::world::clear_of(&crate::world::met_as(&mine, seated), &[other(gap)])
             .bodies
