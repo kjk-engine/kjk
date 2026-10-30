@@ -596,12 +596,23 @@ pub(super) fn move_actors(
         if stepped.is_none() {
             let maxs_z = player.0.maxs_z;
             let seated = avatar.is_some();
-            inside.hold_off(before, &mut player.0, |from, to| {
-                seated
-                    && level.0.with(states.as_deref(), |world| {
-                        slides_clear(world, bodies, own, (from, to), maxs_z)
-                    })
-            });
+            let spaces = |entity: u32| {
+                let theirs = pushable
+                    .binary_search_by_key(&SimId(entity & !BODY), |(id, ..)| *id)
+                    .map_or(space, |at| pushable[at].2);
+                (space + theirs) / UNIT
+            };
+            inside.hold_off(
+                before,
+                &mut player.0,
+                seated.then_some(&spaces as &dyn Fn(u32) -> f32),
+                |from, to| {
+                    seated
+                        && level.0.with(states.as_deref(), |world| {
+                            slides_clear(world, bodies, own, (from, to), maxs_z)
+                        })
+                },
+            );
         }
         // A body its walk carries on plays its walk or run: KOTOR's movement
         // replaces what a script or a line played on it, as reone's creature
@@ -736,10 +747,10 @@ pub(super) fn move_actors(
 
 /// The bodies a move meets (`clear_of`): those given less the living ones
 /// the mover's box already stands inside, and those ones' boxes (units,
-/// seen from above: least and most corners).
+/// seen from above: least and most corners) with their entities.
 pub(crate) struct Inside<'b> {
     pub bodies: std::borrow::Cow<'b, [Body]>,
-    boxes: Vec<[[f32; 2]; 2]>,
+    boxes: Vec<([[f32; 2]; 2], u32)>,
 }
 
 /// `bodies` less the living ones `mine` (a body's box) already stands inside:
@@ -776,7 +787,7 @@ pub(crate) fn clear_of<'b>(mine: &Body, bodies: &'b [Body]) -> Inside<'b> {
         boxes: bodies
             .iter()
             .filter(|other| overlaps(other))
-            .map(flat_box)
+            .map(|other| (flat_box(other), other.entity))
             .collect(),
     }
 }
@@ -802,22 +813,33 @@ pub(crate) fn met_as(mine: &Body, seated: bool) -> Body {
 
 impl Inside<'_> {
     /// A move from `before` that took `ps` deeper into a body it stood
-    /// inside keeps only its part along that body's face (the part into the
-    /// face taken off), when `clear` lets a box go there from `before` (a
-    /// seat's player's, `movement`); else it is taken back across the floor.
-    /// It walks out of the other or along it, never into it. The face is the
-    /// side of the other's box the mover's overlaps least, as a trace stopped
-    /// by the box would slide along it: weighed by the boxes' middles
-    /// instead, every step off a box's corner counted as nearer and was
-    /// taken back, and the player stood held at a mechanic's box by
-    /// Anchorhead's docking bay door, between him and a footlocker, for good.
-    /// Taken back whole, a player pressed between a wall and a body it
-    /// overlapped (Freyyr, come up to talk in Chuundar's throne room) never
-    /// got out: every way its walk tried led nearer him.
+    /// inside keeps only its part along that body (the part into it taken
+    /// off), when `clear` lets a box go there from `before` (a seat's
+    /// player's, `movement`); else it is taken back across the floor. It
+    /// walks out of the other or along it, never into it.
+    ///
+    /// A creature weighs the other by its box: the face is the side of the
+    /// other's box the mover's overlaps least, as a trace stopped by the box
+    /// would slide along it: weighed by the boxes' middles instead, every
+    /// step off a box's corner counted as nearer and was taken back, and the
+    /// player stood held at a mechanic's box by Anchorhead's docking bay
+    /// door, between him and a footlocker, for good.
+    ///
+    /// A seat's player weighs it as K1's player meets a creature
+    /// (Q-0267), by their personal spaces (`spaces`: the two summed, units,
+    /// by the other's entity): no nearer its middle than both, and along it
+    /// round that middle. By the boxes, whose corners stand out past a
+    /// personal space, Freyyr standing in the mouth of a nook of
+    /// Chuundar's throne room left the player no way out past him on
+    /// either side, where K1's spaces leave a body's width. Taken back
+    /// whole, a player pressed between a wall and a body it overlapped
+    /// (Freyyr, come up to talk there) never got out: every way its walk
+    /// tried led nearer him.
     pub(crate) fn hold_off(
         &self,
         before: [f32; 3],
         ps: &mut MotionState,
+        spaces: Option<&dyn Fn(u32) -> f32>,
         clear: impl Fn([f32; 3], [f32; 3]) -> bool,
     ) {
         let half = motion::HALF_WIDTH;
@@ -827,33 +849,65 @@ impl Inside<'_> {
                 (at[axis] + half).min(other[1][axis]) - (at[axis] - half).max(other[0][axis])
             })
         };
-        // Each other's face: the axis overlapped least from `before`, and
-        // which way it lies.
-        let faces: Vec<(usize, f32)> = self
+        let middle = |other: &[[f32; 2]; 2]| {
+            [
+                (other[0][0] + other[1][0]) * 0.5,
+                (other[0][1] + other[1][1]) * 0.5,
+            ]
+        };
+        let apart = |at: [f32; 3], other: &[[f32; 2]; 2]| {
+            let [x, y] = middle(other);
+            ((at[0] - x).powi(2) + (at[1] - y).powi(2)).sqrt()
+        };
+        // Each other's face, the way into it (a unit across the floor): its
+        // box's least overlapped axis from `before`, or for a seat's player
+        // toward its middle.
+        let faces: Vec<[f32; 2]> = self
             .boxes
             .iter()
-            .map(|other| {
-                let [x, y] = overlap(before, other);
-                let axis = usize::from(y < x);
-                let middle = (other[0][axis] + other[1][axis]) * 0.5;
-                (axis, if middle >= before[axis] { 1.0 } else { -1.0 })
+            .map(|(other, _)| match spaces {
+                Some(_) => {
+                    let [x, y] = middle(other);
+                    let length = apart(before, other).max(f32::EPSILON);
+                    [(x - before[0]) / length, (y - before[1]) / length]
+                }
+                None => {
+                    let [x, y] = overlap(before, other);
+                    let axis = usize::from(y < x);
+                    let side = if middle(other)[axis] >= before[axis] {
+                        1.0
+                    } else {
+                        -1.0
+                    };
+                    let mut face = [0.0; 2];
+                    face[axis] = side;
+                    face
+                }
             })
             .collect();
         let deeper = |at: [f32; 3]| {
             self.boxes
                 .iter()
                 .zip(&faces)
-                .any(|(other, (axis, _))| overlap(at, other)[*axis] > overlap(before, other)[*axis])
+                .any(|((other, entity), face)| match spaces {
+                    Some(spaces) => apart(at, other) < apart(before, other).min(spaces(*entity)),
+                    None => {
+                        let axis = usize::from(face[1] != 0.0);
+                        overlap(at, other)[axis] > overlap(before, other)[axis]
+                    }
+                })
         };
         if !deeper(ps.origin) {
             return;
         }
         let mut moved = [ps.origin[0] - before[0], ps.origin[1] - before[1]];
         let mut velocity = [ps.velocity[0], ps.velocity[1]];
-        for (axis, side) in &faces {
+        for face in &faces {
             for v in [&mut moved, &mut velocity] {
-                if v[*axis] * side > 0.0 {
-                    v[*axis] = 0.0;
+                let into = v[0] * face[0] + v[1] * face[1];
+                if into > 0.0 {
+                    v[0] -= into * face[0];
+                    v[1] -= into * face[1];
                 }
             }
         }

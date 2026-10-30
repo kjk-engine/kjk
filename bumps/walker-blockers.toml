@@ -1,1 +1,1 @@
-sim = "a player pressed into a walkmesh edge's wall slides along a body it touches"
+sim = "a seat's player meets a body it touches by K1's personal spaces, and pressed into a walkmesh edge's wall it still slides along one"

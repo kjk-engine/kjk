@@ -3792,14 +3792,15 @@ fn pushes_idle_aside() -> Found {
 /// a script's jump) is not held by it (`world::clear_of`): standing still,
 /// it stays where it stands on its floor, not nudged; walking away, it
 /// walks out, though a step leaves it inside; walking at it, it gets no
-/// nearer (`Inside::hold_off`); walking at it slantwise, it walks along it
+/// nearer than their personal spaces (`Inside::hold_off`, as K1's player
+/// meets a creature: Q-0267); walking at it slantwise, it walks along it
 /// and out past its side (a player stood into Freyyr against a wall in Chuundar's throne room,
 /// every step its walk tried taken back whole, never got out). A seat's
 /// player meets a body it only touches as one it stands inside
 /// (`world::met_as`), a creature does not; touching it, the player walks
 /// at it slantwise along it and out past its side too. Off its corner
-/// (inside it least across one face), walking at it slantwise goes along
-/// that face, past it and no deeper: weighed by the boxes' middles, every
+/// (inside it least across one face), walking along past it goes past it
+/// and never nearer than their spaces: weighed by the boxes' middles, every
 /// step was taken back, and the player stood held at a mechanic's box by
 /// Anchorhead's docking bay door for good. Touching it with a wall pressed
 /// into its back, slantwise it walks along it and out past its side too
@@ -3825,19 +3826,18 @@ fn body_overlap_not_buried() -> Found {
         crate::world::body(SimId(100), &other)
     };
     let other = |inside: f32| off(inside, 0.0);
-    // How deep `me` stands inside `other` (units): its overlap across the
-    // axis it overlaps least, none once either is clear.
-    let depth = |me: &crate::motion::MotionState, other: &collision::Body| {
-        let across = |axis: usize| {
-            (me.origin[axis] + crate::motion::HALF_WIDTH).min(other.max[axis] / UNIT)
-                - (me.origin[axis] - crate::motion::HALF_WIDTH).max(other.min[axis] / UNIT)
-        };
-        across(0).min(across(1)).max(0.0)
+    // How far apart `me` and `other` stand (units, their middles from
+    // above), and the two humanoids' personal spaces summed (K1's player
+    // stops there, Q-0267).
+    let apart = |me: &crate::motion::MotionState, other: &collision::Body| {
+        let middle = |axis: usize| (other.min[axis] + other.max[axis]) * 0.5 / UNIT;
+        ((me.origin[0] - middle(0)).powi(2) + (me.origin[1] - middle(1)).powi(2)).sqrt()
     };
+    let spaces = 2.0 * crate::world::strikes::humanoid_space(0.0) / UNIT;
     // Its steps through `world` beside another body (as a seat's player),
     // or alone, pressing `forward` facing away from it (`-127`: toward it)
     // and `right`: where it ends, whether it stands on the ground, and how
-    // far deep inside the other it ever stood.
+    // near the other it ever stood.
     let walked_in = |world: &dyn collision::CollisionWorld,
                      steps: u64,
                      other: Option<collision::Body>,
@@ -3845,7 +3845,7 @@ fn body_overlap_not_buried() -> Found {
                      right: i8| {
         let mut me = standing;
         let others: Vec<collision::Body> = other.into_iter().collect();
-        let mut deepest = others.first().map_or(0.0, |other| depth(&me, other));
+        let mut nearest = others.first().map_or(f32::MAX, |other| apart(&me, other));
         let command = Command {
             forward,
             right,
@@ -3866,14 +3866,14 @@ fn body_overlap_not_buried() -> Found {
                 None,
             );
             let maxs_z = me.maxs_z;
-            inside.hold_off(before, &mut me, |from, to| {
+            inside.hold_off(before, &mut me, Some(&|_| spaces), |from, to| {
                 crate::world::movement::slides_clear(world, &inside.bodies, 1, (from, to), maxs_z)
             });
             if let Some(other) = others.first() {
-                deepest = f32::max(deepest, depth(&me, other));
+                nearest = nearest.min(apart(&me, other));
             }
         }
-        (me.origin, me.ground.is_some(), deepest)
+        (me.origin, me.ground.is_some(), nearest)
     };
     let walked = |other: Option<collision::Body>, forward: i8, right: i8| {
         level.with(None, |world| walked_in(world, 60, other, forward, right))
@@ -3901,8 +3901,8 @@ fn body_overlap_not_buried() -> Found {
     let (touch_slant, _) = stood(Some(gap), -127, 127);
     // Off its corner: 3 units into it across x, 6 along y.
     let corner = off(3.0, 2.0 * crate::motion::HALF_WIDTH - 6.0);
-    let started = depth(&standing, &corner);
-    let (corner_at, _, corner_deepest) = walked(Some(corner), -127, 127);
+    let started = apart(&standing, &corner);
+    let (corner_at, _, corner_nearest) = walked(Some(corner), 0, 127);
     // Touching it with a wall pressed 2 units into its back (a walkmesh
     // edge's), on a floor of boxes: the level holds where it stands.
     let span = |from: f32, to: f32| [from * UNIT, to * UNIT];
@@ -3937,7 +3937,7 @@ fn body_overlap_not_buried() -> Found {
             && seat_passes
             && !creature_passes
             && (touch_slant[1] - standing.origin[1]).abs() >= 2.0 * crate::motion::HALF_WIDTH
-            && corner_deepest <= started
+            && corner_nearest >= started.min(spaces)
             && (corner_at[1] - standing.origin[1]).abs() >= 2.0 * crate::motion::HALF_WIDTH
             && held
             && (walled_at[1] - standing.origin[1]).abs() >= 2.0 * crate::motion::HALF_WIDTH,
@@ -3946,7 +3946,7 @@ fn body_overlap_not_buried() -> Found {
              walking away: at {out:?}, walking at it: at {into:?}, slantwise: at {slant:?}; \
              touching: passed over for a seat {seat_passes}, for a creature \
              {creature_passes}, slantwise at {touch_slant:?}; off its corner {started} \
-             units in, slantwise at {corner_at:?}, at most {corner_deepest} in; touching it \
+             units apart, walking along at {corner_at:?}, at least {corner_nearest} apart; touching it \
              with a wall in its back (held by the level {held}), slantwise at {walled_at:?}",
             standing.origin
         ),
