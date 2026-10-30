@@ -361,7 +361,7 @@ pub fn probes() -> crate::probe::Checks {
     checks.push(("install_after_switching_back", install_after_back()));
     checks.push(("led_companion_throws_punches", led_punches()));
     checks.push(("led_companion_has_its_players_aids", led_aids()));
-    checks.push(("led_companion_is_first_pc", led_first_pc()));
+    checks.push(("led_companion_is_not_first_pc", led_first_pc()));
     checks
 }
 
@@ -374,10 +374,10 @@ fn lead(world: &mut SimWorld, body: SimId) -> Snapshot {
     crate::step(world, tick, &input, 8, StepReason::Authority)
 }
 
-/// `GetFirstPC()` is the body the first seat controls: the standing
-/// companion while it leads, the player's own once its portrait takes the
-/// lead back (TSL's Goto's yacht: the command centre's trigger, asking
-/// for `GetFirstPC()`, entered by Mira at the head of the party).
+/// `GetFirstPC()` is the player's own body while a companion leads, as
+/// after its portrait takes the lead back: TSL's `GetFirstPCObject` reads
+/// the player's character (`CSWSPlayer`'s, set as it loads and by
+/// `SwitchPlayerCharacter`), not the body `SetPartyLeader` hands it.
 fn led_first_pc() -> Result<String, String> {
     let (mut world, _, standing) = switch_world(1, true)?;
     let start = run(&mut world, 1, 0);
@@ -389,7 +389,7 @@ fn led_first_pc() -> Result<String, String> {
     };
     let (led, back) = (first(&mut world, standing), first(&mut world, own));
     check(
-        led == TEMPLATES[1].1 && back.is_empty(),
+        led.is_empty() && back.is_empty(),
         format!("GetFirstPC()'s tag with the companion leading {led:?}, the player again {back:?}"),
     )
 }
