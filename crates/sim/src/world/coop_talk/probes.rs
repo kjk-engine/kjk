@@ -754,7 +754,7 @@ impl Run {
             fighter.fall(now);
         });
         self.step(&[]);
-        self.fighter(who, |fighter| fighter.rise(had));
+        self.fighter(who, |fighter| fighter.rise(had, now));
     }
 
     /// `who` in a fight a while yet (`Fighter::combat_until`), or out of it.

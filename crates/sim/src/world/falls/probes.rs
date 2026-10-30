@@ -44,6 +44,7 @@ const CASES: &[(&str, Case)] = &[
     ("revive_chosen", revive_chosen),
     ("revive_chosen_broken", revive_chosen_broken),
     ("free_play_poison_death", free_play_poison_death),
+    ("poison_ends_with_the_fall", poison_ends_with_the_fall),
 ];
 
 /// A downed fighter, and one being revived, read back as written.
@@ -264,8 +265,9 @@ impl Run {
         }
     }
 
-    /// `who` at 1 HP, poisoned by the foe with a dose due now that kills it.
-    fn poison(&mut self, who: Who) {
+    /// `who` at 1 HP, poisoned by the foe with a dose due now that kills it,
+    /// a dose a second for `for_ms`.
+    fn poison(&mut self, who: Who, for_ms: u64) {
         let (id, now, by) = (self.id(who), self.last.time_ms, self.foe);
         let mut fighters = self.world.world.query::<(&Id, &mut Fighting)>();
         for (own, mut fighting) in fighters.iter_mut(&mut self.world.world) {
@@ -280,7 +282,7 @@ impl Run {
                         ..Default::default()
                     },
                     next: now,
-                    until: now,
+                    until: now + for_ms,
                     link: None,
                 });
             }
@@ -1035,7 +1037,7 @@ fn free_play_poison_death() -> Result<String, String> {
         if staged {
             run.blow(Who::Foe, u16::MAX, true);
         } else {
-            run.poison(Who::Foe);
+            run.poison(Who::Foe, 0);
         }
         run.step(&[]);
         let fighter = run.fighter(Who::Foe);
@@ -1050,4 +1052,43 @@ fn free_play_poison_death() -> Result<String, String> {
         }
     }
     Ok("a poison's dose kills by JA's death; a story's blow by KOTOR's dying clip".into())
+}
+
+/// The host downed by a long poison's dose, the foe dead: the poison is
+/// gone with the fall (`effects::strip`), so the host gets up and stays up
+/// past the doses it would have taken.
+fn poison_ends_with_the_fall() -> Result<String, String> {
+    let mut run = Run::new(2, false)?;
+    run.step(&[]);
+    run.poison(Who::Host, 60_000);
+    run.hit(Who::Foe, 999);
+    run.step(&[]);
+    let fell = run.fighter(Who::Host);
+    if !fell.downed() || fell.pack.poison.is_some() {
+        return Err(format!(
+            "after the dose: {:?}, poisoned {}",
+            fell.life,
+            fell.pack.poison.is_some()
+        ));
+    }
+    let downed_at = run.last.time_ms;
+    while run.last.time_ms < downed_at + 12_000 && !run.fighter(Who::Host).alive() {
+        run.step(&[]);
+    }
+    let rose = run.last.time_ms;
+    run.hold(5_000, &[]);
+    let host = run.fighter(Who::Host);
+    if !host.alive() || host.pack.poison.is_some() || host.hp < RISE_HP {
+        return Err(format!(
+            "5 s after getting up: {:?} at {}/100 HP, poisoned {}",
+            host.life,
+            host.hp,
+            host.pack.poison.is_some()
+        ));
+    }
+    Ok(format!(
+        "downed by the dose, the poison gone; up {} ms later and standing 5 s on at {} HP",
+        rose - downed_at,
+        host.hp / 100
+    ))
 }

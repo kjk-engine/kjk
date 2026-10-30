@@ -679,26 +679,17 @@ pub(super) fn scripts(
         match *action {
             Action::SetLeader(u8::MAX) if leads => table.leader = None,
             Action::SetLeader(npc) if leads && table.has(npc) => table.leader = Some(npc),
-            // Its own portrait, or the one it is switched to (`switch`).
-            Action::Lead(body)
-                if leads
-                    && (Some(body.0) == leader_own || table.switched_body() == Some(body.0)) =>
-            {
-                table.leader = None
-            }
-            Action::Lead(body) if leads => {
-                if let Some(npc) = table.members.iter().copied().find(|npc| {
-                    table
-                        .available
-                        .get(npc)
-                        .is_some_and(|known| known.object == Some(body.0))
-                }) {
-                    table.leader = Some(npc);
-                }
-            }
+            Action::Lead(body) if leads => table.lead(body.0, leader_own),
             Action::Solo(on) => table.solo = on,
             _ => {}
         }
+    }
+    let fighters: BTreeMap<u32, &crate::combat::Fighter> = things
+        .iter()
+        .filter_map(|(id, .., fighting, _, _)| Some((id.0.0, &fighting?.0)))
+        .collect();
+    if let Some(next) = passes_on(&scripts.state.party, leader_own, &fighters) {
+        scripts.state.party.lead(next, leader_own);
     }
     // Players closing the party selection screen, in seat order.
     let chosen: Vec<(ObjectId, Option<[u8; 2]>)> = inputs
@@ -1455,6 +1446,52 @@ pub(super) fn scripts(
     if tabled.0 != scripts.state.pazaak {
         tabled.0.clone_from(&scripts.state.pazaak);
     }
+}
+
+/// Control passing on from a fallen leader, as in K1 and TSL: when the body
+/// the first seat leads through (`own`, its own character; the one it is
+/// switched to; the companion leading) is down, the next party member
+/// standing leads, in the leader key's order (the seat's character, then
+/// the companions by id, from the fallen one round), past any companion a
+/// guest plays. None while the leader stands or no one else does (the whole
+/// party down is the loss, `falls`). It leads as the key's choice would
+/// (`Party::lead`), and keeps leading once the fallen get up.
+fn passes_on(
+    table: &crate::script::party::Party,
+    own: Option<u32>,
+    fighters: &BTreeMap<u32, &crate::combat::Fighter>,
+) -> Option<u32> {
+    let switched = table.switched_body();
+    let acting = super::lent(table).map(|body| body.0).or(switched).or(own)?;
+    if !fighters
+        .get(&acting)
+        .is_some_and(|fighter| fighter.downed())
+    {
+        return None;
+    }
+    let mut companions: Vec<u32> = table
+        .creatures()
+        .filter(|body| Some(*body) != switched)
+        .collect();
+    companions.sort_unstable();
+    let order: Vec<u32> = switched.or(own).into_iter().chain(companions).collect();
+    let at = order.iter().position(|body| *body == acting)?;
+    let free = |body: &u32| {
+        fighters.get(body).is_some_and(|fighter| {
+            fighter.alive()
+                && fighter
+                    .mind
+                    .driver
+                    .is_none_or(|seat| seat == super::LEADER_SEAT)
+        })
+    };
+    order
+        .iter()
+        .cycle()
+        .skip(at + 1)
+        .take(order.len() - 1)
+        .copied()
+        .find(free)
 }
 
 /// The journal, the party's XP and the careers as everyone sees them, when

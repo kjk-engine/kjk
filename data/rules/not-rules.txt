@@ -54,6 +54,9 @@ crates/sim/src/action.rs WATCH  # a player action's wire tag
 crates/sim/src/combat/ai.rs TASKS  # the tasks' wire order
 crates/sim/src/combat/damage.rs WHOLE_CADENCE_MS  # derived: the round over the pace
 crates/sim/src/combat/death.rs DIE  # animations.2da row 80 as the views number clips
+crates/sim/src/combat/death.rs BACK  # JA's back get-up and its first frame's head direction, measured on _humanoid
+crates/sim/src/combat/death.rs FRONT  # JA's front get-up and its first frame's head direction, measured on _humanoid
+crates/sim/src/combat/death.rs LYING  # where JA's deaths leave the body, measured on _humanoid
 crates/sim/src/combat/effects.rs ALL  # enum order for the wire encoding
 crates/sim/src/combat/effects.rs ALL_SAVES  # save index (all three), an id
 crates/sim/src/combat/effects.rs CHOKE  # a hold's state number
@@ -592,6 +595,7 @@ crates/sim/src/world/coop_items.rs START  # a probe's fixture
 crates/sim/src/world/coop_items.rs STORE  # a probe's fixture
 crates/sim/src/world/coop_items.rs TAKEN  # a probe's fixture
 crates/sim/src/world/coop_items.rs XP  # a probe's fixture
+crates/sim/src/world/falls.rs ARENA_REVIVE_MS  # the arena's playtest order's wait, no game rule
 crates/sim/src/world/feats.rs CON  # a probe's fixture
 crates/sim/src/world/feats.rs GRANTED  # a probe's fixture
 crates/sim/src/world/feats.rs HP  # a probe's fixture
