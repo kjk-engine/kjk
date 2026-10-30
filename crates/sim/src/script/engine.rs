@@ -3866,8 +3866,10 @@ impl Engine<'_> {
             | ForceHeartbeat => self.force_call(bound, args),
             // The party table keeps one creature for each companion: one
             // spawned again while its creature is here is that creature,
-            // moved to the place, as the executable's `AddMember` moves a
-            // puppet that is here [verify the executable's own handling].
+            // its actions cleared and moved to the place, as TSL's
+            // `CSWPartyTable::SpawnNPC` takes the table's own creature
+            // (`GetNPCObject` makes one only for an empty slot), then
+            // `ClearAllActions` and `AddToArea` at the location.
             // TSL's Bao-Dur joins by being spawned, added, removed and
             // spawned again (`a_baodur_join`): a second one had stayed at
             // the wreck, the one `GetObjectByTag("BaoDur")` then found. And
@@ -3883,6 +3885,8 @@ impl Engine<'_> {
                     .filter(|old| self.exists(*old) && !self.destroyed(*old));
                 let spawned = match (had, self.place(args, 1)) {
                     (Some(old), Some((at, yaw))) => {
+                        clear_queue(self.state, self.view, old);
+                        self.out.changes.push(Change::Clear { who: old });
                         match self.out.made.iter_mut().find(|made| made.id == old) {
                             Some(made) => (made.at, made.yaw) = (at, yaw),
                             None => self.out.changes.push(Change::Jump {
@@ -4943,10 +4947,12 @@ impl Engine<'_> {
                     !(thing.character.is_some() && self.state.kept.contains(&item.0))
                 }) {
                     // A creature `SetIsDestroyable(FALSE)` keeps is not
-                    // destroyed: TSL's `CSWSCreature::EventHandler` passes
-                    // the destroy event over for one not destroyable
-                    // (506OND's `a_end_game` destroys Tobin's body, then
-                    // raises him for Kreia's scene) [verify in K1's exe].
+                    // destroyed: both executables' `CSWSCreature::
+                    // EventHandler` pass the destroy event over for one not
+                    // destroyable (its flag, object +0x134, tested as the
+                    // event fires; K1's Mac build at 0x10048cbab) (506OND's
+                    // `a_end_game` destroys Tobin's body, then raises him for
+                    // Kreia's scene).
                     self.out.changes.push(Change::Destroy {
                         who: item,
                         ms: seconds_ms(float(args, 1)),
@@ -5763,10 +5769,12 @@ impl Engine<'_> {
                 party.restrict = int(args, 0) != 0;
                 Value::Int(0)
             }
-            // -1 for a companion not in the party table at all (TSL's
-            // nwscript.nss), else whether it may be picked: TSL's Ebon Hawk
-            // takes 1 or 0 as "available" (k_003ebo_enter, Visas's arrival
-            // asking she is not yet) [verify in the exe].
+            // -1 for a companion not in the party table at all, else
+            // whether it may be picked: TSL's `CSWPartyTable::
+            // GetNPCSelectability` gives 0xFF for one not available (or past
+            // the table), which the script command turns to -1. TSL's Ebon
+            // Hawk takes 1 or 0 as "available" (k_003ebo_enter, Visas's
+            // arrival asking she is not yet).
             GetNPCSelectability => Value::Int(match npc {
                 Some(npc) if party.available.contains_key(&npc) => {
                     i32::from(!party.unselectable.contains(&npc))

@@ -216,10 +216,10 @@ fn creature(snapshot: &Snapshot, index: u32) -> Option<&EntityState> {
 /// The death script that keeps its creature: `SetIsDestroyable(FALSE)`;
 /// and one destroying the fallen one and the kept one
 /// (`DestroyObject(GetObjectByTag(..))`), run as the fallen one's body
-/// fades: the kept one is not destroyed (TSL's `CSWSCreature::EventHandler`
-/// passes `EVENT_DESTROY_OBJECT` over for a creature not destroyable, so
-/// 506OND's `a_end_game` destroys Tobin's body and finds him still there to
-/// raise for Kreia's scene) [verify in K1's exe].
+/// fades: the kept one is not destroyed (both executables'
+/// `CSWSCreature::EventHandler` pass `EVENT_DESTROY_OBJECT` over for a
+/// creature not destroyable, so 506OND's `a_end_game` destroys Tobin's body
+/// and finds him still there to raise for Kreia's scene).
 fn keeping_script() -> crate::script::Library {
     use fmt_odyssey::ncs::{Const, Op};
     const CATALOG: &str = r#"

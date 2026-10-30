@@ -151,6 +151,8 @@ int GetLocalNumber(object oObject, int nIdx);
 void ChangeToStandardFaction(object oCreatureToChange, int nStandardFaction);
 // 38
 int GetStandardFaction(object oObject);
+// 39
+void ActionWait(float fSeconds);
 int OBJECT_TYPE_CREATURE = 1;
 "#;
 
@@ -340,6 +342,7 @@ fn library() -> crate::script::Library {
             ("probe_spawned_twice", spawned_twice()),
             ("probe_second_atton", second_atton()),
             ("probe_spawned_again", spawned_again()),
+            ("probe_busy", busy()),
             ("probe_light_point", light_point()),
             (
                 crate::script::presentation::SUMMARY_CLOSED,
@@ -417,6 +420,15 @@ fn spawned_twice() -> Ncs {
     asm.op(int(ATTON)).op(call(14, 2));
     asm.op(int(ATTON)).op(call(15, 2)).op(Op::MovSp(-4));
     asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_busy`: its caller waits half a minute (`ActionWait`).
+fn busy() -> Ncs {
+    let mut asm = Asm::default();
+    asm.op(Op::Const(Const::Float(30.0)))
+        .op(call(39, 1))
+        .op(Op::Retn);
     asm.build()
 }
 
@@ -648,6 +660,7 @@ pub fn probes() -> Checks {
     checks.push(("bao_dur_met", bao_dur_met()));
     checks.push(("spawned_twice_is_one", spawned_twice_is_one()));
     checks.push(("spawned_again_is_the_same", spawned_again_is_the_same()));
+    checks.push(("spawned_again_stops", spawned_again_stops()));
     checks.push(("selectability_of_the_unknown", selectability_told()));
     checks.push((
         "summary_closed_runs_align_movie",
@@ -1207,6 +1220,33 @@ fn spawned_again_is_the_same() -> Result<String, String> {
     check(
         told == ["0", "1", "1"],
         format!("(a second, a first, the same) atton: {told:?}"),
+    )
+}
+
+/// A companion spawned again while its creature is here drops what it
+/// was doing: TSL's `CSWPartyTable::SpawnNPC` clears the table's creature's
+/// actions (`ClearAllActions`) before it adds it at the place.
+fn spawned_again_stops() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    run(&mut world, "probe_atton_beside");
+    step(&mut world);
+    let atton = world
+        .script_state()
+        .party
+        .available
+        .get(&(ATTON as u8))
+        .and_then(|slot| slot.object)
+        .ok_or("Atton has no creature")?;
+    run_as(&mut world, "probe_busy", ObjectId(atton));
+    step(&mut world);
+    let queued = |world: &SimWorld| world.script_state().actions.get(&atton).map_or(0, Vec::len);
+    let before = queued(&world);
+    run(&mut world, "probe_spawned_again");
+    step(&mut world);
+    let after = queued(&world);
+    check(
+        before > 0 && after == 0,
+        format!("Atton's queued actions before {before}, spawned again {after}"),
     )
 }
 

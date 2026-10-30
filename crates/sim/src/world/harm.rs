@@ -531,7 +531,10 @@ pub(super) fn hurt(
                 + crate::combat::forms::extra_attacks(&who[by].0)
         });
         // A creature its appearance gives no movement (`moverate` NOMOVE:
-        // a turret) is pushed by no blow: KOTOR moves it not at all.
+        // a turret) takes no JA knockback: KOTOR's blows push nothing, and
+        // its rates of 0 (`GetWalkRate`, `GetRunRate`) keep it where it
+        // stands. KOTOR's bump (`BumpFriends`) tests no rate: a friendly,
+        // idle one is still bumped aside.
         let immobile = actors[at]
             .2
             .and_then(|object| object.facts.as_ref()?.body)
