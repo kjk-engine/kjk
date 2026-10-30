@@ -317,10 +317,18 @@ impl<'a> Here<'a> {
     /// `at`. TSL's medbay bin, walked to along the line from the player,
     /// was made for beside the bed, where the dummy Exile lying on it held
     /// the player 2.7 m off; its action point stands 2.2 m clear of him.
+    /// The points stand round the object where it stands, `at`, not where
+    /// its facts were placed: Dantooine's sensor made in play by the
+    /// kinrath cave's entry (`cont_sensor`) has its template's.
     pub(super) fn use_point(me: [f32; 3], at: [f32; 3], facts: Option<&ObjectData>) -> [f32; 3] {
         facts
             .filter(|facts| facts.kind == ObjectKind::Placeable)
-            .and_then(|facts| facts.nearest_use_point(me))
+            .and_then(|facts| {
+                let shift: [f32; 3] = std::array::from_fn(|axis| at[axis] - facts.position[axis]);
+                let from = std::array::from_fn(|axis| me[axis] - shift[axis]);
+                let point = facts.nearest_use_point(from)?;
+                Some(std::array::from_fn(|axis| point[axis] + shift[axis]))
+            })
             .unwrap_or(at)
     }
 }

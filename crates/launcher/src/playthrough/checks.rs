@@ -403,23 +403,27 @@ pub fn wall_probes() -> sim::probe::Checks {
     // A placeable at (0, 4) with action points 0.7 m south and north of
     // it, used by the player at (-8, 0): its walk makes for the south one,
     // the one nearest the player (`Here::use_point`), not for the floor
-    // before the placeable on the line from the player.
+    // before the placeable on the line from the player. The same placeable
+    // standing at (0, -4), its facts still placed at (0, 4) (one made in
+    // play, its template's facts): its north point, round where it stands.
     let used = {
         let refused = BTreeSet::new();
         let here = Here::new(&level, &snapshot, &refused);
-        let placed = [0.0, 4.0, 0.0];
         let bin = ObjectData {
             kind: ObjectKind::Placeable,
             use_points: vec![[0.0, -0.7, 0.0], [0.0, 0.7, 0.0]],
-            ..ObjectData::unknown("bin", placed, 0.0)
+            ..ObjectData::unknown("bin", [0.0, 4.0, 0.0], 0.0)
         };
         let player = sim::motion::MotionState::standing(from, 0.0);
-        let point = Here::use_point(from.map(|v| v * UNIT), placed, Some(&bin));
-        let goal = here.approach(&player, point).goal.map(|v| v * UNIT);
-        let detail = format!("making for {goal:?}");
+        let goal = |at: [f32; 3]| {
+            let point = Here::use_point(from.map(|v| v * UNIT), at, Some(&bin));
+            here.approach(&player, point).goal.map(|v| v * UNIT)
+        };
+        let (placed, made) = (goal([0.0, 4.0, 0.0]), goal([0.0, -4.0, 0.0]));
+        let detail = format!("making for {placed:?}; made elsewhere, {made:?}");
         (
             "use_walks_to_the_nearest_action_point",
-            if flat(goal, [0.0, 3.3, 0.0]) < 0.05 {
+            if flat(placed, [0.0, 3.3, 0.0]) < 0.05 && flat(made, [0.0, -3.3, 0.0]) < 0.05 {
                 Ok(detail)
             } else {
                 Err(detail)
