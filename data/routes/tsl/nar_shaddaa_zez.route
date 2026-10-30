@@ -3,13 +3,13 @@
 # left; urged to reconsider (DSimpson's light side), so he teaches a form
 # and goes to Dantooine's Enclave; back aboard the Ebon Hawk, G0-T0's
 # remote and Bao-Dur's first upgrade of G0-T0 (the Hawk's scenes of a
-# boarding).
+# boarding); HK-47 rebuilt; Kreia's prestige classes, the first time the
+# Exile is aboard past level 15: the Jedi Watchman taken.
 # Starts from the safe house's checkpoint:
 #   kjk playthrough tsl @nar_shaddaa_zez data/routes/tsl/nar_shaddaa_zez.route --god
 # Walkthrough: DSimpson's "Nar Shaddaa Finale" and "Post Nar Shaddaa Ebon
 # Hawk" (context/walkthroughs/tsl/).
-# Left: the companions' talks aboard, HK-47's rebuilding, Fassa's passage
-# for Kahranna's family and Odis.
+# Left: the companions' talks aboard.
 say What happens now?
 say I urge you to reconsider.
 to tr_zez351conv     # Zez-Kai Ell
@@ -32,4 +32,9 @@ say [Repair] Install the droid's processor # HK-47 rebuilt: Kodin's
 say [Repair] Reinforce the droid's damaged chassis # processor and the HK-50's
 use DrdParts         # chassis fitted, the last part bringing him round
 talk
+say Yes, it was a sound, like power. # Kreia's prestige classes (start 8,
+say Jedi Watchmen should return to the galaxy, and I will be the first to restore them.
+use kreia            # c_pc_prestige: level 15 and light past 75, first true
+talk                 # here, the first time aboard since Goto's yacht): the
+                     # Jedi Watchman (a_pc_jedi: AddMultiClass 13)
 save nar_shaddaa_done

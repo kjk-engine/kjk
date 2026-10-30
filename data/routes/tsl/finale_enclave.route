@@ -48,7 +48,9 @@ exit To_605@1        # the courtyard's east way
 module 605dan
 exit To_650          # the rebuilt Jedi Enclave
 module 650dan
-say Very well. I shall return shortly. # Kreia rests (650kreia start 0)
+say [Awareness] You are afraid. # Kreia rests (650kreia start 0): E18 to E23
+say Is there anything wrong?
+say Very well. I shall return shortly.
 to KreiaArriveParty
 talk
 to KreiaArrive       # the Council chamber's approach

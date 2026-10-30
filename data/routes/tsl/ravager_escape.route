@@ -21,9 +21,6 @@
 #   the command deck's route); the party Mandalore and Visas.
 #   Revan a man (c_chkrevsex: the "him" replies) and light
 #   (101PER_Revan_End 0, a_setrevangood: 205TEL, not straight to 907MAL).
-#   # UNSURE: if the chain's save holds 1, a_escape_851 skips 205TEL and
-#   queues the four movies itself; the Carth block is skipped by its `if`
-#   (its says, inside it, then never queued).
 #   The Exile is male (Grenn's "sir", c_ismale).
 say Activate the launch sequence. # 851com (R1 needs 851NIH_Missile_Bay 0)
 say Override the emergency sequence. # E2 (E3's warning only while

@@ -128,6 +128,10 @@ impl Step<'_> {
                 continue;
             };
             let choices = classes.complete(&sheet, &career, &choices);
+            let asked = format!(
+                "level {}, career {career:?}, class {}",
+                sheet.level, choices.class
+            );
             let taken = classes
                 .may_level(sheet.level, xp)
                 .then(|| classes.take(&sheet, &career, &choices))
@@ -135,7 +139,8 @@ impl Step<'_> {
             match taken {
                 Some(taken) => self.took(who, sheet, taken, &choices),
                 None => {
-                    self.report.line(format!("level refused for #{}", who.0));
+                    self.report
+                        .line(format!("level refused for #{} ({asked})", who.0));
                     let refused = crate::notice::Notice::LevelRefused;
                     self.out.notices.push((Some(who), refused));
                 }
