@@ -1431,7 +1431,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // Greeta Holda answers from 3.4 m), within the
                                 // reach itself.
                                 let near = choice.zip(data.as_ref()).map_or(d <= NEAR_M, |(choice, data)| {
-                                    sim::target::Walk::near(&player, at, choice, data.kind)
+                                    sim::target::Walk::near(
+                                        &player,
+                                        sim::target::Spot::plain(at, choice, data.kind),
+                                    )
                                         || arrived && d <= sim::target::reach(choice, data.kind)
                                 });
                                 let alive = |e: &sim::EntityState| e.fighter.is_some_and(|f| f.alive());

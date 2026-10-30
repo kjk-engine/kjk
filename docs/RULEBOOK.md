@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `c0eba9990d72f5bd`.
+Edition `d8b34bf0644d6edc`.
 
 ## Contents
 
@@ -7091,6 +7091,16 @@ A door or container must be in view at 1 meters above its base to be used.
 A placeable with action points must be in view at the nearest of them, 1.5 meters up, to be used: a cage or rail round it does not stop a character standing at its side.
 
 <sub>Source: TSL's executable (CSWSCreature::GetIsInUseRange: the line of sight to CSWSPlaceable::GetNearestActionPoint, 1.5 up at both ends) [verify in K1's]. Code: `sim::world::uses::Target::aimed`.</sub>
+
+<a id="interaction-using-door-point-reach-m"></a>**Door Use Range** = **0.75 m** · `interaction.using.door_point_reach_m`
+
+A door is used from its action point on the character's side (one stands before it and one behind, from the door's walkmesh): within 0.75 meters of it plus the character's personal space.
+
+The character walks to that point rather than to the door's middle, so it
+never walks into a wide door's face. A door is still used from up to
+2 meters of its middle.
+
+<sub>Source: K1's and TSL's executables (CSWSCreature::GetUseRange: the user's personal space plus 0.75 from CSWSDoor::GetNearestActionPoint, the closed walkmesh's use positions, a walkable one first). Code: `sim::target::Spot::of`.</sub>
 
 <a id="interaction-using-height-reach-m"></a>**Use Height** = **2.5 m** · `interaction.using.height_reach_m`
 

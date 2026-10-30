@@ -252,8 +252,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         &|_| crate::ObjectState::default(),
         &player,
         5,
-        ObjectKind::Creature,
-        feet(-2.0, 0.0),
+        Spot::plain(feet(-2.0, 0.0), Choice::Talk, ObjectKind::Creature),
         Choice::Talk,
         0,
     );

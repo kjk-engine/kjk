@@ -153,6 +153,22 @@ source = "TSL's executable (CSWSCreature::GetIsInUseRange: the line of sight to 
 see = "sim::world::uses::Target::aimed"
 applies = ["kind:container"]
 
+[using.door_point_reach_m]
+name = "Door Use Range"
+type = "f32"
+value = 0.75
+unit = "m"
+range = [0.1, 3.0]
+summary = "A door is used from its action point on the character's side (one stands before it and one behind, from the door's walkmesh): within {interaction.using.door_point_reach_m:bare} meters of it plus the character's personal space."
+detail = """
+The character walks to that point rather than to the door's middle, so it
+never walks into a wide door's face. A door is still used from up to
+{scripts.moves.door_reach:bare} meters of its middle.
+"""
+source = "K1's and TSL's executables (CSWSCreature::GetUseRange: the user's personal space plus 0.75 from CSWSDoor::GetNearestActionPoint, the closed walkmesh's use positions, a walkable one first)"
+see = "sim::target::Spot::of"
+applies = ["kind:door"]
+
 [using.height_reach_m]
 name = "Use Height"
 type = "f32"

@@ -719,9 +719,15 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   plays the dev soldier as a droid.
 - **E** does the chosen: at once within four fifths of its reach (doors
   2 m, Dialog 4 m, else 2.5 m; the host checks the whole reach), else the
-  player walks there first (`sim::target::Walk`:
-  a walker, or straight at it where no route leads, as before a door that
-  leads out), steered in place of the keys, keeping its hand and power;
+  player walks there first. A door with action points (the two use
+  positions of its closed walkmesh, `<model>0.dwk`: one before it, one
+  behind) is done from the one on the player's side, a walkable one first,
+  within four fifths of 0.75 m past a humanoid's personal space
+  (`sim::target::Spot`; K1's and TSL's `CSWSCreature::GetUseRange`), so
+  the player never walks into a wide door's face, and the host also takes
+  a door's use from there. The walk (`sim::target::Walk`): a walker, or
+  straight at it where no route leads, as before a door that leads out;
+  steered in place of the keys, keeping its hand and power;
   its own move, jump or attack ends the walk, as do a screen, a
   conversation, the target going or no longer offering the choice (a door
   opened, a creature turned hostile). 10 s of the sim's time or three

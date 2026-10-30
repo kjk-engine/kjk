@@ -439,15 +439,103 @@ pub fn reach(choice: Choice, kind: ObjectKind) -> f32 {
     }
 }
 
-/// How far from its target (metres, across the floor) a walk to do
-/// `choice` ends: halfway into the choice's arrival; a trap's at the
-/// arrival's edge, outside the trap's circle (`traps::RADIUS_M`), as KOTOR
-/// disarms from beside a mine, not on it.
-pub fn stand_off(choice: Choice, kind: ObjectKind) -> f32 {
-    let arrive = reach(choice, kind) * ARRIVE;
-    match choice {
-        Choice::Disarm | Choice::Recover => arrive * rules::targeting::walk::TRAP_SHARE,
-        _ => arrive * rules::targeting::walk::SHARE,
+/// How far from a door's action point (metres, across the floor) a
+/// character uses it, past its personal space (K1's and TSL's
+/// `CSWSCreature::GetUseRange`).
+pub const DOOR_POINT_REACH: f32 = rules::interaction::using::DOOR_POINT_REACH_M;
+
+/// How far from its action point (metres, across the floor) a player uses
+/// a door: `DOOR_POINT_REACH` past a humanoid's personal space.
+pub fn door_point_reach() -> f32 {
+    DOOR_POINT_REACH + crate::world::strikes::humanoid_space(0.0)
+}
+
+/// A door's action point for a user at `from` (feet, metres), on the
+/// floor (feet, metres): of its two (`ObjectData::action_points`) the
+/// nearer, unless only the other stands on the walkable floor, as the
+/// exes' `CSWSDoor::GetNearestActionPoint` picks it; `None` for a door
+/// without them (or anything else).
+pub fn action_point(level: &Level, facts: &crate::module::ObjectData, from: Vec3) -> Option<Vec3> {
+    if facts.kind != ObjectKind::Door {
+        return None;
+    }
+    let origin = |at: Vec3| {
+        let [x, y, z] = math::scale(at, 1.0 / UNIT);
+        [x, y, z - crate::motion::SOLE_Z]
+    };
+    let points = facts.action_points(from);
+    let point = points
+        .iter()
+        .find(|point| crate::walk::on_mesh(level, origin(**point)))
+        .or(points.first())?;
+    Some(feet_at(crate::walk::on_floor(level, origin(*point))))
+}
+
+/// Where a walk to do a choice heads (feet, metres) and how near it must
+/// come (metres, across the floor) for the choice to be done there.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Spot {
+    pub at: Vec3,
+    pub within: f32,
+}
+
+impl Spot {
+    /// `choice` on an object of `kind` standing at `feet`: within
+    /// `ARRIVE` of the choice's reach of it.
+    pub fn plain(feet: Vec3, choice: Choice, kind: ObjectKind) -> Spot {
+        Spot {
+            at: feet,
+            within: reach(choice, kind) * ARRIVE,
+        }
+    }
+
+    /// `choice` on the object of `facts` standing at `feet`, by a player
+    /// at `from` (feet, metres): a door with action points from the one on
+    /// the player's side (`action_point`), within `ARRIVE` of
+    /// `door_point_reach`, as KOTOR walks a creature to it, never into a
+    /// wide door's face; anything else `plain`.
+    pub fn of(
+        level: &Level,
+        choice: Choice,
+        facts: &crate::module::ObjectData,
+        feet: Vec3,
+        from: Vec3,
+    ) -> Spot {
+        match action_point(level, facts, from) {
+            Some(at) => Spot {
+                at,
+                within: door_point_reach() * ARRIVE,
+            },
+            None => Spot::plain(feet, choice, facts.kind),
+        }
+    }
+
+    /// `choice` on target `index` of `snapshot`, of `kind` standing at
+    /// `feet`, by `player`: `of` with its facts, else `plain`.
+    pub fn in_snapshot(
+        level: &Level,
+        snapshot: &Snapshot,
+        (index, kind): (u32, ObjectKind),
+        choice: Choice,
+        feet: Vec3,
+        player: &crate::motion::MotionState,
+    ) -> Spot {
+        let instances = Instances::in_snapshot(level, snapshot);
+        match entity(snapshot, index).and_then(|entity| instances.of_entity(entity)) {
+            Some(facts) => Spot::of(level, choice, facts, feet, feet_of(player)),
+            None => Spot::plain(feet, choice, kind),
+        }
+    }
+
+    /// How far from `at` (metres, across the floor) a walk to do `choice`
+    /// here heads: halfway into the arrival; a trap's at the arrival's
+    /// edge, outside the trap's circle (`traps::RADIUS_M`), as KOTOR
+    /// disarms from beside a mine, not on it.
+    pub fn stand_off(&self, choice: Choice) -> f32 {
+        match choice {
+            Choice::Disarm | Choice::Recover => self.within * rules::targeting::walk::TRAP_SHARE,
+            _ => self.within * rules::targeting::walk::SHARE,
+        }
     }
 }
 
@@ -500,8 +588,15 @@ pub enum Stride {
 /// Where the player stands for a walk: its body (`origin`, units) and
 /// feet (metres).
 fn feet_of(player: &crate::motion::MotionState) -> Vec3 {
-    let o = player.origin;
-    math::scale([o[0], o[1], o[2] + crate::motion::SOLE_Z], UNIT)
+    feet_at(player.origin)
+}
+
+/// The feet (metres) of a body whose origin is `origin` (units).
+fn feet_at(origin: Vec3) -> Vec3 {
+    math::scale(
+        [origin[0], origin[1], origin[2] + crate::motion::SOLE_Z],
+        UNIT,
+    )
 }
 
 impl Walk {
@@ -512,27 +607,20 @@ impl Walk {
         choices.contains(&self.choice)
     }
 
-    /// Whether `player` is near enough `to` (feet, metres) to do `choice`
-    /// on an object of `kind` without walking.
-    pub fn near(
-        player: &crate::motion::MotionState,
-        to: Vec3,
-        choice: Choice,
-        kind: ObjectKind,
-    ) -> bool {
-        math::flat_distance(feet_of(player), to) <= reach(choice, kind) * ARRIVE
+    /// Whether `player` is near enough `spot` to do its choice without
+    /// walking.
+    pub fn near(player: &crate::motion::MotionState, spot: Spot) -> bool {
+        math::flat_distance(feet_of(player), spot.at) <= spot.within
     }
 
-    /// A walk from `player` to object `object` of `kind` standing at `to`
-    /// (feet, metres) to do `choice`, from `now_ms`.
-    #[allow(clippy::too_many_arguments)]
+    /// A walk from `player` to object `object` to do `choice` at `spot`,
+    /// from `now_ms`.
     pub fn new(
         level: &Level,
         ways: &dyn crate::walk::Ways,
         player: &crate::motion::MotionState,
         object: u32,
-        kind: ObjectKind,
-        to: Vec3,
+        spot: Spot,
         choice: Choice,
         now_ms: u64,
     ) -> Walk {
@@ -540,11 +628,11 @@ impl Walk {
             object,
             choice,
             walker: crate::walk::Walker::new(player.origin),
-            toward: to,
+            toward: spot.at,
             direct: false,
             started_ms: now_ms,
         };
-        walk.plan(level, ways, player, kind, to);
+        walk.plan(level, ways, player, spot);
         walk
     }
 
@@ -553,13 +641,13 @@ impl Walk {
         level: &Level,
         ways: &dyn crate::walk::Ways,
         player: &crate::motion::MotionState,
-        kind: ObjectKind,
-        to: Vec3,
+        spot: Spot,
     ) {
+        let to = spot.at;
         let feet = feet_of(player);
         let (dx, dy) = (feet[0] - to[0], feet[1] - to[1]);
         let length = (dx * dx + dy * dy).sqrt().max(1e-3);
-        let stand = stand_off(self.choice, kind);
+        let stand = spot.stand_off(self.choice);
         let goal = math::scale(
             [
                 to[0] + dx / length * stand,
@@ -574,19 +662,18 @@ impl Walk {
         self.toward = to;
     }
 
-    /// This step of the walk for `player`, its target of `kind` at `to`
-    /// (feet, metres), at `now_ms`.
+    /// This step of the walk for `player`, its target's `spot` now, at
+    /// `now_ms`.
     pub fn stride(
         &mut self,
         level: &Level,
         ways: &dyn crate::walk::Ways,
         player: &crate::motion::MotionState,
-        kind: ObjectKind,
-        to: Vec3,
+        spot: Spot,
         now_ms: u64,
     ) -> Stride {
         let late = now_ms >= self.started_ms + WALK_MS;
-        if Walk::near(player, to, self.choice, kind) {
+        if Walk::near(player, spot) {
             // Arrived at a run, it stops first where the choice breaks off
             // on its user moving: the slide would carry it past.
             let moving = math::length([player.velocity[0], player.velocity[1], 0.0])
@@ -600,8 +687,8 @@ impl Walk {
         if late || self.walker.stalls >= STALLS {
             return Stride::Unreachable;
         }
-        if math::flat_distance(to, self.toward) > MOVED {
-            self.plan(level, ways, player, kind, to);
+        if math::flat_distance(spot.at, self.toward) > MOVED {
+            self.plan(level, ways, player, spot);
         }
         Stride::Steer(if self.direct {
             crate::walk::toward(player, self.walker.goal)

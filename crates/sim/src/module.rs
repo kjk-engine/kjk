@@ -180,11 +180,12 @@ pub struct ObjectData {
     /// its own frame, in pairs (what one made in play collides as,
     /// `world::move_actors`).
     pub geometry: Vec<[f32; 3]>,
-    /// A placeable's action points: its walkmesh's two use positions
-    /// (`<model>.pwk`), in its own frame (metres), where a character stands
-    /// to use it; none for one whose first is the origin, as TSL's
-    /// `CSWSPlaceable::GetNearestActionPoint` then takes the placeable's
-    /// own position (`nearest_use_point`).
+    /// A placeable's or door's action points: its walkmesh's two use
+    /// positions (`<model>.pwk`, a door's closed `<model>0.dwk`), in its own
+    /// frame (metres), where a character stands to use it (a door's one
+    /// before it and one behind); none for one whose first is the origin, as
+    /// the exes' `GetNearestActionPoint` then takes the object's own
+    /// position (`nearest_use_point`, `action_points`).
     pub use_points: Vec<[f32; 3]>,
     /// Doors: whether a player can open it.
     pub opens: Opens,
@@ -406,6 +407,12 @@ impl ObjectData {
     /// a use (`CSWSCreature::GetUseRange`), the second only when it is not
     /// the origin; `None` without any (the placeable's position is used).
     pub fn nearest_use_point(&self, from: [f32; 3]) -> Option<[f32; 3]> {
+        self.action_points(from).into_iter().next()
+    }
+
+    /// The action points (`use_points`) in the world (metres), the nearest
+    /// `from` first.
+    pub fn action_points(&self, from: [f32; 3]) -> Vec<[f32; 3]> {
         // `yaw` is in degrees, turned as the collision's placements are.
         let (sin, cos) = crate::math::sin_cos_deg(self.yaw);
         let world = |p: &[f32; 3]| {
@@ -418,10 +425,9 @@ impl ObjectData {
         let far = |p: &[f32; 3]| {
             (p[0] - from[0]).powi(2) + (p[1] - from[1]).powi(2) + (p[2] - from[2]).powi(2)
         };
-        self.use_points
-            .iter()
-            .map(world)
-            .min_by(|a, b| far(a).total_cmp(&far(b)))
+        let mut points: Vec<[f32; 3]> = self.use_points.iter().map(world).collect();
+        points.sort_by(|a, b| far(a).total_cmp(&far(b)));
+        points
     }
 
     pub(crate) fn digest_into(&self, out: &mut Writer) {
@@ -447,8 +453,8 @@ impl ObjectData {
                 out.f32(*value);
             }
         }
-        // Only a placeable with action points names them, so the rest keep
-        // their digests.
+        // Only a placeable or door with action points names them, so the
+        // rest keep their digests.
         if !self.use_points.is_empty() {
             out.string("use points");
             out.u32(self.use_points.len() as u32);

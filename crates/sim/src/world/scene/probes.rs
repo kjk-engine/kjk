@@ -4035,18 +4035,14 @@ fn walker_keeps_off_made_placeable() -> Found {
     // planned through the same ways and through the doors alone: it heads
     // off the straight line only when keeping off the placeable.
     let click = |ways: &dyn crate::walk::Ways| {
-        let target = [4.0, 7.0, 0.0];
-        let mut walk = crate::target::Walk::new(
-            &level,
-            ways,
-            &me,
-            0,
-            ObjectKind::Placeable,
-            target,
+        let spot = crate::target::Spot::plain(
+            [4.0, 7.0, 0.0],
             crate::target::Choice::Use,
-            0,
+            ObjectKind::Placeable,
         );
-        match walk.stride(&level, ways, &me, ObjectKind::Placeable, target, 0) {
+        let mut walk =
+            crate::target::Walk::new(&level, ways, &me, 0, spot, crate::target::Choice::Use, 0);
+        match walk.stride(&level, ways, &me, spot, 0) {
             crate::target::Stride::Steer(command) => Some(command.angles[1]),
             _ => None,
         }

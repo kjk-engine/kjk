@@ -1133,10 +1133,13 @@ fn use_scripts() {
 /// proving ground the player, steered by `sim::target::Walk` in place of
 /// its keys, walks from the entry to a panel out of reach and uses it on
 /// arriving; its own forward key on the way cancels the walk and nothing is
-/// used; two runs end the same. The sim alone.
+/// used; two runs end the same; from beside the wall the player walks to
+/// the gate's action point on its side (KOTOR's use range from a door's
+/// walkmesh use position), off the wall's face, and opens the gate. The
+/// sim alone.
 #[test]
 fn use_walk() {
-    probed("walk", &sim::uses::walk_probes(), 3);
+    probed("walk", &sim::uses::walk_probes(), 4);
 }
 
 /// Security in one press (owner's playtest, 2026-10-25: "Security

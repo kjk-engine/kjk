@@ -37,11 +37,13 @@ pub const ACTION_SIGHT_M: f32 = rules::interaction::using::ACTION_SIGHT_M;
 pub const HEIGHT_REACH_M: f32 = rules::interaction::using::HEIGHT_REACH_M;
 
 /// What a Use is aimed at: its object, where it stands (metres) and the
-/// point a line to it ends at.
+/// point a line to it ends at; a door's action point on the user's side
+/// (`target::action_point`), if it has them.
 pub(super) struct Target {
     pub index: u32,
     pub at: [f32; 3],
     pub middle: [f32; 3],
+    pub point: Option<[f32; 3]>,
 }
 
 impl Target {
@@ -49,12 +51,23 @@ impl Target {
     /// action points (`ObjectData::use_points`) at the nearest of them,
     /// `ACTION_SIGHT_M` up, as TSL's `CSWSCreature::GetIsInUseRange` looks
     /// (Korriban's Lonna Vash, searched from beside the force cage round
-    /// her body); anything else at its middle.
-    pub fn aimed(mut self, kind: ObjectKind, facts: &ObjectData, from: [f32; 3]) -> Target {
-        if kind == ObjectKind::Placeable
-            && let Some(point) = facts.nearest_use_point(from)
-        {
-            self.middle = [point[0], point[1], point[2] + ACTION_SIGHT_M];
+    /// her body); anything else at its middle. A door's action point is
+    /// where it may also be used from (`may_use`).
+    pub fn aimed(
+        mut self,
+        level: &super::Level,
+        kind: ObjectKind,
+        facts: &ObjectData,
+        from: [f32; 3],
+    ) -> Target {
+        match kind {
+            ObjectKind::Placeable => {
+                if let Some(point) = facts.nearest_use_point(from) {
+                    self.middle = [point[0], point[1], point[2] + ACTION_SIGHT_M];
+                }
+            }
+            ObjectKind::Door => self.point = crate::target::action_point(level, facts, from),
+            _ => {}
         }
         self
     }
@@ -68,11 +81,13 @@ impl Target {
                 index,
                 at,
                 middle: [at[0], at[1], at[2] + MIDDLE_M],
+                point: None,
             },
             None => Target {
                 index,
                 at: placed,
                 middle: [placed[0], placed[1], placed[2] + MIDDLE_M],
+                point: None,
             },
         }
     }
@@ -95,7 +110,9 @@ pub(super) fn applies(object: &Object, verb: Verb, alive: bool) -> bool {
 }
 
 /// Whether `player` may use `target` (an object of `kind`) with `verb`:
-/// within the verb's reach across the floor and `HEIGHT_REACH_M` in
+/// within the verb's reach across the floor (a door's also within
+/// `target::door_point_reach` of its action point on the player's side,
+/// where KOTOR uses it from) and `HEIGHT_REACH_M` in
 /// height, and its eye in sight of the target (`target::in_sight`, doors
 /// as `states` has them). A creature is talked to within reach across the
 /// floor whatever stands between and however far above or below, as
@@ -118,7 +135,10 @@ pub(super) fn may_use(
         target.at[2] - me[2],
     );
     let reach = reach(kind, verb);
-    if dx * dx + dy * dy > reach * reach {
+    let at_point = target
+        .point
+        .is_some_and(|point| math::flat_distance(me, point) <= crate::target::door_point_reach());
+    if dx * dx + dy * dy > reach * reach && !at_point {
         return false;
     }
     if kind == ObjectKind::Creature && verb == Verb::Talk {
