@@ -1084,11 +1084,8 @@ fn draw(
         if rearm.generation != swap.generation {
             continue;
         }
-        let id = match rearm.owner {
-            Owner::Seat(seat) => cast::me(newest, sim::Seat(seat)),
-            Owner::Creature(_) => Some(rearm.id),
-        };
-        let at = (rearm.owner, id);
+        let at = rearm.holder();
+        let id = at.1;
         retired
             .0
             .extend(view.cast.rearm(at, &rearm.sheet, rearm.arms, &mut commands));
