@@ -15,6 +15,11 @@
 //! entry's script tells "line" before the first reply's condition tells
 //! "asked" (as the conversation starts, kjk asks it once more first, to
 //! know a one-liner), and no reply is offered while the line plays.
+//!
+//! A line with a `Delay` lasts it, its text's reading time not counted
+//! (TSL's `CSWSDialog::SetDialogDelay` reads that only for a conversation
+//! no player is in): a 48-character developer note with a 1 s delay lasts
+//! 1 s; with none, its reading time.
 
 use super::SimWorld;
 use super::talk_end_probes::{CATALOG, by_entry, call, id_of, step, told, world_with};
@@ -96,11 +101,24 @@ fn naming(speakers: &[&str]) -> Dlg {
     dlg
 }
 
+/// The minefield vision's unvoiced note, 48 characters, with `delay`.
+const NOTE: &str = "{Mandalorians rush in the room ready for battle}";
+
+fn noted(delay: Option<u32>) -> Dlg {
+    let mut dlg = talking(2, "");
+    let entry = &mut dlg.entries[0];
+    entry.text.strings = vec![(0, NOTE.as_bytes().to_vec())];
+    entry.delay = delay;
+    dlg
+}
+
 fn library() -> crate::script::Library {
     let dialogues: BTreeMap<String, Dlg> = [
         ("probe_absent", naming(&["absent", ""])),
         ("probe_first_bar", naming(&["far_first"])),
         ("probe_nearest", naming(&["NEAR_LATE"])),
+        ("probe_delayed", noted(Some(1))),
+        ("probe_undelayed", noted(None)),
         ("probe_script_first", {
             let mut dlg = talking(2, "probe_line");
             dlg.entries[0].links[0].active.script = "probe_asked".into();
@@ -174,6 +192,19 @@ fn first_line(dialog: &str) -> Result<(u32, String, Vec<String>), String> {
     Err(format!("{dialog} did not start"))
 }
 
+/// How long `dialog`'s first line lasts (ms).
+fn first_line_ms(dialog: &str) -> Result<u64, String> {
+    let (mut world, _, from) = started(dialog)?;
+    let still = still();
+    for tick in from..from + 4 {
+        let snapshot = step(&mut world, tick, &still);
+        if let Some(talk) = snapshot.talk.conversations.first() {
+            return Ok(talk.until_ms - talk.shown_ms);
+        }
+    }
+    Err(format!("{dialog} did not start"))
+}
+
 /// `probe_script_first` played until its replies are up: what the player
 /// was told, in order, and whether any reply was offered while the line
 /// played.
@@ -224,6 +255,16 @@ pub fn probes() -> Checks {
                 check(
                     said.ends_with(&["line".to_string(), "asked".to_string()]) && !early,
                     format!("told {said:?}, a reply offered while the line played: {early}"),
+                )
+            }),
+        ),
+        (
+            "delayed_line_lasts_its_delay",
+            first_line_ms("probe_delayed").and_then(|delayed| {
+                let read = first_line_ms("probe_undelayed")?;
+                check(
+                    delayed == 1000 && read == 5400,
+                    format!("delayed {delayed} ms, undelayed {read} ms"),
                 )
             }),
         ),

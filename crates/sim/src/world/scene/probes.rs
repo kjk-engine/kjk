@@ -2841,9 +2841,10 @@ fn line_delay_raises() -> Found {
     lasts(line(&"x".repeat(40), Some(6), 0, None), 6000)
 }
 
-/// S5: a `Delay` under the text's length changes nothing.
+/// S5: a `Delay` under the text's length is the line's length, the text
+/// not read (TSL's `CSWSDialog::SetDialogDelay` with a player in it).
 fn line_delay_short() -> Found {
-    lasts(line(&"x".repeat(40), Some(2), 0, None), 4500)
+    lasts(line(&"x".repeat(40), Some(2), 0, None), 2000)
 }
 
 /// S5: a line with no text and no voice lasts the least, 10 ms.
@@ -2979,12 +2980,14 @@ fn unskippable_line() -> Found {
 /// of their own, no `Speaker`) play it as `probe_talk`'s walk draws the
 /// variants, 3 then 1, and last as long; the third, of a race with nothing
 /// for the emotion, and the fourth, naming its speaker, play none, the
-/// walk moving on all the same.
+/// walk moving on all the same. The lines have no `Delay`, which would
+/// time them instead.
 fn alien_speech() -> Found {
     let mut talk = in_turn(&["", "", "", "talker"]);
     talk.alien_race_owner = 1;
     for node in &mut talk.entries {
         node.emotion = 1;
+        node.delay = None;
     }
     talk.entries[2].alien_race = 2;
     let stage = Stage {
