@@ -1,6 +1,12 @@
 # Dantooine, the battle of Khoonda and away (TSL, 602DAN, 601DAN, 003EBO):
-# Zherron's battle plans finalised (ready, no speech; Khoonda's defences
-# left as they stood: DSimpson, whatever is done, the side chosen wins),
+# Khoonda's defences readied for Zherron (Suulru, Akkere, Dillan and
+# Jorran recruited; the assault droids reactivated, Akkere's parts bought
+# for them, the wounded militia treated by hand ([Treat Injury]), Akkere's
+# hydrospanner found and his story believed (500 credits given, LSP),
+# Khoonda's side door sealed; left: the medic droid (four parts Dxun's
+# droids need), the turret and droid consoles (slicing and reprogramming
+# ask a dozen computer spikes the Dantooine stores no longer hold) and the
+# mines (no harness goal recovers or lays one)), the battle plans finalised,
 # Azkul in Khoonda's hall told he can still back away, Vrook come to fight
 # beside the Exile, the mercenaries fought, the Administrator's reward
 # left to rebuild Khoonda (LSP), Vrook's word after the battle (asked
@@ -9,6 +15,74 @@
 # Starts from the attack's checkpoint:
 #   kjk playthrough tsl @dantooine_attack data/routes/tsl/dantooine_battle.route --god
 # Walkthrough: DSimpson's "The Mercenary Attack" (context/walkthroughs/tsl/).
+say Any ideas on what I can do to help? # Zherron: the militia's recruits
+say What kind of things need fixing? # and what needs fixing before the
+say I'm going to see what I can do. # battle (DSimpson's "The Mercenary
+use npc_zherron      # Attack")
+talk
+say Would you be interested in joining the Khoonda militia? # Suulru
+use npc_suulru       # joins the militia
+talk
+exit To_601          # Akkere's stall: repair parts for the droids and
+module 601dan        # the side door (five)
+say I'd like to see your wares
+use npc_akkere
+talk
+buy g_i_parts01 16   # all Akkere has: Dxun counts on a dozen
+exit To_602
+module 602dan
+say Reactivate the droid. # the assault droids reactivated (a part each;
+say Leave it alone.  # their orders are the droid bay console's); the
+use defense_droid@1  # third holds Akkere's hydrospanner
+talk
+say Reactivate the droid.
+say Leave it alone.
+use defense_droid@2
+talk
+say Take Akkere's hydrospanner.
+say Reactivate the droid.
+say Leave it alone.
+use defense_droid@3
+talk
+say [Treat Injury] I'll treat your wounds. # the wounded militia treated
+use g_militia_a      # by hand (LSP each; DSimpson: the medic droid
+talk                 # mended asks four more parts, which Dxun's droids
+say [Treat Injury] I'll treat your wounds. # need)
+use g_militia_b
+talk
+say [Treat Injury] I'll treat your wounds.
+use g_militia_c
+talk
+say [Treat Injury] I'll treat your wounds.
+use g_militia_d
+talk
+exit To_601
+module 601dan
+say I found this hydrospanner. # Akkere: the hydrospanner shown, his
+say Inside of a broken droid. # story heard and 500 credits given to
+say Tell me.         # help him (LSP; DSimpson)
+say I believe you. Please take 500 credits
+use npc_akkere
+talk
+say Would you be interested in joining the Khoonda militia? # and he
+use npc_akkere       # joins the militia, his secret kept
+talk
+say Would you be interested in joining the Khoonda militia? # Dillan
+use npc_dillan       # joins too, Akkere's secret kept
+talk
+say [Repair] Lock down the security door. # Khoonda's side door sealed
+use security_door    # (two parts)
+talk
+exit To_605@1        # Jorran at the salvagers' camp: he joins
+module 605dan
+say Would you be interested in joining the Khoonda militia?
+use npc_jorran
+talk
+exit To_601
+module 601dan
+exit To_602
+module 602dan
+say I've done some things around Khoonda to help with its defense.
 say I'm ready to finalize the battle plans. # Zherron
 say I'm certain. I've done all I can.
 say I'm ready!

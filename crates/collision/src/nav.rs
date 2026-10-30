@@ -512,7 +512,7 @@ impl NavMesh {
             // middle (the Sith academy's hall: one such shut a wing in).
             let under = points
                 .iter()
-                .filter(|&&at| level.level_overlaps(at, &column, crate::Contents::SOLID))
+                .filter(|&&at| level.level_overlaps(at, &column, false, crate::Contents::SOLID))
                 .count();
             face.covered = face.entity.is_none() && under >= 3;
         }

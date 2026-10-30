@@ -19,21 +19,25 @@
 # Starts from Goto's yacht's checkpoint:
 #   kjk playthrough tsl @nar_shaddaa_yacht data/routes/tsl/nar_shaddaa_goto.route --god
 # Walkthrough: DSimpson's "Goto's Yacht" (context/walkthroughs/tsl/).
-# Left: the plasteel containers, the sentry droids' scavenging, T3-M4's
-# combat upgrade, the Reset program and the lab station.
+# Left: the far rooms' plasteel containers, the sentry droids' scavenging
+# (in the ship's far hold), the Reset program and the lab station.
 talk                 # Goto's talk, to the proximity alarm
 use g0t0kevin        # the utility droid: Shutdown
 talk
+use MilLowPlstcCylin@1 # the container by it
 say Attempt to enter the Count.
 say =Enter 2.
 say Download program
+say Upgrade droid combat algorithms # T3-M4's own combat upgrade (DEX)
 say Log out.
 use gotoarmory@2     # the Security Console
 talk
 fight 30             # the floating mines
 to Door@1
 fight 30             # the droids beyond
-use g0t0droid@32     # its remains: the containment cells' codes
+to g0t0droid@32      # the droid holding the containment cells' codes
+fight 20             # (out of the first fight's reach at T3's level)
+use g0t0droid@32     # its remains: the codes
 say Program Library.
 say Upload programs.
 say Return to main menu.

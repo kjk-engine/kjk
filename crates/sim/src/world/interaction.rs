@@ -357,7 +357,10 @@ pub(super) fn interact(
         let standing = fighting.is_none_or(|fighting| fighting.0.alive());
         // An open door that leads out stops nothing, so walking into its
         // doorway is running into it: entering it asks, once, as entering
-        // a trigger does; the seat is its tenant until it steps out.
+        // a trigger does; the seat is its tenant until it steps out. The
+        // first seat enters with the companion it leads while one leads
+        // (TSL's area transitions answer the party leader the player
+        // controls: Bao-Dur leaving 233TEL after the pad's scene).
         for (id, object) in objects.iter_mut() {
             if object.kind != ObjectKind::Door {
                 continue;
@@ -370,7 +373,7 @@ pub(super) fn interact(
             };
             let inside = standing
                 && object.state.state != 0
-                && in_doorway(&level.0, object.index, ps.origin, ps.maxs_z);
+                && in_doorway(&level.0, object.index, user.origin, user.maxs_z);
             let tenant = object.state.tenants & bit != 0;
             if inside && !tenant {
                 object.state.tenants |= bit;
@@ -380,7 +383,7 @@ pub(super) fn interact(
             }
         }
         // Triggers.
-        let body = scale(ps.origin, UNIT);
+        let body = scale(user.origin, UNIT);
         for (id, object) in objects.iter_mut() {
             if object.kind != ObjectKind::Trigger {
                 continue;
