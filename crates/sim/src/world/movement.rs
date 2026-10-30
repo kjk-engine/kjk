@@ -596,13 +596,23 @@ pub(super) fn move_actors(
         if stepped.is_none() {
             let maxs_z = player.0.maxs_z;
             let seated = avatar.is_some();
-            inside.hold_off(before, &mut player.0, |from, to| {
-                seated
-                    && level.0.with(states.as_deref(), |world| {
-                        let world = Bodies::new(world, bodies).skipping(own);
-                        standing_clear(&world, from, to, maxs_z)
-                    })
-            });
+            let spaces = |entity: u32| {
+                let theirs = pushable
+                    .binary_search_by_key(&SimId(entity & !BODY), |(id, ..)| *id)
+                    .map_or(space, |at| pushable[at].2);
+                (space + theirs) / UNIT
+            };
+            inside.hold_off(
+                before,
+                &mut player.0,
+                seated.then_some(&spaces as &dyn Fn(u32) -> f32),
+                |from, to| {
+                    seated
+                        && level.0.with(states.as_deref(), |world| {
+                            slides_clear(world, bodies, own, (from, to), maxs_z)
+                        })
+                },
+            );
         }
         // A body its walk carries on plays its walk or run: KOTOR's movement
         // replaces what a script or a line played on it, as reone's creature
@@ -735,10 +745,10 @@ pub(super) fn move_actors(
 
 /// The bodies a move meets (`clear_of`): those given less the living ones
 /// the mover already stands inside, and those ones' centres (units, seen
-/// from above).
+/// from above) with their entities.
 pub(crate) struct Inside<'b> {
     pub bodies: std::borrow::Cow<'b, [Body]>,
-    centres: Vec<[f32; 2]>,
+    centres: Vec<([f32; 2], u32)>,
 }
 
 /// A body's round seen from above (units): its box's middle, and half its
@@ -797,7 +807,7 @@ pub(crate) fn clear_of<'b>(mine: &Body, bodies: &'b [Body]) -> Inside<'b> {
         centres: bodies
             .iter()
             .filter(|other| overlaps(other))
-            .map(|other| round_of(other).0)
+            .map(|other| (round_of(other).0, other.entity))
             .collect(),
     }
 }
@@ -830,28 +840,41 @@ impl Inside<'_> {
     /// it, as a trace stopped by the round slides round it. Weighed as
     /// boxes, a step off a box's corner was deeper across one face, and a
     /// body between two others' corners had no way out but back (the Exile
-    /// held by the royal soldiers out of Onderon's palace gas room); taken
-    /// back whole, a player pressed between a wall and a body it overlapped
-    /// (Freyyr, come up to talk in Chuundar's throne room) never got out:
-    /// every way its walk tried led nearer him.
+    /// held by the royal soldiers out of Onderon's palace gas room).
+    ///
+    /// A seat's player weighs it as K1's player meets a creature
+    /// (Q-0267), by their personal spaces (`spaces`: the two summed, units,
+    /// by the other's entity): deeper only nearer its centre than both.
+    /// Freyyr standing in the mouth of a nook of Chuundar's throne room
+    /// left the player no way out past him on either side, where K1's
+    /// spaces leave a body's width. Taken back whole, a player pressed
+    /// between a wall and a body it overlapped (Freyyr, come up to talk
+    /// there) never got out: every way its walk tried led nearer him.
     pub(crate) fn hold_off(
         &self,
         before: [f32; 3],
         ps: &mut MotionState,
+        spaces: Option<&dyn Fn(u32) -> f32>,
         clear: impl Fn([f32; 3], [f32; 3]) -> bool,
     ) {
-        // Nearer the centre of one it stood inside than it stood, by the
-        // step `moved` (weighed from the centre, where a step round it is
-        // not lost to the coordinates' rounding far from the origin).
-        let from: Vec<[f32; 2]> = self
+        // Nearer the centre of one it stood inside than it stood (and, for
+        // a seat's player, than their spaces), by the step `moved` (weighed
+        // from the centre, where a step round it is not lost to the
+        // coordinates' rounding far from the origin).
+        let from: Vec<([f32; 2], f32)> = self
             .centres
             .iter()
-            .map(|centre| [before[0] - centre[0], before[1] - centre[1]])
+            .map(|(centre, entity)| {
+                let rel = [before[0] - centre[0], before[1] - centre[1]];
+                let near = rel[0] * rel[0] + rel[1] * rel[1];
+                let near = spaces.map_or(near, |spaces| near.min(spaces(*entity).powi(2)));
+                (rel, near)
+            })
             .collect();
         let deeper = |moved: [f32; 2]| {
-            from.iter().any(|rel| {
+            from.iter().any(|(rel, near)| {
                 let at = [rel[0] + moved[0], rel[1] + moved[1]];
-                at[0] * at[0] + at[1] * at[1] < rel[0] * rel[0] + rel[1] * rel[1]
+                at[0] * at[0] + at[1] * at[1] < *near
             })
         };
         let mut moved = [ps.origin[0] - before[0], ps.origin[1] - before[1]];
@@ -859,7 +882,7 @@ impl Inside<'_> {
             return;
         }
         let mut velocity = [ps.velocity[0], ps.velocity[1]];
-        for rel in &from {
+        for (rel, _) in &from {
             let length = math::flat_length([rel[0], rel[1], 0.0]);
             if length <= f32::EPSILON {
                 continue;
@@ -885,6 +908,30 @@ impl Inside<'_> {
             ps.velocity[1] = 0.0;
         }
     }
+}
+
+/// Whether a seat's player's step along a body it stands inside
+/// (`Inside::hold_off`) goes from `from` to `to` (origins, units) through
+/// `world` and the other `bodies` (`own` its own) unstopped. A box the
+/// level already holds where it stood (pressed into a walkmesh edge's
+/// wall) is weighed by the bodies alone: the step was the level's own
+/// move (`motion::move_body`), and a trace begun inside the wall stopped
+/// every one. Juhani, back at her post by Dantooine's council chamber
+/// wall, held the player between her box and the wall for good.
+pub(crate) fn slides_clear(
+    world: &dyn CollisionWorld,
+    bodies: &[Body],
+    own: u32,
+    (from, to): ([f32; 3], [f32; 3]),
+    maxs_z: f32,
+) -> bool {
+    let open = collision::BoxWorld::new();
+    let world: &dyn CollisionWorld = if standing_clear(world, from, from, maxs_z) {
+        world
+    } else {
+        &open
+    };
+    standing_clear(&Bodies::new(world, bodies).skipping(own), from, to, maxs_z)
 }
 
 /// Whether a standing box (its top `maxs_z` units over its origin) goes

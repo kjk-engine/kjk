@@ -1,0 +1,280 @@
+[chapter]
+title = "The Remote Droid"
+order = 82
+summary = """
+In co-op, a player with no party member to play flies a remote droid, like
+Bao-Dur's remote. It can't be hurt or seen. It opens nothing and talks to
+no one, and no script ever counts it. It hovers near the party and helps a
+little: a weak shot, a sonic shove and a stim dart.
+"""
+detail = """
+A droid is made for a player the moment the party has no one free for
+them, and docks as soon as one is free. Saves never hold one.
+"""
+
+[launch]
+title = "Launching"
+summary = """
+A droid launches from the body its player just let go, else just behind
+the party's leader.
+"""
+
+[launch.lift_m]
+name = "Launch Height"
+value = 1.5
+unit = "m"
+range = [0, 5]
+summary = "A droid launches {remote.launch.lift_m:bare} meters above the body it leaves."
+source = "Ours"
+see = "sim::world::remote::launch"
+
+[launch.behind_m]
+name = "Launch Distance Behind"
+value = 1.0
+unit = "m"
+range = [0, 5]
+summary = "With no body to launch from, a droid appears {remote.launch.behind_m:bare} meters behind the party's leader."
+source = "Ours"
+see = "sim::world::remote::launch"
+
+[flight]
+title = "Flying"
+summary = """
+A droid flies where its player looks, rises and sinks on the jump and
+crouch keys, and coasts a little as it stops. It hovers over the floor
+beneath it, can't pass through anything a player can't, stays near the
+party, and comes back behind the leader on Use or when stuck.
+"""
+
+[flight.speed_m]
+name = "Flying Speed"
+value = 6.0
+unit = "m/s"
+range = [0, 20]
+summary = "A droid flies at up to {remote.flight.speed_m:bare} meters a second."
+source = "Ours"
+see = "sim::world::remote::flight::fly"
+
+[flight.climb_m]
+name = "Climbing Speed"
+value = 3.0
+unit = "m/s"
+range = [0, 20]
+summary = "A droid rises or sinks at up to {remote.flight.climb_m:bare} meters a second."
+source = "Ours"
+see = "sim::world::remote::flight::fly"
+
+[flight.response]
+name = "Response"
+value = 6.0
+unit = "/s"
+range = [0.1, 100]
+summary = "A droid's speed closes {remote.flight.response:bare} times a second on the speed its keys ask for, so it coasts a moment as it stops."
+source = "Ours"
+see = "sim::world::remote::flight::fly"
+
+[flight.floor_min_m]
+name = "Lowest Hover"
+value = 1.0
+unit = "m"
+range = [0, 10]
+summary = "A droid hovers at least {remote.flight.floor_min_m:bare} meters over the floor beneath it."
+source = "Ours"
+see = "sim::world::remote::flight::fly"
+
+[flight.floor_max_m]
+name = "Highest Hover"
+value = 3.0
+unit = "m"
+range = [0, 10]
+summary = "A droid hovers at most {remote.flight.floor_max_m:bare} meters over the floor beneath it."
+source = "Ours"
+see = "sim::world::remote::flight::fly"
+
+[flight.floor_search_m]
+name = "Floor Search"
+value = 20.0
+unit = "m"
+range = [1, 100]
+summary = "A droid with no floor within {remote.flight.floor_search_m:bare} meters beneath it is lost and comes back behind the leader."
+source = "Ours"
+see = "sim::world::remote::flight::floor"
+
+[flight.half_size_m]
+name = "Droid Size"
+value = 0.2
+unit = "m"
+range = [0.01, 1]
+summary = "A droid is a box {remote.flight.half_size_m:bare} meters from its middle to each side."
+source = "TSL's remote"
+see = "sim::world::remote::flight::fly"
+
+[flight.leash_m]
+name = "Leash"
+value = 20.0
+unit = "m"
+range = [1, 100]
+summary = "A droid stays within {remote.flight.leash_m:bare} meters of the nearest standing party member."
+source = "Ours"
+see = "sim::world::remote::flight::fly"
+
+[bolt]
+title = "Shock Bolt"
+summary = """
+The primary attack: a small shot along the droid's view that stings the
+first creature it meets. It hurts only a hostile already fighting the
+party that no script protects, and always by the same amount: the droid
+rolls no dice.
+"""
+
+[bolt.damage]
+name = "Shock Bolt Damage"
+type = "u16"
+value = 3
+unit = "HP"
+range = [0, 100]
+summary = "A shock bolt deals {remote.bolt.damage:bare} hit points, as the place it strikes scales them (no dice)."
+source = "Ours"
+see = "sim::world::remote::kit::kit"
+
+[bolt.cadence_ms]
+name = "Shock Bolt Rate"
+type = "u64"
+value = 600
+unit = "ms"
+range = [50, 10000]
+summary = "A droid fires a shock bolt every {remote.bolt.cadence_ms:bare} ms while the attack is held."
+source = "Ours"
+see = "sim::world::remote::kit::kit"
+
+[bolt.range_m]
+name = "Shock Bolt Range"
+value = 30.0
+unit = "m"
+range = [1, 100]
+summary = "A shock bolt flies {remote.bolt.range_m:bare} meters."
+source = "Ours"
+see = "sim::world::remote::kit::kit"
+
+[sonic]
+title = "Sonic Blast"
+summary = """
+The alternate attack: a short cone of sound that throws the fair hostiles
+in it back, as a weak Force Push does, and knocks the smaller ones down.
+It deals no damage.
+"""
+
+[sonic.reach_m]
+name = "Sonic Blast Reach"
+value = 6.0
+unit = "m"
+range = [0, 30]
+summary = "A Sonic Blast reaches {remote.sonic.reach_m:bare} meters."
+source = "Ours"
+see = "sim::world::remote::kit::kit"
+
+[sonic.cone_deg]
+name = "Sonic Blast Cone"
+value = 60.0
+unit = "°"
+range = [1, 180]
+summary = "A Sonic Blast spreads {remote.sonic.cone_deg:bare} degrees across."
+source = "Ours"
+see = "sim::world::remote::kit::kit"
+
+[sonic.strength]
+name = "Sonic Blast Strength"
+value = 0.5
+unit = "×"
+range = [0, 2]
+summary = "A Sonic Blast throws as hard as {remote.sonic.strength:bare} of a Force Push."
+source = "Ours"
+see = "sim::world::remote::kit::kit"
+
+[sonic.knockdown_ms]
+name = "Sonic Blast Knockdown"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [0, 10000]
+summary = "A Sonic Blast knocks a small enough creature down for {remote.sonic.knockdown_ms:bare} ms."
+source = "Ours"
+see = "sim::world::remote::kit::kit"
+
+[sonic.knockdown_size]
+name = "Sonic Blast Knockdown Size"
+type = "u8"
+value = 3
+unit = "points"
+range = [1, 5]
+summary = "A Sonic Blast knocks down a creature of size {remote.sonic.knockdown_size:bare} (`appearance.2da` sizecategory; 3 is medium) or smaller; a bigger one is only thrown."
+source = "Ours"
+see = "sim::world::remote::kit::kit"
+
+[sonic.cooldown_ms]
+name = "Sonic Blast Cooldown"
+type = "u64"
+value = 8000
+unit = "ms"
+range = [0, 60000]
+summary = "A droid's Sonic Blast is ready again {remote.sonic.cooldown_ms:bare} ms after it fires."
+source = "Ours"
+see = "sim::world::remote::kit::kit"
+
+[dart]
+title = "Stim Dart"
+summary = """
+The third button: a dart at the party member under the crosshair, else the
+nearest one in range that needs it. A downed member gets up; a hurt one is
+healed a little. It does nothing to a member fighting a duel, nor once the
+whole party is down.
+"""
+
+[dart.range_m]
+name = "Stim Dart Range"
+value = 15.0
+unit = "m"
+range = [1, 100]
+summary = "A stim dart reaches a party member {remote.dart.range_m:bare} meters away."
+source = "Ours"
+see = "sim::world::remote::kit::kit"
+
+[dart.revive_cooldown_ms]
+name = "Stim Dart Revive Cooldown"
+type = "u64"
+value = 25000
+unit = "ms"
+range = [0, 120000]
+summary = "After a dart revives someone it is ready again in {remote.dart.revive_cooldown_ms:bare} ms."
+source = "Ours"
+see = "sim::world::remote::kit::kit"
+
+[dart.heal_cooldown_ms]
+name = "Stim Dart Heal Cooldown"
+type = "u64"
+value = 12000
+unit = "ms"
+range = [0, 120000]
+summary = "After a dart heals someone it is ready again in {remote.dart.heal_cooldown_ms:bare} ms."
+source = "Ours"
+see = "sim::world::remote::kit::kit"
+
+[dart.heal_permille]
+name = "Stim Dart Heal"
+type = "i32"
+value = 100
+unit = "‰"
+range = [0, 1000]
+summary = "A dart heals {remote.dart.heal_permille:pct} of its target's most hit points."
+source = "Ours"
+see = "sim::world::remote::kit::kit"
+
+[dart.revive_permille]
+name = "Stim Dart Revive Health"
+type = "i32"
+value = 250
+unit = "‰"
+range = [1, 1000]
+summary = "A member a dart revives gets up with {remote.dart.revive_permille:pct} of its most hit points."
+source = "Ours"
+see = "sim::world::remote::kit::kit"

@@ -135,6 +135,7 @@ mod checks;
 pub use checks::*;
 mod gear;
 use gear::*;
+mod chaos;
 
 /// How close a walk to an object comes (metres, seen from above) before
 /// it is there (`to`). A use is made from within its click's reach, as the
@@ -330,6 +331,9 @@ pub struct Options {
     /// Where `save` goals write their checkpoints (`--save-to`; by default
     /// beside the others, `checkpoint`): a chain's run folder.
     pub save_to: Option<PathBuf>,
+    /// Two phantom guests fly remote droids at random, every button of
+    /// their kit pressed (`--droids chaos`, `chaos`).
+    pub droids: bool,
     /// A build's text (`--build`, `build::parse`): the character a new
     /// game makes, and the plan every level taken follows.
     pub build: Option<String>,
@@ -406,6 +410,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 crate::stage::with_followers(world, &options.followers, Some(&installer))?;
             crate::by_hand::set_globals(&mut world, &options.globals);
             crate::by_hand::queue_scripts(&mut world, &options.scripts)?;
+            if options.droids {
+                world.set_seats_held(chaos::HELD);
+            }
+            let mut watch = chaos::Watch::new(options.droids);
             let mut last = world.snapshot();
             let mut recorder = sim::Recorder::new(rate.hz(), last.clone(), world.level().id(), 100)
                 .with_script(world.script_state().clone());
@@ -718,7 +726,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         for action in acts.drain(..) {
                             input.act(Seat(0), action);
                         }
-                        last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion), input);
+                        last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion), (input, &mut watch, &last));
                     }
                     let path = options.save_to.as_ref().map_or_else(
                         || checkpoint(&options.game, name),
@@ -2521,7 +2529,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     }
                     let before = module_of(&last);
                     let was_tabled = last.pazaak_of(Seat(0)).is_some();
-                    last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion), input);
+                    last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion), (input, &mut watch, &last));
                     // What the sim heard used by the player this step: the
                     // goal's target, and doors that refused it.
                     for use_heard in world.uses_heard() {
@@ -2680,7 +2688,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 for action in acts.drain(..) {
                     input.act(Seat(0), action);
                 }
-                last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion), input);
+                last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion), (input, &mut watch, &last));
             }
             let report = world.script_report();
             transcribe(&installer, &world, (&names, &last), transcribed, &mut lines);
@@ -2744,6 +2752,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 "flags": world.script_state().booleans,
                 "party": goods(&world, &last),
                 "motion": motion.facts(),
+                "droids": watch.finish(&world),
             });
             let all_met = blockers.is_empty();
             let mut trace = report.trace_lines().join("\n");
@@ -2908,8 +2917,9 @@ fn step_on(
     tick: &mut u64,
     rate: &TickRate,
     (recorder, motion): (&mut sim::Recorder, &mut crate::motion::Motion),
-    input: TickInput,
+    (mut input, watch, last): (TickInput, &mut chaos::Watch, &Snapshot),
 ) -> Snapshot {
+    watch.before(world, last, &mut input);
     *tick += 1;
     let snapshot = sim::step(
         world,
@@ -2920,5 +2930,6 @@ fn step_on(
     );
     recorder.record(rate.msec(*tick), &input, &snapshot);
     motion.watch(&snapshot, world.level(), rate.msec(*tick));
+    watch.after(last, &snapshot);
     snapshot
 }

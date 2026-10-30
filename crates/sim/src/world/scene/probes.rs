@@ -3883,6 +3883,10 @@ fn walk_among(
             .map(|other| depth(me, other))
             .fold(0.0, f32::max)
     };
+    // Two humanoids' personal spaces summed (units), as K1's player meets
+    // one (Q-0267).
+    let space = 2.0 * crate::world::strikes::humanoid_space(0.0) / UNIT;
+    let spaces = |_: u32| space;
     let mut me = standing;
     let mut deepest = deepest_now(&me);
     for tick in 0..60 {
@@ -3902,7 +3906,7 @@ fn walk_among(
             );
         });
         let maxs_z = me.maxs_z;
-        inside.hold_off(before, &mut me, |from, to| {
+        inside.hold_off(before, &mut me, Some(&spaces), |from, to| {
             level.with(None, |world| {
                 let world = collision::Bodies::new(world, &inside.bodies);
                 crate::world::movement::standing_clear(&world, from, to, maxs_z)
@@ -3975,17 +3979,20 @@ fn body_pocket_walked_out() -> Found {
 /// a script's jump) is not held by it (`world::clear_of`): standing still,
 /// it stays where it stands on its floor, not nudged; walking away, it
 /// walks out, though a step leaves it inside; walking at it, it gets no
-/// nearer (`Inside::hold_off`); walking at it slantwise, it walks along it
+/// nearer than their personal spaces (`Inside::hold_off`, as K1's player
+/// meets a creature: Q-0267); walking at it slantwise, it walks along it
 /// and out past its side (a player stood into Freyyr against a wall in Chuundar's throne room,
 /// every step its walk tried taken back whole, never got out). A seat's
 /// player meets a body it only touches as one it stands inside
 /// (`world::met_as`), a creature does not; touching it, the player walks
-/// at it slantwise along it and out past its side too. Met off its middle
-/// (the two rounds 3 units into each other, 20 degrees off the way),
-/// walking at it slantwise goes round it, past it and no deeper: weighed by
-/// the boxes' middles, every step was taken back, and the player stood held
-/// at a mechanic's box by Anchorhead's docking bay door for good; weighed
-/// as boxes, a body between two others' corners stood in their pocket.
+/// at it slantwise along it and out past its side too. Off its corner
+/// (inside it least across one face), walking along past it goes past it
+/// and never nearer than their spaces: weighed by the boxes' middles, every
+/// step was taken back, and the player stood held at a mechanic's box by
+/// Anchorhead's docking bay door for good. Touching it with a wall pressed
+/// into its back, slantwise it walks along it and out past its side too
+/// (`movement::slides_clear`): Juhani at her post by Dantooine's council
+/// chamber wall held the player there for good.
 fn body_overlap_not_buried() -> Found {
     let ground = Ground::new(1)?;
     let level = ground.world.level();
@@ -4006,19 +4013,57 @@ fn body_overlap_not_buried() -> Found {
         crate::world::body(SimId(100), &other)
     };
     let other = |inside: f32| off(inside, 0.0);
-    // Its steps beside another body (as a seat's player), or alone,
-    // pressing `forward` facing away from it (`-127`: toward it) and
-    // `right`: where it ends, whether it stands on the ground, and how far
-    // deep inside the other it ever stood.
-    let walked = |other: Option<collision::Body>, forward: i8, right: i8| {
+    // How far apart `me` and `other` stand (units, their middles from
+    // above), and the two humanoids' personal spaces summed (K1's player
+    // stops there, Q-0267).
+    let apart = |me: &crate::motion::MotionState, other: &collision::Body| {
+        let middle = |axis: usize| (other.min[axis] + other.max[axis]) * 0.5 / UNIT;
+        ((me.origin[0] - middle(0)).powi(2) + (me.origin[1] - middle(1)).powi(2)).sqrt()
+    };
+    let spaces = 2.0 * crate::world::strikes::humanoid_space(0.0) / UNIT;
+    // Its steps through `world` beside another body (as a seat's player),
+    // or alone, pressing `forward` facing away from it (`-127`: toward it)
+    // and `right`: where it ends, whether it stands on the ground, and how
+    // near the other it ever stood.
+    let walked_in = |world: &dyn collision::CollisionWorld,
+                     steps: u64,
+                     other: Option<collision::Body>,
+                     forward: i8,
+                     right: i8| {
+        let mut me = standing;
         let others: Vec<collision::Body> = other.into_iter().collect();
+        let mut nearest = others.first().map_or(f32::MAX, |other| apart(&me, other));
         let command = Command {
             forward,
             right,
             angles: [0, i16::MIN, 0],
             ..Command::default()
         };
-        walk_among(level, standing, &others, &command)
+        for tick in 0..steps {
+            let mine = crate::world::met_as(&crate::world::body(SimId(1), &me), true);
+            let inside = crate::world::clear_of(&mine, &others);
+            let before = me.origin;
+            crate::motion::move_body(
+                &mut me,
+                &command,
+                STEP_MS as u32,
+                tick * STEP_MS,
+                &collision::Bodies::new(world, &inside.bodies),
+                level.anims(),
+                None,
+            );
+            let maxs_z = me.maxs_z;
+            inside.hold_off(before, &mut me, Some(&|_| spaces), |from, to| {
+                crate::world::movement::slides_clear(world, &inside.bodies, 1, (from, to), maxs_z)
+            });
+            if let Some(other) = others.first() {
+                nearest = nearest.min(apart(&me, other));
+            }
+        }
+        (me.origin, me.ground.is_some(), nearest)
+    };
+    let walked = |other: Option<collision::Body>, forward: i8, right: i8| {
+        level.with(None, |world| walked_in(world, 60, other, forward, right))
     };
     let stood = |inside: Option<f32>, forward: i8, right: i8| {
         let (at, grounded, _) = walked(inside.map(other), forward, right);
@@ -4041,12 +4086,35 @@ fn body_overlap_not_buried() -> Found {
     };
     let (seat_passes, creature_passes) = (passed(true), passed(false));
     let (touch_slant, _) = stood(Some(gap), -127, 127);
-    // Off its middle: the rounds 3 units into each other, 20 degrees off x.
-    let (sin, cos) = crate::math::sin_cos_deg(20.0);
-    let apart = 2.0 * crate::motion::HALF_WIDTH - 3.0;
-    let corner = off(2.0 * crate::motion::HALF_WIDTH - apart * cos, apart * sin);
-    let started = depth(&standing, &corner);
-    let (corner_at, _, corner_deepest) = walked(Some(corner), -127, 127);
+    // Off its corner: 3 units into it across x, 6 along y.
+    let corner = off(3.0, 2.0 * crate::motion::HALF_WIDTH - 6.0);
+    let started = apart(&standing, &corner);
+    let (corner_at, _, corner_nearest) = walked(Some(corner), 0, 127);
+    // Touching it with a wall pressed 2 units into its back (a walkmesh
+    // edge's), on a floor of boxes: the level holds where it stands.
+    let span = |from: f32, to: f32| [from * UNIT, to * UNIT];
+    let solid = |[x0, x1]: [f32; 2], [y0, y1]: [f32; 2], [z0, z1]: [f32; 2]| {
+        collision::Solid::level([x0, y0, z0], [x1, y1, z1])
+    };
+    let back = x - crate::motion::HALF_WIDTH;
+    let walls = collision::BoxWorld::new()
+        .with(solid(
+            span(x - 400.0, x + 400.0),
+            span(y - 400.0, y + 400.0),
+            span(z - 20.0, z),
+        ))
+        .with(solid(
+            span(back - 40.0, back + 2.0),
+            span(y - 400.0, y + 400.0),
+            span(z, z + 100.0),
+        ));
+    let held = !crate::world::movement::standing_clear(
+        &walls,
+        standing.origin,
+        standing.origin,
+        standing.maxs_z,
+    );
+    let (walled_at, ..) = walked_in(&walls, 180, Some(other(gap)), -127, 127);
     check(
         still(alone)
             && still(inside)
@@ -4056,14 +4124,17 @@ fn body_overlap_not_buried() -> Found {
             && seat_passes
             && !creature_passes
             && (touch_slant[1] - standing.origin[1]).abs() >= 2.0 * crate::motion::HALF_WIDTH
-            && corner_deepest <= started
-            && (corner_at[1] - standing.origin[1]).abs() >= 2.0 * crate::motion::HALF_WIDTH,
+            && corner_nearest >= started.min(spaces)
+            && (corner_at[1] - standing.origin[1]).abs() >= 2.0 * crate::motion::HALF_WIDTH
+            && held
+            && (walled_at[1] - standing.origin[1]).abs() >= 2.0 * crate::motion::HALF_WIDTH,
         format!(
             "from {:?}: alone {alone:?}, a unit inside another {inside:?}; 8 units inside \
              walking away: at {out:?}, walking at it: at {into:?}, slantwise: at {slant:?}; \
              touching: passed over for a seat {seat_passes}, for a creature \
-             {creature_passes}, slantwise at {touch_slant:?}; off its middle {started} \
-             units in, slantwise at {corner_at:?}, at most {corner_deepest} in",
+             {creature_passes}, slantwise at {touch_slant:?}; off its corner {started} \
+             units apart, walking along at {corner_at:?}, at least {corner_nearest} apart; touching it \
+             with a wall in its back (held by the level {held}), slantwise at {walled_at:?}",
             standing.origin
         ),
     )

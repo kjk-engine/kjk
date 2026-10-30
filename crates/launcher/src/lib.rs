@@ -83,6 +83,7 @@ probes!(
     party_verbs,
     playthrough,
     probe,
+    remote_census,
     routines_verbs,
     saber_verbs,
     scene_check,

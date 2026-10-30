@@ -1867,7 +1867,9 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     kept
 - Ours:       `world::move_actors` (`walk::Met::push` only for a creature
   walking), `walk::Walker::meet`; the player's slide along a body it
-  touches, `world::met_as` and `Inside::hold_off`
+  touches, `world::met_as` and `Inside::hold_off`, held no nearer than
+  their two `perspace`s, round the other's middle (the boxes' corners
+  shut nooks K1's circles leave open)
 - Evidence:   `context/artifacts/2026-10-21-npc-collision/SURVEY.md` (K2,
   K3).
 

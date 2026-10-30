@@ -99,6 +99,7 @@ pub mod report;
 mod rulebook_text;
 pub use ragdolls::doll_fits;
 mod particle_surfaces;
+mod remote_view;
 mod rig_ground;
 pub mod rig_timeline;
 #[cfg(feature = "probes")]

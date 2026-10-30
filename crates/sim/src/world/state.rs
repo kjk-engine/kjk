@@ -162,6 +162,7 @@ impl SimWorld {
             visuals: Vec::new(),
             departing: Vec::new(),
             screens: Default::default(),
+            remotes: Vec::new(),
             shared: SimRng::new(config.seed, 0),
             authority,
             next_id,
@@ -276,6 +277,9 @@ impl SimWorld {
             ready: snapshot.ready.clone(),
         });
         world.insert_resource(drivers::Kept(snapshot.kept.clone()));
+        world.init_resource::<drivers::Phantoms>();
+        world.insert_resource(remote::Remotes(snapshot.remotes.clone()));
+        world.init_resource::<remote::Launched>();
         world.init_resource::<party::Asked>();
         world.init_resource::<party::Refused>();
         world.init_resource::<party::Leaving>();
@@ -414,10 +418,21 @@ impl SimWorld {
                 (
                     drivers::assign.run_if(on_authority),
                     minigame::steer,
-                    (scene::hold, hold_talkers).chain(),
+                    // A droid launches by the hold the step begins under.
+                    (
+                        scene::hold,
+                        remote::launch.run_if(on_authority),
+                        hold_talkers,
+                    )
+                        .chain(),
                     (made_faces, minds::think.run_if(on_authority)).chain(),
                     powers::force,
-                    move_actors,
+                    (
+                        move_actors,
+                        remote::flight::fly,
+                        remote::kit::kit.run_if(on_authority),
+                    )
+                        .chain(),
                     fire,
                     sabers::sabers,
                     strikes::strikes,
@@ -543,6 +558,7 @@ impl SimWorld {
             visuals,
             departing: self.world.resource::<Leaving>().0.clone(),
             screens,
+            remotes: self.world.resource::<remote::Remotes>().0.clone(),
             shared,
             authority,
             next_id,
