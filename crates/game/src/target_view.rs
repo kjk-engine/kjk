@@ -219,7 +219,8 @@ impl Plugin for TargetViewPlugin {
             .init_resource::<Autopilot>()
             .init_resource::<Acted>()
             .init_resource::<Pinned>()
-            .add_systems(PostUpdate, target.after(crate::play_view::Drawn));
+            .add_systems(PostUpdate, target.after(crate::play_view::Drawn))
+            .add_systems(PostUpdate, transition.after(crate::play_view::Drawn));
     }
 }
 
@@ -635,6 +636,58 @@ fn target(
                 "reviving": targeted.reviving.is_some(),
                 "progress": progress,
             }),
+        );
+    }
+}
+
+/// The area the door or exit the player faces leads to, for the HUD's
+/// area transition panel (`sim::transition`, `ui::screens::transition`):
+/// in play only, no screen up, the seat's body standing, and the
+/// destination named. The dumps carry it (`transition`).
+fn transition(
+    presented: Option<Res<PresentedSnapshot>>,
+    (own, swap, aim): (Option<Res<OwnSeat>>, Option<Res<SceneSwap>>, Res<Aim>),
+    mut ui: ResMut<Ui>,
+    (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
+) {
+    let faced = (|| {
+        aim.0.filter(|_| !ui.stack.is_open())?;
+        let (presented, own, swap) = (presented.as_ref()?, own.as_ref()?, swap.as_ref()?);
+        let snapshot = presented.0.current();
+        let ps = snapshot.standing(own.0)?.player?;
+        let feet = sim::math::scale(
+            [
+                ps.origin[0],
+                ps.origin[1],
+                ps.origin[2] + sim::motion::SOLE_Z,
+            ],
+            collision::UNIT,
+        );
+        let yaw = ps.view[1].to_radians();
+        let looker = Looker {
+            feet,
+            facing: [yaw.cos(), yaw.sin()],
+        };
+        let level = &swap.level;
+        let states = level.states_in(snapshot);
+        sim::transition::faced(level, states.as_deref(), snapshot, &looker)
+    })();
+    let name = faced.as_ref().and_then(|faced| {
+        let strref = faced.link.destination?;
+        ui.assets.as_ref()?.text(Source::Campaign, strref)
+    });
+    ui.vm.transition = name
+        .map(|name| ui::screens::transition::words(&name))
+        .filter(|words| !words.is_empty());
+    if dump_due.0 {
+        facts.0.insert(
+            "transition".into(),
+            serde_json::json!(faced.map(|faced| serde_json::json!({
+                "index": faced.index,
+                "kind": format!("{:?}", faced.kind),
+                "module": faced.link.module,
+                "words": ui.vm.transition.as_deref().map(fmt_odyssey::code_page),
+            }))),
         );
     }
 }

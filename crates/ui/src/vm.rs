@@ -887,6 +887,9 @@ pub struct ViewModel {
     pub camera_feed: bool,
     /// What the player looks at, for the HUD's target block.
     pub target: Option<TargetView>,
+    /// The area the door or exit the player faces leads to, as the
+    /// game names it (`screens::transition`).
+    pub transition: Option<Vec<u8>>,
     /// The crosshair shows (the game in play, its camera behind).
     pub crosshair: bool,
     /// A bark in play (`screens::bark`).

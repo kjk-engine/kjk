@@ -18,11 +18,13 @@ pub enum Source {
 
 /// KOTOR 2's layouts whose names are not KOTOR 1's with `_p` (`moved`):
 /// reone's layout lookup names the same two screens apart (the main
-/// menu, the party selection); KOTOR 2 also shortened one options panel's.
+/// menu, the party selection); KOTOR 2 also shortened one options panel's
+/// and the area transition panel's.
 const RENAMED: &[(&str, &str)] = &[
     ("mainmenu16x12", "mainmenu8x6_p"),
     ("partyselection", "partyselect_p"),
     ("optgraphicsadv", "optgraphicadv_p"),
+    ("areatransition", "areatrans_p"),
 ];
 
 /// Layouts that hold the campaign's own world, read from the campaign and

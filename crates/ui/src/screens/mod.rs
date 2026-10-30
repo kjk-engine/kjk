@@ -35,6 +35,7 @@ pub mod status_summary;
 pub mod store;
 pub mod tab;
 pub mod tabs;
+pub mod transition;
 pub mod upgrade;
 pub mod workbench;
 

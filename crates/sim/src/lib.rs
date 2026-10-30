@@ -68,6 +68,7 @@ pub mod target;
     reason = "checks and traces set up their own cases on one machine"
 )]
 pub mod trace;
+pub mod transition;
 pub mod traps;
 pub mod visuals;
 pub mod walk;

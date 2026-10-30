@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `c0eba9990d72f5bd`.
+Edition `aba0245caed778a6`.
 
 ## Contents
 
@@ -239,6 +239,7 @@ Edition `c0eba9990d72f5bd`.
   - [Target Size](#targeting-volumes)
   - [Moving to a Target](#targeting-walk)
   - [Reviving](#targeting-revive)
+  - [Area Transitions](#targeting-transition)
 - [Conversations](#dialogue)
   - [Line Length](#dialogue-lines)
   - [Camera Angles](#dialogue-cameras)
@@ -8669,6 +8670,21 @@ If a revive has not begun within 1 second, it is canceled: another player is rev
 A character reviving a party member looks down 20° at the body.
 
 <sub>Source: ours. Code: `sim::target::Reviving::keep`.</sub>
+
+### <a id="targeting-transition"></a>Area Transitions
+
+A door or an area exit that leads to another area names that area at the
+top of the screen while the character faces it: the nearest one in sight
+that the line the character faces meets within
+8 meters. A door is met by its pick volume,
+an exit by its outline. The name shown is the part after the first dash
+("Taris - Upper City South" shows "Upper City South").
+
+<a id="targeting-transition-reach"></a>**Area Transition Reach** = **8 m** · `targeting.transition.reach`
+
+An area's door or exit is named once the line the character faces meets it within 8 meters.
+
+<sub>Source: KOTOR's executable (the client's doors and triggers offering the area transition panel). Code: `sim::transition::faced`.</sub>
 
 ## <a id="dialogue"></a>Conversations
 
