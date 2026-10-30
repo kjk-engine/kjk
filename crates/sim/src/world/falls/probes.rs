@@ -815,8 +815,9 @@ fn two_revivers() -> Result<String, String> {
 }
 
 /// A downed party member is a target offering Revive: the host's avatar, a
-/// companion, a companion a guest drives; standing, none of them is a
-/// target, nor is the guest's standing avatar.
+/// companion, a companion a guest drives. Standing, the companion is a
+/// target offering no Revive (its Dialog is the creature rule's), but not
+/// to the guest whose body it is; no standing avatar is.
 fn revive_targets() -> Result<String, String> {
     use crate::target::{Choice, body_choices, candidates, number};
     for driven in [false, true] {
@@ -825,8 +826,8 @@ fn revive_targets() -> Result<String, String> {
         let level = run.world.level().clone();
         let number_of = |run: &Run, id: SimId| run.last.get(id).and_then(number);
         let party = [Who::Host, Who::Guest, Who::Ally].map(|who| number_of(&run, run.id(who)));
-        let targets = |run: &Run| -> Vec<(Option<u32>, Vec<Choice>)> {
-            candidates(&level, &run.last)
+        let targets = |run: &Run, me: Option<Who>| -> Vec<(Option<u32>, Vec<Choice>)> {
+            candidates(&level, &run.last, me.map(|me| run.id(me)))
                 .iter()
                 .filter(|candidate| party.contains(&Some(candidate.index)))
                 .map(|candidate| {
@@ -835,20 +836,28 @@ fn revive_targets() -> Result<String, String> {
                 })
                 .collect()
         };
-        let standing = targets(&run);
+        let standing = [Who::Host, Who::Guest].map(|me| targets(&run, Some(me)));
+        let ally = number_of(&run, run.id(Who::Ally));
+        let host_sees = vec![(ally, Vec::new())];
+        let guest_sees = if driven {
+            Vec::new()
+        } else {
+            host_sees.clone()
+        };
         run.hit(Who::Host, 999);
         run.hit(Who::Ally, 999);
         run.step(&[]);
-        let downed = targets(&run);
+        // Seen by a standing third player: both bodies lie.
+        let downed = targets(&run, None);
         let wanted =
             [Who::Host, Who::Ally].map(|who| (number_of(&run, run.id(who)), vec![Choice::Revive]));
-        if !standing.is_empty() || downed != wanted {
+        if standing != [host_sees, guest_sees] || downed != wanted {
             return Err(format!(
                 "driven {driven}: standing targets {standing:?}, downed {downed:?}, wanted {wanted:?}"
             ));
         }
     }
-    Ok("the downed host and companion (driven or not) offer Revive; the standing party is no target".into())
+    Ok("the downed host and companion (driven or not) offer Revive; the standing companion is a target but to the guest driving it, no standing avatar is".into())
 }
 
 /// How a chosen revive is broken off, `BREAK_MS` after the host shows it
@@ -904,7 +913,7 @@ fn chosen_revive(rank: u8, far: f32, breaker: Option<Breaker>) -> Result<Chosen,
         }
         let mine = run.last.get(me).cloned().ok_or("no guest")?;
         let ps = mine.player.ok_or("the guest has no body")?;
-        let to = crate::target::candidates(&level, &run.last)
+        let to = crate::target::candidates(&level, &run.last, None)
             .iter()
             .find(|candidate| candidate.index == body)
             .map(|candidate| candidate.feet)

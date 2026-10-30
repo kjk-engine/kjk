@@ -8,16 +8,20 @@
 //! picks it, so it does not flicker at an edge.
 //!
 //! Targetable: doors but static ones (a door leading out is one too),
-//! useable placeables, living creatures but the party's, a trap the
-//! party detected, and a downed party member (a seat's avatar or a companion, I30 P11), which a
-//! standing one may revive (`Choice::Revive`, `Reviving`).
+//! useable placeables, living creatures, a trap the party detected, and a
+//! downed party member (a seat's avatar or a companion, I30 P11), which a
+//! standing one may revive (`Choice::Revive`, `Reviving`). A living
+//! companion is one whoever drives it, a player or its AI, as KOTOR's party
+//! members are clicked and talked to; never the looker's own body, and,
+//! following close behind, only in front of the player (`Candidate::ahead`).
+//! Seats' avatars are not: they have no conversation.
 
 use collision::{Contents, Extents, UNIT};
 
 use crate::instance::Instances;
 use crate::math::{self, Vec3};
 use crate::module::{ObjectKind, Opens};
-use crate::snapshot::EntityState;
+use crate::snapshot::{EntityState, SimId};
 use crate::world::Level;
 use crate::{Kind, Snapshot};
 
@@ -96,6 +100,11 @@ pub struct Candidate {
     pub feet: Vec3,
     pub radius: f32,
     pub height: f32,
+    /// Picked only in front of the player, its feet more than its radius
+    /// ahead of the player's along its facing (a living companion, whose body the player's
+    /// passes through): one at its heels or inside its body, between it and
+    /// the camera, takes no look meant past it.
+    pub ahead: bool,
 }
 
 impl Candidate {
@@ -119,12 +128,14 @@ pub struct Looker {
     pub facing: [f32; 2],
 }
 
-/// The targetable objects of `snapshot` (see the module documentation).
-pub fn candidates(level: &Level, snapshot: &Snapshot) -> Vec<Candidate> {
+/// The targetable objects of `snapshot` (see the module documentation) for
+/// the player whose body is `me`.
+pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<Candidate> {
     let instances = Instances::in_snapshot(level, snapshot);
     snapshot
         .entities
         .iter()
+        .filter(|entity| Some(entity.id) != me)
         .filter_map(|entity| {
             if revivable(entity) {
                 return Some(Candidate {
@@ -133,6 +144,7 @@ pub fn candidates(level: &Level, snapshot: &Snapshot) -> Vec<Candidate> {
                     feet: feet_of(&entity.player?),
                     radius: BODY_RADIUS,
                     height: BODY_HEIGHT,
+                    ahead: false,
                 });
             }
             let Kind::Object(kind, index) = entity.kind else {
@@ -150,8 +162,7 @@ pub fn candidates(level: &Level, snapshot: &Snapshot) -> Vec<Candidate> {
                 }
                 ObjectKind::Placeable if facts.useable => (PLACEABLE_RADIUS, PLACEABLE_HEIGHT),
                 ObjectKind::Creature => {
-                    let fighter = entity.fighter.as_ref()?;
-                    (fighter.alive() && fighter.mind.leader.is_none()).then_some(())?;
+                    entity.fighter.as_ref()?.alive().then_some(())?;
                     (CREATURE_RADIUS, CREATURE_HEIGHT)
                 }
                 ObjectKind::Trigger if seen_trap(facts, entity) => {
@@ -161,6 +172,7 @@ pub fn candidates(level: &Level, snapshot: &Snapshot) -> Vec<Candidate> {
                         feet: crate::traps::centre(&facts.geometry, entity.position),
                         radius: TRAP_RADIUS,
                         height: TRAP_HEIGHT,
+                        ahead: false,
                     });
                 }
                 _ => return None,
@@ -176,6 +188,7 @@ pub fn candidates(level: &Level, snapshot: &Snapshot) -> Vec<Candidate> {
                 feet,
                 radius,
                 height,
+                ahead: kind == ObjectKind::Creature && crate::world::party_member(entity),
             })
         })
         .collect()
@@ -239,7 +252,17 @@ pub fn pick(
     looker: &Looker,
     candidates: &[Candidate],
 ) -> Option<u32> {
-    let near = |candidate: &&Candidate| math::flat_distance(candidate.feet, looker.feet) <= RANGE;
+    // Clear of the player's body where it must be (`Candidate::ahead`).
+    let clear = |candidate: &&Candidate| {
+        let (dx, dy) = (
+            candidate.feet[0] - looker.feet[0],
+            candidate.feet[1] - looker.feet[1],
+        );
+        !candidate.ahead || dx * looker.facing[0] + dy * looker.facing[1] > candidate.radius
+    };
+    let near = |candidate: &&Candidate| {
+        math::flat_distance(candidate.feet, looker.feet) <= RANGE && clear(candidate)
+    };
     // The crosshair's ray, as far as the range reaches past the camera.
     let length = RANGE + math::flat_distance(look.from, looker.feet);
     let end = math::mad(look.from, length, look.forward);
@@ -299,6 +322,7 @@ pub fn pick(
     let eyes = [looker.feet[0], looker.feet[1], looker.feet[2] + EYES];
     candidates
         .iter()
+        .filter(clear)
         .filter(|candidate| in_sight(level, states, eyes, candidate.middle(), candidate.index))
         .filter_map(|candidate| {
             crate::containers::ahead(looker.feet, looker.facing, candidate.feet)

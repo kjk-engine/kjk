@@ -698,8 +698,17 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   player's eyes (what lies at the character's feet). It holds 0.2 s.
   Pick volumes are cylinders (a creature 0.4 m by 1.9, a placeable 0.5 by
   1.5, a shut door 1 by 2.5; an open door none, its brushes only). Targetable: doors but static ones, useable placeables,
-  living creatures but the party's, and a downed party member (a seat's
-  avatar, "Player N", or a companion, driven or not; lying, 0.8 m by 0.5).
+  living creatures, and a downed party member (a seat's avatar, "Player
+  N", or a companion, driven or not; lying, 0.8 m by 0.5). A living
+  companion is a target whoever drives it, its AI or another player
+  (owner, 2026-10-30: as KOTOR's party members are clicked and talked to),
+  but only clear ahead of the player, more than its own radius in front
+  (it follows at the heels and the party's bodies pass through each
+  other: one there is not picked by a look past it); never the body the
+  player itself plays; seats' avatars standing are not (no conversation).
+  Its Dialog runs its dialogue hook as any creature's (K1's
+  `k_hen_dialogue01` through `k_ai_master`, TSL's `k_hen_kreiadlg`, …),
+  which begins its own conversation (`k_hcar_dialog`, `kreia`, …).
 - **The block** (`ui::screens::hud`, K2's `mipc28x6_p`): fixed at the top
   centre, the target's name, a creature's vitality, up to three of what
   may be done to it with KOTOR's icons (`i_opendoor`, `i_openplace`,
