@@ -112,7 +112,7 @@ const PROBES: &[Probe] = &[
     ("arrives_exactly", arrives_exactly),
     ("move_to_object_range", move_to_object_range),
     ("goes_round_a_body", goes_round_a_body),
-    ("corner_skip_short_of_a_wall", corner_skip_short_of_a_wall),
+    ("rounds_a_touched_body", rounds_a_touched_body),
     ("gives_up_blocked", gives_up_blocked),
     ("bump_rules", bump_rules),
     ("pushes_idle_aside", pushes_idle_aside),
@@ -3649,31 +3649,29 @@ fn goes_round_a_body() -> Found {
     )
 }
 
-/// A stalled walk (`walk::next_corner` with `skip`) passes over the first
-/// corner it stands within a body and a half of, and a second only where the
-/// way straight on to the one after lies open: 301NAR's walk out past IT-31
-/// (the player at (-23.72, 25.73), its corners 0.4 m and 1.3 m off round a
-/// wall's end, the third 20 m away through the wall) keeps the second; with
-/// every way open it makes for the third, as before.
-fn corner_skip_short_of_a_wall() -> Found {
-    let metres = |[x, y]: [f32; 2]| [x / UNIT, y / UNIT, 10.28 / UNIT];
-    let at = metres([-23.72, 25.73]);
-    let corners = [
-        [-23.33, 25.85],
-        [-23.30, 24.47],
-        [-29.78, 6.13],
-        [-54.75, -5.16],
-    ]
-    .map(metres);
-    let walled = |_: [f32; 3], to: [f32; 3]| to != corners[2];
-    let next = |open: &dyn Fn([f32; 3], [f32; 3]) -> bool| {
-        crate::walk::next_corner(&corners, at, true, false, open)
+/// A stalled walker goes round a body it touches though it has slid past
+/// its middle (`Walker::around`): 301NAR's walk out past IT-31, met head-on
+/// and slid round into the pocket between it and a wall's end, had it
+/// behind and made for a corner through the wall. A body as near behind
+/// it, but no longer touching, is left alone, as one ahead off the way is.
+fn rounds_a_touched_body() -> Found {
+    let ground = Ground::new(1)?;
+    let level = ground.world.level();
+    let units = |at: [f32; 2]| floor_at(at).map(|v| v / UNIT);
+    let [x, y, z] = units([-2.0, -3.0]);
+    let me = crate::motion::MotionState::standing([x, y, z + 0.125 - crate::motion::SOLE_Z], 0.0);
+    let corner = units([-2.0, 1.0]);
+    let rounds = |body: [f32; 2]| {
+        let mut walker = crate::walk::Walker::new(corner);
+        walker.waypoint = Some(corner);
+        walker.stalls = 1;
+        walker.around(level, &me, &[units(body)]);
+        walker.rounding
     };
-    let (kept, open) = (next(&walled), next(&|_, _| true));
-    let none = crate::walk::next_corner(&corners, at, true, false, &|_, _| false);
+    let (touched, apart) = (rounds([-2.45, -3.4]), rounds([-2.7, -4.0]));
     check(
-        kept == Some(corners[1]) && open == Some(corners[2]) && none == Some(corners[1]),
-        format!("the wall's way on shut: {kept:?}; every way open: {open:?}; none: {none:?}"),
+        touched && !apart,
+        format!("a body 0.6 m behind: gone round {touched}; 1.2 m behind: gone round {apart}"),
     )
 }
 
