@@ -1,11 +1,16 @@
 # The sim's hash moves on purpose: the skill points a level leaves unspent
 # are kept for the next, which adds its own to them (both games' level-up
 # stats, TSL's `CSWCLevelUpStats::AddSkillPointsPerLevel`), so a companion
-# whose class order is spent keeps its last points instead of losing them.
-sim = "skill points left unspent at a level are kept for the next"
+# whose class order is spent keeps its last points instead of losing them;
+# a line's replies are chosen once it has played, after its scripts (TSL's
+# `CSWSDialog::SendDialogEntry`); a player casts a power as a creature
+# does, as the games' PC is one (a script's `ActionCastSpellAtObject` on it,
+# and its power list's cast).
+sim = "skill points left unspent at a level are kept for the next; a line's replies chosen after its scripts; a player casts as a creature does"
 
 [formats]
 save = "the script state keeps the skill points each character left unspent (`State::unspent`)."
+replay = "a seat may cast any power it knows from its power list (`Action::Cast`, a new action code, 55)."
 
 [migrations]
 save = "old saves read no points unspent: every level spent or lost them all"

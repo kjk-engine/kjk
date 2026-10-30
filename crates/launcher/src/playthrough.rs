@@ -35,6 +35,8 @@
 //!                       # none the party can get at keeps it in combat (`Chase`)
 //! disarm 52.4,-29.9     # disarm the mine the party sees nearest there (Demolitions),
 //!                       # from where the player stands, until it is gone
+//! cast 270              # cast that power (spells.2da row) on the player from
+//!                       # its power list, until its effect lasts on it
 //! equip                 # wear what the party carries, each in a free slot it fits
 //! equip ptar_sitharmor  # wear that item (a template), what its slot held off
 //! unlock end_door02     # walk up and pick its lock (Security, the player's ranks);
@@ -145,6 +147,9 @@ const SIGHT_MOVED_M: f32 = 0.5;
 /// together and a use before took its own bag's neighbour, another's
 /// still standing (each use loots one, so all are looted).
 const REMAINS_M: f32 = 3.0;
+/// How long (ms) a `cast` waits on a cast before trying again: past the
+/// longest conjure and cast time a power takes (`spells.2da`).
+const CAST_AGAIN_MS: u64 = 3000;
 
 /// What a sale keeps, by `baseitems.2da` label: security and programming
 /// spikes (and parts, the latter's row).
@@ -1037,6 +1042,17 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     pressed_at = now.max(1);
                                 }
                             }
+                        },
+                        // As a player casts from the power list: again after
+                        // each cast's time, until the power's effect lasts on
+                        // the player (one it cannot pay for is never cast).
+                        Goal::Cast(row) => match under(&last, *row) {
+                            Some((_, true)) => met = true,
+                            Some((me, false)) if now >= pressed_at + CAST_AGAIN_MS => {
+                                input.act(Seat(0), Action::Cast { row: *row, target: me });
+                                pressed_at = now.max(1);
+                            }
+                            _ => {}
                         },
                         Goal::Credits => met = game_won,
                         // One item named: put on again each step until worn

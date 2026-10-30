@@ -24,6 +24,9 @@ pub(super) enum Goal {
     /// The mine the party sees nearest a place disarmed (Demolitions) from
     /// where the player stands, tried again until it is gone.
     Disarm([f32; 2]),
+    /// A power (`spells.2da` row) cast on the player from its power list,
+    /// again until its effect lasts on it.
+    Cast(u16),
     /// An item's template the party carries, put into the container.
     Put(String, Target),
     /// A script global set: a number, or a boolean.
@@ -262,6 +265,10 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                     Target::Place(at) => Goal::Disarm(at),
                     Target::Tag(..) => return Err("disarm: a place (X,Y), the mine nearest it".into()),
                 },
+                "cast" => Goal::Cast(
+                    a.and_then(|row| row.parse::<u16>().ok())
+                        .ok_or(format!("{part}: cast ROW (spells.2da)"))?,
+                ),
                 "put" => Goal::Put(
                     a.ok_or(format!("{part}: put TEMPLATE TAG"))?
                         .to_ascii_lowercase(),

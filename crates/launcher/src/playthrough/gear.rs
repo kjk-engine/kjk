@@ -192,6 +192,21 @@ pub(super) fn equip(world: &sim::SimWorld, snapshot: &Snapshot, named: Option<&s
     wear
 }
 
+/// The player's body (its script object id), and whether an effect of
+/// power `row` lasts on it (its cast has landed, `Lasting::spell`).
+pub(super) fn under(snapshot: &Snapshot, row: u16) -> Option<(u32, bool)> {
+    let me = crate::cast::me(snapshot, Seat(0))?;
+    let lasts = snapshot.get(me).and_then(|entity| entity.fighter).is_some_and(|fighter| {
+        fighter
+            .effects
+            .lasting
+            .iter()
+            .flatten()
+            .any(|lasting| lasting.spell == row && lasting.until > snapshot.time_ms)
+    });
+    Some((me.0, lasts))
+}
+
 /// The armed, disarmable mine (a trap trigger) the party sees nearest `at`
 /// (metres), within 3 m of it: its object index.
 pub(super) fn mine_near(here: &Here, at: [f32; 2]) -> Option<u32> {
