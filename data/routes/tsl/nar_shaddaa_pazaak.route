@@ -50,6 +50,7 @@ to DoorGuard         # out through the den's doorway and in again: its
 to tr_the_champ      # trigger brings the champion for the den's best once
                      # the three are beaten (tr_champ_enter, on entering,
                      # going out or in)
+talk                 # his entrance (champent): "Come talk to me."
 say Let's play.
 use champ
 talk
