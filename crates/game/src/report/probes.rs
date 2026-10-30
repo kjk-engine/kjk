@@ -28,9 +28,37 @@ pub fn probes() -> Checks {
         ("reports_keep_20", keep(&root.join("kept"))),
         ("report_log_tail", log_tail(&root.join("run"))),
         ("crashed_run_forgotten_in_play", forgotten()),
+        ("issue_form_filled_in", filled_in()),
     ];
     let _ = std::fs::remove_dir_all(&root);
     checks
+}
+
+fn filled_in() -> Result<String, String> {
+    let [(home, user), ..] = homes();
+    let me = Identity {
+        home: home.clone(),
+        user,
+        host: "box".into(),
+    };
+    let note = format!("Sword shows as a pistol & more\nsaved in {home}/saves");
+    let url = issue_url(&note, "0.1.0 (abc)", "kjk-report-1.zip", &me);
+    let wanted = [
+        "template=bug.yml",
+        "&title=Sword%20shows%20as%20a%20pistol%20%26%20more&",
+        "&version=0.1.0%20%28abc%29&",
+        "&report=kjk-report-1.zip",
+    ];
+    let long = issue_url(&"é".repeat(9000), "v", "r", &me);
+    check(
+        wanted.iter().all(|part| url.contains(part))
+            && url.contains("&happened=")
+            && !url.contains("%C3%85sa")
+            && long.len() < 8000
+            && issue_url("", "v", "r", &me).contains("&version=v&report=r")
+            && !issue_url("", "v", "r", &me).contains("title="),
+        format!("{url} ({} bytes for a long note)", long.len()),
+    )
 }
 
 fn scrubs() -> Result<String, String> {
