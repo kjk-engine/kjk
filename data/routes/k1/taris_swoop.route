@@ -34,6 +34,9 @@ end
 talk                     # the announcer, Brejik, Bastila
 fight 20
 save brejik_dead
+to 219,222               # by the cage: Bastila comes to the player, and from beside
+                         # the race desk (Desk2) her walk to Brejik's body after
+                         # began wedged in it
 use Bastilla03           # Bastila, freed
 talk
 module tar_m02af         # the apartment

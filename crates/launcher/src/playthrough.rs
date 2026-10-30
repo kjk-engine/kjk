@@ -2394,9 +2394,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             Notice::Show(Screen::Pazaak) => {
                                 said.push(format!("{at} [a pazaak match]"));
                             }
-                            Notice::Show(Screen::Credits) => {
+                            Notice::Show(screen) if screen.rolls_credits() => {
                                 credits_rolled = true;
-                                said.push(format!("{at} [the credits]"));
+                                let movie = screen.movie_name().map_or_else(String::new, |name| format!(" ({name})"));
+                                said.push(format!("{at} [the credits{movie}]"));
                             }
                             Notice::Show(Screen::End) if credits_rolled => {
                                 game_won = true;
@@ -2420,7 +2421,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         left_by_exit = via.as_ref().is_some_and(|data| data.exit().is_some());
                         left_through = via.map(|data| data.tag.clone());
                         transcribed =
-                            transcribe(&installer, &world, &names, transcribed, &mut lines);
+                            transcribe(&installer, &world, (&names, &last), transcribed, &mut lines);
                         let request = installer.request_from(
                             &last,
                             &transition.module,
@@ -2485,7 +2486,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion), input);
             }
             let report = world.script_report();
-            transcribe(&installer, &world, &names, transcribed, &mut lines);
+            transcribe(&installer, &world, (&names, &last), transcribed, &mut lines);
             lines.extend(said.iter().map(|s| format!("{s} (to the player)")));
             let blockers: Vec<&Outcome> = outcomes.iter().filter(|o| !o.met).collect();
             outln!(
@@ -2669,12 +2670,12 @@ fn replans(
 }
 
 /// The report's conversation lines from `from` on, as the running
-/// module's conversations and speakers have them, added to `lines`: how
-/// many the report has.
+/// module's conversations and speakers have them (the player's tokens the
+/// first seat's in `last`), added to `lines`: how many the report has.
 fn transcribe(
     installer: &Installer,
     world: &sim::SimWorld,
-    names: &std::collections::BTreeMap<u32, String>,
+    (names, last): (&std::collections::BTreeMap<u32, String>, &Snapshot),
     from: usize,
     lines: &mut Vec<String>,
 ) -> usize {
@@ -2682,8 +2683,9 @@ fn transcribe(
     if let Some(library) = world.level().scripts() {
         let text = |strref| installer.text(strref);
         let mut tokens = crate::transcript::tokens(&talk[..from.min(talk.len())]);
+        let player = sim::persona::of(&last.personas, Seat(0));
         lines.extend(talk.iter().skip(from).flat_map(|line| {
-            crate::transcript::transcript(&text, library, names, &mut tokens, line)
+            crate::transcript::transcript(&text, library, names, (&mut tokens, player), line)
         }));
     }
     talk.len()

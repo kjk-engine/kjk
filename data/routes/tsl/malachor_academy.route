@@ -17,18 +17,22 @@
 # 61, 63; Kerbow [WMALTA], [WMALTS].
 # Left: the Trayus Crescent (905MAL, the west side: the same foes), the
 # Proving Grounds' workbench (99.89,-40.90) and its far south loop, the
-# metal boxes, every [Persuade]/[Awareness]/[Wisdom]/[Intelligence] line to
-# Sion (they only erode his will saves, Constitution and Wisdom).
+# metal boxes. Sion is asked about Kreia, the Academy and Revan, and his
+# will eroded where the Exile's skills reach: [Persuade] at his first word
+# and his third fall, [Awareness] at his second (the [Intelligence] and
+# [Wisdom] lines are their alternatives).
 #
 # ASSUMES:
 #   The Exile alone (the party emptied on the surface), the player again
 #   (tr_sionenter's switch back from the remote).
-#   No Persuade (c_sc_per_lt 17 fails every [Persuade]): the plain replies.
-#   # UNSURE: the Proving Grounds' short way (FROM_903MALa north past the
-#   turret rooms to TO_903MALb, 47 m) is open; DSimpson walks the long loop
-#   by the workbench, which may be the only one.
-#   # UNSURE: whether Sion's last fall ends in his death on the last reply
-#   (E121's a_sion) or another fight; DSimpson: "Beat him four times".
+#   The Exile's Persuade passes c_sc_per_lt's DC and his Awareness
+#   c_sc_awa_gt's.
+# BLOCKER: a_903kreia sends the Exile from the hallway (wp_903kreia_sp) to
+# wp_903kreia_1 inside, through d_entrance, which it opens 4 s later
+# (DelayCommand ActionOpenDoor); kjk's scripted move stalls at the shut door
+# and ends there, before the way out (TO_902MAL) the harness will not walk
+# into. Where the scene puts the Exile, in the academy:
+goto 903mal wp_903kreia_1
 fight 30             # the Elite Sith Assassin, then the hall's assassins
 fight 30
 fight 30
@@ -40,17 +44,25 @@ exit TO_903MALb      # back into the Academy, the east wing
 module 903mal
 fight 30             # the assassins and Dark Jedi by the metal boxes
 fight 30
-say Let us end this. I bear no hatred for you, but I must pass. # start 7
+say Where is Kreia, Sion? # 903sion start 7: E24
+say What is this place? # E12 to E16: the Trayus Academy, Revan
+say But where did it come from?
+say Do you know what happened to Revan? # E18, E22, E23
+say Your master is using you. # E7
+say [Persuade] She has already abandoned you, Sion. # E9 [Success]
+say I can hear it in your voice # E10: a_erode_sion, then E3, E4: a_sion
 to tr_sion           # Sion's chamber: Sion (903sion)
 talk
-say But you can be defeated # start 5 (his first fall)
+say This battle was never about the flesh # start 5 (his first fall)
 fight 40
 talk
-say Surrender now, Sion. I don't want to kill you. # start 4 (the second)
+say [Awareness] Kreia respects one who can turn away from power # start 4
+say Yet I survived. And I am strong enough to face you now. # E75, E80, E81
+say Surrender now, Sion. I don't want to kill you. # (the second fall)
 fight 40
 talk
-say You only delay the inevitable, Sith Lord. # start 2 (the third)
-fight 40
+say [Persuade] Sion, even should you beat me # start 2 (the third): E101,
+fight 40             # a_erode_sion
 talk
 say You have already been defeated, Sion. # start 0 (the fourth, the last)
 say Because I was able to turn away from it. And you could not.

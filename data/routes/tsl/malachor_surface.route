@@ -18,27 +18,19 @@
 #   902MAL's flank later hands the player to Mira.
 #   The buried ships' consoles (Console@1 north, Console@2 south) do
 #   nothing for the Exile (console start 1 needs 901MAL_REMOTE): not used.
-#   # UNSURE: the places below are the storm beasts' GIT spots; ambient
-#   beasts (k_def_amb_storm) wander, so a `fight` may find none there.
+#   The storm beasts wander (k_def_amb_storm's ActionRandomWalk), so the
+#   route fights what it meets by the places the remote goes later: the
+#   buried ships' consoles (GameBanshee's #2 and #5) and the way between.
 fight 20
-to 85,-68            # the first beasts down the path from the Hawk
-fight 30
-to 121,-11           # by the north buried ship (the remote's Console@1)
-fight 30
-to 134,-30
-fight 30
-to 143,-57
-fight 30
+to Console@1         # the north buried ship (GameBanshee #2), the beasts by it (#3)
+fight 40
+to 151,-56           # down the east loop, wide of the rock pillar at
+to 154,-62           # 148,-63 (a walk hugging its foot wedges; SKIPPED.md)
 to tr_mira_han       # over the bridge: Mira wakes, Kreia, Hanharr (901mira)
 talk
-to 20,-201           # the south: the remote's Console@2 at (-32,-195)
-fight 30
-to -2,-122
-fight 30
-to -17,-137
-fight 30
-to -39,-61           # the dead end north of the depths' path
-fight 30
-exit TO_902MAL       # the depths
+fight 40
+to Console@2         # the south buried ship (#5)
+fight 40
+exit TO_902MAL       # the depths (#6)
 module 902mal
 save malachor_depths
