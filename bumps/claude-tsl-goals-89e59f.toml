@@ -6,5 +6,8 @@
 # others' corners stood in their pocket (the Exile out of Onderon's palace
 # gas room among the royal soldiers). And a placeable is reached at the
 # nearer of where it stands and its nearest action point
-# (`ObjectData::use_distance`), as TSL's GetIsInUseRange measures.
+# (`ObjectData::use_distance`), as TSL's GetIsInUseRange measures. A
+# stalled walk passes over a second corner only toward an open way
+# (`walk::next_corner`), and goes round a body it touches and the side
+# its corner lies straight on from (`Walker::around`, `beside`).
 sim = "bodies meet bodies round across, as KOTOR's creatures meet by their personal space"
