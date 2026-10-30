@@ -1227,6 +1227,41 @@ pub(super) fn level_due(world: &sim::SimWorld, snapshot: &Snapshot) -> Option<u8
         .then(|| last.unwrap_or(0))
 }
 
+/// The companions no seat plays that may take a level now, each with the
+/// game's picks for it in the class it took last (else its template's
+/// last), as the host's Auto Level Up asks them.
+pub(super) fn companion_levels_due(
+    world: &sim::SimWorld,
+    snapshot: &Snapshot,
+) -> Vec<(u32, sim::levels::Choices)> {
+    let state = world.script_state();
+    let Some(library) = world.level().scripts() else {
+        return Vec::new();
+    };
+    let xp = state.xp(sim::inventory::PARTY);
+    let instances = sim::Instances::in_snapshot(world.level(), snapshot);
+    state
+        .party
+        .available
+        .values()
+        .filter_map(|npc| {
+            let id = npc.object?;
+            let entity = snapshot.get(sim::SimId(id))?;
+            let data = instances.of_entity(entity)?;
+            let sheet = entity.sheet.or(data.sheet)?;
+            let followed = entity.fighter?.mind;
+            (followed.leader == Some(Seat(0))
+                && followed.driver.is_none()
+                && library.classes().may_level(sheet.level, xp))
+            .then_some(())?;
+            let career = state.careers.get(&id).unwrap_or(&data.classes);
+            let &(class, _) = career.last()?;
+            let banked = state.unspent.get(&id).copied().unwrap_or(0);
+            Some((id, library.classes().auto(&sheet, career, class, banked)?))
+        })
+        .collect()
+}
+
 /// The picks `plan` makes for the player's next level of `class`
 /// (`Classes::planned`); none for a companion the seat plays (the game's
 /// picks).

@@ -292,7 +292,7 @@ pub(super) fn move_actors(
             fighting.0.saber.stand_up();
         }
         // The companion leading takes its player's commands; the player's
-        // own body stands meanwhile.
+        // own body goes by its mind meanwhile (`minds`).
         let leads = lent
             .filter(|body| *body == id.0)
             .map(|_| Avatar(LEADER_SEAT));
@@ -350,11 +350,6 @@ pub(super) fn move_actors(
             .flatten();
         let mut command = if kotor.is_some() {
             fighting.0.last_command
-        } else if stands {
-            Command {
-                angles: player.0.command_angles,
-                ..Command::default()
-            }
         } else {
             command_for(&inputs.0, seat, &player.0, &fighting.0, clock.time_ms)
         };

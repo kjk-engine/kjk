@@ -416,7 +416,7 @@ impl ObjectData {
     /// the origin; `None` without any (the placeable's position is used).
     pub fn nearest_use_point(&self, from: [f32; 3]) -> Option<[f32; 3]> {
         // `yaw` is in degrees, turned as the collision's placements are.
-        let (sin, cos) = self.yaw.to_radians().sin_cos();
+        let (sin, cos) = crate::math::sin_cos_deg(self.yaw);
         let world = |p: &[f32; 3]| {
             [
                 self.position[0] + p[0] * cos - p[1] * sin,

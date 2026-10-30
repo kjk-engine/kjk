@@ -314,6 +314,14 @@ pub(super) fn think(
     // plays (`SW_FLAG_AI_OFF`), and one with no AI scripts never fights.
     // On a stage without scripts (probes, duels) each picks its own.
     let own_choice = level.0.scripts().is_none();
+    // The companion leading the party takes the first seat's commands, and
+    // that seat's own character, nobody's now, goes with it as a companion
+    // does: following the one led and joining its fights (`joins`).
+    let lent = super::lent(&scripts.state.party);
+    let unmanned = |avatar: Option<&Avatar>| {
+        lent.is_some() && avatar.is_some_and(|avatar| avatar.0 == super::LEADER_SEAT)
+    };
+    let solo = scripts.state.party.solo;
     // A scene plays on those taking part in a conversation under way (a
     // cutscene's camera is on them): a fighter is in one when it or its
     // target is. While the world is held, everyone is (S4). Another seat's
@@ -325,10 +333,17 @@ pub(super) fn think(
     driven.0.clear();
     let mut players: Vec<_> = actors
         .iter_mut()
-        .filter(|(_, avatar, object, ..)| avatar.is_some() && object.is_none())
+        .filter(|(_, avatar, object, ..)| {
+            avatar.is_some() && object.is_none() && !unmanned(*avatar)
+        })
         .collect();
     players.sort_by_key(|(id, ..)| id.0);
     for (id, _, _, _, player, mut fighting) in players {
+        // Back in its player's hands: what it was doing unmanned is over.
+        if fighting.0.mind.task != Task::Idle {
+            fighting.0.mind.task = Task::Idle;
+            fighting.0.target = None;
+        }
         let mind = &mut fighting.0.mind;
         let Some(goal) = scripts.state.goals.get(&id.0.0) else {
             mind.walker = None;
@@ -343,7 +358,9 @@ pub(super) fn think(
     }
     let mut minds: Vec<_> = actors
         .iter_mut()
-        .filter(|(_, avatar, .., fighting)| avatar.is_none() || fighting.0.mind.steered)
+        .filter(|(_, avatar, .., fighting)| {
+            avatar.is_none() || fighting.0.mind.steered || unmanned(*avatar)
+        })
         .collect();
     minds.sort_by_key(|(id, ..)| id.0);
     for (id, avatar, object, sheet, player, mut fighting) in minds {
@@ -396,16 +413,16 @@ pub(super) fn think(
             awareness,
             me_now.gear.has(crate::combat::gear::traits::TRUE_SEEING),
         );
-        // Bare hands punch, closer in (`strikes`); a beast's strike reaches
-        // as far as a swing.
+        // Bare hands punch, closer in, and a beast strikes within its own
+        // reach (`strikes`): each walks up and stands there attacking, as
+        // KOTOR's creatures do, not stepping about as a swing's keys would.
         let facts = object.and_then(|object| object.facts.as_ref());
-        let bare = facts.is_none_or(|facts| facts.strike.is_none())
-            && held(&me, fighter).delivery == Delivery::Unarmed;
-        let close = if bare {
-            let space = facts.map_or(0.0, |facts| facts.personal_space);
-            mind::Attack::Blow(super::strikes::punch_reach(space))
-        } else {
-            mind::Attack::Swing
+        let space = facts.map_or(0.0, |facts| facts.personal_space);
+        let unarmed = held(&me, fighter).delivery == Delivery::Unarmed;
+        let close = match facts.and_then(|facts| facts.strike) {
+            _ if !unarmed => mind::Attack::Swing,
+            Some(strike) => mind::Attack::Blow(super::strikes::strike_reach(&strike, space)),
+            None => mind::Attack::Blow(super::strikes::punch_reach(space)),
         };
         let eye = mind::eye(ps);
         let distance = |other: &MotionState| math::length(math::sub(other.origin, ps.origin));
@@ -433,10 +450,33 @@ pub(super) fn think(
         // walks to its target); else the one it had, within the fight's
         // reach.
         let intent = scripts.state.intents.get(&id.0.0);
+        // A party member nobody plays, out of a scene and not moved by a
+        // script, joins a fight the party is in when its script names no
+        // foe: KOTOR's AI scripts answer only the moments they are told of,
+        // and a foe seen before the fight began is told of no more. It
+        // starts no fight of its own.
+        let follows = fighter.mind.leader.is_some() || unmanned(avatar);
+        let joins = follows
+            && !solo
+            && !world_held
+            && !in_scene(id.0)
+            && !scripts.state.goals.contains_key(&id.0.0);
+        // In the party's fight: it aims at one of the party, or one of them
+        // at it.
+        let in_fight = |entry: &Seen| {
+            let party = |aim: SimId| {
+                seen.binary_search_by_key(&aim, |other| other.id)
+                    .is_ok_and(|at| seen[at].party)
+            };
+            entry.target.is_some_and(party)
+                || seen
+                    .iter()
+                    .any(|other| other.party && other.target == Some(entry.id))
+        };
         // A scripted one keeps whom it fought only while the fight goes on.
         let kept = fighter
             .target
-            .filter(|_| own_choice || fighter.combat_until > now);
+            .filter(|_| own_choice || joins || fighter.combat_until > now);
         let known = intent
             .map(|intent| SimId(intent.target.0))
             .or(kept)
@@ -454,6 +494,14 @@ pub(super) fn think(
             _ if looking && own_choice => seen
                 .iter()
                 .filter(|entry| hostile(entry) && distance(&entry.ps) <= sight)
+                .filter(|entry| visible(eye, mind::chest(&entry.ps)))
+                .filter(|entry| spots(ps, senses, fighter.combat_until > now, entry))
+                .min_by(|a, b| distance(&a.ps).total_cmp(&distance(&b.ps)))
+                .copied(),
+            _ if looking && joins && intent.is_none() => seen
+                .iter()
+                .filter(|entry| hostile(entry) && distance(&entry.ps) <= sight)
+                .filter(|entry| in_fight(entry))
                 .filter(|entry| visible(eye, mind::chest(&entry.ps)))
                 .filter(|entry| spots(ps, senses, fighter.combat_until > now, entry))
                 .min_by(|a, b| distance(&a.ps).total_cmp(&distance(&b.ps)))
@@ -495,8 +543,10 @@ pub(super) fn think(
         // A companion that sees no one joins the party's fight: the
         // nearest hostile fighting one of the party, within the fight's reach,
         // is where it goes until it sees it. Not while the world is held (S4).
-        let joining =
-            own_choice && mind.leader.is_some() && target.is_none() && looking && !world_held;
+        let joining = ((own_choice && mind.leader.is_some()) || joins)
+            && target.is_none()
+            && looking
+            && !world_held;
         let threat = joining
             .then(|| {
                 seen.iter()
@@ -517,9 +567,19 @@ pub(super) fn think(
             }
         }
         // Choose.
+        // Whom it follows: its seat's body, the companion that seat leads
+        // through while it does (`lent`); none for the one led.
+        let led = |seat: Seat| lent.filter(|_| seat == super::LEADER_SEAT);
         let leader = mind
             .leader
-            .and_then(|seat| seen.iter().find(|entry| entry.seat == Some(seat)))
+            .or(unmanned(avatar).then_some(super::LEADER_SEAT))
+            .filter(|seat| led(*seat) != Some(id.0))
+            .and_then(|seat| {
+                seen.iter().find(|entry| match led(seat) {
+                    Some(body) => entry.id == body,
+                    None => entry.seat == Some(seat),
+                })
+            })
             .map(|entry| entry.ps);
         let leashed =
             leader.is_some_and(|leader| math::flat_distance(leader.origin, ps.origin) > ai::LEASH);
@@ -536,7 +596,7 @@ pub(super) fn think(
         // While the world is held a companion keeps no formation (S4): it
         // neither follows nor chases, and stands. A script's move still
         // moves it (below).
-        if world_held && mind.leader.is_some() && matches!(mind.task, Task::Follow | Task::Chase) {
+        if world_held && follows && matches!(mind.task, Task::Follow | Task::Chase) {
             mind.task = Task::Idle;
         }
         // Nor does anyone run after a foe it lost while the world is held:
@@ -741,7 +801,13 @@ pub(super) fn think(
                 // companions stand where they are.
                 let followers: Vec<(SimId, Vec3)> = seen
                     .iter()
-                    .filter(|entry| entry.party && entry.alive && entry.seat.is_none())
+                    .filter(|entry| entry.party && entry.alive)
+                    .filter(|entry| {
+                        Some(entry.id) != lent
+                            && entry
+                                .seat
+                                .is_none_or(|seat| lent.is_some() && seat == super::LEADER_SEAT)
+                    })
                     .map(|entry| (entry.id, entry.ps.origin))
                     .collect();
                 let far = math::flat_distance(leader.origin, ps.origin) > ai::FOLLOW_NEAR;

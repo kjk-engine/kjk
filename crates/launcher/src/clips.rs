@@ -153,6 +153,7 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
         }
     };
     let mut tally = Tally::default();
+    let mut combat = Combat::default();
     let names = module_names(&index);
     // Every model a room, placeable or creature draws, once.
     let mut fountains_seen = BTreeSet::new();
@@ -263,6 +264,10 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
                         Ok(Some(_))
                     )
                 });
+                if !humanoid && creature_type {
+                    let at = format!("{name}:{}", instance.template);
+                    combat.add((&mut cache, &resolver, game), &look.body, &body, at);
+                }
                 if humanoid && creature_type {
                     creature_names_census(&mut tally, (name, &instance.template), &look, |n| {
                         matches!(
@@ -364,14 +369,80 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
                     instance,
                 );
             }
+            // The creatures its encounters spawn.
+            let spawned = (area.instances.iter())
+                .filter_map(|i| i.encounter.as_ref())
+                .flat_map(|encounter| &encounter.creatures);
+            for spawn in spawned {
+                let source = ResolverSource(&resolver);
+                let Ok(look) = creature::resolve_with(&source, &spawn.template, &mut tables) else {
+                    continue;
+                };
+                let Ok(Some(body)) = viewer::cached(&mut cache, &resolver, &look.body) else {
+                    continue;
+                };
+                if !asset_ja::rig::is_humanoid(&body) && creature::creature_model(&look.model_type) {
+                    let at = format!("{name}:{} (encounter)", spawn.template);
+                    combat.add((&mut cache, &resolver, game), &look.body, &body, at);
+                }
+            }
         }
     }
     outln!("{}: {} modules", game.key(), names.len());
     for (key, count) in &tally.counts {
         outln!("  {key}: {count} (e.g. {})", tally.examples[key].join("; "));
     }
+    combat.print();
     ExitCode::SUCCESS
 }
+
+/// Every body on its own clips that a creature wears, placed or spawned by
+/// an encounter: the combat clips it lacks, and where it is worn
+/// (`module:template`).
+#[derive(Default)]
+struct Combat(BTreeMap<String, (Vec<&'static str>, BTreeSet<String>)>);
+
+impl Combat {
+    fn add(
+        &mut self,
+        (cache, resolver, game): (&mut BTreeMap<String, Option<ModelIr>>, &Resolver, Game),
+        name: &str,
+        body: &ModelIr,
+        at: String,
+    ) {
+        let entry = self.0.entry(name.to_string()).or_insert_with(|| {
+            let missing = COMBAT_CLIPS
+                .iter()
+                .copied()
+                .filter(|clip| {
+                    !matches!(
+                        viewer::creature_clip(cache, resolver, game, body, true, clip, clip),
+                        Ok(Some(_))
+                    )
+                })
+                .collect();
+            (missing, BTreeSet::new())
+        });
+        entry.1.insert(at);
+    }
+
+    fn print(&self) {
+        outln!(
+            "bodies on their own clips, the combat clips each lacks ({}), and where worn:",
+            COMBAT_CLIPS.join(" ")
+        );
+        for (body, (missing, worn)) in &self.0 {
+            let missing = if missing.is_empty() { "none".to_string() } else { missing.join(" ") };
+            let shown: Vec<&str> = worn.iter().take(6).map(String::as_str).collect();
+            outln!("  {body}: lacks {missing}; {} worn: {}", worn.len(), shown.join(", "));
+        }
+    }
+}
+
+/// A creature model's fighting clips (reone's names, `Creature::
+/// getAnimationName`): its ready stance, attacks, shot, flinch and dodge.
+const COMBAT_CLIPS: &[&str] =
+    &["creadyr", "g0a1", "g0a2", "m0a1", "m0a2", "b0a1", "cdamages", "cdodgeg"];
 
 /// A placeable's look as placed (`sim::look::placed` of its
 /// `AnimationState`) and where its model finds that look's clip: its own,

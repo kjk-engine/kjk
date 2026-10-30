@@ -135,8 +135,10 @@ use M478Console@2    # the power system unlocked
 talk
 fight 30
 leader 7             # Mira at the head: Goto's mines do not see her
-to 351_Mine_Dlg      # Goto activates the mines
-talk
+if 800DRO_Console_56=1 # not yet seen (the fight may chase the party into
+to 351_Mine_Dlg      # 351_Mine_Dlg2, which plays it then; a_mine1 sets it
+talk                 # to 0): Goto activates the mines
+end
 leader player        # the Exile leads the fight: the Sentinel's sixth
 fight 30             # level's Force Immunity (stun) holds against the
                      # sentry droid's stun ray, which keeps Mira stunned

@@ -31,8 +31,8 @@ use ui::draw::Textures as _;
 use ui::intent::CharacterDesc;
 use ui::skin::Source;
 use ui::vm::{
-    CharacterView, ChargenView, ClassView, Entry, ItemKind, MemberView, NameTables, Owned,
-    PicksView, PortraitView, UpgradeChoice, UpgradeItem, UpgradeSlot,
+    AutoLevelView, CharacterView, ChargenView, ClassView, Entry, ItemKind, MemberView, NameTables,
+    Owned, PicksView, PortraitView, UpgradeChoice, UpgradeItem, UpgradeSlot,
 };
 
 use crate::rulebook_text;
@@ -422,6 +422,7 @@ fn view(
         next_xp: None,
         may_level: false,
         next_level: None,
+        auto_level: None,
     }
 }
 
@@ -524,6 +525,14 @@ fn members(
         };
         let portrait = portrait.or_else(|| assets.portrait_of(&data?.template));
         let dresses = at == 0 || (own == sim::Seat(0) && fighter.mind.driver.is_none());
+        let may_level = dresses
+            && level
+                .and_then(|level| level.scripts())
+                .is_some_and(|library| {
+                    library
+                        .classes()
+                        .may_level(sheet.level, snapshot.progress.xp)
+                });
         // The seat playing it, for its portrait's icon (R10).
         let seat = (0..snapshot.seats()).map(sim::Seat).find(|seat| {
             snapshot
@@ -543,6 +552,7 @@ fn members(
                 hp: (fighter.hp / 100, i32::from(sheet.max_hp)),
                 fp: (fighter.fp / 100, i32::from(sheet.pool())),
                 dresses,
+                may_level,
                 busy: seat.and_then(|seat| crate::hud::busy(snapshot, seat)),
                 id: entity.id.0,
             },
@@ -810,14 +820,11 @@ fn show(
         let classes = library.classes();
         me.xp = progress.xp;
         me.next_xp = classes.next(me.level);
-        // Levels are taken by the player's own character (`cast::levelling`).
-        let levelling = crate::cast::levelling(snapshot, own.0).map(|entity| entity.id.0);
         me.may_level = party
             .get(viewed)
-            .is_some_and(|member| Some(member.id) == levelling)
-            && classes.may_level(me.level, progress.xp);
+            .is_some_and(|member| member.view.may_level);
         // The next level is in its latest class (a Jedi's once it is one).
-        me.next_level = party
+        let next = party
             .get(viewed)
             .filter(|_| me.may_level)
             .and_then(|member| {
@@ -831,13 +838,23 @@ fn show(
                     });
                 let &(class, _) = career.last()?;
                 let picks = classes.picks(&member.sheet, &career, class)?;
-                Some((class, picks_view(assets, &picks)))
+                let auto = classes.auto(&member.sheet, &career, class, 0)?;
+                Some((class, picks_view(assets, &picks), auto))
             });
+        me.auto_level = next.as_ref().map(|(_, _, auto)| AutoLevelView {
+            class: auto.class,
+            ability: auto.ability,
+            skills: auto.skills,
+            feats: auto.feats.clone(),
+            powers: auto.powers.clone(),
+        });
+        me.next_level = next.map(|(class, picks, _)| (class, picks));
     }
-    // The level the character may take next, from its ranks now (a level
-    // taken moves it on).
+    // The level the member shown may take next, from its ranks now (a level
+    // taken, or another member shown, moves it on).
     if let Some(me) = ui.vm.character.as_ref().filter(|me| me.may_level)
-        && ui.vm.levelup.as_ref().map(|up| up.level) != Some(me.level.saturating_add(1))
+        && ui.vm.levelup.as_ref().map(|up| (up.who, up.level))
+            != Some((me.id, me.level.saturating_add(1)))
     {
         ui.vm.levelup = Some(crate::script_screens::level_up(me, &made));
     }

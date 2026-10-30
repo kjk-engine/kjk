@@ -730,6 +730,19 @@ pub const STALL_MS: u64 = rules::walking::route::STALL_MS;
 /// How long a stalled walker steps aside (ms).
 pub const SIDESTEP_MS: u64 = rules::walking::route::SIDESTEP_MS;
 
+/// How long a walker that found no way stands before it looks again (ms):
+/// KOTOR's pathfinding wait, put before the move when `PlotPath` fails, of
+/// 2 s and (rand() % 100) / 50 s more (TSL's
+/// `CSWSCreature::AIActionMoveToPoint`, `AddPathfindingWaitActionToFront`;
+/// its `HandlePathfindError` only logs, so it waits and looks on and on).
+/// Its roll is the walk's own: the step's time and the goal.
+fn pathfind_wait_ms(now_ms: u64, goal: Vec3) -> u64 {
+    let stream = (u64::from(goal[0].to_bits()) << 32) | u64::from(goal[1].to_bits());
+    let steps = crate::rng::SimRng::new(now_ms, stream).below(100);
+    rules::walking::walker::PATHFIND_WAIT_MS
+        + u64::from(steps) * rules::walking::walker::PATHFIND_WAIT_STEP_MS
+}
+
 /// How far apart two standing bodies' centres pass (units): a body's width
 /// and a hand.
 const PASS: f32 = 2.0 * motion::HALF_WIDTH + rules::walking::route::PASS_MARGIN;
@@ -847,12 +860,39 @@ impl Walker {
         now_ms: u64,
         ways: &dyn Ways,
     ) -> Command {
-        self.command_round(level, player, now_ms, &|index| ways.door(index), &|face| {
-            ways.walls(face)
-        })
+        self.command_round(
+            level,
+            player,
+            now_ms,
+            &|index| ways.door(index),
+            &|face| ways.walls(face),
+            true,
+        )
     }
 
-    /// `command`, planning off the faces `walled` names (`route_round`).
+    /// `command` for a walk a player steers (the playthrough harness's), not
+    /// KOTOR's mover: one that finds no way looks again the next step, with
+    /// no pathfinding wait.
+    pub fn command_eager(
+        &mut self,
+        level: &Level,
+        player: &MotionState,
+        now_ms: u64,
+        ways: &dyn Ways,
+    ) -> Command {
+        self.command_round(
+            level,
+            player,
+            now_ms,
+            &|index| ways.door(index),
+            &|face| ways.walls(face),
+            false,
+        )
+    }
+
+    /// `command`, planning off the faces `walled` names (`route_round`);
+    /// with `waits`, a walk that finds no way waits KOTOR's pathfinding wait
+    /// before it looks again (`pathfind_wait_ms`).
     pub fn command_round(
         &mut self,
         level: &Level,
@@ -860,6 +900,7 @@ impl Walker {
         now_ms: u64,
         state: &dyn Fn(u32) -> ObjectState,
         walled: &dyn Fn(u32) -> bool,
+        waits: bool,
     ) -> Command {
         let idle = mind::looking(player, player.view[0], player.view[1]);
         if self.arrived(player) {
@@ -883,9 +924,16 @@ impl Walker {
                 self.aside_until_ms = now_ms + SIDESTEP_MS;
             }
         }
-        if self.waypoint.is_none() || reached || stalled {
+        // No way found: it stands out KOTOR's pathfinding wait, then looks
+        // again, its walk kept (`pathfind_wait_ms`), so a door a scene opens
+        // a moment later is walked through (a_903kreia's d_entrance).
+        let waiting = self.waypoint.is_none() && now_ms < self.since_ms;
+        if !waiting && (self.waypoint.is_none() || reached || stalled) {
             self.plan(level, player.origin, state, walled, stalled);
-            self.since_ms = now_ms;
+            self.since_ms = match self.waypoint {
+                None if waits => now_ms + pathfind_wait_ms(now_ms, self.goal),
+                _ => now_ms,
+            };
         }
         let Some(corner) = self.waypoint else {
             return idle;
@@ -1262,8 +1310,8 @@ const LIFT: f32 = rules::walking::walker::LIFT;
 /// the panel until the door opens, and gives the walk up where the door
 /// will not open for it (`passable` by `state`, which shuts every closed
 /// door to the held party). A walk with no route there (its walker
-/// found none) is given up, as KOTOR's walker gives up when path-finding
-/// fails. `None` where the mesh has no floor ahead (a face too steep for
+/// found none) stands until its walker looks again (KOTOR's pathfinding
+/// wait, `pathfind_wait_ms`). `None` where the mesh has no floor ahead (a face too steep for
 /// move_body is left out of it), and the caller steps it through move_body.
 #[allow(clippy::too_many_arguments)]
 pub fn kotor_step(
@@ -1288,8 +1336,10 @@ pub fn kotor_step(
         pushed: None,
     };
     let arrived = route.arrived(player);
+    // No way found (`Walker::command_round` looks again after KOTOR's
+    // pathfinding wait): it stands, its walk kept.
     if route.waypoint.is_none() && !arrived {
-        route.give_up();
+        return Some(stand(None, None));
     }
     let target = match route.waypoint {
         Some(corner) if !arrived => corner,

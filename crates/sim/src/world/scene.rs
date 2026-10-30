@@ -14,6 +14,10 @@ use crate::script::dialogue::Told;
 use crate::snapshot::SimId;
 
 #[cfg(feature = "probes")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "checks and traces set up their own cases on one machine"
+)]
 pub mod probes;
 
 /// Whether a conversation holds the world (S1): a party one, or one holding

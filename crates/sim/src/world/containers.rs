@@ -258,6 +258,7 @@ pub(super) fn containers(
             | Action::EquipOn { .. }
             | Action::UnequipFrom { .. }
             | Action::LevelUp(_)
+            | Action::LevelUpOn { .. }
             | Action::Unlock { .. }
             | Action::ChooseParty(_)
             | Action::ShowParty
