@@ -287,6 +287,7 @@ pub(super) fn containers(
             | Action::SwitchWeaponsOn { .. }
             | Action::Assemble { .. }
             | Action::Form(_)
+            | Action::Cast { .. }
             | Action::ScreenOpened
             | Action::Forfeit
             | Action::Arena(_) => continue,

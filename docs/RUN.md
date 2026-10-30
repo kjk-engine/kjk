@@ -140,7 +140,10 @@ by goal (`launcher::playthrough` lists the goals: `talk`, `pick`, `say`, `party`
 `at`, `use`, `exit`, `fight`, `race` and `turrets` (a minigame played to
 its end, `MINIGAMES.md`), `pazaak`, `equip` (`equip TEMPLATE`: that item; `equip saber`: the strongest lightsaber the party has),
 `put`, `save NAME` (a checkpoint; `@NAME` for the module starts from it), `unlock` (Security, with a spike
-the party carries if named), `bash` (struck with what is in hand until its lock breaks), `leader`, `solo`, `levelup`, `sell`, `credits`, `wait`, `until`,
+the party carries if named), `bash` (struck with what is in hand until its lock breaks), `disarm X,Y`
+(the mine the party sees nearest there, Demolitions, from where the player stands), `cast ROW`
+(that power cast on the player from its power list until its effect lasts), `use item:TEMPLATE` (what
+holds that item: remains searched, their creature fallen in a route before, or a foe fought), `leader`, `solo`, `levelup`, `sell`, `credits`, `wait`, `until`,
 `module`, `if` and `while` blocks closed by `end`; and, for what a route stands in for, `global`,
 `gold`, `skill NAME=RANK` and `goto MODULE [TAG]`, the module's entry
 without a tag). Walks go over the

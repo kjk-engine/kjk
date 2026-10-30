@@ -21,6 +21,12 @@ pub(super) enum Goal {
     Bash(Target),
     /// A mine set on a door until it stands open (TSL).
     Mine(Target),
+    /// The mine the party sees nearest a place disarmed (Demolitions) from
+    /// where the player stands, tried again until it is gone.
+    Disarm([f32; 2]),
+    /// A power (`spells.2da` row) cast on the player from its power list,
+    /// again until its effect lasts on it.
+    Cast(u16),
     /// An item's template the party carries, put into the container.
     Put(String, Target),
     /// A script global set: a number, or a boolean.
@@ -93,10 +99,17 @@ pub(super) enum Goal {
 pub(super) enum Target {
     Tag(String, Option<usize>),
     Place([f32; 2]),
+    /// `item:TEMPLATE`: what in the module holds an item of that template,
+    /// remains or a creature (the dead of a route before leave remains with
+    /// no tag to name them by).
+    Holding(String),
 }
 
 pub(super) fn target(word: Option<&str>, rest: Option<&str>) -> Result<Target, String> {
     let word = word.ok_or("a tag or a place")?;
+    if let Some(template) = word.strip_prefix("item:") {
+        return Ok(Target::Holding(template.to_ascii_lowercase()));
+    }
     // A place as X,Y too.
     if let Some((x, y)) = word.split_once(',')
         && let (Ok(x), Ok(y)) = (x.parse::<f32>(), y.parse::<f32>())
@@ -268,7 +281,7 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                 }
                 "gone" => match target(a, None)? {
                     Target::Tag(tag, nth) => Goal::Gone(tag, nth),
-                    Target::Place(_) => return Err(format!("{part}: gone TAG")),
+                    Target::Place(_) | Target::Holding(_) => return Err(format!("{part}: gone TAG")),
                 },
                 "gather" => Goal::Gather,
                 "end" => {
@@ -311,6 +324,16 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                 "unlock" => Goal::Unlock(target(a, None)?, b.map(str::to_string)),
                 "bash" => Goal::Bash(target(a, b)?),
                 "mine" => Goal::Mine(target(a, b)?),
+                "disarm" => match target(a, b)? {
+                    Target::Place(at) => Goal::Disarm(at),
+                    Target::Tag(..) | Target::Holding(_) => {
+                        return Err("disarm: a place (X,Y), the mine nearest it".into());
+                    }
+                },
+                "cast" => Goal::Cast(
+                    a.and_then(|row| row.parse::<u16>().ok())
+                        .ok_or(format!("{part}: cast ROW (spells.2da)"))?,
+                ),
                 "put" => Goal::Put(
                     a.ok_or(format!("{part}: put TEMPLATE TAG"))?
                         .to_ascii_lowercase(),

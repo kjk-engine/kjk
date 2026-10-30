@@ -68,7 +68,8 @@ pub(in crate::script) fn advance(step: &mut Step) {
             && library
                 .dialogue(&c.dialog)
                 .is_some_and(|dlg| skippable(dlg, c.entry));
-        // Its listener answers at once; another once the replies are up
+        // Its listener answers as soon as replies are offered (the line
+        // played, `offer_replies`); another once the replies are up
         // (one sent for the line before, arriving late, takes nothing).
         let may =
             own || (answer.by != ObjectId::INVALID && waiting && now >= c.shown_ms + SKIP_AFTER_MS);
