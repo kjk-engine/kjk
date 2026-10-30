@@ -468,6 +468,22 @@ impl OdysseyMaterial {
         }
     }
 
+    /// The same light on no surface of its own: opaque, untextured, without
+    /// its glow, and in its vertices' colours (a wound's cap, lit as the body
+    /// it is cut from).
+    pub fn bare(mut self) -> OdysseyMaterial {
+        self.params.tint = Vec4::ONE;
+        self.params.self_illum = Vec4::new(0.0, 0.0, 0.0, 1.0);
+        self.params.uv_offset = Vec2::ZERO;
+        self.params.flags &= STATIC | UNLIT | FOG | SHADOWED;
+        self.base = None;
+        self.lightmap = None;
+        self.envmap = None;
+        self.surface = Surface::Opaque;
+        self.culled = true;
+        self
+    }
+
     /// Its back faces culled (`culled`), or not.
     pub fn culled(mut self, culled: bool) -> OdysseyMaterial {
         self.culled = culled;
