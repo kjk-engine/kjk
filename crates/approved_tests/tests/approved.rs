@@ -2126,3 +2126,77 @@ fn bump_files() {
     let twice = bumps::clashes(&two, "").expect_err("two files of one name");
     assert!(twice.contains("a_first.toml"), "{twice}");
 }
+
+/// Pending bumps are numbered in the order they reached `main`, not by
+/// name: a file merged later that sorts first takes the next number, and
+/// those `main` already numbered (in saves made by its builds) keep theirs.
+/// A branch numbers `main`'s first and its own after, as its merge will.
+#[test]
+fn bump_files_numbered_as_they_reached_main() {
+    let root = std::env::temp_dir().join(format!("kjk-bumps-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join(bumps::DIR)).expect("a temp dir");
+    let git = |args: &[&str]| {
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .output()
+            .expect("git runs");
+        assert!(status.status.success(), "git {args:?}: {status:?}");
+    };
+    let write = |name: &str| {
+        let text = "[formats]\nsave = \"x\"\n[migrations]\nsave = \"y\"\n";
+        std::fs::write(root.join(bumps::DIR).join(name), text).expect("a bump file");
+    };
+    let commit = |name: &str| {
+        write(name);
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", name]);
+    };
+    let numbers = || {
+        let pending = bumps::pending(&root).expect("the pending bumps");
+        bumps::pending_since(&pending, "save")
+    };
+    let named = |names: &[&str]| -> Vec<(String, u32)> {
+        (1..)
+            .zip(names)
+            .map(|(place, name)| (name.to_string(), place))
+            .collect()
+    };
+    git(&["init", "-q", "-b", "main"]);
+    commit("zz-first.toml");
+    git(&["checkout", "-q", "-b", "branch"]);
+    commit("aa-branch.toml");
+    git(&["checkout", "-q", "main"]);
+    commit("mm-second.toml");
+    let on_main = named(&["ZZ_FIRST", "MM_SECOND"]);
+    assert_eq!(numbers(), on_main);
+
+    git(&["checkout", "-q", "branch"]);
+    git(&["merge", "-q", "--no-edit", "main"]);
+    assert_eq!(numbers(), named(&["ZZ_FIRST", "MM_SECOND", "AA_BRANCH"]));
+
+    // The branch squash-merged: `aa` sorts first but reached `main` last.
+    git(&["checkout", "-q", "main"]);
+    commit("aa-branch.toml");
+    let merged = numbers();
+    assert_eq!(merged[..2], on_main[..]);
+    assert_eq!(merged, named(&["ZZ_FIRST", "MM_SECOND", "AA_BRANCH"]));
+
+    // A file not yet committed comes last.
+    write("ab-new.toml");
+    assert_eq!(
+        numbers(),
+        named(&["ZZ_FIRST", "MM_SECOND", "AA_BRANCH", "AB_NEW"])
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

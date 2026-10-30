@@ -128,10 +128,11 @@ impl Bump {
     }
 }
 
-/// The bump files under `root`, by name; an error names a bad one.
+/// The bump files under `root` in the order they reached `main`
+/// (`arrival`); an error names a bad one.
 pub fn pending(root: &Path) -> Result<Vec<Bump>, String> {
     let dir = root.join(DIR);
-    let mut paths = Vec::new();
+    let mut names = Vec::new();
     if dir.is_dir() {
         for entry in
             std::fs::read_dir(&dir).map_err(|error| format!("{}: {error}", dir.display()))?
@@ -143,19 +144,132 @@ pub fn pending(root: &Path) -> Result<Vec<Bump>, String> {
                 .extension()
                 .is_some_and(|extension| extension == "toml")
             {
-                paths.push(path);
+                names.push(
+                    path.file_name()
+                        .expect("a listed file")
+                        .to_string_lossy()
+                        .into_owned(),
+                );
             }
         }
     }
-    paths.sort();
-    paths
+    names.sort();
+    arrival(root, names)?
         .into_iter()
-        .map(|path| {
+        .map(|name| {
+            let path = dir.join(name);
             let text = std::fs::read_to_string(&path)
                 .map_err(|error| format!("{}: {error}", path.display()))?;
             parse(path, &text)
         })
         .collect()
+}
+
+/// The refs `main` is read from, the first there; else `HEAD` is all.
+const MAINS: [&str; 2] = ["origin/main", "main"];
+
+/// The files `names` of `DIR` (by name) in the order they reached `main`,
+/// so a number a build on `main` gives one never moves when a later file
+/// sorts before it: as `main`'s first parents added them; then the rest as
+/// `HEAD`'s did (a branch's own, after `main`'s, as its merge will number
+/// them); then those not committed, by name. Two or more need the history:
+/// an error without git or in a shallow clone.
+pub fn arrival(root: &Path, names: Vec<String>) -> Result<Vec<String>, String> {
+    if names.len() < 2 {
+        return Ok(names);
+    }
+    let shallow = git(root, &["rev-parse", "--is-shallow-repository"])?;
+    if shallow.trim() == "true" {
+        return Err(format!(
+            "{DIR}: a shallow clone hasn't the history that numbers the pending bump files (`git fetch --unshallow`, or `fetch-depth: 0`)"
+        ));
+    }
+    let main = MAINS
+        .into_iter()
+        .find(|name| {
+            git(
+                root,
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &format!("{name}^{{commit}}"),
+                ],
+            )
+            .is_ok()
+        })
+        .unwrap_or("HEAD");
+    let mut order: Vec<String> = Vec::new();
+    for rev in [main, "HEAD"] {
+        for name in added(root, rev)? {
+            if names.contains(&name) && !order.contains(&name) {
+                order.push(name);
+            }
+        }
+    }
+    for name in names {
+        if !order.contains(&name) {
+            order.push(name);
+        }
+    }
+    Ok(order)
+}
+
+/// The files of `DIR` that `rev`'s first parents added, as they were added
+/// (one added again where it was last).
+fn added(root: &Path, rev: &str) -> Result<Vec<String>, String> {
+    let log = git(
+        root,
+        &[
+            "log",
+            "--first-parent",
+            "--diff-merges=first-parent",
+            "--reverse",
+            "--no-renames",
+            "--diff-filter=A",
+            "--name-only",
+            "--format=",
+            rev,
+            "--",
+            DIR,
+        ],
+    )?;
+    let mut out: Vec<String> = Vec::new();
+    for line in log.lines() {
+        let name = line
+            .strip_prefix(DIR)
+            .and_then(|rest| rest.strip_prefix('/'))
+            .filter(|name| !name.contains('/'));
+        if let Some(name) = name {
+            out.retain(|other| other != name);
+            out.push(name.to_string());
+        }
+    }
+    Ok(out)
+}
+
+/// `git <args>`'s output in `root`; an error says what failed.
+fn git(root: &Path, args: &[&str]) -> Result<String, String> {
+    let what = || {
+        format!(
+            "{DIR}: the pending bump files are numbered by git's history: git {}",
+            args.join(" ")
+        )
+    };
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .map_err(|error| format!("{}: {error}", what()))?;
+    if !output.status.success() {
+        return Err(format!(
+            "{}: {}",
+            what(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// The bump file `name` holding `text`; an error names it.
