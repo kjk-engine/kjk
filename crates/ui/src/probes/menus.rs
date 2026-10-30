@@ -861,9 +861,9 @@ pub(super) fn review() -> Vec<Check> {
     let gone = !broken.is_open();
     let mut message = opened("message", &mut assets, &vm);
     let over_text = UiInput {
-        // 20 px into the grown box (its top 27 higher), the layout at its
-        // own size 160 and 60 in.
-        pointer: Some([160.0 + 174.0 + 20.0, 60.0 + 183.0 + 20.0]),
+        // 20 px into the box (a short message leaves it as it is), the
+        // layout at its own size 160 and 60 in.
+        pointer: Some([160.0 + 174.0 + 20.0, 60.0 + 210.0 + 20.0]),
         moved: true,
         window: (960.0, 600.0),
         ..keys(&[])
@@ -886,7 +886,45 @@ pub(super) fn review() -> Vec<Check> {
             )
             .map(|()| "OK keeps the focus".into())
         }),
+        check("message_box_grows_as_kotors", message_box_grows()),
     ]
+}
+
+/// A message too long for `confirm` grows it as KOTOR's message box does:
+/// taller to 161, wider by 40s to past 440 (290 → 450), taller past 279; the
+/// buttons go down with the list, and what still overflows scrolls.
+fn message_box_grows() -> Result<String, String> {
+    use crate::screen::Screen;
+    let shaped = |words: &str| {
+        let mut gui = confirm_box();
+        let mut message = crate::screens::message::Message::new(words);
+        message.fit(&mut gui, &mut Fake::new(), crate::skin::Source::Campaign);
+        let rows = message
+            .state(
+                gui.find("LB_MESSAGE").expect("the list"),
+                &ViewModel::default(),
+            )
+            .list
+            .map_or(0, |list| list.rows.len());
+        let shown = crate::paint::rows_that_fit(gui.find("LB_MESSAGE").expect("the list"), None);
+        let ok = gui.find("BTN_OK").expect("OK").extent;
+        (gui.extent, ok, rows, shown)
+    };
+    let (short, ..) = shaped("why");
+    // Words of the test font's four glyphs.
+    let (long, ok, rows, shown) = shaped(&"\u{1}\u{2}\u{3} ".repeat(400));
+    let grown = long.height - 87;
+    expect(
+        &format!("short {short:?}; long {long:?}, OK at {ok:?}, {rows} rows in {shown}"),
+        (short.width, short.height) == (290, 87)
+            && long.width == 450
+            && long.left == 174 - 80
+            && long.height > 279
+            && (210 - grown / 2..210).contains(&long.top)
+            && (ok.left, ok.top) == (300 + 80, 60 + grown)
+            && rows > shown,
+    )?;
+    Ok(format!("{long:?}, {rows} lines in {shown} rows"))
 }
 
 fn slider(tag: &str, id: i32, top: i32) -> Control {

@@ -179,7 +179,7 @@ pub fn levels(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
         );
 
         let career = vec![(0, mine.level)];
-        let auto = classes.auto(&mine, &career, 0).ok_or("the game's picks")?;
+        let auto = classes.auto(&mine, &career, 0, 0).ok_or("the game's picks")?;
         let greedy = Choices {
             feats: (0..=auto.feats.len() as u16)
                 .map(|n| soldier.feats[usize::from(n)])
