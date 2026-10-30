@@ -860,12 +860,39 @@ impl Walker {
         now_ms: u64,
         ways: &dyn Ways,
     ) -> Command {
-        self.command_round(level, player, now_ms, &|index| ways.door(index), &|face| {
-            ways.walls(face)
-        })
+        self.command_round(
+            level,
+            player,
+            now_ms,
+            &|index| ways.door(index),
+            &|face| ways.walls(face),
+            true,
+        )
     }
 
-    /// `command`, planning off the faces `walled` names (`route_round`).
+    /// `command` for a walk a player steers (the playthrough harness's), not
+    /// KOTOR's mover: one that finds no way looks again the next step, with
+    /// no pathfinding wait.
+    pub fn command_eager(
+        &mut self,
+        level: &Level,
+        player: &MotionState,
+        now_ms: u64,
+        ways: &dyn Ways,
+    ) -> Command {
+        self.command_round(
+            level,
+            player,
+            now_ms,
+            &|index| ways.door(index),
+            &|face| ways.walls(face),
+            false,
+        )
+    }
+
+    /// `command`, planning off the faces `walled` names (`route_round`);
+    /// with `waits`, a walk that finds no way waits KOTOR's pathfinding wait
+    /// before it looks again (`pathfind_wait_ms`).
     pub fn command_round(
         &mut self,
         level: &Level,
@@ -873,6 +900,7 @@ impl Walker {
         now_ms: u64,
         state: &dyn Fn(u32) -> ObjectState,
         walled: &dyn Fn(u32) -> bool,
+        waits: bool,
     ) -> Command {
         let idle = mind::looking(player, player.view[0], player.view[1]);
         if self.arrived(player) {
@@ -903,8 +931,8 @@ impl Walker {
         if !waiting && (self.waypoint.is_none() || reached || stalled) {
             self.plan(level, player.origin, state, walled, stalled);
             self.since_ms = match self.waypoint {
-                Some(_) => now_ms,
-                None => now_ms + pathfind_wait_ms(now_ms, self.goal),
+                None if waits => now_ms + pathfind_wait_ms(now_ms, self.goal),
+                _ => now_ms,
             };
         }
         let Some(corner) = self.waypoint else {

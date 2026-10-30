@@ -211,7 +211,7 @@ impl Chase {
         }
         let w = walker.as_mut().expect("planned above");
         if !w.arrived(player) && here.leads(player.origin, w.goal) {
-            return (w.command(here.level, player, now, &|index| here.to_try(index)), true);
+            return (w.command_eager(here.level, player, now, &|index| here.to_try(index)), true);
         }
         if d < w.best - 0.05 {
             w.best = d;
