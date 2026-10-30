@@ -155,13 +155,17 @@ fn names_build(root: &Path) -> Result<String, String> {
 /// A copy that fails part way (a link to nothing: it cannot be read) leaves
 /// no `update-*` folder, and the saves are not stamped, so the next launch
 /// tries again.
+#[cfg(not(unix))]
+fn failed_backup(_at: &Path) -> Result<String, String> {
+    Ok("not on this OS (needs a symlink)".into())
+}
+
+/// The check itself: it needs a symlink to fail on.
+#[cfg(unix)]
 fn failed_backup(at: &Path) -> Result<String, String> {
     let (root, kept) = (at.join("saves"), at.join("save-backups"));
     write_encoded(&root, Some(crate::QUICK), b"world", &meta("kept"))?;
-    #[cfg(unix)]
     std::os::unix::fs::symlink(at.join("nowhere"), root.join("broken")).map_err(io)?;
-    #[cfg(not(unix))]
-    return Ok("not on this OS (needs a symlink)".into());
     let made = backup_on_new_version(&root, &kept, "v0.2.0", "ab12cd34ef");
     let left: Vec<String> = std::fs::read_dir(&kept)
         .into_iter()

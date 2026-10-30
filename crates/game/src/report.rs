@@ -406,8 +406,8 @@ fn make(world: &mut World) {
         Ok(path) => {
             info!(target: "report", path = %path.display(), bytes = zipped.len(), "report made");
             if player {
-                open(&reports);
-                open(Path::new(ISSUE));
+                open_folder(&reports);
+                open_page(ISSUE);
             }
             format!(
                 "The report is saved as {}. Attach it to the issue opened in your browser.",
@@ -436,8 +436,8 @@ fn take_report(world: &mut World) -> Option<String> {
     }
 }
 
-/// `target` (a folder or a web page) opened as the system opens it.
-fn open(target: &Path) {
+/// `folder` opened as the system opens one.
+fn open_folder(folder: &Path) {
     let program = if cfg!(target_os = "macos") {
         "open"
     } else if cfg!(windows) {
@@ -445,8 +445,25 @@ fn open(target: &Path) {
     } else {
         "xdg-open"
     };
-    if let Err(error) = std::process::Command::new(program).arg(target).spawn() {
-        warn!(target: "report", "{program} {}: {error}", target.display());
+    spawn(program, &[folder.as_os_str()]);
+}
+
+/// The web page `url` opened in the default browser. Not by `explorer` on
+/// Windows: given an address with a query, it opens the Documents folder.
+fn open_page(url: &str) {
+    let url = std::ffi::OsStr::new(url);
+    if cfg!(windows) {
+        spawn("rundll32", &["url.dll,FileProtocolHandler".as_ref(), url]);
+    } else if cfg!(target_os = "macos") {
+        spawn("open", &[url]);
+    } else {
+        spawn("xdg-open", &[url]);
+    }
+}
+
+fn spawn(program: &str, args: &[&std::ffi::OsStr]) {
+    if let Err(error) = std::process::Command::new(program).args(args).spawn() {
+        warn!(target: "report", "{program} {args:?}: {error}");
     }
 }
 
