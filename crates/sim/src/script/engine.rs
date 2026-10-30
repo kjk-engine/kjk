@@ -983,6 +983,15 @@ impl Engine<'_> {
         self.view.thing(id)?.character
     }
 
+    /// `who`'s sheet as this step's scripts leave it, a creature made this
+    /// step too (`influence::sheet`): what `CreateObject` returns is a
+    /// creature at once, as in the game, so a script that makes one and
+    /// then sets its sheet (504OND's Bostuco made and kept at one hit
+    /// point) sets it.
+    fn sheet_now(&self, who: ObjectId) -> Option<crate::combat::Sheet> {
+        super::influence::sheet(self.view, self.out, who)
+    }
+
     /// `id`'s standard faction: a character's; a laid mine's, its layer's
     /// (`TrapState::faction`); else a door's, placeable's or trap's as its
     /// data sets it (Tatooine's "Sandperson Faction" placeable).
@@ -2683,14 +2692,15 @@ impl Engine<'_> {
             // it gives (`passive::learn`: Toughness for every level).
             GrantFeat => {
                 let who = object(args, 1);
-                if let (Ok(feat), Some(c)) = (u16::try_from(int(args, 0)), self.character(who)) {
-                    let mut sheet = self.out.sheet(who, c.worn);
-                    if !sheet.feats.has(feat) && feat < Rows::<4>::ROWS {
-                        sheet.feats.insert(feat);
-                        let levels = sheet.level;
-                        crate::combat::passive::learn(&mut sheet, feat, levels);
-                        self.out.changes.push(Change::Sheet { who, sheet });
-                    }
+                if let (Ok(feat), Some(mut sheet)) =
+                    (u16::try_from(int(args, 0)), self.sheet_now(who))
+                    && !sheet.feats.has(feat)
+                    && feat < Rows::<4>::ROWS
+                {
+                    sheet.feats.insert(feat);
+                    let levels = sheet.level;
+                    crate::combat::passive::learn(&mut sheet, feat, levels);
+                    self.out.changes.push(Change::Sheet { who, sheet });
                 }
                 Value::Int(0)
             }
@@ -2829,8 +2839,7 @@ impl Engine<'_> {
             }
             SetMinOneHP => {
                 let who = object(args, 0);
-                if let Some(c) = self.character(who) {
-                    let mut sheet = self.out.sheet(who, c.worn);
+                if let Some(mut sheet) = self.sheet_now(who) {
                     if int(args, 1) != 0 {
                         sheet.flags |= flags::MIN_ONE_HP;
                     } else {
@@ -2844,8 +2853,7 @@ impl Engine<'_> {
             // K1's `k_def_buff` raises a foe's by 100 for a strong player).
             SetMaxHitPoints => {
                 let who = object(args, 0);
-                if let Some(c) = self.character(who) {
-                    let mut sheet = self.out.sheet(who, c.worn);
+                if let Some(mut sheet) = self.sheet_now(who) {
                     sheet.max_hp = int(args, 1).clamp(1, i32::from(u16::MAX)) as u16;
                     let hp = sheet.max_hp;
                     self.out.changes.push(Change::Sheet { who, sheet });
@@ -2870,24 +2878,24 @@ impl Engine<'_> {
             GetMinOneHP => {
                 let who = object(args, 0);
                 truth(
-                    self.character(who).is_some_and(|c| {
-                        self.out.sheet(who, c.worn).flags & flags::MIN_ONE_HP != 0
-                    }),
+                    self.sheet_now(who)
+                        .is_some_and(|sheet| sheet.flags & flags::MIN_ONE_HP != 0),
                 )
             }
             // 0 (dark) to 100 (light); -1 for what is not a creature.
             GetGoodEvilValue => {
                 let who = object(args, 0);
                 Value::Int(
-                    self.character(who)
-                        .map_or(-1, |c| i32::from(self.out.sheet(who, c.worn).good_evil)),
+                    self.sheet_now(who)
+                        .map_or(-1, |sheet| i32::from(sheet.good_evil)),
                 )
             }
             GetAlignmentGoodEvil => {
                 let who = object(args, 0);
-                Value::Int(self.character(who).map_or(-1, |c| {
-                    alignment::side(self.out.sheet(who, c.worn).good_evil)
-                }))
+                Value::Int(
+                    self.sheet_now(who)
+                        .map_or(-1, |sheet| alignment::side(sheet.good_evil)),
+                )
             }
             // TSL's: its companions follow through influence.
             AdjustAlignment if self.library.influences() => {
@@ -2898,8 +2906,7 @@ impl Engine<'_> {
             // K1's moves only the one named.
             AdjustAlignment => {
                 let who = object(args, 0);
-                if let Some(c) = self.character(who) {
-                    let mut sheet = self.out.sheet(who, c.worn);
+                if let Some(mut sheet) = self.sheet_now(who) {
                     let was = sheet.good_evil;
                     sheet.good_evil =
                         alignment::shifted(sheet.good_evil, int(args, 1), int(args, 2));
@@ -2914,8 +2921,7 @@ impl Engine<'_> {
             }
             SetGoodEvilValue => {
                 let who = object(args, 0);
-                if let Some(c) = self.character(who) {
-                    let mut sheet = self.out.sheet(who, c.worn);
+                if let Some(mut sheet) = self.sheet_now(who) {
                     sheet.good_evil = int(args, 1).clamp(0, 100) as u8;
                     self.out.changes.push(Change::Sheet { who, sheet });
                 }

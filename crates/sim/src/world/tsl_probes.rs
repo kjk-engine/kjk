@@ -155,6 +155,12 @@ int GetStandardFaction(object oObject);
 void SetGlobalFadeOut(float fWait = 0.0f, float fLength = 0.0f, float fR = 0.0f, float fG = 0.0f, float fB = 0.0f);
 // 40
 void SetGlobalFadeIn(float fWait = 0.0f, float fLength = 0.0f, float fR = 0.0f, float fG = 0.0f, float fB = 0.0f);
+// 41
+object CreateObject(int nObjectType, string sTemplate, location lLocation, int bUseAppearAnimation = FALSE);
+// 42
+void SetMinOneHP(object oObject, int nMinOneHP);
+// 43
+int GetMinOneHP(object oObject);
 int OBJECT_TYPE_CREATURE = 1;
 "#;
 
@@ -330,6 +336,7 @@ fn library() -> crate::script::Library {
     let mut pc_faction_read = Asm::default();
     token(&mut pc_faction_read, 110, &[call(13, 0), call(38, 1)]);
     pc_faction_read.op(Op::Retn);
+    let (made_min_one_hp, min_one_hp_read) = made_min_one_hp();
     crate::probe::library(
         CATALOG,
         [
@@ -361,6 +368,8 @@ fn library() -> crate::script::Library {
             ("probe_local_booleans", booleans.build()),
             ("probe_pc_faction_read", pc_faction_read.build()),
             ("probe_selectability", selectability()),
+            ("probe_made_min_one_hp", made_min_one_hp),
+            ("probe_min_one_hp_read", min_one_hp_read),
         ],
     )
     .with_creatures(
@@ -446,6 +455,33 @@ fn spawned_again() -> Ncs {
     );
     asm.op(Op::Retn);
     asm.build()
+}
+
+/// `probe_made_min_one_hp`: the companion's template made at the player
+/// and kept at one hit point in the same script (504OND's `k_504_enter`
+/// makes Bostuco so), token 130 its `GetMinOneHP` then.
+/// `probe_min_one_hp_read`: token 131 its `GetMinOneHP` a step later.
+fn made_min_one_hp() -> (Ncs, Ncs) {
+    let made = || [int(0), text(COMPANION), call(21, 2)];
+    let mut make = Asm::default();
+    make.op(int(0)).op(call(13, 0)).op(call(12, 1));
+    make.op(text(COMPANION))
+        .op(int(1))
+        .op(call(41, 4))
+        .op(Op::MovSp(-4));
+    make.op(int(1));
+    for op in made() {
+        make.op(op);
+    }
+    make.op(call(42, 2));
+    let mut ops = made().to_vec();
+    ops.push(call(43, 1));
+    token(&mut make, 130, &ops);
+    make.op(Op::Retn);
+    let mut read = Asm::default();
+    token(&mut read, 131, &ops);
+    read.op(Op::Retn);
+    (make.build(), read.build())
 }
 
 /// The screen faded at once by `routine` (`SetGlobalFadeOut`, `SetGlobalFadeIn`).
@@ -675,6 +711,7 @@ pub fn probes() -> Checks {
     checks.push(("party_screen_accepted", party_screen_accepted()));
     checks.push(("area_iteration_skips_the_dead", area_skips_the_dead()));
     checks.push(("locals_of_nothing", locals_of_nothing()));
+    checks.push(("made_kept_at_one_hp", made_kept_at_one_hp()));
     for (name, game, wanted) in [
         (
             "local_booleans_k1",
@@ -703,6 +740,23 @@ pub fn probes() -> Checks {
         checks.push((name, local_numbers(game, wanted)));
     }
     checks
+}
+
+/// A creature a script makes is one at once: `SetMinOneHP` on it in the
+/// same script holds (504OND's Bostuco, made and kept at one hit point
+/// before his fights, died in the barracks without it), read in that
+/// script and a step later.
+fn made_kept_at_one_hp() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    step(&mut world);
+    run(&mut world, "probe_made_min_one_hp");
+    step(&mut world);
+    run(&mut world, "probe_min_one_hp_read");
+    let read = tokens(&step(&mut world), 130..=131);
+    check(
+        read == ["1", "1"],
+        format!("GetMinOneHP of the creature made, in its script and a step later: {read:?}"),
+    )
 }
 
 /// Atton made beside the player (not joined): the area's creatures are
