@@ -141,9 +141,11 @@ crates/sim/src/combat/gear.rs WILL  # a save's index
 crates/sim/src/combat/idle.rs FIRE_AND_FORGET  # the first fire-and-forget ANIMATION_* constant
 crates/sim/src/combat/idle.rs IDLES  # a list of JA animations
 crates/sim/src/combat/idle.rs LOOPED_ROWS  # numbering: where looping animations.2da rows are numbered from
+crates/sim/src/combat/items.rs ACTIVATE  # a script constant's number (ANIMATION_FIREFORGET_ACTIVATE)
 crates/sim/src/combat/items.rs COLD  # a damageflags bit
 crates/sim/src/combat/items.rs ELECTRICAL  # a damageflags bit
 crates/sim/src/combat/items.rs FIRE  # a damageflags bit
+crates/sim/src/combat/items.rs INJECT  # a script constant's number (ANIMATION_FIREFORGET_INJECT)
 crates/sim/src/combat/items.rs KINDS  # a snapshot array's size
 crates/sim/src/combat/mind.rs AIM_STEP  # Command::aim's wire step
 crates/sim/src/combat/mind.rs SWINGS  # the movement keys that pick each swing (input axes)

@@ -5,8 +5,10 @@
 //!
 //! - its usable kinds are its worn shield's uses;
 //! - its stun ray used on the creature: a charge spent;
-//! - its shield button casts the worn shield's spell on itself, its script
-//!   doing what it does (here nothing): a charge spent;
+//! - its shield button uses the worn shield: a charge spent as the use
+//!   begins, and the shield's spell cast on itself as it lands (the step
+//!   after: a step is longer than the use), its script doing what it does
+//!   (here nothing);
 //! - the stun ray on itself refused (a weapon is used on a foe);
 //! - the flamethrower's last charge: the item is discarded.
 
@@ -116,13 +118,14 @@ pub(super) fn cases(ran: &Ran) -> Checks {
             ran.notices
         )
     };
-    // Cast on itself, no native shield up in its script's place.
-    let cast_on = ran.states[SHIELDED]
+    // Cast on itself as the use lands, no native shield up in its
+    // script's place.
+    let cast_on = ran.states[REFUSED]
         .last
         .get(&(ran.host, crate::script::last::SPELL_TARGET))
         .copied();
     let shield = ran
-        .host(SHIELDED)
+        .host(REFUSED)
         .and_then(|host| host.fighter)
         .map(|fighter| fighter.pack.shield.map(|shield| shield.row));
     vec![

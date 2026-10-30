@@ -207,10 +207,11 @@ save and load in game (from the options, as KOTOR's: a click points at a
 save, a double click, Enter or Save acts on it; an old save's overwriting
 is confirmed (`confirm`), then the name is typed in KOTOR's `savename` box,
 the area's offered for a new save, the old one's over it; a save made says
-"Game saved" at the right edge under the minimap, F5's too; loading during play starts the
-program again into the save, and quitting to the main menu starts it
-again on the menu, the logos not played again: `--back-to-menu`; not
-KOTOR's yet, which leaves the session in place); character creation (class, quick or custom,
+"Game saved" at the right edge under the minimap, F5's too, and a refused
+F5 says why there; loading during play, alone, loads in place behind the
+loading screen as KOTOR does (the reload the party's fall makes,
+`sim_host::ReloadRequest`); quitting to the main menu starts the program
+again on the menu, the logos not played again: `--back-to-menu`); character creation (class, quick or custom,
 portrait, 30-point abilities, skills, feats, name; the character made is
 the first seat's player, `docs/WORLD-STATE.md`, "The player character");
 loading (a session's start and

@@ -3101,12 +3101,17 @@ fn place(
     // Guns in hand or on their way to or from the holsters (`draw_anim`)
     // keep the arms the pose's.
     let readying = drawn.is_some_and(|drawn| drawn.in_hand || drawn.stow > 0.0);
+    // An item's use (`sim::combat::items::clips`) plays over a drawn
+    // weapon too: a shield's band is switched on in the middle of a fight.
+    let using = at.fighter.is_some_and(|f| f.pack.using.is_some());
     let acting = held.or(at.fighter.and_then(|f| f.acting));
     // One that hides the equipped items (Security, a mine's) puts the gun
     // away as it begins: the gun going does not break it off.
     let hiding = acting.is_some_and(|acting| acting::hides_items(&acting, ms));
     let still = held.is_some()
-        || (x * x + y * y).sqrt() < STILL_SPEED && at.alive && (hiding || !armed && !readying);
+        || (x * x + y * y).sqrt() < STILL_SPEED
+            && at.alive
+            && (hiding || (!armed || using) && !readying);
     if let Some(playing) = &mut body.playing {
         playing.clear();
     }

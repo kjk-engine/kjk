@@ -720,10 +720,18 @@ name (the hit's type, `Assessed::damage_type`) for 200 s or until spent.
 **Stims** (4) for 120 s: adrenals +4/+6 STR, DEX or CON, battle stims
 +1/+2/+3 to hit and damage and +8/+16/+25 vitality, a pool taken before
 hit points and gone at the end.
-One shield and one stim at a time; items are used on a press. Minds heal
-below 35% (an antidote when afflicted), raise a shield and take a stim in
-a fight (`ai::choose_item`), never before they are aware. `kjk combat
-items k1`: 12 checks.
+One shield and one stim at a time, and one use at a time. A use runs as
+KOTOR's item spell: the item leaves the goods on the press, its user plays
+`inject` ("Inject_Self_In_Leg"; its weapons hidden, `hideequippeditems`),
+a shield `activate` ("Activate_Wrist"), for the use's time (a heal's
+above; anything else its `spells.2da` row's conjtime 170 + casttime 1330
+= 1.5 s, `items.using.use_ms`), and what it does lands at the end (its
+impact script cast then: `k_sup_healing`, `k_sup_comshots`,
+`k_sup_bands`), the weapon idle meanwhile. Damage and moving do not break
+it off; a stun, a knockdown or a fall does (`items::break_off`), the item
+gone. Minds heal below 35% (an antidote when afflicted), raise a shield
+and take a stim in a fight (`ai::choose_item`), never before they are
+aware. `kjk combat items k1`: 14 checks.
 
 ## Grenades (`combat::grenades`; I22 section 7)
 KOTOR's grenades thrown as JA's thermal detonator: the grenade button

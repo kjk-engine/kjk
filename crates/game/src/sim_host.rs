@@ -25,8 +25,9 @@
 //! where it is. A replay installs the modules its recording did, after
 //! the same ticks, each checked against the recording's announcement.
 //!
-//! The reload after the whole party fell (I30 P13, `ReloadRequest`): the
-//! host's latest save's module planned as an install, and at the commit the
+//! A save loaded in place (`ReloadRequest`): the reload after the whole
+//! party fell (I30 P13), and a load during a game played alone (the
+//! screens' Load, quick load). The save's module planned as an install, and at the commit the
 //! world made from the save (`play::from_save`) in place of the plan's,
 //! numbered from the tick it stopped at. Every player follows it as any
 //! install, taking the world whole (a keyframe), without leaving. The
@@ -1270,7 +1271,7 @@ fn autosave(
 /// this run plans none).
 fn reload_start(authority: &mut Authority, id: &str, loading: &mut Loading) -> Result<(), String> {
     let (save, _) =
-        crate::save_view::read(id).map_err(|why| format!("The last save does not load: {why}"))?;
+        crate::save_view::read(id).map_err(|why| format!("The save does not load: {why}"))?;
     let request = authority
         .lifecycle
         .as_ref()
@@ -1283,7 +1284,7 @@ fn reload_start(authority: &mut Authority, id: &str, loading: &mut Loading) -> R
                 .with_players(place.players)
         });
     let request = request.ok_or(
-        "The last save does not load now: a module is loading, this run plans none, \
+        "The save does not load now: a module is loading, this run plans none, \
          or the save is not in one.",
     )?;
     info!(target: "saves", id, module = %request.module, "reloading");
@@ -1379,8 +1380,9 @@ fn advance(
             None => request.failed = Some("this run installs no modules".into()),
         }
     }
-    // The party fell: the latest save's module planned as an install, the
-    // world made from the save at its commit; or why not, over the lost box.
+    // A save loaded in place (the party fell, or a load during play): its
+    // module planned as an install, the world made from the save at its
+    // commit; or why not, in a message.
     if let Some(id) = reload.0.take()
         && let Err(why) = reload_start(authority, &id, &mut loading)
     {

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `d32879d214268a70`.
+Edition `bb898ef735bbe4db`.
 
 ## Contents
 
@@ -1403,9 +1403,11 @@ limits; upgrades; stores and the workbench; and what the dead leave behind.
 
 A medpac, stim or energy shield is used from its own key. The medpac key
 uses an antidote kit if the character is poisoned or weakened, otherwise a
-medpac (a repair kit for a droid), otherwise a squad recovery stim. A
-medpac or repair kit takes effect when its use is complete; an energy
-shield or stim takes effect at once.
+medpac (a repair kit for a droid), otherwise a squad recovery stim. The
+character injects a medpac, antidote or stim, or switches on an energy
+shield at the wrist; the item is used up as that begins and takes effect
+when it is done. Being stunned, knocked down or downed meanwhile stops
+it; being hit or moving does not.
 
 Only one energy shield and one stim can be active at a time. Opponents also
 use medpacs, shields and stims in combat.
@@ -1428,11 +1430,11 @@ Using a medpac or repair kit always takes at least 0.5 seconds.
 
 <sub>Source: I22 section 5 (ours). Code: `sim::combat::items::heal_ms`.</sub>
 
-<a id="items-using-quick-ms"></a>**Shield and Stim Use** = **0.5 seconds** (`500 ms`) · `items.using.quick_ms`
+<a id="items-using-use-ms"></a>**Item Use Time** = **1.5 seconds** (`1500 ms`) · `items.using.use_ms`
 
-Using an energy shield or stim keeps the character from attacking for 0.5 seconds.
+Using an energy shield, stim, antidote kit or squad recovery stim takes 1.5 seconds; it takes effect at the end.
 
-<sub>Source: I22 section 7 (ours). Code: `sim::combat::items::QUICK_MS`.</sub>
+<sub>Source: spells.2da (K1 and TSL): every item row's conjtime 170 + casttime 1330, its impact script run at the cast's end. Code: `sim::combat::items::USE_MS`.</sub>
 
 ### <a id="items-medpacs"></a>Medpacs
 

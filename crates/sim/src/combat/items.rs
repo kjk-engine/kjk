@@ -38,6 +38,7 @@
 //! afflicted, else its own kind of heal, else a squad stim), `SHIELD`,
 //! `STIM`; grenades `GRENADE`.
 
+use crate::combat::idle::Acting;
 use crate::combat::sheet::{Ability, DAMAGE_TYPES, Sheet, races, skills};
 use crate::combat::{Fighter, effects};
 use crate::snapshot::SimId;
@@ -50,8 +51,19 @@ pub const SHIELD_MS: u64 = rules::items::shields::MS;
 pub const STIM_MS: u64 = rules::items::stims::MS;
 /// A squad stim's reach (units).
 pub const SQUAD_REACH: f32 = rules::items::squad_stim::REACH_M / collision::UNIT;
-/// The weapon time an instant use (shield, stim) takes (ms).
-pub const QUICK_MS: i32 = rules::items::using::QUICK_MS;
+/// How long a use other than a heal takes (ms): an item's `spells.2da`
+/// row's conjure and cast time, its impact at the end.
+pub const USE_MS: u64 = rules::items::using::USE_MS;
+
+/// The clips a use plays on its user (`ANIMATION_FIREFORGET_…`, whose
+/// `animations.2da` rows TSL describes): a shield's band switched on at
+/// the wrist (`activate`, "Activate_Wrist"), anything else injected
+/// (`inject`, "Inject_Self_In_Leg"; its weapons hidden meanwhile,
+/// `hideequippeditems`).
+pub mod clips {
+    pub const INJECT: u16 = 112;
+    pub const ACTIVATE: u16 = 115;
+}
 
 /// What a stim does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +103,14 @@ pub enum Use {
 }
 
 impl Use {
+    /// The clip its use plays (`clips`).
+    pub fn clip(self) -> u16 {
+        match self {
+            Use::Shield { .. } => clips::ACTIVATE,
+            _ => clips::INJECT,
+        }
+    }
+
     /// Which button uses it.
     pub fn button(self) -> u16 {
         use crate::input::buttons;
@@ -353,7 +373,7 @@ pub struct Stimmed {
 /// What a character has used of what it carries and what still runs on
 /// it: how many of each kind it used that its holder's items do not yet
 /// show (the authority takes each use from them in the step it is made,
-/// `world::item_uses`), the last use, a throw's charge, a heal under way,
+/// `world::item_uses`), the last use, a throw's charge, a use under way,
 /// a shield and a stim, what poisons and grenades left on it (a poison,
 /// drained abilities), and a use Use Item asked for. Carried in snapshots.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -363,7 +383,7 @@ pub struct Pack {
     pub last: (u16, u64),
     /// When the grenade button began a throw's charge (sim ms).
     pub charging_from: Option<u64>,
-    /// A heal under way: its row, and when it lands (sim ms).
+    /// A use under way: its row, and when it lands (sim ms).
     pub using: Option<(u16, u64)>,
     pub shield: Option<Shielded>,
     pub stim: Option<Stimmed>,
@@ -594,26 +614,47 @@ pub fn stim_damage(pack: &Pack) -> i8 {
     }
 }
 
-/// What an item button's press did (`press`).
+/// What an item button's press did, or a use landing (`press`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Pressed {
     /// A squad heal's points to share out (the native rule).
     pub squad: Option<u8>,
-    /// Something was used: the weapon waits.
+    /// A use began: the weapon waits for it.
     pub used: bool,
     /// The `spells.2da` row whose impact script does what the item does,
     /// cast on its user now (`scripted` rows).
     pub cast: Option<u16>,
-    /// The row of the item used: one of it is spent now, whenever what it
-    /// does lands.
+    /// The row of the item used: one of it leaves the goods now, as its use
+    /// begins.
     pub spent: Option<u16>,
 }
 
+/// How long the use of the item of `row` takes a user with `sheet` (ms): a
+/// heal less with each rank of its skill (`heal_ms`), anything else its
+/// row's conjure and cast time (`USE_MS`).
+fn use_ms(sheet: &Sheet, row: u16) -> u64 {
+    match use_of(row) {
+        Some(Use::Heal { .. }) => {
+            let skill = if sheet.race == races::DROID {
+                skills::REPAIR
+            } else {
+                skills::TREAT_INJURY
+            };
+            heal_ms(sheet.skill(skill).clamp(0, 255) as u8)
+        }
+        _ => USE_MS,
+    }
+}
+
 /// One step of the item buttons (`held` this step; an item is used on a
-/// press) for a fighter with `sheet`: starts a heal, or puts up a shield
-/// or a stim (`take`). A use Use Item or an item talent asked for
-/// (`Pack::queued`, already taken from the goods) is taken first, a heal once the one under way
-/// has landed.
+/// press) for a fighter with `sheet`. A use runs as KOTOR's: the item
+/// leaves the goods as it begins, its user plays its clip (`Use::clip`)
+/// for the use's time (`use_ms`), and what the item does lands at the end
+/// (`land`). Damage does not break it off; a stun, a knockdown or a fall
+/// does (`break_off`, in the firing step), the item gone with it. One use
+/// at a time: a press meanwhile does nothing. A use Use Item or an item
+/// talent asked for (`Pack::queued`, already taken from the goods) is
+/// begun first, once none runs.
 pub fn press(
     fighter: &mut Fighter,
     sheet: &Sheet,
@@ -625,21 +666,27 @@ pub fn press(
     use crate::input::buttons;
     let droid = sheet.race == races::DROID;
     let alive = fighter.alive();
-    let pack = &mut fighter.pack;
     let items = buttons::MEDPAC | buttons::SHIELD | buttons::STIM;
-    let pressed = held & items & !pack.held;
-    pack.held = held & items;
-    if let Some(row) = pack.queued.filter(|row| match use_of(*row) {
-        Some(Use::Grenade) => false,
-        Some(Use::Heal { .. }) => alive && pack.using.is_none(),
-        _ => alive,
-    }) {
+    let pressed = held & items & !fighter.pack.held;
+    fighter.pack.held = held & items;
+    if let Some((row, until)) = fighter.pack.using {
+        if !alive {
+            break_off(fighter, now);
+        } else if until <= now {
+            fighter.pack.using = None;
+            return land(fighter, sheet, row, now, authority, scripted(row));
+        }
+        return Pressed::default();
+    }
+    let pack = &mut fighter.pack;
+    if let Some(row) = pack
+        .queued
+        .filter(|row| alive && use_of(*row).is_some_and(|u| u != Use::Grenade))
+    {
         pack.queued = None;
-        pack.last = (row, now);
-        let taken = take(fighter, sheet, row, now, authority, scripted(row));
         return Pressed {
             spent: None,
-            ..taken
+            ..begin(fighter, sheet, row, now)
         };
     }
     let medpac = || {
@@ -654,7 +701,7 @@ pub fn press(
             })
             .or_else(|| pack.next(&sheet.items, |u| matches!(u, Use::Squad { .. })))
     };
-    let found = (pressed & buttons::MEDPAC != 0 && pack.using.is_none())
+    let found = (pressed & buttons::MEDPAC != 0)
         .then(medpac)
         .flatten()
         .or_else(|| {
@@ -667,27 +714,55 @@ pub fn press(
                 .then(|| pack.next(&sheet.items, |u| matches!(u, Use::Stim(_))))
                 .flatten()
         });
-    let Some((at, carried)) = found else {
+    let Some((at, carried)) = found.filter(|_| alive) else {
         return Pressed::default();
     };
     pack.spend(at, carried.row, now);
-    take(
-        fighter,
-        sheet,
-        carried.row,
-        now,
-        authority,
-        scripted(carried.row),
-    )
+    begin(fighter, sheet, carried.row, now)
 }
 
-/// What using the item of `row` does on `fighter`, whose sheet is `sheet`.
-/// An item whose row is `scripted` (its `spells.2da` impact script,
-/// `k_sup_healing`, `k_sup_bands`, `k_sup_comshots`) is cast, its script
-/// doing what it does (a heal at the end of its use, `settle`); the rest do
-/// as their descriptions say, a shield or a stim in place of one up. A
-/// grenade is thrown, not taken so: nothing.
-fn take(
+/// The use of the item of `row` begun by `fighter` (with `sheet`): its
+/// clip played for its time, landing at its end. A grenade is thrown, not
+/// used so: nothing.
+fn begin(fighter: &mut Fighter, sheet: &Sheet, row: u16, now: u64) -> Pressed {
+    let Some(kind) = use_of(row).filter(|u| *u != Use::Grenade) else {
+        return Pressed::default();
+    };
+    let ms = use_ms(sheet, row);
+    fighter.pack.using = Some((row, now + ms));
+    fighter.pack.last = (row, now);
+    fighter.acting = Some(Acting {
+        animation: kind.clip(),
+        since: now,
+        ms: ms as u32,
+    });
+    Pressed {
+        used: true,
+        spent: Some(row),
+        ..Pressed::default()
+    }
+}
+
+/// The use under way on `fighter` broken off at `now`: nothing done (its
+/// item already gone), its clip ended.
+pub fn break_off(fighter: &mut Fighter, now: u64) {
+    if fighter.pack.using.take().is_none() {
+        return;
+    }
+    if fighter.acting.is_some_and(|acting| {
+        acting.playing(now) && [clips::INJECT, clips::ACTIVATE].contains(&acting.animation)
+    }) {
+        fighter.acting = None;
+    }
+}
+
+/// The use of the item of `row`, run its time on `fighter` (with `sheet`),
+/// lands at `now`. An item whose row is `scripted` (its `spells.2da`
+/// impact script, `k_sup_healing`, `k_sup_bands`, `k_sup_comshots`) is
+/// cast, its script doing what it does; the rest do as their descriptions
+/// say (on the authority where they heal), a shield or a stim in place of
+/// one up.
+fn land(
     fighter: &mut Fighter,
     sheet: &Sheet,
     row: u16,
@@ -695,35 +770,31 @@ fn take(
     authority: bool,
     scripted: bool,
 ) -> Pressed {
-    let used = Pressed {
-        used: true,
-        spent: Some(row),
-        ..Pressed::default()
-    };
-    let cast = Pressed {
-        cast: Some(row),
-        ..used
-    };
     match use_of(row) {
         None | Some(Use::Grenade) => Pressed::default(),
-        Some(Use::Heal { .. }) => {
-            let skill = if sheet.race == races::DROID {
-                skills::REPAIR
-            } else {
-                skills::TREAT_INJURY
-            };
-            let rank = sheet.skill(skill).clamp(0, 255) as u8;
-            fighter.pack.using = Some((row, now + heal_ms(rank)));
-            used
+        Some(_) if scripted => Pressed {
+            cast: Some(row),
+            ..Pressed::default()
+        },
+        Some(Use::Heal {
+            points,
+            per_rank,
+            droid,
+        }) => {
+            if authority {
+                let max_hp = i32::from(sheet.max_hp) * 100;
+                let healed = healing(sheet, points, per_rank, droid) * 100;
+                fighter.hp = (fighter.hp + healed).min(max_hp).max(fighter.hp);
+            }
+            Pressed::default()
         }
-        Some(_) if scripted => cast,
         Some(Use::Antidote) => {
             effects::remove(fighter, Some(effects::POISON_ID), now);
-            used
+            Pressed::default()
         }
         Some(Use::Squad { points }) => Pressed {
             squad: authority.then_some(points),
-            ..used
+            ..Pressed::default()
         },
         Some(Use::Shield { points, types }) => {
             fighter.pack.shield = Some(Shielded {
@@ -732,7 +803,7 @@ fn take(
                 left: points,
                 until: now + SHIELD_MS,
             });
-            used
+            Pressed::default()
         }
         Some(Use::Stim(stim)) => {
             fighter.pack.stim = Some(Stimmed {
@@ -743,40 +814,14 @@ fn take(
                 Stim::Battle { vitality, .. } => i32::from(vitality) * 100,
                 Stim::Ability(..) => 0,
             };
-            used
+            Pressed::default()
         }
     }
 }
 
-/// What runs out at `now` on a fighter with `sheet`: a heal under way
-/// lands (on the authority, up to the maximum; a `scripted` row's is cast
-/// then, its row returned), a shield and a stim end (a battle stim's
-/// vitality left with it).
-pub fn settle(
-    fighter: &mut Fighter,
-    sheet: &Sheet,
-    now: u64,
-    authority: bool,
-    scripted: impl Fn(u16) -> bool,
-) -> Option<u16> {
-    let max_hp = i32::from(sheet.max_hp) * 100;
-    let pack = &mut fighter.pack;
-    let mut cast = None;
-    if let Some((row, _)) = pack.using.filter(|(_, until)| *until <= now) {
-        pack.using = None;
-        match use_of(row) {
-            _ if scripted(row) => cast = Some(row),
-            Some(Use::Heal {
-                points,
-                per_rank,
-                droid,
-            }) if authority => {
-                let healed = healing(sheet, points, per_rank, droid) * 100;
-                fighter.hp = (fighter.hp + healed).min(max_hp).max(fighter.hp);
-            }
-            _ => {}
-        }
-    }
+/// What runs out at `now` on a fighter: a shield and a stim end (a battle
+/// stim's vitality left with it).
+pub fn settle(fighter: &mut Fighter, now: u64) {
     let pack = &mut fighter.pack;
     if pack
         .shield
@@ -788,7 +833,6 @@ pub fn settle(
         pack.stim = None;
         pack.vitality = 0;
     }
-    cast
 }
 
 /// What a shield up on `pack` takes of `damage` hundredths of damage type
