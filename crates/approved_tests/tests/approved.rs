@@ -2,8 +2,8 @@
 //! `weapon_holdings` 2026-10-01; the `dialogue_…` three 2026-10-02;
 //! `blank_cells_name_nothing` proposed 2026-10-02; `saves_round_trip`
 //! 2026-10-02; the I31 co-op ten 2026-10-03; `scene_mode` 2026-10-17;
-//! `old_saves_load` and `bump_files` proposed 2026-10-28), by the names
-//! approved.
+//! `old_saves_load` and `bump_files` proposed 2026-10-28; `stale_stamps_load`
+//! proposed 2026-10-30), by the names approved.
 //! What each checks and how to re-pin: `docs/TESTS.md`.
 
 use approved_tests::{discovery, hash_left_to_merge, module_source, pinned_hash};
@@ -2001,11 +2001,10 @@ fn old_saves_load() {
             seen += 1;
             continue;
         }
-        let mut save =
+        let save =
             sim::Save::decode(&bytes).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         let again = sim::Save::decode(&save.encode()).expect("a re-encoded save decodes");
         assert_eq!(again, save, "{}: re-encoding changes it", path.display());
-        sim::fixtures::restamp(&mut save, &level);
         save.world(&level, 2, None)
             .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         seen += 1;
@@ -2061,6 +2060,82 @@ fn old_saves_load() {
             path.display()
         );
     }
+}
+
+/// Every format fixture this build reads, stamped with other data than its
+/// levels' (its own level, its place and the module it left), loads
+/// re-stamped with the level's digest and walks back into the module it
+/// left, re-stamped as it enters; another level, or the module left planned
+/// for another player count, is still refused
+/// (docs/superpowers/specs/2026-10-28-save-migrations-design.md, 3b).
+#[test]
+fn stale_stamps_load() {
+    let dir = approved_tests::workspace().join(sim::fixtures::DIR);
+    let (level, left) = (sim::fixtures::kitchen_sink().0, sim::fixtures::left());
+    let stale = |digest: &mut [u8; 32]| digest.iter_mut().for_each(|byte| *byte = !*byte);
+    let mut seen = 0;
+    for entry in std::fs::read_dir(&dir).expect("the fixtures folder") {
+        let path = entry.expect("a fixture").path();
+        let name = path.display().to_string();
+        let versions = path
+            .file_name()
+            .and_then(|name| sim::fixtures::versions_of(&name.to_string_lossy()));
+        if versions.is_none_or(sim::fixtures::refused) {
+            continue;
+        }
+        let mut save = sim::Save::decode(&std::fs::read(&path).expect("a fixture reads"))
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        stale(&mut save.level.digest);
+        if let Some(place) = &mut save.snapshot.place {
+            stale(&mut place.digest);
+        }
+        let mut modules = save.snapshot.stash.to_vec();
+        modules
+            .iter_mut()
+            .for_each(|stashed| stale(&mut stashed.place.digest));
+        save.snapshot.stash = sim::Stash::new(modules);
+
+        let restamp = save
+            .restamp(&level)
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert_eq!(
+            restamp.map(|restamp| (restamp.from, restamp.to)),
+            Some((save.level.digest, level.digest())),
+            "{name}: its own level re-stamped"
+        );
+        let load = || {
+            save.world(&level, 2, None)
+                .unwrap_or_else(|error| panic!("{name}: {error}"))
+        };
+        let mut world = load();
+        let place = world.snapshot().place.expect("the save is in a module");
+        assert_eq!(place.digest, level.digest(), "{name}: its place re-stamped");
+        assert!(
+            world.stale_stamp(&left).is_some(),
+            "{name}: the module left is stamped with other data"
+        );
+        world
+            .install(left.clone(), None)
+            .unwrap_or_else(|error| panic!("{name}: back into the module left: {error}"));
+
+        let mut recounted = (**left.module().expect("a module")).clone();
+        recounted.players += 1;
+        let error = load()
+            .install(left.clone().with_module(recounted), None)
+            .expect_err("the module left, planned for other players");
+        assert!(
+            matches!(error, sim::InstallError::StashChanged { .. }),
+            "{name}: {error}"
+        );
+
+        let error = save
+            .world(&left, 2, None)
+            .map(|_| ())
+            .expect_err("a save in another level");
+        assert!(error.contains("another level"), "{name}: {error}");
+        seen += 1;
+    }
+    assert!(seen > 0, "no fixture this build reads in {}", dir.display());
 }
 
 /// Bump files say how old saves are read (bumps/README.md): a format saves
