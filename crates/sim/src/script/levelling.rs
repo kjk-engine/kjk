@@ -71,12 +71,11 @@ impl super::engine::Engine<'_> {
     /// `AddMultiClass`: `who` takes up `class` (a player becoming a Jedi on
     /// Dantooine, TSL's Exile a prestige class) with no levels in it yet
     /// (`CSWSCreatureStats::AddClass`). A player's party is given the XP
-    /// its next level asks (TSL's `ExecuteCommandAddMultiClass`:
-    /// `DistributeExperience` of `GetExpNeededForLevelUp` less its XP; K1's
-    /// [verify in the exe]), so its next level-up is of the new class; a
-    /// companion, whose XP is the party's, takes a level in it at once with
-    /// the game's picks, as TSL's auto level-up does after the XP it gives
-    /// it.
+    /// its next level asks (both games' `ExecuteCommandAddMultiClass`:
+    /// `DistributeExperience` of `GetExpNeededForLevelUp` less its XP), so
+    /// its next level-up is of the new class. K1's does that for any
+    /// creature; TSL's gives one outside the party that XP itself and levels
+    /// it at once with the game's picks (`AutoLevelup`).
     pub(super) fn multiclass(&mut self, who: ObjectId, class: Option<u8>) {
         let classes = self.library.classes();
         let Some((class, character)) = class.zip(self.view.thing(who).and_then(|t| t.character))
@@ -89,19 +88,27 @@ impl super::engine::Engine<'_> {
             return;
         }
         career.push((class, 0));
-        if self.view.party.contains(&who) {
+        let in_party = self.view.party.contains(&who);
+        let tsl = crate::combat::passive::Game::named(&self.view.module.game)
+            == crate::combat::passive::Game::Tsl;
+        if in_party || !tsl {
             self.report
                 .line(format!("#{} takes up class {class} ({career:?})", who.0));
             self.state.careers.insert(who.0, career);
-            let needed = classes.next(sheet.level).unwrap_or(0) - self.state.xp(PARTY);
+            let holder = super::xp::holder(self.view, self.state, who);
+            let needed = classes.next(sheet.level).unwrap_or(0) - self.state.xp(holder);
             if needed > 0 {
                 self.out.reward(self.state, needed);
                 super::xp::tell_pc_level(self.library, self.view, self.state);
             }
             return;
         }
-        if let Some(choices) = classes.auto(&sheet, &career, class)
-            && let Some((after, career)) = classes.take(&sheet, &career, &choices)
+        let holder = super::xp::holder(self.view, self.state, who);
+        let needed = classes.next(sheet.level).unwrap_or(0) - self.state.xp(holder);
+        self.state.give_xp(holder, needed.max(0));
+        let banked = banked(self.state, who);
+        if let Some(choices) = classes.auto(&sheet, &career, class, banked)
+            && let Some((after, career, unspent)) = classes.take(&sheet, &career, &choices, banked)
         {
             self.report.line(format!(
                 "#{} takes up class {class}: level {} ({career:?})",
@@ -109,6 +116,7 @@ impl super::engine::Engine<'_> {
             ));
             levelled(&mut self.out.changes, who, sheet, after);
             self.state.careers.insert(who.0, career);
+            bank(self.state, who, unspent);
         }
     }
 }
@@ -128,13 +136,14 @@ impl Step<'_> {
                 continue;
             };
             let choices = classes.complete(&sheet, &career, &choices);
+            let banked = banked(self.state, who);
             let asked = format!(
                 "level {}, career {career:?}, class {}",
                 sheet.level, choices.class
             );
             let taken = classes
                 .may_level(sheet.level, xp)
-                .then(|| classes.take(&sheet, &career, &choices))
+                .then(|| classes.take(&sheet, &career, &choices, banked))
                 .flatten();
             match taken {
                 Some(taken) => self.took(who, sheet, taken, &choices),
@@ -157,8 +166,9 @@ impl Step<'_> {
             while let Some((sheet, career)) = self.now(who, 0)
                 && classes.may_level(sheet.level, xp)
                 && let Some(&(class, _)) = career.first()
-                && let Some(choices) = classes.auto(&sheet, &career, class)
-                && let Some(taken) = classes.take(&sheet, &career, &choices)
+                && let Some(choices) = classes.auto(&sheet, &career, class, banked(self.state, who))
+                && let Some(taken) =
+                    classes.take(&sheet, &career, &choices, banked(self.state, who))
             {
                 self.took(who, sheet, taken, &choices);
             }
@@ -178,7 +188,7 @@ impl Step<'_> {
         &mut self,
         who: ObjectId,
         before: Sheet,
-        (after, career): (Sheet, Career),
+        (after, career, unspent): (Sheet, Career, u8),
         choices: &Choices,
     ) {
         self.report.line(format!(
@@ -187,6 +197,21 @@ impl Step<'_> {
         ));
         levelled(&mut self.out.changes, who, before, after);
         self.state.careers.insert(who.0, career);
+        bank(self.state, who, unspent);
+    }
+}
+
+/// The skill points `who` left unspent at its levels before.
+pub fn banked(state: &State, who: ObjectId) -> u8 {
+    state.unspent.get(&who.0).copied().unwrap_or(0)
+}
+
+/// `who` leaves `points` unspent for its next level.
+fn bank(state: &mut State, who: ObjectId, points: u8) {
+    if points > 0 {
+        state.unspent.insert(who.0, points);
+    } else {
+        state.unspent.remove(&who.0);
     }
 }
 

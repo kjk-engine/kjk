@@ -1417,10 +1417,15 @@ fn advance(
                     info!(target: "saves", tick, "reloaded");
                     first
                 }
-                None => prepared
-                    .plan
-                    .commit(&mut authority.world)
-                    .map_err(|error| error.to_string())?,
+                None => {
+                    if let Some(restamp) = authority.world.stale_stamp(&prepared.plan.level) {
+                        warn!(target: "save-migrate", "{restamp}");
+                    }
+                    prepared
+                        .plan
+                        .commit(&mut authority.world)
+                        .map_err(|error| error.to_string())?
+                }
             };
             if let Some(expect) = &job.expect {
                 expect

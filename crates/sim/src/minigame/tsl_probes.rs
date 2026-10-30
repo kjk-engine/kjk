@@ -789,8 +789,21 @@ fn talk_while_playing() -> Result<Result<String, String>, String> {
     world.set_script_state(state);
     let mut still = TickInput::default();
     still.insert(Seat(0), Command::default());
-    let tick = advance(&mut world, 0, 2, &still);
+    let mut tick = advance(&mut world, 0, 2, &still);
     let begun = world.snapshot().talk.conversations.first().map(|c| c.id);
+    // Its line played: the replies are up.
+    for _ in 0..1000 {
+        if world
+            .snapshot()
+            .talk
+            .conversations
+            .iter()
+            .any(|c| c.offers())
+        {
+            break;
+        }
+        tick = advance(&mut world, tick, 1, &still);
+    }
     let mut goodbye = TickInput::default();
     goodbye.insert(
         Seat(0),

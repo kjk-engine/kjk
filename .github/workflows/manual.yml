@@ -37,6 +37,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The order the pending bump files reached main numbers them.
+          fetch-depth: 0
 
       - name: Toolchain
         run: rustup toolchain install
@@ -67,6 +70,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The order the pending bump files reached main numbers them.
+          fetch-depth: 0
 
       - name: Linux packages
         if: runner.os == 'Linux'

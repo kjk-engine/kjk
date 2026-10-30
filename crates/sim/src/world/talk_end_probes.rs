@@ -16,7 +16,8 @@
 //! nothing tells the player it is locked.
 //!
 //! Owners lost: a party member's conversation goes on while its owner
-//! lies knocked out (it gets up again), and is cut short by its death.
+//! lies knocked out (it gets up again) and after its death; one whose
+//! owner is destroyed is cut short.
 
 use super::{Fighting, Id, Object, SimWorld};
 use crate::StepReason;
@@ -50,6 +51,8 @@ string GetTag(object oObject);
 void SetLocked(object oTarget, int bLocked);
 // 4
 void ActionOpenDoor(object oDoor);
+// 5
+void DestroyObject(object oDestroy, float fDelay=0.0f, int bNoFade = FALSE, float fDelayUntilFade = 0.0f, int nHideFeedback = 0);
 "#;
 
 /// What a hearer is besides its kind.
@@ -98,10 +101,24 @@ fn opens_itself() -> fmt_odyssey::ncs::Ncs {
     asm.build()
 }
 
+/// `DestroyObject(OBJECT_SELF, 0.0, TRUE)`: at once, unfaded.
+fn destroys_itself() -> fmt_odyssey::ncs::Ncs {
+    let mut asm = Asm::default();
+    asm.op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::Float(0.0)))
+        .op(Op::Const(Const::Int(1)))
+        .op(Op::Const(Const::Float(0.0)))
+        .op(Op::Const(Const::Object(0)))
+        .op(call(5, 5))
+        .op(Op::Retn);
+    asm.build()
+}
+
 fn library() -> crate::script::Library {
     let dialogues: BTreeMap<String, fmt_odyssey::dlg::Dlg> = [
         ("probe_talk", talking(2, "")),
         ("probe_one_liner", talking(0, "")),
+        ("probe_destroyed_talk", talking(2, "probe_destroy_self")),
         ("probe_nothing_to_say", {
             let mut dlg = talking(2, "");
             dlg.starts.clear();
@@ -115,6 +132,7 @@ fn library() -> crate::script::Library {
         [
             ("probe_tell_tag", tells_tag()),
             ("probe_open_self", opens_itself()),
+            ("probe_destroy_self", destroys_itself()),
             ("probe_nothing", {
                 let mut asm = Asm::default();
                 asm.op(Op::Retn);
@@ -171,6 +189,29 @@ pub(super) fn id_of(world: &mut SimWorld, index: u32) -> Result<u32, String> {
 
 pub(super) fn step(world: &mut SimWorld, tick: u64, input: &TickInput) -> Snapshot {
     crate::step(world, tick, input, MSEC, StepReason::Authority)
+}
+
+/// Whether the first conversation's replies are up (`Conversation::offers`:
+/// an answer counts from then, as the UI sends one).
+pub(super) fn offered(snapshot: &Snapshot) -> bool {
+    snapshot
+        .talk
+        .conversations
+        .first()
+        .is_some_and(|c| c.offers())
+}
+
+/// The seat's command answering `pick`.
+fn picking(pick: Pick) -> TickInput {
+    let mut input = TickInput::default();
+    input.insert(
+        Seat(0),
+        Command {
+            reply: answer(0, pick),
+            ..Command::default()
+        },
+    );
+    input
 }
 
 /// What the player was told (`Notice::Said`), in order.
@@ -287,25 +328,22 @@ fn ends(ending: Ending) -> Result<Vec<String>, String> {
         Ending::Leave => Some(Pick::Leave),
         Ending::OneLiner | Ending::NothingToSay => None,
     };
-    // The pick held (one answer, however many steps carry it) until the
-    // replies are up and it is taken.
-    let mut input = TickInput::default();
-    if let Some(pick) = pick {
-        input.insert(
-            Seat(0),
-            Command {
-                reply: answer(0, pick),
-                ..Command::default()
-            },
-        );
-    }
+    // The pick sent once the replies are up (the line played), held (one
+    // answer, however many steps carry it) until it is taken; a leave at
+    // once.
+    let mut up = false;
     for _ in 0..ANSWER_STEPS {
         tick += 1;
+        let input = match pick {
+            Some(pick) if up || pick == Pick::Leave => picking(pick),
+            _ => still.clone(),
+        };
         let snapshot = step(&mut world, tick, &input);
         told(&mut world, &mut said);
         if snapshot.talk.conversations.is_empty() {
             return Ok(said);
         }
+        up |= offered(&snapshot);
     }
     Err(format!(
         "the conversation did not end: {:?}; told {said:?}",
@@ -320,6 +358,9 @@ enum Lost {
     KnockedOut,
     /// Dead for good.
     Dead,
+    /// Not of the party, destroyed by its first line's script
+    /// (`DestroyObject(OBJECT_SELF)`, as TSL's `a_next_scene` takes VisasCut).
+    Destroyed,
 }
 
 /// A dead creature with a conversation queued for it to start
@@ -396,18 +437,24 @@ fn owner_lost(lost: Lost) -> Result<(bool, bool), String> {
     )];
     let (mut world, first) = world_with(placed, None, library())?;
     let owner = id_of(&mut world, first)?;
-    let mut state = world.script_state().clone();
-    let slot = crate::script::party::Npc {
-        template: "buddy".into(),
-        object: None,
-        kept: None,
-        template_data: None,
+    let dialog = match lost {
+        Lost::Destroyed => "probe_destroyed_talk",
+        Lost::KnockedOut | Lost::Dead => {
+            let mut state = world.script_state().clone();
+            let slot = crate::script::party::Npc {
+                template: "buddy".into(),
+                object: None,
+                kept: None,
+                template_data: None,
+            };
+            state.party.available.insert(0, slot);
+            if !state.party.join(0, owner) {
+                return Err("buddy did not join".into());
+            }
+            world.set_script_state(state);
+            "probe_talk"
+        }
     };
-    state.party.available.insert(0, slot);
-    if !state.party.join(0, owner) {
-        return Err("buddy did not join".into());
-    }
-    world.set_script_state(state);
     let mut tick = 1;
     let player = step(&mut world, tick, &TickInput::default())
         .body(Seat(0))
@@ -418,7 +465,7 @@ fn owner_lost(lost: Lost) -> Result<(bool, bool), String> {
         owner: ObjectId(owner),
         pc: ObjectId(player),
         asker: ObjectId(player),
-        dialog: "probe_talk".into(),
+        dialog: dialog.into(),
         bark: false,
     });
     world.set_script_state(state);
@@ -441,6 +488,7 @@ fn owner_lost(lost: Lost) -> Result<(bool, bool), String> {
                     fighting.0.hp = 0;
                     fighting.0.life = Life::Dead;
                 }
+                Lost::Destroyed => {}
             }
         }
     }
@@ -454,19 +502,19 @@ fn owner_lost(lost: Lost) -> Result<(bool, bool), String> {
         .conversations
         .iter()
         .any(|c| c.id == id);
-    let mut input = TickInput::default();
-    input.insert(
-        Seat(0),
-        Command {
-            reply: answer(0, Pick::Reply(1)),
-            ..Command::default()
-        },
-    );
+    let mut up = offered(&world.snapshot());
     for _ in 0..ANSWER_STEPS {
         tick += 1;
-        if step(&mut world, tick, &input).talk.conversations.is_empty() {
+        let input = if up {
+            picking(Pick::Reply(1))
+        } else {
+            still.clone()
+        };
+        let snapshot = step(&mut world, tick, &input);
+        if snapshot.talk.conversations.is_empty() {
             break;
         }
+        up |= offered(&snapshot);
     }
     let ended = |aborted: bool| {
         world.script_report().talk.iter().any(|line| {
@@ -561,15 +609,32 @@ pub fn probes() -> Checks {
                 Err(why) => Err(why),
             },
         ),
-        // A dead owner is still there, its conversation the object's: TSL's
-        // `miraend` goes on past its owner's death, which its own first
-        // line's script deals (`a_305end_setup0`, Visquis) [verify in the exe].
+        // The conversation is its owner's object's: TSL's exe keeps it on the
+        // owner (`CSWSObject::StartDialog` sets it there, the main loop runs
+        // the owner's `UpdateDialog`). A dead owner is still there, so
+        // `miraend` goes on past the death its own first line's script deals
+        // (`a_305end_setup0`, Visquis).
         (
             "owner_dead_talks_on",
             match owner_lost(Lost::Dead) {
                 Ok((on, cut)) => check(
                     on && !cut,
                     format!("under way after the death {on}, cut short {cut}"),
+                ),
+                Err(why) => Err(why),
+            },
+        ),
+        // A destroyed one is not: `DestroyObject`'s event deletes the creature
+        // at once, whatever it is doing (`CSWSCreature::EventHandler` asks only
+        // that it is destroyable and not the player's or the party's), and
+        // its destructor the conversation with it. So Visas's joining talk
+        // ends at the Handmaiden's line, whose `a_next_scene` takes VisasCut.
+        (
+            "owner_destroyed_cut_short",
+            match owner_lost(Lost::Destroyed) {
+                Ok((on, cut)) => check(
+                    !on && cut,
+                    format!("under way after the destruction {on}, cut short {cut}"),
                 ),
                 Err(why) => Err(why),
             },

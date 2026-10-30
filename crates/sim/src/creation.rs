@@ -66,13 +66,14 @@ pub enum Refused {
     Level,
 }
 
-/// The sheet and career `creation` starts with: a level-0 character of its
-/// scores, of `faction`, taking its first level.
+/// The sheet and career `creation` starts with, and the skill points it
+/// leaves unspent: a level-0 character of its scores, of `faction`, taking
+/// its first level.
 pub fn sheet(
     classes: &Classes,
     creation: &Creation,
     faction: u8,
-) -> Result<(Sheet, Career), Refused> {
+) -> Result<(Sheet, Career, u8), Refused> {
     if spent(&creation.abilities).is_none_or(|spent| spent > u32::from(POINTS)) {
         return Err(Refused::Scores);
     }
@@ -82,8 +83,8 @@ pub fn sheet(
         powers: Vec::new(),
         ..classes.complete(&unmade, &none, &creation.choices)
     };
-    let (mut sheet, career) = classes
-        .take(&unmade, &none, &choices)
+    let (mut sheet, career, unspent) = classes
+        .take(&unmade, &none, &choices, 0)
         .ok_or(Refused::Level)?;
     let of = &classes.classes[usize::from(choices.class)];
     for &feat in &of.pc_granted {
@@ -92,7 +93,7 @@ pub fn sheet(
             crate::combat::passive::learn(&mut sheet, feat, 0);
         }
     }
-    Ok((sheet, career))
+    Ok((sheet, career, unspent))
 }
 
 /// A character of `abilities` and `faction` before its first level: level
