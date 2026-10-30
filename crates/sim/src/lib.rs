@@ -62,6 +62,10 @@ pub mod spawner;
 pub mod stealth;
 pub mod target;
 #[cfg(feature = "probes")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "checks and traces set up their own cases on one machine"
+)]
 pub mod trace;
 pub mod traps;
 pub mod visuals;

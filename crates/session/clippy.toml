@@ -1,0 +1,33 @@
+# `unwrap_or_default()` hides which fallback a site takes; `unwrap_or(explicit)`
+# names it.
+#
+# This crate decides sim state, which every machine must compute to the same
+# bits (`docs/SIM.md`): the platform's own transcendental functions differ
+# between C libraries in their last bits, so they are refused here.
+# `collision::trig` is the portable trigonometry; `sqrt` and `+ - * /` are
+# exact on every platform.
+disallowed-methods = [
+  "std::option::Option::unwrap_or_default",
+  "std::result::Result::unwrap_or_default",
+  { path = "f32::sin", reason = "platform libm; use collision::trig" },
+  { path = "f32::cos", reason = "platform libm; use collision::trig" },
+  { path = "f32::sin_cos", reason = "platform libm; use collision::trig" },
+  { path = "f32::tan", reason = "platform libm; use collision::trig" },
+  { path = "f32::asin", reason = "platform libm" },
+  { path = "f32::acos", reason = "platform libm" },
+  { path = "f32::atan", reason = "platform libm" },
+  { path = "f32::atan2", reason = "platform libm; use collision::trig::atan2_deg" },
+  { path = "f32::hypot", reason = "platform libm; use sqrt(x * x + y * y)" },
+  { path = "f32::powf", reason = "platform libm" },
+  { path = "f32::exp", reason = "platform libm" },
+  { path = "f32::ln", reason = "platform libm" },
+  { path = "f64::sin", reason = "platform libm; use collision::trig" },
+  { path = "f64::cos", reason = "platform libm; use collision::trig" },
+  { path = "f64::tan", reason = "platform libm" },
+  { path = "f64::acos", reason = "platform libm" },
+  { path = "f64::atan2", reason = "platform libm" },
+  { path = "f64::hypot", reason = "platform libm" },
+  { path = "f64::powf", reason = "platform libm" },
+  { path = "f64::exp", reason = "platform libm" },
+  { path = "f64::ln", reason = "platform libm" },
+]
