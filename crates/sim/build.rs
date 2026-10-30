@@ -2,7 +2,8 @@
 //! sim's formats, added to its version so a branch's encoding is refused by
 //! `main`'s and the other way round, before its merge numbers it
 //! (`bumps/README.md`); and `since`, the version each pending bump of a
-//! format saves hold gives it, by the bump's name, for decoders to read the
+//! format saves hold gives it, by the bump's name and its place in the order
+//! the files reached `main` (`bumps::arrival`), for decoders to read the
 //! layouts before it (`crate::since`); and `oldest`, the version a pending
 //! `breaking` bump refuses saves before (0 for none), which raises each
 //! format's `OLDEST` before the merge does.
