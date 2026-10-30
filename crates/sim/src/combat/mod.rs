@@ -11,6 +11,7 @@
 //! - `missiles`: bolts in flight;
 //! - `mind`: aiming, swinging and looking, as a mind's hands;
 //! - `ai`: creatures' minds (I27): tasks, routes, powers;
+//! - `balance`: TSL's creature autobalance (`autobalance.2da`);
 //! - `saber`: lightsabers and melee (I24);
 //! - `force`: the Force (I26);
 //! - `forms`: TSL's Forms, lightsaber and Force;
@@ -20,6 +21,7 @@
 //! - `spells`: the `spells.2da` rows the native rules name, by label.
 
 pub mod ai;
+pub mod balance;
 pub mod damage;
 pub mod death;
 pub mod effects;

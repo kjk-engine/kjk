@@ -22,14 +22,15 @@ use crate::wire::Writer;
 
 /// The XP tables: `plot.2da` (label, XP) by row, and `xptable.2da`'s XP a
 /// death gives by the party's level (row) and the challenge rating
-/// (column `c0`, `c1`, …); TSL's `autobalance.2da` `CRMod` by row, and
+/// (column `c0`, `c1`, …); TSL's `autobalance.2da` by row (its `CRMod`
+/// here, the rest `combat::balance`'s), and
 /// `npc.2da`'s `PercentXP` of its rows 13 (`GAME_XP_General`) and 14
 /// (`PER_NPC_Bonus`), which TSL's executable scales a death's XP by.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Experience {
     pub plots: Vec<(String, i32)>,
     pub kills: Vec<Vec<i32>>,
-    pub balance_cr: Vec<i32>,
+    pub balance: Vec<crate::combat::balance::Multipliers>,
     pub percent: Option<(i32, i32)>,
 }
 
@@ -79,7 +80,10 @@ impl Experience {
     ) -> i32 {
         let rating = match autobalanced {
             Some((set, pc_level)) => {
-                let crmod = self.balance_cr.get(usize::from(set)).copied().unwrap_or(0);
+                let crmod = self
+                    .balance
+                    .get(usize::from(set))
+                    .map_or(0, |row| row.crmod);
                 (i32::from(pc_level.max(1)) + crmod).max(0)
             }
             None => challenge as i32,
@@ -114,14 +118,21 @@ impl Experience {
             }
         }
         // TSL's alone, so K1's digest stays.
-        if !self.balance_cr.is_empty() || self.percent.is_some() {
-            out.u32(self.balance_cr.len() as u32);
-            for crmod in &self.balance_cr {
-                out.u32(*crmod as u32);
+        if !self.balance.is_empty() || self.percent.is_some() {
+            out.u32(self.balance.len() as u32);
+            for row in &self.balance {
+                out.u32(row.crmod as u32);
             }
             let (general, per_npc) = self.percent.unwrap_or((100, 0));
             out.u32(general as u32);
             out.u32(per_npc as u32);
+            for row in &self.balance {
+                for multiplier in [
+                    row.vp, row.to_hit, row.armour, row.damage, row.save, row.level,
+                ] {
+                    out.u32(multiplier.to_bits());
+                }
+            }
         }
     }
 }

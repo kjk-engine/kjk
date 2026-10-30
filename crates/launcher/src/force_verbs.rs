@@ -63,6 +63,7 @@ fn fixed_quirks(stage: &Stage, start: &Snapshot, target: usize, report: &mut Rep
             location: Location::None,
             direction: Some([1.0, 0.0, 0.0]),
             sneak: 0,
+            dice: 1,
         };
         let mut rng = SimRng::new(1, 0);
         damage::assess(

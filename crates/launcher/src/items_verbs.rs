@@ -218,6 +218,7 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
             location: sim::combat::Location::Chest,
             direction: None,
             sneak: 0,
+            dice: 1,
         },
         None,
         &Sheet::dev_soldier(),

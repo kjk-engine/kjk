@@ -376,6 +376,7 @@ pub(super) fn think(
         let me = sheet_of(sheet, object);
         let mine = faction_of(fighter, &me);
         let me_now = crate::combat::effects::sheet_now(me, fighter, now);
+        let my_dice = crate::combat::balance::dice(fighter);
         // What its powers cost it where it stands (hundredths; TSL's
         // adjustments, `ModuleData::power_cost`).
         let party = super::in_party(avatar, fighter);
@@ -685,7 +686,7 @@ pub(super) fn think(
                         Some(crate::script::actions::Use::Feat(row)) => Some(row),
                         _ => None,
                     });
-                    let me_side = (&me_now, beast);
+                    let me_side = (&me_now, beast, my_dice);
                     if let Some(round) = level.0.scripts().and_then(|library| {
                         begin_round(
                             id.0,
@@ -1621,8 +1622,8 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
 /// attacker's last two; this draw does not [verify how often it shows].
 fn begin_round<'a>(
     me: SimId,
-    ((sheet, beast), feat, swung_at): (
-        (&crate::combat::sheet::Sheet, bool),
+    ((sheet, beast, dice), feat, swung_at): (
+        (&crate::combat::sheet::Sheet, bool, u8),
         Option<u16>,
         Option<u64>,
     ),
@@ -1668,7 +1669,7 @@ fn begin_round<'a>(
         && damage::critical(roll, &weapon, &defending, Some(confirm), &mut || {
             die(22, 20)
         });
-    let rolled = damage::weapon_roll(&weapon, Some(sheet), &mut next);
+    let rolled = damage::weapon_roll(&weapon, Some(sheet), dice, &mut next);
     let (hurt, _) = damage::weapon_damage(
         &weapon,
         Some(sheet),

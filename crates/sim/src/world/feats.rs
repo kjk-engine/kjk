@@ -571,6 +571,7 @@ fn reduction() -> (&'static str, Result<String, String>) {
         location: Location::Chest,
         direction: None,
         sneak: 0,
+        dice: 1,
     };
     let dealt = |known: &[u16]| {
         (0..50)

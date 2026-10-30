@@ -58,6 +58,7 @@ pub fn mean_hit(
             location: Location::Chest,
             direction: None,
             sneak: 0,
+            dice: 1,
         };
         let assessed = damage::assess(
             &blow,

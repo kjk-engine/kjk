@@ -6,6 +6,7 @@
 //! Carried whole in every snapshot.
 
 use crate::combat::ai::Mind;
+use crate::combat::balance::Balance;
 use crate::combat::effects::Effects;
 use crate::combat::force::ForceState;
 use crate::combat::idle::{Acting, Rest};
@@ -439,6 +440,12 @@ pub struct Fighter {
     pub flourish_ready: u64,
     /// What scripts made of its body for good (`Look`).
     pub look: Look,
+    /// TSL's autobalance, if its spawn balanced it (`combat::balance`): the
+    /// player's level as it spawned (`PCLevelAtSpawn`) and what the getters
+    /// add for it; `None` for everyone else, and for a creature spawned
+    /// before kjk kept it (a save from before: its death's XP reads
+    /// `G_PC_LEVEL` as it dies, as kjk did then).
+    pub balance: Option<Balance>,
 }
 
 /// What scripts made of a body for good (I35): TSL's `ChangeObjectAppearance`
@@ -573,6 +580,7 @@ impl Fighter {
             fake_until: 0,
             flourish_ready: 0,
             look: Look::default(),
+            balance: None,
         }
     }
 
@@ -733,6 +741,12 @@ impl Fighter {
         out.u64(self.fake_until);
         out.u64(self.flourish_ready);
         self.look.encode(out);
+        write_fixed(
+            out,
+            self.balance.as_ref(),
+            &Balance::default(),
+            Balance::encode,
+        );
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Fighter, DecodeError> {
@@ -785,6 +799,13 @@ impl Fighter {
         let fake_until = input.u64()?;
         let flourish_ready = input.u64()?;
         let look = Look::decode(input)?;
+        // Kept since TSL's autobalance; a creature an older save holds
+        // spawned without it.
+        let balance = if input.since(crate::since::snapshot::CLAUDE_TSL_AUTOBALANCE) {
+            read_fixed(input, &Balance::default(), Balance::decode, "balance flag")?
+        } else {
+            None
+        };
         Ok(Fighter {
             hp,
             fp,
@@ -817,6 +838,7 @@ impl Fighter {
             fake_until,
             flourish_ready,
             look,
+            balance,
         })
     }
 }

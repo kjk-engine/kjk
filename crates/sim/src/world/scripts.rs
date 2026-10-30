@@ -328,21 +328,58 @@ fn kill_xp(view: &View, library: &script::Library, state: &script::State, dead: 
         }
         // TSL's: by the level the PC's XP reaches; an autobalanced
         // creature rated by its `MultiplierSet`'s `CRMod` past the PC's
-        // level, which the executable keeps as it spawned
-        // (`PCLevelAtSpawn`: `G_PC_LEVEL`) and kjk reads as it dies
-        // [verify: a level taken in between].
+        // level as it spawned (`PCLevelAtSpawn`, which
+        // `CSWSCreature::HandleAutoBalancing` kept from `G_PC_LEVEL` and
+        // `CalculateDeathExperience` reads: `combat::balance`), a level
+        // taken since counting for nothing. One a save from before kjk kept
+        // it holds, by `G_PC_LEVEL` as it dies.
         let xp = state.xp(crate::inventory::PARTY);
         let potential = library.classes().potential_level(player.level, xp);
         let autobalanced = (facts.multiplier_set != 0).then(|| {
-            let pc_level = script::global(&state.numbers, script::xp::PC_LEVEL)
-                .and_then(|level| u8::try_from(*level).ok())
-                .unwrap_or(player.level);
+            let pc_level = character.pc_level_at_spawn.unwrap_or_else(|| {
+                script::global(&state.numbers, script::xp::PC_LEVEL)
+                    .and_then(|level| u8::try_from(*level).ok())
+                    .unwrap_or(player.level)
+            });
             (facts.multiplier_set, pc_level)
         });
         let members = state.party.members.len() + 1;
         Some(experience.tsl_kill(potential, facts.challenge, autobalanced, members))
     };
     worth().unwrap_or(0)
+}
+
+/// TSL's autobalance of a creature as its spawn is handled
+/// (`CSWSCreature::HandleAutoBalancing`, `combat::balance::autobalance`),
+/// where kjk queues its spawn script: in TSL only, its template's
+/// `MultiplierSet` (`facts`) a row of `autobalance.2da`, not 0, P the global
+/// number `G_PC_LEVEL` now (0 where it was never set, the executable's
+/// unset global). `sheet` and `fighter` are the creature's own; the caller
+/// has seen it is no player's character and no party member (the
+/// executable's guard: no PC). Whether it was balanced.
+pub(super) fn autobalance(
+    level: &Level,
+    state: &State,
+    facts: &crate::module::ObjectData,
+    sheet: &mut crate::combat::Sheet,
+    fighter: &mut crate::combat::Fighter,
+) -> bool {
+    let tsl = level.game() == crate::combat::passive::Game::Tsl;
+    let Some(library) = level.scripts().filter(|_| tsl && facts.multiplier_set != 0) else {
+        return false;
+    };
+    let pc_level = script::global(&state.numbers, script::xp::PC_LEVEL)
+        .map_or(0, |level| (*level).clamp(0, i32::from(u8::MAX)) as u8);
+    let rows = &library.experience().balance;
+    let base = facts.hit_points.map(|(_, most)| most);
+    crate::combat::balance::autobalance(
+        sheet,
+        fighter,
+        (facts.multiplier_set, rows),
+        base,
+        pc_level,
+    );
+    fighter.balance.is_some()
 }
 
 /// A character as perception sees it (units, degrees): where it is, its
@@ -513,11 +550,19 @@ pub(super) fn scripts(
                     .zip(data)
                     .and_then(|(o, data)| o.state.hit_points(data))
             });
-        let character = fighter.map(|(fighter, sheet)| Character {
+        let character = fighter.map(|(fighter, sheet)| {
+            (
+                fighter,
+                sheet,
+                crate::combat::effects::sheet_now(sheet, fighter, now),
+            )
+        });
+        let character = character.map(|(fighter, sheet, now_sheet)| Character {
             faction: faction_of(fighter, &sheet),
             poisoned: fighter.pack.poison.map(|poison| ObjectId(poison.by.0)),
             race: sheet.race,
-            level: sheet.level,
+            level: now_sheet.level,
+            pc_level_at_spawn: fighter.balance.map(|balance| balance.pc_level),
             party: in_party(avatar, fighter),
             // A creature's player is its mind's driver (`drivers::assign`
             // sets and clears it in place); a player's, its avatar's seat.
@@ -541,7 +586,7 @@ pub(super) fn scripts(
             fp: fighter.fp,
             feats: sheet.feats,
             lasting: fighter.effects.lasting,
-            sheet: crate::combat::effects::sheet_now(sheet, fighter, now),
+            sheet: now_sheet,
             worn: sheet,
             hand: fighter.hand,
             absorbing: fighter.force.absorbing(now),
@@ -1681,6 +1726,41 @@ fn jumped(
 }
 
 impl SimWorld {
+    /// TSL's autobalance of the module's own creatures `ids` on its first
+    /// visit (`autobalance`): those no player's body and in no party; a
+    /// balanced one's grown sheet becomes its own (`PlayerSheet`), as the
+    /// executable stores the grown hit points.
+    fn autobalance_placed(&mut self, level: &Level, state: &State, ids: &[u32]) {
+        if ids.is_empty() {
+            return;
+        }
+        let mut grown = Vec::new();
+        let mut creatures = self.world.query::<(
+            Entity,
+            &Id,
+            &Object,
+            &mut Fighting,
+            Option<&PlayerSheet>,
+            Option<&Avatar>,
+        )>();
+        for (entity, id, object, mut fighting, sheet, avatar) in creatures.iter_mut(&mut self.world)
+        {
+            let Some(facts) = object.facts.as_deref() else {
+                continue;
+            };
+            if !ids.contains(&id.0.0) || in_party(avatar, &fighting.0) {
+                continue;
+            }
+            let mut own = sheet_of(sheet, Some(object));
+            if autobalance(level, state, facts, &mut own, &mut fighting.0) {
+                grown.push((entity, own));
+            }
+        }
+        for (entity, sheet) in grown {
+            self.world.entity_mut(entity).insert(PlayerSheet(sheet));
+        }
+    }
+
     /// What the scripts keep (a save carries it).
     pub fn script_state(&self) -> &State {
         &self.world.resource::<Scripts>().state
@@ -1818,6 +1898,7 @@ impl SimWorld {
                 .iter(&self.world)
                 .map(|(id, object)| (object.index, id.0.0))
                 .collect();
+            let mut balancing = Vec::new();
             if state.spawned.insert(script::key(&module.name)) {
                 // The first visit: the module's placements come alive,
                 // every one's starting items (I19), then the creatures'
@@ -1837,7 +1918,11 @@ impl SimWorld {
                         state.pending.push(Pending::new(script, ObjectId(*id)));
                     }
                 }
+                balancing = placed.iter().map(|(id, _)| *id).collect();
             }
+            // TSL's autobalance, as each creature's spawn is handled, before
+            // its spawn script (`autobalance`).
+            self.autobalance_placed(&level, state, &balancing);
             let mut players: Vec<(u8, ObjectId)> = self
                 .world
                 .query::<(&Id, &Avatar, Option<&Object>)>()

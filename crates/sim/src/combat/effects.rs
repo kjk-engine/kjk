@@ -967,8 +967,13 @@ fn running(until: u64, level: u8, now: u64) -> usize {
 /// saves), valor, Slow's penalties, Affliction's and Plague's sapped
 /// points, Energy Resistance; scores, skills, saves and to hit moved by
 /// them no further than `gear::Caps`. What the pipeline, the saves and the
-/// powers read.
-pub fn sheet_now(sheet: Sheet, fighter: &Fighter, now: u64) -> Sheet {
+/// powers read. First TSL's autobalance (`Fighter::balance`), which the
+/// executable's own getters of the base attack bonus, defence, the base
+/// saves and the level add (`combat::balance`): the base the rest moves.
+pub fn sheet_now(mut sheet: Sheet, fighter: &Fighter, now: u64) -> Sheet {
+    if let Some(balance) = &fighter.balance {
+        balance.fold(&mut sheet);
+    }
     let worn = sheet;
     let mut sheet = items::affected(sheet, &fighter.pack, now);
     wear(&mut sheet);

@@ -1454,8 +1454,12 @@ pub struct Character {
     pub poisoned: Option<ObjectId>,
     /// `racialtypes.2da` row.
     pub race: u8,
-    /// Total character level (`GetHitDice`).
+    /// Total character level (`GetHitDice`): its sheet's now, TSL's
+    /// autobalance's with it (`combat::balance`).
     pub level: u8,
+    /// TSL's autobalance: the player's level as it spawned
+    /// (`PCLevelAtSpawn`, `Fighter::balance`), if its spawn balanced it.
+    pub pc_level_at_spawn: Option<u8>,
     /// A player or a companion.
     pub party: bool,
     /// The seat whose body it is: a player's own seat, or the seat driving

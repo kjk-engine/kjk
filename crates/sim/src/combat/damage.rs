@@ -156,6 +156,9 @@ pub struct Blow {
     pub direction: Option<[f32; 3]>,
     /// Sneak attack d6s a weapon's hit adds (`combat::specials`).
     pub sneak: u8,
+    /// What the attacker's TSL autobalance multiplies each of its weapon's
+    /// dice by (`combat::balance::dice`); 1 for none.
+    pub dice: u8,
 }
 
 /// What a hit is worth, before it lands.
@@ -284,11 +287,13 @@ pub fn confirming(attacker: &Sheet, (attack, defence): (i32, i32)) -> (i32, i32)
     (attack + forms::confirm(attacker), defence)
 }
 
-/// A weapon hit's own roll (whole points): its dice, its bonus dice and
-/// its item bonus, with its attacker's STR (`strength`) and its
-/// specialization's bonus; at least `rules::combat::damage::LEAST_ROLL`.
-pub fn weapon_roll(weapon: &Weapon, attacker: Option<&Sheet>, die: Die<'_>) -> i64 {
-    let mut roll = dice(weapon.dice, weapon.die, die)
+/// A weapon hit's own roll (whole points): its dice (each × `factor`, an
+/// autobalanced attacker's, TSL's `GetDamageRoll` and `GetUnarmedDamageRoll`:
+/// `combat::balance`), its bonus dice and its item bonus, with its
+/// attacker's STR (`strength`) and its specialization's bonus; at least
+/// `rules::combat::damage::LEAST_ROLL`.
+pub fn weapon_roll(weapon: &Weapon, attacker: Option<&Sheet>, factor: u8, die: Die<'_>) -> i64 {
+    let mut roll = dice(weapon.dice, weapon.die, die) * i64::from(factor)
         + dice(weapon.bonus_dice, weapon.bonus_die, die)
         + i64::from(weapon.damage_bonus);
     if let Some(sheet) = attacker {
@@ -516,7 +521,7 @@ pub fn assess(
             // the body), its size the chance KOTOR's roll would have hit.
             let odds = attacker.map(|sheet| odds(sheet, &weapon, target));
             let p = odds.map_or(1000, |(attack, defence)| margin(attack, defence));
-            let roll = weapon_roll(&weapon, attacker, &mut stream_die(rng));
+            let roll = weapon_roll(&weapon, attacker, blow.dice, &mut stream_die(rng));
             let roll = if mighty {
                 roll.saturating_mul(MIGHTY_TIMES)
             } else {
