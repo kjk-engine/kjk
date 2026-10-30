@@ -26,9 +26,9 @@
 #   vouch for the Exile (c_global_eq), so Kelborn and Bralor follow.
 # - Bao-Dur in the party for his lines at Zuka's (c_con_baodurpm), and to
 #   lead at the telemetry computer (its spikes are the leader's Computer's).
-# - The three cannoks with the converter's pieces fell to the party on the
-#   jungle walks before (dxun_camp, dxun_tests): their remains stand where
-#   they were placed.
+# - The three cannoks with the converter's pieces roam the jungle; those
+#   that fell to the party on the walks before (dxun_camp, dxun_tests) left
+#   remains with no tag, so each piece is found by what holds it.
 # - Davrel waits by the sentries once beaten in the circle; the zakkeg is
 #   already slain, so his zakkeg reply (c_davrel) is not offered.
 equip saber          # the saber in hand (the circle takes it, gives it back)
@@ -89,9 +89,9 @@ exit To_402
 module 402dxn
 use npc_davrel
 talk
-use 93.7,-51.4       # the phase-pulse converter's pieces, on the remains of
-use 51.9,33.0        # its three cannoks (c_cannok002 to 004), fallen to the
-use -97.1,86.8       # party on the jungle walks before: searched
+use item:phasepulseconver # the phase-pulse converter's pieces: their three
+use item:phasepulsecore   # cannoks (c_cannok002 to 004), fallen to the party on
+use item:phasepulseps     # the jungle walks before or fought here, searched
 exit To_403
 module 403dxn
 say I have all three parts of the phase-pulse converter. # Zuka (a_pp_start)

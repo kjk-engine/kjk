@@ -596,6 +596,22 @@ pub(super) fn fell(here: &Here, fallen: &BTreeMap<u32, Fell>, tag: &str, nth: Op
     }
 }
 
+/// What in the module holds an item of `template` (`state`'s items, not the
+/// party's): remains or a creature, its number and place.
+pub(super) fn holder_of(here: &Here, state: &sim::script::State, template: &str) -> Option<(u32, [f32; 3])> {
+    state
+        .items
+        .values()
+        .filter(|item| item.holder != sim::inventory::PARTY && item.template.eq_ignore_ascii_case(template))
+        .find_map(|item| {
+            let entity = here.snapshot.get(sim::SimId(item.holder))?;
+            match entity.kind {
+                sim::Kind::Object(_, index) => Some((index, entity.position)),
+                _ => None,
+            }
+        })
+}
+
 /// The remains standing nearest `lay` within `REMAINS_M` still holding
 /// something (`state`'s items; one emptied waits to be closed and go): their
 /// number and place.

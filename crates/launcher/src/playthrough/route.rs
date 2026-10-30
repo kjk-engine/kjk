@@ -85,10 +85,17 @@ pub(super) enum Goal {
 pub(super) enum Target {
     Tag(String, Option<usize>),
     Place([f32; 2]),
+    /// `item:TEMPLATE`: what in the module holds an item of that template,
+    /// remains or a creature (the dead of a route before leave remains with
+    /// no tag to name them by).
+    Holding(String),
 }
 
 pub(super) fn target(word: Option<&str>, rest: Option<&str>) -> Result<Target, String> {
     let word = word.ok_or("a tag or a place")?;
+    if let Some(template) = word.strip_prefix("item:") {
+        return Ok(Target::Holding(template.to_ascii_lowercase()));
+    }
     // A place as X,Y too.
     if let Some((x, y)) = word.split_once(',')
         && let (Ok(x), Ok(y)) = (x.parse::<f32>(), y.parse::<f32>())
@@ -223,7 +230,7 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                 }
                 "gone" => match target(a, None)? {
                     Target::Tag(tag, nth) => Goal::Gone(tag, nth),
-                    Target::Place(_) => return Err(format!("{part}: gone TAG")),
+                    Target::Place(_) | Target::Holding(_) => return Err(format!("{part}: gone TAG")),
                 },
                 "gather" => Goal::Gather,
                 "end" => {
@@ -263,7 +270,9 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                 "mine" => Goal::Mine(target(a, b)?),
                 "disarm" => match target(a, b)? {
                     Target::Place(at) => Goal::Disarm(at),
-                    Target::Tag(..) => return Err("disarm: a place (X,Y), the mine nearest it".into()),
+                    Target::Tag(..) | Target::Holding(_) => {
+                        return Err("disarm: a place (X,Y), the mine nearest it".into());
+                    }
                 },
                 "cast" => Goal::Cast(
                     a.and_then(|row| row.parse::<u16>().ok())

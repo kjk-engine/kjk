@@ -35,8 +35,8 @@
 //!                       # none the party can get at keeps it in combat (`Chase`)
 //! disarm 52.4,-29.9     # disarm the mine the party sees nearest there (Demolitions),
 //!                       # from where the player stands, until it is gone
-//! use 93.7,-51.4        # search the remains standing there (their creature
-//!                       # fallen in a route before, no tag left to name them)
+//! use item:phasepulseps # what holds that item: remains searched (their creature
+//!                       # fallen in a route before, no tag left), a foe fought
 //! cast 270              # cast that power (spells.2da row) on the player from
 //!                       # its power list, until its effect lasts on it
 //! equip                 # wear what the party carries, each in a free slot it fits
@@ -1160,7 +1160,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         | Goal::Put(_, target) => {
                             let lay = match target {
                                 Target::Tag(tag, nth) => fell(&here, &fallen, tag, *nth),
-                                Target::Place(_) => None,
+                                Target::Place(_) | Target::Holding(_) => None,
                             };
                             // One dead whose body the engine has yet to make
                             // its remains is waited for: the remains nearest
@@ -1195,12 +1195,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                                 .map(|lay| (u32::MAX, lay.at))
                                         })
                                 }
-                                // A place used: the remains standing there,
-                                // their creature fallen in a route before
-                                // (no tag left to name them by).
-                                Target::Place([x, y]) if matches!(goal, Goal::Use(_)) => {
-                                    remains_at(&here, world.script_state(), [*x, *y, me.position[2]])
-                                }
+                                Target::Holding(template) => holder_of(&here, world.script_state(), template),
                                 Target::Place([x, y]) => Some((u32::MAX, [*x, *y, me.position[2]])),
                             };
                             seen_target |= found.is_some();
