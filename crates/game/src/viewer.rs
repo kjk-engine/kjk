@@ -1790,7 +1790,13 @@ pub fn scripted_clips(
     }
     let engine = crate::acting::ready_names(creature)
         .chain(crate::acting::draw_names())
-        .chain(crate::acting::flinch_names(creature));
+        .chain(crate::acting::flinch_names(creature))
+        .chain(
+            creature
+                .then(crate::acting::attack_names)
+                .into_iter()
+                .flatten(),
+        );
     for (animation, name) in engine {
         if let Some(found) = clip(cache, resolver, game, body, &name)? {
             acted.push((animation, found));
