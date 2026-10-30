@@ -46,6 +46,9 @@ pub(super) enum Goal {
     /// What the party carries sold, dearest first, to the store open to
     /// the player until the party holds this much gold.
     Sell(i32),
+    /// Bought from the store open to the player, one a step, until the
+    /// party carries this many of the item (its template).
+    Buy(String, u32),
     /// The companions (`NPC_*`) the next party selection takes.
     Party([u8; 2]),
     /// A planet (`planetary.2da` row) travelled to from the galaxy map.
@@ -282,6 +285,11 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                     a.ok_or(format!("{part}: put TEMPLATE TAG"))?
                         .to_ascii_lowercase(),
                     target(b, None)?,
+                ),
+                "buy" => Goal::Buy(
+                    a.ok_or(format!("{part}: buy TEMPLATE [COUNT]"))?
+                        .to_ascii_lowercase(),
+                    b.map_or(Ok(1), |n| n.parse::<u32>().map_err(|_| format!("{part}: buy TEMPLATE COUNT")))?,
                 ),
                 "module" => Goal::Module(a.ok_or(format!("{part}: module NAME"))?.to_string()),
                 "race" => Goal::Race,

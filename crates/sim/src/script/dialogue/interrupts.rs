@@ -223,6 +223,9 @@ impl Step<'_> {
             return;
         }
         let (entry, speaker) = (c.entry, c.speaker);
+        if self.library.dialogue(&c.dialog).is_none() {
+            return;
+        }
         if self.interjection(id, speaker) {
             self.show(id, entry);
         }

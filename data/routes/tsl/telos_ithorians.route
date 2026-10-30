@@ -77,6 +77,45 @@ say Entertainment Module 081 # the terminal's transit to 081, and the
 use info_term        # cantina: Luxa, guarded by Gamorreans
 talk
 module 202tel
+say I have a blaster I'd like you to look at # Suspicious Goods (DSimpson,
+say I found this in one of the dock modules # the light way): the bay
+say Why is that?     # thugs' modified hold-out blaster shown to Grenn
+say Perhaps I could help you find the source # (200TEL_Sting=1 since the
+say I'll see what I can do # Ithorian's [Awareness]); he asks us to find
+use 202_Gren         # its seller
+talk
+until 200TEL_Sting=3
+say What can you tell me about this blaster # Samhan, 081's only weapons
+say I think there's something you're not telling me # merchant, sold it;
+say I want to know who sold the weapon # his smuggling plan heard out
+say Perhaps you should be more careful
+say Do you know anything about the smuggling operation
+say I'd like to help you with your smuggling operation
+say What can I do for you?
+say Yes, I've been there.
+say Other uses?
+say So I just need to walk in there and take a plant?
+say What should I do then?
+say I'll be back when I have them
+use Samhan
+talk
+until 200TEL_Sting=7
+say Samhan wants me to get three things for him # back to Grenn: his
+say Leaves from the Ithorians' bachani plant # counter-plan, the goods
+say I understand. Just make sure you're there # the TSF gives us
+use 202_Gren
+talk
+say I've got the items you were looking for # Samhan takes the party to
+say Sure. When do we leave? # the docks' bay for the shipment, where Grenn
+say Glad I could be of help, Lieutenant # springs the trap: Samhan and his
+use Samhan           # Czerka guard fight, he surrenders
+talk
+module 201tel
+talk
+fight 30
+say It was necessary to remove this criminal # "I surrender": back to 081,
+talk                 # Samhan caged, and Grenn's thanks (LSP, credits)
+module 202tel
 exit d_Cantina@3
 module 207tel
 say Yes, go on       # Luxa: she would be Citadel's boss in Slusk's place;

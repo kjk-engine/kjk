@@ -1,5 +1,6 @@
 # Dantooine, Vrook found (TSL, 601DAN, 602DAN, 604DAN): Suulru given his
-# modulator and the 500 Jorran took (LSP), the crystal cave's mercenary camp:
+# modulator and the 500 Jorran took (LSP), Zherron told Dopak has his
+# message, the crystal cave's mercenary camp:
 # here to rescue the Jedi (LSP), the captain and his men fought, Vrook out
 # of his cage (apologised to, Khoonda's coming attack); Azkul outside the
 # cave told a [Lie] (his job taken, no DSP, Kreia's "Well maneuvered!"),
@@ -14,6 +15,9 @@ exit To_602
 module 602dan
 say Here is your modulator and the 500 credits # Suulru (LSP)
 use npc_suulru
+talk
+say I gave Dopak your message. # Zherron: Dopak's answer told
+use npc_zherron
 talk
 exit To_601
 module 601dan

@@ -33,6 +33,10 @@ talk
 to tr_hk50attack     # the HK-50s
 talk
 fight 30
+use HK50@1           # their remains searched: one carries the chassis
+use HK50@2           # HK-47 needs (a_hk50cut gives it to one at random)
+use HK50@3
+use HK50@4
 to tr_t3m4exit
 talk                 # Mira joins; Tienn Tubb
 say Mira.            # sent aboard

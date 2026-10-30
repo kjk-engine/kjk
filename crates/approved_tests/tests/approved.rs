@@ -611,6 +611,116 @@ fn blank_cells_name_nothing() {
     assert_eq!(models, [Some("plc_chair"), None], "the placeables' models");
 }
 
+/// The games' data as co-op compares it (`vfs::fingerprint`): what a play
+/// leaves in JA's `base/` (saves, screenshots, demos, settings, logs, the
+/// game's libraries, folder metadata) is not game data, a model's
+/// `animation.cfg` is; a patched archive is named by itself; twelve mod
+/// archives stay within a handshake's groups; a file browser's metadata in
+/// KOTOR's folders is not game data either. No installs (approved
+/// 2026-10-30).
+#[test]
+fn coop_data_check() {
+    use vfs::fingerprint::{Fingerprint, MAX_WORLD_GROUPS, fingerprint};
+    use vfs::{DirIndex, Game};
+
+    // A data root holding `files` (path under `folder`, contents).
+    let print = |game: Game, name: &str, folder: &str, files: &[(&str, &str)]| -> Fingerprint {
+        let root = std::env::temp_dir().join(format!(
+            "kjk-coop-data-{}-{}-{name}",
+            std::process::id(),
+            game.key()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        for (path, contents) in files {
+            let path = root.join(folder).join(path);
+            std::fs::create_dir_all(path.parent().expect("under the root")).expect("a folder");
+            std::fs::write(path, contents).expect("a file");
+        }
+        let index = DirIndex::build(&root).expect("the index");
+        let print = fingerprint(game, &index, None).expect("the fingerprint");
+        std::fs::remove_dir_all(&root).expect("cleaned up");
+        print
+    };
+    let ja = |name: &str, files: &[(&str, &str)]| print(Game::JediAcademy, name, "base", files);
+    let stock = [
+        ("assets0.pk3", "zero"),
+        ("assets1.pk3", "one"),
+        ("models/players/kyle/model.glm", "kyle"),
+        (
+            "models/players/_humanoid/animation.cfg",
+            "BOTH_DEATH1 0 21 -1 20",
+        ),
+    ];
+    let played = [
+        ("saves/auto.sav", "save"),
+        ("screenshots/shot0001.jpg", "shot"),
+        ("demos/duel.dm_26", "demo"),
+        ("jaconfig.cfg", "seta r_mode 4"),
+        ("qconsole.log", "log"),
+        ("jampgamex86.dll", "dll"),
+        ("cgame.dylib", "dylib"),
+        ("jampgame.bundle/contents/macos/jampgame", "bundle"),
+        (".ds_store", "finder"),
+    ];
+
+    let fresh = ja("fresh", &stock);
+    let after_a_play = ja("played", &[&stock[..], &played[..]].concat());
+    assert_eq!(fresh.world(), after_a_play.world(), "a played-in base/");
+    assert_eq!(after_a_play.files, stock.len(), "the files covered");
+
+    let patched = stock.map(|(path, contents)| {
+        (
+            path,
+            if path == "assets1.pk3" {
+                "patched"
+            } else {
+                contents
+            },
+        )
+    });
+    let (host, other) = (fresh.world(), ja("patched", &patched).world());
+    let differ: Vec<&str> = host
+        .groups
+        .iter()
+        .filter(|group| !other.groups.contains(group))
+        .map(|(name, _)| name.as_str())
+        .collect();
+    assert_eq!(differ, ["base/assets1.pk3"], "the groups that differ");
+
+    let names: Vec<String> = (0..12).map(|n| format!("mod{n:02}.pk3")).collect();
+    let mods: Vec<(&str, &str)> = names.iter().map(|name| (name.as_str(), "mod")).collect();
+    let world = ja("mods", &mods).world();
+    let groups: Vec<&str> = world.groups.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(groups.len(), MAX_WORLD_GROUPS, "twelve archives' groups");
+    assert_eq!(groups[0], "base", "the archives past the seventh");
+    assert_eq!(
+        groups[MAX_WORLD_GROUPS - 1],
+        "base/mod06.pk3",
+        "the seventh"
+    );
+
+    let kotor = [
+        ("chitin.key", "key"),
+        ("dialog.tlk", "tlk"),
+        ("override/appearance.2da", "2DA V2.b"),
+        ("modules/end_m01aa.rim", "rim"),
+    ];
+    let browsed = [
+        ("override/.ds_store", "finder"),
+        ("override/thumbs.db", "explorer"),
+        ("modules/desktop.ini", "explorer"),
+    ];
+    let fresh = print(Game::Kotor1, "fresh", "", &kotor);
+    let browsed = print(
+        Game::Kotor1,
+        "browsed",
+        "",
+        &[&kotor[..], &browsed[..]].concat(),
+    );
+    assert_eq!(fresh.world(), browsed.world(), "KOTOR's browsed folders");
+    assert_eq!(browsed.files, kotor.len(), "KOTOR's files covered");
+}
+
 /// Areas' grass and weather from the ARE (`docs/GRASS-WEATHER.md`):
 /// a module made here reads its grass texture, density, size and variant
 /// chances, none without a texture, its weather chances and wind, and the

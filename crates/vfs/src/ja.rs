@@ -90,6 +90,37 @@ pub fn pak_order(a: &str, b: &str) -> Ordering {
     a.bytes().map(fold).cmp(b.bytes().map(fold))
 }
 
+/// What the game, the store or the system writes into `base/`: saves,
+/// screenshots, demos, settings and logs, the game's own libraries, and
+/// folder metadata (`crate::system_file`). None is an asset. Settings and
+/// logs only at the folder's root: a model's `animation.cfg` is data.
+const NOT_DATA_FOLDERS: &[&str] = &["saves/", "screenshots/", "demos/"];
+const NOT_DATA_ROOT_EXTENSIONS: &[&str] = &[".cfg", ".log"];
+const NOT_DATA_EXTENSIONS: &[&str] = &[".dll", ".so", ".dylib", ".exe"];
+
+/// Whether a lowercased path under `base/` is game data: a PK3, or a loose
+/// file the engine could read in place of an archive's.
+pub fn game_data(rest: &str) -> bool {
+    let name = rest.rsplit('/').next().unwrap_or(rest);
+    let at_root = !rest.contains('/');
+    !(NOT_DATA_FOLDERS
+        .iter()
+        .any(|folder| rest.starts_with(folder))
+        || (at_root
+            && NOT_DATA_ROOT_EXTENSIONS
+                .iter()
+                .any(|ext| name.ends_with(ext)))
+        || NOT_DATA_EXTENSIONS.iter().any(|ext| name.ends_with(ext))
+        || crate::system_file(name)
+        || rest.contains(".bundle/"))
+}
+
+/// Whether a lowercased path under `base/` is one of the PK3s the engine
+/// loads (those at the folder's root).
+pub fn root_pk3(rest: &str) -> bool {
+    rest.ends_with(".pk3") && !rest.contains('/')
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JaSource {
     /// A loose file under `base/`.
@@ -132,7 +163,8 @@ impl JaStack {
         }
         for (key, path) in index.iter() {
             if let Some(rest) = key.strip_prefix("base/")
-                && !(rest.ends_with(".pk3") && !rest.contains('/'))
+                && !root_pk3(rest)
+                && game_data(rest)
             {
                 stack.loose.insert(rest.to_string(), path.to_path_buf());
             }
