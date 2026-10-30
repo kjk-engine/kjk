@@ -1456,7 +1456,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     (Some(sim::action::Verb::Talk), Some((choice, data))) => {
                                         here.approach_talk(&player, at, sim::target::reach(choice, data.kind))
                                     }
-                                    _ => here.approach(&player, at),
+                                    _ => here.approach_use(&player, at, data.as_deref()),
                                 });
                                 // No way there (a locked door's doorway, a
                                 // body in the way) but near: straight at it.

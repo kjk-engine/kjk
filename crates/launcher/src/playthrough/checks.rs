@@ -400,8 +400,34 @@ pub fn wall_probes() -> sim::probe::Checks {
             if walker.rounding { Ok(detail) } else { Err(detail) },
         )
     };
+    // A placeable at (0, 4) with action points 0.7 m south and north of
+    // it, used by the player at (-8, 0): its walk makes for the south one,
+    // the one nearest the player (`Here::approach_use`), not for the
+    // floor before the placeable on the line from the player.
+    let used = {
+        let refused = BTreeSet::new();
+        let here = Here::new(&level, &snapshot, &refused);
+        let placed = [0.0, 4.0, 0.0];
+        let bin = ObjectData {
+            kind: ObjectKind::Placeable,
+            use_points: vec![[0.0, -0.7, 0.0], [0.0, 0.7, 0.0]],
+            ..ObjectData::unknown("bin", placed, 0.0)
+        };
+        let player = sim::motion::MotionState::standing(from, 0.0);
+        let goal = here.approach_use(&player, placed, Some(&bin)).goal.map(|v| v * UNIT);
+        let detail = format!("making for {goal:?}");
+        (
+            "use_walks_to_the_nearest_action_point",
+            if flat(goal, [0.0, 3.3, 0.0]) < 0.05 {
+                Ok(detail)
+            } else {
+                Err(detail)
+            },
+        )
+    };
     vec![
         rounds,
+        used,
         routed("walk_goes_round_a_trigger_that_turned_it_back", 5.0, true),
         routed("walk_goes_through_one_with_no_way_round", 10.0, false),
         left(
