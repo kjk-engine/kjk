@@ -100,8 +100,12 @@ file merges (a merge or push to `main` starts it by its paths). It runs `cargo x
 (as the build numbers them on a branch), takes the next version with its history
 line; the files are removed; the pinned determinism run's hash is written
 into both workflows. Then the approved tests run on the result, and it is
-committed to `main` as "Pinned at merge: …", naming every version and
-the hash old → new. `git log --grep "Pinned at merge"` is the history.
+committed as "Pinned at merge: …", naming every version and the hash
+old → new, onto the `pin` branch made anew from `main`. `main`'s ruleset
+takes no push, so the commit reaches it through `pin`'s pull request
+(opened or updated by the run, which starts `ci` on it for the required
+checks), merged by hand like any other; until then the next merge's run
+pins its files too. `git log --grep "Pinned at merge"` is the history.
 
 `cargo xtask pin` runs locally too (it edits the tree, commits nothing),
 e.g. to see the numbers a merge would give.

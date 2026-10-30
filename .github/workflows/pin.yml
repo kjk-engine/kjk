@@ -2,10 +2,14 @@ name: pin
 
 # The merge's half of bumps/README.md: the bump files that reached main get
 # their format versions and the sim hash's pin (`cargo xtask pin`), tested
-# and committed to main. A merge or push to main starts it by its paths. One at a time, never cancelled: each run
-# takes every bump file on main as it finds it, so a run that finds none
-# does nothing, and one whose push loses to a newer commit fails and leaves
-# the files for the next run (the next merge's, or one started by hand).
+# and put on the `pin` branch's pull request, as main's ruleset takes no
+# push. A merge or push to main starts it by its paths. One at a time,
+# never cancelled: each run takes every bump file on main as it finds it
+# and makes `pin` again from main, so the open pull request always holds
+# every pending file; a run that finds none does nothing (merging the pull
+# request's own run among them). A pull request opened with this run's
+# token starts no workflow, so the run starts ci on `pin` itself, for the
+# checks main's ruleset requires.
 on:
   push:
     branches: [main]
@@ -14,6 +18,8 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
+  actions: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -56,13 +62,22 @@ jobs:
         if: steps.pending.outputs.any
         run: cargo test --release -p approved_tests
 
-      - name: Commit to main
+      - name: Pull request
         if: steps.pending.outputs.any
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -qa -F "$RUNNER_TEMP/pin-message"
-          if ! git push origin HEAD:main; then
-            echo "::error::main moved on while pinning; the next merge's run pins, or run this workflow by hand"
+          git push -f origin HEAD:refs/heads/pin
+          files=$(git show --name-only --diff-filter=D --format= HEAD -- 'bumps/*.toml' | wc -l | tr -d ' ')
+          title="Pinned at merge: $files bump files"
+          git log -1 --format=%B > "$RUNNER_TEMP/pin-body"
+          if [ -n "$(gh pr list --head pin --state open --json number --jq '.[].number')" ]; then
+            gh pr edit pin --title "$title" --body-file "$RUNNER_TEMP/pin-body"
+          elif ! gh pr create --base main --head pin --title "$title" --body-file "$RUNNER_TEMP/pin-body"; then
+            echo "::error::no pull request (Settings → Actions → General: allow GitHub Actions to create pull requests); open one from the pin branch"
             exit 1
           fi
+          gh workflow run ci.yml --ref pin

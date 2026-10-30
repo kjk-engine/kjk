@@ -7,6 +7,11 @@
 //! pending re-exports nothing, hence the `allow`s.
 
 pub mod save {
+    pub const CLAUDE_TSL_DANTOOINE: crate::Since = crate::Since(crate::Stored::Save, 60);
+    pub const CLAUDE_TSL_NAR_SHADDAA: crate::Since = crate::Since(crate::Stored::Save, 61);
+    pub const CLAUDE_TSL_ONDERON: crate::Since = crate::Since(crate::Stored::Save, 62);
+    pub const CLAUDE_TSL_TELOS: crate::Since = crate::Since(crate::Stored::Save, 63);
+    pub const SAVE_MIGRATIONS: crate::Since = crate::Since(crate::Stored::Save, 64);
     #[allow(unused_imports)]
     pub use crate::pending::since::save::*;
 }
@@ -17,6 +22,7 @@ pub mod snapshot {
 }
 
 pub mod pack {
+    pub const CLAUDE_TSL_FINALE: crate::Since = crate::Since(crate::Stored::Pack, 21);
     #[allow(unused_imports)]
     pub use crate::pending::since::pack::*;
 }

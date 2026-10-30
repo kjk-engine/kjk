@@ -1,5 +1,0 @@
-# The sim's hash moves on purpose: GetLocalBoolean reads a true local
-# boolean as its bit lies in its 32-bit word, not 1 (both executables'
-# CSWVarTable::GetLocalBoolean mask 1 << index, and their
-# ExecuteCommandGetLocalValue pushes it as it is).
-sim = "The Ravager and Malachor V: a true local boolean read as its bit in its word"

@@ -7,7 +7,7 @@
 //! the history (or, `breaking`, a line in `bumps/BREAKING.md`, its oldest
 //! version read raised and the fixtures before it retired), and a fixture
 //! at the new versions. The pin workflow commits the result after the
-//! approved tests pass on it.
+//! approved tests pass on it and puts it on the `pin` branch's pull request.
 
 use crate::{git, repo_root};
 use std::fmt::Write as _;

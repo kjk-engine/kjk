@@ -34,7 +34,10 @@ const MAGIC: &[u8; 4] = b"KJKT";
 /// creatures' bodies their walk and run speeds and head arc
 /// (`module::Body::walk_mps`, `run_mps`, `head_arc_h`). 20: items whether
 /// an energy shield (`ItemFacts::shield`).
-pub const VERSION: u32 = 20 + crate::pending::PACK;
+/// 21: a creature template carries TSL's MultiplierSet, its autobalance.2da row
+/// (`ObjectData::multiplier_set`). Old saves: old saves read a kept companion's
+/// MultiplierSet as 0: no companion is autobalanced.
+pub const VERSION: u32 = 21 + crate::pending::PACK;
 
 /// The oldest version read in a save's companions' templates: v0.1.0's
 /// (`crate::since::pack`, `bumps/README.md`).
