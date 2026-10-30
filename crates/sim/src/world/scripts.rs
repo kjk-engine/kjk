@@ -927,6 +927,19 @@ pub(super) fn scripts(
                 .use_item(library, &view, &mut out, user, item, target)
                 .ok()?;
             talents_used = true;
+            // Its talent's action is done once it is used, as KOTOR's
+            // ActionUseTalentOnObject: one item for one action, not one
+            // again as its round ends (its mind's next "once a round"
+            // falls on that very step).
+            if let Some(queue) = state.actions.get_mut(&user.0)
+                && queue.first().is_some_and(|front| {
+                    matches!(front.action, script::actions::Action::Talent {
+                        talent: script::actions::Use::Power(of), ..
+                    } if of == row)
+                })
+            {
+                queue.remove(0);
+            }
             used
         })
         .collect();

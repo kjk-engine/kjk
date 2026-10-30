@@ -729,7 +729,12 @@ above; anything else its `spells.2da` row's conjtime 170 + casttime 1330
 impact script cast then: `k_sup_healing`, `k_sup_comshots`,
 `k_sup_bands`), the weapon idle meanwhile. Damage and moving do not break
 it off; a stun, a knockdown or a fall does (`items::break_off`), the item
-gone. Minds heal below 35% (an antidote when afflicted), raise a shield
+gone. A use its action began (Use Item, an AI's item talent from
+`k_ai_master`'s `GN_TalentMasterRoutine`) takes its item as it lands
+instead, and a script's `ClearAllActions` before then breaks it off with
+nothing spent, as KOTOR's action queue does: the AI clears and queues its
+talent again when a delayed combat round runs (`Pack::ordered`); the
+talent's action ends with its use, one item an action. Minds heal below 35% (an antidote when afflicted), raise a shield
 and take a stim in a fight (`ai::choose_item`), never before they are
 aware. `kjk combat items k1`: 14 checks.
 
