@@ -89,6 +89,8 @@ pub use world::aim_probes;
 pub use world::arena;
 #[cfg(feature = "probes")]
 pub use world::arena_probes;
+#[cfg(feature = "probes")]
+pub use world::balance_probes;
 pub use world::charting;
 pub use world::containers;
 #[cfg(feature = "probes")]

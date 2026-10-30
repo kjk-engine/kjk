@@ -1,0 +1,14 @@
+# The sim's hash moves on purpose: TSL's creature autobalance
+# (CSWSCreature::HandleAutoBalancing at a creature's spawn, before its
+# OnSpawn): an autobalance.2da row's VPMult grows its hit points from the
+# template's HitPoints by the player's level then (PCLevelAtSpawn, the global
+# number G_PC_LEVEL), and its getters add ToHitMult, ArmorMult, SaveMult and
+# LevelMult times that level and multiply its weapon dice by DamageMult's
+# factor; its death's XP reads that level, not G_PC_LEVEL as it dies.
+sim = "TSL's creature autobalance: hit points, attack, defence, saves, level and weapon dice by the player's level as the creature spawned, which its death's XP reads too"
+
+[formats]
+snapshot = "a fighter keeps TSL's autobalance, the player's level as it spawned and what it adds (`Fighter::balance`)."
+
+[migrations]
+snapshot = "old saves read `Fighter::balance = None`: a creature spawned before was never balanced, so it keeps the stats it was played with, and its death's XP reads `G_PC_LEVEL` as it dies, as kjk did then"

@@ -62,6 +62,7 @@ const GROUPS: &[Group] = &[
     ("tsl effects", sim::effects_probes::probes),
     ("tsl force", sim::force_probes::probes),
     ("ute encounters", sim::spawner_probes::probes),
+    ("tsl autobalance", sim::balance_probes::probes),
     ("ute encounters in the games", crate::ute_encounter_probes::probes),
     ("influence", sim::script::influence::probes),
     ("presentation", sim::presentation_probes::probes),

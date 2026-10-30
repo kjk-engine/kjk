@@ -110,6 +110,8 @@ pub(crate) use scene::seat_bodies;
 mod scripts;
 pub use scripts::HEARTBEAT_MS;
 #[cfg(feature = "probes")]
+pub mod balance_probes;
+#[cfg(feature = "probes")]
 pub mod spawner_probes;
 mod spawners;
 pub mod strikes;

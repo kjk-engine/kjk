@@ -173,7 +173,7 @@ pub(in crate::world) fn apply(
                 .sheet
                 .unwrap_or_else(crate::combat::Sheet::commoner),
         };
-        let sheet = set.unwrap_or(sheet);
+        let mut sheet = set.unwrap_or(sheet);
         // Where the safe-location search stands it, as a jump's
         // (`install::jump_place`), clear of the living bodies and of those
         // made before it; none found, where it was put.
@@ -202,6 +202,17 @@ pub(in crate::world) fn apply(
             );
             fighter.hp = kept.hp.clamp(whole, most_hp.max(whole));
             fighter.fp = kept.fp.clamp(0, most_fp);
+        }
+        // TSL's autobalance as its spawn is handled (`super::autobalance`):
+        // not a companion the party table kept nor one joining as it is made.
+        if made.kept.is_none() && !joining.contains(&made.id) {
+            super::autobalance(
+                &level.0,
+                &scripts.state,
+                &made.facts,
+                &mut sheet,
+                &mut fighter,
+            );
         }
         if joining.contains(&made.id) {
             join(&mut fighter, true);

@@ -342,6 +342,9 @@ pub(super) fn objects(
             location: Location::None,
             direction: None,
             sneak: 0,
+            dice: attacker.map_or(1, |(.., fighting)| {
+                crate::combat::balance::dice(&fighting.0)
+            }),
         };
         let assessed = damage::assess(
             &blow,

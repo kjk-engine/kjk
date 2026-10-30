@@ -536,6 +536,8 @@ pub(super) fn hurt(
             .2
             .and_then(|object| object.facts.as_ref()?.body)
             .is_some_and(|body| body.walk_mps <= 0.0 && body.run_mps <= 0.0);
+        // An autobalanced attacker's weapon dice factor (`combat::balance`).
+        let dice = attacker.map_or(1, |by| crate::combat::balance::dice(&actors[by].5.0));
         let (_, avatar, _, _, player, fighting) = &mut actors[at];
         // The dead take nothing more; the downed nothing but the story's
         // death.
@@ -587,6 +589,7 @@ pub(super) fn hurt(
             location,
             direction: hit.direction,
             sneak,
+            dice,
         };
         // KOTOR's defence penalty for the round after a feat attack; the
         // immunities to criticals and sneak attacks its effects give (its

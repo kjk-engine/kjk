@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use asset_odyssey::module::Source;
 use fmt_odyssey::ResType;
 use fmt_odyssey::gff::{Gff, GffValue};
+use sim::combat::balance::Multipliers;
 use sim::script::journal::{Quest, QuestEntry, Quests};
 use sim::script::xp::Experience;
 
@@ -101,16 +102,27 @@ pub(crate) fn experience(source: &dyn Source) -> Experience {
             })
             .collect();
     }
-    // TSL's: `autobalance.2da`'s `CRMod` by row, `npc.2da`'s `PercentXP` of
-    // rows 13 and 14, as `CalculateDeathExperience` and
-    // `ApplyDeathExperience` read them by index.
+    // TSL's: `autobalance.2da` by row (its `CRMod`, and the multipliers
+    // `CSWSCreature::HandleAutoBalancing` and the getters read,
+    // `sim::combat::balance`), `npc.2da`'s `PercentXP` of rows 13 and 14,
+    // as `CalculateDeathExperience` and `ApplyDeathExperience` read them by
+    // index.
     if let Some(balance) = tables.table("autobalance") {
-        experience.balance_cr = (0..balance.row_labels.len())
+        experience.balance = (0..balance.row_labels.len())
             .map(|row| {
-                balance
-                    .int(row, "crmod")
-                    .and_then(|value| value.try_into().ok())
-                    .unwrap_or(0)
+                let float = |column| balance.float(row, column).unwrap_or(0.0);
+                Multipliers {
+                    vp: float("vpmult"),
+                    to_hit: float("tohitmult"),
+                    armour: float("armormult"),
+                    damage: float("damagemult"),
+                    save: float("savemult"),
+                    crmod: balance
+                        .int(row, "crmod")
+                        .and_then(|value| value.try_into().ok())
+                        .unwrap_or(0),
+                    level: float("levelmult"),
+                }
             })
             .collect();
     }
@@ -174,7 +186,12 @@ fn tsl_death() -> Result<String, String> {
         .collect();
     let experience = Experience {
         kills,
-        balance_cr: vec![0, -3, -2],
+        balance: [0, -3, -2]
+            .map(|crmod| Multipliers {
+                crmod,
+                ..Multipliers::default()
+            })
+            .to_vec(),
         percent: Some((75, 0)),
         ..Experience::default()
     };
