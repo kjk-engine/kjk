@@ -24,15 +24,11 @@ name Exile
 # chain's fights are not what it tests (chain.flags' --mighty).
 abilities 10 12 12 16 12 14
 
-# The first level's 24 points: four of the five class skills the story
-# checks at 4 (the most a first level allows), Treat Injury at 3 and a
-# rank of Stealth, and Repair, a cross-class skill at two points a rank,
-# at its most of 2 (Peragus's and Dantooine's droids and terminals).
-# Stealth mode needs base ranks besides the unit worn (both games'
-# executables): Vogga's thieves are overheard in it (nar_shaddaa_vogga).
-# Treat Injury is back at its most at the second level, whose Repair most
-# does not rise. Demolitions is left at the first level.
-skills computer=4 awareness=4 persuade=4 security=4 treat=3 stealth=1 repair=2
+# The first level's 24 points: the five class skills the story checks at 4
+# (the most a first level allows), and Repair, a cross-class skill at two
+# points a rank, at its most of 2 (Peragus's and Dantooine's droids and
+# terminals). Stealth and Demolitions are left at the first level.
+skills computer=4 awareness=4 persuade=4 security=4 treat=4 repair=2
 # The first level's one feat: Empathy, more Persuade, Awareness and Treat
 # Injury.
 feats EMPATHY
@@ -46,7 +42,7 @@ feats EMPATHY
 # What is left is kept for the next level, as TSL's level-up screen keeps
 # unspent points: the odd point of a level whose Repair most did not rise
 # buys the next level's rank, and none goes to Stealth (the class's order
-# would put it there) past the first level's rank.
+# would put it there), which no route needs.
 skill-order persuade awareness computer security repair treat demolitions
 bank
 # Feats as the Sentinel's levels offer them: Gear Head (Computer Use,

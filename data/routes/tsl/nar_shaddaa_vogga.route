@@ -33,6 +33,9 @@ exit TO_303NAR       # the flophouse, its west block: the thieves' room
 module 303nar
 to NarShaddaaDoor01@7
 solo on              # the party left standing back, out of their trigger
+skill stealth=1      # a stand-in: stealth mode needs base Stealth ranks
+                     # besides the unit worn (both games' executables), and
+                     # exile.build spends none on Stealth (SKIPPED.md)
 stealth on
 to SneakVoggaThieves # overheard: the kath hounds sleep on juma juice
 talk
@@ -52,6 +55,8 @@ say What sort of arrangement? # offered and willing
 say What about the Handmaiden?
 say You're willing to do this?
 say In that case, thank you.
+gather               # the Handmaiden beside the Exile: the domo offers the
+                     # dance only then (c_con_handmaidpm)
 to tr_domoconv
 talk
 module 303nar        # to Vogga's room: the dance, Vogga asleep
