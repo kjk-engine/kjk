@@ -642,7 +642,9 @@ fn levels() -> (&'static str, Result<String, String>) {
         class(&[], &[(1, feats::FORCE_SENSITIVE)]),
     ]);
     let take = |classes: &Classes, sheet: &Sheet, career: &Career, choices: &Choices| {
-        classes.take(sheet, career, choices).map(|(sheet, _)| sheet)
+        classes
+            .take(sheet, career, choices, 0)
+            .map(|(sheet, ..)| sheet)
     };
     // Level 4 raises an ability: strength.
     let soldier_level = |feats| Choices {
@@ -692,7 +694,7 @@ fn levels() -> (&'static str, Result<String, String>) {
         &soldier_level(vec![toughness]),
     );
     let auto = classes
-        .auto(&soldier(&[]), &career, 0)
+        .auto(&soldier(&[]), &career, 0, 0)
         .map(|choices| choices.feats);
     (
         "level_up_feats",
