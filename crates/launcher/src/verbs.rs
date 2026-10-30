@@ -223,8 +223,9 @@ pub(crate) enum Verb {
         /// always writes them
         #[arg(long)]
         saves: bool,
-        /// `chaos`: every route with two chaos droids, its story at every
-        /// module left compared with the last plain chain's
+        /// `chaos`: every route alone, from the plain chain's checkpoint,
+        /// with two chaos droids; its story changes at every module left,
+        /// against the last plain chain's, listed for review
         #[arg(long, value_parser = ["chaos"])]
         droids: Option<String>,
     },

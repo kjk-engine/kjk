@@ -66,6 +66,14 @@ numbers: `data/rules/remote.toml` (`kjk rules`).
 - While a conversation holds the world or a fade covers the screen it is
   hidden, still and its kit off; a guest who first speaks then gets none
   till it ends. A movie or a break holds the session itself.
+- The chaos chain (`kjk chain k1 --droids chaos`) is a check run when
+  the droid changes, not a gate: two phantom guests fly droids at random
+  and press their whole kit, each route from the plain chain's own
+  checkpoint (droids end fights sooner, and the routes are walked against
+  one timeline). It passes when every route is met with its droids flying;
+  what the story does differently goes to `story-changes.txt` for a look:
+  dice and timing (random lines, swoop times) and fights won sooner
+  (Hendar saved at the Undercity gate) are expected.
 - The client: its model and press flashes (`remote_view`), the camera
   follows it (`cast::remote_at`), KOTOR's HUD shows its three buttons with
   the seconds left.
@@ -99,6 +107,6 @@ cargo xtask duo --preset exit   # the ready check at end_m01ab's exit, the insta
 cargo xtask duo --preset remote   # end_m01ab, the guest flying a remote droid, its kit pressed
 kjk sim probes --only remote   # the droid: launch, flight, gate, kit, holds, inert
 kjk remote census k1   # every scripted round's module read for a protection the gate honours
-kjk chain k1 --droids chaos   # after a plain `kjk chain k1`: two chaos droids, the story equal
+kjk chain k1 --droids chaos   # after a plain `kjk chain k1`: each route alone from its checkpoint, two chaos droids; story changes listed in story-changes.txt
 cargo xtask duo --preset race   # the swoop race in co-op, a run per seat (MINIGAMES.md); --preset turret: the Ebon Hawk's guns
 ```

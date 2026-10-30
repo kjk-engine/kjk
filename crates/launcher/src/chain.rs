@@ -837,6 +837,19 @@ fn in_worktree() -> bool {
 }
 
 pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
+    // Droids change a run's timing (fights end sooner), and the routes are
+    // walked against one timeline: each route starts from the plain chain's
+    // own checkpoint, so a change stays in the route that made it, and a
+    // route blocked stops no other.
+    let alone = Options {
+        alone: true,
+        fail_fast: false,
+        routes: options.routes.clone(),
+        game: options.game.clone(),
+        skills: options.skills.clone(),
+        ..*options
+    };
+    let options = if options.droids { &alone } else { options };
     let plan = match Plan::new(options) {
         Ok(plan) => plan,
         Err(error) => {
