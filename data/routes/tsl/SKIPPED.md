@@ -108,6 +108,7 @@ The **kind** tags are:
 - [ ] `choice` **Kumus's dark ways**: left to rot, blown up with the detonator, or killed once down (DSP, HK-47's and Hanharr's influence).
 - [ ] `choice` **The sentries antagonised** into a fight (DSP).
 - [ ] `side` **Kex's store.**
+- [ ] `blocker` **Mandalore's shuttle scene and his heartbeat** (dxun_departure): `a_mand_cs1` clears his actions and queues mand_cs1 half a second on; a heartbeat inside that half second has `k_mandalore_ud` (403DXN_Camp_Visited 2) queue his camp patrol first, and again at every heartbeat, so the scene never starts. Whether TSL's exe signals a busy creature's heartbeat user event at all is to be read in its AI update; the route begins Mandalore's talk 2 s later, clear of the race.
 - [ ] `side` **Mandalore's tests' other companions' lines**: the Handmaiden's and the Disciple's at Kumus (the party is Mira and Bao-Dur), T3-M4's at Zuka's.
 - [x] `side` **The beast rider's boma** at the spaceport: slain, his credits thanked for as not needed (LSP) (onderon_spaceport).
 - [x] `side` **An open starport visa** (Bakkel's) given to Terlyn's family by the starport gate (LSP) (onderon_kavar).
