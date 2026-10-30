@@ -704,9 +704,7 @@ pub(super) fn move_actors(
         if fighting.0.saber.current_move.attack() {
             fighting.0.force.tricked = 0;
         }
-        // A creature opens what it runs into only while walking a route
-        // (KOTOR's open the doors their path goes through); one fighting
-        // in place pushes no door open.
+        // A creature opens what it runs into only as `opens_doors` has it.
         // What a player's commands moved touched it: the leading
         // companion's body's, not its own standing one's.
         let seat = match (avatar, leads) {
@@ -717,7 +715,7 @@ pub(super) fn move_actors(
         match seat {
             Some(seat) => touched.0.push((seat, touches)),
             None if avatar.is_some() => {}
-            None if fighting.0.mind.walker.is_some() => {
+            None if opens_doors(&fighting.0) => {
                 bumped
                     .0
                     .extend(touches.into_iter().map(|entity| (id.0, entity)));
@@ -758,6 +756,17 @@ fn round_of(body: &Body) -> ([f32; 2], f32) {
         ],
         (body.max[0] - body.min[0]) * 0.5 / UNIT,
     )
+}
+
+/// Whether a creature no seat moves opens the doors it runs into: only
+/// while it walks a route (KOTOR's open the doors their path goes
+/// through; one fighting in place pushes no door open), and only alive.
+/// A Sith on the Endar Spire, killed as his walk met end_door10_cut2, his
+/// walk not yet cleared, opened it, and its scene, kept for a party
+/// member's opening (`k_pend_room5_02`: IsObjectPartyMember of
+/// GetLastOpenedBy), never played.
+pub(crate) fn opens_doors(fighter: &crate::combat::Fighter) -> bool {
+    fighter.mind.walker.is_some() && fighter.alive()
 }
 
 /// `bodies` less the living ones `mine` (a body's box) already stands inside:

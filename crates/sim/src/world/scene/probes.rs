@@ -138,6 +138,7 @@ const PROBES: &[Probe] = &[
     ("item_lost_heard", item_lost_heard),
     ("walk_opens_door", walk_opens_door),
     ("blocked_by_door", blocked_by_door),
+    ("dead_open_no_door", dead_open_no_door),
     ("party_stops_at_door", party_stops_at_door),
     ("walk_off_mesh_ends", walk_off_mesh_ends),
     ("door_goal_ends", door_goal_ends),
@@ -4626,6 +4627,33 @@ fn walk_opens_door() -> Found {
         format!(
             "the gate opened {opened}, the front {past:.3} m past the shut panel at most, {off:.3} m off the end, carried {carried} steps"
         ),
+    )
+}
+
+/// A creature walking to the shut gate opens the doors it runs into
+/// (`movement::opens_doors`); killed on the way, its walk not yet cleared,
+/// it opens none (the Endar Spire's end_door10_cut2, opened by a Sith
+/// killed as his walk met it: its scene, kept for a party member's
+/// opening, never played).
+fn dead_open_no_door() -> Found {
+    let mut ground = through_ground()?;
+    let walker = ground.place(WALKER, BEFORE_GATE)?;
+    ground.step();
+    ground.queue(walker, move_to(PAST_GATE, false, None));
+    for _ in 0..steps(500) {
+        ground.step();
+    }
+    let mut fighters = ground.world.world.query::<(&Id, &mut Fighting)>();
+    let (_, mut fighting) = fighters
+        .iter_mut(&mut ground.world.world)
+        .find(|(id, _)| id.0 == walker)
+        .ok_or("no walker")?;
+    let walking = super::super::movement::opens_doors(&fighting.0);
+    fighting.0.life = crate::combat::fighter::Life::Dead;
+    let dead = super::super::movement::opens_doors(&fighting.0);
+    check(
+        walking && !dead,
+        format!("opens doors walking {walking}, killed on its walk {dead}"),
     )
 }
 
