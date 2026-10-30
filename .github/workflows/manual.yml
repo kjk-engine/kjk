@@ -24,7 +24,7 @@ env:
   CARGO_INCREMENTAL: 0
   # The same pin as ci.yml's (the approved test sim_determinism requires
   # both to agree): every platform must reach it.
-  KJK_SIM_HASH: 195c028d7cf09f6acf3213f0a9a4a6a6c8f0e2d9e573ce374f2537f5fffeeb05
+  KJK_SIM_HASH: 4d8a734512fdcd5776573c7252ecf4c8e1d6ed440dc708a4b90e22e773976c8e
 
 jobs:
   platforms:

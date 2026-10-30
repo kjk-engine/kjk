@@ -1,4 +1,0 @@
-# The sim's hash moves on purpose: a frame mix or blend keeps each JA joint
-# on its parent (the joint's place lerped, the translation taken from the
-# mixed turn), so a blade no longer flies off a stretched arm mid-step.
-sim = "JA's joints stay on their parents through frame mixes and blends: blades follow the arm, not a chord"
