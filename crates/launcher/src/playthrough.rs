@@ -1378,8 +1378,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // lock is done with.
                                 met = true;
                             } else if let Some((index, at)) = found {
-                                let d = flat(at, me.position);
                                 let data = here.facts(index);
+                                let at = Here::use_point(me.position, at, data.as_deref());
+                                let d = flat(at, me.position);
                                 cannot = data.as_ref().and_then(|data| {
                                     let state = object_of(&here, index);
                                     match goal {
@@ -1456,7 +1457,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     (Some(sim::action::Verb::Talk), Some((choice, data))) => {
                                         here.approach_talk(&player, at, sim::target::reach(choice, data.kind))
                                     }
-                                    _ => here.approach_use(&player, at, data.as_deref()),
+                                    _ => here.approach(&player, at),
                                 });
                                 // No way there (a locked door's doorway, a
                                 // body in the way) but near: straight at it.

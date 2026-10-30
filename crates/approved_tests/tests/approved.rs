@@ -1063,7 +1063,7 @@ fn destroy_fades() {
 /// scripts see who did it; two runs end the same. The sim alone.
 #[test]
 fn use_actions() {
-    probed("use", &sim::uses::probes(), 38);
+    probed("use", &sim::uses::probes(), 39);
 }
 
 /// Bashing (`docs/COMBAT.md`): on the proving ground

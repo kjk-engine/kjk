@@ -402,8 +402,8 @@ pub fn wall_probes() -> sim::probe::Checks {
     };
     // A placeable at (0, 4) with action points 0.7 m south and north of
     // it, used by the player at (-8, 0): its walk makes for the south one,
-    // the one nearest the player (`Here::approach_use`), not for the
-    // floor before the placeable on the line from the player.
+    // the one nearest the player (`Here::use_point`), not for the floor
+    // before the placeable on the line from the player.
     let used = {
         let refused = BTreeSet::new();
         let here = Here::new(&level, &snapshot, &refused);
@@ -414,7 +414,8 @@ pub fn wall_probes() -> sim::probe::Checks {
             ..ObjectData::unknown("bin", placed, 0.0)
         };
         let player = sim::motion::MotionState::standing(from, 0.0);
-        let goal = here.approach_use(&player, placed, Some(&bin)).goal.map(|v| v * UNIT);
+        let point = Here::use_point(from.map(|v| v * UNIT), placed, Some(&bin));
+        let goal = here.approach(&player, point).goal.map(|v| v * UNIT);
         let detail = format!("making for {goal:?}");
         (
             "use_walks_to_the_nearest_action_point",

@@ -308,25 +308,20 @@ impl<'a> Here<'a> {
         stands.into_iter().next().map_or(to, |(_, walker)| walker)
     }
 
-    /// A walker to use what stands at `at` (metres): a placeable with
-    /// action points (`ObjectData::use_points`) at the one nearest the
-    /// player, as KOTOR walks a use to the point TSL's
+    /// Where a use of what stands at `at` (metres) is walked to and reached
+    /// from: a placeable with action points (`ObjectData::use_points`) at
+    /// the one nearest the player, as KOTOR walks a use to the point TSL's
     /// `CSWSCreature::GetUseRange` takes (`CSWSPlaceable::GetNearestActionPoint`,
-    /// within 0.1 m when it is a safe place to stand); anything else as
-    /// `approach` has it. TSL's medbay bin, walked to along the line from
-    /// the player, was made for beside the bed, where the dummy Exile lying
-    /// on it held the player 2.7 m off; its action point stands 2.2 m clear
-    /// of him.
-    pub(super) fn approach_use(
-        &self,
-        player: &sim::motion::MotionState,
-        at: [f32; 3],
-        facts: Option<&ObjectData>,
-    ) -> Walker {
-        let point = facts
+    /// within 0.1 m when it is a safe place to stand) and `GetIsInUseRange`
+    /// measures to (`sim::world::uses::Target::aimed`); anything else at
+    /// `at`. TSL's medbay bin, walked to along the line from the player,
+    /// was made for beside the bed, where the dummy Exile lying on it held
+    /// the player 2.7 m off; its action point stands 2.2 m clear of him.
+    pub(super) fn use_point(me: [f32; 3], at: [f32; 3], facts: Option<&ObjectData>) -> [f32; 3] {
+        facts
             .filter(|facts| facts.kind == ObjectKind::Placeable)
-            .and_then(|facts| facts.nearest_use_point(player.origin.map(|v| v * UNIT)));
-        self.approach(player, point.unwrap_or(at))
+            .and_then(|facts| facts.nearest_use_point(me))
+            .unwrap_or(at)
     }
 }
 

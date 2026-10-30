@@ -424,6 +424,18 @@ impl ObjectData {
             .min_by(|a, b| far(a).total_cmp(&far(b)))
     }
 
+    /// How far across the floor (metres) a use from `from` reaches to get
+    /// to this object: to the nearer of where it stands and its action
+    /// point nearest `from` (`nearest_use_point`), which TSL's
+    /// `CSWSCreature::GetIsInUseRange` measures to. A placeable's point
+    /// can stand 3 m out from it (Peragus's broken droids in the hangar).
+    pub fn use_distance(&self, from: [f32; 3]) -> f32 {
+        let to = |at: [f32; 3]| crate::math::flat_distance(at, from);
+        self.nearest_use_point(from)
+            .map_or(f32::INFINITY, to)
+            .min(to(self.position))
+    }
+
     pub(crate) fn digest_into(&self, out: &mut Writer) {
         out.u8(self.kind.index());
         out.string(&self.tag);
