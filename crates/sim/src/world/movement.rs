@@ -199,7 +199,9 @@ pub(super) fn move_actors(
     // (Mission, after her scene in Javyar's Cantina, was never pushed aside
     // and the Vulkars leaving bumped into her until they gave up), out of a
     // fight and of conversations; not a player
-    // nor the party's), with its side; and everyone's personal space, and
+    // nor the party's, nor one that never moves (`Body::immobile`: Telos's
+    // hidden turret in Slusk's office was pushed 0.9 m into the way out)),
+    // with its side; and everyone's personal space, and
     // where a walk not given up carries it (`walk::Met::going`). All of it
     // is in the snapshot, so a client predicts the pushes the authority
     // makes.
@@ -219,7 +221,10 @@ pub(super) fn move_actors(
                     .is_some_and(|acting| acting.playing(clock.time_ms))
                 && fighter.combat_until <= clock.time_ms
                 && !fighter.mind.queued
-                && talking.0.holding(script_ncs::vm::ObjectId(who)).is_none();
+                && talking.0.holding(script_ncs::vm::ObjectId(who)).is_none()
+                && !object
+                    .and_then(|object| object.facts.as_ref()?.body)
+                    .is_some_and(|body| body.immobile());
             let side = idle.then(|| side_of(id.0, *avatar, fighter, &sheet_of(*sheet, *object)));
             let going = fighter
                 .mind

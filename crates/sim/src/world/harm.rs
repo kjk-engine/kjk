@@ -535,7 +535,7 @@ pub(super) fn hurt(
         let immobile = actors[at]
             .2
             .and_then(|object| object.facts.as_ref()?.body)
-            .is_some_and(|body| body.walk_mps <= 0.0 && body.run_mps <= 0.0);
+            .is_some_and(|body| body.immobile());
         let (_, avatar, _, _, player, fighting) = &mut actors[at];
         // The dead take nothing more; the downed nothing but the story's
         // death.

@@ -115,6 +115,7 @@ const PROBES: &[Probe] = &[
     ("gives_up_blocked", gives_up_blocked),
     ("bump_rules", bump_rules),
     ("pushes_idle_aside", pushes_idle_aside),
+    ("immobile_not_pushed", immobile_not_pushed),
     ("body_overlap_not_buried", body_overlap_not_buried),
     ("body_pocket_walked_out", body_pocket_walked_out),
     ("routes_round_made_placeable", routes_round_made_placeable),
@@ -3785,6 +3786,48 @@ fn pushes_idle_aside() -> Found {
              not pushable: bumped {:?}, bumps {bumped_bumps}",
             bumped.and_then(|stepped| stepped.bumped)
         ),
+    )
+}
+
+/// A walker meeting the idle dummy on its line pushes it aside; made
+/// immobile (`Body::immobile`, `moverate` NOMOVE: a turret) the dummy
+/// stands where it is, and the walker goes round it. Telos's hidden turret
+/// in Slusk's office was pushed 0.9 m into the way out and held the player
+/// against Slusk.
+fn immobile_not_pushed() -> Found {
+    let moved = |immobile: bool| -> Result<f32, String> {
+        let (mut ground, walker) = walking_ground([-2.0, -4.0], true)?;
+        let dummy = ground.place(DUMMY, [-2.0, 0.0])?;
+        if immobile {
+            let mut objects = ground
+                .world
+                .world
+                .query::<(&Id, &mut super::super::Object)>();
+            for (id, mut object) in objects.iter_mut(&mut ground.world.world) {
+                if id.0 != dummy {
+                    continue;
+                }
+                if let Some(facts) = object.facts.as_mut() {
+                    let mut fixed = (**facts).clone();
+                    fixed.body = Some(Body {
+                        movement: Body::NOMOVE,
+                        walk_mps: 0.0,
+                        run_mps: 0.0,
+                        ..fixed.body.unwrap_or(body(0.0))
+                    });
+                    *facts = Arc::new(fixed);
+                }
+            }
+        }
+        ground.step();
+        let start = ground.at(dummy);
+        walked(&mut ground, walker, move_to([-2.0, 4.0], false, None), 9000);
+        Ok(between(start, ground.at(dummy)))
+    };
+    let (free, fixed) = (moved(false)?, moved(true)?);
+    check(
+        free > 0.3 && fixed < 0.01,
+        format!("the idle dummy moved {free:.2} m, made immobile {fixed:.3} m"),
     )
 }
 

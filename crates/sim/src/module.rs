@@ -308,6 +308,15 @@ pub struct Body {
 }
 
 impl Body {
+    /// `creaturespeed.2da`'s `NOMOVE` row.
+    pub const NOMOVE: u8 = 1;
+
+    /// Whether its appearance gives it no movement (`moverate` NOMOVE: a
+    /// turret): KOTOR moves it not at all.
+    pub fn immobile(&self) -> bool {
+        self.movement == Self::NOMOVE
+    }
+
     pub(crate) fn encode(&self, out: &mut Writer) {
         out.u16(self.appearance);
         out.u8(self.size);

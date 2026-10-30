@@ -1418,9 +1418,6 @@ pub fn opening_none(state: ObjectState) -> ObjectState {
     }
 }
 
-/// `creaturespeed.2da`'s `NOMOVE` row, an immobile body's movement.
-const IMMOBILE: u8 = 1;
-
 /// A body's walk and run rates (m/s) on KOTOR's walker: a player's the
 /// table's `PLAYER` row (it has no template), a creature's its own row
 /// (`module::Body`); one read as nothing (a row the table lacks) that is
@@ -1433,7 +1430,7 @@ pub fn rates(
 ) -> Option<(f32, f32)> {
     match body {
         _ if player => table.player,
-        Some(body) if body.walk_mps > 0.0 || body.run_mps > 0.0 || body.movement == IMMOBILE => {
+        Some(body) if body.walk_mps > 0.0 || body.run_mps > 0.0 || body.immobile() => {
             Some((body.walk_mps, body.run_mps))
         }
         _ => table.default,
