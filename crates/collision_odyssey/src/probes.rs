@@ -262,6 +262,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("footprint_walls", footprint_walls()));
     checks.push(("footprint_nav_marks", footprint_nav_marks()));
     checks.push(("sliver_nav_open", sliver_nav_open()));
+    checks.push(("wide_face_nav_open", wide_face_nav_open()));
     checks.push((
         "nav_past_gate_between_corners",
         nav_past_gate_between_corners(),
@@ -642,6 +643,43 @@ fn sliver_nav_open() -> Result<String, String> {
             route.len()
         )),
         _ => Err(format!("{detail}: no way from room to room")),
+    }
+}
+
+/// The navigation mesh over a wide face with furniture on part of it
+/// (`collision::nav::NavMesh::mark`): one floor triangle 12 m across, the
+/// only way between a face south of it and one east of it, a table a metre
+/// high over its middle (5 m by 5 m, a third of its area) under all four of
+/// the points a face's furniture check looks at. Looked over across its
+/// area, it is not covered, and a way leads round the table, as Nar
+/// Shaddaa's swoop gallery (301NAR), one 15 m face from east to west with
+/// the bar's pazaak table on it, leads to C9-T9's cage.
+fn wide_face_nav_open() -> Result<String, String> {
+    use collision::{LevelBuilder, Tag};
+    let at = |x: f32, y: f32| [x, y, 0.0f32];
+    let (a, b, c) = (at(0.0, 0.0), at(12.0, 0.0), at(6.0, 12.0));
+    let faces = vec![[a, b, c], [a, at(6.0, -3.0), b], [b, at(12.0, 12.0), c]];
+    let mut level = LevelBuilder::new();
+    for corners in &faces {
+        level.triangle(*corners, Tag::level(Contents::SOLID, 1));
+    }
+    level.aabb(
+        [3.5, 2.0, 0.0],
+        [8.5, 7.0, 1.0],
+        Tag::level(Contents::SOLID, 0),
+    );
+    let level = level.build();
+    let mut nav = collision::nav::NavMesh::build(&faces, 0.5);
+    nav.mark(&level);
+    let covered = nav.faces.iter().filter(|face| face.covered).count();
+    let route = nav.route([6.0, -1.5, 0.0], [10.5, 8.0, 0.0], false, &|_| false);
+    let detail = format!("{} faces, {covered} covered", nav.faces.len());
+    match route {
+        Some(route) if covered == 0 => Ok(format!(
+            "{detail}; the way round the table by {} corners",
+            route.len()
+        )),
+        _ => Err(format!("{detail}: no way past the table")),
     }
 }
 
