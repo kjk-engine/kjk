@@ -7,7 +7,8 @@
 # no terms, and the Exile is the battle circle's champion; Zuka's relay
 # dish (asked what is wrong, [Computer] help offered, Bao-Dur's word,
 # the cannoks that ate the phase-pulse converter), its broken wires
-# [Repair]ed and its telemetry core tried (one spike short); outside the camp Davrel's challenge to the death refused
+# [Repair]ed and its telemetry core reprogrammed [Computer] by Bao-Dur
+# leading, Zuka's reward; outside the camp Davrel's challenge to the death refused
 # twice (DSimpson's light way: he goes, dishonoured); before Zuka the
 # camp's boxes and bags searched (Mandalore's back room is shut until the
 # return).
@@ -16,14 +17,18 @@
 # Walkthrough: DSimpson's "Mandalore" side quests "Win in the Battle
 # Circle" and "Repair the Navigational Telemetry"
 # (context/walkthroughs/tsl/).
-# Left: the telemetry computer's core (4 spikes at the Exile's Computer,
-# the party carries 3: SKIPPED.md), so the phase-pulse parts' cannoks are
-# not hunted.
+# Then the pieces of the phase-pulse converter taken from the remains of
+# the three cannoks that broke it, and the converter brought to Zuka:
+# no reward asked (LSP twice), his word to Mandalore.
 #
 # ASSUMES:
 # - Kelborn's scouts done (dxun_tests): the sergeant's start 7 has him
 #   vouch for the Exile (c_global_eq), so Kelborn and Bralor follow.
-# - Bao-Dur in the party for his lines at Zuka's (c_con_baodurpm).
+# - Bao-Dur in the party for his lines at Zuka's (c_con_baodurpm), and to
+#   lead at the telemetry computer (its spikes are the leader's Computer's).
+# - The three cannoks with the converter's pieces roam the jungle; those
+#   that fell to the party on the walks before (dxun_camp, dxun_tests) left
+#   remains with no tag, so each piece is found by what holds it.
 # - Davrel waits by the sentries once beaten in the circle; the zakkeg is
 #   already slain, so his zakkeg reply (c_davrel) is not offered.
 equip saber          # the saber in hand (the circle takes it, gives it back)
@@ -70,8 +75,13 @@ talk
 say [Repair] Fix the broken wires.
 use bwire
 talk
-say [Computer] Reprogram the core. # the telemetry computer up the ramp
-use tele_comp
+leader 1             # Bao-Dur leads: the core's spikes are the leader's
+say [Computer] Reprogram the core. # Computer's (UT_DeterminesItemCost: 8 less
+use tele_comp        # a quarter of it), the telemetry computer up the ramp
+talk
+leader player
+say Both the cables and the telemetry computer are working now. # Zuka:
+use zuka             # his parts and spikes (a_ts_reward), Mandalore told
 talk
 say I don't want to kill you. I refuse. # Davrel by the sentries
 say I will not fight you. I refuse your challenge.
@@ -79,6 +89,14 @@ exit To_402
 module 402dxn
 use npc_davrel
 talk
+use item:phasepulseconver # the phase-pulse converter's pieces: their three
+use item:phasepulsecore   # cannoks (c_cannok002 to 004), fallen to the party on
+use item:phasepulseps     # the jungle walks before or fought here, searched
 exit To_403
 module 403dxn
+say I have all three parts of the phase-pulse converter. # Zuka (a_pp_start)
+say I'm just glad I could help out. # (LSP)
+say It was my pleasure to help. I need no reward. # (LSP, a_cannok_reward0)
+use zuka
+talk
 save dxun_champion

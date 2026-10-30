@@ -29,8 +29,10 @@
 #   at the ramp's party screen.
 # - The Exile's Security (12 ranks, Gear Head) takes 20 out of combat: 32+
 #   against the doors' DC 28 and the lockers' DC 18. His Computer Use opens
-#   the library terminal's secondary buffer; the student ID is the
-#   recruits' datapad's (the [Computer] ID line, R17, is the same answer).
+#   the library terminal's secondary buffer and makes the student ID at
+#   the terminal ([Computer] over 11, while the party has no recruits'
+#   datapad: so the datapad's footlocker is opened after), and logs in by
+#   [Computer] (over 14).
 # - termtort's "[Computer] Access system commands." has no skill check,
 #   only Vash's datapad (c_hasitem datapad_vash).
 # - Sion's second scene (tr_sion_fight) starts only after Vash (sion start
@@ -53,14 +55,13 @@ fight 30             # the entrance's tuk'ata, then the assassins in the hall
 use Bag_datapad2     # the west hall: the Tuk'ata datapad
 use twilek_body      # the chewed Twi'lek: a datapad and a thermal detonator
 fight 30             # the assassins at the stairs (tr_sith_ass_sth)
-use footlocker_comp  # the dorms' "Footlocker{Computer Datapad}": datapad_recruits
 fight 30
 unlock footlocker_ll # the dorms' locked footlockers [Security], DC 18
 use footlocker_ll
 unlock footlocker_mlt@1
 use footlocker_mlt@1
-say New Recruit      # termquiz: a new account (c_hasitem datapad_recruits)
-say =Enter 3401726-B853S5O0X001. # logged in with it
+say [Computer] Bypass login # termquiz: a new account (c_sc_com_gt 11, no recruits' datapad)
+say [Computer] Enter 3401726-B853S5O0X001. # logged in with it (c_sc_com_gt 14)
 say Take the Level one written test.
 say Begin test.
 say Freedon Nadd.    # not entombed upon Korriban
@@ -74,6 +75,7 @@ say Log out.
 use computer_quiz    # the student terminal (OnUsed a_compdlg)
 talk
 fight 30             # the assassins logging out sends (a_fab_spawn)
+use footlocker_comp  # the dorms' "Footlocker{Computer Datapad}": datapad_recruits
 to tr_sith_ass_bed   # the dorm room: its assassins
 fight 30
 unlock footlocker_llt@1

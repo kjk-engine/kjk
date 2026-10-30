@@ -140,13 +140,16 @@ const HOST_ASIDE: [f32; 2] = [-1.0, -1.0];
 const USE_GAP: usize = 13;
 /// A step's length (ms).
 const STEP_MS: u64 = 8;
+/// How long an answer waits for a line to play (steps): 8 s.
+const REPLIES_UP_STEPS: usize = 1000;
 
 /// How many steps last `ms`.
 fn steps(ms: u64) -> usize {
     (ms / STEP_MS) as usize
 }
-/// How long after its line `probe_later` deals (s).
-const LATER_S: f32 = 1.0;
+/// How long after its line began `probe_later` deals (s): past the line's
+/// end, its replies up to be pointed at.
+const LATER_S: f32 = 6.0;
 /// The custom token `probe_who` sets: `GetIsPC(GetPCSpeaker())`.
 const WHO_TOKEN: i32 = 7;
 /// The custom token `probe_talk`'s `EndConverAbort` sets to 1.
@@ -398,13 +401,49 @@ impl Run {
         self.answers_with(picks, TickInput::default());
     }
 
-    /// `answers` in a step with `input`'s actions.
+    /// `answers` sent at once, the line under way or not.
+    fn answers_now(&mut self, picks: &[(u8, Pick)]) {
+        self.send(picks, TickInput::default());
+    }
+
+    /// `answers` in a step with `input`'s actions, a reply or a point once
+    /// the replies are up (`replies_up`).
     fn answers_with(&mut self, picks: &[(u8, Pick)], input: TickInput) {
+        if picks
+            .iter()
+            .any(|(_, pick)| matches!(pick, Pick::Reply(_) | Pick::Point(_)))
+        {
+            self.replies_up();
+        }
+        self.send(picks, input);
+    }
+
+    /// Each seat's answer byte moved by its pick, in one step with
+    /// `input`'s actions.
+    fn send(&mut self, picks: &[(u8, Pick)], input: TickInput) {
         for &(seat, pick) in picks {
             let at = usize::from(seat);
             self.replies[at] = answer(self.replies[at], pick);
         }
         self.step_with(input);
+    }
+
+    /// Steps until no line under way is still playing: its replies are
+    /// chosen as it ends (`Step::offer_replies`), and an answer counts from
+    /// then.
+    fn replies_up(&mut self) {
+        for _ in 0..REPLIES_UP_STEPS {
+            let playing = self
+                .last
+                .talk
+                .conversations
+                .iter()
+                .any(|c| c.until_ms != u64::MAX && !c.on_hold());
+            if !playing {
+                return;
+            }
+            self.step(&[]);
+        }
     }
 
     fn body(&self, seat: u8) -> Result<SimId, String> {
@@ -1460,7 +1499,7 @@ fn marks(run: &mut Run) -> Result<Vec<Case>, String> {
     let repeated = run.talk().cloned();
     let lines = marked_lines(run, 1);
     // The guest's "Goodbye." sent for that line, arriving as the next plays.
-    run.answers(&[(1, Pick::Reply(GOODBYE))]);
+    run.answers_now(&[(1, Pick::Reply(GOODBYE))]);
     let late = run.talk().cloned();
     run.idle(32);
     run.answers(&[(0, Pick::Skip)]);
@@ -2890,7 +2929,8 @@ fn interjections(run: &mut Run) -> Result<Vec<Case>, String> {
     let (guests, hosts) = joined_to_guest(run, true)?;
     let on_hold = (run.conversation(guests), run.conversation(hosts));
     run.goodbye();
-    // A waited line's replies, offered again as it plays.
+    // A waited line's replies: none while it waits, chosen as it has
+    // played (`Step::offer_replies`).
     let locked = run.start(1, TALKER, "probe_talk")?;
     run.edit(locked, |c| c.locked = true);
     let anew = run.start(0, BARKER, "probe_chime3")?;
@@ -2899,6 +2939,7 @@ fn interjections(run: &mut Run) -> Result<Vec<Case>, String> {
     state.numbers.insert("probe_wait".into(), 1);
     run.world.set_script_state(state);
     run.answers(&[(1, Pick::Reply(GOODBYE))]);
+    run.replies_up();
     let offered_then = run.conversation(anew).map(|c| c.replies);
     let mut state = run.world.script_state().clone();
     state.numbers.remove("probe_wait");
@@ -2910,7 +2951,6 @@ fn interjections(run: &mut Run) -> Result<Vec<Case>, String> {
         c.as_ref()
             .is_some_and(|c| c.waits_for == id(buddy) && c.joined.is_empty())
     };
-    let both = [AGAIN, GOODBYE].map(u32::from).to_vec();
     Ok(vec![
         (
             "interjection_joined_steps_out",
@@ -2928,8 +2968,7 @@ fn interjections(run: &mut Run) -> Result<Vec<Case>, String> {
         (
             "waited_line_offers_anew",
             check(
-                offered_first.as_ref() == Some(&both)
-                    && offered_then == Some(vec![u32::from(GOODBYE)]),
+                offered_first == Some(Vec::new()) && offered_then == Some(vec![u32::from(GOODBYE)]),
                 format!("as it began to wait {offered_first:?}, as it played {offered_then:?}"),
             ),
         ),
@@ -3934,15 +3973,17 @@ fn watch_held(run: &mut Run) -> Result<Vec<Case>, String> {
 
 /// A line's script runs before its replies are offered, as both
 /// executables' `SendDialogEntry` runs an entry's scripts and then sends
-/// its replies (each one's condition checked there): "Again.", offered
-/// only once `probe_global` is set, is offered by the line whose script
-/// sets it (TSL's Ralon: `a_ralo_dialogue` notes the Exile's Awareness as
-/// the fake holocron is shown, and the reply that calls it a fake asks).
+/// its replies (each one's condition checked there, once the line has
+/// played): "Again.", offered only once `probe_global` is set, is offered
+/// by the line whose script sets it (TSL's Ralon: `a_ralo_dialogue` notes
+/// the Exile's Awareness as the fake holocron is shown, and the reply that
+/// calls it a fake asks).
 fn script_opens_reply(run: &mut Run) -> Result<Vec<Case>, String> {
     let mut state = run.world.script_state().clone();
     state.numbers.remove("probe_global");
     run.world.set_script_state(state);
     let id = run.start(0, BARKER, "probe_opened")?;
+    run.replies_up();
     let offered = run.conversation(id).map(|c| c.replies);
     run.goodbye();
     let both = [AGAIN, GOODBYE].map(u32::from).to_vec();
