@@ -1111,8 +1111,8 @@ fn sheet_of(sheet: Option<&PlayerSheet>, object: Option<&Object>) -> Sheet {
 }
 
 /// The faction a character fights for: the one a script set
-/// (`ChangeToStandardFaction`, a player's too, as the original engine sets
-/// any creature's; joining the party sets the player's), else its sheet's
+/// (`ChangeToStandardFaction`, any creature's but the player's own; joining
+/// the party sets the player's), else its sheet's
 /// (a player's sheet is the player's faction).
 fn faction_of(fighter: &Fighter, sheet: &Sheet) -> u8 {
     fighter.faction.unwrap_or(sheet.faction)
