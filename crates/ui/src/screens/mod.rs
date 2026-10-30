@@ -80,7 +80,7 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
         "options_resolution" => Box::new(resolution::Resolution::new(vm)),
         "main_menu" => Box::new(main_menu::MainMenu),
         "join" => Box::new(join::Join::new()),
-        "container" => Box::new(container::Container),
+        "container" => Box::new(container::Container::default()),
         "computer" => Box::new(computer::Computer),
         "options_in_game" => Box::new(tab::Tab::new(options_in_game::OptionsInGame)),
         "equip" => Box::new(tab::Tab::new(pages::Equip::default())),

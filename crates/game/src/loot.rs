@@ -13,6 +13,8 @@
 //!   one this player just closed does not open again while the snapshot
 //!   still has it open (a joined player's lags by a round trip), for at
 //!   most `CLOSING_FRAMES`;
+//! - in its give mode the party's items but the plot ones are listed
+//!   (`LootView::give`), one given faded until the party no longer has it;
 //! - the screens' game intents become the sim's actions, sent to the host
 //!   (`Outgoing`), as every player's are;
 //! - what the host says of them, and what scripts say to the player
@@ -42,6 +44,11 @@ pub struct Told(pub Vec<String>);
 #[derive(Resource, Default)]
 struct Pending(Vec<(u32, u32)>);
 
+/// The party's items this player put in a container and has not seen
+/// leave the party yet.
+#[derive(Resource, Default)]
+struct Given(Vec<u32>);
+
 /// The containers this player closed, not yet closed in the snapshot,
 /// with the frames each is still waited for.
 #[derive(Resource, Default)]
@@ -57,6 +64,7 @@ impl Plugin for LootPlugin {
         app.init_resource::<Outgoing>()
             .init_resource::<Told>()
             .init_resource::<Pending>()
+            .init_resource::<Given>()
             .init_resource::<Closing>()
             .add_systems(
                 Update,
@@ -85,6 +93,7 @@ pub(crate) fn action(game: GameAction) -> Option<Action> {
         GameAction::Close(container) => Action::Close(container),
         GameAction::Take { container, item } => Action::Take { container, item },
         GameAction::TakeAll(container) => Action::TakeAll(container),
+        GameAction::Put { container, item } => Action::Put { container, item },
         GameAction::Buy { store, item } => Action::Buy { store, item },
         GameAction::Sell { store, item } => Action::Sell { store, item },
         GameAction::Leave(store) => Action::Leave(store),
@@ -151,6 +160,7 @@ fn send(
     mut outgoing: ResMut<Outgoing>,
     mut pending: ResMut<Pending>,
     (mut closing, mut leaving): (ResMut<Closing>, ResMut<crate::merchant::Leaving>),
+    mut given: ResMut<Given>,
 ) {
     intents.0.retain(|intent| match intent {
         Intent::Game(game) => {
@@ -159,6 +169,7 @@ fn send(
             };
             match action {
                 Action::Take { container, item } => pending.0.push((container, item)),
+                Action::Put { item, .. } => given.0.push(item),
                 Action::Close(container) => closing.0.push((container, CLOSING_FRAMES)),
                 Action::Leave(store) => {
                     leaving.0 = Some((store, crate::merchant::LEAVING_FRAMES));
@@ -179,7 +190,7 @@ fn show(
     own: Option<Res<OwnSeat>>,
     swap: Option<Res<SceneSwap>>,
     mut ui: ResMut<Ui>,
-    (mut pending, mut closing): (ResMut<Pending>, ResMut<Closing>),
+    (mut pending, mut closing, mut given): (ResMut<Pending>, ResMut<Closing>, ResMut<Given>),
     mut told: ResMut<Told>,
     mut facts: ResMut<console::DumpFacts>,
 ) {
@@ -301,15 +312,24 @@ fn show(
             .and_then(|catalog| catalog.get(template))
             .map_or(1, |facts| facts.stacking)
     };
-    ui.vm.loot = open.map(|(index, items)| LootView {
-        container: index,
-        title: title.unwrap_or_else(|| ui::strings::bytes(ui::strings::CONTAINER)),
-        rows: stacks(&items, most)
+    // What the party may give (KOTOR's give mode lists the party's items but
+    // its plot ones); one given waits until the party no longer has it.
+    let carried: Vec<_> = snapshot
+        .goods
+        .carried(sim::inventory::PARTY)
+        .filter(|(_, item)| !item.plot)
+        .collect();
+    given
+        .0
+        .retain(|item| carried.iter().any(|(id, _)| id == item));
+    let assets = &mut ui.assets;
+    let mut rows = |items: &[(u32, &sim::inventory::Item)], asked: &dyn Fn(u32) -> bool| {
+        stacks(items, most)
             .into_iter()
             .map(|(template, items, count)| {
-                let look = ui.assets.as_mut().and_then(|assets| assets.item(template));
+                let look = assets.as_mut().and_then(|assets| assets.item(template));
                 LootRow {
-                    pending: items.iter().any(|item| pending.0.contains(&(index, *item))),
+                    pending: items.iter().any(|item| asked(*item)),
                     items,
                     count,
                     name: look
@@ -318,8 +338,15 @@ fn show(
                     icon: look.map(|look| look.icon),
                 }
             })
-            .collect(),
+            .collect::<Vec<_>>()
+    };
+    let loot = open.map(|(index, items)| LootView {
+        container: index,
+        title: title.unwrap_or_else(|| ui::strings::bytes(ui::strings::CONTAINER)),
+        rows: rows(&items, &|item| pending.0.contains(&(index, item))),
+        give: rows(&carried, &|item| given.0.contains(&item)),
     });
+    ui.vm.loot = loot;
     ui.stack.sync("container", ui.vm.loot.is_some(), &ui.vm);
 }
 

@@ -50,6 +50,9 @@ pub struct LootView {
     pub title: Vec<u8>,
     /// What is left in it.
     pub rows: Vec<LootRow>,
+    /// What the party may put in it (its give mode, `screens::container`):
+    /// what it carries but its plot items, stacked alike.
+    pub give: Vec<LootRow>,
 }
 
 /// What an item is, as the inventory's and the store's filters sort it.

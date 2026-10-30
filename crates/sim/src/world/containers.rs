@@ -8,7 +8,8 @@
 //! - closes it for a seat whose player is down or out of reach;
 //! - applies the seats' actions in canonical order (`TickInput::actions`):
 //!   opening it (a locked one fails to, `world::locks`), closing it,
-//!   taking one of its items or everything left. What it holds is its
+//!   taking one of its items or everything left, putting one of the
+//!   party's in (not a plot item: KOTOR's give mode). What it holds is its
 //!   inventory as the scripts have it (`State::loot`): its template's
 //!   items stocked on the module's first visit and whatever scripts gave
 //!   it since, as KOTOR's containers hold their item list (K1's civilian
@@ -208,9 +209,10 @@ pub(super) fn containers(
         }
     }
 
-    // The items taken this step, and by whom.
+    // The items taken this step, and by whom; those put in.
     let state = &scripts.state;
     let mut taken_now: Vec<(u32, Seat)> = Vec::new();
+    let mut put_now: Vec<u32> = Vec::new();
     for (seat, action) in inputs.0.actions() {
         let seat = *seat;
         // Trading, wearing, levels and the party screen are the scripts' (`world::scripts`).
@@ -302,8 +304,18 @@ pub(super) fn containers(
                 continue;
             }
             // What the party gives it: the scripts move it (`State::put_in`),
-            // then the container hears of it.
+            // then the container hears of it. Only what the party carries,
+            // unworn, never a plot item (KOTOR's give mode does not list
+            // those, `CSWGuiContainer::SetupGiveMode`), once a step.
             Action::Put { item, .. } => {
+                let givable = state.items.get(&item).is_some_and(|held| {
+                    held.holder == crate::inventory::PARTY && held.slot.is_none() && !held.plot
+                });
+                if !givable || put_now.contains(&item) {
+                    refuse(&mut notices, Notice::CannotUse);
+                    continue;
+                }
+                put_now.push(item);
                 events.put.push((id.0, item));
                 events.events.push((id.0, who, Hook::Disturbed));
                 continue;
