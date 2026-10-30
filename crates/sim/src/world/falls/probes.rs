@@ -918,10 +918,11 @@ fn chosen_revive(rank: u8, far: f32, breaker: Option<Breaker>) -> Result<Chosen,
             .find(|candidate| candidate.index == body)
             .map(|candidate| candidate.feet)
             .ok_or("the downed host is no target")?;
+        let spot = crate::target::Spot::plain(to, Choice::Revive, ObjectKind::Creature);
         let state = |_: u32| crate::ObjectState::default();
         if !started {
             started = true;
-            if Walk::near(&ps, to, Choice::Revive, ObjectKind::Creature) {
+            if Walk::near(&ps, spot) {
                 hold = Some(Reviving::new(body, now));
                 run.acts.push((Seat(1), Action::Revive(run.host)));
             } else {
@@ -930,8 +931,7 @@ fn chosen_revive(rank: u8, far: f32, breaker: Option<Breaker>) -> Result<Chosen,
                     &state,
                     &ps,
                     body,
-                    ObjectKind::Creature,
-                    to,
+                    spot,
                     Choice::Revive,
                     now,
                 ));
@@ -939,7 +939,7 @@ fn chosen_revive(rank: u8, far: f32, breaker: Option<Breaker>) -> Result<Chosen,
         }
         let mut piloted = None;
         if let Some(going) = walk.as_mut() {
-            match going.stride(&level, &state, &ps, ObjectKind::Creature, to, now) {
+            match going.stride(&level, &state, &ps, spot, now) {
                 Stride::Steer(command) => piloted = Some(command),
                 Stride::Arrived => {
                     chosen.arrived = Some(now);

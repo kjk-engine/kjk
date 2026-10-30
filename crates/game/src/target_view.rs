@@ -81,6 +81,7 @@ impl Targeted {
 mod lines {
     pub const OPEN: u32 = 365;
     pub const USE: u32 = 366;
+    pub const CLOSE: u32 = 1582;
     pub const DIALOG: u32 = 371;
     pub const SECURITY: u32 = 255;
     pub const TREAT_INJURY: u32 = 257;
@@ -92,8 +93,8 @@ mod lines {
 /// A choice's icon, by the kind of its object (an item's its own).
 fn icon(choice: Choice, kind: ObjectKind) -> &'static str {
     match (choice, kind) {
-        (Choice::Open, ObjectKind::Door) => "i_opendoor",
-        (Choice::Open, _) => "i_openplace",
+        (Choice::Open | Choice::Close, ObjectKind::Door) => "i_opendoor",
+        (Choice::Open | Choice::Close, _) => "i_openplace",
         (Choice::Use, _) => "i_useplace",
         (Choice::Talk, _) => "i_dialog",
         (Choice::Unlock { .. }, _) => "isk_security",
@@ -516,18 +517,22 @@ fn target(
     // E again while walking or reviving changes nothing, as a walk's
     // ignores it: a second press does not undo the first.
     let busy = targeted.walk.is_some() || targeted.reviving.is_some();
+    // Where the choice is done from: a door's action point on the player's
+    // side, else the target's feet.
+    let spot = |choice: Choice| {
+        sim::target::Spot::in_snapshot(level, snapshot, (index, kind), choice, to, &ps)
+    };
     if let (true, false, Some(&choice)) = (pressed, busy, choices.get(targeted.selected)) {
-        if Walk::near(&ps, to, choice, kind) {
+        let spot = spot(choice);
+        if Walk::near(&ps, spot) {
             act(&mut targeted, choice);
         } else {
-            targeted.walk = Some(Walk::new(
-                level, &state, &ps, index, kind, to, choice, sim_ms,
-            ));
+            targeted.walk = Some(Walk::new(level, &state, &ps, index, spot, choice, sim_ms));
         }
     }
     autopilot.breaks = sim::target::WALK_BREAKS;
     if let Some(mut walk) = targeted.walk {
-        match walk.stride(level, &state, &ps, kind, to, sim_ms) {
+        match walk.stride(level, &state, &ps, spot(walk.choice), sim_ms) {
             Stride::Steer(command) => {
                 autopilot.command = Some(command);
                 targeted.walk = Some(walk);
@@ -584,6 +589,7 @@ fn target(
             let mut label = say(match choice {
                 Choice::Open => lines::OPEN,
                 Choice::Use => lines::USE,
+                Choice::Close => lines::CLOSE,
                 Choice::Talk => lines::DIALOG,
                 Choice::Unlock { .. } => lines::SECURITY,
                 Choice::Revive => lines::TREAT_INJURY,

@@ -718,7 +718,11 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   fail-to-open script and "Locked"), Security, Security with the best
   spike carried (owner, 2026-10-09: Open is the default; Security only
   for a body with ranks in it and not on a lock only its key opens, as
-  K1); an open door: Use (its `OnClick`); a
+  K1); an open door: Use (its `OnClick`), and before it Close (1582, the
+  open-door icon) where the player could open it again (not locked, not
+  one only scripts open, not broken open, not leading out; nobody in its
+  doorway, the host checks; its `OnClosed` runs). KOTOR offers nothing on
+  an open door: Close is the owner's (QUIRKS.md Q-0330); a
   creature not hostile that speaks: Dialog; a hostile one shows its name
   and vitality, both red, and the items the player's body wears that it
   may use on a foe with a use left (a droid's stun ray or flamethrower:
@@ -728,9 +732,15 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   plays the dev soldier as a droid.
 - **E** does the chosen: at once within four fifths of its reach (doors
   2 m, Dialog 4 m, else 2.5 m; the host checks the whole reach), else the
-  player walks there first (`sim::target::Walk`:
-  a walker, or straight at it where no route leads, as before a door that
-  leads out), steered in place of the keys, keeping its hand and power;
+  player walks there first. A door with action points (the two use
+  positions of its closed walkmesh, `<model>0.dwk`: one before it, one
+  behind) is done from the one on the player's side, a walkable one first,
+  within four fifths of 0.75 m past a humanoid's personal space
+  (`sim::target::Spot`; K1's and TSL's `CSWSCreature::GetUseRange`), so
+  the player never walks into a wide door's face, and the host also takes
+  a door's use from there. The walk (`sim::target::Walk`): a walker, or
+  straight at it where no route leads, as before a door that leads out;
+  steered in place of the keys, keeping its hand and power;
   its own move, jump or attack ends the walk, as do a screen, a
   conversation, the target going or no longer offering the choice (a door
   opened, a creature turned hostile). 10 s of the sim's time or three

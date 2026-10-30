@@ -1060,12 +1060,14 @@ fn destroy_fades() {
 /// above within it across the floor (Dxun's Kumus), refuses what a
 /// wall hides and a door closed on someone; a K1
 /// container's use runs its `OnUsed`, locked (no "locked" line) or opening;
-/// scripts see who did it; two runs end the same; a companion, led or
-/// driven by a player, is a target, picked only clear ahead of the player,
-/// and never the target of the player it is the body of. The sim alone.
+/// scripts see who did it; Close is offered on an open door the player
+/// could open again (QUIRKS.md Q-0330), not on one only scripts open, one
+/// leading out or one broken open; a companion, led or driven by a player,
+/// is a target, picked only clear ahead of the player, and never the target
+/// of the player it is the body of; two runs end the same. The sim alone.
 #[test]
 fn use_actions() {
-    probed("use", &sim::uses::probes(), 40);
+    probed("use", &sim::uses::probes(), 41);
 }
 
 /// Bashing (`docs/COMBAT.md`): on the proving ground
@@ -1135,10 +1137,13 @@ fn use_scripts() {
 /// proving ground the player, steered by `sim::target::Walk` in place of
 /// its keys, walks from the entry to a panel out of reach and uses it on
 /// arriving; its own forward key on the way cancels the walk and nothing is
-/// used; two runs end the same. The sim alone.
+/// used; two runs end the same; from beside the wall the player walks to
+/// the gate's action point on its side (KOTOR's use range from a door's
+/// walkmesh use position), off the wall's face, opens the gate, then closes
+/// it with Close, its `OnClosed` heard. The sim alone.
 #[test]
 fn use_walk() {
-    probed("walk", &sim::uses::walk_probes(), 3);
+    probed("walk", &sim::uses::walk_probes(), 5);
 }
 
 /// Security in one press (owner's playtest, 2026-10-25: "Security

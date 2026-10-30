@@ -963,7 +963,8 @@ pub(crate) fn choices() -> Vec<(&'static str, Result<String, String>)> {
     // A walk to disarm or recover stands outside the trap's circle and
     // within the walk's arrival: it never walks onto the mine.
     let stands = [Choice::Disarm, Choice::Recover].map(|choice| {
-        let stand = crate::target::stand_off(choice, ObjectKind::Trigger);
+        let stand =
+            crate::target::Spot::plain([0.0; 3], choice, ObjectKind::Trigger).stand_off(choice);
         stand > crate::traps::RADIUS_M
             && stand < crate::target::reach(choice, ObjectKind::Trigger) * 0.8
     });

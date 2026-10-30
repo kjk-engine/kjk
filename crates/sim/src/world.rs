@@ -927,12 +927,13 @@ impl SimWorld {
         if !uses::applies(object, verb, body.is_some_and(|(_, alive)| alive)) {
             return false;
         }
+        let level = &world.resource::<Static>().0;
         let target = uses::Target::new(index, body.map(|(at, _)| at), placed).aimed(
+            level,
             object.kind,
             facts,
             scale(user.origin, UNIT),
         );
-        let level = &world.resource::<Static>().0;
         let states = level.states(
             objects
                 .iter(world)

@@ -281,6 +281,7 @@ pub(super) fn interact(
             let creature = creature.map(|(_, origin, ..)| scale(*origin, UNIT));
             let kind = objects[at].1.kind;
             let target = uses::Target::new(index, creature, placed).aimed(
+                &level.0,
                 kind,
                 &facts,
                 scale(user.origin, UNIT),
