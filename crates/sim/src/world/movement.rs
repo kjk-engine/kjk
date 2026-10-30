@@ -599,8 +599,7 @@ pub(super) fn move_actors(
             inside.hold_off(before, &mut player.0, |from, to| {
                 seated
                     && level.0.with(states.as_deref(), |world| {
-                        let world = Bodies::new(world, bodies).skipping(own);
-                        standing_clear(&world, from, to, maxs_z)
+                        slides_clear(world, bodies, own, (from, to), maxs_z)
                     })
             });
         }
@@ -870,6 +869,30 @@ impl Inside<'_> {
             ps.velocity[1] = 0.0;
         }
     }
+}
+
+/// Whether a seat's player's step along a body it stands inside
+/// (`Inside::hold_off`) goes from `from` to `to` (origins, units) through
+/// `world` and the other `bodies` (`own` its own) unstopped. A box the
+/// level already holds where it stood (pressed into a walkmesh edge's
+/// wall) is weighed by the bodies alone: the step was the level's own
+/// move (`motion::move_body`), and a trace begun inside the wall stopped
+/// every one. Juhani, back at her post by Dantooine's council chamber
+/// wall, held the player between her box and the wall for good.
+pub(crate) fn slides_clear(
+    world: &dyn CollisionWorld,
+    bodies: &[Body],
+    own: u32,
+    (from, to): ([f32; 3], [f32; 3]),
+    maxs_z: f32,
+) -> bool {
+    let open = collision::BoxWorld::new();
+    let world: &dyn CollisionWorld = if standing_clear(world, from, from, maxs_z) {
+        world
+    } else {
+        &open
+    };
+    standing_clear(&Bodies::new(world, bodies).skipping(own), from, to, maxs_z)
 }
 
 /// Whether a standing box (its top `maxs_z` units over its origin) goes
