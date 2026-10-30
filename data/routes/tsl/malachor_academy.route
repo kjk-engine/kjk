@@ -27,12 +27,9 @@
 #   (tr_sionenter's switch back from the remote).
 #   The Exile's Persuade passes c_sc_per_lt's DC and his Awareness
 #   c_sc_awa_gt's.
-# BLOCKER: a_903kreia sends the Exile from the hallway (wp_903kreia_sp) to
-# wp_903kreia_1 inside, through d_entrance, which it opens 4 s later
-# (DelayCommand ActionOpenDoor); kjk's scripted move stalls at the shut door
-# and ends there, before the way out (TO_902MAL) the harness will not walk
-# into. Where the scene puts the Exile, in the academy:
-goto 903mal wp_903kreia_1
+#   The scene (a_903kreia) has walked the Exile in through d_entrance,
+#   which it opens 4 s after sending him: his walk waits out KOTOR's
+#   pathfinding wait at the shut door and goes on once it opens.
 fight 30             # the Elite Sith Assassin, then the hall's assassins
 fight 30
 fight 30
