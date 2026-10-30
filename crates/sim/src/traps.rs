@@ -14,6 +14,8 @@ use rules::traps::recover;
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
+pub use crate::world::traps::probes::walk_probes;
+#[cfg(feature = "probes")]
 pub use probes::probes;
 
 /// How often every creature looks for traps near it (ms), and how far
@@ -23,6 +25,9 @@ pub const DETECT_RANGE_M: f32 = rules::traps::detect::RANGE_M;
 /// `ranges.2da` `TrapRadius` (`ModuleData::ranges`), K1's where a level
 /// has none.
 pub const RADIUS_M: f32 = crate::module::Ranges::K1.trap_radius_m;
+/// How far from a mine's middle (metres, across the floor) it is disarmed
+/// or recovered: beside it, outside its circle.
+pub const REACH_M: f32 = rules::traps::disarm::REACH_M;
 /// How long disarming or recovering takes, and laying (ms).
 pub const DISARM_MS: u64 = rules::traps::disarm::MS;
 pub const LAY_MS: u64 = rules::traps::lay::MS;

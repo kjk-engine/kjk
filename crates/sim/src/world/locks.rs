@@ -91,6 +91,10 @@ pub mod lines {
     pub const FAILURE: u32 = 1393;
     pub const NOT_POSSIBLE: u32 = 1397;
     pub const TAKE_20: u32 = 1409;
+    /// What floats over a skill's user as its check ends (`floats`): "Skill
+    /// Too Low", "Impossible", besides "success" and "failure".
+    pub const SKILL_TOO_LOW: u32 = 1519;
+    pub const IMPOSSIBLE: u32 = 1370;
     /// What a trap check tries (the 1406 line's skill): "Disable Mine",
     /// "Set Mine", "Recover Mine".
     pub const DISARM_MINE: u32 = 1529;
@@ -115,6 +119,29 @@ pub mod lines {
     /// "Sneak Attack!": told to whoever lands one.
     pub const SNEAK_ATTACK: u32 = 1459;
 }
+
+/// The words K1's client floats over the user of Security, Disable Mine or
+/// Recover Mine as its check ends (from the result its server sends with
+/// the check's line): a mine's success; a failure in combat (`roll`), but a
+/// mine's that set it off (`sprung`); out of combat, where taking 20 did not
+/// reach the DC, "Skill Too Low", or for a lock of `IMPOSSIBLE_DC` or more
+/// "Impossible". Nothing else floats: not Security's success, nor setting a
+/// mine. The client draws them starred (`*failure*`).
+pub fn floats(skill: u32, roll: Option<u8>, dc: u8, success: bool, sprung: bool) -> Option<u32> {
+    let mine = matches!(skill, lines::DISARM_MINE | lines::RECOVER_MINE);
+    if !mine && skill != lines::SECURITY {
+        return None;
+    }
+    match (success, roll) {
+        (true, _) => mine.then_some(lines::SUCCESS),
+        (false, None) if !mine && dc >= IMPOSSIBLE_DC => Some(lines::IMPOSSIBLE),
+        (false, None) => Some(lines::SKILL_TOO_LOW),
+        (false, Some(_)) => (!sprung).then_some(lines::FAILURE),
+    }
+}
+
+/// The lock DC from which a failure taking 20 floats "Impossible".
+pub const IMPOSSIBLE_DC: u8 = rules::interaction::security::IMPOSSIBLE_DC;
 
 /// What the step's keys did, for the scripts: each object unlocked and
 /// who unlocked it; whether a key was used up (the goods change).
@@ -486,6 +513,8 @@ pub(super) fn unlock(
             success,
         },
     ));
+    out.feedback
+        .extend(floats(lines::SECURITY, roll, dc, success, false).map(|words| (user.id, words)));
     say(
         out,
         user,

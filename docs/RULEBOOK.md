@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `c0eba9990d72f5bd`.
+Edition `a6badea9b0fdaf1e`.
 
 ## Contents
 
@@ -6848,7 +6848,8 @@ A running character suffers a -5 penalty to Awareness checks against mines.
 
 ### <a id="traps-disarm"></a>Disarm Mine
 
-Disarm Mine appears on the menu of a found mine within reach. Disarming
+Disarm Mine and Recover Mine appear on the menu of a found mine only for a
+character with ranks in Demolitions. Disarming
 takes 4.5 seconds. The check is Demolitions + 1d20
 in combat, or Demolitions + 20 out of combat,
 against the mine's disarm DC. A mine with a DC above
@@ -6856,13 +6857,22 @@ against the mine's disarm DC. A mine with a DC above
 10 sets off the mine.
 
 A mine set by the party is always disarmed. Moving, attacking or falling
-interrupts the attempt.
+interrupts the attempt. The character works on the mine through every
+attempt, and the outcome floats over it as in KOTOR: *success*, *failure*
+(in combat), or *Skill Too Low* (out of combat, where taking 20 is not
+enough). A failed attempt may be tried again.
 
 <a id="traps-disarm-ms"></a>**Disarm Time** = **4.5 seconds** (`4500 ms`) · `traps.disarm.ms`
 
 Disarming or recovering a mine takes 4.5 seconds.
 
 <sub>Source: K1's executable (S7). Code: `sim::world::traps::skill_uses`.</sub>
+
+<a id="traps-disarm-reach-m"></a>**Disarm Range** = **3 m** · `traps.disarm.reach_m`
+
+A mine can be disarmed or recovered from up to 3 meters of its center, outside its 1.5 meter radius.
+
+<sub>Source: ours (KOTOR disarms from beside a mine). Code: `sim::world::traps::skill_uses`.</sub>
 
 <a id="traps-disarm-hopeless-dc"></a>**Highest Disarm DC** = **35** · `traps.disarm.hopeless_dc`
 
@@ -7034,13 +7044,22 @@ the security spike used, against the lock's DC. A spike is used up only if
 the attempt fails.
 
 The character must have paid points into the Security skill. Some locks can
-only be opened with their key.
+only be opened with their key. A failed attempt may be tried again; its
+outcome floats over the character as in KOTOR: *failure* in combat, *Skill
+Too Low* out of combat where taking 20 is not enough, *Impossible* for a
+lock of DC 60 or more.
 
 <a id="interaction-security-unlock-ms"></a>**Unlock Time** = **1.5 seconds** (`1500 ms`) · `interaction.security.unlock_ms`
 
 Using Security on a lock takes 1.5 seconds.
 
 <sub>Source: K1's executable (its open-lock action). Code: `sim::world::locks::begin`.</sub>
+
+<a id="interaction-security-impossible-dc"></a>**Impossible Lock** = **60** · `interaction.security.impossible_dc`
+
+A lock of DC 60 or more that taking 20 does not open is told as Impossible.
+
+<sub>Source: K1's executable (its open-lock action's feedback). Code: `sim::locks::floats`.</sub>
 
 ### <a id="interaction-skill-uses"></a>Using Skills
 
@@ -8600,11 +8619,11 @@ A downed party member can be targeted up to 0.5 meters above the floor.
 
 <sub>Source: ours. Code: `sim::target::candidates`.</sub>
 
-<a id="targeting-volumes-trap-radius"></a>**Mine Radius** = **0.6 m** · `targeting.volumes.trap_radius`
+<a id="targeting-volumes-trap-radius"></a>**Mine Radius** = **1.5 m** · `targeting.volumes.trap_radius`
 
-A detected mine can be targeted within 0.6 meters of its center.
+A detected mine can be targeted anywhere over its area, within 1.5 meters of its center.
 
-<sub>Source: ours. Code: `sim::target::candidates`.</sub>
+<sub>Source: ours (KOTOR's mines are picked by their whole drawn area; K1's all have a 1.5 m radius). Code: `sim::target::candidates`.</sub>
 
 <a id="targeting-volumes-trap-height"></a>**Mine Height** = **0.3 m** · `targeting.volumes.trap_height`
 
@@ -8629,11 +8648,17 @@ A character walking to a target stops at 0.5 times the reach it acts from.
 
 <sub>Source: ours. Code: `sim::target::stand_off`.</sub>
 
-<a id="targeting-walk-trap-share"></a>**Mine Stopping Distance** = **×0.9** · `targeting.walk.trap_share`
+<a id="targeting-walk-trap-clear-m"></a>**Mine Standing Distance** = **0.6 m** · `targeting.walk.trap_clear_m`
 
-A character walking to disarm or recover a mine stops at 0.9 times the reach it acts from, beside the mine.
+A character walking to disarm or recover a mine stops 0.6 meters outside the mine's 1.5 meter radius, beside the mine, never on it.
 
-<sub>Source: ours (KOTOR disarms from beside a mine). Code: `sim::target::stand_off`.</sub>
+<sub>Source: ours (KOTOR disarms from beside a mine; a run's stop slides on). Code: `sim::target::stand_off`.</sub>
+
+<a id="targeting-walk-trap-arrive-m"></a>**Mine Arrival** = **0.7 m** · `targeting.walk.trap_arrive_m`
+
+A character walking to a mine has arrived within 0.7 meters of where it stops, and stops there before acting.
+
+<sub>Source: ours (beyond a walk's own arrival, {walking.route.arrived:bare} × {walking.route.reached:m}, so a short walk arrives too). Code: `sim::target::Walk::near`.</sub>
 
 <a id="targeting-walk-walk-ms"></a>**Walk Time Limit** = **10 seconds** (`10000 ms`) · `targeting.walk.walk_ms`
 

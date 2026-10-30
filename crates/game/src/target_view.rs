@@ -369,12 +369,13 @@ fn target(
                         .is_some_and(|facts| facts.trap.is_some())
                 })
         });
-    // Security, for a body with ranks in it.
-    let security = sheet_of(snapshot, level, me)
-        .is_some_and(|sheet| sheet.skills[sim::combat::sheet::skills::SECURITY] > 0)
-        .then(|| sim::target::Security {
-            spike: spike.as_ref().map(|(id, _)| *id),
-        });
+    // Security and Demolitions, for a body with ranks in them.
+    let ranks =
+        |skill: usize| sheet_of(snapshot, level, me).is_some_and(|sheet| sheet.skills[skill] > 0);
+    let security = ranks(sim::combat::sheet::skills::SECURITY).then(|| sim::target::Security {
+        spike: spike.as_ref().map(|(id, _)| *id),
+    });
+    let demolitions = ranks(sim::combat::sheet::skills::DEMOLITIONS);
     let shown: Option<Shown> = object.and_then(entity_of).and_then(|entity| {
         if sim::target::revivable(entity) {
             return Some((
@@ -427,7 +428,10 @@ fn target(
             state,
             hostile,
             security,
-            (row.as_ref().is_some_and(|row| !row.kit.is_empty()), mine),
+            demolitions.then(|| sim::target::Demolitions {
+                recover: row.as_ref().is_some_and(|row| !row.kit.is_empty()),
+                door_mine: mine,
+            }),
         );
         let name = match &row {
             Some(row) if row.name != u32::MAX => ui

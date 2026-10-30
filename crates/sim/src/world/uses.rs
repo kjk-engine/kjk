@@ -270,6 +270,6 @@ pub(super) fn use_object(
     clippy::disallowed_methods,
     reason = "checks and traces set up their own cases on one machine"
 )]
-mod probes;
+pub(crate) mod probes;
 #[cfg(feature = "probes")]
 pub use probes::{probes, script_probes, security_walk_probes, walk_probes};

@@ -1697,7 +1697,7 @@ const WALK_STEPS: usize = 1500;
 /// The proving ground with `data` for its module, its floor walkable (the
 /// walk's routes), the probe's scripts, and one seat playing `sheet`: the
 /// level as the target block sees it, the world.
-fn walk_world(
+pub(crate) fn walk_world(
     data: crate::module::ModuleData,
     sheet: crate::combat::Sheet,
 ) -> Result<(super::super::Level, super::super::SimWorld), String> {
@@ -1736,29 +1736,29 @@ fn walk_world(
 /// it chooses), then `choice` on object `object` of `kind`: asked at once
 /// where it stands near enough, else walked to and asked on arriving; with
 /// `cancel_at`, its own forward key that step of the walk cancels it.
-struct Choosing {
-    stand: Option<[f32; 2]>,
-    run_in: usize,
-    object: u32,
-    kind: ObjectKind,
-    choice: crate::target::Choice,
-    cancel_at: Option<usize>,
+pub(crate) struct Choosing {
+    pub stand: Option<[f32; 2]>,
+    pub run_in: usize,
+    pub object: u32,
+    pub kind: ObjectKind,
+    pub choice: crate::target::Choice,
+    pub cancel_at: Option<usize>,
 }
 
 /// A walk probe's run: the step the choice was asked (none if it was not),
 /// whether the player's own command cancelled the walk, the step the run
 /// ended on (`WALK_STEPS` if it never did), the last snapshot.
-struct Walked {
-    asked: Option<usize>,
-    cancelled: bool,
-    ended: usize,
-    last: crate::Snapshot,
+pub(crate) struct Walked {
+    pub asked: Option<usize>,
+    pub cancelled: bool,
+    pub ended: usize,
+    pub last: crate::Snapshot,
 }
 
 /// Seat 0's player of `world` choosing (`Choosing`), each step's snapshot
 /// and notices given to `done` with whether the choice was asked yet,
 /// which ends the run.
-fn walk_and_choose(
+pub(crate) fn walk_and_choose(
     kept: &super::super::Level,
     world: &mut super::super::SimWorld,
     how: &Choosing,

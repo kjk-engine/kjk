@@ -830,7 +830,7 @@ pub(crate) fn skill_uses(
             refuse(out, tell);
             continue;
         }
-        if across(middle(target), user.position) > super::containers::REACH {
+        if across(middle(target), user.position) > crate::traps::REACH_M {
             out.notices.push((Some(tell), Notice::OutOfReach));
             continue;
         }
@@ -947,6 +947,11 @@ pub(crate) fn skill_uses(
                 success: outcome == Outcome::Done,
             },
         ));
+        let sprung = outcome == Outcome::Sprung;
+        out.feedback.extend(
+            crate::locks::floats(skill, roll, shown, outcome == Outcome::Done, sprung)
+                .map(|words| (user.id, words)),
+        );
         match (outcome, used.kind) {
             (Outcome::Done, UseKind::Recover) => {
                 if let Some(row) = view.module.traps.get(usize::from(found.row))

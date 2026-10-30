@@ -153,7 +153,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             state,
             hostile,
             Some(Security { spike: Some(9) }),
-            (false, false),
+            None,
         )
     };
     use Choice::{Mine, Open, Talk, Unlock, Use};
@@ -197,14 +197,14 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ..locked_door.clone()
     };
     let opened_only = [
-        choices(door, &locked_door, shut, false, None, (false, false)),
+        choices(door, &locked_door, shut, false, None, None),
         choices(
             door,
             &key_only,
             shut,
             false,
             Some(Security { spike: Some(9) }),
-            (false, false),
+            None,
         ),
     ];
     checks.push((
@@ -216,8 +216,13 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     ));
     // TSL's mine on a door: offered on a shut door (a key-only one too)
     // where the party carries one, not on an open door.
-    let mined = [(&key_only, shut), (&locked_door, open)]
-        .map(|(facts, state)| choices(door, facts, state, false, None, (false, true)));
+    let mined = [(&key_only, shut), (&locked_door, open)].map(|(facts, state)| {
+        let demolitions = crate::target::Demolitions {
+            recover: false,
+            door_mine: true,
+        };
+        choices(door, facts, state, false, None, Some(demolitions))
+    });
     checks.push((
         "target_mine_offered",
         check(

@@ -149,11 +149,11 @@ applies = ["kind:companion"]
 
 [volumes.trap_radius]
 name = "Mine Radius"
-value = 0.6
+value = 1.5
 unit = "m"
 range = [0.1, 3.0]
-summary = "A detected mine can be targeted within {targeting.volumes.trap_radius:bare} meters of its center."
-source = "ours"
+summary = "A detected mine can be targeted anywhere over its area, within {targeting.volumes.trap_radius:bare} meters of its center."
+source = "ours (KOTOR's mines are picked by their whole drawn area; K1's all have a 1.5 m radius)"
 see = "sim::target::candidates"
 applies = ["kind:mine"]
 
@@ -192,14 +192,26 @@ summary = "A character walking to a target stops at {targeting.walk.share:bare} 
 source = "ours"
 see = "sim::target::stand_off"
 
-[walk.trap_share]
-name = "Mine Stopping Distance"
-value = 0.9
-unit = "×"
-range = [0.0, 1.0]
-summary = "A character walking to disarm or recover a mine stops at {targeting.walk.trap_share:bare} times the reach it acts from, beside the mine."
-source = "ours (KOTOR disarms from beside a mine)"
+[walk.trap_clear_m]
+name = "Mine Standing Distance"
+type = "f32"
+value = 0.6
+unit = "m"
+range = [0.3, 3.0]
+summary = "A character walking to disarm or recover a mine stops {targeting.walk.trap_clear_m:bare} meters outside the mine's {world.ranges.trap_radius_m:bare} meter radius, beside the mine, never on it."
+source = "ours (KOTOR disarms from beside a mine; a run's stop slides on)"
 see = "sim::target::stand_off"
+applies = ["kind:mine", "skill:Demolitions"]
+
+[walk.trap_arrive_m]
+name = "Mine Arrival"
+type = "f32"
+value = 0.7
+unit = "m"
+range = [0.0, 2.0]
+summary = "A character walking to a mine has arrived within {targeting.walk.trap_arrive_m:bare} meters of where it stops, and stops there before acting."
+source = "ours (beyond a walk's own arrival, {walking.route.arrived:bare} × {walking.route.reached:m}, so a short walk arrives too)"
+see = "sim::target::Walk::near"
 applies = ["kind:mine", "skill:Demolitions"]
 
 [walk.walk_ms]
