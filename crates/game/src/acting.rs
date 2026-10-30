@@ -267,63 +267,39 @@ impl Flinch {
     }
 }
 
-/// A creature model's attacks, `animations.2da`'s rows for one: its swing,
-/// bite or gore (`ATTACK` + 1 and + 2, `g0a1` and `g0a2`, rows 276-277),
-/// its gun's shot (`ATTACK` + 3, `b0a1`, row 288) and its melee set
-/// (`ATTACK` + 4 and + 5, `m0a1` and `m0a2`, rows 282-283).
+/// A creature model's attacks, as reone names them for one
+/// (`Creature::getAnimationName`, outside a scene's round): its own swing,
+/// bite or gore (`ATTACK` + 1 and + 2, `g0a1` and `g0a2`), and its gun's
+/// shot (`ATTACK` + 3, `b0a1`).
 pub const ATTACK: u16 = 4300;
 
-/// The attacks (`ATTACK` + 1 to + 5).
+/// The attacks (`ATTACK` + 1 to + 3).
 pub fn attack_names() -> impl Iterator<Item = (u16, String)> {
-    ["g0a1", "g0a2", "b0a1", "m0a1", "m0a2"]
+    ["g0a1", "g0a2", "b0a1"]
         .into_iter()
         .zip(1..)
         .map(|(name, n)| (ATTACK + n, name.to_string()))
 }
 
 /// The attack clips a creature model of wield number `wield` plays for its
-/// `count`th attack, the first bound one shown: a gun's shot; else, with
-/// `melee` (a striker on JA's skeleton, a Gamorrean), its melee set where its
-/// model has `m0a1`, as K1's executable picks a creature model's melee
-/// attack in its melee round (10109); else its own two (`g0a…`), the two in
-/// turn [verify: the executable draws one of the two at random], else the
-/// first.
-fn attack_of(wield: u8, count: u8, melee: bool) -> [u16; 4] {
-    let turn = u16::from(count.wrapping_add(1) % 2);
-    let own = [ATTACK + 1 + turn, ATTACK + 1];
+/// `count`th attack, the first bound one shown: a gun's shot, else its own
+/// two in turn [verify: reone always swings `g0a1`; the exe's choice
+/// between them], else the first.
+fn attack_of(wield: u8, count: u8) -> [u16; 2] {
     match wield {
-        5 | 6 | 7 | 9 => [ATTACK + 3, ATTACK + 1, ATTACK + 1, ATTACK + 1],
-        _ if melee => [ATTACK + 4 + turn, ATTACK + 4, own[0], own[1]],
-        _ => [own[0], own[1], own[1], own[1]],
+        5 | 6 | 7 | 9 => [ATTACK + 3, ATTACK + 1],
+        _ => [
+            ATTACK + 1 + u16::from(count.wrapping_add(1) % 2),
+            ATTACK + 1,
+        ],
     }
 }
 
-/// Whether a body of wield number `wield` attacks by a strike
-/// (`sim::world::strikes`: nothing in its hands, or a stun baton) rather
-/// than JA's swing or aim: a creature model on JA's skeleton (a Gamorrean)
-/// plays its own attack clips then (`Attack`).
-pub fn strikes(wield: u8) -> bool {
-    matches!(wield, 1 | 8)
-}
-
-/// Whether `bound` holds a creature model's own attack or damage clips
-/// (`attack_names`, `cdamages`): the clips a creature model binds whatever
-/// its skeleton (`viewer::scripted_clips`), which a weapon's hit flinches.
-pub fn creature_bound(bound: &Bound) -> bool {
-    bound
-        .iter()
-        .any(|(animation, _)| *animation == FLINCH || (ATTACK + 1..=ATTACK + 5).contains(animation))
-}
-
-/// A creature model's attack: a rise of its weapon timer
-/// (`Fighter::weapon_wait_ms`) is an attack the sim began, and plays its
-/// attack clip (`attack_of`) once over its pose; one begun while the last
-/// still plays waits for the next. On its own bones (droids, beasts: no JA
-/// swing draws them) every attack plays so: a strike
-/// (`sim::world::strikes`), a gun's shot, a blade's move. On JA's skeleton
-/// (a Gamorrean, retargeted) its strikes do (`strikes`), as K1's
-/// executable plays a creature model's attack whatever its bones; a blade
-/// in its hands swings JA's way and a gun aims JA's way.
+/// A creature model's attack (droids, beasts: no JA swing draws it): a rise
+/// of its weapon timer (`Fighter::weapon_wait_ms`) is an attack the sim
+/// began (a beast's strike, `sim::world::strikes`, a gun's shot, a blade's
+/// move), and plays its attack clip (`attack_of`) once over its pose; one
+/// begun while the last still plays waits for the next.
 #[derive(Default, Clone, Copy)]
 pub struct Attack {
     timer: Option<i32>,
@@ -347,25 +323,20 @@ impl Attack {
         }
     }
 
-    /// The attack's clip at `ms` (sim ms) for wield number `wield`, from
-    /// the melee set with `melee` (`attack_of`).
+    /// The attack's clip at `ms` (sim ms) for wield number `wield`.
     pub fn shown<'a>(
         &mut self,
         bound: &'a Bound,
         ms: f64,
         wield: u8,
-        melee: bool,
     ) -> Option<(&'a Animator, f32, f32)> {
-        self.once
-            .shown(bound, ms, attack_of(wield, self.count, melee))
+        self.once.shown(bound, ms, attack_of(wield, self.count))
     }
 }
 
 /// The attack's probes (`kjk sim probes --only creature_attack`): a rise of the
 /// weapon timer begins one, the first look and a fall do not; a gun shoots
-/// `b0a1`, bare hands alternate `g0a1` and `g0a2` (a retargeted striker's
-/// `m0a1` and `m0a2`, else those), and bare hands and a baton strike where
-/// blades and guns do not.
+/// `b0a1`, bare hands alternate `g0a1` and `g0a2`.
 #[cfg(feature = "probes")]
 pub fn attack_probes() -> sim::probe::Checks {
     use sim::combat::Fighter;
@@ -386,19 +357,12 @@ pub fn attack_probes() -> sim::probe::Checks {
             check(looks == [false, false, true], format!("{looks:?}")),
         ),
         (
-            "a creature model's attacks: g0a1 and g0a2 in turn (a retargeted striker's m0a1 and m0a2 first), a gun's b0a1",
+            "a creature model's attacks: g0a1 and g0a2 in turn, a gun's b0a1",
             check(
                 names[2] == (ATTACK + 3, "b0a1".to_string())
-                    && names[3] == (ATTACK + 4, "m0a1".to_string())
-                    && attack_of(8, 1, false)[..2] == [ATTACK + 1, ATTACK + 1]
-                    && attack_of(8, 2, false)[..2] == [ATTACK + 2, ATTACK + 1]
-                    && attack_of(8, 1, true) == [ATTACK + 4, ATTACK + 4, ATTACK + 1, ATTACK + 1]
-                    && attack_of(8, 2, true) == [ATTACK + 5, ATTACK + 4, ATTACK + 2, ATTACK + 1]
-                    && attack_of(7, 1, true)[0] == ATTACK + 3
-                    && strikes(8)
-                    && strikes(1)
-                    && !strikes(2)
-                    && !strikes(5),
+                    && attack_of(8, 1) == [ATTACK + 1, ATTACK + 1]
+                    && attack_of(8, 2) == [ATTACK + 2, ATTACK + 1]
+                    && attack_of(7, 1) == [ATTACK + 3, ATTACK + 1],
                 format!("{names:?}"),
             ),
         ),

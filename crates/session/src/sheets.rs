@@ -45,6 +45,7 @@ pub(crate) struct Tables<'a> {
     cache: asset_odyssey::tables::Tables,
     pub items: BTreeMap<String, Option<ItemFacts>>,
     hits: BTreeMap<String, u16>,
+    rigs: BTreeMap<String, bool>,
 }
 
 impl<'a> Tables<'a> {
@@ -54,6 +55,7 @@ impl<'a> Tables<'a> {
             cache: asset_odyssey::tables::Tables::default(),
             items: BTreeMap::new(),
             hits: BTreeMap::new(),
+            rigs: BTreeMap::new(),
         }
     }
 
@@ -94,6 +96,22 @@ impl<'a> Tables<'a> {
         let ms = (seconds * 1000.0).round().clamp(0.0, f32::from(u16::MAX)) as u16;
         self.hits.insert(name.to_string(), ms);
         ms
+    }
+
+    /// Whether model `name` has the humanoid skeleton JA's animations drive
+    /// (`asset_ja::rig::is_humanoid`, from its node names): a creature model
+    /// on it (a Gamorrean) is drawn retargeted, swinging JA's way.
+    fn humanoid(&mut self, name: &str) -> bool {
+        if let Some(known) = self.rigs.get(name) {
+            return *known;
+        }
+        let humanoid = self
+            .source
+            .read(name, ResType::MDL)
+            .and_then(|bytes| fmt_odyssey::mdl::Model::node_names(&bytes).ok())
+            .is_some_and(|names| asset_ja::rig::humanoid_names(names.iter().map(String::as_str)));
+        self.rigs.insert(name.to_string(), humanoid);
+        humanoid
     }
 
     pub fn table(&mut self, name: &str) -> Option<Arc<TwoDa>> {
@@ -319,6 +337,11 @@ fn creature(tables: &mut Tables, root: &GffStruct, object: &mut ObjectData) {
         .and_then(|row| tables.float("appearance", row, "perspace"))
         .unwrap_or(0.0);
     object.strike = appearance.and_then(|row| strike(tables, row, &object.inventory));
+    if let (Some(row), Some(strike), Some(sheet)) =
+        (appearance, object.strike, object.sheet.as_mut())
+    {
+        swing_on_ja(tables, row, &strike, sheet);
+    }
     object.body = appearance.map(|row| body(tables, row, byte("BodyBag"), root.int("WalkRate")));
     // Hurt as the template has it: `CurrentHitPoints` under `HitPoints`
     // (both without Constitution, which `MaxHitPoints` adds: Trask's 30,
@@ -487,6 +510,94 @@ fn strike(tables: &mut Tables, row: usize, held: &[Held]) -> Option<Strike> {
         hit_distance: tables.float("appearance", row, "hitdist").unwrap_or(0.0),
         hit_ms,
     })
+}
+
+/// A creature model on JA's skeleton (`modeltype` S or L whose model has the
+/// humanoid bones, a Gamorrean: drawn retargeted) with nothing in its right
+/// hand holds its strike's weapon there as a blade (its creature weapon,
+/// else its bare body's blows, `Delivery::Melee`): it swings JA's way with
+/// it, as one holding an axe or a sword does (TSL's armed Gamorreans), not
+/// with its model's own attack clips. Its strike stays its creature's
+/// (scripted rounds, `sim::module::Strike`).
+fn swing_on_ja(tables: &mut Tables, row: usize, strike: &Strike, sheet: &mut Sheet) {
+    if sheet.weapons[0].is_some() {
+        return;
+    }
+    let Some(model) = tables
+        .text("appearance", row, "race")
+        .filter(|model| !model.is_empty() && model != "****")
+    else {
+        return;
+    };
+    if tables.humanoid(&model.to_ascii_lowercase()) {
+        sheet.weapons[0] = Some(creature_blade(strike));
+    }
+}
+
+/// `strike`'s weapon as a blade in the hand (`swing_on_ja`): its creature
+/// weapon (a claw's base item is a melee one already), else its bare
+/// body's blows as one.
+fn creature_blade(strike: &Strike) -> sim::combat::Weapon {
+    use sim::combat::{Weapon, sheet::Delivery};
+    let weapon = strike.weapon.unwrap_or(Weapon::UNARMED);
+    Weapon {
+        delivery: Delivery::Melee,
+        ..weapon
+    }
+}
+
+/// The swing-on-JA rule's probes (`kjk sim probes --only creature_blades`),
+/// on the installs this machine has: a Gamorrean (K1's `c_gammorean`, an
+/// axe in hand; TSL's `g_gammorean01`, nothing) holds a blade and keeps its
+/// strike, a kath hound (its own bones) strikes with nothing in hand. The
+/// facts list every template the install lists that holds the creature
+/// blade (K1's Taris Gamorreans are the modules' own: `kjk combat roster`).
+pub fn blade_probes(
+    k1: Option<&dyn Source>,
+    tsl: Option<&dyn Source>,
+) -> Vec<(&'static str, Result<String, String>)> {
+    use sim::combat::sheet::Delivery;
+    // Whether the right hand holds a blade, the creature blade (nothing in
+    // its weapon slot), and whether it strikes.
+    let held = |source: &dyn Source, template: &str| {
+        let mut tables = Tables::new(source);
+        let object = creature_template(&mut tables, template)?;
+        let in_hand = (object.inventory.iter()).any(|item| item.slot == Some(slots::RIGHT_WEAPON));
+        let blade =
+            object.sheet?.weapons[0].is_some_and(|weapon| weapon.delivery == Delivery::Melee);
+        Some((blade, blade && !in_hand, object.strike.is_some()))
+    };
+    let case = |name, game: &str, source: Option<&dyn Source>, cases: &[(&str, bool)]| {
+        let Some(source) = source else {
+            return (name, Ok(format!("skipped: no {game} install")));
+        };
+        let found: Vec<_> = cases
+            .iter()
+            .map(|(template, _)| held(source, template))
+            .collect();
+        let ok = cases.iter().zip(&found).all(|((_, blade), found)| {
+            found.is_some_and(|found| (found.0, found.2) == (*blade, true))
+        });
+        let mut names = source.names(ResType::UTC);
+        names.sort();
+        names.retain(|name| held(source, name).is_some_and(|(_, creature, _)| creature));
+        let detail = format!("{cases:?}: {found:?}; the templates with the blade: {names:?}");
+        (name, if ok { Ok(detail) } else { Err(detail) })
+    };
+    vec![
+        case(
+            "k1_gamorreans_hold_blades",
+            "K1",
+            k1,
+            &[("c_gammorean", true), ("c_khounda", false)],
+        ),
+        case(
+            "tsl_gamorreans_hold_blades",
+            "TSL",
+            tsl,
+            &[("g_gammorean01", true)],
+        ),
+    ]
 }
 
 /// The creature templates the party and scripts may make: every UTC the

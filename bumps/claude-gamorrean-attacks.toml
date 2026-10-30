@@ -1,0 +1,5 @@
+# The sim's hash moves on purpose: a creature model on JA's skeleton (a
+# Gamorrean, a Jawa) with nothing in its right hand holds its strike's
+# weapon there as a blade and swings JA's way, as an armed Gamorrean does,
+# instead of striking by its model's own clips (`session::sheets::swing_on_ja`).
+sim = "creature models on JA's skeleton with empty hands swing their creature weapon as a blade (Gamorreans, Jawas)"

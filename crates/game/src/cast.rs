@@ -1047,7 +1047,6 @@ enum Look {
         throw: acting::Throw,
         draw: Box<acting::Once>,
         flinch: Box<acting::Flinch>,
-        attack: acting::Attack,
         gait: Option<Box<crate::gait::Gait>>,
     },
     /// JA's own model (`--body ja`): its node `i + 1` is GLA bone `i`.
@@ -1066,7 +1065,6 @@ impl Look {
             throw: acting::Throw::default(),
             draw: Box::default(),
             flinch: Box::default(),
-            attack: acting::Attack::default(),
             gait: None,
         }
     }
@@ -2141,18 +2139,11 @@ impl Cast {
                 .to_array()
                 .map(|v| v / 100.0);
             let (look, clip) = match &member.body.look {
-                Look::Retargeted {
-                    gait,
-                    attack,
-                    flinch,
-                    ..
-                } => (
+                Look::Retargeted { gait, .. } => (
                     "retargeted",
                     Some(serde_json::json!({
                         "gait": gait.as_ref().map(|gait| gait.facts()),
                         "breath": member.figure.breath.weight(),
-                        "attacks": attack.count,
-                        "flinches": flinch.count,
                     })),
                 ),
                 Look::Ja => ("ja", None),
@@ -3013,7 +3004,6 @@ fn place(
             throw,
             draw,
             flinch,
-            attack,
             gait,
         } => {
             // Holding the blade out, the hand grips it.
@@ -3026,13 +3016,7 @@ fn place(
             // A player's own body (its gait) keeps JA's; JA's own pain,
             // drawn on the pose, is the flinch where the sim plays it.
             let pained = gait.is_some() || pained(&at.state);
-            // A creature model on JA's skeleton (a Gamorrean) flinches from a
-            // weapon's hit and strikes by its own clips, as on its own bones.
-            let creature = acting::creature_bound(acted);
-            let wield = figure.breath.wield;
-            flinch.follow(at.fighter.as_ref(), pained, creature);
-            let striking = creature && acting::strikes(wield);
-            attack.follow(at.fighter.as_ref().filter(|_| striking));
+            flinch.follow(at.fighter.as_ref(), pained, false);
             let mut shown: Vec<_> = shows
                 .shown(
                     acted,
@@ -3043,10 +3027,10 @@ fn place(
                     ),
                 )
                 .collect();
+            let wield = figure.breath.wield;
             shown.extend(
                 draw.shown(acted, ms, acting::draw_of(wield))
                     .into_iter()
-                    .chain(attack.shown(acted, ms, wield, true))
                     .chain(flinch.shown(acted, ms, wield))
                     .filter(|_| at.alive),
             );
@@ -3380,7 +3364,7 @@ impl Clips {
         let wield = figure.breath.wield;
         let attack = self
             .attack
-            .shown(&self.acted, ms, wield, false)
+            .shown(&self.acted, ms, wield)
             .filter(|_| at.alive);
         let flinch = self
             .flinch
