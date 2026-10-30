@@ -3,7 +3,7 @@
 //! conversation started by a script (`probe_begin`, a party one) or by a
 //! click (a player's own), and the probes' scripts and DLGs written here.
 
-use super::super::{Avatar, Fighting, Id, Player, SimWorld, Talking};
+use super::super::{Avatar, Fighting, Id, Player, SimWorld, Talking, strikes};
 use crate::action::{Action, Verb};
 use crate::combat::Sheet;
 use crate::combat::idle::Acting;
@@ -39,6 +39,7 @@ pub fn all() -> Vec<Case> {
 const PROBES: &[Probe] = &[
     ("bystander_holds_ground", bystander_holds_ground),
     ("companion_stays", companion_stays),
+    ("party_kept_apart", party_kept_apart),
     ("party_cannot_use", party_cannot_use),
     ("party_queue_cannot_open", party_queue_cannot_open),
     ("party_rolls_nothing", party_rolls_nothing),
@@ -1147,6 +1148,61 @@ fn companion_stays() -> Result<String, String> {
     check(
         (7.5..8.5).contains(&apart) && moved < 0.05 && came > 1.0,
         format!("{apart:.2} m off: moved {moved:.3} m held, then came {came:.2} m nearer"),
+    )
+}
+
+/// Issue 41: two companions standing inside each other (party members
+/// pass through each other with friendly fire off) when a party
+/// conversation begins are pushed apart to their two personal spaces, as
+/// KOTOR's walker pushes an idle creature aside (`movement::spaced`); a
+/// companion inside the host is pushed, the host (a seat's player) stays.
+fn party_kept_apart() -> Result<String, String> {
+    let spaces = 2.0 * strikes::humanoid_space(0.0);
+    // The pair's distance once the conversation holds the world, and how
+    // far the host moved, with the companions (and the host) put at `at`
+    // as it begins.
+    let run = |at: [[f32; 2]; 3]| -> Result<(bool, f32, f32), String> {
+        let mut ground = Ground::new(1)?;
+        let host = ground.body(0)?;
+        let second = ground.object(DUMMY)?;
+        let mut fighters = ground.world.world.query::<(&Id, &mut Fighting)>();
+        for (id, mut fighting) in fighters.iter_mut(&mut ground.world.world) {
+            if id.0 == second {
+                fighting.0.mind.leader = Some(Seat(0));
+                fighting.0.faction = Some(PLAYER);
+            }
+        }
+        ground.place(TALKER, [-7.0, -3.0])?;
+        let buddy = ground.object(BUDDY)?;
+        let put = |ground: &mut Ground| {
+            ground.put(host, at[0]);
+            ground.put(buddy, at[1]);
+            ground.put(second, at[2]);
+        };
+        put(&mut ground);
+        ground.cutscene()?;
+        put(&mut ground);
+        let host_at = ground.at(host);
+        ground.step();
+        let close = |a: SimId, b: SimId| between(ground.at(a), ground.at(b));
+        let nearest = close(buddy, second)
+            .min(close(host, buddy))
+            .min(close(host, second));
+        Ok((
+            ground.last.holds_world(),
+            nearest,
+            between(host_at, ground.at(host)),
+        ))
+    };
+    let pair = run([[-6.0, -4.0], [-3.0, 0.0], [-3.1, 0.05]])?;
+    let host = run([[-4.0, -1.0], [-4.05, -1.0], [-2.0, 2.0]])?;
+    let kept = |(held, nearest, moved): (bool, f32, f32)| held && nearest >= spaces && moved < 0.01;
+    check(
+        kept(pair) && kept(host),
+        format!(
+            "spaces {spaces:.2} m; two companions: {pair:?}, one in the host: {host:?} \
+             (held, nearest apart, the host moved)"
+        ),
     )
 }
 

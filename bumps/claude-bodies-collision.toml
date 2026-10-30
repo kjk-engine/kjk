@@ -1,9 +1,12 @@
 # The sim's hash moves on purpose: a body whose model JA's animations do not
 # pose (beasts, droids, aliens with skeletons of their own) is met by shots,
 # blades and the crosshair where its model is drawn (`module::Bulk`, the box
-# round its drawn meshes at rest, as reone picks a creature), not by JA's
+# round its drawn meshes standing, as reone picks a creature), not by JA's
 # player box at its feet (issue 49: the rancor, the hovering probe droid).
-sim = "a body whose model JA does not pose is met where its model is drawn (its rest box), not by JA's player box"
+# In a scene the party keeps its personal spaces: a companion standing
+# inside another (or inside a seat's player) is pushed aside as KOTOR's
+# walker pushes an idle creature (`world::movement::spaced`, issue 41).
+sim = "a body whose model JA does not pose is met where its model is drawn (its standing box), not by JA's player box; in a scene the party keeps its personal spaces"
 
 [formats]
 pack = "a creature template's body carries where its model is drawn (`module::Body::bulk`)."
