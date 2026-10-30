@@ -150,6 +150,8 @@ const PROBES: &[Probe] = &[
 
 /// A step's length (ms).
 const STEP_MS: u64 = 8;
+/// How long an answer waits for a line to play (steps): 8 s.
+const REPLIES_UP_STEPS: usize = 1000;
 
 /// How many steps last `ms`.
 fn steps(ms: u64) -> usize {
@@ -888,6 +890,7 @@ impl Ground {
             if self.last.talk.conversations.is_empty() {
                 return Ok(());
             }
+            self.replies_up();
             for reply in &mut self.replies {
                 *reply = answer(*reply, Pick::Reply(GOODBYE));
             }
@@ -950,10 +953,31 @@ impl Ground {
         }
     }
 
-    /// Seat 0 answers `pick`, a step.
+    /// Seat 0 answers `pick`, a step; a reply once the replies are up.
     fn answer(&mut self, pick: Pick) {
+        if matches!(pick, Pick::Reply(_) | Pick::Point(_)) {
+            self.replies_up();
+        }
         self.replies[0] = answer(self.replies[0], pick);
         self.step();
+    }
+
+    /// Steps until no line under way is still playing: its replies are
+    /// chosen as it ends (`Step::offer_replies`), and an answer counts from
+    /// then.
+    fn replies_up(&mut self) {
+        for _ in 0..REPLIES_UP_STEPS {
+            let playing = self
+                .last
+                .talk
+                .conversations
+                .iter()
+                .any(|c| c.until_ms != u64::MAX && !c.on_hold());
+            if !playing {
+                return;
+            }
+            self.step();
+        }
     }
 
     /// The line under way: the entry shown and its listener.
@@ -2817,9 +2841,10 @@ fn line_delay_raises() -> Found {
     lasts(line(&"x".repeat(40), Some(6), 0, None), 6000)
 }
 
-/// S5: a `Delay` under the text's length changes nothing.
+/// S5: a `Delay` under the text's length is the line's length, the text
+/// not read (TSL's `CSWSDialog::SetDialogDelay` with a player in it).
 fn line_delay_short() -> Found {
-    lasts(line(&"x".repeat(40), Some(2), 0, None), 4500)
+    lasts(line(&"x".repeat(40), Some(2), 0, None), 2000)
 }
 
 /// S5: a line with no text and no voice lasts the least, 10 ms.
@@ -2955,12 +2980,14 @@ fn unskippable_line() -> Found {
 /// of their own, no `Speaker`) play it as `probe_talk`'s walk draws the
 /// variants, 3 then 1, and last as long; the third, of a race with nothing
 /// for the emotion, and the fourth, naming its speaker, play none, the
-/// walk moving on all the same.
+/// walk moving on all the same. The lines have no `Delay`, which would
+/// time them instead.
 fn alien_speech() -> Found {
     let mut talk = in_turn(&["", "", "", "talker"]);
     talk.alien_race_owner = 1;
     for node in &mut talk.entries {
         node.emotion = 1;
+        node.delay = None;
     }
     talk.entries[2].alien_race = 2;
     let stage = Stage {

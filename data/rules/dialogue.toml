@@ -11,8 +11,8 @@ title = "Line Length"
 summary = """
 A voiced line lasts as long as its voice. A line with no voice, or a voice
 shorter than {dialogue.lines.min_voice_ms:s}, lasts as long as its text takes
-to read. A line's own delay can lengthen it, and its wait flag can hold it
-for the whole voice. In an animated cutscene, a line with no wait flag or
+to read. A line with its own delay lasts that delay instead, and its wait
+flag can hold it for the whole voice. In an animated cutscene, a line with no wait flag or
 delay lasts only as long as its animation.
 """
 

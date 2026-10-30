@@ -692,12 +692,16 @@ impl SimWorld {
             .find(|(_, avatar, ..)| avatar.0 == seat)
             .map(|(id, _, sheet, fighting)| (id.0, sheet, fighting))
             .ok_or(format!("seat {} has no character", seat.0))?;
-        let (made, career) = crate::creation::sheet(&classes, creation, sheet.0.faction)
-            .map_err(|refused| format!("creation refused: {refused:?}"))?;
+        let (made, career, unspent) =
+            crate::creation::sheet(&classes, creation, sheet.0.faction)
+                .map_err(|refused| format!("creation refused: {refused:?}"))?;
         sheet.0 = made;
         fighting.0 = Fighter::of(&made);
         let mut state = self.script_state().clone();
         state.careers.insert(id.0, career);
+        if unspent > 0 {
+            state.unspent.insert(id.0, unspent);
+        }
         // A new game tells the campaign's scripts the made character's level
         // and alignment where its globals keep them (TSL's `G_PC_LEVEL`,
         // `G_PC_Align_Val`; K1 declares neither).

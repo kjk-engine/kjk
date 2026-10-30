@@ -1803,7 +1803,7 @@ fn hold_and_resume() {
 /// `sim::player_probes`, no install.
 #[test]
 fn player_creation() {
-    probed("creation", &sim::player_probes::creation(), 9);
+    probed("creation", &sim::player_probes::creation(), 10);
 }
 
 /// TSL's player's level as the scripts read it (`G_PC_LEVEL`, set by the
@@ -1813,6 +1813,11 @@ fn player_creation() {
 #[test]
 fn player_levels_told() {
     probed("levels told", &sim::player_probes::levels_told(), 1);
+    probed(
+        "multiclass outside the party",
+        &sim::player_probes::multiclass_outside_party(),
+        2,
+    );
 }
 
 /// The scripts read a player's persona of its own character (`GetGender`,
