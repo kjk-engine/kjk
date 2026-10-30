@@ -399,6 +399,9 @@ impl Resolver {
         let mut resources = BTreeMap::new();
         for (rest, path) in files {
             let name = rest.rsplit('/').next().unwrap_or(rest);
+            if crate::system_file(name) {
+                continue;
+            }
             let Some((resref, extension)) = name.rsplit_once('.') else {
                 self.problem(&format!("{prefix}{rest}"), "no extension".into());
                 continue;
