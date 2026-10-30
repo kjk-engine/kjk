@@ -45,6 +45,10 @@ pub mod footprints;
 mod modules;
 pub mod overrides;
 #[cfg(feature = "probes")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "checks and traces set up their own cases on one machine"
+)]
 pub mod probes;
 
 pub use edges::EdgeWalls;

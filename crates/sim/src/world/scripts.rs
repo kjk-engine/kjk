@@ -1663,9 +1663,11 @@ fn jumped(
             at[2] + crate::motion::SOLE_Z * collision::UNIT,
         ]
     };
-    let flat = |a: [f32; 3], b: [f32; 3]| (a[0] - b[0]).hypot(a[1] - b[1]);
     let displaced_by = others
-        .map(|(id, origin, clearance)| (id, flat(soles(origin), mark), clearance * collision::UNIT))
+        .map(|(id, origin, clearance)| {
+            let apart = crate::math::flat_distance(soles(origin), mark);
+            (id, apart, clearance * collision::UNIT)
+        })
         .filter(|&(_, apart, clearance)| apart < clearance)
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(id, ..)| id);

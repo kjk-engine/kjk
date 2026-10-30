@@ -180,6 +180,10 @@ pub(super) fn look_on(body: &mut EntityWorldMut, angles: Option<[i16; 3]>) {
 }
 
 #[cfg(feature = "probes")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "checks and traces set up their own cases on one machine"
+)]
 mod probes;
 #[cfg(feature = "probes")]
 pub use probes::probes;

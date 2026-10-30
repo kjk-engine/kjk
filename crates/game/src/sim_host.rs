@@ -1492,6 +1492,7 @@ fn advance(
                     live = census.live_total(),
                     left_behind = census.stashed_total(),
                     hash = %announcement.after.short(),
+                    data = %authority.world.level().digest_parts(),
                     "installed"
                 );
                 authority.installs.push(Installed {

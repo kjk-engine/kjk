@@ -273,7 +273,7 @@ pub fn pick(
         return Some(index);
     }
     // Soft aim: the nearest the crosshair, in sight.
-    let cone = CONE_DEGREES.to_radians().cos();
+    let cone = math::sin_cos_deg(CONE_DEGREES).1;
     let soft = candidates
         .iter()
         .filter(near)

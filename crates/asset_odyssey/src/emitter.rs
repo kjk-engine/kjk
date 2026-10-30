@@ -356,6 +356,10 @@ impl Stream {
         }
     }
 
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "particles are drawn, not sim state"
+    )]
     fn born(&mut self, params: &Params, m: &crate::model::Matrix) -> Particle {
         let local = [
             (self.random() - 0.5) * params.area[0] * 0.01,

@@ -319,13 +319,16 @@ pub fn walls(
 /// The tangent of half the turn from `into` to `next` (unit directions) at
 /// an outline's corner, at most 1 (a right angle's). A turn straight back
 /// (a sliver face's corners in a line turn the outline back on itself)
-/// is past a right angle too: `tan(pi / 2)` comes out at -2.3e7 in f32,
-/// and the wall's end ran 9,860 km off (K1's Korriban academy, a wall
-/// across its corridors; one in TSL).
+/// is past a right angle too (K1's Korriban academy once had a wall end
+/// 9,860 km off from one, across its corridors; one in TSL). As
+/// `sqrt((1 - cos) / (1 + cos))`, not `tan(acos(cos) / 2)`: the platform's
+/// `acos` and `tan` round their last bits their own way, and these walls
+/// are in the level's digest, so a save made on one machine was refused on
+/// another.
 pub(crate) fn half_turn(into: [f32; 2], next: [f32; 2]) -> f32 {
     let cos = (into[0] * next[0] + into[1] * next[1]).clamp(-1.0, 1.0);
-    let tan = (cos.acos() * 0.5).tan();
-    if tan < 0.0 { 1.0 } else { tan.min(1.0) }
+    // Straight back: 2 / 0, infinite, past the right angle.
+    ((1.0 - cos) / (1.0 + cos)).sqrt().min(1.0)
 }
 
 /// The lowest walkable face of `walkmesh` over `p` from `low` up to `high`,

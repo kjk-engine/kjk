@@ -351,6 +351,29 @@ impl Level {
         })
     }
 
+    /// The digest's parts, each cut to 4 bytes, for the log: two machines
+    /// whose `digest` differs tell by these which data they read
+    /// differently (the module's, its collision or nav, the JA animations
+    /// every level holds, the scripts).
+    pub fn digest_parts(&self) -> String {
+        let short =
+            |bytes: &[u8]| -> String { bytes.iter().take(4).map(|b| format!("{b:02x}")).collect() };
+        let digests = self.digests();
+        let nav = digests
+            .nav
+            .map_or_else(|| "-".to_string(), |nav| short(&nav));
+        let scripts = self
+            .scripts
+            .as_ref()
+            .map_or_else(|| "-".to_string(), |scripts| short(&scripts.digest()));
+        format!(
+            "module {} collision {} anims {} nav {nav} scripts {scripts}",
+            short(&digests.module),
+            digests.collision.get(..8).unwrap_or("-"),
+            short(&digests.anims),
+        )
+    }
+
     /// The name and the digests in one (the navigation mesh's only when
     /// there is one, so a level without one keeps its digest; the friendly
     /// fire only when it is not off).

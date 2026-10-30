@@ -116,6 +116,16 @@ in the manual workflow, on the 1st of each month and when started by hand. When 
 in the same commit; a change that moves the hash without meaning to is a
 determinism bug. Locally, `kjk sim determinism --expect <hash>` checks it.
 
+That run builds no level from the games' data, so the code that does is
+guarded by clippy instead: every crate that decides sim state or a level's
+digest (`sim`, `collision`, `collision_odyssey`, `session`, `script_ncs`,
+`asset_odyssey`, `fmt_odyssey`) has a `clippy.toml` refusing the
+platform's `sin`, `cos`, `tan`, `acos`, `atan2`, `hypot`, `powf`, `exp` and
+`ln`, which round their last bits differently between C libraries. A
+level built with them had another digest on Windows than on macOS, and
+the Mac's saves were refused there. `collision::trig` is the portable
+trigonometry; `sqrt` and `+ - * /` are exact everywhere.
+
 ## Render reads no authority state
 Structural: outside `sim` the world, its components and `advance` do not
 compile (E0616, E0603, E0624), and a `Snapshot` cannot be forged (E0451).
