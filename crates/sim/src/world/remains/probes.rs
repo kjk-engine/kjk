@@ -505,7 +505,7 @@ fn scenario() -> Result<Ran, String> {
         ))
     });
     let targeted = made.as_ref().and_then(|(index, ..)| {
-        crate::target::candidates(&level, &snapshot)
+        crate::target::candidates(&level, &snapshot, None)
             .into_iter()
             .find(|candidate| candidate.index == *index)
             .map(|candidate| candidate.feet)

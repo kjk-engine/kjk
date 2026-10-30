@@ -306,15 +306,37 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     };
     let again = scenario().map(|(snapshots, ..)| snapshots.last().map(crate::Snapshot::hash));
     let mut targets: Vec<u32> = snapshots.last().map_or(Vec::new(), |last| {
-        crate::target::candidates(&level, last)
+        crate::target::candidates(&level, last, None)
             .iter()
             .map(|candidate| candidate.index)
             .collect()
     });
     targets.sort();
+    // The creature across made a companion (led by the first seat, then
+    // driven by a second): still a target, picked only ahead; never the
+    // target of the player whose body it is.
+    let companion = |driven: bool, me: bool| {
+        let mut last = snapshots.last()?.clone();
+        let body = last.entities.iter_mut().find(|entity| {
+            matches!(entity.kind, crate::Kind::Object(ObjectKind::Creature, i) if i == ACROSS)
+        })?;
+        let mind = &mut body.fighter.as_mut()?.mind;
+        if driven {
+            mind.driver = Some(Seat(1));
+        } else {
+            mind.leader = Some(Seat(0));
+        }
+        let id = body.id;
+        crate::target::candidates(&level, &last, me.then_some(id))
+            .into_iter()
+            .find(|candidate| candidate.index == ACROSS)
+            .map(|candidate| candidate.ahead)
+    };
+    let companions =
+        [(false, false), (true, false), (true, true)].map(|(driven, me)| companion(driven, me));
     // The gate stands open at the end: no pick volume fills its doorway.
     let open_gate = snapshots.last().and_then(|last| {
-        crate::target::candidates(&level, last)
+        crate::target::candidates(&level, last, None)
             .into_iter()
             .find(|candidate| candidate.index == GATE)
             .map(|candidate| candidate.radius)
@@ -498,6 +520,13 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             check(
                 targets == [GATE, CHEST, SAFE, PANEL, HIDDEN, STRONGBOX, CASKET, ACROSS],
                 format!("{targets:?}"),
+            ),
+        ),
+        (
+            "target_companions",
+            check(
+                companions == [Some(true), Some(true), None],
+                format!("{companions:?}"),
             ),
         ),
         (
@@ -1795,7 +1824,7 @@ fn walk_and_choose(
                 .and_then(|entity| entity.object)
                 .unwrap_or(crate::ObjectState::default())
         };
-        let to = crate::target::candidates(kept, &last)
+        let to = crate::target::candidates(kept, &last, None)
             .iter()
             .find(|candidate| candidate.index == how.object)
             .map(|candidate| candidate.feet)

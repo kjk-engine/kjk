@@ -302,7 +302,7 @@ fn target(
         ],
         collision::UNIT,
     );
-    let candidates = sim::target::candidates(level, snapshot);
+    let candidates = sim::target::candidates(level, snapshot, Some(me.id));
     let yaw = ps.view[1].to_radians();
     let looker = Looker {
         feet,

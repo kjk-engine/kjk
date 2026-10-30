@@ -1060,10 +1060,12 @@ fn destroy_fades() {
 /// above within it across the floor (Dxun's Kumus), refuses what a
 /// wall hides and a door closed on someone; a K1
 /// container's use runs its `OnUsed`, locked (no "locked" line) or opening;
-/// scripts see who did it; two runs end the same. The sim alone.
+/// scripts see who did it; two runs end the same; a companion, led or
+/// driven by a player, is a target, picked only clear ahead of the player,
+/// and never the target of the player it is the body of. The sim alone.
 #[test]
 fn use_actions() {
-    probed("use", &sim::uses::probes(), 38);
+    probed("use", &sim::uses::probes(), 40);
 }
 
 /// Bashing (`docs/COMBAT.md`): on the proving ground

@@ -39,6 +39,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         feet: feet(x, y),
         radius,
         height,
+        ahead: false,
     };
     let door = thing(0, ObjectKind::Door, 0.0, 0.0, DOOR_RADIUS, DOOR_HEIGHT);
     let pick_at = |from: Vec3, forward: Vec3, who: Looker, candidates: &[Candidate]| {
@@ -129,6 +130,28 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         )
     })
     .collect::<Vec<_>>();
+    // A companion is picked in front of the player; at its heels, between
+    // it and the camera, or inside its body, the look passes it.
+    let companion = Candidate {
+        ahead: true,
+        ..creature
+    };
+    let companion_picks = [(-5.0, Some(5)), (-2.0, None), (-3.1, None)].map(|(x, want)| {
+        let got = pick_at(
+            eye(-6.0, 0.0),
+            forward_x,
+            looker(x, 0.0, 1.0, 0.0),
+            &[companion],
+        );
+        (got == want, got)
+    });
+    checks.push((
+        "target_companion_ahead",
+        check(
+            companion_picks.iter().all(|(ok, _)| *ok),
+            format!("{companion_picks:?}"),
+        ),
+    ));
     checks.push((
         "target_holds",
         check(held == [Some(3), Some(3), None], format!("{held:?}")),
