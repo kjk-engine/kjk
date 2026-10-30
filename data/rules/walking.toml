@@ -191,8 +191,29 @@ During a conversation, a character walks its path straight from corner to
 corner, never past one. It pushes aside an idle, friendly character in its
 way, and walks around any other. It gives up after bumping into the same
 character from the same spot a few times, or when no side is free. A closed
-door stops it until the door opens.
+door stops it until the door opens. Where no way leads at all (a door shut
+across it), it stands a moment and looks for a way again.
 """
+
+[walker.pathfind_wait_ms]
+name = "Waiting for a Way"
+type = "u64"
+value = 2000
+unit = "ms"
+range = [0, 10000]
+summary = "A character that finds no way to where it walks stands {walking.walker.pathfind_wait_ms:s}, and up to two seconds more, then looks for a way again; its walk goes on."
+source = "TSL's executable (`CSWSCreature::AIActionMoveToPoint`: a failed `PlotPath` puts `AddPathfindingWaitActionToFront` of 2 + (rand() % 100) / 50 s before the move)"
+see = "sim::walk::Walker::command_round"
+
+[walker.pathfind_wait_step_ms]
+name = "Waiting for a Way, Spread"
+type = "u64"
+value = 20
+unit = "ms"
+range = [0, 1000]
+summary = "The wait for a way is longer by a random hundredth of two seconds: {walking.walker.pathfind_wait_step_ms:bare} ms a step, 0 to 99 steps."
+source = "TSL's executable (`CSWSCreature::AIActionMoveToPoint`: (rand() % 100) / 50 s)"
+see = "sim::walk::Walker::command_round"
 
 [walker.lift]
 name = "Floor Height"

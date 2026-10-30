@@ -25,15 +25,9 @@
 # - Party for Onderon: Mandalore (NPC 2, forced) and Mira (NPC 7),
 #   DSimpson's light-side pick (Mira's bounty hunters and Anda lines).
 equip saber          # the saber in hand
-# BLOCKER: a_mand_cs1 clears Mandalore's actions and starts mand_cs1 half a
-# second later (DelayCommand); a heartbeat within that half second has
-# k_mandalore_ud queue his camp patrol first, again every heartbeat, and the
-# scene never comes (SKIPPED.md). The talk is begun 2 s on, clear of it.
-wait 2s
 say Have I proven myself yet? # (four tests: the hub says so itself)
 say I'm ready to go now. # a_open_door, a_mand_cs1
 say Let's go.
-wait 2s              # BLOCKER: off the beat of Mandalore's heartbeat (below)
 use g_mandalore
 talk
 talk                 # Mandalore, Zuka and Kreia at the shuttle (mand_cs1)

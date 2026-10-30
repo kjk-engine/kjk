@@ -1408,6 +1408,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                             now,
                                             &|i| here.to_try(i),
                                             &|face| round && here.walls(face),
+                                            false,
                                         )
                                     } else {
                                         Command {
@@ -2169,7 +2170,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 Some(at) => {
                                     let w = walk_for(&mut back_walker, at, || here.approach(&player, at));
                                     let walk = if !w.arrived(&player) && here.leads(player.origin, w.goal) {
-                                        w.command(here.level, &player, now, &|index| here.to_try(index))
+                                        w.command_eager(here.level, &player, now, &|index| here.to_try(index))
                                     } else {
                                         Command {
                                             forward: 127,

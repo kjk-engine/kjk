@@ -175,6 +175,29 @@ impl Chase {
             if !ranged && d > close {
                 command.forward = 127;
             }
+            // A body standing in the line, short of a foe left unhurt a
+            // while, takes the blow or the bolt: the player steps round it
+            // while striking, one way then the other (Bao-Dur's remote
+            // fighting the Elite Sith Assassin in the Trayus Academy's
+            // doorway, the Exile walked in behind it by the scene). Not at
+            // once: stepping round every companion in the line moved Nar
+            // Shaddaa's refugee-ship fight, and the scene after it.
+            let unhurt_a_while = self
+                .unhurt
+                .is_some_and(|(foe, _, since)| foe == id && now >= since + IN_LINE_MS);
+            let in_line = unhurt_a_while
+                && here.snapshot.entities.iter().any(|entity| {
+                entity.id != id
+                    && entity.id != me.id
+                    && matches!(entity.kind, sim::Kind::Object(ObjectKind::Creature, _))
+                    && entity.fighter.is_some_and(|fighter| fighter.hp > 0)
+                    && flat(entity.position, me.position) < d
+                    && off_the_way(me.position, at, entity.position) <= IN_LINE_M
+            });
+            if in_line {
+                let turn = (now / (sim::walk::SIDESTEP_MS * 2)).is_multiple_of(2);
+                command.right = if turn { 127 } else { -127 };
+            }
             return (command, false);
         }
         // A walk stalling (no headway for half a stall's time, or getting
@@ -194,7 +217,7 @@ impl Chase {
         }
         let w = walker.as_mut().expect("planned above");
         if !w.arrived(player) && here.leads(player.origin, w.goal) {
-            return (w.command(here.level, player, now, &|index| here.to_try(index)), true);
+            return (w.command_eager(here.level, player, now, &|index| here.to_try(index)), true);
         }
         if d < w.best - 0.05 {
             w.best = d;
@@ -215,6 +238,13 @@ impl Chase {
         (straight, true)
     }
 }
+
+/// How near the line to a foe (metres) another body stands to take a blow
+/// meant for it: about a body's half width.
+const IN_LINE_M: f32 = 0.4;
+/// How long (ms) a foe at hand stands unhurt before the player steps round
+/// a body in the line to it.
+const IN_LINE_MS: u64 = 2_000;
 
 /// How far into a punch's reach (its share) the chase steps before it
 /// stops pressing on: a little inside, as a foe sways back.
