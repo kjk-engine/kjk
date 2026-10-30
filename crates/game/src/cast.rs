@@ -3318,7 +3318,10 @@ impl Clips {
             playing.push((own.clip().clone(), at));
         }
         let wield = figure.breath.wield;
-        let attack = self.attack.shown(&self.acted, ms, wield).filter(|_| at.alive);
+        let attack = self
+            .attack
+            .shown(&self.acted, ms, wield)
+            .filter(|_| at.alive);
         let flinch = self
             .flinch
             .shown(&self.acted, ms, wield)

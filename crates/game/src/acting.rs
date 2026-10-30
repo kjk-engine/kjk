@@ -288,7 +288,10 @@ pub fn attack_names() -> impl Iterator<Item = (u16, String)> {
 fn attack_of(wield: u8, count: u8) -> [u16; 2] {
     match wield {
         5 | 6 | 7 | 9 => [ATTACK + 3, ATTACK + 1],
-        _ => [ATTACK + 1 + u16::from(count.wrapping_add(1) % 2), ATTACK + 1],
+        _ => [
+            ATTACK + 1 + u16::from(count.wrapping_add(1) % 2),
+            ATTACK + 1,
+        ],
     }
 }
 
@@ -403,7 +406,11 @@ pub fn flinch_probes() -> sim::probe::Checks {
     let cases = [
         ("script", flinches(script, false, 700, false), (true, true)),
         ("blade", flinches(blade, false, 700, false), (false, false)),
-        ("blade on a beast", flinches(blade, false, 700, true), (true, true)),
+        (
+            "blade on a beast",
+            flinches(blade, false, 700, true),
+            (true, true),
+        ),
         (
             "refused",
             flinches(event(None, Outcome::Refused, 0), false, 1000, true),
