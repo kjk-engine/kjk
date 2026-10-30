@@ -103,7 +103,7 @@ The **kind** tags are:
 - [ ] `side` **The sealed cache by the dead Mandalorian** (`DxunCache_imp`): it needs Thorium charges, from Akkere's job on Dantooine (skipped there) or Korriban.
 - [x] `side` **The battle circle**: Davrel, Kex with swords, Tagren, Kelborn and Bralor beaten under the forfeit rules, champion (dxun_circle).
 - [x] `choice` **Davrel's challenge outside camp** refused twice, the light way (dxun_circle). Fighting him, and the zakkeg hunted with him (only before the zakkeg is slain), are not played.
-- [ ] `side` **Zuka's navigational telemetry**: his relay started and the wires [Repair]ed (dxun_circle), but the telemetry computer's core asks 4 computer spikes at the Exile's Computer and the party carries 3, and no store on Dxun or Onderon sells them. So the three phase-pulse cannoks, Zuka's reward and his word to Mandalore are left.
+- [x] `side` **Zuka's navigational telemetry** (dxun_circle): the core's spikes are 8 less a quarter of the party leader's Computer (`c_parts_spikes`, k_inc_utility's `UT_DeterminesItemCost` on `GetPartyMemberByIndex(0)`), so Bao-Dur leads at the console and it takes 2 (the Exile's asked 4, the party carried 3); Zuka's parts and spikes; the phase-pulse converter's pieces from the remains of its three cannoks (c_cannok002 to 004), fallen to the party on the jungle walks before (the harness's `use X,Y` searches the remains standing there), and the converter brought to Zuka, no reward asked (LSP twice). T3-M4's spikes aboard (t3m4 R67, `a_item_gen`) are the other way; asking him shifts the fights' rolls after, and the battle circle's sergeant then stood between the Exile and Tagren.
 - [ ] `skill` **Kumus's reward** ([Persuade] or [Force Persuade] for 1000 credits): not asked, as DSimpson's light way asks none.
 - [ ] `choice` **Kumus's dark ways**: left to rot, blown up with the detonator, or killed once down (DSP, HK-47's and Hanharr's influence).
 - [ ] `choice` **The sentries antagonised** into a fight (DSP).
@@ -111,7 +111,7 @@ The **kind** tags are:
 - [ ] `side` **Mandalore's tests' other companions' lines**: the Handmaiden's and the Disciple's at Kumus (the party is Mira and Bao-Dur), T3-M4's at Zuka's.
 - [x] `side` **The beast rider's boma** at the spaceport: slain, his credits thanked for as not needed (LSP) (onderon_spaceport).
 - [x] `side` **An open starport visa** (Bakkel's) given to Terlyn's family by the starport gate (LSP) (onderon_kavar).
-- [ ] `side` **The Rodian bounty hunters' visa**: not looted, so not sliced by Kiph (500 credits, Bahima's word first) nor given to Gormo or Xaart (LSP).
+- [x] `side` **The Rodian bounty hunters' visa**: looted from their leader (onderon_spaceport, pl_bh_visa); Bahima's word on it (a_kiph_trigger), Kiph's slicing for 500 credits (a_visa_sliced) and the open visa given to Gormo for nothing (LSP; he pays anyway), DSimpson's light-side buyer for a party without Xaart's influence companions (onderon_alibi).
 - [ ] `choice` **The other visa buyers**: Tolas (credits, Persuade for more), Sakarie (DSP, a Qixoni crystal).
 - [ ] `side` **The swoop races** at the Iziz cantina (510OND, four heats; Persuade for the fee and a bigger cut).
 - [ ] `side` **Nikko's pazaak** (three wins for his cards).

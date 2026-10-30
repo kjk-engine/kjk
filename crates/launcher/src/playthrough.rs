@@ -35,6 +35,8 @@
 //!                       # none the party can get at keeps it in combat (`Chase`)
 //! disarm 52.4,-29.9     # disarm the mine the party sees nearest there (Demolitions),
 //!                       # from where the player stands, until it is gone
+//! use 93.7,-51.4        # search the remains standing there (their creature
+//!                       # fallen in a route before, no tag left to name them)
 //! cast 270              # cast that power (spells.2da row) on the player from
 //!                       # its power list, until its effect lasts on it
 //! equip                 # wear what the party carries, each in a free slot it fits
@@ -1193,6 +1195,12 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                                 .map(|lay| (u32::MAX, lay.at))
                                         })
                                 }
+                                // A place used: the remains standing there,
+                                // their creature fallen in a route before
+                                // (no tag left to name them by).
+                                Target::Place([x, y]) if matches!(goal, Goal::Use(_)) => {
+                                    remains_at(&here, world.script_state(), [*x, *y, me.position[2]])
+                                }
                                 Target::Place([x, y]) => Some((u32::MAX, [*x, *y, me.position[2]])),
                             };
                             seen_target |= found.is_some();
@@ -1215,6 +1223,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 && matches!(goal, Goal::Use(_))
                                 && !laid_out
                                 && (pressed_ever
+                                    || taken
                                     || module_of(&last) != module
                                     || matches!(target, Target::Tag(tag, _)
                                         if used_tags.contains(&tag.to_ascii_lowercase())))
