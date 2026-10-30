@@ -328,14 +328,16 @@ pub(super) fn settled(snapshot: &Snapshot, state: &sim::script::State, talking: 
 }
 
 /// What a `while` round may change (`Goal::Again`): the module, the script
-/// globals and objects' locals (a pazaak player's count of games won), and
-/// each creature's hit points outside the party. A round that
+/// globals and objects' locals (a pazaak player's count of games won), the
+/// party's credits (a game lost), and each creature's hit points outside
+/// the party. A round that
 /// changed none of them goes round no more.
 pub(super) type Round = (
     String,
     BTreeMap<String, i32>,
     BTreeMap<String, bool>,
     BTreeMap<(u32, u8, i32), i32>,
+    i32,
     Vec<(sim::SimId, i32)>,
 );
 
@@ -355,6 +357,7 @@ pub(super) fn round_of(world: &sim::SimWorld, snapshot: &Snapshot, module: Strin
         state.numbers.clone(),
         state.booleans.clone(),
         state.locals.clone(),
+        state.gold,
         lives,
     )
 }
