@@ -532,17 +532,6 @@ pub fn worn_sheet(snapshot: &Snapshot, entity: &EntityState, level: &sim::Level)
     }
 }
 
-/// The character `seat`'s levels go to (`Action::LevelUp`): its body, but
-/// its own character while a companion leads the party.
-pub fn levelling(snapshot: &Snapshot, seat: Seat) -> Option<&EntityState> {
-    let body = snapshot.body(seat)?;
-    if snapshot.leading == Some(body.id) {
-        snapshot.own(seat)
-    } else {
-        Some(body)
-    }
-}
-
 /// The party as `seat` sees it, as the bar, the HUD, the pages and their 3D
 /// view list it: its body (`Snapshot::body`: its avatar, the companion it
 /// drives, I31, or the one leading) first. The party's own order is the
@@ -996,6 +985,7 @@ struct Clips {
     acted: acting::Bound,
     shows: acting::Shows,
     flinch: acting::Flinch,
+    attack: acting::Attack,
     strides: [f32; 2],
     cycles: [f32; 2],
     cycled_ms: Option<f64>,
@@ -1789,6 +1779,7 @@ impl Cast {
                 acted: acting::bind(placed, acted, nodes),
                 shows: acting::Shows::default(),
                 flinch: acting::Flinch::default(),
+                attack: acting::Attack::default(),
                 strides: *strides,
                 cycles: [0.0; 2],
                 cycled_ms: None,
@@ -2991,7 +2982,7 @@ fn place(
             // A player's own body (its gait) keeps JA's; JA's own pain,
             // drawn on the pose, is the flinch where the sim plays it.
             let pained = gait.is_some() || pained(&at.state);
-            flinch.follow(at.fighter.as_ref(), pained);
+            flinch.follow(at.fighter.as_ref(), pained, false);
             let mut shown: Vec<_> = shows
                 .shown(
                     acted,
@@ -3254,7 +3245,8 @@ fn place(
             clips
                 .shows
                 .follow(acting, (still, at.alive, world_held), ms);
-            clips.flinch.follow(at.fighter.as_ref(), false);
+            clips.flinch.follow(at.fighter.as_ref(), false, true);
+            clips.attack.follow(at.fighter.as_ref());
             // Its scripted clips show and sound as a retargeted body's do,
             // whether or not a conversation holds the world.
             hear(
@@ -3336,6 +3328,10 @@ impl Clips {
             playing.push((own.clip().clone(), at));
         }
         let wield = figure.breath.wield;
+        let attack = self
+            .attack
+            .shown(&self.acted, ms, wield)
+            .filter(|_| at.alive);
         let flinch = self
             .flinch
             .shown(&self.acted, ms, wield)
@@ -3343,6 +3339,7 @@ impl Clips {
         for (clip, seconds, weight) in self
             .shows
             .shown(&self.acted, ms, (wield, None))
+            .chain(attack)
             .chain(flinch)
         {
             clip.pose_over(seconds, weight, transforms);
@@ -3405,6 +3402,8 @@ impl Clips {
         serde_json::json!({
             "shown": name(self.shown.map(|shown| shown.0)),
             "fading_from": name(self.fading.map(|fading| fading.0)),
+            "attacks": self.attack.count,
+            "flinches": self.flinch.count,
         })
     }
 

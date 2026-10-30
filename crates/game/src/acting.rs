@@ -166,6 +166,11 @@ impl Once {
         self.pending = true;
     }
 
+    /// Begun and not yet played out.
+    fn busy(&self) -> bool {
+        self.pending || self.from.is_some()
+    }
+
     /// The clip at `ms` (sim ms), the first of `clips` the body has: how
     /// far in and how much over the pose; none once it has played.
     pub fn shown<'a>(
@@ -213,14 +218,18 @@ fn flinch_of(wield: u8) -> [u16; 2] {
 pub struct Flinch {
     seen: Option<u16>,
     once: Once,
+    /// How many it has begun, for dumps.
+    pub count: u16,
 }
 
 impl Flinch {
     /// Follows `fighter` (as its later snapshot has it): a hit new since it
     /// was last followed (none the first time) with no weapon that it takes
     /// damage from, standing, flinches it, unless JA's own pain plays on
-    /// it already (`pained`: the sim's flinch, drawn on a JA pose).
-    pub fn follow(&mut self, fighter: Option<&sim::combat::Fighter>, pained: bool) {
+    /// it already (`pained`: the sim's flinch, drawn on a JA pose). With
+    /// `weapons` (a creature model, which has no JA pain) a weapon's hit
+    /// flinches it too: its damage clip, as reone's attack plays on its target.
+    pub fn follow(&mut self, fighter: Option<&sim::combat::Fighter>, pained: bool, weapons: bool) {
         use sim::combat::Outcome;
         let Some(fighter) = fighter else {
             self.seen = None;
@@ -234,7 +243,7 @@ impl Flinch {
             && fighter.alive()
             && fighter.hp > 0
             && fighter.newest().take(usize::from(fresh)).any(|event| {
-                event.weapon.is_none()
+                (weapons || event.weapon.is_none())
                     && event.damage > 0
                     && matches!(
                         event.result,
@@ -242,6 +251,7 @@ impl Flinch {
                     )
             });
         if hit && !pained {
+            self.count = self.count.wrapping_add(1);
             self.once.begin();
         }
     }
@@ -257,9 +267,112 @@ impl Flinch {
     }
 }
 
+/// A creature model's attacks, as reone names them for one
+/// (`Creature::getAnimationName`, outside a scene's round): its own swing,
+/// bite or gore (`ATTACK` + 1 and + 2, `g0a1` and `g0a2`), and its gun's
+/// shot (`ATTACK` + 3, `b0a1`).
+pub const ATTACK: u16 = 4300;
+
+/// The attacks (`ATTACK` + 1 to + 3).
+pub fn attack_names() -> impl Iterator<Item = (u16, String)> {
+    ["g0a1", "g0a2", "b0a1"]
+        .into_iter()
+        .zip(1..)
+        .map(|(name, n)| (ATTACK + n, name.to_string()))
+}
+
+/// The attack clips a creature model of wield number `wield` plays for its
+/// `count`th attack, the first bound one shown: a gun's shot, else its own
+/// two in turn [verify: reone always swings `g0a1`; the exe's choice
+/// between them], else the first.
+fn attack_of(wield: u8, count: u8) -> [u16; 2] {
+    match wield {
+        5 | 6 | 7 | 9 => [ATTACK + 3, ATTACK + 1],
+        _ => [
+            ATTACK + 1 + u16::from(count.wrapping_add(1) % 2),
+            ATTACK + 1,
+        ],
+    }
+}
+
+/// A creature model's attack (droids, beasts: no JA swing draws it): a rise
+/// of its weapon timer (`Fighter::weapon_wait_ms`) is an attack the sim
+/// began (a beast's strike, `sim::world::strikes`, a gun's shot, a blade's
+/// move), and plays its attack clip (`attack_of`) once over its pose; one
+/// begun while the last still plays waits for the next.
+#[derive(Default, Clone, Copy)]
+pub struct Attack {
+    timer: Option<i32>,
+    /// How many it has begun (its clip's turn; for dumps).
+    pub count: u8,
+    once: Once,
+}
+
+impl Attack {
+    /// Follows `fighter` (as its later snapshot has it).
+    pub fn follow(&mut self, fighter: Option<&sim::combat::Fighter>) {
+        let Some(fighter) = fighter else {
+            self.timer = None;
+            return;
+        };
+        let before = self.timer.replace(fighter.weapon_wait_ms);
+        let begun = before.is_some_and(|before| fighter.weapon_wait_ms > before);
+        if begun && fighter.alive() && !self.once.busy() {
+            self.count = self.count.wrapping_add(1);
+            self.once.begin();
+        }
+    }
+
+    /// The attack's clip at `ms` (sim ms) for wield number `wield`.
+    pub fn shown<'a>(
+        &mut self,
+        bound: &'a Bound,
+        ms: f64,
+        wield: u8,
+    ) -> Option<(&'a Animator, f32, f32)> {
+        self.once.shown(bound, ms, attack_of(wield, self.count))
+    }
+}
+
+/// The attack's probes (`kjk sim probes --only creature_attack`): a rise of the
+/// weapon timer begins one, the first look and a fall do not; a gun shoots
+/// `b0a1`, bare hands alternate `g0a1` and `g0a2`.
+#[cfg(feature = "probes")]
+pub fn attack_probes() -> sim::probe::Checks {
+    use sim::combat::Fighter;
+    use sim::probe::check;
+    let mut attack = Attack::default();
+    let mut fighter = Fighter::fresh(10, 0);
+    // The pending begun after each look at a timer.
+    let mut look = |timer: i32| {
+        fighter.weapon_wait_ms = timer;
+        attack.follow(Some(&fighter));
+        std::mem::take(&mut attack.once.pending)
+    };
+    let looks = [look(1500), look(900), look(2400)];
+    let names: Vec<(u16, String)> = attack_names().collect();
+    vec![
+        (
+            "a rising weapon timer begins an attack, not the first look or a fall",
+            check(looks == [false, false, true], format!("{looks:?}")),
+        ),
+        (
+            "a creature model's attacks: g0a1 and g0a2 in turn, a gun's b0a1",
+            check(
+                names[2] == (ATTACK + 3, "b0a1".to_string())
+                    && attack_of(8, 1) == [ATTACK + 1, ATTACK + 1]
+                    && attack_of(8, 2) == [ATTACK + 2, ATTACK + 1]
+                    && attack_of(7, 1) == [ATTACK + 3, ATTACK + 1],
+                format!("{names:?}"),
+            ),
+        ),
+    ]
+}
+
 /// The flinch's probes (`kjk sim probes --only flinch`): a hit with no weapon
-/// flinches a body that stands, once; a weapon's, a refused one, the first look,
-/// JA's own pain and a death do not.
+/// flinches a body that stands, once, and a weapon's a creature model; a
+/// weapon's on a humanoid, a refused one, the first look, JA's own pain and a
+/// death do not.
 #[cfg(feature = "probes")]
 pub fn flinch_probes() -> sim::probe::Checks {
     use sim::combat::{Delivery, Event, Fighter, Location, Outcome};
@@ -275,38 +388,41 @@ pub fn flinch_probes() -> sim::probe::Checks {
         at: None,
         visual: None,
     };
-    // Whether the hit `event` brings flinches, after a first look.
-    let flinches = |event: Event, pained: bool, hp: i32| {
+    // Whether the hit `event` brings flinches, after a first look; on a
+    // creature model with `weapons`.
+    let flinches = |event: Event, pained: bool, hp: i32, weapons: bool| {
         let mut fighter = Fighter::fresh(10, 0);
         let mut flinch = Flinch::default();
-        flinch.follow(Some(&fighter), false);
+        flinch.follow(Some(&fighter), false, weapons);
         fighter.record(event);
         fighter.hp = hp;
-        flinch.follow(Some(&fighter), pained);
+        flinch.follow(Some(&fighter), pained, weapons);
         let begun = flinch.once.pending;
-        flinch.follow(Some(&fighter), false);
+        flinch.follow(Some(&fighter), false, weapons);
         (begun, flinch.once.pending)
     };
     let script = event(None, Outcome::Hit, 300);
+    let blade = event(Some(Delivery::Melee), Outcome::Hit, 300);
     let cases = [
-        ("script", flinches(script, false, 700), (true, true)),
+        ("script", flinches(script, false, 700, false), (true, true)),
+        ("blade", flinches(blade, false, 700, false), (false, false)),
         (
-            "blade",
-            flinches(event(Some(Delivery::Melee), Outcome::Hit, 300), false, 700),
-            (false, false),
+            "blade on a beast",
+            flinches(blade, false, 700, true),
+            (true, true),
         ),
         (
             "refused",
-            flinches(event(None, Outcome::Refused, 0), false, 1000),
+            flinches(event(None, Outcome::Refused, 0), false, 1000, true),
             (false, false),
         ),
-        ("pained", flinches(script, true, 700), (false, false)),
-        ("killed", flinches(script, false, 0), (false, false)),
+        ("pained", flinches(script, true, 700, false), (false, false)),
+        ("killed", flinches(script, false, 0, true), (false, false)),
     ];
     let mut first = Flinch::default();
     let mut fighter = Fighter::fresh(10, 0);
     fighter.record(script);
-    first.follow(Some(&fighter), false);
+    first.follow(Some(&fighter), false, false);
     let names: Vec<(u16, String)> = flinch_names(true).take(3).collect();
     vec![
         (

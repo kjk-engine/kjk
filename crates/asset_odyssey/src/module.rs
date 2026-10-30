@@ -630,6 +630,10 @@ pub fn scripts(node: &GffStruct) -> Vec<(String, String)> {
         .collect()
 }
 
+#[allow(
+    clippy::disallowed_methods,
+    reason = "`facing` is for drawing; the sim turns by `direction`"
+)]
 fn instance(kind: Kind, item: &GffStruct) -> Instance {
     let (position, facing, direction) = if item.get("X").is_some() {
         let bearing = item.float("Bearing").unwrap_or(0.0);

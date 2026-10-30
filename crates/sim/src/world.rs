@@ -44,6 +44,10 @@ use crate::rng::SimRng;
 use crate::walk;
 pub mod arena;
 #[cfg(feature = "probes")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "checks and traces set up their own cases on one machine"
+)]
 pub mod arena_probes;
 pub mod charting;
 pub mod containers;
@@ -71,6 +75,10 @@ mod minds;
 #[cfg(feature = "probes")]
 pub use minds::probes as minds_probes;
 #[cfg(feature = "probes")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "checks and traces set up their own cases on one machine"
+)]
 pub mod aim_probes;
 #[cfg(feature = "probes")]
 pub mod effects_probes;
@@ -84,6 +92,8 @@ pub mod pace_probes;
 #[cfg(feature = "probes")]
 pub mod pair_probes;
 pub mod party;
+#[cfg(feature = "probes")]
+pub mod party_fights_probes;
 #[cfg(feature = "probes")]
 pub mod player_probes;
 mod powers;

@@ -62,6 +62,10 @@ pub mod spawner;
 pub mod stealth;
 pub mod target;
 #[cfg(feature = "probes")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "checks and traces set up their own cases on one machine"
+)]
 pub mod trace;
 pub mod traps;
 pub mod visuals;
@@ -118,6 +122,8 @@ pub use world::pace_probes;
 #[cfg(feature = "probes")]
 pub use world::pair_probes;
 pub use world::party;
+#[cfg(feature = "probes")]
+pub use world::party_fights_probes;
 #[cfg(feature = "probes")]
 pub use world::player_probes;
 #[cfg(feature = "probes")]
