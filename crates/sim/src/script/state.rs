@@ -209,6 +209,9 @@ pub struct State {
     /// The classes and levels each character took here, by id
     /// (`script::levelling`), and the levels asked for, not yet taken.
     pub careers: BTreeMap<u32, crate::levels::Career>,
+    /// The skill points each character left unspent, by id: its next level
+    /// adds its own to them (`CSWCLevelUpStats::AddSkillPointsPerLevel`).
+    pub unspent: BTreeMap<u32, u8>,
     pub levelling: Vec<(u32, crate::levels::Choices)>,
     /// Blows scripts decided, waiting for their hit (`effects::Strike`).
     pub strikes: Vec<Strike>,
@@ -775,6 +778,11 @@ impl State {
                 out.u8(*levels);
             }
         }
+        out.u32(self.unspent.len() as u32);
+        for (id, points) in &self.unspent {
+            out.u32(*id);
+            out.u8(*points);
+        }
         out.u32(self.levelling.len() as u32);
         for (id, choices) in &self.levelling {
             out.u32(*id);
@@ -1070,6 +1078,11 @@ impl State {
                 .map(|_| Ok((input.u8()?, input.u8()?)))
                 .collect::<Result<_, DecodeError>>()?;
             state.careers.insert(id, career);
+        }
+        if input.since(crate::since::save::TSL_BUGS) {
+            for _ in 0..input.u32()? {
+                state.unspent.insert(input.u32()?, input.u8()?);
+            }
         }
         for _ in 0..input.u32()? {
             let id = input.u32()?;

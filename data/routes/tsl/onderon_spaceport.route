@@ -95,6 +95,7 @@ talk
 to tr_bh1_talk       # the Rodian bounty hunters on the way back (bounty1)
 talk
 fight 30
+use bhunter1         # their leader's remains: his starport visa (pl_bh_visa)
 exit To_502
 module 502ond
 say Do you have a man named Dhagon Ghent in custody? # Riiken

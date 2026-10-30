@@ -305,6 +305,13 @@ bumps.
 
 ## 3. Re-stamping at load
 
+*Status 2026-10-30:* 3b is built (`sim::Save::restamp`,
+`SimWorld::stale_stamp`, `sim::Restamp`; the approved test
+`stale_stamps_load`). 3c's reconciliation and the new snapshot fields it
+needs (component digests, origin keys and rosters, per-continuation script
+digests) are not built yet: a re-stamped save is trusted as `restamp.rs`
+trusted it.
+
 ### 3a. What a digest mismatch means
 
 A digest changes when kjk reads the same game differently (collision, nav,

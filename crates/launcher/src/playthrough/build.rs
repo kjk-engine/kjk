@@ -13,6 +13,8 @@
 //! - `skill-order NAME ...`, `feat-order LABEL ...`, `power-order LABEL ...`
 //!   (`spells.2da` labels): each level-up's picks in that order, before the
 //!   class's own (`sim::levels::Plan`);
+//! - `bank`: the points `skill-order` cannot spend are kept for a later
+//!   level instead of going in the class's order (`Plan::bank`);
 //! - `raises ABILITY ...` (`str` to `cha`): the ability each fourth level
 //!   raises, in turn.
 //!
@@ -134,6 +136,7 @@ pub fn parse(text: &str, feats: &TwoDa, spells: &TwoDa) -> Result<Build, String>
             "feat-order" => plan.feats = rows(feats, "feat")?,
             "power-order" => plan.powers = rows(spells, "spells")?,
             "raises" => plan.abilities = small(ability)?,
+            "bank" => plan.bank = true,
             other => return Err(format!("{other}: not a build key")),
         }
     }

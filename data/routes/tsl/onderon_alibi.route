@@ -15,9 +15,12 @@
 #   kjk playthrough tsl @onderon_alibi data/routes/tsl/onderon_alibi.route --god
 # Walkthrough: DSimpson's "Iziz Cantina" ("Murder Most Foul")
 # (context/walkthroughs/tsl/).
+# The Rodian's visa (onderon_spaceport): Bahima's word on it sends the
+# Exile to Kiph (a_kiph_trigger), who slices it open for 500 credits
+# (a_visa_sliced), and Gormo is given it for nothing (LSP; he pays anyway).
 # Left: the swoop races (510OND: the bike, Persuade for the fee), Nikko's
-# pazaak, the visa buyers (Gormo, Sakarie, Xaart), Kiph's visa slicing,
-# Gelesi (Vaklu's side), Bahima, the Twi'lek dancers.
+# pazaak, the other visa buyers (Sakarie, Xaart), Gelesi (Vaklu's side),
+# the Twi'lek dancers.
 #
 # ASSUMES:
 # - docalibi at Riiken's step (a_alibi_start); Mandalore and Mira in the
@@ -76,6 +79,19 @@ module 503ond
 say I want to talk to you about Captain Sullio's murder. # Kiph
 say I have the remains of S-0D3
 use kiph
+talk
+say I have an extra starport visa # Bahima (c_extra_visa): Kiph's the slicer
+say I'll be going now.
+use bahima
+talk
+say A friend of a friend told me # Kiph (c_extra_visakiph)
+say Here's 500 credits. # a_visa_sliced: the open visa
+use kiph
+talk
+say What do you want? # Gormo, captain of the Tweigar
+say I do have an extra open visa. # (c_visa_have)
+say Keep your credits. # a_visa_quest (LSP, a_lightsml)
+use npc_gormo        # by his template
 talk
 say Can I talk with you about Captain Sullio's murder? # Nikko
 say I want to show you S-0D3's last transmission. # a_alibi_end
