@@ -1449,10 +1449,11 @@ fn party_calls() {
 }
 
 /// Falling and being revived (I31): `sim::falls::probes`, each on the
-/// proving ground; the sim alone.
+/// proving ground; the sim alone. A poison that downed a body is gone
+/// when it gets up (the owner's report of 2026-10-30).
 #[test]
 fn downed_and_revive() {
-    probed("falls", &sim::falls::probes(), 18);
+    probed("falls", &sim::falls::probes(), 19);
 }
 
 /// The party members nobody plays follow and fight beside the body played:
@@ -1460,6 +1461,14 @@ fn downed_and_revive() {
 #[test]
 fn unmanned_party_fights() {
     probed("party fights", &sim::party_fights_probes::probes(), 7);
+}
+
+/// Control passing on from a fallen leader to the next party member
+/// standing, as Tab would pass it, past a guest's companion:
+/// `sim::party_fights_probes::passing`, the owner's report of 2026-10-30.
+#[test]
+fn downed_leader_passes_control() {
+    probed("downed switch", &sim::party_fights_probes::passing(), 3);
 }
 
 /// Items and levels in co-op (I31): `sim::coop_items::probes`, the

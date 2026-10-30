@@ -271,7 +271,12 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
                 Command::Arena(vec!["spawn".into(), template.to_string()])
             }
             ("arena", [order @ ("clear" | "god")]) => Command::Arena(vec![order.to_string()]),
-            ("arena", _) => return Err(error("arena takes spawn TEMPLATE, clear or god")),
+            ("arena", ["down", n]) if n.parse::<u8>().is_ok() => {
+                Command::Arena(vec!["down".into(), n.to_string()])
+            }
+            ("arena", _) => {
+                return Err(error("arena takes spawn TEMPLATE, clear, god or down N"));
+            }
             ("camera", words) if words.len() == 5 || words.len() == 6 => {
                 let numbers: Vec<f32> = words.iter().filter_map(|word| word.parse().ok()).collect();
                 if numbers.len() != words.len() || numbers.iter().any(|n: &f32| !n.is_finite()) {

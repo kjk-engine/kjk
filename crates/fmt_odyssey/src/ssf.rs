@@ -12,6 +12,9 @@ const FORMAT: &str = "SSF";
 /// The lines the engines play, by their place in the list (as reone
 /// numbers them; the same in K1 and TSL).
 pub mod slots {
+    /// "Selected": what a party member says as it becomes the one led
+    /// (three; "Ready.", "Yes?").
+    pub const SELECT: [usize; 3] = [6, 7, 8];
     /// The grunts of an attack begun (three) and of a blow taken (two).
     pub const ATTACK_GRUNTS: [usize; 3] = [9, 10, 11];
     pub const PAIN_GRUNTS: [usize; 2] = [12, 13];

@@ -602,6 +602,51 @@ fn ready_anim(weapon: Weapon) -> &'static str {
     }
 }
 
+/// How long a get-up blends in from the pose the body lay in (ms).
+const RISE_BLEND_MS: f32 = 400.0;
+/// The share of a get-up through which it keeps the turn that lays it
+/// where the death left the body; it turns back to the body's facing over
+/// the rest, as it stands.
+const RISE_TURN_HELD: f32 = 0.35;
+
+/// A body on JA's animations getting up from the death it lay in
+/// (`sim::combat::death::getup`): the get-up the sim plays, how far it is
+/// turned at its start (degrees, `Getup::turn`), how long it lasts (ms),
+/// and which parts (legs, torso) have blended into it from the lying pose.
+#[derive(Debug, Clone, Copy)]
+struct Rising {
+    anim: Anim,
+    turn: f32,
+    length_ms: f32,
+    blended: [bool; 2],
+}
+
+impl Rising {
+    /// Getting up from lying in `lain` (the legs' animation shown).
+    fn new(rig: &Rig, lain: Option<Anim>) -> Rising {
+        let getup = sim::combat::death::getup(lain.unwrap_or(Anim::BOTH_DEATH1));
+        let length_ms = rig.sequences.get(getup.anim.name()).map_or(0.0, |s| {
+            s.frame_count as f32 * 1000.0 / s.frames_per_second.unsigned_abs().max(1) as f32
+        });
+        Rising {
+            anim: getup.anim,
+            // Measured on the retargeted KOTOR body, whose frame turns the
+            // other way about the GLA root's up axis.
+            turn: -getup.turn,
+            length_ms,
+            blended: [false; 2],
+        }
+    }
+
+    /// The turn left `since` ms into the get-up: all of it while the body
+    /// still lies, eased out as it stands.
+    fn turn_at(&self, since: f32) -> f32 {
+        let held = self.length_ms * RISE_TURN_HELD;
+        let f = ((since - held) / (self.length_ms - held).max(1.0)).clamp(0.0, 1.0);
+        self.turn * (1.0 - f * f * (3.0 - 2.0 * f))
+    }
+}
+
 /// One character's animation state, carried from frame to frame.
 pub struct Figure {
     g2: G2<'static>,
@@ -616,6 +661,10 @@ pub struct Figure {
     pub turned: Option<angles::Pose>,
     /// When it died (sim ms).
     died: Option<u64>,
+    /// When it last got up from lying dead or downed (sim ms), and how
+    /// (`Rising`, a body on JA's animations).
+    rose: Option<u64>,
+    rising: Option<Rising>,
     ready: &'static str,
     /// Its melee wield number (`Sheet::wield_number`): the ready stance it
     /// holds after a scene's round (`acting`).
@@ -677,6 +726,8 @@ impl Figure {
             adopted: [None; 2],
             turned: None,
             died: None,
+            rose: None,
+            rising: None,
             ready,
             wield: 2,
             frames: [None; 2],
@@ -744,10 +795,22 @@ impl Figure {
     fn follow(&mut self, rig: &Rig, time_ms: u64, entity: &EntityState, armed: bool) {
         let Some(p) = entity.player else { return };
         match entity.fighter.map(|f| f.alive()) {
-            Some(false) if self.died.is_none() => self.died = Some(time_ms),
-            // Up again (a revive, the fight's end): its fall is over.
-            Some(true) => self.died = None,
+            Some(false) if self.died.is_none() => {
+                self.died = Some(time_ms);
+                self.rising = None;
+            }
+            // Up again (a revive, the fight's end): its fall is over, the
+            // get-up blending in from how it lay.
+            Some(true) if self.died.take().is_some() => {
+                self.rose = Some(time_ms);
+                self.rising = Some(Rising::new(rig, self.legs.map(|(anim, _)| anim)));
+            }
             _ => {}
+        }
+        if let (Some(rose), Some(rising)) = (self.rose, self.rising)
+            && time_ms as f32 > rose as f32 + rising.length_ms
+        {
+            self.rising = None;
         }
         let torso = (p.torso.anim, p.torso.flip);
         if self.shown_torso != Some(torso) {
@@ -782,7 +845,14 @@ impl Figure {
             .filter(|f| f.alive() && !rig.quirks)
             .and_then(|f| Some([f.pose.legs?, f.pose.torso?]));
         if let Some(parts) = posed {
-            self.adopt(parts, (away, keep), time_ms as f32);
+            // Up again, the sim's skeleton may show a step of its own before
+            // the get-up: the body lies on until it takes the get-up up.
+            let lies = self
+                .rising
+                .is_some_and(|rising| !rising.blended[0] && parts[0].anim != rising.anim);
+            if !lies {
+                self.adopt(parts, (away, keep), time_ms as f32);
+            }
             return;
         }
         self.adopted = [None; 2];
@@ -807,9 +877,12 @@ impl Figure {
             if was == Some(now) {
                 continue;
             }
-            let blend = was.map_or(0.0, |(old, _)| {
-                asset_ja::blend_ms(Some(old.name()), now.0.name(), rig.quirks)
-            });
+            let rises = self.rising.is_some_and(|rising| rising.anim == now.0) && !rig.quirks;
+            let blend = match was {
+                Some(_) if rises => RISE_BLEND_MS,
+                Some((old, _)) => asset_ja::blend_ms(Some(old.name()), now.0.name(), rig.quirks),
+                None => 0.0,
+            };
             if let Some(sequence) = rig.sequences.get(now.0.name()) {
                 self.g2.set_part(
                     &PartSet {
@@ -851,6 +924,8 @@ impl Figure {
         let parts = if away { [parts[0], parts[0]] } else { parts };
         let switched = away != self.away;
         self.away = away;
+        // A part taking up the get-up blends in from the pose it lay in.
+        let mut rising = self.rising;
         for (part, ((shown, was), bones)) in parts
             .into_iter()
             .zip(&mut self.adopted)
@@ -881,19 +956,37 @@ impl Figure {
                     }),
                 }),
             };
-            let blend_ms = if away {
+            let rises = match rising.as_mut() {
+                Some(rising) if rising.anim == shown.anim && !rising.blended[part] => {
+                    rising.blended[part] = true;
+                    true
+                }
+                _ => false,
+            };
+            let blend_ms = if rises {
+                RISE_BLEND_MS
+            } else if away {
                 HOLSTER_BLEND_MS
             } else {
                 DRAW_BLEND_MS
             };
+            // The legs' root blends from the lying pose turned back by the
+            // get-up's turn, which `pose_facing` turns the whole body by.
+            let unturn = rising
+                .filter(|_| rises && part == 0)
+                .map(|rising| Quat::from_rotation_z(-rising.turn.to_radians()));
             for bone in bones.into_iter().flatten() {
-                if part == 1 && switched {
+                if let Some(unturn) = unturn {
+                    self.g2
+                        .adopt_blending_turned(bone, &timed, now_ms, blend_ms, unturn);
+                } else if rises || (part == 1 && switched) {
                     self.g2.adopt_blending(bone, &timed, now_ms, blend_ms);
                 } else {
                     self.g2.adopt(bone, &timed);
                 }
             }
         }
+        self.rising = rising;
         let [legs, torso] = parts.map(|part| Some((part.anim, part.flip)));
         self.legs = legs;
         if !keep {
@@ -998,7 +1091,16 @@ impl Figure {
                 }
             }
             if let Some(root) = self.bones.root.filter(|_| facing) {
-                let yaw = Quat::from_rotation_z(turned.legs_yaw.to_radians());
+                // A get-up turned to start where the death left the body,
+                // once its legs have taken it up (`adopt`).
+                let turn = self
+                    .rising
+                    .filter(|rising| rising.blended[0])
+                    .zip(self.rose)
+                    .map_or(0.0, |(rising, rose)| {
+                        rising.turn_at((ms - rose as f64) as f32)
+                    });
+                let yaw = Quat::from_rotation_z((turned.legs_yaw + turn).to_radians());
                 pose[root] = (yaw * pose[root].0, yaw * pose[root].1);
             }
         }
@@ -1007,13 +1109,13 @@ impl Figure {
 }
 
 /// The KOTOR clips a creature plays, bound to its nodes (by `PAUSE`,
-/// `WALK`, `RUN`, `DIE`, `DEAD`), the one it showed last and how far in, and
+/// `WALK`, `RUN`, `DIE`, `DEAD`, `GETUP`), the one it showed last and how far in, and
 /// the one it left, fading out (where it stopped, and when, sim ms); its
 /// clips for scripts' animations and what it shows of them (`acting`); the
 /// metres its walk and run cycles cover and how far into each it is, as of
 /// when (sim ms); its nodes' parents and rest (`rest_of`).
 struct Clips {
-    clips: [Option<Animator>; 5],
+    clips: [Option<Animator>; 6],
     shown: Option<(usize, f32)>,
     fading: Option<(usize, f32, f64)>,
     acted: acting::Bound,
@@ -1031,6 +1133,7 @@ const WALK: usize = 1;
 const RUN: usize = 2;
 const DIE: usize = 3;
 const DEAD: usize = 4;
+const GETUP: usize = 5;
 
 /// How a body is posed.
 enum Look {
@@ -1803,11 +1906,12 @@ impl Cast {
                 run,
                 die,
                 dead,
+                getup,
                 acted,
                 strides,
             } = &view.clips;
             Look::Clips(Box::new(Clips {
-                clips: [pause, walk, run, die, dead].map(bind),
+                clips: [pause, walk, run, die, dead, getup].map(bind),
                 shown: None,
                 fading: None,
                 acted: acting::bind(placed, acted, nodes),
@@ -3493,6 +3597,16 @@ impl Clips {
                 (die, Some(_)) => looped(DEAD, since + f64::from(die.unwrap_or(0.0)) * 1000.0),
                 (None, None) => None,
             };
+        }
+        // Up again (a revive, the fight's end): its get-up from the dead
+        // clip, once.
+        if let Some(rose) = figure.rose
+            && let Some(getup) = length(GETUP)
+        {
+            let up = ((ms - rose as f64) / 1000.0).max(0.0) as f32;
+            if up < getup {
+                return Some((GETUP, up));
+            }
         }
         let legs = at.state.legs.anim.name();
         let walking = legs.contains("WALK") || (speed < RUN_SPEED && !legs.contains("RUN"));

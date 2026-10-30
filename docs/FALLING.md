@@ -41,6 +41,29 @@
   (never a copy) in place for every machine (`sim_host::ReloadRequest`,
   `play::from_save`); one that does not read is told over the box; with
   no save, the menu.
+- **Control**: when the body the first seat leads through goes down, the
+  next standing party member in the leader key's order leads
+  (`world::scripts::passes_on`, as Tab would), past a companion a guest
+  drives; it keeps leading once the fallen get up. The new body says one
+  of its Select lines (`game::grunts`).
+- **Effects**: going down and getting up strip the body's effects
+  (`combat::effects::strip`), as the Aurora engines' death strips them
+  (NWN keeps none through a death; its EE added "unyielding" effects for
+  that): the poison and what it drained, Affliction's and Plague's sap
+  and slow, Valor, Energy Resistance, the shield and stim, its own powers,
+  every timed script effect. Permanent script effects stay (a plot's
+  disguise or visual) [verify: whether K1's executable keeps any]. A poison
+  that downed a body no longer downs it again as it gets up.
+- **Getting up**: the get-up for the side the death left the body on
+  (`combat::death::getup`): JA's `BOTH_GETUP4` from the back, `BOTH_GETUP3`
+  from the front, as JA's knockdowns pick theirs; each death's side
+  measured on `_humanoid` (`kjk rig a --moves BOTH_DEATHn --trace`). The
+  view blends it in from the pose lain in (`cast::Rising`, 400 ms) and
+  turns it to start where the death left the head, turning back to the
+  body's facing as it stands. A KOTOR-clip body (a droid, a beast) plays
+  its `getupdead` after `dead`, as KOTOR's party does. `arena down N`
+  (the combat arena) knocks the seat's body out in death N and revives it
+  where it lies 7 s later, to look at each.
 - **Scripts**: a fall raises no `OnDeath`, records no killer, gives no XP;
   the death does. Part of a point is 1 HP (`Fighter::whole_hp`);
   `GetNearestCreature` skips the downed unless asked [verify]; the downed

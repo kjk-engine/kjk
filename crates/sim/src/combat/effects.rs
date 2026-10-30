@@ -899,8 +899,7 @@ pub fn remove(fighter: &mut Fighter, id: Option<u32>, now: u64) {
     // slow) goes with it, and it with any part of its link.
     let link = fighter.pack.poison.and_then(|poison| poison.link);
     if id.is_none_or(|id| id == POISON_ID) {
-        fighter.pack.poison = None;
-        fighter.pack.drained = ([0; 6], 0);
+        remove_poison(fighter);
     }
     if id.is_some() && id == link {
         fighter.pack.poison = None;
@@ -940,6 +939,38 @@ pub fn end_poison(fighter: &mut Fighter, now: u64) {
     if let Some(link) = fighter.pack.poison.take().and_then(|poison| poison.link) {
         remove(fighter, Some(link), now);
     }
+}
+
+/// Going down (a party member knocked out, `Fighter::fall`) and getting up
+/// (`Fighter::rise`): the effects on `fighter` end as at a death in the
+/// Aurora engines KOTOR's is built on, which strip a body's effects
+/// (`docs/FALLING.md`, "Effects"). The poison and what it drained,
+/// Affliction's and Plague's sapping and slow, Valor, Energy Resistance,
+/// the shield and stim up, its own powers running and every timed script
+/// effect end now (their ends settled as when they run out); permanent
+/// ones (`u64::MAX`) stay, a plot's disguise or visual [verify: whether
+/// the executable keeps any].
+pub fn strip(fighter: &mut Fighter, now: u64) {
+    remove_poison(fighter);
+    fighter.pack.shield = None;
+    fighter.pack.stim = None;
+    fighter.force.stop();
+    let effects = &mut fighter.effects;
+    for (_, until) in [&mut effects.valor, &mut effects.resist, &mut effects.slowed] {
+        *until = (*until).min(now);
+    }
+    effects.sapped = (0, 0);
+    for lasting in effects.lasting.iter_mut().flatten() {
+        if lasting.until != u64::MAX {
+            lasting.until = lasting.until.min(now);
+        }
+    }
+}
+
+/// The poison on `fighter` and the points it drained, gone.
+fn remove_poison(fighter: &mut Fighter) {
+    fighter.pack.poison = None;
+    fighter.pack.drained = ([0; 6], 0);
 }
 
 /// Ends the effects of `power`'s scripts on `fighter` (its toggle turned

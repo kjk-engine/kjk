@@ -362,7 +362,7 @@ fn apply(world: &mut World, deeds: Deeds, now: u64) {
             );
         }
         for (_, hp) in deeds.revived.iter().filter(|(of, _)| *of == id.0) {
-            falls::get_up(&mut player.0, &mut fighting.0, &anims, *hp);
+            falls::get_up(&mut player.0, &mut fighting.0, &anims, *hp, now);
         }
     }
 }

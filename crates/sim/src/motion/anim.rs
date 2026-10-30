@@ -805,6 +805,10 @@ anims!(
     // Fists: the left punch, then the right.
     BOTH_MELEE1,
     BOTH_MELEE2,
+    // Getting up from a death lain in (`combat::death::getup`): on the back,
+    // on the front.
+    BOTH_GETUP4,
+    BOTH_GETUP3,
 );
 
 impl Anim {
