@@ -44,6 +44,11 @@ impl Chaos {
     /// their droids; the world told they are phantoms.
     pub(super) fn drive(&mut self, world: &mut sim::SimWorld, last: &Snapshot, input: &mut TickInput) {
         world.set_phantoms(SEATS.iter().fold(0, |mask, seat| mask | 1 << seat));
+        // A minigame gives each seat its own run or gun, no droid: the
+        // phantoms sit it out, as the chain proves droids, not co-op races.
+        if last.minigame.is_some() {
+            return;
+        }
         if self.step.is_multiple_of(WAY_STEPS) {
             for at in 0..SEATS.len() {
                 self.ways[at] = (self.roll(), self.roll(), self.roll());
