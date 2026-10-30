@@ -744,6 +744,27 @@ KOTOR's click on a door, container or creature, made for the JA camera:
 Approved tests: `use_actions`, `use_scripts`, `use_walk`; the block's
 checks are in `gui_layouts`.
 
+### Area transitions
+
+KOTOR names the area a door or exit leads to while the player faces it
+(survey: `context/artifacts/2026-10-30-transition-label/SURVEY.md`):
+
+- **Which** (`sim::transition::faced`, render side, `game::target_view`):
+  each door and trigger that leads to a module (`ObjectData::exit`) is
+  met by the line the player faces, across the floor, within its reach
+  (`targeting.transition.reach`): a door by its pick volume, standing
+  ahead; a trigger by its outline, where the line first crosses it. It
+  must be in sight of the player's eyes; the nearest wins, asked again
+  every frame (nothing holds). Only while the HUD is up and no screen.
+- **What**: its `TransitionDestin`, cut as KOTOR's client cuts it: the
+  part after the first dash and the character after it ("Taris - Upper
+  City South" shows "Upper City South"); none without a name.
+- **How** (`ui::screens::transition`): KOTOR's panel (K1 `areatransition`,
+  TSL `areatrans_p`, the skin's): the strip, the name on it in the
+  campaign layout's colour (K1's blue), the running-man icon beneath,
+  centred under the target block and its words (KOTOR's stands at the
+  same place across the top). The dumps carry it (`transition`).
+
 ## Barks
 
 A one-liner or a script's `BarkString` or queued `ActionBarkString`

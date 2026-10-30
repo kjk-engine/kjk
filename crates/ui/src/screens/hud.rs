@@ -234,6 +234,17 @@ pub fn anchor(gui: &mut Gui, window: (f32, f32)) {
     gui.extent.height = tall;
 }
 
+/// Where the target block ends in `gui` (placed by `anchor`): the bottom
+/// of its words, else of the block itself (layout pixels).
+pub fn block_bottom(gui: &Gui) -> i32 {
+    gui.controls
+        .iter()
+        .filter(|control| in_block(&control.tag) || control.tag.starts_with("LBL_ACTIONDESC"))
+        .map(|control| control.extent.top + control.extent.height)
+        .max()
+        .unwrap_or(0)
+}
+
 /// `gui`'s frame for a window of `window` pixels, drawn at the layout's own
 /// size (`draw::fit`): the window itself, or, in a window smaller than
 /// the layout, the window's shape (`shaped`).
