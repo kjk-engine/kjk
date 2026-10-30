@@ -42,6 +42,13 @@ leader 1             # to the reactor: Bao-Dur's Security on the security
 unlock TelosDoor3@1  # doors (DC 28), his blow on the force fields, the
 leader player        # droids on the way fought by the Exile
 fight 30
+say Who are you?     # the Czerka salvager hiding past the next doors
+say Follow me out    # (DSimpson's escort): led back to the base's
+to tr_salvage        # entrance, where he waits for the next freighter
+talk                 # (LSP); then back to the reactor's way
+fight 30             # the droids come at his voice
+to tr_czerka_escape  # his thanks as he reaches it (a one-line talk, LSP),
+gone Salvage         # and he leaves
 leader 1
 bash TelosDoor2@2
 leader player

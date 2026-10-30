@@ -15,12 +15,14 @@
 //! [`Move`].
 
 pub(crate) mod anim;
+#[cfg(feature = "probes")]
+pub mod body_probes;
 mod force_jump;
 mod saber;
 mod slide;
 mod weapon;
 
-use collision::{CollisionWorld, Contents, Extents};
+use collision::{CollisionWorld, Contents, Extents, Shape};
 
 use rules::movement::rolls;
 
@@ -681,16 +683,26 @@ impl Move<'_, '_> {
         self.ps.maxs_z = self.maxs[2];
     }
 
-    /// A box trace in units, converted at the collision boundary.
+    /// A box trace in units, converted at the collision boundary. The
+    /// body's own box goes round across (`Shape::Upright`): KOTOR tests a
+    /// creature's move by its personal space across its way, whichever way
+    /// it goes, where JA's square box reaches √2 of its half-size into a
+    /// diagonal wall (Khoonda's office joins its hall by a diagonal channel
+    /// a box could not pass).
     fn trace_masked(&self, start: Vec3, end: Vec3, mins: Vec3, maxs: Vec3, mask: Contents) -> Hit {
         let metres = |v: Vec3| scale(v, UNIT);
         let extents = Extents {
             mins: metres(mins),
             maxs: metres(maxs),
         };
+        let shape = if mins == self.mins && maxs == self.maxs {
+            Shape::Upright(extents)
+        } else {
+            Shape::Box(extents)
+        };
         let trace = self
             .collision
-            .trace(metres(start), metres(end), &extents, mask);
+            .sweep(metres(start), metres(end), &shape, mask);
         let end = if trace.all_solid || trace.fraction <= 0.0 {
             start
         } else if trace.fraction >= 1.0 {
