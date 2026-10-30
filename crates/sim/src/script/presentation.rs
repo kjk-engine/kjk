@@ -104,14 +104,25 @@ impl State {
 
 impl super::Step<'_> {
     /// KOTOR's status summary, as its client shows it: the step's statuses
-    /// owe one, which shows once no conversation holds the world (the
-    /// client gathers them meanwhile); the player then closes it, and TSL's
-    /// executable runs `SUMMARY_CLOSED` (taken as closed at once here: no
-    /// player waits on it headless [verify in the exe]).
+    /// owe one, which shows once no conversation holds the world and no
+    /// fade covers or crosses the screen (TSL's `MainLoop` calls
+    /// `ShowStatusSummary` only with no conversation, `IsGlobalFading` and
+    /// `IsGlobalFadeObscuring` both false, and its 0.25 s count run out;
+    /// the client gathers them meanwhile). The player then closes it and
+    /// TSL's executable runs `SUMMARY_CLOSED` (`CSWGuiStatusSummary::
+    /// HandleAlignmentMovie`, on its accept or cancel; at once when the
+    /// options show no summary): taken as closed as it shows here, no
+    /// player waiting on it headless.
     pub(super) fn summary_closed(&mut self) {
         self.state.summary_owed |= !self.out.statuses.is_empty();
         let talking = self.state.talk.holds_world(&self.view.seat_bodies());
-        if !self.state.summary_owed || talking || self.out.new_module.is_some() {
+        let now = self.view.now_ms;
+        let faded = self
+            .out
+            .fade(self.view)
+            .is_some_and(|fade| !fade.settled(now))
+            || self.out.world_fade_in(self.view) != crate::snapshot::WorldFadeIn::Done;
+        if !self.state.summary_owed || talking || faded || self.out.new_module.is_some() {
             return;
         }
         self.state.summary_owed = false;

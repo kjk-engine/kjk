@@ -151,6 +151,10 @@ int GetLocalNumber(object oObject, int nIdx);
 void ChangeToStandardFaction(object oCreatureToChange, int nStandardFaction);
 // 38
 int GetStandardFaction(object oObject);
+// 39
+void SetGlobalFadeOut(float fWait = 0.0f, float fLength = 0.0f, float fR = 0.0f, float fG = 0.0f, float fB = 0.0f);
+// 40
+void SetGlobalFadeIn(float fWait = 0.0f, float fLength = 0.0f, float fR = 0.0f, float fG = 0.0f, float fB = 0.0f);
 int OBJECT_TYPE_CREATURE = 1;
 "#;
 
@@ -341,6 +345,8 @@ fn library() -> crate::script::Library {
             ("probe_second_atton", second_atton()),
             ("probe_spawned_again", spawned_again()),
             ("probe_light_point", light_point()),
+            ("probe_fade_out", fade(39)),
+            ("probe_fade_in", fade(40)),
             (
                 crate::script::presentation::SUMMARY_CLOSED,
                 summary_closed(),
@@ -439,6 +445,13 @@ fn spawned_again() -> Ncs {
         ],
     );
     asm.op(Op::Retn);
+    asm.build()
+}
+
+/// The screen faded at once by `routine` (`SetGlobalFadeOut`, `SetGlobalFadeIn`).
+fn fade(routine: u16) -> fmt_odyssey::ncs::Ncs {
+    let mut asm = Asm::default();
+    asm.op(call(routine, 0)).op(Op::Retn);
     asm.build()
 }
 
@@ -653,6 +666,7 @@ pub fn probes() -> Checks {
         "summary_closed_runs_align_movie",
         summary_closed_runs_align_movie(),
     ));
+    checks.push(("summary_waits_for_the_fade", summary_waits_for_the_fade()));
     checks.push(("cannot_equip_lines", cannot_equip_lines()));
     checks.push(("influence_starts", influence_starts()));
     checks.push(("alignment_follows_influence", follows()));
@@ -1226,18 +1240,42 @@ fn selectability_told() -> Result<String, String> {
 
 /// TSL's executable runs `k_align_movie` as the player closes the status
 /// summary (`CSWGuiStatusSummary::HandleInputEvent`), which shows once
-/// statuses are told and no conversation holds the world: not before a
-/// status is told, then once. The Visas Marr movies, and so Visas's
-/// arrival on the Ebon Hawk, hang on it.
+/// statuses are told, no conversation holds the world and the module's
+/// opening fade has lifted: not before a status is told, then once. The
+/// Visas Marr movies, and so Visas's arrival on the Ebon Hawk, hang on it.
 fn summary_closed_runs_align_movie() -> Result<String, String> {
     let (mut world, _) = world()?;
     let before = tokens(&step(&mut world), 70..=70);
     run(&mut world, "probe_light_point");
-    step(&mut world);
-    let after = tokens(&step(&mut world), 70..=70);
+    let lifted = crate::snapshot::LIFT_MS.div_ceil(MSEC) + 2;
+    let mut last = step(&mut world);
+    for _ in 0..lifted {
+        last = step(&mut world);
+    }
+    let after = tokens(&last, 70..=70);
     check(
         before == ["(unset)"] && after == ["1"],
         format!("k_align_movie's token before {before:?}, after a light side point {after:?}"),
+    )
+}
+
+/// The status summary waits while a fade covers the screen (TSL's
+/// `MainLoop` asks `IsGlobalFadeObscuring` and `IsGlobalFading` before
+/// `ShowStatusSummary`): a light side point told under a fade out runs no
+/// `k_align_movie` until `SetGlobalFadeIn` clears the screen.
+fn summary_waits_for_the_fade() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    step(&mut world);
+    run(&mut world, "probe_fade_out");
+    run(&mut world, "probe_light_point");
+    step(&mut world);
+    let covered = tokens(&step(&mut world), 70..=70);
+    run(&mut world, "probe_fade_in");
+    step(&mut world);
+    let cleared = tokens(&step(&mut world), 70..=70);
+    check(
+        covered == ["(unset)"] && cleared == ["1"],
+        format!("k_align_movie's token under the fade {covered:?}, once it lifts {cleared:?}"),
     )
 }
 
