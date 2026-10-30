@@ -4,8 +4,10 @@
 //! run's manifest, log, crash and flight recorder, the world now, the
 //! settings and the breadcrumbs. Every text in it is scrubbed of the home
 //! folder, the user's name and the machine's; `host.id` is left out, and
-//! none of the games' files go in. Nothing is sent: the folder and GitHub's
-//! new-issue page are opened for the player to attach it.
+//! none of the games' files go in. Nothing is sent by itself: the folder and
+//! GitHub's new-issue page are opened for the player to attach it, the form
+//! filled in with the note (scrubbed), the version and the zip's name, for
+//! the player to read before submitting.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -16,8 +18,12 @@ use ui::intent::Intent;
 use crate::settings::{Action, KeyMap};
 use crate::ui_view::{Ui, UiIntents};
 
-/// Where a new issue is opened (the bug form, nothing else in the URL).
+/// Where a new issue is opened: the bug form (`issue_url` fills it in).
 const ISSUE: &str = "https://github.com/kjk-engine/kjk/issues/new?template=bug.yml";
+/// How long an issue's title may be, from the note's first line.
+const TITLE_KEPT: usize = 80;
+/// How much of the note goes in the address: browsers and GitHub refuse long ones.
+const NOTE_KEPT: usize = 1000;
 /// How big a report may be: GitHub's attachment limit.
 const LIMIT: usize = 25 * 1024 * 1024;
 /// How many reports are kept.
@@ -407,7 +413,9 @@ fn make(world: &mut World) {
             info!(target: "report", path = %path.display(), bytes = zipped.len(), "report made");
             if player {
                 open_folder(&reports);
-                open_page(ISSUE);
+                let name = path.file_name().and_then(|name| name.to_str());
+                let version = concat!(env!("KJK_VERSION"), " (", env!("KJK_GIT_SHA"), ")");
+                open_page(&issue_url(&note, version, name.unwrap_or(""), &me));
             }
             format!(
                 "The report is saved as {}. Attach it to the issue opened in your browser.",
@@ -434,6 +442,45 @@ fn take_report(world: &mut World) -> Option<String> {
         Intent::Report(note) => Some(note),
         _ => None,
     }
+}
+
+/// `text` as a URL's query value.
+fn encoded(text: &str) -> String {
+    text.bytes().fold(String::new(), |mut out, byte| {
+        if byte.is_ascii_alphanumeric() || b"-_.~".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+        out
+    })
+}
+
+/// The bug form filled in by its fields' ids (`.github/ISSUE_TEMPLATE/bug.yml`):
+/// the title the note's first line, what happened the note, both scrubbed of
+/// `me`; the version; the report's file name.
+pub fn issue_url(note: &str, version: &str, report: &str, me: &Identity) -> String {
+    let note = scrub(note.trim(), &me.home, &me.user, &me.host);
+    let title: String = note
+        .lines()
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(TITLE_KEPT)
+        .collect();
+    let happened: String = note.chars().take(NOTE_KEPT).collect();
+    let mut url = ISSUE.to_string();
+    for (field, value) in [
+        ("title", title.as_str()),
+        ("happened", happened.as_str()),
+        ("version", version),
+        ("report", report),
+    ] {
+        if !value.is_empty() {
+            url.push_str(&format!("&{field}={}", encoded(value)));
+        }
+    }
+    url
 }
 
 /// `folder` opened as the system opens one.
