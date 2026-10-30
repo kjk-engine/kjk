@@ -57,11 +57,12 @@ impl Step<'_> {
         }
     }
 
-    /// The line has played: take the silent reply, end, or wait. The
-    /// replies offered start a line (S2): the player's, to the one who
-    /// spoke (`listener_now`), the pair before it kept, filmed by the first
-    /// reply's angle (S6).
+    /// The line has played: its replies chosen (`offer_replies`), take the
+    /// silent reply, end, or wait. The replies offered start a line (S2):
+    /// the player's, to the one who spoke (`listener_now`), the pair before
+    /// it kept, filmed by the first reply's angle (S6).
     pub(super) fn played(&mut self, id: u32) {
+        self.offer_replies(id);
         let Some(at) = self.state.talk.index(id) else {
             return;
         };

@@ -2134,12 +2134,23 @@ impl Engine<'_> {
             }
             GetNearestCreature => Value::Object(self.nearest_creature(args)),
             // In combat, fake combat (`SetFakeCombatState`) too unless TSL's
-            // second argument asks for real combat only.
+            // second argument asks for real combat only. An attack it has
+            // queued counts already (reone's `AttackObjectAction::onQueued`),
+            // before it reaches its target: Kashyyyk's mykal, whose
+            // heartbeat wanders it off while out of combat.
             GetIsInCombat => {
+                let who = object(args, 0);
                 let only_real = args.len() > 1 && int(args, 1) != 0;
+                let attacking = (self.state.actions.get(&who.0)).is_some_and(|queue| {
+                    (queue.iter()).any(|queued| {
+                        matches!(queued.action, Action::Attack { passive: false, .. })
+                    })
+                });
                 truth(
-                    self.character(object(args, 0))
-                        .is_some_and(|c| c.in_combat && !(only_real && c.fake_combat)),
+                    attacking
+                        || self
+                            .character(who)
+                            .is_some_and(|c| c.in_combat && !(only_real && c.fake_combat)),
                 )
             }
             ActionAttack => {
@@ -2766,20 +2777,17 @@ impl Engine<'_> {
                     })
                     .unwrap_or(0),
             ),
-            // TSL's leaves a player's own character as it is: its
-            // `ExecuteCommandChangeToStandardFaction` (and `ChangeFaction`)
-            // passes over a creature whose stats are a PC's, so Dxun's
-            // battle circle (`a_circle_fight`, `tr_circle`: the PC to
-            // Friendly 1 after each match) does not turn every Friendly 2
-            // creature on the Exile (Dantooine's salvagers at the Enclave)
-            // [verify in K1's exe: K1 keeps setting it].
+            // Leaves a player's own character as it is: both executables'
+            // `ExecuteCommandChangeFaction` (`ChangeToStandardFaction`, and
+            // `ChangeFaction`) pass over a creature whose stats are a PC's,
+            // so Dxun's battle circle (`a_circle_fight`, `tr_circle`: the PC
+            // to Friendly 1 after each match) does not turn every Friendly 2
+            // creature on the Exile (Dantooine's salvagers at the Enclave).
             ChangeToStandardFaction => {
                 let who = object(args, 0);
-                let tsl = crate::combat::passive::Game::named(&view.module.game)
-                    == crate::combat::passive::Game::Tsl;
                 let own = view.thing(who).is_some_and(|thing| thing.kind.is_none());
                 if let (Some(_), Ok(faction), false) =
-                    (self.character(who), u8::try_from(int(args, 1)), tsl && own)
+                    (self.character(who), u8::try_from(int(args, 1)), own)
                 {
                     self.out.changes.push(Change::Faction { who, faction });
                 }

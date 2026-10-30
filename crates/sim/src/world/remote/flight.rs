@@ -30,6 +30,7 @@ const BOX: Extents = Extents {
 };
 
 /// The floor's height beneath `at` (m), within the floor search.
+#[cfg(feature = "probes")]
 pub(crate) fn floor(level: &Level, at: [f32; 3]) -> Option<f32> {
     floor_with(level, None, at)
 }
@@ -66,12 +67,9 @@ pub(crate) fn behind(
 }
 
 /// Whether a droid's box at `at` (m) is inside the level.
+#[cfg(feature = "probes")]
 pub(crate) fn inside(level: &Level, at: [f32; 3]) -> bool {
-    inside_with(level, None, at)
-}
-
-fn inside_with(level: &Level, states: Option<&[u8]>, at: [f32; 3]) -> bool {
-    level.with(states, |world| {
+    level.with(None, |world| {
         world.trace(at, at, &BOX, Contents::SOLID).start_solid
     })
 }

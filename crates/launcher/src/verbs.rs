@@ -402,10 +402,11 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 steps,
                 out,
                 file,
+                error,
             } => gui_verbs::screen(
                 &discover(),
                 (&game, &name),
-                &steps,
+                (&steps, error),
                 size.unwrap_or((1280, 960)),
                 (out, file.as_deref()),
             ),
@@ -857,7 +858,7 @@ pub(crate) enum GuiVerb {
         game: String,
         /// The screen, as play opens it (`chargen:solo`, `options`, ...)
         name: String,
-        /// Steps in turn, each `press TAG` or `type TEXT`
+        /// Steps in turn, each `press TAG`, `type TEXT` or `scroll N` (wheel notches down at the window middle)
         #[arg(long = "step")]
         steps: Vec<String>,
         /// Output folder; defaults to kjk-artifacts/gui/<game>
@@ -866,6 +867,9 @@ pub(crate) enum GuiVerb {
         /// The PNG's name; the screen's by default
         #[arg(long)]
         file: Option<String>,
+        /// Why a session did not start, as `message` shows it
+        #[arg(long)]
+        error: Option<String>,
     },
     /// Parse and paint every layout of each install (or one) and count
     /// what does not resolve.
@@ -1528,7 +1532,7 @@ pub(crate) enum ScriptVerb {
         module: String,
     },
     /// Levels checked end to end: the classes read, the game's XP boost,
-    /// a companion levelling on its own, the player's level asked (picks
+    /// a companion's level waiting then asked, the player's level asked (picks
     /// refused, then taken), a save
     Levels {
         /// k1 or tsl

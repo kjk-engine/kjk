@@ -51,6 +51,10 @@ pub(super) fn seat_actions(
                 state.levelling.push((player.0, choices.clone()));
                 Ok(())
             }
+            Action::LevelUpOn { who, choices } => {
+                script::items::may_dress(view, state, *seat, player, ObjectId(*who))
+                    .map(|()| state.levelling.push((*who, choices.clone())))
+            }
             // The table told to the seat: as a script's open screen shows
             // it, else to look at.
             Action::ShowParty => {
@@ -114,6 +118,19 @@ pub(super) fn seat_actions(
                     }
                     None => continue,
                 }
+            }
+            // A power cast from KOTOR's power list: queued on the seat's
+            // acting body as `ActionCastSpellAtObject` queues it, the cast's
+            // step refusing one it does not know or cannot pay for.
+            Action::Cast { row, target } => {
+                let cast = script::actions::Action::Cast {
+                    row: *row,
+                    target: script::actions::Target::Object(ObjectId(*target)),
+                    fake: false,
+                    cheat: false,
+                };
+                state.queue(acting(view, seat.0, player), cast);
+                Ok(())
             }
             // KOTOR runs its screen script each time an in-game screen opens.
             Action::ScreenOpened => {

@@ -59,6 +59,13 @@ pub enum Action {
     UnequipFrom { who: u32, slot: u8 },
     /// Take a level with these picks (the level-up screen's).
     LevelUp(crate::levels::Choices),
+    /// Party member `who` (by object id) takes a level with these picks, by
+    /// the rule of `EquipOn`: the seat's own character, or, for the host, a
+    /// companion no seat plays.
+    LevelUpOn {
+        who: u32,
+        choices: crate::levels::Choices,
+    },
     /// Security on a locked door or placeable within reach, with a
     /// security spike the party carries (by script object id) or none.
     Unlock {
@@ -165,6 +172,13 @@ pub enum Action {
     /// stance column, `combat::forms`): the seat's body's, one it knows; no
     /// action, no cost, in a fight too.
     Form(u16),
+    /// Cast power `row` (`spells.2da`) at `target` (by script object id),
+    /// as KOTOR's power list does: the seat's body queues the cast as
+    /// `ActionCastSpellAtObject` would, one it knows and can pay for when
+    /// the cast begins (`script::Step::cast`). JA's force button
+    /// (`Command::force`) casts only the powers JA has a shape for; this
+    /// casts any (TSL's Breath Control against the Jekk'Jekk Tarr's gas).
+    Cast { row: u16, target: u32 },
     /// The seat opened an in-game screen (the map, the inventory, the
     /// journal, …): the host runs `k_sup_guiopen`, as KOTOR does each time
     /// one opens, which sets the map page's return button
@@ -322,6 +336,8 @@ const SWITCH_WEAPONS: u8 = 51;
 const SWITCH_WEAPONS_ON: u8 = 52;
 const FORFEIT: u8 = 53;
 const ARENA: u8 = 54;
+const CAST: u8 = 55;
+const LEVEL_UP_ON: u8 = 56;
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -350,6 +366,11 @@ impl Action {
             }
             Action::LevelUp(choices) => {
                 out.u8(LEVEL_UP);
+                choices.encode(out);
+            }
+            Action::LevelUpOn { who, choices } => {
+                out.u8(LEVEL_UP_ON);
+                out.u32(*who);
                 choices.encode(out);
             }
             Action::Buy { store, item } => {
@@ -496,6 +517,11 @@ impl Action {
                 out.u8(FORM);
                 out.u16(*row);
             }
+            Action::Cast { row, target } => {
+                out.u8(CAST);
+                out.u16(*row);
+                out.u32(*target);
+            }
             Action::Assemble { item, changes } => {
                 out.u8(ASSEMBLE);
                 out.u32(*item);
@@ -553,6 +579,10 @@ impl Action {
                 slot: input.u8()?,
             },
             LEVEL_UP => Action::LevelUp(crate::levels::Choices::decode(input)?),
+            LEVEL_UP_ON => Action::LevelUpOn {
+                who: input.u32()?,
+                choices: crate::levels::Choices::decode(input)?,
+            },
             UNLOCK => {
                 let object = input.u32()?;
                 let at = input.at();
@@ -635,6 +665,10 @@ impl Action {
                 row: input.u16()?,
             },
             FORM => Action::Form(input.u16()?),
+            CAST => Action::Cast {
+                row: input.u16()?,
+                target: input.u32()?,
+            },
             SWITCH_WEAPONS => Action::SwitchWeapons,
             SWITCH_WEAPONS_ON => Action::SwitchWeaponsOn { who: input.u32()? },
             ASSEMBLE => {
@@ -674,6 +708,7 @@ impl Action {
             | Action::EquipOn { .. }
             | Action::UnequipFrom { .. }
             | Action::LevelUp(_)
+            | Action::LevelUpOn { .. }
             | Action::Unlock { .. }
             | Action::ChooseParty(_)
             | Action::ShowParty
@@ -703,6 +738,7 @@ impl Action {
             | Action::SwitchWeaponsOn { .. }
             | Action::Assemble { .. }
             | Action::Form(_)
+            | Action::Cast { .. }
             | Action::ScreenOpened
             | Action::Forfeit
             | Action::Arena(_) => None,

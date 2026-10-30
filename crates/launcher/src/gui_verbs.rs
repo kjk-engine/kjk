@@ -85,14 +85,14 @@ pub fn render(
 }
 
 /// A screen of `game` (`chargen:solo`, ...) opened on the game's own data,
-/// as play opens it, `steps` taken in turn (`press TAG`, `type TEXT`), its
+/// as play opens it, `steps` taken in turn (`press TAG`, `type TEXT`, `scroll N`), its
 /// layers drawn into one PNG named `file`. The view model is what the game
-/// fills for the screen (character creation's choices); the 3D views are
-/// not drawn.
+/// fills for the screen (character creation's choices, the session's
+/// `error` for `message`); the 3D views are not drawn.
 pub fn screen(
     discovery: &Discovery,
     (game, name): (&str, &str),
-    steps: &[String],
+    (steps, error): (&[String], Option<String>),
     size: (u32, u32),
     (out, file): (Option<PathBuf>, Option<&str>),
 ) -> ExitCode {
@@ -100,6 +100,7 @@ pub fn screen(
         let game = Game::from_key(game).ok_or(format!("{game}: use k1 or tsl"))?;
         let mut assets = crate::runtime::skinned(GuiAssets::open(discovery, game)?, discovery)?;
         let mut vm = ui::vm::ViewModel::default();
+        vm.session.error = error;
         if matches!(name.split(':').next(), Some("chargen" | "levelup")) {
             vm.chargen = Some(crate::character::chargen(&mut assets));
         }
@@ -126,7 +127,23 @@ pub fn screen(
                     };
                     stack.step(&mut assets, &vm, &typed);
                 }
-                _ => return Err(format!("{step:?}: `press TAG` or `type TEXT`")),
+                Some(("scroll", notches)) => {
+                    let notches: f32 = notches
+                        .parse()
+                        .map_err(|_| format!("{step:?}: `scroll N`, N notches down"))?;
+                    let wheeled = ui::input::UiInput {
+                        pointer: Some([size.0 as f32 / 2.0, size.1 as f32 / 2.0]),
+                        moved: true,
+                        wheel: -notches,
+                        ..quiet.clone()
+                    };
+                    stack.step(&mut assets, &vm, &wheeled);
+                }
+                _ => {
+                    return Err(format!(
+                        "{step:?}: `press TAG`, `type TEXT` or `scroll N`"
+                    ));
+                }
             }
             let frame = stack.step(&mut assets, &vm, &quiet);
             for intent in frame.intents {

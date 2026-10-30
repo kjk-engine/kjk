@@ -9,6 +9,7 @@ crates/sim/src/action.rs ASSEMBLE  # a player action's wire tag
 crates/sim/src/action.rs BREAK  # a player action's wire tag
 crates/sim/src/action.rs BREAKDOWN  # a player action's wire tag
 crates/sim/src/action.rs BUY  # a player action's wire tag
+crates/sim/src/action.rs CAST  # a player action's wire tag
 crates/sim/src/action.rs CHOOSE_PARTY  # a player action's wire tag
 crates/sim/src/action.rs CLOSE  # a player action's wire tag
 crates/sim/src/action.rs CREATE  # a player action's wire tag
@@ -23,6 +24,7 @@ crates/sim/src/action.rs HOLSTER  # a player action's wire tag
 crates/sim/src/action.rs LEAD  # a player action's wire tag
 crates/sim/src/action.rs LEAVE  # a player action's wire tag
 crates/sim/src/action.rs LEVEL_UP  # a player action's wire tag
+crates/sim/src/action.rs LEVEL_UP_ON  # a player action's wire tag
 crates/sim/src/action.rs MINE  # a player action's wire tag
 crates/sim/src/action.rs OPEN  # a player action's wire tag
 crates/sim/src/action.rs PAZAAK  # a player action's wire tag

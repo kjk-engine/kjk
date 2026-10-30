@@ -209,8 +209,9 @@ enum Then {
         seats: u8,
         port: u16,
     },
-    /// Not a new character: the player's, taking `level`.
+    /// Not a new character: party member `who`, taking `level`.
     LevelUp {
+        who: u32,
         level: u8,
     },
 }
@@ -321,8 +322,8 @@ impl Chargen {
         })
     }
 
-    /// The player's character taking the level `vm.levelup` says, from
-    /// its scores and ranks.
+    /// The party member shown taking the level `vm.levelup` says, from its
+    /// scores and ranks.
     pub fn level_up(vm: &ViewModel) -> Option<Chargen> {
         let up = vm.levelup.as_ref()?;
         let me = vm.character.clone().unwrap_or(CharacterView::default());
@@ -334,7 +335,10 @@ impl Chargen {
             ..Choices::default()
         };
         let mut chargen = Chargen {
-            then: Then::LevelUp { level: up.level },
+            then: Then::LevelUp {
+                who: up.who,
+                level: up.level,
+            },
             campaign: None,
             step: Step::Path,
             quick: false,
@@ -365,7 +369,7 @@ impl Chargen {
 
     fn level(&self) -> u8 {
         match self.then {
-            Then::LevelUp { level } => level,
+            Then::LevelUp { level, .. } => level,
             _ => 1,
         }
     }
@@ -791,7 +795,12 @@ impl Chargen {
     fn level_taken(&self) -> GameAction {
         let (scores, ranks) = self.floor;
         let ability = (0..6).find(|&at| self.choices.abilities[at] > scores[at]);
+        let who = match self.then {
+            Then::LevelUp { who, .. } => who,
+            _ => 0,
+        };
         GameAction::LevelUp {
+            who,
             class: self.class,
             ability: ability.map(|at| at as u8),
             skills: std::array::from_fn(|at| self.choices.skills[at].saturating_sub(ranks[at])),

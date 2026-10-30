@@ -63,6 +63,10 @@ pub mod spawner;
 pub mod stealth;
 pub mod target;
 #[cfg(feature = "probes")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "checks and traces set up their own cases on one machine"
+)]
 pub mod trace;
 pub mod traps;
 pub mod visuals;
@@ -71,7 +75,7 @@ mod wire;
 mod world;
 
 pub use input::{Command, Seat, TickInput, buttons};
-pub use install::{Announcement, InstallError, Mismatch, WALKER_HALF_WIDTH_M, counts};
+pub use install::{Announcement, InstallError, Mismatch, Restamp, WALKER_HALF_WIDTH_M, counts};
 pub use instance::Instances;
 pub use rate::{Accumulator, MAX_CATCH_UP, TICK_HZ, TickRate};
 pub use replay::{Divergence, RecordedTick, Recorder, Recording};
@@ -119,6 +123,8 @@ pub use world::pace_probes;
 #[cfg(feature = "probes")]
 pub use world::pair_probes;
 pub use world::party;
+#[cfg(feature = "probes")]
+pub use world::party_fights_probes;
 #[cfg(feature = "probes")]
 pub use world::player_probes;
 #[cfg(feature = "probes")]

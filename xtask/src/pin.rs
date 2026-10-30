@@ -1,6 +1,7 @@
 //! `cargo xtask pin [--message <file>]`: what the merge does with the bump
 //! files that reached `main` (`bumps/README.md`). Each format bumped gets
-//! the next version, in the files' name order, with its line in
+//! the next version, in the order the files reached `main`
+//! (`bumps::arrival`), with its line in
 //! the version's history; the files are taken away; then the sim hash is
 //! run and pinned in both workflows. A format saves hold that moved gets
 //! its bump's named version in `crates/sim/src/since.rs`, its migration in
@@ -37,8 +38,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
         println!("pin: no bump files");
         return Ok(());
     }
-    // In file-name order, as the sim's build script numbered them on the
-    // branches (`bumps::pending_since`), so a save made there reads the same.
+    // In the order they reached `main`, as the sim's build script numbered
+    // them there in between (`bumps::pending_since`), so a save made by such
+    // a build reads the same after the pin.
     let mut lines = Vec::new();
     let mut named = Vec::new();
     for bump in &pending {
