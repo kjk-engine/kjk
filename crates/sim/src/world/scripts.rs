@@ -1312,7 +1312,7 @@ pub(super) fn scripts(
         || state.summary_owed
         || !talk.released.is_empty()
         || !talk.barks.is_empty()
-        || script::levelling::due(library, state, &view);
+        || !state.levelling.is_empty();
     if busy {
         script::run_due(
             library,

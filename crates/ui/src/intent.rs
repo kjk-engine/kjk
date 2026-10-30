@@ -117,7 +117,10 @@ pub enum GameAction {
         bench: BenchDesc,
         row: u16,
     },
+    /// Party member `who` takes a level: the player's own character, or
+    /// one the host dresses.
     LevelUp {
+        who: u32,
         class: u8,
         ability: Option<u8>,
         skills: [u8; 8],

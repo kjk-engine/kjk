@@ -1,22 +1,20 @@
 //! Levels taken in play (I19, `sim::levels`). The party's XP (its pool,
 //! `script::xp`) decides when a member may take another level
-//! (`exptable.2da`). A companion no seat drives takes every level it may at
-//! once, with the game's picks (KOTOR's automatic level up, the owner's
-//! choice); a player, and a companion a guest drives, takes one when it
-//! asks, with its own picks (`State::levelling`, the
-//! level-up screen's; the feats and powers it leaves unpicked the game's),
-//! checked. A level taken is a new sheet riding in the
+//! (`exptable.2da`). Each takes one when its player asks, with its own picks
+//! (`State::levelling`, the level-up screen's; the feats and powers it
+//! leaves unpicked the game's), checked: a player its own, a guest the
+//! companion it drives, the host the companions no seat drives (a level
+//! waits until then, as KOTOR's do). A level taken is a new sheet riding in the
 //! snapshot (`Change::Sheet`) and the character's career kept in the
 //! scripts' state (`State::careers`).
 
 use script_ncs::vm::ObjectId;
 
 use super::state::State;
-use super::{Change, Step, Thing, View};
+use super::{Change, Step, View};
 use crate::combat::Sheet;
 use crate::inventory::PARTY;
 use crate::levels::{Career, Choices};
-use crate::module::ObjectKind;
 
 /// `who`'s career: the levels it took here, else its template's classes;
 /// a player without one has its sheet's level in `class` (the class its
@@ -31,40 +29,6 @@ pub fn career(view: &View, state: &State, who: ObjectId, sheet: &Sheet, class: u
         .map(|facts| facts.classes.clone())
         .filter(|classes| !classes.is_empty());
     template.unwrap_or_else(|| vec![(class, sheet.level)])
-}
-
-/// A companion the game levels itself (KOTOR's automatic level up, the
-/// owner's choice): a creature in the party no seat drives. One a guest
-/// drives waits for its guest's `Action::LevelUp`, as a player does (I30
-/// P15); the step its guest drops (its driver cleared), it takes the
-/// levels it waited for, with the game's picks.
-fn levels_itself(thing: &Thing) -> bool {
-    thing.kind == Some(ObjectKind::Creature)
-        && thing
-            .character
-            .is_some_and(|character| character.party && character.driver.is_none())
-}
-
-/// Whether a level is asked for, or a companion that levels itself may
-/// take one now.
-pub fn due(library: &super::Library, state: &State, view: &View) -> bool {
-    let xp = state.xp(PARTY);
-    let classes = library.classes();
-    !state.levelling.is_empty()
-        || view
-            .things
-            .iter()
-            .filter(|thing| levels_itself(thing))
-            .any(|thing| {
-                let Some(c) = thing.character else {
-                    return false;
-                };
-                let career = career(view, state, thing.id, &c.worn, 0);
-                classes.may_level(c.worn.level, xp)
-                    && career
-                        .first()
-                        .is_some_and(|(class, _)| classes.offer(&c.worn, &career, *class).is_some())
-            })
 }
 
 impl super::engine::Engine<'_> {
@@ -122,7 +86,7 @@ impl super::engine::Engine<'_> {
 }
 
 impl Step<'_> {
-    /// The levels asked for, then the companions'.
+    /// The levels asked for.
     pub(super) fn levels(&mut self) {
         let classes = self.library.classes();
         let asked = std::mem::take(&mut self.state.levelling);
@@ -153,24 +117,6 @@ impl Step<'_> {
                     let refused = crate::notice::Notice::LevelRefused;
                     self.out.notices.push((Some(who), refused));
                 }
-            }
-        }
-        let companions: Vec<ObjectId> = self
-            .view
-            .things
-            .iter()
-            .filter(|thing| levels_itself(thing))
-            .map(|thing| thing.id)
-            .collect();
-        for who in companions {
-            while let Some((sheet, career)) = self.now(who, 0)
-                && classes.may_level(sheet.level, xp)
-                && let Some(&(class, _)) = career.first()
-                && let Some(choices) = classes.auto(&sheet, &career, class, banked(self.state, who))
-                && let Some(taken) =
-                    classes.take(&sheet, &career, &choices, banked(self.state, who))
-            {
-                self.took(who, sheet, taken, &choices);
             }
         }
     }

@@ -406,6 +406,7 @@ pub(super) fn all() -> Vec<Check> {
             saber,
         ],
         levelup: Some(LevelUpView {
+            who: 0,
             class: 0,
             level: 4,
             skills: [2, 0, 0, 0, 0, 0, 0, 0],

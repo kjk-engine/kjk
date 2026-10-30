@@ -111,9 +111,9 @@ impl Plugin for UiSoundsPlugin {
 #[derive(Resource, Default)]
 pub struct Heard(pub Vec<GuiSound>);
 
-/// The HUD's level-up mark lit: `Level_Up_Notify`.
+/// A level-up mark lit where none was: `Level_Up_Notify`.
 fn level_up(ui: Res<Ui>, mut heard: ResMut<Heard>, mut lit: Local<bool>) {
-    let now = ui.vm.hud.as_ref().is_some_and(|hud| hud.level_up);
+    let now = ui.vm.hud.is_some() && ui.vm.party.iter().any(|member| member.may_level);
     if now && !*lit {
         heard.0.push(GuiSound::LevelUp);
     }

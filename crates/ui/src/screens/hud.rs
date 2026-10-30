@@ -7,8 +7,8 @@
 //! It shows the player's portrait, vitality and Force bars (the Force bar
 //! only for a character with Force points), the action slots (a slot's
 //! frame, the action's icon and uses left in the square inside it), the
-//! menu buttons, the level-up mark while the character may take a level
-//! (`level_up`), and the status icons (journal, credits, experience,
+//! menu buttons, the level-up mark over each portrait whose member may take
+//! a level (`MemberView::may_level`), and the status icons (journal, credits, experience,
 //! items received and lost, alignment shifts) a moment after a status
 //! summary told them (`HudView::lit`).
 //! The companions show beside the portrait, each its portrait and bars;
@@ -74,15 +74,39 @@ fn in_block(tag: &str) -> bool {
     BLOCK.iter().any(|prefix| tag.starts_with(prefix)) || tag.starts_with("LBL_TARGET")
 }
 
-/// The level-up mark: the campaign's arrow (KOTOR's yellow, not the skin's
-/// recolouring), pulsing, over KOTOR's backing that darkens the portrait
-/// (half-clear black), which KOTOR 2's layout lacks (`backed`).
-const LEVEL_UP: &str = "LBL_LEVELUP1";
+/// The level-up mark over each portrait of a member who may take a level:
+/// the campaign's arrow (KOTOR's yellow, not the skin's recolouring),
+/// pulsing, over KOTOR's backing that darkens the portrait (half-clear
+/// black), which KOTOR 2's layout lacks (`backed`).
 const LEVEL_UP_ARROW: &str = "lbl_levelup";
-const LEVEL_UP_BACKING: &str = "LBL_LVLUPBG1";
 /// The marks' and backings' tags but their party slot.
 const MARKS: &str = "LBL_LEVELUP";
 const BACKINGS: &str = "LBL_LVLUPBG";
+
+/// The arrow, shown while its member may take a level.
+pub fn level_up_mark(on: bool) -> ControlState {
+    if on {
+        ControlState {
+            fill: Some(LEVEL_UP_ARROW.into()),
+            pulsing: true,
+            ..ControlState::default()
+        }
+    } else {
+        hidden()
+    }
+}
+
+/// A level-up control: the member's place in the party, and whether it is
+/// the arrow (else its backing).
+fn level_up_control(tag: &str) -> Option<(usize, bool)> {
+    let (slot, arrow) = match (tag.strip_prefix(MARKS), tag.strip_prefix(BACKINGS)) {
+        (Some(slot), _) => (slot, true),
+        (_, Some(slot)) => (slot, false),
+        _ => return None,
+    };
+    let place = slot.parse::<usize>().ok()?;
+    (1..=3).contains(&place).then_some((place - 1, arrow))
+}
 
 /// The status icons, each shown while lit (`HudView::lit`).
 const STATUS: [&str; 8] = [
@@ -645,15 +669,11 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
             hidden.clone()
         }
     };
+    if let Some((place, arrow)) = level_up_control(tag) {
+        let on = vm.hud.is_some() && vm.party.get(place).is_some_and(|member| member.may_level);
+        return if arrow { level_up_mark(on) } else { shown(on) };
+    }
     match tag {
-        LEVEL_UP if hud.level_up => {
-            return ControlState {
-                fill: Some(LEVEL_UP_ARROW.into()),
-                pulsing: true,
-                ..ControlState::default()
-            };
-        }
-        LEVEL_UP | LEVEL_UP_BACKING => return shown(hud.level_up),
         "LBL_MAPBORDER" => return shown(hud.minimap.is_some()),
         "TB_STEALTH" if hud.stealth => {
             return ControlState {

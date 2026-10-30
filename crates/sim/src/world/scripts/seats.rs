@@ -51,6 +51,10 @@ pub(super) fn seat_actions(
                 state.levelling.push((player.0, choices.clone()));
                 Ok(())
             }
+            Action::LevelUpOn { who, choices } => {
+                script::items::may_dress(view, state, *seat, player, ObjectId(*who))
+                    .map(|()| state.levelling.push((*who, choices.clone())))
+            }
             // The table told to the seat: as a script's open screen shows
             // it, else to look at.
             Action::ShowParty => {

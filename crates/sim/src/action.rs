@@ -59,6 +59,13 @@ pub enum Action {
     UnequipFrom { who: u32, slot: u8 },
     /// Take a level with these picks (the level-up screen's).
     LevelUp(crate::levels::Choices),
+    /// Party member `who` (by object id) takes a level with these picks, by
+    /// the rule of `EquipOn`: the seat's own character, or, for the host, a
+    /// companion no seat plays.
+    LevelUpOn {
+        who: u32,
+        choices: crate::levels::Choices,
+    },
     /// Security on a locked door or placeable within reach, with a
     /// security spike the party carries (by script object id) or none.
     Unlock {
@@ -330,6 +337,7 @@ const SWITCH_WEAPONS_ON: u8 = 52;
 const FORFEIT: u8 = 53;
 const ARENA: u8 = 54;
 const CAST: u8 = 55;
+const LEVEL_UP_ON: u8 = 56;
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -358,6 +366,11 @@ impl Action {
             }
             Action::LevelUp(choices) => {
                 out.u8(LEVEL_UP);
+                choices.encode(out);
+            }
+            Action::LevelUpOn { who, choices } => {
+                out.u8(LEVEL_UP_ON);
+                out.u32(*who);
                 choices.encode(out);
             }
             Action::Buy { store, item } => {
@@ -566,6 +579,10 @@ impl Action {
                 slot: input.u8()?,
             },
             LEVEL_UP => Action::LevelUp(crate::levels::Choices::decode(input)?),
+            LEVEL_UP_ON => Action::LevelUpOn {
+                who: input.u32()?,
+                choices: crate::levels::Choices::decode(input)?,
+            },
             UNLOCK => {
                 let object = input.u32()?;
                 let at = input.at();
@@ -691,6 +708,7 @@ impl Action {
             | Action::EquipOn { .. }
             | Action::UnequipFrom { .. }
             | Action::LevelUp(_)
+            | Action::LevelUpOn { .. }
             | Action::Unlock { .. }
             | Action::ChooseParty(_)
             | Action::ShowParty

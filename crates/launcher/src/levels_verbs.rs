@@ -6,8 +6,8 @@
 //! 1. Trask joins the party; the game's own `k_pend_xpboost` (Trask's
 //!    level-up talk) gives the party 1000 XP: the player (level 1) may take
 //!    level 2, Trask (a level 3 Soldier) may not yet.
-//! 2. The party gains 5000 more: Trask takes level 4 on his own, with the
-//!    game's picks (`GetHitDice` reads it).
+//! 2. The party gains 5000 more: Trask waits until the host asks his level
+//!    4 for him, with the game's picks (`GetHitDice` reads it).
 //! 3. The player asks for a level with more feats than it offers
 //!    (refused), then with the game's picks: it takes level 2.
 //!
@@ -152,6 +152,25 @@ pub fn levels(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
 
         probe.queue("kjk_more", probe.me);
         probe.step(2);
+        let waiting = sheet(&mut probe, trask).ok_or("Trask's sheet")?;
+        report.check(
+            waiting.level == before.level,
+            format!("6000 XP: Trask waits at level {}", waiting.level),
+        );
+        let career = probe
+            .world
+            .script_state()
+            .careers
+            .get(&trask.0)
+            .cloned()
+            .unwrap_or(vec![(0, before.level)]);
+        let auto = classes
+            .auto(&waiting, &career, 0, 0)
+            .ok_or("the game's picks for Trask")?;
+        let mut state = probe.world.script_state().clone();
+        state.levelling.push((trask.0, auto));
+        probe.world.set_script_state(state);
+        probe.step(1);
         probe.queue("kjk_after", probe.me);
         probe.step(1);
         let trask_now = sheet(&mut probe, trask).ok_or("Trask's sheet")?;
@@ -167,7 +186,7 @@ pub fn levels(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
                 && dice == 4
                 && state.careers.get(&trask.0) == Some(&vec![(0, 4)]),
             format!(
-                "6000 XP: Trask takes level {} on his own: HP {} → {}, attack {} → {}, skills {:?} → {:?}, GetHitDice {dice}",
+                "asked for him, Trask takes level {}: HP {} → {}, attack {} → {}, skills {:?} → {:?}, GetHitDice {dice}",
                 trask_now.level,
                 before.max_hp,
                 trask_now.max_hp,

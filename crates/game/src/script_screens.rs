@@ -162,6 +162,7 @@ pub(crate) fn level_up(me: &CharacterView, made: &Made) -> LevelUpView {
         (class.unwrap_or(0), PicksView::default())
     });
     LevelUpView {
+        who: me.id,
         class,
         level: me.level.saturating_add(1),
         skills,

@@ -118,18 +118,22 @@ pub(crate) fn action(game: GameAction) -> Option<Action> {
         },
         // The feats and powers the screen does not offer, the host picks.
         GameAction::LevelUp {
+            who,
             class,
             ability,
             skills,
             feats,
             powers,
-        } => Action::LevelUp(sim::levels::Choices {
-            class,
-            ability,
-            skills,
-            feats,
-            powers,
-        }),
+        } => Action::LevelUpOn {
+            who,
+            choices: sim::levels::Choices {
+                class,
+                ability,
+                skills,
+                feats,
+                powers,
+            },
+        },
         GameAction::ChooseParty(picks) => Action::ChooseParty(picks),
         GameAction::ShowParty => Action::ShowParty,
         GameAction::ScreenOpened => Action::ScreenOpened,

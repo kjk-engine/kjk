@@ -354,6 +354,7 @@ impl Page for Character {
                 ..ControlState::default()
             },
             "BTN_LEVELUP" if me.may_level => ControlState::default(),
+            "BTN_AUTO" if me.auto_level.is_some() => ControlState::default(),
             "LBL_NEEDED_XP" | "LBL_NEXT_LEVEL" => match me.next_xp {
                 Some(xp) if tag == "LBL_NEEDED_XP" => text(xp.to_string()),
                 Some(_) => ControlState::default(),
@@ -381,6 +382,19 @@ impl Page for Character {
     fn press(&mut self, tag: &str, vm: &ViewModel, out: &mut Vec<Intent>) {
         if tag == "BTN_LEVELUP" && character(vm).may_level {
             out.push(Intent::Open("levelup"));
+        }
+        if tag == "BTN_AUTO"
+            && let me = character(vm)
+            && let Some(auto) = me.auto_level
+        {
+            out.push(Intent::Game(GameAction::LevelUp {
+                who: me.id,
+                class: auto.class,
+                ability: auto.ability,
+                skills: auto.skills,
+                feats: auto.feats,
+                powers: auto.powers,
+            }));
         }
     }
 }

@@ -1437,11 +1437,18 @@ fn downed_and_revive() {
     probed("falls", &sim::falls::probes(), 18);
 }
 
+/// The party members nobody plays follow and fight beside the body played:
+/// `sim::party_fights_probes`, owner's request.
+#[test]
+fn unmanned_party_fights() {
+    probed("party fights", &sim::party_fights_probes::probes(), 7);
+}
+
 /// Items and levels in co-op (I31): `sim::coop_items::probes`, the
 /// scenario's checks and two runs ending alike; the sim alone.
 #[test]
 fn coop_items_and_levels() {
-    probed("coop items", &sim::coop_items::probes(), 21);
+    probed("coop items", &sim::coop_items::probes(), 22);
 }
 
 /// Items used and upgraded (the owner's bugs of 2026-10-04):

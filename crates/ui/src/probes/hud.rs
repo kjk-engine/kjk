@@ -104,12 +104,15 @@ pub(super) fn all() -> Vec<Check> {
             portrait: Some("po_pmhc1".into()),
             actions: vec![("ip_push".into(), None), ("iu_medpac".into(), Some(3))],
             action_keys: vec![b"F".to_vec(), b"3".to_vec()],
-            level_up: true,
             lit: vec!["LBL_PLOTXP"],
             minimap: None,
             stealth: false,
             busy: None,
         }),
+        party: vec![MemberView {
+            may_level: true,
+            ..MemberView::default()
+        }],
         ..ViewModel::default()
     };
     let shown = |tag: &str| state(&button(tag, [0, 0, 1, 1], b""), &vm);
@@ -194,6 +197,26 @@ pub(super) fn all() -> Vec<Check> {
         companion("PB_VIT2").value,
         companion("PB_FORCE2").hidden,
         companion("LBL_CHAR3").hidden && companion("PB_VIT3").hidden,
+    );
+    // Each member's own mark: the companion's lit alone, the player's out.
+    let trask_levels = ViewModel {
+        party: vec![
+            MemberView::default(),
+            MemberView {
+                may_level: true,
+                ..MemberView::default()
+            },
+        ],
+        ..vm.clone()
+    };
+    let own_mark = |tag: &str| state(&button(tag, [0, 0, 1, 1], b""), &trask_levels);
+    let marks_by_member = (
+        own_mark("LBL_LEVELUP1").hidden,
+        own_mark("LBL_LVLUPBG1").hidden,
+        own_mark("LBL_LEVELUP2").fill,
+        own_mark("LBL_LEVELUP2").pulsing,
+        own_mark("LBL_LVLUPBG2").hidden,
+        own_mark("LBL_LEVELUP3").hidden,
     );
     // A click on the companion's portrait picks it (its body); nothing
     // beside it or without a companion there.
@@ -437,6 +460,13 @@ pub(super) fn all() -> Vec<Check> {
             expect(
                 &format!("the campaign's arrow pulsing, its backing shown: {mark:?}"),
                 mark == (Some("lbl_levelup".into()), true, false),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("each member's own level-up mark: {marks_by_member:?}"),
+                marks_by_member
+                    == (true, true, Some("lbl_levelup".into()), true, false, true),
             )
         })
         .and_then(|()| {

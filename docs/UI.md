@@ -515,7 +515,10 @@ while the pointer is free) and the swap key (B; TSL's own is H, the
 holster's here) swap the seat's body's sets (`Action::SwitchWeapons`,
 `game::weapon_set_view`), a second apart at the least as TSL's client
 keeps them. Level Up opens the level-up screen
-for the seat's body, in its class: a companion's from its template. The
+for the member shown, in its class (a companion's from its template), and
+Auto Level Up beside it takes that level with the game's picks at once
+(`Classes::auto`, `CharacterView::auto_level`); both show for one this
+player dresses that may take a level (`MemberView::may_level`). The
 inventory page lists the party's items and credits (the snapshot's goods);
 Use Item uses the chosen one on the member shown (`GameAction::UseItem` →
 `Action::UseItem`, wire 25, its target the member itself), lit when that
@@ -548,11 +551,14 @@ The story's progress (I19, `docs/WORLD-STATE.md`) rides in the snapshot
   Up while the character may take one: it opens the level-up screen, whose
   Finish sends its class (the one made in creation, else Soldier), ability
   and skill ranks, feats and powers to the host
-  (`GameAction::LevelUp` → `sim::action::Action::LevelUp`); the host picks
+  (`GameAction::LevelUp` → `sim::action::Action::LevelUpOn`); the host picks
   the feats and powers left unpicked, checks the level and takes it;
-- the HUD shows the level-up mark (`LBL_LEVELUP1`) while one may be
-  taken: as KOTOR 1 draws it, the campaign's yellow arrow (not the skin's
-  recolouring) over KOTOR's half-clear black backing (`LBL_LVLUPBG1`,
+- the HUD shows the level-up mark (`LBL_LEVELUP<n>`) over each portrait
+  whose member may take a level, and the menu bar's portraits show it too
+  (`MemberView::may_level`, by the rule of `dresses`): as KOTOR 1 draws
+  it, the campaign's yellow arrow (not the skin's
+  recolouring) over, on the HUD, KOTOR's half-clear black backing
+  (`LBL_LVLUPBG<n>`,
   taken from the campaign's own HUD layout where KOTOR 2's has none),
   its alpha pulsing 1 to
   0.4 and back, 0.75 s each way, as KOTOR's pulsing borders do

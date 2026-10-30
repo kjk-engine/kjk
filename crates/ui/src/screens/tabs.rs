@@ -4,12 +4,13 @@
 //! pages show: portrait, vitality and force, name, class and level; the
 //! other two members' portraits beside it, each choosing its member for the
 //! pages (KOTOR 2 makes it the leader; here only the pages follow, as the
-//! sim moves one character a player). The pages keep KOTOR 2's opaque
-//! frame.
+//! sim moves one character a player); the level-up mark over each portrait
+//! whose member may take a level. The pages keep KOTOR 2's opaque frame.
 
 use crate::input::Key;
 use crate::intent::Intent;
 use crate::paint::ControlState;
+use crate::screens::hud::level_up_mark;
 use crate::screens::tab::{hidden, image, text};
 use crate::vm::ViewModel;
 
@@ -38,18 +39,16 @@ fn tab_of(screen: &str) -> &str {
     }
 }
 
-/// The other two members' portrait, its frame and its button, by place.
-const OTHERS: [[&str; 3]; 2] = [
-    ["LBL_CHAR2", "LBL_BACK2", "BTN_CHANGE2"],
-    ["LBL_CHAR3", "LBL_BACK3", "BTN_CHANGE3"],
+/// The other two members' portrait, its frame, its button and its level-up
+/// mark, by place.
+const OTHERS: [[&str; 4]; 2] = [
+    ["LBL_CHAR2", "LBL_BACK2", "BTN_CHANGE2", "LBL_LEVELUP2"],
+    ["LBL_CHAR3", "LBL_BACK3", "BTN_CHANGE3", "LBL_LEVELUP3"],
 ];
 
 /// The bar's party controls with nothing behind them yet: the states over
 /// the portraits, a second class.
-const PARTY_LATER: [&str; 9] = [
-    "LBL_LEVELUP1",
-    "LBL_LEVELUP2",
-    "LBL_LEVELUP3",
+const PARTY_LATER: [&str; 6] = [
     "LBL_DISABLE1",
     "LBL_DEBILATATED1",
     "LBL_CMBTEFCTINC1",
@@ -95,8 +94,10 @@ fn other(tag: &str, vm: &ViewModel) -> Option<(Option<usize>, usize)> {
 
 /// A bar button pressed on `current`: true when it was the bar's.
 pub fn press(tag: &str, current: &str, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
-    if let Some((member, _)) = other(tag, vm) {
-        out.extend(member.map(Intent::View));
+    if let Some((member, control)) = other(tag, vm) {
+        if control != 3 {
+            out.extend(member.map(Intent::View));
+        }
         return true;
     }
     let Some((_, _, screen)) = TABS.iter().find(|(button, _, _)| *button == tag) else {
@@ -130,11 +131,17 @@ fn party(tag: &str, vm: &ViewModel) -> Option<ControlState> {
         return Some(match (member, control) {
             (None, _) => hidden(),
             (Some(member), 0) => image(member.portrait.clone()),
+            (Some(member), 3) => level_up_mark(member.may_level),
             _ => ControlState::default(),
         });
     }
     let me = vm.character.as_ref();
     Some(match tag {
+        "LBL_LEVELUP1" => level_up_mark(
+            vm.party
+                .get(vm.viewed)
+                .is_some_and(|member| member.may_level),
+        ),
         "LBL_CHAR1" => image(me.and_then(|me| me.portrait.clone())),
         "PB_VIT1" => share(me.map_or((0, 1), |me| me.hp)),
         "PB_FORCE1" => share(me.map_or((0, 1), |me| me.fp)),
