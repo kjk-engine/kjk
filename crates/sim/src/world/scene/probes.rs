@@ -136,7 +136,7 @@ const PROBES: &[Probe] = &[
     ("item_lost_heard", item_lost_heard),
     ("walk_opens_door", walk_opens_door),
     ("blocked_by_door", blocked_by_door),
-    ("party_stops_at_door", party_stops_at_door),
+    ("party_waits_for_door", party_waits_for_door),
     ("walk_off_mesh_ends", walk_off_mesh_ends),
     ("door_goal_ends", door_goal_ends),
     ("stepped_walk_stalls", stepped_walk_stalls),
@@ -4509,8 +4509,12 @@ fn blocked_by_door() -> Found {
 
 /// S3: the companion's and the host's walks through the shut gate, the
 /// world held (the party opens nothing, S4): neither crosses the panel nor
-/// opens it, and each move ends.
-fn party_stops_at_door() -> Found {
+/// opens it, and each walk, finding no way, waits out KOTOR's pathfinding
+/// wait and looks again (`walk::pathfind_wait_ms`), its move kept; the gate
+/// opened by itself (`AssignCommand(oDoor, ActionOpenDoor(oDoor))`, as
+/// a_903kreia opens d_entrance 4 s after sending the Exile through it),
+/// the walk goes through and arrives.
+fn party_waits_for_door() -> Found {
     let mut found = Vec::new();
     for party in [BUDDY, u32::MAX] {
         let mut ground = through_ground()?;
@@ -4521,13 +4525,26 @@ fn party_stops_at_door() -> Found {
         ground.put(who, BEFORE_GATE);
         ground.step();
         let (track, past, opened) = through_gate(&mut ground, who, 3000);
-        found.push((track.ended().is_some(), past, opened));
+        let waiting = track.ended().is_none();
+        ground.run_script("probe_open", GATE)?;
+        let mut arrived = None;
+        for step in 0..steps(8000) {
+            ground.step();
+            if ground.queued(who) == 0 {
+                arrived = Some(step);
+                break;
+            }
+        }
+        let off = between(ground.at(who), floor_at(PAST_GATE));
+        found.push((waiting, past, opened, arrived, off));
     }
     check(
-        found
-            .iter()
-            .all(|&(ended, past, opened)| ended && past <= 0.0 && !opened),
-        format!("(companion, host): (move ended, front past the panel m, gate opened) {found:?}"),
+        found.iter().all(|&(waiting, past, opened, arrived, off)| {
+            waiting && past <= 0.0 && !opened && arrived.is_some() && off <= 0.1
+        }),
+        format!(
+            "(companion, host): (still walking at 3 s, front past the shut panel m, opened by it, arrived at step after the gate opened, m off the end) {found:?}"
+        ),
     )
 }
 

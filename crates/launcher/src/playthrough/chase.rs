@@ -175,6 +175,23 @@ impl Chase {
             if !ranged && d > close {
                 command.forward = 127;
             }
+            // A body standing in the line, short of the foe, takes the blow
+            // or the bolt: the player steps round it while striking, one way
+            // then the other (Bao-Dur's remote fighting the Elite Sith
+            // Assassin in the Trayus Academy's doorway, the Exile walked in
+            // behind it by the scene).
+            let in_line = here.snapshot.entities.iter().any(|entity| {
+                entity.id != id
+                    && entity.id != me.id
+                    && matches!(entity.kind, sim::Kind::Object(ObjectKind::Creature, _))
+                    && entity.fighter.is_some_and(|fighter| fighter.hp > 0)
+                    && flat(entity.position, me.position) < d
+                    && off_the_way(me.position, at, entity.position) <= IN_LINE_M
+            });
+            if in_line {
+                let turn = (now / (sim::walk::SIDESTEP_MS * 2)).is_multiple_of(2);
+                command.right = if turn { 127 } else { -127 };
+            }
             return (command, false);
         }
         // A walk stalling (no headway for half a stall's time, or getting
@@ -215,6 +232,10 @@ impl Chase {
         (straight, true)
     }
 }
+
+/// How near the line to a foe (metres) another body stands to take a blow
+/// meant for it: about a body's half width.
+const IN_LINE_M: f32 = 0.4;
 
 /// How far into a punch's reach (its share) the chase steps before it
 /// stops pressing on: a little inside, as a foe sways back.

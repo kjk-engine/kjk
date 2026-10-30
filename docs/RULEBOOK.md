@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b609bf78b1c5d49e`.
+Edition `321adc09df3488eb`.
 
 ## Contents
 
@@ -8408,7 +8408,20 @@ During a conversation, a character walks its path straight from corner to
 corner, never past one. It pushes aside an idle, friendly character in its
 way, and walks around any other. It gives up after bumping into the same
 character from the same spot a few times, or when no side is free. A closed
-door stops it until the door opens.
+door stops it until the door opens. Where no way leads at all (a door shut
+across it), it stands a moment and looks for a way again.
+
+<a id="walking-walker-pathfind-wait-ms"></a>**Waiting for a Way** = **2 seconds** (`2000 ms`) · `walking.walker.pathfind_wait_ms`
+
+A character that finds no way to where it walks stands 2 seconds, and up to two seconds more, then looks for a way again; its walk goes on.
+
+<sub>Source: TSL's executable (`CSWSCreature::AIActionMoveToPoint`: a failed `PlotPath` puts `AddPathfindingWaitActionToFront` of 2 + (rand() % 100) / 50 s before the move). Code: `sim::walk::Walker::command_round`.</sub>
+
+<a id="walking-walker-pathfind-wait-step-ms"></a>**Waiting for a Way, Spread** = **0.02 seconds** (`20 ms`) · `walking.walker.pathfind_wait_step_ms`
+
+The wait for a way is longer by a random hundredth of two seconds: 20 ms a step, 0 to 99 steps.
+
+<sub>Source: TSL's executable (`CSWSCreature::AIActionMoveToPoint`: (rand() % 100) / 50 s). Code: `sim::walk::Walker::command_round`.</sub>
 
 <a id="walking-walker-lift"></a>**Floor Height** = **0.003 meters** (`0.125 units`) · `walking.walker.lift`
 
