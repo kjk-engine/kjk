@@ -133,9 +133,9 @@ pub fn feats(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             let career = trask.classes.clone();
             let class = career.first().map_or(0, |(class, _)| *class);
             let taken = classes
-                .auto(&sheet, &career, class)
-                .and_then(|choices| classes.take(&sheet, &career, &choices))
-                .map(|(after, _)| after);
+                .auto(&sheet, &career, class, 0)
+                .and_then(|choices| classes.take(&sheet, &career, &choices, 0))
+                .map(|(after, ..)| after);
             let die = classes.classes.get(usize::from(class)).map_or(0, |c| c.hit_die);
             let gain = i32::from(die)
                 + sheet.modifier(Ability::Constitution)
@@ -161,13 +161,13 @@ pub fn feats(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
         let career = vec![(0, 1)];
         let pick = Choices {
             feats: vec![feats::TOUGHNESS[0]],
-            ..classes.auto(&soldier, &career, 0).ok_or("no level 2")?
+            ..classes.auto(&soldier, &career, 0, 0).ok_or("no level 2")?
         };
-        let picked = classes.take(&soldier, &career, &pick).map(|(after, _)| after);
+        let picked = classes.take(&soldier, &career, &pick, 0).map(|(after, ..)| after);
         let plain = classes
-            .auto(&soldier, &career, 0)
-            .and_then(|choices| classes.take(&soldier, &career, &choices))
-            .map(|(after, _)| after);
+            .auto(&soldier, &career, 0, 0)
+            .and_then(|choices| classes.take(&soldier, &career, &choices, 0))
+            .map(|(after, ..)| after);
         report.check(
             picked.zip(plain).is_some_and(|(picked, plain)| {
                 picked.max_hp == plain.max_hp + 2 && picked.feats.has(feats::TOUGHNESS[0])

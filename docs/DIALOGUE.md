@@ -124,8 +124,14 @@ where they part, the choice is ours and named.
   it (below).
 - **Lines.** The first starting link whose speaker is here and whose
   condition holds; none ends it at once (`EndConversation` runs). An
-  entry offers every reply whose link holds, in order, then runs its
-  `Script` and `Script2` for the owner. A taken reply's entry is the
+  entry runs its `Script` and `Script2` for the owner as it shows, and
+  offers every reply whose link holds, in order, once its line has played
+  (or been skipped): TSL's `CSWSDialog::SendDialogEntry` sets the line's
+  delay, runs the two scripts, then `CSWSObject::SendDialogReplies`, which
+  waits while `IsDialogDelay` holds before the replies' conditions run
+  (`Step::offer_replies`; Ralon's E37 sets the local his [Awareness]
+  reply checks) [verify in K1's exe]. Nothing is offered while a line
+  plays, so no answer is taken then. A taken reply's entry is the
   first of its links, likewise. The speaker (`Step::speaker_for`, both
   executables): none named, the owner; the owner's own tag (any case), the
   owner; else the object of that tag nearest the owner within
