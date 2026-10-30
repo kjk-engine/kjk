@@ -25,12 +25,9 @@ use crate::play;
 use crate::scene::SceneContent;
 use crate::ui_view::{Ui, UiIntents};
 
-/// A game left for the main menu, or for a save: the program starts
-/// again, in it.
+/// A game left for the main menu: the program starts again, on it.
 static TO_MENU: AtomicBool = AtomicBool::new(false);
-/// The save the program starts again into (a load during play), and the
-/// one this run loads at once (`kjk --load`).
-static LOAD_INTO: Mutex<Option<String>> = Mutex::new(None);
+/// The save this run loads at once (`kjk --load`).
 static LOAD_AT_START: Mutex<Option<String>> = Mutex::new(None);
 /// This run is a game left for the main menu (no logos before it).
 static CAME_BACK: AtomicBool = AtomicBool::new(false);
@@ -47,7 +44,7 @@ fn put(slot: &Mutex<Option<String>>, id: String) {
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(id);
 }
 
-/// Whether the run ended to go back to the main menu (or into a save).
+/// Whether the run ended to go back to the main menu.
 pub fn to_menu() -> bool {
     TO_MENU.load(Ordering::Acquire)
 }
@@ -72,18 +69,14 @@ pub fn skips_logos() -> bool {
             .is_some()
 }
 
-/// This program again, on its main menu or loading the save asked for,
-/// in place of this process (on Windows, beside it as this one ends).
+/// This program again, on its main menu, in place of this process (on Windows, beside it as this one ends).
 pub fn restart_into_menu() -> std::io::Error {
     let program = match std::env::current_exe() {
         Ok(program) => program,
         Err(error) => return error,
     };
     let mut command = std::process::Command::new(program);
-    match take(&LOAD_INTO) {
-        Some(id) => command.args(["--load", &id]),
-        None => command.arg("--back-to-menu"),
-    };
+    command.arg("--back-to-menu");
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt as _;
@@ -364,6 +357,7 @@ fn start(
         Option<Res<crate::sim_host::OwnSeat>>,
         Option<Res<crate::sim_host::WorldHere>>,
     ),
+    mut reload: Option<ResMut<crate::sim_host::ReloadRequest>>,
 ) {
     let mut rest = Vec::new();
     for intent in std::mem::take(&mut intents.0) {
@@ -373,11 +367,16 @@ fn start(
                 TO_MENU.store(true, Ordering::Release);
                 exit.write(AppExit::Success);
             }
-            // During play a save is loaded by the program starting again
-            // into it, as the main menu is; alone only (a host's guests
-            // would be dropped: it loads from the main menu). The screens'
-            // Load, quick load and the console's `ui load` all come here.
-            Intent::Session(SessionIntent::Solo { save: Some(id), .. }) if playing.is_some() => {
+            // During play a save is loaded in place, as the reload after
+            // the party fell is (`sim_host::ReloadRequest`): its module
+            // planned behind the loading screen, the world made from the
+            // save at the commit; the program and its window go on. Alone
+            // only (a host's guests would be dropped: it loads from the
+            // main menu). The screens' Load, quick load and the console's
+            // `ui load` all come here.
+            Intent::Session(SessionIntent::Solo { save: Some(id), .. })
+                if playing.is_some() && reload.is_some() =>
+            {
                 let refused = match here.as_deref() {
                     Some(here) if here.alone => None,
                     Some(_) => Some("A hosted game loads from the main menu."),
@@ -387,10 +386,22 @@ fn start(
                     warn!(target: "session", id, "only a game played alone loads during play");
                     ui.vm.feedback.push(why.into());
                 } else {
-                    info!(target: "session", id, "into a save");
-                    put(&LOAD_INTO, id);
-                    TO_MENU.store(true, Ordering::Release);
-                    exit.write(AppExit::Success);
+                    info!(target: "session", id, "into a save, in place");
+                    // The character the save was made with, as a load from
+                    // the menu takes it (`Progress::Made`).
+                    let meta = crate::save_view::folder().and_then(|root| {
+                        saves::list(&root)
+                            .saves
+                            .into_iter()
+                            .find(|(of, _)| *of == id)
+                    });
+                    if let Some((_, meta)) = meta {
+                        made.0 = meta.character;
+                    }
+                    ui.stack.clear();
+                    if let Some(reload) = reload.as_deref_mut() {
+                        reload.0 = Some(id);
+                    }
                 }
             }
             Intent::Session(session) if flow.job.is_none() => {
