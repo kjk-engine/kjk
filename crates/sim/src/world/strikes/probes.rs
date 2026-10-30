@@ -117,9 +117,12 @@ const HOLD_MS: u64 = 30_000;
 const HELD_STEPS: u64 = 6000;
 
 /// How much later than a round a blow may land when the beast's pacing
-/// between blows took it out of its reach at the round, and it stepped in
-/// again first (ms; the room's walls are off the axes, and a body's path
-/// round its quarry along them is its own).
+/// between blows took it out of its reach at the round (ms): KOTOR's attack
+/// walks to its target until it reaches it, so the attack begins once it
+/// has stepped in again. Where the round finds it hangs on its path round
+/// the dummy along the ground's off-axis walls: met as the box, they turned
+/// it 6 cm sooner and the fourth round found it in reach; met round across,
+/// it stood 2.56 m off, just past its reach, and struck 128 ms late.
 const PACED_LATE_MS: u64 = 375;
 
 /// What a run saw: when the beast began its attacks and when the dummy
