@@ -105,7 +105,22 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 59: the party table keeps a companion's template made available by template
 /// (`party::Npc::template_data`, `sim::pack`'s creature encoding), so a module
 /// without it makes the companion all the same.
-pub const VERSION: u32 = 59 + crate::pending::SAVE;
+/// 60: a script waiting to run carries its run script var
+/// (`Pending::script_var`). Old saves: old saves read a waiting script's run
+/// script var as 0, none set.
+/// 61: an effect value may be EffectDeath keeping the body
+/// (`Effect::DeathKept`). Old saves: old saves read as before: EffectDeath
+/// keeping the body is a new effect code (16) no older save holds.
+/// 62: the script state keeps the objects SetForceAlwaysUpdate flagged
+/// (`State::always_update`). Old saves: old saves read with no object flagged:
+/// none was kept before.
+/// 63: a queued conversation pause (`Action::Pause`, its conversation). Old
+/// saves: old saves read as before: a queued pause is a new action code (58) no
+/// older save holds.
+/// 64: a save records the pack version its companions' templates were written
+/// in (`Save` header), so a pack bump migrates them. Old saves: saves before it
+/// read pack version 20, v0.1.0's.
+pub const VERSION: u32 = 64 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

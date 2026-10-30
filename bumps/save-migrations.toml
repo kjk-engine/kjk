@@ -1,5 +1,0 @@
-[formats]
-save = "a save records the pack version its companions' templates were written in (`Save` header), so a pack bump migrates them."
-
-[migrations]
-save = "saves before it read pack version 20, v0.1.0's"
