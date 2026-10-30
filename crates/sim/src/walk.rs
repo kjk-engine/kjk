@@ -1443,8 +1443,9 @@ pub fn rates(
 /// KOTOR's speed (m/s) for `rates` (`rates`) at `multiplier`, the body's
 /// speed as its effects and powers set it (clamped, `rules::walking::pace`),
 /// running or walking: too slow a walk is none, a run has a floor. An
-/// immobile body (both rates none) moves not at all [verify: the exe marks
-/// rate 1 apart, and what a walk of one does was not read].
+/// immobile body (both rates none) moves not at all: TSL's
+/// `CSWSCreature::GetWalkRate` and `GetRunRate` give 0 for a rate at or
+/// below their least, and `WalkUpdateLocation` moves by the rate.
 pub fn kotor_speed((walk, run): (f32, f32), multiplier: f32, running: bool) -> f32 {
     let multiplier = multiplier.clamp(pace::LEAST_MULTIPLIER, pace::MOST_MULTIPLIER);
     match (walk, run) {
