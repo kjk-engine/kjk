@@ -23,6 +23,7 @@ const GROUPS: &[Group] = &[
     ("grunts", kjk_game::grunts::probes),
     ("battle music", kjk_game::battle_music::probes),
     ("flinch", kjk_game::acting::flinch_probes),
+    ("creature_attack", kjk_game::acting::attack_probes),
     ("damage numbers", kjk_game::floaty_view::damage_probes),
     ("screen shake", kjk_game::script_fx::shake_probes),
     ("line video effect", kjk_game::video_effect::line_probes),

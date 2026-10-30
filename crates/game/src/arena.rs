@@ -3,7 +3,9 @@
 //! ramp up to a ledge, a stack of crates and a pit to fall into (a body
 //! under `PIT_FLOOR` dies; `sim::world::arena`). It runs on K1's data (the
 //! scripts, creature templates, items and tables of `BASE_MODULE`'s plan)
-//! with none of that module's own objects, area or scripts.
+//! with none of that module's own objects, area or scripts; `--stage
+//! arena:MODULE` lends another module's (TSL's too), so its own creature
+//! templates can be called in (`arena spawn TEMPLATE`).
 //!
 //! The player comes in as a level-20 Jedi who knows every K1 Force power
 //! (`sheet`), carries every hand weapon K1 has (`weapons`), and is back on

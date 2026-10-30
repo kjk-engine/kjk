@@ -249,7 +249,7 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         seats: 1,
         guests: sim::Guests::Avatars,
         // The arena's own Jedi unless another class is asked for.
-        sheet: match (stage == "arena" && class == "soldier")
+        sheet: match ((stage == "arena" || stage.starts_with("arena:")) && class == "soldier")
             .then(kjk_game::arena::sheet)
             .map_or_else(|| player_sheet(&class), Ok)
         {

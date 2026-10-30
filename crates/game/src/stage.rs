@@ -170,11 +170,16 @@ impl Stage {
         })
     }
 
-    /// The combat arena (`crate::arena`) for `seats` players, on K1's data
-    /// as `arena::BASE_MODULE`'s plan has it, the arena's Jedi playing.
-    pub fn arena(discovery: &Discovery, anims: Arc<AnimTable>, seats: u8) -> Result<Stage, String> {
+    /// The combat arena (`crate::arena`) for `seats` players, on the data
+    /// of `module`'s plan (`arena::BASE_MODULE`, K1's, unless asked), the
+    /// arena's Jedi playing.
+    pub fn arena(
+        discovery: &Discovery,
+        module: &str,
+        anims: Arc<AnimTable>,
+        seats: u8,
+    ) -> Result<Stage, String> {
         use crate::arena;
-        let module = arena::BASE_MODULE;
         let game = crate::installs::game_of_module(discovery, module);
         let installer = Arc::new(Installer::new(discovery, game, anims.clone())?);
         let prepared = installer.prepare(&installer.request(module, None, seats), false)?;
@@ -212,7 +217,10 @@ impl Stage {
             "course" => Ok(Stage::course(anims, seats)),
             "duel" => Ok(Stage::duel(anims, seats)),
             "ring" => Ok(Stage::ring(anims, seats)),
-            "arena" => Stage::arena(discovery, anims, seats),
+            "arena" => Stage::arena(discovery, crate::arena::BASE_MODULE, anims, seats),
+            _ if let Some(base) = name.strip_prefix("arena:") => {
+                Stage::arena(discovery, base, anims, seats)
+            }
             module => Stage::module(discovery, module, arrival, anims, scene, seats, players),
         }
     }

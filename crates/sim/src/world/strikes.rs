@@ -79,6 +79,12 @@ fn reach(strike: &Strike, personal_space: f32) -> f32 {
     (personal_space + strike.hit_distance) / UNIT + motion::HALF_WIDTH
 }
 
+/// How far a beast's `strike` reaches (units, as `reach`), from its
+/// personal space (metres).
+pub(super) fn strike_reach(strike: &Strike, personal_space: f32) -> f32 {
+    reach(strike, personal_space)
+}
+
 /// How far a humanoid's punch reaches (units, as `reach`), from its
 /// personal space (metres; 0 for none known).
 pub(super) fn punch_reach(personal_space: f32) -> f32 {
