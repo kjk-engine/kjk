@@ -923,12 +923,14 @@ pub(super) fn think(
                     }
                 }
                 // An item's spell (a medpac, a droid's utility item): used
-                // through its item in the scripts' step, once a round.
+                // through its item in the scripts' step, which ends its
+                // action (one item an action, as KOTOR's); not while a use
+                // runs or waits.
                 Use::Power(row) if !me.powers.has(row) => {
-                    let on = intent.map_or(id.0, |intent| SimId(intent.target.0));
-                    item_talents.0.push((id.0, row, on));
-                    let mind = &mut fighter.mind;
-                    mind.cast_after = mind.cast_after.max(now + ROUND_MS);
+                    if fighter.pack.using.is_none() && fighter.pack.queued.is_none() {
+                        let on = intent.map_or(id.0, |intent| SimId(intent.target.0));
+                        item_talents.0.push((id.0, row, on));
+                    }
                 }
                 // Within its reach of whom it is used on (its script's
                 // target, or itself).

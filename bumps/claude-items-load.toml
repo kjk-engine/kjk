@@ -2,3 +2,9 @@
 # stim, shield, squad stim) runs KOTOR's use time and lands at its end, its
 # user playing `inject` or `activate` meanwhile (`combat::items::press`).
 sim = "item uses play their clip and land at the use's end (issue 45)"
+
+[formats]
+snapshot = "a fighter's item use says whether its action began it (`Pack::ordered`)."
+
+[migrations]
+snapshot = "old saves read `ordered = false`: a use under way in one was a button's"

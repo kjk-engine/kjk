@@ -408,6 +408,10 @@ pub(in crate::world) fn apply(
                     }
                     fighter.mind.last_seen = None;
                     fighter.mind.walker = None;
+                    // An item's use its action began goes with the queue.
+                    if fighter.pack.ordered {
+                        crate::combat::items::break_off(fighter, clock.time_ms);
+                    }
                 }
             }
             // A door opened by another opens away from it and runs its

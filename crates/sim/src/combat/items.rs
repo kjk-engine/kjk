@@ -402,6 +402,12 @@ pub struct Pack {
     /// gone from the goods; or a grenade an item talent chose, thrown with
     /// the next throw (`grenades::pull`), leaving the goods then.
     pub queued: Option<u16>,
+    /// The use under way is its action's (Use Item's, an item talent's,
+    /// begun from `queued`): its item leaves the goods as it lands, and a
+    /// script's `ClearAllActions` before then breaks it off, nothing spent,
+    /// as KOTOR's action queue does (the AI's `ClearAllActions` before a
+    /// new talent).
+    pub ordered: bool,
 }
 
 impl Pack {
@@ -536,6 +542,7 @@ impl Pack {
         out.u16(self.held);
         out.u32(self.vitality as u32);
         write_fixed(out, self.queued.as_ref(), &0, |row, out| out.u16(*row));
+        out.u8(u8::from(self.ordered));
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Pack, DecodeError> {
@@ -583,6 +590,11 @@ impl Pack {
             held: input.u16()?,
             vitality: input.u32()? as i32,
             queued: read_fixed(input, &0, |input| input.u16(), "queued flag")?,
+            ordered: if input.since(crate::since::snapshot::CLAUDE_ITEMS_LOAD) {
+                input.u8()? != 0
+            } else {
+                false
+            },
         })
     }
 }
@@ -653,8 +665,9 @@ fn use_ms(sheet: &Sheet, row: u16) -> u64 {
 /// (`land`). Damage does not break it off; a stun, a knockdown or a fall
 /// does (`break_off`, in the firing step), the item gone with it. One use
 /// at a time: a press meanwhile does nothing. A use Use Item or an item
-/// talent asked for (`Pack::queued`, already taken from the goods) is
-/// begun first, once none runs.
+/// talent asked for (`Pack::queued`) is begun first, once none runs: its
+/// item leaves the goods as it lands, and a script's `ClearAllActions`
+/// breaks it off before then (`Pack::ordered`).
 pub fn press(
     fighter: &mut Fighter,
     sheet: &Sheet,
@@ -674,7 +687,12 @@ pub fn press(
             break_off(fighter, now);
         } else if until <= now {
             fighter.pack.using = None;
-            return land(fighter, sheet, row, now, authority, scripted(row));
+            let ordered = std::mem::take(&mut fighter.pack.ordered);
+            let landed = land(fighter, sheet, row, now, authority, scripted(row));
+            return Pressed {
+                spent: ordered.then_some(row),
+                ..landed
+            };
         }
         return Pressed::default();
     }
@@ -684,6 +702,7 @@ pub fn press(
         .filter(|row| alive && use_of(*row).is_some_and(|u| u != Use::Grenade))
     {
         pack.queued = None;
+        fighter.pack.ordered = true;
         return Pressed {
             spent: None,
             ..begin(fighter, sheet, row, now)
@@ -743,9 +762,10 @@ fn begin(fighter: &mut Fighter, sheet: &Sheet, row: u16, now: u64) -> Pressed {
     }
 }
 
-/// The use under way on `fighter` broken off at `now`: nothing done (its
-/// item already gone), its clip ended.
+/// The use under way on `fighter` broken off at `now`: nothing done (a
+/// button's item already gone, an action's kept), its clip ended.
 pub fn break_off(fighter: &mut Fighter, now: u64) {
+    fighter.pack.ordered = false;
     if fighter.pack.using.take().is_none() {
         return;
     }

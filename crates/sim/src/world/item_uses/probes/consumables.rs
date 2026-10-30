@@ -10,8 +10,9 @@
 //! - a medpac used leaves its stack as its use begins, and lands in the
 //!   step after (a step is longer than the use);
 //! - the last frag thrown: the stack is gone, and its kind;
-//! - the inventory's Use Item: a medpac used on the host, one fewer, its
-//!   heal begun on the next step as its button's; a thermal detonator
+//! - the inventory's Use Item: a medpac used on the host, its heal begun
+//!   on the next step as its button's, the medpac kept until it lands (an
+//!   action's use, `Pack::ordered`), then one fewer; a thermal detonator
 //!   refused (a grenade is used on a foe), its stack kept; the trinket
 //!   refused (no impact script does what it does), kept.
 
@@ -38,8 +39,9 @@ const THERMALS: usize = 2;
 const TRINKETS: usize = 3;
 
 /// The steps after which a grenade has flown, a medpac is in use, its use
-/// has landed, the last frag has flown, Use Item used a medpac, refused a grenade (the
-/// medpac's heal begun meanwhile) and refused the trinket.
+/// has landed, the last frag has flown, Use Item used a medpac, refused a
+/// grenade (the medpac's heal begun meanwhile) and refused the trinket (the
+/// heal landed meanwhile).
 const THROWN: usize = 2;
 const HEALING: usize = 4;
 const HEALED: usize = 5;
@@ -172,15 +174,17 @@ pub(super) fn cases(ran: &Ran) -> Checks {
         (
             "use_item_on_oneself",
             check(
-                stack(USED, MEDPACS) == 1
-                    && ran.kinds(USED) == [(MEDPAC, 1), (THERMAL, 1)]
+                stack(USED, MEDPACS) == 2
+                    && stack(REFUSED, MEDPACS) == 2
+                    && stack(NOTHING, MEDPACS) == 1
+                    && ran.kinds(NOTHING) == [(MEDPAC, 1), (THERMAL, 1)]
                     && ran.quiet(USED)
                     && used_pack.is_some_and(|(using, queued)| {
                         using.is_some_and(|(row, _)| row == MEDPAC) && queued.is_none()
                     }),
                 format!(
-                    "{}, then using and queued {used_pack:?}, notices {:?}",
-                    seen(USED),
+                    "{} (as it lands), then using and queued {used_pack:?}, notices {:?}",
+                    seen(NOTHING),
                     ran.notices
                 ),
             ),
