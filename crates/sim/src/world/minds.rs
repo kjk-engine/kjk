@@ -650,6 +650,8 @@ pub(super) fn think(
                     metres => f32::from(metres) / UNIT,
                 });
                 let kit = Kit::of(&me);
+                // A creature model strikes by its own clips (`strikes`).
+                let beast = facts.is_some_and(|facts| facts.strike.is_some());
                 let passive = intent.is_some_and(|intent| intent.passive);
                 // A creature's script attack (`ActionAttack`) on another
                 // outside the party runs in KOTOR's combat rounds (reone's
@@ -710,7 +712,7 @@ pub(super) fn think(
                         id.0,
                         ps,
                         &entry,
-                        close,
+                        (close, scene_stop(close, beast)),
                         (now, kotor, world_held),
                         &level.0,
                         opening,
@@ -727,8 +729,6 @@ pub(super) fn think(
                 // script's attacks too); none while it closes in either (a
                 // swing there lands nothing, Taris's gang war), a round once
                 // its target is within reach.
-                // A creature model strikes by its own clips (`strikes`).
-                let beast = facts.is_some_and(|facts| facts.strike.is_some());
                 let in_rounds = (duel || (scene && !entry.party && !in_party))
                     && !passive
                     && !beast
@@ -1242,7 +1242,7 @@ fn engage(
     me: SimId,
     ps: &MotionState,
     target: &Seen,
-    close: mind::Attack,
+    (close, stop): (mind::Attack, f32),
     (now, scene, held): (u64, bool, bool),
     level: &crate::Level,
     doors: &dyn crate::walk::Ways,
@@ -1265,7 +1265,7 @@ fn engage(
             // Within its blow's reach it stands, swinging with no step
             // (the swing's movement keys would carry it off): the swing
             // is the one a standing fighter makes. It comes to a stop at
-            // `mind::SCENE_REACH`, letting go of its run as far before
+            // `stop` (`scene_stop`), letting go of its run as far before
             // that as it and its target, coming at it, slide.
             if apart <= mind::STRIKE {
                 let mut toward = math::sub(ps.origin, target.ps.origin);
@@ -1274,11 +1274,7 @@ fn engage(
                 let coming = math::dot(target.ps.velocity, toward).max(0.0);
                 let slides = crate::motion::stopping_distance(math::flat_length(ps.velocity))
                     + crate::motion::stopping_distance(coming);
-                command.forward = if apart - mind::SCENE_REACH > slides {
-                    127
-                } else {
-                    0
-                };
+                command.forward = if apart - stop > slides { 127 } else { 0 };
                 command.right = 0;
             }
         } else if apart > ai::FLANK_FROM {
@@ -1291,6 +1287,20 @@ fn engage(
             };
         }
         on_the_mesh(level, ps, command)
+    }
+}
+
+/// Where a scene's fighter attacking by `close` comes to a stop (units,
+/// centre to centre): `mind::SCENE_REACH`, the spacing KOTOR's round clips
+/// are made for; a creature model (`beast`), whose blows are its own strike
+/// and never a round's (`strikes`), nearer where they reach less (its
+/// personal space and `hitdist`), as KOTOR's creature closes until it can
+/// attack. Stopped short of its blow, it stood before its foe and never
+/// struck: the Upper Sewers' Gamorreans and rakghouls, 1.4 m apart.
+fn scene_stop(close: mind::Attack, beast: bool) -> f32 {
+    match close {
+        mind::Attack::Blow(reach) if beast => mind::SCENE_REACH.min(mind::blow_from(reach)),
+        _ => mind::SCENE_REACH,
     }
 }
 

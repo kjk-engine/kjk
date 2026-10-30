@@ -730,15 +730,21 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 seconds,
                 hostile,
                 ally,
+                scripts,
             } => combat_verbs::fight(
                 &discover(),
                 &game,
                 &module,
                 arrive.as_deref(),
                 seconds,
-                &hostile,
-                &ally,
+                (&hostile, &ally),
+                &scripts,
             ),
+            CombatVerb::Brawls {
+                game,
+                modules,
+                seconds,
+            } => brawl_verbs::brawls(&discover(), &game, &modules, seconds),
             CombatVerb::Force {
                 game,
                 module,
@@ -1092,6 +1098,24 @@ pub(crate) enum CombatVerb {
         /// Turn the creatures with this tag to the player's side (repeatable)
         #[arg(long)]
         ally: Vec<String>,
+        /// A script of the module run for the player at the end of the first
+        /// step, as `kjk play --run` (a trigger's script that starts a
+        /// fight); repeatable
+        #[arg(long = "run")]
+        scripts: Vec<String>,
+    },
+    /// The fights the games stage between creatures outside the party
+    /// (enemies placed near each other, or turned so by a module's script),
+    /// each played with the player arriving near it: the blows they land on
+    /// each other, idle ones marked
+    Brawls {
+        /// k1 or tsl
+        game: String,
+        /// Only these modules (default: every module)
+        modules: Vec<String>,
+        /// Sim seconds to step each fight
+        #[arg(long, default_value_t = 30)]
+        seconds: u64,
     },
     /// Lag compensation (I25): a player shoots at a runner, aiming where it
     /// was L ms before, with and without its view lag in the input

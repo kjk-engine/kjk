@@ -184,21 +184,25 @@ fn player_command(last: &Snapshot) -> sim::Command {
 }
 
 /// `kjk combat fight`: installs `module` for one player arriving at
-/// `arrive` (creatures tagged `hostile` and `allies` turned so first),
-/// steps `seconds` of fighting (the player shooting back at whoever
-/// targets it), tallies what the event rings recorded, and replays the
-/// recording.
+/// `arrive` (creatures tagged `hostile` and `allies` turned so first, the
+/// module's `scripts` queued for the player's first step), steps `seconds`
+/// of fighting (the player shooting back at whoever targets it), tallies
+/// what the event rings recorded, and replays the recording.
 pub fn fight(
     discovery: &Discovery,
     game: &str,
     module: &str,
     arrive: Option<&str>,
     seconds: u64,
-    hostile: &[String],
-    allies: &[String],
+    (hostile, allies): (&[String], &[String]),
+    scripts: &[String],
 ) -> ExitCode {
-    let mut world = match crate::scenes::installed(discovery, game, module, arrive, hostile, allies)
-    {
+    let installed = crate::scenes::installed(discovery, game, module, arrive, hostile, allies)
+        .and_then(|mut world| {
+            crate::by_hand::queue_scripts(&mut world, scripts)?;
+            Ok(world)
+        });
+    let mut world = match installed {
         Ok(world) => world,
         Err(error) => {
             eprintln!("{error}");
@@ -339,7 +343,7 @@ pub fn fight(
     );
     crate::runtime::write_facts(serde_json::json!({
         "verb": "combat fight", "game": game, "module": module, "arrive": arrive,
-        "hostile": hostile, "allies": allies,
+        "hostile": hostile, "allies": allies, "run": scripts,
         "seconds": seconds, "ticks": last.tick, "step_seconds": step_seconds,
         "hits": tally.hits, "damage_hp": tally.damage_centi as f64 / 100.0,
         "outcomes": tally.by_outcome,
