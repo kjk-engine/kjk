@@ -26,7 +26,7 @@ impl Step<'_> {
 
     /// The first object tagged `tag` (`script::tagged`).
     pub(super) fn first_tagged(&self, tag: &str) -> Option<ObjectId> {
-        crate::script::tagged(self.view, &self.out.made, tag)
+        crate::script::tagged(self.view, self.out, tag)
             .next()
             .map(|tagged| tagged.id)
     }
@@ -64,7 +64,7 @@ impl Step<'_> {
         let reach = rules::dialogue::speakers::REACH_M;
         let mut bar = reach * reach;
         let mut found = None;
-        for tagged in crate::script::tagged(self.view, &self.out.made, tag) {
+        for tagged in crate::script::tagged(self.view, self.out, tag) {
             let squared: f32 = (0..3)
                 .map(|axis| (tagged.at[axis] - origin[axis]).powi(2))
                 .sum();

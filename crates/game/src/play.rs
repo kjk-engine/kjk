@@ -690,6 +690,7 @@ pub fn load_for(
         resources: armory.resources.clone(),
         dressed: body.dressed.clone(),
         weapons: weapon_models,
+        named: !options.bodies.is_empty(),
     };
     let (scene, body_index) = compose(
         stage.scene.take().map(|scene| *scene),

@@ -138,8 +138,7 @@ remade, not the run the chain would make. `--skill NAME=RANK`,
 No window: the authority stepped as fast as it goes, a player driven goal
 by goal (`launcher::playthrough` lists the goals: `talk`, `pick`, `say`, `party`, `travel`, `to`,
 `at`, `use`, `exit`, `fight`, `race` and `turrets` (a minigame played to
-its end, `MINIGAMES.md`), `pazaak`, `equip` (`equip TEMPLATE`: that item; with `*` in it, the first item made
-that it matches, for what the game rolls at random),
+its end, `MINIGAMES.md`), `pazaak`, `equip` (`equip TEMPLATE`: that item; `equip saber`: the strongest lightsaber the party has),
 `put`, `save NAME` (a checkpoint; `@NAME` for the module starts from it), `unlock` (Security, with a spike
 the party carries if named), `bash` (struck with what is in hand until its lock breaks), `disarm X,Y`
 (the mine the party sees nearest there, Demolitions, from where the player stands), `leader`, `solo`, `levelup`, `sell`, `credits`, `wait`, `until`,

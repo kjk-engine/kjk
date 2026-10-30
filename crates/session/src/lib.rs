@@ -24,6 +24,7 @@ pub mod journal;
 mod library;
 pub mod links;
 mod minigame;
+pub use minigame::probes as minigame_probes;
 mod objects;
 mod pazaak;
 mod sheets;

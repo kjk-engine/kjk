@@ -1,0 +1,145 @@
+# Onderon, the Royal Palace, General Vaklu, and back to Dxun (TSL, 506OND,
+# 401DXN, 003EBO): Bostuco keeps the Palace intersection, Tobin shuts the
+# capital-ship door on the Exile and sets the drexl on the throne room's
+# force field; the south hall (the mines, the security wing's troops, the
+# Vaklu captain questioning Riiken, the four droids), Kiph's door
+# [Security]ed, Kiph the slicer asked why and let go (LS), the primary
+# security terminal: every security door opened, the area schematics,
+# Riiken's force cage opened, Riiken heard, then the primary override code
+# taken and the terminal shut down; back by the south hall and north: the
+# museum, the gas room's metal box, Master Kavar's greeting, Kadron's armory
+# locker, the storage room's number puzzle (66, 45, 39), its crystals,
+# footlockers and the locked metal box [Security]ed; Captain Kadron given
+# the override code (the outer door opened, the Exile taken to it); Tobin
+# at the inner door, the drexl loose and killed; the throne room's battle
+# joined by Battle Meditation, Kavar's entry, Vaklu beaten and the Queen
+# left to judge him (Kreia +INF), Talia talked out of executing him by
+# [Persuade]; Kreia heals Tobin and sends him to the Sith; Kavar's answers
+# and his form, Talia's thanks and the museum's relics. Back on Dxun the
+# squads reunite (Onderon has one leader now), aboard.
+# Starts from the Palace's checkpoint:
+#   kjk playthrough tsl @onderon_royal_palace data/routes/tsl/finale_palace.route --god
+# Walkthrough: DSimpson's "Onderon Royal Palace"; GameBanshee 52
+# (context/walkthroughs/tsl/).
+# Left: the museum's relics looted (Talia gives its four instead, talia E3),
+# the gas room's terminal, the secondary terminal's cameras, the boobytrapped
+# consoles (sec_term_boom@1, @2), Kavar asked about Katarr.
+#
+# ASSUMES:
+# - The party is the Exile, Kreia and Mandalore; the Queen's side
+#   (500OND_DarkSide_Iziz 0): Tobin locked inside, Kadron and Kavar in the
+#   north wing, Kiph and the caged Riiken in the south (DSimpson's order:
+#   south first).
+# - Bostuco's arrival talk starts itself (k_506_enter).
+# - door_secsouth (Kiph's room) is Locked (OpenLockDC 28, no key): the
+#   Exile's Security.
+# - termeast start 1 needs Kiph's room taken (c_local_notset, else
+#   "TERMINAL LOCKED BY ANOTHER USER"); the override reply (R15) needs
+#   Riiken freed and heard (c_other_set: g_riiken's local 52), the transfer
+#   reply (R17) Kadron talked to (c_dline_check), which this order never
+#   offers.
+# - Riiken's tag is g_riiken (a_end_game moves "g_riiken"; he is not in the
+#   GIT); freed, he speaks when used.
+# - The north wing's doors (door_gas, door_secnorth) open after "Open all
+#   security doors."; tr_security_north is Kavar's greeting (kavar start 1).
+#   The route goes back by the south hall and north through the museum and
+#   the gas room, DSimpson's way.
+# - Kadron's "I'll head there immediately." (a_dline_pctele) puts the Exile
+#   at wp_bgone_pc by the opened outer door, and Tobin's start 1 plays.
+# - The throne room: thronecs at tr_royal_battle (R3, the Battle Meditation
+#   replies need the power), kaventer at tr_kavar_enter (Kavar paralyses the
+#   fighters), then vaklu start 0; Vaklu downed ends the fight (start 1).
+# - a_end_game: 506OND_End, OndMov06, 401DXN From_506OND; k_401enter starts
+#   the reunion with the Dxun squad, which a_end_reunion ends with Kreia and
+#   Visas Marr (403DXN_PARTY2_NPC1) in the party.
+talk                 # Bostuco: "We've made it to the Palace" (k_506_enter)
+say Any door can be opened, Tobin. This isn't over.
+to tr_tobin_door     # Tobin shuts the outer door (tobin start 0, the drexl)
+talk
+fight 40             # the grand hall
+use OnderonDoor03@3  # the south hall: its mines
+fight 40
+use door_palsecurity # the security wing (tr_security_room)
+fight 40
+to tr_capt_interr    # the Vaklu captain at Riiken's cage (va_capt start 1)
+talk
+fight 40
+use OnderonDoor03@4  # the droid room
+to tr_droid_attack   # Kiph's last surprise: the four droids wake
+fight 40
+unlock door_secsouth # Kiph's room: Locked, [Security] DC 28
+use door_secsouth
+fight 40             # the Vaklu captain's men
+say Why would you work with General Vaklu? # Kiph (not "Give me a reason I
+say [Awareness] I don't believe a word you've said. # E26 (c_sc_awa_gt)
+say [Awareness] I can tell you aren't lying about that. # E28, E29
+say I need access to the console. # shouldn't kill you": its first reply
+say =Just leave.     # is "You set off one trap too many", DSP)
+use kiph
+say [Computer] Access system commands. # termeast start 1, DSimpson's two visits:
+say [Computer] Open all security doors.
+say [Computer] Open force cage. # Riiken freed (a_rd_termset)
+say [Computer] Upload area schematics.
+say =Log out.
+use pl_termeast
+say How do I do get the code? # (sic) Riiken (mp_riike) out of his cage: the
+say I'll see to it right now. # override reply waits on his word (c_other_set 52)
+use g_riiken
+say [Computer] Access system commands.
+say [Computer] Access primary override code and shutdown terminal. # (250 XP)
+use pl_termeast
+use OnderonDoor03@3  # back by the south hall to the intersection, then north
+use door_gas@1       # the museum's door (its relics are Talia's gift, talia E3)
+fight 40
+use door_gas@2       # the gas room
+fight 40
+use MilMidMetalBox@1 # the gas room's metal box (DSimpson's; the MetalBoxes by it
+                     # are not useable)
+use door_secnorth    # the north hall
+fight 40
+to tr_security_north # Kavar: "Come in, quickly" (kavar start 1)
+talk
+use locker_armory    # Kadron's armory ("take anything from the armory lockers")
+say [Computer] Open the storage door. # term_puz: the storage room's number puzzle
+say [Computer] Repair corrupted key sequence.
+say =66              # twice it exceeds its half by 99
+say =45              # reversed, a fifth more
+say =39              # less its reverse by twice its digits' product
+use sec_term_puzz
+use door_puzzle
+use box_puzzle       # the storage room's crystals
+use MilMidFootLker@1 # its footlockers and boxes
+use MilMidFootLker@2
+use MilLowFootLker
+unlock MilMidMetalBox@2 # the locked metal box [Security], DC 18 ("should have
+use MilMidMetalBox@2 # some lightsaber crystals")
+say I have the override code for the primary security console already.
+say I'll head there immediately. # a_dline_pctele: to the opened outer door
+use kadron           # Captain Kadron (ro_weed)
+say Not today, Tobin. # tobin start 1: the drexl breaks the inner field
+to tr_last_tobin     # past the opened outer door (a_dline_bkill)
+talk
+fight 40             # the Drexl Larva
+say Join the battle. # thronecs (not the Battle Meditation replies)
+to tr_royal_battle
+talk
+fight 40
+say Did I miss anything? So you must be General Vaklu. # vaklu start 0
+say You have underestimated what a Jedi is capable of.
+say Although I respect your council, Kreia, the decision is the Queen's not mine. # vaklu start 1 (+INF)
+say He's right, your majesty. What sort of moral authority # Talia talked out
+say [Persuade] If you kill him, you make him a martyr. # of the execution
+to tr_kavar_enter    # Kavar enters the throne room (kaventer), Vaklu's taunt
+talk
+fight 30             # Vaklu and his men: Vaklu downed ends it (vaklu start 1)
+talk                 # his fate left to the Queen, then Kreia heals Tobin (506kreia)
+say You've answered all my questions. # Kavar (start 2), then his form
+use npc_kavar
+talk                 # lrn_form: Kavar's form; "I'm going to Dantooine."
+talk                 # Talia's thanks, the museum's relics (a_end_game)
+module 401dxn        # OndMov06, From_506OND
+say The political situation on Onderon has been dealt with. # reunion
+talk
+to to_ebonhawk       # aboard
+module 003ebo
+save onderon_won

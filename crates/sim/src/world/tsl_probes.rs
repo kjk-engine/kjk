@@ -147,6 +147,10 @@ int GetLocalBoolean(object oObject, int nIndex);
 void SetLocalNumber(object oObject, int nIdx, int nValue);
 // 36
 int GetLocalNumber(object oObject, int nIdx);
+// 37
+void ChangeToStandardFaction(object oCreatureToChange, int nStandardFaction);
+// 38
+int GetStandardFaction(object oObject);
 int OBJECT_TYPE_CREATURE = 1;
 "#;
 
@@ -211,11 +215,17 @@ fn library() -> crate::script::Library {
     pup.op(int(OTHER)).op(call(15, 2)).op(Op::MovSp(-4));
     pup.op(Op::Retn);
     // The companion sent to base (token 30 whether it went); the duel's
-    // rules set (31 the last broken: none).
+    // rules set (31 the last broken: none); 32 whether the same script
+    // still finds its creature by tag (`KillNPCObject` deleted it).
     let mut base = Asm::default();
     token(&mut base, 30, &[int(OTHER), call(22, 1)]);
     base.op(int(20)).op(call(23, 1));
     token(&mut base, 31, &[call(24, 0)]);
+    token(
+        &mut base,
+        32,
+        &[int(0), text(COMPANION), call(21, 2), call(16, 1)],
+    );
     base.op(Op::Retn);
     // A puppet's follow, far and near; Bao-Dur met.
     let follow_owner = |range: f32| {
@@ -297,6 +307,25 @@ fn library() -> crate::script::Library {
         token(&mut numbers, n, &[int(index), call(13, 0), call(36, 2)]);
     }
     numbers.op(Op::Retn);
+    // Local booleans set at `LOCAL_BOOLEANS`, tokens 120 on each read back.
+    let mut booleans = Asm::default();
+    for (n, index) in (120..).zip(LOCAL_BOOLEANS) {
+        booleans
+            .op(int(1))
+            .op(int(index))
+            .op(call(13, 0))
+            .op(call(33, 3));
+        token(&mut booleans, n, &[int(index), call(13, 0), call(34, 2)]);
+    }
+    booleans.op(Op::Retn);
+    // The player moved to Hostile 1; token 110 its standard faction, read
+    // a step later.
+    let mut pc_faction = Asm::default();
+    pc_faction.op(int(1)).op(call(13, 0)).op(call(37, 2));
+    pc_faction.op(Op::Retn);
+    let mut pc_faction_read = Asm::default();
+    token(&mut pc_faction_read, 110, &[call(13, 0), call(38, 1)]);
+    pc_faction_read.op(Op::Retn);
     crate::probe::library(
         CATALOG,
         [
@@ -322,6 +351,9 @@ fn library() -> crate::script::Library {
             ("probe_in_area", in_area.build()),
             ("probe_locals_of_nothing", nothing.build()),
             ("probe_local_numbers", numbers.build()),
+            ("probe_pc_faction", pc_faction.build()),
+            ("probe_local_booleans", booleans.build()),
+            ("probe_pc_faction_read", pc_faction_read.build()),
             ("probe_selectability", selectability()),
         ],
     )
@@ -630,6 +662,23 @@ pub fn probes() -> Checks {
     checks.push(("area_iteration_skips_the_dead", area_skips_the_dead()));
     checks.push(("locals_of_nothing", locals_of_nothing()));
     for (name, game, wanted) in [
+        (
+            "local_booleans_k1",
+            "k1",
+            ["1", "-2147483648", "0", "0", "0", "0"],
+        ),
+        (
+            "local_booleans_tsl",
+            "tsl",
+            ["1", "-2147483648", "1", "-2147483648", "0", "0"],
+        ),
+    ] {
+        checks.push((name, local_booleans(game, wanted)));
+    }
+    for (name, game, wanted) in [("pc_faction_k1", "k1", "1"), ("pc_faction_tsl", "tsl", "0")] {
+        checks.push((name, pc_faction(game, wanted)));
+    }
+    for (name, game, wanted) in [
         ("local_numbers_k1", "k1", ["255", "0", "127", "5", "0", "0"]),
         (
             "local_numbers_tsl",
@@ -672,14 +721,63 @@ fn local_numbers(game: &str, wanted: [&str; 6]) -> Result<String, String> {
     check(read == wanted, format!("{game}: {read:?}"))
 }
 
+/// The local booleans set and read back by `probe_local_booleans`: the
+/// first, K1's last (95), its first past them (96), TSL's last (159), its
+/// first past them (160), and one below 0.
+const LOCAL_BOOLEANS: [i32; 6] = [0, 95, 96, 159, 160, -1];
+
+/// Each game's local booleans as its executable keeps them
+/// (`script::engine::local_boolean`): K1's var table 96 bits, TSL's 160,
+/// an index tested unsigned; none past them kept, read false; a true one
+/// read as its bit in its word (`local_boolean_read`: 95 and 159 are bit 31,
+/// 96 is bit 0 of TSL's fourth word).
+fn local_booleans(game: &str, wanted: [&str; 6]) -> Result<String, String> {
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.game = game.into();
+    let level = ground.with_module(data).with_scripts(library());
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    step(&mut world);
+    run(&mut world, "probe_local_booleans");
+    let read = tokens(&step(&mut world), 120..=125);
+    check(read == wanted, format!("{game}: {read:?}"))
+}
+
+/// The player's own character moved to Hostile 1 by
+/// `ChangeToStandardFaction`: K1 moves it [verify in K1's exe]; TSL's
+/// executable passes over a creature whose stats are a PC's (its
+/// `ExecuteCommandChangeToStandardFaction` tests `CSWSCreatureStats`'s PC
+/// flag), so the Exile stays in the player's faction after Dxun's battle
+/// circle.
+fn pc_faction(game: &str, wanted: &str) -> Result<String, String> {
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.game = game.into();
+    let level = ground.with_module(data).with_scripts(library());
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    step(&mut world);
+    run(&mut world, "probe_pc_faction");
+    step(&mut world);
+    run(&mut world, "probe_pc_faction_read");
+    let read = tokens(&step(&mut world), 110..=110);
+    check(
+        read == [wanted],
+        format!("{game}: the player's faction after the change {read:?}"),
+    )
+}
+
 fn locals_of_nothing() -> Result<String, String> {
     let (mut world, _) = world()?;
     step(&mut world);
     run(&mut world, "probe_locals_of_nothing");
     let read = tokens(&step(&mut world), 90..=91);
     check(
-        read == ["0", "1"],
-        format!("local boolean 50 read back on OBJECT_INVALID and the player: {read:?}"),
+        read == ["0", "262144"],
+        format!(
+            "local boolean 50 (bit 18 of its word) read back on OBJECT_INVALID and the player: {read:?}"
+        ),
     )
 }
 
@@ -858,7 +956,9 @@ fn influence() -> Result<String, String> {
 
 /// The puppet given to a companion comes with it as it joins (made beside
 /// it, in the party), and leaves with it sent to base, the companion's
-/// creature gone and the table still knowing both.
+/// creature gone at once (the script that sent it finds no creature by its
+/// tag: TSL's `KillNPCObject` deletes it, so 403DXN's `k_403_enter` makes
+/// Kreia anew) and the table still knowing both.
 fn puppets() -> Result<String, String> {
     let (mut world, _) = world()?;
     step(&mut world);
@@ -884,7 +984,7 @@ fn puppets() -> Result<String, String> {
     let after = step(&mut world);
     let party = &world.script_state().party;
     let puppet = party.puppets.get(&(PUP as u8));
-    let sent = tokens(&after, 30..=31) == ["1", "0"]
+    let sent = tokens(&after, 30..=32) == ["1", "0", "0"]
         && !party.has(OTHER as u8)
         && party
             .available
@@ -897,7 +997,7 @@ fn puppets() -> Result<String, String> {
         format!(
             "puppet made {made:?}, owner {owner:?}, joined {joined:?}, its companion {companion:?}; \
              sent to base {:?}, its creature {:?}, the puppet {puppet:?}",
-            tokens(&after, 30..=31),
+            tokens(&after, 30..=32),
             party.available.get(&(OTHER as u8)).map(|npc| npc.object),
         ),
     )

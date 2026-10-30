@@ -1109,27 +1109,56 @@ pub(super) fn straggling(keepers: &[Keeper], mates: &[(sim::SimId, [f32; 3])], m
         .max_by(f32::total_cmp)
 }
 
+/// The body the first seat plays: the companion it was switched to
+/// (`SwitchPlayerCharacter`, `Party::switched_body`), else its own
+/// character.
+fn played<'a>(world: &sim::SimWorld, snapshot: &'a Snapshot) -> Option<&'a sim::EntityState> {
+    let own = snapshot.own(Seat(0))?;
+    Some(
+        world
+            .script_state()
+            .party
+            .switched_body()
+            .and_then(|id| snapshot.get(sim::SimId(id)))
+            .filter(|body| body.sheet.is_some())
+            .unwrap_or(own),
+    )
+}
+
 /// The class the player would take a level in now, if the party's XP
-/// allows one: the class it took last, else row 0 (a career not begun
-/// here: its sheet's).
+/// allows one: the class the body it plays took last (a companion it was
+/// switched to levels in its own, with the game's picks, as TSL's level-up screen levels the
+/// character the player controls: Visas Marr in Dxun's jungle), else row
+/// 0 for its own character (a career not begun here: its sheet's).
 pub(super) fn level_due(world: &sim::SimWorld, snapshot: &Snapshot) -> Option<u8> {
-    let avatar = snapshot.own(Seat(0))?;
-    let sheet = avatar.sheet?;
+    let own = snapshot.own(Seat(0))?;
+    let body = played(world, snapshot)?;
+    let sheet = body.sheet?;
     let state = world.script_state();
     let classes = world.level().scripts()?.classes();
+    // A companion's career not begun here is its template's classes.
+    let refused = BTreeSet::new();
+    let template = || {
+        Here::new(world.level(), snapshot, &refused)
+            .facts_of(body)
+            .and_then(|facts| facts.classes.last().map(|(class, _)| *class))
+    };
+    let last = state
+        .careers
+        .get(&body.id.0)
+        .and_then(|career| career.last().map(|(class, _)| *class))
+        .or_else(|| (body.id != own.id).then(template).flatten());
+    if body.id != own.id && last.is_none() {
+        return None;
+    }
     classes
         .may_level(sheet.level, state.xp(sim::inventory::PARTY))
-        .then(|| {
-            state
-                .careers
-                .get(&avatar.id.0)
-                .and_then(|career| career.last())
-                .map_or(0, |(class, _)| *class)
-        })
+        .then(|| last.unwrap_or(0))
 }
 
 /// The picks `plan` makes for the player's next level of `class`
-/// (`Classes::planned`).
+/// (`Classes::planned`); none for a companion the seat plays (the game's
+/// picks).
 pub(super) fn planned(
     world: &sim::SimWorld,
     snapshot: &Snapshot,
@@ -1137,6 +1166,9 @@ pub(super) fn planned(
     plan: &sim::levels::Plan,
 ) -> Option<sim::levels::Choices> {
     let avatar = snapshot.own(Seat(0))?;
+    if played(world, snapshot)?.id != avatar.id {
+        return None;
+    }
     let sheet = avatar.sheet?;
     let classes = world.level().scripts()?.classes();
     let state = world.script_state();

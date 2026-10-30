@@ -23,23 +23,22 @@
 #   Enclave's room animations and sets 650DAN_Rebuilt, and 650jedi's start 6
 #   (the Masters alive) plays, not the dark side's starts 1 to 5.
 # - Kreia's call (kreia start 7, "We must go to Dantooine, to the Enclave")
-#   answers a use aboard. # UNSURE: she may start it herself on entry, then
-#   `talk` instead of `use kreia`.
+#   answers a use aboard.
 # - The Hawk lands at 601DAN as before (dantooine_khoonda), the ramp's party
 #   screen taking Kreia and Visas. 605DAN's To_650 is open once the Enclave
-#   is rebuilt (605DAN_Enclave_Open). # UNSURE: no landing scene on Dantooine.
+#   is rebuilt (605DAN_Enclave_Open); no landing scene on Dantooine.
 # - 650DAN: KreiaArriveParty (with Kreia along) plays 650kreia start 0 (she
 #   sits; "Very well. I shall return shortly." answers her, the Awareness
 #   reply needs the skill); the walk to the Masters is scripted
 #   (a_move_pc_tag2/3, a_jediarrive); KreiaArrive is on the way.
-#   # UNSURE: how many conversations the Council, Kreia and krehand1 make;
-#   the `talk`s below are a guess.
+#   The Council (650jedi start 6), Kreia's judgment and the Handmaiden
+#   taking her (krehand1) follow on one another: one `talk`.
 # - Trans006EBO's heartbeat (k_006ebo) moves the party to 006EBO once
 #   650DAN_006EBO_Trans is set.
 # - 006EBO (male): attonend, then a_load006end has Visas Marr start
 #   visasend (WP_650END_PC_0); visasend's a_load262 plays TelMov15 and
 #   starts 262TEL at FROM_006EBO.
-use kreia            # "We must go to Dantooine, to the Enclave" # UNSURE: see above
+use kreia            # "We must go to Dantooine, to the Enclave" (start 7)
 use Galaxymap
 travel 0             # Dantooine (planetary.2da)
 party 6,9            # Kreia and Visas Marr
@@ -49,13 +48,15 @@ exit To_605@1        # the courtyard's east way
 module 605dan
 exit To_650          # the rebuilt Jedi Enclave
 module 650dan
-say Very well. I shall return shortly. # Kreia rests (650kreia start 0)
+say [Awareness] You are afraid. # Kreia rests (650kreia start 0): E18 to E23
+say Is there anything wrong?
+say Very well. I shall return shortly.
 to KreiaArriveParty
 talk
 to KreiaArrive       # the Council chamber's approach
-talk                 # Vrook, Zez-Kai Ell and Kavar (650jedi start 6)
-talk                 # Kreia's answer to the Council
-talk                 # the Exile wakes: Force Enlightenment
+talk                 # Vrook, Zez-Kai Ell and Kavar (650jedi start 6), Kreia's answer
+                     # to the Council and the Handmaiden taking her (krehand1); the
+                     # Exile wakes with Force Enlightenment
 to Trans006EBO       # out of the Enclave: aboard (k_006ebo)
 module 006ebo
 say Then we're going to Telos. We have no choice. # attonend

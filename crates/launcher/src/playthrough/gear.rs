@@ -27,6 +27,34 @@ pub(super) fn other_weapon(world: &sim::SimWorld, snapshot: &Snapshot, ranged: b
         .map(|(_, item)| Action::Equip { item, slot: hand })
 }
 
+/// The template a route's `equip` names: `saber`, the strongest lightsaber
+/// the party carries or the player wears (by its damage's average, as its
+/// upgrades leave it: the treasure scripts' saber differs with the level
+/// the player has when they make it); any other word, that template.
+pub(super) fn named_item(world: &sim::SimWorld, snapshot: &Snapshot, named: &str) -> Option<String> {
+    if named != "saber" {
+        return Some(named.to_string());
+    }
+    let catalog = world.level().scripts()?.items();
+    let me = crate::cast::me(snapshot, Seat(0))?;
+    world
+        .script_state()
+        .items
+        .values()
+        .filter(|item| item.holder == sim::inventory::PARTY || item.holder == me.0)
+        .filter_map(|item| {
+            let facts = catalog.get(&item.template)?;
+            let weapon = facts.fitted(item.upgrades, &item.fitted, catalog).weapon?;
+            matches!(weapon.delivery, sim::combat::sheet::Delivery::Saber(_)).then_some(())?;
+            let twice_average = i32::from(weapon.dice) * (i32::from(weapon.die) + 1)
+                + i32::from(weapon.bonus_dice) * (i32::from(weapon.bonus_die) + 1)
+                + 2 * i32::from(weapon.damage_bonus);
+            Some((twice_average, item.template.clone()))
+        })
+        .max_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)))
+        .map(|(_, template)| template)
+}
+
 /// The dearest item the party carries that the store open to the player
 /// buys, sold to it: never a plot item nor what a player keeps to use
 /// (grenades, medpacs and the like; spikes, of the base items `kept`: the
@@ -111,45 +139,18 @@ fn player(world: &sim::SimWorld, snapshot: &Snapshot) -> serde_json::Value {
     })
 }
 
-/// Whether `template` is one `named` names: the template itself, or, with
-/// `*` in it, any template the pattern matches (`*` any run of characters,
-/// case aside), for an item the game picks at random, as the Exile's own
-/// lightsaber is (`a_give_quest_ls` rolls its kind and its tier at the
-/// player's level): `g_w_*sbr*` any lightsaber.
-pub(super) fn names(named: &str, template: &str) -> bool {
-    let (named, template) = (named.to_ascii_lowercase(), template.to_ascii_lowercase());
-    let Some((first, tail)) = named.split_once('*') else {
-        return named == template;
-    };
-    let Some(mut rest) = template.strip_prefix(first) else {
-        return false;
-    };
-    let parts: Vec<&str> = tail.split('*').collect();
-    let Some((last, middle)) = parts.split_last() else {
-        return false;
-    };
-    for part in middle {
-        match rest.find(part) {
-            Some(at) => rest = &rest[at + part.len()..],
-            None => return false,
-        }
-    }
-    rest.ends_with(last)
-}
-
-/// Whether the player wears an item of template `named` (`names`).
+/// What the equip screen would send to wear what the party carries: each
+/// item in the first slot it fits that the player does not wear yet; or,
+/// `named`, that item in the first slot it fits, worn or not.
+/// Whether the player wears an item of template `named`.
 pub(super) fn wears(world: &sim::SimWorld, snapshot: &Snapshot, named: &str) -> bool {
     crate::cast::me(snapshot, Seat(0)).is_some_and(|me| {
         world.script_state().items.values().any(|item| {
-            item.holder == me.0 && item.slot.is_some() && names(named, &item.template)
+            item.holder == me.0 && item.slot.is_some() && item.template.eq_ignore_ascii_case(named)
         })
     })
 }
 
-/// What the equip screen would send to wear what the party carries: each
-/// item in the first slot it fits that the player does not wear yet; or,
-/// `named` (`names`), the first such item made (the lowest id) in the first
-/// slot it fits, worn or not.
 pub(super) fn equip(world: &sim::SimWorld, snapshot: &Snapshot, named: Option<&str>) -> Vec<Action> {
     let Some(me) = crate::cast::me(snapshot, Seat(0)) else {
         return Vec::new();
@@ -168,7 +169,7 @@ pub(super) fn equip(world: &sim::SimWorld, snapshot: &Snapshot, named: Option<&s
     for (id, item) in items
         .iter()
         .filter(|(_, item)| item.holder == sim::inventory::PARTY)
-        .filter(|(_, item)| named.is_none_or(|named| names(named, &item.template)))
+        .filter(|(_, item)| named.is_none_or(|named| item.template.eq_ignore_ascii_case(named)))
     {
         // Only what the player's race may wear (`ItemFacts::fits`), as the
         // equip screen lists.

@@ -46,7 +46,7 @@ say What's a starport visa?
 say Can I go now?
 to tr_port_master
 talk
-equip g_w_*sbr*  # the saber in hand
+equip saber          # the saber in hand
 say I am no merchant. # the beast rider by his cages (beastrdr)
 say Who are you?
 say Tell me about the beast-riders.
