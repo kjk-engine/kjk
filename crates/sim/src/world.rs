@@ -68,6 +68,7 @@ mod history;
 pub mod item_uses;
 pub mod locks;
 pub mod objects;
+pub mod remote;
 pub mod uses;
 pub use history::REWIND_MS;
 pub(crate) mod covert;
@@ -481,11 +482,34 @@ fn struck_by(fighter: &mut Fighter, effect: gear::Struck, by: SimId, now: u64, l
 /// floor.
 fn pushed(ps: &mut MotionState, fighter: &mut Fighter, centre: [f32; 3], now: u64) {
     use crate::combat::force::ja;
+    thrown(
+        ps,
+        fighter,
+        centre,
+        now,
+        ja::PUSH_PULL_STRENGTH,
+        Some(ja::KNOCKDOWN_MS),
+    );
+}
+
+/// `pushed` at `strength` (units a second before the falloff), knocked
+/// down for `knockdown` ms or only thrown: a droid's Sonic Blast too.
+fn thrown(
+    ps: &mut MotionState,
+    fighter: &mut Fighter,
+    centre: [f32; 3],
+    now: u64,
+    strength: f32,
+    knockdown: Option<u64>,
+) {
+    use crate::combat::force::ja;
     if !fighter.alive() {
         return;
     }
-    if !fighter.saber.floored() {
-        fighter.saber.knock_down(now, ja::KNOCKDOWN_MS);
+    if let Some(ms) = knockdown
+        && !fighter.saber.floored()
+    {
+        fighter.saber.knock_down(now, ms);
     }
     let mut direction = math::sub(ps.origin, centre);
     direction[2] = 0.0;
@@ -493,7 +517,7 @@ fn pushed(ps: &mut MotionState, fighter: &mut Fighter, centre: [f32; 3], now: u6
     if distance == 0.0 {
         return;
     }
-    let speed = (ja::PUSH_PULL_STRENGTH - ja::SHOVE_FALLOFF * distance).max(ja::SHOVE_MIN);
+    let speed = (strength - ja::SHOVE_FALLOFF * distance).max(ja::SHOVE_MIN);
     ps.velocity = [
         direction[0] * speed,
         direction[1] * speed,

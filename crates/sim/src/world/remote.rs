@@ -1,0 +1,164 @@
+//! The seats' remote droids in the world (`crate::remote`). A resource, not
+//! entities: no system that moves, hurts, perceives or runs scripts for
+//! bodies ever sees one.
+
+use bevy_ecs::prelude::*;
+use collision::UNIT;
+
+use super::{Avatar, Id, Inputs, LEADER_SEAT, Player, SeatsHeld, lent};
+use crate::input::Seat;
+use crate::math::scale;
+use crate::motion::MotionState;
+use crate::remote::Remote;
+use crate::snapshot::SimId;
+
+/// The droids flying, by seat.
+#[derive(Resource, Default)]
+pub(crate) struct Remotes(pub Vec<Remote>);
+
+/// The places this step's released bodies stood, by seat (`drivers::assign`
+/// fills it): a droid launches from where its seat's body was.
+#[derive(Resource, Default)]
+pub(crate) struct Launched(pub Vec<(Seat, [f32; 3])>);
+
+/// Gives each held guest seat that spoke and drives no body a droid, and
+/// takes it from one that drives a body again. Runs on the authority after
+/// `drivers::assign` and `scene::hold`.
+pub(super) fn launch(world: &mut World) {
+    let launched = std::mem::take(&mut world.resource_mut::<Launched>().0);
+    let playing = world.resource::<super::minigame::Minigame>().0.is_none();
+    let holds = holds(
+        world.resource::<super::scene::Held>(),
+        world.resource::<super::Module>().fade.as_ref(),
+    );
+    let held = world.resource::<SeatsHeld>().0;
+    let spoke: Vec<Seat> = {
+        let inputs = &world.resource::<Inputs>().0;
+        (1..held)
+            .map(Seat)
+            .filter(|seat| inputs.get(*seat).is_some())
+            .collect()
+    };
+    let bodied: Vec<Seat> = world
+        .query::<&Avatar>()
+        .iter(world)
+        .map(|avatar| avatar.0)
+        .collect();
+    let flies = |seat: &Seat| playing && spoke.contains(seat) && !bodied.contains(seat);
+    let leader = leader(world);
+    let level = world.resource::<super::Static>().0.clone();
+    let states = {
+        let mut objects = world.query::<&super::Object>();
+        level.states(
+            objects
+                .iter(world)
+                .map(|object| (object.index, &object.state)),
+        )
+    };
+    let states = states.as_deref();
+    let mut remotes = std::mem::take(&mut world.resource_mut::<Remotes>().0);
+    remotes.retain(|remote| flies(&remote.seat));
+    for seat in spoke.iter().filter(|seat| flies(seat) && !holds) {
+        if remotes.iter().any(|remote| remote.seat == *seat) {
+            continue;
+        }
+        let from = launched
+            .iter()
+            .find(|(of, _)| of == seat)
+            .map(|(_, at)| *at);
+        let Some((at, yaw)) = from
+            .map(|at| {
+                let up = flight::cleared(&level, states, at, lifted(at));
+                (up, leader.map_or(0.0, |(_, yaw)| yaw))
+            })
+            .or_else(|| leader.map(|lead| flight::behind(&level, states, lead)))
+        else {
+            continue;
+        };
+        remotes.push(Remote::new(*seat, at, yaw));
+    }
+    remotes.sort_by_key(|remote| remote.seat);
+    world.resource_mut::<Remotes>().0 = remotes;
+}
+
+/// Whether the world holds the droids: a conversation holds it (every
+/// seat's body in one, or a party one: `scene::Held`), or a fade covers
+/// the screen (waiting, running or done). Hidden, their kit off; a guest
+/// who first speaks then gets none till it ends. A movie or a break holds
+/// the session itself: no step runs.
+pub(super) fn holds(held: &super::scene::Held, fade: Option<&crate::snapshot::Fade>) -> bool {
+    held.world || fade.is_some_and(|fade| fade.out)
+}
+
+/// How far above a body's origin a droid launches (m).
+const LIFT: f32 = rules::remote::launch::LIFT_M;
+/// How far behind the leader a droid with no body to launch from appears (m).
+const BEHIND: f32 = rules::remote::launch::BEHIND_M;
+
+/// Where the party's leader is (m) and which way it looks (degrees).
+fn leader(world: &mut World) -> Option<([f32; 3], f32)> {
+    led(world).map(|(_, at, yaw)| (at, yaw))
+}
+
+/// Whom what a droid does is credited to: the party's leader (`lead`),
+/// downed or not. No script object is a droid, so a hit needs one for
+/// `GetLastAttacker`, `OnDamaged` and kill XP: the PC's, as KOTOR's
+/// scripts expect.
+pub(super) fn credit(world: &mut World) -> Option<SimId> {
+    led(world).map(|(id, ..)| id)
+}
+
+fn led(world: &mut World) -> Option<(SimId, [f32; 3], f32)> {
+    let lent = lent(&world.resource::<super::scripts::Scripts>().state.party);
+    let mut bodies = world.query::<(&Id, &Player, Option<&Avatar>)>();
+    lead(
+        lent,
+        bodies
+            .iter(world)
+            .map(|(id, player, avatar)| (id.0, &player.0, avatar.map(|a| a.0))),
+    )
+}
+
+/// The leader among `bodies` (id, movement, avatar's seat): seat 0's acting
+/// body, the companion leading when one does (`lent`); its id, where it is
+/// (m) and which way it looks (degrees).
+pub(super) fn lead<'a>(
+    lent: Option<SimId>,
+    mut bodies: impl Iterator<Item = (SimId, &'a MotionState, Option<Seat>)>,
+) -> Option<(SimId, [f32; 3], f32)> {
+    bodies
+        .find(|(id, _, seat)| match lent {
+            Some(lent) => *id == lent,
+            None => *seat == Some(LEADER_SEAT),
+        })
+        .map(|(id, motion, _)| (id, scale(motion.origin, UNIT), motion.view[1]))
+}
+
+impl super::SimWorld {
+    /// Whom a droid's hits are credited to now (`credit`).
+    pub fn remote_credit(&mut self) -> Option<SimId> {
+        credit(&mut self.world)
+    }
+}
+
+/// A droid's place `BEHIND` and `LIFT` above the leader at `at`, looking
+/// along its `yaw`.
+pub(super) fn placed_behind((at, yaw): ([f32; 3], f32)) -> ([f32; 3], f32) {
+    let (sin, cos) = crate::math::sin_cos_deg(yaw);
+    (
+        lifted([at[0] - BEHIND * cos, at[1] - BEHIND * sin, at[2]]),
+        yaw,
+    )
+}
+
+fn lifted(at: [f32; 3]) -> [f32; 3] {
+    [at[0], at[1], at[2] + LIFT]
+}
+
+pub(crate) mod flight;
+pub(crate) mod gate;
+pub(crate) mod kit;
+#[cfg(feature = "probes")]
+mod probes;
+#[cfg(feature = "probes")]
+pub use probes::probes;

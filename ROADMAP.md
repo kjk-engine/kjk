@@ -70,6 +70,9 @@ mechanic that misfires); each kept or fixed quirk has an entry in
 - **Combat**: JA's movement, saber moves, blocks, clashes, locks and the
   Force under KOTOR's rules; blasters, grenades, minds and navigation.
 - **Screens, minigames, saves and co-op**: see [`README.md`](README.md).
+  A guest with no companion to drive flies a remote droid, like Bao-Dur's,
+  with a small kit that can never touch the story
+  ([`docs/COOP.md`](docs/COOP.md)).
 - **TSL**: every module loads and draws, and its systems are in; its
   campaign is played as far as Peragus.
 - **Releases**: the player's build and first-run setup
@@ -80,10 +83,6 @@ mechanic that misfires); each kept or fixed quirk has an entry in
 The games are the content. The work is making their story play well in
 JA's format: polish, balance and design, not new generated content.
 
-- **A seat for every player**: a guest with no companion to drive (too few
-  in the party, or the story takes them away) flies a remote droid, like
-  Bao-Dur's remote, with a small kit to help the party, so nobody sits
-  and watches.
 - **Balance and feel**: the damage model, the curve across levels,
   companions who join a fight at once, and a difficulty setting.
 - **Set-piece encounters** that play well in real time: the Rancor in

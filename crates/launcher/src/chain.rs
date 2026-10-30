@@ -76,6 +76,10 @@ pub struct Options {
     /// The saves list's checkpoints written as saves even from a worktree
     /// (`--saves`; the main checkout always writes them).
     pub saves: bool,
+    /// Every route with two chaos droids (`--droids chaos`, `playthrough::
+    /// chaos`), its story compared with the last plain chain's at every
+    /// module left (`stories`).
+    pub droids: bool,
 }
 
 /// A route file, as its header plays it.
@@ -276,6 +280,9 @@ fn arguments(route: &Route, chain_flags: &[String], options: &Options) -> Vec<St
     }
     if let Some(seconds) = options.goal_seconds {
         flags.extend(["--goal-seconds".to_string(), seconds.to_string()]);
+    }
+    if options.droids {
+        flags.extend(["--droids".to_string(), "chaos".to_string()]);
     }
     let mut arguments = vec![
         "playthrough".to_string(),
@@ -830,6 +837,19 @@ fn in_worktree() -> bool {
 }
 
 pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
+    // Droids change a run's timing (fights end sooner), and the routes are
+    // walked against one timeline: each route starts from the plain chain's
+    // own checkpoint, so a change stays in the route that made it, and a
+    // route blocked stops no other.
+    let alone = Options {
+        alone: true,
+        fail_fast: false,
+        routes: options.routes.clone(),
+        game: options.game.clone(),
+        skills: options.skills.clone(),
+        ..*options
+    };
+    let options = if options.droids { &alone } else { options };
     let plan = match Plan::new(options) {
         Ok(plan) => plan,
         Err(error) => {
@@ -895,7 +915,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 eprintln!("{}: not cached: {error}", route.name);
             }
         }
-        if outcome.ended == Ended::Met {
+        // A chaos run's checkpoints carry its droids' seats and fights: the
+        // plain chain's kept ones and the owner's saves are not theirs.
+        if outcome.ended == Ended::Met && !options.droids {
             folder.promote(&options.game, route);
         }
         done.insert(index, outcome);
@@ -982,7 +1004,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
         std::thread::sleep(Duration::from_millis(100));
     }
     folder.close(&plan, &done);
-    if options.saves || !in_worktree() {
+    if (options.saves || !in_worktree()) && !options.droids {
         report_saves(&options.game);
     }
     let count = |ended: Ended| done.values().filter(|d| d.ended == ended).count();
@@ -1018,7 +1040,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
     if let Err(error) = std::fs::write(&path, serde_json::to_string_pretty(&facts).expect("json values serialize")) {
         eprintln!("{}: {error}", path.display());
     }
-    if count(Ended::Met) == done.len() {
+    let names: Vec<&str> = done.keys().map(|index| routes[*index].name.as_str()).collect();
+    let told = !options.droids || same_story(&options.game, &folder.root, &names);
+    if count(Ended::Met) == done.len() && told {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
@@ -1070,4 +1094,168 @@ fn spawn(folder: &Folder, route: &Route, arguments: &[String], start: Option<&Pa
         .stdout(out.try_clone()?)
         .stderr(out)
         .spawn()
+}
+
+/// Each route's story (`playthrough::chaos::Watch`: the globals, journal,
+/// party and module at each module left) as its run in the chain at
+/// `root` told it: its log names its run folder.
+fn stories(root: &Path, names: &[&str]) -> BTreeMap<String, serde_json::Value> {
+    names
+        .iter()
+        .filter_map(|name| {
+            let log = std::fs::read_to_string(root.join(format!("{name}.log"))).ok()?;
+            let run = log
+                .lines()
+                .rev()
+                .find_map(|line| line.strip_prefix("transcript and recording: "))?;
+            let facts = std::fs::read_to_string(Path::new(run.trim()).join("facts.json")).ok()?;
+            let story = serde_json::from_str::<serde_json::Value>(&facts).ok()?["droids"]["story"].clone();
+            Some((name.to_string(), story))
+        })
+        .collect()
+}
+
+/// Whether route `name`'s run at `root` had droids flying and pressing.
+fn flew(root: &Path, name: &str) -> bool {
+    let Some(run) = std::fs::read_to_string(root.join(format!("{name}.log")))
+        .ok()
+        .and_then(|log| {
+            log.lines()
+                .rev()
+                .find_map(|line| line.strip_prefix("transcript and recording: "))
+                .map(|run| run.trim().to_string())
+        })
+    else {
+        return false;
+    };
+    let facts = std::fs::read_to_string(Path::new(&run).join("facts.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok());
+    facts.is_some_and(|facts| {
+        facts["droids"]["droid_steps"].as_u64().unwrap_or(0) > 0
+            && facts["droids"]["kit_presses"].as_u64().unwrap_or(0) > 0
+    })
+}
+
+/// The newest chain of `game` played without droids whose routes kept
+/// their stories: the run folder a chaos chain is told against.
+fn plain(game: &str, other_than: &Path) -> Option<PathBuf> {
+    let runs = other_than.parent()?;
+    let mut folders: Vec<PathBuf> = std::fs::read_dir(runs)
+        .ok()?
+        .filter_map(|entry| Some(entry.ok()?.path()))
+        .filter(|path| path != other_than)
+        .collect();
+    folders.sort();
+    folders.into_iter().rev().find(|folder| {
+        let Ok(text) = std::fs::read_to_string(folder.join("facts.json")) else {
+            return false;
+        };
+        let Ok(facts) = serde_json::from_str::<serde_json::Value>(&text) else {
+            return false;
+        };
+        let commands = facts["routes"].as_array().cloned().unwrap_or_else(Vec::new);
+        facts["verb"] == "chain"
+            && facts["game"] == game
+            && !commands.is_empty()
+            && commands
+                .iter()
+                .all(|route| !route["command"].as_str().is_some_and(|c| c.contains("--droids")))
+    })
+}
+
+/// Whether the droids flew and fired in every route at `root` and each
+/// route kept a story to tell against the last plain chain's. Droids end
+/// fights sooner by design, so a story may change (the owner, 2026-10-30:
+/// not identical, but every change looked at): each route's changes, where
+/// they first show, go to `story-changes.txt` and the output for review,
+/// not to the verdict.
+fn same_story(game: &str, root: &Path, names: &[&str]) -> bool {
+    let idle: Vec<&str> = names
+        .iter()
+        .copied()
+        .filter(|name| !flew(root, name))
+        .collect();
+    if !idle.is_empty() {
+        println!("story state: no droid flew or fired in {}", idle.join(", "));
+        return false;
+    }
+    let Some(reference) = plain(game, root) else {
+        println!("story state: no plain chain of {game} to tell against (run `kjk chain {game}` first)");
+        return false;
+    };
+    let (ours, theirs) = (stories(root, names), stories(&reference, names));
+    let mut missing = Vec::new();
+    let mut changes = Vec::new();
+    for name in names {
+        let (Some(a), Some(b)) = (ours.get(*name), theirs.get(*name)) else {
+            missing.push(*name);
+            continue;
+        };
+        changes.extend(changed(name, a, b));
+    }
+    let report = format!(
+        "story state against {} ({} routes): {}\n{}",
+        reference.display(),
+        names.len(),
+        if changes.is_empty() {
+            "equal at every exit".to_string()
+        } else {
+            format!("{} change(s) to review, each where it first shows", changes.len())
+        },
+        changes.iter().map(|line| format!("  {line}\n")).collect::<String>()
+    );
+    print!("{report}");
+    let path = root.join("story-changes.txt");
+    if let Err(error) = std::fs::write(&path, &report) {
+        eprintln!("{}: {error}", path.display());
+    }
+    if !missing.is_empty() {
+        println!("story state: no story to compare for {}", missing.join(", "));
+    }
+    missing.is_empty()
+}
+
+/// Route `name`'s story changes, chaos run `ours` against the plain run
+/// `theirs`: at each module left, the globals, journal, party or module
+/// that differ there and did not at an earlier exit, with both values.
+fn changed(name: &str, ours: &serde_json::Value, theirs: &serde_json::Value) -> Vec<String> {
+    let empty = Vec::new();
+    let (a, b) = (
+        ours.as_array().unwrap_or(&empty),
+        theirs.as_array().unwrap_or(&empty),
+    );
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut lines = Vec::new();
+    for (at, (x, y)) in a.iter().zip(b).enumerate() {
+        let module = y["module"].as_str().unwrap_or("?");
+        let mut here: Vec<(String, String)> = Vec::new();
+        for kind in ["numbers", "booleans", "strings"] {
+            let keys: BTreeSet<&String> = (x[kind].as_object().into_iter().flat_map(|o| o.keys()))
+                .chain(y[kind].as_object().into_iter().flat_map(|o| o.keys()))
+                .collect();
+            for key in keys {
+                if x[kind][key] != y[kind][key] {
+                    here.push((key.clone(), format!("{key} {} -> {}", y[kind][key], x[kind][key])));
+                }
+            }
+        }
+        for kind in ["journal", "party", "module"] {
+            if x[kind] != y[kind] {
+                here.push((kind.to_string(), format!("{kind} differs")));
+            }
+        }
+        let new: Vec<String> = here
+            .into_iter()
+            .filter(|(key, _)| seen.insert(key.clone()))
+            .map(|(_, shown)| shown)
+            .collect();
+        if !new.is_empty() {
+            lines.push(format!("{name} exit {at} ({module}): {}", new.join(", ")));
+        }
+    }
+    if a.len() != b.len() {
+        lines.push(format!("{name}: {} exits, the plain run {}", a.len(), b.len()));
+    }
+    lines
 }

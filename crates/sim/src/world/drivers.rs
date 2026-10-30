@@ -51,6 +51,27 @@ use crate::snapshot::SimId;
 pub const KEEP_MS: u64 = rules::party::seats::KEEP_MS;
 
 /// The companions kept for their seats (`Snapshot::kept`).
+/// The seats that never drive a companion, by bit (`SimWorld::set_phantoms`):
+/// a test's guests that only fly droids (`kjk chain --droids chaos`). Not
+/// state: whoever steps the world sets it.
+#[derive(Resource, Default)]
+pub(crate) struct Phantoms(pub u64);
+
+impl super::SimWorld {
+    /// The seats (bit n for seat n) that fly droids and never take a
+    /// companion: the chain's chaos droids. Kept until the world is
+    /// replaced (an install makes a new one).
+    pub fn set_phantoms(&mut self, seats: u64) {
+        self.world.resource_mut::<Phantoms>().0 = seats;
+    }
+
+    /// Holds `seats` seats (`Snapshot::seats_held`), as a host would: a
+    /// test's phantoms' room. An install keeps it.
+    pub fn set_seats_held(&mut self, seats: u8) {
+        self.world.resource_mut::<SeatsHeld>().0 = seats.min(crate::MAX_SEATS);
+    }
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct Kept(pub Vec<crate::snapshot::Kept>);
 
@@ -80,7 +101,12 @@ pub(super) fn assign(world: &mut World) {
     super::switch::sync(world);
     let held = world.resource::<SeatsHeld>().0;
     let now = world.resource::<super::Clock>().time_ms;
-    let inputs = world.resource::<Inputs>().0.clone();
+    // A phantom seat speaks for no body: it only flies a droid.
+    let phantoms = world.resource::<Phantoms>().0;
+    let mut inputs = world.resource::<Inputs>().0.clone();
+    for seat in (1..held).filter(|seat| phantoms & (1 << seat) != 0) {
+        inputs.remove(Seat(seat));
+    }
     let table = &world.resource::<super::scripts::Scripts>().state.party;
     let party: Vec<u32> = table.creatures().collect();
     // The companions' creatures, with their `NPC_*` numbers.
@@ -123,6 +149,8 @@ pub(super) fn assign(world: &mut World) {
     // and playing no player of its own, spoke this step; one body a seat.
     let mut keeping: Vec<Seat> = Vec::new();
     let mut released = Vec::new();
+    // The seats that let a body go, for their droids to launch from it.
+    let mut freed: Vec<(Seat, Entity)> = Vec::new();
     // The seats whose creatures left the party, in seat order.
     let mut benched: Vec<Seat> = Vec::new();
     for member in &mut members {
@@ -141,6 +169,7 @@ pub(super) fn assign(world: &mut World) {
                 benched.push(seat);
             }
             member.driver = None;
+            freed.push((seat, member.entity));
             // Why the seat let it go, for its conversation (R12): one the
             // host now leads it through goes on, the host's.
             let why = if member.dead {
@@ -207,6 +236,14 @@ pub(super) fn assign(world: &mut World) {
     }
     kept.sort_by_key(|kept| kept.seat);
     world.resource_mut::<Kept>().0 = kept;
+    let launched = freed
+        .into_iter()
+        .filter_map(|(seat, entity)| {
+            let origin = world.get::<Player>(entity)?.0.origin;
+            Some((seat, crate::math::scale(origin, collision::UNIT)))
+        })
+        .collect();
+    world.resource_mut::<super::remote::Launched>().0 = launched;
     // A released body's conversation is interrupted, its match paused or
     // ended and its trade ended (R12) in the step's dialogue and pazaak
     // passes.
@@ -245,6 +282,6 @@ pub(super) fn assign(world: &mut World) {
     clippy::disallowed_methods,
     reason = "checks and traces set up their own cases on one machine"
 )]
-mod probes;
+pub(in crate::world) mod probes;
 #[cfg(feature = "probes")]
 pub use probes::probes;

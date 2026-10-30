@@ -36,6 +36,7 @@ const GROUPS: &[Group] = &[
     ("transcript tokens", kjk_game::transcript::probes),
     ("dialogue check", crate::scene_check::probes),
     ("falls", sim::falls::probes),
+    ("remote", sim::remote_probes),
     ("arena", sim::arena_probes::probes),
     ("party", sim::party::probes),
     ("save copies", saves::copies::probes),
