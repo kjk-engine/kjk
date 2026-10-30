@@ -736,11 +736,23 @@ pub(super) fn move_actors(
 }
 
 /// The bodies a move meets (`clear_of`): those given less the living ones
-/// the mover's box already stands inside, and those ones' boxes (units,
-/// seen from above: least and most corners).
+/// the mover already stands inside, and those ones' centres (units, seen
+/// from above).
 pub(crate) struct Inside<'b> {
     pub bodies: std::borrow::Cow<'b, [Body]>,
-    boxes: Vec<[[f32; 2]; 2]>,
+    centres: Vec<[f32; 2]>,
+}
+
+/// A body's round seen from above (units): its box's middle, and half its
+/// width, as a body moving round across meets it (`collision::Bodies`).
+fn round_of(body: &Body) -> ([f32; 2], f32) {
+    (
+        [
+            (body.min[0] + body.max[0]) * 0.5 / UNIT,
+            (body.min[1] + body.max[1]) * 0.5 / UNIT,
+        ],
+        (body.max[0] - body.min[0]) * 0.5 / UNIT,
+    )
 }
 
 /// `bodies` less the living ones `mine` (a body's box) already stands inside:
@@ -748,43 +760,42 @@ pub(crate) struct Inside<'b> {
 /// traces hold a box inside another wherever a step leaves it inside, and
 /// KOTOR moves no body out of another), and `Inside::hold_off` keeps it
 /// from walking further in. Whichever of two overlapping bodies moves, it
-/// meets the other alike.
+/// meets the other alike. Bodies overlap as they meet, round across, as
+/// KOTOR's creatures keep their personal space round them.
 pub(crate) fn clear_of<'b>(mine: &Body, bodies: &'b [Body]) -> Inside<'b> {
+    let (centre, reach) = round_of(mine);
     let overlaps = |other: &Body| {
+        let (theirs, radius) = round_of(other);
         other.contents == Contents::BODY
             && other.entity != mine.entity
-            && (0..3)
-                .all(|axis| other.min[axis] < mine.max[axis] && mine.min[axis] < other.max[axis])
+            && other.min[2] < mine.max[2]
+            && mine.min[2] < other.max[2]
+            && math::flat_length([theirs[0] - centre[0], theirs[1] - centre[1], 0.0])
+                < reach + radius
     };
     if !bodies.iter().any(overlaps) {
         return Inside {
             bodies: std::borrow::Cow::Borrowed(bodies),
-            boxes: Vec::new(),
+            centres: Vec::new(),
         };
     }
-    let flat_box = |body: &Body| {
-        [
-            [body.min[0] / UNIT, body.min[1] / UNIT],
-            [body.max[0] / UNIT, body.max[1] / UNIT],
-        ]
-    };
     Inside {
         bodies: bodies
             .iter()
             .filter(|other| !overlaps(other))
             .copied()
             .collect(),
-        boxes: bodies
+        centres: bodies
             .iter()
             .filter(|other| overlaps(other))
-            .map(flat_box)
+            .map(|other| round_of(other).0)
             .collect(),
     }
 }
 
-/// How far round a body's box (metres, across) another's counts as touching
-/// it: twice the gap a trace stops short of a plane, as a move stopped by
-/// it leaves them.
+/// How far round a body (metres, across) another counts as touching it:
+/// twice the gap a trace stops short of a plane, as a move stopped by it
+/// leaves them.
 const TOUCH: f32 = 2.0 * collision::CONTACT_GAP;
 
 /// The box `clear_of` weighs a body by: a seat's player's grown across by
@@ -803,63 +814,58 @@ pub(crate) fn met_as(mine: &Body, seated: bool) -> Body {
 
 impl Inside<'_> {
     /// A move from `before` that took `ps` deeper into a body it stood
-    /// inside keeps only its part along that body's face (the part into the
-    /// face taken off), when `clear` lets a box go there from `before` (a
-    /// seat's player's, `movement`); else it is taken back across the floor.
-    /// It walks out of the other or along it, never into it. The face is the
-    /// side of the other's box the mover's overlaps least, as a trace stopped
-    /// by the box would slide along it: weighed by the boxes' middles
-    /// instead, every step off a box's corner counted as nearer and was
-    /// taken back, and the player stood held at a mechanic's box by
-    /// Anchorhead's docking bay door, between him and a footlocker, for good.
-    /// Taken back whole, a player pressed between a wall and a body it
-    /// overlapped (Freyyr, come up to talk in Chuundar's throne room) never
-    /// got out: every way its walk tried led nearer him.
+    /// inside (nearer its centre) keeps only its part round that body (the
+    /// part toward its centre taken off), when `clear` lets a box go there
+    /// from `before` (a seat's player's, `movement`); else it is taken back
+    /// across the floor. It walks out of the other or round it, never into
+    /// it, as a trace stopped by the round slides round it. Weighed as
+    /// boxes, a step off a box's corner was deeper across one face, and a
+    /// body between two others' corners had no way out but back (the Exile
+    /// held by the royal soldiers out of Onderon's palace gas room); taken
+    /// back whole, a player pressed between a wall and a body it overlapped
+    /// (Freyyr, come up to talk in Chuundar's throne room) never got out:
+    /// every way its walk tried led nearer him.
     pub(crate) fn hold_off(
         &self,
         before: [f32; 3],
         ps: &mut MotionState,
         clear: impl Fn([f32; 3], [f32; 3]) -> bool,
     ) {
-        let half = motion::HALF_WIDTH;
-        // How far a box at `at` overlaps `other` along each axis.
-        let overlap = |at: [f32; 3], other: &[[f32; 2]; 2]| -> [f32; 2] {
-            std::array::from_fn(|axis| {
-                (at[axis] + half).min(other[1][axis]) - (at[axis] - half).max(other[0][axis])
-            })
-        };
-        // Each other's face: the axis overlapped least from `before`, and
-        // which way it lies.
-        let faces: Vec<(usize, f32)> = self
-            .boxes
+        // Nearer the centre of one it stood inside than it stood, by the
+        // step `moved` (weighed from the centre, where a step round it is
+        // not lost to the coordinates' rounding far from the origin).
+        let from: Vec<[f32; 2]> = self
+            .centres
             .iter()
-            .map(|other| {
-                let [x, y] = overlap(before, other);
-                let axis = usize::from(y < x);
-                let middle = (other[0][axis] + other[1][axis]) * 0.5;
-                (axis, if middle >= before[axis] { 1.0 } else { -1.0 })
-            })
+            .map(|centre| [before[0] - centre[0], before[1] - centre[1]])
             .collect();
-        let deeper = |at: [f32; 3]| {
-            self.boxes
-                .iter()
-                .zip(&faces)
-                .any(|(other, (axis, _))| overlap(at, other)[*axis] > overlap(before, other)[*axis])
+        let deeper = |moved: [f32; 2]| {
+            from.iter().any(|rel| {
+                let at = [rel[0] + moved[0], rel[1] + moved[1]];
+                at[0] * at[0] + at[1] * at[1] < rel[0] * rel[0] + rel[1] * rel[1]
+            })
         };
-        if !deeper(ps.origin) {
+        let mut moved = [ps.origin[0] - before[0], ps.origin[1] - before[1]];
+        if !deeper(moved) {
             return;
         }
-        let mut moved = [ps.origin[0] - before[0], ps.origin[1] - before[1]];
         let mut velocity = [ps.velocity[0], ps.velocity[1]];
-        for (axis, side) in &faces {
+        for rel in &from {
+            let length = math::flat_length([rel[0], rel[1], 0.0]);
+            if length <= f32::EPSILON {
+                continue;
+            }
+            let out = [rel[0] / length, rel[1] / length];
             for v in [&mut moved, &mut velocity] {
-                if v[*axis] * side > 0.0 {
-                    v[*axis] = 0.0;
+                let toward = v[0] * out[0] + v[1] * out[1];
+                if toward < 0.0 {
+                    v[0] -= toward * out[0];
+                    v[1] -= toward * out[1];
                 }
             }
         }
         let along = [before[0] + moved[0], before[1] + moved[1], ps.origin[2]];
-        if !deeper(along) && clear(before, along) {
+        if !deeper(moved) && clear(before, along) {
             ps.origin = along;
             ps.velocity[0] = velocity[0];
             ps.velocity[1] = velocity[1];

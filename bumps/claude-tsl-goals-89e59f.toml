@@ -1,0 +1,8 @@
+# The sim's hash moves on purpose: a body moving round across (an upright
+# cylinder, `Shape::Upright`) meets another body round across too, and a
+# seat's player standing inside or touching one weighs it as a round
+# (`world::clear_of`, `Inside::hold_off`), as KOTOR's creatures meet by
+# their personal space: met as square boxes, a body caught between two
+# others' corners stood in their pocket (the Exile out of Onderon's palace
+# gas room among the royal soldiers).
+sim = "bodies meet bodies round across, as KOTOR's creatures meet by their personal space"
