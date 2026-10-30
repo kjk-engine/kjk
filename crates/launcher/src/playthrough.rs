@@ -41,6 +41,8 @@
 //!                       # breaks (`COMBAT.md`, "Bashing"; TSL's prologue footlocker)
 //! leader 0              # companion NPC 0 leads (the portrait click's `Lead`); `leader player`
 //! solo on               # solo mode (the companions stand where they are); `solo off`
+//! stealth on            # the stealth button pressed for the body the player leads
+//!                       # (Stealth ranks and a stealth unit worn); `stealth off`
 //! credits               # stand until the game ends, won (`EndGame`)
 //! party 7,0             # the next party selection screen takes NPCs 7 and 0
 //! travel 4              # from the galaxy map, to planet 4 (`planetary.2da`)
@@ -56,6 +58,9 @@
 //!                       # changed nothing (`Round`)
 //! if in unk_m41aa       # the goals to its `end` only in that module
 //! if npc 8=0            # ... only if companion NPC 8 is (1) or is not (0) available
+//! while npc_pato.n13<10 # ... while the object's local number 13 reads under 10, as a
+//!                       # script's GetLocalNumber does (`=`, `>` too; `TAG.b45=0`: a
+//!                       # local boolean, read true as its raw bit is)
 
 //! module end_m01ab      # stand until the player is in that module
 //! gone hendarsfate      # stand until no object of that tag is there (the dead taken
@@ -69,6 +74,10 @@
 //!                       # aboard, the module left for the boarded Ebon Hawk)
 //! pazaak                # stand until a pazaak match is played out (any match a
 //!                       # script starts is played as `pazaak::Match::advice` says)
+//! craft u_l_lens_01     # at the workbench (or lab station) a script showed, make one
+//!                       # of that item of its table (TSL's `Action::Create`)
+//! fit u_l_lens_01 saber # at the upgrade screen a script showed, fit that upgrade the
+//!                       # party carries into the item (`equip`'s word)
 //! global K_STAR_MAP=10  # a script global set (a number, or true/false)
 //! gold 200              # the party's credits set
 //! skill persuade=15     # the player's rank in a skill set (a build a route stands in)
@@ -447,6 +456,12 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
             // offers): a `travel` picks only from an open map (a use answered
             // before the screen came), as its Accept would.
             let mut map_shown: Option<u32> = None;
+            // The bench a script last showed (`ShowUpgradeScreen`,
+            // `ShowChemicalUpgradeScreen`): a `craft` or `fit` presses its
+            // buttons, until a conversation or another module closes it; and
+            // what the sim refused there since (its line).
+            let mut bench_shown: Option<Screen> = None;
+            let mut bench_refused: Option<String> = None;
             // The credits rolled (`StartCreditSequence`), and the game's end
             // after them (`EndGame` without its death screen): won.
             let mut credits_rolled = false;
@@ -593,6 +608,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 let mut played_in: Option<String> = None;
                 // A pazaak match seen under way.
                 let mut tabled = false;
+                // A `craft` or `fit` pressed at its bench: for a `craft`,
+                // how many of the item the party carried then.
+                let mut benched: Option<u32> = None;
                 if let Goal::Party(picks) = goal {
                     chosen = Some(*picks);
                     met = true;
@@ -1024,6 +1042,27 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 == Some(*npc).filter(|npc| *npc != u8::MAX);
                         }
                         Goal::Solo(on) => met = world.script_state().party.solo == *on,
+                        // Pressed once out of a conversation (as the HUD's
+                        // stealth button is), held a step; not met a second
+                        // later, refused (the game's line is in the
+                        // transcript: no ranks, no unit worn, in combat).
+                        Goal::Stealth(on) => {
+                            met = me.fighter.is_some_and(|fighter| fighter.covert.stealth == *on);
+                            if !met && talking.is_none() {
+                                match benched {
+                                    None => {
+                                        benched = Some(0);
+                                        pressed_at = now;
+                                        command.buttons |= buttons::STEALTH;
+                                    }
+                                    Some(_) if now > pressed_at + 1000 => {
+                                        held = vec![format!("stealth {}: refused", if *on { "on" } else { "off" })];
+                                        break;
+                                    }
+                                    Some(_) => {}
+                                }
+                            }
+                        }
                         Goal::Credits => met = game_won,
                         // One item named: put on again each step until worn
                         // (armour is refused while a fight goes on: the Sand
@@ -1070,7 +1109,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         // it then stands.
                         Goal::If(condition, block) => {
                             if settle.settled() || now >= started_ms + SCENE_WAIT_MS {
-                                if !condition.holds(world.script_state(), &module_of(&last)) {
+                                if !condition.holds(world.script_state(), &module_of(&last), &here) {
                                     skip = *block;
                                 }
                                 round_from.insert(
@@ -1083,13 +1122,82 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         // Once the world has settled too (after a scene's
                         // time, once no conversation plays).
                         Goal::Until(condition) => {
-                            met = condition.holds(world.script_state(), &module_of(&last))
+                            met = condition.holds(world.script_state(), &module_of(&last), &here)
                                 && (settle.settled()
                                     || talking.is_none() && now >= started_ms + SCENE_WAIT_MS);
                         }
                         Goal::Gone(tag, nth) => met = find(&here, tag, *nth).is_none(),
                         Goal::Gather => met = gathered(&world, &last, me.position),
                         Goal::Module(name) => met = module_of(&last).eq_ignore_ascii_case(name),
+                        // Pressed once, on the bench a script showed: made
+                        // once the party carries one more, or refused (too
+                        // few components, the skill not reached).
+                        Goal::Craft(template) => {
+                            if let Some(had) = benched {
+                                met = gear::carried(&last, template) > had;
+                                if let (false, Some(why)) = (met, bench_refused.take()) {
+                                    held = vec![format!("craft: {why}")];
+                                    break;
+                                }
+                            } else if let Some(Screen::Workbench(bench)) = &bench_shown
+                                && talking.is_none()
+                            {
+                                match gear::creation(&world, bench, template) {
+                                    Ok(create) => {
+                                        bench_refused = None;
+                                        benched = Some(gear::carried(&last, template));
+                                        acts.push(create);
+                                    }
+                                    Err(why) => {
+                                        held = vec![why];
+                                        break;
+                                    }
+                                }
+                            } else if settle.settled() && talking.is_none() {
+                                held = vec!["craft: no workbench or lab station open".into()];
+                                break;
+                            }
+                        }
+                        // Pressed once, on an upgrade screen a script showed
+                        // for the item (or for any): met once fitted.
+                        Goal::Fit(upgrade, named) => match gear::fitted(&world, &last, named, upgrade) {
+                            Some((_, true)) => met = true,
+                            Some((item, false)) if benched.is_none() => {
+                                let open = match &bench_shown {
+                                    Some(Screen::Upgrade { item: only }) => only.is_none_or(|only| only == item),
+                                    Some(Screen::Workbench(bench)) => {
+                                        bench.upgrade && bench.item.is_none_or(|only| only == item)
+                                    }
+                                    _ => false,
+                                };
+                                if open && talking.is_none() {
+                                    match gear::fitting(&world, item, upgrade) {
+                                        Ok(fit) => {
+                                            bench_refused = None;
+                                            benched = Some(0);
+                                            acts.push(fit);
+                                        }
+                                        Err(why) => {
+                                            held = vec![why];
+                                            break;
+                                        }
+                                    }
+                                } else if settle.settled() && talking.is_none() {
+                                    held = vec![format!("fit: no upgrade screen open for {named}")];
+                                    break;
+                                }
+                            }
+                            Some(_) => {
+                                if let Some(why) = bench_refused.take() {
+                                    held = vec![format!("fit: {why}")];
+                                    break;
+                                }
+                            }
+                            None => {
+                                held = vec![format!("fit: the party has no {named}")];
+                                break;
+                            }
+                        },
                         Goal::Pazaak => {
                             tabled |= last.pazaak_of(Seat(0)).is_some();
                             met = tabled && last.pazaak_of(Seat(0)).is_none();
@@ -2394,12 +2502,13 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     for (_, notice) in world.take_notices() {
                         match notice {
                             Notice::Said(text) => said.push(format!("{at} {text}")),
-                            Notice::Line(strref) => said.push(format!(
-                                "{at} {}",
-                                installer
-                                    .text(strref)
-                                    .unwrap_or_else(|| format!("line {strref}"))
-                            )),
+                            Notice::Line(strref) => {
+                                let line = installer.text(strref).unwrap_or_else(|| format!("line {strref}"));
+                                if bench_shown.is_some() {
+                                    bench_refused = Some(line.clone());
+                                }
+                                said.push(format!("{at} {line}"));
+                            }
                             Notice::Check { .. }
                             | Notice::TrapSeen { .. }
                             | Notice::Experience(_)
@@ -2421,6 +2530,17 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             Notice::Show(Screen::PartySelection(_)) => {
                                 acts.push(Action::ChooseParty(chosen.take()));
                                 said.push(format!("{at} [the party selection screen, closed]"));
+                            }
+                            Notice::Show(screen @ (Screen::Workbench(_) | Screen::Upgrade { .. })) => {
+                                if let Screen::Workbench(bench) = &screen {
+                                    let pool = if bench.lab { "chemicals" } else { "components" };
+                                    said.push(format!("{at} [the {} open: {} {pool}]", bench.list, bench.stock));
+                                }
+                                bench_shown = Some(screen);
+                            }
+                            refused @ (Notice::CannotUse | Notice::CannotUpgrade) if bench_shown.is_some() => {
+                                said.push(format!("{at} {refused:?}"));
+                                bench_refused = Some(format!("{refused:?}"));
                             }
                             Notice::Show(Screen::Pazaak) => {
                                 said.push(format!("{at} [a pazaak match]"));
@@ -2446,6 +2566,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         }
                     }
                     if let Some(transition) = last.transition.clone() {
+                        bench_shown = None;
                         let via = last
                             .get(transition.via)
                             .and_then(|entity| Here::new(&level, &last, &refused).facts_of(entity));

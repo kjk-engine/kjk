@@ -52,8 +52,8 @@ pub mod xp;
 pub use actions::DOOR_REACH;
 #[cfg(feature = "probes")]
 pub(crate) use engine::MOVE_TO_LOCATION_RANGE;
-pub use engine::last;
 pub use engine::{CONVERSATION_RANGE, bound};
+pub use engine::{last, local};
 pub use hooks::{Holder, Hook};
 pub use presentation::ENGINE_SCRIPTS;
 

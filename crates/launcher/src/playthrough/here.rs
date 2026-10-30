@@ -992,12 +992,43 @@ pub(super) enum Condition {
     In(String),
     /// A companion (by NPC number) is available, or not.
     Npc(u8, bool),
+    /// A local of the object a tag names (`find`'s): a number (`boolean`
+    /// false) less than, equal to or greater than the value, as a script's
+    /// `GetLocalNumber` reads it (a byte, unsigned); or a boolean the value
+    /// (a truth: 0 or 1), as `GetLocalBoolean`'s raw bit is read true. An
+    /// object not there holds none (0, as a script reads one that is not).
+    Local {
+        tag: String,
+        nth: Option<usize>,
+        boolean: bool,
+        index: i32,
+        order: std::cmp::Ordering,
+        value: i32,
+    },
 }
 
 impl Condition {
-    /// Whether it holds now, the party in `module`.
-    pub(super) fn holds(&self, state: &sim::script::State, module: &str) -> bool {
+    /// Whether it holds now, the party in `module` (`here`'s).
+    pub(super) fn holds(&self, state: &sim::script::State, module: &str, here: &Here) -> bool {
         match self {
+            Condition::Local {
+                tag,
+                nth,
+                boolean,
+                index,
+                order,
+                value,
+            } => {
+                let read = find(here, tag, *nth)
+                    .and_then(|(index, _)| here.entity(index))
+                    .zip(here.snapshot.place.as_ref())
+                    .map_or(0, |(entity, place)| {
+                        let id = ObjectId(entity.id.0);
+                        sim::script::local(state, (&place.game, module), id, *boolean, *index)
+                    });
+                let read = if *boolean { i32::from(read != 0) } else { read };
+                read.cmp(value) == *order
+            }
             Condition::Global(name, value) => match sim::script::global(&state.booleans, name) {
                 Some(truth) => *truth == (*value != 0),
                 None => sim::script::global(&state.numbers, name).copied().unwrap_or(0) == *value,

@@ -15,12 +15,18 @@
 # Command Console (the minefield shut down, then the power: the cloaking
 # device fails), the bounty hunters fought back to the Ebon Hawk; Mira's
 # word of Zez-Kai Ell, G0-T0 joining aboard and back to Nar Shaddaa's safe
-# house.
+# house. Once the Exile is free, the yacht's side (DSimpson's): the audience
+# chamber's two sentry droids scavenged for components ([Repair]), the lab
+# station (a battle stimulant made of chemicals, Treat Injury), the damaged
+# utility droid in the third cell's memory core: the Reset program
+# ([Computer]), uploaded at the Command Console; T3-M4 through the left
+# side's security doors (DC 28) to the maintenance bay, and the far rooms'
+# plasteel cylinders searched (the locked ones picked), the bridge's last.
 # Starts from Goto's yacht's checkpoint:
 #   kjk playthrough tsl @nar_shaddaa_yacht data/routes/tsl/nar_shaddaa_goto.route --god
 # Walkthrough: DSimpson's "Goto's Yacht" (context/walkthroughs/tsl/).
-# Left: the far rooms' plasteel containers, the sentry droids' scavenging
-# (in the ship's far hold), the Reset program and the lab station.
+# Reset is not run: each of its systems' "Run program: Reset." undoes the
+# shut-downs the yacht's way through made.
 talk                 # Goto's talk, to the proximity alarm
 use g0t0kevin        # the utility droid: Shutdown
 talk
@@ -72,6 +78,44 @@ fight 15             # the audience chamber's turrets
 to wp_pc_rescue2     # the Exile freed
 fight 15
 save nar_shaddaa_exile
+say [Repair] Scavenge the droid for components. # the audience chamber's
+say Leave the droid alone. # sentry droids, shut down (351drd: a_givecomp)
+use g0t0droids@1
+talk
+say [Repair] Scavenge the droid for components.
+say Leave the droid alone.
+use g0t0droids@2
+talk
+say [Use the Lab Station now.] # the torture room's lab station
+use MedBen           # (k_medstation: ShowChemicalUpgradeScreen)
+talk
+craft g_i_cmbtshot001 # a battle stimulant (chemicalcreate.2da, Treat Injury 12)
+unlock MilLowPlstcCylinLocked@4 # beside it
+use MilLowPlstcCylinLocked@4
+say [Computer] Access droid's memory core. # the damaged utility droid in
+use c_drdastro003    # the third cell: the Reset program (800_software44)
+talk
+say Program Library.
+say Upload programs.
+say Log out.
+use M478Console@3    # the Command Console by the torture room
+talk
+leader 8             # T3-M4 through the left side's security doors (DC 28)
+unlock SecDoor
+unlock Door@9
+leader player
+use MilLowPlstcCylin@4 # the maintenance bay
+unlock MilLowPlstcCylinLocked@2
+use MilLowPlstcCylinLocked@2
+use MilMidPlstcCylin@1
+use MilHighPlstcCylin@2 # the far rooms by the docking bay
+use MilLowPlstcCylin@2
+unlock MilLowPlstcCylinLocked@1
+use MilLowPlstcCylinLocked@1
+use MilLowPlstcCylin@3
+use MilMidPlstcCylin@2
+unlock MilLowPlstcCylinLocked@3
+use MilLowPlstcCylinLocked@3
 say Acquire Power Distribution Access Code.
 say Access Primary Power Supply System.
 say Switch containment cells to secondary system.
@@ -117,6 +161,8 @@ say =Run program: Shut down.
 say Log out.
 use ComputerPanel@1  # the Bridge Command Console
 talk
+unlock MilHighPlstcCylin@1 # the bridge's cylinder: the Droid Controller's
+use MilHighPlstcCylin@1 # access code
 save nar_shaddaa_bridge
 leader player
 exit TO_003EBO       # the bounty hunters fought back to the Ebon Hawk

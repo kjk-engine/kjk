@@ -59,7 +59,7 @@ The **kind** tags are:
 - [ ] `skill` **The protocol droids and the conduits' main terminal**: the six droids ask some seven repair parts each, the terminal four more and two spikes; the party carries a dozen parts, which Dxun's droid carrier counts on.
 - [ ] `skill` **Jorran's Persuade:** "I saved your life" asks Persuade over 11, the chain's Exile has 11 there; he is paid.
 - [ ] `feature` **The landing pad's "Plasteel Cylinder{Med, Blast}":** DSimpson mines it open, and kjk can set mines on doors only.
-- [ ] `side` **The pazaak Ithorian.**
+- [x] `side` **The pazaak Ithorian**, Pato Ado: his cards bought, played at his first stake until his count (local number 13) reaches ten, then his armor game won: three armor upgrades (dantooine_pazaak, a branch from `dantooine_plains` with a `gold` stand-in). His decks are his stakes (`pazaakdecks.2da` rows 1 to 3, the third all ±); the route's player, `pazaak::Match::advice`, wins about one game in four against his average deck with the default side deck and his store's cards.
 - [x] `side` **Nallek**: talked down ([Persuade], "I'm a warrior, like yourself") (dantooine_enclave).
 - [x] `side` **Dopak's message**: Berun's doubts laid before Zherron ([Persuade]), his message ("Go ahead") given Dopak, and Zherron told (dantooine_khoonda, dantooine_enclave, dantooine_vrook).
 - [x] `side` **Khoonda's defence tasks** before the battle (dantooine_battle): Zherron's list heard; Suulru, Akkere, Dillan and Jorran recruited; the three assault droids reactivated (Akkere's four parts bought); the four wounded militia treated by hand ([Treat Injury], LSP each); the side security door sealed ([Repair]).
@@ -76,11 +76,12 @@ The **kind** tags are:
 ## Nar Shaddaa (PR 16)
 
 - [x] `side` **Vogga's room and the dance**: the Handmaiden brought ashore, his domo's dancer, Vogga asleep, then woken: fuel for Telos once Goto is dealt with (nar_shaddaa_vogga, a branch from `nar_shaddaa_refugees`).
-- [ ] `side` **Vogga's hoard and the kath hounds' juma juice**: the flophouse's thieves are overheard only stealthed (`k_chkvoggathv` asks IsStealthed), which the chain's Exile cannot be; with them go the hoard's lens fixture and Vogga's fuel word after Goto.
+- [x] `side` **Vogga's hoard and the kath hounds' juma juice**: the flophouse's thieves overheard in stealth (the harness's `stealth on`: the Exile's Stealth ranks, and the Stealth Field Generator from Peragus worn; the party left standing back), the juma juice haggled from the Promenade's bartender ([Persuade], 50 credits), poured in the hounds' urn while the dance has Vogga asleep, the hoard's security door and the lens fixture's box picked (its `a_give_quest_lsc`) (nar_shaddaa_vogga).
+- [ ] `side` **Vogga's fuel word after Goto** (vogga.dlg's third start): it asks the dance's state, which only the Vogga branch has; the main line goes to Goto's yacht without the dance.
 - [ ] `side` **The swoop droid** and the swoop races.
 - [x] `side` **The Exchange deal**: the boss's back room by the landing pad walked in on, Squik killed by him, his men fought (the Exchange +1) (nar_shaddaa_exchange).
 - [x] `side` **IT-31**: Tienn and TT-32 heard, IT-31 bought from Kodin for 150 ([Persuade]) and sent home ([Repair]), TT-32's droid shield for T3 (nar_shaddaa_landing).
-- [ ] `side` **Pazaak.**
+- [x] `side` **Pazaak**, the den: its guard asked, Kaalah-Nah's password bought, Geredi and S4-C8 beaten three times each (their locals 30 and 45), Dahnis (a male Exile is dealt out of her games), the champion brought by the den's trigger once the three are beaten, and beaten: his golden card (nar_shaddaa_pazaak, a branch from `nar_shaddaa_refugees` with a `gold` stand-in).
 - [x] `side` **Geriel**: his illness laid before Saquesh ([Persuade]: his hold on the camp relaxed, the Exchange +1), then treated ([Treat Injury], LSP) (nar_shaddaa_landing).
 - [x] `side` **Nadaa**: Adana's debt settled with Saquesh ([Persuade] for 600 credits, or 700; LSP, the Exchange +1), Nadaa's thanks (nar_shaddaa_landing).
 - [x] `side` **Saquesh**: talked to over Geriel and Adana, not fought (nar_shaddaa_landing).
@@ -95,9 +96,9 @@ The **kind** tags are:
 - [x] `blocker` **nar_shaddaa_zez:** Zez-Kai Ell teaches the Sentinel's next form (`a_give_form`, Ataru after Vrook's Shien) and his scene opens the safe house's door, so the route walks out through it (nar_shaddaa_zez, no `goto`).
 - [x] `feature` **`G_PC_LEVEL`** follows the XP the party gains (TSL's `ReceiveExperience`), so `a_give_quest_ls` gives Visas's part as the game's treasure for the Exile's level (a short lightsaber, nar_shaddaa_landing).
 - [ ] `feature` **Visas's joining conversation is cut short** after the Handmaiden's line, because the game's own `a_next_scene` destroys the owner (VisasCut), so the lightsaber-part notice and the second `a_next_scene` never play. Check in the exe whether a conversation talks on after its owner is destroyed.
-- [ ] `side` **Goto's yacht:** the far rooms' plasteel containers and the sentry droids' scavenging (the container by the utility droid is searched, nar_shaddaa_goto).
+- [x] `side` **Goto's yacht:** the far rooms' plasteel containers (T3-M4 through the left side's DC 28 doors to the maintenance bay; the locked ones picked), the bridge's cylinder, and the audience chamber's sentry droids scavenged ([Repair]) (nar_shaddaa_goto).
 - [x] `side` **Goto's yacht: T3-M4's combat upgrade** at the Security Console (nar_shaddaa_goto).
-- [ ] `side` **Goto's yacht: the Reset program and the lab station** (the lab station's screen, `ShowChemicalUpgradeScreen`, has no harness goal).
+- [x] `side` **Goto's yacht: the Reset program and the lab station**: a battle stimulant made at the lab station (`craft`), the Reset program recovered from the damaged utility droid ([Computer]) and uploaded at the Command Console; not run, as each of its systems' Reset undoes the shut-downs the way through made (nar_shaddaa_goto).
 - [ ] `choice` **The yacht hub scene's G0-T0 line** (Mira's plays instead).
 - [x] `side` **HK-47's rebuilding**: his remains diagnosed aboard after Telos and the vocabulator fitted (dantooine_khoonda), the control cluster bought from Akkere and fitted (nar_shaddaa_landing), the processor bought from Kodin once the rebuild is under way (`a_stock_kodin` stocks the part the quest lacks; nar_shaddaa_landing), the chassis taken from the HK-50s' remains (nar_shaddaa_warehouse), the last two fitted aboard after Nar Shaddaa (nar_shaddaa_zez).
 - [ ] `side` **The companion talks aboard after Nar Shaddaa** (Mira's, HK-47's first).
@@ -218,6 +219,7 @@ malachor_core, on the light side to the end credits.
 - [ ] `choice` **A female Exile:** the Disciple joins, not the Handmaiden.
 - [ ] `choice` **Influence-gated content:** each companion's high and low influence talks, and the Jedi trainings (Atton, Bao-Dur, Mira, Handmaiden/Disciple, Visas).
 - [x] `side` **HK-47's parts** and his assembly on the Ebon Hawk: see Nar Shaddaa's rebuilding above.
-- [ ] `side` **Workbench crafting, lightsaber building and the crystal's growth.** The engine's workbench is there (`script::workbench`: breakdown, items made, the skill and component checks); no harness goal opens a bench, so no route crafts.
+- [x] `side` **Workbench crafting**: a Synthesized Kunda Lens made at the Ebon Hawk's workbench and fitted in the Exile's saber (`craft`, `fit`; nar_shaddaa_landing), a battle stimulant at Goto's lab station.
+- [ ] `side` **Lightsaber building and the crystal's growth.**
 - [x] `feature` **Buying from a store**: `buy TEMPLATE [COUNT]` buys from the store open to the player, one a step once the world has settled, until the party carries that many (HK-47's control cluster and a spike from Akkere, his processor from Kodin).
-- [x] `feature` **Pazaak in the routes**: Mebla's record and Doton Het's wager (telos_cantina_games), Atton's practice hand aboard (dantooine_khoonda); the Nar Shaddaa den (Kaalah-Nah's password, Dahnis, S4-C8, Geredi, the champion) is not played yet.
+- [x] `feature` **Pazaak in the routes**: Mebla's record and Doton Het's wager (telos_cantina_games), Atton's practice hand aboard (dantooine_khoonda); the Nar Shaddaa den (nar_shaddaa_pazaak) and Pato Ado (dantooine_pazaak), whose routes read the players' locals (`while Geredi.b45=0`).

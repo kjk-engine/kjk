@@ -35,6 +35,9 @@ pub(super) enum Goal {
     Leader(u8),
     /// Solo mode on or off.
     Solo(bool),
+    /// Stealth mode on or off for the body the player leads (the stealth
+    /// button pressed, once).
+    Stealth(bool),
     /// The game won and over (`EndGame`'s end screen shown).
     Credits,
     /// What the party carries sold, dearest first, to the store open to
@@ -43,6 +46,14 @@ pub(super) enum Goal {
     /// Bought from the store open to the player, one a step, until the
     /// party carries this many of the item (its template).
     Buy(String, u32),
+    /// Made at the bench the goal before opened (a workbench, the lab
+    /// station), of its components or chemicals: one of the item (its
+    /// template).
+    Craft(String),
+    /// An upgrade the party carries (its template) fitted into an item
+    /// (`equip`'s word: a template, or `saber`) at the upgrade screen the
+    /// goal before opened.
+    Fit(String, String),
     /// The companions (`NPC_*`) the next party selection takes.
     Party([u8; 2]),
     /// A planet (`planetary.2da` row) travelled to from the galaxy map.
@@ -111,6 +122,41 @@ pub(super) fn target(word: Option<&str>, rest: Option<&str>) -> Result<Target, S
         None => (word, None),
     };
     Ok(Target::Tag(tag.to_string(), nth))
+}
+
+/// An object's local an `if`, `while` or `until` asks: `TAG.nINDEX` a
+/// number, `=`, `<` or `>` the value; `TAG.bINDEX` a boolean, `=` 0 or 1
+/// (`TAG@N.…` the area's `N`th).
+fn local(word: &str) -> Option<Condition> {
+    let at = word.find(['=', '<', '>'])?;
+    let (name, value) = (&word[..at], &word[at + 1..]);
+    let order = match &word[at..=at] {
+        "<" => std::cmp::Ordering::Less,
+        ">" => std::cmp::Ordering::Greater,
+        _ => std::cmp::Ordering::Equal,
+    };
+    let (object, local) = name.rsplit_once('.')?;
+    let boolean = match local.get(..1)? {
+        "n" => false,
+        "b" => true,
+        _ => return None,
+    };
+    let index = local[1..].parse::<i32>().ok()?;
+    let value = value.parse::<i32>().ok()?;
+    if boolean && (order != std::cmp::Ordering::Equal || !(0..=1).contains(&value)) {
+        return None;
+    }
+    let Ok(Target::Tag(tag, nth)) = target(Some(object), None) else {
+        return None;
+    };
+    Some(Condition::Local {
+        tag,
+        nth,
+        boolean,
+        index,
+        order,
+        value,
+    })
 }
 
 /// The checkpoints `route` saves, by name, each with whether it may be
@@ -203,6 +249,8 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                                 .ok_or(format!("{part}: {verb} npc NUMBER=0|1"))?;
                             Condition::Npc(npc, truth == "1")
                         }
+                        Some(local) if local.contains('.') => self::local(local)
+                            .ok_or(format!("{part}: {verb} TAG.nINDEX=NUMBER (<, >) or TAG.bINDEX=0|1"))?,
                         _ => {
                             let (name, value) = a
                                 .and_then(|a| a.split_once('='))
@@ -254,6 +302,11 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                     Some("off") => false,
                     _ => return Err(format!("{part}: solo on or solo off")),
                 }),
+                "stealth" => Goal::Stealth(match a {
+                    Some("on") => true,
+                    Some("off") => false,
+                    _ => return Err(format!("{part}: stealth on or stealth off")),
+                }),
                 "equip" => Goal::Equip(a.map(str::to_ascii_lowercase)),
                 "unlock" => Goal::Unlock(target(a, None)?, b.map(str::to_string)),
                 "bash" => Goal::Bash(target(a, b)?),
@@ -267,6 +320,16 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                     a.ok_or(format!("{part}: buy TEMPLATE [COUNT]"))?
                         .to_ascii_lowercase(),
                     b.map_or(Ok(1), |n| n.parse::<u32>().map_err(|_| format!("{part}: buy TEMPLATE COUNT")))?,
+                ),
+                "craft" => Goal::Craft(
+                    a.ok_or(format!("{part}: craft TEMPLATE"))?
+                        .to_ascii_lowercase(),
+                ),
+                "fit" => Goal::Fit(
+                    a.ok_or(format!("{part}: fit UPGRADE ITEM"))?
+                        .to_ascii_lowercase(),
+                    b.ok_or(format!("{part}: fit UPGRADE ITEM"))?
+                        .to_ascii_lowercase(),
                 ),
                 "module" => Goal::Module(a.ok_or(format!("{part}: module NAME"))?.to_string()),
                 "race" => Goal::Race,

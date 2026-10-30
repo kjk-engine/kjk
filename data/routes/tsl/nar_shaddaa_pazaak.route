@@ -1,0 +1,62 @@
+# Nar Shaddaa, the pazaak den (TSL, 302NAR, 301NAR, 306NAR), a branch from
+# the Refugee Sector that rejoins nothing: the den's guard asked for the
+# password, Kaalah-Nah paid for it (five credits twice), the den let in
+# ("holdout"); Geredi, Dahnis and S4-C8 beaten (three wins each, a loss
+# counts nothing: their locals 30 and 45, `TAG.n30`, `TAG.b45`; Dahnis
+# deals a male Exile out of her games at once), then the champion, who
+# comes once the three are beaten and the den's trigger is crossed: his
+# Tie Breaker card (DSimpson's and GameBanshee's Entertainment Promenade).
+# Starts from the Refugee Sector's checkpoint:
+#   kjk playthrough tsl @nar_shaddaa_refugees data/routes/tsl/nar_shaddaa_pazaak.route --god
+gold 4000            # a stand-in for the credits a player brings to the
+                     # den's tables (100 a game, the champion's 500), the
+                     # main line's kept for later
+exit TO_301NAR
+module 301nar
+exit TO_306          # the Entertainment Promenade
+module 306nar
+say I'll be leaving now. # the den's guard: the password asked
+use DoorGuard
+talk
+say [Give 5 credits] Can you tell me about the area? # Kaalah-Nah: the
+say Then you must know the password # password bought
+say [Give 5 credits] Yes, I want.
+use Kaalanah
+talk
+say The password is "holdout". # the den's doors opened
+use DoorGuard
+talk
+say Fine. Let's play. # Geredi: three wins
+use Geredi
+talk
+pazaak
+while Geredi.b45=0
+say Let's play.
+talk
+pazaak
+end
+say A little game of pazaak would be wonderful. # Dahnis
+use Dahnis
+talk
+say If you're ready to play pazaak, so am I. # S4-C8: three wins
+use drdplay
+talk
+pazaak
+while drdplay.b45=0
+say Let's play.
+talk
+pazaak
+end
+to DoorGuard         # out of the den's doorway and in again: the trigger
+to tr_the_champ      # brings the champion for the den's best once the
+                     # three are beaten (tr_champ_enter, on entering)
+talk
+say Let's play.
+use champ
+talk
+pazaak
+while champ.b45=0
+say Let's play.
+talk
+pazaak
+end
