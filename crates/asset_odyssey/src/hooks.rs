@@ -19,6 +19,10 @@ pub const CUTSCENE_DUMMY: &str = "cutscenedummy";
 pub const IMPACT: &str = "impact";
 pub const HEAD_CONJURE: &str = "headconjure";
 pub const HAND_CONJURE: &str = "handconjure";
+/// Where a visual effect's `*_HeadCon_Node` model stands on a creature: the
+/// mouth dummy conversations also look at (the executable hangs a row's head
+/// models there, `headconjure` being a power's source).
+pub const TALK_DUMMY: &str = "talkdummy";
 
 /// Bones of the games' humanoid skeletons the view reads.
 pub const HEAD: &str = "head_g";

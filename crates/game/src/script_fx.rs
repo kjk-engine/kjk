@@ -55,11 +55,13 @@
 //! (a place's ground: the medium size, every character taken as one),
 //! `Imp_Impact_Node` at its middle and `Imp_HeadCon_Node` at its head, a
 //! power's fizzle at its hand. On a creature these are its model's
-//! `impact`, `headconjure` and `handconjure` nodes, as the executable names
-//! them, and the model stands where the node is drawn, following it (as
-//! drawn the frame before, kept upright: its particles stay in the scene's
-//! space); on a door or placeable its model's `<model>_impact`, `_head`
-//! and `_hand`. A model
+//! `impact`, `talkdummy` (its mouth: the executable hangs a row's head
+//! models there, not on `headconjure`, a power's source, so a rancor's
+//! `v_rancorexp_imp` bursts from its jaws) and `handconjure` nodes, and the
+//! model stands where the node is drawn, following it (as drawn the frame
+//! before, kept upright: its particles stay in the scene's space); on a
+//! door or placeable its model's `<model>_impact`, `_head_hit` and
+//! `_hand`. A model
 //! without the node stands `IMPACT_M`, `HEAD_M` or `HAND_M` over the feet
 //! (a door's or placeable's at its root, where the executable puts what it
 //! finds no node for); a beam stands at its source's hand node's height.
@@ -232,15 +234,15 @@ enum Node {
 
 impl Node {
     /// The node of a model named `model` it stands on: a creature's
-    /// `impact`, `headconjure` and `handconjure`; a door's or placeable's
-    /// (`rooted`) `<model>_impact`, `_head` and `_hand`; a hook by its
+    /// `impact`, `talkdummy` and `handconjure`; a door's or placeable's
+    /// (`rooted`) `<model>_impact`, `_head_hit` and `_hand`; a hook by its
     /// name; none for the feet.
     fn name(self, model: &str, rooted: bool) -> Option<String> {
         let (creature, suffix) = match self {
             Node::Root => return None,
             Node::Hook(name) => return Some(name.to_string()),
             Node::Impact => (hooks::IMPACT, "impact"),
-            Node::Head => (hooks::HEAD_CONJURE, "head"),
+            Node::Head => (hooks::TALK_DUMMY, "head_hit"),
             Node::Hand => (hooks::HAND_CONJURE, "hand"),
         };
         Some(if rooted {
@@ -735,6 +737,38 @@ pub fn shake_probes() -> sim::probe::Checks {
             ),
         ),
     ]
+}
+
+/// The head node's probes (`kjk sim probes --only "effect head node"`): a
+/// row's `Imp_HeadCon_Node` model hangs from a creature's `talkdummy`, as
+/// the executable hangs it, so the Taris rancor's death
+/// (`VFX_PLOT_TAR_RANCOR_DEATH`, 1045) bursts from its mouth: its model
+/// (`c_rancor`) has that node and no `headconjure`.
+#[cfg(feature = "probes")]
+pub fn head_node_probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    let resolver = crate::k1_resolver();
+    let death = (resolver.as_ref())
+        .and_then(|resolver| resolver.two_da("visualeffects"))
+        .and_then(|table| rows(&table).remove(&1045))
+        .map(|row| row.models);
+    let node = Node::Head.name("c_rancor", false);
+    let rancor = (resolver.as_ref())
+        .and_then(|resolver| crate::viewer::model(resolver, "c_rancor").ok().flatten());
+    let has = |name: &str| rancor.as_ref().and_then(|ir| ir.node_index(name)).is_some();
+    let held = node.as_deref().is_some_and(has);
+    vec![(
+        "the rancor's death bursts from its mouth",
+        check(
+            death == Some(vec![(Node::Head, "v_rancorexp_imp".to_string())])
+                && held
+                && !has(hooks::HEAD_CONJURE),
+            format!(
+                "row 1045's models {death:?} on {node:?}: c_rancor has it {held}, headconjure {}",
+                has(hooks::HEAD_CONJURE)
+            ),
+        ),
+    )]
 }
 
 /// The glow texture effect `effect` (its `visualeffects.2da` label) puts

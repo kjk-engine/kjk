@@ -2343,7 +2343,10 @@ impl Cast {
                     })),
                 ),
                 Look::Ja => ("ja", None),
-                Look::Clips(clips) => ("kotor clips", Some(clips.facts())),
+                Look::Clips(clips) => (
+                    "kotor clips",
+                    Some(clips.facts(ms, member.figure.breath.wield)),
+                ),
             };
             // Every character drawn holds its weapons (none, some).
             let drawn = self.holdings.wielded(id)?.drawn();
@@ -3632,13 +3635,19 @@ impl Clips {
         Some(f64::from(die.length()) * 1000.0)
     }
 
-    /// The clip shown and the one fading out, by name, for dumps.
-    fn facts(&self) -> serde_json::Value {
+    /// The clip shown and the one fading out, by name, and how much of each
+    /// scripted clip shows over them at `ms` (by its wield number `wield`),
+    /// for dumps.
+    fn facts(&self, ms: f64, wield: u8) -> serde_json::Value {
         let name = |clip: Option<usize>| {
             clip.and_then(|clip| Some(self.clips[clip].as_ref()?.name().to_string()))
         };
+        let acted: Vec<_> = (self.shows.shown(&self.acted, ms, (wield, None)))
+            .map(|(clip, _, weight)| (clip.clip().name.clone(), weight))
+            .collect();
         serde_json::json!({
             "shown": name(self.shown.map(|shown| shown.0)),
+            "acted": acted,
             "fading_from": name(self.fading.map(|fading| fading.0)),
             "attacks": self.attack.count,
             "flinches": self.flinch.count,

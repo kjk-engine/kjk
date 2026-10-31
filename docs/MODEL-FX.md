@@ -195,7 +195,9 @@ kjk play --stage sta_m45ad --arrive sta_way_captive2 --run k_psta_cutdrain2 --he
   captive.
 - Its row of `visualeffects.2da` is found by its label (the effect's
   number). Its models (`Imp_Root_M_Node` at the feet, `Imp_Impact_Node` at
-  the middle, `Imp_HeadCon_Node` at the head; a place given puts them
+  the middle, `Imp_HeadCon_Node` at the head: a creature's `talkdummy`,
+  its mouth, where the executable hangs them, not `headconjure`, so the
+  Taris rancor's death bursts from its jaws; a place given puts them
   there) play `impact` once (else their first clip) and `SoundImpact`
   sounds. One applied for a while or for good keeps them on the character
   (following it): `duration` (else their own clip, the shields' `default`)

@@ -289,10 +289,12 @@ the games' own compiled scripts; nothing of them is in the repo.
   41), `PAUSE_DRUNK` (13) `pausepsn` (row 15 `Idle_Poisoned`, NWN's name
   for it). `READY` (19) is the body's wield's ready stance (`g<wield>r1`,
   a creature model's `creadyr`, as reone; drawn by the view,
-  `game::acting::stance_of`). No row matches `WORSHIP` (4; `worship` is
-  in no model), `CHECK_BODY` (33), `SIT_CHAIR_COMP1`/`2` (39, 40),
-  `VICTORY2`/`3` (109, 110), `CUSTOM01` (119) or `SCREAM` (124): they play
-  nothing. The
+  `game::acting::stance_of`). Where no row matches, both executables'
+  `PlayAnimation` (read off the Mac builds) still picks one: `WORSHIP`
+  (4) meditates, `VICTORY2`/`3` (109, 110) are `VICTORY`, and `CUSTOM01`
+  (119) plays row 346's `usecomp`, which only the Taris rancor's model
+  holds (it eats from the bone pile so). `CHECK_BODY` (33),
+  `SIT_CHAIR_COMP1`/`2` (39, 40) and `SCREAM` (124) play nothing. The
   `kdtlk*` clips are in no model of either install. A creature model
   (`appearance.2da` `modeltype` S or L) is asked for each clip by its
   creature name first (`cpause1`, `cdie`, `cdead`, `cvictory`), as reone's
