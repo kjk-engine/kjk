@@ -124,10 +124,139 @@ pub fn probes() -> sim::probe::Checks {
             (name, result)
         })
         .chain(replans(&chase_once))
+        .chain(hovering(&world, &base))
         .chain(picks())
         .chain(walks_for())
         .chain(shut_doors(&base, &level))
         .collect()
+}
+
+/// A gun's chase at a body met where its model is drawn: TSL's sensor ball
+/// (`c_senball`, 1.33 m to 1.66 m over its soles, `kjk combat bodies tsl`),
+/// 5 m off. The crosshair line the chase aims meets its body (aimed 0.3 m
+/// over its origin, under it, the prologue's droid was never hit). And a
+/// mine placed and gone (set off) is `sprung`; one still there is not.
+pub(super) fn hovering(world: &sim::SimWorld, base: &Snapshot) -> sim::probe::Checks {
+    use collision::{BoxWorld, CollisionWorld, Contents, Extents};
+    let ball = sim::module::Bulk {
+        min: [-0.15, -0.17, 1.33],
+        max: [0.15, 0.13, 1.66],
+    };
+    let Some(module) = sim::determinism::proving_ground().module().map(|m| (**m).clone()) else {
+        return vec![("chase_shoots_a_hovering_droid", Err("the proving ground has no module".into()))];
+    };
+    let droid = ObjectData {
+        kind: ObjectKind::Creature,
+        body: Some(sim::module::Body {
+            appearance: 571,
+            size: 0,
+            movement: 0,
+            walk_mps: 0.0,
+            run_mps: 0.0,
+            head_arc_h: 0.0,
+            bag: 0,
+            destroy_ms: 0,
+            fade_ms: None,
+            bulk: Some(ball),
+        }),
+        ..ObjectData::unknown("droid", [0.0; 3], 0.0)
+    };
+    let mine = ObjectData {
+        kind: ObjectKind::Trigger,
+        trap: Some(sim::traps::Trap {
+            one_shot: true,
+            ..Default::default()
+        }),
+        tag: "mine".into(),
+        ..ObjectData::unknown("mine", [0.0; 3], 0.0)
+    };
+    let level = world.level().clone().with_module(sim::module::ModuleData {
+        placements: vec![sim::module::Placement::Own(droid), sim::module::Placement::Own(mine)],
+        ..module
+    });
+    let mut snapshot = base.clone();
+    let Some(me) = snapshot
+        .entities
+        .iter()
+        .find(|e| e.kind == sim::Kind::Avatar(Seat(0)))
+        .copied()
+    else {
+        return vec![("chase_shoots_a_hovering_droid", Err("no player on the arena".into()))];
+    };
+    let me = sim::EntityState {
+        sheet: Some(sim::combat::Sheet::dev_soldier()),
+        ..me
+    };
+    let (Some(player), d) = (me.player, 5.0) else {
+        return vec![("chase_shoots_a_hovering_droid", Err("no player on the arena".into()))];
+    };
+    let foe_ps = sim::motion::MotionState {
+        origin: [player.origin[0] - d / UNIT, player.origin[1], player.origin[2]],
+        ..player
+    };
+    let foe = sim::EntityState {
+        id: sim::SimId(u32::MAX - 1),
+        kind: sim::Kind::Object(ObjectKind::Creature, 0),
+        position: [me.position[0] - d, me.position[1], me.position[2]],
+        player: Some(foe_ps),
+        ..me
+    };
+    snapshot.entities.push(foe);
+    let refused = BTreeSet::new();
+    let shot = {
+        let here = Here::new(&level, &snapshot, &refused);
+        let (command, _) = Chase::default().strike(
+            &mut None,
+            &here,
+            world,
+            &mut Reach::default(),
+            &player,
+            &me,
+            (foe.id, foe.position),
+            0,
+            &mut Vec::new(),
+        );
+        let angle = |axis: usize| {
+            sim::math::short_to_degrees(command.angles[axis].wrapping_add(player.view_offset[axis]))
+        };
+        let (forward, ..) = sim::math::angle_vectors([angle(0), angle(1), 0.0]);
+        // Bodies stand in metres.
+        let from = mind::crosshair(&player).map(|v| v * UNIT);
+        let to = sim::math::mad(from, 20.0, forward);
+        let bodies = [sim::body(foe.id, &foe_ps, Some(&ball))];
+        let met = collision::Bodies::new(&BoxWorld::new(), &bodies)
+            .trace(from, to, &Extents::POINT, Contents::BODY)
+            .fraction
+            < 1.0;
+        let detail = format!(
+            "attack {}, the crosshair line pitched {:.1} degrees meets the ball {met}",
+            command.buttons & buttons::ATTACK != 0,
+            angle(0)
+        );
+        sim::probe::check(met && command.buttons & buttons::ATTACK != 0, detail)
+    };
+    // The mine (number 1) gone, then standing.
+    let sprung_when = |standing: bool| {
+        let mut snapshot = base.clone();
+        if standing {
+            snapshot.entities.push(sim::EntityState {
+                id: sim::SimId(u32::MAX - 2),
+                kind: sim::Kind::Object(ObjectKind::Trigger, 1),
+                player: None,
+                fighter: None,
+                ..me
+            });
+        }
+        sprung(&Here::new(&level, &snapshot, &refused), "mine", None)
+    };
+    let (gone, there) = (sprung_when(false), sprung_when(true));
+    vec![
+        ("chase_shoots_a_hovering_droid_where_it_is_drawn", shot),
+        (
+            "to_a_mine_set_off_is_met",
+            sim::probe::check(gone && !there, format!("gone: sprung {gone}; standing: sprung {there}")),
+        ),
+    ]
 }
 
 /// The walk to a target (`walk_for`): one made for another spot farther

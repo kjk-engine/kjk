@@ -173,12 +173,20 @@ impl<'a> Here<'a> {
             .as_deref()
     }
 
-    /// Whether the player's eye sees foe `id`'s chest.
+    /// Whether the player's eye sees foe `id`'s chest (`chest`).
     pub(super) fn sees(&self, player: &sim::motion::MotionState, id: sim::SimId) -> bool {
-        self.snapshot.get(id).and_then(|e| e.player).is_some_and(|foe| {
-            self.level
-                .sees(self.sight(), mind::eye(player), mind::chest(&foe))
-        })
+        self.chest(id)
+            .is_some_and(|chest| self.level.sees(self.sight(), mind::eye(player), chest))
+    }
+
+    /// What the sim's own minds aim at of creature `id` (units,
+    /// `mind::chest_of`): a humanoid's chest, a body met where its model is
+    /// drawn the middle of that (TSL's sensor ball, floating 1.3 m to 1.7 m
+    /// up, aimed at under it, was never hit).
+    pub(super) fn chest(&self, id: sim::SimId) -> Option<[f32; 3]> {
+        let entity = self.snapshot.get(id)?;
+        let facts = self.facts_of(entity);
+        Some(mind::chest_of(&entity.player?, sim::bulk_of(facts.as_deref())))
     }
 
     /// The corners of a route from `from` to `to` (origins, units), through
@@ -620,6 +628,20 @@ pub(super) fn fell(here: &Here, fallen: &BTreeMap<u32, Fell>, tag: &str, nth: Op
     }
 }
 
+/// Whether the trap a goal's tag names (`TAG@N`'s, else every one of that
+/// tag) was in the module and is gone: set off or disarmed, as a mine is
+/// taken away (`sim::world::traps`).
+pub(super) fn sprung(here: &Here, tag: &str, nth: Option<usize>) -> bool {
+    let gone = |index: &u32| {
+        here.entity(*index).is_none() && here.facts(*index).is_some_and(|data| data.trap.is_some())
+    };
+    let tagged = tagged(here, tag);
+    match nth {
+        Some(nth) => tagged.get(nth - 1).is_some_and(gone),
+        None => !tagged.is_empty() && tagged.iter().all(gone),
+    }
+}
+
 /// What in the module holds an item of `template` (`state`'s items, not the
 /// party's): remains or a creature, its number and place.
 pub(super) fn holder_of(here: &Here, state: &sim::script::State, template: &str) -> Option<(u32, [f32; 3])> {
@@ -893,16 +915,23 @@ pub(super) fn facing(player: &sim::motion::MotionState, at: [f32; 3]) -> Command
     mind::looking(player, pitch, yaw)
 }
 
-/// The command that looks at the chest of a foe standing at `at` (metres)
-/// to strike it: with a gun, the crosshair on it, as a player's shots go
-/// where its crosshair line meets, above its eye (`mind::crosshair`).
-pub(super) fn aiming(player: &sim::motion::MotionState, me: &sim::EntityState, at: [f32; 3]) -> Command {
-    let chest = [at[0], at[1], at[2] + 0.3];
+/// The command that looks at `chest` (metres) to strike it: with a gun, the
+/// crosshair on it, as a player's shots go where its crosshair line meets,
+/// above its eye (`mind::crosshair`).
+pub(super) fn aiming(player: &sim::motion::MotionState, me: &sim::EntityState, chest: [f32; 3]) -> Command {
     if !ranged(me) {
         return facing(player, chest);
     }
     let (pitch, yaw) = mind::aim(mind::crosshair(player), chest.map(|v| v / UNIT));
     mind::looking(player, pitch, yaw)
+}
+
+/// Where to strike creature `id` standing at `at` (metres): its chest as the
+/// sim's minds aim (`Here::chest`), else, an object with no body (a
+/// placeable bashed), 0.3 m above where it stands.
+pub(super) fn strike_at(here: &Here, id: Option<sim::SimId>, at: [f32; 3]) -> [f32; 3] {
+    id.and_then(|id| here.chest(id))
+        .map_or([at[0], at[1], at[2] + 0.3], |chest| chest.map(|v| v * UNIT))
 }
 
 /// Whether `me` fights with a gun.

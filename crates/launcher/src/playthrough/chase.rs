@@ -170,7 +170,7 @@ impl Chase {
         if at_hand {
             let mut command = Command {
                 buttons: buttons::ATTACK,
-                ..aiming(player, me, at)
+                ..aiming(player, me, strike_at(here, Some(id), at))
             };
             if !ranged && d > close {
                 command.forward = 127;

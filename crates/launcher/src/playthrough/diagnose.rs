@@ -242,11 +242,9 @@ pub(super) fn diagnose(
                     .iter()
                     .find(|e| matches!(e.kind, sim::Kind::Object(_, i) if i == index));
                 let seen = entity
-                    .and_then(|e| e.player)
+                    .filter(|e| e.player.is_some())
                     .zip(me.player)
-                    .map(|(it, eye)| {
-                        level.sees(here.sight(), mind::eye(&eye), mind::chest(&it))
-                    });
+                    .map(|(it, eye)| here.sees(&eye, it.id));
                 let foe = entity.is_some_and(|e| {
                     hostiles(here, world, at, 1.0)
                         .iter()

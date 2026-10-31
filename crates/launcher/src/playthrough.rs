@@ -1385,11 +1385,17 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // Kashyyyk, taking the party down as the
                                 // player walked to the field).
                                 met = true;
-                            } else if found.is_none() && matches!(goal, Goal::To(_)) && seen_target
+                            } else if found.is_none()
+                                && matches!(goal, Goal::To(_))
+                                && (seen_target
+                                    || matches!(target, Target::Tag(tag, nth) if sprung(&here, tag, *nth)))
                             {
                                 // Gone once entered: a trigger its script
                                 // destroys as it fires (Jolee's on Kashyyyk
-                                // jumps the party and takes itself away).
+                                // jumps the party and takes itself away), or
+                                // a mine the party set off before the goal
+                                // (Peragus's fuel-line charge by the stash,
+                                // met on the walk to the stash).
                                 met = true;
                             } else if found.is_none() {
                                 absent = true;
@@ -1691,7 +1697,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         command = Command {
                                             buttons: buttons::ATTACK,
                                             forward: if step_in { 127 } else { 0 },
-                                            ..aiming(&player, &me, at)
+                                            ..aiming(&player, &me, strike_at(&here, None, at))
                                         };
                                         met = object_of(&here, index).lock == sim::lock::UNLOCKED;
                                     }
@@ -1789,7 +1795,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         if foe {
                                             command = Command {
                                                 buttons: buttons::ATTACK,
-                                                ..aiming(&player, &me, at)
+                                                ..aiming(&player, &me, strike_at(&here, target_id, at))
                                             };
                                         } else if dead {
                                             // Its remains still to come
