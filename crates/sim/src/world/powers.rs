@@ -656,13 +656,17 @@ impl Cast<'_, '_> {
     }
 
     /// Whether `at` may put a hand out now: no hand out, no weapon timer,
-    /// not knocked down (JA's knockdown takes the hand; a push or pull may
-    /// still come while getting up, `throwing`).
+    /// no item in use (`Pack::busy`), not knocked down (JA's knockdown
+    /// takes the hand; a push or pull may still come while getting up,
+    /// `throwing`).
     fn free_hand(&self, at: usize, throwing: bool) -> bool {
         let fighter = &self.fighters[at];
         let saber = &fighter.saber;
         let down = saber.floored() && !(throwing && saber.getup != Getup::Down);
-        !down && !fighter.force.hand_out(self.now) && fighter.weapon_wait_ms <= 0
+        !down
+            && !fighter.force.hand_out(self.now)
+            && fighter.weapon_wait_ms <= 0
+            && !fighter.pack.busy()
     }
 
     /// Starts a held power if it can: known, its wait over, a free hand,

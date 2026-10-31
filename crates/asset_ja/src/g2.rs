@@ -571,7 +571,8 @@ impl<'a> Player<'a> {
     }
 
     /// `adopt_blending` for a root (model space), the pose blended from
-    /// turned by `turn` first: a caller that turns the whole result back by
+    /// turned by `turn` first (the root's own; the bones that inherit its
+    /// animation blend from theirs unturned): a caller that turns the whole result back by
     /// `turn`'s inverse blends a turned animation in from the pose shown
     /// without swinging the body round (`game::cast`'s get-ups).
     pub fn adopt_blending_turned(
@@ -654,9 +655,11 @@ impl<'a> Player<'a> {
                     None if self.quirks => mix_frames(next, held, back, pivot),
                     None => mix_frames(held, next, back, pivot),
                 };
+                // Only the root turns: the bones under it inherit its
+                // blend, their locals already riding on its turn.
                 let captured = match blend.turned {
-                    Some(turn) => (turn * captured.0, turn * captured.1),
-                    None => captured,
+                    Some(turn) if bone == driver => (turn * captured.0, turn * captured.1),
+                    _ => captured,
                 };
                 let reference = show(self.anims[&driver].timing(blend.start_ms)).0;
                 local = mix_blend(captured, local, reference, amount, pivot);

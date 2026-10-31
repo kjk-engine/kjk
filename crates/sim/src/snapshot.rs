@@ -1892,8 +1892,9 @@ pub struct Progress {
 
 /// A line of feedback floating over an object (`DisplayFeedBackText`: a
 /// `feedbacktext.2da` row's talk-table line, "Resisted", "Immune", "Saved";
-/// a skill check's outcome over its user, `locks::floats`): over whom (its id), the strref (0: the row has none, which KOTOR shows
-/// as "BAD STRREF"), and when (sim ms).
+/// a skill check's outcome over its user, `locks::floats`): over whom (its
+/// id), the strref (0: the row has none, which KOTOR shows as "BAD
+/// STRREF"), and when (sim ms).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Feedback {
     pub over: u32,

@@ -190,7 +190,7 @@ unit = "×"
 range = [0.0, 1.0]
 summary = "A character walking to a target stops at {targeting.walk.share:bare} times the reach it acts from."
 source = "ours"
-see = "sim::target::stand_off"
+see = "sim::target::Spot::stand_off"
 
 [walk.trap_clear_m]
 name = "Mine Standing Distance"
@@ -200,7 +200,7 @@ unit = "m"
 range = [0.3, 3.0]
 summary = "A character walking to disarm or recover a mine stops {targeting.walk.trap_clear_m:bare} meters outside the mine's {world.ranges.trap_radius_m:bare} meter radius, beside the mine, never on it."
 source = "ours (KOTOR disarms from beside a mine; a run's stop slides on)"
-see = "sim::target::stand_off"
+see = "sim::target::Spot::stand_off"
 applies = ["kind:mine", "skill:Demolitions"]
 
 [walk.trap_arrive_m]

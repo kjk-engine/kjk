@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `bb898ef735bbe4db`.
+Edition `eba321d0f446f303`.
 
 ## Contents
 
@@ -1406,8 +1406,9 @@ uses an antidote kit if the character is poisoned or weakened, otherwise a
 medpac (a repair kit for a droid), otherwise a squad recovery stim. The
 character injects a medpac, antidote or stim, or switches on an energy
 shield at the wrist; the item is used up as that begins and takes effect
-when it is done. Being stunned, knocked down or downed meanwhile stops
-it; being hit or moving does not.
+when it is done. Being stunned, choked, knocked down or downed meanwhile
+stops it; being hit or moving does not. A weapon change or a Force power
+waits until it is done.
 
 Only one energy shield and one stim can be active at a time. Opponents also
 use medpacs, shields and stims in combat.
@@ -8659,13 +8660,13 @@ A character within 0.8 times an action's reach performs it without walking.
 
 A character walking to a target stops at 0.5 times the reach it acts from.
 
-<sub>Source: ours. Code: `sim::target::stand_off`.</sub>
+<sub>Source: ours. Code: `sim::target::Spot::stand_off`.</sub>
 
 <a id="targeting-walk-trap-clear-m"></a>**Mine Standing Distance** = **0.6 m** · `targeting.walk.trap_clear_m`
 
 A character walking to disarm or recover a mine stops 0.6 meters outside the mine's 1.5 meter radius, beside the mine, never on it.
 
-<sub>Source: ours (KOTOR disarms from beside a mine; a run's stop slides on). Code: `sim::target::stand_off`.</sub>
+<sub>Source: ours (KOTOR disarms from beside a mine; a run's stop slides on). Code: `sim::target::Spot::stand_off`.</sub>
 
 <a id="targeting-walk-trap-arrive-m"></a>**Mine Arrival** = **0.7 m** · `targeting.walk.trap_arrive_m`
 

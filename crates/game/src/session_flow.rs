@@ -69,7 +69,8 @@ pub fn skips_logos() -> bool {
             .is_some()
 }
 
-/// This program again, on its main menu, in place of this process (on Windows, beside it as this one ends).
+/// This program again, on its main menu, in place of this process (on
+/// Windows, beside it as this one ends).
 pub fn restart_into_menu() -> std::io::Error {
     let program = match std::env::current_exe() {
         Ok(program) => program,
@@ -357,7 +358,7 @@ fn start(
         Option<Res<crate::sim_host::OwnSeat>>,
         Option<Res<crate::sim_host::WorldHere>>,
     ),
-    mut reload: Option<ResMut<crate::sim_host::ReloadRequest>>,
+    mut reload: ResMut<crate::sim_host::ReloadRequest>,
 ) {
     let mut rest = Vec::new();
     for intent in std::mem::take(&mut intents.0) {
@@ -374,9 +375,7 @@ fn start(
             // only (a host's guests would be dropped: it loads from the
             // main menu). The screens' Load, quick load and the console's
             // `ui load` all come here.
-            Intent::Session(SessionIntent::Solo { save: Some(id), .. })
-                if playing.is_some() && reload.is_some() =>
-            {
+            Intent::Session(SessionIntent::Solo { save: Some(id), .. }) if playing.is_some() => {
                 let refused = match here.as_deref() {
                     Some(here) if here.alone => None,
                     Some(_) => Some("A hosted game loads from the main menu."),
@@ -399,9 +398,7 @@ fn start(
                         made.0 = meta.character;
                     }
                     ui.stack.clear();
-                    if let Some(reload) = reload.as_deref_mut() {
-                        reload.0 = Some(id);
-                    }
+                    reload.0 = Some(id);
                 }
             }
             Intent::Session(session) if flow.job.is_none() => {

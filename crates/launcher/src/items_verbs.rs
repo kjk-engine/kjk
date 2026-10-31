@@ -2,8 +2,9 @@
 //! 5 and 7; `sim::combat::items`). The table and the healing rule; in the
 //! open arena a medpac's use time and its healing, its clip (`inject`)
 //! played meanwhile, a second and a third press, a use walked through
-//! (moving does not break it off), a droid's repair kit (a medpac is no use to it), an antidote, a
-//! stim (and its vitality taken back when it ends), a squad stim healing
+//! (moving does not break it off), a use held by a hand out (it lands) or
+//! broken off by a stun or a fall, a droid's repair kit (a medpac is no use
+//! to it), an antidote, a stim (and its vitality taken back when it ends), a squad stim healing
 //! both seats; in a module an energy shield soaking a hostile gunner's
 //! bolts until spent, and a creature using the medpac it carries when hurt,
 //! by its own AI scripts. Every scene's recording replays. Writes
@@ -313,6 +314,40 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
         ),
     );
     report.replayed("medpac walked through", run.replayed);
+
+    // A medpac's use under way (landing at 1 s), its user held for the
+    // first 0.5 s: a hand out (a script's push) only holds it, and it
+    // lands; a stun breaks it off, nothing healed. A fall drops a use
+    // under way and one asked for but not begun (`effects::strip`).
+    let held = |hold: &dyn Fn(&mut Fighter, u64)| {
+        let (stage, mut start) = arena(carrying(&[]), 1, 10_000);
+        let now = start.time_ms;
+        if let Some(fighter) = start.entities[me].fighter.as_mut() {
+            fighter.pack.using = Some((ITEM_ABILITY_MED_PACK, now + 1000));
+            hold(fighter, now + 500);
+        }
+        let run = stage.drive(&start, 1500, &mut presses(me, 0, &[]));
+        (hp_at(&run, me, 1400), fighter_at(&run, me, 1400).pack.using)
+    };
+    let pushed = held(&|fighter, until| {
+        fighter.force.hand = Some((sim::combat::force::Gesture::Push, until));
+    });
+    let stunned = held(&|fighter, until| fighter.force.stunned_until = until);
+    let mut fallen = Fighter::fresh(500, 0);
+    fallen.pack.using = Some((ITEM_ABILITY_MED_PACK, 1000));
+    fallen.pack.queued = Some(ITEM_ABILITY_MED_PACK);
+    sim::combat::effects::strip(&mut fallen, 500);
+    report.check(
+        pushed == (100.0 + heal, None)
+            && stunned == (100.0, None)
+            && (fallen.pack.using, fallen.pack.queued) == (None, None),
+        format!(
+            "a use held by a hand out lands ({:.0} HP), a stun breaks it off ({:.0} HP); a fall drops it and one queued ({:?})",
+            pushed.0,
+            stunned.0,
+            (fallen.pack.using, fallen.pack.queued)
+        ),
+    );
 
     let mut droid = carrying(&[(ITEM_ABILITY_MED_PACK, 1), (ITEM_ABILITY_DROID_REPAIR_KIT, 1)]);
     droid.race = races::DROID;

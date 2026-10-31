@@ -1,0 +1,6 @@
+# The sim's hash may move: an item's use breaks off only on a stun, a
+# choke, a knockdown or a fall (`world::firing`), a weapon change or a hand
+# power waiting for it (`Pack::busy`); a fall and `ClearAllActions` drop a
+# use asked for but not begun (`Pack::queued`); an item talent refused
+# fails its action instead of being asked again every step.
+sim = "item uses: break off only on stun, choke, knockdown or fall; weapon changes and hand powers wait for the use; a fall or ClearAllActions drops a queued use; a refused item talent fails its action"
