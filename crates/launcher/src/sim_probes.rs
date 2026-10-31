@@ -17,6 +17,7 @@ const GROUPS: &[Group] = &[
     ("scaling", sim::scaling::probes),
     ("encounter count", session::encounters::probes),
     ("speeds", speeds),
+    ("creature_blades", creature_blades),
     ("scene", sim::scene_probes::all),
     ("dialog camera", crate::play_view::shot_probes),
     ("clip events", kjk_game::clip_events::probes),
@@ -93,17 +94,28 @@ const GROUPS: &[Group] = &[
 /// The scripts' and conversations' clips (`session::clip_probes`), on K1's
 /// and TSL's data where this machine has the installs.
 fn clips() -> sim::probe::Checks {
+    on_installs(session::clip_probes)
+}
+
+/// Creature models on JA's skeleton holding a blade
+/// (`session::blade_probes`), on the installs this machine has.
+fn creature_blades() -> sim::probe::Checks {
+    on_installs(session::blade_probes)
+}
+
+type Installed<'a> = Option<&'a dyn asset_odyssey::module::Source>;
+
+/// `run` on K1's and TSL's data, each where this machine has the install.
+fn on_installs(run: impl FnOnce(Installed, Installed) -> sim::probe::Checks) -> sim::probe::Checks {
     let k1 = kjk_game::k1_resolver();
     let tsl = kjk_game::installs::open(&kjk_game::discover(), vfs::Game::Kotor2)
         .and_then(|install| install.resolver(None))
         .ok();
     let [k1, tsl] = [&k1, &tsl].map(|found| found.as_ref().map(crate::modules::ResolverSource));
-    fn source<'a>(
-        found: &'a Option<crate::modules::ResolverSource<'_>>,
-    ) -> Option<&'a dyn asset_odyssey::module::Source> {
+    fn source<'a>(found: &'a Option<crate::modules::ResolverSource<'_>>) -> Installed<'a> {
         found.as_ref().map(|source| source as _)
     }
-    session::clip_probes(source(&k1), source(&tsl))
+    run(source(&k1), source(&tsl))
 }
 
 /// Creatures' speeds and head arc (`session::speed_probes`), with K1's own

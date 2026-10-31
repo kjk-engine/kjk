@@ -39,12 +39,20 @@ pub(crate) fn cased(bytes: &[u8]) -> String {
 }
 
 /// The 2DAs sheets read, each parsed once per plan, the item templates
-/// read (`items::facts`) and the creature models' attack timings (`hit_ms`).
+/// read (`items::facts`) and the creature models' attacks (`attacks`).
 pub(crate) struct Tables<'a> {
     pub source: &'a dyn Source,
     cache: asset_odyssey::tables::Tables,
     pub items: BTreeMap<String, Option<ItemFacts>>,
-    hits: BTreeMap<String, u16>,
+    attacks: BTreeMap<String, Attacks>,
+    rigs: BTreeMap<String, bool>,
+}
+
+/// A creature model's attacks (`Tables::attacks`).
+#[derive(Clone, Copy)]
+struct Attacks {
+    hit_ms: u16,
+    melee_set: bool,
 }
 
 impl<'a> Tables<'a> {
@@ -53,15 +61,17 @@ impl<'a> Tables<'a> {
             source,
             cache: asset_odyssey::tables::Tables::default(),
             items: BTreeMap::new(),
-            hits: BTreeMap::new(),
+            attacks: BTreeMap::new(),
+            rigs: BTreeMap::new(),
         }
     }
 
-    /// When model `name`'s melee attack lands (ms; `sim::module::Strike`):
-    /// the `hit` event of its `m0a1`, else its `g0a1` (its own or a
-    /// supermodel's), else half that animation, else half a round.
-    fn hit_ms(&mut self, name: &str) -> u16 {
-        if let Some(known) = self.hits.get(name) {
+    /// Model `name`'s attacks, its own or a supermodel's: when its melee
+    /// attack lands (ms; `sim::module::Strike`), the `hit` event of its
+    /// `m0a1`, else its `g0a1`, else half that animation, else half a round;
+    /// and whether it has the melee set (`m0a1`, a Gamorrean's axe blows).
+    fn attacks(&mut self, name: &str) -> Attacks {
+        if let Some(known) = self.attacks.get(name) {
             return *known;
         }
         let mut chain = Vec::new();
@@ -91,9 +101,28 @@ impl<'a> Tables<'a> {
                 .find(|(_, event)| event == "hit")
                 .map_or(attack.length / 2.0, |(at, _)| *at)
         });
-        let ms = (seconds * 1000.0).round().clamp(0.0, f32::from(u16::MAX)) as u16;
-        self.hits.insert(name.to_string(), ms);
-        ms
+        let attacks = Attacks {
+            hit_ms: (seconds * 1000.0).round().clamp(0.0, f32::from(u16::MAX)) as u16,
+            melee_set: chain.iter().any(|timing| timing.name == "m0a1"),
+        };
+        self.attacks.insert(name.to_string(), attacks);
+        attacks
+    }
+
+    /// Whether model `name` has the humanoid skeleton JA's animations drive
+    /// (`asset_ja::rig::is_humanoid`, from its node names): a creature model
+    /// on it (a Gamorrean) is drawn retargeted, swinging JA's way.
+    fn humanoid(&mut self, name: &str) -> bool {
+        if let Some(known) = self.rigs.get(name) {
+            return *known;
+        }
+        let humanoid = self
+            .source
+            .read(name, ResType::MDL)
+            .and_then(|bytes| fmt_odyssey::mdl::Model::node_names(&bytes).ok())
+            .is_some_and(|names| asset_ja::rig::humanoid_names(names.iter().map(String::as_str)));
+        self.rigs.insert(name.to_string(), humanoid);
+        humanoid
     }
 
     pub fn table(&mut self, name: &str) -> Option<Arc<TwoDa>> {
@@ -318,7 +347,10 @@ fn creature(tables: &mut Tables, root: &GffStruct, object: &mut ObjectData) {
     object.personal_space = appearance
         .and_then(|row| tables.float("appearance", row, "perspace"))
         .unwrap_or(0.0);
-    object.strike = appearance.and_then(|row| strike(tables, row, &object.inventory));
+    object.strike = appearance.and_then(|row| {
+        let strike = strike(tables, row, &object.inventory)?;
+        on_ja(tables, row, strike, object.sheet.as_mut())
+    });
     object.body = appearance.map(|row| body(tables, row, byte("BodyBag"), root.int("WalkRate")));
     // Hurt as the template has it: `CurrentHitPoints` under `HitPoints`
     // (both without Constitution, which `MaxHitPoints` adds: Trask's 30,
@@ -476,17 +508,151 @@ fn strike(tables: &mut Tables, row: usize, held: &[Held]) -> Option<Strike> {
         let item = held.iter().find(|item| item.slot == Some(*slot))?;
         items::facts(tables, &item.template)?.weapon
     });
-    let hit_ms = match tables.text("appearance", row, "race") {
-        Some(model) if !model.is_empty() && model != "****" => {
-            tables.hit_ms(&model.to_ascii_lowercase())
-        }
-        _ => (ROUND_MS / 2) as u16,
+    let hit_ms = match creature_model(tables, row) {
+        Some(model) => tables.attacks(&model).hit_ms,
+        None => (ROUND_MS / 2) as u16,
     };
     Some(Strike {
         weapon,
         hit_distance: tables.float("appearance", row, "hitdist").unwrap_or(0.0),
         hit_ms,
     })
+}
+
+/// A creature model's model (`appearance.2da` `race`), lowercase.
+fn creature_model(tables: &mut Tables, row: usize) -> Option<String> {
+    tables
+        .text("appearance", row, "race")
+        .filter(|model| !model.is_empty() && model != "****")
+        .map(|model| model.to_ascii_lowercase())
+}
+
+/// The model of appearance `row` when it is a creature model (type S or L)
+/// on JA's skeleton (the humanoid bones: drawn retargeted).
+fn ja_model(tables: &mut Tables, row: usize) -> Option<String> {
+    let kind = tables.text("appearance", row, "modeltype")?;
+    let model = creature_model(tables, row)?;
+    (asset_odyssey::creature::creature_model(&kind) && tables.humanoid(&model)).then_some(model)
+}
+
+/// A creature model's `strike` as it fights on the skeleton it is drawn on.
+/// On its own bones, its strike. On JA's skeleton (its model has the
+/// humanoid bones: drawn retargeted), by what its model carries:
+/// - with its own melee attack (`m0a1`: a Gamorrean, whose axe is part of
+///   its mesh) and nothing in its right hand, it holds its strike's weapon
+///   there as a blade (`creature_blade`) and swings JA's way, as one
+///   holding an axe does (TSL's armed Gamorreans); its strike stays its
+///   creature's (scripted rounds, `sim::module::Strike`);
+/// - without one (a Jawa), no strike: it fights as a humanoid does, its
+///   fists with nothing in hand (`sim::world::strikes`' punch).
+fn on_ja(
+    tables: &mut Tables,
+    row: usize,
+    strike: Strike,
+    sheet: Option<&mut Sheet>,
+) -> Option<Strike> {
+    let Some(model) = ja_model(tables, row) else {
+        return Some(strike);
+    };
+    if !tables.attacks(&model).melee_set {
+        return None;
+    }
+    if let Some(sheet) = sheet.filter(|sheet| sheet.weapons[0].is_none()) {
+        sheet.weapons[0] = Some(creature_blade(&strike));
+    }
+    Some(strike)
+}
+
+/// `strike`'s weapon as a blade in the hand (`on_ja`): its creature
+/// weapon (a claw's base item is a melee one already), else its bare
+/// body's blows as one.
+fn creature_blade(strike: &Strike) -> sim::combat::Weapon {
+    use sim::combat::{Weapon, sheet::Delivery};
+    let weapon = strike.weapon.unwrap_or(Weapon::UNARMED);
+    Weapon {
+        delivery: Delivery::Melee,
+        ..weapon
+    }
+}
+
+/// The JA-skeleton rule's probes (`kjk sim probes --only creature_blades`,
+/// `on_ja`), on the installs this machine has: a Gamorrean (K1's
+/// `c_gammorean`, an axe in hand; TSL's `g_gammorean01`, nothing) holds a
+/// blade and keeps its strike; a Jawa (`c_jawa`) has no strike and nothing
+/// in hand (its fists); a kath hound (its own bones) strikes with nothing
+/// in hand. The facts list every creature model template on JA's skeleton
+/// with an empty weapon slot: which hold the creature blade, which punch
+/// (K1's Taris Gamorreans are the modules' own: `kjk combat roster`).
+pub fn blade_probes(
+    k1: Option<&dyn Source>,
+    tsl: Option<&dyn Source>,
+) -> Vec<(&'static str, Result<String, String>)> {
+    use sim::combat::sheet::Delivery;
+    // How a template fights: (a blade in its right hand, a strike), and
+    // whether it is a creature model on JA's skeleton with an empty weapon
+    // slot.
+    let held = |source: &dyn Source, template: &str| {
+        let mut tables = Tables::new(source);
+        let object = creature_template(&mut tables, template)?;
+        let empty = (object.inventory.iter()).all(|item| item.slot != Some(slots::RIGHT_WEAPON));
+        let utc = Gff::parse(&source.read(template, ResType::UTC)?).ok()?;
+        let row = utc
+            .root
+            .int("Appearance_Type")
+            .and_then(|row| usize::try_from(row).ok());
+        let on_ja = empty && row.is_some_and(|row| ja_model(&mut tables, row).is_some());
+        let blade =
+            object.sheet?.weapons[0].is_some_and(|weapon| weapon.delivery == Delivery::Melee);
+        Some(((blade, object.strike.is_some()), on_ja))
+    };
+    let case = |name, game: &str, source: Option<&dyn Source>, cases: &[(&str, (bool, bool))]| {
+        let Some(source) = source else {
+            return (name, Ok(format!("skipped: no {game} install")));
+        };
+        let found: Vec<_> = cases
+            .iter()
+            .map(|(template, _)| held(source, template).map(|(fights, _)| fights))
+            .collect();
+        let ok = cases
+            .iter()
+            .zip(&found)
+            .all(|((_, wanted), found)| *found == Some(*wanted));
+        let mut names = source.names(ResType::UTC);
+        names.sort();
+        let (blades, fists): (Vec<_>, Vec<_>) = names
+            .into_iter()
+            .filter_map(|name| {
+                let ((blade, _), on_ja) = held(source, &name)?;
+                on_ja.then_some((name, blade))
+            })
+            .partition(|(_, blade)| *blade);
+        let names =
+            |list: Vec<(String, bool)>| list.into_iter().map(|(name, _)| name).collect::<Vec<_>>();
+        let detail = format!(
+            "(blade, strike) {cases:?}: {found:?}; on JA's skeleton, empty-handed: a blade {:?}, fists {:?}",
+            names(blades),
+            names(fists)
+        );
+        (name, if ok { Ok(detail) } else { Err(detail) })
+    };
+    vec![
+        case(
+            "k1_gamorreans_hold_blades",
+            "K1",
+            k1,
+            &[
+                ("c_gammorean", (true, true)),
+                ("c_jawa", (false, false)),
+                ("c_khounda", (false, true)),
+            ],
+        ),
+        case(
+            "tsl_gamorreans_hold_blades",
+            "TSL",
+            tsl,
+            &[("g_gammorean01", (true, true)), ("c_jawa", (false, false))],
+        ),
+    ]
 }
 
 /// The creature templates the party and scripts may make: every UTC the
