@@ -66,6 +66,16 @@ and that `kjk --help` runs), then puts them on a **draft** Release with
 release → Run workflow) it makes the packages as the run's artifacts and
 no Release. Only macOS on Apple silicon so far.
 
+Publishing the draft announces it in the Discord server's #releases
+channel (`.github/workflows/discord-release.yml`, the message in
+`.github/discord-release.jq`): the repository secret
+`DISCORD_RELEASES_WEBHOOK` holds the channel's webhook, and the variable
+`DISCORD_RELEASE_ROLE`, a role's id, is pinged when set. Progress goes to
+#progress by hand: `cargo xtask discord "caption" clip.mp4 shot.png`
+(its webhook in `KJK_DISCORD_PROGRESS_WEBHOOK` or the git-ignored
+`context/discord-progress-webhook`; larger files are shrunk to Discord's
+20 MB, `--dry-run` sends nothing).
+
 The macOS app is **not signed or notarised** (the owner's decision,
 2026-10-25: no Apple developer account). `dist` seals it with an ad-hoc
 signature (`codesign --sign -`): left as the linker signs it, the plist
