@@ -14,6 +14,7 @@ pub mod save {
     pub const SAVE_MIGRATIONS: crate::Since = crate::Since(crate::Stored::Save, 64);
     pub const TSL_BUGS: crate::Since = crate::Since(crate::Stored::Save, 65);
     pub const CLAUDE_TSL_FINALE_2: crate::Since = crate::Since(crate::Stored::Save, 66);
+    pub const COOP_PLAYTEST_FIXES: crate::Since = crate::Since(crate::Stored::Save, 67);
     #[allow(unused_imports)]
     pub use crate::pending::since::save::*;
 }

@@ -129,7 +129,10 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// `Action::Converse::cue`, `dialogue::Start::cue`). Old saves: old saves read
 /// no cue: nothing in them was set going by a trigger's OnEnter, as far as the
 /// harness's reports go.
-pub const VERSION: u32 = 66 + crate::pending::SAVE;
+/// 67: deferred code keeps the minigame run whose thing deferred it
+/// (`Delayed::run`). Old saves: old saves read no run: saves are refused in a
+/// minigame, so no deferred code in one is a race's.
+pub const VERSION: u32 = 67 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
