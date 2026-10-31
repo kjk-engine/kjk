@@ -298,7 +298,10 @@ Every seat sending commands plays, a watching guest too (M12).
   from its own start (a run's clock is its own). A run's things are their
   own objects (`minigame::id(run, n)`, `RUN_SPAN` on per run), so each
   run's scripts run as its own thing and see its run (`script::minigame`);
-  a script that is no thing's sees the first seat's.
+  code a run's thing defers or assigns stays that run's (`Event::run`,
+  `Delayed::run`), as K1's finish line assigns `StartNewModule` to the
+  first PC after a delay (`tar_m03mg`'s heartbeat); any other script that is
+  no thing's sees the first seat's.
   - Each run's scripts keep the globals they set apart (`Course::overlay`,
     read back first), so the heartbeats' `TAR_SWOOP_*` do not overwrite one
     another. The first run to call `StartNewModule` has finished first:

@@ -815,9 +815,12 @@ pub(super) fn hurt(
 
 /// Clears `fighter`'s (`id`'s) actions as a KOTOR state taking hold or a
 /// faction changing does (`ClearAllActions`): its queue, what it plays, its
-/// chase of a foe out of sight.
+/// chase of a foe out of sight. The queue goes as a script's clear does
+/// (`State::clear_queue`), its host none: a queued pause or resume names
+/// the conversation it acts on (`Action::Hold::talk`).
 pub(super) fn clear_actions(id: SimId, fighter: &mut Fighter, state: &mut crate::script::State) {
-    state.actions.remove(&id.0);
+    let none = script_ncs::vm::ObjectId::INVALID;
+    state.clear_queue(script_ncs::vm::ObjectId(id.0), [none; 2]);
     fighter.acting = None;
     fighter.mind.last_seen = None;
     fighter.mind.walker = None;

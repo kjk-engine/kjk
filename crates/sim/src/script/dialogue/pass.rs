@@ -422,12 +422,15 @@ impl Step<'_> {
         (asker, cue): (Option<ObjectId>, Option<crate::script::Cue>),
     ) {
         let view = self.view;
-        // The players' side: their characters, and the companion the host
-        // leads through (`GetPartyMemberByIndex(0)`: a console's
-        // `a_compdlg` talks to it with the console's own dialog, TSL's
-        // 3C-FD at the Ebon Hawk's security console).
+        // The players' side: their characters, and the body each seat acts
+        // through, the companion the host leads or a guest drives
+        // (`GetPartyMemberByIndex(0)`: a console's `a_compdlg` talks to it
+        // with the console's own dialog, TSL's 3C-FD at the Ebon Hawk's
+        // security console; the Endar Spire's `k_pend_comp07` talks to
+        // `GetLastUsedBy()`, whoever used it).
         let mut pcs = view.pcs(&self.state.party);
         pcs.extend(self.host());
+        pcs.extend(view.seats.iter().map(|&(_, body)| body));
         let (owner, pc) = if pcs.contains(&who) && with != ObjectId::INVALID {
             (with, who)
         } else if pcs.contains(&with) {

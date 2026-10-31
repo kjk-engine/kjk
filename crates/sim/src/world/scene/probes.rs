@@ -99,6 +99,10 @@ const PROBES: &[Probe] = &[
     ("pause_is_immediate", pause_is_immediate),
     ("pause_behind_actions", pause_behind_actions),
     ("pause_cleared_with_its_queue", pause_cleared_with_its_queue),
+    (
+        "resume_cleared_with_its_queue",
+        resume_cleared_with_its_queue,
+    ),
     ("unskippable_line", unskippable_line),
     ("alien_speech", alien_speech),
     ("play_animation_lengths", play_animation_lengths),
@@ -322,7 +326,8 @@ fn tagged(tag: &str) -> [Op; 3] {
 /// - `probe_pause` pauses its caller's conversation, waits 3 s and resumes
 ///   it; `probe_pause_late` waits 2 s first, then pauses, waits 1 s more and
 ///   resumes; `probe_pause_cleared` pauses, queues the resume and clears
-///   its own queue;
+///   its own queue; `probe_pause_long` pauses, waits 10 s and resumes;
+///   `probe_clear` clears its caller's queue (`ClearAllActions`);
 /// - `probe_bow_fast` bows at speed 2 and `probe_victory` cheers
 ///   (`ActionPlayAnimation`, fire and forget), `probe_talk_3s` talks for
 ///   3 s, `probe_talk_on` waits 1 s and talks on and on (a duration of −1),
@@ -380,6 +385,7 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
     let pause = program(&[&[call(9, 0)][..], &wait(3.0), &[call(11, 0)]].concat());
     let pause_late = program(&[&wait(2.0)[..], &[call(9, 0)], &wait(1.0), &[call(11, 0)]].concat());
     let pause_cleared = program(&[call(9, 0), call(11, 0), call(21, 0)]);
+    let pause_long = program(&[&[call(9, 0)][..], &wait(10.0), &[call(11, 0)]].concat());
     let play = |animation: u16, speed, seconds| {
         [
             Op::Const(Const::Float(seconds)),
@@ -484,6 +490,8 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_pause", pause),
             ("probe_pause_late", pause_late),
             ("probe_pause_cleared", pause_cleared),
+            ("probe_pause_long", pause_long),
+            ("probe_clear", program(&[call(21, 0)])),
             ("probe_bow_fast", program(&play(BOW, 2.0, 0.0))),
             ("probe_victory", program(&play(VICTORY, 1.0, 0.0))),
             ("probe_talk_3s", program(&play(TALK, 1.0, 3.0))),
@@ -3048,9 +3056,10 @@ fn wait_camera_clip_holds() -> Found {
 }
 
 /// The conversation's first line after `ms` of the talker's pause script
-/// `script` (`probe_pause`, …) running its line, a skip sent at 300 ms:
-/// whether the line has played (its replies up) and whether it is paused.
-fn after_pause(script: &str, ms: &[u64]) -> Result<Vec<(bool, bool)>, String> {
+/// `script` (`probe_pause`, …) running its line, a skip sent at 300 ms and
+/// the talker's queue cleared (`probe_clear`) at `clear` ms: whether the
+/// line has played (its replies up) and whether it is paused.
+fn after_pause(script: &str, clear: Option<u64>, ms: &[u64]) -> Result<Vec<(bool, bool)>, String> {
     let mut stage = line("Hello there.", None, 0, None);
     stage.talk.entries[0].script.script = script.into();
     let mut ground = Ground::staged(1, stage)?;
@@ -3058,8 +3067,13 @@ fn after_pause(script: &str, ms: &[u64]) -> Result<Vec<(bool, bool)>, String> {
     ground.idle(300);
     ground.answer(Pick::Skip);
     let (mut seen, mut at) = (Vec::new(), 300);
+    if let Some(clear) = clear {
+        ground.idle(clear.saturating_sub(at));
+        ground.run_script("probe_clear", TALKER)?;
+        at = clear + STEP_MS;
+    }
     for &until in ms {
-        ground.idle(until - at);
+        ground.idle(until.saturating_sub(at));
         at = until;
         let c = (ground.last.talk.conversations.first()).ok_or("the conversation ended")?;
         seen.push((c.until_ms == u64::MAX, c.paused));
@@ -3136,7 +3150,7 @@ fn alien_speech() -> Found {
 /// (1350 ms, a skip sent at 300 ms) is held for the 3 s, and plays once
 /// the resume has run.
 fn pause_is_immediate() -> Found {
-    let seen = after_pause("probe_pause", &[2000, 3400])?;
+    let seen = after_pause("probe_pause", None, &[2000, 3400])?;
     check(
         seen == [(false, true), (true, false)],
         format!("(played, paused) at 2 s and 3.4 s: {seen:?}"),
@@ -3148,7 +3162,7 @@ fn pause_is_immediate() -> Found {
 /// the pause, then 1 s more before the resume, a line of 1350 ms is held
 /// the 3 s all the same.
 fn pause_behind_actions() -> Found {
-    let seen = after_pause("probe_pause_late", &[2500, 3400])?;
+    let seen = after_pause("probe_pause_late", None, &[2500, 3400])?;
     check(
         seen == [(false, true), (true, false)],
         format!("(played, paused) at 2.5 s and 3.4 s: {seen:?}"),
@@ -3162,7 +3176,21 @@ fn pause_behind_actions() -> Found {
 /// never have run, and the line (1350 ms, a skip sent at 300 ms) has played
 /// by 2 s, not held for good.
 fn pause_cleared_with_its_queue() -> Found {
-    let seen = after_pause("probe_pause_cleared", &[2000])?;
+    let seen = after_pause("probe_pause_cleared", None, &[2000])?;
+    check(
+        seen == [(true, false)],
+        format!("(played, paused) at 2 s: {seen:?}"),
+    )
+}
+
+/// A clear that drops the resume after the pause ran: the talker's line
+/// pauses, waits 10 s and resumes, and 1 s in its queue is cleared
+/// (`ClearAllActions`, as K1's `k_ai_master` clears one clicked in co-op by
+/// a player not in its conversation). Nothing is left to resume it, so the
+/// clear lets it go on: the line (1350 ms, a skip sent at 300 ms) has played
+/// by 2 s, not held for good.
+fn resume_cleared_with_its_queue() -> Found {
+    let seen = after_pause("probe_pause_long", Some(1000), &[2000])?;
     check(
         seen == [(true, false)],
         format!("(played, paused) at 2 s: {seen:?}"),

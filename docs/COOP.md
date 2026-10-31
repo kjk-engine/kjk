@@ -28,6 +28,11 @@ ready check: `PARTY.md`; the party's fall: `FALLING.md`.
   `GetIsPC`), the party's leader unchanged after. The Endar Spire's first
   door opens for Trask leading (`k_pend_door01`), so for the guest
   playing Trask too, not only for the host's portrait click.
+- Every seat's acting body is on the players' side of a conversation a
+  script queues (`dialogue::converse`): a console whose `OnUsed` talks to
+  `GetLastUsedBy()` with no DLG named (the Endar Spire's
+  `k_pend_comp07`) talks with its own DLG to the guest's companion that
+  used it, not with the companion's DLG.
 - The first seat drives a creature the same way while a script has
   switched it to one (`SwitchPlayerCharacter`, `world::switch`), its own
   character benched; that creature is the PC then, and a guest driving

@@ -73,7 +73,6 @@ use asset_odyssey::texture::TextureIr;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use console::{DumpDue, DumpFacts};
-use sim::combat::sheet::Sheet;
 use sim::module::ObjectKind;
 use sim::{EntityState, Instances, Kind, SimId, Snapshot, Spawned};
 use vfs::Game;
@@ -101,7 +100,6 @@ pub struct Setup {
 pub struct Arrival {
     pub index: u32,
     pub id: SimId,
-    pub sheet: Sheet,
     pub arms: [Option<Armed>; 2],
 }
 
@@ -630,7 +628,7 @@ impl Made {
     fn spawn(
         &mut self,
         (index, entity, mut ready): (u32, &EntityState, Ready),
-        (scene, objects, root): (&mut LoadedScene, &Instances, Entity),
+        (scene, root): (&mut LoadedScene, Entity),
         (lives, assets, commands): (&mut LiveBlades, &mut ModelAssets, &mut Commands),
     ) -> (Entity, Range<usize>) {
         self.notes.append(&mut ready.notes);
@@ -639,7 +637,6 @@ impl Made {
         self.arrived.push(Arrival {
             index,
             id: entity.id,
-            sheet: crate::cast::sheet(entity, objects),
             arms,
         });
         (body, models)
@@ -778,7 +775,7 @@ pub fn track(
                 let ms = ready.ms;
                 let models = made.spawn(
                     (index, entity, ready),
-                    (scene, &objects, root),
+                    (scene, root),
                     (&mut lives, &mut assets, &mut commands),
                 );
                 (Some(models), ms)

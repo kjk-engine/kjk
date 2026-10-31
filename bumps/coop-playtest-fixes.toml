@@ -1,0 +1,12 @@
+# The sim's hash moves on purpose: code a co-op race's thing defers or
+# assigns stays that run's (K1's finish line assigns `StartNewModule` to the
+# first PC after a delay, so the race is held and the winner's globals
+# committed); a guest's companion using a thing that talks (a console) talks
+# with that thing, as the host's character does.
+sim = "a co-op race's deferred finish stays its run's; a guest's companion converses with the console it uses"
+
+[formats]
+save = "deferred code keeps the minigame run whose thing deferred it (`Delayed::run`)."
+
+[migrations]
+save = "old saves read no run: saves are refused in a minigame, so no deferred code in one is a race's"
