@@ -126,6 +126,7 @@ pub fn probes() -> sim::probe::Checks {
         .chain(replans(&chase_once))
         .chain(hovering(&world, &base))
         .chain(loots())
+        .chain(picks_remains())
         .chain(picks())
         .chain(walks_for())
         .chain(shut_doors(&base, &level))
@@ -281,6 +282,39 @@ pub(super) fn loots() -> sim::probe::Checks {
             let (pressed_at, now) = if opens == 0 { (0, 1000) } else { (1000, 1000 + since) };
             let got = loot_step(holds, opens, now, pressed_at);
             let detail = format!("holds {holds}, {opens} opens, {since} ms since the last: {got:?}");
+            (name, if got == want { Ok(detail) } else { Err(detail) })
+        })
+        .collect()
+}
+
+/// The remains a use of one dead loots (`pick_remains`), its own (1) lying
+/// where it fell and a neighbour's (2) a metre off, as Tatooine's Dark Jedi
+/// fell: its own while they hold something; once emptied by its take all,
+/// still its own (to be closed), not the neighbour's; not yet opened and
+/// emptied (another use's), the neighbour's; none past `REMAINS_M`.
+pub(super) fn picks_remains() -> sim::probe::Checks {
+    let remains = |index: u32, d: f32, holds: bool| Standing {
+        index,
+        at: [d, 0.0, 0.0],
+        d,
+        holds,
+    };
+    let far = REMAINS_M + 1.0;
+    // Name, whether its own hold anything, the remains the use opened, how
+    // far off the neighbour's stand, and the remains looted.
+    type Case = (&'static str, bool, Option<u32>, f32, Option<u32>);
+    let cases: [Case; 4] = [
+        ("remains_own_first", true, None, 1.0, Some(1)),
+        ("remains_opened_kept_once_emptied", false, Some(1), 1.0, Some(1)),
+        ("remains_neighbours_when_own_emptied_before", false, None, 1.0, Some(2)),
+        ("remains_none_past_their_reach", false, None, far, None),
+    ];
+    cases
+        .into_iter()
+        .map(|(name, own_holds, opened, neighbour_d, want)| {
+            let got = pick_remains([remains(1, 0.0, own_holds), remains(2, neighbour_d, true)], opened)
+                .map(|picked| picked.index);
+            let detail = format!("own holds {own_holds}, opened {opened:?}, neighbour {neighbour_d} m off: {got:?}");
             (name, if got == want { Ok(detail) } else { Err(detail) })
         })
         .collect()

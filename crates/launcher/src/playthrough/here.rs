@@ -699,28 +699,57 @@ pub(super) fn holder_of(here: &Here, state: &sim::script::State, template: &str)
         })
 }
 
-/// The remains standing nearest `lay` within `REMAINS_M` still holding
-/// something (`state`'s items; one emptied waits to be closed and go): their
-/// number and place.
-pub(super) fn remains_at(here: &Here, state: &sim::script::State, lay: [f32; 3]) -> Option<(u32, [f32; 3])> {
-    here.snapshot
-        .entities
-        .iter()
-        .filter_map(|entity| {
-            let sim::Kind::Object(ObjectKind::Placeable, index) = entity.kind else {
-                return None;
-            };
-            sim::remains::bag_row(&here.objects().made_from(index)?.template)?;
-            state
-                .items
-                .values()
-                .any(|item| item.holder == entity.id.0)
-                .then_some(())?;
-            let d = flat(entity.position, lay);
-            (d <= REMAINS_M).then_some((d, index, entity.position))
+/// Remains standing in the module (`remains_at`): their number, place,
+/// distance across the floor from where the dead lay, and whether they hold
+/// anything.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Standing {
+    pub(super) index: u32,
+    pub(super) at: [f32; 3],
+    pub(super) d: f32,
+    pub(super) holds: bool,
+}
+
+/// The remains a `use` of one dead loots (`pick_remains`) of those standing
+/// in the module, `lay` where it lay: their number and place.
+pub(super) fn remains_at(
+    here: &Here,
+    state: &sim::script::State,
+    lay: [f32; 3],
+    opened: Option<u32>,
+) -> Option<(u32, [f32; 3])> {
+    let standing = here.snapshot.entities.iter().filter_map(|entity| {
+        let sim::Kind::Object(ObjectKind::Placeable, index) = entity.kind else {
+            return None;
+        };
+        sim::remains::bag_row(&here.objects().made_from(index)?.template)?;
+        Some(Standing {
+            index,
+            at: entity.position,
+            d: flat(entity.position, lay),
+            holds: state.items.values().any(|item| item.holder == entity.id.0),
         })
-        .min_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|(_, index, at)| (index, at))
+    });
+    pick_remains(standing, opened).map(|remains| (remains.index, remains.at))
+}
+
+/// Of the remains `standing`, the ones this use opened (`opened`) while they
+/// stand, emptied or not: a player closes the bag he opened. Else the
+/// nearest within `REMAINS_M` still holding something (one emptied waits to
+/// be closed and go). Emptied by the take all, a use's own were passed over
+/// for a neighbour's still holding, opened and emptied too: Tatooine's first
+/// Dark Jedi's use took the second's remains, left none for its own use.
+pub(super) fn pick_remains(standing: impl IntoIterator<Item = Standing>, opened: Option<u32>) -> Option<Standing> {
+    let mut nearest: Option<Standing> = None;
+    for remains in standing {
+        if Some(remains.index) == opened {
+            return Some(remains);
+        }
+        if remains.holds && remains.d <= REMAINS_M && nearest.is_none_or(|near| remains.d < near.d) {
+            nearest = Some(remains);
+        }
+    }
+    nearest
 }
 
 /// Whether `goal`, foes standing near, fights them first: an exit or a use
