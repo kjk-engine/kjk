@@ -180,6 +180,12 @@ pub enum Attack {
     Blow(f32),
 }
 
+/// How near (units, centre to centre) a creature whose blows reach `reach`
+/// comes before it attacks (`ai.hands.blow_share` of it).
+pub fn blow_from(reach: f32) -> f32 {
+    reach * hands::BLOW_SHARE
+}
+
 /// What a creature does this tick about `target` (looked at `at`, units:
 /// `look_at`), if it has one it can see: turn toward it, aiming from `from`
 /// (its eye; a player's crosshair, `crosshair`) a little off, or squarely
@@ -219,7 +225,7 @@ pub fn engage(
             }
         }
         Attack::Blow(reach) => {
-            if flat > reach * hands::BLOW_SHARE {
+            if flat > blow_from(reach) {
                 command.forward = 127;
             } else {
                 command.buttons |= buttons::ATTACK;
