@@ -509,6 +509,18 @@ pub fn strides(source: &dyn Source, appearance: u32, tables: &mut Tables) -> Opt
     Some([stride("walkdist")?, stride("rundist")?])
 }
 
+/// How far a body of `appearance.2da` row `appearance` leans with the
+/// floor under it (`groundtilt`; 0 upright, 1 wholly with the floor; 0
+/// where blank). The game reads the column as a number; its rows hold 0
+/// or 1 (T3-M4, the astromechs, the Mark Two and Four droids, banthas,
+/// dewbacks and rontos lean).
+pub fn ground_tilt(source: &dyn Source, appearance: u32, tables: &mut Tables) -> f32 {
+    tables
+        .get(source, "appearance")
+        .and_then(|appearances| appearances.float(appearance as usize, "groundtilt"))
+        .unwrap_or(0.0)
+}
+
 /// A weapon's model (`item::model_name`).
 pub fn weapon_model(source: &dyn Source, base_item: i64, variation: i64) -> Option<String> {
     let base_items = Tables::default().get(source, "baseitems")?;

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `d372d392afca0898`.
+Edition `9d5e636b5dba15e8`.
 
 ## Contents
 
@@ -194,6 +194,7 @@ Edition `d372d392afca0898`.
 - [Beasts and Fists](#creatures)
   - [Beasts](#creatures-beasts)
   - [Fists](#creatures-fists)
+  - [Leaning with the floor](#creatures-ground)
 - [Falling and Reviving](#downed)
   - [Getting Up](#downed-rising)
   - [Reviving](#downed-revive)
@@ -7196,6 +7197,38 @@ A humanoid's body extends 0.35 meters from its center when its appearance gives 
 A punch strikes only an opponent in front of the attacker, where the cosine of the angle from its facing is at least 0.707.
 
 <sub>Source: ours. Code: `sim::world::strikes::in_front`.</sub>
+
+### <a id="creatures-ground"></a>Leaning with the floor
+
+A droid or beast whose appearance says so (T3-M4, the astromechs, the Mark
+Two and Four droids, banthas, dewbacks and rontos) leans with the floor
+under it: on a ramp it tilts to the slope and stands on it, instead of
+staying upright as if the floor were flat.
+
+The lean is how it is drawn; where it walks and what it touches are the
+same as upright. It follows the floor under its middle, eased over
+120 ms, and goes back upright where no walkable floor
+lies within 0.75 m below its feet.
+
+<a id="creatures-ground-ease-ms"></a>**Lean Ease** = **0.12 seconds** (`120 ms`) · `creatures.ground.ease_ms`
+
+A leaning body takes about 120 ms to settle to a new slope.
+
+<sub>Source: ours [verify against K1]. Code: `game::ground_lean::Lean::stand`.</sub>
+
+<a id="creatures-ground-reach-m"></a>**Lean Floor Reach** = **0.75 m** · `creatures.ground.reach_m`
+
+A leaning body looks for the floor under its middle up to 0.75 m below its feet.
+
+Enough for a body's box resting on the high side of a steep ramp, its middle over the slope well below.
+
+<sub>Source: ours. Code: `game::ground_lean::floor_under`.</sub>
+
+<a id="creatures-ground-level-normal-z"></a>**Level Floor** = **0.999** · `creatures.ground.level_normal_z`
+
+A floor whose slope's cosine is at least 0.999 counts as level: a leaning body stands where its box does, not on the floor under its middle, so it does not sink off a ledge.
+
+<sub>Source: ours. Code: `game::ground_lean::Lean::stand`.</sub>
 
 ## <a id="downed"></a>Falling and Reviving
 

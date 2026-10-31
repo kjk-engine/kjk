@@ -75,6 +75,7 @@ use sim::{EntityState, Instances, Kind, Seat, SimId, Snapshot};
 
 use crate::acting;
 use crate::draw_anim::DrawPose;
+use crate::ground_lean::{self, Floor, Lean};
 use crate::holdings::Holdings;
 use crate::ragdolls::{self, Doll, Dying, Lengths, Ragdolls};
 use crate::scene::{Animator, SceneModel};
@@ -1184,7 +1185,7 @@ impl Figure {
 /// sim ms); its clips for scripts' animations and what it shows of them
 /// (`acting`); the metres its walk and run cycles cover and how far into
 /// each it is, as of when (sim ms); its nodes' parents and rest
-/// (`rest_of`).
+/// (`rest_of`); how it leans with the floor, if it does (`ground_lean`).
 struct Clips {
     clips: [Option<Animator>; 6],
     shown: Option<(usize, f32)>,
@@ -1197,6 +1198,7 @@ struct Clips {
     cycles: [f32; 2],
     cycled_ms: Option<f64>,
     rest: Vec<(Option<usize>, Vec3, Quat)>,
+    lean: Option<Lean>,
 }
 
 const PAUSE: usize = 0;
@@ -2006,6 +2008,7 @@ impl Cast {
                 cycles: [0.0; 2],
                 cycled_ms: None,
                 rest: rest_of(&placed.ir),
+                lean: Lean::new(view.ground_tilt),
             }))
         };
         let gait = crate::gait::GaitClips {
@@ -2477,6 +2480,7 @@ impl Cast {
         let newest = history.last().map(|newest| &**newest);
         let fought = fought(newest);
         let held = newest.is_some_and(Snapshot::holds_world);
+        let states = newest.and_then(|newest| level.states_in(newest));
         self.note_unequipped(newest, level);
         let looks = history
             .last()
@@ -2551,10 +2555,18 @@ impl Cast {
                             arc,
                         ))
                     });
+                // A body that leans with the floor finds it under its middle.
+                let leans = matches!(&member.body.look, Look::Clips(clips) if clips.lean.is_some());
+                let floor = leans
+                    .then(|| {
+                        let middle = Vec3::from_array(at.origin) * UNIT;
+                        ground_lean::floor_under(level, states.as_deref(), (middle, soles))
+                    })
+                    .flatten();
                 let posed = place(
                     member,
                     &at,
-                    (soles, ms, eye),
+                    (soles, ms, eye, floor),
                     (
                         posing.contains(&id) || falls || in_place || death_plays,
                         armed,
@@ -3166,6 +3178,8 @@ fn view_axes(at: &Blended) -> [Vec3; 3] {
 /// beast's walk keeps to its stride, and a humanoid wholly on KOTOR's clips (nothing gripped or
 /// aimed) is KOTOR's own clip on its model, its JA pose not made. With no
 /// conversation under way, it is drawn as it was before scene mode (S7).
+/// A droid or beast that leans with the floor stands on `floor`
+/// (`ground_lean`).
 fn place(
     Member {
         body,
@@ -3174,7 +3188,7 @@ fn place(
         ..
     }: &mut Member,
     at: &Blended,
-    (soles, ms, eye): (Vec3, f64, Option<Vec3>),
+    (soles, ms, eye, floor): (Vec3, f64, Option<Vec3>, Option<Floor>),
     (pose, armed, reach): (bool, bool, &[(Blade, Hand)]),
     (world_held, look, drawn): (bool, Option<(Vec3, f32)>, Option<DrawPose>),
     wielded: Option<&Wielded>,
@@ -3496,11 +3510,16 @@ fn place(
                 (&clips.acted, figure.breath.wield),
                 ms,
             );
-            // KOTOR models face +Y: yaw 0 (+X) is a quarter turn back.
+            // KOTOR models face +Y: yaw 0 (+X) is a quarter turn back. One
+            // that leans with the floor is turned to it (`ground_lean`).
             let faces = figure.yaw().unwrap_or(at.view[1]);
+            let (stands, leans) = clips
+                .lean
+                .as_mut()
+                .map_or((soles, Quat::IDENTITY), |lean| lean.stand(floor, soles, ms));
             edit(transforms, body.root, |t| {
-                *t = Transform::from_translation(soles)
-                    .with_rotation(Quat::from_rotation_z(faces.to_radians() - quarter));
+                *t = Transform::from_translation(stands)
+                    .with_rotation(leans * Quat::from_rotation_z(faces.to_radians() - quarter));
             });
             if pose {
                 at_rest((&body.nodes, &clips.rest), transforms);
