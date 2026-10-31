@@ -65,6 +65,8 @@ struct Blend {
     /// Starts from the pose shown when it began (`Player::shown`), not the
     /// frames.
     from_shown: bool,
+    /// The pose it starts from turned so (`Player::adopt_blending_turned`).
+    turned: Option<Quat>,
 }
 
 /// An animation timed elsewhere (`Player::adopt`): from `start_frame`
@@ -441,6 +443,7 @@ impl<'a> Player<'a> {
             frame,
             lerp_frame,
             from_shown: mid_blend,
+            turned: None,
         })
     }
 
@@ -501,6 +504,7 @@ impl<'a> Player<'a> {
             frame: from.frame,
             lerp_frame: from.next as f32,
             from_shown: from.under.is_some(),
+            turned: None,
         });
         self.anims.insert(bone, self.timed_anim(timed, blend));
     }
@@ -566,6 +570,28 @@ impl<'a> Player<'a> {
         self.anims.insert(bone, self.timed_anim(timed, blend));
     }
 
+    /// `adopt_blending` for a root (model space), the pose blended from
+    /// turned by `turn` first (the root's own; the bones that inherit its
+    /// animation blend from theirs unturned): a caller that turns the whole result back by
+    /// `turn`'s inverse blends a turned animation in from the pose shown
+    /// without swinging the body round (`game::cast`'s get-ups).
+    pub fn adopt_blending_turned(
+        &mut self,
+        bone: usize,
+        timed: &Timed,
+        now_ms: f32,
+        blend_ms: f32,
+        turn: Quat,
+    ) {
+        let blend = self
+            .blend_from_now(bone, now_ms, blend_ms)
+            .map(|blend| Blend {
+                turned: Some(turn),
+                ..blend
+            });
+        self.anims.insert(bone, self.timed_anim(timed, blend));
+    }
+
     fn frame(&self, bone: usize, frame: i32) -> Local {
         let bones = self.gla.bones.len();
         let frame = usize::try_from(frame)
@@ -628,6 +654,12 @@ impl<'a> Player<'a> {
                     // Q-0004: the fraction on the wrong frame.
                     None if self.quirks => mix_frames(next, held, back, pivot),
                     None => mix_frames(held, next, back, pivot),
+                };
+                // Only the root turns: the bones under it inherit its
+                // blend, their locals already riding on its turn.
+                let captured = match blend.turned {
+                    Some(turn) if bone == driver => (turn * captured.0, turn * captured.1),
+                    _ => captured,
                 };
                 let reference = show(self.anims[&driver].timing(blend.start_ms)).0;
                 local = mix_blend(captured, local, reference, amount, pivot);

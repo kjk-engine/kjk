@@ -124,9 +124,316 @@ pub fn probes() -> sim::probe::Checks {
             (name, result)
         })
         .chain(replans(&chase_once))
+        .chain(hovering(&world, &base))
+        .chain(gives_up(&base))
+        .chain(scenes())
+        .chain(loots())
+        .chain(picks_remains())
         .chain(picks())
         .chain(walks_for())
         .chain(shut_doors(&base, &level))
+        .collect()
+}
+
+/// A trigger's own scene (`Scenes`): the sim reports conversation 9 begun
+/// by trigger object 40's `OnEnter` for the player (object 1) at 0.2 s; a
+/// `to` it begun at 0.5 s takes it, once. One the trigger began for another
+/// body (Telos's salvager reaching `tr_czerka_escape`), one begun after the
+/// `to` began, or in another module visit, is not taken. (Onderon's throne
+/// room: the fight set off Kavar's entrance, and the `to` it after walked
+/// back for it into the hall's keeper for 900 s.)
+pub(super) fn scenes() -> sim::probe::Checks {
+    use sim::script::Cue;
+    const PLAYER: u32 = 1;
+    let trigger_of = |id: ObjectId| (id.0 == 40).then_some(5);
+    let cued = |entering: u32| Line::Cued {
+        ms: 200,
+        id: 9,
+        cue: Cue {
+            trigger: ObjectId(40),
+            entering: ObjectId(entering),
+        },
+    };
+    let taken = |entering: u32, module_after: &str, since: u64| {
+        let mut scenes = Scenes::default();
+        let mut lines = vec![Line::Token {
+            ms: 0,
+            number: 0,
+            value: String::new(),
+        }];
+        scenes.note("m", &lines, sim::SimId(PLAYER), trigger_of, 100);
+        lines.push(cued(entering));
+        scenes.note("m", &lines, sim::SimId(PLAYER), trigger_of, 200);
+        scenes.note(module_after, &lines, sim::SimId(PLAYER), trigger_of, 300);
+        let first = scenes.take_before(5, since).map(|talk| talk.id);
+        let again = scenes.take_before(5, since).map(|talk| talk.id);
+        (first, again)
+    };
+    let (player, other, after, moved) = (
+        taken(PLAYER, "m", 500),
+        taken(7, "m", 500),
+        taken(PLAYER, "m", 0),
+        taken(PLAYER, "n", 500),
+    );
+    vec![(
+        "to_a_trigger_whose_scene_played_is_met",
+        sim::probe::check(
+            player == (Some(9), None)
+                && other == (None, None)
+                && after == (None, None)
+                && moved == (None, None),
+            format!(
+                "(taken, again): the player's {player:?}; another body's {other:?}; \
+                 the `to` begun before it {after:?}; another module since {moved:?}"
+            ),
+        ),
+    )]
+}
+
+/// A foe the walk to stalled on and on (`Chase::lost`) is given up while the
+/// player does not see it (`Chase::given_up`): on the proving ground, the
+/// player 3 m west of the wall across, the foe 3 m east of it, hidden; the
+/// same foe 2 m west of the player, seen, is not; nor a hidden one not lost.
+/// (Dxun's turret ramp: a boma wandered into a drawn rock past a wall, where
+/// the floor runs on under it, and the fight walked at it for 90 s.)
+pub(super) fn gives_up(base: &Snapshot) -> sim::probe::Checks {
+    let level = sim::determinism::proving_ground();
+    let origin = |x: f32| {
+        let [x, y, z] = sim::determinism::ground_point(x, 2.0, 0.0);
+        [x / UNIT, y / UNIT, z / UNIT - sim::motion::SOLE_Z]
+    };
+    let Some(me) = base
+        .entities
+        .iter()
+        .find(|e| e.kind == sim::Kind::Avatar(Seat(0)))
+        .copied()
+    else {
+        return vec![("chase_gives_up_a_hidden_lost_foe", Err("no player on the arena".into()))];
+    };
+    let Some(player) = me.player else {
+        return vec![("chase_gives_up_a_hidden_lost_foe", Err("the player has no body".into()))];
+    };
+    let standing = |at: [f32; 3]| sim::motion::MotionState { origin: at, ..player };
+    let player = standing(origin(-3.0));
+    let foe_id = sim::SimId(u32::MAX - 1);
+    let given_up = |foe_x: f32, lost: bool| {
+        let at = origin(foe_x);
+        let mut snapshot = base.clone();
+        snapshot.entities.retain(|e| e.id != me.id);
+        snapshot.entities.push(sim::EntityState {
+            position: player.origin.map(|v| v * UNIT),
+            player: Some(player),
+            ..me
+        });
+        snapshot.entities.push(sim::EntityState {
+            id: foe_id,
+            kind: sim::Kind::Object(ObjectKind::Creature, 0),
+            position: at.map(|v| v * UNIT),
+            player: Some(standing(at)),
+            ..me
+        });
+        let refused = BTreeSet::new();
+        let here = Here::new(&level, &snapshot, &refused);
+        let chase = Chase {
+            lost: lost.then_some(foe_id),
+            ..Chase::default()
+        };
+        chase.given_up(&here, &player, foe_id)
+    };
+    let (hidden, seen, not_lost) = (given_up(3.0, true), given_up(-5.0, true), given_up(3.0, false));
+    vec![(
+        "chase_gives_up_a_hidden_lost_foe",
+        sim::probe::check(
+            hidden && !seen && !not_lost,
+            format!("lost behind the wall: given up {hidden}; lost in sight: {seen}; behind the wall, not lost: {not_lost}"),
+        ),
+    )]
+}
+
+/// A gun's chase at a body met where its model is drawn: TSL's sensor ball
+/// (`c_senball`, 1.33 m to 1.66 m over its soles, `kjk combat bodies tsl`),
+/// 5 m off. The crosshair line the chase aims meets its body (aimed 0.3 m
+/// over its origin, under it, the prologue's droid was never hit). And a
+/// mine placed and gone (set off) is `sprung`; one still there is not.
+pub(super) fn hovering(world: &sim::SimWorld, base: &Snapshot) -> sim::probe::Checks {
+    use collision::{BoxWorld, CollisionWorld, Contents, Extents};
+    let ball = sim::module::Bulk {
+        min: [-0.15, -0.17, 1.33],
+        max: [0.15, 0.13, 1.66],
+    };
+    let Some(module) = sim::determinism::proving_ground().module().map(|m| (**m).clone()) else {
+        return vec![("chase_shoots_a_hovering_droid", Err("the proving ground has no module".into()))];
+    };
+    let droid = ObjectData {
+        kind: ObjectKind::Creature,
+        body: Some(sim::module::Body {
+            appearance: 571,
+            size: 0,
+            movement: 0,
+            walk_mps: 0.0,
+            run_mps: 0.0,
+            head_arc_h: 0.0,
+            bag: 0,
+            destroy_ms: 0,
+            fade_ms: None,
+            bulk: Some(ball),
+        }),
+        ..ObjectData::unknown("droid", [0.0; 3], 0.0)
+    };
+    let mine = ObjectData {
+        kind: ObjectKind::Trigger,
+        trap: Some(sim::traps::Trap {
+            one_shot: true,
+            ..Default::default()
+        }),
+        tag: "mine".into(),
+        ..ObjectData::unknown("mine", [0.0; 3], 0.0)
+    };
+    let level = world.level().clone().with_module(sim::module::ModuleData {
+        placements: vec![sim::module::Placement::Own(droid), sim::module::Placement::Own(mine)],
+        ..module
+    });
+    let mut snapshot = base.clone();
+    let Some(me) = snapshot
+        .entities
+        .iter()
+        .find(|e| e.kind == sim::Kind::Avatar(Seat(0)))
+        .copied()
+    else {
+        return vec![("chase_shoots_a_hovering_droid", Err("no player on the arena".into()))];
+    };
+    let me = sim::EntityState {
+        sheet: Some(sim::combat::Sheet::dev_soldier()),
+        ..me
+    };
+    let (Some(player), d) = (me.player, 5.0) else {
+        return vec![("chase_shoots_a_hovering_droid", Err("no player on the arena".into()))];
+    };
+    let foe_ps = sim::motion::MotionState {
+        origin: [player.origin[0] - d / UNIT, player.origin[1], player.origin[2]],
+        ..player
+    };
+    let foe = sim::EntityState {
+        id: sim::SimId(u32::MAX - 1),
+        kind: sim::Kind::Object(ObjectKind::Creature, 0),
+        position: [me.position[0] - d, me.position[1], me.position[2]],
+        player: Some(foe_ps),
+        ..me
+    };
+    snapshot.entities.push(foe);
+    let refused = BTreeSet::new();
+    let shot = {
+        let here = Here::new(&level, &snapshot, &refused);
+        let (command, _) = Chase::default().strike(
+            &mut None,
+            &here,
+            world,
+            &mut Reach::default(),
+            &player,
+            &me,
+            (foe.id, foe.position),
+            0,
+            &mut Vec::new(),
+        );
+        let angle = |axis: usize| {
+            sim::math::short_to_degrees(command.angles[axis].wrapping_add(player.view_offset[axis]))
+        };
+        let (forward, ..) = sim::math::angle_vectors([angle(0), angle(1), 0.0]);
+        // Bodies stand in metres.
+        let from = mind::crosshair(&player).map(|v| v * UNIT);
+        let to = sim::math::mad(from, 20.0, forward);
+        let bodies = [sim::body(foe.id, &foe_ps, Some(&ball))];
+        let met = collision::Bodies::new(&BoxWorld::new(), &bodies)
+            .trace(from, to, &Extents::POINT, Contents::BODY)
+            .fraction
+            < 1.0;
+        let detail = format!(
+            "attack {}, the crosshair line pitched {:.1} degrees meets the ball {met}",
+            command.buttons & buttons::ATTACK != 0,
+            angle(0)
+        );
+        sim::probe::check(met && command.buttons & buttons::ATTACK != 0, detail)
+    };
+    // The mine (number 1) gone, then standing.
+    let sprung_when = |standing: bool| {
+        let mut snapshot = base.clone();
+        if standing {
+            snapshot.entities.push(sim::EntityState {
+                id: sim::SimId(u32::MAX - 2),
+                kind: sim::Kind::Object(ObjectKind::Trigger, 1),
+                player: None,
+                fighter: None,
+                ..me
+            });
+        }
+        sprung(&Here::new(&level, &snapshot, &refused), "mine", None)
+    };
+    let (gone, there) = (sprung_when(false), sprung_when(true));
+    vec![
+        ("chase_shoots_a_hovering_droid_where_it_is_drawn", shot),
+        (
+            "to_a_mine_set_off_is_met",
+            sim::probe::check(gone && !there, format!("gone: sprung {gone}; standing: sprung {there}")),
+        ),
+    ]
+}
+
+/// A container's use (`loot_step`): opened and emptied first; closed once
+/// it holds nothing after an open (not at once: an open the player's action
+/// has yet to carry out refuses the take all sent with it); opened again a
+/// press's time on while it still holds something, and closed holding it
+/// after `LOOT_OPENS` opens.
+pub(super) fn loots() -> sim::probe::Checks {
+    let press = 4 * PRESS_MS;
+    let cases: [(&'static str, bool, u8, u64, Loot); 6] = [
+        ("loot_opens_first", true, 0, 0, Loot::Open),
+        ("loot_opens_an_empty_one_first", false, 0, 0, Loot::Open),
+        ("loot_waits_for_the_take_all", true, 1, press / 2, Loot::Wait),
+        ("loot_opens_again_while_it_holds", true, 1, press, Loot::Open),
+        ("loot_closes_once_empty", false, 1, press / 2, Loot::Close),
+        ("loot_closes_holding_after_its_opens", true, LOOT_OPENS, press, Loot::Close),
+    ];
+    cases
+        .into_iter()
+        .map(|(name, holds, opens, since, want)| {
+            let (pressed_at, now) = if opens == 0 { (0, 1000) } else { (1000, 1000 + since) };
+            let got = loot_step(holds, opens, now, pressed_at);
+            let detail = format!("holds {holds}, {opens} opens, {since} ms since the last: {got:?}");
+            (name, if got == want { Ok(detail) } else { Err(detail) })
+        })
+        .collect()
+}
+
+/// The remains a use of one dead loots (`pick_remains`), its own (1) lying
+/// where it fell and a neighbour's (2) a metre off, as Tatooine's Dark Jedi
+/// fell: its own while they hold something; once emptied by its take all,
+/// still its own (to be closed), not the neighbour's; not yet opened and
+/// emptied (another use's), the neighbour's; none past `REMAINS_M`.
+pub(super) fn picks_remains() -> sim::probe::Checks {
+    let remains = |index: u32, d: f32, holds: bool| Standing {
+        index,
+        at: [d, 0.0, 0.0],
+        d,
+        holds,
+    };
+    let far = REMAINS_M + 1.0;
+    // Name, whether its own hold anything, the remains the use opened, how
+    // far off the neighbour's stand, and the remains looted.
+    type Case = (&'static str, bool, Option<u32>, f32, Option<u32>);
+    let cases: [Case; 4] = [
+        ("remains_own_first", true, None, 1.0, Some(1)),
+        ("remains_opened_kept_once_emptied", false, Some(1), 1.0, Some(1)),
+        ("remains_neighbours_when_own_emptied_before", false, None, 1.0, Some(2)),
+        ("remains_none_past_their_reach", false, None, far, None),
+    ];
+    cases
+        .into_iter()
+        .map(|(name, own_holds, opened, neighbour_d, want)| {
+            let got = pick_remains([remains(1, 0.0, own_holds), remains(2, neighbour_d, true)], opened)
+                .map(|picked| picked.index);
+            let detail = format!("own holds {own_holds}, opened {opened:?}, neighbour {neighbour_d} m off: {got:?}");
+            (name, if got == want { Ok(detail) } else { Err(detail) })
+        })
         .collect()
 }
 
@@ -152,24 +459,30 @@ pub(super) fn walks_for() -> sim::probe::Checks {
 
 /// The foe a fight takes (`Chase::pick`): the one it fights while that one
 /// still fits, though another stands as near or nearer; else the nearest
-/// that fits (none fought, the one fought left out or gone).
+/// that fits (none fought, the one fought left out or gone); but one that
+/// fits at hand (0.8 m, within a blade's swing) before one fought out of it.
 pub(super) fn picks() -> sim::probe::Checks {
-    let (near, far, gone) = (sim::SimId(1), sim::SimId(2), sim::SimId(3));
-    let foes = vec![(near, [17.55, 0.0, 0.0]), (far, [17.6, 0.0, 0.0])];
-    let cases: [(&'static str, Option<sim::SimId>, Option<sim::SimId>, sim::SimId); 4] = [
-        ("pick_keeps_the_foe_fought", Some(far), None, far),
-        ("pick_takes_the_nearest_first", None, None, near),
-        ("pick_leaves_the_foe_fought_once_it_no_longer_fits", Some(far), Some(far), near),
-        ("pick_takes_the_nearest_once_the_foe_fought_is_gone", Some(gone), None, near),
+    let (near, far, gone, hand) = (sim::SimId(1), sim::SimId(2), sim::SimId(3), sim::SimId(4));
+    let apart = vec![(near, [17.55, 0.0, 0.0]), (far, [17.6, 0.0, 0.0])];
+    let with_hand = [vec![(hand, [0.8, 0.0, 0.0])], apart.clone()].concat();
+    type Case = (&'static str, bool, Option<sim::SimId>, Option<sim::SimId>, sim::SimId);
+    let cases: [Case; 6] = [
+        ("pick_keeps_the_foe_fought", false, Some(far), None, far),
+        ("pick_takes_the_nearest_first", false, None, None, near),
+        ("pick_leaves_the_foe_fought_once_it_no_longer_fits", false, Some(far), Some(far), near),
+        ("pick_takes_the_nearest_once_the_foe_fought_is_gone", false, Some(gone), None, near),
+        ("pick_takes_one_at_hand_before_the_foe_fought", true, Some(far), None, hand),
+        ("pick_keeps_the_foe_fought_at_hand", true, Some(hand), None, hand),
     ];
     cases
         .into_iter()
-        .map(|(name, fought, unfit, expected)| {
+        .map(|(name, at_hand, fought, unfit, expected)| {
             let chase = Chase {
                 foe: fought,
                 ..Chase::default()
             };
-            let picked = chase.pick(foes.clone(), |(id, _)| Some(*id) != unfit).map(|(id, _)| id);
+            let foes = if at_hand { with_hand.clone() } else { apart.clone() };
+            let picked = chase.pick([0.0; 3], foes, |(id, _)| Some(*id) != unfit).map(|(id, _)| id);
             let detail = format!("fought {fought:?}, left out {unfit:?}: picked {picked:?}");
             (name, if picked == Some(expected) { Ok(detail) } else { Err(detail) })
         })
@@ -400,8 +713,39 @@ pub fn wall_probes() -> sim::probe::Checks {
             if walker.rounding { Ok(detail) } else { Err(detail) },
         )
     };
+    // A placeable at (0, 4) with action points 0.7 m south and north of
+    // it, used by the player at (-8, 0): its walk makes for the south one,
+    // the one nearest the player (`Here::use_point`), not for the floor
+    // before the placeable on the line from the player. The same placeable
+    // standing at (0, -4), its facts still placed at (0, 4) (one made in
+    // play, its template's facts): its north point, round where it stands.
+    let used = {
+        let refused = BTreeSet::new();
+        let here = Here::new(&level, &snapshot, &refused);
+        let bin = ObjectData {
+            kind: ObjectKind::Placeable,
+            use_points: vec![[0.0, -0.7, 0.0], [0.0, 0.7, 0.0]],
+            ..ObjectData::unknown("bin", [0.0, 4.0, 0.0], 0.0)
+        };
+        let player = sim::motion::MotionState::standing(from, 0.0);
+        let goal = |at: [f32; 3]| {
+            let point = Here::use_point(from.map(|v| v * UNIT), at, Some(&bin));
+            here.approach(&player, point).goal.map(|v| v * UNIT)
+        };
+        let (placed, made) = (goal([0.0, 4.0, 0.0]), goal([0.0, -4.0, 0.0]));
+        let detail = format!("making for {placed:?}; made elsewhere, {made:?}");
+        (
+            "use_walks_to_the_nearest_action_point",
+            if flat(placed, [0.0, 3.3, 0.0]) < 0.05 && flat(made, [0.0, -3.3, 0.0]) < 0.05 {
+                Ok(detail)
+            } else {
+                Err(detail)
+            },
+        )
+    };
     vec![
         rounds,
+        used,
         routed("walk_goes_round_a_trigger_that_turned_it_back", 5.0, true),
         routed("walk_goes_through_one_with_no_way_round", 10.0, false),
         left(
@@ -452,6 +796,7 @@ pub fn quiet_probes() -> sim::probe::Checks {
                         with: ObjectId(with),
                         dialog: String::new(),
                         asker: None,
+                        cue: None,
                     },
                     started_ms: None,
                 },

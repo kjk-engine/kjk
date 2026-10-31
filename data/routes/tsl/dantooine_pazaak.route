@@ -1,0 +1,42 @@
+# Dantooine, Pato Ado's pazaak (TSL, 601DAN), a branch from the Khoonda
+# Plains that rejoins nothing: the Ithorian by the landing pad, his cards
+# bought (the ± and − ones his store keeps: his tables' decks are the
+# stakes', pazaakdecks.2da rows 1 to 3, the dearest all ±), played at his
+# first stake (250) until his count of the stakes won (local number 13, in
+# stake levels) reaches ten, when he offers his armor components for one
+# more game (deck 3, no wager; lost, he takes 1000): won, three armor
+# upgrades and his offer over (local boolean 45) (DSimpson's and
+# GameBanshee's Khoonda Plains).
+# Starts from the Khoonda Plains' checkpoint:
+#   kjk playthrough tsl @dantooine_plains data/routes/tsl/dantooine_pazaak.route --god
+# The party's own credits carry his table (250 a game), its losses paid
+# from what it won.
+# BLOCKER: they do not carry the armor game after two losses (1000 each;
+# the bot plays the opponents' own AI and loses about half), so a stand-in
+# brings the credits for it (SKIPPED.md).
+say Do you have any cards I could buy?
+use npc_pato
+talk
+buy g_i_pazcard_003
+buy g_i_pazcard_013
+buy g_i_pazcard_018
+buy g_i_pazcard_022
+say Why are you so anxious to go?
+say I'm interested. Can I play for the armor components?
+say Let's go.
+use npc_pato
+talk
+pazaak
+while npc_pato.n13<10 # each win adds his stake level (k_pato_donepzk),
+say Let's play another game. # his end script starts the talk again
+talk
+pazaak
+end
+gold 10000           # the stand-in (BLOCKER above)
+while npc_pato.b45=0 # the armor game, until won
+say Let's play for the armor components.
+say Let's play then.
+talk
+pazaak
+talk
+end

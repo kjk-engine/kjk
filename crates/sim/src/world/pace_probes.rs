@@ -33,6 +33,7 @@ fn body() -> Body {
         bag: 0,
         destroy_ms: 0,
         fade_ms: None,
+        bulk: None,
     }
 }
 

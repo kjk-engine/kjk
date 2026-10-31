@@ -68,6 +68,11 @@ pub enum GameAction {
         item: u32,
     },
     TakeAll(u32),
+    /// One of the party's items put in a container (its give mode).
+    Put {
+        container: u32,
+        item: u32,
+    },
     Buy {
         store: u32,
         item: u32,

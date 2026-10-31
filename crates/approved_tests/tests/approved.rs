@@ -1060,10 +1060,14 @@ fn destroy_fades() {
 /// above within it across the floor (Dxun's Kumus), refuses what a
 /// wall hides and a door closed on someone; a K1
 /// container's use runs its `OnUsed`, locked (no "locked" line) or opening;
-/// scripts see who did it; two runs end the same. The sim alone.
+/// scripts see who did it; Close is offered on an open door the player
+/// could open again (QUIRKS.md Q-0330), not on one only scripts open, one
+/// leading out or one broken open; a companion, led or driven by a player,
+/// is a target, picked only clear ahead of the player, and never the target
+/// of the player it is the body of; two runs end the same. The sim alone.
 #[test]
 fn use_actions() {
-    probed("use", &sim::uses::probes(), 38);
+    probed("use", &sim::uses::probes(), 42);
 }
 
 /// Bashing (`docs/COMBAT.md`): on the proving ground
@@ -1133,10 +1137,13 @@ fn use_scripts() {
 /// proving ground the player, steered by `sim::target::Walk` in place of
 /// its keys, walks from the entry to a panel out of reach and uses it on
 /// arriving; its own forward key on the way cancels the walk and nothing is
-/// used; two runs end the same. The sim alone.
+/// used; two runs end the same; from beside the wall the player walks to
+/// the gate's action point on its side (KOTOR's use range from a door's
+/// walkmesh use position), off the wall's face, opens the gate, then closes
+/// it with Close, its `OnClosed` heard. The sim alone.
 #[test]
 fn use_walk() {
-    probed("walk", &sim::uses::walk_probes(), 3);
+    probed("walk", &sim::uses::walk_probes(), 5);
 }
 
 /// Security in one press (owner's playtest, 2026-10-25: "Security
@@ -1159,6 +1166,17 @@ fn security_walk() {
 #[test]
 fn traps_lifecycle() {
     probed("traps", &sim::traps::probes(), 20);
+}
+
+/// Disarming a mine in one choice (owner's playtest, 2026-10-30: "fiddly
+/// and sometimes leads to you detonating it"): on the proving ground the
+/// player chooses Disarm on a K1 mine (its 1.5 m octagon, hostile) straight
+/// on, at an angle, from the side, already running and from beside it;
+/// walked there, it stops outside the mine's circle, never sets it off,
+/// and disarms it. The sim alone. [awaiting the owner's approval]
+#[test]
+fn mine_walk() {
+    probed("mine walk", &sim::traps::walk_probes(), 5);
 }
 
 /// Stealth and Awareness (`docs/COMBAT.md`),
@@ -1431,10 +1449,11 @@ fn party_calls() {
 }
 
 /// Falling and being revived (I31): `sim::falls::probes`, each on the
-/// proving ground; the sim alone.
+/// proving ground; the sim alone. A poison that downed a body is gone
+/// when it gets up (the owner's report of 2026-10-30).
 #[test]
 fn downed_and_revive() {
-    probed("falls", &sim::falls::probes(), 18);
+    probed("falls", &sim::falls::probes(), 19);
 }
 
 /// The party members nobody plays follow and fight beside the body played:
@@ -1442,6 +1461,14 @@ fn downed_and_revive() {
 #[test]
 fn unmanned_party_fights() {
     probed("party fights", &sim::party_fights_probes::probes(), 7);
+}
+
+/// Control passing on from a fallen leader to the next party member
+/// standing, as Tab would pass it, past a guest's companion:
+/// `sim::party_fights_probes::passing`, the owner's report of 2026-10-30.
+#[test]
+fn downed_leader_passes_control() {
+    probed("downed switch", &sim::party_fights_probes::passing(), 3);
 }
 
 /// Items and levels in co-op (I31): `sim::coop_items::probes`, the

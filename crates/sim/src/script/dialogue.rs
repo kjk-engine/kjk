@@ -115,6 +115,8 @@ pub struct Start {
     pub dialog: String,
     /// Only bark its first line (`SpeakOneLinerConversation`).
     pub bark: bool,
+    /// The trigger's `OnEnter` whose run asked for it (`Event::cue`).
+    pub cue: Option<super::Cue>,
 }
 
 /// One conversation under way.
@@ -464,6 +466,9 @@ pub enum Line {
     /// A script set `<CUSTOMn>` (`SetCustomToken`): the lines after it
     /// show the value, as the screen does.
     Token { ms: u64, number: i32, value: String },
+    /// Conversation `id` (or one line of it) begins, asked for by the run a
+    /// trigger's `OnEnter` set going for the body entering it (`Cue`).
+    Cued { ms: u64, id: u32, cue: super::Cue },
 }
 
 /// A conversation with nothing in it: no one, no angle, the default-angle
@@ -846,6 +851,7 @@ impl Talk {
             out.u32(start.asker.0);
             out.string(&start.dialog);
             out.u8(u8::from(start.bark));
+            super::state::encode_cue(out, start.cue);
         }
         out.u32(self.next);
         out.u32(self.heard.len() as u32);
@@ -870,6 +876,7 @@ impl Talk {
                 asker: ObjectId(input.u32()?),
                 dialog: input.string()?,
                 bark: input.u8()? != 0,
+                cue: super::state::decode_cue(input)?,
             });
         }
         talk.next = input.u32()?;

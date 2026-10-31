@@ -298,6 +298,62 @@ impl ModelIr {
         }
     }
 
+    /// The box round every drawn mesh with each node at `worlds` (by node
+    /// index, in the model's space; the nodes' own `world` is the rest
+    /// pose), in the model's space (min x, y, z, max): a rigid mesh's
+    /// vertices by its node's place, a skinned one's by its bones' as the
+    /// renderer skins them. reone bounds a model for picking by its meshes
+    /// in their nodes' places. `None` for a model that draws nothing.
+    pub fn bounds(&self, worlds: &[Matrix]) -> Option<[f32; 6]> {
+        let apply = |m: &Matrix, p: [f32; 3]| -> [f32; 3] {
+            std::array::from_fn(|row| {
+                m[row][0] * p[0] + m[row][1] * p[1] + m[row][2] * p[2] + m[row][3]
+            })
+        };
+        let mut bounds: Option<[f32; 6]> = None;
+        let mut take = |at: [f32; 3]| {
+            let b = bounds.get_or_insert([at[0], at[1], at[2], at[0], at[1], at[2]]);
+            for axis in 0..3 {
+                b[axis] = b[axis].min(at[axis]);
+                b[axis + 3] = b[axis + 3].max(at[axis]);
+            }
+        };
+        for mesh in &self.meshes {
+            match &mesh.skin {
+                Some(skin) => {
+                    let bones: Vec<Matrix> = (skin.joints.iter().zip(&skin.inverse_binds))
+                        .map(|(&joint, bind)| multiply(&worlds[joint], bind))
+                        .collect();
+                    for (v, p) in mesh.positions.iter().enumerate() {
+                        let mut at = [0.0; 3];
+                        for (slot, weight) in
+                            skin.vertex_joints[v].iter().zip(skin.vertex_weights[v])
+                        {
+                            let Some(bone) = bones.get(usize::from(*slot)).filter(|_| weight > 0.0)
+                            else {
+                                continue;
+                            };
+                            let moved = apply(bone, *p);
+                            (0..3).for_each(|axis| at[axis] += weight * moved[axis]);
+                        }
+                        take(at);
+                    }
+                }
+                None => mesh
+                    .positions
+                    .iter()
+                    .for_each(|p| take(apply(&worlds[mesh.node], *p))),
+            }
+        }
+        bounds
+    }
+
+    /// `bounds` in the rest pose.
+    pub fn rest_bounds(&self) -> Option<[f32; 6]> {
+        let rest: Vec<Matrix> = self.nodes.iter().map(|node| node.world).collect();
+        self.bounds(&rest)
+    }
+
     pub fn from_model(model: &Model) -> ModelIr {
         let mut ir = ModelIr {
             name: model.name.clone(),

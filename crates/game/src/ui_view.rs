@@ -70,6 +70,8 @@ pub struct Ui {
     dialog: Option<Option<ui::screens::dialog::Dialog>>,
     /// The status summary's layout, the same way.
     summary: Option<Option<(fmt_odyssey::gui::Gui, ui::skin::Source)>>,
+    /// The area transition panel's layout, the same way.
+    transition: Option<Option<ui::screens::transition::Panel>>,
 }
 
 impl Ui {
@@ -239,6 +241,7 @@ impl Plugin for UiViewPlugin {
             scripted: Vec::new(),
             hud: None,
             bark: None,
+            transition: None,
             dialog: None,
             summary: None,
         })
@@ -537,6 +540,7 @@ fn step(
         under = 1;
         for layer in [
             floaty_layer(ui, (size.x, size.y)),
+            transition_layer(ui, (size.x, size.y)),
             power_pick_layer(ui, (size.x, size.y)),
             arena_layer(ui, (size.x, size.y)),
         ]
@@ -704,6 +708,7 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
     );
     out.quads.extend(minimap.and_then(|minimap| minimap.arrow));
     if !banner {
+        ui::screens::hud::effects(&gui, vm, &mut painter, &mut out);
         ui::screens::hud::busy(&gui, vm, &mut painter, &mut out);
         ui::screens::hud::action_keys(&gui, vm, &mut painter, &mut out);
     }
@@ -750,6 +755,35 @@ fn arena_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let words = vm.arena.as_ref()?;
     let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
     Some(ui::screens::power_pick::line(&mut painter, words, window))
+}
+
+/// The area transition panel for a window of `window` pixels, under the
+/// HUD's target block, while the player faces a door or exit that leads
+/// out and the layout reads (`ui::screens::transition`).
+fn transition_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
+    let words = ui.vm.transition.clone()?;
+    let (hud, _) = hud_gui(ui, window)?;
+    let below = ui::screens::hud::block_bottom(&hud);
+    let Ui {
+        assets,
+        stack,
+        transition,
+        ..
+    } = ui;
+    let assets = assets.as_mut()?;
+    let panel = transition
+        .get_or_insert_with(|| ui::screens::transition::Panel::read(assets))
+        .as_ref()?;
+    let gui = ui::screens::transition::place(&panel.gui, hud.frame(), below);
+    let mut out = DrawList::default();
+    let mut painter = ui::paint::Painter::new(assets, stack.palette);
+    painter.source = panel.source;
+    painter.layout(
+        &gui,
+        &|control| ui::screens::transition::state(control, &words, panel.words),
+        &mut out,
+    );
+    Some(out)
 }
 
 /// The status summaries for a window of `window` pixels, level with the

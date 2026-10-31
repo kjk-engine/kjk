@@ -785,6 +785,7 @@ fn talk_while_playing() -> Result<Result<String, String>, String> {
         asker: ObjectId(player),
         dialog: "probe_talk".into(),
         bark: false,
+        cue: None,
     });
     world.set_script_state(state);
     let mut still = TickInput::default();

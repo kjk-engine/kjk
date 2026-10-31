@@ -458,7 +458,7 @@ pub(super) fn scripts(
                 id: id.0.0,
                 origin: ps.origin,
                 eye: mind::eye(ps),
-                chest: mind::chest(ps),
+                chest: mind::chest_of(ps, super::bulk_of(data)),
                 alive: fighting.is_none_or(|fighting| fighting.0.alive()),
                 senses: data.and_then(|data| data.senses),
                 // An attack out of stealth stays hidden until its opener
@@ -679,26 +679,17 @@ pub(super) fn scripts(
         match *action {
             Action::SetLeader(u8::MAX) if leads => table.leader = None,
             Action::SetLeader(npc) if leads && table.has(npc) => table.leader = Some(npc),
-            // Its own portrait, or the one it is switched to (`switch`).
-            Action::Lead(body)
-                if leads
-                    && (Some(body.0) == leader_own || table.switched_body() == Some(body.0)) =>
-            {
-                table.leader = None
-            }
-            Action::Lead(body) if leads => {
-                if let Some(npc) = table.members.iter().copied().find(|npc| {
-                    table
-                        .available
-                        .get(npc)
-                        .is_some_and(|known| known.object == Some(body.0))
-                }) {
-                    table.leader = Some(npc);
-                }
-            }
+            Action::Lead(body) if leads => table.lead(body.0, leader_own),
             Action::Solo(on) => table.solo = on,
             _ => {}
         }
+    }
+    let fighters: BTreeMap<u32, &crate::combat::Fighter> = things
+        .iter()
+        .filter_map(|(id, .., fighting, _, _)| Some((id.0.0, &fighting?.0)))
+        .collect();
+    if let Some(next) = passes_on(&scripts.state.party, leader_own, &fighters) {
+        scripts.state.party.lead(next, leader_own);
     }
     // Players closing the party selection screen, in seat order.
     let chosen: Vec<(ObjectId, Option<[u8; 2]>)> = inputs
@@ -931,12 +922,31 @@ pub(super) fn scripts(
         .iter()
         .filter_map(|&(user, row, target)| {
             let (user, target) = (ObjectId(user.0), ObjectId(target.0));
-            let item = state.item_talent(library.items(), &view, user, row)?;
             let used = state
-                .use_item(library, &view, &mut out, user, item, target)
-                .ok()?;
-            talents_used = true;
-            used
+                .item_talent(library.items(), &view, user, row)
+                .and_then(|item| {
+                    state
+                        .use_item(library, &view, &mut out, user, item, target)
+                        .ok()
+                });
+            talents_used |= used.is_some();
+            // Its talent's action is done once it is used, as KOTOR's
+            // ActionUseTalentOnObject: one item for one action, not one
+            // again as its round ends (its mind's next "once a round"
+            // falls on that very step). Refused (no such item left, its
+            // target out of reach), the action fails and goes too: its
+            // mind is not asked again every step, its AI choosing anew at
+            // its next round.
+            if let Some(queue) = state.actions.get_mut(&user.0)
+                && queue.first().is_some_and(|front| {
+                    matches!(front.action, script::actions::Action::Talent {
+                        talent: script::actions::Use::Power(of), ..
+                    } if of == row)
+                })
+            {
+                queue.remove(0);
+            }
+            used.flatten()
         })
         .collect();
     // The grips let go end their impacts' deferred code (`LetGo`).
@@ -1334,18 +1344,7 @@ pub(super) fn scripts(
                 .into_iter()
                 .map(|kind| crate::snapshot::Status { kind, at_ms: now }),
         );
-        progressed
-            .0
-            .feedback
-            .extend(
-                out.feedback
-                    .into_iter()
-                    .map(|(over, strref)| crate::snapshot::Feedback {
-                        over: over.0,
-                        strref,
-                        at_ms: now,
-                    }),
-            );
+        float(&mut progressed.0, out.feedback, now);
         scripts.area_sound = out.area_sound;
         scripts.fade = out.fade;
         scripts.world_fade_in = out.world_fade_in;
@@ -1365,8 +1364,10 @@ pub(super) fn scripts(
         door_speaks(&view, &mut scripts.state, &out.changes, &doors);
         super::traps::forget(&mut scripts.state, &out.changes);
         scripts.changes = out.changes;
-        // What the engine's own work told this step (`world::traps`).
+        // What the engine's own work told this step (`world::traps`), and
+        // floated (a skill check's outcome over its user).
         scripts.notices.extend(out.notices);
+        float(&mut progressed.0, out.feedback, now);
         scripts.state.goals.clear();
     }
     // A co-op race leaves once its runs have finished, or the first long
@@ -1455,6 +1456,52 @@ pub(super) fn scripts(
     if tabled.0 != scripts.state.pazaak {
         tabled.0.clone_from(&scripts.state.pazaak);
     }
+}
+
+/// Control passing on from a fallen leader, as in K1 and TSL: when the body
+/// the first seat leads through (`own`, its own character; the one it is
+/// switched to; the companion leading) is down, the next party member
+/// standing leads, in the leader key's order (the seat's character, then
+/// the companions by id, from the fallen one round), past any companion a
+/// guest plays. None while the leader stands or no one else does (the whole
+/// party down is the loss, `falls`). It leads as the key's choice would
+/// (`Party::lead`), and keeps leading once the fallen get up.
+fn passes_on(
+    table: &crate::script::party::Party,
+    own: Option<u32>,
+    fighters: &BTreeMap<u32, &crate::combat::Fighter>,
+) -> Option<u32> {
+    let switched = table.switched_body();
+    let acting = super::lent(table).map(|body| body.0).or(switched).or(own)?;
+    if !fighters
+        .get(&acting)
+        .is_some_and(|fighter| fighter.downed())
+    {
+        return None;
+    }
+    let mut companions: Vec<u32> = table
+        .creatures()
+        .filter(|body| Some(*body) != switched)
+        .collect();
+    companions.sort_unstable();
+    let order: Vec<u32> = switched.or(own).into_iter().chain(companions).collect();
+    let at = order.iter().position(|body| *body == acting)?;
+    let free = |body: &u32| {
+        fighters.get(body).is_some_and(|fighter| {
+            fighter.alive()
+                && fighter
+                    .mind
+                    .driver
+                    .is_none_or(|seat| seat == super::LEADER_SEAT)
+        })
+    };
+    order
+        .iter()
+        .cycle()
+        .skip(at + 1)
+        .take(order.len() - 1)
+        .copied()
+        .find(free)
 }
 
 /// The journal, the party's XP and the careers as everyone sees them, when
@@ -1895,4 +1942,20 @@ impl SimWorld {
         }
         self.world.insert_resource(carried);
     }
+}
+
+/// The feedback the step floated over objects (`Progress::feedback`), from
+/// `now`.
+fn float(progress: &mut crate::snapshot::Progress, feedback: Vec<(ObjectId, u32)>, now: u64) {
+    progress
+        .feedback
+        .extend(
+            feedback
+                .into_iter()
+                .map(|(over, strref)| crate::snapshot::Feedback {
+                    over: over.0,
+                    strref,
+                    at_ms: now,
+                }),
+        );
 }

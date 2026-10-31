@@ -47,6 +47,8 @@
 //!                       # breaks (`COMBAT.md`, "Bashing"; TSL's prologue footlocker)
 //! leader 0              # companion NPC 0 leads (the portrait click's `Lead`); `leader player`
 //! solo on               # solo mode (the companions stand where they are); `solo off`
+//! stealth on            # the stealth button pressed for the body the player leads
+//!                       # (Stealth ranks and a stealth unit worn); `stealth off`
 //! credits               # stand until the game ends, won (`EndGame`)
 //! party 7,0             # the next party selection screen takes NPCs 7 and 0
 //! travel 4              # from the galaxy map, to planet 4 (`planetary.2da`)
@@ -62,6 +64,9 @@
 //!                       # changed nothing (`Round`)
 //! if in unk_m41aa       # the goals to its `end` only in that module
 //! if npc 8=0            # ... only if companion NPC 8 is (1) or is not (0) available
+//! while npc_pato.n13<10 # ... while the object's local number 13 reads under 10, as a
+//!                       # script's GetLocalNumber does (`=`, `>` too; `TAG.b45=0`: a
+//!                       # local boolean, read true as its raw bit is)
 
 //! module end_m01ab      # stand until the player is in that module
 //! gone hendarsfate      # stand until no object of that tag is there (the dead taken
@@ -75,6 +80,10 @@
 //!                       # aboard, the module left for the boarded Ebon Hawk)
 //! pazaak                # stand until a pazaak match is played out (any match a
 //!                       # script starts is played as `pazaak::Match::advice` says)
+//! craft u_l_lens_01     # at the workbench (or lab station) a script showed, make one
+//!                       # of that item of its table (TSL's `Action::Create`)
+//! fit u_l_lens_01 saber # at the upgrade screen a script showed, fit that upgrade the
+//!                       # party carries into the item (`equip`'s word)
 //! global K_STAR_MAP=10  # a script global set (a number, or true/false)
 //! gold 200              # the party's credits set
 //! skill persuade=15     # the player's rank in a skill set (a build a route stands in)
@@ -444,6 +453,8 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
             // The player's conversations as they end (`Talks`), and whether
             // the world stands settled (`Settle`).
             let mut talks = Talks::default();
+            // The triggers whose scene the player set off (`Scenes`).
+            let mut scenes = Scenes::default();
             let mut settle = Settle::default();
             // When the last goal that took steps began: a `talk` takes a
             // conversation that ended since (`Talks::claim`).
@@ -464,6 +475,12 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
             // offers): a `travel` picks only from an open map (a use answered
             // before the screen came), as its Accept would.
             let mut map_shown: Option<u32> = None;
+            // The bench a script last showed (`ShowUpgradeScreen`,
+            // `ShowChemicalUpgradeScreen`): a `craft` or `fit` presses its
+            // buttons, until a conversation or another module closes it; and
+            // what the sim refused there since (its line).
+            let mut bench_shown: Option<Screen> = None;
+            let mut bench_refused: Option<String> = None;
             // The credits rolled (`StartCreditSequence`), and the game's end
             // after them (`EndGame` without its death screen): won.
             let mut credits_rolled = false;
@@ -576,6 +593,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 // two that did not free it count as lost.
                 let mut unwedges = 0u8;
                 let mut taken = false;
+                // A container's opens asked this goal (`loot_step`), and the
+                // container they were of (`pick_remains`).
+                let mut opens = 0u8;
+                let mut looted: Option<u32> = None;
                 let mut met = false;
                 let mut held = Vec::new();
                 // The goal's clock, held by progress only: foes losing hit
@@ -610,6 +631,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 let mut played_in: Option<String> = None;
                 // A pazaak match seen under way.
                 let mut tabled = false;
+                // A `craft` or `fit` pressed at its bench: for a `craft`,
+                // how many of the item the party carried then.
+                let mut benched: Option<u32> = None;
                 if let Goal::Party(picks) = goal {
                     chosen = Some(*picks);
                     met = true;
@@ -847,6 +871,11 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             })
                     };
                     talks.note(talking.as_ref().map(|talk| (talk.id, owner_of(talk))), now);
+                    let trigger_of = |id: ObjectId| match last.get(sim::SimId(id.0))?.kind {
+                        sim::Kind::Object(ObjectKind::Trigger, index) => Some(index),
+                        _ => None,
+                    };
+                    scenes.note(level.name(), &world.script_report().talk, me.id, trigger_of, now);
                     let talked_with = talking.as_ref().and_then(owner_of);
                     let mut command = mind::looking(&player, player.view[0], player.view[1]);
                     let mut input = TickInput::default();
@@ -1045,6 +1074,27 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 == Some(*npc).filter(|npc| *npc != u8::MAX);
                         }
                         Goal::Solo(on) => met = world.script_state().party.solo == *on,
+                        // Pressed once out of a conversation (as the HUD's
+                        // stealth button is), held a step; not met a second
+                        // later, refused (the game's line is in the
+                        // transcript: no ranks, no unit worn, in combat).
+                        Goal::Stealth(on) => {
+                            met = me.fighter.is_some_and(|fighter| fighter.covert.stealth == *on);
+                            if !met && talking.is_none() {
+                                match benched {
+                                    None => {
+                                        benched = Some(0);
+                                        pressed_at = now;
+                                        command.buttons |= buttons::STEALTH;
+                                    }
+                                    Some(_) if now > pressed_at + 1000 => {
+                                        held = vec![format!("stealth {}: refused", if *on { "on" } else { "off" })];
+                                        break;
+                                    }
+                                    Some(_) => {}
+                                }
+                            }
+                        }
                         // As a player disarms a mine it sees from beside it:
                         // again after each try (`sim::traps::DISARM_MS`), a
                         // failure or a blast, until none is left there.
@@ -1114,7 +1164,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         // it then stands.
                         Goal::If(condition, block) => {
                             if settle.settled() || now >= started_ms + SCENE_WAIT_MS {
-                                if !condition.holds(world.script_state(), &module_of(&last)) {
+                                if !condition.holds(world.script_state(), &module_of(&last), &here) {
                                     skip = *block;
                                 }
                                 round_from.insert(
@@ -1127,13 +1177,82 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         // Once the world has settled too (after a scene's
                         // time, once no conversation plays).
                         Goal::Until(condition) => {
-                            met = condition.holds(world.script_state(), &module_of(&last))
+                            met = condition.holds(world.script_state(), &module_of(&last), &here)
                                 && (settle.settled()
                                     || talking.is_none() && now >= started_ms + SCENE_WAIT_MS);
                         }
                         Goal::Gone(tag, nth) => met = find(&here, tag, *nth).is_none(),
                         Goal::Gather => met = gathered(&world, &last, me.position),
                         Goal::Module(name) => met = module_of(&last).eq_ignore_ascii_case(name),
+                        // Pressed once, on the bench a script showed: made
+                        // once the party carries one more, or refused (too
+                        // few components, the skill not reached).
+                        Goal::Craft(template) => {
+                            if let Some(had) = benched {
+                                met = gear::carried(&last, template) > had;
+                                if let (false, Some(why)) = (met, bench_refused.take()) {
+                                    held = vec![format!("craft: {why}")];
+                                    break;
+                                }
+                            } else if let Some(Screen::Workbench(bench)) = &bench_shown
+                                && talking.is_none()
+                            {
+                                match gear::creation(&world, bench, template) {
+                                    Ok(create) => {
+                                        bench_refused = None;
+                                        benched = Some(gear::carried(&last, template));
+                                        acts.push(create);
+                                    }
+                                    Err(why) => {
+                                        held = vec![why];
+                                        break;
+                                    }
+                                }
+                            } else if settle.settled() && talking.is_none() {
+                                held = vec!["craft: no workbench or lab station open".into()];
+                                break;
+                            }
+                        }
+                        // Pressed once, on an upgrade screen a script showed
+                        // for the item (or for any): met once fitted.
+                        Goal::Fit(upgrade, named) => match gear::fitted(&world, &last, named, upgrade) {
+                            Some((_, true)) => met = true,
+                            Some((item, false)) if benched.is_none() => {
+                                let open = match &bench_shown {
+                                    Some(Screen::Upgrade { item: only }) => only.is_none_or(|only| only == item),
+                                    Some(Screen::Workbench(bench)) => {
+                                        bench.upgrade && bench.item.is_none_or(|only| only == item)
+                                    }
+                                    _ => false,
+                                };
+                                if open && talking.is_none() {
+                                    match gear::fitting(&world, item, upgrade) {
+                                        Ok(fit) => {
+                                            bench_refused = None;
+                                            benched = Some(0);
+                                            acts.push(fit);
+                                        }
+                                        Err(why) => {
+                                            held = vec![why];
+                                            break;
+                                        }
+                                    }
+                                } else if settle.settled() && talking.is_none() {
+                                    held = vec![format!("fit: no upgrade screen open for {named}")];
+                                    break;
+                                }
+                            }
+                            Some(_) => {
+                                if let Some(why) = bench_refused.take() {
+                                    held = vec![format!("fit: {why}")];
+                                    break;
+                                }
+                            }
+                            None => {
+                                held = vec![format!("fit: the party has no {named}")];
+                                break;
+                            }
+                        },
                         Goal::Pazaak => {
                             tabled |= last.pazaak_of(Seat(0)).is_some();
                             met = tabled && last.pazaak_of(Seat(0)).is_none();
@@ -1205,7 +1324,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         .then_some(lay)
                                         .flatten()
                                         .and_then(|lay| {
-                                            remains_at(&here, world.script_state(), lay.at)
+                                            remains_at(&here, world.script_state(), lay.at, looted)
                                         })
                                         .or(found)
                                         // One dead and taken away is walked to
@@ -1237,6 +1356,18 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // A trigger the walk before already went out
                                 // by (the Unknown World's way aboard, taken
                                 // as the beach's fight ended).
+                                met = true;
+                            } else if matches!(goal, Goal::To(_))
+                                && let Some(scene) =
+                                    found.and_then(|(index, _)| scenes.take_before(index, started_ms))
+                            {
+                                // A trigger whose own scene the player set
+                                // off during a goal before (`Scenes`): the
+                                // `talk` after it takes that scene.
+                                talks.ended.push_back(Talk {
+                                    ended_ms: now,
+                                    ..scene
+                                });
                                 met = true;
                             } else if found.is_none()
                                 && matches!(goal, Goal::Use(_))
@@ -1277,11 +1408,17 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // Kashyyyk, taking the party down as the
                                 // player walked to the field).
                                 met = true;
-                            } else if found.is_none() && matches!(goal, Goal::To(_)) && seen_target
+                            } else if found.is_none()
+                                && matches!(goal, Goal::To(_))
+                                && (seen_target
+                                    || matches!(target, Target::Tag(tag, nth) if sprung(&here, tag, *nth)))
                             {
                                 // Gone once entered: a trigger its script
                                 // destroys as it fires (Jolee's on Kashyyyk
-                                // jumps the party and takes itself away).
+                                // jumps the party and takes itself away), or
+                                // a mine the party set off before the goal
+                                // (Peragus's fuel-line charge by the stash,
+                                // met on the walk to the stash).
                                 met = true;
                             } else if found.is_none() {
                                 absent = true;
@@ -1316,8 +1453,14 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // lock is done with.
                                 met = true;
                             } else if let Some((index, at)) = found {
-                                let d = flat(at, me.position);
                                 let data = here.facts(index);
+                                // A blow is an attack, made at the thing
+                                // itself, not a use.
+                                let at = match goal {
+                                    Goal::Bash(_) => at,
+                                    _ => Here::use_point(me.position, at, data.as_deref()),
+                                };
+                                let d = flat(at, me.position);
                                 cannot = data.as_ref().and_then(|data| {
                                     let state = object_of(&here, index);
                                     match goal {
@@ -1431,7 +1574,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // Greeta Holda answers from 3.4 m), within the
                                 // reach itself.
                                 let near = choice.zip(data.as_ref()).map_or(d <= NEAR_M, |(choice, data)| {
-                                    sim::target::Walk::near(&player, at, choice, data.kind)
+                                    sim::target::Walk::near(
+                                        &player,
+                                        sim::target::Spot::plain(at, choice, data.kind),
+                                    )
                                         || arrived && d <= sim::target::reach(choice, data.kind)
                                 });
                                 let alive = |e: &sim::EntityState| e.fighter.is_some_and(|f| f.alive());
@@ -1574,7 +1720,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         command = Command {
                                             buttons: buttons::ATTACK,
                                             forward: if step_in { 127 } else { 0 },
-                                            ..aiming(&player, &me, at)
+                                            ..aiming(&player, &me, strike_at(&here, None, at))
                                         };
                                         met = object_of(&here, index).lock == sim::lock::UNLOCKED;
                                     }
@@ -1672,7 +1818,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         if foe {
                                             command = Command {
                                                 buttons: buttons::ATTACK,
-                                                ..aiming(&player, &me, at)
+                                                ..aiming(&player, &me, strike_at(&here, target_id, at))
                                             };
                                         } else if dead {
                                             // Its remains still to come
@@ -1680,20 +1826,34 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         } else if data.as_ref().is_some_and(|d| d.container) {
                                             // Opened by the player's use (its
                                             // `OnUsed` runs, locked or not) and
-                                            // emptied, as the screen's take all.
-                                            if taken {
-                                                input.act(Seat(0), Action::Close(index));
-                                                met = true;
-                                            } else {
-                                                input.act(
-                                                    Seat(0),
-                                                    Action::Use {
-                                                        object: index,
-                                                        verb: sim::action::Verb::Open,
-                                                    },
-                                                );
-                                                input.act(Seat(0), Action::TakeAll(index));
-                                                taken = true;
+                                            // emptied (`loot_step`).
+                                            let holds = holds_items(&here, world.script_state(), index);
+                                            match loot_step(holds, opens, now, pressed_at) {
+                                                Loot::Close => {
+                                                    input.act(Seat(0), Action::Close(index));
+                                                    met = true;
+                                                }
+                                                Loot::Open => {
+                                                    input.act(
+                                                        Seat(0),
+                                                        Action::Use {
+                                                            object: index,
+                                                            verb: sim::action::Verb::Open,
+                                                        },
+                                                    );
+                                                    input.act(Seat(0), Action::TakeAll(index));
+                                                    pressed_at = now.max(1);
+                                                    // An open refused from
+                                                    // here (out of sight)
+                                                    // walks to a stand it
+                                                    // sees it from, as a
+                                                    // press does (above).
+                                                    pressed_ever = true;
+                                                    opens = opens.saturating_add(1);
+                                                    looted = Some(index);
+                                                    taken = true;
+                                                }
+                                                Loot::Wait => {}
                                             }
                                         } else {
                                             // A conversation playing before any
@@ -1822,8 +1982,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         && level.in_trigger(data, at)
                                 })
                             };
-                            let foe = chase.pick(hostiles(&here, &world, me.position, reach_m), |foe| {
-                                !in_way_out(foe.1) && reach.gettable(&here, &player, me.position, *foe, now)
+                            let foe = chase.pick(me.position, hostiles(&here, &world, me.position, reach_m), |foe| {
+                                !in_way_out(foe.1)
+                                    && !chase.given_up(&here, &player, foe.0)
+                                    && reach.gettable(&here, &player, me.position, *foe, now)
                             });
                             // A medpac below a third of its health, pressed
                             // and let go.
@@ -2126,7 +2288,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     };
                     let foe_back = (!matches!(goal, Goal::Fight(_)) && talking.is_none())
                         .then(|| hostiles(&here, &world, me.position, reach_back))
-                        .and_then(|foes| back.pick(foes, |(id, at)| {
+                        .and_then(|foes| back.pick(me.position, foes,|(id, at)| {
                             let d = flat(*at, me.position);
                             let near = d <= BLOCKER_M;
                             // Beyond `FIGHT_NEAR_M` only one at close
@@ -2146,10 +2308,11 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                             if t.id == me.id { BLOCKER_M } else { FIGHT_NEAR_M };
                                         flat(t.position, *at) <= reach
                                     });
-                            (set_on(*id)
-                                && engaged
-                                && (near || reach.ways(&here, &player, (*id, *at), now).1))
-                                || near && walker.as_ref().is_some_and(|w| w.stalls > 2)
+                            !back.given_up(&here, &player, *id)
+                                && ((set_on(*id)
+                                    && engaged
+                                    && (near || reach.ways(&here, &player, (*id, *at), now).1))
+                                    || near && walker.as_ref().is_some_and(|w| w.stalls > 2))
                         }));
                     // A door or placeable a script's attack has the player
                     // strike (`SimWorld::assigned_strike`): the sim strikes
@@ -2441,12 +2604,13 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     for (_, notice) in world.take_notices() {
                         match notice {
                             Notice::Said(text) => said.push(format!("{at} {text}")),
-                            Notice::Line(strref) => said.push(format!(
-                                "{at} {}",
-                                installer
-                                    .text(strref)
-                                    .unwrap_or_else(|| format!("line {strref}"))
-                            )),
+                            Notice::Line(strref) => {
+                                let line = installer.text(strref).unwrap_or_else(|| format!("line {strref}"));
+                                if bench_shown.is_some() {
+                                    bench_refused = Some(line.clone());
+                                }
+                                said.push(format!("{at} {line}"));
+                            }
                             Notice::Check { .. }
                             | Notice::TrapSeen { .. }
                             | Notice::Experience(_)
@@ -2468,6 +2632,17 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             Notice::Show(Screen::PartySelection(_)) => {
                                 acts.push(Action::ChooseParty(chosen.take()));
                                 said.push(format!("{at} [the party selection screen, closed]"));
+                            }
+                            Notice::Show(screen @ (Screen::Workbench(_) | Screen::Upgrade { .. })) => {
+                                if let Screen::Workbench(bench) = &screen {
+                                    let pool = if bench.lab { "chemicals" } else { "components" };
+                                    said.push(format!("{at} [the {} open: {} {pool}]", bench.list, bench.stock));
+                                }
+                                bench_shown = Some(screen);
+                            }
+                            refused @ (Notice::CannotUse | Notice::CannotUpgrade) if bench_shown.is_some() => {
+                                said.push(format!("{at} {refused:?}"));
+                                bench_refused = Some(format!("{refused:?}"));
                             }
                             Notice::Show(Screen::Pazaak) => {
                                 said.push(format!("{at} [a pazaak match]"));
@@ -2493,6 +2668,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         }
                     }
                     if let Some(transition) = last.transition.clone() {
+                        bench_shown = None;
                         let via = last
                             .get(transition.via)
                             .and_then(|entity| Here::new(&level, &last, &refused).facts_of(entity));
@@ -2690,7 +2866,7 @@ fn click(goal: &Goal, data: &ObjectData, state: sim::ObjectState) -> Option<sim:
         (Goal::Put(..), _) => Some(Choice::Open),
         (_, ObjectKind::Creature) => Some(Choice::Talk),
         (_, ObjectKind::Door | ObjectKind::Placeable) => {
-            sim::target::choices(data.kind, data, state, false, None, (false, false))
+            sim::target::choices(data.kind, data, state, false, None, None)
                 .first()
                 .copied()
         }

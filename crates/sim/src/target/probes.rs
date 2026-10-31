@@ -39,6 +39,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         feet: feet(x, y),
         radius,
         height,
+        ahead: false,
     };
     let door = thing(0, ObjectKind::Door, 0.0, 0.0, DOOR_RADIUS, DOOR_HEIGHT);
     let pick_at = |from: Vec3, forward: Vec3, who: Looker, candidates: &[Candidate]| {
@@ -129,6 +130,28 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         )
     })
     .collect::<Vec<_>>();
+    // A companion is picked in front of the player; at its heels, between
+    // it and the camera, or inside its body, the look passes it.
+    let companion = Candidate {
+        ahead: true,
+        ..creature
+    };
+    let companion_picks = [(-5.0, Some(5)), (-2.0, None), (-3.1, None)].map(|(x, want)| {
+        let got = pick_at(
+            eye(-6.0, 0.0),
+            forward_x,
+            looker(x, 0.0, 1.0, 0.0),
+            &[companion],
+        );
+        (got == want, got)
+    });
+    checks.push((
+        "target_companion_ahead",
+        check(
+            companion_picks.iter().all(|(ok, _)| *ok),
+            format!("{companion_picks:?}"),
+        ),
+    ));
     checks.push((
         "target_holds",
         check(held == [Some(3), Some(3), None], format!("{held:?}")),
@@ -153,10 +176,10 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             state,
             hostile,
             Some(Security { spike: Some(9) }),
-            (false, false),
+            None,
         )
     };
-    use Choice::{Mine, Open, Talk, Unlock, Use};
+    use Choice::{Close, Mine, Open, Talk, Unlock, Use};
     let (door, place, creature) = (
         ObjectKind::Door,
         ObjectKind::Placeable,
@@ -177,7 +200,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     let want = [
         vec![Open],
         locked.clone(),
-        vec![Use],
+        vec![Close, Use],
         vec![Open],
         locked,
         vec![Use],
@@ -197,14 +220,14 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ..locked_door.clone()
     };
     let opened_only = [
-        choices(door, &locked_door, shut, false, None, (false, false)),
+        choices(door, &locked_door, shut, false, None, None),
         choices(
             door,
             &key_only,
             shut,
             false,
             Some(Security { spike: Some(9) }),
-            (false, false),
+            None,
         ),
     ];
     checks.push((
@@ -216,14 +239,55 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     ));
     // TSL's mine on a door: offered on a shut door (a key-only one too)
     // where the party carries one, not on an open door.
-    let mined = [(&key_only, shut), (&locked_door, open)]
-        .map(|(facts, state)| choices(door, facts, state, false, None, (false, true)));
+    let mined = [(&key_only, shut), (&locked_door, open)].map(|(facts, state)| {
+        let demolitions = crate::target::Demolitions {
+            recover: false,
+            door_mine: true,
+        };
+        choices(door, facts, state, false, None, Some(demolitions))
+    });
     checks.push((
         "target_mine_offered",
         check(
             mined == [vec![Open, Mine], vec![Use]]
                 && ask(Mine, 7, door) == Some(crate::action::Action::Mine(7)),
             format!("{mined:?}"),
+        ),
+    ));
+    // Close (QUIRKS.md Q-0330) only on an open door the player could open
+    // again: not one only scripts open, not one leading out, not one
+    // broken open.
+    let scripted = made(door, Opens::Never, false, "");
+    let leads_out = crate::module::ObjectData {
+        link: Some(crate::module::Link {
+            module: "elsewhere".into(),
+            tag: String::new(),
+            destination: None,
+        }),
+        ..made(door, Opens::Yes, false, "")
+    };
+    let sturdy = crate::module::ObjectData {
+        hit_points: Some((10, 10)),
+        ..made(door, Opens::Yes, false, "")
+    };
+    let broken = crate::snapshot::ObjectState { damage: 10, ..open };
+    let closes = [
+        (&scripted, open),
+        (&leads_out, open),
+        (&sturdy, broken),
+        (&sturdy, open),
+    ]
+    .map(|(facts, state)| choices(door, facts, state, false, None, None));
+    checks.push((
+        "target_close_offered",
+        check(
+            closes == [vec![Use], vec![Use], vec![Use], vec![Close, Use]]
+                && ask(Close, 7, door)
+                    == Some(crate::action::Action::Use {
+                        object: 7,
+                        verb: crate::action::Verb::Close,
+                    }),
+            format!("{closes:?}"),
         ),
     ));
     // A walk keeps the player's hand and power; its own key cancels it.
@@ -252,8 +316,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         &|_| crate::ObjectState::default(),
         &player,
         5,
-        ObjectKind::Creature,
-        feet(-2.0, 0.0),
+        Spot::plain(feet(-2.0, 0.0), Choice::Talk, ObjectKind::Creature),
         Choice::Talk,
         0,
     );

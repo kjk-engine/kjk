@@ -43,6 +43,66 @@ pub fn dying(now: u64) -> Acting {
     }
 }
 
+/// How a body lying as a death left it gets up (a downed party member's
+/// rise, `world::falls`): JA's plain get-up for the side it lies on, as
+/// JA's knockdowns pick theirs (`bg_pmove`: knocked backwards, `GETUP4`'s
+/// start on the back; forwards, `GETUP3`'s on the front), and how far the
+/// views turn that get-up (degrees, anticlockwise from above) for its
+/// lying start to meet where the death left the head. KOTOR gets a party
+/// member up in the clip matched to its dying one (its supermodels'
+/// `getupdead` after `die`, `getupdead1` after `die1`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Getup {
+    pub anim: Anim,
+    pub turn: f32,
+}
+
+/// Where each of JA's nineteen deaths leaves the body, measured on
+/// `_humanoid` (`kjk rig a --moves BOTH_DEATHn --trace`, the last frame):
+/// on its front or back (the chest's normal down or up), and the head's
+/// direction from the feet (degrees from the model's right, its forward
+/// +90).
+const LYING: [(Anim, bool, f32); 19] = [
+    (Anim::BOTH_DEATH1, false, -94.0),
+    (Anim::BOTH_DEATH2, false, -80.0),
+    (Anim::BOTH_DEATH3, false, 91.0),
+    (Anim::BOTH_DEATH4, true, 78.0),
+    (Anim::BOTH_DEATH5, false, 47.0),
+    (Anim::BOTH_DEATH6, false, 47.0),
+    (Anim::BOTH_DEATH7, false, 90.0),
+    (Anim::BOTH_DEATH8, false, -89.0),
+    (Anim::BOTH_DEATH9, false, 78.0),
+    (Anim::BOTH_DEATH10, true, 101.0),
+    (Anim::BOTH_DEATH11, false, 102.0),
+    (Anim::BOTH_DEATH12, false, 134.0),
+    (Anim::BOTH_DEATH13, false, -92.0),
+    (Anim::BOTH_DEATH14, false, -106.0),
+    (Anim::BOTH_DEATH15, true, 122.0),
+    (Anim::BOTH_DEATH16, true, 119.0),
+    (Anim::BOTH_DEATH17, true, 122.0),
+    (Anim::BOTH_DEATH18, true, 89.0),
+    (Anim::BOTH_DEATH19, true, 91.0),
+];
+
+/// The get-ups, on the back and on the front, and their first frames'
+/// head direction (as `LYING`).
+const BACK: (Anim, f32) = (Anim::BOTH_GETUP4, -90.0);
+const FRONT: (Anim, f32) = (Anim::BOTH_GETUP3, 87.0);
+
+/// The get-up for a body lying in `death` (its legs' animation); any other
+/// (a death not JA's, a body that never fell) gets up as from the back.
+pub fn getup(death: Anim) -> Getup {
+    let (front, head) = LYING
+        .iter()
+        .find(|(anim, ..)| *anim == death)
+        .map_or((false, BACK.1), |&(_, front, head)| (front, head));
+    let (anim, start) = if front { FRONT } else { BACK };
+    Getup {
+        anim,
+        turn: (head - start + 180.0).rem_euclid(360.0) - 180.0,
+    }
+}
+
 /// The death a killed body plays (JA's): by where the killing blow landed,
 /// how heavy it was on the 100-point scale (`equivalent`: damage × 100 /
 /// the most hit points; it may lie outside 0 to 100), whether the body was

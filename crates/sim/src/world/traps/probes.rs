@@ -940,32 +940,29 @@ pub(crate) fn choices() -> Vec<(&'static str, Result<String, String>)> {
         trap: trap::PARTY_SEES,
         ..crate::snapshot::ObjectState::default()
     };
-    let offered = choices(ObjectKind::Trigger, &facts, seen, true, None, (true, false));
-    let no_kit = choices(
-        ObjectKind::Trigger,
-        &facts,
-        seen,
-        true,
-        None,
-        (false, false),
-    );
-    let unseen = choices(
-        ObjectKind::Trigger,
-        &facts,
-        crate::snapshot::ObjectState::default(),
-        true,
-        None,
-        (true, false),
-    );
+    let offer = |state, recover: Option<bool>| {
+        let demolitions = recover.map(|recover| crate::target::Demolitions {
+            recover,
+            door_mine: false,
+        });
+        choices(ObjectKind::Trigger, &facts, state, true, None, demolitions)
+    };
+    let offered = offer(seen, Some(true));
+    let no_kit = offer(seen, Some(false));
+    let unseen = offer(crate::snapshot::ObjectState::default(), Some(true));
+    // K1 lists neither for a character with no ranks in Demolitions.
+    let untrained = offer(seen, None);
     let wire = [Action::Disarm(7), Action::Recover(7)]
         .iter()
         .all(|action| Action::from_bytes(&action.to_bytes()).as_ref() == Ok(action));
-    // A walk to disarm or recover stands outside the trap's circle and
-    // within the walk's arrival: it never walks onto the mine.
+    // A walk to disarm or recover stops more than half a metre outside the
+    // trap's circle (a run's stop slides on; `mine_walk` walks it) and
+    // within the use's reach: it never walks onto the mine.
     let stands = [Choice::Disarm, Choice::Recover].map(|choice| {
-        let stand = crate::target::stand_off(choice, ObjectKind::Trigger);
-        stand > crate::traps::RADIUS_M
-            && stand < crate::target::reach(choice, ObjectKind::Trigger) * 0.8
+        let stand =
+            crate::target::Spot::plain([0.0; 3], choice, ObjectKind::Trigger).stand_off(choice);
+        stand > crate::traps::RADIUS_M + 0.5
+            && stand < crate::target::reach(choice, ObjectKind::Trigger)
     });
     vec![
         (
@@ -973,8 +970,9 @@ pub(crate) fn choices() -> Vec<(&'static str, Result<String, String>)> {
             check(
                 offered == [Choice::Disarm, Choice::Recover]
                     && no_kit == [Choice::Disarm]
-                    && unseen.is_empty(),
-                format!("{offered:?} {no_kit:?} {unseen:?}"),
+                    && unseen.is_empty()
+                    && untrained.is_empty(),
+                format!("{offered:?} {no_kit:?} {unseen:?} untrained {untrained:?}"),
             ),
         ),
         (
@@ -990,7 +988,38 @@ pub(crate) fn choices() -> Vec<(&'static str, Result<String, String>)> {
             "trap_walk_stands_off",
             check(stands == [true; 2], format!("{stands:?}")),
         ),
+        ("skill_floats", skill_floats()),
     ]
+}
+
+/// What floats over a skill's user as its check ends, as K1's client
+/// floats it (`locks::floats`, Q-0335).
+fn skill_floats() -> Result<String, String> {
+    use crate::world::locks::{floats, lines};
+    let (disarm, security) = (lines::DISARM_MINE, lines::SECURITY);
+    let (won, lost) = (Some(lines::SUCCESS), Some(lines::FAILURE));
+    let (low, impossible) = (Some(lines::SKILL_TOO_LOW), Some(lines::IMPOSSIBLE));
+    // The skill, the roll (none: taking 20), the DC, success, sprung; the
+    // words floated.
+    let cases = [
+        ((disarm, None, 20, true, false), won),
+        ((disarm, None, 30, false, false), low),
+        ((disarm, None, 40, false, true), low),
+        ((disarm, Some(5), 20, false, false), lost),
+        ((disarm, Some(1), 30, false, true), None),
+        ((security, None, 20, true, false), None),
+        ((security, Some(3), 20, false, false), lost),
+        ((security, None, 30, false, false), low),
+        ((security, None, 60, false, false), impossible),
+        ((lines::SET_MINE, None, 20, false, false), None),
+    ];
+    let wrong: Vec<usize> = (0..cases.len())
+        .filter(|at| {
+            let ((skill, roll, dc, success, sprung), floated) = cases[*at];
+            floats(skill, roll, dc, success, sprung) != floated
+        })
+        .collect();
+    check(wrong.is_empty(), format!("cases wrong: {wrong:?}"))
 }
 
 /// Where the player lays mines: clear of the probe's traps.
@@ -1326,4 +1355,126 @@ pub(crate) fn races() -> Vec<(&'static str, Result<String, String>)> {
         Ok((told == ["0", "1", "0"], format!("{told:?}")))
     });
     checks
+}
+
+/// Where a mine as K1 places them (an octagon of `traps::RADIUS_M`, the
+/// hostile faction's) stands on the proving ground for the walk probes,
+/// and its number (after the ground's two objects).
+const WALKED_MINE_AT: [f32; 2] = [-3.5, -2.0];
+const WALKED_MINE: u32 = 2;
+
+/// The walks to disarm the mine (owner's playtest, 2026-10-30: "interacting
+/// with mines is fiddly and sometimes leads to you detonating it"): where
+/// the player starts, how many steps it runs forward first.
+const MINE_WALKS: [(&str, [f32; 2], usize); 5] = [
+    ("straight", [-3.5, 4.0], 0),
+    ("angled", [-7.0, 3.5], 0),
+    ("from_the_side", [-7.0, -2.0], 0),
+    ("already_running", [-7.0, 1.0], 40),
+    ("beside_it", [-3.5, 0.9], 0),
+];
+
+/// A walk to disarm the mine: the nearest the player came to its middle
+/// (metres), whether it went off, and how the check went (`checked`).
+struct MineWalk {
+    nearest: f32,
+    sprung: bool,
+    check: Option<(Option<u8>, bool)>,
+}
+
+/// One choice of Disarm on the mine, as the target block does it (walked
+/// to where out of reach, asked on arriving).
+fn mine_walk(stand: [f32; 2], run_in: usize) -> Result<MineWalk, String> {
+    use crate::world::locks::lines;
+    use crate::world::uses::probes::{Choosing, walk_and_choose, walk_world};
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    let octagon = (0..8)
+        .map(|at| {
+            let (sin, cos) = crate::math::sin_cos_deg(45.0 * at as f32);
+            [
+                crate::traps::RADIUS_M * cos,
+                crate::traps::RADIUS_M * sin,
+                0.0,
+            ]
+        })
+        .collect();
+    data.placements.push(Placement::Own(ObjectData {
+        geometry: octagon,
+        ..mine("mine", WALKED_MINE_AT, "", &[])
+    }));
+    data.traps = rows("", 15);
+    let war = [usize::from(PLAYER), usize::from(HOSTILE_1)];
+    data.repute = Repute {
+        rows: (0..7)
+            .map(|a| {
+                (0..7)
+                    .map(|b| match (a, b) {
+                        _ if a == b => 100,
+                        _ if war.contains(&a) && war.contains(&b) => 0,
+                        _ => 50,
+                    })
+                    .collect()
+            })
+            .collect(),
+    };
+    let (kept, mut world) = walk_world(data, skilled(0, 4))?;
+    mark(&mut world, WALKED_MINE, trap::PARTY_SEES);
+    let how = Choosing {
+        stand: Some(stand),
+        run_in,
+        object: WALKED_MINE,
+        kind: ObjectKind::Trigger,
+        choice: crate::target::Choice::Disarm,
+        cancel_at: None,
+    };
+    let middle = floor_at(WALKED_MINE_AT);
+    let (mut nearest, mut sprung, mut check) = (f32::MAX, false, None);
+    walk_and_choose(&kept, &mut world, &how, |_, last, notices| {
+        if let Some(me) = last
+            .entities
+            .iter()
+            .find(|entity| entity.kind == crate::Kind::Avatar(Seat(0)))
+        {
+            nearest = nearest.min(crate::math::flat_distance(me.position, middle));
+        }
+        let told: Vec<(Seat, Notice)> = notices.to_vec();
+        sprung |= told
+            .iter()
+            .any(|(_, n)| *n == Notice::Line(lines::MINE_TRIGGERED));
+        check = check.or(checked(&told, lines::DISARM_MINE));
+        sprung || check.is_some()
+    })?;
+    Ok(MineWalk {
+        nearest,
+        sprung,
+        check,
+    })
+}
+
+/// The walks to disarm a K1 mine from every side and at a run: each stops
+/// outside its circle, never setting it off, and disarms it. For the
+/// approved test `mine_walk` (awaiting the owner).
+pub fn walk_probes() -> Vec<(String, Result<String, String>)> {
+    MINE_WALKS
+        .iter()
+        .map(|&(name, stand, run_in)| {
+            let ran = mine_walk(stand, run_in).and_then(
+                |MineWalk {
+                     nearest,
+                     sprung,
+                     check,
+                 }| {
+                    let what = format!("nearest {nearest:.2} m, sprung {sprung}, check {check:?}");
+                    let clear = nearest > crate::traps::RADIUS_M;
+                    if clear && !sprung && check == Some((None, true)) {
+                        Ok(what)
+                    } else {
+                        Err(what)
+                    }
+                },
+            );
+            (format!("mine_walk_{name}"), ran)
+        })
+        .collect()
 }

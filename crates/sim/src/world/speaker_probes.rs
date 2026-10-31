@@ -158,6 +158,7 @@ fn started(dialog: &str) -> Result<(SimWorld, Vec<u32>, u64), String> {
         asker: ObjectId(player),
         dialog: dialog.into(),
         bark: false,
+        cue: None,
     });
     world.set_script_state(state);
     Ok((world, ids, 2))

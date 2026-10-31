@@ -350,10 +350,8 @@ pub(super) fn hurt(
                 ScriptEffect::Resurrection => {
                     if let Some(at) = at {
                         let (.., player, fighting) = &mut actors[at];
-                        if fighting.0.downed() {
-                            fighting.0.rise(falls::RISE_HP);
-                        } else if fighting.0.dead() {
-                            falls::stand(&mut player.0, &mut fighting.0, &level.0.anims);
+                        if fighting.0.downed() || fighting.0.dead() {
+                            falls::stand(&mut player.0, &mut fighting.0, &level.0.anims, now);
                         }
                     }
                 }
@@ -535,7 +533,7 @@ pub(super) fn hurt(
         let immobile = actors[at]
             .2
             .and_then(|object| object.facts.as_ref()?.body)
-            .is_some_and(|body| body.walk_mps <= 0.0 && body.run_mps <= 0.0);
+            .is_some_and(|body| body.immobile());
         let (_, avatar, _, _, player, fighting) = &mut actors[at];
         // The dead take nothing more; the downed nothing but the story's
         // death.

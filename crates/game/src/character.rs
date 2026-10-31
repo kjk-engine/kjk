@@ -554,11 +554,33 @@ fn members(
                 dresses,
                 may_level,
                 busy: seat.and_then(|seat| crate::hud::busy(snapshot, seat)),
+                effects: effect_icons(assets, &fighter, snapshot.time_ms),
+                debilitated: fighter.debilitated(snapshot.time_ms),
                 id: entity.id.0,
             },
         });
     }
     party
+}
+
+/// The good and the bad among `fighter`'s running effect icons, as KOTOR
+/// counts them on its portrait (`CSWSEffectListHandler::OnApplyEffectIcon`):
+/// by their `effecticon.2da` row's `good`, an icon whose row has none (the
+/// alignment's full marks) counting as neither.
+fn effect_icons(assets: &mut GuiAssets, fighter: &sim::combat::Fighter, now: u64) -> (u8, u8) {
+    fighter
+        .effects
+        .icons(now)
+        .fold((0u8, 0u8), |(good, bad), row| {
+            match assets
+                .cell("effecticon", usize::from(row), "good")
+                .as_deref()
+            {
+                Some("0") => (good, bad.saturating_add(1)),
+                Some(_) => (good.saturating_add(1), bad),
+                None => (good, bad),
+            }
+        })
 }
 
 /// What an upgrade bench lists: what the party carries and what its

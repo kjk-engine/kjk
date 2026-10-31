@@ -329,6 +329,7 @@ pub(super) fn talk_to(view: &View, state: &mut State, object: ObjectId, user: Ob
             asker: user,
             dialog: dialog.to_string(),
             bark: false,
+            cue: None,
         });
     } else if kind == Some(ObjectKind::Placeable) {
         state.last.insert((object.0, script::last::USED), user.0);

@@ -220,6 +220,7 @@ impl Engine<'_> {
                         with,
                         dialog: key(text(args, 1)),
                         asker: self.event.asker,
+                        cue: self.event.cue,
                     },
                 )
             }
@@ -258,6 +259,7 @@ impl Engine<'_> {
                     asker,
                     dialog,
                     bark: false,
+                    cue: self.event.cue,
                 });
                 truth(true)
             }
@@ -270,6 +272,7 @@ impl Engine<'_> {
                         asker: ObjectId::INVALID,
                         dialog,
                         bark: true,
+                        cue: None,
                     });
                 }
                 Value::Int(0)
@@ -416,7 +419,7 @@ impl Step<'_> {
         who: ObjectId,
         with: ObjectId,
         dialog: &str,
-        asker: Option<ObjectId>,
+        (asker, cue): (Option<ObjectId>, Option<crate::script::Cue>),
     ) {
         let view = self.view;
         // The players' side: their characters, and the companion the host
@@ -451,6 +454,7 @@ impl Step<'_> {
                 asker,
                 dialog,
                 bark: false,
+                cue,
             });
         }
     }

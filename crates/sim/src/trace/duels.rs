@@ -466,6 +466,7 @@ impl Duel {
                             bag: 0,
                             destroy_ms: 0,
                             fade_ms: None,
+                            bulk: None,
                         }),
                         yaw: setup.yaw,
                         ..crate::module::ObjectData::bare(

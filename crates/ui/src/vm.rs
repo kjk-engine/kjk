@@ -50,6 +50,9 @@ pub struct LootView {
     pub title: Vec<u8>,
     /// What is left in it.
     pub rows: Vec<LootRow>,
+    /// What the party may put in it (its give mode, `screens::container`):
+    /// what it carries but its plot items, stacked alike.
+    pub give: Vec<LootRow>,
 }
 
 /// What an item is, as the inventory's and the store's filters sort it.
@@ -209,6 +212,13 @@ pub struct MemberView {
     pub may_level: bool,
     /// What the player playing it is in, its portrait's icon (R10).
     pub busy: Option<Busy>,
+    /// Its running effects' icons as KOTOR's portrait counts them
+    /// (`effecticon.2da`'s `good`, an icon without one not counted): the
+    /// good and the bad, its arrows (`hud::effect_arrows`).
+    pub effects: (u8, u8),
+    /// Down, held or under a state (`sim::Fighter::debilitated`): its
+    /// portrait's overlay, in its arrows' place.
+    pub debilitated: bool,
     /// Its body (`sim::SimId`): what a click on its portrait or its icon
     /// names.
     pub id: u32,
@@ -887,6 +897,9 @@ pub struct ViewModel {
     pub camera_feed: bool,
     /// What the player looks at, for the HUD's target block.
     pub target: Option<TargetView>,
+    /// The area the door or exit the player faces leads to, as the
+    /// game names it (`screens::transition`).
+    pub transition: Option<Vec<u8>>,
     /// The crosshair shows (the game in play, its camera behind).
     pub crosshair: bool,
     /// A bark in play (`screens::bark`).

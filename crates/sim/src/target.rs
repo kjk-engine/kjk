@@ -8,16 +8,20 @@
 //! picks it, so it does not flicker at an edge.
 //!
 //! Targetable: doors but static ones (a door leading out is one too),
-//! useable placeables, living creatures but the party's, a trap the
-//! party detected, and a downed party member (a seat's avatar or a companion, I30 P11), which a
-//! standing one may revive (`Choice::Revive`, `Reviving`).
+//! useable placeables, living creatures, a trap the party detected, and a
+//! downed party member (a seat's avatar or a companion, I30 P11), which a
+//! standing one may revive (`Choice::Revive`, `Reviving`). A living
+//! companion is one whoever drives it, a player or its AI, as KOTOR's party
+//! members are clicked and talked to; never the looker's own body, and,
+//! following close behind, only in front of the player (`Candidate::ahead`).
+//! Seats' avatars are not: they have no conversation.
 
 use collision::{Contents, Extents, UNIT};
 
 use crate::instance::Instances;
 use crate::math::{self, Vec3};
 use crate::module::{ObjectKind, Opens};
-use crate::snapshot::EntityState;
+use crate::snapshot::{EntityState, SimId};
 use crate::world::Level;
 use crate::{Kind, Snapshot};
 
@@ -96,6 +100,11 @@ pub struct Candidate {
     pub feet: Vec3,
     pub radius: f32,
     pub height: f32,
+    /// Picked only in front of the player, its feet more than its radius
+    /// ahead of the player's along its facing (a living companion, whose body the player's
+    /// passes through): one at its heels or inside its body, between it and
+    /// the camera, takes no look meant past it.
+    pub ahead: bool,
 }
 
 impl Candidate {
@@ -119,12 +128,14 @@ pub struct Looker {
     pub facing: [f32; 2],
 }
 
-/// The targetable objects of `snapshot` (see the module documentation).
-pub fn candidates(level: &Level, snapshot: &Snapshot) -> Vec<Candidate> {
+/// The targetable objects of `snapshot` (see the module documentation) for
+/// the player whose body is `me`.
+pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<Candidate> {
     let instances = Instances::in_snapshot(level, snapshot);
     snapshot
         .entities
         .iter()
+        .filter(|entity| Some(entity.id) != me)
         .filter_map(|entity| {
             if revivable(entity) {
                 return Some(Candidate {
@@ -133,6 +144,7 @@ pub fn candidates(level: &Level, snapshot: &Snapshot) -> Vec<Candidate> {
                     feet: feet_of(&entity.player?),
                     radius: BODY_RADIUS,
                     height: BODY_HEIGHT,
+                    ahead: false,
                 });
             }
             let Kind::Object(kind, index) = entity.kind else {
@@ -150,8 +162,7 @@ pub fn candidates(level: &Level, snapshot: &Snapshot) -> Vec<Candidate> {
                 }
                 ObjectKind::Placeable if facts.useable => (PLACEABLE_RADIUS, PLACEABLE_HEIGHT),
                 ObjectKind::Creature => {
-                    let fighter = entity.fighter.as_ref()?;
-                    (fighter.alive() && fighter.mind.leader.is_none()).then_some(())?;
+                    entity.fighter.as_ref()?.alive().then_some(())?;
                     (CREATURE_RADIUS, CREATURE_HEIGHT)
                 }
                 ObjectKind::Trigger if seen_trap(facts, entity) => {
@@ -161,6 +172,7 @@ pub fn candidates(level: &Level, snapshot: &Snapshot) -> Vec<Candidate> {
                         feet: crate::traps::centre(&facts.geometry, entity.position),
                         radius: TRAP_RADIUS,
                         height: TRAP_HEIGHT,
+                        ahead: false,
                     });
                 }
                 _ => return None,
@@ -169,13 +181,24 @@ pub fn candidates(level: &Level, snapshot: &Snapshot) -> Vec<Candidate> {
             // an object's is where it stands (its facts' for one placed, but
             // one play made, as remains, stands where it was made: its
             // template's facts are not there).
-            let feet = entity.player.as_ref().map_or(entity.position, feet_of);
+            let mut feet = entity.player.as_ref().map_or(entity.position, feet_of);
+            // A creature JA does not pose is picked where its model is
+            // drawn (`world::body`): as far across as it reaches, from its
+            // lowest to its highest (a probe droid floats).
+            let (radius, height) = match crate::world::bulk_of(Some(facts)) {
+                Some(bulk) if kind == ObjectKind::Creature => {
+                    feet[2] += bulk.min[2];
+                    (bulk.reach(), bulk.max[2] - bulk.min[2])
+                }
+                _ => (radius, height),
+            };
             Some(Candidate {
                 index,
                 kind,
                 feet,
                 radius,
                 height,
+                ahead: kind == ObjectKind::Creature && crate::world::party_member(entity),
             })
         })
         .collect()
@@ -239,7 +262,17 @@ pub fn pick(
     looker: &Looker,
     candidates: &[Candidate],
 ) -> Option<u32> {
-    let near = |candidate: &&Candidate| math::flat_distance(candidate.feet, looker.feet) <= RANGE;
+    // Clear of the player's body where it must be (`Candidate::ahead`).
+    let clear = |candidate: &&Candidate| {
+        let (dx, dy) = (
+            candidate.feet[0] - looker.feet[0],
+            candidate.feet[1] - looker.feet[1],
+        );
+        !candidate.ahead || dx * looker.facing[0] + dy * looker.facing[1] > candidate.radius
+    };
+    let near = |candidate: &&Candidate| {
+        math::flat_distance(candidate.feet, looker.feet) <= RANGE && clear(candidate)
+    };
     // The crosshair's ray, as far as the range reaches past the camera.
     let length = RANGE + math::flat_distance(look.from, looker.feet);
     let end = math::mad(look.from, length, look.forward);
@@ -299,6 +332,7 @@ pub fn pick(
     let eyes = [looker.feet[0], looker.feet[1], looker.feet[2] + EYES];
     candidates
         .iter()
+        .filter(clear)
         .filter(|candidate| in_sight(level, states, eyes, candidate.middle(), candidate.index))
         .filter_map(|candidate| {
             crate::containers::ahead(looker.feet, looker.facing, candidate.feet)
@@ -315,6 +349,9 @@ pub enum Choice {
     Open,
     /// A useable placeable; an open door (its click script).
     Use,
+    /// An open door the player could open again, closed (QUIRKS.md
+    /// Q-0330: KOTOR's player never closes a door).
+    Close,
     /// A creature that speaks.
     Talk,
     /// Security, with a spike the party carries (by script object id) or
@@ -347,24 +384,39 @@ pub struct Security {
     pub spike: Option<u32>,
 }
 
+/// What the character choosing brings to a mine: offered only with ranks in
+/// Demolitions (K1's menu asks the skill's use as it does Security's), with
+/// whether the mine's row has a kit to recover (`recover`) and, in TSL,
+/// whether the party carries a kit to set on a shut door (`door_mine`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Demolitions {
+    pub recover: bool,
+    pub door_mine: bool,
+}
+
 /// What may be done to an object of `kind` with `facts` in `state`: a
 /// locked door or container is opened (tried with the party's key, else
 /// its fail-to-open script) or unlocked by a character with `security`
 /// (and the spike carried, if any) unless only its key opens it;
-/// a shut door or a container opened; an open door
-/// or a useable placeable used; a creature not hostile that speaks (a
-/// conversation or a dialogue hook) talked to; a disarmable trap the party
-/// detected disarmed, or recovered where its row has a kit (`recoverable`);
-/// in TSL, a mine set on a shut door where the party carries one (`mine`).
-/// Nothing else.
+/// a shut door or a container opened; an open door closed where it may be
+/// (`uses::closable`), and used; a useable placeable used; a creature not
+/// hostile that speaks (a conversation or a dialogue hook) talked to; by a
+/// character with `demolitions`, a disarmable trap the party detected
+/// disarmed, or recovered where its row has a kit, and in TSL a mine set on
+/// a shut door where the party carries one. Nothing else.
 pub fn choices(
     kind: ObjectKind,
     facts: &crate::module::ObjectData,
     state: crate::snapshot::ObjectState,
     hostile: bool,
     security: Option<Security>,
-    (recoverable, mine): (bool, bool),
+    demolitions: Option<Demolitions>,
 ) -> Vec<Choice> {
+    let Demolitions { recover, door_mine } = demolitions.unwrap_or(Demolitions {
+        recover: false,
+        door_mine: false,
+    });
+    let skilled = demolitions.is_some();
     let locked = state.locked(facts.opens);
     let key_only = facts.lock.as_ref().is_some_and(|lock| lock.key_required);
     let unlock = || {
@@ -376,22 +428,26 @@ pub fn choices(
         all
     };
     let shut_door = |mut all: Vec<Choice>| {
-        all.extend(mine.then_some(Choice::Mine));
+        all.extend((skilled && door_mine).then_some(Choice::Mine));
         all
     };
     match kind {
         ObjectKind::Door if locked && state.state == 0 => shut_door(unlock()),
         ObjectKind::Door if state.state == 0 => shut_door(vec![Choice::Open]),
+        ObjectKind::Door if crate::uses::closable(facts, &state) => {
+            vec![Choice::Close, Choice::Use]
+        }
         ObjectKind::Door => vec![Choice::Use],
         ObjectKind::Placeable if facts.container && locked => unlock(),
         ObjectKind::Placeable if facts.container => vec![Choice::Open],
         ObjectKind::Placeable => vec![Choice::Use],
         ObjectKind::Trigger
-            if state.trap & crate::snapshot::trap::PARTY_SEES != 0
+            if skilled
+                && state.trap & crate::snapshot::trap::PARTY_SEES != 0
                 && facts.trap.as_ref().is_some_and(|trap| trap.disarmable) =>
         {
             let mut all = vec![Choice::Disarm];
-            if recoverable {
+            if recover {
                 all.push(Choice::Recover);
             }
             all
@@ -420,6 +476,7 @@ pub fn ask(choice: Choice, object: u32, kind: ObjectKind) -> Option<crate::actio
         (Choice::Recover, _) => return Some(Action::Recover(object)),
         (Choice::Mine, _) => return Some(Action::Mine(object)),
         (Choice::Open, _) | (Choice::Use, ObjectKind::Door) => Verb::Open,
+        (Choice::Close, _) => Verb::Close,
         (Choice::Use, _) => Verb::Use,
         (Choice::Talk, _) => Verb::Talk,
     };
@@ -427,11 +484,13 @@ pub fn ask(choice: Choice, object: u32, kind: ObjectKind) -> Option<crate::actio
 }
 
 /// How far (metres, across the floor) a choice reaches: its verb's
-/// (`world::uses::reach`); an item its spell's; Security and a revive a
-/// container's.
+/// (`world::uses::reach`); an item its spell's; a mine's disarm or recover
+/// `traps::REACH_M` from its middle; Security and a revive a container's.
 pub fn reach(choice: Choice, kind: ObjectKind) -> f32 {
-    if let Choice::Item { reach_dm, .. } = choice {
-        return f32::from(reach_dm) / 10.0;
+    match choice {
+        Choice::Item { reach_dm, .. } => return f32::from(reach_dm) / 10.0,
+        Choice::Disarm | Choice::Recover => return crate::traps::REACH_M,
+        _ => {}
     }
     match ask(choice, 0, kind) {
         Some(crate::action::Action::Use { verb, .. }) => crate::uses::reach(kind, verb),
@@ -439,15 +498,119 @@ pub fn reach(choice: Choice, kind: ObjectKind) -> f32 {
     }
 }
 
-/// How far from its target (metres, across the floor) a walk to do
-/// `choice` ends: halfway into the choice's arrival; a trap's at the
-/// arrival's edge, outside the trap's circle (`traps::RADIUS_M`), as KOTOR
-/// disarms from beside a mine, not on it.
-pub fn stand_off(choice: Choice, kind: ObjectKind) -> f32 {
-    let arrive = reach(choice, kind) * ARRIVE;
+/// How far from a door's action point (metres, across the floor) a
+/// character uses it, past its personal space (K1's and TSL's
+/// `CSWSCreature::GetUseRange`).
+pub const DOOR_POINT_REACH: f32 = rules::interaction::using::DOOR_POINT_REACH_M;
+
+/// How far from its action point (metres, across the floor) a player uses
+/// a door: `DOOR_POINT_REACH` past a humanoid's personal space.
+pub fn door_point_reach() -> f32 {
+    DOOR_POINT_REACH + crate::world::strikes::humanoid_space(0.0)
+}
+
+/// A door's action point for a user at `from` (feet, metres), on the
+/// floor (feet, metres): of its two (`ObjectData::action_points`) the
+/// nearer, unless only the other stands on the walkable floor, as the
+/// exes' `CSWSDoor::GetNearestActionPoint` picks it; `None` for a door
+/// without them (or anything else).
+pub fn action_point(level: &Level, facts: &crate::module::ObjectData, from: Vec3) -> Option<Vec3> {
+    if facts.kind != ObjectKind::Door {
+        return None;
+    }
+    let origin = |at: Vec3| {
+        let [x, y, z] = math::scale(at, 1.0 / UNIT);
+        [x, y, z - crate::motion::SOLE_Z]
+    };
+    let points = facts.action_points(from);
+    let point = points
+        .iter()
+        .find(|point| crate::walk::on_mesh(level, origin(**point)))
+        .or(points.first())?;
+    Some(feet_at(crate::walk::on_floor(level, origin(*point))))
+}
+
+/// Where a walk to do a choice heads (feet, metres) and how near it must
+/// come (metres, across the floor) for the choice to be done there.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Spot {
+    pub at: Vec3,
+    pub within: f32,
+}
+
+impl Spot {
+    /// `choice` on an object of `kind` standing at `feet`: within the
+    /// choice's `arrival`.
+    pub fn plain(feet: Vec3, choice: Choice, kind: ObjectKind) -> Spot {
+        Spot {
+            at: feet,
+            within: arrival(choice, kind),
+        }
+    }
+
+    /// `choice` on the object of `facts` standing at `feet`, by a player
+    /// at `from` (feet, metres): a door with action points from the one on
+    /// the player's side (`action_point`), within `ARRIVE` of
+    /// `door_point_reach`, as KOTOR walks a creature to it, never into a
+    /// wide door's face; anything else `plain`.
+    pub fn of(
+        level: &Level,
+        choice: Choice,
+        facts: &crate::module::ObjectData,
+        feet: Vec3,
+        from: Vec3,
+    ) -> Spot {
+        match action_point(level, facts, from) {
+            Some(at) => Spot {
+                at,
+                within: door_point_reach() * ARRIVE,
+            },
+            None => Spot::plain(feet, choice, facts.kind),
+        }
+    }
+
+    /// `choice` on target `index` of `snapshot`, of `kind` standing at
+    /// `feet`, by `player`: `of` with its facts, else `plain`.
+    pub fn in_snapshot(
+        level: &Level,
+        snapshot: &Snapshot,
+        (index, kind): (u32, ObjectKind),
+        choice: Choice,
+        feet: Vec3,
+        player: &crate::motion::MotionState,
+    ) -> Spot {
+        let instances = Instances::in_snapshot(level, snapshot);
+        match entity(snapshot, index).and_then(|entity| instances.of_entity(entity)) {
+            Some(facts) => Spot::of(level, choice, facts, feet, feet_of(player)),
+            None => Spot::plain(feet, choice, kind),
+        }
+    }
+
+    /// How far from `at` (metres, across the floor) a walk to do `choice`
+    /// here heads: halfway into the arrival; a trap's `TRAP_CLEAR_M`
+    /// outside the trap's circle (`traps::RADIUS_M`), as KOTOR disarms from
+    /// beside a mine, never on it: the stop of a run slides on.
+    pub fn stand_off(&self, choice: Choice) -> f32 {
+        match choice {
+            Choice::Disarm | Choice::Recover => trap_stand_off(),
+            _ => self.within * rules::targeting::walk::SHARE,
+        }
+    }
+}
+
+/// How far from a mine (metres, across the floor) a walk to disarm or
+/// recover it stops.
+fn trap_stand_off() -> f32 {
+    crate::traps::RADIUS_M + TRAP_CLEAR_M
+}
+
+/// How near its target (metres, across the floor) a walk to do `choice`
+/// has arrived: `ARRIVE` of its reach; a trap's `TRAP_ARRIVE_M` beyond
+/// where it stops (`trap_stand_off`), still outside the trap.
+fn arrival(choice: Choice, kind: ObjectKind) -> f32 {
     match choice {
-        Choice::Disarm | Choice::Recover => arrive * rules::targeting::walk::TRAP_SHARE,
-        _ => arrive * rules::targeting::walk::SHARE,
+        Choice::Disarm | Choice::Recover => trap_stand_off() + TRAP_ARRIVE_M,
+        _ => reach(choice, kind) * ARRIVE,
     }
 }
 
@@ -467,6 +630,10 @@ pub const WALK_MS: u64 = rules::targeting::walk::WALK_MS;
 const STALLS: u8 = rules::targeting::walk::STALLS;
 /// What share of a choice's reach a walk ends within.
 const ARRIVE: f32 = rules::targeting::walk::ARRIVE;
+/// How far outside a mine's circle a walk to it stops, and how much
+/// farther it has arrived (metres).
+const TRAP_CLEAR_M: f32 = rules::targeting::walk::TRAP_CLEAR_M;
+const TRAP_ARRIVE_M: f32 = rules::targeting::walk::TRAP_ARRIVE_M;
 /// How far (metres) a target may move before its walk is planned again.
 const MOVED: f32 = rules::targeting::walk::MOVED;
 
@@ -500,8 +667,15 @@ pub enum Stride {
 /// Where the player stands for a walk: its body (`origin`, units) and
 /// feet (metres).
 fn feet_of(player: &crate::motion::MotionState) -> Vec3 {
-    let o = player.origin;
-    math::scale([o[0], o[1], o[2] + crate::motion::SOLE_Z], UNIT)
+    feet_at(player.origin)
+}
+
+/// The feet (metres) of a body whose origin is `origin` (units).
+fn feet_at(origin: Vec3) -> Vec3 {
+    math::scale(
+        [origin[0], origin[1], origin[2] + crate::motion::SOLE_Z],
+        UNIT,
+    )
 }
 
 impl Walk {
@@ -512,27 +686,20 @@ impl Walk {
         choices.contains(&self.choice)
     }
 
-    /// Whether `player` is near enough `to` (feet, metres) to do `choice`
-    /// on an object of `kind` without walking.
-    pub fn near(
-        player: &crate::motion::MotionState,
-        to: Vec3,
-        choice: Choice,
-        kind: ObjectKind,
-    ) -> bool {
-        math::flat_distance(feet_of(player), to) <= reach(choice, kind) * ARRIVE
+    /// Whether `player` is near enough `spot` to do its choice without
+    /// walking.
+    pub fn near(player: &crate::motion::MotionState, spot: Spot) -> bool {
+        math::flat_distance(feet_of(player), spot.at) <= spot.within
     }
 
-    /// A walk from `player` to object `object` of `kind` standing at `to`
-    /// (feet, metres) to do `choice`, from `now_ms`.
-    #[allow(clippy::too_many_arguments)]
+    /// A walk from `player` to object `object` to do `choice` at `spot`,
+    /// from `now_ms`.
     pub fn new(
         level: &Level,
         ways: &dyn crate::walk::Ways,
         player: &crate::motion::MotionState,
         object: u32,
-        kind: ObjectKind,
-        to: Vec3,
+        spot: Spot,
         choice: Choice,
         now_ms: u64,
     ) -> Walk {
@@ -540,11 +707,11 @@ impl Walk {
             object,
             choice,
             walker: crate::walk::Walker::new(player.origin),
-            toward: to,
+            toward: spot.at,
             direct: false,
             started_ms: now_ms,
         };
-        walk.plan(level, ways, player, kind, to);
+        walk.plan(level, ways, player, spot);
         walk
     }
 
@@ -553,13 +720,13 @@ impl Walk {
         level: &Level,
         ways: &dyn crate::walk::Ways,
         player: &crate::motion::MotionState,
-        kind: ObjectKind,
-        to: Vec3,
+        spot: Spot,
     ) {
+        let to = spot.at;
         let feet = feet_of(player);
         let (dx, dy) = (feet[0] - to[0], feet[1] - to[1]);
         let length = (dx * dx + dy * dy).sqrt().max(1e-3);
-        let stand = stand_off(self.choice, kind);
+        let stand = spot.stand_off(self.choice);
         let goal = math::scale(
             [
                 to[0] + dx / length * stand,
@@ -574,19 +741,18 @@ impl Walk {
         self.toward = to;
     }
 
-    /// This step of the walk for `player`, its target of `kind` at `to`
-    /// (feet, metres), at `now_ms`.
+    /// This step of the walk for `player`, its target's `spot` now, at
+    /// `now_ms`.
     pub fn stride(
         &mut self,
         level: &Level,
         ways: &dyn crate::walk::Ways,
         player: &crate::motion::MotionState,
-        kind: ObjectKind,
-        to: Vec3,
+        spot: Spot,
         now_ms: u64,
     ) -> Stride {
         let late = now_ms >= self.started_ms + WALK_MS;
-        if Walk::near(player, to, self.choice, kind) {
+        if Walk::near(player, spot) {
             // Arrived at a run, it stops first where the choice breaks off
             // on its user moving: the slide would carry it past.
             let moving = math::length([player.velocity[0], player.velocity[1], 0.0])
@@ -600,8 +766,8 @@ impl Walk {
         if late || self.walker.stalls >= STALLS {
             return Stride::Unreachable;
         }
-        if math::flat_distance(to, self.toward) > MOVED {
-            self.plan(level, ways, player, kind, to);
+        if math::flat_distance(spot.at, self.toward) > MOVED {
+            self.plan(level, ways, player, spot);
         }
         Stride::Steer(if self.direct {
             crate::walk::toward(player, self.walker.goal)

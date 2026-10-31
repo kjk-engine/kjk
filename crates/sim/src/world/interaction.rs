@@ -1,6 +1,8 @@
 //! What players do to the module's objects: uses, touches, the key's
 //! use, doorways.
 
+use std::collections::BTreeMap;
+
 use super::*;
 
 /// What players do to the module's objects, in seat order (JA's
@@ -147,9 +149,15 @@ pub(super) fn interact(
         creatures
             .iter()
             .find(|(of, ..)| of.0 == id)
-            .map(|(_, body, _)| (id, body.0))
+            .map(|(_, body, ..)| (id, body.0))
     });
-    let talkers = talkers(clock.time_ms, lent.map(|(id, _)| id), creatures.iter());
+    let bulks = bulks(objects.iter().map(|(id, object)| (*id, &**object)));
+    let talkers = talkers(
+        clock.time_ms,
+        lent.map(|(id, _)| id),
+        creatures.iter(),
+        &bulks,
+    );
     // The seats' bodies, the companion leading among them (R36), for those
     // at a pazaak table (`with_tables`), and who they are to watching's
     // rule (`watchable`).
@@ -281,6 +289,7 @@ pub(super) fn interact(
             let creature = creature.map(|(_, origin, ..)| scale(*origin, UNIT));
             let kind = objects[at].1.kind;
             let target = uses::Target::new(index, creature, placed).aimed(
+                &level.0,
                 kind,
                 &facts,
                 scale(user.origin, UNIT),
@@ -448,6 +457,7 @@ pub(super) fn talkers<'a>(
     time_ms: u64,
     lent: Option<SimId>,
     creatures: impl Iterator<Item = (&'a Id, &'a Player, &'a Fighting)>,
+    bulks: &BTreeMap<SimId, Bulk>,
 ) -> Vec<Body> {
     let mut talkers: Vec<Body> = creatures
         .filter(|(id, _, fighting)| {
@@ -456,10 +466,19 @@ pub(super) fn talkers<'a>(
                 && fighting.0.combat_until <= time_ms
                 && lent != Some(id.0)
         })
-        .map(|(id, player, _)| body(id.0, &player.0))
+        .map(|(id, player, _)| body(id.0, &player.0, bulks.get(&id.0)))
         .collect();
     talkers.sort_by_key(|body| body.entity);
     talkers
+}
+
+/// The bulks (`world::body`) of `objects`' creatures that have one, by id.
+pub(super) fn bulks<'a>(
+    objects: impl Iterator<Item = (&'a Id, &'a Object)>,
+) -> BTreeMap<SimId, Bulk> {
+    objects
+        .filter_map(|(id, object)| Some((id.0, *object_bulk(Some(object))?)))
+        .collect()
 }
 
 /// The bodies a use may meet: `talkers`, and the bodies the seats act
@@ -477,7 +496,7 @@ pub(super) fn with_tables<'a>(
     met.extend(
         seated
             .filter(|(id, _)| watchable.contains(&id.0))
-            .map(|(id, player)| body(id, player)),
+            .map(|(id, player)| body(id, player, None)),
     );
     met.sort_by_key(|body| body.entity);
     met

@@ -55,14 +55,17 @@ pub(super) fn fire(
     );
     let targets = Targets::of(
         level.0.friendly_fire,
-        actors.iter().map(|(id, avatar, _, _, player, fighting)| {
-            (
-                id.0,
-                &player.0,
-                fighting.0.alive(),
-                in_party(avatar, &fighting.0),
-            )
-        }),
+        actors
+            .iter()
+            .map(|(id, avatar, object, _, player, fighting)| {
+                (
+                    id.0,
+                    &player.0,
+                    object_bulk(object),
+                    fighting.0.alive(),
+                    in_party(avatar, &fighting.0),
+                )
+            }),
     );
     // Each living character's side and place, for a squad stim's reach.
     let sides: Vec<(SimId, [f32; 3], bool, u8)> = actors
@@ -89,12 +92,10 @@ pub(super) fn fire(
         // nor a hand held out (JA's hand extends), nor anyone changing
         // weapons or knocked down (the weapon step keeps the timer then).
         let force = &fighter.force;
-        if force.gripped_by.is_some()
-            || force.stunned(clock.time_ms)
-            || force.hand_out(clock.time_ms)
-            || fighter.saber.change != Change::None
-            || fighter.saber.floored()
-        {
+        // Held (a grip's choke, a stun) or knocked down.
+        let stopped =
+            force.gripped_by.is_some() || force.stunned(clock.time_ms) || fighter.saber.floored();
+        if stopped || force.hand_out(clock.time_ms) || fighter.saber.change != Change::None {
             // Its buttons' edges still move on: a press meanwhile is a
             // press after.
             let held = fighter.last_command.buttons;
@@ -102,13 +103,22 @@ pub(super) fn fire(
             fighter.shooting.alt_held = held & buttons::ALT_ATTACK != 0;
             fighter.pack.hold(held);
             fighter.pack.charging_from = None;
+            // An item's use with it (KOTOR's stun or knockdown ends the
+            // action under way). A weapon change or a power waits for the
+            // use (`Pack::busy`): one met here (a script's hand) holds it,
+            // and it lands once that is over.
+            if stopped {
+                items::break_off(fighter, clock.time_ms);
+            }
             continue;
         }
         // The bar's size is the sheet's own (`Sheet::pool`), whatever runs
         // on it; the rest reads what runs on it.
         let base = sheet_of(sheet, object);
         let sheet = effects::sheet_now(base, fighter, clock.time_ms);
-        // An item: used on a press; the weapon waits for it.
+        // An item: its use begun on a press (spent then) or from its
+        // action (`Pack::queued`, spent as it lands), landing at its
+        // end; the weapon waits for it.
         let authority = clock.reason != StepReason::Predict;
         let held_buttons = if fighter.alive() {
             fighter.last_command.buttons
@@ -128,8 +138,8 @@ pub(super) fn fire(
             authority,
             scripted,
         );
-        // The item leaves its holder's goods as it is used
-        // (`item_uses::spend`).
+        // The item leaves its holder's goods as a button's use begins, or
+        // as an action's lands (`item_uses::spend`).
         if let Some(row) = row.filter(|_| authority) {
             spent.0.push((id.0, row));
         }
@@ -157,16 +167,13 @@ pub(super) fn fire(
                 }
             }
         }
-        if used {
-            let wait = fighter
-                .pack
-                .using
-                .map_or(items::QUICK_MS, |(_, until)| (until - clock.time_ms) as i32);
+        if let Some((_, until)) = fighter.pack.using.filter(|_| used) {
+            let wait = until.saturating_sub(clock.time_ms) as i32;
             fighter.weapon_wait_ms = fighter.weapon_wait_ms.max(wait);
         }
         if used || fighter.pack.using.is_some() {
-            // A gun's timer runs on while a heal is used (a blade's runs in
-            // its own step), so it is ready when the heal lands.
+            // A gun's timer runs on while an item is used (a blade's runs
+            // in its own step), so it is ready when the use lands.
             if !used && held(&sheet, fighter).delivery.ranged() {
                 weapons::count_down(&mut fighter.weapon_wait_ms, clock.msec);
             }
@@ -573,15 +580,17 @@ pub(super) struct Targets {
 }
 
 impl Targets {
-    /// From each actor's id, movement, life and party membership (the
-    /// players, until companions join, I27).
+    /// From each actor's id, movement, bulk (`world::body`), life and
+    /// party membership (the players, until companions join, I27).
     pub(super) fn of<'a>(
         friendly_fire: FriendlyFire,
-        actors: impl Iterator<Item = (SimId, &'a MotionState, bool, bool)>,
+        actors: impl Iterator<Item = (SimId, &'a MotionState, Option<&'a Bulk>, bool, bool)>,
     ) -> Targets {
         Targets::of_bodies(
             friendly_fire,
-            actors.map(|(id, player, alive, party)| (id, alive.then(|| body(id, player)), party)),
+            actors.map(|(id, player, bulk, alive, party)| {
+                (id, alive.then(|| body(id, player, bulk)), party)
+            }),
         )
     }
 

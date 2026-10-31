@@ -140,6 +140,11 @@ pub fn race(rules: &Rules, course: &Course, gear: i32, now_ms: u64) -> Command {
         (world_at, track[0])
     };
     let ahead = |y: f32, reach: f32| y > at[1] + 4.0 && y < at[1] + reach;
+    // A thing in the way counts until its far end is passed: one the swoop
+    // is already up against, knocked back off it, is still steered round
+    // (371NAR's track, the swoop driven into the same obstacle again and
+    // again, its hull worn to nothing and the race lost).
+    let coming = |far_end: f32, reach: f32| far_end > at[1] && far_end < at[1] + reach;
     let reach = |metres: f32, seconds: f32| {
         if rules.tsl {
             metres.max(mover.speed * seconds)
@@ -211,7 +216,7 @@ pub fn race(rules: &Rules, course: &Course, gear: i32, now_ms: u64) -> Command {
             // A TSL race's swoop, near the tunnel's walls, also meets what
             // stands where it is now (the pillars along the sides).
             let near = (heading - x).abs() < room || rules.tsl && (at[0] - x).abs() < room;
-            ahead(y + extent[1], reach(BUOY_AHEAD_M, BUOY_AHEAD_S)) && near && level
+            coming(y + extent[1], reach(BUOY_AHEAD_M, BUOY_AHEAD_S)) && near && level
         })
         .min_by(|a, b| a.0.0[1].total_cmp(&b.0.0[1]));
     if let Some(&((centre_of, extent), (world, world_extent))) = in_way {
@@ -229,8 +234,11 @@ pub fn race(rules: &Rules, course: &Course, gear: i32, now_ms: u64) -> Command {
         if rules.tsl && gap < reach(JUMP_AHEAD_M, JUMP_AHEAD_S) && mover.offset[2] <= 2.0 {
             command.up = 127;
         }
+        // The side the swoop is on already, as a driver keeps it: chosen by
+        // where the next pad lies, the side flipped as that changed, and
+        // the swoop swerved across through the thing it was going round.
         let (left, right) = (x - room, x + room);
-        heading = if left >= low && (heading < x || right > high) {
+        heading = if left >= low && (at[0] < x || right > high) {
             left
         } else {
             right

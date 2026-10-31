@@ -123,6 +123,88 @@ pub fn roster(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// JA's body box as a model-space box (metres, soles at 0): what a
+/// humanoid is met as.
+fn ja_box() -> [f32; 6] {
+    use collision::{UNIT, player};
+    let half = player::HALF_WIDTH * UNIT;
+    let top = (player::STAND_HEIGHT - player::SOLE_Z) * UNIT;
+    [-half, -half, 0.0, half, half, top]
+}
+
+/// The share of `drawn`'s volume inside `met` (both min x, y, z, max).
+fn covered(drawn: &[f32; 6], met: &[f32; 6]) -> f32 {
+    let size = |b: &[f32; 6], axis: usize| (b[axis + 3] - b[axis]).max(0.0);
+    let overlap: f32 = (0..3)
+        .map(|axis| (drawn[axis + 3].min(met[axis + 3]) - drawn[axis].max(met[axis])).max(0.0))
+        .product();
+    let whole: f32 = (0..3).map(|axis| size(drawn, axis)).product();
+    if whole > 0.0 { overlap / whole } else { 1.0 }
+}
+
+/// `kjk combat bodies`: every `appearance.2da` row's body as shots, blades
+/// and the crosshair meet it, beside its model's drawn box at rest, and how
+/// much of what is drawn the old (JA's box for all) and the met volume
+/// cover.
+pub fn bodies(discovery: &Discovery, game: &str) -> ExitCode {
+    let resolver = match vfs::Game::from_key(game)
+        .filter(|game| *game != vfs::Game::JediAcademy)
+        .ok_or_else(|| "use k1 or tsl".to_string())
+        .and_then(|game| crate::viewer::resolver(discovery, game, None))
+    {
+        Ok(resolver) => resolver,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let ja = ja_box();
+    let rows = session::bulk_census(&crate::modules::ResolverSource(&resolver));
+    let fmt = |b: &[f32; 6]| {
+        format!(
+            "[{:5.2} {:5.2} {:5.2} .. {:5.2} {:5.2} {:5.2}]",
+            b[0], b[1], b[2], b[3], b[4], b[5]
+        )
+    };
+    let mut facts = Vec::new();
+    let (mut bulks, mut poor_before, mut poor_after) = (0, 0, 0);
+    for row in &rows {
+        let met = row.bulk.map_or(ja, |b| [b.min[0], b.min[1], b.min[2], b.max[0], b.max[1], b.max[2]]);
+        let (before, after) = row
+            .drawn
+            .map_or((None, None), |drawn| (Some(covered(&drawn, &ja)), Some(covered(&drawn, &met))));
+        bulks += usize::from(row.bulk.is_some());
+        poor_before += usize::from(before.is_some_and(|c| c < 0.5));
+        poor_after += usize::from(after.is_some_and(|c| c < 0.5));
+        let percent = |c: Option<f32>| c.map_or_else(|| "  -".to_string(), |c| format!("{:3.0}", c * 100.0));
+        outln!(
+            "{:>4} {:<30} {:<2} {:<16} drawn {} met {} {} covered {}% -> {}%",
+            row.row,
+            row.label,
+            row.model_type,
+            row.model.as_deref().unwrap_or("-"),
+            row.drawn.as_ref().map_or_else(|| format!("{:43}", "-"), fmt),
+            if row.bulk.is_some() { "model" } else { "JA   " },
+            fmt(&met),
+            percent(before),
+            percent(after),
+        );
+        facts.push(serde_json::json!({
+            "row": row.row, "label": row.label, "model_type": row.model_type,
+            "model": row.model, "drawn": row.drawn, "met": met,
+            "by_model": row.bulk.is_some(), "covered_before": before, "covered_after": after,
+        }));
+    }
+    outln!(
+        "combat bodies {game}: {} rows, {bulks} met by their model's box; under half drawn covered: {poor_before} with JA's box for all, {poor_after} now",
+        rows.len()
+    );
+    crate::runtime::write_facts(serde_json::json!({
+        "verb": "combat bodies", "game": game, "rows": facts,
+    }));
+    ExitCode::SUCCESS
+}
+
 /// What happened in a fight, from the snapshots' event rings.
 #[derive(Default)]
 struct Tally {
@@ -184,21 +266,25 @@ fn player_command(last: &Snapshot) -> sim::Command {
 }
 
 /// `kjk combat fight`: installs `module` for one player arriving at
-/// `arrive` (creatures tagged `hostile` and `allies` turned so first),
-/// steps `seconds` of fighting (the player shooting back at whoever
-/// targets it), tallies what the event rings recorded, and replays the
-/// recording.
+/// `arrive` (creatures tagged `hostile` and `allies` turned so first, the
+/// module's `scripts` queued for the player's first step), steps `seconds`
+/// of fighting (the player shooting back at whoever targets it), tallies
+/// what the event rings recorded, and replays the recording.
 pub fn fight(
     discovery: &Discovery,
     game: &str,
     module: &str,
     arrive: Option<&str>,
     seconds: u64,
-    hostile: &[String],
-    allies: &[String],
+    (hostile, allies): (&[String], &[String]),
+    scripts: &[String],
 ) -> ExitCode {
-    let mut world = match crate::scenes::installed(discovery, game, module, arrive, hostile, allies)
-    {
+    let installed = crate::scenes::installed(discovery, game, module, arrive, hostile, allies)
+        .and_then(|mut world| {
+            crate::by_hand::queue_scripts(&mut world, scripts)?;
+            Ok(world)
+        });
+    let mut world = match installed {
         Ok(world) => world,
         Err(error) => {
             eprintln!("{error}");
@@ -339,7 +425,7 @@ pub fn fight(
     );
     crate::runtime::write_facts(serde_json::json!({
         "verb": "combat fight", "game": game, "module": module, "arrive": arrive,
-        "hostile": hostile, "allies": allies,
+        "hostile": hostile, "allies": allies, "run": scripts,
         "seconds": seconds, "ticks": last.tick, "step_seconds": step_seconds,
         "hits": tally.hits, "damage_hp": tally.damage_centi as f64 / 100.0,
         "outcomes": tally.by_outcome,

@@ -34,6 +34,8 @@ pub trait Page: Send + Sync {
         Vec::new()
     }
     fn click(&mut self, _gui: &Gui, _at: [f32; 2], _textures: &mut dyn Textures, _vm: &ViewModel) {}
+    /// Its layout changed once loaded (`Screen::shape`).
+    fn shape(&self, _gui: &mut Gui) {}
 }
 
 pub struct Tab<P> {
@@ -103,6 +105,10 @@ impl<P: Page> Screen for Tab<P> {
 
     fn click(&mut self, gui: &Gui, at: [f32; 2], textures: &mut dyn Textures, vm: &ViewModel) {
         self.page.click(gui, at, textures, vm);
+    }
+
+    fn shape(&self, gui: &mut Gui) {
+        self.page.shape(gui);
     }
 }
 

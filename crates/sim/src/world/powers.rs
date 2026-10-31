@@ -72,6 +72,8 @@ struct Person {
     ps: MotionState,
     /// Alive before the powers: an area power takes no corpse.
     alive: bool,
+    /// Where its model is drawn, if JA does not pose it (`world::body`).
+    bulk: Option<crate::module::Bulk>,
 }
 
 impl Person {
@@ -277,6 +279,7 @@ pub(super) fn force(
                 sheet,
                 ps: player.0,
                 alive: fighting.0.alive(),
+                bulk: super::object_bulk(*object).copied(),
             }
         })
         .collect();
@@ -291,10 +294,10 @@ pub(super) fn force(
         people: &people,
         targets: Targets::of(
             level.0.friendly_fire(),
-            people
-                .iter()
-                .zip(&fighters)
-                .map(|(person, fighter)| (person.id, &person.ps, fighter.alive(), person.party)),
+            people.iter().zip(&fighters).map(|(person, fighter)| {
+                let bulk = person.bulk.as_ref();
+                (person.id, &person.ps, bulk, fighter.alive(), person.party)
+            }),
         ),
         views: people
             .iter()
@@ -653,13 +656,17 @@ impl Cast<'_, '_> {
     }
 
     /// Whether `at` may put a hand out now: no hand out, no weapon timer,
-    /// not knocked down (JA's knockdown takes the hand; a push or pull may
-    /// still come while getting up, `throwing`).
+    /// no item in use (`Pack::busy`), not knocked down (JA's knockdown
+    /// takes the hand; a push or pull may still come while getting up,
+    /// `throwing`).
     fn free_hand(&self, at: usize, throwing: bool) -> bool {
         let fighter = &self.fighters[at];
         let saber = &fighter.saber;
         let down = saber.floored() && !(throwing && saber.getup != Getup::Down);
-        !down && !fighter.force.hand_out(self.now) && fighter.weapon_wait_ms <= 0
+        !down
+            && !fighter.force.hand_out(self.now)
+            && fighter.weapon_wait_ms <= 0
+            && !fighter.pack.busy()
     }
 
     /// Starts a held power if it can: known, its wait over, a free hand,
@@ -1806,23 +1813,11 @@ impl Cast<'_, '_> {
         }
         let sheet = self.person(at).sheet;
         let pool = self.person(at).pool;
-        let (me, origin) = (self.person(at).id, self.person(at).ps.origin);
+        let origin = self.person(at).ps.origin;
         let fighter = &mut self.fighters[at];
-        // Items run out: a heal lands, a shield or a stim ends; Affliction
-        // and Plague sap.
-        let library = self.library;
-        let scripted = |row: u16| library.is_some_and(|library| library.impact(row).is_some());
-        let healed = items::settle(fighter, &sheet, now, self.authority, scripted);
-        if let Some(row) = healed.filter(|_| self.authority) {
-            let id = script_ncs::vm::ObjectId(me.0);
-            self.casts.push(crate::script::Cast {
-                caster: id,
-                row,
-                target: id,
-                at: scale(origin, collision::UNIT),
-                caught: Vec::new(),
-            });
-        }
+        // Items run out: a shield or a stim ends (a use lands in the
+        // firing step, `items::press`); Affliction and Plague sap.
+        items::settle(fighter, now);
         fighter.effects.sap(now);
         effects::worn(fighter, &sheet, pool, (now, self.tick));
         if self.authority {

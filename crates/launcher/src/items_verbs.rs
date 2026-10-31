@@ -1,8 +1,10 @@
 //! `kjk combat items`: KOTOR's consumables without a window (I22 sections
 //! 5 and 7; `sim::combat::items`). The table and the healing rule; in the
-//! open arena a medpac's use time and its healing, a second and a third
-//! press, a droid's repair kit (a medpac is no use to it), an antidote, a
-//! stim (and its vitality taken back when it ends), a squad stim healing
+//! open arena a medpac's use time and its healing, its clip (`inject`)
+//! played meanwhile, a second and a third press, a use walked through
+//! (moving does not break it off), a use held by a hand out (it lands) or
+//! broken off by a stun or a fall, a droid's repair kit (a medpac is no use
+//! to it), an antidote, a stim (and its vitality taken back when it ends), a squad stim healing
 //! both seats; in a module an energy shield soaking a hostile gunner's
 //! bolts until spent, and a creature using the medpac it carries when hurt,
 //! by its own AI scripts. Every scene's recording replays. Writes
@@ -32,13 +34,29 @@ fn carrying(items: &[(u16, u8)]) -> Sheet {
 
 /// Presses `button` at each of `at` (ms after the start) for one step.
 fn presses(seat: usize, button: u16, at: &[u64]) -> impl FnMut(&Snapshot, u64) -> Command + '_ {
+    walking(seat, button, at, u64::MAX)
+}
+
+/// `presses`, and from `from` (ms) on, running forward.
+fn walking(
+    seat: usize,
+    button: u16,
+    at: &[u64],
+    from: u64,
+) -> impl FnMut(&Snapshot, u64) -> Command + '_ {
     move |last, since| {
         let ps = player(last, seat);
         Command {
             buttons: if at.contains(&since) { button } else { 0 },
+            forward: if since >= from { 127 } else { 0 },
             ..mind::looking(&ps, 0.0, ps.view[1])
         }
     }
+}
+
+/// The entity at `at` in the snapshot `ms` after the start.
+fn fighter_at(run: &Run, at: usize, ms: u64) -> Fighter {
+    fighter(&run.snapshots[(ms / 8).saturating_sub(1) as usize], at)
 }
 
 /// The HP (whole) of the entity at `at` in the snapshot `ms` after the
@@ -260,18 +278,76 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
         &mut presses(me, buttons::MEDPAC, &[0, 2000, 4000]),
     );
     let heal = f64::from(items::healing(&carrying(&[]), 10, 1, false));
+    let playing = fighter_at(&run, me, 800)
+        .acting
+        .filter(|acting| acting.playing(start.time_ms + 800))
+        .map(|acting| acting.animation);
+    let spent = fighter_at(&run, me, 100).pack.used[0];
     report.check(
         hp_at(&run, me, 1400) == 100.0
+            && spent == 1
+            && playing == Some(items::clips::INJECT)
             && hp_at(&run, me, 1600) == 100.0 + heal
             && hp_at(&run, me, 4900) == 100.0 + 2.0 * heal
             && fighter(run.snapshots.last().expect("stepped"), me).pack.used[0] == 2,
         format!(
-            "medpac: 100 HP until it lands at 1.5 s, then {:.0}; a second at 2 s to {:.0}; the third press finds none",
+            "medpac: used up as it begins ({spent} used at 0.1 s), injected (clip {playing:?} at 0.8 s), 100 HP until it lands at 1.5 s, then {:.0}; a second at 2 s to {:.0}; the third press finds none",
             hp_at(&run, me, 1600),
             hp_at(&run, me, 4900)
         ),
     );
     report.replayed("medpacs", run.replayed);
+
+    // Walking from 0.5 s: the use runs on and lands (KOTOR breaks an
+    // action off by a stun or a knockdown, not by its user's moving).
+    let (stage, start) = arena(carrying(&[(ITEM_ABILITY_MED_PACK, 1)]), 1, 10_000);
+    let run = stage.drive(&start, 2500, &mut walking(me, buttons::MEDPAC, &[0], 500));
+    let moved = sim::math::flat_distance(
+        player(&start, me).origin,
+        player(run.snapshots.last().expect("stepped"), me).origin,
+    );
+    report.check(
+        hp_at(&run, me, 2400) == 100.0 + heal && moved > 1.0,
+        format!(
+            "medpac walked through from 0.5 s ({moved:.0} units): {:.0} HP at 2.4 s",
+            hp_at(&run, me, 2400)
+        ),
+    );
+    report.replayed("medpac walked through", run.replayed);
+
+    // A medpac's use under way (landing at 1 s), its user held for the
+    // first 0.5 s: a hand out (a script's push) only holds it, and it
+    // lands; a stun breaks it off, nothing healed. A fall drops a use
+    // under way and one asked for but not begun (`effects::strip`).
+    let held = |hold: &dyn Fn(&mut Fighter, u64)| {
+        let (stage, mut start) = arena(carrying(&[]), 1, 10_000);
+        let now = start.time_ms;
+        if let Some(fighter) = start.entities[me].fighter.as_mut() {
+            fighter.pack.using = Some((ITEM_ABILITY_MED_PACK, now + 1000));
+            hold(fighter, now + 500);
+        }
+        let run = stage.drive(&start, 1500, &mut presses(me, 0, &[]));
+        (hp_at(&run, me, 1400), fighter_at(&run, me, 1400).pack.using)
+    };
+    let pushed = held(&|fighter, until| {
+        fighter.force.hand = Some((sim::combat::force::Gesture::Push, until));
+    });
+    let stunned = held(&|fighter, until| fighter.force.stunned_until = until);
+    let mut fallen = Fighter::fresh(500, 0);
+    fallen.pack.using = Some((ITEM_ABILITY_MED_PACK, 1000));
+    fallen.pack.queued = Some(ITEM_ABILITY_MED_PACK);
+    sim::combat::effects::strip(&mut fallen, 500);
+    report.check(
+        pushed == (100.0 + heal, None)
+            && stunned == (100.0, None)
+            && (fallen.pack.using, fallen.pack.queued) == (None, None),
+        format!(
+            "a use held by a hand out lands ({:.0} HP), a stun breaks it off ({:.0} HP); a fall drops it and one queued ({:?})",
+            pushed.0,
+            stunned.0,
+            (fallen.pack.using, fallen.pack.queued)
+        ),
+    );
 
     let mut droid = carrying(&[(ITEM_ABILITY_MED_PACK, 1), (ITEM_ABILITY_DROID_REPAIR_KIT, 1)]);
     droid.race = races::DROID;
@@ -304,16 +380,18 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
         ));
         fighter.pack.drained = (items::drain(Ability::Dexterity, 6), start.time_ms + 30_000);
     }
-    let run = stage.drive(&start, 500, &mut presses(me, buttons::MEDPAC, &[0]));
+    let run = stage.drive(&start, 2000, &mut presses(me, buttons::MEDPAC, &[0]));
     let cured = fighter(run.snapshots.last().expect("stepped"), me).pack;
     report.check(
-        !cured.afflicted(run.snapshots.last().expect("stepped").time_ms),
-        "an antidote ends poison and weakness".to_string(),
+        fighter_at(&run, me, 1400).pack.afflicted(start.time_ms + 1400)
+            && !cured.afflicted(run.snapshots.last().expect("stepped").time_ms),
+        "an antidote ends poison and weakness as its use lands (1.5 s)".to_string(),
     );
     report.replayed("antidote", run.replayed);
 
     let (stage, start) = arena(carrying(&[(ITEM_ABILITY_COMBAT_SHOT_3, 1), (ITEM_ABILITY_ADRENAL_SHOT_STRENGTH, 1)]), 1, 10_000);
-    let run = stage.drive(&start, 1000, &mut presses(me, buttons::STIM, &[0, 500]));
+    let run = stage.drive(&start, 2000, &mut presses(me, buttons::STIM, &[0, 500]));
+    let before = fighter_at(&run, me, 1400).pack;
     let after = fighter(run.snapshots.last().expect("stepped"), me);
     let affected = items::affected(
         carrying(&[]),
@@ -321,12 +399,13 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
         run.snapshots.last().expect("stepped").time_ms,
     );
     let mut ended = after;
-    items::settle(&mut ended, &carrying(&[]), u64::MAX, true, |_| false);
+    items::settle(&mut ended, u64::MAX);
     // Its vitality soaks 30 points of damage: 25 from it, 5 from HP.
     let mut struck = after.pack;
     let soaked = struck.soak(3000);
     report.check(
         hp_at(&run, me, 100) == 100.0
+            && before.stim.is_none()
             && after.pack.vitality == 2500
             && soaked == 2500
             && affected.attack == 3
@@ -335,7 +414,7 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
             && ended.hp == 10_000
             && ended.pack.vitality == 0
             && ended.pack.stim.is_none(),
-        "an Echani battle stim: 25 vitality taken before HP (30 damage: 25 from it), +3 to hit and damage; the adrenal waits (one stim at a time); its end takes what vitality is left, never HP".to_string(),
+        "an Echani battle stim: none until its use lands at 1.5 s; 25 vitality taken before HP (30 damage: 25 from it), +3 to hit and damage; the adrenal pressed meanwhile does nothing (one use at a time); its end takes what vitality is left, never HP".to_string(),
     );
     let strong = items::affected(
         carrying(&[]),
@@ -355,7 +434,7 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
     report.replayed("stims", run.replayed);
 
     let (stage, start) = arena(carrying(&[(ITEM_ABILITY_RECOVERY_STIM, 1)]), 2, 10_000);
-    let run = stage.drive(&start, 500, &mut presses(me, buttons::MEDPAC, &[0]));
+    let run = stage.drive(&start, 2000, &mut presses(me, buttons::MEDPAC, &[0]));
     let last = run.snapshots.last().expect("stepped");
     let healed: Vec<i32> = last
         .entities
@@ -398,9 +477,17 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
         .snapshots
         .iter()
         .find(|snapshot| fighter(snapshot, me).pack.shield.is_some());
-    let spent = run.snapshots.iter().find(|snapshot| {
-        fighter(snapshot, me).pack.shield.is_none() && fighter(snapshot, me).pack.used[0] == 1
+    // Up as its use lands (1.5 s), and gone again once spent.
+    let raised = run
+        .snapshots
+        .iter()
+        .position(|snapshot| fighter(snapshot, me).pack.shield.is_some());
+    let spent = raised.and_then(|raised| {
+        run.snapshots[raised..]
+            .iter()
+            .find(|snapshot| fighter(snapshot, me).pack.shield.is_none())
     });
+    let up_at = up.map(|snapshot| snapshot.time_ms - start.time_ms);
     let full = fighter(&start, me).hp;
     let hp_while_up = run
         .snapshots
@@ -410,9 +497,11 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
         .min();
     let end = fighter(run.snapshots.last().expect("stepped"), me);
     report.check(
-        up.is_some() && hp_while_up == Some(full) && (spent.is_none() || end.hp <= full),
+        up_at.is_some_and(|at| at >= items::USE_MS)
+            && hp_while_up == Some(full)
+            && (spent.is_none() || end.hp <= full),
         format!(
-            "an energy shield: up, no HP lost while it held ({}), {}",
+            "an energy shield: up at {up_at:?} ms (its use's end), no HP lost while it held ({}), {}",
             hp_while_up.map_or(0, |hp| hp / 100),
             match spent {
                 Some(at) => format!(

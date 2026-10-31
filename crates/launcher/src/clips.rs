@@ -264,7 +264,7 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
                         Ok(Some(_))
                     )
                 });
-                if !humanoid && creature_type {
+                if creature_type {
                     let at = format!("{name}:{}", instance.template);
                     combat.add((&mut cache, &resolver, game), &look.body, &body, at);
                 }
@@ -381,7 +381,7 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
                 let Ok(Some(body)) = viewer::cached(&mut cache, &resolver, &look.body) else {
                     continue;
                 };
-                if !asset_ja::rig::is_humanoid(&body) && creature::creature_model(&look.model_type) {
+                if creature::creature_model(&look.model_type) {
                     let at = format!("{name}:{} (encounter)", spawn.template);
                     combat.add((&mut cache, &resolver, game), &look.body, &body, at);
                 }
@@ -396,8 +396,9 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Every body on its own clips that a creature wears, placed or spawned by
-/// an encounter: the combat clips it lacks, and where it is worn
+/// Every creature model body (type S or L, on its own bones or on JA's
+/// skeleton, a Gamorrean's) that a creature wears, placed or spawned by an
+/// encounter: the combat clips it lacks, and where it is worn
 /// (`module:template`).
 #[derive(Default)]
 struct Combat(BTreeMap<String, (Vec<&'static str>, BTreeSet<String>)>);
@@ -410,7 +411,8 @@ impl Combat {
         body: &ModelIr,
         at: String,
     ) {
-        let entry = self.0.entry(name.to_string()).or_insert_with(|| {
+        let rig = if asset_ja::rig::is_humanoid(body) { "*" } else { "" };
+        let entry = self.0.entry(format!("{name}{rig}")).or_insert_with(|| {
             let missing = COMBAT_CLIPS
                 .iter()
                 .copied()
@@ -428,7 +430,7 @@ impl Combat {
 
     fn print(&self) {
         outln!(
-            "bodies on their own clips, the combat clips each lacks ({}), and where worn:",
+            "creature model bodies (own bones, or JA's skeleton: *), the combat clips each lacks ({}), and where worn:",
             COMBAT_CLIPS.join(" ")
         );
         for (body, (missing, worn)) in &self.0 {

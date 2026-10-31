@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `c0eba9990d72f5bd`.
+Edition `d372d392afca0898`.
 
 ## Contents
 
@@ -239,6 +239,7 @@ Edition `c0eba9990d72f5bd`.
   - [Target Size](#targeting-volumes)
   - [Moving to a Target](#targeting-walk)
   - [Reviving](#targeting-revive)
+  - [Area Transitions](#targeting-transition)
 - [Conversations](#dialogue)
   - [Line Length](#dialogue-lines)
   - [Camera Angles](#dialogue-cameras)
@@ -1402,9 +1403,12 @@ limits; upgrades; stores and the workbench; and what the dead leave behind.
 
 A medpac, stim or energy shield is used from its own key. The medpac key
 uses an antidote kit if the character is poisoned or weakened, otherwise a
-medpac (a repair kit for a droid), otherwise a squad recovery stim. A
-medpac or repair kit takes effect when its use is complete; an energy
-shield or stim takes effect at once.
+medpac (a repair kit for a droid), otherwise a squad recovery stim. The
+character injects a medpac, antidote or stim, or switches on an energy
+shield at the wrist; the item is used up as that begins and takes effect
+when it is done. Being stunned, choked, knocked down or downed meanwhile
+stops it; being hit or moving does not. A weapon change or a Force power
+waits until it is done.
 
 Only one energy shield and one stim can be active at a time. Opponents also
 use medpacs, shields and stims in combat.
@@ -1427,11 +1431,11 @@ Using a medpac or repair kit always takes at least 0.5 seconds.
 
 <sub>Source: I22 section 5 (ours). Code: `sim::combat::items::heal_ms`.</sub>
 
-<a id="items-using-quick-ms"></a>**Shield and Stim Use** = **0.5 seconds** (`500 ms`) · `items.using.quick_ms`
+<a id="items-using-use-ms"></a>**Item Use Time** = **1.5 seconds** (`1500 ms`) · `items.using.use_ms`
 
-Using an energy shield or stim keeps the character from attacking for 0.5 seconds.
+Using an energy shield, stim, antidote kit or squad recovery stim takes 1.5 seconds; it takes effect at the end.
 
-<sub>Source: I22 section 7 (ours). Code: `sim::combat::items::QUICK_MS`.</sub>
+<sub>Source: spells.2da (K1 and TSL): every item row's conjtime 170 + casttime 1330, its impact script run at the cast's end. Code: `sim::combat::items::USE_MS`.</sub>
 
 ### <a id="items-medpacs"></a>Medpacs
 
@@ -6848,7 +6852,8 @@ A running character suffers a -5 penalty to Awareness checks against mines.
 
 ### <a id="traps-disarm"></a>Disarm Mine
 
-Disarm Mine appears on the menu of a found mine within reach. Disarming
+Disarm Mine and Recover Mine appear on the menu of a found mine only for a
+character with ranks in Demolitions. Disarming
 takes 4.5 seconds. The check is Demolitions + 1d20
 in combat, or Demolitions + 20 out of combat,
 against the mine's disarm DC. A mine with a DC above
@@ -6856,13 +6861,22 @@ against the mine's disarm DC. A mine with a DC above
 10 sets off the mine.
 
 A mine set by the party is always disarmed. Moving, attacking or falling
-interrupts the attempt.
+interrupts the attempt. The character works on the mine through every
+attempt, and the outcome floats over it as in KOTOR: *success*, *failure*
+(in combat), or *Skill Too Low* (out of combat, where taking 20 is not
+enough). A failed attempt may be tried again.
 
 <a id="traps-disarm-ms"></a>**Disarm Time** = **4.5 seconds** (`4500 ms`) · `traps.disarm.ms`
 
 Disarming or recovering a mine takes 4.5 seconds.
 
 <sub>Source: K1's executable (S7). Code: `sim::world::traps::skill_uses`.</sub>
+
+<a id="traps-disarm-reach-m"></a>**Disarm Range** = **3 m** · `traps.disarm.reach_m`
+
+A mine can be disarmed or recovered from up to 3 meters of its center, outside its 1.5 meter radius.
+
+<sub>Source: ours (KOTOR disarms from beside a mine). Code: `sim::world::traps::skill_uses`.</sub>
 
 <a id="traps-disarm-hopeless-dc"></a>**Highest Disarm DC** = **35** · `traps.disarm.hopeless_dc`
 
@@ -7034,13 +7048,22 @@ the security spike used, against the lock's DC. A spike is used up only if
 the attempt fails.
 
 The character must have paid points into the Security skill. Some locks can
-only be opened with their key.
+only be opened with their key. A failed attempt may be tried again; its
+outcome floats over the character as in KOTOR: *failure* in combat, *Skill
+Too Low* out of combat where taking 20 is not enough, *Impossible* for a
+lock of DC 60 or more.
 
 <a id="interaction-security-unlock-ms"></a>**Unlock Time** = **1.5 seconds** (`1500 ms`) · `interaction.security.unlock_ms`
 
 Using Security on a lock takes 1.5 seconds.
 
 <sub>Source: K1's executable (its open-lock action). Code: `sim::world::locks::begin`.</sub>
+
+<a id="interaction-security-impossible-dc"></a>**Impossible Lock** = **60** · `interaction.security.impossible_dc`
+
+A lock of DC 60 or more that taking 20 does not open is told as Impossible.
+
+<sub>Source: K1's executable (its open-lock action's feedback). Code: `sim::locks::floats`.</sub>
 
 ### <a id="interaction-skill-uses"></a>Using Skills
 
@@ -7091,6 +7114,16 @@ A door or container must be in view at 1 meters above its base to be used.
 A placeable with action points must be in view at the nearest of them, 1.5 meters up, to be used: a cage or rail round it does not stop a character standing at its side.
 
 <sub>Source: TSL's executable (CSWSCreature::GetIsInUseRange: the line of sight to CSWSPlaceable::GetNearestActionPoint, 1.5 up at both ends) [verify in K1's]. Code: `sim::world::uses::Target::aimed`.</sub>
+
+<a id="interaction-using-door-point-reach-m"></a>**Door Use Range** = **0.75 m** · `interaction.using.door_point_reach_m`
+
+A door is used from its action point on the character's side (one stands before it and one behind, from the door's walkmesh): within 0.75 meters of it plus the character's personal space.
+
+The character walks to that point rather than to the door's middle, so it
+never walks into a wide door's face. A door is still used from up to
+2 meters of its middle.
+
+<sub>Source: K1's and TSL's executables (CSWSCreature::GetUseRange: the user's personal space plus 0.75 from CSWSDoor::GetNearestActionPoint, the closed walkmesh's use positions, a walkable one first). Code: `sim::target::Spot::of`.</sub>
 
 <a id="interaction-using-height-reach-m"></a>**Use Height** = **2.5 m** · `interaction.using.height_reach_m`
 
@@ -8429,6 +8462,12 @@ The wait for a way is longer by a random hundredth of two seconds: 20 ms a step,
 
 <sub>Source: TSL's executable (`CSWSCreature::AIActionMoveToPoint`: (rand() % 100) / 50 s). Code: `sim::walk::Walker::command_round`.</sub>
 
+<a id="walking-walker-floor-give"></a>**Floor Give** = **0.025 meters** (`1 units`) · `walking.walker.floor_give`
+
+A spot a walker goes round a body by fits with its box up to 1 inch over the navigation mesh's floor, where the level's floor rises a little under a corner of the box.
+
+<sub>Source: ours. Code: `sim::world::Level::fits_put_down`.</sub>
+
 <a id="walking-walker-lift"></a>**Floor Height** = **0.003 meters** (`0.125 units`) · `walking.walker.lift`
 
 A character walking in a conversation is held 0.125 inch above the floor.
@@ -8491,13 +8530,13 @@ The floor beyond a doorway is checked every 0.25 meters.
 
 <sub>Source: ours. Code: `sim::walk::outside`.</sub>
 
-<a id="walking-searches-clear-rings"></a>**Around a Pillar** = **0.15 meters / 0.3 meters / 0.46 meters / 0.61 meters** (`6 / 12 / 18 / 24 units`) · `walking.searches.clear_rings`
+<a id="walking-searches-clear-rings"></a>**Around a Pillar** = **0.15 meters / 0.3 meters / 0.46 meters / 0.61 meters / 0.81 meters / 1 meter / 1.2 meters / 1.4 meters / 1.6 meters** (`6 / 12 / 18 / 24 / 32 / 40 / 48 / 56 / 64 units`) · `walking.searches.clear_rings`
 
-first **0.15 meters** · second **0.3 meters** · third **0.46 meters** · fourth **0.61 meters**
+first **0.15 meters** · second **0.3 meters** · third **0.46 meters** · fourth **0.61 meters** · fifth **0.81 meters** · sixth **1 meter** · seventh **1.2 meters** · eighth **1.4 meters** · ninth **1.6 meters**
 
-A path corner a character does not fit at, such as a pillar or pipe, is moved to the nearest spot from 0.15 meters to 0.61 meters away, in eight directions, where it fits.
+A path corner a character does not fit at, such as a pillar, a pipe or the foot of a leaning wall, is moved to the nearest spot from 0.15 meters to 1.6 meters away, in eight directions, where it fits and the floor leads straight there.
 
-<sub>Source: ours. Code: `sim::walk::clear`.</sub>
+<sub>Source: ours (Nar Shaddaa's landing pad: the floor runs 1.3 m under a slanting wall). Code: `sim::walk::clear`.</sub>
 
 <a id="walking-searches-straight-step"></a>**Straight Path Check** = **0.61 meters** (`24 units`) · `walking.searches.straight_step`
 
@@ -8600,11 +8639,11 @@ A downed party member can be targeted up to 0.5 meters above the floor.
 
 <sub>Source: ours. Code: `sim::target::candidates`.</sub>
 
-<a id="targeting-volumes-trap-radius"></a>**Mine Radius** = **0.6 m** · `targeting.volumes.trap_radius`
+<a id="targeting-volumes-trap-radius"></a>**Mine Radius** = **1.5 m** · `targeting.volumes.trap_radius`
 
-A detected mine can be targeted within 0.6 meters of its center.
+A detected mine can be targeted anywhere over its area, within 1.5 meters of its center.
 
-<sub>Source: ours. Code: `sim::target::candidates`.</sub>
+<sub>Source: ours (KOTOR's mines are picked by their whole drawn area; K1's all have a 1.5 m radius). Code: `sim::target::candidates`.</sub>
 
 <a id="targeting-volumes-trap-height"></a>**Mine Height** = **0.3 m** · `targeting.volumes.trap_height`
 
@@ -8627,13 +8666,19 @@ A character within 0.8 times an action's reach performs it without walking.
 
 A character walking to a target stops at 0.5 times the reach it acts from.
 
-<sub>Source: ours. Code: `sim::target::stand_off`.</sub>
+<sub>Source: ours. Code: `sim::target::Spot::stand_off`.</sub>
 
-<a id="targeting-walk-trap-share"></a>**Mine Stopping Distance** = **×0.9** · `targeting.walk.trap_share`
+<a id="targeting-walk-trap-clear-m"></a>**Mine Standing Distance** = **0.6 m** · `targeting.walk.trap_clear_m`
 
-A character walking to disarm or recover a mine stops at 0.9 times the reach it acts from, beside the mine.
+A character walking to disarm or recover a mine stops 0.6 meters outside the mine's 1.5 meter radius, beside the mine, never on it.
 
-<sub>Source: ours (KOTOR disarms from beside a mine). Code: `sim::target::stand_off`.</sub>
+<sub>Source: ours (KOTOR disarms from beside a mine; a run's stop slides on). Code: `sim::target::Spot::stand_off`.</sub>
+
+<a id="targeting-walk-trap-arrive-m"></a>**Mine Arrival** = **0.7 m** · `targeting.walk.trap_arrive_m`
+
+A character walking to a mine has arrived within 0.7 meters of where it stops, and stops there before acting.
+
+<sub>Source: ours (beyond a walk's own arrival, {walking.route.arrived:bare} × {walking.route.reached:m}, so a short walk arrives too). Code: `sim::target::Walk::near`.</sub>
 
 <a id="targeting-walk-walk-ms"></a>**Walk Time Limit** = **10 seconds** (`10000 ms`) · `targeting.walk.walk_ms`
 
@@ -8669,6 +8714,21 @@ If a revive has not begun within 1 second, it is canceled: another player is rev
 A character reviving a party member looks down 20° at the body.
 
 <sub>Source: ours. Code: `sim::target::Reviving::keep`.</sub>
+
+### <a id="targeting-transition"></a>Area Transitions
+
+A door or an area exit that leads to another area names that area at the
+top of the screen while the character faces it: the nearest one in sight
+that the line the character faces meets within
+8 meters. A door is met by its pick volume,
+an exit by its outline. The name shown is the part after the first dash
+("Taris - Upper City South" shows "Upper City South").
+
+<a id="targeting-transition-reach"></a>**Area Transition Reach** = **8 m** · `targeting.transition.reach`
+
+An area's door or exit is named once the line the character faces meets it within 8 meters.
+
+<sub>Source: KOTOR's executable (the client's doors and triggers offering the area transition panel). Code: `sim::transition::faced`.</sub>
 
 ## <a id="dialogue"></a>Conversations
 

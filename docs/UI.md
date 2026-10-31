@@ -207,10 +207,11 @@ save and load in game (from the options, as KOTOR's: a click points at a
 save, a double click, Enter or Save acts on it; an old save's overwriting
 is confirmed (`confirm`), then the name is typed in KOTOR's `savename` box,
 the area's offered for a new save, the old one's over it; a save made says
-"Game saved" at the right edge under the minimap, F5's too; loading during play starts the
-program again into the save, and quitting to the main menu starts it
-again on the menu, the logos not played again: `--back-to-menu`; not
-KOTOR's yet, which leaves the session in place); character creation (class, quick or custom,
+"Game saved" at the right edge under the minimap, F5's too, and a refused
+F5 says why there; loading during play, alone, loads in place behind the
+loading screen as KOTOR does (the reload the party's fall makes,
+`sim_host::ReloadRequest`); quitting to the main menu starts the program
+again on the menu, the logos not played again: `--back-to-menu`); character creation (class, quick or custom,
 portrait, 30-point abilities, skills, feats, name; the character made is
 the first seat's player, `docs/WORLD-STATE.md`, "The player character");
 loading (a session's start and
@@ -698,8 +699,17 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   player's eyes (what lies at the character's feet). It holds 0.2 s.
   Pick volumes are cylinders (a creature 0.4 m by 1.9, a placeable 0.5 by
   1.5, a shut door 1 by 2.5; an open door none, its brushes only). Targetable: doors but static ones, useable placeables,
-  living creatures but the party's, and a downed party member (a seat's
-  avatar, "Player N", or a companion, driven or not; lying, 0.8 m by 0.5).
+  living creatures, and a downed party member (a seat's avatar, "Player
+  N", or a companion, driven or not; lying, 0.8 m by 0.5). A living
+  companion is a target whoever drives it, its AI or another player
+  (owner, 2026-10-30: as KOTOR's party members are clicked and talked to),
+  but only clear ahead of the player, more than its own radius in front
+  (it follows at the heels and the party's bodies pass through each
+  other: one there is not picked by a look past it); never the body the
+  player itself plays; seats' avatars standing are not (no conversation).
+  Its Dialog runs its dialogue hook as any creature's (K1's
+  `k_hen_dialogue01` through `k_ai_master`, TSL's `k_hen_kreiadlg`, …),
+  which begins its own conversation (`k_hcar_dialog`, `kreia`, …).
 - **The block** (`ui::screens::hud`, K2's `mipc28x6_p`): fixed at the top
   centre, the target's name, a creature's vitality, up to three of what
   may be done to it with KOTOR's icons (`i_opendoor`, `i_openplace`,
@@ -709,7 +719,11 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   fail-to-open script and "Locked"), Security, Security with the best
   spike carried (owner, 2026-10-09: Open is the default; Security only
   for a body with ranks in it and not on a lock only its key opens, as
-  K1); an open door: Use (its `OnClick`); a
+  K1); an open door: Use (its `OnClick`), and before it Close (1582, the
+  open-door icon) where the player could open it again (not locked, not
+  one only scripts open, not broken open, not leading out; nobody in its
+  doorway, the host checks; its `OnClosed` runs). KOTOR offers nothing on
+  an open door: Close is the owner's (QUIRKS.md Q-0330); a
   creature not hostile that speaks: Dialog; a hostile one shows its name
   and vitality, both red, and the items the player's body wears that it
   may use on a foe with a use left (a droid's stun ray or flamethrower:
@@ -719,9 +733,15 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   plays the dev soldier as a droid.
 - **E** does the chosen: at once within four fifths of its reach (doors
   2 m, Dialog 4 m, else 2.5 m; the host checks the whole reach), else the
-  player walks there first (`sim::target::Walk`:
-  a walker, or straight at it where no route leads, as before a door that
-  leads out), steered in place of the keys, keeping its hand and power;
+  player walks there first. A door with action points (the two use
+  positions of its closed walkmesh, `<model>0.dwk`: one before it, one
+  behind) is done from the one on the player's side, a walkable one first,
+  within four fifths of 0.75 m past a humanoid's personal space
+  (`sim::target::Spot`; K1's and TSL's `CSWSCreature::GetUseRange`), so
+  the player never walks into a wide door's face, and the host also takes
+  a door's use from there. The walk (`sim::target::Walk`): a walker, or
+  straight at it where no route leads, as before a door that leads out;
+  steered in place of the keys, keeping its hand and power;
   its own move, jump or attack ends the walk, as do a screen, a
   conversation, the target going or no longer offering the choice (a door
   opened, a creature turned hostile). 10 s of the sim's time or three
@@ -743,6 +763,27 @@ KOTOR's click on a door, container or creature, made for the JA camera:
 
 Approved tests: `use_actions`, `use_scripts`, `use_walk`; the block's
 checks are in `gui_layouts`.
+
+### Area transitions
+
+KOTOR names the area a door or exit leads to while the player faces it
+(survey: `context/artifacts/2026-10-30-transition-label/SURVEY.md`):
+
+- **Which** (`sim::transition::faced`, render side, `game::target_view`):
+  each door and trigger that leads to a module (`ObjectData::exit`) is
+  met by the line the player faces, across the floor, within its reach
+  (`targeting.transition.reach`): a door by its pick volume, standing
+  ahead; a trigger by its outline, where the line first crosses it. It
+  must be in sight of the player's eyes; the nearest wins, asked again
+  every frame (nothing holds). Only while the HUD is up and no screen.
+- **What**: its `TransitionDestin`, cut as KOTOR's client cuts it: the
+  part after the first dash and the character after it ("Taris - Upper
+  City South" shows "Upper City South"); none without a name.
+- **How** (`ui::screens::transition`): KOTOR's panel (K1 `areatransition`,
+  TSL `areatrans_p`, the skin's): the strip, the name on it in the
+  campaign layout's colour (K1's blue), the running-man icon beneath,
+  centred under the target block and its words (KOTOR's stands at the
+  same place across the top). The dumps carry it (`transition`).
 
 ## Barks
 

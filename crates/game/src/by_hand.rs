@@ -196,6 +196,7 @@ pub fn talk_to(world: &mut sim::SimWorld, tag: &str) -> Result<(), String> {
             asker: ObjectId::INVALID,
             dialog,
             bark: false,
+            cue: None,
         }),
     }
     world.set_script_state(state);

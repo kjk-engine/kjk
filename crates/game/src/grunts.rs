@@ -14,7 +14,16 @@
 //!
 //! Each is said always by the player's own character, else one time in
 //! five. Two flags of the executable's attack that skip both are not read
-//! [verify]. The death cry (`Dead`) is cried by every creature that dies,
+//! [verify].
+//!
+//! - **selected**: the body the seat plays changing to another (Tab, a
+//!   portrait click, control passing on from a fallen leader, a script's
+//!   `SetPartyLeader`; a guest given another companion): the new one says
+//!   one of Select 1–3 at random, as KOTOR's party does on a new leader
+//!   (reone's `Party::onLeaderChanged`). Not on a scene's first look, nor
+//!   the seat taking a body after none [verify: `SwitchPlayerCharacter`].
+//!
+//! The death cry (`Dead`) is cried by every creature that dies,
 //! a script's death too (`combat_fx`).
 
 use std::collections::BTreeMap;
@@ -38,6 +47,8 @@ pub struct Seen {
     looked_ms: Option<u64>,
     events: BTreeMap<SimId, u16>,
     sabers: BTreeMap<SimId, SaberState>,
+    /// The body the seat played when last looked at.
+    body: Option<SimId>,
 }
 
 /// Whether a saber or melee weapon that was `was` began an attack as `now`
@@ -121,6 +132,14 @@ fn new_grunts(snapshot: &Snapshot, me: Option<SimId>, seen: &mut Seen) -> Vec<(S
     said
 }
 
+/// The Select line the seat's new body says (`body`: the one it plays now;
+/// `was`: the one it played before, kept up to date), by `roll`.
+fn selected(was: &mut Option<SimId>, body: Option<SimId>, roll: u32) -> Option<(SimId, usize)> {
+    let before = std::mem::replace(was, body);
+    let now = body.filter(|now| before.is_some_and(|before| before != *now))?;
+    Some((now, pick(&slots::SELECT, roll)))
+}
+
 /// The grunts of the presented snapshot, heard as sound-set lines.
 pub fn grunts(
     presented: Res<PresentedSnapshot>,
@@ -138,7 +157,14 @@ pub fn grunts(
     }
     let current = presented.0.current();
     let me = crate::cast::me(current, seat.map_or(sim::Seat(0), |seat| seat.0));
-    for (id, slot) in new_grunts(current, me, &mut seen) {
+    let roll = me.map_or(0, |me| {
+        crate::view_rng::mix32_salted(me.0, current.tick as u32)
+    });
+    let select = selected(&mut seen.body, me, roll);
+    if let Some((id, slot)) = select {
+        info!(target: "party", "selected: #{} says sound-set line {slot}", id.0);
+    }
+    for (id, slot) in new_grunts(current, me, &mut seen).into_iter().chain(select) {
         heard.0.push(sim::notice::Sound::line(id.0, slot));
     }
 }
@@ -183,6 +209,22 @@ pub fn probes() -> sim::probe::Checks {
             check(
                 begun == [true, false, true, false, false],
                 format!("into an attack, held, chained, returning, readied: {begun:?}"),
+            )
+        }),
+        ("a new body says Select 1-3, the first and the same none", {
+            let mut was = None;
+            let (a, b) = (SimId(3), SimId(4));
+            let said = [
+                selected(&mut was, Some(a), 0),
+                selected(&mut was, Some(a), 1),
+                selected(&mut was, Some(b), 2),
+                selected(&mut was, Some(a), 4),
+                selected(&mut was, None, 5),
+                selected(&mut was, Some(b), 6),
+            ];
+            check(
+                said == [None, None, Some((b, 8)), Some((a, 7)), None, None],
+                format!("first, same, to b, back to a, none, b after none: {said:?}"),
             )
         }),
         (

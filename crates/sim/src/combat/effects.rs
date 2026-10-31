@@ -147,6 +147,11 @@ pub enum Modifies {
     /// `EffectRegenerate`: its `of` hit points every amount ms (from when
     /// it took hold, `Lasting::at`, the last time it healed after).
     Regenerate,
+    /// `SetEffectIcon`'s icon on the effect it is linked to, for as long:
+    /// its amount the `effecticon.2da` row. Changes nothing; the HUD counts
+    /// the good and the bad on each portrait (KOTOR's
+    /// `CSWSEffectListHandler::OnApplyEffectIcon`, `effects::icons`).
+    Icon,
 }
 
 /// The id a character's poison goes by among its effects (`GetFirstEffect`,
@@ -154,7 +159,7 @@ pub enum Modifies {
 pub const POISON_ID: u32 = u32::MAX - 1;
 
 impl Modifies {
-    const ALL: [Modifies; 30] = [
+    const ALL: [Modifies; 31] = [
         Modifies::Ability,
         Modifies::Defence,
         Modifies::Save,
@@ -185,6 +190,7 @@ impl Modifies {
         Modifies::VpRegen,
         Modifies::FpRegen,
         Modifies::Regenerate,
+        Modifies::Icon,
     ];
 
     pub fn index(self) -> u8 {
@@ -567,6 +573,14 @@ impl Effects {
             .chain(light)
     }
 
+    /// The `effecticon.2da` rows of the icons running at `now`
+    /// (`Modifies::Icon`), in the order they took hold.
+    pub fn icons(&self, now: u64) -> impl Iterator<Item = u16> + '_ {
+        self.running(now)
+            .filter(|l| l.modifies == Modifies::Icon)
+            .map(|l| l.amount as u16)
+    }
+
     /// The running state that holds over the others (`state`): the highest
     /// number, the first of equals.
     pub fn top_state(&self, now: u64) -> Option<&Lasting> {
@@ -899,8 +913,7 @@ pub fn remove(fighter: &mut Fighter, id: Option<u32>, now: u64) {
     // slow) goes with it, and it with any part of its link.
     let link = fighter.pack.poison.and_then(|poison| poison.link);
     if id.is_none_or(|id| id == POISON_ID) {
-        fighter.pack.poison = None;
-        fighter.pack.drained = ([0; 6], 0);
+        remove_poison(fighter);
     }
     if id.is_some() && id == link {
         fighter.pack.poison = None;
@@ -940,6 +953,41 @@ pub fn end_poison(fighter: &mut Fighter, now: u64) {
     if let Some(link) = fighter.pack.poison.take().and_then(|poison| poison.link) {
         remove(fighter, Some(link), now);
     }
+}
+
+/// Going down (a party member knocked out, `Fighter::fall`) and getting up
+/// (`Fighter::rise`): the effects on `fighter` end as at a death in the
+/// Aurora engines KOTOR's is built on, which strip a body's effects
+/// (`docs/FALLING.md`, "Effects"). The poison and what it drained,
+/// Affliction's and Plague's sapping and slow, Valor, Energy Resistance,
+/// the shield and stim up, its own powers running and every timed script
+/// effect end now (their ends settled as when they run out); permanent
+/// ones (`u64::MAX`) stay, a plot's disguise or visual [verify: whether
+/// the executable keeps any]. An item's use under way breaks off and one
+/// asked for but not begun is dropped, with the action queue.
+pub fn strip(fighter: &mut Fighter, now: u64) {
+    crate::combat::items::break_off(fighter, now);
+    fighter.pack.queued = None;
+    remove_poison(fighter);
+    fighter.pack.shield = None;
+    fighter.pack.stim = None;
+    fighter.force.stop();
+    let effects = &mut fighter.effects;
+    for (_, until) in [&mut effects.valor, &mut effects.resist, &mut effects.slowed] {
+        *until = (*until).min(now);
+    }
+    effects.sapped = (0, 0);
+    for lasting in effects.lasting.iter_mut().flatten() {
+        if lasting.until != u64::MAX {
+            lasting.until = lasting.until.min(now);
+        }
+    }
+}
+
+/// The poison on `fighter` and the points it drained, gone.
+fn remove_poison(fighter: &mut Fighter) {
+    fighter.pack.poison = None;
+    fighter.pack.drained = ([0; 6], 0);
 }
 
 /// Ends the effects of `power`'s scripts on `fighter` (its toggle turned
@@ -1075,7 +1123,8 @@ pub fn sheet_now(sheet: Sheet, fighter: &Fighter, now: u64) -> Sheet {
             | Modifies::Faction
             | Modifies::VpRegen
             | Modifies::FpRegen
-            | Modifies::Regenerate => {}
+            | Modifies::Regenerate
+            | Modifies::Icon => {}
         }
     }
     sheet.defence = sheet.defence.saturating_add(defence);

@@ -256,16 +256,129 @@ impl Crossing {
 /// clear of it. A path that starts behind every plane started inside: it
 /// gets out if it ends in front of any.
 pub(crate) fn clip(planes: &[Plane], start: [f32; 3], end: [f32; 3], swept: &Swept) -> Clip {
+    decide(planes.iter().map(|plane| {
+        let (h0, h1) = swept.heights(plane, start, end);
+        (h0, h1, Crossing::of(h0, h1), *plane)
+    }))
+}
+
+/// Sweeps `swept`, a body round across (`Swept::Upright`), from `start` to
+/// `end` against another standing round across: an upright cylinder of
+/// `radius` about `centre` (X, Y), from `low` to `high` (Z). As [`clip`],
+/// its side a surface whose height is the distance across between the two
+/// rounds, so a body meeting it slides off round it, as KOTOR's creatures
+/// meet one another by their personal space (`GetPersonalRadius`), where
+/// two square boxes meet face to face and a body caught between two of
+/// them stands in their corner. Any other shape meets the cylinder's box.
+pub(crate) fn clip_round(
+    centre: [f32; 2],
+    radius: f32,
+    (low, high): (f32, f32),
+    start: [f32; 3],
+    end: [f32; 3],
+    swept: &Swept,
+) -> Clip {
+    let Swept::Upright {
+        radius: own,
+        low: own_low,
+        high: own_high,
+    } = *swept
+    else {
+        let planes = crate::brushes::axial(
+            [centre[0] - radius, centre[1] - radius, low],
+            [centre[0] + radius, centre[1] + radius, high],
+        );
+        return clip(&planes, start, end, swept);
+    };
+    let caps = [
+        Plane {
+            normal: [0.0, 0.0, 1.0],
+            dist: high,
+        },
+        Plane {
+            normal: [0.0, 0.0, -1.0],
+            dist: -low,
+        },
+    ];
+    let reach = radius + own;
+    // Across, the traced point at `t` of the way, from the centre.
+    let rel = |p: [f32; 3]| [p[0] - centre[0], p[1] - centre[1]];
+    let (a, b) = (rel(start), rel(end));
+    let d = [b[0] - a[0], b[1] - a[1]];
+    let across_at = |t: f32| [a[0] + d[0] * t, a[1] + d[1] * t];
+    let length = |v: [f32; 2]| (v[0] * v[0] + v[1] * v[1]).sqrt();
+    let (h0, h1) = (length(a) - reach, length(b) - reach);
+    // Where on the way (fractions, in order) the point stands `r` from the
+    // centre; `None` where it never comes so near.
+    let at_distance = |r: f32| {
+        let dd = d[0] * d[0] + d[1] * d[1];
+        let ad = a[0] * d[0] + a[1] * d[1];
+        let disc = ad * ad - dd * (a[0] * a[0] + a[1] * a[1] - r * r);
+        (dd > 0.0 && disc >= 0.0).then(|| {
+            let root = disc.sqrt();
+            ((-ad - root) / dd, (-ad + root) / dd)
+        })
+    };
+    let side = if h0.is_nan() || h1.is_nan() {
+        Crossing::Unbounded
+    } else if h0 > 0.0 {
+        // Closing on the round at the start, or coming within the gap of it
+        // further on; else clear of it.
+        let closing = a[0] * d[0] + a[1] * d[1] < 0.0;
+        match at_distance(reach + CONTACT_GAP) {
+            Some((enter, _)) if closing && enter <= 1.0 => Crossing::Enters(enter.max(0.0)),
+            _ => Crossing::Clear,
+        }
+    } else if h1 > 0.0 {
+        match at_distance(reach - CONTACT_GAP) {
+            Some((_, leave)) => Crossing::Leaves(leave.min(1.0)),
+            None => Crossing::Leaves(0.0),
+        }
+    } else {
+        Crossing::Unbounded
+    };
+    // The side's plane where the way meets it: square to the round there,
+    // at the cylinder's own support along it.
+    let met = match side {
+        Crossing::Enters(t) | Crossing::Leaves(t) => across_at(t),
+        _ => a,
+    };
+    let normal = match length(met) {
+        l if l > 0.0 => [met[0] / l, met[1] / l, 0.0],
+        _ => [1.0, 0.0, 0.0],
+    };
+    let side_plane = Plane {
+        normal,
+        dist: normal[0] * centre[0] + normal[1] * centre[1] + radius,
+    };
+    let cap = |plane: Plane| {
+        let z = if plane.normal[2] < 0.0 {
+            own_high
+        } else {
+            own_low
+        };
+        let moved = plane.dist - z * plane.normal[2];
+        let (h0, h1) = (
+            dot(start, plane.normal) - moved,
+            dot(end, plane.normal) - moved,
+        );
+        (h0, h1, Crossing::of(h0, h1), plane)
+    };
+    decide(std::iter::once((h0, h1, side, side_plane)).chain(caps.into_iter().map(cap)))
+}
+
+/// The clip of a path the planes (or surfaces) of a solid say of it, each
+/// with the shape's heights over it at the two ends: see [`clip`].
+fn decide(crossings: impl Iterator<Item = (f32, f32, Crossing, Plane)>) -> Clip {
     let mut starts_in_front = false;
     let mut ends_in_front = false;
-    let mut latest_entry: Option<(f32, &Plane)> = None;
+    let mut latest_entry: Option<(f32, Plane)> = None;
     let mut earliest_exit = 1.0f32;
-    for plane in planes {
-        let (h0, h1) = swept.heights(plane, start, end);
+    for (h0, h1, crossing, plane) in crossings {
         // A NaN height is in front of nothing.
         starts_in_front |= h0 > 0.0;
         ends_in_front |= h1 > 0.0;
-        match Crossing::of(h0, h1) {
+        match crossing {
             // The rest of the planes cannot change a miss.
             Crossing::Clear => return Clip::Miss,
             Crossing::Unbounded => {}
@@ -289,10 +402,7 @@ pub(crate) fn clip(planes: &[Plane], start: [f32; 3], end: [f32; 3], swept: &Swe
         };
     }
     match latest_entry {
-        Some((fraction, plane)) if fraction < earliest_exit => Clip::Hit {
-            fraction,
-            plane: *plane,
-        },
+        Some((fraction, plane)) if fraction < earliest_exit => Clip::Hit { fraction, plane },
         _ => Clip::Miss,
     }
 }

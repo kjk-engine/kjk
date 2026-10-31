@@ -68,6 +68,7 @@ pub mod target;
     reason = "checks and traces set up their own cases on one machine"
 )]
 pub mod trace;
+pub mod transition;
 pub mod traps;
 pub mod visuals;
 pub mod walk;
@@ -94,6 +95,8 @@ pub use world::aim_probes;
 pub use world::arena;
 #[cfg(feature = "probes")]
 pub use world::arena_probes;
+#[cfg(feature = "probes")]
+pub use world::bulk_probes;
 pub use world::charting;
 pub use world::containers;
 #[cfg(feature = "probes")]
@@ -141,7 +144,7 @@ pub use world::spawner_probes;
 #[cfg(feature = "probes")]
 pub use world::speaker_probes;
 pub use world::strikes;
-pub use world::strikes::player_punch_reach_m;
+pub use world::strikes::{player_punch_apart_m, player_punch_reach_m};
 pub use world::switch;
 #[cfg(feature = "probes")]
 pub use world::talk_end_probes;
@@ -154,6 +157,6 @@ pub use world::weapon_set_probes;
 pub use world::workshop_probes;
 pub use world::{
     BODY, Digests, Guests, HEARTBEAT_MS, KeyUse, Level, LevelId, MAX_SEATS, REWIND_MS, SHOT,
-    SimWorld, StepReason, UseCame, UseHeard, WorldConfig, bodies_pass, body, hand_muzzle, lent,
-    muzzle, party_member, seen_cuts, step,
+    SimWorld, StepReason, UseCame, UseHeard, WorldConfig, bodies_pass, body, bulk_of, hand_muzzle,
+    lent, muzzle, party_member, seen_cuts, step,
 };

@@ -52,7 +52,10 @@ the attempt fails.
 """
 detail = """
 The character must have paid points into the Security skill. Some locks can
-only be opened with their key.
+only be opened with their key. A failed attempt may be tried again; its
+outcome floats over the character as in KOTOR: *failure* in combat, *Skill
+Too Low* out of combat where taking 20 is not enough, *Impossible* for a
+lock of DC {interaction.security.impossible_dc:bare} or more.
 """
 applies = ["skill:Security", "baseitem:Security_Spikes", "kind:door", "kind:container"]
 
@@ -65,6 +68,16 @@ range = [0, 30000]
 summary = "Using Security on a lock takes {interaction.security.unlock_ms:s}."
 source = "K1's executable (its open-lock action)"
 see = "sim::world::locks::begin"
+applies = ["skill:Security", "kind:door", "kind:container"]
+
+[security.impossible_dc]
+name = "Impossible Lock"
+type = "u8"
+value = 60
+range = [0, 255]
+summary = "A lock of DC {interaction.security.impossible_dc:bare} or more that taking 20 does not open is told as Impossible."
+source = "K1's executable (its open-lock action's feedback)"
+see = "sim::locks::floats"
 applies = ["skill:Security", "kind:door", "kind:container"]
 
 [skill_uses]
@@ -152,6 +165,22 @@ summary = "A placeable with action points must be in view at the nearest of them
 source = "TSL's executable (CSWSCreature::GetIsInUseRange: the line of sight to CSWSPlaceable::GetNearestActionPoint, 1.5 up at both ends) [verify in K1's]"
 see = "sim::world::uses::Target::aimed"
 applies = ["kind:container"]
+
+[using.door_point_reach_m]
+name = "Door Use Range"
+type = "f32"
+value = 0.75
+unit = "m"
+range = [0.1, 3.0]
+summary = "A door is used from its action point on the character's side (one stands before it and one behind, from the door's walkmesh): within {interaction.using.door_point_reach_m:bare} meters of it plus the character's personal space."
+detail = """
+The character walks to that point rather than to the door's middle, so it
+never walks into a wide door's face. A door is still used from up to
+{scripts.moves.door_reach:bare} meters of its middle.
+"""
+source = "K1's and TSL's executables (CSWSCreature::GetUseRange: the user's personal space plus 0.75 from CSWSDoor::GetNearestActionPoint, the closed walkmesh's use positions, a walkable one first)"
+see = "sim::target::Spot::of"
+applies = ["kind:door"]
 
 [using.height_reach_m]
 name = "Use Height"

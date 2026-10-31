@@ -779,7 +779,134 @@ pub fn fist_probes() -> Vec<(&'static str, Result<String, String>)> {
             ),
         ),
         ("punch_lands_from_a_doorway", doorway_punch()),
+        ("punch_reaches_a_bulky_body", bulky_punch()),
     ]
+}
+
+/// A body met where its model is drawn (`module::Bulk`), wider than a
+/// humanoid's and its middle 1.3 m before its origin, as a boma's: the
+/// player, bare-handed, standing against its round (where a walk up to it
+/// stops) and punching at its middle, lands its blows (`met_round`), though
+/// its origin lies past a punch's reach (`player_punch_reach_m`).
+fn bulky_punch() -> Result<String, String> {
+    use crate::combat::Sheet;
+    use crate::combat::sheet::factions::{HOSTILE_1, PLAYER};
+    use crate::module::{Body, Bulk};
+    use crate::{StepReason, TickInput};
+
+    let bulk = Bulk {
+        min: [-1.0, 0.3, 0.0],
+        max: [1.0, 2.3, 1.2],
+    };
+    let foe = crate::module::ObjectData {
+        body: Some(Body {
+            appearance: 0,
+            size: 3,
+            movement: 0,
+            walk_mps: 0.0,
+            run_mps: 0.0,
+            head_arc_h: 0.0,
+            bag: 0,
+            destroy_ms: 0,
+            fade_ms: None,
+            bulk: Some(bulk),
+        }),
+        ..creature(
+            "boma",
+            -2.5,
+            crate::determinism::TURN_DEGREES + 180.0,
+            Sheet {
+                faction: HOSTILE_1,
+                max_hp: 500,
+                ..Sheet::commoner()
+            },
+            &[],
+        )
+    };
+    let player_sheet = Sheet {
+        max_hp: 200,
+        weapons: [None; 2],
+        ..Sheet::dev_soldier()
+    };
+    let (mut world, foe_at) = world_with(vec![foe], [PLAYER, HOSTILE_1], false, player_sheet)?;
+    let first = world.snapshot();
+    let foe = first
+        .entities
+        .iter()
+        .find(|entity| matches!(entity.kind, crate::Kind::Object(_, i) if i == foe_at))
+        .ok_or("no foe")?;
+    let (foe_id, foe_ps) = (foe.id, foe.player.ok_or("the foe has no body")?);
+    let player_id = first
+        .body(crate::Seat(0))
+        .map(|body| body.id)
+        .ok_or("no player")?;
+    // Against its round, on the side its body reaches out to.
+    let ([cx, cy], wider) = met_round(foe_id, &foe_ps, Some(&bulk));
+    let mut out = [cx - foe_ps.origin[0], cy - foe_ps.origin[1], 0.0];
+    math::normalize(&mut out);
+    let touch = (wider + 2.0 * motion::HALF_WIDTH) * 1.02;
+    let at = [cx + out[0] * touch, cy + out[1] * touch, foe_ps.origin[2]];
+    let yaw = math::atan2_deg(-out[1], -out[0]);
+    let mut players = world.world.query::<(&Id, &mut Player)>();
+    for (id, mut player) in players.iter_mut(&mut world.world) {
+        if id.0 == player_id {
+            player.0.origin = at;
+            player.0.view_offset = [0; 3];
+            player.0.view = [0.0, yaw, 0.0];
+        }
+    }
+    // Held where it stands (stunned, as Fear holds), so it never steps in.
+    let mut fighters = world.world.query::<(&Id, &mut Fighting)>();
+    for (id, mut fighting) in fighters.iter_mut(&mut world.world) {
+        if id.0 == foe_id {
+            fighting.0.force.stunned_until = u64::MAX;
+        }
+    }
+    let to_origin = math::flat_length(math::sub(foe_ps.origin, at)) * UNIT;
+    let mut blows = 0;
+    let mut hp = foe.fighter.map_or(0, |f| f.hp);
+    for tick in 1..=steps_of(4 * ROUND_MS) {
+        let mut input = TickInput::default();
+        input.insert(
+            crate::Seat(0),
+            crate::Command {
+                angles: crate::moves::view_angles(0.0, yaw),
+                buttons: buttons::ATTACK,
+                ..crate::Command::default()
+            },
+        );
+        let snapshot = crate::step(
+            &mut world,
+            tick,
+            &input,
+            STEP_MS as u32,
+            StepReason::Authority,
+        );
+        let now = snapshot
+            .get(foe_id)
+            .and_then(|e| e.fighter)
+            .map_or(hp, |f| f.hp);
+        if now < hp {
+            blows += 1;
+        }
+        hp = now;
+    }
+    let reach = player_punch_reach_m();
+    let detail = format!(
+        "{blows} blows in four rounds, standing {to_origin:.2} m from its origin (a punch reaches \
+         {reach:.2} m), {:.2} m from its body as met",
+        player_punch_apart_m(at, &foe_ps, Some(&bulk))
+    );
+    if blows > 0 && to_origin > reach {
+        Ok(detail)
+    } else {
+        Err(detail)
+    }
+}
+
+/// How many steps of `STEP_MS` last `ms`.
+fn steps_of(ms: u64) -> u64 {
+    ms / STEP_MS
 }
 
 /// A thrower standing inside a bashable body's box (a force field's

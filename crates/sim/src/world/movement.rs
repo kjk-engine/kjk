@@ -199,7 +199,9 @@ pub(super) fn move_actors(
     // (Mission, after her scene in Javyar's Cantina, was never pushed aside
     // and the Vulkars leaving bumped into her until they gave up), out of a
     // fight and of conversations; not a player
-    // nor the party's), with its side; and everyone's personal space, and
+    // nor the party's, nor one that never moves (`Body::immobile`: Telos's
+    // hidden turret in Slusk's office was pushed 0.9 m into the way out)),
+    // with its side; and everyone's personal space, and
     // where a walk not given up carries it (`walk::Met::going`). All of it
     // is in the snapshot, so a client predicts the pushes the authority
     // makes.
@@ -219,7 +221,10 @@ pub(super) fn move_actors(
                     .is_some_and(|acting| acting.playing(clock.time_ms))
                 && fighter.combat_until <= clock.time_ms
                 && !fighter.mind.queued
-                && talking.0.holding(script_ncs::vm::ObjectId(who)).is_none();
+                && talking.0.holding(script_ncs::vm::ObjectId(who)).is_none()
+                && !object
+                    .and_then(|object| object.facts.as_ref()?.body)
+                    .is_some_and(|body| body.immobile());
             let side = idle.then(|| side_of(id.0, *avatar, fighter, &sheet_of(*sheet, *object)));
             let going = fighter
                 .mind
@@ -230,6 +235,25 @@ pub(super) fn move_actors(
         })
         .collect();
     pushable.sort_by_key(|(id, ..)| *id);
+    // The party's bodies playing by KOTOR's rules now (`scene::Held::scene`),
+    // standing, by id: those `spaced` keeps apart.
+    let mut scene_party: Vec<Spaced> = actors
+        .iter()
+        .filter(|(id, avatar, .., fighting)| {
+            fighting.0.alive()
+                && in_party(*avatar, &fighting.0)
+                && fighting.0.mind.walker.is_none()
+                && !driven.0.contains(&id.0)
+                && held.scene(&talking.0, id.0)
+        })
+        .map(|(id, avatar, object, _, player, _)| Spaced {
+            id: id.0,
+            at: player.0.origin,
+            space: personal_space(*object),
+            seat: avatar.is_some(),
+        })
+        .collect();
+    scene_party.sort_by_key(|spaced| spaced.id);
     let mut pushes: Vec<(SimId, [f32; 3])> = Vec::new();
     let predicting = clock.reason == StepReason::Predict;
     // While a conversation holds the world (S3) a body walking a route
@@ -481,7 +505,7 @@ pub(super) fn move_actors(
         };
         // A made box it stands in (made where it stood) holds it not: it
         // walks out of it.
-        let mine = body(id.0, &player.0);
+        let mine = body(id.0, &player.0, None);
         // A seat's player meets a body it touches as one it stands inside:
         // it slides along it, as K1's player slides along a creature
         // (Q-0267), rather than being held by its box's corner. In
@@ -704,9 +728,7 @@ pub(super) fn move_actors(
         if fighting.0.saber.current_move.attack() {
             fighting.0.force.tricked = 0;
         }
-        // A creature opens what it runs into only while walking a route
-        // (KOTOR's open the doors their path goes through); one fighting
-        // in place pushes no door open.
+        // A creature opens what it runs into only as `opens_doors` has it.
         // What a player's commands moved touched it: the leading
         // companion's body's, not its own standing one's.
         let seat = match (avatar, leads) {
@@ -717,13 +739,28 @@ pub(super) fn move_actors(
         match seat {
             Some(seat) => touched.0.push((seat, touches)),
             None if avatar.is_some() => {}
-            None if fighting.0.mind.walker.is_some() => {
+            None if opens_doors(&fighting.0) => {
                 bumped
                     .0
                     .extend(touches.into_iter().map(|entity| (id.0, entity)));
             }
             None => {}
         }
+    }
+    // The party keeps its personal spaces in a scene (`spaced`), after
+    // every move, each where it then stands.
+    if level.0.friendly_fire == FriendlyFire::Off && scene_party.len() > 1 {
+        for spaced in &mut scene_party {
+            if let Some((.., player, _)) = actors.iter().find(|(id, ..)| id.0 == spaced.id) {
+                spaced.at = player.0.origin;
+            }
+        }
+        let rest: Vec<(SimId, [f32; 3])> = actors
+            .iter()
+            .filter(|(.., fighting)| fighting.0.alive())
+            .map(|(id, .., player, _)| (id.0, player.0.origin))
+            .collect();
+        pushes.extend(spaced(&level.0, &mut scene_party, &rest));
     }
     // Those pushed aside stand where they were put, still; one pushed by
     // two walkers at once where the first put it.
@@ -741,11 +778,34 @@ pub(super) fn move_actors(
 }
 
 /// The bodies a move meets (`clear_of`): those given less the living ones
-/// the mover's box already stands inside, and those ones' boxes (units,
-/// seen from above: least and most corners) with their entities.
+/// the mover already stands inside, and those ones' centres (units, seen
+/// from above) with their entities.
 pub(crate) struct Inside<'b> {
     pub bodies: std::borrow::Cow<'b, [Body]>,
-    boxes: Vec<([[f32; 2]; 2], u32)>,
+    centres: Vec<([f32; 2], u32)>,
+}
+
+/// A body's round seen from above (units): its box's middle, and half its
+/// width, as a body moving round across meets it (`collision::Bodies`).
+pub(super) fn round_of(body: &Body) -> ([f32; 2], f32) {
+    (
+        [
+            (body.min[0] + body.max[0]) * 0.5 / UNIT,
+            (body.min[1] + body.max[1]) * 0.5 / UNIT,
+        ],
+        (body.max[0] - body.min[0]) * 0.5 / UNIT,
+    )
+}
+
+/// Whether a creature no seat moves opens the doors it runs into: only
+/// while it walks a route (KOTOR's open the doors their path goes
+/// through; one fighting in place pushes no door open), and only alive.
+/// A Sith on the Endar Spire, killed as his walk met end_door10_cut2, his
+/// walk not yet cleared, opened it, and its scene, kept for a party
+/// member's opening (`k_pend_room5_02`: IsObjectPartyMember of
+/// GetLastOpenedBy), never played.
+pub(crate) fn opens_doors(fighter: &crate::combat::Fighter) -> bool {
+    fighter.mind.walker.is_some() && fighter.alive()
 }
 
 /// `bodies` less the living ones `mine` (a body's box) already stands inside:
@@ -753,43 +813,42 @@ pub(crate) struct Inside<'b> {
 /// traces hold a box inside another wherever a step leaves it inside, and
 /// KOTOR moves no body out of another), and `Inside::hold_off` keeps it
 /// from walking further in. Whichever of two overlapping bodies moves, it
-/// meets the other alike.
+/// meets the other alike. Bodies overlap as they meet, round across, as
+/// KOTOR's creatures keep their personal space round them.
 pub(crate) fn clear_of<'b>(mine: &Body, bodies: &'b [Body]) -> Inside<'b> {
+    let (centre, reach) = round_of(mine);
     let overlaps = |other: &Body| {
+        let (theirs, radius) = round_of(other);
         other.contents == Contents::BODY
             && other.entity != mine.entity
-            && (0..3)
-                .all(|axis| other.min[axis] < mine.max[axis] && mine.min[axis] < other.max[axis])
+            && other.min[2] < mine.max[2]
+            && mine.min[2] < other.max[2]
+            && math::flat_length([theirs[0] - centre[0], theirs[1] - centre[1], 0.0])
+                < reach + radius
     };
     if !bodies.iter().any(overlaps) {
         return Inside {
             bodies: std::borrow::Cow::Borrowed(bodies),
-            boxes: Vec::new(),
+            centres: Vec::new(),
         };
     }
-    let flat_box = |body: &Body| {
-        [
-            [body.min[0] / UNIT, body.min[1] / UNIT],
-            [body.max[0] / UNIT, body.max[1] / UNIT],
-        ]
-    };
     Inside {
         bodies: bodies
             .iter()
             .filter(|other| !overlaps(other))
             .copied()
             .collect(),
-        boxes: bodies
+        centres: bodies
             .iter()
             .filter(|other| overlaps(other))
-            .map(|other| (flat_box(other), other.entity))
+            .map(|other| (round_of(other).0, other.entity))
             .collect(),
     }
 }
 
-/// How far round a body's box (metres, across) another's counts as touching
-/// it: twice the gap a trace stops short of a plane, as a move stopped by
-/// it leaves them.
+/// How far round a body (metres, across) another counts as touching it:
+/// twice the gap a trace stops short of a plane, as a move stopped by it
+/// leaves them.
 const TOUCH: f32 = 2.0 * collision::CONTACT_GAP;
 
 /// The box `clear_of` weighs a body by: a seat's player's grown across by
@@ -808,28 +867,23 @@ pub(crate) fn met_as(mine: &Body, seated: bool) -> Body {
 
 impl Inside<'_> {
     /// A move from `before` that took `ps` deeper into a body it stood
-    /// inside keeps only its part along that body (the part into it taken
-    /// off), when `clear` lets a box go there from `before` (a seat's
-    /// player's, `movement`); else it is taken back across the floor. It
-    /// walks out of the other or along it, never into it.
-    ///
-    /// A creature weighs the other by its box: the face is the side of the
-    /// other's box the mover's overlaps least, as a trace stopped by the box
-    /// would slide along it: weighed by the boxes' middles instead, every
-    /// step off a box's corner counted as nearer and was taken back, and the
-    /// player stood held at a mechanic's box by Anchorhead's docking bay
-    /// door, between him and a footlocker, for good.
+    /// inside (nearer its centre) keeps only its part round that body (the
+    /// part toward its centre taken off), when `clear` lets a box go there
+    /// from `before` (a seat's player's, `movement`); else it is taken back
+    /// across the floor. It walks out of the other or round it, never into
+    /// it, as a trace stopped by the round slides round it. Weighed as
+    /// boxes, a step off a box's corner was deeper across one face, and a
+    /// body between two others' corners had no way out but back (the Exile
+    /// held by the royal soldiers out of Onderon's palace gas room).
     ///
     /// A seat's player weighs it as K1's player meets a creature
     /// (Q-0267), by their personal spaces (`spaces`: the two summed, units,
-    /// by the other's entity): no nearer its middle than both, and along it
-    /// round that middle. By the boxes, whose corners stand out past a
-    /// personal space, Freyyr standing in the mouth of a nook of
-    /// Chuundar's throne room left the player no way out past him on
-    /// either side, where K1's spaces leave a body's width. Taken back
-    /// whole, a player pressed between a wall and a body it overlapped
-    /// (Freyyr, come up to talk there) never got out: every way its walk
-    /// tried led nearer him.
+    /// by the other's entity): deeper only nearer its centre than both.
+    /// Freyyr standing in the mouth of a nook of Chuundar's throne room
+    /// left the player no way out past him on either side, where K1's
+    /// spaces leave a body's width. Taken back whole, a player pressed
+    /// between a wall and a body it overlapped (Freyyr, come up to talk
+    /// there) never got out: every way its walk tried led nearer him.
     pub(crate) fn hold_off(
         &self,
         before: [f32; 3],
@@ -837,77 +891,47 @@ impl Inside<'_> {
         spaces: Option<&dyn Fn(u32) -> f32>,
         clear: impl Fn([f32; 3], [f32; 3]) -> bool,
     ) {
-        let half = motion::HALF_WIDTH;
-        // How far a box at `at` overlaps `other` along each axis.
-        let overlap = |at: [f32; 3], other: &[[f32; 2]; 2]| -> [f32; 2] {
-            std::array::from_fn(|axis| {
-                (at[axis] + half).min(other[1][axis]) - (at[axis] - half).max(other[0][axis])
-            })
-        };
-        let middle = |other: &[[f32; 2]; 2]| {
-            [
-                (other[0][0] + other[1][0]) * 0.5,
-                (other[0][1] + other[1][1]) * 0.5,
-            ]
-        };
-        let apart = |at: [f32; 3], other: &[[f32; 2]; 2]| {
-            let [x, y] = middle(other);
-            ((at[0] - x).powi(2) + (at[1] - y).powi(2)).sqrt()
-        };
-        // Each other's face, the way into it (a unit across the floor): its
-        // box's least overlapped axis from `before`, or for a seat's player
-        // toward its middle.
-        let faces: Vec<[f32; 2]> = self
-            .boxes
+        // Nearer the centre of one it stood inside than it stood (and, for
+        // a seat's player, than their spaces), by the step `moved` (weighed
+        // from the centre, where a step round it is not lost to the
+        // coordinates' rounding far from the origin).
+        let from: Vec<([f32; 2], f32)> = self
+            .centres
             .iter()
-            .map(|(other, _)| match spaces {
-                Some(_) => {
-                    let [x, y] = middle(other);
-                    let length = apart(before, other).max(f32::EPSILON);
-                    [(x - before[0]) / length, (y - before[1]) / length]
-                }
-                None => {
-                    let [x, y] = overlap(before, other);
-                    let axis = usize::from(y < x);
-                    let side = if middle(other)[axis] >= before[axis] {
-                        1.0
-                    } else {
-                        -1.0
-                    };
-                    let mut face = [0.0; 2];
-                    face[axis] = side;
-                    face
-                }
+            .map(|(centre, entity)| {
+                let rel = [before[0] - centre[0], before[1] - centre[1]];
+                let near = rel[0] * rel[0] + rel[1] * rel[1];
+                let near = spaces.map_or(near, |spaces| near.min(spaces(*entity).powi(2)));
+                (rel, near)
             })
             .collect();
-        let deeper = |at: [f32; 3]| {
-            self.boxes
-                .iter()
-                .zip(&faces)
-                .any(|((other, entity), face)| match spaces {
-                    Some(spaces) => apart(at, other) < apart(before, other).min(spaces(*entity)),
-                    None => {
-                        let axis = usize::from(face[1] != 0.0);
-                        overlap(at, other)[axis] > overlap(before, other)[axis]
-                    }
-                })
+        let deeper = |moved: [f32; 2]| {
+            from.iter().any(|(rel, near)| {
+                let at = [rel[0] + moved[0], rel[1] + moved[1]];
+                at[0] * at[0] + at[1] * at[1] < *near
+            })
         };
-        if !deeper(ps.origin) {
+        let mut moved = [ps.origin[0] - before[0], ps.origin[1] - before[1]];
+        if !deeper(moved) {
             return;
         }
-        let mut moved = [ps.origin[0] - before[0], ps.origin[1] - before[1]];
         let mut velocity = [ps.velocity[0], ps.velocity[1]];
-        for face in &faces {
+        for (rel, _) in &from {
+            let length = math::flat_length([rel[0], rel[1], 0.0]);
+            if length <= f32::EPSILON {
+                continue;
+            }
+            let out = [rel[0] / length, rel[1] / length];
             for v in [&mut moved, &mut velocity] {
-                let into = v[0] * face[0] + v[1] * face[1];
-                if into > 0.0 {
-                    v[0] -= into * face[0];
-                    v[1] -= into * face[1];
+                let toward = v[0] * out[0] + v[1] * out[1];
+                if toward < 0.0 {
+                    v[0] -= toward * out[0];
+                    v[1] -= toward * out[1];
                 }
             }
         }
         let along = [before[0] + moved[0], before[1] + moved[1], ps.origin[2]];
-        if !deeper(along) && clear(before, along) {
+        if !deeper(moved) && clear(before, along) {
             ps.origin = along;
             ps.velocity[0] = velocity[0];
             ps.velocity[1] = velocity[1];
@@ -944,8 +968,15 @@ pub(crate) fn slides_clear(
     standing_clear(&Bodies::new(world, bodies).skipping(own), from, to, maxs_z)
 }
 
-/// Whether a standing box (its top `maxs_z` units over its origin) goes
-/// from `from` to `to` (origins, units) through `world` unstopped.
+/// Whether a standing body (its top `maxs_z` units over its origin) goes
+/// from `from` to `to` (origins, units) through `world` unstopped, swept as
+/// `motion::move_body` moves it: its box round across
+/// (`collision::Shape::Upright`). Weighed as the square box, a body beside
+/// a slanting wall stood in it by the box's corner, so its step along a
+/// body was weighed by the bodies alone (`slides_clear`) and went into the
+/// wall; buried there, every move out was taken back (Kashyyyk's Upper
+/// Shadowlands, the player between two tach in the pass to the repulsor
+/// field).
 pub(crate) fn standing_clear(
     world: &dyn CollisionWorld,
     from: [f32; 3],
@@ -953,14 +984,14 @@ pub(crate) fn standing_clear(
     maxs_z: f32,
 ) -> bool {
     let half = motion::HALF_WIDTH * UNIT;
-    let extents = Extents {
+    let shape = collision::Shape::Upright(Extents {
         mins: [-half, -half, motion::SOLE_Z * UNIT],
         maxs: [half, half, maxs_z * UNIT],
-    };
-    let trace = world.trace(
+    });
+    let trace = world.sweep(
         scale(from, UNIT),
         scale(to, UNIT),
-        &extents,
+        &shape,
         Contents::PLAYER_SOLID,
     );
     !trace.start_solid && trace.fraction >= 1.0
@@ -991,6 +1022,82 @@ pub(super) fn made_faces(
     if !Arc::ptr_eq(now, walled) {
         *now = walled.clone();
     }
+}
+
+/// A party member standing in a scene, as `spaced` weighs it: where it
+/// stands (units), its personal space (metres), and whether a seat's
+/// player drives it.
+struct Spaced {
+    id: SimId,
+    at: [f32; 3],
+    space: f32,
+    seat: bool,
+}
+
+/// Where the party's standing bodies in a scene are pushed aside to, so
+/// none stands within another's personal space. KOTOR's creatures never
+/// come nearer each other than their two personal spaces, the party's
+/// included (its walkers bump or push aside every creature they meet,
+/// Q-0267); ours walk through each other with friendly fire off
+/// (`bodies_pass`), so two companions following can stand inside each
+/// other when a conversation stops them (Mission and Carth, issue 41). In a
+/// scene, where KOTOR's rules hold, the one of each such pair is pushed
+/// aside as KOTOR's walker pushes an idle creature it meets
+/// (`walk::pushed_aside`): straight out from the other, past their two
+/// spaces and the push's margin, onto the first free spot on the mesh, at
+/// once. A companion is pushed before a seat's player, the later of two
+/// alike; one with no free spot stays. In id order, each pair as the
+/// pushes before left it.
+fn spaced(
+    level: &Level,
+    party: &mut [Spaced],
+    rest: &[(SimId, [f32; 3])],
+) -> Vec<(SimId, [f32; 3])> {
+    let mut pushes = Vec::new();
+    for i in 0..party.len() {
+        for j in i + 1..party.len() {
+            let (a, b) = (&party[i], &party[j]);
+            let spaces = a.space + b.space;
+            let tall = motion::STAND_HEIGHT - motion::SOLE_Z;
+            if math::flat_distance(a.at, b.at) >= spaces / UNIT || (a.at[2] - b.at[2]).abs() >= tall
+            {
+                continue;
+            }
+            let (from, mover) = if a.seat && !b.seat {
+                (i, j)
+            } else if b.seat && !a.seat {
+                (j, i)
+            } else {
+                (i, j)
+            };
+            let (at, body) = (party[from].at, party[mover].at);
+            // Away from the other (the way `pushed_aside` pushes out from
+            // runs back from it): straight out; one standing on the other
+            // goes to its right as it faces +X.
+            let out = [body[0] - at[0], body[1] - at[1]];
+            let away = if math::flat_length([out[0], out[1], 0.0]) < f32::EPSILON {
+                [at[0] - 1.0, at[1], at[2]]
+            } else {
+                [at[0] - out[0], at[1] - out[1], at[2]]
+            };
+            let who = party[mover].id;
+            let others: Vec<[f32; 3]> = rest
+                .iter()
+                .filter(|(id, _)| *id != who)
+                .map(|(id, origin)| {
+                    party
+                        .iter()
+                        .find(|spaced| spaced.id == *id)
+                        .map_or(*origin, |spaced| spaced.at)
+                })
+                .collect();
+            if let Some(spot) = walk::pushed_aside(level, at, away, body, spaces, &others) {
+                party[mover].at = spot;
+                pushes.push((who, spot));
+            }
+        }
+    }
+    pushes
 }
 
 /// A character's personal space (metres): its appearance's `perspace`

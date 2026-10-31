@@ -180,11 +180,12 @@ pub struct ObjectData {
     /// its own frame, in pairs (what one made in play collides as,
     /// `world::move_actors`).
     pub geometry: Vec<[f32; 3]>,
-    /// A placeable's action points: its walkmesh's two use positions
-    /// (`<model>.pwk`), in its own frame (metres), where a character stands
-    /// to use it; none for one whose first is the origin, as TSL's
-    /// `CSWSPlaceable::GetNearestActionPoint` then takes the placeable's
-    /// own position (`nearest_use_point`).
+    /// A placeable's or door's action points: its walkmesh's two use
+    /// positions (`<model>.pwk`, a door's closed `<model>0.dwk`), in its own
+    /// frame (metres), where a character stands to use it (a door's one
+    /// before it and one behind); none for one whose first is the origin, as
+    /// the exes' `GetNearestActionPoint` then takes the object's own
+    /// position (`nearest_use_point`, `action_points`).
     pub use_points: Vec<[f32; 3]>,
     /// Doors: whether a player can open it.
     pub opens: Opens,
@@ -305,9 +306,88 @@ pub struct Body {
     pub bag: u8,
     pub destroy_ms: u32,
     pub fade_ms: Option<u32>,
+    /// Where its model is drawn, for a body JA's animations do not drive
+    /// (`Bulk`); `None` for a humanoid, met as JA meets a player.
+    pub bulk: Option<Bulk>,
+}
+
+/// The box round a body's model as it is drawn at rest (metres, in the
+/// model's own space: +Y ahead, Z up from its soles), where shots, blades
+/// and the crosshair meet a body whose model JA's animations do not pose
+/// (beasts, droids, aliens with skeletons of their own): a rancor is met
+/// where it towers, a hovering droid where it floats. reone picks a
+/// creature by the same box (its model's meshes in their nodes' rest
+/// places); the MDL header's own box is a placeholder in every creature
+/// model of both games.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Bulk {
+    pub min: [f32; 3],
+    pub max: [f32; 3],
+}
+
+impl Bulk {
+    /// What an absent bulk is written as.
+    pub(crate) const BLANK: Bulk = Bulk {
+        min: [0.0; 3],
+        max: [0.0; 3],
+    };
+
+    pub(crate) fn encode(&self, out: &mut Writer) {
+        self.min.iter().chain(&self.max).for_each(|v| out.f32(*v));
+    }
+
+    pub(crate) fn decode(input: &mut crate::wire::Reader) -> Result<Bulk, DecodeError> {
+        let mut v = [0.0; 6];
+        for value in &mut v {
+            *value = input.f32()?;
+        }
+        Ok(Bulk {
+            min: [v[0], v[1], v[2]],
+            max: [v[3], v[4], v[5]],
+        })
+    }
+
+    /// Its box turned to `yaw` (degrees; the model faces +Y at 90) and
+    /// stood with its soles at `soles` (metres): the box round that, in
+    /// the world's axes.
+    pub fn placed(&self, soles: [f32; 3], yaw: f32) -> ([f32; 3], [f32; 3]) {
+        let (sin, cos) = crate::math::sin_cos_deg(yaw - 90.0);
+        let (mut min, mut max) = ([f32::MAX; 3], [f32::MIN; 3]);
+        for (x, y) in [
+            (self.min[0], self.min[1]),
+            (self.max[0], self.min[1]),
+            (self.min[0], self.max[1]),
+            (self.max[0], self.max[1]),
+        ] {
+            let turned = [x * cos - y * sin, x * sin + y * cos];
+            for axis in 0..2 {
+                min[axis] = min[axis].min(soles[axis] + turned[axis]);
+                max[axis] = max[axis].max(soles[axis] + turned[axis]);
+            }
+        }
+        (min[2], max[2]) = (soles[2] + self.min[2], soles[2] + self.max[2]);
+        (min, max)
+    }
+
+    /// How far it reaches from its middle across, either way (metres): the
+    /// larger of its half-sizes along the model's axes.
+    pub fn reach(&self) -> f32 {
+        (0..2)
+            .map(|axis| self.min[axis].abs().max(self.max[axis].abs()))
+            .fold(0.0, f32::max)
+    }
 }
 
 impl Body {
+    /// `creaturespeed.2da`'s `NOMOVE` row.
+    pub const NOMOVE: u8 = 1;
+
+    /// Whether its appearance gives it no movement (`moverate` NOMOVE: a
+    /// turret): KOTOR moves it not at all.
+    pub fn immobile(&self) -> bool {
+        self.movement == Self::NOMOVE
+    }
+
     pub(crate) fn encode(&self, out: &mut Writer) {
         out.u16(self.appearance);
         out.u8(self.size);
@@ -331,6 +411,7 @@ impl Body {
             bag: input.u8()?,
             destroy_ms: input.u32()?,
             fade_ms: Some(input.u32()?).filter(|ms| *ms != u32::MAX),
+            bulk: None,
         })
     }
 }
@@ -406,6 +487,12 @@ impl ObjectData {
     /// a use (`CSWSCreature::GetUseRange`), the second only when it is not
     /// the origin; `None` without any (the placeable's position is used).
     pub fn nearest_use_point(&self, from: [f32; 3]) -> Option<[f32; 3]> {
+        self.action_points(from).into_iter().next()
+    }
+
+    /// The action points (`use_points`) in the world (metres), the nearest
+    /// `from` first.
+    pub fn action_points(&self, from: [f32; 3]) -> Vec<[f32; 3]> {
         // `yaw` is in degrees, turned as the collision's placements are.
         let (sin, cos) = crate::math::sin_cos_deg(self.yaw);
         let world = |p: &[f32; 3]| {
@@ -418,10 +505,21 @@ impl ObjectData {
         let far = |p: &[f32; 3]| {
             (p[0] - from[0]).powi(2) + (p[1] - from[1]).powi(2) + (p[2] - from[2]).powi(2)
         };
-        self.use_points
-            .iter()
-            .map(world)
-            .min_by(|a, b| far(a).total_cmp(&far(b)))
+        let mut points: Vec<[f32; 3]> = self.use_points.iter().map(world).collect();
+        points.sort_by(|a, b| far(a).total_cmp(&far(b)));
+        points
+    }
+
+    /// How far across the floor (metres) a use from `from` reaches to get
+    /// to this object: to the nearer of where it stands and its action
+    /// point nearest `from` (`nearest_use_point`), which TSL's
+    /// `CSWSCreature::GetIsInUseRange` measures to. A placeable's point
+    /// can stand 3 m out from it (Peragus's broken droids in the hangar).
+    pub fn use_distance(&self, from: [f32; 3]) -> f32 {
+        let to = |at: [f32; 3]| crate::math::flat_distance(at, from);
+        self.nearest_use_point(from)
+            .map_or(f32::INFINITY, to)
+            .min(to(self.position))
     }
 
     pub(crate) fn digest_into(&self, out: &mut Writer) {
@@ -447,8 +545,8 @@ impl ObjectData {
                 out.f32(*value);
             }
         }
-        // Only a placeable with action points names them, so the rest keep
-        // their digests.
+        // Only a placeable or door with action points names them, so the
+        // rest keep their digests.
         if !self.use_points.is_empty() {
             out.string("use points");
             out.u32(self.use_points.len() as u32);
@@ -562,6 +660,10 @@ impl ObjectData {
         if let Some(body) = &self.body {
             out.string("body");
             body.encode(out);
+            if let Some(bulk) = &body.bulk {
+                out.string("bulk");
+                bulk.encode(out);
+            }
         }
         if let Some(note) = &self.map_note {
             out.string("map note");
