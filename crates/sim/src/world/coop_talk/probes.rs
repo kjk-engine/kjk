@@ -63,7 +63,7 @@ const SEATS: u8 = 3;
 /// dialogue hook begins its conversation 7, the dealer 8, the second
 /// companion 9, the companion no seat drives 10, the console 11, the one
 /// whose conversation is a cutscene 12, the lever 13, the one no hurt
-/// listener interrupts 14.
+/// listener interrupts 14, the terminal 15.
 const BUDDY: u32 = 4;
 const BUDDY2: u32 = 9;
 const AIDE: u32 = 10;
@@ -84,6 +84,11 @@ const CUT_FROM: [f32; 2] = [-1.0, -2.0];
 /// The lever, and where a user stands to use it.
 const LEVER_AT: [f32; 2] = [2.0, -3.0];
 const LEVER_FROM: [f32; 2] = [1.0, -3.0];
+/// The terminal, whose `OnUsed` talks to its user with its own DLG, and
+/// where a user stands to use it.
+const TERMINAL: u32 = 15;
+const TERMINAL_AT: [f32; 2] = [2.0, -4.0];
+const TERMINAL_FROM: [f32; 2] = [1.0, -4.0];
 /// Second places to use the one who talks, and the one whose dialogue
 /// hook begins its conversation, from: beside them.
 const TALK_BESIDE: [f32; 2] = [2.0, -1.0];
@@ -150,6 +155,8 @@ fn steps(ms: u64) -> usize {
 /// How long after its line began `probe_later` deals (s): past the line's
 /// end, its replies up to be pointed at.
 const LATER_S: f32 = 6.0;
+/// How long `probe_hold`'s line waits paused before it resumes (s).
+const HOLD_S: f32 = 3.0;
 /// The custom token `probe_who` sets: `GetIsPC(GetPCSpeaker())`.
 const WHO_TOKEN: i32 = 7;
 /// The custom token `probe_talk`'s `EndConverAbort` sets to 1.
@@ -175,6 +182,7 @@ pub fn probes() -> Vec<Case> {
         fight_near_not_pulled_in()
             .unwrap_or_else(|why| vec![("fight_near_not_pulled_in", Err(why))]),
     );
+    cases.extend(use_while_paused().unwrap_or_else(|why| vec![("use_while_paused", Err(why))]));
     cases.push((
         "same_every_run",
         check(
@@ -221,7 +229,8 @@ impl Run {
         Run::on_ground(seats, driver, |_| {})
     }
 
-    /// `new`, the ground's module as `tweak` leaves it.
+    /// `new`, the ground's module (the probes' placements in it) as `tweak`
+    /// leaves it.
     fn on_ground(
         seats: u8,
         driver: Option<Seat>,
@@ -229,14 +238,13 @@ impl Run {
     ) -> Result<Run, String> {
         let ground = crate::determinism::proving_ground();
         let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
-        tweak(&mut data);
         let entry = data.entry.position;
         let at = |[x, y]: [f32; 2]| [entry[0] + x, entry[1] + y, entry[2]];
         data.placements.extend(
             [
                 creature("talker", at(TALKER_AT), 180.0, "probe_talk"),
                 creature("barker", at(BARKER_AT), 0.0, "probe_bark"),
-                creature("buddy", at(BUDDY_AT), 90.0, ""),
+                creature("buddy", at(BUDDY_AT), 90.0, "probe_bark"),
                 creature("merchant", at(MERCHANT_AT), 270.0, "probe_shop"),
                 ObjectData {
                     kind: ObjectKind::Store,
@@ -271,9 +279,15 @@ impl Run {
                     interruptable: false,
                     ..creature("captive", at(CAPTIVE_AT), 180.0, "probe_talk")
                 },
+                ObjectData {
+                    kind: ObjectKind::Placeable,
+                    scripts: vec![("OnUsed".into(), "probe_terminal".into())],
+                    ..creature("terminal", at(TERMINAL_AT), 180.0, "probe_global")
+                },
             ]
             .map(Placement::Own),
         );
+        tweak(&mut data);
         let level = ground.with_module(data).with_scripts(library());
         // Only the host has an avatar.
         let config = WorldConfig {
@@ -1125,6 +1139,9 @@ fn program(ops: &[Op]) -> Ncs {
 /// - `probe_busy` sets `BUSY_TOKEN` to `GetIsInConversation(GetFirstPC())`;
 /// - `probe_pause` pauses the PC speaker's conversation
 ///   (`AssignCommand(GetPCSpeaker(), ActionPauseConversation())`);
+/// - `probe_k1_dialog` clears its caller's queue and begins `probe_hold`
+///   (K1's `k_ai_master`), whose line's `probe_hold` pauses, waits
+///   `HOLD_S` and resumes;
 /// - `probe_talk` (`probe_who`; "Again.", "Goodbye.", and "Join me."
 ///   running `probe_dark`; cut short, `probe_aborted`), `probe_bark` (a
 ///   one-liner), `probe_shop` (two replies, `probe_store`), `probe_deal`
@@ -1176,6 +1193,12 @@ void AssignCommand(object oActionSubject, action aActionToAssign);
 void ActionPauseConversation();
 // 18
 void DelayCommand(float fSeconds, action aActionToDelay);
+// 19
+void ClearAllActions();
+// 20
+void ActionWait(float fSeconds);
+// 21
+void ActionResumeConversation();
 "#;
     let call = |routine, args| Op::Action { routine, args };
     let who = program(&[
@@ -1243,6 +1266,16 @@ void DelayCommand(float fSeconds, action aActionToDelay);
         call(9, 0),
         call(10, 5),
     ]);
+    // `ActionStartConversation(GetLastUsedBy())`, no DLG named: the
+    // terminal's own, as the Endar Spire's `k_pend_comp07` does.
+    let terminal = program(&[
+        Op::Const(Const::Int(0)),
+        Op::Const(Const::Int(0)),
+        Op::Const(Const::Int(0)),
+        Op::Const(Const::String(Vec::new())),
+        call(11, 0),
+        call(10, 5),
+    ]);
     // `BeginConversation("probe_talk", GetLastUsedBy())`.
     let lever = program(&[
         call(11, 0),
@@ -1293,6 +1326,22 @@ void DelayCommand(float fSeconds, action aActionToDelay);
         .op(call(16, 2))
         .op(Op::Retn);
     let pause = asm.build();
+    // `ClearAllActions(); BeginConversation("probe_hold")`, K1's
+    // `k_ai_master` answering a click.
+    let k1_dialog = program(&[
+        call(19, 0),
+        Op::Const(Const::Object(1)),
+        Op::Const(Const::String(b"probe_hold".to_vec())),
+        call(6, 2),
+    ]);
+    // `ActionPauseConversation(); ActionWait(HOLD_S);
+    // ActionResumeConversation()`, as Lyn's dance (`k_ptar_dancedemo`).
+    let hold = program(&[
+        call(17, 0),
+        Op::Const(Const::Float(HOLD_S)),
+        call(20, 1),
+        call(21, 0),
+    ]);
     let talk = Dlg {
         on_abort: "probe_aborted".into(),
         ..joining(talking(2, "probe_who"), "probe_dark")
@@ -1337,6 +1386,7 @@ void DelayCommand(float fSeconds, action aActionToDelay);
         ("probe_opened", opened),
         ("probe_pause", talking(2, "probe_pause")),
         ("probe_deal_later", talking(2, "probe_later")),
+        ("probe_hold", talking(2, "probe_hold")),
     ]
     .map(|(name, dlg)| (name.to_string(), dlg))
     .into();
@@ -1351,6 +1401,7 @@ void DelayCommand(float fSeconds, action aActionToDelay);
             ("probe_aborted", aborted),
             ("probe_console", console),
             ("probe_lever", lever),
+            ("probe_terminal", terminal),
             ("probe_global", global),
             ("probe_leave", leave),
             ("probe_unset", unset),
@@ -1358,6 +1409,8 @@ void DelayCommand(float fSeconds, action aActionToDelay);
             ("probe_busy", busy),
             ("probe_pause", pause),
             ("probe_later", later),
+            ("probe_k1_dialog", k1_dialog),
+            ("probe_hold", hold),
         ],
     )
     .with_dialogues(dialogues, BTreeMap::new())
@@ -2224,11 +2277,14 @@ fn faces_off(run: &Run, who: SimId, toward: SimId) -> Result<f32, String> {
 ///   the guest's companion, starts the guest's own.
 /// - A lever whose `OnUsed` begins one with `GetLastUsedBy()`: the
 ///   guest's own too, the scripts' PC the host's character.
+/// - A terminal whose `OnUsed` queues one with `GetLastUsedBy()`, no DLG
+///   named: the terminal's own DLG, not the companion's (which has one).
 /// - The guest's use of one whose conversation is a cutscene starts a
 ///   party conversation, locked, holding every seat.
 fn cutscenes(run: &mut Run) -> Result<Vec<Case>, String> {
     let (host, buddy, buddy2) = (run.body(0)?, run.body(1)?, run.body(2)?);
     let (console, lever) = (object(&run.last, CONSOLE)?, object(&run.last, LEVER)?);
+    let terminal = object(&run.last, TERMINAL)?;
     let cutter = object(&run.last, CUTTER)?;
     let id = |who: SimId| ObjectId(who.0);
     let everyone = |held: &BTreeMap<SimId, bool>| {
@@ -2267,7 +2323,7 @@ fn cutscenes(run: &mut Run) -> Result<Vec<Case>, String> {
     let spared = !cut_short(run, hooked) && !run.last.talk.tokens.contains_key(&ABORT_TOKEN);
     run.goodbye();
     let mut used = Vec::new();
-    for from in [CONSOLE_FROM, LEVER_FROM] {
+    for from in [CONSOLE_FROM, LEVER_FROM, TERMINAL_FROM] {
         run.forget_tokens();
         run.click(1, from, 0.0)?;
         // The queued conversation starts once the action is at the front.
@@ -2319,6 +2375,20 @@ fn cutscenes(run: &mut Run) -> Result<Vec<Case>, String> {
         (
             "pc_named_guest_is_host",
             check(guests(&used[1], lever), format!("{:?}", used[1])),
+        ),
+        (
+            "terminal_own_dlg_for_guest",
+            check(
+                used[2].0.as_ref().is_some_and(|c| {
+                    c.owner == id(terminal)
+                        && c.dialog == "probe_global"
+                        && c.pc == id(host)
+                        && c.listener == id(buddy)
+                        && c.asker == id(buddy)
+                        && !c.party
+                }),
+                format!("{:?}", used[2].0),
+            ),
         ),
         (
             "cutscene_dlg_by_click",
@@ -4384,6 +4454,64 @@ fn fight_near_not_pulled_in() -> Result<Vec<Case>, String> {
             check(
                 reached == Some(Vec::new()),
                 format!("beside the fight, the watchers {reached:?}"),
+            ),
+        ),
+    ])
+}
+
+/// R3: the one whose dialogue hook is K1's (`probe_k1_dialog`: the queue
+/// cleared, then `BeginConversation`) talks with the host, its line paused
+/// for `HOLD_S` (Lyn's dance in Javyar's Cantina, Kandon Ark's party
+/// entrance in the Black Vulkar base). The guest's use of it during the wait runs no hook: the
+/// guest's companion joins the conversation, and the line goes on once the
+/// wait is over, its replies offered.
+fn use_while_paused() -> Result<Vec<Case>, String> {
+    let mut run = Run::on_ground(SEATS, Some(Seat(1)), |data| {
+        for placement in &mut data.placements {
+            if let Placement::Own(object) = placement
+                && object.tag == "hooked"
+            {
+                object.scripts = vec![("ScriptDialogue".into(), "probe_k1_dialog".into())];
+            }
+        }
+    })?;
+    let (host, buddy) = (run.body(0)?, run.body(1)?);
+    let id = |who: SimId| ObjectId(who.0);
+    run.click(0, HOOK_FROM, 0.0)?;
+    let begun = run.talk().cloned();
+    run.idle(steps(1000));
+    run.click(1, HOOK_BESIDE, 180.0)?;
+    let during = run.last.talk.conversations.clone();
+    run.idle(steps(5000));
+    let after = run.talk().cloned();
+    let same = |c: &Conversation| begun.as_ref().is_some_and(|b| b.id == c.id);
+    // (id, listener, joined, paused, offers) of each.
+    let brief = |c: &Conversation| (c.id, c.listener.0, c.joined.clone(), c.paused, c.offers());
+    let (begun_is, during_is, after_is) = (
+        begun.as_ref().map(brief),
+        during.iter().map(brief).collect::<Vec<_>>(),
+        after.as_ref().map(brief),
+    );
+    Ok(vec![
+        (
+            "use_while_paused_joins",
+            check(
+                begun
+                    .as_ref()
+                    .is_some_and(|c| c.listener == id(host) && c.paused)
+                    && during.len() == 1
+                    && same(&during[0])
+                    && during[0].joined == [id(buddy)],
+                format!("begun {begun_is:?}, after the guest's use {during_is:?}"),
+            ),
+        ),
+        (
+            "use_while_paused_goes_on",
+            check(
+                after
+                    .as_ref()
+                    .is_some_and(|c| same(c) && !c.paused && c.offers()),
+                format!("after the wait {after_is:?}"),
             ),
         ),
     ])

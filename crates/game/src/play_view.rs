@@ -1041,12 +1041,10 @@ fn draw(
     // Made creatures come hold their weapons once drawn; those gone go,
     // with them.
     for arrival in made.arrived.drain(..) {
-        view.cast.recast(arrival.id);
-        let at = (Owner::Creature(arrival.index), None);
-        retired.0.extend(
-            view.cast
-                .rearm(at, &arrival.sheet, arrival.arms, &mut commands),
-        );
+        let at = (arrival.id, Owner::Creature(arrival.index));
+        retired
+            .0
+            .extend(view.cast.arrive(at, arrival.arms, &mut commands));
     }
     let mut leaving: Vec<Leaves> = Vec::new();
     for gone in made.left.drain(..) {

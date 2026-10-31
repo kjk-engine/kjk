@@ -285,6 +285,14 @@ pub(super) fn answers(
 ///   conversation before its `OnUsed` [verify in the game].
 /// - One with neither starts its conversation.
 ///
+/// One that takes part in a conversation under way (`Talk::with`) runs
+/// neither: as in KOTOR, a creature talking answers no click. The use asks
+/// for that conversation's DLG, which joins the user to it where joining
+/// may (R3, `Step::join`) and is refused ("already talking") where not. K1's
+/// `k_ai_master` clears the clicked creature's queue before it begins a
+/// conversation, which would drop a resume its line queued and hold it for
+/// good (Lyn's dance, `k_ptar_dancedemo`; Kandon Ark's, `k_ptar_partyent`).
+///
 /// A door is talked to only when it stays locked (`world::interact`). The
 /// conversation's PC is the user's own character, or the host's when a
 /// guest's companion used it (I30 P8, `View::pc_for`). The user is
@@ -296,6 +304,18 @@ pub(super) fn talk_to(view: &View, state: &mut State, object: ObjectId, user: Ob
         return;
     }
     let player = view.pc_for(&state.party, user);
+    let host = view.host(&state.party);
+    if let Some(dialog) = state.talk.with(object, host).map(|c| c.dialog.clone()) {
+        state.talk.asked.push(script::dialogue::Start {
+            owner: object,
+            pc: player,
+            asker: user,
+            dialog,
+            bark: false,
+            cue: None,
+        });
+        return;
+    }
     let kind = view.thing(object).and_then(|thing| thing.kind);
     let hook = view.hook(object, Hook::Dialogue);
     let on_used = view.hook(object, Hook::Used);

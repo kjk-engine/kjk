@@ -52,7 +52,8 @@ around them and reports before changing one.
    `ActionResumeConversation` queues `Action::Hold` (tag 11); a pause
    takes effect at once and keeps its place in the queue too
    (`Action::Pause`): a queue cleared before it reached the front drops
-   it, as the executables' queued pause never ran.
+   it, as the executables' queued pause never ran; a resume dropped so
+   resumes.
 5. **"The player used me".** A player's use of a creature that has a
    `ScriptDialogue` hook (`Hook::Dialogue`; no placeable has one) queues
    `Pending { caller: it, entering: Some(player), number: -1 }` on it
@@ -109,7 +110,12 @@ where they part, the choice is ours and named.
   `k_ai_master` answer with `BeginConversation`); a placeable with an
   `OnUsed` runs it (it starts what it will: Taris's sewer console runs
   Mission's codes when she is with you, else its own); one with neither
-  starts its `Conversation` (reone starts the conversation first). A door used opens (reone, xoreos: an
+  starts its `Conversation` (reone starts the conversation first). One
+  that takes part in a conversation under way (its owner, its speaker or
+  a body standing in it) runs neither: a talking creature answers no click,
+  and the use asks for that conversation, joining or refused (below).
+  K1's `k_ai_master` clears the clicked one's queue first, which would
+  drop a resume its line queued and hold the line for good. A door used opens (reone, xoreos: an
   opening door starts no conversation, so room 3's cutscene, which its
   `OnOpen` starts, is not refused); a locked one runs its fail-to-open
   script, then starts its `Conversation` only if the door is still
@@ -223,7 +229,11 @@ where they part, the choice is ours and named.
   the same: a `ClearAllActions` before it reached the front drops it with
   the resume, so a line that pauses and clears its speaker's queue to walk
   it in (Citadel Station's Czerka men, `a_czerkaint`) goes on, not held
-  for good (probe `pause_cleared_with_its_queue`). A walk-up with no way to the player (a
+  for good (probe `pause_cleared_with_its_queue`). A clear that drops the
+  resume after the pause ran lets the conversation go on as well, nothing
+  else being left to resume it: a script's clear, a state or faction
+  change's (`State::clear_queue`), a weapon swap's (probe
+  `resume_cleared_with_its_queue`). A walk-up with no way to the player (a
   player arrived past locked doors) fails at once, so the resume queued
   after it comes (`EVENTS.md`, action queues).
 - **Replies.** The player may answer while the line plays (it is cut),
@@ -680,10 +690,12 @@ kjk play --stage end_m01ab --arrive end_explode04 --skill computer=8 \
     it cuts every conversation a seat's body stands in short ("a cutscene
     began"), locked or not; a start refused (already talking, nothing to
     say) cuts nothing. A bark holds nobody.
-  - **Joining**: a player who uses the owner or the listener of another
-    player's own conversation joins it (`joined`): held, shown it, marking
-    and answering its free replies. Two seats using one NPC in one step:
-    the lower seat starts it and the other joins.
+  - **Joining**: a player who uses anyone taking part in another player's
+    own conversation (its owner, its speaker, its listener or a body joined)
+    joins it (`joined`): held, shown it, marking and answering its free
+    replies. No dialogue hook or `OnUsed` runs for that use (Start, above);
+    a use of one in a party conversation is refused. Two seats using one
+    NPC in one step: the lower seat starts it and the other joins.
   - **Markers**: any seat points (`Pick::Point`, the reply its screen
     highlights): `Conversation::marks` (seat → reply place), shown to
     everyone in it beside the reply with that seat's character's name;

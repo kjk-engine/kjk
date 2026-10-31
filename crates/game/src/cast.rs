@@ -76,7 +76,7 @@ use sim::{EntityState, Instances, Kind, Seat, SimId, Snapshot};
 use crate::acting;
 use crate::draw_anim::DrawPose;
 use crate::ground_lean::{self, Floor, Lean};
-use crate::holdings::{self, Holdings};
+use crate::holdings::Holdings;
 use crate::ragdolls::{self, Doll, Dying, Lengths, Ragdolls};
 use crate::scene::{Animator, SceneModel};
 use crate::stance;
@@ -1762,10 +1762,10 @@ impl Cast {
     }
 
     /// Arms `owner`'s character (`id`) again with `sheet`'s weapons
-    /// (`arms`, spawned later: a seat's by the armory, hidden; a creature
-    /// made in play's with it, `made`): what it had is retired, their
-    /// blades' indices returned. One not drawn yet takes them when it is
-    /// (`Holdings::rearm`); one with nothing to draw it, never.
+    /// (`arms`, spawned by the armory, hidden): what it had is retired,
+    /// their blades' indices returned. One not drawn yet, or with no body
+    /// to draw it so far (a creature made in play whose body is still
+    /// loading, `made`), takes them when it is (`Holdings::rearm`).
     pub fn rearm(
         &mut self,
         (owner, id): (Owner, Option<SimId>),
@@ -1773,9 +1773,8 @@ impl Cast {
         arms: [Option<Armed>; 2],
         commands: &mut Commands,
     ) -> Vec<usize> {
-        match id.and_then(|id| Some((id, self.members.get_mut(&id)?.take()))) {
-            Some((_, None)) => holdings::retire(arms, commands),
-            Some((id, Some(mut member))) => {
+        match id.and_then(|id| Some((id, self.members.get_mut(&id)?.take()?))) {
+            Some((id, mut member)) => {
                 let retired = self
                     .holdings
                     .rearm((owner, Some(id)), sheet, arms, commands);
@@ -1785,6 +1784,20 @@ impl Cast {
             }
             None => self.holdings.rearm((owner, id), sheet, arms, commands),
         }
+    }
+
+    /// Character `id` of `owner`, a creature made in play, has its body
+    /// now (`made`), with its template's weapons (`arms`): it is cast in
+    /// the next `cast`, taking them, or the armory's when those came first
+    /// (`Holdings::arrive`). Blades' indices returned to retire.
+    pub fn arrive(
+        &mut self,
+        (id, owner): (SimId, Owner),
+        arms: [Option<Armed>; 2],
+        commands: &mut Commands,
+    ) -> Vec<usize> {
+        self.recast(id);
+        self.holdings.arrive(owner, arms, commands)
     }
 
     /// Character `id`'s body plays its wield's draw from now
@@ -2333,7 +2346,10 @@ impl Cast {
                     })),
                 ),
                 Look::Ja => ("ja", None),
-                Look::Clips(clips) => ("kotor clips", Some(clips.facts())),
+                Look::Clips(clips) => (
+                    "kotor clips",
+                    Some(clips.facts(ms, member.figure.breath.wield)),
+                ),
             };
             // Every character drawn holds its weapons (none, some).
             let drawn = self.holdings.wielded(id)?.drawn();
@@ -3638,13 +3654,19 @@ impl Clips {
         Some(f64::from(die.length()) * 1000.0)
     }
 
-    /// The clip shown and the one fading out, by name, for dumps.
-    fn facts(&self) -> serde_json::Value {
+    /// The clip shown and the one fading out, by name, and how much of each
+    /// scripted clip shows over them at `ms` (by its wield number `wield`),
+    /// for dumps.
+    fn facts(&self, ms: f64, wield: u8) -> serde_json::Value {
         let name = |clip: Option<usize>| {
             clip.and_then(|clip| Some(self.clips[clip].as_ref()?.name().to_string()))
         };
+        let acted: Vec<_> = (self.shows.shown(&self.acted, ms, (wield, None)))
+            .map(|(clip, _, weight)| (clip.clip().name.clone(), weight))
+            .collect();
         serde_json::json!({
             "shown": name(self.shown.map(|shown| shown.0)),
+            "acted": acted,
             "fading_from": name(self.fading.map(|fading| fading.0)),
             "attacks": self.attack.count,
             "flinches": self.flinch.count,
