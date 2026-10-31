@@ -121,7 +121,15 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 64: a save records the pack version its companions' templates were written
 /// in (`Save` header), so a pack bump migrates them. Old saves: saves before it
 /// read pack version 20, v0.1.0's.
-pub const VERSION: u32 = 64 + crate::pending::SAVE;
+/// 65: the script state keeps the skill points each character left unspent
+/// (`State::unspent`). Old saves: old saves read no points unspent: every level
+/// spent or lost them all.
+/// 66: deferred code, a queued `ActionStartConversation` and a conversation
+/// asked for carry the trigger's `OnEnter` they stem from (`Delayed::cue`,
+/// `Action::Converse::cue`, `dialogue::Start::cue`). Old saves: old saves read
+/// no cue: nothing in them was set going by a trigger's OnEnter, as far as the
+/// harness's reports go.
+pub const VERSION: u32 = 66 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

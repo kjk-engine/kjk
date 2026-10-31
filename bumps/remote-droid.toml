@@ -1,5 +1,0 @@
-[formats]
-snapshot = "a snapshot carries the seats' remote droids (`Snapshot::remotes`)."
-
-[migrations]
-snapshot = "old saves hold no droids: the world makes a seat's again each step"

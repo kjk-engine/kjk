@@ -37,7 +37,10 @@ const MAGIC: &[u8; 4] = b"KJKT";
 /// 21: a creature template carries TSL's MultiplierSet, its autobalance.2da row
 /// (`ObjectData::multiplier_set`). Old saves: old saves read a kept companion's
 /// MultiplierSet as 0: no companion is autobalanced.
-pub const VERSION: u32 = 21 + crate::pending::PACK;
+/// 22: a creature template's body carries where its model is drawn
+/// (`module::Body::bulk`). Old saves: old saves read no bulk: a companion
+/// template kept in a save is met by JA's box, as every body was.
+pub const VERSION: u32 = 22 + crate::pending::PACK;
 
 /// The oldest version read in a save's companions' templates: v0.1.0's
 /// (`crate::since::pack`, `bumps/README.md`).

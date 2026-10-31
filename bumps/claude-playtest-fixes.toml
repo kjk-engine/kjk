@@ -1,7 +1,0 @@
-# The sim's hash moves on purpose, beyond the other bump files of this
-# branch: a door is used from its action point (`<model>0.dwk`'s use
-# points, `ObjectData::action_points`) and an open one the player could open
-# is closed by Close (Q-0330); a mine is disarmed or recovered from 3 m,
-# offered only with Demolitions ranks, and a skill's outcome floats over its
-# user (`sim::locks::floats`, Q-0335/Q-0336).
-sim = "doors are used from their action points and may be closed (Q-0330); mines are worked from 3 m, only with Demolitions, and skill outcomes float over the user"

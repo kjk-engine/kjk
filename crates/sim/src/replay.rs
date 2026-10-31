@@ -43,7 +43,11 @@ const MAGIC: &[u8; 4] = b"KJKR";
 /// 34: the party table keeps a companion's template made available by template
 /// (`party::Npc::template_data`).
 /// 35: a take names the item's script id (`Action::Take::item`), not a slot.
-const VERSION: u32 = 35 + crate::pending::REPLAY;
+/// 36: a seat may cast any power it knows from its power list (`Action::Cast`,
+/// a new action code, 55).
+/// 37: an arena order knocks the seat's body out in a chosen JA death
+/// (`ArenaOrder::Down`, arena order code 3).
+const VERSION: u32 = 37 + crate::pending::REPLAY;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordedTick {
