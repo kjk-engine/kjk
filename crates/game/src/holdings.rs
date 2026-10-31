@@ -108,6 +108,25 @@ impl Holdings {
         }
     }
 
+    /// A creature made in play (`made`) of `owner` comes with its
+    /// template's weapons (`arms`), free until it is drawn. Weapons already
+    /// free for `owner` win: the armory's, armed from its sheet before its
+    /// body came (a companion carried into a new module, whose goods are not
+    /// its template's). The losing set is retired; its blades' indices
+    /// returned.
+    pub fn arrive(
+        &mut self,
+        owner: Owner,
+        arms: [Option<Armed>; 2],
+        commands: &mut Commands,
+    ) -> Vec<usize> {
+        if self.free.contains_key(&owner) {
+            return retire(arms, commands);
+        }
+        self.free.insert(owner, arms);
+        Vec::new()
+    }
+
     /// Character `id`'s weapons hung in other `hands`: those of a body it
     /// is drawn in now (a disguise's, or its own again).
     pub fn rehang(&mut self, id: SimId, sheet: &Sheet, hands: Hands, commands: &mut Commands) {
@@ -279,7 +298,7 @@ fn arms(weapon: &Armed) -> [Option<Armed>; 2] {
 /// starting over in the same scene (a joined player's swap to the host's
 /// world, which once hung a retired weapon and crashed), a seat drawn in a
 /// disguise's body and back in its own, a seat armed before it is drawn, a
-/// new scene, a weapon gone before it is hung, and where a conversation
+/// made creature armed before or after its body comes, a new scene, a weapon gone before it is hung, and where a conversation
 /// that hides items draws each weapon (`weapons::place`).
 pub fn probes() -> Vec<Check> {
     let mut checks = Vec::new();
@@ -434,6 +453,45 @@ pub fn probes() -> Vec<Check> {
             (ok, detail)
         }),
     );
+
+    // A companion carried into a new module is made there (`made`): its
+    // body comes with its template's weapons, and the armory arms it with
+    // its sheet's before the body comes (it has none to hold them yet) or
+    // after. Either way the sheet's are held.
+    for (name, armory_first) in [
+        ("armed before its body came", true),
+        ("armed after its body came", false),
+    ] {
+        let mut made = Bench::new();
+        let (template, saber) = (made.weapon(0), made.weapon(1));
+        let hands = made.hands();
+        let mut holdings = Holdings::default();
+        let id = ids[2];
+        let retired = made.run(|commands, sheet| {
+            let mut retired = Vec::new();
+            if armory_first {
+                retired.extend(holdings.rearm((creature, Some(id)), sheet, arms(&saber), commands));
+            }
+            retired.extend(holdings.arrive(creature, arms(&template), commands));
+            holdings.wield((id, Some(creature)), sheet, hands, commands);
+            if !armory_first {
+                retired.extend(holdings.rearm((creature, Some(id)), sheet, arms(&saber), commands));
+            }
+            retired
+        });
+        check(
+            name,
+            retired.map(|retired| {
+                let ok = retired == [0]
+                    && made.gone(&template)
+                    && made.holds(&holdings, (id, &hands), &saber);
+                let detail = format!(
+                    "the sheet's saber in hand, the template's weapon despawned; retired blades {retired:?}"
+                );
+                (ok, detail)
+            }),
+        );
+    }
 
     // A new scene: its own composed weapons are read.
     let fresh = bench.weapon(3);
