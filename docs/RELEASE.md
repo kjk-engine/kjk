@@ -74,7 +74,7 @@ channel (`.github/workflows/discord-release.yml`, the message in
 #progress by hand: `cargo xtask discord "caption" clip.mp4 shot.png`
 (its webhook in `KJK_DISCORD_PROGRESS_WEBHOOK` or the git-ignored
 `context/discord-progress-webhook`; larger files are shrunk to Discord's
-10 MiB, `--dry-run` sends nothing).
+20 MB, `--dry-run` sends nothing).
 
 The macOS app is **not signed or notarised** (the owner's decision,
 2026-10-25: no Apple developer account). `dist` seals it with an ad-hoc

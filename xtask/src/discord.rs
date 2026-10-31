@@ -5,7 +5,7 @@
 //!
 //! The webhook's URL is the owner's and never tracked: it is read from
 //! `KJK_DISCORD_PROGRESS_WEBHOOK`, else from `context/discord-progress-webhook`
-//! (git-ignored). A server without boosts takes 10 MiB a message, so a
+//! (git-ignored). A server without boosts takes 20 MB a message, so a
 //! larger clip or gif is re-encoded (ffmpeg, no sound) to fit and a larger
 //! picture becomes a JPEG; the shrunk copies go to `target/discord/`. Files
 //! that do not fit one message go on in more, the caption on the first.
@@ -20,7 +20,7 @@ use std::process::Command;
 use crate::repo_root;
 
 /// What a server without boosts takes in one message.
-const MESSAGE_BYTES: u64 = 10 * 1024 * 1024;
+const MESSAGE_BYTES: u64 = 20_000_000;
 
 /// Room left for the request's own parts, and for the encoder overshooting.
 const SHRINK_TARGET: f64 = 0.9 * MESSAGE_BYTES as f64;
@@ -259,5 +259,5 @@ fn size(path: &Path) -> Result<u64, String> {
 }
 
 fn megabytes(bytes: u64) -> String {
-    format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    format!("{:.1} MB", bytes as f64 / 1_000_000.0)
 }
