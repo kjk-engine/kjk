@@ -591,8 +591,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 // two that did not free it count as lost.
                 let mut unwedges = 0u8;
                 let mut taken = false;
-                // A container's opens asked this goal (`loot_step`).
+                // A container's opens asked this goal (`loot_step`), and the
+                // container they were of (`pick_remains`).
                 let mut opens = 0u8;
+                let mut looted: Option<u32> = None;
                 let mut met = false;
                 let mut held = Vec::new();
                 // The goal's clock, held by progress only: foes losing hit
@@ -1315,7 +1317,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         .then_some(lay)
                                         .flatten()
                                         .and_then(|lay| {
-                                            remains_at(&here, world.script_state(), lay.at)
+                                            remains_at(&here, world.script_state(), lay.at, looted)
                                         })
                                         .or(found)
                                         // One dead and taken away is walked to
@@ -1829,6 +1831,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                                     // press does (above).
                                                     pressed_ever = true;
                                                     opens = opens.saturating_add(1);
+                                                    looted = Some(index);
                                                     taken = true;
                                                 }
                                                 Loot::Wait => {}
