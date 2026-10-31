@@ -453,6 +453,8 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
             // The player's conversations as they end (`Talks`), and whether
             // the world stands settled (`Settle`).
             let mut talks = Talks::default();
+            // The triggers whose scene the player set off (`Scenes`).
+            let mut scenes = Scenes::default();
             let mut settle = Settle::default();
             // When the last goal that took steps began: a `talk` takes a
             // conversation that ended since (`Talks::claim`).
@@ -869,6 +871,11 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             })
                     };
                     talks.note(talking.as_ref().map(|talk| (talk.id, owner_of(talk))), now);
+                    let trigger_of = |id: ObjectId| match last.get(sim::SimId(id.0))?.kind {
+                        sim::Kind::Object(ObjectKind::Trigger, index) => Some(index),
+                        _ => None,
+                    };
+                    scenes.note(level.name(), &world.script_report().talk, me.id, trigger_of, now);
                     let talked_with = talking.as_ref().and_then(owner_of);
                     let mut command = mind::looking(&player, player.view[0], player.view[1]);
                     let mut input = TickInput::default();
@@ -1349,6 +1356,18 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // A trigger the walk before already went out
                                 // by (the Unknown World's way aboard, taken
                                 // as the beach's fight ended).
+                                met = true;
+                            } else if matches!(goal, Goal::To(_))
+                                && let Some(scene) =
+                                    found.and_then(|(index, _)| scenes.take_before(index, started_ms))
+                            {
+                                // A trigger whose own scene the player set
+                                // off during a goal before (`Scenes`): the
+                                // `talk` after it takes that scene.
+                                talks.ended.push_back(Talk {
+                                    ended_ms: now,
+                                    ..scene
+                                });
                                 met = true;
                             } else if found.is_none()
                                 && matches!(goal, Goal::Use(_))

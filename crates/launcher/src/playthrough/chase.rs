@@ -174,7 +174,19 @@ impl Chase {
             (true, false) => SHOOT_M,
             (false, _) => swing,
         };
-        let at_hand = d <= within && seen;
+        // A punch is measured to the body where the sim's blow meets it, a
+        // beast's or a droid's round wider than a humanoid's
+        // (`player_punch_apart_m`): a boma's held the player past the punch.
+        let apart = (punching && !ranged)
+            .then(|| here.snapshot.get(id))
+            .flatten()
+            .and_then(|entity| {
+                let facts = here.facts_of(entity);
+                let foe = entity.player?;
+                Some(sim::player_punch_apart_m(player.origin, &foe, sim::bulk_of(facts.as_deref())))
+            })
+            .unwrap_or(d);
+        let at_hand = apart <= within && seen;
         // Time out of reach or sight does not count (a wounded Sand Person
         // fleeing over the dunes).
         let hp = here
@@ -195,7 +207,7 @@ impl Chase {
                 buttons: buttons::ATTACK,
                 ..aiming(player, me, strike_at(here, Some(id), at))
             };
-            if !ranged && d > close {
+            if !ranged && apart > close {
                 command.forward = 127;
             }
             // A body standing in the line, short of a foe left unhurt a
@@ -335,6 +347,69 @@ impl Talks {
         self.ended
             .iter()
             .any(|talk| talk.owner == Some(owner) && talk.ended_ms >= since)
+    }
+}
+
+/// The triggers whose own scene the player set off this visit of a module:
+/// a conversation the run of a trigger's `OnEnter` for the player's body
+/// asked for, as the sim reports it (`Line::Cued`), and when. A `to` such a
+/// trigger, its scene set off during a goal before it, is met, and the
+/// `talk` after it takes that scene: Onderon's throne room, where the
+/// fight walked the player into `tr_kavar_enter` and Kavar's entrance and
+/// Vaklu's fall played out, and the `to` after the fight walked back for
+/// the trigger into the one that keeps the player in the hall
+/// (`tr_end_riiken`), jumped back again and again for 900 s. Another body
+/// entering (Telos's salvager reaching `tr_czerka_escape`) is not the
+/// player's scene.
+#[derive(Default)]
+pub(super) struct Scenes {
+    module: String,
+    /// How many of the report's lines have been read.
+    read: usize,
+    /// By trigger number: when its scene began, and that conversation.
+    played: BTreeMap<u32, (u64, Talk)>,
+}
+
+impl Scenes {
+    /// The step: the player's body `me` in `module`, the scripts' report
+    /// `lines` so far, `trigger_of` a script object's trigger number.
+    pub(super) fn note(
+        &mut self,
+        module: &str,
+        lines: &[Line],
+        me: sim::SimId,
+        trigger_of: impl Fn(ObjectId) -> Option<u32>,
+        now: u64,
+    ) {
+        if self.module != module {
+            self.module = module.to_string();
+            self.played.clear();
+        }
+        if self.read > lines.len() {
+            self.read = 0;
+        }
+        for line in &lines[self.read..] {
+            if let Line::Cued { id, cue, .. } = line
+                && cue.entering.0 == me.0
+                && let Some(trigger) = trigger_of(cue.trigger)
+            {
+                let talk = Talk {
+                    id: *id,
+                    owner: None,
+                    ended_ms: now,
+                };
+                self.played.entry(trigger).or_insert((now, talk));
+            }
+        }
+        self.read = lines.len();
+    }
+
+    /// The scene of trigger `index` set off before `since` (the `to`'s
+    /// start), if any. Taken either way: one set off since is the `to`'s
+    /// own, met by stepping in; a later `to` the same trigger wants another.
+    pub(super) fn take_before(&mut self, index: u32, since: u64) -> Option<Talk> {
+        let (at, talk) = self.played.remove(&index)?;
+        (at < since).then_some(talk)
     }
 }
 

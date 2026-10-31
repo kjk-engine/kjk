@@ -146,7 +146,7 @@ pub fn transcript(
                 .map_or_else(|| entry.to_string(), |text| format!("{entry} {text:?}"));
             vec![format!("{} -- journal: {quest} at {entry}", at(*ms))]
         }
-        Line::Token { .. } => Vec::new(),
+        Line::Token { .. } | Line::Cued { .. } => Vec::new(),
     }
 }
 

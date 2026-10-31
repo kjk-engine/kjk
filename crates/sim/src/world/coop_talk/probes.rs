@@ -654,6 +654,7 @@ impl Run {
             asker: ObjectId(asker.0),
             dialog: dialog.into(),
             bark: false,
+            cue: None,
         });
         self.world.set_script_state(state);
         self.step(&[]);
@@ -1773,6 +1774,7 @@ fn store_for_running_conversation(run: &mut Run) -> Result<Vec<Case>, String> {
         asker: id(host),
         dialog: "probe_shop".into(),
         bark: false,
+        cue: None,
     });
     run.world.set_script_state(state);
     run.step(&[]);

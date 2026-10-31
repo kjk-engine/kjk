@@ -314,6 +314,7 @@ fn ends(ending: Ending) -> Result<Vec<String>, String> {
         asker: ObjectId(player),
         dialog: dialog.into(),
         bark: false,
+        cue: None,
     });
     world.set_script_state(state);
     let mut said = Vec::new();
@@ -403,6 +404,7 @@ fn dead_starts_its_conversation() -> Result<(bool, bool), String> {
                 with: ObjectId(player),
                 dialog: "probe_talk".into(),
                 asker: None,
+                cue: None,
             }),
             queued(Queue::Wait { ms: 1000 }),
         ],
@@ -467,6 +469,7 @@ fn owner_lost(lost: Lost) -> Result<(bool, bool), String> {
         asker: ObjectId(player),
         dialog: dialog.into(),
         bark: false,
+        cue: None,
     });
     world.set_script_state(state);
     let mut still = TickInput::default();

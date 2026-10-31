@@ -2201,6 +2201,20 @@ pub(super) struct Event {
     /// The conversation whose script deferred the code running
     /// (`Delayed::talk`).
     pub talk: Option<u32>,
+    /// The trigger whose `OnEnter` set this run going (`Cue`), carried into
+    /// what it executes, defers and assigns, and the conversations those
+    /// start.
+    pub cue: Option<Cue>,
+}
+
+/// A trigger's `OnEnter` run for the body entering it: what a run it set
+/// going, its deferred and assigned code and the conversations they start,
+/// stem from. Only reported (`dialogue::Line::Cued`): the harness meets a
+/// `to` a trigger whose own scene the player set off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cue {
+    pub trigger: ObjectId,
+    pub entering: ObjectId,
 }
 
 /// A step's scripts: the library, the world as they read it, and what
@@ -2785,9 +2799,10 @@ impl Step<'_> {
                         with,
                         dialog,
                         asker,
+                        cue,
                     } => {
-                        let (with, dialog, asker) = (*with, dialog.clone(), *asker);
-                        self.converse(who, with, &dialog, asker);
+                        let (with, dialog, asker, cue) = (*with, dialog.clone(), *asker, *cue);
+                        self.converse(who, with, &dialog, (asker, cue));
                         true
                     }
                     &Action::Hold { talk } => {
@@ -3128,6 +3143,15 @@ impl Step<'_> {
                 last.insert((caller, last::PERCEPTION), u32::from(pending.perception));
             }
             let ai = pending.ai || engine::own_ai(self.view, pending.caller, &pending.script);
+            let on_enter = self
+                .view
+                .thing(pending.caller)
+                .is_some_and(|thing| thing.kind == Some(crate::module::ObjectKind::Trigger))
+                && self.view.hook(pending.caller, Hook::Enter).as_deref() == Some(&pending.script);
+            let cue = pending.entering.filter(|_| on_enter).map(|entering| Cue {
+                trigger: pending.caller,
+                entering,
+            });
             let event = Event {
                 entering: pending.entering,
                 number: pending.number,
@@ -3135,6 +3159,7 @@ impl Step<'_> {
                 leads: pending.leads,
                 asker: pending.asker,
                 script_var: pending.script_var,
+                cue,
                 ..Event::default()
             };
             self.run(&pending.script, pending.caller, event, None);
@@ -3351,6 +3376,7 @@ pub fn run_due(
         }
         let event = Event {
             talk: due.talk,
+            cue: due.cue,
             ..Event::default()
         };
         step.run_as(

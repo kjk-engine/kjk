@@ -92,10 +92,42 @@ pub(super) fn punch_reach(personal_space: f32) -> f32 {
 }
 
 /// How far a player's punch reaches (metres, centre to centre): a
-/// humanoid's personal space, `FIST_M` past it, and the target's body (the
-/// playthrough's chase steps in to it with nothing in hand).
+/// humanoid's personal space, `FIST_M` past it, and a humanoid target's
+/// body (the playthrough's chase steps in to it with nothing in hand,
+/// measured by `player_punch_apart_m`).
 pub fn player_punch_reach_m() -> f32 {
     punch_reach(0.0) * UNIT
+}
+
+/// A body as a blow meets it (units, from above): the middle of its round
+/// and how much wider than a humanoid's that round is (`movement::round_of`,
+/// the round bodies meet each other by). A humanoid's is its origin and 0;
+/// one met where its model is drawn (`module::Bulk`: a boma, a droid) may
+/// stand wider, its middle off its origin, and a blow reaches it there, as
+/// a body walking up to it stops at its round.
+fn met_round(
+    id: SimId,
+    ps: &motion::MotionState,
+    bulk: Option<&crate::module::Bulk>,
+) -> ([f32; 2], f32) {
+    let (centre, radius) = super::movement::round_of(&super::body(id, ps, bulk));
+    (centre, (radius - motion::HALF_WIDTH).max(0.0))
+}
+
+/// How far (metres) one standing at `from` (units) stands from a creature
+/// standing as `foe` (its `bulk` where its model is drawn), as a blow
+/// measures it: from the middle of its round, less however much wider than
+/// a humanoid's that is (`met_round`), so a punch reaches it within
+/// `player_punch_reach_m` (the playthrough's chase steps in by this; a
+/// boma's round, 1.07 m wide and its middle 1.2 m before its origin, held
+/// the player past the punch measured to its origin).
+pub fn player_punch_apart_m(
+    from: Vec3,
+    foe: &motion::MotionState,
+    bulk: Option<&crate::module::Bulk>,
+) -> f32 {
+    let ([x, y], wider) = met_round(SimId(0), foe, bulk);
+    (math::flat_length([x - from[0], y - from[1], 0.0]) - wider) * UNIT
 }
 
 /// A humanoid's personal space: its own, else `HUMAN_SPACE_M`.
@@ -134,12 +166,13 @@ fn punch_hit_ms(anims: &AnimTable, anim: Anim) -> u16 {
     (length / 2).clamp(0, i32::from(u16::MAX)) as u16
 }
 
-/// A character as a blow may meet it: its place, its chest, whether it
-/// lives, whether it is of the party.
+/// A character as a blow may meet it: its place, its body's round
+/// (`met_round`), its chest, whether it lives, whether it is of the party.
 #[derive(Clone, Copy)]
 struct Standing {
     id: SimId,
     origin: Vec3,
+    round: ([f32; 2], f32),
     chest: Vec3,
     alive: bool,
     party: bool,
@@ -170,10 +203,12 @@ pub(super) fn strikes(
         .iter()
         .map(|(id, avatar, object, _, player, fighting)| {
             let ps = &player.0;
+            let bulk = super::object_bulk(object);
             Standing {
                 id: id.0,
                 origin: ps.origin,
-                chest: mind::chest_of(ps, super::object_bulk(object)),
+                round: met_round(id.0, ps, bulk),
+                chest: mind::chest_of(ps, bulk),
                 alive: fighting.0.alive(),
                 party: in_party(avatar, &fighting.0),
             }
@@ -218,10 +253,13 @@ pub(super) fn strikes(
         };
         let ps = &player.0;
         let reach = reach(&strike, space);
-        // Across the floor, as a mind closes in; not a floor away.
+        // Across the floor, as a mind closes in, to the body where it is met
+        // (`met_round`); not a floor away.
         let within = |body: &Standing| {
-            let [x, y, z] = math::sub(body.origin, ps.origin);
-            body.alive && (x * x + y * y).sqrt() <= reach && z.abs() <= reach
+            let ([cx, cy], wider) = body.round;
+            let (x, y) = (cx - ps.origin[0], cy - ps.origin[1]);
+            let z = body.origin[2] - ps.origin[2];
+            body.alive && (x * x + y * y).sqrt() <= reach + wider && z.abs() <= reach
         };
         let target = fighter
             .target
@@ -330,6 +368,7 @@ fn nearest(body: &collision::Body, origin: Vec3) -> Standing {
     Standing {
         id: SimId(body.entity & !super::BODY),
         origin: point,
+        round: ([point[0], point[1]], 0.0),
         chest: point,
         alive: true,
         party: false,
@@ -347,10 +386,10 @@ fn in_front(
     meets: impl Fn(&Standing) -> bool,
 ) -> Option<Standing> {
     let (forward, ..) = math::angle_vectors([0.0, ps.view[1], 0.0]);
+    // To the middle of its round, where a blow meets it (`met_round`).
     let flat = |body: &Standing| {
-        let mut way = math::sub(body.origin, ps.origin);
-        way[2] = 0.0;
-        way
+        let ([x, y], _) = body.round;
+        [x - ps.origin[0], y - ps.origin[1], 0.0]
     };
     let mut met = bodies.iter().filter(|body| {
         let mut way = flat(body);

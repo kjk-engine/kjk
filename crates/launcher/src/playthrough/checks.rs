@@ -126,12 +126,68 @@ pub fn probes() -> sim::probe::Checks {
         .chain(replans(&chase_once))
         .chain(hovering(&world, &base))
         .chain(gives_up(&base))
+        .chain(scenes())
         .chain(loots())
         .chain(picks_remains())
         .chain(picks())
         .chain(walks_for())
         .chain(shut_doors(&base, &level))
         .collect()
+}
+
+/// A trigger's own scene (`Scenes`): the sim reports conversation 9 begun
+/// by trigger object 40's `OnEnter` for the player (object 1) at 0.2 s; a
+/// `to` it begun at 0.5 s takes it, once. One the trigger began for another
+/// body (Telos's salvager reaching `tr_czerka_escape`), one begun after the
+/// `to` began, or in another module visit, is not taken. (Onderon's throne
+/// room: the fight set off Kavar's entrance, and the `to` it after walked
+/// back for it into the hall's keeper for 900 s.)
+pub(super) fn scenes() -> sim::probe::Checks {
+    use sim::script::Cue;
+    const PLAYER: u32 = 1;
+    let trigger_of = |id: ObjectId| (id.0 == 40).then_some(5);
+    let cued = |entering: u32| Line::Cued {
+        ms: 200,
+        id: 9,
+        cue: Cue {
+            trigger: ObjectId(40),
+            entering: ObjectId(entering),
+        },
+    };
+    let taken = |entering: u32, module_after: &str, since: u64| {
+        let mut scenes = Scenes::default();
+        let mut lines = vec![Line::Token {
+            ms: 0,
+            number: 0,
+            value: String::new(),
+        }];
+        scenes.note("m", &lines, sim::SimId(PLAYER), trigger_of, 100);
+        lines.push(cued(entering));
+        scenes.note("m", &lines, sim::SimId(PLAYER), trigger_of, 200);
+        scenes.note(module_after, &lines, sim::SimId(PLAYER), trigger_of, 300);
+        let first = scenes.take_before(5, since).map(|talk| talk.id);
+        let again = scenes.take_before(5, since).map(|talk| talk.id);
+        (first, again)
+    };
+    let (player, other, after, moved) = (
+        taken(PLAYER, "m", 500),
+        taken(7, "m", 500),
+        taken(PLAYER, "m", 0),
+        taken(PLAYER, "n", 500),
+    );
+    vec![(
+        "to_a_trigger_whose_scene_played_is_met",
+        sim::probe::check(
+            player == (Some(9), None)
+                && other == (None, None)
+                && after == (None, None)
+                && moved == (None, None),
+            format!(
+                "(taken, again): the player's {player:?}; another body's {other:?}; \
+                 the `to` begun before it {after:?}; another module since {moved:?}"
+            ),
+        ),
+    )]
 }
 
 /// A foe the walk to stalled on and on (`Chase::lost`) is given up while the
@@ -740,6 +796,7 @@ pub fn quiet_probes() -> sim::probe::Checks {
                         with: ObjectId(with),
                         dialog: String::new(),
                         asker: None,
+                        cue: None,
                     },
                     started_ms: None,
                 },

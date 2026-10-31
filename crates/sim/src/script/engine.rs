@@ -3964,7 +3964,7 @@ impl Engine<'_> {
                         caller,
                         self.script,
                         code,
-                        (self.spell.cloned(), talk),
+                        (self.spell.cloned(), talk, self.event.cue),
                     );
                 }
                 Value::Int(0)
@@ -3973,7 +3973,8 @@ impl Engine<'_> {
                 let target = object(args, 0);
                 if let Some(code) = action(args, 1).filter(|_| target != ObjectId::INVALID) {
                     let talk = super::dialogue::running(&state.talk, &self.event);
-                    state.defer(now, target, self.script, code, (self.spell.cloned(), talk));
+                    let carried = (self.spell.cloned(), talk, self.event.cue);
+                    state.defer(now, target, self.script, code, carried);
                 }
                 Value::Int(0)
             }

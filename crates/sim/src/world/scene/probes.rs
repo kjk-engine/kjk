@@ -12,7 +12,7 @@ use crate::input::{Command, Seat, TickInput, buttons};
 use crate::module::{Body, ObjectData, ObjectKind, Placement, Repute};
 use crate::probe::check;
 use crate::script::actions::Target;
-use crate::script::dialogue::{Pick, REPLY_ANGLE, answer};
+use crate::script::dialogue::{Line, Pick, REPLY_ANGLE, answer};
 use crate::snapshot::{SimId, Snapshot};
 use crate::world::{StepReason, WorldConfig};
 use collision::UNIT;
@@ -146,6 +146,7 @@ const PROBES: &[Probe] = &[
     ("walk_asks_no_exit", walk_asks_no_exit),
     ("leaving_heard", leaving_heard),
     ("item_lost_heard", item_lost_heard),
+    ("cue_names_trigger_and_comer", cue_names_trigger_and_comer),
     ("walk_opens_door", walk_opens_door),
     ("blocked_by_door", blocked_by_door),
     ("dead_open_no_door", dead_open_no_door),
@@ -256,6 +257,10 @@ void SetGlobalBoolean(string sIdentifier, int nValue);
 object GetModuleItemAcquired();
 // 25
 int GetIsObjectValid(object oObject);
+// 26
+void DelayCommand(float fSeconds, action aActionToDelay);
+// 27
+void AssignCommand(object oActionSubject, action aActionToAssign);
 "#;
 
 /// The globals `probe_acquired` sets: whether its `GetEnteringObject` was
@@ -392,6 +397,28 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
     converse.push(Op::Const(Const::String(dialog.as_bytes().to_vec())));
     converse.push(call(3, 0));
     converse.push(call(17, 11));
+    // `DelayCommand(0.1, AssignCommand(GetObjectByTag("talker"),
+    // ActionStartConversation(GetFirstPC(), dialog)))`, as TSL's
+    // `tr_end_riiken` has its keeper speak to whoever comes in.
+    let mut asm = script_ncs::probes::Asm::default();
+    asm.op(Op::StoreState { bp: 0, sp: 0 })
+        .to(Op::Jmp, "delay")
+        .op(Op::StoreState { bp: 0, sp: 0 })
+        .to(Op::Jmp, "assign");
+    for op in &converse {
+        asm.op(op.clone());
+    }
+    asm.op(Op::Retn).label("assign");
+    for op in tagged("talker") {
+        asm.op(op);
+    }
+    asm.op(call(27, 2))
+        .op(Op::Retn)
+        .label("delay")
+        .op(Op::Const(Const::Float(0.1)))
+        .op(call(26, 2))
+        .op(Op::Retn);
+    let cue = asm.build();
     let converse = program(&converse);
     // Two `probe_twin`s made at `TWINS_AT` (`CreateObject`).
     let [x, y, z] = floor_at(TWINS_AT);
@@ -444,6 +471,7 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_module_leave", program(&[])),
             ("probe_leave", leave),
             ("probe_converse", converse),
+            ("probe_cue", cue),
             ("probe_twins", twins),
             ("probe_cutscene", cutscene(0, SCENE_DAMAGE)),
             ("probe_cutscene_shot", cutscene(SHOT_ROW, SCENE_DAMAGE)),
@@ -562,6 +590,8 @@ struct Stage {
     /// `Mod_OnAcquirItem` and `Mod_OnUnAqreItem` name `probe_area_exit`,
     /// `probe_module_leave`, `probe_acquired` and `probe_lost`.
     leaving: bool,
+    /// A trigger at `PAD_AT` whose `OnEnter` is `probe_cue`.
+    pad: bool,
 }
 
 impl Default for Stage {
@@ -586,6 +616,7 @@ impl Default for Stage {
             two_pistols: false,
             jedi: false,
             leaving: false,
+            pad: false,
         }
     }
 }
@@ -689,6 +720,20 @@ impl Ground {
                 body: Some(body(0.0)),
                 scripts: vec![("ScriptOnBlocked".into(), "probe_blocked".into())],
                 ..creature("walker", Sheet::commoner(), "")
+            }));
+        }
+        if stage.pad {
+            data.placements.push(Placement::Own(ObjectData {
+                kind: ObjectKind::Trigger,
+                tag: "pad".into(),
+                geometry: vec![
+                    [-0.75, -0.75, 0.0],
+                    [0.75, -0.75, 0.0],
+                    [0.75, 0.75, 0.0],
+                    [-0.75, 0.75, 0.0],
+                ],
+                scripts: vec![("ScriptOnEnter".into(), "probe_cue".into())],
+                ..ObjectData::unknown("", floor_at(PAD_AT), 0.0)
             }));
         }
         data.repute = Repute::at_war([PLAYER, HOSTILE_1]);
@@ -4790,6 +4835,77 @@ fn item_lost_heard() -> Found {
         format!(
             "(acquired, lost) runs: after the gain {gained:?}, after the loss {lost:?}; \
              (by the first PC, the item named) {told:?}"
+        ),
+    )
+}
+
+/// Where the probes' trigger lies (`Stage::pad`), clear of the bodies
+/// waiting.
+const PAD_AT: [f32; 2] = [-3.0, 2.0];
+
+/// A conversation a trigger's `OnEnter` sets going, through its deferred
+/// and assigned code (`probe_cue`: `DelayCommand`, `AssignCommand`,
+/// `ActionStartConversation`), is reported with that trigger and the body
+/// that came in (`Line::Cued`): the host stepping onto the pad, then on a
+/// ground of its own the dummy; one a script begins with no trigger behind
+/// it (`probe_converse`) is reported with none.
+fn cue_names_trigger_and_comer() -> Found {
+    let cued = |ground: &Ground| -> Vec<(u32, u32)> {
+        ground
+            .world
+            .script_report()
+            .talk
+            .iter()
+            .filter_map(|line| match line {
+                Line::Cued { cue, .. } => Some((cue.trigger.0, cue.entering.0)),
+                _ => None,
+            })
+            .collect()
+    };
+    let staged = || {
+        Ground::staged(
+            1,
+            Stage {
+                pad: true,
+                ..Stage::default()
+            },
+        )
+    };
+    // The last placed (the ground's way out is a trigger too).
+    let pad_of = |ground: &Ground| {
+        ground
+            .last
+            .entities
+            .iter()
+            .filter_map(|entity| match entity.kind {
+                crate::Kind::Object(ObjectKind::Trigger, index) => Some((index, entity.id.0)),
+                _ => None,
+            })
+            .max()
+            .map(|(_, id)| id)
+            .ok_or("no pad")
+    };
+    let mut ground = staged()?;
+    let (pad, host) = (pad_of(&ground)?, ground.body(0)?);
+    ground.put(host, PAD_AT);
+    ground.idle(3000);
+    let by_host = cued(&ground);
+    let mut ground = staged()?;
+    let dummy = ground.place(DUMMY, PAD_AT)?;
+    ground.idle(3000);
+    let by_dummy = cued(&ground);
+    let mut ground = staged()?;
+    ground.run_script("probe_converse", TALKER)?;
+    ground.idle(3000);
+    let talk = &ground.world.script_report().talk;
+    let begun = talk.iter().any(|line| matches!(line, Line::Entry { .. }));
+    let uncued = cued(&ground);
+    check(
+        by_host == [(pad, host.0)] && by_dummy == [(pad, dummy.0)] && begun && uncued.is_empty(),
+        format!(
+            "cued (trigger, comer): the host on the pad {by_host:?}, the dummy {by_dummy:?} \
+             (pad {pad}, host {}, dummy {}); a script's own start {uncued:?} (begun {begun})",
+            host.0, dummy.0
         ),
     )
 }

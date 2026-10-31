@@ -787,7 +787,7 @@ pub(crate) struct Inside<'b> {
 
 /// A body's round seen from above (units): its box's middle, and half its
 /// width, as a body moving round across meets it (`collision::Bodies`).
-fn round_of(body: &Body) -> ([f32; 2], f32) {
+pub(super) fn round_of(body: &Body) -> ([f32; 2], f32) {
     (
         [
             (body.min[0] + body.max[0]) * 0.5 / UNIT,
