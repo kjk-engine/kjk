@@ -738,7 +738,8 @@ impl Move<'_, '_> {
 
     /// A change to the command's weapon starts: the one in hand is lowered.
     /// Not to the hand already held or an empty one, not while a pair of
-    /// pistols is out, and not twice.
+    /// pistols is out, not twice, and not while an item is used
+    /// (`Pack::busy`: it starts once the use is over).
     pub(super) fn lower_weapon(&mut self, arms: &mut Arms) {
         let wanted = self.cmd.weapon;
         let kit = arms.kit;
@@ -747,6 +748,7 @@ impl Move<'_, '_> {
             (Held::Blaster(_), Held::Blaster(_))
         );
         if two_guns
+            || arms.fighter.pack.busy()
             || wanted == arms.fighter.hand
             || kit.held(wanted) == Held::Nothing
             || arms.fighter.saber.change == Change::Dropping

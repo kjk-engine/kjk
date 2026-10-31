@@ -715,28 +715,31 @@ heal 10/20/30 + WIS + 1/2/3 × Treat Injury after 1.5 s less 100 ms a rank
 (at least 0.5 s), the weapon idle; droids use **repair kits** (15/25/35 +
 INT + 1/2/3 × Repair) and no medpac. An **antidote** comes first while
 poisoned or weakened; a **squad stim** heals the user's side within 20 m
-by its points (`items.squad_stim.points`). **Energy shields** (5) absorb their points of the damage types they
-name (the hit's type, `Assessed::damage_type`) for 200 s or until spent.
-**Stims** (4) for 120 s: adrenals +4/+6 STR, DEX or CON, battle stims
-+1/+2/+3 to hit and damage and +8/+16/+25 vitality, a pool taken before
-hit points and gone at the end.
-One shield and one stim at a time, and one use at a time. A use runs as
-KOTOR's item spell: the item leaves the goods on the press, its user plays
-`inject` ("Inject_Self_In_Leg"; its weapons hidden, `hideequippeditems`),
-a shield `activate` ("Activate_Wrist"), for the use's time (a heal's
-above; anything else its `spells.2da` row's conjtime 170 + casttime 1330
-= 1.5 s, `items.using.use_ms`), and what it does lands at the end (its
-impact script cast then: `k_sup_healing`, `k_sup_comshots`,
-`k_sup_bands`), the weapon idle meanwhile. Damage and moving do not break
-it off; a stun, a knockdown or a fall does (`items::break_off`), the item
-gone. A use its action began (Use Item, an AI's item talent from
-`k_ai_master`'s `GN_TalentMasterRoutine`) takes its item as it lands
-instead, and a script's `ClearAllActions` before then breaks it off with
-nothing spent, as KOTOR's action queue does: the AI clears and queues its
-talent again when a delayed combat round runs (`Pack::ordered`); the
-talent's action ends with its use, one item an action. Minds heal below 35% (an antidote when afflicted), raise a shield
-and take a stim in a fight (`ai::choose_item`), never before they are
-aware. `kjk combat items k1`: 14 checks.
+by its points (`items.squad_stim.points`). **Energy shields** (5) absorb
+their points of the damage types they name (the hit's type,
+`Assessed::damage_type`) for 200 s or until spent. **Stims** (4) for 120
+s: adrenals +4/+6 STR, DEX or CON, battle stims +1/+2/+3 to hit and damage
+and +8/+16/+25 vitality, a pool taken before hit points and gone at the
+end. One shield and one stim at a time, and one use at a time. A use runs
+as KOTOR's item spell: the item leaves the goods on the press, its user
+plays `inject` ("Inject_Self_In_Leg"; its weapons hidden,
+`hideequippeditems`), a shield `activate` ("Activate_Wrist"), for the
+use's time (a heal's above; anything else its `spells.2da` row's conjtime
+170 + casttime 1330 = 1.5 s, `items.using.use_ms`), and what it does lands
+at the end (its impact script cast then: `k_sup_healing`,
+`k_sup_comshots`, `k_sup_bands`), the weapon idle meanwhile. Damage and
+moving do not break it off; a stun (a grip's choke too), a knockdown or a
+fall does (`items::break_off`), the item gone. A weapon change or a power
+with a hand waits for it (`Pack::busy`), as an action queued after it. A
+use its action began (Use Item, an AI's item talent from `k_ai_master`'s
+`GN_TalentMasterRoutine`) takes its item as it lands instead, and a
+script's `ClearAllActions` before then breaks it off with nothing spent,
+as KOTOR's action queue does: the AI clears and queues its talent again
+when a delayed combat round runs (`Pack::ordered`); the talent's action
+ends with its use, one item an action, or with its refusal (no such item
+left, its target out of reach). Minds heal below 35% (an antidote when
+afflicted), raise a shield and take a stim in a fight (`ai::choose_item`),
+never before they are aware. `kjk combat items k1`: 15 checks.
 
 ## Grenades (`combat::grenades`; I22 section 7)
 KOTOR's grenades thrown as JA's thermal detonator: the grenade button

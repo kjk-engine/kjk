@@ -14,8 +14,9 @@ uses an antidote kit if the character is poisoned or weakened, otherwise a
 medpac (a repair kit for a droid), otherwise a squad recovery stim. The
 character injects a medpac, antidote or stim, or switches on an energy
 shield at the wrist; the item is used up as that begins and takes effect
-when it is done. Being stunned, knocked down or downed meanwhile stops
-it; being hit or moving does not.
+when it is done. Being stunned, choked, knocked down or downed meanwhile
+stops it; being hit or moving does not. A weapon change or a Force power
+waits until it is done.
 """
 detail = """
 Only one energy shield and one stim can be active at a time. Opponents also

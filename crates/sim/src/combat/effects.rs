@@ -963,8 +963,11 @@ pub fn end_poison(fighter: &mut Fighter, now: u64) {
 /// the shield and stim up, its own powers running and every timed script
 /// effect end now (their ends settled as when they run out); permanent
 /// ones (`u64::MAX`) stay, a plot's disguise or visual [verify: whether
-/// the executable keeps any].
+/// the executable keeps any]. An item's use under way breaks off and one
+/// asked for but not begun is dropped, with the action queue.
 pub fn strip(fighter: &mut Fighter, now: u64) {
+    crate::combat::items::break_off(fighter, now);
+    fighter.pack.queued = None;
     remove_poison(fighter);
     fighter.pack.shield = None;
     fighter.pack.stim = None;

@@ -922,15 +922,21 @@ pub(super) fn scripts(
         .iter()
         .filter_map(|&(user, row, target)| {
             let (user, target) = (ObjectId(user.0), ObjectId(target.0));
-            let item = state.item_talent(library.items(), &view, user, row)?;
             let used = state
-                .use_item(library, &view, &mut out, user, item, target)
-                .ok()?;
-            talents_used = true;
+                .item_talent(library.items(), &view, user, row)
+                .and_then(|item| {
+                    state
+                        .use_item(library, &view, &mut out, user, item, target)
+                        .ok()
+                });
+            talents_used |= used.is_some();
             // Its talent's action is done once it is used, as KOTOR's
             // ActionUseTalentOnObject: one item for one action, not one
             // again as its round ends (its mind's next "once a round"
-            // falls on that very step).
+            // falls on that very step). Refused (no such item left, its
+            // target out of reach), the action fails and goes too: its
+            // mind is not asked again every step, its AI choosing anew at
+            // its next round.
             if let Some(queue) = state.actions.get_mut(&user.0)
                 && queue.first().is_some_and(|front| {
                     matches!(front.action, script::actions::Action::Talent {
@@ -940,7 +946,7 @@ pub(super) fn scripts(
             {
                 queue.remove(0);
             }
-            used
+            used.flatten()
         })
         .collect();
     // The grips let go end their impacts' deferred code (`LetGo`).

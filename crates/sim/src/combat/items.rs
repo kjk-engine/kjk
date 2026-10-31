@@ -397,10 +397,11 @@ pub struct Pack {
     /// hit points, gone when the stim ends (KOTOR's temporary hit points).
     pub vitality: i32,
     /// A use chosen by its `spells.2da` row: an item a button takes, used
-    /// on itself through Use Item or an item talent, taken on the next
-    /// press step as that button's would be (`press`), its item already
-    /// gone from the goods; or a grenade an item talent chose, thrown with
-    /// the next throw (`grenades::pull`), leaving the goods then.
+    /// on itself through Use Item or an item talent, begun on the next
+    /// press step as its action's (`press`, `ordered`), its item leaving
+    /// the goods as the use lands; or a grenade an item talent chose,
+    /// thrown with the next throw (`grenades::pull`), leaving the goods
+    /// then.
     pub queued: Option<u16>,
     /// The use under way is its action's (Use Item's, an item talent's,
     /// begun from `queued`): its item leaves the goods as it lands, and a
@@ -411,6 +412,13 @@ pub struct Pack {
 }
 
 impl Pack {
+    /// A use under way: KOTOR's use is an action, so a weapon change or a
+    /// power with a hand (`motion::weapon::lower_weapon`, the powers' free
+    /// hand) waits for it rather than break it off.
+    pub fn busy(&self) -> bool {
+        self.using.is_some()
+    }
+
     /// Ability points drained at `now`.
     pub fn drained(&self, now: u64) -> [u8; 6] {
         if self.drained.1 > now {
@@ -636,8 +644,8 @@ pub struct Pressed {
     /// The `spells.2da` row whose impact script does what the item does,
     /// cast on its user now (`scripted` rows).
     pub cast: Option<u16>,
-    /// The row of the item used: one of it leaves the goods now, as its use
-    /// begins.
+    /// The row of the item used: one of it leaves the goods now, as a
+    /// button's use begins or an action's lands (`Pack::ordered`).
     pub spent: Option<u16>,
 }
 
@@ -662,8 +670,9 @@ fn use_ms(sheet: &Sheet, row: u16) -> u64 {
 /// press) for a fighter with `sheet`. A use runs as KOTOR's: the item
 /// leaves the goods as it begins, its user plays its clip (`Use::clip`)
 /// for the use's time (`use_ms`), and what the item does lands at the end
-/// (`land`). Damage does not break it off; a stun, a knockdown or a fall
-/// does (`break_off`, in the firing step), the item gone with it. One use
+/// (`land`). Damage does not break it off; a stun (a choke), a knockdown
+/// or a fall does (`break_off`, in the firing step, and `effects::strip`),
+/// the item gone with it; a weapon change or a power waits (`busy`). One use
 /// at a time: a press meanwhile does nothing. A use Use Item or an item
 /// talent asked for (`Pack::queued`) is begun first, once none runs: its
 /// item leaves the goods as it lands, and a script's `ClearAllActions`
