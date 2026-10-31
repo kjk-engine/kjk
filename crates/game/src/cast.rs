@@ -611,7 +611,7 @@ const RISE_TURN_HELD: f32 = 0.35;
 
 /// A body on JA's animations getting up from the death it lay in
 /// (`sim::combat::death::getup`): the get-up the sim plays, how far it is
-/// turned at its start (degrees, `Getup::turn`), how long it lasts (ms),
+/// turned at its start (degrees, `getup_turn`), how long it lasts (ms),
 /// which parts (legs, torso) have blended into it from the lying pose, and
 /// when the legs began to (ms).
 #[derive(Debug, Clone, Copy)]
@@ -623,18 +623,72 @@ struct Rising {
     legs_from_ms: Option<f32>,
 }
 
+/// How a body lies at the first or `last` frame of `sequence`, in the GLA's
+/// model space: the heading (degrees about its up axis) from its pelvis to
+/// its head, its pelvis, and which way its chest faces (up when positive).
+pub fn lying(gla: &Gla, sequence: &Sequence, last: bool) -> Option<(f32, Vec3, f32)> {
+    let mut g2 = G2::new(gla);
+    let bone = |name: &str| g2.bone(name);
+    let (root, pelvis, head) = (bone("model_root")?, bone("pelvis")?, bone("cranium")?);
+    let (right, left) = (bone("rhumerus")?, bone("lhumerus")?);
+    // A sequence played backwards (negative rate) ends on its first frame.
+    let (first, end) = (
+        sequence.first_frame,
+        sequence.first_frame + sequence.frame_count.max(1) - 1,
+    );
+    let frame = if last == (sequence.frames_per_second >= 0) {
+        end
+    } else {
+        first
+    };
+    let held = asset_ja::g2::Timed {
+        start_frame: frame,
+        end_frame: frame + 1,
+        speed: 1.0,
+        start_ms: 0.0,
+        looping: false,
+        blend: None,
+    };
+    g2.adopt(root, &held);
+    let pose = g2.pose(0.0);
+    let at = |bone| g2.bone_point(&pose, bone);
+    let (pelvis, along) = (at(pelvis), at(head) - at(pelvis));
+    let chest = along.cross(at(left) - at(right)).z;
+    Some((along.y.atan2(along.x).to_degrees(), pelvis, chest))
+}
+
+/// The turn (degrees about the GLA root's up axis, as `Figure::pose_facing`
+/// turns the body) that lays the first frame of the get-up `getup` where
+/// the last frame of the death `lain` left the body's head, measured on the
+/// skeleton both play on.
+pub fn getup_turn(
+    gla: &Gla,
+    sequences: &BTreeMap<String, Sequence>,
+    lain: Anim,
+    getup: Anim,
+) -> Option<f32> {
+    let heading = |anim: Anim, last| {
+        let sequence = sequences.get(anim.name())?;
+        lying(gla, sequence, last).map(|(heading, ..)| heading)
+    };
+    let turn = heading(lain, true)? - heading(getup, false)?;
+    Some((turn + 180.0).rem_euclid(360.0) - 180.0)
+}
+
 impl Rising {
     /// Getting up from lying in `lain` (the legs' animation shown).
     fn new(rig: &Rig, lain: Option<Anim>) -> Rising {
-        let getup = sim::combat::death::getup(lain.unwrap_or(Anim::BOTH_DEATH1));
+        let lain = lain.unwrap_or(Anim::BOTH_DEATH1);
+        let getup = sim::combat::death::getup(lain);
         let length_ms = rig.sequences.get(getup.anim.name()).map_or(0.0, |s| {
             s.frame_count as f32 * 1000.0 / s.frames_per_second.unsigned_abs().max(1) as f32
         });
         Rising {
             anim: getup.anim,
-            // Measured on the retargeted KOTOR body, whose frame turns the
-            // other way about the GLA root's up axis.
-            turn: -getup.turn,
+            // Measured on the skeleton itself; a death the rig lacks keeps
+            // the sim's table's turn, which is measured on the retargeted
+            // KOTOR body, whose frame turns the other way.
+            turn: getup_turn(rig.gla, &rig.sequences, lain, getup.anim).unwrap_or(-getup.turn),
             length_ms,
             blended: [false; 2],
             legs_from_ms: None,

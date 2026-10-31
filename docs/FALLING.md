@@ -59,7 +59,9 @@
   from the front, as JA's knockdowns pick theirs; each death's side
   measured on `_humanoid` (`kjk rig a --moves BOTH_DEATHn --trace`). The
   view blends it in from the pose lain in (`cast::Rising`, 400 ms) and
-  turns it to start where the death left the head, turning back to the
+  turns it to start where the death left the head (`cast::getup_turn`:
+  pelvis to head on the floor, the death's last frame against the
+  get-up's first, measured on JA's skeleton itself), turning back to the
   body's facing as it stands. A KOTOR-clip body (a droid, a beast) plays
   its `getupdead` after `dead`, as KOTOR's party does. `arena down N`
   (the combat arena) knocks the seat's body out in death N and revives it
@@ -69,6 +71,8 @@
   `GetNearestCreature` skips the downed unless asked [verify]; the downed
   have 0 HP (`GetIsDead` [verify]), stay in their script triggers, keep
   their bodies when the party is picked again. No `Mod_OnPlrDying`/`Death`.
-- **Probes**: `kjk sim probes --only falls` (17), `kjk combat duel --only
+- **Probes**: `kjk sim probes --only falls` (17), `--only "up again"`
+  (each of the 19 get-ups' turned first frame against its death's last:
+  side, head, pelvis), `kjk combat duel --only
   lock_down`, `kjk gui probes`; approved test `downed_and_revive`.
   [verify] in K1: 1 HP up, the loss, medpacs.
