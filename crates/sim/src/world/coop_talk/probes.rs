@@ -63,7 +63,7 @@ const SEATS: u8 = 3;
 /// dialogue hook begins its conversation 7, the dealer 8, the second
 /// companion 9, the companion no seat drives 10, the console 11, the one
 /// whose conversation is a cutscene 12, the lever 13, the one no hurt
-/// listener interrupts 14.
+/// listener interrupts 14, the terminal 15.
 const BUDDY: u32 = 4;
 const BUDDY2: u32 = 9;
 const AIDE: u32 = 10;
@@ -84,6 +84,11 @@ const CUT_FROM: [f32; 2] = [-1.0, -2.0];
 /// The lever, and where a user stands to use it.
 const LEVER_AT: [f32; 2] = [2.0, -3.0];
 const LEVER_FROM: [f32; 2] = [1.0, -3.0];
+/// The terminal, whose `OnUsed` talks to its user with its own DLG, and
+/// where a user stands to use it.
+const TERMINAL: u32 = 15;
+const TERMINAL_AT: [f32; 2] = [2.0, -4.0];
+const TERMINAL_FROM: [f32; 2] = [1.0, -4.0];
 /// Second places to use the one who talks, and the one whose dialogue
 /// hook begins its conversation, from: beside them.
 const TALK_BESIDE: [f32; 2] = [2.0, -1.0];
@@ -236,7 +241,7 @@ impl Run {
             [
                 creature("talker", at(TALKER_AT), 180.0, "probe_talk"),
                 creature("barker", at(BARKER_AT), 0.0, "probe_bark"),
-                creature("buddy", at(BUDDY_AT), 90.0, ""),
+                creature("buddy", at(BUDDY_AT), 90.0, "probe_bark"),
                 creature("merchant", at(MERCHANT_AT), 270.0, "probe_shop"),
                 ObjectData {
                     kind: ObjectKind::Store,
@@ -270,6 +275,11 @@ impl Run {
                 ObjectData {
                     interruptable: false,
                     ..creature("captive", at(CAPTIVE_AT), 180.0, "probe_talk")
+                },
+                ObjectData {
+                    kind: ObjectKind::Placeable,
+                    scripts: vec![("OnUsed".into(), "probe_terminal".into())],
+                    ..creature("terminal", at(TERMINAL_AT), 180.0, "probe_global")
                 },
             ]
             .map(Placement::Own),
@@ -1243,6 +1253,16 @@ void DelayCommand(float fSeconds, action aActionToDelay);
         call(9, 0),
         call(10, 5),
     ]);
+    // `ActionStartConversation(GetLastUsedBy())`, no DLG named: the
+    // terminal's own, as the Endar Spire's `k_pend_comp07` does.
+    let terminal = program(&[
+        Op::Const(Const::Int(0)),
+        Op::Const(Const::Int(0)),
+        Op::Const(Const::Int(0)),
+        Op::Const(Const::String(Vec::new())),
+        call(11, 0),
+        call(10, 5),
+    ]);
     // `BeginConversation("probe_talk", GetLastUsedBy())`.
     let lever = program(&[
         call(11, 0),
@@ -1351,6 +1371,7 @@ void DelayCommand(float fSeconds, action aActionToDelay);
             ("probe_aborted", aborted),
             ("probe_console", console),
             ("probe_lever", lever),
+            ("probe_terminal", terminal),
             ("probe_global", global),
             ("probe_leave", leave),
             ("probe_unset", unset),
@@ -2224,11 +2245,14 @@ fn faces_off(run: &Run, who: SimId, toward: SimId) -> Result<f32, String> {
 ///   the guest's companion, starts the guest's own.
 /// - A lever whose `OnUsed` begins one with `GetLastUsedBy()`: the
 ///   guest's own too, the scripts' PC the host's character.
+/// - A terminal whose `OnUsed` queues one with `GetLastUsedBy()`, no DLG
+///   named: the terminal's own DLG, not the companion's (which has one).
 /// - The guest's use of one whose conversation is a cutscene starts a
 ///   party conversation, locked, holding every seat.
 fn cutscenes(run: &mut Run) -> Result<Vec<Case>, String> {
     let (host, buddy, buddy2) = (run.body(0)?, run.body(1)?, run.body(2)?);
     let (console, lever) = (object(&run.last, CONSOLE)?, object(&run.last, LEVER)?);
+    let terminal = object(&run.last, TERMINAL)?;
     let cutter = object(&run.last, CUTTER)?;
     let id = |who: SimId| ObjectId(who.0);
     let everyone = |held: &BTreeMap<SimId, bool>| {
@@ -2267,7 +2291,7 @@ fn cutscenes(run: &mut Run) -> Result<Vec<Case>, String> {
     let spared = !cut_short(run, hooked) && !run.last.talk.tokens.contains_key(&ABORT_TOKEN);
     run.goodbye();
     let mut used = Vec::new();
-    for from in [CONSOLE_FROM, LEVER_FROM] {
+    for from in [CONSOLE_FROM, LEVER_FROM, TERMINAL_FROM] {
         run.forget_tokens();
         run.click(1, from, 0.0)?;
         // The queued conversation starts once the action is at the front.
@@ -2319,6 +2343,20 @@ fn cutscenes(run: &mut Run) -> Result<Vec<Case>, String> {
         (
             "pc_named_guest_is_host",
             check(guests(&used[1], lever), format!("{:?}", used[1])),
+        ),
+        (
+            "terminal_own_dlg_for_guest",
+            check(
+                used[2].0.as_ref().is_some_and(|c| {
+                    c.owner == id(terminal)
+                        && c.dialog == "probe_global"
+                        && c.pc == id(host)
+                        && c.listener == id(buddy)
+                        && c.asker == id(buddy)
+                        && !c.party
+                }),
+                format!("{:?}", used[2].0),
+            ),
         ),
         (
             "cutscene_dlg_by_click",

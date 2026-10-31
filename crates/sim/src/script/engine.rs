@@ -3959,12 +3959,13 @@ impl Engine<'_> {
                 if let Some(code) = action(args, 1) {
                     let ms = u64::from(seconds_ms(float(args, 0)));
                     let talk = super::dialogue::running(&state.talk, &self.event);
+                    let run = deferring_run(&self.event, caller);
                     state.defer(
                         now + ms,
                         caller,
                         self.script,
                         code,
-                        (self.spell.cloned(), talk, self.event.cue),
+                        (self.spell.cloned(), talk, self.event.cue, run),
                     );
                 }
                 Value::Int(0)
@@ -3973,7 +3974,8 @@ impl Engine<'_> {
                 let target = object(args, 0);
                 if let Some(code) = action(args, 1).filter(|_| target != ObjectId::INVALID) {
                     let talk = super::dialogue::running(&state.talk, &self.event);
-                    let carried = (self.spell.cloned(), talk, self.event.cue);
+                    let run = deferring_run(&self.event, caller);
+                    let carried = (self.spell.cloned(), talk, self.event.cue, run);
                     state.defer(now, target, self.script, code, carried);
                 }
                 Value::Int(0)
@@ -5956,4 +5958,9 @@ fn local_owner(module: &str, id: ObjectId) -> u32 {
         (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
     });
     0x7c00_0000 | (hash & 0x00ff_fffe) | u32::from(id == AREA)
+}
+
+/// The minigame run code `caller` defers or assigns runs for (`Event::run`).
+fn deferring_run(event: &Event, caller: ObjectId) -> Option<u8> {
+    super::minigame::acting_run(event, caller).and_then(|run| u8::try_from(run).ok())
 }

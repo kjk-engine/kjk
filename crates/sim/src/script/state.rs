@@ -34,6 +34,8 @@ pub struct Delayed {
     pub talk: Option<u32>,
     /// The trigger's `OnEnter` the deferring run stems from (`Event::cue`).
     pub cue: Option<super::Cue>,
+    /// The minigame run whose thing deferred it (`Event::run`).
+    pub run: Option<u8>,
 }
 
 /// A script to run from its start, for an event: its caller, the object
@@ -465,7 +467,7 @@ impl State {
         caller: ObjectId,
         script: &str,
         deferred: Deferred,
-        (spell, talk, cue): (Option<Cast>, Option<u32>, Option<super::Cue>),
+        (spell, talk, cue, run): (Option<Cast>, Option<u32>, Option<super::Cue>, Option<u8>),
     ) {
         self.delayed.push(Delayed {
             due_ms,
@@ -476,6 +478,7 @@ impl State {
             spell,
             talk,
             cue,
+            run,
         });
         self.next += 1;
     }
@@ -1772,6 +1775,7 @@ fn encode_delayeds(out: &mut Writer, delayeds: &[Delayed]) {
         encode_cast(out, delayed.spell.as_ref());
         out.u32(delayed.talk.unwrap_or(u32::MAX));
         encode_cue(out, delayed.cue);
+        out.u8(delayed.run.unwrap_or(u8::MAX));
     }
 }
 
@@ -1817,6 +1821,11 @@ fn decode_delayeds(input: &mut Reader) -> Result<Vec<Delayed>, DecodeError> {
                 spell: decode_cast(input)?,
                 talk: optional_talk(input)?,
                 cue: decode_cue(input)?,
+                run: if input.since(crate::since::save::COOP_PLAYTEST_FIXES) {
+                    Some(input.u8()?).filter(|run| *run != u8::MAX)
+                } else {
+                    None
+                },
             })
         })
         .collect()

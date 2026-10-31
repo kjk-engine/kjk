@@ -2205,6 +2205,10 @@ pub(super) struct Event {
     /// what it executes, defers and assigns, and the conversations those
     /// start.
     pub cue: Option<Cue>,
+    /// The minigame run whose thing's code deferred or assigned the code
+    /// running (`Delayed::run`), carried into what it executes: it is that
+    /// run's still (its globals, its finish; M10).
+    pub run: Option<u8>,
 }
 
 /// A trigger's `OnEnter` run for the body entering it: what a run it set
@@ -3377,6 +3381,7 @@ pub fn run_due(
         let event = Event {
             talk: due.talk,
             cue: due.cue,
+            run: due.run,
             ..Event::default()
         };
         step.run_as(
