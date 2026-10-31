@@ -1755,30 +1755,23 @@ impl Engine<'_> {
             // A local boolean is a bit of the game's slots (`local_boolean`):
             // nothing kept past the last, which reads false. A true one reads
             // as its bit lies in its 32-bit word (`local_boolean_read`).
-            GetLocalBoolean => {
-                let index = int(args, 1);
-                let key = (
-                    local_owner(&self.view.module.name, object(args, 0)),
-                    0,
-                    index,
-                );
-                let kept = local_boolean(&view.module.game, index)
-                    .then(|| state.locals.get(&key).copied())
-                    .flatten();
-                Value::Int(local_boolean_read(index, kept.unwrap_or(0) != 0))
-            }
+            GetLocalBoolean => Value::Int(local(
+                state,
+                (&view.module.game, &self.view.module.name),
+                object(args, 0),
+                true,
+                int(args, 1),
+            )),
             // A local number is a byte in one of the game's slots
             // (`local_number`): read back unsigned, set only from -128 to
             // 127, nothing kept past the last slot.
-            GetLocalNumber => {
-                let key = (
-                    local_owner(&self.view.module.name, object(args, 0)),
-                    1,
-                    int(args, 1),
-                );
-                let kept = state.locals.get(&key).copied().unwrap_or(0);
-                Value::Int(local_number(&view.module.game, int(args, 1), kept).unwrap_or(0))
-            }
+            GetLocalNumber => Value::Int(local(
+                state,
+                (&view.module.game, &self.view.module.name),
+                object(args, 0),
+                false,
+                int(args, 1),
+            )),
             SetLocalNumber => {
                 let key = (
                     local_owner(&self.view.module.name, object(args, 0)),
@@ -5932,6 +5925,21 @@ pub(crate) fn local_boolean_read(index: i32, set: bool) -> i32 {
         1i32.wrapping_shl(index as u32)
     } else {
         0
+    }
+}
+
+/// What a script's `GetLocalNumber` (`boolean`: `GetLocalBoolean`) on
+/// object `id` reads of its local `index` now, in a module of a game
+/// (`place`: the game, the module): a number as its byte, unsigned
+/// (`local_number`); a boolean as its bit in its word (`local_boolean_read`).
+pub fn local(state: &State, place: (&str, &str), id: ObjectId, boolean: bool, index: i32) -> i32 {
+    let (game, module) = place;
+    let key = (local_owner(module, id), u8::from(!boolean), index);
+    let kept = state.locals.get(&key).copied().unwrap_or(0);
+    if boolean {
+        local_boolean_read(index, local_boolean(game, index) && kept != 0)
+    } else {
+        local_number(game, index, kept).unwrap_or(0)
     }
 }
 

@@ -1067,7 +1067,7 @@ fn destroy_fades() {
 /// of the player it is the body of; two runs end the same. The sim alone.
 #[test]
 fn use_actions() {
-    probed("use", &sim::uses::probes(), 41);
+    probed("use", &sim::uses::probes(), 42);
 }
 
 /// Bashing (`docs/COMBAT.md`): on the proving ground

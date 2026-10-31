@@ -75,6 +75,11 @@ const STEP_RISE: f32 = STEP_HEIGHT * crate::UNIT;
 /// (`Face::sliver`): the width of the column `mark` looks for furniture in.
 const SLIVER: f32 = 0.1;
 
+/// A face whose longest edge is longer than this (metres) is looked over
+/// for furniture across its area (`Face::spread`), points `SPREAD` apart.
+const WIDE: f32 = 2.0;
+const SPREAD: f32 = 0.5;
+
 /// Where a point is looked for over a footprint (`mark`): a thin column
 /// from under the face to a step over it.
 const FOOTPRINT: crate::Extents = crate::Extents {
@@ -504,17 +509,27 @@ impl NavMesh {
                     .count()
                     >= 3
             });
-            // Most of it (three of the four points), below a body's height
-            // and above a step, inside the level's solid: furniture (a
-            // non-walkable walkmesh face's, or drawn geometry no walkmesh
-            // face covers, which KOTOR's walker passes through and a body
-            // here does not). Not a face a wall's edge merely grazes at its
-            // middle (the Sith academy's hall: one such shut a wing in).
-            let under = points
+            // Most of it (three of the four points; over a face wider than
+            // `WIDE`, three quarters of its area, `Face::spread`), below a
+            // body's height and above a step, inside the level's solid:
+            // furniture (a non-walkable walkmesh face's, or drawn geometry
+            // no walkmesh face covers, which KOTOR's walker passes through
+            // and a body here does not). Not a face a wall's edge merely
+            // grazes at its middle (the Sith academy's hall: one such shut a
+            // wing in), nor a wide floor face furniture stands on a corner
+            // of: Nar Shaddaa's swoop gallery (301NAR) is one 15 m triangle
+            // between its east and west, whose four points fell three on
+            // the bar's pazaak table, and the way to C9-T9's cage was shut.
+            let samples = if face.longest() > WIDE {
+                face.spread()
+            } else {
+                points.to_vec()
+            };
+            let under = samples
                 .iter()
                 .filter(|&&at| level.level_overlaps(at, &column, false, crate::Contents::SOLID))
                 .count();
-            face.covered = face.entity.is_none() && under >= 3;
+            face.covered = face.entity.is_none() && under * 4 >= samples.len() * 3;
         }
         // A sliver, narrower than the column the points are looked over
         // with, has no floor of its own: its points lie on its edges, and
@@ -1261,10 +1276,45 @@ impl Face {
     fn sliver(&self) -> bool {
         let [a, b, c] = self.corners;
         let area = cross_z(sub(b, a), sub(c, a)).abs();
-        let longest = flat_length(a, b)
+        area < SLIVER * self.longest()
+    }
+
+    /// Its longest edge's length, seen from above (metres).
+    fn longest(&self) -> f32 {
+        let [a, b, c] = self.corners;
+        flat_length(a, b)
             .max(flat_length(b, c))
-            .max(flat_length(c, a));
-        area < SLIVER * longest
+            .max(flat_length(c, a))
+    }
+
+    /// Points spread evenly over it, each standing for as much of its area:
+    /// the middles of the triangles it splits into, `SPREAD` metres or less
+    /// along an edge.
+    fn spread(&self) -> Vec<Vec3> {
+        let n = (self.longest() / SPREAD).ceil().max(1.0) as u32;
+        let [a, b, c] = self.corners;
+        let at = |(i, j, k): (f32, f32, f32)| -> Vec3 {
+            std::array::from_fn(|axis| (a[axis] * i + b[axis] * j + c[axis] * k) / n as f32)
+        };
+        let mut points = Vec::with_capacity((n * n) as usize);
+        for i in 0..n {
+            for j in 0..n - i {
+                let k = n - 1 - i - j;
+                points.push(at((
+                    i as f32 + 1.0 / 3.0,
+                    j as f32 + 1.0 / 3.0,
+                    k as f32 + 1.0 / 3.0,
+                )));
+                if k > 0 {
+                    points.push(at((
+                        i as f32 + 2.0 / 3.0,
+                        j as f32 + 2.0 / 3.0,
+                        k as f32 - 1.0 / 3.0,
+                    )));
+                }
+            }
+        }
+        points
     }
 
     /// The face's height at `point`'s x and y, if they fall inside it

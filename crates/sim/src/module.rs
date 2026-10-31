@@ -379,6 +379,15 @@ impl Bulk {
 }
 
 impl Body {
+    /// `creaturespeed.2da`'s `NOMOVE` row.
+    pub const NOMOVE: u8 = 1;
+
+    /// Whether its appearance gives it no movement (`moverate` NOMOVE: a
+    /// turret): KOTOR moves it not at all.
+    pub fn immobile(&self) -> bool {
+        self.movement == Self::NOMOVE
+    }
+
     pub(crate) fn encode(&self, out: &mut Writer) {
         out.u16(self.appearance);
         out.u8(self.size);
@@ -499,6 +508,18 @@ impl ObjectData {
         let mut points: Vec<[f32; 3]> = self.use_points.iter().map(world).collect();
         points.sort_by(|a, b| far(a).total_cmp(&far(b)));
         points
+    }
+
+    /// How far across the floor (metres) a use from `from` reaches to get
+    /// to this object: to the nearer of where it stands and its action
+    /// point nearest `from` (`nearest_use_point`), which TSL's
+    /// `CSWSCreature::GetIsInUseRange` measures to. A placeable's point
+    /// can stand 3 m out from it (Peragus's broken droids in the hangar).
+    pub fn use_distance(&self, from: [f32; 3]) -> f32 {
+        let to = |at: [f32; 3]| crate::math::flat_distance(at, from);
+        self.nearest_use_point(from)
+            .map_or(f32::INFINITY, to)
+            .min(to(self.position))
     }
 
     pub(crate) fn digest_into(&self, out: &mut Writer) {

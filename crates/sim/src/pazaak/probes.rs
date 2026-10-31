@@ -24,6 +24,7 @@ pub fn probes() -> Checks {
         ("pazaak_deck_offered", deck_offered()),
         ("pazaak_bust", bust()),
         ("pazaak_bust_rescued", rescued()),
+        ("pazaak_advice_wins", advice_wins()),
         ("pazaak_twenty_stands", twenty_stands()),
         ("pazaak_nine_cards_stand", nine_stand()),
         ("pazaak_tie_replayed", tie_replayed()),
@@ -951,4 +952,70 @@ fn wager_sum_held() -> Result<String, String> {
 /// How many probe steps last `ms`.
 fn steps(ms: u64) -> usize {
     (ms / u64::from(MSEC)) as usize
+}
+
+/// The share of `games` matches (seeds 0 on) the headless player
+/// (`Match::advice`) wins against `opponent`, choosing its side deck from
+/// `available`, no wager.
+fn win_rate(opponent: [&str; super::SIDE_DECK], available: &[(&str, u8)], games: u64) -> f32 {
+    let opponent = opponent.map(card);
+    let available: Vec<(Card, u8)> = available.iter().map(|(code, n)| (card(code), *n)).collect();
+    let won = (0..games)
+        .filter(|seed| {
+            let mut rng = SimRng::new(*seed, 7);
+            let mut game = Match::new(
+                opponent,
+                available.clone(),
+                (0, 0),
+                false,
+                (String::new(), 0),
+            );
+            let mut now = 0;
+            loop {
+                if let Some(played) = game.advice() {
+                    game.apply(played, now, &mut rng);
+                }
+                if let Some(won) = game.advance(now, &mut rng) {
+                    break won;
+                }
+                now += 100;
+            }
+        })
+        .count();
+    won as f32 / games as f32
+}
+
+/// The headless player plays well enough to win Pato Ado's games as a
+/// player would (`Match::advice`): with the default + cards (row 0) and his
+/// store's (+3, ±1, ±6, Flip 2&4), it wins about half its matches against
+/// his first stake's deck (`pazaakdecks.2da` row 1, 50% of 2000) and a
+/// third against his armor game's, all ± (row 3, 35%), where playing the
+/// opponent's own rule with a flip and +1s in its deck won 44% and 29%.
+fn advice_wins() -> Result<String, String> {
+    let mine = [
+        ("+1", 2),
+        ("+2", 2),
+        ("+3", 3),
+        ("+4", 2),
+        ("+5", 2),
+        ("*1", 1),
+        ("*6", 1),
+        ("F1", 1),
+    ];
+    let average = win_rate(
+        ["+3", "-3", "+4", "-4", "+5", "-5", "+5", "-3", "+4", "-5"],
+        &mine,
+        2000,
+    );
+    let all_either = win_rate(
+        ["*3", "*3", "*2", "*2", "*4", "*4", "*2", "*2", "*1", "*1"],
+        &mine,
+        2000,
+    );
+    check(
+        average >= 0.48 && all_either >= 0.33,
+        format!(
+            "won {average:.3} against his first stake's deck, {all_either:.3} against his armor game's"
+        ),
+    )
 }

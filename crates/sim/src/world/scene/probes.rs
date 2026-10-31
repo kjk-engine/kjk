@@ -113,10 +113,13 @@ const PROBES: &[Probe] = &[
     ("arrives_exactly", arrives_exactly),
     ("move_to_object_range", move_to_object_range),
     ("goes_round_a_body", goes_round_a_body),
+    ("rounds_a_touched_body", rounds_a_touched_body),
     ("gives_up_blocked", gives_up_blocked),
     ("bump_rules", bump_rules),
     ("pushes_idle_aside", pushes_idle_aside),
+    ("immobile_not_pushed", immobile_not_pushed),
     ("body_overlap_not_buried", body_overlap_not_buried),
+    ("body_pocket_walked_out", body_pocket_walked_out),
     ("routes_round_made_placeable", routes_round_made_placeable),
     (
         "walker_keeps_off_made_placeable",
@@ -137,6 +140,7 @@ const PROBES: &[Probe] = &[
     ("item_lost_heard", item_lost_heard),
     ("walk_opens_door", walk_opens_door),
     ("blocked_by_door", blocked_by_door),
+    ("dead_open_no_door", dead_open_no_door),
     ("party_waits_for_door", party_waits_for_door),
     ("walk_off_mesh_ends", walk_off_mesh_ends),
     ("door_goal_ends", door_goal_ends),
@@ -3702,6 +3706,32 @@ fn goes_round_a_body() -> Found {
     )
 }
 
+/// A stalled walker goes round a body it touches though it has slid past
+/// its middle (`Walker::around`): 301NAR's walk out past IT-31, met head-on
+/// and slid round into the pocket between it and a wall's end, had it
+/// behind and made for a corner through the wall. A body as near behind
+/// it, but no longer touching, is left alone, as one ahead off the way is.
+fn rounds_a_touched_body() -> Found {
+    let ground = Ground::new(1)?;
+    let level = ground.world.level();
+    let units = |at: [f32; 2]| floor_at(at).map(|v| v / UNIT);
+    let [x, y, z] = units([-2.0, -3.0]);
+    let me = crate::motion::MotionState::standing([x, y, z + 0.125 - crate::motion::SOLE_Z], 0.0);
+    let corner = units([-2.0, 1.0]);
+    let rounds = |body: [f32; 2]| {
+        let mut walker = crate::walk::Walker::new(corner);
+        walker.waypoint = Some(corner);
+        walker.stalls = 1;
+        walker.around(level, &me, &[units(body)]);
+        walker.rounding
+    };
+    let (touched, apart) = (rounds([-2.45, -3.4]), rounds([-2.7, -4.0]));
+    check(
+        touched && !apart,
+        format!("a body 0.6 m behind: gone round {touched}; 1.2 m behind: gone round {apart}"),
+    )
+}
+
 /// Three bodies across the ground at y = 0 (the dummy, the companion and
 /// the brawler), every side a walker meeting the middle one could go round
 /// it by taken or off the mesh; each busy (a long wait queued), so none is
@@ -3867,6 +3897,164 @@ fn pushes_idle_aside() -> Found {
             "pushed to {spot:?} ({aside:?} m aside), bumps {pushed_bumps}; \
              not pushable: bumped {:?}, bumps {bumped_bumps}",
             bumped.and_then(|stepped| stepped.bumped)
+        ),
+    )
+}
+
+/// A walker meeting the idle dummy on its line pushes it aside; made
+/// immobile (`Body::immobile`, `moverate` NOMOVE: a turret) the dummy
+/// stands where it is, and the walker goes round it. Telos's hidden turret
+/// in Slusk's office was pushed 0.9 m into the way out and held the player
+/// against Slusk.
+fn immobile_not_pushed() -> Found {
+    let moved = |immobile: bool| -> Result<f32, String> {
+        let (mut ground, walker) = walking_ground([-2.0, -4.0], true)?;
+        let dummy = ground.place(DUMMY, [-2.0, 0.0])?;
+        if immobile {
+            let mut objects = ground
+                .world
+                .world
+                .query::<(&Id, &mut super::super::Object)>();
+            for (id, mut object) in objects.iter_mut(&mut ground.world.world) {
+                if id.0 != dummy {
+                    continue;
+                }
+                if let Some(facts) = object.facts.as_mut() {
+                    let mut fixed = (**facts).clone();
+                    fixed.body = Some(Body {
+                        movement: Body::NOMOVE,
+                        walk_mps: 0.0,
+                        run_mps: 0.0,
+                        ..fixed.body.unwrap_or(body(0.0))
+                    });
+                    *facts = Arc::new(fixed);
+                }
+            }
+        }
+        ground.step();
+        let start = ground.at(dummy);
+        walked(&mut ground, walker, move_to([-2.0, 4.0], false, None), 9000);
+        Ok(between(start, ground.at(dummy)))
+    };
+    let (free, fixed) = (moved(false)?, moved(true)?);
+    check(
+        free > 0.3 && fixed < 0.01,
+        format!("the idle dummy moved {free:.2} m, made immobile {fixed:.3} m"),
+    )
+}
+
+/// How deep `me` stands inside `other` (units): how far their rounds
+/// overlap, none once they are clear.
+fn depth(me: &crate::motion::MotionState, other: &collision::Body) -> f32 {
+    let centre = |axis: usize| (other.min[axis] + other.max[axis]) * 0.5 / UNIT;
+    let apart = crate::math::flat_length([centre(0) - me.origin[0], centre(1) - me.origin[1], 0.0]);
+    (crate::motion::HALF_WIDTH + (other.max[0] - other.min[0]) * 0.5 / UNIT - apart).max(0.0)
+}
+
+/// 60 steps of a seat's player standing as `standing` among `others`,
+/// pressing `command`, as `world::movement` moves one (`clear_of`,
+/// `move_body`, `Inside::hold_off`): where it ends, whether it stands on
+/// the ground, and how deep inside any of the others it ever stood.
+fn walk_among(
+    level: &crate::world::level::Level,
+    standing: crate::motion::MotionState,
+    others: &[collision::Body],
+    command: &Command,
+) -> ([f32; 3], bool, f32) {
+    let deepest_now = |me: &crate::motion::MotionState| {
+        others
+            .iter()
+            .map(|other| depth(me, other))
+            .fold(0.0, f32::max)
+    };
+    // Two humanoids' personal spaces summed (units), as K1's player meets
+    // one (Q-0267).
+    let space = 2.0 * crate::world::strikes::humanoid_space(0.0) / UNIT;
+    let spaces = |_: u32| space;
+    let mut me = standing;
+    let mut deepest = deepest_now(&me);
+    for tick in 0..60 {
+        let mine = crate::world::met_as(&crate::world::body(SimId(1), &me, None), true);
+        let inside = crate::world::clear_of(&mine, others);
+        let before = me.origin;
+        level.with(None, |world| {
+            let world = collision::Bodies::new(world, &inside.bodies);
+            crate::motion::move_body(
+                &mut me,
+                command,
+                STEP_MS as u32,
+                tick * STEP_MS,
+                &world,
+                level.anims(),
+                None,
+            );
+        });
+        let maxs_z = me.maxs_z;
+        inside.hold_off(before, &mut me, Some(&spaces), |from, to| {
+            level.with(None, |world| {
+                let world = collision::Bodies::new(world, &inside.bodies);
+                crate::world::movement::standing_clear(&world, from, to, maxs_z)
+            })
+        });
+        deepest = f32::max(deepest, deepest_now(&me));
+    }
+    (me.origin, me.ground.is_some(), deepest)
+}
+
+/// A body met round across (`collision::Bodies`, `brush::clip_round`)
+/// slides off round another, so three standing close about a player leave
+/// it the way out between two of them that a body fits through, as KOTOR's
+/// creatures meet by their personal space: met as square boxes, the player
+/// coming out of Onderon's palace gas room stood in the corner of two royal
+/// soldiers' boxes, every way out taken back (their corners 0.94 m and 0.90
+/// m from its centre, the way between them 1.83 m across). Walking the way
+/// out it gets 1 m out, never deeper into any of them than it stood.
+fn body_pocket_walked_out() -> Found {
+    let ground = Ground::new(1)?;
+    let level = ground.world.level();
+    let [x, y, z] = floor_at([-2.0, -3.0]).map(|v| v / UNIT);
+    let standing =
+        crate::motion::MotionState::standing([x, y, z + 0.125 - crate::motion::SOLE_Z], 0.0);
+    // The soldiers about the Exile (metres from it), each as KOTOR's
+    // humanoids keep their personal space (0.35 m, `world::blocking`).
+    let space = 0.35 / UNIT;
+    let others: Vec<collision::Body> = [[-0.74f32, -0.58], [0.57, 0.70], [0.17, -1.18]]
+        .into_iter()
+        .enumerate()
+        .map(|(n, [dx, dy])| {
+            let at = [x + dx / UNIT, y + dy / UNIT, standing.origin[2]];
+            let mut body = crate::world::body(
+                SimId(100 + n as u32),
+                &crate::motion::MotionState::standing(at, 0.0),
+                None,
+            );
+            body.min[0] = (at[0] - space) * UNIT;
+            body.min[1] = (at[1] - space) * UNIT;
+            body.max[0] = (at[0] + space) * UNIT;
+            body.max[1] = (at[1] + space) * UNIT;
+            body
+        })
+        .collect();
+    let started = others
+        .iter()
+        .map(|other| depth(&standing, other))
+        .fold(0.0, f32::max);
+    // Toward the way out, between the first two.
+    let out = [-0.74f32, 1.12];
+    let yaw = crate::math::atan2_deg(out[1], out[0]);
+    let command = Command {
+        forward: 127,
+        angles: [0, (yaw / 360.0 * 65536.0).round() as i32 as i16, 0],
+        ..Command::default()
+    };
+    let (at, grounded, deepest) = walk_among(level, standing, &others, &command);
+    let gone = crate::math::flat_distance(at, standing.origin) * UNIT;
+    check(
+        grounded && gone >= 1.0 && deepest <= started + 1e-3,
+        format!(
+            "from {:?} among {} bodies {started:.2} units into the nearest: walked {gone:.2} m to {at:?}, at most {deepest:.2} units into one",
+            standing.origin,
+            others.len()
         ),
     )
 }
@@ -4591,6 +4779,33 @@ fn walk_opens_door() -> Found {
         format!(
             "the gate opened {opened}, the front {past:.3} m past the shut panel at most, {off:.3} m off the end, carried {carried} steps"
         ),
+    )
+}
+
+/// A creature walking to the shut gate opens the doors it runs into
+/// (`movement::opens_doors`); killed on the way, its walk not yet cleared,
+/// it opens none (the Endar Spire's end_door10_cut2, opened by a Sith
+/// killed as his walk met it: its scene, kept for a party member's
+/// opening, never played).
+fn dead_open_no_door() -> Found {
+    let mut ground = through_ground()?;
+    let walker = ground.place(WALKER, BEFORE_GATE)?;
+    ground.step();
+    ground.queue(walker, move_to(PAST_GATE, false, None));
+    for _ in 0..steps(500) {
+        ground.step();
+    }
+    let mut fighters = ground.world.world.query::<(&Id, &mut Fighting)>();
+    let (_, mut fighting) = fighters
+        .iter_mut(&mut ground.world.world)
+        .find(|(id, _)| id.0 == walker)
+        .ok_or("no walker")?;
+    let walking = super::super::movement::opens_doors(&fighting.0);
+    fighting.0.life = crate::combat::fighter::Life::Dead;
+    let dead = super::super::movement::opens_doors(&fighting.0);
+    check(
+        walking && !dead,
+        format!("opens doors walking {walking}, killed on its walk {dead}"),
     )
 }
 

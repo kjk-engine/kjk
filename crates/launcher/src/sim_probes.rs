@@ -91,6 +91,7 @@ const GROUPS: &[Group] = &[
     ("weapons view", crate::weapons::view_probes),
     ("up again", kjk_game::rise_probes::probes),
     ("clips", clips),
+    ("gathering", gathering),
 ];
 
 /// The scripts' and conversations' clips (`session::clip_probes`), on K1's
@@ -126,6 +127,20 @@ fn bulks() -> sim::probe::Checks {
     let resolver = kjk_game::k1_resolver();
     let source = resolver.as_ref().map(crate::modules::ResolverSource);
     session::bulk_probes(
+        source
+            .as_ref()
+            .map(|source| source as &dyn asset_odyssey::module::Source),
+    )
+}
+
+/// The script library's gathering (`session::gather_probes`), on TSL's
+/// 306NAR where this machine has the install.
+fn gathering() -> sim::probe::Checks {
+    let tsl = kjk_game::installs::open(&kjk_game::discover(), vfs::Game::Kotor2)
+        .and_then(|install| install.resolver(Some("306nar")))
+        .ok();
+    let source = tsl.as_ref().map(crate::modules::ResolverSource);
+    session::gather_probes(
         source
             .as_ref()
             .map(|source| source as &dyn asset_odyssey::module::Source),

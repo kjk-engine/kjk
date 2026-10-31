@@ -49,10 +49,14 @@ pub(super) struct Target {
 impl Target {
     /// This target as a use from `from` (metres) sees it: a placeable with
     /// action points (`ObjectData::use_points`) at the nearest of them,
-    /// `ACTION_SIGHT_M` up, as TSL's `CSWSCreature::GetIsInUseRange` looks
-    /// (Korriban's Lonna Vash, searched from beside the force cage round
-    /// her body); anything else at its middle. A door's action point is
-    /// where it may also be used from (`may_use`).
+    /// seen `ACTION_SIGHT_M` up it and reached to it where it is nearer
+    /// than where the placeable stands, as TSL's
+    /// `CSWSCreature::GetIsInUseRange` looks and measures
+    /// (`ObjectData::use_distance`; Korriban's Lonna Vash, searched from
+    /// beside the force cage round her body; Peragus's broken droid in the
+    /// hangar, its action point 3 m from where it stands); anything else
+    /// at its middle. A door's action point is where it may also be used
+    /// from (`may_use`).
     pub fn aimed(
         mut self,
         level: &super::Level,
@@ -63,6 +67,9 @@ impl Target {
         match kind {
             ObjectKind::Placeable => {
                 if let Some(point) = facts.nearest_use_point(from) {
+                    if math::flat_distance(point, from) < math::flat_distance(self.at, from) {
+                        self.at = point;
+                    }
                     self.middle = [point[0], point[1], point[2] + ACTION_SIGHT_M];
                 }
             }

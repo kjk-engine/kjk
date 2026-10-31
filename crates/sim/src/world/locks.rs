@@ -418,7 +418,7 @@ pub(super) fn begin(
         return refuse(Notice::Line(lines::NOT_LOCKED));
     };
     let up = user.hp.is_some_and(|(hp, _)| hp > 0) && user.character.is_some_and(|c| !c.downed);
-    if !up || crate::math::flat_distance(facts.position, user.position) > containers::REACH {
+    if !up || facts.use_distance(user.position) > containers::REACH {
         return refuse(Notice::OutOfReach);
     }
     if target.locked != Some(true) {

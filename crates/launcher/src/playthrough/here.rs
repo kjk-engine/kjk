@@ -307,6 +307,30 @@ impl<'a> Here<'a> {
         stands.sort_by(|a, b| a.0.total_cmp(&b.0));
         stands.into_iter().next().map_or(to, |(_, walker)| walker)
     }
+
+    /// Where a use of what stands at `at` (metres) is walked to and reached
+    /// from: a placeable with action points (`ObjectData::use_points`) at
+    /// the one nearest the player, as KOTOR walks a use to the point TSL's
+    /// `CSWSCreature::GetUseRange` takes (`CSWSPlaceable::GetNearestActionPoint`,
+    /// within 0.1 m when it is a safe place to stand) and `GetIsInUseRange`
+    /// measures to (`sim::world::uses::Target::aimed`); anything else at
+    /// `at`. TSL's medbay bin, walked to along the line from the player,
+    /// was made for beside the bed, where the dummy Exile lying on it held
+    /// the player 2.7 m off; its action point stands 2.2 m clear of him.
+    /// The points stand round the object where it stands, `at`, not where
+    /// its facts were placed: Dantooine's sensor made in play by the
+    /// kinrath cave's entry (`cont_sensor`) has its template's.
+    pub(super) fn use_point(me: [f32; 3], at: [f32; 3], facts: Option<&ObjectData>) -> [f32; 3] {
+        facts
+            .filter(|facts| facts.kind == ObjectKind::Placeable)
+            .and_then(|facts| {
+                let shift: [f32; 3] = std::array::from_fn(|axis| at[axis] - facts.position[axis]);
+                let from = std::array::from_fn(|axis| me[axis] - shift[axis]);
+                let point = facts.nearest_use_point(from)?;
+                Some(std::array::from_fn(|axis| point[axis] + shift[axis]))
+            })
+            .unwrap_or(at)
+    }
 }
 
 /// The instances tagged (or made from a template named) `tag`, by number:
@@ -1008,12 +1032,43 @@ pub(super) enum Condition {
     In(String),
     /// A companion (by NPC number) is available, or not.
     Npc(u8, bool),
+    /// A local of the object a tag names (`find`'s): a number (`boolean`
+    /// false) less than, equal to or greater than the value, as a script's
+    /// `GetLocalNumber` reads it (a byte, unsigned); or a boolean the value
+    /// (a truth: 0 or 1), as `GetLocalBoolean`'s raw bit is read true. An
+    /// object not there holds none (0, as a script reads one that is not).
+    Local {
+        tag: String,
+        nth: Option<usize>,
+        boolean: bool,
+        index: i32,
+        order: std::cmp::Ordering,
+        value: i32,
+    },
 }
 
 impl Condition {
-    /// Whether it holds now, the party in `module`.
-    pub(super) fn holds(&self, state: &sim::script::State, module: &str) -> bool {
+    /// Whether it holds now, the party in `module` (`here`'s).
+    pub(super) fn holds(&self, state: &sim::script::State, module: &str, here: &Here) -> bool {
         match self {
+            Condition::Local {
+                tag,
+                nth,
+                boolean,
+                index,
+                order,
+                value,
+            } => {
+                let read = find(here, tag, *nth)
+                    .and_then(|(index, _)| here.entity(index))
+                    .zip(here.snapshot.place.as_ref())
+                    .map_or(0, |(entity, place)| {
+                        let id = ObjectId(entity.id.0);
+                        sim::script::local(state, (&place.game, module), id, *boolean, *index)
+                    });
+                let read = if *boolean { i32::from(read != 0) } else { read };
+                read.cmp(value) == *order
+            }
             Condition::Global(name, value) => match sim::script::global(&state.booleans, name) {
                 Some(truth) => *truth == (*value != 0),
                 None => sim::script::global(&state.numbers, name).copied().unwrap_or(0) == *value,

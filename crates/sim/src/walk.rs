@@ -979,8 +979,8 @@ impl Walker {
 
     /// After a stall, a body standing in the way to the corner (`bodies`:
     /// the others' origins, units) is gone round: the walker makes for the
-    /// side of it a body fits on and the navigation mesh holds, the one
-    /// nearer the corner, and plans on from there. Not one at the walk's
+    /// side of it a body fits on and the navigation mesh holds (`beside`),
+    /// and plans on from there. Not one at the walk's
     /// goal (whom it follows or fights), nor again while it makes for a
     /// side of that body. The navigation mesh knows only the level; KOTOR's
     /// walkers step round a creature in their way.
@@ -995,7 +995,14 @@ impl Walker {
             return;
         }
         let dir = [way[0] / length, way[1] / length];
-        // The nearest body ahead, within a pass of the way.
+        // The nearest body ahead, within a pass of the way; or one it
+        // touches, slid along it past its middle (IT-31 on 301NAR's way out
+        // of Geeda's nook, met head-on and slid round into the pocket
+        // between it and a wall's end, already behind the stalled walk,
+        // which then made for a corner through the wall four times over)
+        // [verify in the exe: KOTOR's walker checks the line ahead for
+        // creatures, `NoCreaturesOnLine`, and goes round a blocker,
+        // `CAvoidCreature`, before it meets one; ours after a stall].
         let blocking = bodies
             .iter()
             .filter_map(|body| {
@@ -1003,7 +1010,8 @@ impl Walker {
                 let ahead = rel[0] * dir[0] + rel[1] * dir[1];
                 let side = rel[0] * dir[1] - rel[1] * dir[0];
                 let at_goal = math::flat_distance(*body, self.goal) < PASS;
-                (ahead > 0.0
+                let touching = math::flat_distance(*body, at) < PASS;
+                ((ahead > 0.0 || touching)
                     && ahead < (length + PASS).min(rules::walking::route::AHEAD_PASSES * PASS)
                     && side.abs() < PASS
                     && !at_goal)
@@ -1134,8 +1142,11 @@ impl Walker {
 /// of one at `at` making for `corner` that it goes round by: a spot a body
 /// fits on (`Level::fits`, standing on the mesh's floor there as KOTOR's
 /// walker holds it, `LIFT` over it) over the navigation mesh, clear of
-/// every body at `bodies`, beside the body across the way, the nearer the
-/// corner; the wider when a crowd takes both near ones. `None` when none
+/// every body at `bodies`, beside the body across the way, one the corner
+/// lies straight on from (`straight`) before one a wall stands between,
+/// then the nearer the corner; the wider when a crowd takes both near
+/// ones (the nearer of IT-31's two sides was the pocket the walk had slid
+/// into, round a wall's end from its corner). `None` when none
 /// is. Tested at the walker's own height, a floor a few millimetres
 /// higher beside it (Chuundar's wooden throne room) had put every side in
 /// the floor, and the player stood pressed into Freyyr for good.
@@ -1150,6 +1161,7 @@ fn beside(level: &Level, at: Vec3, corner: Vec3, body: Vec3, bodies: &[Vec3]) ->
     let length = math::flat_length([way[0], way[1], 0.0]).max(f32::EPSILON);
     let across = [-way[1] / length, way[0] / length];
     let flat_to = |p: Vec3| ((p[0] - corner[0]).powi(2) + (p[1] - corner[1]).powi(2)).sqrt();
+    let walled = |p: Vec3| !straight(level, p, corner);
     // A side clear of every body (in a crowd, a listener to Gorton Colu's
     // speech beside the one ahead): the nearer, else one wider.
     let clear = |p: &Vec3| {
@@ -1176,7 +1188,11 @@ fn beside(level: &Level, at: Vec3, corner: Vec3, body: Vec3, bodies: &[Vec3]) ->
                 }
             })
             .filter(|p| clear(p) && level.fits(*p))
-            .min_by(|a, b| flat_to(*a).total_cmp(&flat_to(*b)))
+            .min_by(|a, b| {
+                walled(*a)
+                    .cmp(&walled(*b))
+                    .then(flat_to(*a).total_cmp(&flat_to(*b)))
+            })
     })
 }
 
@@ -1468,9 +1484,6 @@ pub fn opening_none(state: ObjectState) -> ObjectState {
     }
 }
 
-/// `creaturespeed.2da`'s `NOMOVE` row, an immobile body's movement.
-const IMMOBILE: u8 = 1;
-
 /// A body's walk and run rates (m/s) on KOTOR's walker: a player's the
 /// table's `PLAYER` row (it has no template), a creature's its own row
 /// (`module::Body`); one read as nothing (a row the table lacks) that is
@@ -1483,7 +1496,7 @@ pub fn rates(
 ) -> Option<(f32, f32)> {
     match body {
         _ if player => table.player,
-        Some(body) if body.walk_mps > 0.0 || body.run_mps > 0.0 || body.movement == IMMOBILE => {
+        Some(body) if body.walk_mps > 0.0 || body.run_mps > 0.0 || body.immobile() => {
             Some((body.walk_mps, body.run_mps))
         }
         _ => table.default,

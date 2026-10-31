@@ -580,7 +580,7 @@ crates/sim/src/traps.rs RECOVER  # KOTOR's animation id
 crates/sim/src/traps.rs SET  # KOTOR's animation id
 crates/sim/src/visuals/mod.rs SEEN_MS  # transport: how long a fleeting visual waits for every view
 crates/sim/src/walk.rs CONTACT  # derived: two bodies' widths
-crates/sim/src/walk.rs IMMOBILE  # creaturespeed.2da row: NOMOVE
+crates/sim/src/module.rs NOMOVE  # creaturespeed.2da row: NOMOVE
 crates/sim/src/walk.rs PASS  # derived: a body's width and the passing room
 crates/sim/src/world.rs ARENA  # the placeholder world's wanderers (no module), a test bed
 crates/sim/src/world.rs BODY  # a bit flag on entity numbers

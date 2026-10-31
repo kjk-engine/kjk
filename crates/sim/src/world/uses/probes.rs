@@ -541,6 +541,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     ]);
     checks.push(("talk_across_height", across_height()));
     checks.push(("use_from_action_point", action_point()));
+    checks.push(("use_reached_at_action_point", reach_to_action_point()));
     checks.extend(crate::target::probes());
     checks
 }
@@ -582,12 +583,31 @@ fn across_height() -> Result<String, String> {
 /// from beside the force cage round her; the same container with no action
 /// point is not, its middle hidden by the wall.
 fn action_point() -> Result<String, String> {
+    used_by_its_action_point(BY_WALL, [1.5, 3.0], [-0.3, 3.0])
+}
+
+/// A container 3.5 m from the player, past a use's reach, its action point
+/// 1 m from the player: in reach measured to that point (`Target::aimed`,
+/// `ObjectData::use_distance`, as TSL's `CSWSCreature::GetIsInUseRange`
+/// measures to `GetUseRange`'s point), as Peragus's broken droid in the
+/// hangar is used from its action point 3 m from where it stands; the same
+/// container with no action point is not.
+fn reach_to_action_point() -> Result<String, String> {
+    used_by_its_action_point([-3.0, -1.5], [-3.0, 2.0], [-3.0, -0.5])
+}
+
+/// Whether a container placed at `placed`, opened by the player at `me`
+/// (the ground's own axes), may be used with its action point at `point`
+/// and not without one.
+fn used_by_its_action_point(
+    me: [f32; 2],
+    placed: [f32; 2],
+    point: [f32; 2],
+) -> Result<String, String> {
     let level = crate::determinism::proving_ground();
-    let me = floor_at(BY_WALL);
+    let (me, placed, point) = (floor_at(me), floor_at(placed), floor_at(point));
     let player = crate::motion::MotionState::standing(me.map(|v| v / collision::UNIT), 0.0);
-    let placed = floor_at([1.5, 3.0]);
-    let point = floor_at([-0.3, 3.0]);
-    let mut chest = crate::module::ObjectData::bare(ObjectKind::Placeable, "caged", placed);
+    let mut chest = crate::module::ObjectData::bare(ObjectKind::Placeable, "chest", placed);
     chest.container = true;
     let may = |facts: &crate::module::ObjectData| {
         let target = super::Target::new(HIDDEN, None, placed).aimed(

@@ -3,8 +3,13 @@
 # Exile brings the Handmaiden ashore (with Kreia), Vogga's Twi'lek domo on
 # the Promenade takes her as his dancer, the dance puts Vogga to sleep, and
 # woken, he agrees to ship fuel to Telos once Goto is dealt with (the
-# Exchange +1). Juma juice for the kath hounds and his hoard need stealth
-# (the flophouse's thieves overheard), which the chain's Exile has not.
+# Exchange +1). Before the dance, the flophouse's thieves overheard in
+# stealth (the Stealth Field Generator from Peragus worn; k_chkvoggathv
+# plays their talk only for a party member IsStealthed, the party left
+# standing back): juma juice for the kath hounds, haggled from the
+# Promenade's bartender ([Persuade], 50 credits), poured in their urn while
+# the dance has Vogga asleep, the hounds asleep and his hoard opened (the
+# security door and the lens fixture's box picked, Security).
 # Starts from the Refugee Sector's checkpoint:
 #   kjk playthrough tsl @nar_shaddaa_refugees data/routes/tsl/nar_shaddaa_vogga.route --god
 # Walkthrough: DSimpson's "Vogga the Hutt" and GameBanshee's Entertainment
@@ -24,18 +29,48 @@ module 003ebo
 party 4,6            # the Handmaiden and Kreia
 to tr_leave
 module 301nar
+exit TO_303NAR       # the flophouse, its west block: the thieves' room
+module 303nar
+to NarShaddaaDoor01@7
+solo on              # the party left standing back, out of their trigger
+skill stealth=1      # a stand-in: stealth mode needs base Stealth ranks
+                     # besides the unit worn (both games' executables), and
+                     # exile.build spends none on Stealth (SKIPPED.md)
+stealth on
+to SneakVoggaThieves # overheard: the kath hounds sleep on juma juice
+talk
+stealth off
+solo off
+exit TO_301NAR
+module 301nar
 exit TO_306          # the Entertainment Promenade
 module 306nar
+say Actually, I'm looking for enough juma juice # the bartender: a
+say [Persuade] A hundred credits is a lot for a flask # hundred haggled
+say That's more like it. Here's the credits. # down to fifty
+use Bartender
+talk
 say What's going on here? # Vogga's domo: his dancer gone, the Handmaiden
 say What sort of arrangement? # offered and willing
 say What about the Handmaiden?
 say You're willing to do this?
 say In that case, thank you.
+gather               # the Handmaiden beside the Exile: the domo offers the
+                     # dance only then (c_con_handmaidpm)
 to tr_domoconv
 talk
 module 303nar        # to Vogga's room: the dance, Vogga asleep
 talk
 until 303NAR_Vogga_Asleep=1
+say Pour in juma juice. # the hounds' urn while Vogga sleeps: they drink
+use WaternUrn        # and sleep
+talk
+until 303NAR_Kath_Asleep=1
+unlock NarShaddaaDoor01@16 # the hoard's security door (DC 28)
+use g_tresmilhig006  # the hoard's boxes (by template: the area has others
+use g_tresmillow006@5 # so tagged), the lens fixture's last (DC 18, behind
+unlock MilMidMetalBox # the low one)
+use MilMidMetalBox
 say Please wake him for me. # Vogga woken: the Exchange, Goto, and fuel
 say I wanted to know about the Exchange. # for Telos once Goto is dealt
 say What has Goto done to you? # with

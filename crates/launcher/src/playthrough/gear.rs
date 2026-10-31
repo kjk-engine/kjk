@@ -143,6 +143,65 @@ pub(super) fn purchase(snapshot: &Snapshot, template: &str) -> Result<Option<Act
         })
 }
 
+/// One of `template` made at the bench `bench` shows (a workbench, or the
+/// lab station), as its creation screen's Create button sends it: the
+/// first row of its table that makes it; why not, with none listing it.
+pub(super) fn creation(world: &sim::SimWorld, bench: &sim::notice::Bench, template: &str) -> Result<Action, String> {
+    let table = world
+        .level()
+        .scripts()
+        .and_then(|library| library.workshop().table(&bench.list))
+        .ok_or(format!("craft: no table {}", bench.list))?;
+    let row = table
+        .iter()
+        .position(|recipe| recipe.template.eq_ignore_ascii_case(template))
+        .ok_or(format!("craft: {} does not make {template}", bench.list))?;
+    Ok(Action::Create {
+        bench: sim::action::Workbench {
+            list: bench.list.clone(),
+            lab: bench.lab,
+            maker: bench.maker,
+        },
+        row: u16::try_from(row).map_err(|_| format!("craft: row {row}"))?,
+    })
+}
+
+/// The item a route's `fit` names (`named_item`'s word), the player's worn
+/// one before one the party carries, and whether `upgrade` is fitted in it
+/// yet.
+pub(super) fn fitted(world: &sim::SimWorld, snapshot: &Snapshot, named: &str, upgrade: &str) -> Option<(u32, bool)> {
+    let me = crate::cast::me(snapshot, Seat(0))?;
+    let named = named_item(world, snapshot, named)?;
+    let items = &world.script_state().items;
+    items
+        .iter()
+        .filter(|(_, item)| item.template.eq_ignore_ascii_case(&named))
+        .filter(|(_, item)| item.holder == me.0 || item.holder == sim::inventory::PARTY && item.slot.is_none())
+        .min_by_key(|(id, item)| (item.holder != me.0, **id))
+        .map(|(id, item)| {
+            let fitted = item.fitted.iter().any(|part| part.eq_ignore_ascii_case(upgrade));
+            (*id, fitted)
+        })
+}
+
+/// `upgrade` (a template the party carries) fitted into `item`, as the
+/// upgrade screen's Assemble sends one change; why not, with none carried.
+pub(super) fn fitting(world: &sim::SimWorld, item: u32, upgrade: &str) -> Result<Action, String> {
+    world
+        .script_state()
+        .items
+        .iter()
+        .find(|(_, part)| {
+            part.holder == sim::inventory::PARTY && part.slot.is_none() && part.template.eq_ignore_ascii_case(upgrade)
+        })
+        .map(|(part, _)| Action::Fit {
+            item,
+            upgrade: *part,
+            replace: None,
+        })
+        .ok_or(format!("fit: the party carries no {upgrade}"))
+}
+
 /// What the party carries, what the player wears (slot: template) and how
 /// hale the player and its companions are (HP of the most), at the end of
 /// the run: a chain's party worn down route by route shows here.
@@ -173,7 +232,11 @@ pub(super) fn goods(world: &sim::SimWorld, snapshot: &Snapshot) -> serde_json::V
     let worn: Vec<String> = items
         .values()
         .filter(|item| Some(item.holder) == me)
-        .filter_map(|item| item.slot.map(|slot| format!("{slot}: {}", item.template)))
+        .filter_map(|item| {
+            let fitted: Vec<&str> = item.fitted.iter().filter(|part| !part.is_empty()).map(String::as_str).collect();
+            let fitted = if fitted.is_empty() { String::new() } else { format!(" [{}]", fitted.join(", ")) };
+            item.slot.map(|slot| format!("{slot}: {}{fitted}", item.template))
+        })
         .collect();
     json!({
         "gold": world.script_state().gold,
