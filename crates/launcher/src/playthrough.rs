@@ -1964,7 +1964,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 })
                             };
                             let foe = chase.pick(hostiles(&here, &world, me.position, reach_m), |foe| {
-                                !in_way_out(foe.1) && reach.gettable(&here, &player, me.position, *foe, now)
+                                !in_way_out(foe.1)
+                                    && !chase.given_up(&here, &player, foe.0)
+                                    && reach.gettable(&here, &player, me.position, *foe, now)
                             });
                             // A medpac below a third of its health, pressed
                             // and let go.
@@ -2287,10 +2289,11 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                             if t.id == me.id { BLOCKER_M } else { FIGHT_NEAR_M };
                                         flat(t.position, *at) <= reach
                                     });
-                            (set_on(*id)
-                                && engaged
-                                && (near || reach.ways(&here, &player, (*id, *at), now).1))
-                                || near && walker.as_ref().is_some_and(|w| w.stalls > 2)
+                            !back.given_up(&here, &player, *id)
+                                && ((set_on(*id)
+                                    && engaged
+                                    && (near || reach.ways(&here, &player, (*id, *at), now).1))
+                                    || near && walker.as_ref().is_some_and(|w| w.stalls > 2))
                         }));
                     // A door or placeable a script's attack has the player
                     // strike (`SimWorld::assigned_strike`): the sim strikes

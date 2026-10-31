@@ -103,6 +103,17 @@ impl Chase {
         kept.or_else(|| foes.into_iter().find(fits))
     }
 
+    /// Whether foe `id` is given up: the walk to it stalled on and on
+    /// (`lost`) and the player does not see it, as a player leaves a beast
+    /// that wandered into scenery the floor runs on under (KOTOR's walker
+    /// passes through what is drawn) and stands hidden there, not fighting:
+    /// no gun reaches it either. Seen again, it is fought again. (Dxun's
+    /// turret ramp, 410DXN: a boma, wandering, stood inside a drawn rock
+    /// past a wall; the walk to it stalled for 90 s.)
+    pub(super) fn given_up(&self, here: &Here, player: &sim::motion::MotionState, id: sim::SimId) -> bool {
+        self.lost == Some(id) && !here.sees(player, id)
+    }
+
     /// This step's command against foe `id` at `at`, walked by `walker`,
     /// and whether it walks (not at hand); weapons changed go into `acts`.
     #[allow(clippy::too_many_arguments)]

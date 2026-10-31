@@ -125,12 +125,73 @@ pub fn probes() -> sim::probe::Checks {
         })
         .chain(replans(&chase_once))
         .chain(hovering(&world, &base))
+        .chain(gives_up(&base))
         .chain(loots())
         .chain(picks_remains())
         .chain(picks())
         .chain(walks_for())
         .chain(shut_doors(&base, &level))
         .collect()
+}
+
+/// A foe the walk to stalled on and on (`Chase::lost`) is given up while the
+/// player does not see it (`Chase::given_up`): on the proving ground, the
+/// player 3 m west of the wall across, the foe 3 m east of it, hidden; the
+/// same foe 2 m west of the player, seen, is not; nor a hidden one not lost.
+/// (Dxun's turret ramp: a boma wandered into a drawn rock past a wall, where
+/// the floor runs on under it, and the fight walked at it for 90 s.)
+pub(super) fn gives_up(base: &Snapshot) -> sim::probe::Checks {
+    let level = sim::determinism::proving_ground();
+    let origin = |x: f32| {
+        let [x, y, z] = sim::determinism::ground_point(x, 2.0, 0.0);
+        [x / UNIT, y / UNIT, z / UNIT - sim::motion::SOLE_Z]
+    };
+    let Some(me) = base
+        .entities
+        .iter()
+        .find(|e| e.kind == sim::Kind::Avatar(Seat(0)))
+        .copied()
+    else {
+        return vec![("chase_gives_up_a_hidden_lost_foe", Err("no player on the arena".into()))];
+    };
+    let Some(player) = me.player else {
+        return vec![("chase_gives_up_a_hidden_lost_foe", Err("the player has no body".into()))];
+    };
+    let standing = |at: [f32; 3]| sim::motion::MotionState { origin: at, ..player };
+    let player = standing(origin(-3.0));
+    let foe_id = sim::SimId(u32::MAX - 1);
+    let given_up = |foe_x: f32, lost: bool| {
+        let at = origin(foe_x);
+        let mut snapshot = base.clone();
+        snapshot.entities.retain(|e| e.id != me.id);
+        snapshot.entities.push(sim::EntityState {
+            position: player.origin.map(|v| v * UNIT),
+            player: Some(player),
+            ..me
+        });
+        snapshot.entities.push(sim::EntityState {
+            id: foe_id,
+            kind: sim::Kind::Object(ObjectKind::Creature, 0),
+            position: at.map(|v| v * UNIT),
+            player: Some(standing(at)),
+            ..me
+        });
+        let refused = BTreeSet::new();
+        let here = Here::new(&level, &snapshot, &refused);
+        let chase = Chase {
+            lost: lost.then_some(foe_id),
+            ..Chase::default()
+        };
+        chase.given_up(&here, &player, foe_id)
+    };
+    let (hidden, seen, not_lost) = (given_up(3.0, true), given_up(-5.0, true), given_up(3.0, false));
+    vec![(
+        "chase_gives_up_a_hidden_lost_foe",
+        sim::probe::check(
+            hidden && !seen && !not_lost,
+            format!("lost behind the wall: given up {hidden}; lost in sight: {seen}; behind the wall, not lost: {not_lost}"),
+        ),
+    )]
 }
 
 /// A gun's chase at a body met where its model is drawn: TSL's sensor ball
