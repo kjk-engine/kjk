@@ -25,14 +25,14 @@
 
 use bevy::prelude::*;
 use sim::combat::Sheet;
-use sim::inventory::{Catalog, Goods, Item, PARTY, has_upgrade};
+use sim::inventory::{Catalog, Goods, Item, ItemFacts, PARTY, has_upgrade};
 use ui::assets::{GuiAssets, ItemLook};
 use ui::draw::Textures as _;
 use ui::intent::CharacterDesc;
 use ui::skin::Source;
 use ui::vm::{
     AutoLevelView, CharacterView, ChargenView, ClassView, Entry, ItemKind, MemberView, NameTables,
-    Owned, PicksView, PortraitView, UpgradeChoice, UpgradeItem, UpgradeSlot,
+    Owned, PicksView, PortraitView, Preview, UpgradeChoice, UpgradeItem, UpgradeSlot,
 };
 
 use crate::rulebook_text;
@@ -255,11 +255,35 @@ fn known(rows: impl Fn(u16) -> bool, limit: u16) -> impl Iterator<Item = usize> 
 
 /// What an item `look` says of itself: TSL's "Cannot Equip: Bao-Dur" lines
 /// first once he has been met (`bao_dur_met`, `sim::cannot_equip`), then
-/// its own description, then the rulebook's lines for it
-/// (`rulebook_text`).
-pub(crate) fn described(assets: &mut GuiAssets, look: &ItemLook, bao_dur_met: bool) -> Vec<u8> {
+/// its stats in force (`ItemLook::in_force`: with `item`'s upgrades fitted,
+/// K1's by its bits, TSL's by the upgrade items in its slots, whose own
+/// stats follow), then its own description, then the rulebook's lines for
+/// it (`rulebook_text`).
+pub(crate) fn described(
+    assets: &mut GuiAssets,
+    look: &ItemLook,
+    item: Option<&Item>,
+    bao_dur_met: bool,
+) -> Vec<u8> {
     let line = |strref| assets.text(Source::Campaign, strref).unwrap_or(Vec::new());
     let mut text = sim::cannot_equip::lines(look.base_item, bao_dur_met, line);
+    let fitted: Vec<ItemLook> = item
+        .into_iter()
+        .flat_map(|item| &item.fitted)
+        .filter(|template| !template.is_empty())
+        .filter_map(|template| assets.item(template))
+        .collect();
+    let stats: Vec<&[u8]> = look
+        .in_force(item.map_or(0, |item| item.upgrades))
+        .chain(fitted.iter().flat_map(|upgrade| upgrade.in_force(0)))
+        .collect();
+    for stat in &stats {
+        text.extend_from_slice(stat);
+        text.push(b'\n');
+    }
+    if !stats.is_empty() {
+        text.push(b'\n');
+    }
     text.extend_from_slice(&look.description);
     let tags = rulebook_text::item_tags(assets, look);
     text.extend(rulebook_text::told(&tags));
@@ -270,14 +294,15 @@ pub(crate) fn described(assets: &mut GuiAssets, look: &ItemLook, bao_dur_met: bo
 /// out), with the slots it may be worn in; `bao_dur_met` as `described`.
 pub(crate) fn owned(assets: &mut GuiAssets, id: u32, item: &Item, bao_dur_met: bool) -> Owned {
     let look = assets.item(&item.template);
-    let description = look
-        .as_ref()
-        .map_or(Vec::new(), |look| described(assets, look, bao_dur_met));
+    let description = look.as_ref().map_or(Vec::new(), |look| {
+        described(assets, look, Some(item), bao_dur_met)
+    });
     Owned {
         item: id,
         slots: look.as_ref().map_or(0, |look| look.slots),
         usable: false,
         unpaired: [false; 2],
+        previews: Vec::new(),
         entry: Entry {
             name: look.as_ref().map_or_else(
                 || item.template.as_bytes().to_vec(),
@@ -310,12 +335,83 @@ fn paired_as(assets: &mut GuiAssets, row: u16) -> Option<sim::combat::sheet::Wea
     })
 }
 
+/// The damage hand `hand`'s weapon deals on `sheet`, as the equip page
+/// shows it ("2-16"); empty for an empty hand.
+fn damage(sheet: &Sheet, hand: usize) -> String {
+    sheet.weapons[hand]
+        .as_ref()
+        .map_or(String::new(), |weapon| {
+            let low = i32::from(weapon.dice) + i32::from(weapon.damage_bonus);
+            let high =
+                i32::from(weapon.dice) * i32::from(weapon.die) + i32::from(weapon.damage_bonus);
+            format!("{low}-{high}")
+        })
+}
+
+/// Hand `hand`'s attack modifier on `sheet`, as the equip page shows it.
+fn attack(sheet: &Sheet, hand: usize) -> i32 {
+    i32::from(sheet.bab)
+        + i32::from(sheet.attack)
+        + sheet.weapons[hand]
+            .as_ref()
+            .map_or(0, |weapon| i32::from(weapon.attack_bonus))
+        + sim::combat::passive::hand_attack(sheet, hand as u8)
+}
+
+/// The slots the equip page previews an item in: the hands and the body.
+const PREVIEWED: [u8; 3] = [
+    sim::inventory::slots::RIGHT_WEAPON,
+    sim::inventory::slots::LEFT_WEAPON,
+    sim::inventory::slots::BODY,
+];
+
+/// `me`'s numbers on `sheet` were `item` put on in each previewed slot it
+/// may go in, as the sim dresses a sheet (`inventory::rewear`, each item's
+/// facts with its upgrades fitted).
+fn previews(sheet: &Sheet, goods: &Goods, me: u32, item: &Item, catalog: &Catalog) -> Vec<Preview> {
+    let facts = |item: &Item| {
+        catalog
+            .get(&item.template)
+            .map(|facts| facts.fitted(item.upgrades, &item.fitted, catalog))
+    };
+    let Some(candidate) = facts(item) else {
+        return Vec::new();
+    };
+    let worn: Vec<(u8, ItemFacts)> = goods
+        .items
+        .iter()
+        .map(|(_, held)| held)
+        .filter(|held| held.holder == me)
+        .filter_map(|held| Some((held.slot?, facts(held)?)))
+        .collect();
+    let before: Vec<(u8, &ItemFacts)> = worn.iter().map(|(slot, facts)| (*slot, facts)).collect();
+    PREVIEWED
+        .into_iter()
+        .filter(|slot| candidate.slots & 1 << slot != 0)
+        .map(|slot| {
+            let after: Vec<(u8, &ItemFacts)> = before
+                .iter()
+                .copied()
+                .filter(|(at, _)| *at != slot)
+                .chain([(slot, &candidate)])
+                .collect();
+            let dressed = sim::inventory::rewear(sheet.clone(), &before, &after);
+            Preview {
+                slot,
+                attack: [0, 1].map(|hand| attack(&dressed, hand)),
+                damage: [0, 1].map(|hand| damage(&dressed, hand)),
+                defence: dressed.defence(),
+            }
+        })
+        .collect()
+}
+
 fn view(
     assets: &mut GuiAssets,
     sheet: &Sheet,
     (hp, fp): (i32, i32),
     goods: &Goods,
-    (me, bao_dur_met): (u32, bool),
+    (me, bao_dur_met, catalog): (u32, bool, Option<&Catalog>),
 ) -> CharacterView {
     let saves = [0, 1, 2].map(|index| sheet.save(index));
     let weapon = |assets: &mut GuiAssets, hand: usize| {
@@ -333,24 +429,6 @@ fn view(
             description: Vec::new(),
             kind: Some(ItemKind::Weapon),
         })
-    };
-    let damage = |hand: usize| {
-        sheet.weapons[hand]
-            .as_ref()
-            .map_or(String::new(), |weapon| {
-                let low = i32::from(weapon.dice) + i32::from(weapon.damage_bonus);
-                let high =
-                    i32::from(weapon.dice) * i32::from(weapon.die) + i32::from(weapon.damage_bonus);
-                format!("{low}-{high}")
-            })
-    };
-    let attack = |hand: usize| {
-        i32::from(sheet.bab)
-            + i32::from(sheet.attack)
-            + sheet.weapons[hand]
-                .as_ref()
-                .map_or(0, |weapon| i32::from(weapon.attack_bonus))
-            + sim::combat::passive::hand_attack(sheet, hand as u8)
     };
     let skills = (0..sheet.skills.len())
         .map(|row| Entry {
@@ -381,6 +459,9 @@ fn view(
         .map(|(id, item)| {
             let off = weapon_of(assets, item);
             Owned {
+                previews: catalog.map_or(Vec::new(), |catalog| {
+                    previews(sheet, goods, me, item, catalog)
+                }),
                 unpaired: mains.map(|main| {
                     !main
                         .zip(off)
@@ -410,8 +491,8 @@ fn view(
         saves,
         alignment: sheet.good_evil,
         weapons: [weapon(assets, 0), weapon(assets, 1)],
-        damage: [damage(0), damage(1)],
-        attack: [attack(0), attack(1)],
+        damage: [0, 1].map(|hand| damage(sheet, hand)),
+        attack: [0, 1].map(|hand| attack(sheet, hand)),
         skills,
         powers,
         feats,
@@ -812,7 +893,7 @@ fn show(
             &sim::combat::effects::sheet_now(member.sheet, &member.fighter, snapshot.time_ms),
             (member.fighter.hp, member.fighter.fp),
             &snapshot.goods,
-            (member.id, bao_dur_met),
+            (member.id, bao_dur_met, catalog),
         )
     });
     let library = swap.as_ref().and_then(|swap| swap.level.scripts().cloned());

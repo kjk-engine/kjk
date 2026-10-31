@@ -247,17 +247,17 @@ pub fn block_bottom(gui: &Gui) -> i32 {
         .unwrap_or(0)
 }
 
-/// `gui`'s frame for a window of `window` pixels, drawn at the layout's own
-/// size (`draw::fit`): the window itself, or, in a window smaller than
-/// the layout, the window's shape (`shaped`).
+/// `gui`'s frame for a window of `window` pixels, drawn at the window's
+/// scale (`draw::fit`): the window in layout pixels, or, in a window too
+/// small for the layout at that scale, the window's shape (`shaped`).
 pub fn fitted(gui: &Gui, window: (f32, f32)) -> (i32, i32) {
     let (width, height) = gui.frame();
-    let (scale, _) = crate::draw::fit(window, (width as f32, height as f32));
-    if scale < 1.0 {
+    let scale = crate::draw::scale(window);
+    let (wide, tall) = (window.0 / scale, window.1 / scale);
+    if wide < width as f32 || tall < height as f32 {
         return shaped(gui, window);
     }
-    // Whole pixels no larger than the window, so it is drawn unscaled.
-    (window.0.floor() as i32, window.1.floor() as i32)
+    (wide.floor() as i32, tall.floor() as i32)
 }
 
 /// `gui`'s frame for a window of `window` pixels, stretched to fill it

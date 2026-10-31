@@ -20,6 +20,8 @@ pub trait Page: Send + Sync {
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState;
     fn press(&mut self, _tag: &str, _vm: &ViewModel, _out: &mut Vec<Intent>) {}
     fn row(&mut self, _list: &str, _index: usize, _vm: &ViewModel) {}
+    /// A list's cursor moved to `index` (`Screen::pointed`).
+    fn pointed(&mut self, _list: &str, _index: usize, _vm: &ViewModel) {}
     /// A double click on `tag` (the row or button the first click chose).
     fn double(&mut self, _tag: &str, _vm: &ViewModel, _out: &mut Vec<Intent>) {}
     /// The button a double click on a row of `list` presses
@@ -77,6 +79,10 @@ impl<P: Page> Screen for Tab<P> {
 
     fn row(&mut self, list: &str, index: usize, vm: &ViewModel, _out: &mut Vec<Intent>) {
         self.page.row(list, index, vm);
+    }
+
+    fn pointed(&mut self, list: &str, index: usize, vm: &ViewModel) {
+        self.page.pointed(list, index, vm);
     }
 
     fn double(&mut self, tag: &str, vm: &ViewModel, out: &mut Vec<Intent>) {
