@@ -983,9 +983,7 @@ impl Walker {
     /// and plans on from there. Not one at the walk's
     /// goal (whom it follows or fights), nor again while it makes for a
     /// side of that body. The navigation mesh knows only the level; KOTOR's
-    /// walkers step round a creature in their way. With no body in the way
-    /// and its corner not straight on, it steps across its way to where it
-    /// is.
+    /// walkers step round a creature in their way.
     pub fn around(&mut self, level: &Level, player: &MotionState, bodies: &[Vec3]) {
         let Some(corner) = self.waypoint.filter(|_| self.stalls > 0) else {
             return;
@@ -1021,24 +1019,11 @@ impl Walker {
             })
             .min_by(|a, b| a.0.total_cmp(&b.0));
         // Not while already making for a side of one.
-        if self.rounding {
+        let Some((_, body)) = blocking.filter(|_| !self.rounding) else {
             return;
-        }
-        let side = match blocking {
-            Some((_, body)) => beside(level, at, corner, body, bodies, &|_| true),
-            // No body in the way, but a solid the navigation mesh does not
-            // know between it and its corner (a lamp post of 301NAR's landing
-            // pad, its corner just behind): it steps across its way to a
-            // spot it walks to straight and the corner lies straight on
-            // from, as round a body. Its sidesteps, right and left by turns,
-            // were each walked back into the post's corner.
-            None if !straight(level, at, corner) => beside(level, at, corner, at, bodies, &|p| {
-                straight(level, at, p) && straight(level, p, corner)
-            }),
-            None => None,
         };
-        if let Some(side) = side {
-            self.round(side);
+        if let Some(beside) = beside(level, at, corner, body, bodies) {
+            self.round(beside);
         }
     }
 
@@ -1144,7 +1129,7 @@ impl Walker {
             .filter(|_| !self.rounding)
             .unwrap_or(self.goal);
         let side = (!again && self.bumps < STUCK_STALLS)
-            .then(|| beside(level, player.origin, corner, at, bodies, &|_| true))
+            .then(|| beside(level, player.origin, corner, at, bodies))
             .flatten();
         match side {
             Some(side) => self.round(side),
@@ -1161,19 +1146,11 @@ impl Walker {
 /// corner lies straight on from (`straight`) before one a wall stands
 /// between, then the nearer the corner; the wider when a crowd takes both near
 /// ones (the nearer of IT-31's two sides was the pocket the walk had slid
-/// into, round a wall's end from its corner); only one `reach` allows.
-/// `None` when none
+/// into, round a wall's end from its corner). `None` when none
 /// is. Tested at the walker's own height, a floor a few millimetres
 /// higher beside it (Chuundar's wooden throne room) had put every side in
 /// the floor, and the player stood pressed into Freyyr for good.
-fn beside(
-    level: &Level,
-    at: Vec3,
-    corner: Vec3,
-    body: Vec3,
-    bodies: &[Vec3],
-    reach: &dyn Fn(Vec3) -> bool,
-) -> Option<Vec3> {
+fn beside(level: &Level, at: Vec3, corner: Vec3, body: Vec3, bodies: &[Vec3]) -> Option<Vec3> {
     // Across the way to the corner, or to the body when it stands on it.
     let way = [corner[0] - at[0], corner[1] - at[1]];
     let way = if math::flat_length([way[0], way[1], 0.0]) < 1.0 {
@@ -1210,7 +1187,7 @@ fn beside(
                     Some([p[0], p[1], floor / UNIT + LIFT - motion::SOLE_Z])
                 }
             })
-            .filter(|p| clear(p) && level.fits_put_down(*p) && reach(*p))
+            .filter(|p| clear(p) && level.fits_put_down(*p))
             .min_by(|a, b| {
                 walled(*a)
                     .cmp(&walled(*b))

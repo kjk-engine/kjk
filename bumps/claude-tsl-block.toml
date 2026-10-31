@@ -1,10 +1,7 @@
 # The sim's hash moves on purpose: a side a walker goes round a body by
 # fits with its box a little over the navigation mesh's floor
 # (`Level::fits_put_down`, `walking.walker.floor_give`), where the level's
-# floor rises a few millimetres under the body's edge (Dantooine's Khoonda
-# plaza, 9 mm higher there, left only the side behind a wall). And a stalled
-# walk with no body in its way whose corner is not straight on (a solid the
-# navigation mesh does not know: a lamp post on Nar Shaddaa's landing pad)
-# steps across its way to a spot the corner lies straight on from
-# (`Walker::around`).
-sim = "a side to go round a body by fits put down a little over the mesh's floor; a stalled walk steps round a solid the mesh does not know to where its corner lies straight on"
+# floor rises a few millimetres under the body's edge. Dantooine's Khoonda
+# plaza, 9 mm higher there, left only the side behind a wall, and the walk
+# went round a citizen standing on its corner one way and back for good.
+sim = "a side to go round a body by fits put down a little over the mesh's floor (floor give), not only at it"

@@ -118,10 +118,6 @@ const PROBES: &[Probe] = &[
         "side_fits_over_a_rising_corner",
         side_fits_over_a_rising_corner,
     ),
-    (
-        "steps_round_a_solid_off_the_mesh",
-        steps_round_a_solid_off_the_mesh,
-    ),
     ("gives_up_blocked", gives_up_blocked),
     ("bump_rules", bump_rules),
     ("pushes_idle_aside", pushes_idle_aside),
@@ -3764,47 +3760,6 @@ fn side_fits_over_a_rising_corner() -> Found {
     check(
         slight == (false, true) && onto == (false, false),
         format!("3 cm over the ramp's foot (fits, put down) {slight:?}; 20 cm over {onto:?}"),
-    )
-}
-
-/// A stalled walker with no body in its way whose corner a solid the
-/// navigation mesh does not know stands before (`Walker::around`): on the
-/// proving ground, west of the wall across, its corner east of the wall
-/// through the doorway's jamb; it steps across its way to a spot it walks
-/// to straight and the corner lies straight on from. One whose corner lies
-/// straight on keeps it. (A lamp post on 301NAR's landing pad held the walk
-/// to Duros at its corner, each sidestep walked back into it.)
-fn steps_round_a_solid_off_the_mesh() -> Found {
-    let level = crate::determinism::proving_ground();
-    let units = |x: f32, y: f32| {
-        let [x, y, z] = crate::determinism::ground_point(x, y, 0.0);
-        [
-            x / UNIT,
-            y / UNIT,
-            z / UNIT + rules::walking::walker::LIFT - crate::motion::SOLE_Z,
-        ]
-    };
-    let rounds = |from: [f32; 2], to: [f32; 2]| {
-        let me = crate::motion::MotionState::standing(units(from[0], from[1]), 0.0);
-        let corner = units(to[0], to[1]);
-        let mut walker = crate::walk::Walker::new(corner);
-        walker.waypoint = Some(corner);
-        walker.stalls = 1;
-        walker.around(&level, &me, &[]);
-        let side = walker.waypoint.filter(|_| walker.rounding);
-        let leads = side.is_some_and(|side| {
-            crate::walk::straight(&level, me.origin, side)
-                && crate::walk::straight(&level, side, corner)
-        });
-        (walker.rounding, leads)
-    };
-    let (jamb, open) = (
-        rounds([-1.0, 2.5], [1.0, 0.5]),
-        rounds([-2.0, -3.0], [-2.0, 3.0]),
-    );
-    check(
-        jamb == (true, true) && open == (false, false),
-        format!("past the jamb (round, leads on) {jamb:?}; straight on {open:?}"),
     )
 }
 
