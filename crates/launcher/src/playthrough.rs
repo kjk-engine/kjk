@@ -591,6 +591,8 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 // two that did not free it count as lost.
                 let mut unwedges = 0u8;
                 let mut taken = false;
+                // A container's opens asked this goal (`loot_step`).
+                let mut opens = 0u8;
                 let mut met = false;
                 let mut held = Vec::new();
                 // The goal's clock, held by progress only: foes losing hit
@@ -1803,17 +1805,12 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         } else if data.as_ref().is_some_and(|d| d.container) {
                                             // Opened by the player's use (its
                                             // `OnUsed` runs, locked or not) and
-                                            // emptied once it stands open to the
-                                            // player (`loot_step`).
-                                            let open = object_of(&here, index).tenants & 1 != 0;
-                                            match loot_step(taken, open, now, pressed_at) {
+                                            // emptied (`loot_step`).
+                                            let holds = holds_items(&here, world.script_state(), index);
+                                            match loot_step(holds, opens, now, pressed_at) {
                                                 Loot::Close => {
                                                     input.act(Seat(0), Action::Close(index));
                                                     met = true;
-                                                }
-                                                Loot::TakeAll => {
-                                                    input.act(Seat(0), Action::TakeAll(index));
-                                                    taken = true;
                                                 }
                                                 Loot::Open => {
                                                     input.act(
@@ -1823,7 +1820,16 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                                             verb: sim::action::Verb::Open,
                                                         },
                                                     );
+                                                    input.act(Seat(0), Action::TakeAll(index));
                                                     pressed_at = now.max(1);
+                                                    // An open refused from
+                                                    // here (out of sight)
+                                                    // walks to a stand it
+                                                    // sees it from, as a
+                                                    // press does (above).
+                                                    pressed_ever = true;
+                                                    opens = opens.saturating_add(1);
+                                                    taken = true;
                                                 }
                                                 Loot::Wait => {}
                                             }

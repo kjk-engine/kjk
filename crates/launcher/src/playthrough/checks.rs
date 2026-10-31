@@ -260,25 +260,27 @@ pub(super) fn hovering(world: &sim::SimWorld, base: &Snapshot) -> sim::probe::Ch
     ]
 }
 
-/// A container's use (`loot_step`): opened first, its take all only once it
-/// stands open to the player (not sent with an open the player's action
-/// has yet to carry out), closed once emptied; an open asked waits a
-/// press's time before it is asked again.
+/// A container's use (`loot_step`): opened and emptied first; closed once
+/// it holds nothing after an open (not at once: an open the player's action
+/// has yet to carry out refuses the take all sent with it); opened again a
+/// press's time on while it still holds something, and closed holding it
+/// after `LOOT_OPENS` opens.
 pub(super) fn loots() -> sim::probe::Checks {
     let press = 4 * PRESS_MS;
-    let cases: [(&'static str, bool, bool, u64, Loot); 5] = [
-        ("loot_opens_first", false, false, 0, Loot::Open),
-        ("loot_waits_for_the_open", false, false, press / 2, Loot::Wait),
-        ("loot_opens_again_after_a_press", false, false, press, Loot::Open),
-        ("loot_takes_all_once_open", false, true, press / 2, Loot::TakeAll),
-        ("loot_closes_once_taken", true, true, press / 2, Loot::Close),
+    let cases: [(&'static str, bool, u8, u64, Loot); 6] = [
+        ("loot_opens_first", true, 0, 0, Loot::Open),
+        ("loot_opens_an_empty_one_first", false, 0, 0, Loot::Open),
+        ("loot_waits_for_the_take_all", true, 1, press / 2, Loot::Wait),
+        ("loot_opens_again_while_it_holds", true, 1, press, Loot::Open),
+        ("loot_closes_once_empty", false, 1, press / 2, Loot::Close),
+        ("loot_closes_holding_after_its_opens", true, LOOT_OPENS, press, Loot::Close),
     ];
     cases
         .into_iter()
-        .map(|(name, taken, open, since, want)| {
-            let (pressed_at, now) = if since == 0 { (0, 1000) } else { (1000, 1000 + since) };
-            let got = loot_step(taken, open, now, pressed_at);
-            let detail = format!("taken {taken}, open {open}, {since} ms since the open: {got:?}");
+        .map(|(name, holds, opens, since, want)| {
+            let (pressed_at, now) = if opens == 0 { (0, 1000) } else { (1000, 1000 + since) };
+            let got = loot_step(holds, opens, now, pressed_at);
+            let detail = format!("holds {holds}, {opens} opens, {since} ms since the last: {got:?}");
             (name, if got == want { Ok(detail) } else { Err(detail) })
         })
         .collect()

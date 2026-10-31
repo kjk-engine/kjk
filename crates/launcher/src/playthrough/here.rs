@@ -631,33 +631,42 @@ pub(super) fn fell(here: &Here, fallen: &BTreeMap<u32, Fell>, tag: &str, nth: Op
 /// What a `use` of a container does this step (`loot_step`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Loot {
-    /// Opened by the player's use (its `OnUsed` runs, locked or not).
+    /// Opened by the player's use (its `OnUsed` runs, locked or not) and
+    /// emptied, as the screen's take all.
     Open,
-    /// Emptied, as the screen's take all.
-    TakeAll,
     /// Closed: the use is met.
     Close,
-    /// Its open asked, waited for.
+    /// Its open and take all asked, waited for.
     Wait,
 }
 
-/// The step of a container's use: emptied (`taken`) it is closed; standing
-/// open to the player (`open`) it is emptied; else opened, again once a
-/// press's time (`PRESS_MS` four times over, from `pressed_at`) is up. The
-/// take all waits for the open: a use the player's action carried out a
-/// moment later (a swing still ending after a fight: Peragus's dormitory
-/// refresher) refused the take all sent with it, and the use was met with
-/// the foreman's log still inside.
-pub(super) fn loot_step(taken: bool, open: bool, now: u64, pressed_at: u64) -> Loot {
-    if taken {
+/// The step of a container's use: opened and emptied, again each press's
+/// time (`PRESS_MS` four times over, from `pressed_at`) while it still
+/// `holds` something; closed once it holds nothing after an open, or after
+/// `LOOT_OPENS` opens left it holding what will not come out. Met as soon
+/// as the take all was sent, Peragus's dormitory refresher had its take
+/// all refused, and was met with the foreman's log still inside: its open
+/// was refused from where the fight left the player (the open asked again
+/// walks to a stand it is seen from).
+pub(super) fn loot_step(holds: bool, opens: u8, now: u64, pressed_at: u64) -> Loot {
+    let pressed = now >= pressed_at + 4 * PRESS_MS;
+    if opens > 0 && (!holds || (opens >= LOOT_OPENS && pressed)) {
         Loot::Close
-    } else if open {
-        Loot::TakeAll
-    } else if pressed_at == 0 || now >= pressed_at + 4 * PRESS_MS {
+    } else if opens == 0 || pressed {
         Loot::Open
     } else {
         Loot::Wait
     }
+}
+
+/// How many opens a container's use asks before it closes it holding what
+/// will not come out.
+pub(super) const LOOT_OPENS: u8 = 3;
+
+/// Whether the object numbered `index` holds an item (`state`'s items).
+pub(super) fn holds_items(here: &Here, state: &sim::script::State, index: u32) -> bool {
+    here.entity(index)
+        .is_some_and(|entity| state.items.values().any(|item| item.holder == entity.id.0))
 }
 
 /// Whether the trap a goal's tag names (`TAG@N`'s, else every one of that
