@@ -741,6 +741,15 @@ impl NavMesh {
         Ok(())
     }
 
+    /// Whether a straight leg from `from` to `to` (metres, `from` over a
+    /// face: `route`'s `locate`) keeps to the mesh as a route's legs do
+    /// (`cross`): over no hole, no edge without a portal, no floor a body
+    /// would step off or up from.
+    pub fn keeps_to(&self, from: Vec3, to: Vec3) -> bool {
+        self.locate(from, 1.0, 0.5)
+            .is_some_and(|face| self.cross(face, from, to).is_ok())
+    }
+
     /// The faces the leg from `p` (over `face`) toward `q` crosses before
     /// it ends or leaves the mesh (`cross`), in order.
     fn crossed(&self, face: u32, p: Vec3, q: Vec3) -> Vec<u32> {

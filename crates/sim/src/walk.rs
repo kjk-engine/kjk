@@ -542,20 +542,25 @@ pub fn frontier(
 
 /// How far (units) a corner a body does not fit at is moved to one it
 /// does, in rings of eight.
-const CLEAR_RINGS: [f32; 4] = rules::walking::searches::CLEAR_RINGS;
+const CLEAR_RINGS: [f32; 9] = rules::walking::searches::CLEAR_RINGS;
 
 /// `corner`, or, where a body standing there would be inside the level's
-/// solid (a pillar or pipe drawn over walkable floor, which KOTOR's walker
-/// passes through and move_body does not), the nearest spot within
-/// `CLEAR_RINGS` where it fits and the mesh goes on; else as it is.
-fn clear(level: &Level, corner: Vec3) -> Vec3 {
+/// solid (a pillar or pipe drawn over walkable floor, or the foot of a wall
+/// leaning out over it, which KOTOR's walker passes under and move_body
+/// does not), the nearest spot within `CLEAR_RINGS` where it fits and a
+/// straight leg over the mesh leads from the corner (not across a gap or
+/// a wall to the floor beyond); else as it is. Nar Shaddaa's landing pad
+/// (301NAR): the mesh runs on 1.3 m under a slanting wall west of the
+/// docks, and a corner there, stepped off the mesh's edge, held the walk
+/// west against a lamp post on the wall's foot.
+pub(crate) fn clear(level: &Level, corner: Vec3) -> Vec3 {
     if level.fits_level(corner) {
         return corner;
     }
     let on_mesh = |at: Vec3| {
         level
             .nav()
-            .is_some_and(|nav| face_under(nav, soles(at)).is_some())
+            .is_some_and(|nav| nav.keeps_to(soles(corner), soles(at)))
     };
     CLEAR_RINGS
         .iter()

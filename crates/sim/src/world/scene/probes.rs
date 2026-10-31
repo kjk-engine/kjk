@@ -118,6 +118,10 @@ const PROBES: &[Probe] = &[
         "side_fits_over_a_rising_corner",
         side_fits_over_a_rising_corner,
     ),
+    (
+        "corner_cleared_out_from_under_a_wall",
+        corner_cleared_out_from_under_a_wall,
+    ),
     ("gives_up_blocked", gives_up_blocked),
     ("bump_rules", bump_rules),
     ("pushes_idle_aside", pushes_idle_aside),
@@ -3733,6 +3737,45 @@ fn rounds_a_touched_body() -> Found {
     check(
         touched && !apart,
         format!("a body 0.6 m behind: gone round {touched}; 1.2 m behind: gone round {apart}"),
+    )
+}
+
+/// A route's corner a body does not fit at, more than the old reach (24
+/// units) from where it does, is moved there when the floor leads straight
+/// to it (`walk::clear`): on the proving ground, a mesh running on under
+/// the 56° wedge to past its 2.2 m end wall, a corner 0.3 m inside the wall
+/// moves out past it (0.68 m to the nearest fit); with the mesh cut by a
+/// gap just past the wall (the floor beyond another island), it stays.
+/// Nar Shaddaa's landing pad (301NAR): the floor runs 1.3 m under a
+/// slanting wall west of the docks, and the walk to Duros stood against a
+/// lamp post on the wall's foot, making for a corner under it.
+fn corner_cleared_out_from_under_a_wall() -> Found {
+    let level = crate::determinism::proving_ground();
+    let strip = |x0: f32, x1: f32| -> [[[f32; 3]; 3]; 2] {
+        let [a, b, c, d] = [[x0, 3.2], [x1, 3.2], [x1, 4.8], [x0, 4.8]]
+            .map(|[x, y]| crate::determinism::ground_point(x, y, 0.0));
+        [[a, b, c], [a, c, d]]
+    };
+    let cleared = |floor: &[[[f32; 3]; 3]]| {
+        let nav = collision::nav::NavMesh::build(floor, crate::walk::CLEARANCE * UNIT);
+        let level = level.clone().with_nav(nav);
+        let [x, y, z] = crate::determinism::ground_point(-6.3, 4.0, 0.0);
+        let corner = [x / UNIT, y / UNIT, z / UNIT - crate::motion::SOLE_Z];
+        let moved = crate::walk::clear(&level, corner);
+        let off = crate::math::flat_distance(moved, corner) * UNIT;
+        (level.fits_level(moved), off)
+    };
+    let whole: Vec<_> = strip(-7.5, -4.0).into_iter().collect();
+    let cut: Vec<_> = strip(-7.5, -6.05)
+        .into_iter()
+        .chain(strip(-5.95, -4.0))
+        .collect();
+    let ((fits, off), (cut_fits, cut_off)) = (cleared(&whole), cleared(&cut));
+    check(
+        fits && (0.6..=1.7).contains(&off) && !cut_fits && cut_off == 0.0,
+        format!(
+            "one floor on: fits {fits}, moved {off:.2} m; past a gap: fits {cut_fits}, moved {cut_off:.2} m"
+        ),
     )
 }
 

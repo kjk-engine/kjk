@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `304efe9a05b340dd`.
+Edition `d372d392afca0898`.
 
 ## Contents
 
@@ -8530,13 +8530,13 @@ The floor beyond a doorway is checked every 0.25 meters.
 
 <sub>Source: ours. Code: `sim::walk::outside`.</sub>
 
-<a id="walking-searches-clear-rings"></a>**Around a Pillar** = **0.15 meters / 0.3 meters / 0.46 meters / 0.61 meters** (`6 / 12 / 18 / 24 units`) · `walking.searches.clear_rings`
+<a id="walking-searches-clear-rings"></a>**Around a Pillar** = **0.15 meters / 0.3 meters / 0.46 meters / 0.61 meters / 0.81 meters / 1 meter / 1.2 meters / 1.4 meters / 1.6 meters** (`6 / 12 / 18 / 24 / 32 / 40 / 48 / 56 / 64 units`) · `walking.searches.clear_rings`
 
-first **0.15 meters** · second **0.3 meters** · third **0.46 meters** · fourth **0.61 meters**
+first **0.15 meters** · second **0.3 meters** · third **0.46 meters** · fourth **0.61 meters** · fifth **0.81 meters** · sixth **1 meter** · seventh **1.2 meters** · eighth **1.4 meters** · ninth **1.6 meters**
 
-A path corner a character does not fit at, such as a pillar or pipe, is moved to the nearest spot from 0.15 meters to 0.61 meters away, in eight directions, where it fits.
+A path corner a character does not fit at, such as a pillar, a pipe or the foot of a leaning wall, is moved to the nearest spot from 0.15 meters to 1.6 meters away, in eight directions, where it fits and the floor leads straight there.
 
-<sub>Source: ours. Code: `sim::walk::clear`.</sub>
+<sub>Source: ours (Nar Shaddaa's landing pad: the floor runs 1.3 m under a slanting wall). Code: `sim::walk::clear`.</sub>
 
 <a id="walking-searches-straight-step"></a>**Straight Path Check** = **0.61 meters** (`24 units`) · `walking.searches.straight_step`
 
