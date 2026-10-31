@@ -61,6 +61,8 @@ const GROUPS: &[Group] = &[
     ("regeneration", sim::regen_probes::probes),
     ("weapon sets", sim::weapon_set_probes::probes),
     ("aim", sim::aim_probes::probes),
+    ("bulks", sim::bulk_probes::probes),
+    ("bulks in the games", bulks),
     ("dual pistols", sim::pair_probes::probes),
     ("tsl effects", sim::effects_probes::probes),
     ("tsl force", sim::force_probes::probes),
@@ -116,6 +118,18 @@ fn on_installs(run: impl FnOnce(Installed, Installed) -> sim::probe::Checks) -> 
         found.as_ref().map(|source| source as _)
     }
     run(source(&k1), source(&tsl))
+}
+
+/// Bodies met where their models are drawn (`session::bulk_probes`), on
+/// K1's data where this machine has the install.
+fn bulks() -> sim::probe::Checks {
+    let resolver = kjk_game::k1_resolver();
+    let source = resolver.as_ref().map(crate::modules::ResolverSource);
+    session::bulk_probes(
+        source
+            .as_ref()
+            .map(|source| source as &dyn asset_odyssey::module::Source),
+    )
 }
 
 /// Creatures' speeds and head arc (`session::speed_probes`), with K1's own

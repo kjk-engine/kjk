@@ -86,6 +86,8 @@ struct Seen {
     stealth: Option<i16>,
     still: bool,
     size: u8,
+    /// Where its model is drawn, if JA does not pose it (`world::body`).
+    bulk: Option<crate::module::Bulk>,
     /// Its sheet as what runs on it changes it (a round's roll and damage
     /// are against it).
     sheet: crate::combat::Sheet,
@@ -96,6 +98,11 @@ struct Seen {
 }
 
 impl Seen {
+    /// What others aim at of it (`mind::chest_of`).
+    fn chest(&self) -> Vec3 {
+        mind::chest_of(&self.ps, self.bulk.as_ref())
+    }
+
     fn side(&self) -> crate::module::Side {
         crate::module::Side {
             id: self.id.0,
@@ -267,6 +274,7 @@ pub(super) fn think(
                 beast: object
                     .and_then(|object| object.facts.as_ref())
                     .is_some_and(|facts| facts.strike.is_some()),
+                bulk: super::object_bulk(object).copied(),
                 seat: avatar.map(|a| a.0),
                 party: super::in_party(avatar, &fighting.0),
                 target: fighting.0.target,
@@ -488,13 +496,13 @@ pub(super) fn think(
         // Star Forge freezer told to attack lost the player behind a
         // railing, stood idle, and the door it held stayed shut.
         let target = match known {
-            Some(entry) if !looking || intent.is_some() || visible(eye, mind::chest(&entry.ps)) => {
+            Some(entry) if !looking || intent.is_some() || visible(eye, entry.chest()) => {
                 Some(*entry)
             }
             _ if looking && own_choice => seen
                 .iter()
                 .filter(|entry| hostile(entry) && distance(&entry.ps) <= sight)
-                .filter(|entry| visible(eye, mind::chest(&entry.ps)))
+                .filter(|entry| visible(eye, entry.chest()))
                 .filter(|entry| spots(ps, senses, fighter.combat_until > now, entry))
                 .min_by(|a, b| distance(&a.ps).total_cmp(&distance(&b.ps)))
                 .copied(),
@@ -502,7 +510,7 @@ pub(super) fn think(
                 .iter()
                 .filter(|entry| hostile(entry) && distance(&entry.ps) <= sight)
                 .filter(|entry| in_fight(entry))
-                .filter(|entry| visible(eye, mind::chest(&entry.ps)))
+                .filter(|entry| visible(eye, entry.chest()))
                 .filter(|entry| spots(ps, senses, fighter.combat_until > now, entry))
                 .min_by(|a, b| distance(&a.ps).total_cmp(&distance(&b.ps)))
                 .copied(),
@@ -764,7 +772,7 @@ pub(super) fn think(
                     if weapon.delivery.ranged() {
                         decides = Some(entry);
                     } else if reach.is_some() {
-                        let aim = (entry.id, mind::chest(&entry.ps));
+                        let aim = (entry.id, entry.chest());
                         command = scene_attack(id.0, ps, aim, &[], None, now, clock.msec);
                     } else {
                         command.buttons &= !buttons::ATTACK;
@@ -861,11 +869,11 @@ pub(super) fn think(
                 .and_then(|strike| {
                     let target = SimId(strike.target.0);
                     match seen.binary_search_by_key(&target, |entry| entry.id) {
-                        Ok(at) => Some((target, mind::chest(&seen[at].ps))),
+                        Ok(at) => Some((target, seen[at].chest())),
                         Err(_) => object_aims.get(&target).map(|aim| (target, *aim)),
                     }
                 });
-            let decided = decided.or(decides.map(|entry| (entry.id, mind::chest(&entry.ps))));
+            let decided = decided.or(decides.map(|entry| (entry.id, entry.chest())));
             if let Some(target) = decided {
                 command = scene_attack(id.0, ps, target, strikes, Some(blaster), now, clock.msec);
                 fires_decided = true;
@@ -902,10 +910,10 @@ pub(super) fn think(
                         && items::use_of(row) == Some(items::Use::Grenade)
                         && fighter.pack.left_of(&me.items, row).is_some() =>
                 {
-                    let them = on.map(|at| &seen[at].ps);
-                    let far = them.map_or(0.0, distance);
+                    let them = on.map(|at| &seen[at]);
+                    let far = them.map_or(0.0, |them| distance(&them.ps));
                     let facing = them.is_some_and(|them| {
-                        let (_, yaw) = mind::aim(eye, mind::chest(them));
+                        let (_, yaw) = mind::aim(eye, them.chest());
                         mind::turn(yaw, ps.view[1]).abs() <= ai::THROW_FACING
                     });
                     if facing
@@ -1392,7 +1400,7 @@ fn shoot(
 ) -> Command {
     let thinking = (now + u64::from(me.0) * 53) % pace::THINK_MS < u64::from(msec);
     let eye = mind::eye(ps);
-    let chest = mind::chest(&target.ps);
+    let chest = target.chest();
     let apart = math::flat_distance(target.ps.origin, ps.origin);
     let mut dice = pace::Dice::new(now, me);
     let troop = &mut mind.troop;
@@ -1510,12 +1518,7 @@ fn spot_for(
                 .all(|other| math::flat_distance(*other, *at) > taken)
         })
         .collect();
-    let clear = |at: &Vec3| {
-        visible(
-            [at[0], at[1], at[2] + ps.eye_height],
-            mind::chest(&target.ps),
-        )
-    };
+    let clear = |at: &Vec3| visible([at[0], at[1], at[2] + ps.eye_height], target.chest());
     let covered = |at: &Vec3| !visible(mind::eye(&target.ps), *at);
     let routed = |at: &Vec3| crate::walk::route_ways(level, from, *at, doors).is_some();
     spots

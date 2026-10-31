@@ -19,7 +19,10 @@
 //!   own way (the cgame's look, a third change mid-blend); between it and
 //!   the drawn one, the retarget, the grip and the reach.
 //! - **Drawn**: the sim's blade green, JA's as the view poses it cyan, and a
-//!   yellow line from the drawn blade's tip to the sim's.
+//!   yellow line from the drawn blade's tip to the sim's; every living
+//!   body's box as shots, blades and uses meet it (`sim::body`: JA's box,
+//!   or where a beast's or droid's model is drawn), magenta, and beside a
+//!   model's the JA box it stands in for, grey.
 //! - **Measured**, per lit blade in hand and frame, for each pair: how far
 //!   apart the hilt ends and the tips are (units) and the angle between the
 //!   blades; gathered by what the torso plays into the dumps
@@ -461,6 +464,10 @@ pub fn show(
     mut commands: Commands,
     folder: Option<Res<RunFolder>>,
     mut opened: Local<bool>,
+    (presented, swap): (
+        Option<Res<crate::sim_host::PresentedSnapshot>>,
+        Option<Res<crate::sim_host::SceneSwap>>,
+    ),
 ) {
     let sim = &mut *sim;
     if !*opened {
@@ -493,6 +500,9 @@ pub fn show(
             "move": shown.saber_move,
             "blending": shown.blending,
         }));
+    }
+    if let (Some(presented), Some(swap)) = (presented, swap) {
+        bodies(&mut quads, eye, presented.0.current(), &swap.level);
     }
     let mesh = quads.mesh();
     match &sim.mesh {
@@ -543,6 +553,47 @@ pub fn show(
     );
 }
 
+/// Every living body of `snapshot` as the sim meets it, its box's edges.
+fn bodies(quads: &mut Quads, eye: Vec3, snapshot: &Snapshot, level: &sim::Level) {
+    let instances = Instances::in_snapshot(level, snapshot);
+    for entity in &snapshot.entities {
+        let (Some(player), Some(fighter)) = (entity.player, entity.fighter) else {
+            continue;
+        };
+        if !fighter.alive() {
+            continue;
+        }
+        let bulk = sim::bulk_of(instances.of_entity(entity));
+        edges(quads, eye, &sim::body(entity.id, &player, bulk), MAGENTA);
+        if bulk.is_some() {
+            edges(quads, eye, &sim::body(entity.id, &player, None), GREY);
+        }
+    }
+}
+
+/// `body`'s box's twelve edges: its corners one axis apart.
+fn edges(quads: &mut Quads, eye: Vec3, body: &collision::Body, colour: [f32; 4]) {
+    let corner = |i: usize| {
+        let pick = |axis: usize| {
+            if i >> axis & 1 == 0 {
+                body.min[axis]
+            } else {
+                body.max[axis]
+            }
+        };
+        game_to_bevy() * Vec3::new(pick(0), pick(1), pick(2))
+    };
+    for i in 0..8 {
+        for axis in 0..3 {
+            if i >> axis & 1 == 0 {
+                quads.line(eye, corner(i), corner(i | 1 << axis), 0.02, colour);
+            }
+        }
+    }
+}
+
+const MAGENTA: [f32; 4] = [1.0, 0.2, 0.9, 1.0];
+const GREY: [f32; 4] = [0.6, 0.6, 0.6, 1.0];
 const GREEN: [f32; 4] = [0.1, 1.0, 0.2, 1.0];
 const CYAN: [f32; 4] = [0.1, 0.9, 1.0, 1.0];
 const YELLOW: [f32; 4] = [1.0, 0.9, 0.1, 1.0];

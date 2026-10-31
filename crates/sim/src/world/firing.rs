@@ -55,14 +55,17 @@ pub(super) fn fire(
     );
     let targets = Targets::of(
         level.0.friendly_fire,
-        actors.iter().map(|(id, avatar, _, _, player, fighting)| {
-            (
-                id.0,
-                &player.0,
-                fighting.0.alive(),
-                in_party(avatar, &fighting.0),
-            )
-        }),
+        actors
+            .iter()
+            .map(|(id, avatar, object, _, player, fighting)| {
+                (
+                    id.0,
+                    &player.0,
+                    object_bulk(object),
+                    fighting.0.alive(),
+                    in_party(avatar, &fighting.0),
+                )
+            }),
     );
     // Each living character's side and place, for a squad stim's reach.
     let sides: Vec<(SimId, [f32; 3], bool, u8)> = actors
@@ -574,15 +577,17 @@ pub(super) struct Targets {
 }
 
 impl Targets {
-    /// From each actor's id, movement, life and party membership (the
-    /// players, until companions join, I27).
+    /// From each actor's id, movement, bulk (`world::body`), life and
+    /// party membership (the players, until companions join, I27).
     pub(super) fn of<'a>(
         friendly_fire: FriendlyFire,
-        actors: impl Iterator<Item = (SimId, &'a MotionState, bool, bool)>,
+        actors: impl Iterator<Item = (SimId, &'a MotionState, Option<&'a Bulk>, bool, bool)>,
     ) -> Targets {
         Targets::of_bodies(
             friendly_fire,
-            actors.map(|(id, player, alive, party)| (id, alive.then(|| body(id, player)), party)),
+            actors.map(|(id, player, bulk, alive, party)| {
+                (id, alive.then(|| body(id, player, bulk)), party)
+            }),
         )
     }
 

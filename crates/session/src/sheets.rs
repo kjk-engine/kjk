@@ -27,7 +27,7 @@ use sim::combat::damage::ROUND_MS;
 use sim::combat::sheet::{Guards, Rows, flags, races};
 use sim::inventory::{self, Held, ItemFacts, slots};
 use sim::module::{
-    Global, ModuleData, ObjectData, ObjectKind, Opens, Placement, Repute, Senses, Strike,
+    Bulk, Global, ModuleData, ObjectData, ObjectKind, Opens, Placement, Repute, Senses, Strike,
 };
 
 use crate::items;
@@ -38,6 +38,12 @@ pub(crate) fn cased(bytes: &[u8]) -> String {
     sim::module::cased(&String::from_utf8_lossy(bytes))
 }
 
+/// The clips a body stands in, each by its names (a creature model type's
+/// first, as the view looks them up): its idle and its ready stance.
+const STANDS: [&[&str]; 2] = [&["cpause1", "pause1"], &["creadyr"]];
+/// How many moments of each standing clip a body's bulk is taken at.
+const STAND_SAMPLES: usize = 8;
+
 /// The 2DAs sheets read, each parsed once per plan, the item templates
 /// read (`items::facts`) and the creature models' attacks (`attacks`).
 pub(crate) struct Tables<'a> {
@@ -46,6 +52,7 @@ pub(crate) struct Tables<'a> {
     pub items: BTreeMap<String, Option<ItemFacts>>,
     attacks: BTreeMap<String, Attacks>,
     rigs: BTreeMap<String, bool>,
+    bulks: BTreeMap<String, Option<Bulk>>,
 }
 
 /// A creature model's attacks (`Tables::attacks`).
@@ -63,7 +70,81 @@ impl<'a> Tables<'a> {
             items: BTreeMap::new(),
             attacks: BTreeMap::new(),
             rigs: BTreeMap::new(),
+            bulks: BTreeMap::new(),
         }
+    }
+
+    /// Model `name` as it is drawn standing (`sim::module::Bulk`): its
+    /// drawn meshes' box through its idle and its ready stance (`STANDS`,
+    /// its own clips or its supermodels'), sampled `STAND_SAMPLES` times
+    /// over each; its rest pose where it has neither (rest is a binding
+    /// pose: a rancor's arms out to 17 m, a probe droid's legs up over its
+    /// head). `None` for a humanoid, whose body JA's animations pose
+    /// (`asset_ja::rig::is_humanoid`), for a model that draws nothing and
+    /// for one that does not read.
+    pub(crate) fn bulk(&mut self, name: &str) -> Option<Bulk> {
+        if let Some(known) = self.bulks.get(name) {
+            return *known;
+        }
+        let bulk = self.standing(name, false).map(|b| Bulk {
+            min: [b[0], b[1], b[2]],
+            max: [b[3], b[4], b[5]],
+        });
+        self.bulks.insert(name.to_string(), bulk);
+        bulk
+    }
+
+    /// Model `name`'s drawn box standing (`bulk`); a humanoid's only when
+    /// `humanoids` asks for it (`kjk combat bodies`).
+    pub(crate) fn standing(&self, name: &str, humanoids: bool) -> Option<[f32; 6]> {
+        use asset_odyssey::anim::pose;
+        let body = self.model(name)?;
+        if !humanoids && asset_ja::rig::is_humanoid(&body) {
+            return None;
+        }
+        // The model, then its supermodels (a loop stops at eight).
+        let mut chain = vec![body];
+        while chain.len() < 8 {
+            let Some(next) = chain.last().and_then(|ir| ir.supermodel.clone()) else {
+                break;
+            };
+            let Some(ir) = self.model(&next.to_ascii_lowercase()) else {
+                break;
+            };
+            chain.push(ir);
+        }
+        let body = &chain[0];
+        let clips = STANDS.iter().filter_map(|names| {
+            names
+                .iter()
+                .find_map(|wanted| chain.iter().find_map(|ir| ir.animation(wanted)))
+        });
+        let mut bounds: Option<[f32; 6]> = None;
+        for clip in clips {
+            for sample in 0..STAND_SAMPLES {
+                let at = clip.length * sample as f32 / STAND_SAMPLES as f32;
+                let Some(b) = body.bounds(&pose(body, clip, body.animation_scale, at)) else {
+                    continue;
+                };
+                let all = bounds.get_or_insert(b);
+                for axis in 0..3 {
+                    all[axis] = all[axis].min(b[axis]);
+                    all[axis + 3] = all[axis + 3].max(b[axis + 3]);
+                }
+            }
+        }
+        bounds.or_else(|| body.rest_bounds())
+    }
+
+    /// Model `name` read whole (its MDX too).
+    pub(crate) fn model(&self, name: &str) -> Option<asset_odyssey::model::ModelIr> {
+        let mdl = self.source.read(name, ResType::MDL)?;
+        let mdx = self
+            .source
+            .read(name, ResType::MDX)
+            .unwrap_or_else(Vec::new);
+        let model = fmt_odyssey::mdl::Model::parse(&mdl, &mdx).ok()?;
+        Some(asset_odyssey::model::ModelIr::from_model(&model))
     }
 
     /// Model `name`'s attacks, its own or a supermodel's: when its melee
@@ -294,6 +375,7 @@ fn body(tables: &mut Tables, row: usize, bag: u8, walk_rate: Option<i64>) -> sim
             .float("appearance", row, column)
             .map(|seconds| (seconds.max(0.0) * 1000.0).round() as u32)
     };
+    let (destroy_ms, fade_ms) = (ms("destroyobjectdelay"), ms("fadedelayondeath"));
     sim::module::Body {
         appearance: row.min(usize::from(u16::MAX)) as u16,
         size,
@@ -302,9 +384,124 @@ fn body(tables: &mut Tables, row: usize, bag: u8, walk_rate: Option<i64>) -> sim
         run_mps,
         head_arc_h,
         bag,
-        destroy_ms: ms("destroyobjectdelay").unwrap_or(sim::remains::DESTROY_MS),
-        fade_ms: ms("fadedelayondeath"),
+        destroy_ms: destroy_ms.unwrap_or(sim::remains::DESTROY_MS),
+        fade_ms,
+        bulk: body_model(tables, row).and_then(|model| tables.bulk(&model)),
     }
+}
+
+/// One `appearance.2da` row for `kjk combat bodies`: its label, model
+/// type and body model, the box round that model standing (`Tables::bulk`;
+/// metres, its own space, soles at 0; `None` where it does not read or
+/// draws nothing), and
+/// the bulk shots and blades meet it by (`None`: a humanoid, JA's box).
+#[derive(Debug, Clone)]
+pub struct BulkRow {
+    pub row: usize,
+    pub label: String,
+    pub model_type: String,
+    pub model: Option<String>,
+    /// Its model has the humanoid skeleton JA's animations pose.
+    pub humanoid: bool,
+    pub drawn: Option<[f32; 6]>,
+    pub bulk: Option<Bulk>,
+}
+
+/// Every `appearance.2da` row of `source` as `BulkRow`s.
+pub fn bulk_census(source: &dyn Source) -> Vec<BulkRow> {
+    let mut tables = Tables::new(source);
+    let rows = tables
+        .table("appearance")
+        .map_or(0, |table| table.cells.len());
+    (0..rows)
+        .map(|row| {
+            let model = body_model(&mut tables, row);
+            let humanoid = (model.as_deref())
+                .and_then(|model| tables.model(model))
+                .is_some_and(|ir| asset_ja::rig::is_humanoid(&ir));
+            let drawn = model
+                .as_deref()
+                .and_then(|model| tables.standing(model, true));
+            BulkRow {
+                row,
+                label: tables
+                    .text("appearance", row, "label")
+                    .unwrap_or_else(String::new),
+                model_type: tables
+                    .text("appearance", row, "modeltype")
+                    .unwrap_or_else(String::new),
+                bulk: model.as_deref().and_then(|model| tables.bulk(model)),
+                model,
+                humanoid,
+                drawn,
+            }
+        })
+        .collect()
+}
+
+/// Bodies met where their models are drawn, on K1's own data (skipped
+/// without the install): the rancor (`appearance.2da` row 80) stands over
+/// 5 m and reaches past JA's box; the probe droid (row 62) floats over a
+/// metre up; a player body (row 137, `pmbam`) is posed by JA's animations
+/// and has none; every row whose model is not a humanoid's and draws has
+/// one.
+pub fn bulk_probes(k1: Option<&dyn Source>) -> Vec<(&'static str, Result<String, String>)> {
+    let Some(k1) = k1 else {
+        return vec![(
+            "k1_bulks",
+            Ok("skipped: no K1 install (set KJK_KOTOR1 in .env)".into()),
+        )];
+    };
+    let check = |ok: bool, detail: String| if ok { Ok(detail) } else { Err(detail) };
+    let rows = bulk_census(k1);
+    let bulk = |row: usize| rows.get(row).and_then(|census| census.bulk);
+    let (rancor, droid, player) = (bulk(80), bulk(62), bulk(137));
+    let ja = rules::movement::body::HALF_WIDTH * collision::UNIT;
+    let missing: Vec<&str> = rows
+        .iter()
+        .filter(|row| row.drawn.is_some() && row.bulk.is_none() && !row.humanoid)
+        .map(|row| row.label.as_str())
+        .collect();
+    vec![
+        (
+            "rancor_drawn_tall",
+            check(
+                rancor.is_some_and(|b| b.max[2] > 5.0 && b.reach() > ja),
+                format!("row 80: {rancor:?}"),
+            ),
+        ),
+        (
+            "probe_droid_floats",
+            check(
+                droid.is_some_and(|b| b.min[2] > 1.0),
+                format!("row 62: {droid:?}"),
+            ),
+        ),
+        (
+            "player_body_ja",
+            check(player.is_none(), format!("row 137: {player:?}")),
+        ),
+        (
+            "every_drawn_creature_has_one",
+            check(missing.is_empty(), format!("without: {missing:?}")),
+        ),
+    ]
+}
+
+/// The body model `appearance.2da` row `row` draws, lowercase: a player
+/// body's (type `B`) unarmoured `modela`, any other's `race`
+/// (`asset_odyssey::creature::resolve_appearance`).
+pub(crate) fn body_model(tables: &mut Tables, row: usize) -> Option<String> {
+    let kind = tables.text("appearance", row, "modeltype")?;
+    let column = if kind.eq_ignore_ascii_case("B") {
+        "modela"
+    } else {
+        "race"
+    };
+    tables
+        .text("appearance", row, column)
+        .filter(|model| !model.is_empty() && model != "****")
+        .map(|model| model.to_ascii_lowercase())
 }
 
 /// `bodybag.2da` by row (empty where the game has none), named as the

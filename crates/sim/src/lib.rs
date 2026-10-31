@@ -95,6 +95,8 @@ pub use world::aim_probes;
 pub use world::arena;
 #[cfg(feature = "probes")]
 pub use world::arena_probes;
+#[cfg(feature = "probes")]
+pub use world::bulk_probes;
 pub use world::charting;
 pub use world::containers;
 #[cfg(feature = "probes")]
@@ -155,6 +157,6 @@ pub use world::weapon_set_probes;
 pub use world::workshop_probes;
 pub use world::{
     BODY, Digests, Guests, HEARTBEAT_MS, KeyUse, Level, LevelId, MAX_SEATS, REWIND_MS, SHOT,
-    SimWorld, StepReason, UseCame, UseHeard, WorldConfig, bodies_pass, body, hand_muzzle, lent,
-    muzzle, party_member, seen_cuts, step,
+    SimWorld, StepReason, UseCame, UseHeard, WorldConfig, bodies_pass, body, bulk_of, hand_muzzle,
+    lent, muzzle, party_member, seen_cuts, step,
 };

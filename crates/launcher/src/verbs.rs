@@ -720,6 +720,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             CombatVerb::Roster { game, module } => {
                 combat_verbs::roster(&discover(), &game, &module)
             }
+            CombatVerb::Bodies { game } => combat_verbs::bodies(&discover(), &game),
             CombatVerb::Feats { game, module } => {
                 feats_verbs::feats(&discover(), &game, &module)
             }
@@ -1067,6 +1068,13 @@ pub(crate) enum CombatVerb {
         game: String,
         /// Module, e.g. end_m01aa
         module: String,
+    },
+    /// Every appearance.2da row's body as shots, blades and the crosshair
+    /// meet it: JA's box for a humanoid, else its model's box at rest, beside
+    /// the model's drawn box.
+    Bodies {
+        /// k1 or tsl
+        game: String,
     },
     /// Passive feats on the game's own characters: the party templates'
     /// HP, saves, skills, to hit in each hand, defence and what they may

@@ -230,6 +230,25 @@ pub(super) fn move_actors(
         })
         .collect();
     pushable.sort_by_key(|(id, ..)| *id);
+    // The party's bodies playing by KOTOR's rules now (`scene::Held::scene`),
+    // standing, by id: those `spaced` keeps apart.
+    let mut scene_party: Vec<Spaced> = actors
+        .iter()
+        .filter(|(id, avatar, .., fighting)| {
+            fighting.0.alive()
+                && in_party(*avatar, &fighting.0)
+                && fighting.0.mind.walker.is_none()
+                && !driven.0.contains(&id.0)
+                && held.scene(&talking.0, id.0)
+        })
+        .map(|(id, avatar, object, _, player, _)| Spaced {
+            id: id.0,
+            at: player.0.origin,
+            space: personal_space(*object),
+            seat: avatar.is_some(),
+        })
+        .collect();
+    scene_party.sort_by_key(|spaced| spaced.id);
     let mut pushes: Vec<(SimId, [f32; 3])> = Vec::new();
     let predicting = clock.reason == StepReason::Predict;
     // While a conversation holds the world (S3) a body walking a route
@@ -481,7 +500,7 @@ pub(super) fn move_actors(
         };
         // A made box it stands in (made where it stood) holds it not: it
         // walks out of it.
-        let mine = body(id.0, &player.0);
+        let mine = body(id.0, &player.0, None);
         // A seat's player meets a body it touches as one it stands inside:
         // it slides along it, as K1's player slides along a creature
         // (Q-0267), rather than being held by its box's corner. In
@@ -724,6 +743,21 @@ pub(super) fn move_actors(
             }
             None => {}
         }
+    }
+    // The party keeps its personal spaces in a scene (`spaced`), after
+    // every move, each where it then stands.
+    if level.0.friendly_fire == FriendlyFire::Off && scene_party.len() > 1 {
+        for spaced in &mut scene_party {
+            if let Some((.., player, _)) = actors.iter().find(|(id, ..)| id.0 == spaced.id) {
+                spaced.at = player.0.origin;
+            }
+        }
+        let rest: Vec<(SimId, [f32; 3])> = actors
+            .iter()
+            .filter(|(.., fighting)| fighting.0.alive())
+            .map(|(id, .., player, _)| (id.0, player.0.origin))
+            .collect();
+        pushes.extend(spaced(&level.0, &mut scene_party, &rest));
     }
     // Those pushed aside stand where they were put, still; one pushed by
     // two walkers at once where the first put it.
@@ -991,6 +1025,82 @@ pub(super) fn made_faces(
     if !Arc::ptr_eq(now, walled) {
         *now = walled.clone();
     }
+}
+
+/// A party member standing in a scene, as `spaced` weighs it: where it
+/// stands (units), its personal space (metres), and whether a seat's
+/// player drives it.
+struct Spaced {
+    id: SimId,
+    at: [f32; 3],
+    space: f32,
+    seat: bool,
+}
+
+/// Where the party's standing bodies in a scene are pushed aside to, so
+/// none stands within another's personal space. KOTOR's creatures never
+/// come nearer each other than their two personal spaces, the party's
+/// included (its walkers bump or push aside every creature they meet,
+/// Q-0267); ours walk through each other with friendly fire off
+/// (`bodies_pass`), so two companions following can stand inside each
+/// other when a conversation stops them (Mission and Carth, issue 41). In a
+/// scene, where KOTOR's rules hold, the one of each such pair is pushed
+/// aside as KOTOR's walker pushes an idle creature it meets
+/// (`walk::pushed_aside`): straight out from the other, past their two
+/// spaces and the push's margin, onto the first free spot on the mesh, at
+/// once. A companion is pushed before a seat's player, the later of two
+/// alike; one with no free spot stays. In id order, each pair as the
+/// pushes before left it.
+fn spaced(
+    level: &Level,
+    party: &mut [Spaced],
+    rest: &[(SimId, [f32; 3])],
+) -> Vec<(SimId, [f32; 3])> {
+    let mut pushes = Vec::new();
+    for i in 0..party.len() {
+        for j in i + 1..party.len() {
+            let (a, b) = (&party[i], &party[j]);
+            let spaces = a.space + b.space;
+            let tall = motion::STAND_HEIGHT - motion::SOLE_Z;
+            if math::flat_distance(a.at, b.at) >= spaces / UNIT || (a.at[2] - b.at[2]).abs() >= tall
+            {
+                continue;
+            }
+            let (from, mover) = if a.seat && !b.seat {
+                (i, j)
+            } else if b.seat && !a.seat {
+                (j, i)
+            } else {
+                (i, j)
+            };
+            let (at, body) = (party[from].at, party[mover].at);
+            // Away from the other (the way `pushed_aside` pushes out from
+            // runs back from it): straight out; one standing on the other
+            // goes to its right as it faces +X.
+            let out = [body[0] - at[0], body[1] - at[1]];
+            let away = if math::flat_length([out[0], out[1], 0.0]) < f32::EPSILON {
+                [at[0] - 1.0, at[1], at[2]]
+            } else {
+                [at[0] - out[0], at[1] - out[1], at[2]]
+            };
+            let who = party[mover].id;
+            let others: Vec<[f32; 3]> = rest
+                .iter()
+                .filter(|(id, _)| *id != who)
+                .map(|(id, origin)| {
+                    party
+                        .iter()
+                        .find(|spaced| spaced.id == *id)
+                        .map_or(*origin, |spaced| spaced.at)
+                })
+                .collect();
+            if let Some(spot) = walk::pushed_aside(level, at, away, body, spaces, &others) {
+                party[mover].at = spot;
+                pushes.push((who, spot));
+            }
+        }
+    }
+    pushes
 }
 
 /// A character's personal space (metres): its appearance's `perspace`

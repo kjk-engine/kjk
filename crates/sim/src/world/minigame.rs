@@ -53,7 +53,7 @@ pub(super) fn steer(
     mut struck: ResMut<Struck>,
     objects: Query<(&Id, &Object)>,
     doors: Query<&Object>,
-    creatures: Query<(&Id, Option<&Avatar>, &Player, &Fighting)>,
+    creatures: Query<(&Id, Option<&Avatar>, Option<&Object>, &Player, &Fighting)>,
 ) {
     struck.0.clear();
     let (Some(course), Some(rules)) = (game.0.as_mut(), level.0.minigame()) else {
@@ -144,16 +144,17 @@ fn world_turret(level: &super::Level, rules: &Rules) -> bool {
 
 /// What a bolt may meet in the area (metres, in id order): each living
 /// creature not of the party (its body), each placeable (its pick volume).
+#[allow(clippy::type_complexity)]
 fn area_bodies(
     objects: &Query<(&Id, &Object)>,
-    creatures: &Query<(&Id, Option<&Avatar>, &Player, &Fighting)>,
+    creatures: &Query<(&Id, Option<&Avatar>, Option<&Object>, &Player, &Fighting)>,
 ) -> Vec<Body> {
     let mut all: Vec<Body> = creatures
         .iter()
-        .filter(|(_, avatar, _, fighting)| {
+        .filter(|(_, avatar, _, _, fighting)| {
             fighting.0.alive() && !super::in_party(*avatar, &fighting.0)
         })
-        .map(|(id, _, player, _)| super::body(id.0, &player.0))
+        .map(|(id, _, object, player, _)| super::body(id.0, &player.0, super::object_bulk(object)))
         .chain(super::objects::placeable_bodies(
             objects
                 .iter()
