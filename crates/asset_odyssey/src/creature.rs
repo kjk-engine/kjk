@@ -178,16 +178,20 @@ pub fn hiding_animations(source: &dyn Source) -> Vec<String> {
 /// to 32 and 120), so one table serves both: a body without a clip of the
 /// name plays none. A creature model (`modeltype` S or L) plays the name with
 /// a `c` before it where its chain has that (HK-47's `ctaunt`), else this one
-/// (its `tlknorm`). `WORSHIP` (4, its clip `worship` in no model of either
-/// game), TSL's `CHECK_BODY` (33), `SIT_CHAIR_COMP1`/`2` (39, 40),
-/// `VICTORY2`/`3` (109, 110), `CUSTOM01` (119) and `SCREAM` (124) have no row
-/// and play none. `READY` (19) plays the body's wield's ready stance, in the
-/// view (`game::acting`).
+/// (its `tlknorm`). Where no row's name or description says the constant,
+/// both executables' `PlayAnimation` (read off the Mac builds) picks one:
+/// `WORSHIP` (4) meditates, `VICTORY2`/`3` (109, 110) are `VICTORY`, and
+/// `CUSTOM01` (119) plays row 346's `usecomp`, the clip only the Taris
+/// rancor's model holds (it eats from the bone pile so, `k_ptar_rancorcs1`).
+/// TSL's `CHECK_BODY` (33), `SIT_CHAIR_COMP1`/`2` (39, 40) and `SCREAM`
+/// (124) have no row and play none. `READY` (19) plays the body's wield's
+/// ready stance, in the view (`game::acting`).
 pub const SCRIPTED_CLIPS: &[(u16, u16, &str)] = &[
     (0, 6, "pause1"),
     (1, 7, "pause2"),
     (2, 18, "listen"),
     (3, 24, "meditate"),
+    (4, 24, "meditate"),
     (5, 25, "tlknorm"),
     (6, 27, "tlkplead"),
     (7, 26, "tlkforce"),
@@ -244,6 +248,8 @@ pub const SCRIPTED_CLIPS: &[(u16, u16, &str)] = &[
     (106, 31, "greeting"),
     (107, 33, "taunt"),
     (108, 17, "victory"),
+    (109, 17, "victory"),
+    (110, 17, "victory"),
     (112, 37, "inject"),
     (113, 43, "usecomp"),
     (114, 68, "persuade"),
@@ -253,6 +259,7 @@ pub const SCRIPTED_CLIPS: &[(u16, u16, &str)] = &[
     // low [verify].
     (117, 57, "throwgren"),
     (118, 58, "throwgren1"),
+    (119, 346, "usecomp"),
     (120, 34, "treatinj"),
     // `Casting_Outward_1` [verify].
     (121, 62, "castout1"),

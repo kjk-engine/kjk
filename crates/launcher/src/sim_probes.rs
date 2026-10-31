@@ -27,6 +27,7 @@ const GROUPS: &[Group] = &[
     ("creature_attack", kjk_game::acting::attack_probes),
     ("damage numbers", kjk_game::floaty_view::damage_probes),
     ("screen shake", kjk_game::script_fx::shake_probes),
+    ("effect head node", kjk_game::script_fx::head_node_probes),
     ("line video effect", kjk_game::video_effect::line_probes),
     ("stunt events", crate::play_view::stunt_heard_probes),
     (
