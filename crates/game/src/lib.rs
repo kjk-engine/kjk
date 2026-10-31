@@ -54,6 +54,7 @@ mod glow_shell;
 mod going_view;
 pub mod grass;
 mod grenade_view;
+mod ground_lean;
 pub mod grunts;
 mod gui_scene;
 mod heat_haze;

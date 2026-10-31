@@ -65,3 +65,52 @@ summary = "A punch strikes only an opponent in front of the attacker, where the 
 source = "ours"
 see = "sim::world::strikes::in_front"
 applies = ["kind:unarmed"]
+
+[ground]
+title = "Leaning with the floor"
+summary = """
+A droid or beast whose appearance says so (T3-M4, the astromechs, the Mark
+Two and Four droids, banthas, dewbacks and rontos) leans with the floor
+under it: on a ramp it tilts to the slope and stands on it, instead of
+staying upright as if the floor were flat.
+"""
+detail = """
+The lean is how it is drawn; where it walks and what it touches are the
+same as upright. It follows the floor under its middle, eased over
+{creatures.ground.ease_ms}, and goes back upright where no walkable floor
+lies within {creatures.ground.reach_m} below its feet.
+"""
+applies = ["kind:creature"]
+
+[ground.ease_ms]
+name = "Lean Ease"
+type = "f32"
+value = 120.0
+unit = "ms"
+range = [1.0, 2000.0]
+summary = "A leaning body takes about {creatures.ground.ease_ms} to settle to a new slope."
+source = "ours [verify against K1]"
+see = "game::ground_lean::Lean::stand"
+applies = ["kind:creature"]
+
+[ground.reach_m]
+name = "Lean Floor Reach"
+type = "f32"
+value = 0.75
+unit = "m"
+range = [0.0, 3.0]
+summary = "A leaning body looks for the floor under its middle up to {creatures.ground.reach_m} below its feet."
+detail = "Enough for a body's box resting on the high side of a steep ramp, its middle over the slope well below."
+source = "ours"
+see = "game::ground_lean::floor_under"
+applies = ["kind:creature"]
+
+[ground.level_normal_z]
+name = "Level Floor"
+type = "f32"
+value = 0.999
+range = [0.0, 1.0]
+summary = "A floor whose slope's cosine is at least {creatures.ground.level_normal_z:bare} counts as level: a leaning body stands where its box does, not on the floor under its middle, so it does not sink off a ledge."
+source = "ours"
+see = "game::ground_lean::Lean::stand"
+applies = ["kind:creature"]

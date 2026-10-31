@@ -422,6 +422,8 @@ pub struct CreatureView {
     pub sound_set: Option<u16>,
     /// Its body's emitters (`Plays::Body`, as model `body`), if it has any.
     pub fx: Option<OwnFx>,
+    /// How far its body leans with the floor (`creature::ground_tilt`).
+    pub ground_tilt: f32,
 }
 
 /// The KOTOR clips a creature's state picks, from its model or its
@@ -1502,6 +1504,7 @@ impl CreatureLoad {
         let source = ResolverSource(resolver);
         let strides = creature::strides(&source, look.appearance, &mut self.tables)
             .unwrap_or(crate::play::STRIDES);
+        let ground_tilt = creature::ground_tilt(&source, look.appearance, &mut self.tables);
         let clips = if humanoid {
             // Its own clips out of a fight (`gait`).
             CreatureClips {
@@ -1598,6 +1601,7 @@ impl CreatureLoad {
             cry,
             sound_set: look.sound_set,
             fx,
+            ground_tilt,
         }))
     }
 
