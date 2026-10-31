@@ -298,8 +298,9 @@ fn arms(weapon: &Armed) -> [Option<Armed>; 2] {
 /// starting over in the same scene (a joined player's swap to the host's
 /// world, which once hung a retired weapon and crashed), a seat drawn in a
 /// disguise's body and back in its own, a seat armed before it is drawn, a
-/// made creature armed before or after its body comes, a new scene, a weapon gone before it is hung, and where a conversation
-/// that hides items draws each weapon (`weapons::place`).
+/// made creature armed before or after its body comes, a new scene, a
+/// weapon gone before it is hung, and where a conversation that hides
+/// items draws each weapon (`weapons::place`).
 pub fn probes() -> Vec<Check> {
     let mut checks = Vec::new();
     // What a step gave: whether it held and what was seen, or the panic
