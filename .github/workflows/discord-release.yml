@@ -1,0 +1,35 @@
+# Announces a Release in the Discord server's #releases channel when the
+# owner publishes it: release.yml only drafts, so nothing is posted until
+# the draft has been looked over. The channel's webhook is the repository
+# secret DISCORD_RELEASES_WEBHOOK; without it (a fork) nothing is posted.
+# The variable DISCORD_RELEASE_ROLE, a role's id, is pinged when set. The
+# message is .github/discord-release.jq.
+name: discord release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+
+      - name: announce
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_RELEASES_WEBHOOK }}
+          ROLE: ${{ vars.DISCORD_RELEASE_ROLE }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "::notice::no DISCORD_RELEASES_WEBHOOK secret; nothing posted"
+            exit 0
+          fi
+          jq --arg role "$ROLE" -f .github/discord-release.jq "$GITHUB_EVENT_PATH" > message.json
+          curl --silent --show-error --fail-with-body \
+            -H "Content-Type: application/json" --data @message.json "$WEBHOOK"
