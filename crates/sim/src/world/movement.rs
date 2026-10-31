@@ -968,8 +968,15 @@ pub(crate) fn slides_clear(
     standing_clear(&Bodies::new(world, bodies).skipping(own), from, to, maxs_z)
 }
 
-/// Whether a standing box (its top `maxs_z` units over its origin) goes
-/// from `from` to `to` (origins, units) through `world` unstopped.
+/// Whether a standing body (its top `maxs_z` units over its origin) goes
+/// from `from` to `to` (origins, units) through `world` unstopped, swept as
+/// `motion::move_body` moves it: its box round across
+/// (`collision::Shape::Upright`). Weighed as the square box, a body beside
+/// a slanting wall stood in it by the box's corner, so its step along a
+/// body was weighed by the bodies alone (`slides_clear`) and went into the
+/// wall; buried there, every move out was taken back (Kashyyyk's Upper
+/// Shadowlands, the player between two tach in the pass to the repulsor
+/// field).
 pub(crate) fn standing_clear(
     world: &dyn CollisionWorld,
     from: [f32; 3],
@@ -977,14 +984,14 @@ pub(crate) fn standing_clear(
     maxs_z: f32,
 ) -> bool {
     let half = motion::HALF_WIDTH * UNIT;
-    let extents = Extents {
+    let shape = collision::Shape::Upright(Extents {
         mins: [-half, -half, motion::SOLE_Z * UNIT],
         maxs: [half, half, maxs_z * UNIT],
-    };
-    let trace = world.trace(
+    });
+    let trace = world.sweep(
         scale(from, UNIT),
         scale(to, UNIT),
-        &extents,
+        &shape,
         Contents::PLAYER_SOLID,
     );
     !trace.start_solid && trace.fraction >= 1.0
