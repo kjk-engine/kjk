@@ -1,8 +1,0 @@
-# The sim's hash moves on purpose: a route's corner a body does not fit at
-# (the foot of a wall leaning out over the floor, a pillar) is moved up to
-# 64 units (from 24) to where it fits, and only where a straight leg over
-# the navigation mesh leads from the corner (`walk::clear`,
-# `NavMesh::keeps_to`). Nar Shaddaa's landing pad: the floor runs 1.3 m
-# under a slanting wall, and the walk to Duros stood against a lamp post at
-# the wall's foot, making for a corner under it.
-sim = "a route's corner a body does not fit at moves up to 64 units to where it fits, over the mesh straight from the corner"

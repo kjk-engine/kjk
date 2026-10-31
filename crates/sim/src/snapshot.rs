@@ -173,7 +173,15 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// (`ObjectState::taken`); the goods carry what each container held open holds.
 /// 72: a swing's contact keeps whether its chance to be turned was drawn
 /// (`Contact::drawn`).
-pub const VERSION: u32 = 72 + crate::pending::SNAPSHOT;
+/// 73: a snapshot carries the seats' remote droids (`Snapshot::remotes`). Old
+/// saves: old saves hold no droids: the world makes a seat's again each step.
+/// 74: a fighter's item use says whether its action began it (`Pack::ordered`).
+/// Old saves: old saves read `ordered = false`: a use under way in one was a
+/// button's.
+/// 75: an effect's modification may be an icon linked to it (`Modifies::Icon`,
+/// index 30). Old saves: old saves read as they are: no effect in them carries
+/// an icon.
+pub const VERSION: u32 = 75 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

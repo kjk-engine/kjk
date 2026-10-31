@@ -1,8 +1,0 @@
-# The sim's hash moves on purpose: a seat's player's step along a body it
-# stands inside (`world::movement::slides_clear`, `standing_clear`) is
-# weighed by the body as `motion::move_body` moves it, round across
-# (`collision::Shape::Upright`), not as JA's square box. Weighed as the box,
-# a body beside a slanting wall counted as already held by the level, its
-# step was weighed by the bodies alone and went into the wall, and the
-# player stood buried there for good (Kashyyyk, between two tach).
-sim = "a seat's player's step along a body it stands inside is weighed round across, as its move is, not as JA's square box"
