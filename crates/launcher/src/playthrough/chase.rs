@@ -91,16 +91,28 @@ impl Chase {
     /// each turn planned the walk to them anew, its stalls forgotten before
     /// one stepped aside the free way, and the player stood pressed against
     /// a door's jamb for good.)
+    /// Not one kept out of a blade's swing while another that fits stands
+    /// within it of the player at `me`: that one is struck first, as a
+    /// player turns on what claws at them (Malachor's surface: a storm beast
+    /// at 0.8 m attacked the player for 116 s while the walk made for
+    /// another 17 m off, stalled against the first).
     pub(super) fn pick(
         &self,
+        me: [f32; 3],
         foes: Vec<(sim::SimId, [f32; 3])>,
         mut fits: impl FnMut(&(sim::SimId, [f32; 3])) -> bool,
     ) -> Option<(sim::SimId, [f32; 3])> {
+        let at_hand = |(_, at): &(sim::SimId, [f32; 3])| flat(*at, me) <= melee_m().1;
         let kept = self
             .foe
             .and_then(|id| foes.iter().find(|(foe, _)| *foe == id).copied())
             .filter(&mut fits);
-        kept.or_else(|| foes.into_iter().find(fits))
+        let nearest = foes.into_iter().find(fits);
+        match (kept, nearest) {
+            (Some(kept), Some(near)) if !at_hand(&kept) && at_hand(&near) => Some(near),
+            (Some(kept), _) => Some(kept),
+            (None, near) => near,
+        }
     }
 
     /// Whether foe `id` is given up: the walk to it stalled on and on

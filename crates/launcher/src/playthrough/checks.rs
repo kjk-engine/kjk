@@ -431,24 +431,30 @@ pub(super) fn walks_for() -> sim::probe::Checks {
 
 /// The foe a fight takes (`Chase::pick`): the one it fights while that one
 /// still fits, though another stands as near or nearer; else the nearest
-/// that fits (none fought, the one fought left out or gone).
+/// that fits (none fought, the one fought left out or gone); but one that
+/// fits at hand (0.8 m, within a blade's swing) before one fought out of it.
 pub(super) fn picks() -> sim::probe::Checks {
-    let (near, far, gone) = (sim::SimId(1), sim::SimId(2), sim::SimId(3));
-    let foes = vec![(near, [17.55, 0.0, 0.0]), (far, [17.6, 0.0, 0.0])];
-    let cases: [(&'static str, Option<sim::SimId>, Option<sim::SimId>, sim::SimId); 4] = [
-        ("pick_keeps_the_foe_fought", Some(far), None, far),
-        ("pick_takes_the_nearest_first", None, None, near),
-        ("pick_leaves_the_foe_fought_once_it_no_longer_fits", Some(far), Some(far), near),
-        ("pick_takes_the_nearest_once_the_foe_fought_is_gone", Some(gone), None, near),
+    let (near, far, gone, hand) = (sim::SimId(1), sim::SimId(2), sim::SimId(3), sim::SimId(4));
+    let apart = vec![(near, [17.55, 0.0, 0.0]), (far, [17.6, 0.0, 0.0])];
+    let with_hand = [vec![(hand, [0.8, 0.0, 0.0])], apart.clone()].concat();
+    type Case = (&'static str, bool, Option<sim::SimId>, Option<sim::SimId>, sim::SimId);
+    let cases: [Case; 6] = [
+        ("pick_keeps_the_foe_fought", false, Some(far), None, far),
+        ("pick_takes_the_nearest_first", false, None, None, near),
+        ("pick_leaves_the_foe_fought_once_it_no_longer_fits", false, Some(far), Some(far), near),
+        ("pick_takes_the_nearest_once_the_foe_fought_is_gone", false, Some(gone), None, near),
+        ("pick_takes_one_at_hand_before_the_foe_fought", true, Some(far), None, hand),
+        ("pick_keeps_the_foe_fought_at_hand", true, Some(hand), None, hand),
     ];
     cases
         .into_iter()
-        .map(|(name, fought, unfit, expected)| {
+        .map(|(name, at_hand, fought, unfit, expected)| {
             let chase = Chase {
                 foe: fought,
                 ..Chase::default()
             };
-            let picked = chase.pick(foes.clone(), |(id, _)| Some(*id) != unfit).map(|(id, _)| id);
+            let foes = if at_hand { with_hand.clone() } else { apart.clone() };
+            let picked = chase.pick([0.0; 3], foes, |(id, _)| Some(*id) != unfit).map(|(id, _)| id);
             let detail = format!("fought {fought:?}, left out {unfit:?}: picked {picked:?}");
             (name, if picked == Some(expected) { Ok(detail) } else { Err(detail) })
         })

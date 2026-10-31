@@ -1977,7 +1977,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         && level.in_trigger(data, at)
                                 })
                             };
-                            let foe = chase.pick(hostiles(&here, &world, me.position, reach_m), |foe| {
+                            let foe = chase.pick(me.position, hostiles(&here, &world, me.position, reach_m), |foe| {
                                 !in_way_out(foe.1)
                                     && !chase.given_up(&here, &player, foe.0)
                                     && reach.gettable(&here, &player, me.position, *foe, now)
@@ -2283,7 +2283,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     };
                     let foe_back = (!matches!(goal, Goal::Fight(_)) && talking.is_none())
                         .then(|| hostiles(&here, &world, me.position, reach_back))
-                        .and_then(|foes| back.pick(foes, |(id, at)| {
+                        .and_then(|foes| back.pick(me.position, foes,|(id, at)| {
                             let d = flat(*at, me.position);
                             let near = d <= BLOCKER_M;
                             // Beyond `FIGHT_NEAR_M` only one at close
