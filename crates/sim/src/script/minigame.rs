@@ -49,8 +49,16 @@ fn id_of(span: usize, n: Option<u16>) -> Value {
 }
 
 /// The run `caller`'s scripts see: its own, a thing's; else the first.
-fn run_of(caller: ObjectId) -> usize {
-    minigame::run(caller.0).unwrap_or(0)
+fn run_of(engine: &Engine, caller: ObjectId) -> usize {
+    acting_run(&engine.event, caller).unwrap_or(0)
+}
+
+/// The run this script runs for: `caller`'s, a thing's, else the one whose
+/// thing's code deferred or assigned it (`Event::run`). K1's finish line is
+/// the player's heartbeat assigning `StartNewModule` to the first PC after
+/// a delay: still that run's finish.
+pub(super) fn acting_run(event: &super::Event, caller: ObjectId) -> Option<usize> {
+    minigame::run(caller.0).or(event.run.map(usize::from))
 }
 
 /// Run `run` of the course as the scripts have it so far, and its rules.
@@ -103,7 +111,7 @@ pub(super) fn call(
     // The thing an object argument names, else the caller.
     let thing = |at: usize| minigame::thing(object(args, at).0);
     let me = minigame::thing(caller.0);
-    let run = run_of(caller);
+    let run = run_of(engine, caller);
     // A gunner's lens (M11): its ids its own, its aim and clips the
     // gunner's.
     let span = minigame::span(caller.0).unwrap_or(run);
@@ -393,7 +401,7 @@ fn name_of(rules: &Rules, n: usize) -> String {
 /// `caller`'s run, if it is a thing of a co-op race (its globals kept
 /// apart, M10).
 fn racing_run(engine: &Engine, caller: ObjectId) -> Option<usize> {
-    let run = minigame::run(caller.0)?;
+    let run = acting_run(&engine.event, caller)?;
     let (course, _) = engine.view.minigame?;
     let course = engine.out.minigame.as_ref().unwrap_or(course);
     (course.racing_together() && minigame::gunner(caller.0).is_none()).then_some(run)
@@ -401,15 +409,13 @@ fn racing_run(engine: &Engine, caller: ObjectId) -> Option<usize> {
 
 /// The globals `caller` keeps apart from the real ones: its run's in a
 /// co-op race (M10), a gunner's lens's at the turret (M11).
-fn overlay_of(course: &mut Course, caller: ObjectId) -> Option<&mut Overlay> {
+fn overlay_of(course: &mut Course, caller: ObjectId, run: Option<usize>) -> Option<&mut Overlay> {
     match minigame::gunner(caller.0) {
         Some(gunner) => course
             .gunners
             .get_mut(gunner - 1)
             .map(|gunner| &mut gunner.overlay),
-        None if course.racing_together() => course
-            .run_mut(minigame::run(caller.0)?)
-            .map(|run| &mut run.overlay),
+        None if course.racing_together() => course.run_mut(run?).map(|run| &mut run.overlay),
         None => None,
     }
 }
@@ -422,7 +428,7 @@ pub(super) fn overlaid<T: Clone>(
     pick: fn(&Overlay) -> &BTreeMap<String, T>,
     name: &str,
 ) -> Option<T> {
-    minigame::thing(caller.0)?;
+    let run = acting_run(&engine.event, caller)?;
     let (course, rules) = engine.view.minigame?;
     let course = engine.out.minigame.as_ref().unwrap_or(course);
     if !course.fits(rules) {
@@ -430,7 +436,7 @@ pub(super) fn overlaid<T: Clone>(
     }
     let overlay = match minigame::gunner(caller.0) {
         Some(gunner) => &course.gunners.get(gunner - 1)?.overlay,
-        None if course.racing_together() => &course.run(minigame::run(caller.0)?)?.overlay,
+        None if course.racing_together() => &course.run(run)?.overlay,
         None => return None,
     };
     global(pick(overlay), name).cloned()
@@ -446,13 +452,13 @@ pub(super) fn overlay<T>(
     name: &str,
     value: T,
 ) -> Result<(), T> {
-    if minigame::thing(caller.0).is_none() {
+    let Some(run) = acting_run(&engine.event, caller) else {
         return Err(value);
-    }
+    };
     let Some((course, _)) = write(engine, 0) else {
         return Err(value);
     };
-    match overlay_of(course, caller) {
+    match overlay_of(course, caller, Some(run)) {
         Some(overlay) => {
             set_global(pick(overlay), name, value);
             Ok(())

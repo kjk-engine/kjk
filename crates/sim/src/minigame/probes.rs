@@ -145,7 +145,14 @@ pub fn probes() -> Checks {
         ("turret_late_gunner", late_gunner()),
         ("coop_course_round_trip", round_trip()),
         ("coop_course_twice_alike", twice_alike()),
-        ("race_globals_apart", globals_apart().unwrap_or_else(Err)),
+        (
+            "race_globals_apart",
+            globals_apart(2, Finish::Own).unwrap_or_else(Err),
+        ),
+        (
+            "race_assigned_finish_three_seats",
+            globals_apart(3, Finish::Assigned).unwrap_or_else(Err),
+        ),
         ("turret_lens_compass", lens_compass().unwrap_or_else(Err)),
     ]
 }
@@ -456,9 +463,20 @@ fn twice_alike() -> Result<String, String> {
 /// Where the race's next module is (`StartNewModule` from the pad's hook).
 const NEXT: &str = "probe_next";
 
+/// How a race probe's pad hook finishes the race.
+#[derive(Clone, Copy)]
+enum Finish {
+    /// `StartNewModule(NEXT)` from the pad's thing.
+    Own,
+    /// K1's shape (`tar_m03mg`'s heartbeat): `DelayCommand(0.1,
+    /// AssignCommand(GetFirstPC(), StartNewModule(NEXT)))`, the module
+    /// started by no thing of the race.
+    Assigned,
+}
+
 /// The scripts the world probe's race runs: its player's heartbeat counts
-/// `LAPS` and sets its acceleration; its pad hook starts `NEXT`.
-fn race_scripts() -> crate::script::Library {
+/// `LAPS` and sets its acceleration; its pad hook starts `NEXT` (`finish`).
+fn race_scripts(finish: Finish) -> crate::script::Library {
     const CATALOG: &str = r#"
 // 0
 void StartNewModule(string sModuleName, string sWayPoint = "", string sMovie1 = "", string sMovie2 = "", string sMovie3 = "", string sMovie4 = "", string sMovie5 = "", string sMovie6 = "");
@@ -468,6 +486,12 @@ int GetGlobalNumber(string sIdentifier);
 void SetGlobalNumber(string sIdentifier, int nValue);
 // 3
 void SWMG_SetPlayerAccelerationPerSecond(float fAPS);
+// 4
+void DelayCommand(float fSeconds, action aActionToDelay);
+// 5
+void AssignCommand(object oActionSubject, action aActionToAssign);
+// 6
+object GetFirstPC();
 "#;
     let laps = || Op::Const(Const::String(b"LAPS".to_vec()));
     let mut heart = script_ncs::probes::Asm::default();
@@ -491,6 +515,12 @@ void SWMG_SetPlayerAccelerationPerSecond(float fAPS);
         })
         .op(Op::Retn);
     let mut pad = script_ncs::probes::Asm::default();
+    if let Finish::Assigned = finish {
+        pad.op(Op::StoreState { bp: 0, sp: 0 })
+            .to(Op::Jmp, "delay")
+            .op(Op::StoreState { bp: 0, sp: 0 })
+            .to(Op::Jmp, "assign");
+    }
     for _ in 0..7 {
         pad.op(Op::Const(Const::String(Vec::new())));
     }
@@ -500,22 +530,43 @@ void SWMG_SetPlayerAccelerationPerSecond(float fAPS);
             args: 8,
         })
         .op(Op::Retn);
+    if let Finish::Assigned = finish {
+        pad.label("assign")
+            .op(Op::Action {
+                routine: 6,
+                args: 0,
+            })
+            .op(Op::Action {
+                routine: 5,
+                args: 2,
+            })
+            .op(Op::Retn)
+            .label("delay")
+            .op(Op::Const(Const::Float(0.1)))
+            .op(Op::Action {
+                routine: 4,
+                args: 2,
+            })
+            .op(Op::Retn);
+    }
     crate::probe::library(CATALOG, [("heart", heart.build()), ("pad", pad.build())])
 }
 
-/// A two-seat race on the proving ground, the games' way: each run's
-/// heartbeat counts `LAPS` in its own globals, the real one untouched
+/// A race of `seats` seats on the proving ground, the games' way: each
+/// run's heartbeat counts `LAPS` in its own globals, the real one untouched
 /// while they race; the first seat runs onto its pad and finishes, its
-/// `StartNewModule` held; the second steers wide of its pad and never
-/// finishes, so the race leaves `LEAVE_WAIT_MS` after the first finished,
-/// not before, the first's count made the real one as it leaves.
-fn globals_apart() -> Result<Result<String, String>, String> {
+/// `StartNewModule` held (`finish`: also when assigned to the first PC
+/// after a delay, as K1's finish line does); the others steer wide of
+/// their pads and never finish, so the race leaves `LEAVE_WAIT_MS` after
+/// the first finished, not before, the first's count made the real one as
+/// it leaves.
+fn globals_apart(seats: u8, finish: Finish) -> Result<Result<String, String>, String> {
     let rules = race();
     let level = crate::determinism::proving_ground()
         .with_minigame(rules.clone())
-        .with_scripts(race_scripts());
+        .with_scripts(race_scripts(finish));
     let config = WorldConfig {
-        seats: 2,
+        seats,
         ..WorldConfig::one_seat()
     };
     let mut start = SimWorld::new(config, level.clone())
@@ -525,7 +576,9 @@ fn globals_apart() -> Result<Result<String, String>, String> {
     let mut world = SimWorld::from_snapshot(&start, level).map_err(|why| why.to_string())?;
     let mut input = TickInput::default();
     input.insert(Seat(0), command(0, 0, false));
-    input.insert(Seat(1), command(-127, 0, false));
+    for seat in 1..seats {
+        input.insert(Seat(seat), command(-127, 0, false));
+    }
     let real = |world: &SimWorld| world.script_state().numbers.get("LAPS").copied();
     let own = |snapshot: &crate::Snapshot, run: usize| {
         let course = snapshot.minigame.as_ref()?.run(run)?;
@@ -546,6 +599,13 @@ fn globals_apart() -> Result<Result<String, String>, String> {
     let mut finished = None;
     for _ in 0..500 {
         let snapshot = step(&mut world);
+        if let Some(left) = &snapshot.transition {
+            return Err(format!(
+                "left for {} unheld, no run finished; real LAPS {:?}",
+                left.module,
+                real(&world)
+            ));
+        }
         if snapshot
             .minigame
             .as_ref()
@@ -558,7 +618,8 @@ fn globals_apart() -> Result<Result<String, String>, String> {
     let finished = finished.ok_or("the first seat never reached its pad")?;
     let course = finished.minigame.as_ref().ok_or("no course")?;
     let held = real(&world);
-    let second = course.runs.first().and_then(|run| run.finished);
+    let second = course.runs.iter().find_map(|run| run.finished);
+    let runs = course.runs.len();
     let since = course.leaving.as_ref().map(|leaving| leaving.since);
     // Held until the wait is out.
     let steps = LEAVE_WAIT_MS / u64::from(MSEC);
@@ -585,11 +646,12 @@ fn globals_apart() -> Result<Result<String, String>, String> {
             && committed.0.is_some()
             && committed.0 == committed.1
             && second.is_none()
+            && runs + 1 == usize::from(seats)
             && since.is_some()
             && finished.transition.is_none()
             && on_time,
         format!(
-            "racing: real {real_racing:?}, own {own_racing:?}; first finished: real {held:?}, second {second:?}; left {went:?} steps after (wait {steps}), real {:?}, own {:?}",
+            "{runs} runs; racing: real {real_racing:?}, own {own_racing:?}; first finished: real {held:?}, second {second:?}; left {went:?} steps after (wait {steps}), real {:?}, own {:?}",
             committed.0, committed.1
         ),
     ))

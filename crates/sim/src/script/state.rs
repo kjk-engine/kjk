@@ -34,6 +34,8 @@ pub struct Delayed {
     pub talk: Option<u32>,
     /// The trigger's `OnEnter` the deferring run stems from (`Event::cue`).
     pub cue: Option<super::Cue>,
+    /// The minigame run whose thing deferred it (`Event::run`).
+    pub run: Option<u8>,
 }
 
 /// A script to run from its start, for an event: its caller, the object
@@ -465,7 +467,7 @@ impl State {
         caller: ObjectId,
         script: &str,
         deferred: Deferred,
-        (spell, talk, cue): (Option<Cast>, Option<u32>, Option<super::Cue>),
+        (spell, talk, cue, run): (Option<Cast>, Option<u32>, Option<super::Cue>, Option<u8>),
     ) {
         self.delayed.push(Delayed {
             due_ms,
@@ -476,6 +478,7 @@ impl State {
             spell,
             talk,
             cue,
+            run,
         });
         self.next += 1;
     }
@@ -525,6 +528,28 @@ impl State {
             action,
             started_ms: None,
         });
+    }
+
+    /// `who`'s queue cleared (`host` the host's two bodies, `View::host`).
+    /// A conversation pause still in it, one that never reached the front,
+    /// is dropped with it: the executables queue the pause as they queue the
+    /// resume (reone's `PauseConversationAction`), so a clear before it ran
+    /// leaves the conversation going on. Citadel Station's Czerka men pause
+    /// their line, clear their own queues and walk in (`a_czerkaint`). A
+    /// resume dropped with it lets the conversation it would resume go on as
+    /// well: nothing else would ever resume it (K1's `k_ai_master` clears the
+    /// queue of one clicked by a player who is not in its conversation).
+    pub fn clear_queue(&mut self, who: ObjectId, host: [ObjectId; 2]) {
+        let Some(queue) = self.actions.remove(&who.0) else {
+            return;
+        };
+        for queued in queue {
+            if let Action::Pause { talk } | Action::Hold { talk } = queued.action
+                && let Some(at) = self.talk.held_by(who, talk, host)
+            {
+                self.talk.conversations[at].paused = false;
+            }
+        }
     }
 
     /// A location value for `at` (metres) facing `yaw`: the same handle
@@ -1772,6 +1797,7 @@ fn encode_delayeds(out: &mut Writer, delayeds: &[Delayed]) {
         encode_cast(out, delayed.spell.as_ref());
         out.u32(delayed.talk.unwrap_or(u32::MAX));
         encode_cue(out, delayed.cue);
+        out.u8(delayed.run.unwrap_or(u8::MAX));
     }
 }
 
@@ -1817,6 +1843,11 @@ fn decode_delayeds(input: &mut Reader) -> Result<Vec<Delayed>, DecodeError> {
                 spell: decode_cast(input)?,
                 talk: optional_talk(input)?,
                 cue: decode_cue(input)?,
+                run: if input.since(crate::since::save::COOP_PLAYTEST_FIXES) {
+                    Some(input.u8()?).filter(|run| *run != u8::MAX)
+                } else {
+                    None
+                },
             })
         })
         .collect()

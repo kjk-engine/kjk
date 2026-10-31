@@ -75,7 +75,7 @@ use sim::{EntityState, Instances, Kind, Seat, SimId, Snapshot};
 
 use crate::acting;
 use crate::draw_anim::DrawPose;
-use crate::holdings::{self, Holdings};
+use crate::holdings::Holdings;
 use crate::ragdolls::{self, Doll, Dying, Lengths, Ragdolls};
 use crate::scene::{Animator, SceneModel};
 use crate::stance;
@@ -1760,10 +1760,10 @@ impl Cast {
     }
 
     /// Arms `owner`'s character (`id`) again with `sheet`'s weapons
-    /// (`arms`, spawned later: a seat's by the armory, hidden; a creature
-    /// made in play's with it, `made`): what it had is retired, their
-    /// blades' indices returned. One not drawn yet takes them when it is
-    /// (`Holdings::rearm`); one with nothing to draw it, never.
+    /// (`arms`, spawned by the armory, hidden): what it had is retired,
+    /// their blades' indices returned. One not drawn yet, or with no body
+    /// to draw it so far (a creature made in play whose body is still
+    /// loading, `made`), takes them when it is (`Holdings::rearm`).
     pub fn rearm(
         &mut self,
         (owner, id): (Owner, Option<SimId>),
@@ -1771,9 +1771,8 @@ impl Cast {
         arms: [Option<Armed>; 2],
         commands: &mut Commands,
     ) -> Vec<usize> {
-        match id.and_then(|id| Some((id, self.members.get_mut(&id)?.take()))) {
-            Some((_, None)) => holdings::retire(arms, commands),
-            Some((id, Some(mut member))) => {
+        match id.and_then(|id| Some((id, self.members.get_mut(&id)?.take()?))) {
+            Some((id, mut member)) => {
                 let retired = self
                     .holdings
                     .rearm((owner, Some(id)), sheet, arms, commands);
@@ -1783,6 +1782,20 @@ impl Cast {
             }
             None => self.holdings.rearm((owner, id), sheet, arms, commands),
         }
+    }
+
+    /// Character `id` of `owner`, a creature made in play, has its body
+    /// now (`made`), with its template's weapons (`arms`): it is cast in
+    /// the next `cast`, taking them, or the armory's when those came first
+    /// (`Holdings::arrive`). Blades' indices returned to retire.
+    pub fn arrive(
+        &mut self,
+        (id, owner): (SimId, Owner),
+        arms: [Option<Armed>; 2],
+        commands: &mut Commands,
+    ) -> Vec<usize> {
+        self.recast(id);
+        self.holdings.arrive(owner, arms, commands)
     }
 
     /// Character `id`'s body plays its wield's draw from now

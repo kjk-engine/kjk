@@ -598,8 +598,11 @@ pub(crate) fn advance(
     let frame = client.frame(now, command);
     drop(span);
     if let Some(frame) = frame {
+        // The same snapshots, not ones of the same ticks: an install's
+        // first snapshot has the tick of the last one before it.
         let same = |a: &Presented, b: &Presented| {
-            a.previous().tick == b.previous().tick && a.current().tick == b.current().tick
+            Arc::ptr_eq(a.previous_shared(), b.previous_shared())
+                && Arc::ptr_eq(a.current_shared(), b.current_shared())
         };
         if !same(&presented.0, frame.remote) {
             presented.0 = frame.remote.clone();
