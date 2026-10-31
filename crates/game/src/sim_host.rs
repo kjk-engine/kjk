@@ -27,9 +27,9 @@
 //!
 //! A save loaded in place (`ReloadRequest`): the reload after the whole
 //! party fell (I30 P13), and a load during a game played alone (the
-//! screens' Load, quick load). The save's module planned as an install, and at the commit the
-//! world made from the save (`play::from_save`) in place of the plan's,
-//! numbered from the tick it stopped at. Every player follows it as any
+//! screens' Load, quick load). The save's module planned as an install,
+//! and at the commit the world made from the save (`play::from_save`) in
+//! place of the plan's, numbered from the tick it stopped at. Every player follows it as any
 //! install, taking the world whole (a keyframe), without leaving. The
 //! recording starts again from the reloaded world (the one before goes to
 //! `inputs-<tick>.kjkr`): a reload does not replay.

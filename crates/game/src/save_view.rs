@@ -5,8 +5,9 @@
 //! (`sim_host::save_world`); a load goes through the session flow: from
 //! the menu, or in place during play, only played alone, as the reload
 //! after the party fell, which the host makes in place for every player
-//! from its own latest save (`sim_host::ReloadRequest`, I30 P13). A copy of another host's save is listed under its own name,
-//! marked with whose it is (`SaveView::from`).
+//! from its own latest save (`sim_host::ReloadRequest`, I30 P13). A copy
+//! of another host's save is listed under its own name, marked with whose
+//! it is (`SaveView::from`).
 
 use std::path::PathBuf;
 
