@@ -215,6 +215,15 @@ summary = "The wait for a way is longer by a random hundredth of two seconds: {w
 source = "TSL's executable (`CSWSCreature::AIActionMoveToPoint`: (rand() % 100) / 50 s)"
 see = "sim::walk::Walker::command_round"
 
+[walker.floor_give]
+name = "Floor Give"
+value = 1.0
+unit = "units"
+range = [0.0, 4.0]
+summary = "A spot a walker goes round a body by fits with its box up to {walking.walker.floor_give:bare} inch over the navigation mesh's floor, where the level's floor rises a little under a corner of the box."
+source = "ours"
+see = "sim::world::Level::fits_put_down"
+
 [walker.lift]
 name = "Floor Height"
 value = 0.125

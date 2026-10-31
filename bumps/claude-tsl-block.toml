@@ -1,0 +1,7 @@
+# The sim's hash moves on purpose: a side a walker goes round a body by
+# fits with its box a little over the navigation mesh's floor
+# (`Level::fits_put_down`, `walking.walker.floor_give`), where the level's
+# floor rises a few millimetres under the body's edge. Dantooine's Khoonda
+# plaza, 9 mm higher there, left only the side behind a wall, and the walk
+# went round a citizen standing on its corner one way and back for good.
+sim = "a side to go round a body by fits put down a little over the mesh's floor (floor give), not only at it"

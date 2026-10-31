@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `eba321d0f446f303`.
+Edition `304efe9a05b340dd`.
 
 ## Contents
 
@@ -8461,6 +8461,12 @@ A character that finds no way to where it walks stands 2 seconds, and up to two 
 The wait for a way is longer by a random hundredth of two seconds: 20 ms a step, 0 to 99 steps.
 
 <sub>Source: TSL's executable (`CSWSCreature::AIActionMoveToPoint`: (rand() % 100) / 50 s). Code: `sim::walk::Walker::command_round`.</sub>
+
+<a id="walking-walker-floor-give"></a>**Floor Give** = **0.025 meters** (`1 units`) · `walking.walker.floor_give`
+
+A spot a walker goes round a body by fits with its box up to 1 inch over the navigation mesh's floor, where the level's floor rises a little under a corner of the box.
+
+<sub>Source: ours. Code: `sim::world::Level::fits_put_down`.</sub>
 
 <a id="walking-walker-lift"></a>**Floor Height** = **0.003 meters** (`0.125 units`) · `walking.walker.lift`
 

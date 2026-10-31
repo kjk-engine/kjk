@@ -114,6 +114,10 @@ const PROBES: &[Probe] = &[
     ("move_to_object_range", move_to_object_range),
     ("goes_round_a_body", goes_round_a_body),
     ("rounds_a_touched_body", rounds_a_touched_body),
+    (
+        "side_fits_over_a_rising_corner",
+        side_fits_over_a_rising_corner,
+    ),
     ("gives_up_blocked", gives_up_blocked),
     ("bump_rules", bump_rules),
     ("pushes_idle_aside", pushes_idle_aside),
@@ -3729,6 +3733,33 @@ fn rounds_a_touched_body() -> Found {
     check(
         touched && !apart,
         format!("a body 0.6 m behind: gone round {touched}; 1.2 m behind: gone round {apart}"),
+    )
+}
+
+/// A spot to go round a body by fits put down on the mesh's floor where
+/// the level's floor rises a few millimetres under the edge of its body
+/// (`Level::fits_put_down`): on the proving ground, a body whose edge
+/// reaches 3 cm over the foot of the 17° ramp (9 mm up) fits put down,
+/// though not at the floor's height (`fits`); one reaching 20 cm onto the
+/// ramp (6 cm up) fits neither way. Khoonda's plaza on Dantooine, 9 mm
+/// higher under the body's edge, left only the side behind a wall.
+fn side_fits_over_a_rising_corner() -> Found {
+    let level = crate::determinism::proving_ground();
+    // A body round across, its edge a half width from its middle.
+    let reach = crate::motion::HALF_WIDTH * UNIT;
+    let spot = |over: f32| {
+        let [x, y, z] = crate::determinism::ground_point(-7.0 - reach + over, -4.5, 0.0);
+        let at = [
+            x / UNIT,
+            y / UNIT,
+            z / UNIT + rules::walking::walker::LIFT - crate::motion::SOLE_Z,
+        ];
+        (level.fits(at), level.fits_put_down(at))
+    };
+    let (slight, onto) = (spot(0.03), spot(0.2));
+    check(
+        slight == (false, true) && onto == (false, false),
+        format!("3 cm over the ramp's foot (fits, put down) {slight:?}; 20 cm over {onto:?}"),
     )
 }
 

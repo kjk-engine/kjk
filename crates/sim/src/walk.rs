@@ -1140,11 +1140,11 @@ impl Walker {
 
 /// The side of a body standing at `body` (its origin, units) in the way
 /// of one at `at` making for `corner` that it goes round by: a spot a body
-/// fits on (`Level::fits`, standing on the mesh's floor there as KOTOR's
-/// walker holds it, `LIFT` over it) over the navigation mesh, clear of
-/// every body at `bodies`, beside the body across the way, one the corner
-/// lies straight on from (`straight`) before one a wall stands between,
-/// then the nearer the corner; the wider when a crowd takes both near
+/// fits on (`Level::fits_put_down`, standing on the mesh's floor there as
+/// KOTOR's walker holds it, `LIFT` over it) over the navigation mesh, clear
+/// of every body at `bodies`, beside the body across the way, one the
+/// corner lies straight on from (`straight`) before one a wall stands
+/// between, then the nearer the corner; the wider when a crowd takes both near
 /// ones (the nearer of IT-31's two sides was the pocket the walk had slid
 /// into, round a wall's end from its corner). `None` when none
 /// is. Tested at the walker's own height, a floor a few millimetres
@@ -1187,7 +1187,7 @@ fn beside(level: &Level, at: Vec3, corner: Vec3, body: Vec3, bodies: &[Vec3]) ->
                     Some([p[0], p[1], floor / UNIT + LIFT - motion::SOLE_Z])
                 }
             })
-            .filter(|p| clear(p) && level.fits(*p))
+            .filter(|p| clear(p) && level.fits_put_down(*p))
             .min_by(|a, b| {
                 walled(*a)
                     .cmp(&walled(*b))
