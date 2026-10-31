@@ -1005,7 +1005,19 @@ fn k1_clip_probes(source: &dyn Source) -> Vec<(&'static str, Result<String, Stri
             ),
         ),
         ("script clip rows", script_clip_rows(source, false)),
+        ("rancor eats", rancor_eats(source, named(119))),
     ]
+}
+
+/// `CUSTOM01` (119) plays a clip the Taris rancor's model (`c_rancor`)
+/// holds: what `k_ptar_rancorcs1` has it eat from the bone pile with
+/// (`named`, the constant's clip).
+fn rancor_eats(source: &dyn Source, named: Option<&str>) -> Result<String, String> {
+    let clips = clip_names(source, "c_rancor");
+    checked(
+        named.is_some_and(|name| clips.iter().any(|clip| clip == name)),
+        format!("CUSTOM01 plays {named:?}, among c_rancor's clips {clips:?}"),
+    )
 }
 
 /// Every `creature::SCRIPTED_CLIPS` clip is the `name` of the
