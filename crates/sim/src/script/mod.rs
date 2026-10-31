@@ -2467,7 +2467,8 @@ impl Step<'_> {
                     // clear, whether or not scripts may command it), then
                     // the swap; in combat with a target it attacks on.
                     Action::SwitchWeapons => {
-                        self.state.actions.remove(&id);
+                        let host = self.view.host(&self.state.party);
+                        self.state.clear_queue(who, host);
                         self.out.changes.push(Change::Clear { who });
                         switch_weapons(self.library, self.view, self.state, self.out, who);
                         let character = thing.character.as_ref();

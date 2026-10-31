@@ -498,24 +498,10 @@ fn stop(state: &mut State, out: &mut Out, view: &View, who: ObjectId) {
     out.changes.push(Change::CancelCombat { who });
 }
 
-/// `who`'s queue cleared. A conversation pause still in it, one that never
-/// reached the front, is dropped with it: the executables queue the pause
-/// as they queue the resume (reone's `PauseConversationAction`), so a clear
-/// before it ran leaves the conversation going on. Citadel Station's Czerka
-/// men pause their line, clear their own queues and walk in (`a_czerkaint`):
-/// their resume, cleared too, would otherwise hold it for good.
+/// `who`'s queue cleared (`State::clear_queue`).
 fn clear_queue(state: &mut State, view: &View, who: ObjectId) {
-    let Some(queue) = state.actions.remove(&who.0) else {
-        return;
-    };
     let host = view.host(&state.party);
-    for queued in queue {
-        if let Action::Pause { talk } = queued.action
-            && let Some(at) = state.talk.held_by(who, talk, host)
-        {
-            state.talk.conversations[at].paused = false;
-        }
-    }
+    state.clear_queue(who, host);
 }
 
 /// `caller` gives up (`SurrenderToEnemies`; Calo Nord when Davik falls,

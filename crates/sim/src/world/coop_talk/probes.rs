@@ -155,6 +155,8 @@ fn steps(ms: u64) -> usize {
 /// How long after its line began `probe_later` deals (s): past the line's
 /// end, its replies up to be pointed at.
 const LATER_S: f32 = 6.0;
+/// How long `probe_hold`'s line waits paused before it resumes (s).
+const HOLD_S: f32 = 3.0;
 /// The custom token `probe_who` sets: `GetIsPC(GetPCSpeaker())`.
 const WHO_TOKEN: i32 = 7;
 /// The custom token `probe_talk`'s `EndConverAbort` sets to 1.
@@ -180,6 +182,7 @@ pub fn probes() -> Vec<Case> {
         fight_near_not_pulled_in()
             .unwrap_or_else(|why| vec![("fight_near_not_pulled_in", Err(why))]),
     );
+    cases.extend(use_while_paused().unwrap_or_else(|why| vec![("use_while_paused", Err(why))]));
     cases.push((
         "same_every_run",
         check(
@@ -226,7 +229,8 @@ impl Run {
         Run::on_ground(seats, driver, |_| {})
     }
 
-    /// `new`, the ground's module as `tweak` leaves it.
+    /// `new`, the ground's module (the probes' placements in it) as `tweak`
+    /// leaves it.
     fn on_ground(
         seats: u8,
         driver: Option<Seat>,
@@ -234,7 +238,6 @@ impl Run {
     ) -> Result<Run, String> {
         let ground = crate::determinism::proving_ground();
         let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
-        tweak(&mut data);
         let entry = data.entry.position;
         let at = |[x, y]: [f32; 2]| [entry[0] + x, entry[1] + y, entry[2]];
         data.placements.extend(
@@ -284,6 +287,7 @@ impl Run {
             ]
             .map(Placement::Own),
         );
+        tweak(&mut data);
         let level = ground.with_module(data).with_scripts(library());
         // Only the host has an avatar.
         let config = WorldConfig {
@@ -1135,6 +1139,9 @@ fn program(ops: &[Op]) -> Ncs {
 /// - `probe_busy` sets `BUSY_TOKEN` to `GetIsInConversation(GetFirstPC())`;
 /// - `probe_pause` pauses the PC speaker's conversation
 ///   (`AssignCommand(GetPCSpeaker(), ActionPauseConversation())`);
+/// - `probe_k1_dialog` clears its caller's queue and begins `probe_hold`
+///   (K1's `k_ai_master`), whose line's `probe_hold` pauses, waits
+///   `HOLD_S` and resumes;
 /// - `probe_talk` (`probe_who`; "Again.", "Goodbye.", and "Join me."
 ///   running `probe_dark`; cut short, `probe_aborted`), `probe_bark` (a
 ///   one-liner), `probe_shop` (two replies, `probe_store`), `probe_deal`
@@ -1186,6 +1193,12 @@ void AssignCommand(object oActionSubject, action aActionToAssign);
 void ActionPauseConversation();
 // 18
 void DelayCommand(float fSeconds, action aActionToDelay);
+// 19
+void ClearAllActions();
+// 20
+void ActionWait(float fSeconds);
+// 21
+void ActionResumeConversation();
 "#;
     let call = |routine, args| Op::Action { routine, args };
     let who = program(&[
@@ -1313,6 +1326,22 @@ void DelayCommand(float fSeconds, action aActionToDelay);
         .op(call(16, 2))
         .op(Op::Retn);
     let pause = asm.build();
+    // `ClearAllActions(); BeginConversation("probe_hold")`, K1's
+    // `k_ai_master` answering a click.
+    let k1_dialog = program(&[
+        call(19, 0),
+        Op::Const(Const::Object(1)),
+        Op::Const(Const::String(b"probe_hold".to_vec())),
+        call(6, 2),
+    ]);
+    // `ActionPauseConversation(); ActionWait(HOLD_S);
+    // ActionResumeConversation()`, as Lyn's dance (`k_ptar_dancedemo`).
+    let hold = program(&[
+        call(17, 0),
+        Op::Const(Const::Float(HOLD_S)),
+        call(20, 1),
+        call(21, 0),
+    ]);
     let talk = Dlg {
         on_abort: "probe_aborted".into(),
         ..joining(talking(2, "probe_who"), "probe_dark")
@@ -1357,6 +1386,7 @@ void DelayCommand(float fSeconds, action aActionToDelay);
         ("probe_opened", opened),
         ("probe_pause", talking(2, "probe_pause")),
         ("probe_deal_later", talking(2, "probe_later")),
+        ("probe_hold", talking(2, "probe_hold")),
     ]
     .map(|(name, dlg)| (name.to_string(), dlg))
     .into();
@@ -1379,6 +1409,8 @@ void DelayCommand(float fSeconds, action aActionToDelay);
             ("probe_busy", busy),
             ("probe_pause", pause),
             ("probe_later", later),
+            ("probe_k1_dialog", k1_dialog),
+            ("probe_hold", hold),
         ],
     )
     .with_dialogues(dialogues, BTreeMap::new())
@@ -4422,6 +4454,64 @@ fn fight_near_not_pulled_in() -> Result<Vec<Case>, String> {
             check(
                 reached == Some(Vec::new()),
                 format!("beside the fight, the watchers {reached:?}"),
+            ),
+        ),
+    ])
+}
+
+/// R3: the one whose dialogue hook is K1's (`probe_k1_dialog`: the queue
+/// cleared, then `BeginConversation`) talks with the host, its line paused
+/// for `HOLD_S` (Lyn's dance in Javyar's Cantina, Kandon Ark's party
+/// entrance in the Black Vulkar base). The guest's use of it during the wait runs no hook: the
+/// guest's companion joins the conversation, and the line goes on once the
+/// wait is over, its replies offered.
+fn use_while_paused() -> Result<Vec<Case>, String> {
+    let mut run = Run::on_ground(SEATS, Some(Seat(1)), |data| {
+        for placement in &mut data.placements {
+            if let Placement::Own(object) = placement
+                && object.tag == "hooked"
+            {
+                object.scripts = vec![("ScriptDialogue".into(), "probe_k1_dialog".into())];
+            }
+        }
+    })?;
+    let (host, buddy) = (run.body(0)?, run.body(1)?);
+    let id = |who: SimId| ObjectId(who.0);
+    run.click(0, HOOK_FROM, 0.0)?;
+    let begun = run.talk().cloned();
+    run.idle(steps(1000));
+    run.click(1, HOOK_BESIDE, 180.0)?;
+    let during = run.last.talk.conversations.clone();
+    run.idle(steps(5000));
+    let after = run.talk().cloned();
+    let same = |c: &Conversation| begun.as_ref().is_some_and(|b| b.id == c.id);
+    // (id, listener, joined, paused, offers) of each.
+    let brief = |c: &Conversation| (c.id, c.listener.0, c.joined.clone(), c.paused, c.offers());
+    let (begun_is, during_is, after_is) = (
+        begun.as_ref().map(brief),
+        during.iter().map(brief).collect::<Vec<_>>(),
+        after.as_ref().map(brief),
+    );
+    Ok(vec![
+        (
+            "use_while_paused_joins",
+            check(
+                begun
+                    .as_ref()
+                    .is_some_and(|c| c.listener == id(host) && c.paused)
+                    && during.len() == 1
+                    && same(&during[0])
+                    && during[0].joined == [id(buddy)],
+                format!("begun {begun_is:?}, after the guest's use {during_is:?}"),
+            ),
+        ),
+        (
+            "use_while_paused_goes_on",
+            check(
+                after
+                    .as_ref()
+                    .is_some_and(|c| same(c) && !c.paused && c.offers()),
+                format!("after the wait {after_is:?}"),
             ),
         ),
     ])
