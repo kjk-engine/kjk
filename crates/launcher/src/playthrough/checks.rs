@@ -126,40 +126,12 @@ pub fn probes() -> sim::probe::Checks {
         .chain(replans(&chase_once))
         .chain(hovering(&world, &base))
         .chain(gives_up(&base))
-        .chain(scenes())
         .chain(loots())
         .chain(picks_remains())
         .chain(picks())
         .chain(walks_for())
         .chain(shut_doors(&base, &level))
         .collect()
-}
-
-/// A trigger's scene (`Scenes`): stepped into at 0 s, a conversation begun
-/// 0.2 s on is its scene, and a `to` it begun at 0.5 s takes it, once; one
-/// begun 2 s after stepping in is not; nor a scene set off after the `to`
-/// began. (Onderon's throne room: the fight set off Kavar's entrance, and
-/// the `to` it after walked back for it into the hall's keeper for 900 s.)
-pub(super) fn scenes() -> sim::probe::Checks {
-    let played = |talk_ms: u64, since: u64| {
-        let mut scenes = Scenes::default();
-        scenes.note("m", BTreeSet::from([5]), None, 0);
-        for now in (100..=talk_ms.max(100)).step_by(100) {
-            let talking = (now >= talk_ms).then_some((9, None));
-            scenes.note("m", BTreeSet::from([5]), talking, now);
-        }
-        let first = scenes.take_before(5, since).map(|talk| talk.id);
-        let again = scenes.take_before(5, since).map(|talk| talk.id);
-        (first, again)
-    };
-    let (cued, late, after) = (played(200, 500), played(2_000, 2_500), played(200, 0));
-    vec![(
-        "to_a_trigger_whose_scene_played_is_met",
-        sim::probe::check(
-            cued == (Some(9), None) && late == (None, None) && after == (None, None),
-            format!("talk 0.2 s on (taken, again) {cued:?}; 2 s on {late:?}; the `to` before the entry {after:?}"),
-        ),
-    )]
 }
 
 /// A foe the walk to stalled on and on (`Chase::lost`) is given up while the

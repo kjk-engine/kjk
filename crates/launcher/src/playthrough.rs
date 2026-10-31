@@ -453,7 +453,6 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
             // The player's conversations as they end (`Talks`), and whether
             // the world stands settled (`Settle`).
             let mut talks = Talks::default();
-            let mut scenes = Scenes::default();
             let mut settle = Settle::default();
             // When the last goal that took steps began: a `talk` takes a
             // conversation that ended since (`Talks::claim`).
@@ -869,9 +868,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 _ => None,
                             })
                     };
-                    let now_talking = talking.as_ref().map(|talk| (talk.id, owner_of(talk)));
-                    talks.note(now_talking, now);
-                    scenes.note(level.name(), holding(&here, me.position), now_talking, now);
+                    talks.note(talking.as_ref().map(|talk| (talk.id, owner_of(talk))), now);
                     let talked_with = talking.as_ref().and_then(owner_of);
                     let mut command = mind::looking(&player, player.view[0], player.view[1]);
                     let mut input = TickInput::default();
@@ -1352,17 +1349,6 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // A trigger the walk before already went out
                                 // by (the Unknown World's way aboard, taken
                                 // as the beach's fight ended).
-                                met = true;
-                            } else if matches!(goal, Goal::To(_))
-                                && let Some(scene) =
-                                    found.and_then(|(index, _)| scenes.take_before(index, started_ms))
-                            {
-                                // A trigger whose scene a goal before set off
-                                // (`Scenes`): the `talk` after it takes that.
-                                talks.ended.push_back(Talk {
-                                    ended_ms: now,
-                                    ..scene
-                                });
                                 met = true;
                             } else if found.is_none()
                                 && matches!(goal, Goal::Use(_))

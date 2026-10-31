@@ -282,68 +282,6 @@ pub(super) struct Talk {
     pub(super) ended_ms: u64,
 }
 
-/// How soon (ms) after the player steps into a trigger a conversation begun
-/// is that trigger's scene: its `OnEnter` starts it that step or a short
-/// delay on.
-const SCENE_CUE_MS: u64 = 1_000;
-
-/// The triggers whose scene the player set off this visit of a module: a
-/// conversation begun as it stepped in (`SCENE_CUE_MS`), and when. A `to`
-/// such a trigger, its scene set off during a goal before it, is met, and
-/// the `talk` after it takes that scene (Onderon's throne room: the fight
-/// walked the player into `tr_kavar_enter`, Kavar's entrance and Vaklu's
-/// fall played out, and the `to` after the fight walked back for it into
-/// the trigger that keeps the player in the hall, jumped back again and
-/// again for 900 s).
-#[derive(Default)]
-pub(super) struct Scenes {
-    module: String,
-    inside: BTreeSet<u32>,
-    /// Stepped into, awaiting a conversation: the trigger and when.
-    entered: Vec<(u32, u64)>,
-    talking: Option<u32>,
-    /// The trigger, when it was stepped into, and its scene.
-    pub(super) played: BTreeMap<u32, (u64, Talk)>,
-}
-
-impl Scenes {
-    /// The step: the player in `module` stands in the triggers `inside`,
-    /// talking in the conversation `talking` (its id, its owner's number).
-    pub(super) fn note(&mut self, module: &str, inside: BTreeSet<u32>, talking: Option<(u32, Option<u32>)>, now: u64) {
-        if self.module != module {
-            *self = Scenes {
-                module: module.to_string(),
-                ..Scenes::default()
-            };
-        }
-        self.entered
-            .extend(inside.difference(&self.inside).map(|index| (*index, now)));
-        self.entered.retain(|(_, at)| now <= at + SCENE_CUE_MS);
-        let begun = talking.filter(|(id, _)| self.talking != Some(*id));
-        if let Some((id, owner)) = begun {
-            for (index, at) in self.entered.drain(..) {
-                self.played.insert(
-                    index,
-                    (at, Talk {
-                        id,
-                        owner,
-                        ended_ms: now,
-                    }),
-                );
-            }
-        }
-        self.talking = talking.map(|(id, _)| id);
-        self.inside = inside;
-    }
-
-    /// The scene of trigger `index` set off before `since`, if any, taken
-    /// (a later `to` the same trigger wants a scene of its own).
-    pub(super) fn take_before(&mut self, index: u32, since: u64) -> Option<Talk> {
-        let (at, _) = self.played.get(&index)?;
-        (*at < since).then(|| self.played.remove(&index)).flatten().map(|(_, talk)| talk)
-    }
-}
-
 /// The player's conversations as they end, for the `talk` goals: a `talk`
 /// takes the one it saw under way once it ends, else one that ended while
 /// the goal before it ran (a trigger's, fired a step early by the walk
