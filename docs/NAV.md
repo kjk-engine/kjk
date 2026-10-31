@@ -40,8 +40,11 @@ goes on to the middle of the farthest portal along the corridor, out of a
 face that leg crossed, that a straight leg reaches, and is pulled on from
 there. A corner where a standing
 body (lifted a step) would be inside the level's solid, a pillar drawn
-over walkable floor, moves to the nearest spot within 24 units where it
-fits and the mesh goes on (`sim::walk::route`).
+over walkable floor or the foot of a wall leaning out over it, moves to
+the nearest spot within 64 units where it fits and a straight leg over
+the mesh leads from the corner (`NavMesh::keeps_to`: not across a gap to
+another floor) (`sim::walk::route`, `clear`; Nar Shaddaa's landing pad,
+whose floor runs 1.3 m under a slanting wall west of the docks).
 Corners on the mesh's edge are stepped off the walls there by
 `sim::walk::CLEARANCE` (20 units: JA's half-width and a hand, since
 KOTOR's walkmeshes run on under the walls' feet); a corner inside the mesh

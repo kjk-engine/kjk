@@ -11,9 +11,12 @@ title = "Using Items in Combat"
 summary = """
 A medpac, stim or energy shield is used from its own key. The medpac key
 uses an antidote kit if the character is poisoned or weakened, otherwise a
-medpac (a repair kit for a droid), otherwise a squad recovery stim. A
-medpac or repair kit takes effect when its use is complete; an energy
-shield or stim takes effect at once.
+medpac (a repair kit for a droid), otherwise a squad recovery stim. The
+character injects a medpac, antidote or stim, or switches on an energy
+shield at the wrist; the item is used up as that begins and takes effect
+when it is done. Being stunned, choked, knocked down or downed meanwhile
+stops it; being hit or moving does not. A weapon change or a Force power
+waits until it is done.
 """
 detail = """
 Only one energy shield and one stim can be active at a time. Opponents also
@@ -54,16 +57,16 @@ source = "I22 section 5 (ours)"
 see = "sim::combat::items::heal_ms"
 applies = ["kind:medpac", "kind:repairkit"]
 
-[using.quick_ms]
-name = "Shield and Stim Use"
-type = "i32"
-value = 500
+[using.use_ms]
+name = "Item Use Time"
+type = "u64"
+value = 1500
 unit = "ms"
-range = [0, 5000]
-summary = "Using an energy shield or stim keeps the character from attacking for {items.using.quick_ms:s}."
-source = "I22 section 7 (ours)"
-see = "sim::combat::items::QUICK_MS"
-applies = ["kind:shield", "kind:stim"]
+range = [0, 10000]
+summary = "Using an energy shield, stim, antidote kit or squad recovery stim takes {items.using.use_ms:s}; it takes effect at the end."
+source = "spells.2da (K1 and TSL): every item row's conjtime 170 + casttime 1330, its impact script run at the cast's end"
+see = "sim::combat::items::USE_MS"
+applies = ["kind:shield", "kind:stim", "kind:antidote"]
 
 [medpacs]
 title = "Medpacs"

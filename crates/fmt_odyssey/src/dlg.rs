@@ -399,6 +399,36 @@ impl Dlg {
         }
     }
 
+    /// Every string parameter its calls pass (TSL's `ParamStrA`,
+    /// `ActionParamStrA`, and their B), lowercase, without repeats: a
+    /// script's own words, or a script or DLG the script goes on to name
+    /// (`a_pazaak`'s end script, the den's `a_pazgeredi`).
+    pub fn strings(&self) -> Vec<String> {
+        let links = self
+            .starts
+            .iter()
+            .chain(
+                self.entries
+                    .iter()
+                    .chain(&self.replies)
+                    .flat_map(|n| &n.links),
+            )
+            .flat_map(|link| [&link.active, &link.active2]);
+        let nodes = self
+            .entries
+            .iter()
+            .chain(&self.replies)
+            .flat_map(|node| [&node.script, &node.script2]);
+        let mut strings: Vec<String> = links
+            .chain(nodes)
+            .filter(|call| !call.string.is_empty())
+            .map(|call| String::from_utf8_lossy(&call.string).to_ascii_lowercase())
+            .collect();
+        strings.sort_unstable();
+        strings.dedup();
+        strings
+    }
+
     /// Every script the conversation names: conditions, actions, its end
     /// and abort, without repeats.
     pub fn scripts(&self) -> Vec<&str> {

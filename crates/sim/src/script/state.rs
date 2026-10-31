@@ -32,6 +32,8 @@ pub struct Delayed {
     /// The conversation whose script deferred it (`dialogue::running`): a
     /// pause it queues holds that one.
     pub talk: Option<u32>,
+    /// The trigger's `OnEnter` the deferring run stems from (`Event::cue`).
+    pub cue: Option<super::Cue>,
 }
 
 /// A script to run from its start, for an event: its caller, the object
@@ -463,7 +465,7 @@ impl State {
         caller: ObjectId,
         script: &str,
         deferred: Deferred,
-        (spell, talk): (Option<Cast>, Option<u32>),
+        (spell, talk, cue): (Option<Cast>, Option<u32>, Option<super::Cue>),
     ) {
         self.delayed.push(Delayed {
             due_ms,
@@ -473,6 +475,7 @@ impl State {
             deferred,
             spell,
             talk,
+            cue,
         });
         self.next += 1;
     }
@@ -1525,11 +1528,13 @@ fn encode_action(out: &mut Writer, action: &Action) {
             with,
             dialog,
             asker,
+            cue,
         } => {
             out.u8(10);
             out.u32(with.0);
             out.string(dialog);
             out.u32(asker.map_or(u32::MAX, |id| id.0));
+            encode_cue(out, *cue);
         }
         Action::Hold { talk } => {
             out.u8(11);
@@ -1633,6 +1638,7 @@ fn decode_action(input: &mut Reader) -> Result<Action, DecodeError> {
             with: ObjectId(input.u32()?),
             dialog: input.string()?,
             asker: optional_id(input)?,
+            cue: decode_cue(input)?,
         },
         11 => Action::Hold {
             talk: optional_talk(input)?,
@@ -1765,7 +1771,34 @@ fn encode_delayeds(out: &mut Writer, delayeds: &[Delayed]) {
         encode_deferred(out, &delayed.deferred);
         encode_cast(out, delayed.spell.as_ref());
         out.u32(delayed.talk.unwrap_or(u32::MAX));
+        encode_cue(out, delayed.cue);
     }
+}
+
+/// A `Cue` in a save: the trigger, then the body entering it; `u32::MAX`
+/// alone for none.
+pub(super) fn encode_cue(out: &mut Writer, cue: Option<super::Cue>) {
+    match cue {
+        Some(cue) => {
+            out.u32(cue.trigger.0);
+            out.u32(cue.entering.0);
+        }
+        None => out.u32(u32::MAX),
+    }
+}
+
+/// A `Cue` from a save; none before it was kept.
+pub(super) fn decode_cue(input: &mut Reader) -> Result<Option<super::Cue>, DecodeError> {
+    if !input.since(crate::since::save::CLAUDE_TSL_FINALE_2) {
+        return Ok(None);
+    }
+    let Some(trigger) = optional_id(input)? else {
+        return Ok(None);
+    };
+    Ok(Some(super::Cue {
+        trigger,
+        entering: ObjectId(input.u32()?),
+    }))
 }
 
 fn decode_delayeds(input: &mut Reader) -> Result<Vec<Delayed>, DecodeError> {
@@ -1783,6 +1816,7 @@ fn decode_delayeds(input: &mut Reader) -> Result<Vec<Delayed>, DecodeError> {
                 deferred: decode_deferred(input)?,
                 spell: decode_cast(input)?,
                 talk: optional_talk(input)?,
+                cue: decode_cue(input)?,
             })
         })
         .collect()

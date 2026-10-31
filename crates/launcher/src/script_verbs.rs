@@ -516,7 +516,7 @@ pub struct Coverage {
 }
 
 /// A walker from where `start` stands to the floor at (`x`, `y`) metres.
-fn walk_to(
+pub(crate) fn walk_to(
     level: &sim::Level,
     start: &sim::motion::MotionState,
     x: f32,

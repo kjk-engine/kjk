@@ -14,8 +14,12 @@
 //!    check takes 20 once its use's time is up (a spike's bonus when 20 is
 //!    not enough, the spike kept on a success, used up on a failure);
 //!    unlocked, the door opens (`OnOpen`, `GetLastUnlocked`).
-//! 4. Locked again by a script (`ActionLockObject`, `GetLastLocked`); in
-//!    combat the check rolls a d20.
+//! 4. Shut again by a script (`ActionCloseDoor`) and locked
+//!    (`ActionLockObject`, `GetLastLocked`) when its lock may be locked
+//!    again (`Lockable`; one that may not, the Endar Spire's room 3 door,
+//!    stays unlocked, as Citadel Station's Exchange door must for Slusk's
+//!    scene, and is locked by `SetLocked`, which takes any lock); in combat
+//!    the check rolls a d20.
 //! 5. Where the module has them: a lock only its key opens refuses
 //!    Security; a keyed lock opens with its key (used up when the lock
 //!    says so); a locked container unlocked by Security stays shut until
@@ -358,6 +362,7 @@ pub fn security(
                         vec![me(), Call::Routine("ActionLockObject", 1)],
                     ],
                 ),
+                ("kjk_setlocked", vec![vec![int(1), me(), Call::Routine("SetLocked", 2)]]),
                 ("kjk_spike", give(SPIKE)),
             ]
             .into_iter()
@@ -530,20 +535,29 @@ pub fn security(
             ),
         );
 
-        // 4. Locked again by a script; in combat.
+        // 4. Shut and locked again by a script (a lock that may not be
+        // locked again stays unlocked); in combat.
+        let lockable = target.lock.as_ref().is_some_and(|lock| lock.lockable);
         probe.queue("kjk_relock", door_id);
         let relocked = probe.step(10);
         let asked = ask(&mut probe, door_id);
+        let expect = i32::from(lockable);
         report.check(
             door_state(&relocked)
-                .is_some_and(|state| state.state == 0 && state.locked(target.opens))
-                && asked[0] == Some(1)
-                && asked[4] == Some(1),
+                .is_some_and(|state| state.state == 0 && state.locked(target.opens) == lockable)
+                && asked[0] == Some(expect)
+                && asked[4] == Some(expect),
             format!(
-                "ActionCloseDoor, ActionLockObject: GetLocked {:?}, GetLastLocked valid {:?}",
-                asked[0], asked[4]
+                "ActionCloseDoor, ActionLockObject on a lock {} locked again (Lockable {lockable}): shut, GetLocked {:?}, GetLastLocked valid {:?}",
+                if lockable { "that may be" } else { "that may not be" },
+                asked[0],
+                asked[4]
             ),
         );
+        if !lockable {
+            probe.queue("kjk_setlocked", door_id);
+            probe.step(2);
+        }
         let now = probe.world.snapshot().time_ms;
         probe.edit_me(|me| {
             let fighter = me.fighter.as_mut().ok_or("no fighter")?;

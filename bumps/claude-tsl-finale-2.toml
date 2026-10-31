@@ -1,0 +1,16 @@
+# The sim's hash moves on purpose: a punch or a beast's strike reaches a
+# body where it is met, the middle of its round less however much wider
+# than a humanoid's that round is (`strikes::met_round`), not its origin: a
+# boma's or a droid's body drawn wide and ahead of its origin held the
+# player, walking up against it, past the punch. A trigger's OnEnter, run
+# for the body entering it, carries that trigger and body into what it sets
+# going (`script::Cue`), reported as a conversation begins
+# (`dialogue::Line::Cued`): the harness meets a `to` a trigger whose own
+# scene the player set off during a goal before (Onderon's throne room).
+sim = "punches and beasts' strikes reach a body where it is met (its round), not its origin"
+
+[formats]
+save = "deferred code, a queued `ActionStartConversation` and a conversation asked for carry the trigger's `OnEnter` they stem from (`Delayed::cue`, `Action::Converse::cue`, `dialogue::Start::cue`)."
+
+[migrations]
+save = "old saves read no cue: nothing in them was set going by a trigger's OnEnter, as far as the harness's reports go"

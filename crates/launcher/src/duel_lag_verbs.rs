@@ -258,7 +258,8 @@ impl Duel<'_> {
         else {
             return false;
         };
-        let body = sim::body(them, seen);
+        // Two players: humanoids, met by JA's box.
+        let body = sim::body(them, seen, None);
         !sim::seen_cuts(
             self.level,
             None,

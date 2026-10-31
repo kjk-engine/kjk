@@ -24,7 +24,8 @@
 //! - the actions: a fake cast holds the hand for its cast time and costs
 //!   nothing, a cheat's real cast runs its impact at its end, one the caster
 //!   does not know does nothing; a queued surrender comes after the wait
-//!   before it; `ActionUseSkill` stealth turns stealth on.
+//!   before it; `ActionUseSkill` stealth turns stealth on;
+//! - `SetEffectIcon`'s icon lasts as its effect does.
 
 use super::{Fighting, Id, Player, SimWorld};
 use crate::combat::Sheet;
@@ -106,6 +107,8 @@ effect EffectTrueSeeing();
 void ActionUseSkill(int nSkill, object oTarget, int nSubSkill = 0, object oItemUsed = OBJECT_INVALID);
 // 20
 effect EffectAssuredHit();
+// 21
+effect SetEffectIcon(effect eEffect, int nIcon);
 "#;
 
 fn call(routine: u16, args: u8) -> Op {
@@ -163,6 +166,27 @@ fn applies() -> Ncs {
     apply(&mut asm, &[call(15, 0)]);
     apply(&mut asm, &[call(14, 0)]);
     asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `effecticon.2da`'s row the probe's icon names, and how long it lasts (s).
+const ICON_ROW: i32 = 7;
+const ICON_SECONDS: f32 = 2.0;
+
+/// `probe_icon`: blindness with an icon (`SetEffectIcon`) on the target for
+/// `ICON_SECONDS` (`DURATION_TYPE_TEMPORARY`).
+fn icons() -> Ncs {
+    let mut asm = Asm::default();
+    asm.op(Op::Const(Const::Float(ICON_SECONDS)));
+    for op in target() {
+        asm.op(op);
+    }
+    asm.op(int(ICON_ROW))
+        .op(call(16, 0))
+        .op(call(21, 2))
+        .op(int(1))
+        .op(call(3, 4))
+        .op(Op::Retn);
     asm.build()
 }
 
@@ -278,6 +302,7 @@ fn world(sheet: Sheet) -> Result<(SimWorld, SimId, SimId, SimId), String> {
             ("probe_read", reads()),
             ("probe_stealth", stealth()),
             ("probe_assure_now", assures_now()),
+            ("probe_icon", icons()),
             ("probe_impact", marks(30)),
             ("probe_end_round", marks(31)),
         ],
@@ -442,7 +467,35 @@ pub fn probes() -> Checks {
         ("surrender_queued", surrender_queued()),
         ("use_skill_stealth", use_skill_stealth()),
         ("lasting_at_once_stays", lasting_at_once_stays()),
+        ("effect_icon", effect_icon()),
     ]
+}
+
+/// `SetEffectIcon` on a timed blindness: the icon's row runs beside the
+/// blindness (`Effects::icons`, the HUD's arrows) and ends with it.
+fn effect_icon() -> Result<String, String> {
+    let (mut world, _, target, _) = world(soldier(&[]))?;
+    script(&mut world, |state| {
+        state
+            .pending
+            .push(Pending::new("probe_icon", crate::script::MODULE));
+    });
+    let seen = |world: &mut SimWorld, now: u64| {
+        fighter(world, target).map_or((Vec::new(), false), |f| {
+            (
+                f.effects.icons(now).collect::<Vec<_>>(),
+                f.effects.blind(now),
+            )
+        })
+    };
+    let during = wait(&mut world, 500).time_ms;
+    let on = seen(&mut world, during);
+    let after = wait(&mut world, (ICON_SECONDS * 1000.0) as u64).time_ms;
+    let off = seen(&mut world, after);
+    check(
+        on == (vec![ICON_ROW as u16], true) && off == (Vec::new(), false),
+        format!("icons, blind: {on:?} at {during} ms, {off:?} at {after} ms"),
+    )
 }
 
 /// On one immune to paralysis with Force Immunity: Paralysis, the plain

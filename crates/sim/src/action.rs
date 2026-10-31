@@ -205,6 +205,10 @@ pub enum ArenaOrder {
     Clear,
     /// The seat's body's god mode (`sheet::flags::IMMORTAL`) on or off.
     God,
+    /// The seat's body knocked out in JA's death `n` (1 to 19,
+    /// `BOTH_DEATH1`…), revived where it lies `falls::ARENA_REVIVE_MS` later
+    /// (a playtester's look at each death's get-up).
+    Down(u8),
 }
 
 /// One change an upgrade bench's visit makes to an item: an upgrade the
@@ -540,6 +544,10 @@ impl Action {
                     }
                     ArenaOrder::Clear => out.u8(1),
                     ArenaOrder::God => out.u8(2),
+                    ArenaOrder::Down(n) => {
+                        out.u8(3);
+                        out.u8(*n);
+                    }
                 }
             }
         }
@@ -685,6 +693,7 @@ impl Action {
                     0 => ArenaOrder::Spawn(input.string()?),
                     1 => ArenaOrder::Clear,
                     2 => ArenaOrder::God,
+                    3 => ArenaOrder::Down(input.u8()?),
                     _ => return Err(input.invalid("arena order", at)),
                 })
             }

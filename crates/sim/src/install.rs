@@ -273,11 +273,11 @@ fn companions(before: &Snapshot, old: Option<&Level>) -> Vec<(EntityState, Strin
 }
 
 /// A party member carried into a module: the downed arrive standing at 1
-/// HP (I30 P11; an arrival is out of combat).
+/// HP (I30 P11; an arrival is out of combat), clear of every timed effect.
 fn arrived(fighter: Option<Fighter>) -> Option<Fighter> {
     fighter.map(|mut fighter| {
         if fighter.downed() {
-            fighter.rise(crate::falls::RISE_HP);
+            fighter.rise(crate::falls::RISE_HP, 0);
         }
         fighter
     })

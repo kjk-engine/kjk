@@ -22,6 +22,9 @@
 //! reviver named).
 //! In co-op each player's portrait carries an icon for what it is in
 //! (R10: talking, trading, pazaak, asking the host in; `busy`).
+//! Each portrait shows its effects as KOTOR's do (`effect_arrows`): an
+//! arrow up for each good one, down for each bad, stacked; a debilitated
+//! member's portrait its overlay instead (`LBL_DEBILATATED<n>`).
 //! The stealth toggle shows, lit, while the character is in stealth mode.
 //! The minimap shows the area's picture where it has one, the player's
 //! place at its middle, the arrow turned the player's way. The combat
@@ -43,7 +46,7 @@ use crate::vm::{Busy, HudView, MemberView, MinimapView, TargetView, ViewModel};
 pub const LAYOUT: &str = "mipc28x6";
 
 /// The tags left out, by prefix.
-const HIDDEN: [&str; 13] = [
+const HIDDEN: [&str; 12] = [
     "LBL_CMBT",
     "LBL_COMBATBG",
     "LBL_QUEUE",
@@ -52,7 +55,6 @@ const HIDDEN: [&str; 13] = [
     "BTN_MINIMAP",
     "LBL_ARROW",
     "LBL_DISABLE",
-    "LBL_DEBILATATED",
     "LBL_LEVELUP",
     "TB_",
     "BTN_ACTIONUP",
@@ -232,6 +234,17 @@ pub fn anchor(gui: &mut Gui, window: (f32, f32)) {
     gui.extent.top = 0;
     gui.extent.width = wide;
     gui.extent.height = tall;
+}
+
+/// Where the target block ends in `gui` (placed by `anchor`): the bottom
+/// of its words, else of the block itself (layout pixels).
+pub fn block_bottom(gui: &Gui) -> i32 {
+    gui.controls
+        .iter()
+        .filter(|control| in_block(&control.tag) || control.tag.starts_with("LBL_ACTIONDESC"))
+        .map(|control| control.extent.top + control.extent.height)
+        .max()
+        .unwrap_or(0)
 }
 
 /// `gui`'s frame for a window of `window` pixels, drawn at the layout's own
@@ -578,6 +591,101 @@ pub fn watch_at(gui: &Gui, vm: &ViewModel, [x, y]: [f32; 2]) -> Option<u32> {
         .and_then(|(place, ..)| Some(vm.party.get(place)?.id))
 }
 
+/// The effect arrows' labels but their party slot: the good's (KOTOR's
+/// `LBL_CMBTEFCTINC<n>`, an arrow up) and the bad's (`…RED<n>`, down).
+const GOOD_ARROW: &str = "LBL_CMBTEFCTINC";
+const BAD_ARROW: &str = "LBL_CMBTEFCTRED";
+/// A member's debilitated overlay but its party slot.
+const DEBILITATED: &str = "LBL_DEBILATATED";
+
+/// How far apart a portrait's arrows stack (layout pixels), from
+/// `CSWGuiMainInterfaceChar::DrawStack`: up to 4, 10 on the leader's
+/// portrait and 5 on a companion's; past that the leader's close up (10,
+/// 8, 7, 6, 5 for 5 to 9) and a companion's stay 5.
+const STEP_FEW: [f32; 2] = [5.0, 10.0];
+const STEP_MANY: [f32; 5] = [10.0, 8.0, 7.0, 6.0, 5.0];
+/// The most arrows a companion's portrait and the leader's show.
+const MOST: [u8; 2] = [5, 9];
+
+/// One arrow where `DrawStack` puts it: its label's art, at its label's
+/// size, and the portrait it is clipped to.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Arrow {
+    pub fill: String,
+    pub rect: [f32; 4],
+    pub clip: [f32; 4],
+}
+
+/// Every portrait's effect arrows (`MemberView::effects`), as KOTOR's
+/// `CSWGuiMainInterface::UpdatePortraits` and `DrawEffects` draw them: none
+/// on a debilitated member; else as many as its good effects in its
+/// `LBL_CMBTEFCTINC<n>` (capped, `MOST`), centred on the label's place and
+/// `STEP_*` apart, each drawn from the top down, and its bad ones in
+/// `LBL_CMBTEFCTRED<n>`, drawn from the bottom up; all within the portrait.
+pub fn effect_arrows(gui: &Gui, vm: &ViewModel) -> Vec<Arrow> {
+    if vm.hud.is_none() {
+        return Vec::new();
+    }
+    let mut arrows = Vec::new();
+    for (place, member) in vm.party.iter().enumerate().take(3) {
+        if member.debilitated {
+            continue;
+        }
+        let slot = place + 1;
+        let leader = usize::from(place == 0);
+        let Some(portrait) = gui.find(&format!("LBL_CHAR{slot}")) else {
+            continue;
+        };
+        let clip = rect_of(portrait);
+        for (prefix, count, down) in [
+            (GOOD_ARROW, member.effects.0, true),
+            (BAD_ARROW, member.effects.1, false),
+        ] {
+            let Some(label) = gui.find(&format!("{prefix}{slot}")) else {
+                continue;
+            };
+            let Some(fill) = label.border.as_ref().map(|border| border.fill.clone()) else {
+                continue;
+            };
+            let count = count.min(MOST[leader]);
+            if count == 0 {
+                continue;
+            }
+            let step = if count <= 4 || leader == 0 {
+                STEP_FEW[leader]
+            } else {
+                STEP_MANY[usize::from(count - 5)]
+            };
+            let [left, top, width, height] = rect_of(label);
+            let half = (step / 2.0).floor() * f32::from(count - 1);
+            let (first, by) = if down {
+                (top - half, step)
+            } else {
+                (top + half, -step)
+            };
+            arrows.extend((0..count).map(|nth| Arrow {
+                fill: fill.clone(),
+                rect: [left, first + by * f32::from(nth), width, height],
+                clip,
+            }));
+        }
+    }
+    arrows
+}
+
+/// The effect arrows drawn (`effect_arrows`).
+pub fn effects(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut DrawList) {
+    for arrow in effect_arrows(gui, vm) {
+        if let Some(id) = painter.textures.texture(painter.source, &arrow.fill) {
+            out.quads.push(Quad {
+                additive: painter.textures.additive(id),
+                clip: Some(arrow.clip),
+                ..Quad::image(arrow.rect, id, [1.0; 4])
+            });
+        }
+    }
+}
+
 /// The busy icons drawn (`busy_marks`).
 pub fn busy(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut DrawList) {
     for mark in busy_marks(gui, vm) {
@@ -672,6 +780,18 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
     if let Some((place, arrow)) = level_up_control(tag) {
         let on = vm.hud.is_some() && vm.party.get(place).is_some_and(|member| member.may_level);
         return if arrow { level_up_mark(on) } else { shown(on) };
+    }
+    // The arrows are drawn by `effects`, the labels only their places.
+    if tag.starts_with(GOOD_ARROW) || tag.starts_with(BAD_ARROW) {
+        return hidden;
+    }
+    if let Some(slot) = tag.strip_prefix(DEBILITATED) {
+        let place = slot
+            .parse::<usize>()
+            .ok()
+            .and_then(|slot| slot.checked_sub(1));
+        let member = place.and_then(|place| vm.party.get(place));
+        return shown(vm.hud.is_some() && member.is_some_and(|member| member.debilitated));
     }
     match tag {
         "LBL_MAPBORDER" => return shown(hud.minimap.is_some()),

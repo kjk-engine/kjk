@@ -76,7 +76,43 @@ pub fn probes() -> crate::probe::Checks {
         ("arena_spawn_and_clear", spawn_and_clear()),
         ("arena_god", god()),
         ("arena_pit_and_respawn", pit_and_respawn()),
+        ("arena_down_gets_up_by_its_side", down_gets_up()),
     ]
+}
+
+/// `down N` for a death that leaves the body on its back (1) and one on its
+/// front (4): it plays that death, lies past the respawn, and gets up where
+/// it lies in the get-up for that side (`death::getup`).
+fn down_gets_up() -> Result<String, String> {
+    use crate::motion::Anim;
+    let mut seen = Vec::new();
+    for (n, death, getup) in [
+        (1, Anim::BOTH_DEATH1, Anim::BOTH_GETUP4),
+        (4, Anim::BOTH_DEATH4, Anim::BOTH_GETUP3),
+    ] {
+        let (mut world, _) = arena()?;
+        let start = run(&mut world, &[], 2)
+            .own(Seat(0))
+            .ok_or("no player")?
+            .position;
+        let fell = run(&mut world, &[ArenaOrder::Down(n)], 2);
+        let me = fell.own(Seat(0)).ok_or("no player")?;
+        let lies = me.fighter.is_some_and(|f| f.downed())
+            && me.player.is_some_and(|p| p.legs.anim == death);
+        let steps = super::falls::ARENA_REVIVE_MS / 8 + 2;
+        let up = run(&mut world, &[], steps);
+        let me = up.own(Seat(0)).ok_or("no player")?;
+        let rose = me.fighter.is_some_and(|f| f.alive())
+            && me.player.is_some_and(|p| p.legs.anim == getup);
+        let moved = (me.position[0] - start[0]).hypot(me.position[1] - start[1]);
+        seen.push(format!(
+            "down {n}: lay in {death:?} {lies}, up in {getup:?} {rose}, {moved:.2} m from where it fell"
+        ));
+        if !lies || !rose || moved > 0.1 {
+            return Err(seen.join("; "));
+        }
+    }
+    Ok(seen.join("; "))
 }
 
 /// Two foes called in stand `SPAWN_AHEAD` ahead, hostile and killable

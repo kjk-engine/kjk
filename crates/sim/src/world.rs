@@ -38,7 +38,7 @@ use crate::combat::{gear, idle, missiles};
 use crate::input::{Command, Seat, TickInput, buttons};
 use crate::install::InstallError;
 use crate::math::{self, scale};
-use crate::module::{Global, ModuleData, ObjectData, ObjectKind, Side};
+use crate::module::{Bulk, Global, ModuleData, ObjectData, ObjectKind, Side};
 use crate::motion::{self, AnimTable, MotionState, Touches};
 use crate::rng::SimRng;
 use crate::walk;
@@ -81,6 +81,8 @@ pub use minds::probes as minds_probes;
     reason = "checks and traces set up their own cases on one machine"
 )]
 pub mod aim_probes;
+#[cfg(feature = "probes")]
+pub mod bulk_probes;
 #[cfg(feature = "probes")]
 pub mod effects_probes;
 #[cfg(feature = "probes")]
@@ -539,16 +541,38 @@ struct Heals(Vec<(SimId, i32)>);
 pub const BODY: u32 = 1 << 31;
 
 /// The body of character `id` standing as `player` is (metres): what
-/// shots and blades meet.
-pub fn body(id: SimId, player: &MotionState) -> Body {
+/// shots, blades and uses meet. A body whose model JA's animations pose
+/// is JA's player box; any other is met where its model is drawn (`bulk`,
+/// `module::Bulk`), turned to where it faces, its soles at the box's.
+pub fn body(id: SimId, player: &MotionState, bulk: Option<&Bulk>) -> Body {
     let [x, y, z] = player.origin;
-    let half = motion::HALF_WIDTH;
+    let (min, max) = match bulk {
+        Some(bulk) => bulk.placed(scale([x, y, z + motion::SOLE_Z], UNIT), player.view[1]),
+        None => {
+            let half = motion::HALF_WIDTH;
+            (
+                scale([x - half, y - half, z + motion::SOLE_Z], UNIT),
+                scale([x + half, y + half, z + player.maxs_z], UNIT),
+            )
+        }
+    };
     Body {
         entity: id.0 | BODY,
-        min: scale([x - half, y - half, z + motion::SOLE_Z], UNIT),
-        max: scale([x + half, y + half, z + player.maxs_z], UNIT),
+        min,
+        max,
         contents: Contents::BODY,
     }
+}
+
+/// Where `facts`' model is drawn, if it is not posed as JA's player
+/// (`body`).
+pub fn bulk_of(facts: Option<&ObjectData>) -> Option<&Bulk> {
+    facts?.body.as_ref()?.bulk.as_ref()
+}
+
+/// `bulk_of` an object's facts.
+fn object_bulk(object: Option<&Object>) -> Option<&Bulk> {
+    bulk_of(object?.facts.as_deref())
 }
 
 /// `creaturespeed.2da`'s `PLAYER` and `DEFAULT` rows, as the level's
@@ -574,7 +598,7 @@ fn origin_of(body: &Body) -> [f32; 3] {
 /// humanoids and Wookiees alike) where it has one under JA's half width.
 /// Never widened [verify: a beast's larger space].
 fn blocking(id: SimId, player: &MotionState, object: Option<&Object>) -> Body {
-    let mut body = body(id, player);
+    let mut body = body(id, player, None);
     let space = object
         .and_then(|object| object.facts.as_ref())
         .map_or(0.0, |facts| facts.personal_space);
@@ -825,7 +849,9 @@ impl SimWorld {
             .world
             .query::<(&Id, &Avatar, &Player, Option<&Fighting>)>();
         let mut objects = self.world.query::<&Object>();
+        let mut placed = self.world.query::<(&Id, &Object)>();
         let world = &self.world;
+        let bulks = interaction::bulks(placed.iter(world));
         let lent_fighter = lent.and_then(|id| {
             (creatures.iter(world))
                 .find(|(of, ..)| of.0 == id)
@@ -835,7 +861,7 @@ impl SimWorld {
             creatures
                 .iter(world)
                 .find(|(of, ..)| of.0 == id)
-                .map(|(_, body, _)| (id, body.0))
+                .map(|(_, body, ..)| (id, body.0))
         });
         let (own_id, own) = players
             .iter(world)
@@ -845,7 +871,12 @@ impl SimWorld {
             .filter(|_| seat == LEADER_SEAT)
             .map_or(own, |(_, body)| body);
         user.view = motion::view_of(angles, user.view_offset);
-        let talkers = talkers(time_ms, lent.map(|(id, _)| id), creatures.iter(world));
+        let talkers = talkers(
+            time_ms,
+            lent.map(|(id, _)| id),
+            creatures.iter(world),
+            &bulks,
+        );
         let seats: Vec<(Seat, SimId, Option<&Fighter>)> = (players.iter(world))
             .map(|(id, avatar, _, fighting)| (avatar.0, id.0, fighting.map(|fighting| &fighting.0)))
             .collect();
@@ -927,12 +958,13 @@ impl SimWorld {
         if !uses::applies(object, verb, body.is_some_and(|(_, alive)| alive)) {
             return false;
         }
+        let level = &world.resource::<Static>().0;
         let target = uses::Target::new(index, body.map(|(at, _)| at), placed).aimed(
+            level,
             object.kind,
             facts,
             scale(user.origin, UNIT),
         );
-        let level = &world.resource::<Static>().0;
         let states = level.states(
             objects
                 .iter(world)

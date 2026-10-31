@@ -212,6 +212,21 @@ pub fn posed(
         })
 }
 
+/// Every node of `model` in the model's space as `clip` poses it `at`
+/// seconds in (`posed`, for all nodes at once: a node follows its parent,
+/// which `ModelIr` lists before it).
+pub fn pose(model: &ModelIr, clip: &AnimationIr, scale: f32, at: f32) -> Vec<Matrix> {
+    let bound = clip.bind(model);
+    let mut worlds: Vec<Matrix> = Vec::with_capacity(model.nodes.len());
+    for (n, node) in model.nodes.iter().enumerate() {
+        let (place, turn) = clip.local(bound[n], (node.translation, node.rotation), scale, at);
+        let local = crate::model::matrix(place, normalised(turn));
+        let parent = node.parent.map_or(crate::model::IDENTITY, |p| worlds[p]);
+        worlds.push(crate::model::multiply(&parent, &local));
+    }
+    worlds
+}
+
 fn normalised(q: [f32; 4]) -> [f32; 4] {
     let length = q.iter().map(|v| v * v).sum::<f32>().sqrt();
     if length > f32::EPSILON {

@@ -245,7 +245,7 @@ impl SimWorld {
         world.init_resource::<Driven>();
         world.init_resource::<scene::Held>();
         world.init_resource::<TorsoSent>();
-        world.insert_resource(history::History::starting(snapshot));
+        world.insert_resource(history::History::starting(snapshot, &instances));
         world.init_resource::<Hits>();
         world.init_resource::<Heals>();
         world.init_resource::<sabers::Blades>();

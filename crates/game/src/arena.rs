@@ -275,7 +275,7 @@ fn keys(
         return;
     };
     // The console's orders (`arena spawn TEMPLATE`, `arena clear`, `arena
-    // god`), as the keys give them.
+    // god`), as the keys give them; `arena down N` (no key).
     let asked = requests.as_mut().map_or_else(Vec::new, |requests| {
         std::mem::take(&mut requests.0)
             .into_iter()
@@ -283,6 +283,7 @@ fn keys(
                 [spawn, template] if spawn == "spawn" => Some(ArenaOrder::Spawn(template.clone())),
                 [clear] if clear == "clear" => Some(ArenaOrder::Clear),
                 [god] if god == "god" => Some(ArenaOrder::God),
+                [down, n] if down == "down" => n.parse().ok().map(ArenaOrder::Down),
                 _ => None,
             })
             .collect()

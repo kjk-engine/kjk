@@ -105,6 +105,8 @@ pub(super) fn orders(
                     sheet,
                 });
             }
+            // A fall of the body's own (`falls::arena_falls`).
+            ArenaOrder::Down(_) => {}
         }
     }
 }

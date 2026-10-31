@@ -102,6 +102,85 @@ fn take_all() -> Check {
     })
 }
 
+/// The container's give mode (KOTOR's): its button lists the party's items,
+/// a row puts its whole stack in, A and OK take nothing there, and the
+/// button again lists the container's.
+fn give_mode() -> Check {
+    let mut assets = Fake::new();
+    assets.layouts.insert(
+        "container",
+        root(
+            640,
+            480,
+            vec![
+                list("LB_ITEMS", 0),
+                button("BTN_OK", [0, 300, 80, 20], b""),
+                button("BTN_CANCEL", [100, 300, 80, 20], b""),
+                button("BTN_GIVEITEMS", [200, 300, 80, 20], b""),
+            ],
+        ),
+    );
+    let row = |items: Vec<u32>, pending: bool| crate::vm::LootRow {
+        count: items.len() as u32,
+        items,
+        pending,
+        ..crate::vm::LootRow::default()
+    };
+    let vm = ViewModel {
+        loot: Some(LootView {
+            container: 7,
+            rows: vec![row(vec![1], false)],
+            give: vec![row(vec![5, 6], false), row(vec![9], true)],
+            ..LootView::default()
+        }),
+        ..ViewModel::default()
+    };
+    let shown = |stack: &Stack| {
+        stack
+            .state_of("LB_ITEMS", &vm)
+            .and_then(|state| state.list)
+            .map_or(0, |list| list.rows.len())
+    };
+    let mut stack = opened("container", &mut assets, &vm);
+    stack.press("BTN_GIVEITEMS");
+    stack.step(&mut assets, &vm, &keys(&[]));
+    let party = shown(&stack);
+    stack.double("LB_ITEMS", 0);
+    let put = stack.step(&mut assets, &vm, &keys(&[])).intents;
+    stack.double("LB_ITEMS", 1);
+    let faded = stack.step(&mut assets, &vm, &keys(&[])).intents;
+    let key = UiInput {
+        raw: vec!["KeyA".into()],
+        ..keys(&[])
+    };
+    let unkeyed = stack.step(&mut assets, &vm, &key).intents;
+    stack.press("BTN_OK");
+    let unpressed = stack.step(&mut assets, &vm, &keys(&[])).intents;
+    stack.press("BTN_GIVEITEMS");
+    stack.step(&mut assets, &vm, &keys(&[]));
+    let back = shown(&stack);
+    let puts = [5, 6].map(|item| Intent::Game(GameAction::Put { container: 7, item }));
+    check("loot_give_mode", {
+        expect(
+            &format!(
+                "party rows {party}, put {put:?}, a pending one {faded:?}, A {unkeyed:?}, \
+                 OK {unpressed:?}, back to {back} rows"
+            ),
+            party == 2
+                && puts.iter().all(|intent| put.contains(intent))
+                && !put
+                    .iter()
+                    .any(|intent| matches!(intent, Intent::Game(GameAction::Take { .. })))
+                && faded.is_empty()
+                && unkeyed.is_empty()
+                && unpressed.is_empty()
+                && back == 1
+                && stack.is_open(),
+        )
+        .map(|()| "the party's items listed, a stack put in, back to the contents".into())
+    })
+}
+
 fn terminal_click() -> Check {
     let on = |replies: Vec<Vec<u8>>| {
         let mut assets = Fake::new();
@@ -442,6 +521,7 @@ pub(super) fn all() -> Vec<Check> {
         control_sounds(),
         tab_swap(),
         take_all(),
+        give_mode(),
         terminal_click(),
         equip_double(),
         journal_opens_on_a_quest(),

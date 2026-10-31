@@ -6,8 +6,9 @@
 //! TSL's door models all slide or vanish in place, both openings the same:
 //! every shipped door opens one way.
 //!
-//! And each placeable's action points (`ObjectData::use_points`): the two
-//! use positions its walkmesh (`<model>.pwk`) keeps.
+//! And each placeable's and door's action points (`ObjectData::use_points`):
+//! the two use positions its walkmesh keeps (`<model>.pwk`, a door's closed
+//! `<model>0.dwk`).
 
 use std::collections::BTreeMap;
 
@@ -29,12 +30,19 @@ const SUPERMODELS: usize = 4;
 pub(crate) fn fill(source: &dyn Source, data: &mut ModuleData, area: &AreaIr) {
     let mut known: BTreeMap<&str, Ways> = BTreeMap::new();
     let mut points: BTreeMap<&str, Vec<[f32; 3]>> = BTreeMap::new();
+    let mut door_points: BTreeMap<&str, Vec<[f32; 3]>> = BTreeMap::new();
     for (placement, instance) in data.placements.iter_mut().zip(&area.instances) {
         let (Placement::Own(facts), Some(model)) = (placement, &instance.model) else {
             continue;
         };
         match instance.kind {
-            Kind::Door => facts.ways = *known.entry(model).or_insert_with(|| ways(source, model)),
+            Kind::Door => {
+                facts.ways = *known.entry(model).or_insert_with(|| ways(source, model));
+                facts.use_points = door_points
+                    .entry(model)
+                    .or_insert_with(|| door_use_points(source, model))
+                    .clone();
+            }
             Kind::Placeable => {
                 facts.use_points = points
                     .entry(model)
@@ -52,8 +60,24 @@ pub(crate) fn fill(source: &dyn Source, data: &mut ModuleData, area: &AreaIr) {
 /// `CSWSPlaceable::GetNearestActionPoint` then takes the placeable's
 /// position) [verify in K1's exe].
 pub(crate) fn use_points(source: &dyn Source, model: &str) -> Vec<[f32; 3]> {
+    walkmesh_use_points(source, &model.to_ascii_lowercase(), ResType::PWK)
+}
+
+/// A door model's action points: its closed walkmesh's (`<model>0.dwk`),
+/// as above; the exes' `CSWSDoor::GetActionPoint` reads the use positions
+/// of the walkmesh of the state asked for, and a use asks the closed one
+/// (`CSWSCreature::GetUseRange`).
+fn door_use_points(source: &dyn Source, model: &str) -> Vec<[f32; 3]> {
+    walkmesh_use_points(
+        source,
+        &format!("{}0", model.to_ascii_lowercase()),
+        ResType::DWK,
+    )
+}
+
+fn walkmesh_use_points(source: &dyn Source, name: &str, kind: ResType) -> Vec<[f32; 3]> {
     let Some(walkmesh) = source
-        .read(&model.to_ascii_lowercase(), ResType::PWK)
+        .read(name, kind)
         .and_then(|bytes| Walkmesh::parse(&bytes).ok())
     else {
         return Vec::new();

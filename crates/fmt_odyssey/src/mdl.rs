@@ -868,6 +868,23 @@ impl Model {
         ))
     }
 
+    /// The names of the model's nodes, read from its header's name table
+    /// alone (no nodes, no MDX).
+    pub fn node_names(mdl: &[u8]) -> Result<Vec<String>, FormatError> {
+        if mdl.len() < DATA + 196 {
+            return Err(truncated(DATA + 196, mdl.len()));
+        }
+        Cursor {
+            mdl,
+            mdx: &[],
+            variant: Variant::of(mdl),
+            names: Vec::new(),
+            anim_root: 0,
+            budget: Cell::new(mdl.len() * REVISITS),
+        }
+        .name_table()
+    }
+
     /// Every node of the model's own tree, depth first.
     pub fn nodes(&self) -> Vec<&Node> {
         fn walk<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {

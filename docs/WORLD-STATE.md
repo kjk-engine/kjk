@@ -582,11 +582,16 @@ kjk play --stage end_m01aa --arrive end_door02 --skill security=2 --headless \
   against the detect DC; a party member's find is the party's: "This mine
   appears to be a: …" (1517).
 - **Disarming and recovering** (the use menu: `Action::Disarm`,
-  `Recover`, wire 25, 26) within 2.5 m, Demolitions ranks needed, take
-  4.5 s standing still; take 20 out of combat (a d20 in it) against the
-  disarm DC (recover: 10 more); a DC above 35 fails; short by more than
-  10 (recover: 5) springs it on the user. A recovered trap's kit goes to
-  the party. Lines 1529 and 1531 (1406's form).
+  `Recover`, wire 25, 26), offered only to a character with Demolitions
+  ranks, within 3 m (the walk there stops 0.6 m outside the mine's
+  circle), take 4.5 s standing still, playing `disablemine`; take 20 out
+  of combat (a d20 in it) against the disarm DC (recover: 10 more); a DC
+  above 35 fails; short by more than 10 (recover: 5) springs it on the
+  user. A recovered trap's kit goes to the party. Lines 1529 and 1531
+  (1406's form), and K1's float over the user (`locks::floats`):
+  `*success*`, `*failure*` in combat, `*Skill Too Low*` out of it
+  (Security likewise, `*Impossible*` from DC 60, nothing on a success).
+  A failure may be tried again.
 - **Laying** (O, `buttons::LAY_MINE`): the deadliest kit carried
   (`traps::best_kit`) set at the feet in 2 s, against the row's `setdc`
   (1530), a failure keeping the kit; the mine the layer's and its faction's, its DCs from the check,

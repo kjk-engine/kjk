@@ -654,6 +654,7 @@ impl Run {
             asker: ObjectId(asker.0),
             dialog: dialog.into(),
             bark: false,
+            cue: None,
         });
         self.world.set_script_state(state);
         self.step(&[]);
@@ -754,7 +755,7 @@ impl Run {
             fighter.fall(now);
         });
         self.step(&[]);
-        self.fighter(who, |fighter| fighter.rise(had));
+        self.fighter(who, |fighter| fighter.rise(had, now));
     }
 
     /// `who` in a fight a while yet (`Fighter::combat_until`), or out of it.
@@ -1773,6 +1774,7 @@ fn store_for_running_conversation(run: &mut Run) -> Result<Vec<Case>, String> {
         asker: id(host),
         dialog: "probe_shop".into(),
         bark: false,
+        cue: None,
     });
     run.world.set_script_state(state);
     run.step(&[]);

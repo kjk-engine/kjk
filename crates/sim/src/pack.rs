@@ -13,7 +13,7 @@ use fmt_odyssey::ncs::Ncs;
 use crate::combat::Sheet;
 use crate::combat::sheet::{Guards, decode_weapon, encode_weapon};
 use crate::inventory::{Armour, Catalog, Held, ItemFacts, ItemSpell};
-use crate::module::{ObjectData, ObjectKind, Opens, Senses, Strike};
+use crate::module::{Bulk, ObjectData, ObjectKind, Opens, Senses, Strike};
 use crate::wire::{DecodeError, Reader, Versions, Writer, read_fixed, write_fixed};
 
 const MAGIC: &[u8; 4] = b"KJKT";
@@ -287,6 +287,7 @@ fn encode_creature(facts: &ObjectData, out: &mut Writer) {
         Some(body) => {
             out.u8(1);
             body.encode(out);
+            write_fixed(out, body.bulk.as_ref(), &Bulk::BLANK, Bulk::encode);
         }
         None => out.u8(0),
     }
@@ -386,7 +387,15 @@ fn decode_creature(input: &mut Reader) -> Result<ObjectData, DecodeError> {
         conversation: input.string()?,
         body: match input.u8()? {
             0 => None,
-            _ => Some(crate::module::Body::decode(input)?),
+            _ => {
+                let mut body = crate::module::Body::decode(input)?;
+                // Where its model is drawn (`module::Bulk`), kept since
+                // this bump; none before (JA's box, as all bodies were).
+                if input.since(crate::since::pack::CLAUDE_BODIES_COLLISION) {
+                    body.bulk = read_fixed(input, &Bulk::BLANK, Bulk::decode, "bulk flag")?;
+                }
+                Some(body)
+            }
         },
         map_note: None,
         interruptable: true,

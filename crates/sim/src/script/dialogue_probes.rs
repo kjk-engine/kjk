@@ -364,9 +364,14 @@ fn told() -> Told {
 /// The scripts' state with a conversation, a start asked for, barks,
 /// tokens, answers heard, a use's event waiting, both conversation actions
 /// queued (one with its asker, the pause with its conversation) and code a
-/// conversation's script deferred, saved and read again.
+/// conversation's script deferred, saved and read again; the start, the
+/// conversation queued and the code carry a trigger's cue (`Cue`).
 fn state() -> Check {
     let told = told();
+    let cue = crate::script::Cue {
+        trigger: ObjectId(9),
+        entering: ObjectId(1),
+    };
     let mut state = State {
         talk: Talk {
             conversations: told.conversations,
@@ -376,6 +381,7 @@ fn state() -> Check {
                 asker: ObjectId(2),
                 dialog: "end_door01".into(),
                 bark: false,
+                cue: Some(cue),
             }],
             barks: told.barks,
             tokens: told.tokens,
@@ -400,6 +406,7 @@ fn state() -> Check {
                 with: ObjectId(1),
                 dialog: String::new(),
                 asker: Some(ObjectId(2)),
+                cue: Some(cue),
             }),
             queued(Action::Hold { talk: Some(3) }),
         ],
@@ -409,7 +416,8 @@ fn state() -> Check {
         globals: Vec::new(),
         locals: Vec::new(),
     };
-    state.defer(500, ObjectId(1), "k_def_dialogue01", code, (None, Some(3)));
+    let carried = (None, Some(3), Some(cue));
+    state.defer(500, ObjectId(1), "k_def_dialogue01", code, carried);
     let mut out = Writer::default();
     state.encode(&mut out);
     let read = State::decode(&mut Reader::new("state", &out.0));

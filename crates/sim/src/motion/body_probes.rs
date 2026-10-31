@@ -121,5 +121,44 @@ pub fn probes() -> Checks {
             ),
         ),
     ));
+    checks.push(("body_slides_by_its_round", slides_by_its_round(&level)));
     checks
+}
+
+/// A seat's player's step along a body it stands inside is weighed by the
+/// body as `move_body` moves it, round across (`world::slides_clear`):
+/// standing in the diagonal channel's middle, where JA's
+/// square box's corners stand in both walls, a step along the channel is
+/// clear and one 6 units into a wall is not. Weighed as the box, the level
+/// counted as holding it already, the step into the wall was weighed by the
+/// bodies alone and taken; buried, the player stood held for good
+/// (Kashyyyk's Upper Shadowlands, between two tach in the pass to the
+/// repulsor field).
+fn slides_by_its_round(level: &Level) -> Result<String, String> {
+    let middle: Vec3 = [0.0, 0.0, -SOLE_Z + 0.25];
+    let height = STAND_HEIGHT;
+    let half = HALF_WIDTH * UNIT;
+    let square = Extents {
+        mins: [-half, -half, SOLE_Z * UNIT],
+        maxs: [half, half, height * UNIT],
+    };
+    let metres = math::scale(middle, UNIT);
+    let boxed = collision::CollisionWorld::trace(level, metres, metres, &square, Contents::SOLID)
+        .start_solid;
+    let t = std::f32::consts::FRAC_1_SQRT_2;
+    let step = |along: f32, out: f32| -> Vec3 {
+        [
+            middle[0] + t * (along + out),
+            middle[1] + t * (along - out),
+            middle[2],
+        ]
+    };
+    let slides = |to: Vec3| crate::world::slides_clear(level, &[], 0, (middle, to), height);
+    let (along, into) = (slides(step(10.0, 0.0)), slides(step(0.0, 6.0)));
+    check(
+        boxed && along && !into,
+        format!(
+            "in the channel's middle (the square box held by the walls: {boxed}): a step along it clear {along}, 6 units into a wall clear {into}"
+        ),
+    )
 }

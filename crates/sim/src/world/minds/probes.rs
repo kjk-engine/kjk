@@ -1,9 +1,10 @@
 //! The probes of `minds` (`kjk sim probes`): a mind fighting in place keeps
-//! to the navigation mesh (`on_the_mesh`).
+//! to the navigation mesh (`on_the_mesh`), and a scene's fighter stops where
+//! its blows land (`scene_stop`).
 
 use collision::UNIT;
 
-use super::on_the_mesh;
+use super::{on_the_mesh, scene_stop};
 use crate::combat::mind;
 use crate::motion::{MotionState, SOLE_Z};
 
@@ -63,6 +64,52 @@ pub fn probes() -> crate::probe::Checks {
                 Err(detail)
             };
             (step.name, result)
+        })
+        .chain(stops())
+        .collect()
+}
+
+/// Beasts of K1's `appearance.2da` (personal space and `hitdist`,
+/// metres), each standing where a scene's fight stops it, facing its foe:
+/// there it attacks.
+fn stops() -> Vec<(&'static str, Result<String, String>)> {
+    let beasts = [
+        ("scene_stop_rakghoul_strikes", 0.35, 1.0),
+        ("scene_stop_gamorrean_strikes", 0.4, 1.0),
+        ("scene_stop_kath_hound_strikes", 0.6, 1.0),
+    ];
+    beasts
+        .into_iter()
+        .map(|(name, space, hit_distance)| {
+            let strike = crate::module::Strike {
+                hit_distance,
+                ..crate::module::Strike::BLANK
+            };
+            let close = mind::Attack::Blow(crate::world::strikes::strike_reach(&strike, space));
+            let stop = scene_stop(close, true);
+            let me = MotionState::standing([0.0, 0.0, -SOLE_Z], 0.0);
+            let foe = MotionState::standing([stop, 0.0, -SOLE_Z], 180.0);
+            let at = mind::look_at(&foe, close);
+            let command = mind::engage(
+                crate::snapshot::SimId(1),
+                &me,
+                mind::eye(&me),
+                at,
+                close,
+                0,
+                true,
+            );
+            let detail = format!(
+                "stops {:.2} m from its foe, its blow {:.2} m: buttons {:#x}",
+                stop * UNIT,
+                match close {
+                    mind::Attack::Blow(reach) => reach * UNIT,
+                    _ => 0.0,
+                },
+                command.buttons
+            );
+            let attacks = command.buttons & crate::input::buttons::ATTACK != 0;
+            (name, if attacks { Ok(detail) } else { Err(detail) })
         })
         .collect()
 }

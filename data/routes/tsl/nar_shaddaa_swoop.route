@@ -1,0 +1,40 @@
+# Nar Shaddaa, Lupo's swoop track (TSL, 302NAR, 301NAR, 371NAR), a branch
+# from the Refugee Sector that rejoins nothing: Borna Lys's plan against
+# Lupo's racing droid, her cage codes won ([Computer]: its behavioural core
+# reprogrammed with a process delay), C9-T9 sliced at its cage and set to
+# blow itself up, the race run with Modo (no fee) and won (k_301_mapenter:
+# with the droid gone, under 100 s wins; the bot's clean run takes it), the
+# prize and Borna's reward (DSimpson's and GameBanshee's Refugee Landing
+# Pad).
+# Starts from the Refugee Sector's checkpoint:
+#   kjk playthrough tsl @nar_shaddaa_refugees data/routes/tsl/nar_shaddaa_swoop.route --god
+exit TO_301NAR
+module 301nar
+say I was thinking of racing my swoop bike. # Borna Lys, by Lupo's gallery
+say And why is that?
+say So he built a droid to win the races.
+say A droid would be a formidable opponent.
+say So then why is this place empty?
+say Meaning he scared away all the competition.
+say So how do I beat him?
+say Just tell me what to do.
+say So how does that help us?
+say So what do I do?
+say Great, what are the codes?
+say [Computer] I can reprogram the computer behavior core
+use Borna
+talk
+say [Computer] Slice into the droid's central behavioral core # its cage
+say ::Open file      # panel: the droid set to think it is losing a race
+say [Computer] Reprogram the droid.
+use c9t9i
+talk
+say I want to race.  # Modo: the race, no fee
+say Yes, I know about all the dangers
+say Let's go.
+use Modo
+talk
+race                 # 371NAR, back to the gallery at its end
+talk
+use Borna            # Borna's thanks
+talk

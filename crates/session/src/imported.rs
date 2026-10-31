@@ -21,7 +21,7 @@ pub struct Imported {
 }
 
 /// Bump when what `templates` reads changes (with `sim::pack::VERSION`).
-pub const TEMPLATES_FORMAT: &str = "templates-v15";
+pub const TEMPLATES_FORMAT: &str = "templates-v17";
 /// Bump when the voice lengths' encoding or reading changes.
 pub const VOICES_FORMAT: &str = "voices-v1";
 

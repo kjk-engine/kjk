@@ -27,6 +27,14 @@ talk                 # a helpless opponent"), Atton in the medbay, the
 until npc 9=1        # Handmaiden's warning: Visas joined
 equip saber          # the lightsaber from Visas's part in hand (a_give_quest_ls
                      # picks it by the Exile's level: a double-bladed one now)
+say [Use the workbench to create or breakdown items.] # the garage's
+use Workbench        # workbench: a lens made of the components the party
+talk                 # carries (itemcreate.2da, Treat Injury 5) and fitted
+craft u_l_lens_01    # in the saber's lens slot at the upgrade screen
+say [Use the workbench to upgrade items.]
+use Workbench
+talk
+fit u_l_lens_01 saber
 party 0,6            # ashore with Atton and Kreia (not Visas)
 say [Repair] Initialize the control cluster # HK-47's control cluster,
 say Step away.       # bought from Akkere on Dantooine, fitted

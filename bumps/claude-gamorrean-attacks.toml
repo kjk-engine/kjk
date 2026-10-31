@@ -1,0 +1,7 @@
+# The sim's hash moves on purpose: a creature model on JA's skeleton whose
+# model carries its own melee attack (`m0a1`: a Gamorrean, its axe in its
+# mesh) and nothing in its right hand holds its strike's weapon there as a
+# blade and swings JA's way, as an armed Gamorrean does; one without (a
+# Jawa) has no strike and fights as an unarmed humanoid, punching
+# (`session::sheets::on_ja`).
+sim = "creature models on JA's skeleton: those with their own melee attack swing their creature weapon as a blade (Gamorreans), the rest punch as humanoids (Jawas)"

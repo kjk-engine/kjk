@@ -485,6 +485,13 @@ impl Level {
     /// placeable's footprint (inside the walls that ring it, which a box
     /// standing there does not touch; KOTOR's walker never stands there).
     pub fn fits(&self, at: math::Vec3) -> bool {
+        self.fits_lifted(at, &[0.0])
+    }
+
+    /// `fits`, the box also tried each of `lifts` (units) over `at`, as
+    /// move_body's ground trace holds a body on the highest of the floor under
+    /// its box; the footprint looked for under `at` itself.
+    fn fits_lifted(&self, at: math::Vec3, lifts: &[f32]) -> bool {
         let half = crate::motion::HALF_WIDTH * UNIT;
         let extents = Extents {
             mins: [-half, -half, crate::motion::SOLE_Z * UNIT],
@@ -497,15 +504,31 @@ impl Level {
             at[2] + (crate::motion::SOLE_Z - crate::motion::STEP_HEIGHT) * UNIT,
         ];
         self.with(None, |world| {
-            let trace = world.sweep(
-                at,
-                at,
-                &collision::Shape::Upright(extents),
-                Contents::PLAYER_SOLID,
-            );
+            let clear = lifts.iter().any(|lift| {
+                let up = [at[0], at[1], at[2] + lift * UNIT];
+                !world
+                    .sweep(
+                        up,
+                        up,
+                        &collision::Shape::Upright(extents),
+                        Contents::PLAYER_SOLID,
+                    )
+                    .start_solid
+            });
             let under = world.trace(at, below, &Extents::POINT, Contents::NONWALK);
-            !trace.start_solid && !(under.fraction < 1.0 && under.entity.is_some())
+            clear && !(under.fraction < 1.0 && under.entity.is_some())
         })
+    }
+
+    /// Whether a standing body put down at `at` (an origin over the
+    /// navigation mesh's floor, units) fits (`fits`), its box also tried a
+    /// little higher (`rules::walking::walker::FLOOR_GIVE`), where the
+    /// level's floor rises a few millimetres over the mesh's under a corner
+    /// of the box. Beside Dantooine's Khoonda plaza, a floor 9 mm higher
+    /// under one corner left no side of a citizen to go round by but the one
+    /// behind a wall.
+    pub fn fits_put_down(&self, at: math::Vec3) -> bool {
+        self.fits_lifted(at, &[0.0, rules::walking::walker::FLOOR_GIVE])
     }
 
     /// Whether a standing body fits at `at` (units) among the level's own

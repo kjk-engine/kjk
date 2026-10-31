@@ -111,10 +111,23 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         (
             "out_of_reach_closes",
             check(
-                near(last).is_some_and(|object| {
+                near(&snapshots[5]).is_some_and(|object| {
                     object.tenants == 0 && object.state == crate::snapshot::look::CLOSED
                 }) && notices.contains(&(5, Seat(0), Notice::OutOfReach)),
-                format!("near container {:?}", near(last)),
+                format!("near container {:?}", near(&snapshots[5])),
+            ),
+        ),
+        (
+            "party_item_put_in",
+            check(
+                shown(last, ids.near) == ["grenade"]
+                    && party(last) == ["medpac", "stim"]
+                    && notices.contains(&(7, Seat(1), Notice::CannotUse)),
+                format!(
+                    "near shows {:?}, the party {:?}, notices {notices:?}",
+                    shown(last, ids.near),
+                    party(last)
+                ),
             ),
         ),
         (
@@ -142,7 +155,8 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                         .any(|(_, to, notice)| to == seat && *notice == Notice::Show(BOX))
                 }) && notices
                     .iter()
-                    .filter(|(_, _, notice)| *notice == Notice::Said(SAID.into()))
+                    // Before the near one is opened again for the put.
+                    .filter(|(at, _, notice)| *at < 6 && *notice == Notice::Said(SAID.into()))
                     .count()
                     == 1,
                 format!("{notices:?}"),
@@ -391,14 +405,18 @@ fn scenario() -> Result<Ran, String> {
         .loot(ids.near)
         .map(|(item, _)| item)
         .collect();
-    let [medpac, stim, _] = stocked[..] else {
+    let [medpac, stim, grenade] = stocked[..] else {
         return Err(format!("the near one holds {stocked:?}"));
     };
     let take = |item| Action::Take {
         container: NEAR,
         item,
     };
-    let steps: [Vec<(u8, Action)>; 6] = [
+    let put = Action::Put {
+        container: NEAR,
+        item: grenade,
+    };
+    let steps: [Vec<(u8, Action)>; 8] = [
         vec![
             (0, Action::Open(NEAR)),
             (0, Action::Open(FAR)),
@@ -410,6 +428,9 @@ fn scenario() -> Result<Ran, String> {
         vec![(1, take(stim))],
         // Seat 0 is moved 8 m away first (below).
         vec![(0, take(medpac))],
+        vec![(1, Action::Open(NEAR))],
+        // The party's grenade put back, asked twice in one step.
+        vec![(1, put.clone()), (1, put)],
     ];
     let mut notices = Vec::new();
     let mut snapshots = Vec::new();

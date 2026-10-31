@@ -3,7 +3,10 @@
 //! plays for a moment before jumping the body away (Taris's duel ring:
 //! `k_ptar_dueler_ud`'s loser), then none. Each frame posed as the cast
 //! poses one (`acting::Shows` over the body), with and without the body put
-//! back at rest first.
+//! back at rest first. And JA's nineteen deaths: each get-up's first frame,
+//! turned as the view turns it (`cast::getup_turn`), lies on the side the
+//! death left the body on, its head where the death's lies, its pelvis
+//! near.
 
 use std::collections::BTreeMap;
 
@@ -28,7 +31,65 @@ const FRAME_MS: u64 = 16;
 const ROOT_DUMMY: &str = "rootdummy";
 
 pub fn probes() -> Checks {
-    vec![("up from a lying clip", lying_clip_ends())]
+    vec![
+        ("up from a lying clip", lying_clip_ends()),
+        ("get-ups start where deaths lie", getups_start_lying()),
+    ]
+}
+
+/// Furthest (metres) a get-up's turned first frame may set the pelvis from
+/// where its death's last frame left it.
+const GETUP_SLIDE_M: f32 = 0.6;
+
+fn getups_start_lying() -> Result<String, String> {
+    let (gla, cfg) = match crate::stage::ja_skeleton(&crate::discover()) {
+        Ok(found) => found,
+        Err(why) => return Ok(format!("skipped: {why}")),
+    };
+    let sequences: BTreeMap<String, fmt_ja::animation_cfg::Sequence> = cfg
+        .sequences
+        .iter()
+        .map(|s| (s.name.to_ascii_uppercase(), s.clone()))
+        .collect();
+    let mut rows = Vec::new();
+    let mut wrong = Vec::new();
+    for n in 1..=19 {
+        let name = format!("BOTH_DEATH{n}");
+        let death = sim::motion::Anim::from_name(&name).ok_or(format!("no {name}"))?;
+        let getup = sim::combat::death::getup(death);
+        let pose = |anim: sim::motion::Anim, last| {
+            let sequence = sequences.get(anim.name())?;
+            cast::lying(&gla, sequence, last)
+        };
+        let (Some(lain), Some(up), Some(turn)) = (
+            pose(death, true),
+            pose(getup.anim, false),
+            cast::getup_turn(&gla, &sequences, death, getup.anim),
+        ) else {
+            return Err(format!(
+                "{name} or {}: not in the skeleton",
+                getup.anim.name()
+            ));
+        };
+        let turned = Quat::from_rotation_z(turn.to_radians()) * up.1;
+        let slide = (turned - lain.1).truncate().length();
+        let heading = (up.0 + turn - lain.0 + 540.0).rem_euclid(360.0) - 180.0;
+        let side = lain.2.signum() == up.2.signum();
+        rows.push(format!(
+            "{n}: {} turn {turn:.0}° (table {:.0}°), pelvis {slide:.2} m",
+            getup.anim.name(),
+            -getup.turn
+        ));
+        if !side || heading.abs() > 1.0 || slide > GETUP_SLIDE_M {
+            wrong.push(format!(
+                "{n} (side {side}, head {heading:.0}°, pelvis {slide:.2} m)"
+            ));
+        }
+    }
+    check(
+        wrong.is_empty(),
+        format!("{}; wrong: {wrong:?}", rows.join("; ")),
+    )
 }
 
 fn lying_clip_ends() -> Result<String, String> {

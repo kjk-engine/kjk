@@ -512,11 +512,11 @@ impl State {
     /// (a medpac, a stim), or one it wears (a droid's utility item, its
     /// shield), whose spell it may cast on that target (`spell_for`) and
     /// whose spell has an impact script to do what it does; else it is
-    /// refused and kept. One use taken (`spend`). A kind one of the item
-    /// buttons takes, used on itself, is taken as that button's press
-    /// would take it (`Change::UseItem`: its use time, its script cast as
-    /// the use lands, `combat::items::press`); any other is cast now for
-    /// the step's scripts.
+    /// refused and kept. A kind one of the item buttons takes, used on
+    /// itself, is used as that button's press would (`Change::UseItem`:
+    /// its use time, its script cast and one use taken as the use lands,
+    /// `combat::items::press`); any other has one use taken (`spend`) and
+    /// is cast now for the step's scripts.
     pub(crate) fn use_item(
         &mut self,
         library: &Library,
@@ -552,7 +552,9 @@ impl State {
             && crate::combat::items::use_of(row)
                 .is_some_and(|known| known != crate::combat::items::Use::Grenade);
         let shield = facts.shield;
-        if library.impact(row).is_none() || !self.spend(catalog, out, item) {
+        // A kind a button takes leaves the goods as its use lands
+        // (`combat::items::press`); any other now.
+        if library.impact(row).is_none() || (!pressed && !self.spend(catalog, out, item)) {
             return Err(Notice::CannotUse);
         }
         // TSL: a party member using an item in a duel that forbids it.

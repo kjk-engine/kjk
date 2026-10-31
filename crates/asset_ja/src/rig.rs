@@ -473,16 +473,20 @@ fn pelvis_scale(ja: &Ja, kotor: &Kotor) -> f32 {
 /// head): the bodies JA's animations can drive whole, the player bodies and
 /// the full-body humanoids (the Sith soldiers) alike.
 pub fn is_humanoid(kotor: &ModelIr) -> bool {
-    let has = |name: &str| {
-        kotor
-            .nodes
-            .iter()
-            .any(|node| node.name.eq_ignore_ascii_case(name))
-    };
+    humanoid_names(kotor.nodes.iter().map(|node| node.name.as_str()))
+}
+
+/// `is_humanoid` from a model's node names alone (its MDL's name table,
+/// `fmt_odyssey::mdl::Model::node_names`), for what reads no whole model.
+pub fn humanoid_names<'a>(names: impl Iterator<Item = &'a str> + Clone) -> bool {
     HUMANOID
         .iter()
         .filter(|pair| !matches!(pair.kotor, "neck_g" | "head_g"))
-        .all(|pair| has(pair.kotor))
+        .all(|pair| {
+            names
+                .clone()
+                .any(|name| name.eq_ignore_ascii_case(pair.kotor))
+        })
 }
 
 /// Which KOTOR nodes follow which JA bones, with each node's alignment in

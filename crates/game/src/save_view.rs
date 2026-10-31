@@ -2,12 +2,12 @@
 //! window's side: the saves' folder listed for the screens, what a save
 //! made now would be called, the screens' Save and Delete, quick save and
 //! quick load (F5, F9), and what became of a save. The host writes it
-//! (`sim_host::save_world`); a load goes through the session flow (from the
-//! menu, or the program again into it during play, only played alone),
-//! except the reload after the party fell, which the host makes in place
-//! for every player from its own latest save (`sim_host::ReloadRequest`,
-//! I30 P13). A copy of another host's save is listed under its own name,
-//! marked with whose it is (`SaveView::from`).
+//! (`sim_host::save_world`); a load goes through the session flow: from
+//! the menu, or in place during play, only played alone, as the reload
+//! after the party fell, which the host makes in place for every player
+//! from its own latest save (`sim_host::ReloadRequest`, I30 P13). A copy
+//! of another host's save is listed under its own name, marked with whose
+//! it is (`SaveView::from`).
 
 use std::path::PathBuf;
 
@@ -332,6 +332,13 @@ fn told(
             }
         }
         Err(why) if on_screen => refuse_on_screen(ui, why),
-        Err(why) => ui.vm.feedback.push(why),
+        // A key's save refused is told where "Game saved" would have been,
+        // so a quick load after it is not taken for the save just asked.
+        Err(why) => {
+            if let Some(mut summary) = summary {
+                summary.notices.push(why.clone());
+            }
+            ui.vm.feedback.push(why);
+        }
     }
 }

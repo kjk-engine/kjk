@@ -54,6 +54,9 @@ crates/sim/src/action.rs WATCH  # a player action's wire tag
 crates/sim/src/combat/ai.rs TASKS  # the tasks' wire order
 crates/sim/src/combat/damage.rs WHOLE_CADENCE_MS  # derived: the round over the pace
 crates/sim/src/combat/death.rs DIE  # animations.2da row 80 as the views number clips
+crates/sim/src/combat/death.rs BACK  # JA's back get-up and its first frame's head direction, measured on _humanoid
+crates/sim/src/combat/death.rs FRONT  # JA's front get-up and its first frame's head direction, measured on _humanoid
+crates/sim/src/combat/death.rs LYING  # where JA's deaths leave the body, measured on _humanoid
 crates/sim/src/combat/effects.rs ALL  # enum order for the wire encoding
 crates/sim/src/combat/effects.rs ALL_SAVES  # save index (all three), an id
 crates/sim/src/combat/effects.rs CHOKE  # a hold's state number
@@ -138,9 +141,11 @@ crates/sim/src/combat/gear.rs WILL  # a save's index
 crates/sim/src/combat/idle.rs FIRE_AND_FORGET  # the first fire-and-forget ANIMATION_* constant
 crates/sim/src/combat/idle.rs IDLES  # a list of JA animations
 crates/sim/src/combat/idle.rs LOOPED_ROWS  # numbering: where looping animations.2da rows are numbered from
+crates/sim/src/combat/items.rs ACTIVATE  # a script constant's number (ANIMATION_FIREFORGET_ACTIVATE)
 crates/sim/src/combat/items.rs COLD  # a damageflags bit
 crates/sim/src/combat/items.rs ELECTRICAL  # a damageflags bit
 crates/sim/src/combat/items.rs FIRE  # a damageflags bit
+crates/sim/src/combat/items.rs INJECT  # a script constant's number (ANIMATION_FIREFORGET_INJECT)
 crates/sim/src/combat/items.rs KINDS  # a snapshot array's size
 crates/sim/src/combat/mind.rs AIM_STEP  # Command::aim's wire step
 crates/sim/src/combat/mind.rs SWINGS  # the movement keys that pick each swing (input axes)
@@ -575,7 +580,7 @@ crates/sim/src/traps.rs RECOVER  # KOTOR's animation id
 crates/sim/src/traps.rs SET  # KOTOR's animation id
 crates/sim/src/visuals/mod.rs SEEN_MS  # transport: how long a fleeting visual waits for every view
 crates/sim/src/walk.rs CONTACT  # derived: two bodies' widths
-crates/sim/src/walk.rs IMMOBILE  # creaturespeed.2da row: NOMOVE
+crates/sim/src/module.rs NOMOVE  # creaturespeed.2da row: NOMOVE
 crates/sim/src/walk.rs PASS  # derived: a body's width and the passing room
 crates/sim/src/world.rs ARENA  # the placeholder world's wanderers (no module), a test bed
 crates/sim/src/world.rs BODY  # a bit flag on entity numbers
@@ -592,6 +597,7 @@ crates/sim/src/world/coop_items.rs START  # a probe's fixture
 crates/sim/src/world/coop_items.rs STORE  # a probe's fixture
 crates/sim/src/world/coop_items.rs TAKEN  # a probe's fixture
 crates/sim/src/world/coop_items.rs XP  # a probe's fixture
+crates/sim/src/world/falls.rs ARENA_REVIVE_MS  # the arena's playtest order's wait, no game rule
 crates/sim/src/world/feats.rs CON  # a probe's fixture
 crates/sim/src/world/feats.rs GRANTED  # a probe's fixture
 crates/sim/src/world/feats.rs HP  # a probe's fixture
@@ -614,6 +620,7 @@ crates/sim/src/world/locks.rs CHECK  # a talk table strref
 crates/sim/src/world/locks.rs DISARM_MINE  # a talk table strref
 crates/sim/src/world/locks.rs DOOR  # KOTOR's animation id
 crates/sim/src/world/locks.rs FAILURE  # a talk table strref
+crates/sim/src/world/locks.rs IMPOSSIBLE  # a talk table strref
 crates/sim/src/world/locks.rs KEY_ONLY  # a talk table strref
 crates/sim/src/world/locks.rs KEY_USED  # a talk table strref
 crates/sim/src/world/locks.rs LOCKED  # a talk table strref
@@ -626,6 +633,7 @@ crates/sim/src/world/locks.rs PLACEABLE  # KOTOR's animation id
 crates/sim/src/world/locks.rs RECOVER_MINE  # a talk table strref
 crates/sim/src/world/locks.rs SECURITY  # a talk table strref
 crates/sim/src/world/locks.rs SET_MINE  # a talk table strref
+crates/sim/src/world/locks.rs SKILL_TOO_LOW  # a talk table strref
 crates/sim/src/world/locks.rs SNEAK_ATTACK  # a talk table strref
 crates/sim/src/world/locks.rs STEALTH_IN_COMBAT  # a talk table strref
 crates/sim/src/world/locks.rs STEALTH_OFF  # a talk table strref

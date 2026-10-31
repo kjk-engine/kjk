@@ -146,11 +146,13 @@ pub enum Action {
         to: Option<[f32; 3]>,
     },
     /// `ActionStartConversation`: with whom, the DLG (empty: the owner's
-    /// own), and the body whose use queued it (`Event::asker`).
+    /// own), the body whose use queued it (`Event::asker`), and the
+    /// trigger's `OnEnter` it stems from (`Event::cue`).
     Converse {
         with: ObjectId,
         dialog: String,
         asker: Option<ObjectId>,
+        cue: Option<super::Cue>,
     },
     /// `ActionResumeConversation`, and the conversation whose script queued
     /// it (`dialogue::running`).

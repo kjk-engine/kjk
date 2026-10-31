@@ -214,6 +214,23 @@ impl Party {
         self.available.get(&self.switched?)?.object
     }
 
+    /// The first seat leading through `body` (KOTOR's leader key, a
+    /// portrait click, control passing on from a fallen leader:
+    /// `world::scripts`): its own character `own`, or the one it is
+    /// switched to, leads again; a companion in the party leads; anyone
+    /// else changes nothing.
+    pub fn lead(&mut self, body: u32, own: Option<u32>) {
+        if Some(body) == own || self.switched_body() == Some(body) {
+            self.leader = None;
+        } else if let Some(npc) = self.members.iter().copied().find(|npc| {
+            self.available
+                .get(npc)
+                .is_some_and(|known| known.object == Some(body))
+        }) {
+            self.leader = Some(npc);
+        }
+    }
+
     /// The creatures of the party's companions, in joining order.
     pub fn creatures(&self) -> impl Iterator<Item = u32> + '_ {
         self.members

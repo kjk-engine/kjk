@@ -53,6 +53,9 @@ impl Step<'_> {
         }
         let id = self.state.talk.next;
         self.state.talk.next += 1;
+        if let Some(cue) = start.cue {
+            self.line(Line::Cued { ms: now, id, cue });
+        }
         let first = dlg
             .starts
             .iter()

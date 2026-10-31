@@ -723,8 +723,23 @@ fn options_in_game() -> Gui {
     )
 }
 
+/// Presses `quit`, then `answer` in the box it opens: the box's name, and
+/// what the answer raised.
+fn quit_through(
+    stack: &mut Stack,
+    assets: &mut Fake,
+    vm: &ViewModel,
+    quit: &str,
+    answer: &str,
+) -> (Option<&'static str>, Vec<Intent>) {
+    press(stack, assets, vm, quit);
+    let asked = stack.top().map(|screen| screen.0);
+    (asked, press(stack, assets, vm, answer))
+}
+
 pub(super) fn in_game() -> Vec<Check> {
     let mut assets = Fake::new();
+    assets.layouts.insert("confirm", confirm_box());
     assets.layouts.insert("top", bar());
     assets.layouts.insert("optionsingame", options_in_game());
     assets.layouts.insert("map", root(640, 480, Vec::new()));
@@ -748,7 +763,34 @@ pub(super) fn in_game() -> Vec<Check> {
     let unsaved = stack
         .state_of("BTN_SAVEGAME", &vm)
         .is_some_and(|state| state.disabled);
-    let quit = press(&mut stack, &mut assets, &vm, "BTN_QUIT");
+    let mut kept = opened("options_in_game", &mut assets, &vm);
+    let (_, cancelled) = quit_through(&mut kept, &mut assets, &vm, "BTN_QUIT", "BTN_CANCEL");
+    let kept = cancelled.is_empty() && kept.top().map(|screen| screen.0) == Some("options_in_game");
+    let (asked, quit) = quit_through(
+        &mut opened("options_in_game", &mut assets, &vm),
+        &mut assets,
+        &vm,
+        "BTN_QUIT",
+        "BTN_OK",
+    );
+    let (_, desktop) = quit_through(
+        &mut opened("options_in_game", &mut assets, &vm),
+        &mut assets,
+        &vm,
+        "BTN_QUITDESKTOP",
+        "BTN_OK",
+    );
+    let placed = {
+        // From Gameplay (the first focus) down past Break to Quit, then on.
+        let mut menu = opened("options_in_game", &mut assets, &vm);
+        let mut down = |times: usize| {
+            for _ in 0..times {
+                menu.step(&mut assets, &vm, &keys(&[Key::Down]));
+            }
+            menu.focused().map(str::to_string)
+        };
+        (down(3), down(1))
+    };
     stack.step(&mut assets, &vm, &keys(&[Key::PrevTab]));
     let swapped = stack.top().map(|screen| screen.0);
     stack.step(&mut assets, &vm, &keys(&[Key::NextTab]));
@@ -794,8 +836,18 @@ pub(super) fn in_game() -> Vec<Check> {
             .and_then(|()| expect("no saving without a world here", unsaved))
             .and_then(|()| {
                 expect(
-                    &format!("quit goes back to the menu: {quit:?}"),
-                    quit == vec![Intent::Session(SessionIntent::ToMenu)],
+                    &format!("quit asks, then goes back to the menu: {asked:?} {quit:?}"),
+                    asked == Some("quit_confirm")
+                        && quit == vec![Intent::Session(SessionIntent::ToMenu)],
+                )
+            })
+            .and_then(|()| expect("Cancel keeps the game", kept))
+            .and_then(|()| {
+                expect(
+                    &format!("the desktop button under Quit quits: {desktop:?} {placed:?}"),
+                    desktop == vec![Intent::Quit]
+                        && placed.0.as_deref() == Some("BTN_QUITDESKTOP")
+                        && placed.1.as_deref() == Some("BTN_EXIT"),
                 )
             })
             .and_then(|()| {
@@ -814,7 +866,9 @@ pub(super) fn in_game() -> Vec<Check> {
                     alone && small.as_deref() == Some("po_ptrask") && viewed == [Intent::View(1)],
                 )
             })
-            .map(|()| "the bar, the options, quit, the party".into())
+            .map(|()| {
+                "the bar, the options, quit (asked, to the menu or the desktop), the party".into()
+            })
     })]
 }
 

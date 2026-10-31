@@ -8,7 +8,8 @@
 //! - closes it for a seat whose player is down or out of reach;
 //! - applies the seats' actions in canonical order (`TickInput::actions`):
 //!   opening it (a locked one fails to, `world::locks`), closing it,
-//!   taking one of its items or everything left. What it holds is its
+//!   taking one of its items or everything left, putting one of the
+//!   party's in (not a plot item: KOTOR's give mode). What it holds is its
 //!   inventory as the scripts have it (`State::loot`): its template's
 //!   items stocked on the module's first visit and whatever scripts gave
 //!   it since, as KOTOR's containers hold their item list (K1's civilian
@@ -30,7 +31,7 @@ use super::{Avatar, Clock, Fighting, Id, Inputs, Object, Player, Static, StepRea
 use crate::action::Action;
 use crate::input::Seat;
 use crate::math;
-use crate::module::ObjectKind;
+use crate::module::{ObjectData, ObjectKind};
 use crate::notice::{Notice, Notices};
 use crate::script::Hook;
 use crate::snapshot::{SimId, look};
@@ -120,9 +121,10 @@ pub fn let_go(snapshot: &mut crate::Snapshot, level: &super::Level) {
     }
 }
 
-fn within(reacher: &Reacher, container: [f32; 3]) -> bool {
-    let (dx, dy) = (reacher.at[0] - container[0], reacher.at[1] - container[1]);
-    reacher.alive && (dx * dx + dy * dy) <= REACH * REACH
+/// Whether `reacher` is up and reaches `container` (its action points
+/// counting, `ObjectData::use_distance`).
+fn within(reacher: &Reacher, container: &ObjectData) -> bool {
+    reacher.alive && container.use_distance(reacher.at) <= REACH
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -176,26 +178,24 @@ pub(super) fn containers(
             .ok()
             .map(|at| &seats[at].1)
     };
-    // Each container with where it is.
+    // Each container with its facts.
     let mut boxes: Vec<_> = objects
         .iter_mut()
         .filter_map(|(id, object)| {
-            let facts = object.facts.clone()?;
-            let place = facts.container.then_some(facts.position)?;
-            Some((id, object, facts, place))
+            let facts = object.facts.clone().filter(|facts| facts.container)?;
+            Some((id, object, facts))
         })
         .collect();
     boxes.sort_by_key(|(_, object, ..)| object.index);
 
     // Down or gone out of reach: closed for that seat.
-    for (id, object, _, place) in &mut boxes {
-        let place = *place;
+    for (id, object, facts) in &mut boxes {
         let held = object.state.tenants;
         for seat in (0..crate::MAX_SEATS)
             .map(Seat)
             .filter(|seat| held & bit(*seat) != 0)
         {
-            let near = reacher(seat).is_some_and(|reacher| within(reacher, place));
+            let near = reacher(seat).is_some_and(|reacher| within(reacher, facts));
             if !near {
                 object.state.tenants &= !bit(seat);
                 if object.state.tenants == 0 {
@@ -208,9 +208,10 @@ pub(super) fn containers(
         }
     }
 
-    // The items taken this step, and by whom.
+    // The items taken this step, and by whom; those put in.
     let state = &scripts.state;
     let mut taken_now: Vec<(u32, Seat)> = Vec::new();
+    let mut put_now: Vec<u32> = Vec::new();
     for (seat, action) in inputs.0.actions() {
         let seat = *seat;
         // Trading, wearing, levels and the party screen are the scripts' (`world::scripts`).
@@ -229,9 +230,9 @@ pub(super) fn containers(
             refuse(&mut notices, Notice::NotOpen);
             continue;
         };
-        let (id, object, facts, place) = &mut boxes[at];
+        let (id, object, facts) = &mut boxes[at];
         let bit = bit(seat);
-        let Some(who) = reacher(seat).filter(|reacher| within(reacher, *place)) else {
+        let Some(who) = reacher(seat).filter(|reacher| within(reacher, facts)) else {
             refuse(&mut notices, Notice::OutOfReach);
             continue;
         };
@@ -302,8 +303,18 @@ pub(super) fn containers(
                 continue;
             }
             // What the party gives it: the scripts move it (`State::put_in`),
-            // then the container hears of it.
+            // then the container hears of it. Only what the party carries,
+            // unworn, never a plot item (KOTOR's give mode does not list
+            // those, `CSWGuiContainer::SetupGiveMode`), once a step.
             Action::Put { item, .. } => {
+                let givable = state.items.get(&item).is_some_and(|held| {
+                    held.holder == crate::inventory::PARTY && held.slot.is_none() && !held.plot
+                });
+                if !givable || put_now.contains(&item) {
+                    refuse(&mut notices, Notice::CannotUse);
+                    continue;
+                }
+                put_now.push(item);
                 events.put.push((id.0, item));
                 events.events.push((id.0, who, Hook::Disturbed));
                 continue;

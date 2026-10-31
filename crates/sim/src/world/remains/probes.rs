@@ -289,6 +289,7 @@ fn ground() -> Result<(crate::Level, SimWorld, u32), String> {
         bag: 2,
         destroy_ms: 2000,
         fade_ms: Some(600),
+        bulk: None,
     };
     let fallen = ObjectData {
         inventory: vec![
@@ -505,7 +506,7 @@ fn scenario() -> Result<Ran, String> {
         ))
     });
     let targeted = made.as_ref().and_then(|(index, ..)| {
-        crate::target::candidates(&level, &snapshot)
+        crate::target::candidates(&level, &snapshot, None)
             .into_iter()
             .find(|candidate| candidate.index == *index)
             .map(|candidate| candidate.feet)

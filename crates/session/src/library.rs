@@ -760,6 +760,15 @@ fn body_clips(source: &dyn Source, animation_rows: &[(String, bool)]) -> BTreeMa
     clips
 }
 
+/// Whether `named` may be a resref: 1 to 16 letters, digits and `_`.
+fn resref_like(named: &str) -> bool {
+    !named.is_empty()
+        && named.len() <= 16
+        && named
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
 /// The walk: each conversation read once, each script once, until nothing
 /// new is named.
 fn gather(source: &dyn Source, seeds: Seeds) -> Gathered {
@@ -784,6 +793,21 @@ fn gather(source: &dyn Source, seeds: Seeds) -> Gathered {
             };
             if let Ok(parsed) = Dlg::parse(&bytes) {
                 waiting.extend(parsed.scripts().into_iter().map(str::to_string));
+                // A string its calls pass that names a script or a DLG:
+                // what the called script hands on by name (`PlayPazaak`'s
+                // end script, `ExecuteScript`'s, a conversation started).
+                for named in parsed
+                    .strings()
+                    .into_iter()
+                    .filter(|named| resref_like(named))
+                {
+                    if source.exists(&named, ncs) {
+                        waiting.push(named.clone());
+                    }
+                    if !tried.contains(&named) && source.exists(&named, dlg) {
+                        talks.push(named);
+                    }
+                }
                 dialogues.insert(name, parsed);
             }
             continue;
@@ -803,12 +827,7 @@ fn gather(source: &dyn Source, seeds: Seeds) -> Gathered {
         for instruction in &program.code {
             if let Op::Const(Const::String(bytes)) = &instruction.op {
                 let named = String::from_utf8_lossy(bytes).to_ascii_lowercase();
-                let resref = !named.is_empty()
-                    && named.len() <= 16
-                    && named
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'_');
-                if !resref {
+                if !resref_like(&named) {
                     continue;
                 }
                 if !tried.contains(&named) && source.exists(&named, dlg) {
@@ -891,6 +910,42 @@ pub fn clip_probes(
         ));
     }
     checks
+}
+
+/// The gathering on TSL's data, its module 306NAR's archives loaded
+/// (skipped without the install): Geredi's conversation names the end
+/// script of the pazaak match its line starts only as a string parameter
+/// (`ActionParamStrA` "a_pazgeredi", handed to `a_pazaak`'s `PlayPazaak`),
+/// and the script is gathered with it.
+pub fn gather_probes(
+    tsl_306nar: Option<&dyn Source>,
+) -> Vec<(&'static str, Result<String, String>)> {
+    let Some(source) = tsl_306nar else {
+        return vec![(
+            "dlg string parameters",
+            Ok("skipped: no TSL install".into()),
+        )];
+    };
+    let spoken = BTreeMap::new();
+    let gathered = gather(
+        source,
+        Seeds {
+            scripts: Vec::new(),
+            talks: vec!["geredi".into()],
+            spoken: &spoken,
+        },
+    );
+    let found = gathered.scripts.contains_key("a_pazgeredi");
+    vec![(
+        "dlg string parameters",
+        checked(
+            found && gathered.dialogues.contains_key("geredi"),
+            format!(
+                "geredi's scripts gathered: a_pazgeredi {found} (of {})",
+                gathered.scripts.len()
+            ),
+        ),
+    )]
 }
 
 /// A probe's result: `what` passed or failed.

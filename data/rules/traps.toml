@@ -79,7 +79,8 @@ applies = ["kind:mine", "skill:Awareness"]
 [disarm]
 title = "Disarm Mine"
 summary = """
-Disarm Mine appears on the menu of a found mine within reach. Disarming
+Disarm Mine and Recover Mine appear on the menu of a found mine only for a
+character with ranks in Demolitions. Disarming
 takes {traps.disarm.ms:s}. The check is Demolitions + 1d{interaction.checks.die:bare}
 in combat, or Demolitions + {interaction.checks.taken:bare} out of combat,
 against the mine's disarm DC. A mine with a DC above
@@ -88,7 +89,10 @@ against the mine's disarm DC. A mine with a DC above
 """
 detail = """
 A mine set by the party is always disarmed. Moving, attacking or falling
-interrupts the attempt.
+interrupts the attempt. The character works on the mine through every
+attempt, and the outcome floats over it as in KOTOR: *success*, *failure*
+(in combat), or *Skill Too Low* (out of combat, where taking 20 is not
+enough). A failed attempt may be tried again.
 """
 applies = ["kind:mine", "skill:Demolitions"]
 
@@ -100,6 +104,17 @@ unit = "ms"
 range = [0, 30000]
 summary = "Disarming or recovering a mine takes {traps.disarm.ms:s}."
 source = "K1's executable (S7)"
+see = "sim::world::traps::skill_uses"
+applies = ["kind:mine", "skill:Demolitions"]
+
+[disarm.reach_m]
+name = "Disarm Range"
+type = "f32"
+value = 3.0
+unit = "m"
+range = [0.5, 10.0]
+summary = "A mine can be disarmed or recovered from up to {traps.disarm.reach_m:bare} meters of its center, outside its {world.ranges.trap_radius_m:bare} meter radius."
+source = "ours (KOTOR disarms from beside a mine)"
 see = "sim::world::traps::skill_uses"
 applies = ["kind:mine", "skill:Demolitions"]
 

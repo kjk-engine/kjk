@@ -22,9 +22,12 @@ use std::collections::BTreeMap;
 use bevy_ecs::prelude::*;
 use collision::Body;
 
-use super::{Avatar, Clock, Fighting, Id, Player, Targets, body, in_party};
+use super::{
+    Avatar, Clock, Fighting, Id, Object, Player, Targets, body, bulk_of, in_party, object_bulk,
+};
 use crate::combat::damage::FriendlyFire;
 use crate::combat::saber::blades::Sweep;
+use crate::instance::Instances;
 use crate::math::Vec3;
 use crate::snapshot::{SimId, Snapshot};
 
@@ -74,8 +77,9 @@ pub(super) struct History {
 }
 
 impl History {
-    /// A history starting at `snapshot`: its characters as it has them.
-    pub(super) fn starting(snapshot: &Snapshot) -> History {
+    /// A history starting at `snapshot`: its characters as it has them,
+    /// each body met as its facts in `instances` say (`world::body`).
+    pub(super) fn starting(snapshot: &Snapshot, instances: &Instances) -> History {
         let mut history = History {
             first_tick: snapshot.tick,
             poses: BTreeMap::new(),
@@ -85,7 +89,9 @@ impl History {
                 history.record(
                     snapshot.tick,
                     entity.id,
-                    fighter.alive().then(|| body(entity.id, &player)),
+                    fighter
+                        .alive()
+                        .then(|| body(entity.id, &player, bulk_of(instances.of_entity(entity)))),
                     snapshot.in_party(entity),
                 );
             }
@@ -153,16 +159,20 @@ impl History {
 }
 
 /// Keeps this step's bodies (the last system of an authority step).
+#[allow(clippy::type_complexity)]
 pub(super) fn remember(
     clock: Res<Clock>,
     mut history: ResMut<History>,
-    actors: Query<(&Id, Option<&Avatar>, &Player, &Fighting)>,
+    actors: Query<(&Id, Option<&Avatar>, Option<&Object>, &Player, &Fighting)>,
 ) {
-    for (id, avatar, player, fighting) in &actors {
+    for (id, avatar, object, player, fighting) in &actors {
         history.record(
             clock.tick,
             id.0,
-            fighting.0.alive().then(|| body(id.0, &player.0)),
+            fighting
+                .0
+                .alive()
+                .then(|| body(id.0, &player.0, object_bulk(object))),
             in_party(avatar, &fighting.0),
         );
     }

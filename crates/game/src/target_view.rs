@@ -81,6 +81,7 @@ impl Targeted {
 mod lines {
     pub const OPEN: u32 = 365;
     pub const USE: u32 = 366;
+    pub const CLOSE: u32 = 1582;
     pub const DIALOG: u32 = 371;
     pub const SECURITY: u32 = 255;
     pub const TREAT_INJURY: u32 = 257;
@@ -92,8 +93,8 @@ mod lines {
 /// A choice's icon, by the kind of its object (an item's its own).
 fn icon(choice: Choice, kind: ObjectKind) -> &'static str {
     match (choice, kind) {
-        (Choice::Open, ObjectKind::Door) => "i_opendoor",
-        (Choice::Open, _) => "i_openplace",
+        (Choice::Open | Choice::Close, ObjectKind::Door) => "i_opendoor",
+        (Choice::Open | Choice::Close, _) => "i_openplace",
         (Choice::Use, _) => "i_useplace",
         (Choice::Talk, _) => "i_dialog",
         (Choice::Unlock { .. }, _) => "isk_security",
@@ -219,7 +220,8 @@ impl Plugin for TargetViewPlugin {
             .init_resource::<Autopilot>()
             .init_resource::<Acted>()
             .init_resource::<Pinned>()
-            .add_systems(PostUpdate, target.after(crate::play_view::Drawn));
+            .add_systems(PostUpdate, target.after(crate::play_view::Drawn))
+            .add_systems(PostUpdate, transition.after(crate::play_view::Drawn));
     }
 }
 
@@ -302,7 +304,7 @@ fn target(
         ],
         collision::UNIT,
     );
-    let candidates = sim::target::candidates(level, snapshot);
+    let candidates = sim::target::candidates(level, snapshot, Some(me.id));
     let yaw = ps.view[1].to_radians();
     let looker = Looker {
         feet,
@@ -369,12 +371,13 @@ fn target(
                         .is_some_and(|facts| facts.trap.is_some())
                 })
         });
-    // Security, for a body with ranks in it.
-    let security = sheet_of(snapshot, level, me)
-        .is_some_and(|sheet| sheet.skills[sim::combat::sheet::skills::SECURITY] > 0)
-        .then(|| sim::target::Security {
-            spike: spike.as_ref().map(|(id, _)| *id),
-        });
+    // Security and Demolitions, for a body with ranks in them.
+    let ranks =
+        |skill: usize| sheet_of(snapshot, level, me).is_some_and(|sheet| sheet.skills[skill] > 0);
+    let security = ranks(sim::combat::sheet::skills::SECURITY).then(|| sim::target::Security {
+        spike: spike.as_ref().map(|(id, _)| *id),
+    });
+    let demolitions = ranks(sim::combat::sheet::skills::DEMOLITIONS);
     let shown: Option<Shown> = object.and_then(entity_of).and_then(|entity| {
         if sim::target::revivable(entity) {
             return Some((
@@ -427,7 +430,10 @@ fn target(
             state,
             hostile,
             security,
-            (row.as_ref().is_some_and(|row| !row.kit.is_empty()), mine),
+            demolitions.then(|| sim::target::Demolitions {
+                recover: row.as_ref().is_some_and(|row| !row.kit.is_empty()),
+                door_mine: mine,
+            }),
         );
         let name = match &row {
             Some(row) if row.name != u32::MAX => ui
@@ -515,18 +521,22 @@ fn target(
     // E again while walking or reviving changes nothing, as a walk's
     // ignores it: a second press does not undo the first.
     let busy = targeted.walk.is_some() || targeted.reviving.is_some();
+    // Where the choice is done from: a door's action point on the player's
+    // side, else the target's feet.
+    let spot = |choice: Choice| {
+        sim::target::Spot::in_snapshot(level, snapshot, (index, kind), choice, to, &ps)
+    };
     if let (true, false, Some(&choice)) = (pressed, busy, choices.get(targeted.selected)) {
-        if Walk::near(&ps, to, choice, kind) {
+        let spot = spot(choice);
+        if Walk::near(&ps, spot) {
             act(&mut targeted, choice);
         } else {
-            targeted.walk = Some(Walk::new(
-                level, &state, &ps, index, kind, to, choice, sim_ms,
-            ));
+            targeted.walk = Some(Walk::new(level, &state, &ps, index, spot, choice, sim_ms));
         }
     }
     autopilot.breaks = sim::target::WALK_BREAKS;
     if let Some(mut walk) = targeted.walk {
-        match walk.stride(level, &state, &ps, kind, to, sim_ms) {
+        match walk.stride(level, &state, &ps, spot(walk.choice), sim_ms) {
             Stride::Steer(command) => {
                 autopilot.command = Some(command);
                 targeted.walk = Some(walk);
@@ -583,6 +593,7 @@ fn target(
             let mut label = say(match choice {
                 Choice::Open => lines::OPEN,
                 Choice::Use => lines::USE,
+                Choice::Close => lines::CLOSE,
                 Choice::Talk => lines::DIALOG,
                 Choice::Unlock { .. } => lines::SECURITY,
                 Choice::Revive => lines::TREAT_INJURY,
@@ -635,6 +646,58 @@ fn target(
                 "reviving": targeted.reviving.is_some(),
                 "progress": progress,
             }),
+        );
+    }
+}
+
+/// The area the door or exit the player faces leads to, for the HUD's
+/// area transition panel (`sim::transition`, `ui::screens::transition`):
+/// in play only, no screen up, the seat's body standing, and the
+/// destination named. The dumps carry it (`transition`).
+fn transition(
+    presented: Option<Res<PresentedSnapshot>>,
+    (own, swap, aim): (Option<Res<OwnSeat>>, Option<Res<SceneSwap>>, Res<Aim>),
+    mut ui: ResMut<Ui>,
+    (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
+) {
+    let faced = (|| {
+        aim.0.filter(|_| !ui.stack.is_open())?;
+        let (presented, own, swap) = (presented.as_ref()?, own.as_ref()?, swap.as_ref()?);
+        let snapshot = presented.0.current();
+        let ps = snapshot.standing(own.0)?.player?;
+        let feet = sim::math::scale(
+            [
+                ps.origin[0],
+                ps.origin[1],
+                ps.origin[2] + sim::motion::SOLE_Z,
+            ],
+            collision::UNIT,
+        );
+        let yaw = ps.view[1].to_radians();
+        let looker = Looker {
+            feet,
+            facing: [yaw.cos(), yaw.sin()],
+        };
+        let level = &swap.level;
+        let states = level.states_in(snapshot);
+        sim::transition::faced(level, states.as_deref(), snapshot, &looker)
+    })();
+    let name = faced.as_ref().and_then(|faced| {
+        let strref = faced.link.destination?;
+        ui.assets.as_ref()?.text(Source::Campaign, strref)
+    });
+    ui.vm.transition = name
+        .map(|name| ui::screens::transition::words(&name))
+        .filter(|words| !words.is_empty());
+    if dump_due.0 {
+        facts.0.insert(
+            "transition".into(),
+            serde_json::json!(faced.map(|faced| serde_json::json!({
+                "index": faced.index,
+                "kind": format!("{:?}", faced.kind),
+                "module": faced.link.module,
+                "words": ui.vm.transition.as_deref().map(fmt_odyssey::code_page),
+            }))),
         );
     }
 }

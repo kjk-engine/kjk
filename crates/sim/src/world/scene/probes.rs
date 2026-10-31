@@ -3,7 +3,7 @@
 //! conversation started by a script (`probe_begin`, a party one) or by a
 //! click (a player's own), and the probes' scripts and DLGs written here.
 
-use super::super::{Avatar, Fighting, Id, Player, SimWorld, Talking};
+use super::super::{Avatar, Fighting, Id, Player, SimWorld, Talking, strikes};
 use crate::action::{Action, Verb};
 use crate::combat::Sheet;
 use crate::combat::idle::Acting;
@@ -12,7 +12,7 @@ use crate::input::{Command, Seat, TickInput, buttons};
 use crate::module::{Body, ObjectData, ObjectKind, Placement, Repute};
 use crate::probe::check;
 use crate::script::actions::Target;
-use crate::script::dialogue::{Pick, REPLY_ANGLE, answer};
+use crate::script::dialogue::{Line, Pick, REPLY_ANGLE, answer};
 use crate::snapshot::{SimId, Snapshot};
 use crate::world::{StepReason, WorldConfig};
 use collision::UNIT;
@@ -39,6 +39,7 @@ pub fn all() -> Vec<Case> {
 const PROBES: &[Probe] = &[
     ("bystander_holds_ground", bystander_holds_ground),
     ("companion_stays", companion_stays),
+    ("party_kept_apart", party_kept_apart),
     ("party_cannot_use", party_cannot_use),
     ("party_queue_cannot_open", party_queue_cannot_open),
     ("party_rolls_nothing", party_rolls_nothing),
@@ -112,10 +113,21 @@ const PROBES: &[Probe] = &[
     ("arrives_exactly", arrives_exactly),
     ("move_to_object_range", move_to_object_range),
     ("goes_round_a_body", goes_round_a_body),
+    ("rounds_a_touched_body", rounds_a_touched_body),
+    (
+        "side_fits_over_a_rising_corner",
+        side_fits_over_a_rising_corner,
+    ),
+    (
+        "corner_cleared_out_from_under_a_wall",
+        corner_cleared_out_from_under_a_wall,
+    ),
     ("gives_up_blocked", gives_up_blocked),
     ("bump_rules", bump_rules),
     ("pushes_idle_aside", pushes_idle_aside),
+    ("immobile_not_pushed", immobile_not_pushed),
     ("body_overlap_not_buried", body_overlap_not_buried),
+    ("body_pocket_walked_out", body_pocket_walked_out),
     ("routes_round_made_placeable", routes_round_made_placeable),
     (
         "walker_keeps_off_made_placeable",
@@ -134,8 +146,10 @@ const PROBES: &[Probe] = &[
     ("walk_asks_no_exit", walk_asks_no_exit),
     ("leaving_heard", leaving_heard),
     ("item_lost_heard", item_lost_heard),
+    ("cue_names_trigger_and_comer", cue_names_trigger_and_comer),
     ("walk_opens_door", walk_opens_door),
     ("blocked_by_door", blocked_by_door),
+    ("dead_open_no_door", dead_open_no_door),
     ("party_waits_for_door", party_waits_for_door),
     ("walk_off_mesh_ends", walk_off_mesh_ends),
     ("door_goal_ends", door_goal_ends),
@@ -243,6 +257,10 @@ void SetGlobalBoolean(string sIdentifier, int nValue);
 object GetModuleItemAcquired();
 // 25
 int GetIsObjectValid(object oObject);
+// 26
+void DelayCommand(float fSeconds, action aActionToDelay);
+// 27
+void AssignCommand(object oActionSubject, action aActionToAssign);
 "#;
 
 /// The globals `probe_acquired` sets: whether its `GetEnteringObject` was
@@ -379,6 +397,28 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
     converse.push(Op::Const(Const::String(dialog.as_bytes().to_vec())));
     converse.push(call(3, 0));
     converse.push(call(17, 11));
+    // `DelayCommand(0.1, AssignCommand(GetObjectByTag("talker"),
+    // ActionStartConversation(GetFirstPC(), dialog)))`, as TSL's
+    // `tr_end_riiken` has its keeper speak to whoever comes in.
+    let mut asm = script_ncs::probes::Asm::default();
+    asm.op(Op::StoreState { bp: 0, sp: 0 })
+        .to(Op::Jmp, "delay")
+        .op(Op::StoreState { bp: 0, sp: 0 })
+        .to(Op::Jmp, "assign");
+    for op in &converse {
+        asm.op(op.clone());
+    }
+    asm.op(Op::Retn).label("assign");
+    for op in tagged("talker") {
+        asm.op(op);
+    }
+    asm.op(call(27, 2))
+        .op(Op::Retn)
+        .label("delay")
+        .op(Op::Const(Const::Float(0.1)))
+        .op(call(26, 2))
+        .op(Op::Retn);
+    let cue = asm.build();
     let converse = program(&converse);
     // Two `probe_twin`s made at `TWINS_AT` (`CreateObject`).
     let [x, y, z] = floor_at(TWINS_AT);
@@ -431,6 +471,7 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_module_leave", program(&[])),
             ("probe_leave", leave),
             ("probe_converse", converse),
+            ("probe_cue", cue),
             ("probe_twins", twins),
             ("probe_cutscene", cutscene(0, SCENE_DAMAGE)),
             ("probe_cutscene_shot", cutscene(SHOT_ROW, SCENE_DAMAGE)),
@@ -503,6 +544,7 @@ fn body(arc: f32) -> Body {
         bag: 0,
         destroy_ms: 0,
         fade_ms: None,
+        bulk: None,
     }
 }
 
@@ -548,6 +590,8 @@ struct Stage {
     /// `Mod_OnAcquirItem` and `Mod_OnUnAqreItem` name `probe_area_exit`,
     /// `probe_module_leave`, `probe_acquired` and `probe_lost`.
     leaving: bool,
+    /// A trigger at `PAD_AT` whose `OnEnter` is `probe_cue`.
+    pad: bool,
 }
 
 impl Default for Stage {
@@ -572,6 +616,7 @@ impl Default for Stage {
             two_pistols: false,
             jedi: false,
             leaving: false,
+            pad: false,
         }
     }
 }
@@ -675,6 +720,20 @@ impl Ground {
                 body: Some(body(0.0)),
                 scripts: vec![("ScriptOnBlocked".into(), "probe_blocked".into())],
                 ..creature("walker", Sheet::commoner(), "")
+            }));
+        }
+        if stage.pad {
+            data.placements.push(Placement::Own(ObjectData {
+                kind: ObjectKind::Trigger,
+                tag: "pad".into(),
+                geometry: vec![
+                    [-0.75, -0.75, 0.0],
+                    [0.75, -0.75, 0.0],
+                    [0.75, 0.75, 0.0],
+                    [-0.75, 0.75, 0.0],
+                ],
+                scripts: vec![("ScriptOnEnter".into(), "probe_cue".into())],
+                ..ObjectData::unknown("", floor_at(PAD_AT), 0.0)
             }));
         }
         data.repute = Repute::at_war([PLAYER, HOSTILE_1]);
@@ -1146,6 +1205,61 @@ fn companion_stays() -> Result<String, String> {
     check(
         (7.5..8.5).contains(&apart) && moved < 0.05 && came > 1.0,
         format!("{apart:.2} m off: moved {moved:.3} m held, then came {came:.2} m nearer"),
+    )
+}
+
+/// Issue 41: two companions standing inside each other (party members
+/// pass through each other with friendly fire off) when a party
+/// conversation begins are pushed apart to their two personal spaces, as
+/// KOTOR's walker pushes an idle creature aside (`movement::spaced`); a
+/// companion inside the host is pushed, the host (a seat's player) stays.
+fn party_kept_apart() -> Result<String, String> {
+    let spaces = 2.0 * strikes::humanoid_space(0.0);
+    // The pair's distance once the conversation holds the world, and how
+    // far the host moved, with the companions (and the host) put at `at`
+    // as it begins.
+    let run = |at: [[f32; 2]; 3]| -> Result<(bool, f32, f32), String> {
+        let mut ground = Ground::new(1)?;
+        let host = ground.body(0)?;
+        let second = ground.object(DUMMY)?;
+        let mut fighters = ground.world.world.query::<(&Id, &mut Fighting)>();
+        for (id, mut fighting) in fighters.iter_mut(&mut ground.world.world) {
+            if id.0 == second {
+                fighting.0.mind.leader = Some(Seat(0));
+                fighting.0.faction = Some(PLAYER);
+            }
+        }
+        ground.place(TALKER, [-7.0, -3.0])?;
+        let buddy = ground.object(BUDDY)?;
+        let put = |ground: &mut Ground| {
+            ground.put(host, at[0]);
+            ground.put(buddy, at[1]);
+            ground.put(second, at[2]);
+        };
+        put(&mut ground);
+        ground.cutscene()?;
+        put(&mut ground);
+        let host_at = ground.at(host);
+        ground.step();
+        let close = |a: SimId, b: SimId| between(ground.at(a), ground.at(b));
+        let nearest = close(buddy, second)
+            .min(close(host, buddy))
+            .min(close(host, second));
+        Ok((
+            ground.last.holds_world(),
+            nearest,
+            between(host_at, ground.at(host)),
+        ))
+    };
+    let pair = run([[-6.0, -4.0], [-3.0, 0.0], [-3.1, 0.05]])?;
+    let host = run([[-4.0, -1.0], [-4.05, -1.0], [-2.0, 2.0]])?;
+    let kept = |(held, nearest, moved): (bool, f32, f32)| held && nearest >= spaces && moved < 0.01;
+    check(
+        kept(pair) && kept(host),
+        format!(
+            "spaces {spaces:.2} m; two companions: {pair:?}, one in the host: {host:?} \
+             (held, nearest apart, the host moved)"
+        ),
     )
 }
 
@@ -3645,6 +3759,98 @@ fn goes_round_a_body() -> Found {
     )
 }
 
+/// A stalled walker goes round a body it touches though it has slid past
+/// its middle (`Walker::around`): 301NAR's walk out past IT-31, met head-on
+/// and slid round into the pocket between it and a wall's end, had it
+/// behind and made for a corner through the wall. A body as near behind
+/// it, but no longer touching, is left alone, as one ahead off the way is.
+fn rounds_a_touched_body() -> Found {
+    let ground = Ground::new(1)?;
+    let level = ground.world.level();
+    let units = |at: [f32; 2]| floor_at(at).map(|v| v / UNIT);
+    let [x, y, z] = units([-2.0, -3.0]);
+    let me = crate::motion::MotionState::standing([x, y, z + 0.125 - crate::motion::SOLE_Z], 0.0);
+    let corner = units([-2.0, 1.0]);
+    let rounds = |body: [f32; 2]| {
+        let mut walker = crate::walk::Walker::new(corner);
+        walker.waypoint = Some(corner);
+        walker.stalls = 1;
+        walker.around(level, &me, &[units(body)]);
+        walker.rounding
+    };
+    let (touched, apart) = (rounds([-2.45, -3.4]), rounds([-2.7, -4.0]));
+    check(
+        touched && !apart,
+        format!("a body 0.6 m behind: gone round {touched}; 1.2 m behind: gone round {apart}"),
+    )
+}
+
+/// A route's corner a body does not fit at, more than the old reach (24
+/// units) from where it does, is moved there when the floor leads straight
+/// to it (`walk::clear`): on the proving ground, a mesh running on under
+/// the 56° wedge to past its 2.2 m end wall, a corner 0.3 m inside the wall
+/// moves out past it (0.68 m to the nearest fit); with the mesh cut by a
+/// gap just past the wall (the floor beyond another island), it stays.
+/// Nar Shaddaa's landing pad (301NAR): the floor runs 1.3 m under a
+/// slanting wall west of the docks, and the walk to Duros stood against a
+/// lamp post on the wall's foot, making for a corner under it.
+fn corner_cleared_out_from_under_a_wall() -> Found {
+    let level = crate::determinism::proving_ground();
+    let strip = |x0: f32, x1: f32| -> [[[f32; 3]; 3]; 2] {
+        let [a, b, c, d] = [[x0, 3.2], [x1, 3.2], [x1, 4.8], [x0, 4.8]]
+            .map(|[x, y]| crate::determinism::ground_point(x, y, 0.0));
+        [[a, b, c], [a, c, d]]
+    };
+    let cleared = |floor: &[[[f32; 3]; 3]]| {
+        let nav = collision::nav::NavMesh::build(floor, crate::walk::CLEARANCE * UNIT);
+        let level = level.clone().with_nav(nav);
+        let [x, y, z] = crate::determinism::ground_point(-6.3, 4.0, 0.0);
+        let corner = [x / UNIT, y / UNIT, z / UNIT - crate::motion::SOLE_Z];
+        let moved = crate::walk::clear(&level, corner);
+        let off = crate::math::flat_distance(moved, corner) * UNIT;
+        (level.fits_level(moved), off)
+    };
+    let whole: Vec<_> = strip(-7.5, -4.0).into_iter().collect();
+    let cut: Vec<_> = strip(-7.5, -6.05)
+        .into_iter()
+        .chain(strip(-5.95, -4.0))
+        .collect();
+    let ((fits, off), (cut_fits, cut_off)) = (cleared(&whole), cleared(&cut));
+    check(
+        fits && (0.6..=1.7).contains(&off) && !cut_fits && cut_off == 0.0,
+        format!(
+            "one floor on: fits {fits}, moved {off:.2} m; past a gap: fits {cut_fits}, moved {cut_off:.2} m"
+        ),
+    )
+}
+
+/// A spot to go round a body by fits put down on the mesh's floor where
+/// the level's floor rises a few millimetres under the edge of its body
+/// (`Level::fits_put_down`): on the proving ground, a body whose edge
+/// reaches 3 cm over the foot of the 17° ramp (9 mm up) fits put down,
+/// though not at the floor's height (`fits`); one reaching 20 cm onto the
+/// ramp (6 cm up) fits neither way. Khoonda's plaza on Dantooine, 9 mm
+/// higher under the body's edge, left only the side behind a wall.
+fn side_fits_over_a_rising_corner() -> Found {
+    let level = crate::determinism::proving_ground();
+    // A body round across, its edge a half width from its middle.
+    let reach = crate::motion::HALF_WIDTH * UNIT;
+    let spot = |over: f32| {
+        let [x, y, z] = crate::determinism::ground_point(-7.0 - reach + over, -4.5, 0.0);
+        let at = [
+            x / UNIT,
+            y / UNIT,
+            z / UNIT + rules::walking::walker::LIFT - crate::motion::SOLE_Z,
+        ];
+        (level.fits(at), level.fits_put_down(at))
+    };
+    let (slight, onto) = (spot(0.03), spot(0.2));
+    check(
+        slight == (false, true) && onto == (false, false),
+        format!("3 cm over the ramp's foot (fits, put down) {slight:?}; 20 cm over {onto:?}"),
+    )
+}
+
 /// Three bodies across the ground at y = 0 (the dummy, the companion and
 /// the brawler), every side a walker meeting the middle one could go round
 /// it by taken or off the mesh; each busy (a long wait queued), so none is
@@ -3814,6 +4020,164 @@ fn pushes_idle_aside() -> Found {
     )
 }
 
+/// A walker meeting the idle dummy on its line pushes it aside; made
+/// immobile (`Body::immobile`, `moverate` NOMOVE: a turret) the dummy
+/// stands where it is, and the walker goes round it. Telos's hidden turret
+/// in Slusk's office was pushed 0.9 m into the way out and held the player
+/// against Slusk.
+fn immobile_not_pushed() -> Found {
+    let moved = |immobile: bool| -> Result<f32, String> {
+        let (mut ground, walker) = walking_ground([-2.0, -4.0], true)?;
+        let dummy = ground.place(DUMMY, [-2.0, 0.0])?;
+        if immobile {
+            let mut objects = ground
+                .world
+                .world
+                .query::<(&Id, &mut super::super::Object)>();
+            for (id, mut object) in objects.iter_mut(&mut ground.world.world) {
+                if id.0 != dummy {
+                    continue;
+                }
+                if let Some(facts) = object.facts.as_mut() {
+                    let mut fixed = (**facts).clone();
+                    fixed.body = Some(Body {
+                        movement: Body::NOMOVE,
+                        walk_mps: 0.0,
+                        run_mps: 0.0,
+                        ..fixed.body.unwrap_or(body(0.0))
+                    });
+                    *facts = Arc::new(fixed);
+                }
+            }
+        }
+        ground.step();
+        let start = ground.at(dummy);
+        walked(&mut ground, walker, move_to([-2.0, 4.0], false, None), 9000);
+        Ok(between(start, ground.at(dummy)))
+    };
+    let (free, fixed) = (moved(false)?, moved(true)?);
+    check(
+        free > 0.3 && fixed < 0.01,
+        format!("the idle dummy moved {free:.2} m, made immobile {fixed:.3} m"),
+    )
+}
+
+/// How deep `me` stands inside `other` (units): how far their rounds
+/// overlap, none once they are clear.
+fn depth(me: &crate::motion::MotionState, other: &collision::Body) -> f32 {
+    let centre = |axis: usize| (other.min[axis] + other.max[axis]) * 0.5 / UNIT;
+    let apart = crate::math::flat_length([centre(0) - me.origin[0], centre(1) - me.origin[1], 0.0]);
+    (crate::motion::HALF_WIDTH + (other.max[0] - other.min[0]) * 0.5 / UNIT - apart).max(0.0)
+}
+
+/// 60 steps of a seat's player standing as `standing` among `others`,
+/// pressing `command`, as `world::movement` moves one (`clear_of`,
+/// `move_body`, `Inside::hold_off`): where it ends, whether it stands on
+/// the ground, and how deep inside any of the others it ever stood.
+fn walk_among(
+    level: &crate::world::level::Level,
+    standing: crate::motion::MotionState,
+    others: &[collision::Body],
+    command: &Command,
+) -> ([f32; 3], bool, f32) {
+    let deepest_now = |me: &crate::motion::MotionState| {
+        others
+            .iter()
+            .map(|other| depth(me, other))
+            .fold(0.0, f32::max)
+    };
+    // Two humanoids' personal spaces summed (units), as K1's player meets
+    // one (Q-0267).
+    let space = 2.0 * crate::world::strikes::humanoid_space(0.0) / UNIT;
+    let spaces = |_: u32| space;
+    let mut me = standing;
+    let mut deepest = deepest_now(&me);
+    for tick in 0..60 {
+        let mine = crate::world::met_as(&crate::world::body(SimId(1), &me, None), true);
+        let inside = crate::world::clear_of(&mine, others);
+        let before = me.origin;
+        level.with(None, |world| {
+            let world = collision::Bodies::new(world, &inside.bodies);
+            crate::motion::move_body(
+                &mut me,
+                command,
+                STEP_MS as u32,
+                tick * STEP_MS,
+                &world,
+                level.anims(),
+                None,
+            );
+        });
+        let maxs_z = me.maxs_z;
+        inside.hold_off(before, &mut me, Some(&spaces), |from, to| {
+            level.with(None, |world| {
+                let world = collision::Bodies::new(world, &inside.bodies);
+                crate::world::movement::standing_clear(&world, from, to, maxs_z)
+            })
+        });
+        deepest = f32::max(deepest, deepest_now(&me));
+    }
+    (me.origin, me.ground.is_some(), deepest)
+}
+
+/// A body met round across (`collision::Bodies`, `brush::clip_round`)
+/// slides off round another, so three standing close about a player leave
+/// it the way out between two of them that a body fits through, as KOTOR's
+/// creatures meet by their personal space: met as square boxes, the player
+/// coming out of Onderon's palace gas room stood in the corner of two royal
+/// soldiers' boxes, every way out taken back (their corners 0.94 m and 0.90
+/// m from its centre, the way between them 1.83 m across). Walking the way
+/// out it gets 1 m out, never deeper into any of them than it stood.
+fn body_pocket_walked_out() -> Found {
+    let ground = Ground::new(1)?;
+    let level = ground.world.level();
+    let [x, y, z] = floor_at([-2.0, -3.0]).map(|v| v / UNIT);
+    let standing =
+        crate::motion::MotionState::standing([x, y, z + 0.125 - crate::motion::SOLE_Z], 0.0);
+    // The soldiers about the Exile (metres from it), each as KOTOR's
+    // humanoids keep their personal space (0.35 m, `world::blocking`).
+    let space = 0.35 / UNIT;
+    let others: Vec<collision::Body> = [[-0.74f32, -0.58], [0.57, 0.70], [0.17, -1.18]]
+        .into_iter()
+        .enumerate()
+        .map(|(n, [dx, dy])| {
+            let at = [x + dx / UNIT, y + dy / UNIT, standing.origin[2]];
+            let mut body = crate::world::body(
+                SimId(100 + n as u32),
+                &crate::motion::MotionState::standing(at, 0.0),
+                None,
+            );
+            body.min[0] = (at[0] - space) * UNIT;
+            body.min[1] = (at[1] - space) * UNIT;
+            body.max[0] = (at[0] + space) * UNIT;
+            body.max[1] = (at[1] + space) * UNIT;
+            body
+        })
+        .collect();
+    let started = others
+        .iter()
+        .map(|other| depth(&standing, other))
+        .fold(0.0, f32::max);
+    // Toward the way out, between the first two.
+    let out = [-0.74f32, 1.12];
+    let yaw = crate::math::atan2_deg(out[1], out[0]);
+    let command = Command {
+        forward: 127,
+        angles: [0, (yaw / 360.0 * 65536.0).round() as i32 as i16, 0],
+        ..Command::default()
+    };
+    let (at, grounded, deepest) = walk_among(level, standing, &others, &command);
+    let gone = crate::math::flat_distance(at, standing.origin) * UNIT;
+    check(
+        grounded && gone >= 1.0 && deepest <= started + 1e-3,
+        format!(
+            "from {:?} among {} bodies {started:.2} units into the nearest: walked {gone:.2} m to {at:?}, at most {deepest:.2} units into one",
+            standing.origin,
+            others.len()
+        ),
+    )
+}
+
 /// A body standing inside another (the player pressed against a creature
 /// whose personal space is narrower than the box; one put inside another by
 /// a script's jump) is not held by it (`world::clear_of`): standing still,
@@ -3850,7 +4214,7 @@ fn body_overlap_not_buried() -> Found {
             ],
             0.0,
         );
-        crate::world::body(SimId(100), &other)
+        crate::world::body(SimId(100), &other, None)
     };
     let other = |inside: f32| off(inside, 0.0);
     // How far apart `me` and `other` stand (units, their middles from
@@ -3880,7 +4244,7 @@ fn body_overlap_not_buried() -> Found {
             ..Command::default()
         };
         for tick in 0..steps {
-            let mine = crate::world::met_as(&crate::world::body(SimId(1), &me), true);
+            let mine = crate::world::met_as(&crate::world::body(SimId(1), &me, None), true);
             let inside = crate::world::clear_of(&mine, &others);
             let before = me.origin;
             crate::motion::move_body(
@@ -3918,7 +4282,7 @@ fn body_overlap_not_buried() -> Found {
     let (slant, _) = stood(Some(8.0), -127, 127);
     // A gap of the trace's own (a move stopped by it leaves that much).
     let gap = -collision::CONTACT_GAP / UNIT;
-    let mine = crate::world::body(SimId(1), &standing);
+    let mine = crate::world::body(SimId(1), &standing, None);
     let passed = |seated: bool| {
         crate::world::clear_of(&crate::world::met_as(&mine, seated), &[other(gap)])
             .bodies
@@ -4035,18 +4399,14 @@ fn walker_keeps_off_made_placeable() -> Found {
     // planned through the same ways and through the doors alone: it heads
     // off the straight line only when keeping off the placeable.
     let click = |ways: &dyn crate::walk::Ways| {
-        let target = [4.0, 7.0, 0.0];
-        let mut walk = crate::target::Walk::new(
-            &level,
-            ways,
-            &me,
-            0,
-            ObjectKind::Placeable,
-            target,
+        let spot = crate::target::Spot::plain(
+            [4.0, 7.0, 0.0],
             crate::target::Choice::Use,
-            0,
+            ObjectKind::Placeable,
         );
-        match walk.stride(&level, ways, &me, ObjectKind::Placeable, target, 0) {
+        let mut walk =
+            crate::target::Walk::new(&level, ways, &me, 0, spot, crate::target::Choice::Use, 0);
+        match walk.stride(&level, ways, &me, spot, 0) {
             crate::target::Stride::Steer(command) => Some(command.angles[1]),
             _ => None,
         }
@@ -4479,6 +4839,77 @@ fn item_lost_heard() -> Found {
     )
 }
 
+/// Where the probes' trigger lies (`Stage::pad`), clear of the bodies
+/// waiting.
+const PAD_AT: [f32; 2] = [-3.0, 2.0];
+
+/// A conversation a trigger's `OnEnter` sets going, through its deferred
+/// and assigned code (`probe_cue`: `DelayCommand`, `AssignCommand`,
+/// `ActionStartConversation`), is reported with that trigger and the body
+/// that came in (`Line::Cued`): the host stepping onto the pad, then on a
+/// ground of its own the dummy; one a script begins with no trigger behind
+/// it (`probe_converse`) is reported with none.
+fn cue_names_trigger_and_comer() -> Found {
+    let cued = |ground: &Ground| -> Vec<(u32, u32)> {
+        ground
+            .world
+            .script_report()
+            .talk
+            .iter()
+            .filter_map(|line| match line {
+                Line::Cued { cue, .. } => Some((cue.trigger.0, cue.entering.0)),
+                _ => None,
+            })
+            .collect()
+    };
+    let staged = || {
+        Ground::staged(
+            1,
+            Stage {
+                pad: true,
+                ..Stage::default()
+            },
+        )
+    };
+    // The last placed (the ground's way out is a trigger too).
+    let pad_of = |ground: &Ground| {
+        ground
+            .last
+            .entities
+            .iter()
+            .filter_map(|entity| match entity.kind {
+                crate::Kind::Object(ObjectKind::Trigger, index) => Some((index, entity.id.0)),
+                _ => None,
+            })
+            .max()
+            .map(|(_, id)| id)
+            .ok_or("no pad")
+    };
+    let mut ground = staged()?;
+    let (pad, host) = (pad_of(&ground)?, ground.body(0)?);
+    ground.put(host, PAD_AT);
+    ground.idle(3000);
+    let by_host = cued(&ground);
+    let mut ground = staged()?;
+    let dummy = ground.place(DUMMY, PAD_AT)?;
+    ground.idle(3000);
+    let by_dummy = cued(&ground);
+    let mut ground = staged()?;
+    ground.run_script("probe_converse", TALKER)?;
+    ground.idle(3000);
+    let talk = &ground.world.script_report().talk;
+    let begun = talk.iter().any(|line| matches!(line, Line::Entry { .. }));
+    let uncued = cued(&ground);
+    check(
+        by_host == [(pad, host.0)] && by_dummy == [(pad, dummy.0)] && begun && uncued.is_empty(),
+        format!(
+            "cued (trigger, comer): the host on the pad {by_host:?}, the dummy {by_dummy:?} \
+             (pad {pad}, host {}, dummy {}); a script's own start {uncued:?} (begun {begun})",
+            host.0, dummy.0
+        ),
+    )
+}
+
 /// The ground staged with the mesh through the gate's doorway (`Stage::
 /// through`), a party conversation holding the world, the gate shut.
 fn through_ground() -> Result<Ground, String> {
@@ -4538,6 +4969,33 @@ fn walk_opens_door() -> Found {
         format!(
             "the gate opened {opened}, the front {past:.3} m past the shut panel at most, {off:.3} m off the end, carried {carried} steps"
         ),
+    )
+}
+
+/// A creature walking to the shut gate opens the doors it runs into
+/// (`movement::opens_doors`); killed on the way, its walk not yet cleared,
+/// it opens none (the Endar Spire's end_door10_cut2, opened by a Sith
+/// killed as his walk met it: its scene, kept for a party member's
+/// opening, never played).
+fn dead_open_no_door() -> Found {
+    let mut ground = through_ground()?;
+    let walker = ground.place(WALKER, BEFORE_GATE)?;
+    ground.step();
+    ground.queue(walker, move_to(PAST_GATE, false, None));
+    for _ in 0..steps(500) {
+        ground.step();
+    }
+    let mut fighters = ground.world.world.query::<(&Id, &mut Fighting)>();
+    let (_, mut fighting) = fighters
+        .iter_mut(&mut ground.world.world)
+        .find(|(id, _)| id.0 == walker)
+        .ok_or("no walker")?;
+    let walking = super::super::movement::opens_doors(&fighting.0);
+    fighting.0.life = crate::combat::fighter::Life::Dead;
+    let dead = super::super::movement::opens_doors(&fighting.0);
+    check(
+        walking && !dead,
+        format!("opens doors walking {walking}, killed on its walk {dead}"),
     )
 }
 

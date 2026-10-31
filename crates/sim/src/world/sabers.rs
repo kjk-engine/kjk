@@ -123,9 +123,18 @@ struct Man {
     kit: Kit,
     ps: MotionState,
     f: Fighter,
+    /// Where its model is drawn, if JA does not pose it (`world::body`).
+    bulk: Option<crate::module::Bulk>,
 }
 
 impl Man {
+    /// How far past its origin its body reaches across (units): JA's half
+    /// width, or its model's (`Bulk::reach`).
+    fn reach(&self) -> f32 {
+        self.bulk
+            .map_or(motion::HALF_WIDTH, |bulk| bulk.reach() / UNIT)
+    }
+
     fn blade(&self) -> Option<Blade> {
         self.kit.blade(self.f.hand)
     }
@@ -277,6 +286,7 @@ pub(super) fn sabers(
                 kit,
                 ps: player.0,
                 f: fighting.0,
+                bulk: super::object_bulk(*object).copied(),
             }
         })
         .collect();
@@ -318,7 +328,7 @@ pub(super) fn sabers(
         step.level.friendly_fire(),
         step.men
             .iter()
-            .map(|man| (man.id, &man.ps, man.f.alive(), man.party)),
+            .map(|man| (man.id, &man.ps, man.bulk.as_ref(), man.f.alive(), man.party)),
     ));
     step.swings(authority);
     if authority {
@@ -430,10 +440,16 @@ impl Step<'_> {
                 if !man.f.alive() || slots.iter().all(Option::is_none) {
                     return [None; 2];
                 }
+                // Someone near enough: its body (a beast's reaches past
+                // JA's) within a blade's reach and a step.
                 let someone = self.men.iter().any(|other| {
                     other.id != man.id
                         && other.f.alive()
-                        && close(other.ps.origin, man.ps.origin, NEAR)
+                        && close(
+                            other.ps.origin,
+                            man.ps.origin,
+                            NEAR + other.reach() - motion::HALF_WIDTH,
+                        )
                 });
                 let something = near.iter().any(|at| close(*at, man.ps.origin, BOLT_NEAR));
                 if !someone && !something {

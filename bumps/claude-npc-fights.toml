@@ -1,0 +1,5 @@
+# A creature model fighting another outside the party (a script's
+# `ActionAttack`, a scene's fight) closes in to where its own strike lands,
+# not to the 1.4 m spacing KOTOR's round clips are made for: the Upper
+# Sewers' Gamorreans and rakghouls stood 1.35 m apart and never struck.
+sim = "a beast's scene stop is its blow's reach where that is nearer (`minds::scene_stop`)"

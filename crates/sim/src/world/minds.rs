@@ -86,6 +86,8 @@ struct Seen {
     stealth: Option<i16>,
     still: bool,
     size: u8,
+    /// Where its model is drawn, if JA does not pose it (`world::body`).
+    bulk: Option<crate::module::Bulk>,
     /// Its sheet as what runs on it changes it (a round's roll and damage
     /// are against it).
     sheet: crate::combat::Sheet,
@@ -96,6 +98,11 @@ struct Seen {
 }
 
 impl Seen {
+    /// What others aim at of it (`mind::chest_of`).
+    fn chest(&self) -> Vec3 {
+        mind::chest_of(&self.ps, self.bulk.as_ref())
+    }
+
     fn side(&self) -> crate::module::Side {
         crate::module::Side {
             id: self.id.0,
@@ -267,6 +274,7 @@ pub(super) fn think(
                 beast: object
                     .and_then(|object| object.facts.as_ref())
                     .is_some_and(|facts| facts.strike.is_some()),
+                bulk: super::object_bulk(object).copied(),
                 seat: avatar.map(|a| a.0),
                 party: super::in_party(avatar, &fighting.0),
                 target: fighting.0.target,
@@ -488,13 +496,13 @@ pub(super) fn think(
         // Star Forge freezer told to attack lost the player behind a
         // railing, stood idle, and the door it held stayed shut.
         let target = match known {
-            Some(entry) if !looking || intent.is_some() || visible(eye, mind::chest(&entry.ps)) => {
+            Some(entry) if !looking || intent.is_some() || visible(eye, entry.chest()) => {
                 Some(*entry)
             }
             _ if looking && own_choice => seen
                 .iter()
                 .filter(|entry| hostile(entry) && distance(&entry.ps) <= sight)
-                .filter(|entry| visible(eye, mind::chest(&entry.ps)))
+                .filter(|entry| visible(eye, entry.chest()))
                 .filter(|entry| spots(ps, senses, fighter.combat_until > now, entry))
                 .min_by(|a, b| distance(&a.ps).total_cmp(&distance(&b.ps)))
                 .copied(),
@@ -502,7 +510,7 @@ pub(super) fn think(
                 .iter()
                 .filter(|entry| hostile(entry) && distance(&entry.ps) <= sight)
                 .filter(|entry| in_fight(entry))
-                .filter(|entry| visible(eye, mind::chest(&entry.ps)))
+                .filter(|entry| visible(eye, entry.chest()))
                 .filter(|entry| spots(ps, senses, fighter.combat_until > now, entry))
                 .min_by(|a, b| distance(&a.ps).total_cmp(&distance(&b.ps)))
                 .copied(),
@@ -650,6 +658,8 @@ pub(super) fn think(
                     metres => f32::from(metres) / UNIT,
                 });
                 let kit = Kit::of(&me);
+                // A creature model strikes by its own clips (`strikes`).
+                let beast = facts.is_some_and(|facts| facts.strike.is_some());
                 let passive = intent.is_some_and(|intent| intent.passive);
                 // A creature's script attack (`ActionAttack`) on another
                 // outside the party runs in KOTOR's combat rounds (reone's
@@ -710,7 +720,7 @@ pub(super) fn think(
                         id.0,
                         ps,
                         &entry,
-                        close,
+                        (close, scene_stop(close, beast)),
                         (now, kotor, world_held),
                         &level.0,
                         opening,
@@ -727,8 +737,6 @@ pub(super) fn think(
                 // script's attacks too); none while it closes in either (a
                 // swing there lands nothing, Taris's gang war), a round once
                 // its target is within reach.
-                // A creature model strikes by its own clips (`strikes`).
-                let beast = facts.is_some_and(|facts| facts.strike.is_some());
                 let in_rounds = (duel || (scene && !entry.party && !in_party))
                     && !passive
                     && !beast
@@ -764,7 +772,7 @@ pub(super) fn think(
                     if weapon.delivery.ranged() {
                         decides = Some(entry);
                     } else if reach.is_some() {
-                        let aim = (entry.id, mind::chest(&entry.ps));
+                        let aim = (entry.id, entry.chest());
                         command = scene_attack(id.0, ps, aim, &[], None, now, clock.msec);
                     } else {
                         command.buttons &= !buttons::ATTACK;
@@ -861,11 +869,11 @@ pub(super) fn think(
                 .and_then(|strike| {
                     let target = SimId(strike.target.0);
                     match seen.binary_search_by_key(&target, |entry| entry.id) {
-                        Ok(at) => Some((target, mind::chest(&seen[at].ps))),
+                        Ok(at) => Some((target, seen[at].chest())),
                         Err(_) => object_aims.get(&target).map(|aim| (target, *aim)),
                     }
                 });
-            let decided = decided.or(decides.map(|entry| (entry.id, mind::chest(&entry.ps))));
+            let decided = decided.or(decides.map(|entry| (entry.id, entry.chest())));
             if let Some(target) = decided {
                 command = scene_attack(id.0, ps, target, strikes, Some(blaster), now, clock.msec);
                 fires_decided = true;
@@ -902,10 +910,10 @@ pub(super) fn think(
                         && items::use_of(row) == Some(items::Use::Grenade)
                         && fighter.pack.left_of(&me.items, row).is_some() =>
                 {
-                    let them = on.map(|at| &seen[at].ps);
-                    let far = them.map_or(0.0, distance);
+                    let them = on.map(|at| &seen[at]);
+                    let far = them.map_or(0.0, |them| distance(&them.ps));
                     let facing = them.is_some_and(|them| {
-                        let (_, yaw) = mind::aim(eye, mind::chest(them));
+                        let (_, yaw) = mind::aim(eye, them.chest());
                         mind::turn(yaw, ps.view[1]).abs() <= ai::THROW_FACING
                     });
                     if facing
@@ -923,12 +931,14 @@ pub(super) fn think(
                     }
                 }
                 // An item's spell (a medpac, a droid's utility item): used
-                // through its item in the scripts' step, once a round.
+                // through its item in the scripts' step, which ends its
+                // action (one item an action, as KOTOR's); not while a use
+                // runs or waits.
                 Use::Power(row) if !me.powers.has(row) => {
-                    let on = intent.map_or(id.0, |intent| SimId(intent.target.0));
-                    item_talents.0.push((id.0, row, on));
-                    let mind = &mut fighter.mind;
-                    mind.cast_after = mind.cast_after.max(now + ROUND_MS);
+                    if fighter.pack.using.is_none() && fighter.pack.queued.is_none() {
+                        let on = intent.map_or(id.0, |intent| SimId(intent.target.0));
+                        item_talents.0.push((id.0, row, on));
+                    }
                 }
                 // Within its reach of whom it is used on (its script's
                 // target, or itself).
@@ -1242,7 +1252,7 @@ fn engage(
     me: SimId,
     ps: &MotionState,
     target: &Seen,
-    close: mind::Attack,
+    (close, stop): (mind::Attack, f32),
     (now, scene, held): (u64, bool, bool),
     level: &crate::Level,
     doors: &dyn crate::walk::Ways,
@@ -1265,7 +1275,7 @@ fn engage(
             // Within its blow's reach it stands, swinging with no step
             // (the swing's movement keys would carry it off): the swing
             // is the one a standing fighter makes. It comes to a stop at
-            // `mind::SCENE_REACH`, letting go of its run as far before
+            // `stop` (`scene_stop`), letting go of its run as far before
             // that as it and its target, coming at it, slide.
             if apart <= mind::STRIKE {
                 let mut toward = math::sub(ps.origin, target.ps.origin);
@@ -1274,11 +1284,7 @@ fn engage(
                 let coming = math::dot(target.ps.velocity, toward).max(0.0);
                 let slides = crate::motion::stopping_distance(math::flat_length(ps.velocity))
                     + crate::motion::stopping_distance(coming);
-                command.forward = if apart - mind::SCENE_REACH > slides {
-                    127
-                } else {
-                    0
-                };
+                command.forward = if apart - stop > slides { 127 } else { 0 };
                 command.right = 0;
             }
         } else if apart > ai::FLANK_FROM {
@@ -1291,6 +1297,20 @@ fn engage(
             };
         }
         on_the_mesh(level, ps, command)
+    }
+}
+
+/// Where a scene's fighter attacking by `close` comes to a stop (units,
+/// centre to centre): `mind::SCENE_REACH`, the spacing KOTOR's round clips
+/// are made for; a creature model (`beast`), whose blows are its own strike
+/// and never a round's (`strikes`), nearer where they reach less (its
+/// personal space and `hitdist`), as KOTOR's creature closes until it can
+/// attack. Stopped short of its blow, it stood before its foe and never
+/// struck: the Upper Sewers' Gamorreans and rakghouls, 1.4 m apart.
+fn scene_stop(close: mind::Attack, beast: bool) -> f32 {
+    match close {
+        mind::Attack::Blow(reach) if beast => mind::SCENE_REACH.min(mind::blow_from(reach)),
+        _ => mind::SCENE_REACH,
     }
 }
 
@@ -1380,7 +1400,7 @@ fn shoot(
 ) -> Command {
     let thinking = (now + u64::from(me.0) * 53) % pace::THINK_MS < u64::from(msec);
     let eye = mind::eye(ps);
-    let chest = mind::chest(&target.ps);
+    let chest = target.chest();
     let apart = math::flat_distance(target.ps.origin, ps.origin);
     let mut dice = pace::Dice::new(now, me);
     let troop = &mut mind.troop;
@@ -1498,12 +1518,7 @@ fn spot_for(
                 .all(|other| math::flat_distance(*other, *at) > taken)
         })
         .collect();
-    let clear = |at: &Vec3| {
-        visible(
-            [at[0], at[1], at[2] + ps.eye_height],
-            mind::chest(&target.ps),
-        )
-    };
+    let clear = |at: &Vec3| visible([at[0], at[1], at[2] + ps.eye_height], target.chest());
     let covered = |at: &Vec3| !visible(mind::eye(&target.ps), *at);
     let routed = |at: &Vec3| crate::walk::route_ways(level, from, *at, doors).is_some();
     spots

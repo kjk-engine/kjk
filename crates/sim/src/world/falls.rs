@@ -22,7 +22,7 @@ use crate::combat::fighter::{Fighter, Revive};
 use crate::combat::sheet::{races, skills};
 use crate::input::{Seat, TickInput, buttons};
 use crate::math::{self, scale};
-use crate::motion::{self, Anim, AnimTable, MotionState};
+use crate::motion::{self, AnimTable, MotionState};
 use crate::notice::{Notice, Notices};
 use crate::snapshot::SimId;
 
@@ -89,11 +89,13 @@ pub(super) fn falls(
     for at in (0..rows.len()).filter(|at| !party.contains(at)) {
         let (.., player, fighting) = &mut rows[at];
         if fighting.0.downed() {
-            stand(&mut player.0, &mut fighting.0, anims);
+            stand(&mut player.0, &mut fighting.0, anims, now);
         }
     }
     if let Some(arena) = level.0.arena_rules() {
-        arena_falls(arena, &mut rows, &party, now);
+        let seats = acting(&rows, super::lent(&scripts.state.party));
+        arena_downs(&mut rows, &seats, &inputs.0, anims, now);
+        arena_falls(arena, &mut rows, &party, anims, now);
         return;
     }
     if lost.0.is_none() && !party.is_empty() && party.iter().all(|&at| !rows[at].5.0.alive()) {
@@ -119,16 +121,66 @@ pub(super) fn falls(
                 .fallen
                 .is_some_and(|fallen| now >= fallen.since_ms + DOWN_MIN_MS);
             if due {
-                stand(&mut player.0, &mut fighting.0, anims);
+                stand(&mut player.0, &mut fighting.0, anims, now);
             }
         }
     }
 }
 
+/// How long after an arena's `down` order the body is revived where it
+/// lies (ms): its death played out and held a moment.
+pub const ARENA_REVIVE_MS: u32 = 7_000;
+
+/// The arena's `down N` orders (`ArenaOrder::Down`): each seat's standing
+/// body falls in JA's death N, a revive by itself under way that gets it up
+/// where it lies (`arena_falls`), past the respawn.
+fn arena_downs(
+    rows: &mut [Row],
+    seats: &[(Seat, usize)],
+    inputs: &TickInput,
+    anims: &AnimTable,
+    now: u64,
+) {
+    for (seat, action) in inputs.actions() {
+        let Action::Arena(crate::action::ArenaOrder::Down(n)) = action else {
+            continue;
+        };
+        let Some(&(_, at)) = seats.iter().find(|(own, _)| own == seat) else {
+            continue;
+        };
+        let first = motion::Anim::BOTH_DEATH1.index();
+        let death = (1..=19)
+            .contains(n)
+            .then(|| motion::Anim::from_index(first + u16::from(*n) - 1))
+            .flatten();
+        let (id, .., player, fighting) = &mut rows[at];
+        let Some(death) = death.filter(|_| fighting.0.alive()) else {
+            continue;
+        };
+        fighting.0.fall(now);
+        if let Some(fallen) = &mut fighting.0.fallen {
+            fallen.revive = Some(Revive {
+                by: id.0,
+                from_ms: now,
+                needs_ms: ARENA_REVIVE_MS,
+            });
+        }
+        player.0.flags |= motion::motion_flags::DEAD;
+        motion::react(&mut player.0, anims, death, false);
+    }
+}
+
 /// An arena's falls (`super::arena`): a body under the pit's floor dies
 /// there (the party's goes down), and the party's down come back whole at
-/// the respawn point once they have lain `respawn_ms`.
-fn arena_falls(arena: &super::arena::Rules, rows: &mut [Row], party: &[usize], now: u64) {
+/// the respawn point once they have lain `respawn_ms`; one an order downed
+/// (`arena_downs`) gets up where it lies once its revive is done.
+fn arena_falls(
+    arena: &super::arena::Rules,
+    rows: &mut [Row],
+    party: &[usize],
+    anims: &AnimTable,
+    now: u64,
+) {
     let pit = arena.pit / collision::UNIT;
     for (at, (.., player, fighting)) in rows.iter_mut().enumerate() {
         let fighter = &mut fighting.0;
@@ -146,18 +198,25 @@ fn arena_falls(arena: &super::arena::Rules, rows: &mut [Row], party: &[usize], n
     }
     for &at in party {
         let (_, _, object, sheet, player, fighting) = &mut rows[at];
-        let due = fighting
+        let revived = fighting
             .0
             .fallen
-            .is_some_and(|fallen| now >= fallen.since_ms + arena.respawn_ms);
+            .and_then(|fallen| fallen.revive)
+            .is_some_and(|revive| now >= revive.from_ms + u64::from(revive.needs_ms));
+        if revived {
+            stand(&mut player.0, &mut fighting.0, anims, now);
+            continue;
+        }
+        let due = fighting.0.fallen.is_some_and(|fallen| {
+            fallen.revive.is_none() && now >= fallen.since_ms + arena.respawn_ms
+        });
         if !due {
             continue;
         }
         let sheet = sheet_of(*sheet, *object);
         let fighter = &mut fighting.0;
-        fighter.rise(i32::from(sheet.max_hp) * 100);
+        fighter.rise(i32::from(sheet.max_hp) * 100, now);
         fighter.fp = i32::from(sheet.pool()) * 100;
-        fighter.force.stop();
         // Standing on the point: its box's origin over the soles.
         let mut origin = scale(arena.respawn, 1.0 / collision::UNIT);
         origin[2] += 0.125 - motion::SOLE_Z;
@@ -165,17 +224,24 @@ fn arena_falls(arena: &super::arena::Rules, rows: &mut [Row], party: &[usize], n
     }
 }
 
-/// Up again (I30 P11): `RISE_HP`, the fall's pose given up for JA's
-/// get-up.
-pub(super) fn stand(player: &mut MotionState, fighter: &mut Fighter, anims: &AnimTable) {
-    get_up(player, fighter, anims, RISE_HP);
+/// Up again (I30 P11): `RISE_HP`, the fall's pose given up for the get-up
+/// from the side it lies on (`death::getup`).
+pub(super) fn stand(player: &mut MotionState, fighter: &mut Fighter, anims: &AnimTable, now: u64) {
+    get_up(player, fighter, anims, RISE_HP, now);
 }
 
 /// `stand` with `hp` hundredths: a droid's stim dart's revive too.
-pub(super) fn get_up(player: &mut MotionState, fighter: &mut Fighter, anims: &AnimTable, hp: i32) {
-    fighter.rise(hp);
+pub(super) fn get_up(
+    player: &mut MotionState,
+    fighter: &mut Fighter,
+    anims: &AnimTable,
+    hp: i32,
+    now: u64,
+) {
+    fighter.rise(hp, now);
     player.flags &= !motion::motion_flags::DEAD;
-    motion::react(player, anims, Anim::BOTH_GETUP1, false);
+    let getup = crate::combat::death::getup(player.legs.anim);
+    motion::react(player, anims, getup.anim, false);
 }
 
 /// The buttons that break a revive off: any action.
@@ -353,7 +419,7 @@ fn revive(
             Some(seat) => {
                 *reviving |= party::bit(seat);
                 if now >= revive.from_ms + u64::from(revive.needs_ms) {
-                    stand(&mut player.0, &mut fighting.0, anims);
+                    stand(&mut player.0, &mut fighting.0, anims, now);
                 }
             }
         }

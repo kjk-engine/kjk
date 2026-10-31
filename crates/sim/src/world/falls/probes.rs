@@ -44,6 +44,7 @@ const CASES: &[(&str, Case)] = &[
     ("revive_chosen", revive_chosen),
     ("revive_chosen_broken", revive_chosen_broken),
     ("free_play_poison_death", free_play_poison_death),
+    ("poison_ends_with_the_fall", poison_ends_with_the_fall),
 ];
 
 /// A downed fighter, and one being revived, read back as written.
@@ -264,8 +265,9 @@ impl Run {
         }
     }
 
-    /// `who` at 1 HP, poisoned by the foe with a dose due now that kills it.
-    fn poison(&mut self, who: Who) {
+    /// `who` at 1 HP, poisoned by the foe with a dose due now that kills it,
+    /// a dose a second for `for_ms`.
+    fn poison(&mut self, who: Who, for_ms: u64) {
         let (id, now, by) = (self.id(who), self.last.time_ms, self.foe);
         let mut fighters = self.world.world.query::<(&Id, &mut Fighting)>();
         for (own, mut fighting) in fighters.iter_mut(&mut self.world.world) {
@@ -280,7 +282,7 @@ impl Run {
                         ..Default::default()
                     },
                     next: now,
-                    until: now,
+                    until: now + for_ms,
                     link: None,
                 });
             }
@@ -815,8 +817,9 @@ fn two_revivers() -> Result<String, String> {
 }
 
 /// A downed party member is a target offering Revive: the host's avatar, a
-/// companion, a companion a guest drives; standing, none of them is a
-/// target, nor is the guest's standing avatar.
+/// companion, a companion a guest drives. Standing, the companion is a
+/// target offering no Revive (its Dialog is the creature rule's), but not
+/// to the guest whose body it is; no standing avatar is.
 fn revive_targets() -> Result<String, String> {
     use crate::target::{Choice, body_choices, candidates, number};
     for driven in [false, true] {
@@ -825,8 +828,8 @@ fn revive_targets() -> Result<String, String> {
         let level = run.world.level().clone();
         let number_of = |run: &Run, id: SimId| run.last.get(id).and_then(number);
         let party = [Who::Host, Who::Guest, Who::Ally].map(|who| number_of(&run, run.id(who)));
-        let targets = |run: &Run| -> Vec<(Option<u32>, Vec<Choice>)> {
-            candidates(&level, &run.last)
+        let targets = |run: &Run, me: Option<Who>| -> Vec<(Option<u32>, Vec<Choice>)> {
+            candidates(&level, &run.last, me.map(|me| run.id(me)))
                 .iter()
                 .filter(|candidate| party.contains(&Some(candidate.index)))
                 .map(|candidate| {
@@ -835,20 +838,28 @@ fn revive_targets() -> Result<String, String> {
                 })
                 .collect()
         };
-        let standing = targets(&run);
+        let standing = [Who::Host, Who::Guest].map(|me| targets(&run, Some(me)));
+        let ally = number_of(&run, run.id(Who::Ally));
+        let host_sees = vec![(ally, Vec::new())];
+        let guest_sees = if driven {
+            Vec::new()
+        } else {
+            host_sees.clone()
+        };
         run.hit(Who::Host, 999);
         run.hit(Who::Ally, 999);
         run.step(&[]);
-        let downed = targets(&run);
+        // Seen by a standing third player: both bodies lie.
+        let downed = targets(&run, None);
         let wanted =
             [Who::Host, Who::Ally].map(|who| (number_of(&run, run.id(who)), vec![Choice::Revive]));
-        if !standing.is_empty() || downed != wanted {
+        if standing != [host_sees, guest_sees] || downed != wanted {
             return Err(format!(
                 "driven {driven}: standing targets {standing:?}, downed {downed:?}, wanted {wanted:?}"
             ));
         }
     }
-    Ok("the downed host and companion (driven or not) offer Revive; the standing party is no target".into())
+    Ok("the downed host and companion (driven or not) offer Revive; the standing companion is a target but to the guest driving it, no standing avatar is".into())
 }
 
 /// How a chosen revive is broken off, `BREAK_MS` after the host shows it
@@ -904,15 +915,16 @@ fn chosen_revive(rank: u8, far: f32, breaker: Option<Breaker>) -> Result<Chosen,
         }
         let mine = run.last.get(me).cloned().ok_or("no guest")?;
         let ps = mine.player.ok_or("the guest has no body")?;
-        let to = crate::target::candidates(&level, &run.last)
+        let to = crate::target::candidates(&level, &run.last, None)
             .iter()
             .find(|candidate| candidate.index == body)
             .map(|candidate| candidate.feet)
             .ok_or("the downed host is no target")?;
+        let spot = crate::target::Spot::plain(to, Choice::Revive, ObjectKind::Creature);
         let state = |_: u32| crate::ObjectState::default();
         if !started {
             started = true;
-            if Walk::near(&ps, to, Choice::Revive, ObjectKind::Creature) {
+            if Walk::near(&ps, spot) {
                 hold = Some(Reviving::new(body, now));
                 run.acts.push((Seat(1), Action::Revive(run.host)));
             } else {
@@ -921,8 +933,7 @@ fn chosen_revive(rank: u8, far: f32, breaker: Option<Breaker>) -> Result<Chosen,
                     &state,
                     &ps,
                     body,
-                    ObjectKind::Creature,
-                    to,
+                    spot,
                     Choice::Revive,
                     now,
                 ));
@@ -930,7 +941,7 @@ fn chosen_revive(rank: u8, far: f32, breaker: Option<Breaker>) -> Result<Chosen,
         }
         let mut piloted = None;
         if let Some(going) = walk.as_mut() {
-            match going.stride(&level, &state, &ps, ObjectKind::Creature, to, now) {
+            match going.stride(&level, &state, &ps, spot, now) {
                 Stride::Steer(command) => piloted = Some(command),
                 Stride::Arrived => {
                     chosen.arrived = Some(now);
@@ -1035,7 +1046,7 @@ fn free_play_poison_death() -> Result<String, String> {
         if staged {
             run.blow(Who::Foe, u16::MAX, true);
         } else {
-            run.poison(Who::Foe);
+            run.poison(Who::Foe, 0);
         }
         run.step(&[]);
         let fighter = run.fighter(Who::Foe);
@@ -1050,4 +1061,43 @@ fn free_play_poison_death() -> Result<String, String> {
         }
     }
     Ok("a poison's dose kills by JA's death; a story's blow by KOTOR's dying clip".into())
+}
+
+/// The host downed by a long poison's dose, the foe dead: the poison is
+/// gone with the fall (`effects::strip`), so the host gets up and stays up
+/// past the doses it would have taken.
+fn poison_ends_with_the_fall() -> Result<String, String> {
+    let mut run = Run::new(2, false)?;
+    run.step(&[]);
+    run.poison(Who::Host, 60_000);
+    run.hit(Who::Foe, 999);
+    run.step(&[]);
+    let fell = run.fighter(Who::Host);
+    if !fell.downed() || fell.pack.poison.is_some() {
+        return Err(format!(
+            "after the dose: {:?}, poisoned {}",
+            fell.life,
+            fell.pack.poison.is_some()
+        ));
+    }
+    let downed_at = run.last.time_ms;
+    while run.last.time_ms < downed_at + 12_000 && !run.fighter(Who::Host).alive() {
+        run.step(&[]);
+    }
+    let rose = run.last.time_ms;
+    run.hold(5_000, &[]);
+    let host = run.fighter(Who::Host);
+    if !host.alive() || host.pack.poison.is_some() || host.hp < RISE_HP {
+        return Err(format!(
+            "5 s after getting up: {:?} at {}/100 HP, poisoned {}",
+            host.life,
+            host.hp,
+            host.pack.poison.is_some()
+        ));
+    }
+    Ok(format!(
+        "downed by the dose, the poison gone; up {} ms later and standing 5 s on at {} HP",
+        rose - downed_at,
+        host.hp / 100
+    ))
 }

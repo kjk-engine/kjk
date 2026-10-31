@@ -173,12 +173,20 @@ impl<'a> Here<'a> {
             .as_deref()
     }
 
-    /// Whether the player's eye sees foe `id`'s chest.
+    /// Whether the player's eye sees foe `id`'s chest (`chest`).
     pub(super) fn sees(&self, player: &sim::motion::MotionState, id: sim::SimId) -> bool {
-        self.snapshot.get(id).and_then(|e| e.player).is_some_and(|foe| {
-            self.level
-                .sees(self.sight(), mind::eye(player), mind::chest(&foe))
-        })
+        self.chest(id)
+            .is_some_and(|chest| self.level.sees(self.sight(), mind::eye(player), chest))
+    }
+
+    /// What the sim's own minds aim at of creature `id` (units,
+    /// `mind::chest_of`): a humanoid's chest, a body met where its model is
+    /// drawn the middle of that (TSL's sensor ball, floating 1.3 m to 1.7 m
+    /// up, aimed at under it, was never hit).
+    pub(super) fn chest(&self, id: sim::SimId) -> Option<[f32; 3]> {
+        let entity = self.snapshot.get(id)?;
+        let facts = self.facts_of(entity);
+        Some(mind::chest_of(&entity.player?, sim::bulk_of(facts.as_deref())))
     }
 
     /// The corners of a route from `from` to `to` (origins, units), through
@@ -306,6 +314,30 @@ impl<'a> Here<'a> {
             .collect();
         stands.sort_by(|a, b| a.0.total_cmp(&b.0));
         stands.into_iter().next().map_or(to, |(_, walker)| walker)
+    }
+
+    /// Where a use of what stands at `at` (metres) is walked to and reached
+    /// from: a placeable with action points (`ObjectData::use_points`) at
+    /// the one nearest the player, as KOTOR walks a use to the point TSL's
+    /// `CSWSCreature::GetUseRange` takes (`CSWSPlaceable::GetNearestActionPoint`,
+    /// within 0.1 m when it is a safe place to stand) and `GetIsInUseRange`
+    /// measures to (`sim::world::uses::Target::aimed`); anything else at
+    /// `at`. TSL's medbay bin, walked to along the line from the player,
+    /// was made for beside the bed, where the dummy Exile lying on it held
+    /// the player 2.7 m off; its action point stands 2.2 m clear of him.
+    /// The points stand round the object where it stands, `at`, not where
+    /// its facts were placed: Dantooine's sensor made in play by the
+    /// kinrath cave's entry (`cont_sensor`) has its template's.
+    pub(super) fn use_point(me: [f32; 3], at: [f32; 3], facts: Option<&ObjectData>) -> [f32; 3] {
+        facts
+            .filter(|facts| facts.kind == ObjectKind::Placeable)
+            .and_then(|facts| {
+                let shift: [f32; 3] = std::array::from_fn(|axis| at[axis] - facts.position[axis]);
+                let from = std::array::from_fn(|axis| me[axis] - shift[axis]);
+                let point = facts.nearest_use_point(from)?;
+                Some(std::array::from_fn(|axis| point[axis] + shift[axis]))
+            })
+            .unwrap_or(at)
     }
 }
 
@@ -596,6 +628,61 @@ pub(super) fn fell(here: &Here, fallen: &BTreeMap<u32, Fell>, tag: &str, nth: Op
     }
 }
 
+/// What a `use` of a container does this step (`loot_step`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Loot {
+    /// Opened by the player's use (its `OnUsed` runs, locked or not) and
+    /// emptied, as the screen's take all.
+    Open,
+    /// Closed: the use is met.
+    Close,
+    /// Its open and take all asked, waited for.
+    Wait,
+}
+
+/// The step of a container's use: opened and emptied, again each press's
+/// time (`PRESS_MS` four times over, from `pressed_at`) while it still
+/// `holds` something; closed once it holds nothing after an open, or after
+/// `LOOT_OPENS` opens left it holding what will not come out. Met as soon
+/// as the take all was sent, Peragus's dormitory refresher had its take
+/// all refused, and was met with the foreman's log still inside: its open
+/// was refused from where the fight left the player (the open asked again
+/// walks to a stand it is seen from).
+pub(super) fn loot_step(holds: bool, opens: u8, now: u64, pressed_at: u64) -> Loot {
+    let pressed = now >= pressed_at + 4 * PRESS_MS;
+    if opens > 0 && (!holds || (opens >= LOOT_OPENS && pressed)) {
+        Loot::Close
+    } else if opens == 0 || pressed {
+        Loot::Open
+    } else {
+        Loot::Wait
+    }
+}
+
+/// How many opens a container's use asks before it closes it holding what
+/// will not come out.
+pub(super) const LOOT_OPENS: u8 = 3;
+
+/// Whether the object numbered `index` holds an item (`state`'s items).
+pub(super) fn holds_items(here: &Here, state: &sim::script::State, index: u32) -> bool {
+    here.entity(index)
+        .is_some_and(|entity| state.items.values().any(|item| item.holder == entity.id.0))
+}
+
+/// Whether the trap a goal's tag names (`TAG@N`'s, else every one of that
+/// tag) was in the module and is gone: set off or disarmed, as a mine is
+/// taken away (`sim::world::traps`).
+pub(super) fn sprung(here: &Here, tag: &str, nth: Option<usize>) -> bool {
+    let gone = |index: &u32| {
+        here.entity(*index).is_none() && here.facts(*index).is_some_and(|data| data.trap.is_some())
+    };
+    let tagged = tagged(here, tag);
+    match nth {
+        Some(nth) => tagged.get(nth - 1).is_some_and(gone),
+        None => !tagged.is_empty() && tagged.iter().all(gone),
+    }
+}
+
 /// What in the module holds an item of `template` (`state`'s items, not the
 /// party's): remains or a creature, its number and place.
 pub(super) fn holder_of(here: &Here, state: &sim::script::State, template: &str) -> Option<(u32, [f32; 3])> {
@@ -612,28 +699,57 @@ pub(super) fn holder_of(here: &Here, state: &sim::script::State, template: &str)
         })
 }
 
-/// The remains standing nearest `lay` within `REMAINS_M` still holding
-/// something (`state`'s items; one emptied waits to be closed and go): their
-/// number and place.
-pub(super) fn remains_at(here: &Here, state: &sim::script::State, lay: [f32; 3]) -> Option<(u32, [f32; 3])> {
-    here.snapshot
-        .entities
-        .iter()
-        .filter_map(|entity| {
-            let sim::Kind::Object(ObjectKind::Placeable, index) = entity.kind else {
-                return None;
-            };
-            sim::remains::bag_row(&here.objects().made_from(index)?.template)?;
-            state
-                .items
-                .values()
-                .any(|item| item.holder == entity.id.0)
-                .then_some(())?;
-            let d = flat(entity.position, lay);
-            (d <= REMAINS_M).then_some((d, index, entity.position))
+/// Remains standing in the module (`remains_at`): their number, place,
+/// distance across the floor from where the dead lay, and whether they hold
+/// anything.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Standing {
+    pub(super) index: u32,
+    pub(super) at: [f32; 3],
+    pub(super) d: f32,
+    pub(super) holds: bool,
+}
+
+/// The remains a `use` of one dead loots (`pick_remains`) of those standing
+/// in the module, `lay` where it lay: their number and place.
+pub(super) fn remains_at(
+    here: &Here,
+    state: &sim::script::State,
+    lay: [f32; 3],
+    opened: Option<u32>,
+) -> Option<(u32, [f32; 3])> {
+    let standing = here.snapshot.entities.iter().filter_map(|entity| {
+        let sim::Kind::Object(ObjectKind::Placeable, index) = entity.kind else {
+            return None;
+        };
+        sim::remains::bag_row(&here.objects().made_from(index)?.template)?;
+        Some(Standing {
+            index,
+            at: entity.position,
+            d: flat(entity.position, lay),
+            holds: state.items.values().any(|item| item.holder == entity.id.0),
         })
-        .min_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|(_, index, at)| (index, at))
+    });
+    pick_remains(standing, opened).map(|remains| (remains.index, remains.at))
+}
+
+/// Of the remains `standing`, the ones this use opened (`opened`) while they
+/// stand, emptied or not: a player closes the bag he opened. Else the
+/// nearest within `REMAINS_M` still holding something (one emptied waits to
+/// be closed and go). Emptied by the take all, a use's own were passed over
+/// for a neighbour's still holding, opened and emptied too: Tatooine's first
+/// Dark Jedi's use took the second's remains, left none for its own use.
+pub(super) fn pick_remains(standing: impl IntoIterator<Item = Standing>, opened: Option<u32>) -> Option<Standing> {
+    let mut nearest: Option<Standing> = None;
+    for remains in standing {
+        if Some(remains.index) == opened {
+            return Some(remains);
+        }
+        if remains.holds && remains.d <= REMAINS_M && nearest.is_none_or(|near| remains.d < near.d) {
+            nearest = Some(remains);
+        }
+    }
+    nearest
 }
 
 /// Whether `goal`, foes standing near, fights them first: an exit or a use
@@ -869,16 +985,23 @@ pub(super) fn facing(player: &sim::motion::MotionState, at: [f32; 3]) -> Command
     mind::looking(player, pitch, yaw)
 }
 
-/// The command that looks at the chest of a foe standing at `at` (metres)
-/// to strike it: with a gun, the crosshair on it, as a player's shots go
-/// where its crosshair line meets, above its eye (`mind::crosshair`).
-pub(super) fn aiming(player: &sim::motion::MotionState, me: &sim::EntityState, at: [f32; 3]) -> Command {
-    let chest = [at[0], at[1], at[2] + 0.3];
+/// The command that looks at `chest` (metres) to strike it: with a gun, the
+/// crosshair on it, as a player's shots go where its crosshair line meets,
+/// above its eye (`mind::crosshair`).
+pub(super) fn aiming(player: &sim::motion::MotionState, me: &sim::EntityState, chest: [f32; 3]) -> Command {
     if !ranged(me) {
         return facing(player, chest);
     }
     let (pitch, yaw) = mind::aim(mind::crosshair(player), chest.map(|v| v / UNIT));
     mind::looking(player, pitch, yaw)
+}
+
+/// Where to strike creature `id` standing at `at` (metres): its chest as the
+/// sim's minds aim (`Here::chest`), else, an object with no body (a
+/// placeable bashed), 0.3 m above where it stands.
+pub(super) fn strike_at(here: &Here, id: Option<sim::SimId>, at: [f32; 3]) -> [f32; 3] {
+    id.and_then(|id| here.chest(id))
+        .map_or([at[0], at[1], at[2] + 0.3], |chest| chest.map(|v| v * UNIT))
 }
 
 /// Whether `me` fights with a gun.
@@ -1008,12 +1131,43 @@ pub(super) enum Condition {
     In(String),
     /// A companion (by NPC number) is available, or not.
     Npc(u8, bool),
+    /// A local of the object a tag names (`find`'s): a number (`boolean`
+    /// false) less than, equal to or greater than the value, as a script's
+    /// `GetLocalNumber` reads it (a byte, unsigned); or a boolean the value
+    /// (a truth: 0 or 1), as `GetLocalBoolean`'s raw bit is read true. An
+    /// object not there holds none (0, as a script reads one that is not).
+    Local {
+        tag: String,
+        nth: Option<usize>,
+        boolean: bool,
+        index: i32,
+        order: std::cmp::Ordering,
+        value: i32,
+    },
 }
 
 impl Condition {
-    /// Whether it holds now, the party in `module`.
-    pub(super) fn holds(&self, state: &sim::script::State, module: &str) -> bool {
+    /// Whether it holds now, the party in `module` (`here`'s).
+    pub(super) fn holds(&self, state: &sim::script::State, module: &str, here: &Here) -> bool {
         match self {
+            Condition::Local {
+                tag,
+                nth,
+                boolean,
+                index,
+                order,
+                value,
+            } => {
+                let read = find(here, tag, *nth)
+                    .and_then(|(index, _)| here.entity(index))
+                    .zip(here.snapshot.place.as_ref())
+                    .map_or(0, |(entity, place)| {
+                        let id = ObjectId(entity.id.0);
+                        sim::script::local(state, (&place.game, module), id, *boolean, *index)
+                    });
+                let read = if *boolean { i32::from(read != 0) } else { read };
+                read.cmp(value) == *order
+            }
             Condition::Global(name, value) => match sim::script::global(&state.booleans, name) {
                 Some(truth) => *truth == (*value != 0),
                 None => sim::script::global(&state.numbers, name).copied().unwrap_or(0) == *value,

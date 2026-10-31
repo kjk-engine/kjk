@@ -91,16 +91,39 @@ impl Chase {
     /// each turn planned the walk to them anew, its stalls forgotten before
     /// one stepped aside the free way, and the player stood pressed against
     /// a door's jamb for good.)
+    /// Not one kept out of a blade's swing while another that fits stands
+    /// within it of the player at `me`: that one is struck first, as a
+    /// player turns on what claws at them (Malachor's surface: a storm beast
+    /// at 0.8 m attacked the player for 116 s while the walk made for
+    /// another 17 m off, stalled against the first).
     pub(super) fn pick(
         &self,
+        me: [f32; 3],
         foes: Vec<(sim::SimId, [f32; 3])>,
         mut fits: impl FnMut(&(sim::SimId, [f32; 3])) -> bool,
     ) -> Option<(sim::SimId, [f32; 3])> {
+        let at_hand = |(_, at): &(sim::SimId, [f32; 3])| flat(*at, me) <= melee_m().1;
         let kept = self
             .foe
             .and_then(|id| foes.iter().find(|(foe, _)| *foe == id).copied())
             .filter(&mut fits);
-        kept.or_else(|| foes.into_iter().find(fits))
+        let nearest = foes.into_iter().find(fits);
+        match (kept, nearest) {
+            (Some(kept), Some(near)) if !at_hand(&kept) && at_hand(&near) => Some(near),
+            (Some(kept), _) => Some(kept),
+            (None, near) => near,
+        }
+    }
+
+    /// Whether foe `id` is given up: the walk to it stalled on and on
+    /// (`lost`) and the player does not see it, as a player leaves a beast
+    /// that wandered into scenery the floor runs on under (KOTOR's walker
+    /// passes through what is drawn) and stands hidden there, not fighting:
+    /// no gun reaches it either. Seen again, it is fought again. (Dxun's
+    /// turret ramp, 410DXN: a boma, wandering, stood inside a drawn rock
+    /// past a wall; the walk to it stalled for 90 s.)
+    pub(super) fn given_up(&self, here: &Here, player: &sim::motion::MotionState, id: sim::SimId) -> bool {
+        self.lost == Some(id) && !here.sees(player, id)
     }
 
     /// This step's command against foe `id` at `at`, walked by `walker`,
@@ -151,7 +174,19 @@ impl Chase {
             (true, false) => SHOOT_M,
             (false, _) => swing,
         };
-        let at_hand = d <= within && seen;
+        // A punch is measured to the body where the sim's blow meets it, a
+        // beast's or a droid's round wider than a humanoid's
+        // (`player_punch_apart_m`): a boma's held the player past the punch.
+        let apart = (punching && !ranged)
+            .then(|| here.snapshot.get(id))
+            .flatten()
+            .and_then(|entity| {
+                let facts = here.facts_of(entity);
+                let foe = entity.player?;
+                Some(sim::player_punch_apart_m(player.origin, &foe, sim::bulk_of(facts.as_deref())))
+            })
+            .unwrap_or(d);
+        let at_hand = apart <= within && seen;
         // Time out of reach or sight does not count (a wounded Sand Person
         // fleeing over the dunes).
         let hp = here
@@ -170,9 +205,9 @@ impl Chase {
         if at_hand {
             let mut command = Command {
                 buttons: buttons::ATTACK,
-                ..aiming(player, me, at)
+                ..aiming(player, me, strike_at(here, Some(id), at))
             };
-            if !ranged && d > close {
+            if !ranged && apart > close {
                 command.forward = 127;
             }
             // A body standing in the line, short of a foe left unhurt a
@@ -315,6 +350,69 @@ impl Talks {
     }
 }
 
+/// The triggers whose own scene the player set off this visit of a module:
+/// a conversation the run of a trigger's `OnEnter` for the player's body
+/// asked for, as the sim reports it (`Line::Cued`), and when. A `to` such a
+/// trigger, its scene set off during a goal before it, is met, and the
+/// `talk` after it takes that scene: Onderon's throne room, where the
+/// fight walked the player into `tr_kavar_enter` and Kavar's entrance and
+/// Vaklu's fall played out, and the `to` after the fight walked back for
+/// the trigger into the one that keeps the player in the hall
+/// (`tr_end_riiken`), jumped back again and again for 900 s. Another body
+/// entering (Telos's salvager reaching `tr_czerka_escape`) is not the
+/// player's scene.
+#[derive(Default)]
+pub(super) struct Scenes {
+    module: String,
+    /// How many of the report's lines have been read.
+    read: usize,
+    /// By trigger number: when its scene began, and that conversation.
+    played: BTreeMap<u32, (u64, Talk)>,
+}
+
+impl Scenes {
+    /// The step: the player's body `me` in `module`, the scripts' report
+    /// `lines` so far, `trigger_of` a script object's trigger number.
+    pub(super) fn note(
+        &mut self,
+        module: &str,
+        lines: &[Line],
+        me: sim::SimId,
+        trigger_of: impl Fn(ObjectId) -> Option<u32>,
+        now: u64,
+    ) {
+        if self.module != module {
+            self.module = module.to_string();
+            self.played.clear();
+        }
+        if self.read > lines.len() {
+            self.read = 0;
+        }
+        for line in &lines[self.read..] {
+            if let Line::Cued { id, cue, .. } = line
+                && cue.entering.0 == me.0
+                && let Some(trigger) = trigger_of(cue.trigger)
+            {
+                let talk = Talk {
+                    id: *id,
+                    owner: None,
+                    ended_ms: now,
+                };
+                self.played.entry(trigger).or_insert((now, talk));
+            }
+        }
+        self.read = lines.len();
+    }
+
+    /// The scene of trigger `index` set off before `since` (the `to`'s
+    /// start), if any. Taken either way: one set off since is the `to`'s
+    /// own, met by stepping in; a later `to` the same trigger wants another.
+    pub(super) fn take_before(&mut self, index: u32, since: u64) -> Option<Talk> {
+        let (at, talk) = self.played.remove(&index)?;
+        (at < since).then_some(talk)
+    }
+}
+
 /// Whether the world stands settled for a condition to be read (`if`,
 /// `while`, `until`): no conversation with the player, no module change
 /// asked nor the party waiting at an exit, the screen clear
@@ -358,12 +456,16 @@ pub(super) fn settled(snapshot: &Snapshot, state: &sim::script::State, talking: 
 }
 
 /// What a `while` round may change (`Goal::Again`): the module, the script
-/// globals, and each creature's hit points outside the party. A round that
+/// globals and objects' locals (a pazaak player's count of games won), the
+/// party's credits (a game lost), and each creature's hit points outside
+/// the party. A round that
 /// changed none of them goes round no more.
 pub(super) type Round = (
     String,
     BTreeMap<String, i32>,
     BTreeMap<String, bool>,
+    BTreeMap<(u32, u8, i32), i32>,
+    i32,
     Vec<(sim::SimId, i32)>,
 );
 
@@ -378,5 +480,12 @@ pub(super) fn round_of(world: &sim::SimWorld, snapshot: &Snapshot, module: Strin
         })
         .filter_map(|entity| Some((entity.id, entity.fighter?.hp)))
         .collect();
-    (module, state.numbers.clone(), state.booleans.clone(), lives)
+    (
+        module,
+        state.numbers.clone(),
+        state.booleans.clone(),
+        state.locals.clone(),
+        state.gold,
+        lives,
+    )
 }

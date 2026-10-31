@@ -17,6 +17,7 @@ const GROUPS: &[Group] = &[
     ("scaling", sim::scaling::probes),
     ("encounter count", session::encounters::probes),
     ("speeds", speeds),
+    ("creature_blades", creature_blades),
     ("scene", sim::scene_probes::all),
     ("dialog camera", crate::play_view::shot_probes),
     ("clip events", kjk_game::clip_events::probes),
@@ -60,6 +61,8 @@ const GROUPS: &[Group] = &[
     ("regeneration", sim::regen_probes::probes),
     ("weapon sets", sim::weapon_set_probes::probes),
     ("aim", sim::aim_probes::probes),
+    ("bulks", sim::bulk_probes::probes),
+    ("bulks in the games", bulks),
     ("dual pistols", sim::pair_probes::probes),
     ("tsl effects", sim::effects_probes::probes),
     ("tsl force", sim::force_probes::probes),
@@ -72,6 +75,7 @@ const GROUPS: &[Group] = &[
     ("minds", sim::minds_probes),
     ("pace", sim::pace_probes::probes),
     ("party fights", sim::party_fights_probes::probes),
+    ("downed switch", sim::party_fights_probes::passing),
     ("body", sim::motion::body_probes::probes),
     ("talk ends", sim::talk_end_probes::probes),
     ("speakers", sim::speaker_probes::probes),
@@ -87,22 +91,60 @@ const GROUPS: &[Group] = &[
     ("weapons view", crate::weapons::view_probes),
     ("up again", kjk_game::rise_probes::probes),
     ("clips", clips),
+    ("gathering", gathering),
 ];
 
 /// The scripts' and conversations' clips (`session::clip_probes`), on K1's
 /// and TSL's data where this machine has the installs.
 fn clips() -> sim::probe::Checks {
+    on_installs(session::clip_probes)
+}
+
+/// Creature models on JA's skeleton holding a blade
+/// (`session::blade_probes`), on the installs this machine has.
+fn creature_blades() -> sim::probe::Checks {
+    on_installs(session::blade_probes)
+}
+
+type Installed<'a> = Option<&'a dyn asset_odyssey::module::Source>;
+
+/// `run` on K1's and TSL's data, each where this machine has the install.
+fn on_installs(run: impl FnOnce(Installed, Installed) -> sim::probe::Checks) -> sim::probe::Checks {
     let k1 = kjk_game::k1_resolver();
     let tsl = kjk_game::installs::open(&kjk_game::discover(), vfs::Game::Kotor2)
         .and_then(|install| install.resolver(None))
         .ok();
     let [k1, tsl] = [&k1, &tsl].map(|found| found.as_ref().map(crate::modules::ResolverSource));
-    fn source<'a>(
-        found: &'a Option<crate::modules::ResolverSource<'_>>,
-    ) -> Option<&'a dyn asset_odyssey::module::Source> {
+    fn source<'a>(found: &'a Option<crate::modules::ResolverSource<'_>>) -> Installed<'a> {
         found.as_ref().map(|source| source as _)
     }
-    session::clip_probes(source(&k1), source(&tsl))
+    run(source(&k1), source(&tsl))
+}
+
+/// Bodies met where their models are drawn (`session::bulk_probes`), on
+/// K1's data where this machine has the install.
+fn bulks() -> sim::probe::Checks {
+    let resolver = kjk_game::k1_resolver();
+    let source = resolver.as_ref().map(crate::modules::ResolverSource);
+    session::bulk_probes(
+        source
+            .as_ref()
+            .map(|source| source as &dyn asset_odyssey::module::Source),
+    )
+}
+
+/// The script library's gathering (`session::gather_probes`), on TSL's
+/// 306NAR where this machine has the install.
+fn gathering() -> sim::probe::Checks {
+    let tsl = kjk_game::installs::open(&kjk_game::discover(), vfs::Game::Kotor2)
+        .and_then(|install| install.resolver(Some("306nar")))
+        .ok();
+    let source = tsl.as_ref().map(crate::modules::ResolverSource);
+    session::gather_probes(
+        source
+            .as_ref()
+            .map(|source| source as &dyn asset_odyssey::module::Source),
+    )
 }
 
 /// Creatures' speeds and head arc (`session::speed_probes`), with K1's own

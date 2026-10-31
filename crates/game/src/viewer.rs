@@ -433,6 +433,9 @@ pub struct CreatureClips {
     pub run: Option<Arc<AnimationIr>>,
     pub die: Option<Arc<AnimationIr>>,
     pub dead: Option<Arc<AnimationIr>>,
+    /// Getting up from its dead clip (KOTOR's `getupdead`: a knocked-out
+    /// party member revived).
+    pub getup: Option<Arc<AnimationIr>>,
     /// Its clips for scripts' animations, by `ANIMATION_…` constant
     /// (`acting::clips`).
     pub acted: Vec<(u16, Arc<AnimationIr>)>,
@@ -1516,6 +1519,7 @@ impl CreatureLoad {
                 run: named(loaded, "crun", "run")?,
                 die: named(loaded, "cdie", "die")?,
                 dead: named(loaded, "cdead", "dead")?,
+                getup: named(loaded, "cgetupdead", "getupdead")?,
                 acted,
                 strides,
             }

@@ -318,17 +318,18 @@ fn bodies_as_drawn(
         return Vec::new();
     };
     let spares = level.friendly_fire() == FriendlyFire::Off && shown.in_party(is);
+    let instances = Instances::in_snapshot(level, shown);
     shown
         .entities
         .iter()
         .filter(|e| e.id != is.id && e.fighter.is_some())
         .filter(|e| !(spares && shown.in_party(e)))
-        .filter_map(|e| cast::blended(history, e.id, ms).map(|at| (e.id, at)))
+        .filter_map(|e| cast::blended(history, e.id, ms).map(|at| (e, at)))
         .filter(|(_, at)| at.alive && near(at.origin))
-        .map(|(id, at)| {
+        .map(|(e, at)| {
             let mut stands = at.state;
             stands.origin = at.origin;
-            sim::body(id, &stands)
+            sim::body(e.id, &stands, sim::bulk_of(instances.of_entity(e)))
         })
         .collect()
 }

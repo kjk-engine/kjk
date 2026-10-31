@@ -9,8 +9,8 @@ use super::{Check, check, expect};
 use crate::draw::DrawList;
 use crate::paint::{Painter, Palette};
 use crate::screens::hud::{
-    BusyMark, SWAP, anchor, backed, busy, busy_marks, crosshair, portrait_at, state, swap_at,
-    watch_at,
+    BusyMark, SWAP, anchor, backed, busy, busy_marks, crosshair, effect_arrows, portrait_at, state,
+    swap_at, watch_at,
 };
 use crate::vm::{Busy, HudView, MemberView, RequestsView, TargetAction, TargetView, ViewModel};
 
@@ -42,6 +42,76 @@ pub(super) fn swap_button() -> Vec<Check> {
             shown && at(&gui, SWAP) == Some((1080, 660)) && clicks == (true, false, false),
         )
         .map(|()| "shown at the lower right, a click on it swaps".into()),
+    )]
+}
+
+/// KOTOR 2's effect arrows on the portraits (`effect_arrows`): stacked about
+/// their labels, the leader's 10 apart, a companion's 5 and at most 5; none
+/// on a debilitated member, whose overlay shows instead.
+pub(super) fn effect_arrows_stack() -> Vec<Check> {
+    let arrow = |tag: &str, rect: [i32; 4], fill: &str| Control {
+        border: Some(Border {
+            fill: fill.into(),
+            ..Border::default()
+        }),
+        ..button(tag, rect, b"")
+    };
+    let gui = root(
+        800,
+        600,
+        vec![
+            button("LBL_CHAR1", [707, 523, 72, 72], b""),
+            arrow("LBL_CMBTEFCTINC1", [712, 550, 18, 18], "lbl_micomeff02"),
+            arrow("LBL_CMBTEFCTRED1", [756, 550, 18, 18], "lbl_micomeff01"),
+            button("LBL_CHAR2", [752, 484, 32, 32], b""),
+            arrow("LBL_CMBTEFCTINC2", [753, 495, 10, 10], "lbl_micomeff02"),
+            button("LBL_CHAR3", [752, 445, 32, 32], b""),
+            arrow("LBL_CMBTEFCTINC3", [753, 456, 10, 10], "lbl_micomeff02"),
+        ],
+    );
+    let member = |effects: (u8, u8), debilitated: bool| MemberView {
+        effects,
+        debilitated,
+        ..MemberView::default()
+    };
+    let vm = ViewModel {
+        hud: Some(HudView::default()),
+        party: vec![
+            member((3, 1), false),
+            member((7, 0), false),
+            member((2, 2), true),
+        ],
+        ..ViewModel::default()
+    };
+    let tops = |fill: &str, left: f32| {
+        effect_arrows(&gui, &vm)
+            .into_iter()
+            .filter(|arrow| arrow.fill == fill && arrow.rect[0] == left)
+            .map(|arrow| arrow.rect[1] as i32)
+            .collect::<Vec<_>>()
+    };
+    let stacks = (
+        tops("lbl_micomeff02", 712.0),
+        tops("lbl_micomeff01", 756.0),
+        tops("lbl_micomeff02", 753.0),
+    );
+    let overlay = ["LBL_DEBILATATED1", "LBL_DEBILATATED3"]
+        .map(|tag| !state(&button(tag, [0, 0, 1, 1], b""), &vm).hidden);
+    let labels_hidden = state(&button("LBL_CMBTEFCTINC1", [0, 0, 1, 1], b""), &vm).hidden;
+    vec![check(
+        "hud_effect_arrows",
+        expect(
+            &format!("stacks {stacks:?}, overlays {overlay:?}"),
+            stacks
+                == (
+                    vec![540, 550, 560],
+                    vec![550],
+                    vec![487, 492, 497, 502, 507],
+                )
+                && overlay == [false, true]
+                && labels_hidden,
+        )
+        .map(|()| "good up and bad down, stacked, capped, none when debilitated".into()),
     )]
 }
 

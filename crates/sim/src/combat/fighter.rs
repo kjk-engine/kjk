@@ -641,13 +641,27 @@ impl Fighter {
         self.life == Life::Downed
     }
 
+    /// Debilitated at `now`, as KOTOR's `CSWSCreature::IsDebilitated` has
+    /// it (its portrait's `LBL_DEBILATATED`): not standing, held (C11's
+    /// hold), or under a KOTOR state but confusion (a creature's or a
+    /// droid's, which leave it acting).
+    pub fn debilitated(&self, now: u64) -> bool {
+        use super::effects::state;
+        let force = &self.force;
+        !self.alive()
+            || force.stunned_until > now
+            || (force.state_until > now
+                && !matches!(force.state, 0 | state::CONFUSED | state::DROID_CONFUSED))
+    }
+
     /// Dead: no getting up.
     pub fn dead(&self) -> bool {
         self.life == Life::Dead
     }
 
     /// Goes down at `now` (I30 P11): no hit points left, the blade out, no
-    /// one it fights.
+    /// one it fights, its effects stripped (`effects::strip`: a poison no
+    /// longer ticks on the fallen).
     pub(crate) fn fall(&mut self, now: u64) {
         self.life = Life::Downed;
         self.hp = 0;
@@ -657,13 +671,17 @@ impl Fighter {
         });
         self.saber.on = false;
         self.target = None;
+        super::effects::strip(self, now);
     }
 
-    /// Up again with at least `hp` hundredths (I30 P11).
-    pub(crate) fn rise(&mut self, hp: i32) {
+    /// Up again at `now` with at least `hp` hundredths (I30 P11), clear of
+    /// what took it while down (`effects::strip`): it never gets up only to
+    /// fall to the poison that downed it.
+    pub(crate) fn rise(&mut self, hp: i32, now: u64) {
         self.life = Life::Alive;
         self.hp = self.hp.max(hp);
         self.fallen = None;
+        super::effects::strip(self, now);
     }
 
     /// Records `event` (its sequence number is set here) over the oldest.
