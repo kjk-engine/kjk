@@ -1,9 +1,0 @@
-# The sim's hash moves on purpose (beyond a snapshot bump, which moves it
-# anyway): why.
-sim = "SetEffectIcon links its icon to the effect, kept in a lasting slot as long as it (`Modifies::Icon`), for the HUD's buff and debuff arrows (issue 46); a container takes only the party's unworn, non-plot items, once a step (issue 47)"
-
-[formats]
-snapshot = "an effect's modification may be an icon linked to it (`Modifies::Icon`, index 30)."
-
-[migrations]
-snapshot = "old saves read as they are: no effect in them carries an icon"

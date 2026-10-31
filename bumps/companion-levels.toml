@@ -1,1 +1,0 @@
-sim = "companions no longer level themselves: a level waits until the host or the guest driving it asks (`Action::LevelUpOn`); the party follows and fights around the companion led, the player's own character goes by its mind while one leads, and a party member nobody plays joins a fight the party is in"

@@ -12,17 +12,23 @@ pub mod save {
     pub const CLAUDE_TSL_ONDERON: crate::Since = crate::Since(crate::Stored::Save, 62);
     pub const CLAUDE_TSL_TELOS: crate::Since = crate::Since(crate::Stored::Save, 63);
     pub const SAVE_MIGRATIONS: crate::Since = crate::Since(crate::Stored::Save, 64);
+    pub const TSL_BUGS: crate::Since = crate::Since(crate::Stored::Save, 65);
+    pub const CLAUDE_TSL_FINALE_2: crate::Since = crate::Since(crate::Stored::Save, 66);
     #[allow(unused_imports)]
     pub use crate::pending::since::save::*;
 }
 
 pub mod snapshot {
+    pub const REMOTE_DROID: crate::Since = crate::Since(crate::Stored::Snapshot, 73);
+    pub const CLAUDE_ITEMS_LOAD: crate::Since = crate::Since(crate::Stored::Snapshot, 74);
+    pub const CLAUDE_UI_ISSUES: crate::Since = crate::Since(crate::Stored::Snapshot, 75);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }
 
 pub mod pack {
     pub const CLAUDE_TSL_FINALE: crate::Since = crate::Since(crate::Stored::Pack, 21);
+    pub const CLAUDE_BODIES_COLLISION: crate::Since = crate::Since(crate::Stored::Pack, 22);
     #[allow(unused_imports)]
     pub use crate::pending::since::pack::*;
 }
