@@ -125,6 +125,7 @@ pub fn probes() -> sim::probe::Checks {
         })
         .chain(replans(&chase_once))
         .chain(hovering(&world, &base))
+        .chain(loots())
         .chain(picks())
         .chain(walks_for())
         .chain(shut_doors(&base, &level))
@@ -257,6 +258,30 @@ pub(super) fn hovering(world: &sim::SimWorld, base: &Snapshot) -> sim::probe::Ch
             sim::probe::check(gone && !there, format!("gone: sprung {gone}; standing: sprung {there}")),
         ),
     ]
+}
+
+/// A container's use (`loot_step`): opened first, its take all only once it
+/// stands open to the player (not sent with an open the player's action
+/// has yet to carry out), closed once emptied; an open asked waits a
+/// press's time before it is asked again.
+pub(super) fn loots() -> sim::probe::Checks {
+    let press = 4 * PRESS_MS;
+    let cases: [(&'static str, bool, bool, u64, Loot); 5] = [
+        ("loot_opens_first", false, false, 0, Loot::Open),
+        ("loot_waits_for_the_open", false, false, press / 2, Loot::Wait),
+        ("loot_opens_again_after_a_press", false, false, press, Loot::Open),
+        ("loot_takes_all_once_open", false, true, press / 2, Loot::TakeAll),
+        ("loot_closes_once_taken", true, true, press / 2, Loot::Close),
+    ];
+    cases
+        .into_iter()
+        .map(|(name, taken, open, since, want)| {
+            let (pressed_at, now) = if since == 0 { (0, 1000) } else { (1000, 1000 + since) };
+            let got = loot_step(taken, open, now, pressed_at);
+            let detail = format!("taken {taken}, open {open}, {since} ms since the open: {got:?}");
+            (name, if got == want { Ok(detail) } else { Err(detail) })
+        })
+        .collect()
 }
 
 /// The walk to a target (`walk_for`): one made for another spot farther

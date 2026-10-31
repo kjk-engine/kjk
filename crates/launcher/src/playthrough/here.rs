@@ -628,6 +628,38 @@ pub(super) fn fell(here: &Here, fallen: &BTreeMap<u32, Fell>, tag: &str, nth: Op
     }
 }
 
+/// What a `use` of a container does this step (`loot_step`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Loot {
+    /// Opened by the player's use (its `OnUsed` runs, locked or not).
+    Open,
+    /// Emptied, as the screen's take all.
+    TakeAll,
+    /// Closed: the use is met.
+    Close,
+    /// Its open asked, waited for.
+    Wait,
+}
+
+/// The step of a container's use: emptied (`taken`) it is closed; standing
+/// open to the player (`open`) it is emptied; else opened, again once a
+/// press's time (`PRESS_MS` four times over, from `pressed_at`) is up. The
+/// take all waits for the open: a use the player's action carried out a
+/// moment later (a swing still ending after a fight: Peragus's dormitory
+/// refresher) refused the take all sent with it, and the use was met with
+/// the foreman's log still inside.
+pub(super) fn loot_step(taken: bool, open: bool, now: u64, pressed_at: u64) -> Loot {
+    if taken {
+        Loot::Close
+    } else if open {
+        Loot::TakeAll
+    } else if pressed_at == 0 || now >= pressed_at + 4 * PRESS_MS {
+        Loot::Open
+    } else {
+        Loot::Wait
+    }
+}
+
 /// Whether the trap a goal's tag names (`TAG@N`'s, else every one of that
 /// tag) was in the module and is gone: set off or disarmed, as a mine is
 /// taken away (`sim::world::traps`).

@@ -1803,20 +1803,29 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         } else if data.as_ref().is_some_and(|d| d.container) {
                                             // Opened by the player's use (its
                                             // `OnUsed` runs, locked or not) and
-                                            // emptied, as the screen's take all.
-                                            if taken {
-                                                input.act(Seat(0), Action::Close(index));
-                                                met = true;
-                                            } else {
-                                                input.act(
-                                                    Seat(0),
-                                                    Action::Use {
-                                                        object: index,
-                                                        verb: sim::action::Verb::Open,
-                                                    },
-                                                );
-                                                input.act(Seat(0), Action::TakeAll(index));
-                                                taken = true;
+                                            // emptied once it stands open to the
+                                            // player (`loot_step`).
+                                            let open = object_of(&here, index).tenants & 1 != 0;
+                                            match loot_step(taken, open, now, pressed_at) {
+                                                Loot::Close => {
+                                                    input.act(Seat(0), Action::Close(index));
+                                                    met = true;
+                                                }
+                                                Loot::TakeAll => {
+                                                    input.act(Seat(0), Action::TakeAll(index));
+                                                    taken = true;
+                                                }
+                                                Loot::Open => {
+                                                    input.act(
+                                                        Seat(0),
+                                                        Action::Use {
+                                                            object: index,
+                                                            verb: sim::action::Verb::Open,
+                                                        },
+                                                    );
+                                                    pressed_at = now.max(1);
+                                                }
+                                                Loot::Wait => {}
                                             }
                                         } else {
                                             // A conversation playing before any
