@@ -69,7 +69,6 @@ use sim::combat::{Delivery, Fighter, Location, Weapon};
 use sim::module::ObjectKind;
 use sim::motion::{self, Anim, MotionState};
 use sim::script::dialogue::Conversation;
-use sim::script::effects::Hold;
 use sim::skeleton::{Blade, Hand};
 use sim::{EntityState, Instances, Kind, Seat, SimId, Snapshot};
 
@@ -1401,9 +1400,6 @@ struct Member {
     /// As its snapshots last had it while dead: a body the sim has taken
     /// away goes on playing its death from there (`playing_death`).
     gone: Option<Blended>,
-    /// The paralysis holding it: until when (sim ms), and the moment its
-    /// clips stopped at (`held_since`).
-    paralysed: Option<(u64, f64)>,
 }
 
 impl Member {
@@ -1769,7 +1765,6 @@ impl Cast {
                 own: None,
                 heard: Vec::new(),
                 gone: None,
-                paralysed: None,
             };
             self.members.insert(entity.id, Some(member));
         }
@@ -2484,8 +2479,6 @@ impl Cast {
                 }),
                 // The last hold's kind and end, over or not.
                 "last_hold": at.fighter.map(|f| (format!("{:?}", f.force.hold), f.force.stunned_until)),
-                // A paralysis stopping its clips: until when, at what moment.
-                "paralysed": member.paralysed,
                 // Its movement's base speed (units a second).
                 "base_speed": at.state.run_speed,
                 "velocity": at.state.velocity,
@@ -2622,10 +2615,6 @@ impl Cast {
                 Some(own) if own.id == id => own.ms,
                 _ => ms,
             };
-            // Stasis holds its pose where it took it, while it lasts.
-            member.paralysed = held_since(at.fighter.as_ref(), member.paralysed, ms);
-            let ms = member.paralysed.map_or(ms, |(_, since)| ms.min(since));
-
             let soles = soles(at.origin);
             let armed = at
                 .fighter
@@ -2839,53 +2828,32 @@ fn hidden(unequipped: &[Unequipped], who: SimId) -> Hide {
         .unwrap_or(Hide::None)
 }
 
-/// `ANIMATION_LOOPING_HORROR`: the body's own `horror` clip.
-const HORROR: u16 = 18;
-
-/// When the hold on `fighter` began (sim ms), if it is held that way:
-/// C11's hold, its round back from its end.
-fn held_as(fighter: &Fighter, hold: Hold) -> Option<u64> {
-    let force = &fighter.force;
-    (force.hold == hold && fighter.alive()).then(|| {
-        force
-            .stunned_until
-            .saturating_sub(sim::combat::force::ja::STUN_MS)
-    })
-}
-
-/// The paralysis on `fighter` at `ms` (until when) and the moment its clips
-/// stopped at: KOTOR's paralysed (Stasis) stand still, as their engine stops
-/// their clips, the moment the hold was first drawn (`was`, the same hold as
-/// drawn before), however long it lasts; none once it ends.
-fn held_since(fighter: Option<&Fighter>, was: Option<(u64, f64)>, ms: f64) -> Option<(u64, f64)> {
-    let until = fighter
-        .filter(|f| f.force.hold == Hold::Paralyze && f.alive())
-        .map(|f| f.force.stunned_until)
-        .filter(|&until| ms < until as f64)?;
-    Some(match was {
-        Some((before, since)) if before == until => (until, since),
-        _ => (until, ms),
-    })
-}
-
-/// The clip a held `fighter` plays at `ms` while its hold lasts, as
-/// KOTOR's engine plays its states: the horrified (Fear, Horror, Insanity)
-/// clutch their heads in their own `horror` loop, a whirlwind's victim
-/// spins in its `whirlwind`, the choked (`EffectChoke`: the gas traps', the
-/// Taris rancor's grenade) gag in their `choke`.
+/// The clip a held `fighter` plays at `ms` while it is held
+/// (`acting::of_state`), of the highest state on it: C11's hold (begun its
+/// round back from its end) or a state's effect, a cutscene's among them.
 fn held_clip(fighter: &Fighter, ms: f64) -> Option<Acting> {
-    let until = fighter.force.stunned_until;
-    let (hold, animation) = match fighter.force.hold {
-        Hold::Fear => (Hold::Fear, HORROR),
-        Hold::Whirlwind => (Hold::Whirlwind, acting::WHIRLWIND),
-        Hold::Choke => (Hold::Choke, acting::CHOKED),
-        _ => return None,
-    };
-    let since = held_as(fighter, hold).filter(|_| ms < until as f64)?;
+    if !fighter.alive() {
+        return None;
+    }
+    let force = &fighter.force;
+    let hold = (ms < force.stunned_until as f64).then(|| {
+        let since = force
+            .stunned_until
+            .saturating_sub(sim::combat::force::ja::STUN_MS);
+        (force.hold.state(), since, force.stunned_until)
+    });
+    let effect = fighter
+        .effects
+        .top_state(ms as u64)
+        .map(|lasting| (lasting.of, lasting.at, lasting.until));
+    let (state, since, until) = hold
+        .into_iter()
+        .chain(effect)
+        .max_by_key(|&(state, ..)| state)?;
     Some(Acting {
-        animation,
+        animation: acting::of_state(state)?,
         since,
-        ms: (until - since) as u32,
+        ms: (until - since).min(u64::from(u32::MAX)) as u32,
     })
 }
 

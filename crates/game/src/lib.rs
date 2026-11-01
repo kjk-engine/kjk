@@ -102,6 +102,8 @@ mod ragdolls;
 pub mod report;
 mod rulebook_text;
 pub use ragdolls::doll_fits;
+#[cfg(feature = "probes")]
+pub mod held_probes;
 mod particle_surfaces;
 mod remote_view;
 mod rig_ground;
