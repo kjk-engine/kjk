@@ -198,7 +198,9 @@ kjk play --stage sta_m45ad --arrive sta_way_captive2 --run k_psta_cutdrain2 --he
   the middle, `Imp_HeadCon_Node` at the head: a creature's `talkdummy`,
   its mouth, where the executable hangs them, not `headconjure`, so the
   Taris rancor's death bursts from its jaws; a place given puts them
-  there) play `impact` once (else their first clip) and `SoundImpact`
+  there; one on a node turns with it, as the executable attaches it, so
+  `v_rancorexp_imp`, which fires along its +Y, leaves along `talkdummy`'s
+  +Y, out of the mouth) play `impact` once (else their first clip) and `SoundImpact`
   sounds. One applied for a while or for good keeps them on the character
   (following it): `duration` (else their own clip, the shields' `default`)
   round and round while it lasts, `SoundDuration` held, then `cessation`

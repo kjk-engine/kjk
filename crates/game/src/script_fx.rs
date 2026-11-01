@@ -58,8 +58,10 @@
 //! `impact`, `talkdummy` (its mouth: the executable hangs a row's head
 //! models there, not on `headconjure`, a power's source, so a rancor's
 //! `v_rancorexp_imp` bursts from its jaws) and `handconjure` nodes, and the
-//! model stands where the node is drawn, following it (as drawn the frame
-//! before, kept upright: its particles stay in the scene's space); on a
+//! model stands and turns as the node is drawn, following it (as drawn the
+//! frame before, as the executable attaches it: the rancor's burst fires
+//! along `talkdummy`'s +Y, out of its mouth; its particles stay in the
+//! scene's space); on a
 //! door or placeable its model's `<model>_impact`, `_head_hit` and
 //! `_hand`. A model
 //! without the node stands `IMPACT_M`, `HEAD_M` or `HAND_M` over the feet
@@ -1634,16 +1636,24 @@ fn draw(
                 // target: every beam model's emitters fire, and its
                 // reference nodes stand, along its +Y.
                 let from = live.source.and_then(|source| feet(current, source));
+                // One on a node stands and turns as the node is drawn, as
+                // the executable attaches it: the rancor's burst leaves its
+                // mouth along `talkdummy`'s +Y, wherever it faces.
                 let drawn = live
                     .follows
                     .and_then(|node| globals.get(node).ok())
-                    .map(|node| crate::scene::game_to_bevy().inverse() * node.translation());
-                let stands = drawn.unwrap_or(from.unwrap_or(at) + Vec3::Z * live.stands);
+                    .map(|node| {
+                        let (_, turn, at) = node.to_scale_rotation_translation();
+                        let to_game = crate::scene::game_to_bevy().inverse();
+                        (to_game * at, to_game * turn)
+                    });
+                let stands = drawn.map_or(from.unwrap_or(at) + Vec3::Z * live.stands, |d| d.0);
                 let target = at + Vec3::Z * live.aims;
                 let way = (target - stands).normalize_or(Vec3::Y);
-                let turn = match from {
-                    Some(_) => Quat::from_rotation_arc(Vec3::Y, way),
-                    None => Quat::IDENTITY,
+                let turn = match (from, drawn) {
+                    (Some(_), _) => Quat::from_rotation_arc(Vec3::Y, way),
+                    (None, Some((_, turn))) => turn,
+                    (None, None) => Quat::IDENTITY,
                 };
                 *transform = Transform::from_translation(stands).with_rotation(turn);
             }

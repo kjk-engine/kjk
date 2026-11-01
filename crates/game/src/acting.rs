@@ -8,8 +8,10 @@
 //!   not drawn. A droid's or a beast's own clips (`cast::Clips`) take a
 //!   creature model's `c…` name first (`viewer::scripted_clips`).
 //! - A looping one loops for the script's time, a fire-and-forget one
-//!   plays once to its end; either blends in from the JA pose and back out
-//!   over the clip's transition time.
+//!   plays once to its end; either takes over as reone has KOTOR's clips
+//!   do, from a quarter second before its transition time, that pose
+//!   blended in over the quarter second, then on from there (`BLEND_IN`),
+//!   and fades back out over its transition time.
 //! - Moving, fighting or dying breaks it off (while a conversation holds
 //!   the world only dying does: the sim's queue ends it, S7), and a
 //!   script's stopping or replacing it ends it; it fades out from there.
@@ -55,6 +57,10 @@ pub const LOOPING_READY: u16 = 19;
 /// break it off: the stop of a run that brought it there.
 const SETTLE_MS: f64 = 400.0;
 
+/// How long a scripted clip blends in over what the body showed (seconds),
+/// whatever its transition time: reone's `kTransitionLength`.
+const BLEND_IN: f32 = 0.25;
+
 /// What the engine plays on a body that scripts do not, and the clip's
 /// name: a skill's use on a mine (`sim::traps::animations`) and on a lock
 /// (`sim::locks::animations`), a grenade's throw, and the dying clip of a
@@ -68,6 +74,7 @@ const ENGINE_CLIPS: &[(u16, &str)] = &[
     (THROW, "throwgren"),
     (DIE, "die"),
     (WHIRLWIND, "whirlwind"),
+    (CHOKED, "choke"),
 ];
 
 /// The constants a body has a clip for, and the clip's name: the scripts'
@@ -88,6 +95,11 @@ fn plays_once(animation: u16) -> bool {
 /// A whirlwind's victim spinning (`EffectWhirlWind`), `animations.2da`
 /// row 75 `whirlwind`, which the table marks looping.
 pub const WHIRLWIND: u16 = asset_odyssey::creature::LOOPED + 75;
+
+/// A choked body gagging (`EffectChoke`), `animations.2da` row 72 `choke`
+/// looped while the choke holds: `ANIMATION_LOOPING_CHOKE` shares its
+/// number (116) with the fire-and-forget one, which plays once.
+pub const CHOKED: u16 = asset_odyssey::creature::LOOPED + 72;
 
 /// KOTOR's grenade throw (`spells.2da` rows 87–95: `conjanim` and
 /// `castanim` `throw`), `animations.2da` row 57 `throwgren`, 1.5 s: drawn
@@ -698,10 +710,17 @@ fn shown<'a>(
         .find_map(|wanted| bound.iter().find(|(a, _)| *a == wanted))
         .map(|(_, animator)| animator)?;
     let since = acting.since as f64;
-    let seconds = ((ms - since) / 1000.0).max(0.0) as f32;
     let length = animator.length();
+    // It takes over as reone has KOTOR's clips do: from `BLEND_IN` before
+    // its transition time, its pose there blended in over `BLEND_IN`, then
+    // on from there (the Taris rancor's `choke`, 1 s, is at its throat
+    // as it begins).
+    let mark = animator.transition().min(length);
+    let lead = (mark - BLEND_IN).max(0.0);
+    let clip_at = lead + ((ms - since) / 1000.0).max(0.0) as f32;
+    let blended = if clip_at < mark { clip_at / mark } else { 1.0 };
     let end = if plays_once(acting.animation) {
-        since + f64::from(length) * 1000.0
+        since + f64::from(length - lead) * 1000.0
     } else {
         since + f64::from(acting.ms)
     };
@@ -713,11 +732,13 @@ fn shown<'a>(
         end
     };
     let end = broke.map_or(end, |broke| end.min(broke + fade));
-    let weight = ((ms - since) / fade).min((end - ms) / fade).clamp(0.0, 1.0) as f32;
-    let at = if plays_once(acting.animation) {
-        seconds.min(length)
+    let weight = blended.min(((end - ms) / fade).clamp(0.0, 1.0) as f32);
+    let at = if clip_at < mark {
+        mark
+    } else if plays_once(acting.animation) {
+        clip_at.min(length)
     } else {
-        seconds % length
+        clip_at % length
     };
     (weight > 0.0).then_some((animator, at, weight))
 }

@@ -2759,12 +2759,14 @@ fn held_since(fighter: Option<&Fighter>, was: Option<(u64, f64)>, ms: f64) -> Op
 /// The clip a held `fighter` plays at `ms` while its hold lasts, as
 /// KOTOR's engine plays its states: the horrified (Fear, Horror, Insanity)
 /// clutch their heads in their own `horror` loop, a whirlwind's victim
-/// spins in its `whirlwind`.
+/// spins in its `whirlwind`, the choked (`EffectChoke`: the gas traps', the
+/// Taris rancor's grenade) gag in their `choke`.
 fn held_clip(fighter: &Fighter, ms: f64) -> Option<Acting> {
     let until = fighter.force.stunned_until;
     let (hold, animation) = match fighter.force.hold {
         Hold::Fear => (Hold::Fear, HORROR),
         Hold::Whirlwind => (Hold::Whirlwind, acting::WHIRLWIND),
+        Hold::Choke => (Hold::Choke, acting::CHOKED),
         _ => return None,
     };
     let since = held_as(fighter, hold).filter(|_| ms < until as f64)?;
