@@ -413,6 +413,18 @@ impl Stack {
         self.entries.last()?.focus.as_deref()
     }
 
+    /// Whether the top screen's typing goes into an edit box (a name, an
+    /// address): a pad's player needs a keyboard on the screen there.
+    pub fn typing(&mut self) -> bool {
+        let Some(entry) = self.entries.last_mut() else {
+            return false;
+        };
+        let Some(tag) = entry.typing_tag() else {
+            return false;
+        };
+        entry.screen.edit(&tag).is_some()
+    }
+
     /// The text the top screen's control `tag` edits.
     pub fn edited(&mut self, tag: &str) -> Option<Vec<u8>> {
         let entry = self.entries.last_mut()?;
@@ -638,6 +650,17 @@ impl Stack {
     }
 }
 
+/// The left mouse button's raw name (`UiInput::raw`).
+const LEFT_CLICK: &str = "MouseLeft";
+
+/// A list fitted to its text (a message) is read, not chosen.
+fn read(control: &Control, state: &ControlState) -> bool {
+    state.list.as_ref().map_or(
+        control.kind == Kind::ListBox && state.strref.is_some(),
+        |list| list.fit && !list.pick,
+    )
+}
+
 impl Entry {
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         self.screen.state(control, vm)
@@ -649,12 +672,7 @@ impl Entry {
             .filter(|control| focusable(control))
             .filter(|control| {
                 let state = self.state(control, vm);
-                // A list fitted to its text (a message) is read, not chosen.
-                let read = state.list.as_ref().map_or(
-                    control.kind == Kind::ListBox && state.strref.is_some(),
-                    |list| list.fit && !list.pick,
-                );
-                !state.hidden && !state.disabled && !read
+                !state.hidden && !state.disabled && !read(control, &state)
             })
             .collect()
     }
@@ -733,9 +751,6 @@ impl Entry {
         presses: &[String],
         out: &mut Vec<Intent>,
     ) {
-        if input.raw.iter().any(|key| self.screen.raw(key, vm, out)) {
-            return;
-        }
         let targets = self.focusables(gui, vm);
         let valid = |tag: &str| targets.iter().any(|control| control.tag == tag);
         if !self.focus.as_deref().is_some_and(valid) {
@@ -757,6 +772,14 @@ impl Entry {
             let control = targets.iter().rev().find(|control| contains(control, at))?;
             Some((control.tag.clone(), at))
         });
+        // A left click on a control is the control's, not a press to bind.
+        let raw = input
+            .raw
+            .iter()
+            .filter(|key| !(key.as_str() == LEFT_CLICK && under.is_some()));
+        if raw.into_iter().any(|key| self.screen.raw(key, vm, out)) {
+            return;
+        }
         if input.moved
             && self.dragged.is_none()
             && let Some((tag, at)) = &under
@@ -780,8 +803,26 @@ impl Entry {
                     self.activate(gui, vm, out);
                 }
                 Key::Back => self.screen.back(out),
-                Key::ScrollUp => self.scroll(gui, vm, None, -1),
-                Key::ScrollDown => self.scroll(gui, vm, None, 1),
+                // Two clicks on what has the focus: a list's row (buy, use,
+                // equip) or a control (a party slot: add or remove it).
+                Key::Primary => {
+                    if let Some(tag) = self.focus.clone() {
+                        if self.rows(gui, vm, &tag).is_some() {
+                            let row = self.lists.get(&tag).map_or(0, |cursor| cursor.row);
+                            self.double_row(gui, vm, &tag, row, out);
+                        } else {
+                            self.activate(gui, vm, out);
+                            self.screen.double(&tag, vm, out);
+                        }
+                        // Both its clicks spent: a click after it is a first.
+                        self.clicked = None;
+                    }
+                }
+                Key::ScrollUp | Key::ScrollDown => {
+                    let by = if *key == Key::ScrollUp { -1 } else { 1 };
+                    let read = self.read_list(gui, vm);
+                    self.scroll(gui, vm, read.as_deref(), by);
+                }
                 Key::Backspace => {
                     if let Some(tag) = self.typing_tag()
                         && let Some(edit) = self.screen.edit(&tag)
@@ -1120,6 +1161,28 @@ impl Entry {
         if by != 0 {
             self.scroll(gui, vm, Some(tag), by);
         }
+    }
+
+    /// The list the scroll keys move when the focus is on none that
+    /// overflows: the first shown text read rather than chosen (an item's
+    /// description, a message, `read`) that does, which the focus never
+    /// rests on. None scrolls the focused list.
+    fn read_list(&self, gui: &Gui, vm: &ViewModel) -> Option<String> {
+        let overflows = |tag: &str| {
+            self.rows(gui, vm, tag)
+                .is_some_and(|(count, shown)| count > shown)
+        };
+        if self.focus.as_deref().is_some_and(overflows) {
+            return None;
+        }
+        gui.walk()
+            .filter(|control| control.kind == Kind::ListBox)
+            .filter(|control| {
+                let state = self.state(control, vm);
+                !state.hidden && read(control, &state)
+            })
+            .find(|control| overflows(&control.tag))
+            .map(|control| control.tag.clone())
     }
 
     fn scroll(&mut self, gui: &Gui, vm: &ViewModel, tag: Option<&str>, by: i32) {

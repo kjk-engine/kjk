@@ -8,7 +8,7 @@
 //!   at full gain;
 //! - read from the store, made there by `ffmpeg` the first time
 //!   (`movie_verbs`), on a thread of its own; black meanwhile;
-//! - Escape, Space, Enter or a click skips it, unless TSL's `QueueMovie`
+//! - Escape, Space, Enter, a click or a pad's A, B or Start skips it, unless TSL's `QueueMovie`
 //!   queued it unskippable; a skip of a queued one drops the rest of its
 //!   queue run (`Queued`);
 //! - while one is up (`Showing`), the host's world waits (`sim_host`: no
@@ -47,6 +47,10 @@ use crate::sound::Beds;
 const LAYER: usize = 11;
 /// The keys that skip a movie (and a mouse button's press).
 const SKIP: [KeyCode; 3] = [KeyCode::Escape, KeyCode::Space, KeyCode::Enter];
+const PAD_SKIP: [bevy::input::gamepad::GamepadButton; 3] = {
+    use bevy::input::gamepad::GamepadButton::*;
+    [South, East, Start]
+};
 
 /// Movies asked for, in order.
 #[derive(Resource, Default)]
@@ -234,6 +238,7 @@ fn show(
         Option<ResMut<ButtonInput<MouseButton>>>,
     ),
     mut swallowed: ResMut<crate::swallow::Swallowed>,
+    mut gamepads: Query<&mut bevy::input::gamepad::Gamepad>,
     drawing: Drawing,
     mut beds: ResMut<Beds>,
     target: Option<Res<console::CaptureTarget>>,
@@ -365,6 +370,13 @@ fn show(
     }
     if let Some(buttons) = buttons.as_deref_mut() {
         skipped |= swallowed.pressed_buttons(buttons);
+    }
+    // A pad's A, B or Start; still held as the movie ends, `pad::sample`
+    // takes it.
+    for mut pad in &mut gamepads {
+        for button in PAD_SKIP {
+            skipped |= pad.digital_mut().clear_just_pressed(button);
+        }
     }
     // An unskippable one plays on through a press; a skippable one's skip
     // drops the rest of its queue run with it.

@@ -215,6 +215,7 @@ fn answer(
     mut input: ResMut<ReplyInput>,
     (keys, map, buttons): AnswerInput,
     mut swallowed: ResMut<crate::swallow::Swallowed>,
+    pad: Option<Res<crate::pad::PadPresses>>,
 ) {
     let computer = ui.vm.computer.as_ref();
     let offered = computer.map(|computer| computer.replies.len());
@@ -225,21 +226,25 @@ fn answer(
         .key(KeyAction::LeaveTalk);
     // The key that leaves is not held into play (`swallow`), as on the
     // cinematic screen.
-    if let Some(keys) = keys
+    if let Some((keys, key)) = keys
         .as_deref()
-        .filter(|keys| may_leave && keys.just_pressed(leave_key))
+        .zip(leave_key)
+        .filter(|(keys, key)| may_leave && keys.just_pressed(*key))
     {
         input.pick = Some(Pick::Leave);
-        swallowed.key(leave_key, keys);
+        swallowed.key(key, keys);
     }
-    // A camera feed has no screen: a click or Enter skips its line.
+    // A camera feed has no screen: a click, Enter or a pad's A skips its
+    // line (what the pad held is taken as the feed lets it go,
+    // `pad::sample`).
     if ui.vm.camera_feed {
         let clicked = buttons
             .as_ref()
             .is_some_and(|buttons| buttons.just_pressed(MouseButton::Left));
         let confirmed = keys
             .as_ref()
-            .is_some_and(|keys| CONFIRM.iter().any(|code| keys.just_pressed(*code)));
+            .is_some_and(|keys| CONFIRM.iter().any(|code| keys.just_pressed(*code)))
+            || pad.is_some_and(|pad| pad.any(&[bevy::input::gamepad::GamepadButton::South]));
         if clicked || confirmed {
             input.pick = Some(Pick::Skip);
             if let Some(buttons) = buttons.as_deref().filter(|_| clicked) {

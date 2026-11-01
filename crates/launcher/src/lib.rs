@@ -343,7 +343,7 @@ enum Command {
     /// use (open a door), the left button to attack, the right one for the
     /// weapon's other mode (a blaster's feat special), 1 and 2 to pick the
     /// hand, L to cycle the saber style, F to cast the selected power ([
-    /// and ] to select), G to grip, R for lightning, Q to drain, T to
+    /// and ] to select; grip, lightning and drain while it is held), T to
     /// charge a grenade and throw it on release, 3 for a medpac, 4 for a
     /// stim, 5 for a shield, H to holster the weapon, B to switch weapon
     /// sets, V for TSL's next Form. A door or

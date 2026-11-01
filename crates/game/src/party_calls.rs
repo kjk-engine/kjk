@@ -18,7 +18,6 @@ use sim::{ReadyCheck, Seat, Snapshot};
 use ui::vm::{BreakButton, CallsView};
 
 use crate::loot::Outgoing;
-use crate::settings::KeyMap;
 use crate::sim_host::{OwnSeat, PresentedSnapshot};
 use crate::ui_view::Ui;
 
@@ -132,25 +131,23 @@ fn button(snapshot: &Snapshot, seat: Seat) -> BreakButton {
 
 /// The break and ready keys in play, with no screen open.
 fn keys(
-    keys: Option<Res<ButtonInput<KeyCode>>>,
-    map: Option<Res<KeyMap>>,
+    actions: Option<Res<crate::pad::Actions>>,
     ui: Option<Res<Ui>>,
     presented: Option<Res<PresentedSnapshot>>,
     own: Option<Res<OwnSeat>>,
     mut asked: ResMut<Asked>,
 ) {
-    let (Some(keys), Some(presented), Some(own)) = (keys, presented, own) else {
+    let (Some(actions), Some(presented), Some(own)) = (actions, presented, own) else {
         return;
     };
     if ui.is_some_and(|ui| ui.stack.is_open()) {
         return;
     }
-    let map = map.map_or_else(KeyMap::default, |map| map.clone());
     let snapshot = presented.0.current();
-    if map.pressed_now(&keys, crate::settings::Action::Break) {
+    if actions.pressed(crate::settings::Action::Break) {
         asked.0.push(break_call(snapshot));
     }
-    if map.pressed_now(&keys, crate::settings::Action::Ready) {
+    if actions.pressed(crate::settings::Action::Ready) {
         asked.0.extend(ready_call(snapshot, own.0));
     }
 }

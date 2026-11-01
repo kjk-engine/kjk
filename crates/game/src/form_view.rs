@@ -12,7 +12,6 @@ use sim::combat::{Sheet, forms};
 
 use crate::leader_view::{Busy, busy};
 use crate::loot::Outgoing;
-use crate::settings::KeyMap;
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
 
 pub struct FormViewPlugin;
@@ -38,7 +37,7 @@ fn after(sheet: &Sheet) -> Option<u16> {
 
 #[allow(clippy::too_many_arguments)]
 fn next_form(
-    (keys, map): (Option<Res<ButtonInput<KeyCode>>>, Option<Res<KeyMap>>),
+    actions: Option<Res<crate::pad::Actions>>,
     taken: Busy,
     presented: Option<Res<PresentedSnapshot>>,
     own: Option<Res<OwnSeat>>,
@@ -46,8 +45,7 @@ fn next_form(
     outgoing: Option<ResMut<Outgoing>>,
 ) {
     let busy = busy(taken);
-    let map = map.map_or_else(KeyMap::default, |map| map.clone());
-    let pressed = keys.is_some_and(|keys| map.pressed_now(&keys, crate::settings::Action::Form));
+    let pressed = actions.is_some_and(|actions| actions.pressed(crate::settings::Action::Form));
     if busy || !pressed {
         return;
     }

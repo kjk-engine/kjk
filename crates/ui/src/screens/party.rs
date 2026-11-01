@@ -213,7 +213,9 @@ impl Screen for Party {
             self.close(None, vm, out);
             return true;
         }
-        false
+        // Opened from the menu bar (no script's table), the shoulders step
+        // on to the bar's other tabs as the tabbed screens' do.
+        !Party::table(vm).is_some_and(|table| table.open) && super::tabs::key(key, "party", out)
     }
 
     /// KOTOR's: a click chooses a companion (`press`), a double click adds

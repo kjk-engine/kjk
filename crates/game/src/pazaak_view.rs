@@ -37,6 +37,7 @@ use ui::vm::{
 };
 
 use crate::loot::Outgoing;
+use crate::pad::{Actions, Prompts};
 use crate::settings::{Action as KeyAction, KeyMap};
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
 use crate::ui_sounds as sounds;
@@ -380,7 +381,7 @@ fn put_away(ui: &mut Ui, seated: &mut Seated) {
 fn show(
     presented: Option<Res<PresentedSnapshot>>,
     own: Option<Res<OwnSeat>>,
-    (swap, map): (Option<Res<SceneSwap>>, Option<Res<KeyMap>>),
+    (swap, prompts): (Option<Res<SceneSwap>>, Prompts),
     mut ui: ResMut<Ui>,
     mut seated: ResMut<Seated>,
 ) {
@@ -419,10 +420,7 @@ fn show(
     };
     let watching = seated.watched.as_ref().map(|watched| PazaakWatch {
         name: watched.name.clone(),
-        leave_key: map
-            .as_deref()
-            .unwrap_or(KeyMap::defaults())
-            .shown(KeyAction::LeaveTalk),
+        leave_key: prompts.shown(KeyAction::LeaveTalk),
         ..PazaakWatch::default()
     });
     let plays = watching.is_none();
@@ -547,6 +545,7 @@ fn sounded(before: &Match, now: &Match) -> Vec<&'static str> {
 /// icon, as `asked` sends them.
 fn watch(
     (keys, map): (Option<Res<ButtonInput<KeyCode>>>, Option<Res<KeyMap>>),
+    actions: Option<Res<Actions>>,
     (presented, own): (Option<Res<PresentedSnapshot>>, Option<Res<OwnSeat>>),
     mut asks: ResMut<WatchAsked>,
     outgoing: Option<ResMut<Outgoing>>,
@@ -561,13 +560,14 @@ fn watch(
         .as_deref()
         .unwrap_or(KeyMap::defaults())
         .key(KeyAction::LeaveTalk);
-    let pressed = keys
-        .as_deref()
-        .filter(|keys| keys.just_pressed(key) && snapshot.watching(own.0).is_some());
-    if let Some(keys) = pressed {
+    let watching = snapshot.watching(own.0).is_some();
+    // Leave, a key's, a mouse button's or the pad's (B, which crouches too:
+    // watching, the body stays put); a key is not held into play.
+    let left = watching && actions.is_some_and(|actions| actions.pressed(KeyAction::LeaveTalk));
+    if let (true, Some(key), Some(keys)) = (left, key, keys.as_deref()) {
         swallowed.key(key, keys);
     }
-    if let Some(action) = asked(snapshot, own.0, icon, leave || pressed.is_some()) {
+    if let Some(action) = asked(snapshot, own.0, icon, leave || left) {
         outgoing.0.push(action);
     }
 }

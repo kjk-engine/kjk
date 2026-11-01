@@ -45,19 +45,18 @@ the next party member while you watch. More in [`docs/COOP.md`](docs/COOP.md).
 
 ## Controls
 
-Every key rebinds in the options; fighting in detail is in
+Every key and mouse button rebinds in the options; fighting in detail is in
 [`docs/COMBAT.md`](docs/COMBAT.md).
 
 | key | does |
 |---|---|
 | mouse, W A S D | look, move |
 | Space / C / Shift | jump / crouch or roll / walk |
-| left / right button | attack / weapon's other mode |
+| left / right mouse | attack / weapon's other mode |
 | E, mouse wheel | use the target, choose the action |
 | 1 / 2 | right / left hand weapon |
 | L | saber style |
-| F, [ ] | cast / select a power |
-| G / R / Q | grip / lightning / drain |
+| F, [ ] | cast / select a power (grip, lightning, drain: hold F) |
 | T | grenade (hold to charge) |
 | 3 / 4 / 5 | medpac / stim / energy shield |
 | H / B / V | holster / weapon set / Form |
@@ -69,6 +68,27 @@ Every key rebinds in the options; fighting in detail is in
 | F1 | first / third person |
 | Alt+Enter | borderless / windowed |
 | 1–9 | dialogue reply |
+
+### Controllers and the Steam Deck
+
+Any pad works alongside the keys (Xbox, PlayStation, Switch Pro, the
+Deck's own controls): the left stick moves as far as it is pushed, from
+a slow walk to a run; the right stick looks, turning faster while held
+over; hold LB for a second layer of actions. Every screen runs on the
+D-pad, A, B and X, and the bumpers step through the menu's tabs. The
+prompts name the pad's own buttons while you play with it. Look speed,
+invert, dead zone and vibration are under Options → Gameplay →
+Controller.
+
+Every action rebinds under Options → Gameplay → Keymap, on its
+Keyboard and Mouse tabs (any key or mouse button, Mouse 4 and 5
+included) or its Controller tab (any button, or an LB chord, shown as
+your pad's own buttons). A binding another action has is named first;
+press it again and the two swap. Default resets the tab's device.
+
+![The controller layout](docs/controls/controller.svg)
+
+![The Steam Deck layout](docs/controls/steam-deck.svg)
 
 ## Status
 

@@ -332,8 +332,7 @@ pub(crate) fn advance(
         ResMut<SelectedPower>,
         Option<ResMut<crate::dialogue_view::ReplyInput>>,
     ),
-    (map, mut autopilot, camera_aim): (
-        Option<Res<crate::settings::KeyMap>>,
+    (mut autopilot, camera_aim): (
         Option<ResMut<crate::target_view::Autopilot>>,
         Res<crate::sim_host::CameraAim>,
     ),
@@ -350,7 +349,6 @@ pub(crate) fn advance(
         Option<ResMut<crate::sim_host::Frozen>>,
     ),
 ) {
-    let map = map.map_or_else(crate::settings::KeyMap::default, |map| map.clone());
     let joined = &mut *joined;
     joined.frames += 1;
     let now = joined.joining.now();
@@ -552,15 +550,10 @@ pub(crate) fn advance(
 
     // The player's command for the ticks this frame predicts: held, as the
     // host's, while a movie the host plays for everyone is up.
-    let Read {
-        keys,
-        triggers,
-        turn,
-        feel,
-    } = input.read();
-    if let (Some(delta), Driver::Player(None)) = (turn, &joined.driver) {
+    let Read { actions, turn } = input.read();
+    if let (Some(degrees), Driver::Player(None)) = (turn, &joined.driver) {
         let held = crate::sim_host::held_pitch(own.presented.current(), joined.joining.seat);
-        joined.look.turn(delta, feel, held);
+        joined.look.turn(degrees, held);
     }
     // A scripted run's screens answer into the script's command, as the
     // host's do (`Controls::scripted`).
@@ -570,20 +563,20 @@ pub(crate) fn advance(
     if let Some(pick) = picked.filter(|_| scripted && talk.is_some()) {
         joined.controls.reply = sim::script::dialogue::answer(joined.controls.reply, pick);
     }
-    if let Some(keys) = &keys {
+    if let Some(actions) = &actions {
         let choices = power_choices(own.presented.current(), joined.joining.seat, &swap.level);
         let picked = picked.filter(|_| !scripted);
-        joined.controls.update(keys, &map, &choices, talk, picked);
+        joined.controls.update(actions, &choices, talk, picked);
         selected.0 = joined.controls.power;
     }
     let rate = TickRate::default();
-    let command = match (&joined.driver, &keys, next_tick) {
+    let command = match (&joined.driver, &actions, next_tick) {
         (Driver::Player(Some(script)), _, Some(tick)) => {
             let mut command = script.command(rate.time_ms(tick.saturating_sub(1)));
             command.reply = joined.controls.scripted(command.reply);
             command
         }
-        (_, Some(keys), _) => player_command(keys, &map, triggers, joined.look, joined.controls),
+        (_, Some(actions), _) => player_command(actions, joined.look, joined.controls),
         _ => sim::Command::default(),
     };
     let command = crate::target_view::steer(autopilot.as_deref_mut(), command, &mut joined.look);
