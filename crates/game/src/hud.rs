@@ -692,7 +692,7 @@ fn show(
         "hud".into(),
         serde_json::json!({
             "hp": health, "bar": fighter.fp as f32 / pool,
-            "power": power, "shield": shield, "items": carried,
+            "power": power, "powers": choices, "shield": shield, "items": carried,
             "icons": hud.icons.len(),
             "busy": (0..snapshot.seats())
                 .map(|seat| busy(snapshot, sim::Seat(seat)).map(|busy| format!("{busy:?}")))

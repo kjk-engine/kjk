@@ -54,6 +54,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("leader_keeps_the_view", leader_view()));
     checks.push(("leader_uses_from_its_body", leader_uses()));
     checks.push(("leader_walks_out", leader_walks_out()));
+    checks.push(("leader_casts_its_powers", leader_casts()));
     checks.push(("area_entered_by_the_party", entered_by_the_party()));
     checks.push(("guest_leads_its_acts", guest_leads()));
     checks.extend(kept_for_seats());
@@ -519,6 +520,77 @@ fn leader_uses() -> Result<String, String> {
             after.leading
         ),
     )
+}
+
+/// A companion leading casts the power seat 0 selects from its own sheet,
+/// as the player's own character casts one it knows: each, knowing Burst
+/// of Speed with its pool full, runs fast after seat 0's power button.
+fn leader_casts() -> Result<String, String> {
+    let own = casts_speed(false)?;
+    let led = casts_speed(true)?;
+    check(
+        own.0 && led.0,
+        format!(
+            "the player's own: {}; the companion leading: {}",
+            own.1, led.1
+        ),
+    )
+}
+
+/// Seat 0 presses the power button with Burst of Speed selected, its own
+/// character or (`leading`) the second companion leading and knowing it:
+/// whether that one runs fast, and what it shows.
+fn casts_speed(leading: bool) -> Result<(bool, String), String> {
+    use crate::combat::spells::FORCE_POWER_SPEED_BURST;
+    /// What the ground's module asks for it (K1's `spells.2da` 20).
+    const COST: u16 = 20;
+    let (level, numbers) = ground()?;
+    let mut data = (**level.module().ok_or("the ground has no module")?).clone();
+    data.force_costs = vec![0; usize::from(FORCE_POWER_SPEED_BURST) + 1];
+    data.force_costs[usize::from(FORCE_POWER_SPEED_BURST)] = COST;
+    let (mut world, level, [_, b]) =
+        party_on((level.with_module(data), numbers), Guests::Companions, 1)?;
+    let mut start = world.snapshot();
+    let caster = match leading {
+        true => b,
+        false => start.own(Seat(0)).ok_or("seat 0 has no own character")?.id,
+    };
+    let mut sheet = Sheet::dev_soldier();
+    sheet.powers.insert(FORCE_POWER_SPEED_BURST);
+    sheet.max_fp = 100;
+    let entity = start.entities.iter_mut().find(|entity| entity.id == caster);
+    let entity = entity.ok_or("no caster")?;
+    entity.sheet = Some(sheet);
+    let fighter = entity.fighter.as_mut().ok_or("a caster without a fight")?;
+    fighter.fp = 100 * 100;
+    let state = world.script_state().clone();
+    let mut world = SimWorld::from_snapshot(&start, level).map_err(|error| error.to_string())?;
+    world.set_script_state(state);
+    scripts_of(&mut world).state.party.leader = leading.then_some(1);
+    run(&mut world, &[(0, 0)]);
+    let mut input = TickInput::default();
+    input.insert(
+        Seat(0),
+        Command {
+            buttons: crate::input::buttons::FORCE_POWER,
+            force: FORCE_POWER_SPEED_BURST as u8,
+            ..command(0)
+        },
+    );
+    let tick = world.tick() + 1;
+    let after = crate::step(&mut world, tick, &input, 8, StepReason::Authority);
+    let fighter = after.get(caster).and_then(|entity| entity.fighter);
+    let fast = fighter.is_some_and(|f| f.force.speed_until > after.time_ms);
+    Ok((
+        after.leading == leading.then_some(b) && fast,
+        format!(
+            "leading {:?}, fast until {:?} (now {}), FP {:?}",
+            after.leading,
+            fighter.map(|f| f.force.speed_until),
+            after.time_ms,
+            fighter.map(|f| f.fp)
+        ),
+    ))
 }
 
 /// A companion leading walks the party out: the ground's door, open and

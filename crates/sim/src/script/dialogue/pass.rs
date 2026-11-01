@@ -413,7 +413,9 @@ impl Step<'_> {
     /// cause their OnDialog event to fire": the one conversed with speaks
     /// (an invisible placeable a scene speaks through: Taris's raid, the
     /// swoop pits' Brejik). reone keeps the asker's DLG [verify in the
-    /// game].
+    /// game]. A companion in the party is not such a one: the script
+    /// names it as its PC (`GetFirstPC()` while it led), and the asker's
+    /// DLG plays (the Endar Spire's room-3 door opened by Trask).
     pub(in crate::script) fn converse(
         &mut self,
         who: ObjectId,
@@ -438,9 +440,11 @@ impl Step<'_> {
         } else {
             (who, view.first_pc(&self.state.party))
         };
-        let through = (dialog.is_empty() && with != ObjectId::INVALID && !pcs.contains(&with))
-            .then(|| view.conversation(with).map(str::to_string))
-            .flatten();
+        let companion = self.state.party.creatures().any(|body| body == with.0);
+        let through =
+            (dialog.is_empty() && with != ObjectId::INVALID && !pcs.contains(&with) && !companion)
+                .then(|| view.conversation(with).map(str::to_string))
+                .flatten();
         let (owner, dialog) = match through {
             Some(dialog) => (with, Some(dialog)),
             None => (

@@ -1432,7 +1432,8 @@ impl Step<'_> {
                 continue;
             }
             let hand = hand_of(man);
-            let alt = man.f.last_command.buttons & buttons::ALT_ATTACK != 0;
+            let alt = man.f.last_command.buttons & buttons::ALT_ATTACK != 0
+                || throw::by_power(&man.f.last_command);
             let attack = man.f.last_command.buttons & buttons::ATTACK != 0;
             let cannot = man.f.force.gripped_by.is_some() || man.f.force.stunned(self.now);
             let out_ms = self.now.saturating_sub(t.since);
