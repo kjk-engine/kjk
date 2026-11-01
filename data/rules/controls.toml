@@ -20,8 +20,8 @@ blaster's feat special, a lightsaber throw or a kick. [Use] uses what is
 ahead; held over an unconscious party member, it revives them. [Holster
 weapon] puts the weapon away, [Switch weapons] changes weapon sets, and
 [Right hand] and [Left hand] choose the hand. [Selected power] uses the
-selected Force power; [Next power] and [Previous power] choose it. [Grip],
-[Lightning] and [Drain] last while held. [Grenade] charges while held and
+selected Force power; [Next power] and [Previous power] choose it (Grip,
+Lightning and Drain last while it is held). [Grenade] charges while held and
 throws on release. [Medpac], [Stim] and [Energy shield] use the first one
 carried. [Stealth mode] and [Lay a mine] act at once. [Saber style] changes
 the saber style, [Next feat attack] the feat attack of the weapon in hand,
@@ -189,9 +189,9 @@ applies = ["kind:blaster", "feat:POWER_BLAST", "feat:RAPID_SHOT", "feat:MULTI_SH
 title = "Force Powers"
 summary = """
 [Selected power] uses the power chosen with [Next power] and [Previous
-power]; a power such as Speed turns on or off. [Grip], [Lightning] and
-[Drain] use the best version known and last while held, costing their
-Force points again for each second held. Hold [Jump] while rising for a
+power]; a power such as Speed turns on or off. Grip, Lightning and Drain
+use the best version known and last while [Selected power] is held,
+costing their Force points again for each second held. Hold [Jump] while rising for a
 Force jump.
 """
 applies = ["kind:force"]

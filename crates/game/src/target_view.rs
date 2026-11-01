@@ -4,7 +4,8 @@
 //! doors. No target while a screen or a conversation is up. It fills the
 //! HUD's target block (`ui::vm::TargetView`: KOTOR's own icons and words,
 //! Open 365, Use 366, Dialog 371, Security 255) and the crosshair; the
-//! mouse wheel moves the chosen action. The dumps carry it (`target`).
+//! mouse wheel (a pad's LB with the D-pad's left and right) moves the
+//! chosen action. The dumps carry it (`target`).
 //!
 //! The use key (E; the console's `ui act`) does the chosen action (T16,
 //! T17): within its reach at once, else the player walks there first
@@ -234,11 +235,7 @@ fn target(
     presented: Option<Res<PresentedSnapshot>>,
     (own, swap, aim): (Option<Res<OwnSeat>>, Option<Res<SceneSwap>>, Res<Aim>),
     mut ui: ResMut<Ui>,
-    (mut wheel, keys, map): (
-        MessageReader<MouseWheel>,
-        Option<Res<ButtonInput<KeyCode>>>,
-        Option<Res<crate::settings::KeyMap>>,
-    ),
+    (mut wheel, actions): (MessageReader<MouseWheel>, Option<Res<crate::pad::Actions>>),
     (mut autopilot, mut acted, mut outgoing, mut told): (
         ResMut<Autopilot>,
         ResMut<Acted>,
@@ -250,10 +247,13 @@ fn target(
     (mut facts, dump_due, pinned): (ResMut<DumpFacts>, Res<DumpDue>, Res<Pinned>),
     mut made: Local<sim::walk::MadeWalls>,
 ) {
-    let turned: f32 = wheel.read().map(|event| event.y).sum();
-    let map = map.map_or_else(crate::settings::KeyMap::default, |map| map.clone());
+    // The pad's LB with the D-pad's left and right turn it as the wheel.
+    let cycled = actions.as_ref().map_or(0, |actions| actions.cycle);
+    let turned: f32 = wheel.read().map(|event| event.y).sum::<f32>() - f32::from(cycled);
     let pressed = std::mem::take(&mut acted.0)
-        || keys.is_some_and(|keys| map.pressed_now(&keys, crate::settings::Action::Use));
+        || actions
+            .as_ref()
+            .is_some_and(|actions| actions.pressed(crate::settings::Action::Use));
     if std::mem::take(&mut autopilot.cancelled) {
         targeted.stop();
     }

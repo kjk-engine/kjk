@@ -999,6 +999,212 @@ fn check_box(tag: &str, id: i32, top: i32) -> Control {
     }
 }
 
+/// The key mapping's page and its entry, as the layouts have them.
+fn keymap_layouts(assets: &mut Fake) {
+    assets.layouts.insert("optkeymapping", {
+        let mut list = button("LST_EventList", [20, 60, 400, 300], b"");
+        list.kind = Kind::ListBox;
+        list.proto = Some(Box::new(button("PROTOITEM", [20, 60, 400, 30], b"")));
+        root(
+            640,
+            480,
+            vec![
+                list,
+                linked("BTN_Accept", 1, 400, -1, -1),
+                linked("BTN_Cancel", 2, 440, -1, -1),
+                linked("BTN_Default", 3, 460, -1, -1),
+                linked("BTN_Filter_Move", 4, 20, -1, -1),
+                linked("BTN_Filter_Game", 5, 30, -1, -1),
+                linked("BTN_Filter_Mini", 6, 40, -1, -1),
+            ],
+        )
+    });
+    assets.layouts.insert("confirm", confirm());
+}
+
+/// Rebinding (`key_mapping`): the pad's tab drawn as its own buttons (the
+/// unbound last), a
+/// chord taken from the pad, a binding another action has named and then
+/// swapped, one shared by design taken at once, Menu cancelling, a pad's
+/// press let be by the keyboard's entry, and Default resetting the tab's
+/// device alone.
+pub(super) fn key_rebinding() -> Vec<Check> {
+    use crate::vm::KeyRow;
+    let mut assets = Fake::new();
+    keymap_layouts(&mut assets);
+    let row = |action: &str, label: &str, key: &str, shares: &[&str]| KeyRow {
+        action: action.into(),
+        label: label.into(),
+        key: key.into(),
+        movement: action == "jump",
+        shares: shares.iter().map(|name| name.to_string()).collect(),
+    };
+    let vm = ViewModel {
+        keys: vec![
+            row("jump", "Jump", "Space", &[]),
+            row("use", "Use", "KeyE", &[]),
+        ],
+        pad_keys: vec![
+            row("report", "Report a bug", "", &[]),
+            row("jump", "Jump", "South", &[]),
+            row("crouch", "Crouch", "East", &["leave_talk"]),
+            row("use", "Use", "West", &[]),
+            row("leave_talk", "Leave", "North", &["crouch"]),
+        ],
+        pad_names: [
+            ("South", "A"),
+            ("East", "B"),
+            ("West", "X"),
+            ("North", "Y"),
+            ("LeftTrigger", "LB"),
+        ]
+        .map(|(button, name)| (button.to_string(), name.to_string()))
+        .to_vec(),
+        pad_kind: "xbox".into(),
+        ..ViewModel::default()
+    };
+    let pad = |button: &str| UiInput {
+        raw: vec![format!("{}{button}", crate::screens::key_mapping::PAD_RAW)],
+        keys: vec![Key::Activate],
+        ..keys(&[])
+    };
+    let on = |stack: &Stack, screen: &str| stack.top().map(|id| id.0) == Some(screen);
+    let mut page = opened("options_keymap", &mut assets, &vm);
+    press(&mut page, &mut assets, &vm, "BTN_Filter_Mini");
+    let rows: Vec<(String, Option<String>)> = page
+        .state_of("LST_EventList", &vm)
+        .and_then(|state| state.list)
+        .map(|list| {
+            list.rows
+                .iter()
+                .map(|row| {
+                    (
+                        String::from_utf8_lossy(&row.text).into_owned(),
+                        row.badge.clone().or_else(|| {
+                            let value = row.value.as_deref()?;
+                            Some(String::from_utf8_lossy(value).into_owned())
+                        }),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_else(Vec::new);
+    // The tab's button keeps the focus; a row is chosen on the list.
+    press(&mut page, &mut assets, &vm, "LST_EventList");
+    let chorded = page.step(&mut assets, &vm, &pad("LB+South")).intents;
+    let chord_closed = on(&page, "options_keymap");
+    page.step(&mut assets, &vm, &keys(&[Key::Activate]));
+    let first = page.step(&mut assets, &vm, &pad("West")).intents;
+    let named = page
+        .state_of("LB_MESSAGE", &vm)
+        .and_then(|state| state.list?.rows.pop())
+        .map(|row| String::from_utf8_lossy(&row.text).into_owned())
+        .unwrap_or_else(String::new);
+    let swapped = page.step(&mut assets, &vm, &pad("West")).intents;
+    page.step(&mut assets, &vm, &keys(&[Key::Down, Key::Activate]));
+    let shared = page.step(&mut assets, &vm, &pad("North")).intents;
+    page.step(&mut assets, &vm, &keys(&[Key::Activate]));
+    let cancelled = page.step(&mut assets, &vm, &pad("Start")).intents;
+    let cancel_closed = on(&page, "options_keymap");
+    let reset = press(&mut page, &mut assets, &vm, "BTN_Default");
+    press(&mut page, &mut assets, &vm, "BTN_Filter_Move");
+    press(&mut page, &mut assets, &vm, "LST_EventList");
+    let ignored = page.step(&mut assets, &vm, &pad("South")).intents;
+    let still_open = on(&page, "key_entry");
+    let setting = |key: &str, value: &str| Intent::Setting(key.into(), value.into());
+    vec![check("key_rebinding", {
+        expect(
+            &format!("the pad's tab as its own buttons, the unbound last: {rows:?}"),
+            rows == [
+                ("Jump".into(), Some("kjkpad_xbox_south".into())),
+                ("Crouch".into(), Some("kjkpad_xbox_east".into())),
+                ("Use".into(), Some("kjkpad_xbox_west".into())),
+                ("Leave".into(), Some("kjkpad_xbox_north".into())),
+                ("Report a bug".into(), Some("-".into())),
+            ],
+        )
+        .and_then(|()| {
+            expect(
+                &format!("an LB chord taken: {chorded:?} {chord_closed}"),
+                chorded == vec![setting("pad.jump", "LB+South")] && chord_closed,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("another's binding named first: {first:?} {named:?}"),
+                first
+                    .iter()
+                    .all(|intent| !matches!(intent, Intent::Setting(..)))
+                    && named == "X is Use's. Press X again to swap them.",
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("pressed again, the two swap: {swapped:?}"),
+                swapped == vec![setting("pad.use", "South"), setting("pad.jump", "West")],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("one shared by design taken at once: {shared:?}"),
+                shared == vec![setting("pad.crouch", "North")],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Menu cancels: {cancelled:?} {cancel_closed}"),
+                cancelled.is_empty() && cancel_closed,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Default resets the pad alone: {reset:?}"),
+                reset == vec![setting("reset", "pad")],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the keyboard's entry lets a pad's press be: {ignored:?} {still_open}"),
+                ignored.is_empty() && still_open,
+            )
+        })
+        .map(|()| {
+            "pad tab, chord, named clash, swap, shared, cancel, default, devices apart".into()
+        })
+    })]
+}
+
+/// Every kind of input said as a player reads it.
+pub(super) fn key_names() -> Vec<Check> {
+    use crate::screens::key_mapping::key_name;
+    let said = [
+        ("KeyW", "W"),
+        ("Digit1", "1"),
+        ("ShiftLeft", "Left Shift"),
+        ("ControlRight", "Right Ctrl"),
+        ("BracketLeft", "["),
+        ("Numpad5", "Num 5"),
+        ("NumpadEnter", "Num Enter"),
+        ("PageUp", "Page Up"),
+        ("F12", "F12"),
+        ("MouseLeft", "Left mouse"),
+        ("MouseMiddle", "Middle mouse"),
+        ("MouseBack", "Mouse 4"),
+        ("MouseForward", "Mouse 5"),
+        ("Mouse8", "Mouse 8"),
+    ];
+    let wrong: Vec<String> = said
+        .iter()
+        .filter(|(key, shown)| key_name(key) != *shown)
+        .map(|(key, _)| format!("{key} as {}", key_name(key)))
+        .collect();
+    vec![check(
+        "key_names",
+        expect(&format!("misnamed: {wrong:?}"), wrong.is_empty())
+            .map(|()| format!("{} keys and buttons named", said.len())),
+    )]
+}
+
 pub(super) fn options() -> Vec<Check> {
     let mut assets = Fake::new();
     assets.layouts.insert(
@@ -1026,42 +1232,7 @@ pub(super) fn options() -> Vec<Check> {
             ],
         ),
     );
-    assets.layouts.insert("optkeymapping", {
-        let mut list = button("LST_EventList", [20, 60, 400, 300], b"");
-        list.kind = Kind::ListBox;
-        list.proto = Some(Box::new(button("PROTOITEM", [20, 60, 400, 30], b"")));
-        root(
-            640,
-            480,
-            vec![
-                list,
-                linked("BTN_Accept", 1, 400, -1, -1),
-                linked("BTN_Cancel", 2, 440, -1, -1),
-            ],
-        )
-    });
-    assets.layouts.insert(
-        "optkeyentry",
-        Gui {
-            extent: Rect {
-                left: 150,
-                top: 150,
-                width: 340,
-                height: 180,
-            },
-            ..root(
-                640,
-                480,
-                vec![
-                    Control {
-                        kind: Kind::Label,
-                        ..button("LBL_EventName", [10, 10, 300, 20], b"")
-                    },
-                    linked("BTN_Cancel", 1, 140, -1, -1),
-                ],
-            )
-        },
-    );
+    keymap_layouts(&mut assets);
     let vm = ViewModel {
         settings: [
             ("mouse.sensitivity".to_string(), "0.5".to_string()),
@@ -1074,6 +1245,7 @@ pub(super) fn options() -> Vec<Check> {
             label: "Forward".into(),
             key: "KeyW".into(),
             movement: true,
+            ..crate::vm::KeyRow::default()
         }],
         ..ViewModel::default()
     };

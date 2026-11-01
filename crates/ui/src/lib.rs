@@ -5,6 +5,7 @@
 pub mod assets;
 pub mod draw;
 pub mod edit;
+pub mod icons;
 pub mod input;
 pub mod intent;
 pub mod paint;

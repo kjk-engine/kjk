@@ -902,18 +902,17 @@ fn let_go(
 /// A watching seat's key (`Action::Follow`, N unless rebound) follows the
 /// next party member.
 fn follow_keys(
-    keys: Option<Res<ButtonInput<KeyCode>>>,
-    map: Option<Res<crate::settings::KeyMap>>,
+    actions: Option<Res<crate::pad::Actions>>,
     screens: Option<Res<crate::ui_view::UiOpen>>,
     mut view: ResMut<View>,
 ) {
-    let (Some(keys), Some(map)) = (keys, map) else {
+    let Some(actions) = actions else {
         return;
     };
     if view.watched == view.me || screens.is_some_and(|open| open.0) {
         return;
     }
-    if map.pressed_now(&keys, crate::settings::Action::Follow) {
+    if actions.pressed(crate::settings::Action::Follow) {
         view.follow = view.follow.wrapping_add(1);
     }
 }
@@ -921,17 +920,15 @@ fn follow_keys(
 /// The view key (`Action::View`, F1 unless rebound) turns between the own
 /// eyes and JA's camera; the settings keep the choice.
 fn view_keys(
-    keys: Option<Res<ButtonInput<KeyCode>>>,
-    map: Option<Res<crate::settings::KeyMap>>,
+    actions: Option<Res<crate::pad::Actions>>,
     screens: Option<Res<crate::ui_view::UiOpen>>,
     settings: Option<ResMut<crate::settings::Settings>>,
     mut view: ResMut<View>,
 ) {
-    let (Some(keys), Some(map)) = (keys, map) else {
+    let Some(actions) = actions else {
         return;
     };
-    if screens.is_some_and(|open| open.0) || !map.pressed_now(&keys, crate::settings::Action::View)
-    {
+    if screens.is_some_and(|open| open.0) || !actions.pressed(crate::settings::Action::View) {
         return;
     }
     view.camera_mode = match view.camera_mode {

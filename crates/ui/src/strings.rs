@@ -17,6 +17,23 @@ pub const QUIT_TO_DESKTOP: &str = "Quit to the desktop";
 pub const BREAK: &str = "Take a break";
 pub const RESUME: &str = "Resume";
 pub const INVERT_CAMERA: &str = "Invert camera";
+pub const CONTROLLER: &str = "Controller";
+pub const CONTROLLER_OPTIONS: &str = "Controller Options";
+pub const PRESS_KEY: &str = "Press a key or a mouse button. Escape cancels.";
+/// `{shift}` and `{menu}` the pad's own names for its left bumper and
+/// its menu button.
+pub const PRESS_BUTTON: &str =
+    "Press a button; hold {shift} first for a {shift} chord. {menu} cancels.";
+pub const NOW_ON: &str = "Now:";
+pub const UNBOUND: &str = "-";
+pub const KEYS_TITLE: &str = "Keyboard and Mouse";
+pub const PAD_TITLE: &str = "Controller";
+pub const LOOK_SPEED: &str = "Look Speed";
+pub const INVERT_LOOK: &str = "Invert look";
+pub const VIBRATION: &str = "Vibration";
+pub const DEAD_ZONE_SMALL: &str = "Stick Dead Zone: Small";
+pub const DEAD_ZONE_MEDIUM: &str = "Stick Dead Zone: Medium";
+pub const DEAD_ZONE_LARGE: &str = "Stick Dead Zone: Large";
 pub const ANTI_ALIASING_OFF: &str = "Anti-Aliasing: Off";
 pub const ANTI_ALIASING_2X: &str = "Anti-Aliasing: 2x";
 pub const ANTI_ALIASING_4X: &str = "Anti-Aliasing: 4x";

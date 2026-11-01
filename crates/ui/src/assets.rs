@@ -40,6 +40,13 @@ pub struct ItemLook {
     /// Its value (`Cost`) and what it is (`DescIdentified`).
     pub cost: u32,
     pub description: Vec<u8>,
+    /// What it does, a line each (`stats`): its base damage or defence,
+    /// then its properties, each in force or not by its upgrade
+    /// (`ItemLook::in_force`).
+    pub stats: Vec<Stat>,
+    /// The upgrades its template comes with fitted (`upgrade.2da` rows as
+    /// bits; KOTOR's `Upgrades`).
+    pub upgrades: u32,
     /// The `INVENTORY_SLOT_*` bits it may be worn in (its base item's
     /// `equipableslots`).
     pub slots: u32,
@@ -52,6 +59,33 @@ pub struct ItemLook {
     /// Its base item (`baseitems.2da` row) and plot flag.
     pub base_item: u16,
     pub plot: bool,
+}
+
+/// A line of an item's stats, and the `upgrade.2da` row it comes with:
+/// none, always in force; else only with that upgrade fitted (KOTOR's
+/// lightsabers and upgradable gear list every crystal's and part's).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stat {
+    pub upgrade: Option<u8>,
+    pub line: Vec<u8>,
+}
+
+impl ItemLook {
+    /// Its stats in force with the upgrades `fitted` (bits, as
+    /// `sim::inventory::Item::upgrades`) besides its template's own, as
+    /// `session::items` has them (`sim::inventory::has_upgrade`).
+    pub fn in_force(&self, fitted: u32) -> impl Iterator<Item = &[u8]> {
+        let fitted = fitted | self.upgrades;
+        let has = move |row: u8| {
+            fitted
+                .checked_shr(u32::from(row))
+                .is_some_and(|bits| bits & 1 == 1)
+        };
+        self.stats
+            .iter()
+            .filter(move |stat| stat.upgrade.is_none_or(has))
+            .map(|stat| stat.line.as_slice())
+    }
 }
 
 /// The hands' `INVENTORY_SLOT_*` bits; a creature's own.
@@ -495,6 +529,7 @@ impl GuiAssets {
         } else {
             ItemKind::Misc
         };
+        let stats = self.stats(base, properties);
         Some(ItemLook {
             name,
             tag: root.resref("Tag").unwrap_or_else(String::new),
@@ -503,12 +538,101 @@ impl GuiAssets {
             description: self
                 .localized(root.get("DescIdentified"))
                 .unwrap_or(Vec::new()),
+            stats,
+            upgrades: root.uint("Upgrades").unwrap_or(0),
             slots,
             kind,
             casts,
             upgrade,
             base_item: base.and_then(|row| u16::try_from(row).ok()).unwrap_or(0),
             plot: root.int("Plot").is_some_and(|plot| plot != 0),
+        })
+    }
+
+    /// An item's stats, a line each: a weapon's damage and an armour's
+    /// defence (base item `base`'s `numdice`/`dietoroll`, `baseac`), then
+    /// each of `properties` as the games' tables name it: its
+    /// `itempropdef.2da` name, its subtype's, its cost's and its
+    /// parameter's (e.g. "Damage Bonus: Energy 1d6"), each with the
+    /// `upgrade.2da` row it comes with (`Stat::upgrade`).
+    fn stats(
+        &mut self,
+        base: Option<usize>,
+        properties: &[fmt_odyssey::gff::GffStruct],
+    ) -> Vec<Stat> {
+        let mut lines = Vec::new();
+        let always = |line: Vec<u8>| Stat {
+            upgrade: None,
+            line,
+        };
+        if let Some(row) = base {
+            let int =
+                |this: &mut Self, column| this.cell("baseitems", row, column)?.parse::<i64>().ok();
+            if let (Some(dice), Some(sides)) = (int(self, "numdice"), int(self, "dietoroll"))
+                && dice > 0
+                && sides > 0
+            {
+                lines.push(always(
+                    format!("Damage: {}-{}", dice, dice * sides).into_bytes(),
+                ));
+            }
+            if let Some(ac) = int(self, "baseac").filter(|ac| *ac > 0) {
+                lines.push(always(format!("Defense: +{ac}").into_bytes()));
+            }
+        }
+        for property in properties {
+            let Some(row) = property.uint("PropertyName").map(|row| row as usize) else {
+                continue;
+            };
+            let Some(mut line) = self.cell_text("itempropdef", row, "name") else {
+                continue;
+            };
+            let mut parts = Vec::new();
+            if let (Some(table), Some(subtype)) = (
+                self.cell("itempropdef", row, "subtyperesref"),
+                property.uint("Subtype"),
+            ) {
+                parts.extend(self.named_row(&table, subtype as usize));
+            }
+            if let (Some(table), Some(value)) = (
+                property
+                    .uint("CostTable")
+                    .and_then(|at| self.cell("iprp_costtable", at as usize, "name")),
+                property.uint("CostValue"),
+            ) && value > 0
+            {
+                parts.extend(self.named_row(&table, value as usize));
+            }
+            if let (Some(table), Some(value)) = (
+                property
+                    .uint("Param1")
+                    .filter(|at| *at != 255)
+                    .and_then(|at| self.cell("iprp_paramtable", at as usize, "tableresref")),
+                property.uint("Param1Value"),
+            ) {
+                parts.extend(self.named_row(&table, value as usize));
+            }
+            // Some names end in their own colon ("Blaster Bolt Deflection:
+            // Increase"): the value follows them after a space.
+            let named = line.contains(&b':');
+            for (at, part) in parts.into_iter().enumerate() {
+                line.extend_from_slice(if at == 0 && !named { b": " } else { b" " });
+                line.extend(part);
+            }
+            let upgrade = property
+                .int("UpgradeType")
+                .filter(|row| (0..64).contains(row))
+                .map(|row| row as u8);
+            lines.push(Stat { upgrade, line });
+        }
+        lines
+    }
+
+    /// Row `row` of `table` by its `name` strref's text, else its label.
+    fn named_row(&mut self, table: &str, row: usize) -> Option<Vec<u8>> {
+        self.cell_text(table, row, "name").or_else(|| {
+            self.cell_as_written(table, row, "label")
+                .map(|label| label.replace('_', " ").into_bytes())
         })
     }
 
@@ -539,6 +663,19 @@ impl GuiAssets {
 
     /// `name` read from `source`; a font's sheet is a shape (`Pixels`).
     fn load(&mut self, source: Source, name: &str, font: bool) -> Option<(TextureId, Txi)> {
+        // A pad's buttons are drawn here, not read (`icons`).
+        if let Some((width, height, rgba)) = crate::icons::pad_icon(name) {
+            self.loaded.push(Some(Loaded {
+                pixels: Pixels {
+                    width,
+                    height,
+                    shape: false,
+                    rgba,
+                },
+                additive: false,
+            }));
+            return Some((TextureId(self.loaded.len() as u32), Txi::default()));
+        }
         let (texture, txi) = self.read(source, name)?;
         let mut rgba = texture.rgba(0, 0)?;
         if self.recoloured(source) {

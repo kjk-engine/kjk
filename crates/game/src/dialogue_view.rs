@@ -41,6 +41,7 @@ use std::sync::Arc;
 use asset_odyssey::anim::AnimationIr;
 use asset_odyssey::model::ModelIr;
 use audio::{Channel, Clip};
+use bevy::input::gamepad::GamepadButton;
 use bevy::prelude::*;
 use fmt_odyssey::ResType;
 use fmt_odyssey::dlg::Node;
@@ -55,6 +56,7 @@ use vfs::resolver::Resolver;
 use vfs::{Discovery, Game};
 
 use crate::lifecycle::Installer;
+use crate::pad::{PadPresses, Prompts};
 use crate::scene::{Animator, SceneContent, SceneModel};
 use crate::settings::{Action as KeyAction, KeyMap};
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap, view_ms};
@@ -422,7 +424,7 @@ fn requests(
     snapshot: &Snapshot,
     seat: sim::Seat,
     swap: &SceneSwap,
-    map: &KeyMap,
+    map: &Prompts,
 ) -> Option<RequestsView> {
     let asking = asking(snapshot, seat);
     if asking.is_empty() {
@@ -469,8 +471,7 @@ pub(crate) struct Called(pub Option<bool>);
 /// end the first asking, as `Action::Request`, while no screen is open and
 /// nothing keeps the answer waiting (`Snapshot::request_wait`).
 fn requests_keys(
-    keys: Option<Res<ButtonInput<KeyCode>>>,
-    map: Option<Res<KeyMap>>,
+    actions: Option<Res<crate::pad::Actions>>,
     presented: Res<PresentedSnapshot>,
     (own, open): (Option<Res<OwnSeat>>, Option<Res<UiOpen>>),
     mut called: ResMut<Called>,
@@ -490,11 +491,11 @@ fn requests_keys(
     let Some(first) = asking(snapshot, own.0).first().map(|talk| talk.id) else {
         return;
     };
-    let map = map.as_deref().unwrap_or(KeyMap::defaults());
-    let keys = keys.filter(|_| open.is_none_or(|open| !open.0));
+    let actions = actions.filter(|_| open.is_none_or(|open| !open.0));
     let pressed = |action| {
-        keys.as_ref()
-            .is_some_and(|keys| map.pressed_now(keys, action))
+        actions
+            .as_ref()
+            .is_some_and(|actions| actions.pressed(action))
     };
     for (key, accept) in [(KeyAction::AcceptCall, true), (KeyAction::EndCall, false)] {
         if pressed(key) || called == Some(accept) {
@@ -529,13 +530,12 @@ fn show(
         ResMut<Forget>,
         ResMut<Hush>,
     ),
-    (input, watching, map): (Res<ReplyInput>, Res<Watching>, Option<Res<KeyMap>>),
+    (input, watching, map): (Res<ReplyInput>, Res<Watching>, Prompts),
     mut logged: Local<Option<(u32, u32)>>,
 ) {
     let (Some(mut screen), Some(own), Some(swap)) = (screen, own, swap) else {
         return;
     };
-    let map = map.as_deref().unwrap_or(KeyMap::defaults());
     let snapshot = presented.0.current();
     let talk = shown(snapshot, own.0, watching.0);
     let leaves = talk.and_then(|talk| snapshot.may_leave(own.0, talk));
@@ -556,7 +556,7 @@ fn show(
             leave_key: map.shown(KeyAction::LeaveTalk),
         }
     });
-    let requests = requests(snapshot, own.0, &swap, map);
+    let requests = requests(snapshot, own.0, &swap, &map);
     let text = |bytes: &[u8]| bytes.iter().map(|&b| char::from(b)).collect::<String>();
     match &requests {
         Some(card) => {
@@ -754,6 +754,7 @@ fn answer(
     showing: Option<Res<crate::movie_view::Showing>>,
     mut swallowed: ResMut<crate::swallow::Swallowed>,
     mut last: Local<Option<Vec2>>,
+    pad: Res<PadPresses>,
 ) {
     let Some(own) = own else {
         return;
@@ -791,7 +792,11 @@ fn answer(
     if swap.as_deref().is_some_and(|swap| computer(swap, talk)) {
         return;
     }
+    // A pad's A confirms, B leaves, the D-pad or the stick moves the
+    // highlight (what it held is taken as the conversation lets it go,
+    // `pad::sample`).
     let pressed = |codes: &[KeyCode]| codes.iter().any(|code| keys.just_pressed(*code));
+    let confirmed = pressed(&CONFIRM) || pad.any(&[GamepadButton::South]);
     let clicked = buttons
         .as_ref()
         .is_some_and(|b| b.just_pressed(MouseButton::Left));
@@ -823,16 +828,20 @@ fn answer(
         .as_ref()
         .is_some_and(|(placed, window, at)| placed.leave_at(*window, *at));
     if snapshot.may_leave(own.0, talk) == Some(true)
-        && (keys.just_pressed(leave_key) || clicked && on_leave)
+        && (leave_key.is_some_and(|key| keys.just_pressed(key))
+            || pad.any(&[GamepadButton::East])
+            || clicked && on_leave)
     {
         input.pick = Some(Pick::Leave);
         take(&mut swallowed);
-        swallowed.key(leave_key, &keys);
+        if let Some(key) = leave_key {
+            swallowed.key(key, &keys);
+        }
         return;
     }
     if !answering(talk) {
         input.focus = 0;
-        if clicked || pressed(&CONFIRM) {
+        if clicked || confirmed {
             input.pick = Some(Pick::Skip);
             take(&mut swallowed);
         }
@@ -845,8 +854,10 @@ fn answer(
         return;
     }
     let offered = talk.replies.len() as u8;
-    let step = i32::from(keys.just_pressed(KeyCode::ArrowDown))
-        - i32::from(keys.just_pressed(KeyCode::ArrowUp));
+    let step =
+        i32::from(keys.just_pressed(KeyCode::ArrowDown) || pad.any(&[GamepadButton::DPadDown]))
+            - i32::from(keys.just_pressed(KeyCode::ArrowUp) || pad.any(&[GamepadButton::DPadUp]))
+            - pad.flick.y;
     input.focus = (i32::from(input.focus) + step).rem_euclid(i32::from(offered)) as u8;
     // The reply under the pointer; it takes the highlight when the pointer
     // moves.
@@ -865,7 +876,7 @@ fn answer(
         .map(|nth| nth as u8);
     let nth = digit
         .or(pointed.filter(|_| clicked))
-        .or_else(|| pressed(&CONFIRM).then_some(input.focus))
+        .or_else(|| confirmed.then_some(input.focus))
         .filter(|nth| *nth < offered);
     let only_points = |nth: u8| {
         let only = input.host_only(talk);

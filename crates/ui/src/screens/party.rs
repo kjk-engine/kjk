@@ -6,6 +6,8 @@
 //! for it, how many may still be picked. It opens with the party as it
 //! stands and whom the script forces in, who stay.
 //!
+//! A click chooses a companion, a double click adds or removes it.
+//!
 //! A script's screen (`ShowPartySelectionGUI`): Done sends the picks, Back
 //! the party unchanged (`ChooseParty(None)`), and the host runs its
 //! script. The screen opened in play only shows the table: Add is greyed,
@@ -211,12 +213,16 @@ impl Screen for Party {
             self.close(None, vm, out);
             return true;
         }
-        false
+        // Opened from the menu bar (no script's table), the shoulders step
+        // on to the bar's other tabs as the tabbed screens' do.
+        !Party::table(vm).is_some_and(|table| table.open) && super::tabs::key(key, "party", out)
     }
 
-    fn focused(&mut self, tag: &str, _: &ViewModel) {
-        if let Some(npc) = slot(tag, &["BTN_NPC"]) {
-            self.chosen = Some(npc);
+    /// KOTOR's: a click chooses a companion (`press`), a double click adds
+    /// or removes it; the pointer over one only lights it.
+    fn double(&mut self, tag: &str, vm: &ViewModel, out: &mut Vec<Intent>) {
+        if slot(tag, &["BTN_NPC"]).is_some() {
+            self.press("BTN_ACCEPT", vm, out);
         }
     }
 

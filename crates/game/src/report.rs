@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use bevy::prelude::*;
 use ui::intent::Intent;
 
-use crate::settings::{Action, KeyMap};
+use crate::settings::Action;
 use crate::ui_view::{Ui, UiIntents};
 
 /// Where a new issue is opened: the bug form (`issue_url` fills it in).
@@ -357,15 +357,14 @@ impl Plugin for ReportPlugin {
 fn ask(
     mut commands: Commands,
     mut ui: ResMut<Ui>,
-    keys: Option<Res<ButtonInput<KeyCode>>>,
-    map: Option<Res<KeyMap>>,
+    actions: Option<Res<crate::pad::Actions>>,
     folder: Res<console::RunFolder>,
     windows: Query<(), With<bevy::window::PrimaryWindow>>,
 ) {
-    let (Some(keys), Some(map)) = (keys, map) else {
+    let Some(actions) = actions else {
         return;
     };
-    if !map.pressed_now(&keys, Action::Report) || ui.stack.has("report") {
+    if !actions.pressed(Action::Report) || ui.stack.has("report") {
         return;
     }
     if !windows.is_empty() {

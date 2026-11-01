@@ -57,6 +57,10 @@ pub const FLOW_HEIGHT: i32 = 44;
 const FLOW_WIDTH: f32 = 262.0;
 const FLOW_CELL: f32 = 40.0;
 const FLOW_ICON: f32 = 0.8;
+/// A row's badge's height, of the row's, and the room kept at its right
+/// end (layout pixels) after a badge or a value.
+const BADGE: f32 = 0.95;
+const ROW_END: f32 = 8.0;
 /// The outline of the chosen feat, in layout pixels.
 const FLOW_OUTLINE: f32 = 2.0;
 const FLOW_ARROW: f32 = 32.0;
@@ -90,6 +94,12 @@ impl Palette {
 pub struct Row {
     pub text: Vec<u8>,
     pub icon: Option<String>,
+    /// An image at the row's right end, as tall as the row and as wide as
+    /// its own shape (a pad's buttons, `icons`).
+    pub badge: Option<String>,
+    /// Words at the row's right end, the row's text at its left (a key's
+    /// name beside its action).
+    pub value: Option<Vec<u8>>,
     pub frame: Option<String>,
     pub count: Option<u32>,
     /// Drawn faded (waiting on the host).
@@ -559,7 +569,11 @@ impl<'a> Painter<'a> {
             let words = self.shown_words(control, state);
             let color = self.text_color(control, state, text.color);
             let font = text.font.clone();
-            self.text(&font, &words, rect, text.alignment, color, out);
+            let inner = control
+                .border
+                .as_ref()
+                .map_or(rect, |border| inner(rect, border));
+            self.text(&font, &words, inner, text.alignment, color, out);
         }
     }
 
@@ -725,6 +739,37 @@ impl<'a> Painter<'a> {
     /// at its left; a KOTOR 2 row with an icon the icon in a square of the
     /// row's own border, beside it; any other the prototype.
     fn row(&mut self, proto: &Control, row: &Row, state: &ControlState, out: &mut DrawList) {
+        self.row_body(proto, row, state, out);
+        if let Some(badge) = &row.badge
+            && let Some(id) = self.texture(Source::Campaign, badge)
+        {
+            let [l, t, w, h] = rect_of(proto);
+            let (width, height) = self.textures.size(id);
+            let tall = h * BADGE;
+            let wide = tall * width as f32 / height.max(1) as f32;
+            let rect = [l + w - wide - ROW_END, t + (h - tall) / 2.0, wide, tall];
+            out.quads.push(Quad::image(rect, id, [1.0; 4]));
+        }
+        if let Some(value) = &row.value {
+            // The row's own words and colours, at its other end, unframed.
+            let mut right = proto.clone();
+            right.border = None;
+            right.hilight = None;
+            right.selected = None;
+            right.hilight_selected = None;
+            right.extent.width -= ROW_END as i32;
+            if let Some(text) = right.text.as_mut() {
+                text.alignment = (text.alignment & align::DOWN) | align::RIGHT;
+            }
+            let words = ControlState {
+                text: Some(value.clone()),
+                ..state.clone()
+            };
+            self.control(&right, &words, out);
+        }
+    }
+
+    fn row_body(&mut self, proto: &Control, row: &Row, state: &ControlState, out: &mut DrawList) {
         let item = proto.kind == Kind::ProtoItem;
         if !item && row.icon.is_none() && row.frame.is_none() {
             self.control(proto, state, out);
@@ -858,13 +903,12 @@ impl<'a> Painter<'a> {
             }
         }
         if let Some(thumb) = bar.thumb.as_ref().map(|image| image.image.clone()) {
-            let track = h - 2.0 * w - 4.0;
-            let size = track * shown as f32 / count as f32;
+            let (top, track, size) = thumb_track(bar, count, shown);
             let at = (track - size) * first as f32 / (count - shown) as f32;
             self.image(
                 self.source,
                 &thumb,
-                [l + 2.0, t + w + 2.0 + at, w - 4.0, size],
+                [l + 2.0, top + at, w - 4.0, size],
                 [1.0; 4],
                 out,
             );
@@ -938,6 +982,37 @@ pub fn flow_cell_at(proto: &Control, x: f32, cells: usize) -> usize {
         .take(cells)
         .position(|square| x >= square[0] && x <= square[0] + square[2])
         .unwrap_or(0)
+}
+
+/// A list's scrollbar `bar` for `count` rows, `shown` of them in view:
+/// where its thumb's track begins, how long it is, and the thumb's length
+/// (layout pixels; the track lies between the arrows, a bar's width each).
+pub(crate) fn thumb_track(bar: &Control, count: usize, shown: usize) -> (f32, f32, f32) {
+    let [_, t, w, h] = rect_of(bar);
+    let track = h - 2.0 * w - 4.0;
+    (
+        t + w + 2.0,
+        track,
+        track * shown as f32 / count.max(1) as f32,
+    )
+}
+
+/// Where a bordered control's text goes (`CSWGuiBorder::GetInnerExtent`,
+/// TSL's exe): `rect` less the border's dimension on each side, along each
+/// axis that has room for it (more than half a dimension left), else the
+/// whole axis.
+fn inner(rect: [f32; 4], border: &Border) -> [f32; 4] {
+    let dim = border.dimension.max(0) as f32;
+    let axis = |start: f32, size: f32| {
+        let rest = size - 2.0 * dim;
+        if rest > 0.0 && rest >= dim / 2.0 {
+            (start + dim, rest)
+        } else {
+            (start, size)
+        }
+    };
+    let ((left, width), (top, height)) = (axis(rect[0], rect[2]), axis(rect[1], rect[3]));
+    [left, top, width, height]
 }
 
 fn intersect(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {

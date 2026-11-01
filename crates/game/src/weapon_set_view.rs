@@ -1,5 +1,6 @@
 //! The weapon swap from the player's side (TSL's second weapon set, in both
-//! games): the swap key (B; TSL's own is H, the holster's here) or a click
+//! games): the swap key (B; TSL's own is H, the holster's here; a pad's
+//! LB+Y) or a click
 //! on the HUD's swap button (`ui::screens::hud::swap_at`, while the pointer
 //! is free; the console's `ui swap`), in play with no screen, conversation
 //! or movie up, exchanges the sets of the seat's body (`Action::SwitchWeapons`).
@@ -12,7 +13,6 @@ use sim::action::Action;
 
 use crate::leader_view::{Busy, busy};
 use crate::loot::Outgoing;
-use crate::settings::KeyMap;
 
 /// The client's wait between two swaps sent (s).
 const COOLDOWN_S: f32 = 1.0;
@@ -31,7 +31,7 @@ impl Plugin for WeaponSetViewPlugin {
 }
 
 fn swap(
-    (keys, map): (Option<Res<ButtonInput<KeyCode>>>, Option<Res<KeyMap>>),
+    actions: Option<Res<crate::pad::Actions>>,
     taken: Busy,
     (mut asked, time): (ResMut<SwapAsked>, Res<Time>),
     mut since: Local<Option<f32>>,
@@ -39,9 +39,8 @@ fn swap(
 ) {
     let clicked = std::mem::take(&mut asked.0);
     let now = time.elapsed_secs();
-    let map = map.map_or_else(KeyMap::default, |map| map.clone());
     let pressed =
-        keys.is_some_and(|keys| map.pressed_now(&keys, crate::settings::Action::SwitchWeapons));
+        actions.is_some_and(|actions| actions.pressed(crate::settings::Action::SwitchWeapons));
     let ready = since.is_none_or(|sent| now - sent >= COOLDOWN_S);
     if let (true, false, true, Some(mut outgoing)) =
         (pressed || clicked, busy(taken), ready, outgoing)

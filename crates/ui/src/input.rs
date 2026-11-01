@@ -13,6 +13,9 @@ pub enum Key {
     Activate,
     /// Escape, gamepad B or Start.
     Back,
+    /// A double click on what has the focus (a list row's `Screen::primary`:
+    /// buy, use, equip, load; a party slot's add or remove), gamepad X.
+    Primary,
     /// The menu bar's next and previous tab (gamepad RB and LB).
     NextTab,
     PrevTab,
@@ -34,6 +37,8 @@ pub struct UiInput {
     pub moved: bool,
     /// The main button was pressed this frame.
     pub click: bool,
+    /// The main button is held down (a drag goes on while it is).
+    pub held: bool,
     /// Wheel notches, up positive.
     pub wheel: f32,
     /// The window's size in pixels.

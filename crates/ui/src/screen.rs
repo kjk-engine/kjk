@@ -167,6 +167,9 @@ struct Entry {
     lists: BTreeMap<String, Cursor>,
     /// The last click: its control, row and cell, and when.
     clicked: Option<((String, usize, usize), f32)>,
+    /// The list whose scrollbar's thumb the pointer drags, and where on
+    /// the thumb it took hold (layout pixels from its top).
+    dragged: Option<(String, f32)>,
     clock: f32,
 }
 
@@ -317,6 +320,7 @@ impl Stack {
             focus: None,
             lists: BTreeMap::new(),
             clicked: None,
+            dragged: None,
             clock: 0.0,
         });
     }
@@ -407,6 +411,18 @@ impl Stack {
 
     pub fn focused(&self) -> Option<&str> {
         self.entries.last()?.focus.as_deref()
+    }
+
+    /// Whether the top screen's typing goes into an edit box (a name, an
+    /// address): a pad's player needs a keyboard on the screen there.
+    pub fn typing(&mut self) -> bool {
+        let Some(entry) = self.entries.last_mut() else {
+            return false;
+        };
+        let Some(tag) = entry.typing_tag() else {
+            return false;
+        };
+        entry.screen.edit(&tag).is_some()
     }
 
     /// The text the top screen's control `tag` edits.
@@ -634,6 +650,17 @@ impl Stack {
     }
 }
 
+/// The left mouse button's raw name (`UiInput::raw`).
+const LEFT_CLICK: &str = "MouseLeft";
+
+/// A list fitted to its text (a message) is read, not chosen.
+fn read(control: &Control, state: &ControlState) -> bool {
+    state.list.as_ref().map_or(
+        control.kind == Kind::ListBox && state.strref.is_some(),
+        |list| list.fit && !list.pick,
+    )
+}
+
 impl Entry {
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         self.screen.state(control, vm)
@@ -645,12 +672,7 @@ impl Entry {
             .filter(|control| focusable(control))
             .filter(|control| {
                 let state = self.state(control, vm);
-                // A list fitted to its text (a message) is read, not chosen.
-                let read = state.list.as_ref().map_or(
-                    control.kind == Kind::ListBox && state.strref.is_some(),
-                    |list| list.fit && !list.pick,
-                );
-                !state.hidden && !state.disabled && !read
+                !state.hidden && !state.disabled && !read(control, &state)
             })
             .collect()
     }
@@ -729,9 +751,6 @@ impl Entry {
         presses: &[String],
         out: &mut Vec<Intent>,
     ) {
-        if input.raw.iter().any(|key| self.screen.raw(key, vm, out)) {
-            return;
-        }
         let targets = self.focusables(gui, vm);
         let valid = |tag: &str| targets.iter().any(|control| control.tag == tag);
         if !self.focus.as_deref().is_some_and(valid) {
@@ -753,7 +772,16 @@ impl Entry {
             let control = targets.iter().rev().find(|control| contains(control, at))?;
             Some((control.tag.clone(), at))
         });
+        // A left click on a control is the control's, not a press to bind.
+        let raw = input
+            .raw
+            .iter()
+            .filter(|key| !(key.as_str() == LEFT_CLICK && under.is_some()));
+        if raw.into_iter().any(|key| self.screen.raw(key, vm, out)) {
+            return;
+        }
         if input.moved
+            && self.dragged.is_none()
             && let Some((tag, at)) = &under
         {
             self.focus = Some(tag.clone());
@@ -775,8 +803,26 @@ impl Entry {
                     self.activate(gui, vm, out);
                 }
                 Key::Back => self.screen.back(out),
-                Key::ScrollUp => self.scroll(gui, vm, None, -1),
-                Key::ScrollDown => self.scroll(gui, vm, None, 1),
+                // Two clicks on what has the focus: a list's row (buy, use,
+                // equip) or a control (a party slot: add or remove it).
+                Key::Primary => {
+                    if let Some(tag) = self.focus.clone() {
+                        if self.rows(gui, vm, &tag).is_some() {
+                            let row = self.lists.get(&tag).map_or(0, |cursor| cursor.row);
+                            self.double_row(gui, vm, &tag, row, out);
+                        } else {
+                            self.activate(gui, vm, out);
+                            self.screen.double(&tag, vm, out);
+                        }
+                        // Both its clicks spent: a click after it is a first.
+                        self.clicked = None;
+                    }
+                }
+                Key::ScrollUp | Key::ScrollDown => {
+                    let by = if *key == Key::ScrollUp { -1 } else { 1 };
+                    let read = self.read_list(gui, vm);
+                    self.scroll(gui, vm, read.as_deref(), by);
+                }
                 Key::Backspace => {
                     if let Some(tag) = self.typing_tag()
                         && let Some(edit) = self.screen.edit(&tag)
@@ -804,13 +850,27 @@ impl Entry {
         if let Some(list) = wheeled {
             self.scroll(gui, vm, Some(list.tag.as_str()), -notches as i32);
         }
+        // A press on a scrollbar's track takes its thumb (where it was hit,
+        // else by its middle), which follows the pointer while held.
+        if !input.held {
+            self.dragged = None;
+        }
         if input.click
+            && let Some(at) = pointed
+        {
+            self.dragged = self.grab_thumb(gui, vm, at);
+        }
+        if let (Some((tag, grab)), Some(at)) = (self.dragged.clone(), pointed) {
+            self.drag_thumb(gui, vm, &tag, at[1] - grab);
+        }
+        let click = input.click && self.dragged.is_none();
+        if click
             && under.is_none()
             && let Some(at) = pointed
         {
             self.screen.click(gui, at, textures, vm);
         }
-        if input.click
+        if click
             && !self.screen.clicked(vm, out)
             && let Some((tag, at)) = under
         {
@@ -1054,6 +1114,75 @@ impl Entry {
             .collect();
         let room = list.extent.top + list.extent.height - proto.extent.top;
         Some((heights, room))
+    }
+
+    /// The list whose scrollbar's track is at `at` (layout pixels), with
+    /// where its thumb is held: where the press is on it, else its middle.
+    fn grab_thumb(&self, gui: &Gui, vm: &ViewModel, at: [f32; 2]) -> Option<(String, f32)> {
+        gui.walk()
+            .filter(|control| control.kind == Kind::ListBox && !self.state(control, vm).hidden)
+            .find_map(|list| {
+                let bar = list.scrollbar.as_deref()?;
+                let (count, shown) = self.rows(gui, vm, &list.tag)?;
+                if count <= shown {
+                    return None;
+                }
+                let (top, track, size) = crate::paint::thumb_track(bar, count, shown);
+                let [left, _, width, _] = crate::paint::rect_of(bar);
+                let across = (left..left + width).contains(&at[0]);
+                if !across || !(top..top + track).contains(&at[1]) {
+                    return None;
+                }
+                let first = self.lists.get(&list.tag).map_or(0, |cursor| cursor.first);
+                let thumb = top + (track - size) * first as f32 / (count - shown) as f32;
+                let on = (thumb..thumb + size).contains(&at[1]);
+                Some((
+                    list.tag.clone(),
+                    if on { at[1] - thumb } else { size / 2.0 },
+                ))
+            })
+    }
+
+    /// The list `tag` scrolled so its thumb's top is at `y` (layout pixels).
+    fn drag_thumb(&mut self, gui: &Gui, vm: &ViewModel, tag: &str, y: f32) {
+        let Some(bar) = gui.find(tag).and_then(|list| list.scrollbar.clone()) else {
+            return;
+        };
+        let Some((count, shown)) = self
+            .rows(gui, vm, tag)
+            .filter(|(count, shown)| count > shown)
+        else {
+            return;
+        };
+        let (top, track, size) = crate::paint::thumb_track(&bar, count, shown);
+        let along = ((y - top) / (track - size).max(1.0)).clamp(0.0, 1.0);
+        let first = (along * (count - shown) as f32).round() as i32;
+        let by = first - self.lists.get(tag).map_or(0, |cursor| cursor.first as i32);
+        if by != 0 {
+            self.scroll(gui, vm, Some(tag), by);
+        }
+    }
+
+    /// The list the scroll keys move when the focus is on none that
+    /// overflows: the first shown text read rather than chosen (an item's
+    /// description, a message, `read`) that does, which the focus never
+    /// rests on. None scrolls the focused list.
+    fn read_list(&self, gui: &Gui, vm: &ViewModel) -> Option<String> {
+        let overflows = |tag: &str| {
+            self.rows(gui, vm, tag)
+                .is_some_and(|(count, shown)| count > shown)
+        };
+        if self.focus.as_deref().is_some_and(overflows) {
+            return None;
+        }
+        gui.walk()
+            .filter(|control| control.kind == Kind::ListBox)
+            .filter(|control| {
+                let state = self.state(control, vm);
+                !state.hidden && read(control, &state)
+            })
+            .find(|control| overflows(&control.tag))
+            .map(|control| control.tag.clone())
     }
 
     fn scroll(&mut self, gui: &Gui, vm: &ViewModel, tag: Option<&str>, by: i32) {

@@ -94,17 +94,29 @@ impl DrawList {
     }
 }
 
-/// Where a layout of `size` sits in a window, as KOTOR draws its screens:
-/// at its own size, a layout pixel a window pixel, centred on whole
-/// pixels; scaled down uniformly to fit a window smaller than it. Returns
-/// the scale and the layout's top left in window pixels.
+/// The window height up to which a layout pixel is a window pixel
+/// (`scale`).
+pub const UI_HEIGHT: f32 = 720.0;
+
+/// How many window pixels a layout pixel takes in a window of `window`
+/// pixels: one, as KOTOR draws its screens, up to `UI_HEIGHT`; above it in
+/// proportion to the height, so the screens look the same size at any
+/// resolution and any desktop scaling.
+pub fn scale(window: (f32, f32)) -> f32 {
+    (window.1 / UI_HEIGHT).max(1.0)
+}
+
+/// Where a layout of `size` sits in a window: enlarged by the window's
+/// `scale`, or less so it still fits, centred on whole pixels. Returns the
+/// scale and the layout's top left in window pixels.
 pub fn fit(window: (f32, f32), size: (f32, f32)) -> (f32, [f32; 2]) {
-    let (scale, [x, y]) = fill(window, size);
-    if scale < 1.0 {
-        return (scale, [x, y]);
-    }
-    let centred = |window: f32, size: f32| ((window - size) / 2.0).floor();
-    (1.0, [centred(window.0, size.0), centred(window.1, size.1)])
+    let (most, _) = fill(window, size);
+    let scale = scale(window).min(most);
+    let centred = |window: f32, size: f32| ((window - size * scale) / 2.0).floor();
+    (
+        scale,
+        [centred(window.0, size.0), centred(window.1, size.1)],
+    )
 }
 
 /// Where a layout of `size` sits in a window stretched to fill it:

@@ -76,6 +76,25 @@ pub fn client() -> Result<&'static Client, &'static str> {
         .map_err(String::as_str)
 }
 
+/// Steam's keyboard on the screen, typing into the game as keys do, placed
+/// clear of `field` (x, y, width, height in the window's pixels): false
+/// where Steam is not here or shows none (only on a Steam Deck or in Big
+/// Picture, with the game started from Steam).
+pub fn floating_keyboard(field: [i32; 4]) -> bool {
+    let Ok(client) = client() else {
+        return false;
+    };
+    let [x, y, width, height] = field;
+    client.utils().show_floating_gamepad_text_input(
+        steamworks::FloatingGamepadTextInputMode::SingleLine,
+        x,
+        y,
+        width,
+        height,
+        || {},
+    )
+}
+
 /// Runs Steam's pending callbacks (session requests, join requests), one
 /// thread at a time.
 pub fn pump(client: &Client) {

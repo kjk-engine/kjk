@@ -9,7 +9,6 @@ use sim::combat::picks::{Picks, Shown};
 use sim::notice::Notice;
 
 use crate::loot::{Outgoing, Told, words};
-use crate::settings::KeyMap;
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
 use crate::ui_view::Ui;
 
@@ -23,7 +22,7 @@ impl Plugin for FeatViewPlugin {
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn next_feat(
-    (keys, map): (Option<Res<ButtonInput<KeyCode>>>, Option<Res<KeyMap>>),
+    actions: Option<Res<crate::pad::Actions>>,
     // `leader_view::Busy` but the screens, which this names words with.
     (replies, showing): (
         Option<Res<crate::dialogue_view::ReplyInput>>,
@@ -41,9 +40,7 @@ fn next_feat(
     let busy = ui.as_ref().is_some_and(|ui| ui.stack.is_open())
         || replies.is_some_and(|replies| replies.active)
         || showing.is_some_and(|showing| showing.0);
-    let map = map.map_or_else(KeyMap::default, |map| map.clone());
-    let pressed =
-        keys.is_some_and(|keys| map.pressed_now(&keys, crate::settings::Action::NextFeat));
+    let pressed = actions.is_some_and(|actions| actions.pressed(crate::settings::Action::NextFeat));
     if busy || !pressed {
         return;
     }

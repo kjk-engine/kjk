@@ -85,7 +85,10 @@ pub fn render(
 }
 
 /// A screen of `game` (`chargen:solo`, ...) opened on the game's own data,
-/// as play opens it, `steps` taken in turn (`press TAG`, `type TEXT`, `scroll N`), its
+/// as play opens it, `steps` taken in turn (`press TAG`, `type TEXT`, `scroll N`;
+/// `key MOVE` a screen move, `Down`, `Activate`; `raw NAME` a key, mouse
+/// button or pad chord pressed, `KeyZ`, `MouseBack`, `Pad:LB+South`; `pad
+/// KIND` the pad played with, `xbox`, `playstation`, `nintendo`, `deck`), its
 /// layers drawn into one PNG named `file`. The view model is what the game
 /// fills for the screen (character creation's choices, the session's
 /// `error` for `message`); the 3D views are not drawn.
@@ -101,6 +104,12 @@ pub fn screen(
         let mut assets = crate::runtime::skinned(GuiAssets::open(discovery, game)?, discovery)?;
         let mut vm = ui::vm::ViewModel::default();
         vm.session.error = error;
+        (vm.keys, vm.pad_keys) = kjk_game::key_rows();
+        let padded = |vm: &mut ui::vm::ViewModel, kind: kjk_game::pad::PadKind| {
+            vm.pad_kind = kind.key().to_string();
+            vm.pad_names = kind.names();
+        };
+        padded(&mut vm, kjk_game::pad::PadKind::Xbox);
         if matches!(name.split(':').next(), Some("chargen" | "levelup")) {
             vm.chargen = Some(crate::character::chargen(&mut assets));
         }
@@ -127,6 +136,45 @@ pub fn screen(
                     };
                     stack.step(&mut assets, &vm, &typed);
                 }
+                Some(("pad", kind)) => {
+                    let kind = kjk_game::pad::PadKind::named(kind)
+                        .ok_or(format!("{kind}: xbox, playstation, nintendo or deck"))?;
+                    padded(&mut vm, kind);
+                }
+                Some(("raw", pressed)) => {
+                    let raw = ui::input::UiInput {
+                        raw: vec![pressed.to_string()],
+                        ..quiet.clone()
+                    };
+                    let frame = stack.step(&mut assets, &vm, &raw);
+                    for intent in frame.intents {
+                        outln!("{step}: {intent:?}");
+                    }
+                }
+                Some(("key", moved)) => {
+                    use ui::input::Key;
+                    let key = [
+                        ("Up", Key::Up),
+                        ("Down", Key::Down),
+                        ("Left", Key::Left),
+                        ("Right", Key::Right),
+                        ("Activate", Key::Activate),
+                        ("Back", Key::Back),
+                        ("Primary", Key::Primary),
+                    ]
+                    .into_iter()
+                    .find(|(name, _)| *name == moved)
+                    .ok_or(format!("{moved}: Up, Down, Left, Right, Activate, Back or Primary"))?
+                    .1;
+                    let keyed = ui::input::UiInput {
+                        keys: vec![key],
+                        ..quiet.clone()
+                    };
+                    let frame = stack.step(&mut assets, &vm, &keyed);
+                    for intent in frame.intents {
+                        outln!("{step}: {intent:?}");
+                    }
+                }
                 Some(("scroll", notches)) => {
                     let notches: f32 = notches
                         .parse()
@@ -141,7 +189,7 @@ pub fn screen(
                 }
                 _ => {
                     return Err(format!(
-                        "{step:?}: `press TAG`, `type TEXT` or `scroll N`"
+                        "{step:?}: `press TAG`, `type TEXT`, `scroll N`, `key MOVE`, `raw NAME` or `pad KIND`"
                     ));
                 }
             }

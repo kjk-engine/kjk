@@ -26,6 +26,10 @@ pub struct KeyRow {
     pub key: String,
     /// A movement key (the key mapping's first filter), else the game's.
     pub movement: bool,
+    /// The actions that may keep the same binding (their moments never
+    /// meet, or a screen takes one of them): a rebinding swaps with any
+    /// other on it.
+    pub shares: Vec<String>,
 }
 
 /// An item in an open container: a stack of what is alike (as KOTOR's
@@ -157,6 +161,19 @@ pub struct Owned {
     pub slots: u32,
     pub usable: bool,
     pub unpaired: [bool; 2],
+    /// The member's numbers were it put on, a slot each it may go in among
+    /// the hands and the body (the equip page's preview).
+    pub previews: Vec<Preview>,
+}
+
+/// A member's numbers as the equip page shows them (`CharacterView`'s
+/// `attack`, `damage`, `defence`), were an item put on in `slot`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Preview {
+    pub slot: u8,
+    pub attack: [i32; 2],
+    pub damage: [String; 2],
+    pub defence: i32,
 }
 
 /// A 3D view a screen shows in a control, as KOTOR draws a model there.
@@ -865,6 +882,17 @@ pub struct ViewModel {
     /// Each setting by its key (`mouse.sensitivity` = `0.5`).
     pub settings: std::collections::BTreeMap<String, String>,
     pub keys: Vec<KeyRow>,
+    /// The pad's bindings (`key` a chord's name, `LB+South`; empty unbound),
+    /// on the key mapping's controller tab.
+    pub pad_keys: Vec<KeyRow>,
+    /// Each pad button's name as the pad played with last names it
+    /// (`South` as `A` or `Cross`), and that pad's kind as its icons are
+    /// named (`xbox`, `playstation`, `nintendo`, `deck`; `icons`).
+    pub pad_names: Vec<(String, String)>,
+    pub pad_kind: String,
+    /// The player plays with a pad (last touched it, not a key or the
+    /// mouse): the key mapping opens on the controller's tab.
+    pub pad_playing: bool,
     /// The window's modes and sizes this screen offers.
     pub displays: Vec<DisplayChoice>,
     pub session: SessionView,
