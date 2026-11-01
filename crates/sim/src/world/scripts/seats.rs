@@ -119,6 +119,20 @@ pub(super) fn seat_actions(
                     None => continue,
                 }
             }
+            // The next feat attack (`combat::picks`): the seat's acting
+            // body's, at once; the HUD shows it.
+            Action::NextFeat { hand } => {
+                let body = acting(view, seat.0, player);
+                let Some(worn) = view.thing(body).and_then(|thing| thing.character) else {
+                    continue;
+                };
+                let mut sheet = out.sheet(body, worn.worn);
+                if !crate::combat::picks::Picks::next(&mut sheet, *hand) {
+                    continue;
+                }
+                out.changes.push(Change::Sheet { who: body, sheet });
+                Ok(())
+            }
             // A power cast from KOTOR's power list: queued on the seat's
             // acting body as `ActionCastSpellAtObject` queues it, the cast's
             // step refusing one it does not know or cannot pay for.

@@ -24,8 +24,8 @@ selected Force power; [Next power] and [Previous power] choose it (Grip,
 Lightning and Drain last while it is held). [Grenade] charges while held and
 throws on release. [Medpac], [Stim] and [Energy shield] use the first one
 carried. [Stealth mode] and [Lay a mine] act at once. [Saber style] changes
-the saber style, [Next Form] the lightsaber Form. [First person] changes
-the view.
+the saber style, [Next feat attack] the feat attack of the weapon in hand,
+[Next Form] the lightsaber Form. [First person] changes the view.
 """
 
 [swings]
@@ -54,7 +54,9 @@ medium (requires Critical Strike, or proficiency alone) and strong
 (requires Power Attack). A double-bladed lightsaber turns its second blade
 off and on; with one blade lit it fights as a single blade, with no
 specials but the fast lunge. Two weapons keep the dual style. A change
-made during a swing waits for the swing to end.
+made during a swing waits for the swing to end. [Next feat attack] chooses
+which melee feat two weapons or a double-bladed lightsaber carry: each feat
+known in turn, then none.
 """
 applies = ["kind:lightsaber", "feat:FLURRY", "feat:CRITICAL_STRIKE", "feat:POWER_ATTACK"]
 
@@ -174,11 +176,12 @@ applies = ["spell:FORCE_POWER_LIGHT_SABER_THROW", "spell:FORCE_POWER_LIGHT_SABER
 title = "Blasters"
 summary = """
 [Attack] fires. [Alt attack] uses the blaster's feat special for
-{feats.specials.cost_percent} of the second bar: Power Blast with a pistol
-(hold to charge, release to fire), Rapid Shot or Multi Shot with a rifle (a
-burst of shots), Sniper Shot with a disruptor (hold to aim; wider critical
-threat range, slower, no jumping). Without the feat or the bar, it fires
-as [Attack].
+{feats.specials.cost_percent} of the second bar: at first Power Blast with a
+pistol (hold to charge, release to fire), Rapid Shot or Multi Shot with a
+rifle (a burst of shots), Sniper Shot with a disruptor (hold to aim; wider
+critical threat range, slower, no jumping). [Next feat attack] chooses
+another the character knows, kept for that type of gun. Without the feat or
+the bar, it fires as [Attack].
 """
 applies = ["kind:blaster", "feat:POWER_BLAST", "feat:RAPID_SHOT", "feat:MULTI_SHOT", "feat:SNIPER_SHOT"]
 

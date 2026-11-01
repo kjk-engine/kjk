@@ -18,10 +18,11 @@ weapon in the staff style. A style's level is its offense in clashes and
 saber locks.
 """
 detail = """
-Each style's attacks carry its feat: Power Attack in the strong style,
-Critical Strike in the medium style, Flurry in the fast style, where the
-extra attack is the style's speed. The dual and staff styles carry no feat,
-and their offense is the character's Two-Weapon Fighting tier.
+Each single-blade style's attacks carry its feat: Power Attack in the strong
+style, Critical Strike in the medium style, Flurry in the fast style. The
+dual and staff styles carry the melee feat chosen with [Next feat attack],
+none until one is chosen, and it does not change their moves. Their offense
+is the character's Two-Weapon Fighting tier.
 """
 applies = ["kind:lightsaber", "kind:melee", "feat:CRITICAL_STRIKE", "feat:FLURRY", "feat:POWER_ATTACK", "feat:TWO_WEAPON_FIGHTING"]
 
@@ -53,7 +54,7 @@ value = [5, 8, 10]
 labels = ["Power Attack", "Improved", "Master"]
 unit = "HP"
 range = [0, 30]
-summary = "The strong style adds +{saber_moves.styles.power_attack[0]:bare} damage with Power Attack, +{saber_moves.styles.power_attack[1]:bare} with Improved Power Attack and +{saber_moves.styles.power_attack[2]:bare} with Master Power Attack."
+summary = "Blows carrying Power Attack add +{saber_moves.styles.power_attack[0]:bare} damage with Power Attack, +{saber_moves.styles.power_attack[1]:bare} with Improved Power Attack and +{saber_moves.styles.power_attack[2]:bare} with Master Power Attack."
 source = "KOTOR's Power Attack (I22 C8)"
 see = "sim::combat::saber::Kit::swing"
 applies = ["feat:POWER_ATTACK", "feat:IMPROVED_POWER_ATTACK", "feat:MASTER_POWER_ATTACK"]
@@ -63,7 +64,7 @@ name = "Power Attack Penalty"
 type = "i8"
 value = 3
 range = [0, 10]
-summary = "The strong style's Power Attack also has a -{saber_moves.styles.power_attack_penalty} to hit."
+summary = "Blows carrying Power Attack also have a -{saber_moves.styles.power_attack_penalty} to hit."
 source = "KOTOR's Power Attack (I22 C8)"
 see = "sim::combat::saber::Kit::swing"
 applies = ["feat:POWER_ATTACK", "feat:IMPROVED_POWER_ATTACK", "feat:MASTER_POWER_ATTACK"]
@@ -74,7 +75,7 @@ type = "u8"
 value = 2
 unit = "×"
 range = [1, 5]
-summary = "Critical Strike multiplies the medium style's critical threat range by {saber_moves.styles.critical_threat}, and by one more for each of Improved and Master Critical Strike."
+summary = "Critical Strike multiplies the critical threat range of the blows carrying it by {saber_moves.styles.critical_threat}, and by one more for each of Improved and Master Critical Strike."
 source = "KOTOR's Critical Strike (I22 C8)"
 see = "sim::combat::saber::Kit::swing"
 applies = ["feat:CRITICAL_STRIKE", "feat:IMPROVED_CRITICAL_STRIKE", "feat:MASTER_CRITICAL_STRIKE"]
@@ -85,9 +86,21 @@ type = "i8"
 value = [4, 2]
 labels = ["Flurry", "Improved and Master"]
 range = [0, 10]
-summary = "The fast style's attacks have a -{saber_moves.styles.flurry_penalty[0]} to hit with Flurry and -{saber_moves.styles.flurry_penalty[1]} with Improved or Master Flurry."
+summary = "Blows carrying Flurry have a -{saber_moves.styles.flurry_penalty[0]} to hit with Flurry and -{saber_moves.styles.flurry_penalty[1]} with Improved or Master Flurry."
 source = "KOTOR's Flurry (I22 C8)"
 see = "sim::combat::saber::Kit::swing"
+applies = ["feat:FLURRY", "feat:IMPROVED_FLURRY"]
+
+[styles.flurry_pace]
+name = "Flurry Extra Attack"
+type = "u32"
+value = 2000
+unit = "‰"
+range = [1000, 3000]
+summary = "Blows that carry Flurry deal {saber_moves.styles.flurry_pace:pct} of the damage their pace gives."
+detail = "Damage follows the time between blows, so faster swings alone add little: this is KOTOR's extra attack, and what pays for Flurry's penalty to hit."
+source = "ours, measured to match Critical Strike's gain (`kjk combat duel --only feat_worth`)"
+see = "sim::combat::saber::Kit::paced"
 applies = ["feat:FLURRY", "feat:IMPROVED_FLURRY"]
 
 [styles.fast_transitions]

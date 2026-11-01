@@ -290,6 +290,7 @@ pub(super) fn containers(
             | Action::SwitchWeaponsOn { .. }
             | Action::Assemble { .. }
             | Action::Form(_)
+            | Action::NextFeat { .. }
             | Action::Cast { .. }
             | Action::ScreenOpened
             | Action::Forfeit

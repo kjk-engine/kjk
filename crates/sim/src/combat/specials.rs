@@ -25,6 +25,9 @@
 //!   is left out: in real time it would freeze a fight on every lucky shot
 //!   (the Stun power keeps that role).
 //!
+//! A gun takes the line its wielder chose for that type (`combat::picks`)
+//! before the one it suits.
+//!
 //! A special costs `COST_PERCENT` of the second bar (`Sheet::pool`: FP
 //! for a Force user, stamina for anyone else), paid as it starts; without
 //! enough, or with none of these feats, the alternate button fires as the
@@ -77,28 +80,86 @@ pub enum Special {
     SniperShot(u8),
 }
 
+/// The feat lines, in the order `Picks` numbers them.
+const FEAT_LINES: [Line; Special::LINES] = [
+    (Special::PowerBlast, &feats::POWER_BLAST),
+    (Special::RapidShot, &feats::RAPID_SHOT),
+    (Special::SniperShot, &feats::SNIPER_SHOT),
+];
+
 impl Special {
-    /// The special `sheet` takes with `blaster`: the line the gun's JA
-    /// alternate suggests if it has that feat (Power Blast for pistols,
-    /// Sniper Shot for disruptors, Rapid Shot for the rest), else the next
-    /// it has in the order Power Blast, Rapid Shot, Sniper Shot.
+    /// How many feat lines there are.
+    pub const LINES: usize = 3;
+
+    /// The special `sheet` takes with `blaster`: the line its wielder chose
+    /// for that gun type (`Picks`), if it still has it; else the line the
+    /// gun's JA alternate suggests if it has that feat (Power Blast for
+    /// pistols, Sniper Shot for disruptors, Rapid Shot for the rest), else
+    /// the next it has in the order Power Blast, Rapid Shot, Sniper Shot.
     pub fn of(sheet: &Sheet, blaster: Blaster) -> Option<Special> {
-        let lines: [Line; 3] = [
-            (Special::PowerBlast, &feats::POWER_BLAST),
-            (Special::RapidShot, &feats::RAPID_SHOT),
-            (Special::SniperShot, &feats::SNIPER_SHOT),
-        ];
-        let order = match blaster {
+        sheet
+            .picks
+            .gun(blaster)
+            .into_iter()
+            .chain(Self::order(blaster))
+            .find_map(|line| Self::of_line(sheet, line))
+    }
+
+    /// The lines in the order `blaster` takes them.
+    fn order(blaster: Blaster) -> [usize; Self::LINES] {
+        match blaster {
             Blaster::Pistol => [0, 1, 2],
             Blaster::Disruptor => [2, 0, 1],
             _ => [1, 2, 0],
+        }
+    }
+
+    /// `sheet`'s special of `line`, at the highest of its rows held.
+    fn of_line(sheet: &Sheet, line: usize) -> Option<Special> {
+        let (special, rows) = FEAT_LINES[line];
+        let tier = rows.iter().rposition(|row| sheet.feats.has(*row))?;
+        Some(special(tier as u8 + 1))
+    }
+
+    /// Whether `sheet` knows `line`.
+    pub fn known(sheet: &Sheet, line: usize) -> bool {
+        Self::of_line(sheet, line).is_some()
+    }
+
+    /// The line `row` belongs to, if a blaster's.
+    pub fn line_of(row: u16) -> Option<usize> {
+        FEAT_LINES.iter().position(|(_, rows)| rows.contains(&row))
+    }
+
+    /// This special's line.
+    pub fn line(self) -> usize {
+        match self {
+            Special::PowerBlast(_) => 0,
+            Special::RapidShot(_) => 1,
+            Special::SniperShot(_) => 2,
+        }
+    }
+
+    /// The `feat.2da` row of this special.
+    pub fn row(self) -> u16 {
+        let tier = match self {
+            Special::PowerBlast(tier) | Special::RapidShot(tier) | Special::SniperShot(tier) => {
+                tier
+            }
         };
-        // A line's tier is the highest of its rows held.
-        order.into_iter().find_map(|line| {
-            let (special, rows) = lines[line];
-            let tier = rows.iter().rposition(|row| sheet.feats.has(*row))?;
-            Some(special(tier as u8 + 1))
-        })
+        FEAT_LINES[self.line()].1[usize::from(tier.clamp(1, 3) - 1)]
+    }
+
+    /// The line after the one `blaster` takes now, among those `sheet`
+    /// knows; none with fewer than two.
+    pub fn next_line(sheet: &Sheet, blaster: Blaster) -> Option<usize> {
+        let known: Vec<usize> = Self::order(blaster)
+            .into_iter()
+            .filter(|line| Self::known(sheet, *line))
+            .collect();
+        let now = Self::of(sheet, blaster)?.line();
+        let at = known.iter().position(|line| *line == now)?;
+        (known.len() > 1).then(|| known[(at + 1) % known.len()])
     }
 
     /// `weapon` as this special's shot carries it: Power Blast's damage and

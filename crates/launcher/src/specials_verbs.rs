@@ -483,59 +483,82 @@ pub fn specials(discovery: &Discovery, game: &str, module: &str, target_tag: &st
     // A creature's script uses its special: its talent queued at the player
     // (`ActionUseTalentOnObject`, as `k_ai_master`'s combat feats are), its
     // mind fires the burst (`ai::feat_use`). Where scripts run no mind
-    // chooses a special itself.
-    outln!("  a creature given a rifle and Rapid Shot, its script using the feat at the gunner");
-    let given = crate::items_verbs::given_items(&stage, target, &[], |theirs| {
-        theirs.feats.insert(feats::RAPID_SHOT[0]);
-        theirs.feats.insert(feats::PROFICIENCY_BLASTER_RIFLE);
-        theirs.weapons[0] = Some(rifle());
-    });
-    match given {
-        Ok((given, theirs)) => {
-            let blaster_kind = match theirs.main_weapon().delivery {
-                sim::combat::Delivery::Blaster(kind) => Some(kind),
-                _ => None,
-            };
-            let mut start = start_with(&given, target, 160.0, gunner(pistol(), &[]), false)
-                .expect("a clear spot near the target");
-            // Already fighting the gunner, as a creature whose AI round
-            // chooses a talent is.
-            let gunner_id = start.entities[seat0(&start)].id;
-            let now = start.time_ms;
-            if let Some(fighting) = start.entities[target].fighter.as_mut() {
-                fighting.mind.cast_after = 0;
-                fighting.target = Some(gunner_id);
-                fighting.combat_until = now + sim::combat::COMBAT_MS;
+    // chooses a special itself. The line stays chosen on its sheet
+    // (`combat::picks`), also when the gun's own line is another.
+    let creatures = [
+        (
+            "a rifle",
+            rifle(),
+            Blaster::Rifle,
+            feats::PROFICIENCY_BLASTER_RIFLE,
+            &[][..],
+        ),
+        (
+            "a pistol, whose own line is Power Blast,",
+            pistol(),
+            Blaster::Pistol,
+            feats::PROFICIENCY_BLASTER,
+            &[feats::POWER_BLAST[0]][..],
+        ),
+    ];
+    for (held, weapon, blaster, proficiency, more) in creatures {
+        outln!("  a creature given {held} and Rapid Shot, its script using the feat at the gunner");
+        let given = crate::items_verbs::given_items(&stage, target, &[], |theirs| {
+            theirs.feats.insert(feats::RAPID_SHOT[0]);
+            theirs.feats.insert(proficiency);
+            for row in more {
+                theirs.feats.insert(*row);
             }
-            let mut script = given.script.clone();
-            script.queue(
-                script_ncs::vm::ObjectId(start.entities[target].id.0),
-                sim::script::actions::Action::Talent {
-                    talent: sim::script::actions::Use::Feat(feats::RAPID_SHOT[0]),
-                    target: script_ncs::vm::ObjectId(gunner_id.0),
-                },
-            );
-            let given = given.with_script(script);
-            let run = given.run(&start, target, 6_000, &mut |_| (0, 0, 0));
-            let bursts = run
-                .snapshots
-                .windows(2)
-                .filter(|pair| {
-                    fighter(&pair[0], target).shooting.burst == 0
-                        && fighter(&pair[1], target).shooting.burst > 0
-                })
-                .count();
-            report.check(
-                blaster_kind.is_some()
-                    && Special::of(&theirs, blaster_kind.unwrap_or(Blaster::Pistol)).is_some()
-                    && bursts == 1,
-                format!(
-                    "its {blaster_kind:?} fired {bursts} burst for the Rapid Shot its script chose"
-                ),
-            );
-            report.replayed("a creature's bursts", run.replayed);
+            theirs.weapons[0] = Some(weapon);
+        });
+        let (given, _) = match given {
+            Ok(given) => given,
+            Err(error) => {
+                report.check(false, error);
+                continue;
+            }
+        };
+        let mut start = start_with(&given, target, 160.0, gunner(pistol(), &[]), false)
+            .expect("a clear spot near the target");
+        // Already fighting the gunner, as a creature whose AI round
+        // chooses a talent is.
+        let gunner_id = start.entities[seat0(&start)].id;
+        let now = start.time_ms;
+        if let Some(fighting) = start.entities[target].fighter.as_mut() {
+            fighting.mind.cast_after = 0;
+            fighting.target = Some(gunner_id);
+            fighting.combat_until = now + sim::combat::COMBAT_MS;
         }
-        Err(error) => report.check(false, error),
+        let mut script = given.script.clone();
+        script.queue(
+            script_ncs::vm::ObjectId(start.entities[target].id.0),
+            sim::script::actions::Action::Talent {
+                talent: sim::script::actions::Use::Feat(feats::RAPID_SHOT[0]),
+                target: script_ncs::vm::ObjectId(gunner_id.0),
+            },
+        );
+        let given = given.with_script(script);
+        let run = given.run(&start, target, 6_000, &mut |_| (0, 0, 0));
+        let bursts = run
+            .snapshots
+            .windows(2)
+            .filter(|pair| {
+                fighter(&pair[0], target).shooting.burst == 0
+                    && fighter(&pair[1], target).shooting.burst > 0
+            })
+            .count();
+        let kept = run
+            .snapshots
+            .last()
+            .and_then(|last| last.entities[target].sheet);
+        let special = kept.and_then(|sheet| Special::of(&sheet, blaster));
+        report.check(
+            bursts == 1 && special == Some(Special::RapidShot(1)),
+            format!(
+                "its {blaster:?} fired {bursts} burst for the Rapid Shot its script chose, then takes {special:?}"
+            ),
+        );
+        report.replayed("a creature's bursts", run.replayed);
     }
 
     report.finish(serde_json::json!({

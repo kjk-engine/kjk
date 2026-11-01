@@ -20,6 +20,7 @@ macro_rules! outln {
 }
 
 pub mod acting;
+mod aim_fx;
 mod ambience;
 pub mod arena;
 mod armory;
@@ -42,6 +43,7 @@ pub mod draw_anim;
 mod emitter_view;
 mod face;
 mod fade_view;
+mod feat_view;
 mod first_person;
 pub mod flight_writer;
 pub mod floaty_view;

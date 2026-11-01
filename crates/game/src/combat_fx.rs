@@ -1159,8 +1159,13 @@ fn place_flashes(
             .and_then(|kotor| kotor.ammo(shot.base_item))
             .and_then(|ammo| ammo.muzzle_flash.clone())
             .map(Flashed::Model);
+        // A Power Blast's is its charge-up, on the gun already (`aim_fx`);
+        // none before the eyes the camera looks through (a scope's glint
+        // there would stand in the view).
         let feat = shot
             .special
+            .filter(|special| !matches!(special, Special::PowerBlast(_)))
+            .filter(|_| eyes != Some(shot.by))
             .and_then(crate::blaster_view::feat_row)
             .map(Flashed::Row);
         out.extend(muzzle.into_iter().chain(feat).map(|shows| Flash {

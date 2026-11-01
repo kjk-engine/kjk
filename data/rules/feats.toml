@@ -258,9 +258,10 @@ title = "Feat Attacks for Ranged Weapons"
 summary = """
 The alternate fire of a ranged weapon uses a feat attack: Power Blast for
 blaster pistols, Sniper Shot for disruptors and Rapid Shot for all other
-ranged weapons. A character without the feat, or without enough Force
-points or stamina, fires normally. The penalties of a feat attack last one
-round ({combat.timing.round_ms:s}).
+ranged weapons, until [Next feat attack] chooses another the character
+knows. Each type of gun keeps its choice. A character without the feat, or
+without enough Force points or stamina, fires normally. The penalties of a
+feat attack last one round ({combat.timing.round_ms:s}).
 """
 applies = ["kind:blaster"]
 

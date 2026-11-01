@@ -552,7 +552,7 @@ impl Step<'_> {
                 weapon: man
                     .kit
                     .swing(blow.style, in_hand(&man.sheet, &man.f, blow.hand)),
-                cadence_ms: blow.cadence_ms,
+                cadence_ms: man.kit.paced(blow.style, blow.cadence_ms),
                 share: blow.share,
                 area: false,
             },
