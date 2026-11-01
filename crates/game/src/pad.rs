@@ -734,6 +734,47 @@ fn felt(
     }
 }
 
+/// Each pad as it connects, in the run's log: its name and maker, to tell
+/// from a report which device a player's buttons came from.
+fn connected(pads: Query<(Entity, &Gamepad, Option<&Name>), Added<Gamepad>>) {
+    for (entity, pad, name) in &pads {
+        let kind = PadKind::of(pad.vendor_id(), pad.product_id());
+        info!(
+            target: "pad",
+            ?entity,
+            name = name.map_or("?", |name| name.as_str()),
+            vendor = ?pad.vendor_id().map(|id| format!("{id:04x}")),
+            product = ?pad.product_id().map(|id| format!("{id:04x}")),
+            ?kind,
+            "pad connected"
+        );
+    }
+}
+
+/// How many presses a run's log keeps (`heard`).
+const PRESSES_LOGGED: u32 = 40;
+
+/// The first presses and each pad's first push of either stick, in the
+/// run's log: what a player's pad sends, by the names it arrives as.
+fn heard(pads: Query<(Entity, &Gamepad)>, mut logged: Local<(u32, Vec<(Entity, bool)>)>) {
+    let (count, moved) = &mut *logged;
+    for (entity, pad) in &pads {
+        for button in pad.digital().get_just_pressed() {
+            if *count < PRESSES_LOGGED {
+                *count += 1;
+                info!(target: "pad", ?entity, ?button, "pressed");
+            }
+        }
+        for (right, stick) in [(false, pad.left_stick()), (true, pad.right_stick())] {
+            if stick.length() > 0.5 && !moved.contains(&(entity, right)) {
+                moved.push((entity, right));
+                let side = if right { "right" } else { "left" };
+                info!(target: "pad", ?entity, side, x = stick.x, y = stick.y, "stick moved");
+            }
+        }
+    }
+}
+
 fn rumble(
     mut asked: MessageReader<Rumble>,
     feel: Option<Res<PadFeel>>,
@@ -803,15 +844,19 @@ impl Plugin for PadPlugin {
                     .after(bevy::input::InputSystems)
                     .after(crate::swallow::hold_up),
             )
-            .add_systems(Update, ((felt, rumble).chain(), pad_names));
+            .add_systems(Update, ((felt, rumble).chain(), pad_names, connected, heard));
         #[cfg(feature = "steam")]
         app.add_systems(Update, on_screen_keyboard.after(crate::ui_view::Stepped));
     }
 }
 
+pub mod linux;
+
 #[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
-    probes::checks()
+    let mut checks = probes::checks();
+    checks.extend(linux::probes());
+    checks
 }
 
 #[cfg(feature = "probes")]
