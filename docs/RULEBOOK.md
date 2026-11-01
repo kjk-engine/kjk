@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `feaf59094637c7ab`.
+Edition `afffd37d50bd29bf`.
 
 ## Contents
 
@@ -1875,6 +1875,12 @@ A full-strength throw flies at 22.9 meters per second.
 Every throw also rises at 3 meters per second.
 
 <sub>Source: JA (the thermal detonator). Code: `sim::combat::grenades::LIFT`.</sub>
+
+<a id="grenades-throw-lob-degrees"></a>**Creature's Lob** = **60°** · `grenades.throw.lob_degrees`
+
+A creature throws 60° up, charged to land on its target; its grenade bursts as it lands.
+
+<sub>Source: engine: end_m01aa's script lets its soldiers die 2.75 s after its throw, which this arc lands on; KOTOR's own arc is not read. Code: `sim::combat::grenades::lob_strength`.</sub>
 
 <a id="grenades-throw-muzzle"></a>**Release Point** = **0.3 meters / 0 meters / -0.1 meters** (`12 / 0 / -4 units`) · `grenades.throw.muzzle`
 
