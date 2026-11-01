@@ -141,9 +141,9 @@ Nothing is written next to the program or into a game's folder.
 
 ## Not yet
 
-- **The gamepad in play.** It drives the menus and the setup only; a full
-  scheme (sticks, triggers, a wheel for powers and items, glyphs) is the
-  Steam Deck's need.
+- **The gamepad on real hardware.** Play, the menus (with their hint bar),
+  rebinding and the Deck's keyboard are built and probed (`docs/controls`),
+  but no physical pad or Deck has played a build yet.
 - **Autosave** (the option is greyed).
 - **GOG.** Its two default Windows folders only: no registry (a custom
   folder), no Heroic or Lutris on Linux, no macOS. The setup's Locate covers
