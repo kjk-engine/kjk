@@ -115,6 +115,7 @@ impl Screen for Container {
                 disabled: true,
                 ..told(Some(GIVE_ITEMS))
             },
+            "BTN_OK" if vm.pad_playing => text(strings::TAKE_ALL_PAD),
             "BTN_OK" => text(strings::TAKE_ALL),
             "BTN_CANCEL" => text(strings::CLOSE),
             "BTN_GIVEITEMS" if self.giving => told(Some(GET_ITEMS)),

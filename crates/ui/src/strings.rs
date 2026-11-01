@@ -38,6 +38,8 @@ pub const ANTI_ALIASING_OFF: &str = "Anti-Aliasing: Off";
 pub const ANTI_ALIASING_2X: &str = "Anti-Aliasing: 2x";
 pub const ANTI_ALIASING_4X: &str = "Anti-Aliasing: 4x";
 pub const TAKE_ALL: &str = "Take all (A)";
+/// The same while a pad plays: its hint bar names its button.
+pub const TAKE_ALL_PAD: &str = "Take all";
 pub const CONTAINER: &str = "Container";
 pub const CLOSE: &str = "Close";
 pub const BACK: &str = "Back";

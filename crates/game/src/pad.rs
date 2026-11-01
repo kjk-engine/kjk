@@ -241,6 +241,11 @@ pub(crate) fn rest(stick: Vec2, dead: f32) -> Vec2 {
 /// the slowest walk, not a crawl in place.
 const LEAST_STEP: f32 = 0.2;
 
+/// How far below sideways the stick still strafes (the tangent of 30°):
+/// the sim backpedals for any backward push, so a stick held sideways and a
+/// little down would turn the run into a backpedal.
+const STRAFE_SLOPE: f32 = 0.577;
+
 /// The buttons whose moves the sim picks by the keys' directions (a roll,
 /// a flip or cartwheel, a saber's lunge or kick): while one is held the
 /// stick reads as the keys would, one of eight ways.
@@ -275,6 +280,13 @@ pub(crate) fn step(actions: &Actions, walk: bool) -> (i8, i8) {
     let length = stick.length();
     if keys != (0, 0) || length == 0.0 {
         return keys;
+    }
+    if !DIRECTED.iter().any(|action| actions.held(*action))
+        && stick.y < 0.0
+        && stick.y.abs() < stick.x.abs() * STRAFE_SLOPE
+    {
+        // Sideways and a little down strafes: no backpedal.
+        stick = Vec2::new(stick.x.signum() * length, 0.0);
     }
     if DIRECTED.iter().any(|action| actions.held(*action)) {
         let eighth = std::f32::consts::FRAC_PI_4;

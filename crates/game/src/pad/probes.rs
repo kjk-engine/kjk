@@ -9,6 +9,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("stick step", stick_step()),
         ("keys over stick", keys_over_stick()),
         ("stick directed", stick_directed()),
+        ("stick strafes", stick_strafes()),
         ("chord names", chord_names()),
         ("chords apart", chords_apart()),
         ("pad names", pad_names()),
@@ -74,6 +75,34 @@ fn stick_directed() -> Result<String, String> {
             && free.0 > 0
             && free.1 < 0,
         format!("rolled {rolled:?}, flipped {flipped:?}, diagonal {diagonal:?}, free {free:?}"),
+    )
+}
+
+/// Sideways and a little down strafes at the push's speed; further down
+/// backpedals on a diagonal, straight down walks back, a little up keeps
+/// its forward.
+fn stick_strafes() -> Result<String, String> {
+    let read = |x: f32, y: f32| {
+        step(
+            &Actions {
+                stick: Vec2::new(x, y),
+                ..Actions::default()
+            },
+            false,
+        )
+    };
+    let strafe = read(0.95, -0.25);
+    let diagonal = read(0.7, -0.7);
+    let back = read(0.0, -1.0);
+    let up = read(0.95, 0.25);
+    check(
+        strafe.0 == 0
+            && strafe.1 > 100
+            && diagonal.0 < 0
+            && diagonal.1 > 0
+            && back.0 < -100
+            && up.0 > 0,
+        format!("strafe {strafe:?}, diagonal {diagonal:?}, back {back:?}, up {up:?}"),
     )
 }
 
