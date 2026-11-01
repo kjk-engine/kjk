@@ -395,7 +395,7 @@ fn previews(sheet: &Sheet, goods: &Goods, me: u32, item: &Item, catalog: &Catalo
                 .filter(|(at, _)| *at != slot)
                 .chain([(slot, &candidate)])
                 .collect();
-            let dressed = sim::inventory::rewear(sheet.clone(), &before, &after);
+            let dressed = sim::inventory::rewear(*sheet, &before, &after);
             Preview {
                 slot,
                 attack: [0, 1].map(|hand| attack(&dressed, hand)),
