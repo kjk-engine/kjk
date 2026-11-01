@@ -34,6 +34,8 @@ pub struct UiInput {
     pub moved: bool,
     /// The main button was pressed this frame.
     pub click: bool,
+    /// The main button is held down (a drag goes on while it is).
+    pub held: bool,
     /// Wheel notches, up positive.
     pub wheel: f32,
     /// The window's size in pixels.

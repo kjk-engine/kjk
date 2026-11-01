@@ -167,6 +167,9 @@ struct Entry {
     lists: BTreeMap<String, Cursor>,
     /// The last click: its control, row and cell, and when.
     clicked: Option<((String, usize, usize), f32)>,
+    /// The list whose scrollbar's thumb the pointer drags, and where on
+    /// the thumb it took hold (layout pixels from its top).
+    dragged: Option<(String, f32)>,
     clock: f32,
 }
 
@@ -317,6 +320,7 @@ impl Stack {
             focus: None,
             lists: BTreeMap::new(),
             clicked: None,
+            dragged: None,
             clock: 0.0,
         });
     }
@@ -754,6 +758,7 @@ impl Entry {
             Some((control.tag.clone(), at))
         });
         if input.moved
+            && self.dragged.is_none()
             && let Some((tag, at)) = &under
         {
             self.focus = Some(tag.clone());
@@ -804,13 +809,27 @@ impl Entry {
         if let Some(list) = wheeled {
             self.scroll(gui, vm, Some(list.tag.as_str()), -notches as i32);
         }
+        // A press on a scrollbar's track takes its thumb (where it was hit,
+        // else by its middle), which follows the pointer while held.
+        if !input.held {
+            self.dragged = None;
+        }
         if input.click
+            && let Some(at) = pointed
+        {
+            self.dragged = self.grab_thumb(gui, vm, at);
+        }
+        if let (Some((tag, grab)), Some(at)) = (self.dragged.clone(), pointed) {
+            self.drag_thumb(gui, vm, &tag, at[1] - grab);
+        }
+        let click = input.click && self.dragged.is_none();
+        if click
             && under.is_none()
             && let Some(at) = pointed
         {
             self.screen.click(gui, at, textures, vm);
         }
-        if input.click
+        if click
             && !self.screen.clicked(vm, out)
             && let Some((tag, at)) = under
         {
@@ -1054,6 +1073,53 @@ impl Entry {
             .collect();
         let room = list.extent.top + list.extent.height - proto.extent.top;
         Some((heights, room))
+    }
+
+    /// The list whose scrollbar's track is at `at` (layout pixels), with
+    /// where its thumb is held: where the press is on it, else its middle.
+    fn grab_thumb(&self, gui: &Gui, vm: &ViewModel, at: [f32; 2]) -> Option<(String, f32)> {
+        gui.walk()
+            .filter(|control| control.kind == Kind::ListBox && !self.state(control, vm).hidden)
+            .find_map(|list| {
+                let bar = list.scrollbar.as_deref()?;
+                let (count, shown) = self.rows(gui, vm, &list.tag)?;
+                if count <= shown {
+                    return None;
+                }
+                let (top, track, size) = crate::paint::thumb_track(bar, count, shown);
+                let [left, _, width, _] = crate::paint::rect_of(bar);
+                let across = (left..left + width).contains(&at[0]);
+                if !across || !(top..top + track).contains(&at[1]) {
+                    return None;
+                }
+                let first = self.lists.get(&list.tag).map_or(0, |cursor| cursor.first);
+                let thumb = top + (track - size) * first as f32 / (count - shown) as f32;
+                let on = (thumb..thumb + size).contains(&at[1]);
+                Some((
+                    list.tag.clone(),
+                    if on { at[1] - thumb } else { size / 2.0 },
+                ))
+            })
+    }
+
+    /// The list `tag` scrolled so its thumb's top is at `y` (layout pixels).
+    fn drag_thumb(&mut self, gui: &Gui, vm: &ViewModel, tag: &str, y: f32) {
+        let Some(bar) = gui.find(tag).and_then(|list| list.scrollbar.clone()) else {
+            return;
+        };
+        let Some((count, shown)) = self
+            .rows(gui, vm, tag)
+            .filter(|(count, shown)| count > shown)
+        else {
+            return;
+        };
+        let (top, track, size) = crate::paint::thumb_track(&bar, count, shown);
+        let along = ((y - top) / (track - size).max(1.0)).clamp(0.0, 1.0);
+        let first = (along * (count - shown) as f32).round() as i32;
+        let by = first - self.lists.get(tag).map_or(0, |cursor| cursor.first as i32);
+        if by != 0 {
+            self.scroll(gui, vm, Some(tag), by);
+        }
     }
 
     fn scroll(&mut self, gui: &Gui, vm: &ViewModel, tag: Option<&str>, by: i32) {

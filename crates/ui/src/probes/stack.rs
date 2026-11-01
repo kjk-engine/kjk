@@ -2,14 +2,17 @@
 //! a scaled window, presses, going back, edit boxes, the pulse.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use fmt_odyssey::gui::{Control, Gui, MoveTo, Rect};
+use fmt_odyssey::gui::{Control, Gui, Image, Kind, MoveTo, Rect};
 
 use super::paint::{Fake, button};
 use super::{Check, check, expect, near};
 use crate::edit::EditBox;
 use crate::input::{Key, UiInput};
 use crate::intent::Intent;
+use crate::paint::{ControlState, ListView, Row};
 use crate::screen::{Screen, ScreenId, Stack};
 use crate::vm::ViewModel;
 
@@ -88,6 +91,89 @@ fn keys(keys: &[Key]) -> UiInput {
     }
 }
 
+/// A screen over `scroll` whose list `LIST` has `SCROLLED` rows, five
+/// shown; the row its cursor goes to is kept in `pointed`.
+struct Scrolled {
+    pointed: Arc<AtomicUsize>,
+}
+
+const SCROLLED: usize = 20;
+
+impl Screen for Scrolled {
+    fn id(&self) -> ScreenId {
+        ScreenId("scrolled")
+    }
+    fn layout(&self) -> &str {
+        "scroll"
+    }
+    fn state(&self, control: &Control, _: &ViewModel) -> ControlState {
+        ControlState {
+            list: (control.tag == "LIST").then(|| ListView {
+                rows: vec![Row::default(); SCROLLED],
+                ..ListView::default()
+            }),
+            ..ControlState::default()
+        }
+    }
+    fn press(&mut self, _: &str, _: &ViewModel, _: &mut Vec<Intent>) {}
+    fn pointed(&mut self, _: &str, index: usize, _: &ViewModel) {
+        self.pointed.store(index, Ordering::Relaxed);
+    }
+}
+
+/// A list of 20-pixel rows in 100 (five shown) with a scrollbar beside it:
+/// its thumb's track from 12 to 88, the thumb 19 long.
+fn scroll_layout() -> Gui {
+    let bar = Control {
+        kind: Kind::ScrollBar,
+        thumb: Some(Image::default()),
+        ..button("SCROLL", [100, 0, 10, 100], b"")
+    };
+    root(vec![Control {
+        kind: Kind::ListBox,
+        proto: Some(Box::new(button("PROTOITEM", [0, 0, 100, 20], b""))),
+        scrollbar: Some(Box::new(bar)),
+        ..button("LIST", [0, 0, 100, 100], b"")
+    }])
+}
+
+/// The rows the cursor follows to as the scrollbar's thumb is taken
+/// near its top and dragged by `moves` (layout pixels down), in a
+/// 1280 × 720 window (scale 1, the layout 320 by 120 in).
+fn dragged(moves: &[f32]) -> Vec<usize> {
+    let pointed = Arc::new(AtomicUsize::new(0));
+    let mut stack = Stack::new(no_screens);
+    stack.push(Box::new(Scrolled {
+        pointed: pointed.clone(),
+    }));
+    let mut assets = Fake::new();
+    assets.layouts = BTreeMap::from([("scroll", scroll_layout())]);
+    let vm = ViewModel::default();
+    let at = |y: f32| UiInput {
+        window: (1280.0, 720.0),
+        pointer: Some([320.0 + 105.0, 120.0 + y]),
+        moved: true,
+        held: true,
+        ..keys(&[])
+    };
+    stack.step(&mut assets, &vm, &keys(&[]));
+    stack.step(
+        &mut assets,
+        &vm,
+        &UiInput {
+            click: true,
+            ..at(14.0)
+        },
+    );
+    moves
+        .iter()
+        .map(|y| {
+            stack.step(&mut assets, &vm, &at(14.0 + y));
+            pointed.load(Ordering::Relaxed)
+        })
+        .collect()
+}
+
 fn grid_layout() -> Gui {
     root(vec![
         button("BTN_A", [0, 0, 50, 20], b"a"),
@@ -132,8 +218,9 @@ pub(super) fn all() -> Vec<Check> {
     grid.step(&mut assets, &vm, &keys(&[Key::Up, Key::Right]));
     let right = grid.focused().map(str::to_string);
 
-    // The layout at its own size in the middle of a large window; scaled
-    // down (0.5625, 60 px from the left) in a small one.
+    // The layout in the middle of a window, a layout pixel the window's
+    // height over 720: 1.5 in 1920 × 1080 (480 by 180 in); scaled down to
+    // fit (0.5625, 60 px from the left) in 480 × 270.
     let hit = |window: (f32, f32), point: [f32; 2]| {
         let mut pointer = stack_on("grid");
         let mut assets = Fake::new();
@@ -152,8 +239,10 @@ pub(super) fn all() -> Vec<Check> {
         };
         (hovered, pointer.step(&mut assets, &vm, &click).intents)
     };
-    let (hovered, clicked) = hit((1920.0, 1080.0), [640.0 + 225.0, 300.0 + 10.0]);
+    let (hovered, clicked) = hit((1920.0, 1080.0), [480.0 + 225.0 * 1.5, 180.0 + 10.0 * 1.5]);
     let (small, _) = hit((480.0, 270.0), [60.0 + 225.0 * 0.5625, 10.0 * 0.5625]);
+    // Half the track down, all of it, back to the top.
+    let rows = dragged(&[28.5, 57.0, 0.0]);
 
     let mut edit = stack_on("edit");
     edit.step(&mut assets, &vm, &keys(&[]));
@@ -259,6 +348,15 @@ pub(super) fn all() -> Vec<Check> {
                 )
             })
             .map(|()| "hover and click".into())
+        }),
+        check("scrollbar_thumb_drags", {
+            expect(
+                &format!(
+                    "the cursor to rows 8, 15, then 4 as the view starts at 8, 15, 0: {rows:?}"
+                ),
+                rows == [8, 15, 4],
+            )
+            .map(|()| "the thumb follows the pointer".into())
         }),
         check("edit_box_types", {
             expect(

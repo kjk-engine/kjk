@@ -11,7 +11,7 @@ use crate::intent::{GameAction, GuiSound, Intent};
 use crate::paint::{ControlState, ListView, Row};
 use crate::screens::filter::{self, Filter};
 use crate::screens::tab::{Page, disabled, enabled, hidden, image, rows, signed, text};
-use crate::vm::{CharacterView, Entry, Owned, SceneView, ViewModel};
+use crate::vm::{CharacterView, Entry, Owned, Preview, SceneView, ViewModel};
 
 fn character(vm: &ViewModel) -> CharacterView {
     vm.character.clone().unwrap_or(CharacterView::default())
@@ -30,6 +30,48 @@ pub(crate) fn description(words: &[u8]) -> ControlState {
         }),
         ..ControlState::default()
     }
+}
+
+/// An item's description box: its name, then `lead` (the equip page's
+/// preview), then what it says (its stats and description,
+/// `Entry::description`); empty for none.
+fn described(entry: Option<&Entry>, lead: &[u8]) -> ControlState {
+    description(&entry.map_or(Vec::new(), |entry| {
+        let mut words = entry.name.clone();
+        words.extend_from_slice(b"\n\n");
+        words.extend_from_slice(lead);
+        words.extend_from_slice(&entry.description);
+        words
+    }))
+}
+
+/// What putting an item on changes, as the equip page's numbers show it
+/// (`Preview`): each that changes, "now -> then", a line each and a blank
+/// line after; nothing when none does.
+fn preview_lines(me: &CharacterView, then: &Preview) -> Vec<u8> {
+    let mut lines = String::new();
+    let mut change = |what: &str, now: String, then: String| {
+        if now != then {
+            lines.push_str(&format!("{what}: {now} -> {then}\n"));
+        }
+    };
+    for (hand, side) in ["", "Off hand "].iter().enumerate() {
+        change(
+            &format!("{side}Attack"),
+            signed(me.attack[hand]),
+            signed(then.attack[hand]),
+        );
+        change(
+            &format!("{side}Damage"),
+            me.damage[hand].clone(),
+            then.damage[hand].clone(),
+        );
+    }
+    change("Defense", me.defence.to_string(), then.defence.to_string());
+    if !lines.is_empty() {
+        lines.push('\n');
+    }
+    lines.into_bytes()
 }
 
 fn vitality(me: &CharacterView) -> String {
@@ -85,6 +127,23 @@ pub struct Equip {
     /// The slot looked at (its button and number), and the row chosen.
     slot: Option<(&'static str, u8)>,
     chosen: Option<usize>,
+    /// The row the list's cursor is on: described while none is chosen.
+    pointed: usize,
+}
+
+/// Where TSL's `equip_p` keeps its description box (`LB_DESC`): over the
+/// slots, which it hides while a slot's list is open.
+const DESC_BOX: [i32; 4] = [410, 134, 313, 336];
+
+/// Whether `control`'s centre lies within the description box (`DESC_BOX`).
+fn under_desc_box(control: &Control) -> bool {
+    let [left, top, width, height] = DESC_BOX;
+    let extent = control.extent;
+    let (x, y) = (
+        extent.left + extent.width / 2,
+        extent.top + extent.height / 2,
+    );
+    (left..left + width).contains(&x) && (top..top + height).contains(&y)
 }
 
 impl Equip {
@@ -122,6 +181,32 @@ impl Page for Equip {
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         let me = character(vm);
         let tag = control.tag.as_str();
+        if self.slot.is_some() {
+            if tag == "LB_DESC" {
+                // The "None" row tells what it would take off.
+                let row = self.chosen.unwrap_or(self.pointed);
+                let worn = |slot| me.worn.iter().find(|(at, _)| *at == slot);
+                let item = match self.listed(&me).into_iter().nth(row) {
+                    Some(Some(owned)) => Some(owned),
+                    Some(None) => self
+                        .slot
+                        .and_then(|(_, slot)| worn(slot))
+                        .map(|(_, owned)| owned.clone()),
+                    None => None,
+                };
+                let lead = item
+                    .as_ref()
+                    .zip(self.slot)
+                    .and_then(|(owned, (_, slot))| {
+                        owned.previews.iter().find(|preview| preview.slot == slot)
+                    })
+                    .map_or(Vec::new(), |then| preview_lines(&me, then));
+                return described(item.as_ref().map(|owned| &owned.entry), &lead);
+            }
+            if under_desc_box(control) {
+                return hidden();
+            }
+        }
         if let Some((.., empty, _, slot)) = SLOTS.iter().find(|(label, ..)| *label == tag) {
             let worn = me
                 .worn
@@ -183,6 +268,11 @@ impl Page for Equip {
         if let Some((_, button, .., slot)) = SLOTS.iter().find(|(_, button, ..)| *button == tag) {
             self.slot = Some((button, *slot));
             self.chosen = None;
+            self.pointed = 0;
+        } else if tag == "BTN_BACK" && self.slot.is_some() {
+            // Back from a slot's list to the slots, as TSL's.
+            self.slot = None;
+            self.chosen = None;
         } else if tag == "BTN_EQUIP" && dresses(vm) {
             let me = character(vm);
             if let (Some((_, slot)), Some(choice)) = (self.slot, self.choice(&me)) {
@@ -201,6 +291,7 @@ impl Page for Equip {
                     },
                     None => GameAction::Unequip { who: me.id, slot },
                 }));
+                self.slot = None;
                 self.chosen = None;
             }
         } else if tag == "BTN_SWAPWEAPONS" && dresses(vm) {
@@ -215,6 +306,12 @@ impl Page for Equip {
     fn row(&mut self, _: &str, index: usize, _: &ViewModel) {
         if self.slot.is_some() {
             self.chosen = Some(index);
+        }
+    }
+
+    fn pointed(&mut self, list: &str, index: usize, _: &ViewModel) {
+        if list == "LB_ITEMS" {
+            self.pointed = index;
         }
     }
 
@@ -234,8 +331,13 @@ impl Page for Equip {
         (list == "LB_ITEMS").then_some("BTN_EQUIP")
     }
 
+    /// The slots, else, while a slot's list is open over them, the list.
     fn first_focus(&self) -> Option<&str> {
-        Some("BTN_INV_BODY")
+        Some(if self.slot.is_some() {
+            "LB_ITEMS"
+        } else {
+            "BTN_INV_BODY"
+        })
     }
 }
 
@@ -245,6 +347,8 @@ impl Page for Equip {
 pub struct Inventory {
     filter: Filter,
     selected: Option<usize>,
+    /// The row the list's cursor is on: described while none is chosen.
+    pointed: usize,
 }
 
 impl Default for Inventory {
@@ -252,6 +356,7 @@ impl Default for Inventory {
         Inventory {
             filter: Filter::new(filter::INVENTORY),
             selected: None,
+            pointed: 0,
         }
     }
 }
@@ -283,12 +388,7 @@ impl Page for Inventory {
             .collect();
         match tag {
             "LB_ITEMS" => rows(&items, self.selected),
-            "LB_DESCRIPTION" => description(
-                &self
-                    .selected
-                    .and_then(|at| items.get(at))
-                    .map_or(Vec::new(), |entry| entry.description.clone()),
-            ),
+            "LB_DESCRIPTION" => described(items.get(self.selected.unwrap_or(self.pointed)), &[]),
             "LBL_CREDITS_VALUE" => text(me.credits),
             "BTN_USEITEM" => enabled(self.usable(vm, &me).is_some()),
             _ => ControlState::default(),
@@ -298,6 +398,7 @@ impl Page for Inventory {
     fn press(&mut self, tag: &str, vm: &ViewModel, out: &mut Vec<Intent>) {
         if self.filter.press(tag) {
             self.selected = None;
+            self.pointed = 0;
         } else if tag == "BTN_USEITEM" {
             let me = character(vm);
             if let Some(item) = self.usable(vm, &me) {
@@ -308,6 +409,12 @@ impl Page for Inventory {
 
     fn row(&mut self, _: &str, index: usize, _: &ViewModel) {
         self.selected = Some(index);
+    }
+
+    fn pointed(&mut self, list: &str, index: usize, _: &ViewModel) {
+        if list == "LB_ITEMS" {
+            self.pointed = index;
+        }
     }
 
     fn primary(&self, list: &str) -> Option<&'static str> {

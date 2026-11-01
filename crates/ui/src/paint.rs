@@ -559,7 +559,11 @@ impl<'a> Painter<'a> {
             let words = self.shown_words(control, state);
             let color = self.text_color(control, state, text.color);
             let font = text.font.clone();
-            self.text(&font, &words, rect, text.alignment, color, out);
+            let inner = control
+                .border
+                .as_ref()
+                .map_or(rect, |border| inner(rect, border));
+            self.text(&font, &words, inner, text.alignment, color, out);
         }
     }
 
@@ -858,13 +862,12 @@ impl<'a> Painter<'a> {
             }
         }
         if let Some(thumb) = bar.thumb.as_ref().map(|image| image.image.clone()) {
-            let track = h - 2.0 * w - 4.0;
-            let size = track * shown as f32 / count as f32;
+            let (top, track, size) = thumb_track(bar, count, shown);
             let at = (track - size) * first as f32 / (count - shown) as f32;
             self.image(
                 self.source,
                 &thumb,
-                [l + 2.0, t + w + 2.0 + at, w - 4.0, size],
+                [l + 2.0, top + at, w - 4.0, size],
                 [1.0; 4],
                 out,
             );
@@ -938,6 +941,37 @@ pub fn flow_cell_at(proto: &Control, x: f32, cells: usize) -> usize {
         .take(cells)
         .position(|square| x >= square[0] && x <= square[0] + square[2])
         .unwrap_or(0)
+}
+
+/// A list's scrollbar `bar` for `count` rows, `shown` of them in view:
+/// where its thumb's track begins, how long it is, and the thumb's length
+/// (layout pixels; the track lies between the arrows, a bar's width each).
+pub(crate) fn thumb_track(bar: &Control, count: usize, shown: usize) -> (f32, f32, f32) {
+    let [_, t, w, h] = rect_of(bar);
+    let track = h - 2.0 * w - 4.0;
+    (
+        t + w + 2.0,
+        track,
+        track * shown as f32 / count.max(1) as f32,
+    )
+}
+
+/// Where a bordered control's text goes (`CSWGuiBorder::GetInnerExtent`,
+/// TSL's exe): `rect` less the border's dimension on each side, along each
+/// axis that has room for it (more than half a dimension left), else the
+/// whole axis.
+fn inner(rect: [f32; 4], border: &Border) -> [f32; 4] {
+    let dim = border.dimension.max(0) as f32;
+    let axis = |start: f32, size: f32| {
+        let rest = size - 2.0 * dim;
+        if rest > 0.0 && rest >= dim / 2.0 {
+            (start + dim, rest)
+        } else {
+            (start, size)
+        }
+    };
+    let ((left, width), (top, height)) = (axis(rect[0], rect[2]), axis(rect[1], rect[3]));
+    [left, top, width, height]
 }
 
 fn intersect(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {

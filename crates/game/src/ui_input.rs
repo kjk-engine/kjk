@@ -139,6 +139,7 @@ pub(crate) fn gather(
     *last_pointer = pointer;
     input.pointer = pointer.map(|at| [at.x, at.y]);
     input.click = mouse.is_some_and(|mouse| mouse.just_pressed(MouseButton::Left));
+    input.held = mouse.is_some_and(|mouse| mouse.pressed(MouseButton::Left));
 
     let (mut stick, mut scroll) = (Vec2::ZERO, 0.0f32);
     for gamepad in gamepads {
