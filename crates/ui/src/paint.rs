@@ -402,6 +402,20 @@ impl<'a> Painter<'a> {
 
     /// `bytes` in `font` inside `rect`, wrapped, aligned and cut at the
     /// box (at least one line shows).
+    /// The image `name` as large as fits `area` with its own shape,
+    /// centred across it at its top (a pad's buttons over an action slot).
+    pub fn badge(&mut self, name: &str, area: [f32; 4], out: &mut DrawList) {
+        let Some(id) = self.texture(Source::Campaign, name) else {
+            return;
+        };
+        let [x, y, w, h] = area;
+        let (iw, ih) = self.textures.size(id);
+        let scale = (w / iw.max(1) as f32).min(h / ih.max(1) as f32);
+        let (wide, tall) = (iw as f32 * scale, ih as f32 * scale);
+        let rect = [x + (w - wide) / 2.0, y, wide, tall];
+        out.quads.push(Quad::image(rect, id, [1.0; 4]));
+    }
+
     /// The pad's `hints` along the bottom of a frame `w` × `h` wide (the
     /// strip reaching `reach` past its sides, as the screens' veil does),
     /// right to left from its right: each hint's buttons as `kind`'s pad

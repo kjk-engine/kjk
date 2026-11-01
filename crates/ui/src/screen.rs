@@ -114,6 +114,12 @@ pub trait Screen: Send + Sync {
     fn tab_bar(&self, _vm: &ViewModel) -> bool {
         false
     }
+    /// Whether the list `list` chooses its row as the cursor moves to it
+    /// (`pointed`: the save picked): Activate on a row then does its
+    /// primary (Load), as a double click does, not choose it again.
+    fn activates_primary(&self, _list: &str) -> bool {
+        false
+    }
     /// The button whose words name a double click on `tag` when it is no
     /// list (a party slot's Add), for the pad's hint.
     fn double_button(&self, _tag: &str) -> Option<&'static str> {
@@ -867,10 +873,21 @@ impl Entry {
                         self.move_focus(gui, &targets, *key);
                     }
                 }
-                Key::Activate => {
-                    self.sound_click(gui, out);
-                    self.activate(gui, vm, out);
-                }
+                Key::Activate => match self
+                    .focus
+                    .clone()
+                    .filter(|tag| self.screen.activates_primary(tag))
+                {
+                    Some(tag) => {
+                        let row = self.lists.get(&tag).map_or(0, |cursor| cursor.row);
+                        self.double_row(gui, vm, &tag, row, out);
+                        self.clicked = None;
+                    }
+                    None => {
+                        self.sound_click(gui, out);
+                        self.activate(gui, vm, out);
+                    }
+                },
                 Key::Back => self.screen.back(out),
                 Key::Accept => match self.button(gui, vm, self.screen.accept(), ACCEPTS) {
                     Some(tag) => self.press_button(gui, vm, &tag, out),
@@ -1338,14 +1355,21 @@ impl Entry {
         };
         let mut hints = Vec::new();
         if let Some(focus) = &self.focus {
-            hints.push(hint(&["South"], strings::bytes(strings::SELECT)));
             let double = self
                 .screen
                 .primary(focus)
                 .or_else(|| self.screen.double_button(focus))
-                .filter(|tag| self.usable(gui, vm, tag));
-            if let Some(words) = double.and_then(words) {
-                hints.push(hint(&["West"], words));
+                .filter(|tag| self.usable(gui, vm, tag))
+                .and_then(words);
+            // A row chosen by the cursor: A does its primary, X no more.
+            match double {
+                Some(words) if self.screen.activates_primary(focus) => {
+                    hints.push(hint(&["South"], words));
+                }
+                double => {
+                    hints.push(hint(&["South"], strings::bytes(strings::SELECT)));
+                    hints.extend(double.map(|words| hint(&["West"], words)));
+                }
             }
         }
         if let Some(words) = self

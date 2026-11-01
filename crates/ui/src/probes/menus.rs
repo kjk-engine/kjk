@@ -538,6 +538,30 @@ fn named(stack: &mut Stack) -> (&'static str, String) {
     )
 }
 
+/// A save is chosen as the cursor comes to it, so a pad's A on it loads,
+/// as X (a double click) does.
+pub(super) fn pad_saves() -> Vec<Check> {
+    let mut assets = Fake::new();
+    assets.layouts.insert("saveload", saveload());
+    let vm = saves_vm();
+    let mut by_a = opened("load", &mut assets, &vm);
+    by_a.press("LB_GAMES");
+    by_a.step(&mut assets, &vm, &keys(&[]));
+    let a = by_a.step(&mut assets, &vm, &keys(&[Key::Activate])).intents;
+    let mut by_x = opened("load", &mut assets, &vm);
+    by_x.press("LB_GAMES");
+    by_x.step(&mut assets, &vm, &keys(&[]));
+    let x = by_x.step(&mut assets, &vm, &keys(&[Key::Primary])).intents;
+    vec![check(
+        "pad_saves",
+        expect(
+            &format!("A loads as X does: {a:?} / {x:?}"),
+            !a.is_empty() && a == x,
+        )
+        .map(|()| format!("{a:?}")),
+    )]
+}
+
 pub(super) fn saves() -> Vec<Check> {
     let mut assets = Fake::new();
     assets.layouts.insert("saveload", saveload());

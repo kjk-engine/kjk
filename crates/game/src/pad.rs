@@ -465,6 +465,42 @@ impl Prompts<'_> {
             _ => keys.shown(action),
         }
     }
+
+    /// `action`'s binding over a HUD slot: while a pad plays, its buttons
+    /// drawn (`ui::icons`, compact where words would overflow); else its
+    /// key, a mouse button as `MB1` (`MB4` the side's first).
+    pub(crate) fn label(&self, action: Action) -> ui::vm::KeyLabel {
+        let device = self
+            .actions
+            .as_ref()
+            .map_or(Device::Keys, |actions| actions.device);
+        let chord = self.pads.as_ref().and_then(|pads| pads.chord(action));
+        let badge = match (device, chord) {
+            (Device::Pad(kind), Some(chord)) => {
+                Some(ui::icons::pad_texture(kind.key(), &chord.name()))
+            }
+            _ => None,
+        };
+        let keys = self.keys.as_deref().unwrap_or(KeyMap::defaults());
+        let words = match keys.input(action) {
+            Input::Mouse(button) => format!("MB{}", mouse_number(button)).into_bytes(),
+            Input::Key(_) => keys.shown(action),
+        };
+        ui::vm::KeyLabel { words, badge }
+    }
+}
+
+/// A mouse button's number, as players count them (the side buttons 4 and
+/// 5).
+fn mouse_number(button: MouseButton) -> u16 {
+    match button {
+        MouseButton::Left => 1,
+        MouseButton::Right => 2,
+        MouseButton::Middle => 3,
+        MouseButton::Back => 4,
+        MouseButton::Forward => 5,
+        MouseButton::Other(n) => n,
+    }
 }
 
 /// The pad presses the screens read (`dialogue_view`, `movie_view`): the
