@@ -701,8 +701,8 @@ pub struct Particles {
     bolts: Vec<(Vec3, Vec3)>,
     next_bolt: f32,
     /// How much bigger its particles are drawn than their sizes, riding
-    /// with their emitter: as much as the model is placed scaled (an own
-    /// muzzle flash before the eyes, `first_person::FLASH_SCALE`).
+    /// with their emitter (`Spray::grow`: an own muzzle flash before the
+    /// eyes, `first_person::FLASH_SCALE`); 1 unless its drawer says.
     pub grown: f32,
 }
 
@@ -1552,8 +1552,9 @@ pub fn aim(
 }
 
 impl Spray {
-    /// Its particles riding with it drawn `by` times their sizes: the
-    /// model's placed scale (`Particles::grown`).
+    /// Its particles riding with it drawn `by` times their sizes
+    /// (`Particles::grown`): a gun's flash as small as it is shown
+    /// (`blaster_view`).
     pub fn grow(&mut self, by: f32) {
         self.particles.grown = by;
     }

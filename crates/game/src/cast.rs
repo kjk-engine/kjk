@@ -1010,6 +1010,10 @@ impl Figure {
             .fighter
             .filter(|f| f.alive() && !rig.quirks)
             .and_then(|f| Some([f.pose.legs?, f.pose.torso?]));
+        if posed.is_none() {
+            // Dead or drawn the cgame's way: no guns held up to come back to.
+            self.raised = None;
+        }
         if let Some(mut parts) = posed {
             let held = entity.fighter.is_some_and(|f| {
                 f.alive() && (f.shooting.charging_from.is_some() || f.shooting.aiming)

@@ -13,7 +13,8 @@
 //! - A Sniper Shot's aim (`Shooting::aiming`): the laser sight (`v_sn_r_gen`'s
 //!   `LazerSight`, a thin red ribbon to its reference node), from just under
 //!   the muzzle to where the shot would go (the first wall or body along the
-//!   view; KOTOR's stops `SIGHT_LENGTH` out), once the gun is raised on it:
+//!   view; KOTOR's stops at its reference node, a metre or so out), once
+//!   the gun is raised on it:
 //!   drawn out of hand or swung away, its barrel off that way by more than
 //!   `RAISED`, none.
 
@@ -33,16 +34,12 @@ use crate::shots::OwnFire;
 use crate::sim_host::{PresentedSnapshot, SceneSwap, view_ms};
 
 const UNIT: f32 = asset_ja::UNIT;
-/// How far a sniper's aim reaches (metres).
-const REACH: f32 = 80.0;
 /// How far under the muzzle the laser leaves (metres).
 const UNDER: f32 = 0.025;
 /// How far a gun's barrel (its root to its muzzle, a few degrees off the
 /// bore) may point off its aim and still count as raised on it (degrees):
 /// a pair's raised guns stand 12 to 14 off, one being drawn far more.
 const RAISED: f32 = 18.0;
-/// KOTOR's Sniper Shot's own row: only the laser sight.
-const SIGHT_ROW: u16 = 4038;
 /// How far behind its model's origin the sight's emitter stands (metres,
 /// `v_sn_r_gen`): the model is placed that far on, for the line to leave
 /// from under the muzzle.
@@ -120,9 +117,10 @@ fn draw(
         }
     };
     for gunner in gunners(current, &objects, &fire) {
-        // Where the shot would go (metres, game space).
+        // Where the shot would go (metres, game space), as far as a
+        // disruptor's reaches.
         let point = || {
-            let to = gunner.eye + gunner.forward * REACH;
+            let to = gunner.eye + gunner.forward * sim::combat::weapons::HITSCAN_RANGE * UNIT;
             let met = swap.level.with(states.as_deref(), |world| {
                 Bodies::new(world, &bodies)
                     .skipping(gunner.id.0 | sim::BODY)
@@ -141,7 +139,12 @@ fn draw(
             else {
                 continue;
             };
-            let (row, at, way, hold, reach, scale) = match aimed {
+            let row = match aimed {
+                Some(_) => sight_row(),
+                None => charge_row(gunner.special),
+            };
+            let Some(row) = row else { continue };
+            let (at, way, hold, reach, scale) = match aimed {
                 Some(point) => {
                     let from = muzzle - Vec3::Z * UNDER;
                     let way = (point - from).normalize_or(gunner.forward);
@@ -152,7 +155,6 @@ fn draw(
                     }
                     let reach = from.distance(point);
                     (
-                        SIGHT_ROW,
                         from + way * SIGHT_BACK,
                         way,
                         SIGHT_HOLD_MS,
@@ -161,7 +163,6 @@ fn draw(
                     )
                 }
                 None => (
-                    charge_row(gunner.special),
                     muzzle,
                     gunner.forward,
                     CHARGE_HOLD_MS,
@@ -187,7 +188,7 @@ fn draw(
         }
     }
     // A charge let go runs on where its gun is, for its flares to die out.
-    for gun in was.keys().filter(|gun| gun.2 != SIGHT_ROW) {
+    for gun in was.keys().filter(|gun| Some(gun.2) != sight_row()) {
         if !since.held.contains_key(gun) {
             since.dying.insert(*gun, now);
         }
@@ -214,12 +215,17 @@ fn draw(
 
 /// The charge-up a Power Blast holds: its tier's, the first tier's the
 /// Improved one's.
-fn charge_row(special: Special) -> u16 {
+fn charge_row(special: Special) -> Option<u16> {
     let tier = match special {
         Special::PowerBlast(tier) => tier.max(2),
         _ => 2,
     };
-    crate::blaster_view::feat_row(Special::PowerBlast(tier)).unwrap_or(4013)
+    crate::blaster_view::feat_row(Special::PowerBlast(tier))
+}
+
+/// The laser sight: KOTOR's first Sniper Shot's row, the sight alone.
+fn sight_row() -> Option<u16> {
+    crate::blaster_view::feat_row(Special::SniperShot(1))
 }
 
 /// Which way `who`'s gun in `hand` points as drawn (game space): from its

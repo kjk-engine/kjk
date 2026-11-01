@@ -82,7 +82,7 @@
 <polyline class="lead" points="992,96 835,146"/>
 <circle class="dot" cx="835" cy="146" r="3"/>
 <text x="1000" y="160" class="main" text-anchor="start"><tspan class="key">RB</tspan>  Force power: cast the selected one</text>
-<text x="1000" y="178" class="sub" text-anchor="start">Grip, lightning, drain: hold · Menus: next tab</text>
+<text x="1000" y="178" class="sub" text-anchor="start">Grip, lightning, drain: hold · LB+RB: next feat attack · Menus: next tab</text>
 <polyline class="lead" points="992,156 848,176"/>
 <circle class="dot" cx="848" cy="176" r="3"/>
 <circle cx="1025" cy="215" r="10" fill="var(--a)" fill-opacity="0.22" stroke="var(--a)" stroke-width="1.6"/>

@@ -62,7 +62,7 @@ const FLASH_MS: f64 = 2000.0;
 /// The colour controller of a light (reone's controller numbers).
 const LIGHT_COLOUR: u32 = 76;
 /// The feats' visuals on the gun as their shots leave it (the executable's
-/// table, fn 0x10029f69e): Power Blast's (Improved, Master), Sniper
+/// table): Power Blast's (Improved, Master), Sniper
 /// Shot's (its first too), Rapid Shot's (Improved, Multi Shot).
 const FEAT_ROWS: [u16; 7] = [4013, 4029, 4038, 4015, 4020, 4022, 4016];
 
@@ -632,7 +632,11 @@ fn draw(
             };
             taken[k] = true;
             let pooled = &mut copies[k];
-            let new = pooled.shows.is_none_or(|(key, _)| key != item.key);
+            // A hold begun again (a charge right after one let go, its
+            // flares still dying on the same gun) starts its clip over.
+            let new = pooled.shows.is_none_or(|(key, since)| {
+                key != item.key || item.hold_ms.is_some() && item.since > since
+            });
             if new {
                 pooled.spawned.reset();
                 pooled.shows = Some((item.key, item.since));
@@ -653,6 +657,11 @@ fn draw(
             }];
             let anims = copy.anims.clone();
             fx_model::animate(copy, &anims, (now, dt), Vec::new(), &mut transforms);
+            // Its particles as small as it is shown (an own flash before the
+            // eyes).
+            for spray in &mut copy.sprays {
+                spray.grow(item.scale);
+            }
             // A copy new to this keeps no other's reach; one held reaches out.
             if new || item.reach.is_some() {
                 let nodes = &copy.model.placed.ir.nodes;
