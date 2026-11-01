@@ -32,7 +32,8 @@ use vfs::{Discovery, Game};
 
 use crate::lifecycle_view::{gui_quad, unlit};
 use crate::material::OdysseyMaterial;
-use crate::settings::{Action, KeyMap};
+use crate::pad::Prompts;
+use crate::settings::Action;
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SelectedPower};
 
 /// The overlay camera's layer, shared with the conversation screen
@@ -346,7 +347,7 @@ fn remote_view(
     ui: &mut crate::ui_view::Ui,
     remote: &sim::remote::Remote,
     now_ms: u64,
-    keymap: &KeyMap,
+    prompts: &Prompts,
 ) -> ui::vm::HudView {
     let actions = REMOTE_ICONS
         .iter()
@@ -364,7 +365,7 @@ fn remote_view(
         action_keys: vec![
             b"MB1".to_vec(),
             b"MB2".to_vec(),
-            keymap.shown(Action::Medpac),
+            prompts.shown(Action::Medpac),
         ],
         ..ui::vm::HudView::default()
     }
@@ -487,7 +488,7 @@ fn show(
     own: Option<Res<OwnSeat>>,
     selected: Option<Res<SelectedPower>>,
     swap: Option<Res<crate::sim_host::SceneSwap>>,
-    keymap: Option<Res<KeyMap>>,
+    prompts: Prompts,
     mut materials: ResMut<Assets<OdysseyMaterial>>,
     mut parts: Query<(&mut Transform, &mut Visibility)>,
     mut icon: Query<&mut MeshMaterial3d<OdysseyMaterial>>,
@@ -498,7 +499,6 @@ fn show(
         return;
     };
     let snapshot = presented.0.current();
-    let keymap = keymap.as_deref().unwrap_or(KeyMap::defaults());
     let Some((entity, sheet)) = swap
         .as_ref()
         .and_then(|swap| crate::cast::body_sheet(snapshot, own.0, &swap.level))
@@ -508,7 +508,7 @@ fn show(
             ui.vm.hud = snapshot
                 .remote(own.0)
                 .filter(|remote| !remote.hidden)
-                .map(|remote| remote_view(ui, remote, snapshot.time_ms, keymap));
+                .map(|remote| remote_view(ui, remote, snapshot.time_ms, &prompts));
         }
         return;
     };
@@ -607,7 +607,7 @@ fn show(
         }
         if let Some((item, kind)) = kind {
             carried.push(serde_json::json!({"row": item.row, "left": left}));
-            slots.push((item.row, u32::from(left), keymap.shown(key_of(kind))));
+            slots.push((item.row, u32::from(left), prompts.shown(key_of(kind))));
         }
     }
     if let Ok(mut layers) = cameras.get_mut(hud.camera) {
@@ -664,7 +664,7 @@ fn show(
                 ui,
                 &sheet,
                 &fighter,
-                (power.map(|row| (row, keymap.shown(Action::Power))), &slots),
+                (power.map(|row| (row, prompts.shown(Action::Power))), &slots),
                 &snapshot.goods,
                 (
                     sim::persona::of(&snapshot.personas, own.0),

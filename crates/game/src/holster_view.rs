@@ -9,7 +9,6 @@ use sim::action::Action;
 
 use crate::leader_view::{Busy, busy};
 use crate::loot::Outgoing;
-use crate::settings::KeyMap;
 
 pub struct HolsterViewPlugin;
 
@@ -20,13 +19,12 @@ impl Plugin for HolsterViewPlugin {
 }
 
 fn holster(
-    (keys, map): (Option<Res<ButtonInput<KeyCode>>>, Option<Res<KeyMap>>),
+    actions: Option<Res<crate::pad::Actions>>,
     taken: Busy,
     outgoing: Option<ResMut<Outgoing>>,
 ) {
     let busy = busy(taken);
-    let map = map.map_or_else(KeyMap::default, |map| map.clone());
-    let pressed = keys.is_some_and(|keys| map.pressed_now(&keys, crate::settings::Action::Holster));
+    let pressed = actions.is_some_and(|actions| actions.pressed(crate::settings::Action::Holster));
     if let (false, true, Some(mut outgoing)) = (busy, pressed, outgoing) {
         info!(target: "weapons", "holster");
         outgoing.0.push(Action::Holster);

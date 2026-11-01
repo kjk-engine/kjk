@@ -176,7 +176,7 @@ pub(super) fn grow(gui: &mut Gui) {
 
 /// `confirm` `by` taller, its top up half of it, the list as much taller
 /// and the buttons below it moved down.
-fn taller(gui: &mut Gui, by: i32) {
+pub(super) fn taller(gui: &mut Gui, by: i32) {
     gui.extent.height += by;
     gui.extent.top -= by / 2;
     let list_bottom = gui

@@ -124,7 +124,7 @@ type Buttons<'w> = (
 /// A game's state the screens read: its snapshots, the keys.
 type InGame<'w> = (
     Option<Res<'w, crate::sim_host::PresentedSnapshot>>,
-    Option<Res<'w, crate::settings::KeyMap>>,
+    Option<Res<'w, crate::pad::Actions>>,
 );
 
 /// A movie up (it takes the keys and the pointer), the pointer's state (a
@@ -448,7 +448,7 @@ fn step(
         Option<Res<crate::dialogue_view::ReplyInput>>,
     ),
     heard: Option<ResMut<crate::ui_sounds::Heard>>,
-    (presented, map): InGame,
+    (presented, actions): InGame,
     (showing, cursors, (mut picked, mut watch, mut swap)): HudPointer,
 ) {
     let top = ui.stack.top().map(|screen| screen.0);
@@ -467,12 +467,15 @@ fn step(
         .and_then(Camera::logical_viewport_size)
         .or_else(|| window.map(|window| Vec2::new(window.width(), window.height())))
         .unwrap_or(Vec2::new(1280.0, 720.0));
+    // A movie takes the pads too; B is Back only on a screen (in play it
+    // crouches), and LB's Start is the quick save.
+    let pads = (!movie).then_some((&gamepads, ui.stack.is_open()));
     let mut input = gather(
         keys.as_deref(),
         mouse.as_deref(),
         &mut typed,
         &mut wheel,
-        &gamepads,
+        pads,
         window,
         size,
         time.delta_secs(),
@@ -484,8 +487,7 @@ fn step(
     input.keys.extend(more);
     input.text.push_str(&text);
     if presented.is_some() {
-        let map = map.map_or_else(crate::settings::KeyMap::default, |map| map.clone());
-        in_game(ui, &mut input, keys.as_deref(), &map);
+        in_game(ui, &mut input, actions.as_deref().filter(|_| !movie));
     }
     ui.stack.veil_world = presented.is_some();
     let frame = match &mut ui.assets {
@@ -901,24 +903,19 @@ fn card_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
 }
 
 /// The screens' keys in a game: Escape (or gamepad Start) opens the menu
-/// at its options; I, J, M, P and K open their screens, or switch the
-/// open tab to theirs, or close theirs.
-fn in_game(
-    ui: &mut Ui,
-    input: &mut ui::input::UiInput,
-    keys: Option<&ButtonInput<KeyCode>>,
-    map: &crate::settings::KeyMap,
-) {
+/// at its options; I, J, M, P and K (a pad's Select, the inventory) open
+/// their screens, or switch the open tab to theirs, or close theirs.
+fn in_game(ui: &mut Ui, input: &mut ui::input::UiInput, actions: Option<&crate::pad::Actions>) {
     use ui::input::Key;
     if !ui.stack.is_open() && input.keys.contains(&Key::Back) {
         input.keys.retain(|key| *key != Key::Back);
         ui.stack.open("options_in_game", &ui.vm);
     }
-    let Some(keys) = keys else {
+    let Some(actions) = actions else {
         return;
     };
     for (action, name) in HOTKEYS {
-        if !map.pressed_now(keys, action) {
+        if !actions.pressed(action) {
             continue;
         }
         let tab = |screen: &str| {

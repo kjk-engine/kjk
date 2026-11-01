@@ -13,6 +13,9 @@ pub enum Key {
     Activate,
     /// Escape, gamepad B or Start.
     Back,
+    /// A double click on what has the focus (a list row's `Screen::primary`:
+    /// buy, use, equip, load; a party slot's add or remove), gamepad X.
+    Primary,
     /// The menu bar's next and previous tab (gamepad RB and LB).
     NextTab,
     PrevTab,

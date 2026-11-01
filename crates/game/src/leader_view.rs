@@ -15,7 +15,6 @@ use sim::Seat;
 use sim::action::Action;
 
 use crate::loot::Outgoing;
-use crate::settings::KeyMap;
 use crate::sim_host::{OwnSeat, PresentedSnapshot};
 use crate::ui_view::Ui;
 
@@ -50,7 +49,7 @@ pub(crate) fn busy((ui, replies, showing): Busy) -> bool {
 }
 
 fn lead(
-    (keys, map): (Option<Res<ButtonInput<KeyCode>>>, Option<Res<KeyMap>>),
+    actions: Option<Res<crate::pad::Actions>>,
     taken: Busy,
     (presented, own): (Option<Res<PresentedSnapshot>>, Option<Res<OwnSeat>>),
     mut picked: ResMut<Picked>,
@@ -74,9 +73,8 @@ fn lead(
         return;
     }
     let busy = busy(taken);
-    let map = map.map_or_else(KeyMap::default, |map| map.clone());
     let key =
-        !busy && keys.is_some_and(|keys| map.pressed_now(&keys, crate::settings::Action::Leader));
+        !busy && actions.is_some_and(|actions| actions.pressed(crate::settings::Action::Leader));
     let member = match clicked {
         Some(id) => party
             .iter()

@@ -51,9 +51,10 @@ use sim::{
 };
 
 use crate::lifecycle::{Installer, Prepared};
+use crate::pad::Actions;
 use crate::play::BodyScene;
 use crate::scene::{Headless, SceneContent};
-use crate::settings::{Action, KeyMap, MouseFeel};
+use crate::settings::{Action, MouseFeel};
 use crate::solo::Solo;
 use net::session::LevelRequest;
 use sim::determinism::{Setup, pilot};
@@ -282,19 +283,18 @@ pub(crate) struct Look {
 }
 
 impl Look {
-    /// Turned by the mouse's motion this frame, as the player set it. The
-    /// sim adds its `view_offset` to the command's angles (a saber move
-    /// holding the view, a script's facing or a new module's start move
-    /// them), so the pitch is held where the view it gives, `held` (the
-    /// player's pitch delta, degrees) added, stays within the sim's limit:
-    /// the view reaches straight down and up whatever the delta, and turns
-    /// back at once from either end.
-    pub(crate) fn turn(&mut self, delta: Vec2, feel: crate::settings::MouseFeel, held: f32) {
-        let degrees = MOUSE_DEGREES * feel.scale;
-        let up = if feel.invert { -1.0 } else { 1.0 };
-        self.yaw -= delta.x * degrees;
+    /// Turned by `degrees` (x to the right, y down: the mouse's motion as
+    /// the player set it, and a pad's stick, `Read::turn`). The sim adds
+    /// its `view_offset` to the command's angles (a saber move holding the
+    /// view, a script's facing or a new module's start move them), so the
+    /// pitch is held where the view it gives, `held` (the player's pitch
+    /// delta, degrees) added, stays within the sim's limit: the view
+    /// reaches straight down and up whatever the delta, and turns back at
+    /// once from either end.
+    pub(crate) fn turn(&mut self, degrees: Vec2, held: f32) {
+        self.yaw -= degrees.x;
         let most = pitch_limit();
-        self.pitch = (self.pitch + up * delta.y * degrees).clamp(-most - held, most - held);
+        self.pitch = (self.pitch + degrees.y).clamp(-most - held, most - held);
     }
 }
 
@@ -462,7 +462,10 @@ struct Authority {
 
 impl Plugin for SimHostPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Waited>()
+        // The keys and the pads play reads (`pad::Actions`), with or
+        // without the screens (`kjk sim view` drives seat 0 by them).
+        app.add_plugins(crate::pad::PadPlugin)
+            .init_resource::<Waited>()
             .init_resource::<CameraAim>()
             .init_resource::<ReloadRequest>()
             .init_resource::<crate::save_view::SaveRequest>()
@@ -478,7 +481,8 @@ impl Plugin for SimHostPlugin {
                             .chain()
                             .run_if(resource_exists::<Authority>),
                         crate::net_join::advance.run_if(crate::net_join::joined),
-                    ),
+                    )
+                        .after(crate::pad::Sampled),
                 )
                     .chain(),
             )
@@ -629,33 +633,30 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
 }
 
 /// This machine's player's input as play reads it, the host's (`advance`)
-/// and a joined player's (`net_join::advance`) alike: the keys (none
-/// without a window; none pressed, an idle command that keeps the view,
-/// while a screen or a movie is up), the mouse buttons held while the
-/// cursor is, and how far the mouse turns the view (not while a movie is
-/// up: on the host the world waits for it, `movie_view`). What a movie
-/// skip, a conversation or the cursor took reads as up until let go
-/// (`swallow`, before both).
+/// and a joined player's (`net_join::advance`) alike: the keys' and the
+/// pads' actions, the mouse's buttons among them while it holds the cursor
+/// (none without a window; none held, an idle command that keeps the view,
+/// while a screen or a movie is up), and how far the mouse
+/// and the pad's stick turn the view (not while a movie is up: on the
+/// host the world waits for it, `movie_view`). What a movie skip, a
+/// conversation, a screen or the cursor took reads as up until let go
+/// (`swallow`, `pad`, before both).
 #[derive(SystemParam)]
 pub(crate) struct PlayerInput<'w, 's> {
-    keys: Option<Res<'w, ButtonInput<KeyCode>>>,
-    buttons: Option<Res<'w, ButtonInput<MouseButton>>>,
+    actions: Option<Res<'w, Actions>>,
     motion: Option<Res<'w, AccumulatedMouseMotion>>,
     headless: Res<'w, Headless>,
     windows: Query<'w, 's, &'static CursorOptions, With<PrimaryWindow>>,
     screens: Option<Res<'w, crate::ui_view::UiOpen>>,
     showing: Option<Res<'w, crate::movie_view::Showing>>,
     feel: Option<Res<'w, MouseFeel>>,
-    idle: Local<'s, ButtonInput<KeyCode>>,
 }
 
 /// A frame's `PlayerInput`.
-pub(crate) struct Read<'a> {
-    pub keys: Option<&'a ButtonInput<KeyCode>>,
-    pub triggers: Triggers,
-    /// The mouse's motion the view turns by (`Look::turn`), if it turns.
+pub(crate) struct Read {
+    pub actions: Option<Actions>,
+    /// Degrees the view turns by (`Look::turn`), if it turns.
     pub turn: Option<Vec2>,
-    pub feel: MouseFeel,
 }
 
 impl PlayerInput<'_, '_> {
@@ -664,7 +665,7 @@ impl PlayerInput<'_, '_> {
         self.showing.as_ref().is_some_and(|showing| showing.0)
     }
 
-    pub(crate) fn read(&self) -> Read<'_> {
+    pub(crate) fn read(&self) -> Read {
         let headless = self.headless.0;
         let held = self.movie_up() || self.screens.as_ref().is_some_and(|open| open.0);
         let feel = self
@@ -676,19 +677,25 @@ impl PlayerInput<'_, '_> {
                 .windows
                 .iter()
                 .any(|cursor| cursor.grab_mode != CursorGrabMode::None);
+        let actions = self
+            .actions
+            .as_deref()
+            .filter(|_| !headless)
+            .map(|actions| if held { Actions::default() } else { *actions });
+        let mouse = self
+            .motion
+            .as_ref()
+            .filter(|_| grabbed)
+            .map_or(Vec2::ZERO, |motion| {
+                let up = if feel.invert { -1.0 } else { 1.0 };
+                Vec2::new(motion.delta.x, up * motion.delta.y) * MOUSE_DEGREES * feel.scale
+            });
+        let pad = actions.map_or(Vec2::ZERO, |actions| actions.turn);
         Read {
-            keys: self
-                .keys
-                .as_deref()
-                .filter(|_| !headless)
-                .map(|keys| if held { &*self.idle } else { keys }),
-            triggers: Triggers::of(grabbed, self.buttons.as_deref(), feel),
-            turn: self
-                .motion
-                .as_ref()
-                .filter(|_| !headless && grabbed)
-                .map(|motion| motion.delta),
-            feel,
+            // The mouse while it holds the cursor, the stick while it turns.
+            turn: (!headless && !self.movie_up() && (grabbed || pad != Vec2::ZERO))
+                .then_some(mouse + pad),
+            actions,
         }
     }
 }
@@ -743,17 +750,17 @@ pub(crate) fn grab_cursor(
     }
 }
 
-/// Seat 0's command in `kjk sim view`: WASD, space to jump, C to crouch,
-/// looking along +Y.
-pub(crate) fn keyboard(keys: &ButtonInput<KeyCode>) -> Command {
-    let axis = |plus: KeyCode, minus: KeyCode| {
-        127 * i8::from(keys.pressed(plus)) - 127 * i8::from(keys.pressed(minus))
-    };
+/// Seat 0's command in `kjk sim view`: the movement keys (or the stick),
+/// jump and crouch, looking along +Y.
+pub(crate) fn keyboard(actions: &Actions) -> Command {
+    let (forward, right) = crate::pad::step(actions, false);
+    let axis =
+        |plus, minus| 127 * i8::from(actions.held(plus)) - 127 * i8::from(actions.held(minus));
     Command {
         angles: view_angles(0.0, 90.0),
-        forward: axis(KeyCode::KeyW, KeyCode::KeyS),
-        right: axis(KeyCode::KeyD, KeyCode::KeyA),
-        up: axis(KeyCode::Space, KeyCode::KeyC),
+        forward,
+        right,
+        up: axis(Action::Jump, Action::Crouch),
         ..Command::default()
     }
 }
@@ -791,12 +798,12 @@ impl Controls {
     /// This frame's choices: in a conversation (`talk`) the answer the
     /// conversation screen took (`picked`, `dialogue_view::ReplyInput`);
     /// else the right or the left hand's weapon out (their keys, 1 and 2
-    /// unless rebound). [ and ] step through `choices` (`force::choices` of
-    /// the player's sheet), which starts at its first.
+    /// unless rebound). [ and ] (the D-pad's up and down) step through
+    /// `choices` (`force::choices` of the player's sheet), which starts at
+    /// its first.
     pub(crate) fn update(
         &mut self,
-        keys: &ButtonInput<KeyCode>,
-        map: &KeyMap,
+        actions: &Actions,
         choices: &[u8],
         talk: Option<&Conversation>,
         picked: Option<Pick>,
@@ -806,15 +813,15 @@ impl Controls {
                 self.reply = dialogue::answer(self.reply, pick);
             }
         } else {
-            if map.pressed_now(keys, Action::RightHand) {
+            if actions.pressed(Action::RightHand) {
                 self.weapon = 0;
             }
-            if map.pressed_now(keys, Action::LeftHand) {
+            if actions.pressed(Action::LeftHand) {
                 self.weapon = 1;
             }
         }
-        let step = i32::from(map.pressed_now(keys, Action::NextPower))
-            - i32::from(map.pressed_now(keys, Action::PreviousPower));
+        let step = i32::from(actions.pressed(Action::NextPower))
+            - i32::from(actions.pressed(Action::PreviousPower));
         self.power = match choices.iter().position(|row| *row == self.power) {
             _ if choices.is_empty() => 0,
             None => choices[0],
@@ -838,64 +845,28 @@ pub(crate) fn power_choices(snapshot: &Snapshot, seat: Seat, level: &Level) -> V
 #[derive(Resource, Default)]
 pub struct CameraAim(pub [i8; 3]);
 
-/// The mouse buttons held while the cursor is (the click that takes the
-/// cursor does not fire: `swallow`).
-#[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct Triggers {
-    pub attack: bool,
-    pub alt: bool,
-}
-
-impl Triggers {
-    pub(crate) fn of(
-        grabbed: bool,
-        mouse: Option<&ButtonInput<MouseButton>>,
-        feel: crate::settings::MouseFeel,
-    ) -> Triggers {
-        let held = |button| grabbed && mouse.is_some_and(|mouse| mouse.pressed(button));
-        let (attack, alt) = if feel.swap {
-            (MouseButton::Right, MouseButton::Left)
-        } else {
-            (MouseButton::Left, MouseButton::Right)
-        };
-        Triggers {
-            attack: held(attack),
-            alt: held(alt),
-        }
-    }
-}
-
-/// The player's command in `kjk play`: the mouse looks, WASD moves, space
+/// The player's command in `kjk play`: the mouse looks, WASD moves (or the
+/// pad's stick, as far as it is pushed: `pad::step`), space
 /// jumps, C or Ctrl crouches, Shift walks (JA's client sends 64 for a
 /// walk); E is the target's (`target_view`: its chosen action, a revive
 /// among them), not the use bit; the left mouse button attacks, the right
-/// one is the weapon's other mode (a feat special with a blaster, a kick
+/// one (each rebinds as a key does) is the weapon's other mode (a feat special with a blaster, a kick
 /// or special with a saber); 1 and 2 pick the hand, L cycles the saber
-/// style, F casts the selected power ([ and ] select), G grips, R throws
-/// lightning, Q drains, T charges a grenade (thrown on release), 3 uses a
+/// style, F casts the selected power ([ and ] select; grip, lightning and
+/// drain run while it is held), T charges a grenade (thrown on release), 3 uses a
 /// medpac, 4 takes a stim, 5 puts up a shield, X turns stealth mode on or
 /// off, O lays the best mine carried (H holsters: `holster_view`).
-pub(crate) fn player_command(
-    keys: &ButtonInput<KeyCode>,
-    map: &KeyMap,
-    triggers: Triggers,
-    look: Look,
-    controls: Controls,
-) -> Command {
-    let held = |action| map.held(keys, action);
-    let walk = held(Action::Walk) || keys.pressed(KeyCode::ShiftRight);
-    let speed: i8 = if walk { 64 } else { 127 };
-    let axis = |plus, minus| speed * i8::from(held(plus)) - speed * i8::from(held(minus));
-    let crouch = held(Action::Crouch) || keys.pressed(KeyCode::ControlLeft);
+pub(crate) fn player_command(actions: &Actions, look: Look, controls: Controls) -> Command {
+    let held = |action| actions.held(action);
+    let (forward, right) = crate::pad::step(actions, held(Action::Walk));
+    let walk = held(Action::Walk) || crate::pad::walks(forward, right);
+    let crouch = held(Action::Crouch);
     let pressed = [
         (walk, buttons::WALKING),
-        (triggers.attack, buttons::ATTACK),
-        (triggers.alt, buttons::ALT_ATTACK),
+        (held(Action::Attack), buttons::ATTACK),
+        (held(Action::AltAttack), buttons::ALT_ATTACK),
         (held(Action::SaberStyle), buttons::SABER_STYLE),
         (held(Action::Power), buttons::FORCE_POWER),
-        (held(Action::Grip), buttons::FORCE_GRIP),
-        (held(Action::Lightning), buttons::FORCE_LIGHTNING),
-        (held(Action::Drain), buttons::FORCE_DRAIN),
         (held(Action::Grenade), buttons::GRENADE),
         (held(Action::Medpac), buttons::MEDPAC),
         (held(Action::Shield), buttons::SHIELD),
@@ -905,8 +876,8 @@ pub(crate) fn player_command(
     ];
     Command {
         angles: view_angles(look.pitch, look.yaw),
-        forward: axis(Action::Forward, Action::Backward),
-        right: axis(Action::Right, Action::Left),
+        forward,
+        right,
         up: if held(Action::Jump) {
             127
         } else if crouch {
@@ -1344,8 +1315,7 @@ fn advance(
         Option<ResMut<SelectedPower>>,
         Option<ResMut<crate::dialogue_view::ReplyInput>>,
     ),
-    (map, mut waited, mut autopilot, mut frozen, mut reload, folder): (
-        Option<Res<KeyMap>>,
+    (mut waited, mut autopilot, mut frozen, mut reload, folder): (
         ResMut<Waited>,
         Option<ResMut<crate::target_view::Autopilot>>,
         ResMut<Frozen>,
@@ -1361,7 +1331,6 @@ fn advance(
         Res<CameraAim>,
     ),
 ) {
-    let map = map.map_or_else(KeyMap::default, |map| map.clone());
     let authority = &mut *authority;
     let rate = authority.setup.rate;
     // The first frame keeps the starting snapshot for the views.
@@ -1629,15 +1598,10 @@ fn advance(
             None => authority.clock.advance(time.delta()),
         }
     };
-    let Read {
-        keys,
-        triggers,
-        turn,
-        feel,
-    } = input.read();
-    if let (Some(delta), Driver::Player(_)) = (turn, &authority.driver) {
+    let Read { actions, turn } = input.read();
+    if let (Some(degrees), Driver::Player(_)) = (turn, &authority.driver) {
         let held = held_pitch(&authority.last, Seat(0));
-        authority.look.turn(delta, feel, held);
+        authority.look.turn(degrees, held);
     }
     let picked = replies.as_deref_mut().and_then(|input| input.pick.take());
     let scripted = matches!(authority.driver, Driver::Player(Some(_)));
@@ -1646,12 +1610,12 @@ fn advance(
     {
         authority.controls.reply = dialogue::answer(authority.controls.reply, pick);
     }
-    if let Some(keys) = &keys {
+    if let Some(actions) = &actions {
         let choices = power_choices(&authority.last, Seat(0), authority.world.level());
         let talk = authority.last.talk_for(Seat(0));
         authority
             .controls
-            .update(keys, &map, &choices, talk, picked.filter(|_| !scripted));
+            .update(actions, &choices, talk, picked.filter(|_| !scripted));
         if let Some(selected) = selected.as_deref_mut() {
             selected.0 = authority.controls.power;
         }
@@ -1675,7 +1639,7 @@ fn advance(
         // script's, the keyboard's, the pilot's, or the recording's.
         let pilot_input = matches!(authority.driver, Driver::Pilot)
             .then(|| pilot(authority.setup.pilot, tick, authority.setup.world.seats));
-        let own = match (&authority.source, &authority.driver, &keys) {
+        let own = match (&authority.source, &authority.driver, &actions) {
             (
                 Source::Replay {
                     recording, next, ..
@@ -1685,7 +1649,7 @@ fn advance(
                 .ticks
                 .get(*next)
                 .and_then(|recorded| recorded.input.get(Seat(0)).copied()),
-            (Source::Live { .. }, Driver::Pilot, Some(keys)) => Some(keyboard(keys)),
+            (Source::Live { .. }, Driver::Pilot, Some(actions)) => Some(keyboard(actions)),
             (Source::Live { .. }, Driver::Pilot, None) => pilot_input
                 .as_ref()
                 .and_then(|input| input.get(Seat(0)).copied()),
@@ -1726,13 +1690,9 @@ fn advance(
                     None => command,
                 })
             }
-            (Source::Live { .. }, Driver::Player(None), Some(keys)) => Some(player_command(
-                keys,
-                &map,
-                triggers,
-                authority.look,
-                authority.controls,
-            )),
+            (Source::Live { .. }, Driver::Player(None), Some(actions)) => {
+                Some(player_command(actions, authority.look, authority.controls))
+            }
             (Source::Live { .. }, Driver::Player(None), None) => None,
         };
         // A walk to a target steers in the player's place (`target_view`),

@@ -23,6 +23,8 @@ const GROUPS: &[Group] = &[
     ("clip events", kjk_game::clip_events::probes),
     ("grunts", kjk_game::grunts::probes),
     ("battle music", kjk_game::battle_music::probes),
+    ("pad", kjk_game::pad::probes),
+    ("bindings", kjk_game::settings::binding_probes),
     ("flinch", kjk_game::acting::flinch_probes),
     ("creature_attack", kjk_game::acting::attack_probes),
     ("damage numbers", kjk_game::floaty_view::damage_probes),

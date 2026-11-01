@@ -15,7 +15,7 @@ use bevy::prelude::*;
 use ui::intent::{Intent, SessionIntent};
 use ui::vm::SaveView;
 
-use crate::settings::{Action, KeyMap};
+use crate::settings::Action;
 use crate::sim_host::{ReloadRequest, SceneSwap, WorldHere};
 use crate::ui_view::{Ui, UiIntents};
 
@@ -206,8 +206,7 @@ fn act(
     mut intents: ResMut<UiIntents>,
     mut request: ResMut<SaveRequest>,
     mut reload: ResMut<ReloadRequest>,
-    keys: Option<Res<ButtonInput<KeyCode>>>,
-    map: Option<Res<KeyMap>>,
+    actions: Option<Res<crate::pad::Actions>>,
     world: Option<Res<WorldHere>>,
 ) {
     let ui = &mut *ui;
@@ -262,20 +261,19 @@ fn act(
             other => rest.push(other),
         }
     }
-    let (Some(keys), Some(_)) = (keys, world) else {
+    let (Some(actions), Some(_)) = (actions, world) else {
         intents.0 = rest;
         return;
     };
-    let map = map.map_or_else(KeyMap::default, |map| map.clone());
     if !ui.stack.is_open() {
-        if map.pressed_now(&keys, Action::QuickSave)
+        if actions.pressed(Action::QuickSave)
             && let Some(asked) = ask(Some(saves::QUICK.into()), QUICK_NAME.into(), false, ui)
         {
             request.0 = Some(asked);
         }
         // Loaded as the screens' Load is: the session flow refuses it while
         // hosting, and says why.
-        if map.pressed_now(&keys, Action::QuickLoad) {
+        if actions.pressed(Action::QuickLoad) {
             if ui.vm.saves.iter().any(|save| save.id == saves::QUICK) {
                 rest.push(Intent::Session(SessionIntent::Solo {
                     save: Some(saves::QUICK.into()),
