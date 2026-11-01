@@ -34,9 +34,11 @@ use crate::edit::EditBox;
 use crate::input::{Key, UiInput};
 use crate::intent::{GuiSound, Intent};
 use crate::paint::{
-    ControlState, ListView, Painter, Palette, flow_cell_at, proto_height, row_height, rows_that_fit,
+    ControlState, Hint, ListView, Painter, Palette, flow_cell_at, proto_height, row_height,
+    rows_that_fit,
 };
 use crate::skin::Source;
+use crate::strings;
 use crate::vm::ViewModel;
 
 /// A screen's name (`main_menu`, `inventory`, …).
@@ -87,6 +89,35 @@ pub trait Screen: Send + Sync {
     /// Back (Escape, gamepad B).
     fn back(&mut self, out: &mut Vec<Intent>) {
         out.push(Intent::Close);
+    }
+    /// Whether Back throws away what changed on it (its hint says Cancel),
+    /// not keeps it.
+    fn cancels(&self) -> bool {
+        false
+    }
+    /// The button a pad's Menu presses: its OK, Done or Accept; none found
+    /// (`ACCEPTS`), Menu closes it as Back does.
+    fn accept(&self) -> Option<&str> {
+        None
+    }
+    /// The button a pad's Y presses: its second (`SECONDS`, Default).
+    fn second(&self) -> Option<&str> {
+        None
+    }
+    /// The page's own tabs, in order (an item filter's buttons, a log's):
+    /// the bumpers step through them where the screen has no menu bar,
+    /// the triggers where it has.
+    fn tabs(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
+    /// Whether it is under the menu bar, whose tabs the bumpers step.
+    fn tab_bar(&self, _vm: &ViewModel) -> bool {
+        false
+    }
+    /// The button whose words name a double click on `tag` when it is no
+    /// list (a party slot's Add), for the pad's hint.
+    fn double_button(&self, _tag: &str) -> Option<&'static str> {
+        None
     }
     /// A key before the stack handles it; true when the screen used it.
     fn key(&mut self, _key: Key, _vm: &ViewModel, _out: &mut Vec<Intent>) -> bool {
@@ -449,6 +480,19 @@ impl Stack {
         Some(entry.state(control, vm))
     }
 
+    /// The pad's hints for the top screen as its bar shows them.
+    pub fn hints(&self, assets: &mut dyn Assets, vm: &ViewModel) -> Vec<Hint> {
+        let Some(entry) = self.entries.last() else {
+            return Vec::new();
+        };
+        let Some(gui) = &entry.gui else {
+            return Vec::new();
+        };
+        let mut painter = Painter::new(assets, self.palette);
+        painter.source = entry.source;
+        entry.hints(gui, vm, &painter)
+    }
+
     /// The text the top screen gives `tag`, when it gives one.
     pub fn text_of(&self, tag: &str, vm: &ViewModel) -> Option<Vec<u8>> {
         self.state_of(tag, vm)?.text
@@ -643,6 +687,24 @@ impl Stack {
                         .insert(0, Quad::solid(veil, [0.0, 0.0, 0.0, WORLD_VEIL]));
                 }
             }
+            // The pad's hints over the top screen, while a pad plays.
+            if at + 1 == count
+                && vm.pad_playing
+                && let Some(gui) = &entry.gui
+            {
+                let hints = entry.hints(gui, vm, &painter);
+                let (width, height) = gui.frame();
+                let size = (width as f32, height as f32);
+                // In the colour the layout writes its buttons' words in
+                // (not an icon's).
+                let tint = gui
+                    .walk()
+                    .filter(|control| control.kind == Kind::Button)
+                    .filter_map(|control| control.text.as_ref())
+                    .find(|text| text.strref.is_some() || !text.text.is_empty())
+                    .and_then(|text| text.color);
+                painter.hint_bar((&vm.pad_kind, tint), &hints, size, VEIL_REACH, &mut out);
+            }
             frame.refusals.append(&mut painter.refusals);
             frame.layers.push(out);
         }
@@ -652,6 +714,13 @@ impl Stack {
 
 /// The left mouse button's raw name (`UiInput::raw`).
 const LEFT_CLICK: &str = "MouseLeft";
+
+/// A screen's OK or Done, as KOTOR's layouts name them, for the pad's
+/// Menu where the screen names none (`Screen::accept`; not `BTN_ACCEPT`,
+/// which is the party's Add).
+const ACCEPTS: &[&str] = &["BTN_OK", "BTN_DONE"];
+/// Its second button, for the pad's Y (`Screen::second`).
+const SECONDS: &[&str] = &["BTN_DEFAULT"];
 
 /// A list fitted to its text (a message) is read, not chosen.
 fn read(control: &Control, state: &ControlState) -> bool {
@@ -803,6 +872,15 @@ impl Entry {
                     self.activate(gui, vm, out);
                 }
                 Key::Back => self.screen.back(out),
+                Key::Accept => match self.button(gui, vm, self.screen.accept(), ACCEPTS) {
+                    Some(tag) => self.press_button(gui, vm, &tag, out),
+                    None => self.screen.back(out),
+                },
+                Key::Second => {
+                    if let Some(tag) = self.button(gui, vm, self.screen.second(), SECONDS) {
+                        self.press_button(gui, vm, &tag, out);
+                    }
+                }
                 // Two clicks on what has the focus: a list's row (buy, use,
                 // equip) or a control (a party slot: add or remove it).
                 Key::Primary => {
@@ -830,7 +908,10 @@ impl Entry {
                         edit.backspace();
                     }
                 }
-                Key::NextTab | Key::PrevTab => {}
+                // The bumpers step the page's own tabs where no menu bar
+                // took them (`Tab`), the triggers always.
+                Key::NextTab | Key::NextPage => self.step_tab(gui, vm, 1, out),
+                Key::PrevTab | Key::PrevPage => self.step_tab(gui, vm, -1, out),
             }
         }
         if !input.text.is_empty()
@@ -1183,6 +1264,124 @@ impl Entry {
             })
             .find(|control| overflows(&control.tag))
             .map(|control| control.tag.clone())
+    }
+
+    /// Whether `tag` is a control of its layout shown and usable.
+    fn usable(&self, gui: &Gui, vm: &ViewModel, tag: &str) -> bool {
+        gui.find(tag).is_some_and(|control| {
+            let state = self.state(control, vm);
+            !state.hidden && !state.disabled
+        })
+    }
+
+    /// The button the screen names (`chosen`), else the first of
+    /// `usual` its layout has, when it is usable.
+    fn button(
+        &self,
+        gui: &Gui,
+        vm: &ViewModel,
+        chosen: Option<&str>,
+        usual: &[&str],
+    ) -> Option<String> {
+        let tag = match chosen {
+            Some(tag) => Some(tag),
+            None => usual.iter().copied().find(|tag| gui.find(tag).is_some()),
+        };
+        // As the layout spells it (`Gui::find` takes either case).
+        tag.filter(|tag| self.usable(gui, vm, tag))
+            .and_then(|tag| gui.find(tag))
+            .map(|control| control.tag.clone())
+    }
+
+    /// `tag` pressed as a click on it presses it.
+    fn press_button(&mut self, gui: &Gui, vm: &ViewModel, tag: &str, out: &mut Vec<Intent>) {
+        self.focus = Some(tag.to_string());
+        self.sound_click(gui, out);
+        self.activate(gui, vm, out);
+    }
+
+    /// The page's tab `by` on from the chosen one (shown selected; the
+    /// first when none is), around.
+    fn step_tab(&mut self, gui: &Gui, vm: &ViewModel, by: i32, out: &mut Vec<Intent>) {
+        let tabs: Vec<&str> = self
+            .screen
+            .tabs()
+            .into_iter()
+            .filter(|tag| self.usable(gui, vm, tag))
+            .collect();
+        if tabs.is_empty() {
+            return;
+        }
+        let chosen = tabs
+            .iter()
+            .position(|tag| {
+                gui.find(tag)
+                    .is_some_and(|control| self.state(control, vm).selected)
+            })
+            .unwrap_or(0);
+        let next = tabs[(chosen as i32 + by).rem_euclid(tabs.len() as i32) as usize];
+        self.press_button(gui, vm, next, out);
+    }
+
+    /// The pad's hints for what has the focus and the screen: select, its
+    /// row's or slot's double click, its second, back or cancel, its
+    /// accept, and its tabs; each named by its button's own words.
+    fn hints(&self, gui: &Gui, vm: &ViewModel, painter: &Painter) -> Vec<Hint> {
+        let words = |tag: &str| {
+            let control = gui.find(tag)?;
+            let words = painter.words(control, &self.state(control, vm));
+            (!words.is_empty()).then_some(words)
+        };
+        let hint = |buttons: &[&'static str], words: Vec<u8>| Hint {
+            buttons: buttons.to_vec(),
+            words,
+        };
+        let mut hints = Vec::new();
+        if let Some(focus) = &self.focus {
+            hints.push(hint(&["South"], strings::bytes(strings::SELECT)));
+            let double = self
+                .screen
+                .primary(focus)
+                .or_else(|| self.screen.double_button(focus))
+                .filter(|tag| self.usable(gui, vm, tag));
+            if let Some(words) = double.and_then(words) {
+                hints.push(hint(&["West"], words));
+            }
+        }
+        if let Some(words) = self
+            .button(gui, vm, self.screen.second(), SECONDS)
+            .and_then(|tag| words(&tag))
+        {
+            hints.push(hint(&["North"], words));
+        }
+        let back = if self.screen.cancels() {
+            strings::CANCEL
+        } else {
+            strings::BACK
+        };
+        hints.push(hint(&["East"], strings::bytes(back)));
+        if let Some(words) = self
+            .button(gui, vm, self.screen.accept(), ACCEPTS)
+            .and_then(|tag| words(&tag))
+        {
+            hints.push(hint(&["Start"], words));
+        }
+        let bar = self.screen.tab_bar(vm);
+        if bar {
+            hints.push(hint(
+                &["LeftTrigger", "RightTrigger"],
+                strings::bytes(strings::SCREENS),
+            ));
+        }
+        if !self.screen.tabs().is_empty() {
+            let pair: &[&'static str] = if bar {
+                &["LeftTrigger2", "RightTrigger2"]
+            } else {
+                &["LeftTrigger", "RightTrigger"]
+            };
+            hints.push(hint(pair, strings::bytes(strings::TABS)));
+        }
+        hints
     }
 
     fn scroll(&mut self, gui: &Gui, vm: &ViewModel, tag: Option<&str>, by: i32) {

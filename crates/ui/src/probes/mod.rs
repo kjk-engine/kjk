@@ -76,6 +76,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(menus::options());
     checks.extend(menus::key_rebinding());
     checks.extend(menus::key_names());
+    checks.extend(menus::pad_menus());
     checks.push(check("pad_icons", crate::icons::probe()));
     checks.extend(menus::display_options());
     checks.extend(menus::pages());

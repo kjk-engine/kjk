@@ -16,9 +16,17 @@ pub enum Key {
     /// A double click on what has the focus (a list row's `Screen::primary`:
     /// buy, use, equip, load; a party slot's add or remove), gamepad X.
     Primary,
-    /// The menu bar's next and previous tab (gamepad RB and LB).
+    /// The menu bar's next and previous tab (gamepad RB and LB); a screen
+    /// with no menu bar, its own tabs.
     NextTab,
     PrevTab,
+    /// The page's own tabs (gamepad RT and LT): an item filter, a log.
+    NextPage,
+    PrevPage,
+    /// The screen's OK, Done or Accept (gamepad Menu); one with none closes.
+    Accept,
+    /// The screen's second button (gamepad Y): Default, Take all.
+    Second,
     ScrollUp,
     ScrollDown,
     Backspace,

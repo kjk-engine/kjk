@@ -371,6 +371,10 @@ impl Inventory {
 }
 
 impl Page for Inventory {
+    fn tabs(&self) -> Vec<&'static str> {
+        self.filter.tags()
+    }
+
     const NAME: &'static str = "inventory";
     const LAYOUT: &'static str = "inventory";
 
@@ -532,6 +536,10 @@ impl Abilities {
 }
 
 impl Page for Abilities {
+    fn tabs(&self) -> Vec<&'static str> {
+        vec!["BTN_SKILLS", "BTN_POWERS", "BTN_FEATS"]
+    }
+
     const NAME: &'static str = "abilities";
     const LAYOUT: &'static str = "abilities";
 
@@ -623,6 +631,10 @@ pub struct Messages {
 }
 
 impl Page for Messages {
+    fn tabs(&self) -> Vec<&'static str> {
+        LOGS.iter().map(|(tag, ..)| *tag).collect()
+    }
+
     const NAME: &'static str = "messages";
     const LAYOUT: &'static str = "messages";
 

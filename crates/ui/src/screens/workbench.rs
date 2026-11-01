@@ -202,6 +202,12 @@ impl Workbench {
 }
 
 impl Screen for Workbench {
+    /// The recipe groups (the lab's or the bench's).
+    fn tabs(&self) -> Vec<&'static str> {
+        let groups: &[(&str, u8)] = if self.lab { &LAB_GROUPS } else { &GROUPS };
+        groups.iter().map(|(tag, _)| *tag).collect()
+    }
+
     fn id(&self) -> ScreenId {
         ScreenId(if self.lab { "chemical" } else { "workbench" })
     }

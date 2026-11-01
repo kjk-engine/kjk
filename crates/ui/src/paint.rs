@@ -57,6 +57,24 @@ pub const FLOW_HEIGHT: i32 = 44;
 const FLOW_WIDTH: f32 = 262.0;
 const FLOW_CELL: f32 = 40.0;
 const FLOW_ICON: f32 = 0.8;
+/// The pad's hints along a screen's bottom (layout pixels): the strip's
+/// height, a button's, the room after the last hint, between a hint's
+/// buttons and words, and between hints; their font.
+const HINT_BAR: f32 = 22.0;
+const HINT_ICON: f32 = 17.0;
+const HINT_END: f32 = 14.0;
+const HINT_GAP: f32 = 4.0;
+const HINT_SPACE: f32 = 14.0;
+const HINT_FONT: &str = "dialogfont16x16";
+
+/// A pad's hint: the buttons to press (their names in the settings,
+/// `South`, `LeftTrigger`) and what they do.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Hint {
+    pub buttons: Vec<&'static str>,
+    pub words: Vec<u8>,
+}
+
 /// A row's badge's height, of the row's, and the room kept at its right
 /// end (layout pixels) after a badge or a value.
 const BADGE: f32 = 0.95;
@@ -384,6 +402,68 @@ impl<'a> Painter<'a> {
 
     /// `bytes` in `font` inside `rect`, wrapped, aligned and cut at the
     /// box (at least one line shows).
+    /// The pad's `hints` along the bottom of a frame `w` × `h` wide (the
+    /// strip reaching `reach` past its sides, as the screens' veil does),
+    /// right to left from its right: each hint's buttons as `kind`'s pad
+    /// draws them (`icons`), then its words in the layout's buttons'
+    /// colour (`tint`), as console games show them.
+    pub fn hint_bar(
+        &mut self,
+        (kind, tint): (&str, Option<[f32; 3]>),
+        hints: &[Hint],
+        (w, h): (f32, f32),
+        reach: f32,
+        out: &mut DrawList,
+    ) {
+        if hints.is_empty() {
+            return;
+        }
+        let top = h - HINT_BAR;
+        out.quads.push(Quad::solid(
+            [-reach, top, w + 2.0 * reach, HINT_BAR],
+            [0.0, 0.0, 0.0, 0.8],
+        ));
+        let font = self
+            .textures
+            .font(self.source, HINT_FONT)
+            .map(|(_, font)| font);
+        let color = rgba(
+            tint.map_or(self.palette.base, |tint| self.color(Some(tint))),
+            1.0,
+        );
+        let mut x = w - HINT_END;
+        for hint in hints.iter().rev() {
+            let width = font
+                .as_ref()
+                .map_or(0.0, |font| font.measure(&hint.words))
+                .ceil();
+            x -= width;
+            let words = [x, top, width + 1.0, HINT_BAR];
+            self.text(
+                HINT_FONT,
+                &hint.words,
+                words,
+                align::LEFT | align::MIDDLE,
+                color,
+                out,
+            );
+            x -= HINT_GAP;
+            for button in hint.buttons.iter().rev() {
+                let name = crate::icons::pad_texture(kind, button);
+                let Some(id) = self.texture(Source::Campaign, &name) else {
+                    continue;
+                };
+                let (iw, ih) = self.textures.size(id);
+                let wide = HINT_ICON * iw as f32 / ih.max(1) as f32;
+                x -= wide;
+                let rect = [x, top + (HINT_BAR - HINT_ICON) / 2.0, wide, HINT_ICON];
+                out.quads.push(Quad::image(rect, id, [1.0; 4]));
+                x -= 2.0;
+            }
+            x -= HINT_SPACE;
+        }
+    }
+
     pub fn text(
         &mut self,
         font: &str,
@@ -478,7 +558,7 @@ impl<'a> Painter<'a> {
 
     /// The words a control shows: the screen's, else its strref's, else
     /// the layout's own.
-    fn words(&self, control: &Control, state: &ControlState) -> Vec<u8> {
+    pub(crate) fn words(&self, control: &Control, state: &ControlState) -> Vec<u8> {
         if let Some(text) = &state.text {
             return text.clone();
         }

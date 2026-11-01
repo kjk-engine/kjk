@@ -1174,6 +1174,76 @@ pub(super) fn key_rebinding() -> Vec<Check> {
     })]
 }
 
+/// A pad on a screen (the key mapping): its hints say what each button
+/// does there, Menu presses OK, Y Default, the bumpers step its own tabs
+/// (it has no menu bar), B cancels.
+pub(super) fn pad_menus() -> Vec<Check> {
+    let mut assets = Fake::new();
+    keymap_layouts(&mut assets);
+    let vm = ViewModel {
+        keys: vec![crate::vm::KeyRow {
+            action: "jump".into(),
+            label: "Jump".into(),
+            key: "Space".into(),
+            movement: true,
+            ..crate::vm::KeyRow::default()
+        }],
+        pad_playing: true,
+        ..ViewModel::default()
+    };
+    let mut page = opened("options_keymap", &mut assets, &vm);
+    let hints: Vec<(Vec<&str>, String)> = page
+        .hints(&mut assets, &vm)
+        .into_iter()
+        .map(|hint| {
+            (
+                hint.buttons,
+                String::from_utf8_lossy(&hint.words).into_owned(),
+            )
+        })
+        .collect();
+    page.step(&mut assets, &vm, &keys(&[Key::NextTab]));
+    // A pad playing, it opened on the controller's tab, the last: on is
+    // around, to the first.
+    let tabbed = page
+        .state_of("BTN_Filter_Move", &vm)
+        .is_some_and(|state| state.selected);
+    let defaulted = page.step(&mut assets, &vm, &keys(&[Key::Second])).intents;
+    let accepted = page.step(&mut assets, &vm, &keys(&[Key::Accept]));
+    let closed = !page.is_open();
+    vec![check("pad_menus", {
+        expect(
+            &format!("its hints: {hints:?}"),
+            hints
+                .iter()
+                .map(|(buttons, _)| buttons.clone())
+                .collect::<Vec<_>>()
+                == [
+                    vec!["South"],
+                    vec!["North"],
+                    vec!["East"],
+                    vec!["Start"],
+                    vec!["LeftTrigger", "RightTrigger"],
+                ]
+                && [0, 2, 4].map(|at| hints[at].1.as_str()) == ["Select", "Cancel", "Tabs"],
+        )
+        .and_then(|()| expect("the bumpers step its own tabs, around", tabbed))
+        .and_then(|()| {
+            expect(
+                &format!("Y presses Default: {defaulted:?}"),
+                defaulted == vec![Intent::Setting("reset".into(), "keys".into())],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Menu presses OK: {:?} closed {closed}", accepted.intents),
+                closed,
+            )
+        })
+        .map(|()| "hints, tabs, Default, OK".into())
+    })]
+}
+
 /// Every kind of input said as a player reads it.
 pub(super) fn key_names() -> Vec<Check> {
     use crate::screens::key_mapping::key_name;

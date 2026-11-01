@@ -51,6 +51,11 @@ pub struct Filter {
 }
 
 impl Filter {
+    /// Its buttons' tags, in order (a pad's tabs, `Screen::tabs`).
+    pub fn tags(&self) -> Vec<&'static str> {
+        self.buttons.iter().map(|(tag, _)| *tag).collect()
+    }
+
     pub fn new(buttons: Buttons) -> Filter {
         Filter { buttons, chosen: 0 }
     }
