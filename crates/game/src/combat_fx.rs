@@ -1168,16 +1168,30 @@ fn place_flashes(
             .filter(|_| eyes != Some(shot.by))
             .and_then(crate::blaster_view::feat_row)
             .map(Flashed::Row);
-        out.extend(muzzle.into_iter().chain(feat).map(|shows| Flash {
-            by: shot.by,
-            hand: shot.hand,
-            shows,
-            clip: crate::blaster_view::IMPACT,
-            at: at * UNIT,
-            way: shot.forward,
-            ms: f64::from(start.max(now)),
-            scale,
-        }));
+        let ms = f64::from(start.max(now));
+        // A Rapid Shot's flames are its round's, KOTOR's longer than a
+        // burst here: they stop a burst's gap after the shot, the next shot's
+        // going on, so they end when the burst does.
+        let rapid = matches!(shot.special, Some(Special::RapidShot(_)))
+            .then(|| ms + f64::from(sim::combat::specials::BURST_GAP_MS));
+        let feat = feat.map(|shows| (shows, rapid));
+        out.extend(
+            muzzle
+                .map(|shows| (shows, None))
+                .into_iter()
+                .chain(feat)
+                .map(|(shows, until)| Flash {
+                    by: shot.by,
+                    hand: shot.hand,
+                    shows,
+                    clip: crate::blaster_view::IMPACT,
+                    at: at * UNIT,
+                    way: shot.forward,
+                    ms,
+                    scale,
+                    until,
+                }),
+        );
     }
 }
 
