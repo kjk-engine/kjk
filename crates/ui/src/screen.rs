@@ -114,6 +114,11 @@ pub trait Screen: Send + Sync {
     fn tab_bar(&self, _vm: &ViewModel) -> bool {
         false
     }
+    /// The button a pad's X presses on it in place of a double click (a
+    /// container's Take all), when it is usable.
+    fn pad_x(&self) -> Option<&str> {
+        None
+    }
     /// Whether the list `list` chooses its row as the cursor moves to it
     /// (`pointed`: the save picked): Activate on a row then does its
     /// primary (Load), as a double click does, not choose it again.
@@ -901,7 +906,9 @@ impl Entry {
                 // Two clicks on what has the focus: a list's row (buy, use,
                 // equip) or a control (a party slot: add or remove it).
                 Key::Primary => {
-                    if let Some(tag) = self.focus.clone() {
+                    if let Some(tag) = self.button(gui, vm, self.screen.pad_x(), &[]) {
+                        self.press_button(gui, vm, &tag, out);
+                    } else if let Some(tag) = self.focus.clone() {
                         if self.rows(gui, vm, &tag).is_some() {
                             let row = self.lists.get(&tag).map_or(0, |cursor| cursor.row);
                             self.double_row(gui, vm, &tag, row, out);
@@ -1354,7 +1361,13 @@ impl Entry {
             words,
         };
         let mut hints = Vec::new();
-        if let Some(focus) = &self.focus {
+        if let Some(words) = self
+            .button(gui, vm, self.screen.pad_x(), &[])
+            .and_then(|tag| words(&tag))
+        {
+            hints.push(hint(&["South"], strings::bytes(strings::SELECT)));
+            hints.push(hint(&["West"], words));
+        } else if let Some(focus) = &self.focus {
             let double = self
                 .screen
                 .primary(focus)

@@ -70,6 +70,16 @@ impl Screen for Container {
         ScreenId("container")
     }
 
+    /// A pad's A takes the item chosen, X takes all.
+    fn pad_x(&self) -> Option<&str> {
+        (!self.giving).then_some("BTN_OK")
+    }
+
+    /// Its Menu closes (Take all is X's).
+    fn accept(&self) -> Option<&str> {
+        Some("BTN_CANCEL")
+    }
+
     fn layout(&self) -> &str {
         "container"
     }
