@@ -74,6 +74,9 @@ pub fn all() -> Vec<Check> {
     checks.extend(menus::in_game());
     checks.extend(menus::review());
     checks.extend(menus::options());
+    checks.extend(menus::key_rebinding());
+    checks.extend(menus::key_names());
+    checks.push(check("pad_icons", crate::icons::probe()));
     checks.extend(menus::display_options());
     checks.extend(menus::pages());
     checks.extend(menus::equip_dresses_members());

@@ -4,7 +4,9 @@
 //! bound to a setting, a button that opens another page, or greyed where
 //! the game has nothing behind it yet (texture quality, frame buffer
 //! effects, the feedback list, saves and levels for the world state). KOTOR 2's
-//! pages (the skin) have two more check boxes, hidden.
+//! pages (the skin) have two more check boxes, hidden. The controller's
+//! page is ours, on the graphics page's layout, opened from the gameplay
+//! page in its unused difficulty button's place.
 
 use fmt_odyssey::gui::Control;
 
@@ -27,6 +29,10 @@ enum Role {
     /// shows the chosen one's label and steps on, its arrows back and on.
     Cycle(&'static str, &'static [(&'static str, &'static str)], Step),
     Open(&'static str),
+    /// The same, labelled ours.
+    OpenAs(&'static str, &'static str),
+    /// A label of the layout's, saying ours.
+    Text(&'static str),
     /// Shown, not usable yet.
     Greyed,
     Hidden,
@@ -68,7 +74,9 @@ pub struct Page {
     before: Vec<(&'static str, String)>,
 }
 
-use Role::{Back, Cancel, Cycle, Defaults, Greyed, Hidden, Open, Slider, Toggle, ToggleAs};
+use Role::{
+    Back, Cancel, Cycle, Defaults, Greyed, Hidden, Open, OpenAs, Slider, Text, Toggle, ToggleAs,
+};
 
 /// Anti-aliasing: the samples a pixel takes.
 const SAMPLES: &[(&str, &str)] = &[
@@ -77,7 +85,15 @@ const SAMPLES: &[(&str, &str)] = &[
     ("4", strings::ANTI_ALIASING_4X),
 ];
 
-const PAGES: [Spec; 7] = [
+/// How far a pad's stick is pushed before it counts (a share of its
+/// reach; worn sticks drift further).
+const DEAD_ZONES: &[(&str, &str)] = &[
+    ("0.10", strings::DEAD_ZONE_SMALL),
+    ("0.15", strings::DEAD_ZONE_MEDIUM),
+    ("0.25", strings::DEAD_ZONE_LARGE),
+];
+
+const PAGES: [Spec; 8] = [
     Spec {
         name: "options",
         layout: "optionsmain",
@@ -104,9 +120,12 @@ const PAGES: [Spec; 7] = [
             ("CB_REVERSE", Greyed),
             ("CB_DISABLEMOVE", Greyed),
             ("CB_REVERSE_INGAME", Hidden),
-            ("BTN_DIFFICULTY", Greyed),
-            ("BTN_DIFFLEFT", Greyed),
-            ("BTN_DIFFRIGHT", Greyed),
+            (
+                "BTN_DIFFICULTY",
+                OpenAs("options_controller", strings::CONTROLLER),
+            ),
+            ("BTN_DIFFLEFT", Hidden),
+            ("BTN_DIFFRIGHT", Hidden),
             ("BTN_KEYMAP", Open("options_keymap")),
             ("BTN_MOUSE", Open("options_mouse")),
             ("BTN_DEFAULT", Defaults),
@@ -119,11 +138,32 @@ const PAGES: [Spec; 7] = [
         layout: "optmouse",
         roles: &[
             ("SLI_MOUSESEN", Slider("mouse.sensitivity")),
-            ("CB_REVBUTTONS", Toggle("mouse.reverse")),
+            // The attacks are bindings of their own (the key mapping).
+            ("CB_REVBUTTONS", Hidden),
             ("BTN_DEFAULT", Defaults),
             ("BTN_BACK", Back),
         ],
         first: "SLI_MOUSESEN",
+    },
+    Spec {
+        name: "options_controller",
+        layout: "optgraphics",
+        roles: &[
+            ("LBL_TITLE", Text(strings::CONTROLLER_OPTIONS)),
+            ("SLI_GAMMA", Slider("pad.sensitivity")),
+            ("LBL_GAMMA", Text(strings::LOOK_SPEED)),
+            (
+                "BTN_RESOLUTION",
+                Cycle("pad.deadzone", DEAD_ZONES, Step::Shown),
+            ),
+            ("CB_SHADOWS", ToggleAs("pad.invert", strings::INVERT_LOOK)),
+            ("CB_GRASS", ToggleAs("pad.rumble", strings::VIBRATION)),
+            ("CB_FORCESPEED", Hidden),
+            ("BTN_ADVANCED", Hidden),
+            ("BTN_DEFAULT", Defaults),
+            ("BTN_BACK", Back),
+        ],
+        first: "SLI_GAMMA",
     },
     Spec {
         name: "options_graphics",
@@ -262,6 +302,10 @@ impl Screen for Page {
                 value: Some(number(vm, key)),
                 ..ControlState::default()
             },
+            Some(OpenAs(_, label) | Text(label)) => ControlState {
+                text: Some(strings::bytes(label)),
+                ..ControlState::default()
+            },
             Some(Cycle(key, choices, Step::Shown)) => ControlState {
                 text: Some(strings::bytes(choices[chosen(vm, key, choices)].1)),
                 ..ControlState::default()
@@ -292,7 +336,7 @@ impl Screen for Page {
                 let next = (chosen(vm, key, choices) + by) % choices.len();
                 out.push(Intent::Setting(key.into(), choices[next].0.into()));
             }
-            Some(Open(screen)) => out.push(Intent::Open(screen)),
+            Some(Open(screen) | OpenAs(screen, _)) => out.push(Intent::Open(screen)),
             Some(Back) => out.push(Intent::Close),
             Some(Cancel) => self.back(out),
             Some(Defaults) => out.push(Intent::Setting("reset".into(), self.spec.name.into())),

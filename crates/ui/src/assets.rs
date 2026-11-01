@@ -663,6 +663,19 @@ impl GuiAssets {
 
     /// `name` read from `source`; a font's sheet is a shape (`Pixels`).
     fn load(&mut self, source: Source, name: &str, font: bool) -> Option<(TextureId, Txi)> {
+        // A pad's buttons are drawn here, not read (`icons`).
+        if let Some((width, height, rgba)) = crate::icons::pad_icon(name) {
+            self.loaded.push(Some(Loaded {
+                pixels: Pixels {
+                    width,
+                    height,
+                    shape: false,
+                    rgba,
+                },
+                additive: false,
+            }));
+            return Some((TextureId(self.loaded.len() as u32), Txi::default()));
+        }
         let (texture, txi) = self.read(source, name)?;
         let mut rgba = texture.rgba(0, 0)?;
         if self.recoloured(source) {

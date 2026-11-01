@@ -2,7 +2,9 @@
 //! (`ui::input`): arrows and Tab move, Enter activates, Escape goes back,
 //! Page Up and Down scroll, typed text goes to edit boxes; a gamepad's
 //! d-pad or left stick moves (repeating while held), A activates, B goes
-//! back, the shoulders switch tabs, the right stick scrolls.
+//! back (on a screen: in play it is the pad's crouch), Start opens the menu
+//! (not with LB held: the quick save), X does a list row's double click,
+//! the shoulders switch tabs, the right stick scrolls.
 
 use bevy::input::ButtonState;
 use bevy::input::gamepad::{Gamepad, GamepadButton};
@@ -92,7 +94,7 @@ pub(crate) fn gather(
     mouse: Option<&ButtonInput<MouseButton>>,
     typed: &mut MessageReader<KeyboardInput>,
     wheel: &mut MessageReader<MouseWheel>,
-    gamepads: &Query<&Gamepad>,
+    pads: Option<(&Query<&Gamepad>, bool)>,
     window: Option<&Window>,
     window_size: Vec2,
     dt: f32,
@@ -140,9 +142,22 @@ pub(crate) fn gather(
     input.pointer = pointer.map(|at| [at.x, at.y]);
     input.click = mouse.is_some_and(|mouse| mouse.just_pressed(MouseButton::Left));
     input.held = mouse.is_some_and(|mouse| mouse.pressed(MouseButton::Left));
+    // Each mouse button pressed by its name, for binding it (`key_mapping`;
+    // a left click on a control stays the control's, `Stack`).
+    input.raw.extend(
+        mouse
+            .into_iter()
+            .flat_map(|mouse| mouse.get_just_pressed())
+            .map(|button| crate::settings::Input::Mouse(*button).name()),
+    );
 
     let (mut stick, mut scroll) = (Vec2::ZERO, 0.0f32);
-    for gamepad in gamepads {
+    let (gamepads, open) = match pads {
+        Some((gamepads, open)) => (Some(gamepads), open),
+        None => (None, false),
+    };
+    for gamepad in gamepads.into_iter().flatten() {
+        let shift = gamepad.pressed(crate::pad::SHIFT);
         for (button, key) in [
             (GamepadButton::DPadUp, Key::Up),
             (GamepadButton::DPadDown, Key::Down),
@@ -150,14 +165,31 @@ pub(crate) fn gather(
             (GamepadButton::DPadRight, Key::Right),
             (GamepadButton::South, Key::Activate),
             (GamepadButton::East, Key::Back),
+            (GamepadButton::West, Key::Primary),
             (GamepadButton::Start, Key::Back),
             (GamepadButton::LeftTrigger, Key::PrevTab),
             (GamepadButton::RightTrigger, Key::NextTab),
         ] {
-            if gamepad.just_pressed(button) {
+            let play = key == Key::Back && (!open && button == GamepadButton::East || shift);
+            if gamepad.just_pressed(button) && !play {
                 input.keys.push(key);
             }
         }
+        // Each button pressed by its chord's name, for binding it
+        // (`key_mapping`): LB alone is none, it is the chord's shift.
+        input.raw.extend(
+            gamepad
+                .digital()
+                .get_just_pressed()
+                .filter(|button| **button != crate::pad::SHIFT)
+                .map(|button| {
+                    let chord = crate::pad::Chord {
+                        shifted: shift,
+                        button: *button,
+                    };
+                    format!("{}{}", ui::screens::key_mapping::PAD_RAW, chord.name())
+                }),
+        );
         if stick.length() < gamepad.left_stick().length() {
             stick = gamepad.left_stick();
         }

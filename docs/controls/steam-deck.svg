@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1560 800" width="1560" height="800" role="img" aria-label="kjk Steam Deck layout">
+<title>kjk Steam Deck layout</title>
+<style>
+  svg { --bg:#ffffff; --ink:#1b1f24; --dim:#5b6470; --body:#eef1f4; --edge:#9aa4af;
+        --part:#d9dee4; --line:#7c8794; --accent:#2f6fde; --a:#3a9a4a; --b:#c94a3f; --x:#2f6fde; --y:#c99a1c; }
+  @media (prefers-color-scheme: dark) {
+    svg { --bg:#0f1419; --ink:#e6e9ed; --dim:#9aa4af; --body:#1d242c; --edge:#55606c;
+          --part:#2b343e; --line:#7c8794; --accent:#6aa0ff; }
+  }
+  .bg { fill: var(--bg); }
+  .body { fill: var(--body); stroke: var(--edge); stroke-width: 2; }
+  .part { fill: var(--part); stroke: var(--edge); stroke-width: 1.5; }
+  .hole { fill: none; stroke: var(--edge); stroke-width: 1.5; stroke-dasharray: 4 3; }
+  .glyph { font: 700 11px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--ink); text-anchor: middle; dominant-baseline: central; }
+  .lead { fill: none; stroke: var(--line); stroke-width: 1.2; }
+  .dot { fill: var(--line); }
+  .main { font: 600 14px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--ink); }
+  .sub { font: 400 12.5px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--dim); }
+  .key { font: 700 14px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--accent); }
+  .title { font: 700 18px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--ink); }
+  .note { font: 400 13px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--dim); }
+  .box { fill: none; stroke: var(--edge); stroke-width: 1; rx: 8; }
+</style>
+<rect class="bg" width="1560" height="800"/>
+<text x="24" y="34" class="title" text-anchor="start">kjk · Steam Deck</text>
+<text x="24" y="56" class="note" text-anchor="start">Steam Input&#x27;s Gamepad template (the default for non-Steam games)</text>
+<rect class="part" x="345" y="145" width="90" height="32" rx="10"/>
+<rect class="part" x="1125" y="145" width="90" height="32" rx="10"/>
+<rect class="part" x="330" y="180" width="120" height="18" rx="9"/>
+<rect class="part" x="1110" y="180" width="120" height="18" rx="9"/>
+<rect class="body" x="300" y="200" width="960" height="270" rx="120"/>
+<rect x="530" y="222" width="500" height="226" rx="8" fill="var(--part)" stroke="var(--edge)"/>
+<text x="780" y="340" class="note" text-anchor="middle">screen</text>
+<rect class="part" x="370.0" y="234" width="20" height="56" rx="4"/>
+<rect class="part" x="352" y="252.0" width="56" height="20" rx="4"/>
+<rect x="371.0" y="253.0" width="18" height="18" fill="var(--part)"/>
+<circle class="part" cx="475" cy="275" r="26"/>
+<circle cx="475" cy="275" r="15.6" fill="none" stroke="var(--edge)" stroke-width="1.2"/>
+<rect class="part" x="380" y="330" width="80" height="80" rx="12"/>
+<rect class="part" x="466" y="211" width="18" height="10" rx="5"/>
+<rect class="part" x="480" y="441" width="44" height="16" rx="5"/>
+<text x="502" y="450" class="glyph" text-anchor="middle">STEAM</text>
+<circle cx="1180" cy="236" r="12" fill="var(--y)" fill-opacity="0.22" stroke="var(--y)" stroke-width="1.8"/>
+<text x="1180" y="236" class="glyph">Y</text>
+<circle cx="1206" cy="262" r="12" fill="var(--b)" fill-opacity="0.22" stroke="var(--b)" stroke-width="1.8"/>
+<text x="1206" y="262" class="glyph">B</text>
+<circle cx="1180" cy="288" r="12" fill="var(--a)" fill-opacity="0.22" stroke="var(--a)" stroke-width="1.8"/>
+<text x="1180" y="288" class="glyph">A</text>
+<circle cx="1154" cy="262" r="12" fill="var(--x)" fill-opacity="0.22" stroke="var(--x)" stroke-width="1.8"/>
+<text x="1154" y="262" class="glyph">X</text>
+<circle class="part" cx="1085" cy="275" r="26"/>
+<circle cx="1085" cy="275" r="15.6" fill="none" stroke="var(--edge)" stroke-width="1.2"/>
+<rect class="part" x="1100" y="330" width="80" height="80" rx="12"/>
+<rect class="part" x="1076" y="211" width="18" height="10" rx="5"/>
+<rect class="part" x="1040" y="441" width="40" height="16" rx="5"/>
+<text x="1060" y="448" class="glyph" text-anchor="middle">···</text>
+<text x="390" y="162" class="glyph" text-anchor="middle">L2</text>
+<text x="1170" y="162" class="glyph" text-anchor="middle">R2</text>
+<text x="390" y="190" class="glyph" text-anchor="middle">L1</text>
+<text x="1170" y="190" class="glyph" text-anchor="middle">R1</text>
+<rect class="hole" x="360" y="486" width="40" height="16" rx="6"/>
+<text x="380" y="495" class="glyph" text-anchor="middle">L4</text>
+<rect class="hole" x="410" y="486" width="40" height="16" rx="6"/>
+<text x="430" y="495" class="glyph" text-anchor="middle">L5</text>
+<rect class="hole" x="1110" y="486" width="40" height="16" rx="6"/>
+<text x="1130" y="495" class="glyph" text-anchor="middle">R4</text>
+<rect class="hole" x="1160" y="486" width="40" height="16" rx="6"/>
+<text x="1180" y="495" class="glyph" text-anchor="middle">R5</text>
+<text x="270" y="90" class="main" text-anchor="end"><tspan class="key">L2</tspan>  Alt attack (kick, special)</text>
+<polyline class="lead" points="278,86 350,158"/>
+<circle class="dot" cx="350" cy="158" r="3"/>
+<text x="270" y="145" class="main" text-anchor="end"><tspan class="key">L1</tspan>  Hold: the second layer (L1+…)</text>
+<text x="270" y="163" class="sub" text-anchor="end">Menus: previous tab</text>
+<polyline class="lead" points="278,141 334,190"/>
+<circle class="dot" cx="334" cy="190" r="3"/>
+<text x="270" y="205" class="main" text-anchor="end"><tspan class="key">View</tspan>  Inventory</text>
+<text x="270" y="223" class="sub" text-anchor="end">L1+View: ready / accept a join</text>
+<polyline class="lead" points="278,201 466,216"/>
+<circle class="dot" cx="466" cy="216" r="3"/>
+<text x="245" y="260" class="glyph" style="font-size:15px">↑</text>
+<text x="226" y="265" class="main" text-anchor="end">Next Force power</text>
+<text x="226" y="283" class="sub" text-anchor="end">L1: energy shield</text>
+<text x="245" y="300" class="glyph" style="font-size:15px">↓</text>
+<text x="226" y="305" class="main" text-anchor="end">Previous Force power</text>
+<text x="226" y="323" class="sub" text-anchor="end">L1: stim</text>
+<text x="245" y="340" class="glyph" style="font-size:15px">←</text>
+<text x="226" y="345" class="main" text-anchor="end">Medpac</text>
+<text x="226" y="363" class="sub" text-anchor="end">L1: target&#x27;s action back</text>
+<text x="245" y="380" class="glyph" style="font-size:15px">→</text>
+<text x="226" y="385" class="main" text-anchor="end">Grenade (hold to charge)</text>
+<text x="226" y="403" class="sub" text-anchor="end">L1: target&#x27;s action on</text>
+<polyline class="lead" points="278,262 354,262"/>
+<circle class="dot" cx="354" cy="262" r="3"/>
+<text x="270" y="435" class="main" text-anchor="end"><tspan class="key">Left stick</tspan>  Move: push further to run</text>
+<text x="270" y="453" class="sub" text-anchor="end">L3: stealth · L1+L3: next Form</text>
+<polyline class="lead" points="278,431 470,431 470,301"/>
+<circle class="dot" cx="470" cy="301" r="3"/>
+<text x="270" y="495" class="main" text-anchor="end"><tspan class="key">Left trackpad</tspan>  Not used</text>
+<polyline class="lead" points="278,491 382,400"/>
+<circle class="dot" cx="382" cy="400" r="3"/>
+<text x="1290" y="90" class="main" text-anchor="start"><tspan class="key">R2</tspan>  Attack</text>
+<polyline class="lead" points="1282,86 1210,158"/>
+<circle class="dot" cx="1210" cy="158" r="3"/>
+<text x="1290" y="145" class="main" text-anchor="start"><tspan class="key">R1</tspan>  Force power: cast the selected one</text>
+<text x="1290" y="163" class="sub" text-anchor="start">Grip, lightning, drain: hold · Menus: next tab</text>
+<polyline class="lead" points="1282,141 1226,190"/>
+<circle class="dot" cx="1226" cy="190" r="3"/>
+<text x="1290" y="205" class="main" text-anchor="start"><tspan class="key">Menu</tspan>  Game menu</text>
+<text x="1290" y="223" class="sub" text-anchor="start">L1+Menu: quick save</text>
+<polyline class="lead" points="1282,201 1094,216"/>
+<circle class="dot" cx="1094" cy="216" r="3"/>
+<circle cx="1315" cy="260" r="10" fill="var(--a)" fill-opacity="0.22" stroke="var(--a)" stroke-width="1.6"/>
+<text x="1315" y="260" class="glyph">A</text>
+<text x="1334" y="265" class="main" text-anchor="start">Jump</text>
+<text x="1334" y="283" class="sub" text-anchor="start">L1: holster</text>
+<circle cx="1315" cy="300" r="10" fill="var(--b)" fill-opacity="0.22" stroke="var(--b)" stroke-width="1.6"/>
+<text x="1315" y="300" class="glyph">B</text>
+<text x="1334" y="305" class="main" text-anchor="start">Crouch (hold) · leave a talk</text>
+<text x="1334" y="323" class="sub" text-anchor="start">L1: lay a mine</text>
+<circle cx="1315" cy="340" r="10" fill="var(--x)" fill-opacity="0.22" stroke="var(--x)" stroke-width="1.6"/>
+<text x="1315" y="340" class="glyph">X</text>
+<text x="1334" y="345" class="main" text-anchor="start">Use: the target&#x27;s action</text>
+<text x="1334" y="363" class="sub" text-anchor="start">L1: Security</text>
+<circle cx="1315" cy="380" r="10" fill="var(--y)" fill-opacity="0.22" stroke="var(--y)" stroke-width="1.6"/>
+<text x="1315" y="380" class="glyph">Y</text>
+<text x="1334" y="385" class="main" text-anchor="start">Switch party leader</text>
+<text x="1334" y="403" class="sub" text-anchor="start">L1: switch weapons</text>
+<polyline class="lead" points="1282,262 1194,262"/>
+<circle class="dot" cx="1194" cy="262" r="3"/>
+<text x="1290" y="435" class="main" text-anchor="start"><tspan class="key">Right stick</tspan>  Look and aim</text>
+<text x="1290" y="453" class="sub" text-anchor="start">R3: saber style · L1+R3: follow / end a join</text>
+<polyline class="lead" points="1282,431 1104,292"/>
+<circle class="dot" cx="1104" cy="292" r="3"/>
+<text x="1290" y="495" class="main" text-anchor="start"><tspan class="key">Right trackpad</tspan>  Menu pointer (Steam)</text>
+<polyline class="lead" points="1282,491 1178,400"/>
+<circle class="dot" cx="1178" cy="400" r="3"/>
+<polyline class="lead" points="502,457 502,540"/>
+<circle class="dot" cx="502" cy="540" r="3"/>
+<text x="510" y="560" class="main" text-anchor="start"><tspan class="key">STEAM</tspan>  Steam&#x27;s own menu</text>
+<polyline class="lead" points="1060,457 1060,540"/>
+<circle class="dot" cx="1060" cy="540" r="3"/>
+<text x="1052" y="560" class="main" text-anchor="end"><tspan class="key">···</tspan>  Steam&#x27;s quick access</text>
+<text x="780" y="520" class="note" text-anchor="middle">L4 L5 R4 R5 (back): free; bind any key to them in Steam Input</text>
+<rect class="box" x="24" y="610" width="1512" height="166"/>
+<text x="44" y="638" class="main" text-anchor="start">Menus and conversations</text>
+<text x="44" y="662" class="note" text-anchor="start">D-pad or left stick: move · A: choose · X: use / buy / equip the row · B: back · L1 / R1: tabs · right stick: scroll · A, B or Menu skips a movie</text>
+<text x="44" y="692" class="main" text-anchor="start">On the Deck</text>
+<text x="44" y="716" class="note" text-anchor="start">Text boxes (save names, your name, an address) open Steam&#x27;s on-screen keyboard when the game runs through Steam; otherwise press STEAM + X.</text>
+<text x="44" y="738" class="note" text-anchor="start">The prompts in the game show the Deck&#x27;s own names (A, L1, View) whenever the pad was used last; touch a key and they show keys again.</text>
+<text x="44" y="760" class="note" text-anchor="start">L1+ means hold L1, then press. Rebind anything: Options → Gameplay → Keymap → Controller; feel: Options → Gameplay → Controller.</text>
+</svg>

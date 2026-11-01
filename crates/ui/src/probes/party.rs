@@ -2,7 +2,7 @@
 //! portraits, what may be picked, and what Done sends.
 
 use super::chargen::presses;
-use super::menus::root;
+use super::menus::{keys, root};
 use super::paint::{Fake, button};
 use super::vm_screens::{disabled, opened, words};
 use super::{Check, check, expect};
@@ -89,6 +89,12 @@ pub(super) fn all() -> Vec<Check> {
         stack.is_open(),
     );
 
+    // A pad: the slot its focus is on, X (a double click) adds it.
+    let mut pad = opened("party", &mut assets, &vm);
+    presses(&mut pad, &mut assets, &vm, &["BTN_NPC2"]);
+    pad.step(&mut assets, &vm, &keys(&[crate::input::Key::Primary]));
+    let pad_added = words(&pad, &vm, "LBL_COUNT");
+
     let looking = table(false);
     let mut shows = opened("party", &mut assets, &looking);
     presses(&mut shows, &mut assets, &looking, &["BTN_NPC2"]);
@@ -127,6 +133,12 @@ pub(super) fn all() -> Vec<Check> {
             )
         })
         .and_then(|()| expect(&format!("Carth added: {full:?}"), full == "0"))
+        .and_then(|()| {
+            expect(
+                &format!("a pad's X adds the slot it is on: {pad_added:?}"),
+                pad_added == "0",
+            )
+        })
         .and_then(|()| {
             expect(
                 &format!("Done sends both and closes: {done:?}"),

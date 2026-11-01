@@ -29,14 +29,8 @@ impl Plugin for LockViewPlugin {
 }
 
 /// The Security key in play, with no screen open.
-fn key(
-    keys: Option<Res<ButtonInput<KeyCode>>>,
-    map: Option<Res<crate::settings::KeyMap>>,
-    ui: Res<Ui>,
-    mut asked: ResMut<Asked>,
-) {
-    let map = map.map_or_else(crate::settings::KeyMap::default, |map| map.clone());
-    if keys.is_some_and(|keys| map.pressed_now(&keys, crate::settings::Action::Security))
+fn key(actions: Option<Res<crate::pad::Actions>>, ui: Res<Ui>, mut asked: ResMut<Asked>) {
+    if actions.is_some_and(|actions| actions.pressed(crate::settings::Action::Security))
         && !ui.stack.is_open()
     {
         asked.0.push(None);
