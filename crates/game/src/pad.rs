@@ -241,10 +241,24 @@ pub(crate) fn rest(stick: Vec2, dead: f32) -> Vec2 {
 /// the slowest walk, not a crawl in place.
 const LEAST_STEP: f32 = 0.2;
 
+/// The buttons whose moves the sim picks by the keys' directions (a roll,
+/// a flip or cartwheel, a saber's lunge or kick): while one is held the
+/// stick reads as the keys would, one of eight ways.
+const DIRECTED: [Action; 4] = [
+    Action::Jump,
+    Action::Crouch,
+    Action::Attack,
+    Action::AltAttack,
+];
+
 /// The command's forward and right axes: the movement keys' (`WALK_AXIS`
 /// with `walk` held, as JA's client sends for a walk), or the stick's when
 /// no key is held: from `LEAST_STEP` just past its middle to a full run at
-/// its edge, the sim stepping as far as the axes ask.
+/// its edge, the sim stepping as far as the axes ask. While a `DIRECTED`
+/// button is held the stick snaps to the nearest of the keys' eight ways
+/// (its push kept): the sim reads a move's direction from each axis' sign,
+/// and a stick pushed left is rarely without some forward, which rolled
+/// forward, or pushed forward without some side, which cartwheeled.
 pub(crate) fn step(actions: &Actions, walk: bool) -> (i8, i8) {
     let speed = if walk {
         rules::movement::keys::WALK_AXIS as i8
@@ -257,10 +271,24 @@ pub(crate) fn step(actions: &Actions, walk: bool) -> (i8, i8) {
         axis(Action::Forward, Action::Backward),
         axis(Action::Right, Action::Left),
     );
-    let stick = actions.stick;
+    let mut stick = actions.stick;
     let length = stick.length();
     if keys != (0, 0) || length == 0.0 {
         return keys;
+    }
+    if DIRECTED.iter().any(|action| actions.held(*action)) {
+        let eighth = std::f32::consts::FRAC_PI_4;
+        let way = (stick.y.atan2(stick.x) / eighth).round() * eighth;
+        let (y, x) = way.sin_cos();
+        // As the keys hold both of a diagonal's axes full.
+        let snap = |value: f32| {
+            if value.abs() < 0.5 {
+                0.0
+            } else {
+                value.signum() * length
+            }
+        };
+        stick = Vec2::new(snap(x), snap(y));
     }
     let scale = (LEAST_STEP + (1.0 - LEAST_STEP) * length) / length;
     let axis = |value: f32| (value * scale * 127.0).round().clamp(-127.0, 127.0) as i8;

@@ -8,6 +8,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("stick rest", stick_rest()),
         ("stick step", stick_step()),
         ("keys over stick", keys_over_stick()),
+        ("stick directed", stick_directed()),
         ("chord names", chord_names()),
         ("chords apart", chords_apart()),
         ("pad names", pad_names()),
@@ -41,6 +42,38 @@ fn stick_step() -> Result<String, String> {
     check(
         (light, half, full, back) == (26, 76, 127, (-127, 0)) && walks(light, 0) && !walks(full, 0),
         format!("light {light}, half {half}, full {full}, back {back:?}"),
+    )
+}
+
+/// With a roll's, a flip's or an attack's button held the stick snaps to
+/// the keys' eight ways: left with a little forward rolls left, forward
+/// with a little side flips forward, a diagonal stays one; with none held
+/// it moves as pushed.
+fn stick_directed() -> Result<String, String> {
+    let read = |x: f32, y: f32, held: Option<Action>| {
+        let mut actions = Actions {
+            stick: Vec2::new(x, y),
+            ..Actions::default()
+        };
+        if let Some(action) = held {
+            actions.held |= bit(action);
+        }
+        step(&actions, false)
+    };
+    let rolled = read(-0.95, 0.25, Some(Action::Crouch));
+    let flipped = read(0.2, 0.95, Some(Action::Jump));
+    let diagonal = read(0.7, 0.7, Some(Action::Attack));
+    let free = read(-0.95, 0.25, None);
+    check(
+        rolled.0 == 0
+            && rolled.1 < -100
+            && flipped.1 == 0
+            && flipped.0 > 100
+            && diagonal.0 == diagonal.1
+            && diagonal.0 > 100
+            && free.0 > 0
+            && free.1 < 0,
+        format!("rolled {rolled:?}, flipped {flipped:?}, diagonal {diagonal:?}, free {free:?}"),
     )
 }
 
