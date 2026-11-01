@@ -104,7 +104,7 @@ pub(crate) fn over(
         .and_then(|node| places.get(node).ok())
         .map(|place| place.translation() + Vec3::Y * lift);
     let at = head.unwrap_or_else(|| {
-        game_to_bevy() * (Vec3::from_array(entity.position) * collision::UNIT) + Vec3::Y * OVER_FEET
+        game_to_bevy() * Vec3::from_array(entity.position) + Vec3::Y * OVER_FEET
     });
     let (place, camera) = camera;
     let share = camera.world_to_viewport(place, at).ok()? / camera.logical_viewport_size()?;
