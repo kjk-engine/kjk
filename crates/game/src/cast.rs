@@ -769,7 +769,25 @@ pub struct Figure {
     flick: Option<(f64, Vec3)>,
     /// Its head's turn toward whom it looks at in a conversation (S7).
     head: Head,
+    /// Its guns held up for a charge or an aim (`raise`): the shot's frame
+    /// they are held at, since when (sim ms) they went up, and since when
+    /// they came down from it.
+    raised: Option<Raised>,
 }
+
+/// Guns held up at `frame` (the shot's last) since `up_ms`, blended up from
+/// the ready pose's frame `from`; let down at `down_ms`.
+#[derive(Debug, Clone, Copy)]
+struct Raised {
+    frame: i32,
+    from: i32,
+    up_ms: u64,
+    down_ms: Option<u64>,
+}
+
+/// How long the guns take to go up for a charge or an aim (ms): a draw's
+/// blend.
+const RAISE_MS: u32 = 150;
 
 impl Figure {
     fn new(rig: &Rig, yaw: f32, ready: &'static str) -> Figure {
@@ -806,7 +824,93 @@ impl Figure {
             deflected: None,
             flick: None,
             head: Head::default(),
+            raised: None,
         }
+    }
+
+    /// The torso the sim's skeleton plays (`torso`), drawn with its guns held
+    /// up while a charge or an aim is `held`: the gun's ready pose shown as
+    /// the last frame of its shot (`BOTH_ATTACK2`, `BOTH_ATTACK3`), the arms
+    /// out where a shot leaves them, blended up to over `RAISE_MS`. A shot
+    /// let go then plays from there, so it leaves the guns at their height;
+    /// what follows the held guns blends from them, not from the ready pose
+    /// the sim blends from.
+    fn raise(
+        &mut self,
+        sequences: &BTreeMap<String, Sequence>,
+        torso: sim::combat::saber::blades::Shown,
+        held: bool,
+        now_ms: u64,
+    ) -> sim::combat::saber::blades::Shown {
+        use sim::skeleton::{Blend, Playback};
+        let shot = match torso.anim {
+            Anim::TORSO_WEAPONREADY2 => Anim::BOTH_ATTACK2,
+            Anim::TORSO_WEAPONREADY3 => Anim::BOTH_ATTACK3,
+            _ => torso.anim,
+        };
+        let frame = sequences
+            .get(shot.name())
+            .filter(|_| matches!(shot, Anim::BOTH_ATTACK2 | Anim::BOTH_ATTACK3))
+            .map(|sequence| sequence.first_frame + sequence.frame_count - 1);
+        let from = |frame: i32, start_ms: u64| Blend {
+            start_ms: start_ms as i64,
+            length_ms: RAISE_MS,
+            frame: frame as f32,
+            next: frame,
+            under: None,
+        };
+        let shooting = matches!(torso.anim, Anim::BOTH_ATTACK2 | Anim::BOTH_ATTACK3);
+        if held && let Some(frame) = frame {
+            let raised = match self.raised {
+                Some(raised) if raised.down_ms.is_none() => raised,
+                _ => Raised {
+                    frame,
+                    from: torso.playback.start_frame,
+                    up_ms: now_ms,
+                    down_ms: None,
+                },
+            };
+            self.raised = Some(raised);
+            if !shooting {
+                return sim::combat::saber::blades::Shown {
+                    anim: shot,
+                    flip: torso.flip,
+                    playback: Playback {
+                        start_frame: frame,
+                        end_frame: frame + 1,
+                        speed: 0.0,
+                        start_ms: raised.up_ms as i64,
+                        looping: false,
+                        blend: Some(from(raised.from, raised.up_ms)),
+                    },
+                };
+            }
+        }
+        let Some(mut raised) = self.raised else {
+            return torso;
+        };
+        let start_ms = torso.playback.start_ms as u64;
+        let mut torso = torso;
+        if held || shooting && start_ms >= raised.up_ms {
+            // A shot from the held guns (let go, or a pair's next, a
+            // sniper's): it plays from them, not from the ready pose.
+            torso.playback.blend = Some(from(raised.frame, start_ms));
+            if !held && raised.down_ms.is_none() {
+                raised.down_ms = Some(now_ms);
+                self.raised = Some(raised);
+            }
+            return torso;
+        }
+        // Let down with no shot (a charge let go of empty-handed): the
+        // ready pose blends from the held guns; then it is the sim's again.
+        let down_ms = *raised.down_ms.get_or_insert(now_ms);
+        if start_ms >= raised.up_ms || now_ms > down_ms + u64::from(RAISE_MS) {
+            self.raised = None;
+            return torso;
+        }
+        self.raised = Some(raised);
+        torso.playback.blend = Some(from(raised.frame, down_ms));
+        torso
     }
 
     /// The keyframed sounds its legs and torso passed since the last step
@@ -906,7 +1010,11 @@ impl Figure {
             .fighter
             .filter(|f| f.alive() && !rig.quirks)
             .and_then(|f| Some([f.pose.legs?, f.pose.torso?]));
-        if let Some(parts) = posed {
+        if let Some(mut parts) = posed {
+            let held = entity.fighter.is_some_and(|f| {
+                f.alive() && (f.shooting.charging_from.is_some() || f.shooting.aiming)
+            });
+            parts[1] = self.raise(&rig.sequences, parts[1], held, time_ms);
             // Up again, the sim's skeleton may show a step of its own before
             // the get-up: the body lies on until it takes the get-up up.
             let lies = self

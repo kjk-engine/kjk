@@ -56,6 +56,7 @@ Every key rebinds in the options; fighting in detail is in
 | E, mouse wheel | use the target, choose the action |
 | 1 / 2 | right / left hand weapon |
 | L | saber style |
+| 6 | next feat attack (guns, two blades, double-bladed) |
 | F, [ ] | cast / select a power |
 | G / R / Q | grip / lightning / drain |
 | T | grenade (hold to charge) |

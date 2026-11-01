@@ -184,6 +184,10 @@ pub enum Facing {
     AlignedWorldZ,
     /// Long along where it is going, its side square to that.
     AlignedDirection,
+    /// One ribbon through the particles in the order they were born, each
+    /// stretch turned to the camera, as wide as its ends' sizes (a laser
+    /// sight's line, `v_sn_r_gen`'s `LazerSight`).
+    Linked,
 }
 
 /// How a point-to-point emitter's particles reach its reference node: on a
@@ -349,6 +353,7 @@ fn facing(render: &str) -> Facing {
         "motion_blur" => Facing::MotionBlur,
         "aligned_to_world_z" => Facing::AlignedWorldZ,
         "aligned_to_particle_dir" => Facing::AlignedDirection,
+        "linked" => Facing::Linked,
         _ => Facing::Camera,
     }
 }
@@ -695,6 +700,10 @@ pub struct Particles {
     moving: Vec3,
     bolts: Vec<(Vec3, Vec3)>,
     next_bolt: f32,
+    /// How much bigger its particles are drawn than their sizes, riding
+    /// with their emitter: as much as the model is placed scaled (an own
+    /// muzzle flash before the eyes, `first_person::FLASH_SCALE`).
+    pub grown: f32,
 }
 
 impl Particles {
@@ -715,12 +724,15 @@ impl Particles {
             moving: Vec3::ZERO,
             bolts: Vec::new(),
             next_bolt: 0.0,
+            grown: 1.0,
         }
     }
 
     /// None alive and none owed, as new (its rolls go on).
     pub fn clear(&mut self) {
+        let grown = self.grown;
         *self = Particles::new(self.seed, self.limit);
+        self.grown = grown;
     }
 
     /// In [-1, 1).
@@ -1006,6 +1018,49 @@ impl Particles {
         }
     }
 
+    /// A linked emitter's ribbon as quads (game space) into `out`: from each
+    /// particle to the next born, its width each end's size, turned to the
+    /// camera (`right`, `up`); the texture's u across, v along the ribbon.
+    fn linked_quads(
+        &self,
+        emitter: &Emitter,
+        values: &Values,
+        space: Mat4,
+        (right, up): (Vec3, Vec3),
+        out: &mut Shape,
+    ) {
+        let toward = right.cross(up).normalize_or(Vec3::Z);
+        let points: Vec<(Vec3, f32, [f32; 4])> = self
+            .shown(emitter, values, space)
+            .map(|(_, centre, f, rgba)| {
+                let size = values.three([emit::SIZE_START, emit::SIZE_MID, emit::SIZE_END], f);
+                (centre, size * self.grown(emitter) / 2.0, rgba)
+            })
+            .collect();
+        let last = points.len().saturating_sub(1).max(1) as f32;
+        for (k, pair) in points.windows(2).enumerate() {
+            let [(a, wa, ca), (b, wb, cb)] = [pair[0], pair[1]];
+            let across = (b - a).cross(toward).normalize_or(right);
+            let (va, vb) = (k as f32 / last, (k + 1) as f32 / last);
+            for (corner, uv, rgba) in [
+                (a - across * wa, [0.0, va], ca),
+                (a + across * wa, [1.0, va], ca),
+                (b + across * wb, [1.0, vb], cb),
+                (b - across * wb, [0.0, vb], cb),
+            ] {
+                out.positions.push(corner.to_array());
+                out.uvs.push(uv);
+                out.colours.push(rgba);
+            }
+        }
+    }
+
+    /// How much bigger `emitter`'s particles are drawn than their sizes:
+    /// `grown` riding with it, as born left in the world.
+    fn grown(&self, emitter: &Emitter) -> f32 {
+        if emitter.world { 1.0 } else { self.grown }
+    }
+
     /// Each particle's place (game space), share of its life and colour.
     fn shown<'a>(
         &'a self,
@@ -1041,6 +1096,10 @@ impl Particles {
             self.bolt_quads(values, space, (right, up), out);
             return;
         }
+        if emitter.facing == Facing::Linked {
+            self.linked_quads(emitter, values, space, (right, up), out);
+            return;
+        }
         let (frames_from, frames_to) = (
             values.or(emit::FRAME_START, 0.0),
             values.or(emit::FRAME_END, values.or(emit::FRAME_START, 0.0)),
@@ -1049,7 +1108,9 @@ impl Particles {
         let span = (frames_to - frames_from).abs().floor() + 1.0;
         let [gx, gy] = emitter.grid.map(|g| g.max(1));
         let (axis_x, axis_y) = match emitter.facing {
-            Facing::Camera | Facing::AlignedWorldZ | Facing::MotionBlur => (right, up),
+            Facing::Camera | Facing::AlignedWorldZ | Facing::MotionBlur | Facing::Linked => {
+                (right, up)
+            }
             Facing::WorldZ => (Vec3::X, Vec3::Y),
             Facing::LocalZ | Facing::AlignedDirection => (
                 space.transform_vector3(Vec3::X).normalize_or(Vec3::X),
@@ -1058,7 +1119,9 @@ impl Particles {
         };
         let upright = if axis_y.z < 0.0 { Vec3::NEG_Z } else { Vec3::Z };
         for (particle, centre, f, rgba) in self.shown(emitter, values, space) {
-            let size = values.three([emit::SIZE_START, emit::SIZE_MID, emit::SIZE_END], f) / 2.0;
+            let size = values.three([emit::SIZE_START, emit::SIZE_MID, emit::SIZE_END], f)
+                * self.grown(emitter)
+                / 2.0;
             // At its frames a second, round its run (the asteroids
             // tumbling); else once over its life (reone).
             // Frames on from its first, the run's way (a run may go down).
@@ -1489,6 +1552,12 @@ pub fn aim(
 }
 
 impl Spray {
+    /// Its particles riding with it drawn `by` times their sizes: the
+    /// model's placed scale (`Particles::grown`).
+    pub fn grow(&mut self, by: f32) {
+        self.particles.grown = by;
+    }
+
     /// Its emitter's birthrate now (the dumps).
     pub fn birthrate(&self) -> f32 {
         self.values.birthrate()

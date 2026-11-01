@@ -249,10 +249,11 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         seats: 1,
         guests: sim::Guests::Avatars,
         // The arena's own Jedi unless another class is asked for.
-        sheet: match ((stage == "arena" || stage.starts_with("arena:")) && class == "soldier")
-            .then(kjk_game::arena::sheet)
-            .map_or_else(|| player_sheet(&class), Ok)
-        {
+        sheet: match if stage == "arena" || stage.starts_with("arena:") {
+            arena_sheet(&class)
+        } else {
+            player_sheet(&class)
+        } {
             Ok(sheet) => sim::combat::Sheet {
                 good_evil: alignment.unwrap_or(sheet.good_evil),
                 ..by_hand::with_skills(sheet, &skills)
@@ -296,6 +297,42 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
 pub(crate) fn read_recording(path: &std::path::Path) -> Result<sim::Recording, String> {
     let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
     sim::Recording::from_file(&bytes).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+/// The arena's player for `--class`: its own Jedi for `soldier`, the same
+/// Jedi with a gun in each hand `@ROW,ROW` names (`soldier@12,12`, a pair of
+/// pistols; `soldier@77`, a rifle) to try the guns' feats with, and after a
+/// `+` the feat attack the gun takes (`blast`, `rapid` or `sniper`:
+/// `soldier@77+sniper`), else the class's own sheet (`player_sheet`).
+fn arena_sheet(class: &str) -> Result<sim::combat::Sheet, String> {
+    use sim::combat::sheet::feats;
+    let (rows, feat) = match class.strip_prefix("soldier") {
+        Some("") => ("", None),
+        Some(rest) if rest.starts_with('@') => match rest[1..].split_once('+') {
+            Some((rows, feat)) => (rows, Some(feat)),
+            None => (&rest[1..], None),
+        },
+        _ => return player_sheet(class),
+    };
+    let mut sheet = kjk_game::arena::sheet();
+    for (hand, row) in rows
+        .split(',')
+        .filter(|row| !row.is_empty())
+        .enumerate()
+        .take(2)
+    {
+        sheet.weapons[hand] = player_sheet(&format!("soldier@{row}"))?.weapons[0];
+    }
+    if let Some(feat) = feat {
+        let row = match feat {
+            "blast" => feats::POWER_BLAST[0],
+            "rapid" => feats::RAPID_SHOT[0],
+            "sniper" => feats::SNIPER_SHOT[0],
+            _ => return Err(format!("--class {class}: +blast, +rapid or +sniper")),
+        };
+        sim::combat::picks::Picks::choose(&mut sheet, 0, row);
+    }
+    Ok(sheet)
 }
 
 /// The sheet `--class` names: `soldier`, `jedi` or `master`, after a colon

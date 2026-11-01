@@ -597,7 +597,11 @@ The story's progress (I19, `docs/WORLD-STATE.md`) rides in the snapshot
   action and no cost, in a fight too (`Action::Form`, wire 47;
   `game::form_view`), told by the game's line for it ("{Shii-Cho}
   Determination Initiated" …, 124098 to 124108) in the feedback log
-  (`sim::combat::forms`, `docs/COMBAT.md`). [verify] KOTOR 2 picks from
+  (`sim::combat::forms`, `docs/COMBAT.md`). The next-feat key (6, `Next feat
+  attack` in the key map) moves on the feat attack the weapon in hand
+  carries, the same way (`Action::NextFeat`, wire 57; `game::feat_view`),
+  named in the feedback log, its `feat.2da` icon the action slot after the
+  power's (`sim::combat::picks`). [verify] KOTOR 2 picks from
   the column's list with the mouse and shows that line 4 s on the HUD.
 - KOTOR's status summary (`statussummary`, KOTOR 2's `statussummary_p`
   with the skin): what the scripts told the party (`docs/WORLD-STATE.md`'s

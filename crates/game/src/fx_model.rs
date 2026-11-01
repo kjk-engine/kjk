@@ -591,7 +591,9 @@ impl Drawing<'_, '_> {
             local,
         );
         let (fx, chunks) = (&*spawned.model.fx, &*spawned.model.chunks);
+        let grown = root.x_axis.truncate().length();
         for (spray, space) in spawned.sprays.iter_mut().zip(spaces) {
+            spray.grow(grown);
             let mut detonated = false;
             for playing in &ended {
                 spray.key(fx, playing.name, playing.at);

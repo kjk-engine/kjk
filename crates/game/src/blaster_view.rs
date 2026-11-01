@@ -119,12 +119,32 @@ pub struct Tracer {
     pub ms: f64,
 }
 
-/// What the views asked for since the last frame (`combat_fx`, `shot_fx`).
+/// A feat's row's model held on `by`'s gun in `hand` this frame (`aim_fx`:
+/// a charge, an aim), at `at` (game space, metres) along `way`, its clip
+/// from when it first was (`since`, the view's ms) and staying `hold_ms`
+/// into it if given, else running on; its emitters' reference nodes `reach`
+/// metres out along +y if given, else where the model has them; `scale`
+/// times its size.
+pub struct Held {
+    pub by: SimId,
+    pub hand: u8,
+    pub row: u16,
+    pub at: Vec3,
+    pub way: Vec3,
+    pub since: f64,
+    pub hold_ms: Option<f64>,
+    pub reach: Option<f32>,
+    pub scale: f32,
+}
+
+/// What the views asked for since the last frame (`combat_fx`, `shot_fx`,
+/// `aim_fx`).
 #[derive(Resource, Default)]
 pub struct BlasterShots {
     pub bolts: Vec<BoltShown>,
     pub flashes: Vec<Flash>,
     pub tracers: Vec<Tracer>,
+    pub held: Vec<Held>,
 }
 
 /// The bolts' lights shown, in Bevy's space, as of this frame: candidates
@@ -397,7 +417,9 @@ fn spawn(
 }
 
 /// One thing to show this frame in a copy of `model`: its key, where,
-/// which way, how big, its clip, and when it began (the view's ms).
+/// which way, how big, its clip, when it began (the view's ms), how far
+/// into the clip it stays (ms), and how far past its emitters their
+/// reference nodes stand instead (metres).
 struct Shown {
     model: String,
     key: u64,
@@ -406,6 +428,8 @@ struct Shown {
     scale: f32,
     clip: &'static str,
     since: f64,
+    hold_ms: Option<f64>,
+    reach: Option<f32>,
 }
 
 /// The copy of `copies` to show `key` in: the one that showed it last,
@@ -513,9 +537,29 @@ fn draw(
             scale: 1.0,
             clip: TRAVEL,
             since: now,
+            hold_ms: None,
+            reach: None,
         })
         .collect();
     let mut counts = [shown.len(), 0, 0];
+    // Held models keyed apart from the bolts and the flashes, by gunner,
+    // hand and row.
+    shown.extend(shots.held.into_iter().filter_map(|held| {
+        Some(Shown {
+            model: rows.get(&held.row)?.clone(),
+            key: 3 << 62
+                | u64::from(held.by.0) << 20
+                | u64::from(held.hand) << 16
+                | u64::from(held.row),
+            at: held.at,
+            way: held.way,
+            scale: held.scale,
+            clip: IMPACT,
+            since: held.since,
+            hold_ms: held.hold_ms,
+            reach: held.reach,
+        })
+    }));
     // A flash lasts its clip; a tracer until it reaches its end.
     view.live.retain(|live| match live.kind {
         LiveKind::Flash { clip, .. } => now < live.since + clip_ms(&live.model, clip),
@@ -545,6 +589,8 @@ fn draw(
                     scale,
                     clip,
                     since: live.since,
+                    hold_ms: None,
+                    reach: None,
                 }
             }
             LiveKind::Tracer { from, to } => {
@@ -559,6 +605,8 @@ fn draw(
                     scale: 1.0,
                     clip: TRAVEL,
                     since: live.since,
+                    hold_ms: None,
+                    reach: None,
                 }
             }
         });
@@ -584,11 +632,13 @@ fn draw(
             };
             taken[k] = true;
             let pooled = &mut copies[k];
-            if pooled.shows.is_none_or(|(key, _)| key != item.key) {
+            let new = pooled.shows.is_none_or(|(key, _)| key != item.key);
+            if new {
                 pooled.spawned.reset();
                 pooled.shows = Some((item.key, item.since));
             }
             let since = pooled.shows.map_or(now, |(_, since)| since);
+            let since = item.hold_ms.map_or(since, |hold| since.max(now - hold));
             let copy = &mut pooled.spawned;
             if let Ok(mut transform) = transforms.get_mut(copy.root) {
                 *transform = Transform::from_translation(item.at)
@@ -603,6 +653,17 @@ fn draw(
             }];
             let anims = copy.anims.clone();
             fx_model::animate(copy, &anims, (now, dt), Vec::new(), &mut transforms);
+            // A copy new to this keeps no other's reach; one held reaches out.
+            if new || item.reach.is_some() {
+                let nodes = &copy.model.placed.ir.nodes;
+                for reference in copy.sprays.iter().filter_map(|spray| spray.reference) {
+                    let mut place = Vec3::from_array(nodes[reference].translation);
+                    place.y = item.reach.unwrap_or(place.y);
+                    if let Ok(mut transform) = transforms.get_mut(copy.nodes[reference]) {
+                        transform.translation = place;
+                    }
+                }
+            }
             placed.push((item.model, k, item.at, since));
         }
     }

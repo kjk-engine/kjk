@@ -285,9 +285,10 @@ pub fn power_cast(
 }
 
 /// What a feat its script chose comes to (C14): a melee feat's saber
-/// style (Power Attack strong, Critical Strike medium, Flurry fast: C8);
-/// a ranged feat's alternate, the special the gun suits (`special`,
-/// `Special::of`) when the bar can pay.
+/// style (Power Attack strong, Critical Strike medium, Flurry fast: C8;
+/// two blades or a double-bladed weapon carry it instead, `combat::picks`);
+/// a ranged feat's alternate, the special its gun takes (`special`,
+/// `Special::of`, the line chosen first) when the bar can pay.
 pub enum FeatUse {
     Style(Style),
     Cast(Cast),

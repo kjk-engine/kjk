@@ -36,6 +36,7 @@ use crate::combat::ai::{self, Cast, Mind, Task};
 use crate::combat::items;
 use crate::combat::mind;
 use crate::combat::pace::{self, Way};
+use crate::combat::picks::Picks;
 use crate::combat::saber::{Kit, Style};
 use crate::combat::sheet::{Delivery, skills};
 use crate::combat::specials::{self, Special};
@@ -166,9 +167,10 @@ pub(super) fn think(
     clock: Res<Clock>,
     level: Res<Static>,
     scripts: Res<super::scripts::Scripts>,
-    (mut driven, mut item_talents, mut rounds): (
+    (mut driven, mut item_talents, mut feat_talents, mut rounds): (
         ResMut<super::Driven>,
         ResMut<super::scripts::ItemTalents>,
+        ResMut<super::scripts::FeatTalents>,
         ResMut<super::scripts::Rounds>,
     ),
     (talking, world_held, made_walls): (
@@ -229,6 +231,7 @@ pub(super) fn think(
         }
     }
     item_talents.0.clear();
+    feat_talents.0.clear();
     rounds.0.clear();
     let Some(module) = level.0.module.clone() else {
         return;
@@ -958,18 +961,29 @@ pub(super) fn think(
                         mind.cast_after = mind.cast_after.max(now + ROUND_MS);
                     }
                 }
-                Use::Feat(row) => match ai::feat_use(row, &me, &fighter_now, gun_special) {
-                    Some(FeatUse::Cast(cast)) => {
-                        cast_into(&mut fighter.mind, &mut command, Some(cast), now, dice);
-                        let mind = &mut fighter.mind;
-                        mind.cast_after = mind.cast_after.max(now + ROUND_MS);
+                Use::Feat(row) => {
+                    // The line its script chose, as the next-feat key
+                    // chooses one (`combat::picks`), kept by the scripts'
+                    // step: this step's trigger still reads the old sheet,
+                    // so the talent, which lasts its round, goes on the next.
+                    let mut chosen = me;
+                    if Picks::choose(&mut chosen, fighter.hand, row) {
+                        feat_talents.0.push((id.0, fighter.hand, row));
+                    } else {
+                        match ai::feat_use(row, &me, &fighter_now, gun_special) {
+                            Some(FeatUse::Cast(cast)) => {
+                                cast_into(&mut fighter.mind, &mut command, Some(cast), now, dice);
+                                let mind = &mut fighter.mind;
+                                mind.cast_after = mind.cast_after.max(now + ROUND_MS);
+                            }
+                            Some(FeatUse::Style(style)) if wants_style(&me, fighter, style) => {
+                                command.buttons |= buttons::SABER_STYLE;
+                            }
+                            Some(FeatUse::Style(_)) => {}
+                            None => {}
+                        }
                     }
-                    Some(FeatUse::Style(style)) if wants_style(&me, fighter, style) => {
-                        command.buttons |= buttons::SABER_STYLE;
-                    }
-                    Some(FeatUse::Style(_)) => {}
-                    None => {}
-                },
+                }
             }
         } else if own_choice
             && engaged

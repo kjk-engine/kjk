@@ -30,6 +30,8 @@ pub enum Action {
     Use,
     Security,
     SaberStyle,
+    /// The next feat attack of the weapon in hand (`feat_view`).
+    NextFeat,
     Power,
     Grip,
     Lightning,
@@ -77,7 +79,7 @@ pub enum Action {
 
 /// Each action: its settings name, its label, its default key, and
 /// whether it is a movement key.
-const ACTIONS: [(Action, &str, &str, KeyCode, bool); 43] = [
+const ACTIONS: [(Action, &str, &str, KeyCode, bool); 44] = [
     (
         Action::Report,
         "report",
@@ -111,6 +113,13 @@ const ACTIONS: [(Action, &str, &str, KeyCode, bool); 43] = [
         "saber_style",
         "Saber style",
         KeyCode::KeyL,
+        false,
+    ),
+    (
+        Action::NextFeat,
+        "next_feat",
+        "Next feat attack",
+        KeyCode::Digit6,
         false,
     ),
     (

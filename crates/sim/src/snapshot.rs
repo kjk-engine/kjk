@@ -2383,6 +2383,7 @@ fn encode_entity(entity: &EntityState, out: &mut Writer) {
         Some(sheet) => {
             out.u8(1);
             sheet.encode(out);
+            sheet.picks.encode(out);
         }
         None => out.u8(0),
     }
@@ -2495,7 +2496,13 @@ fn decode_entity(
     let at = input.at();
     let sheet = match input.u8()? {
         0 => None,
-        1 => Some(Sheet::decode(input)?),
+        1 => {
+            let mut sheet = Sheet::decode(input)?;
+            if input.since(crate::since::snapshot::FEAT_CYCLE) {
+                sheet.picks = crate::combat::picks::Picks::decode(input)?;
+            }
+            Some(sheet)
+        }
         _ => return Err(input.invalid("sheet flag", at)),
     };
     // A player always has one; a creature has one once its equipment

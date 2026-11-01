@@ -354,6 +354,7 @@ impl Party {
                     out.u8(1);
                     out.u32(kept.from);
                     kept.sheet.encode(out);
+                    kept.sheet.picks.encode(out);
                     out.u32(kept.hp as u32);
                     out.u32(kept.fp as u32);
                 }
@@ -411,7 +412,13 @@ impl Party {
                 0 => None,
                 _ => Some(Kept {
                     from: input.u32()?,
-                    sheet: Sheet::decode(input)?,
+                    sheet: {
+                        let mut sheet = Sheet::decode(input)?;
+                        if input.since(crate::since::save::FEAT_CYCLE) {
+                            sheet.picks = crate::combat::picks::Picks::decode(input)?;
+                        }
+                        sheet
+                    },
                     hp: input.u32()? as i32,
                     fp: input.u32()? as i32,
                 }),

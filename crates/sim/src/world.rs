@@ -98,6 +98,8 @@ pub mod party;
 #[cfg(feature = "probes")]
 pub mod party_fights_probes;
 #[cfg(feature = "probes")]
+pub mod picks_probes;
+#[cfg(feature = "probes")]
 pub mod player_probes;
 mod powers;
 #[cfg(feature = "probes")]
@@ -787,24 +789,40 @@ impl SimWorld {
     /// saber). Refused for a seat with no character here or a template the
     /// level's library does not have.
     pub fn wear_new_item(&mut self, seat: Seat, template: &str, slot: u8) -> Result<(), String> {
+        self.wear_new_items(seat, &[(template, slot)])
+    }
+
+    /// `wear_new_item` for several at once, each `(template, slot)`: both
+    /// hands' (a pair of pistols) dress the sheet together.
+    pub fn wear_new_items(&mut self, seat: Seat, worn: &[(&str, u8)]) -> Result<(), String> {
         let library = self
             .level()
             .scripts()
             .cloned()
             .ok_or("the level has no scripts")?;
         let mut state = self.script_state().clone();
-        let facts = state
-            .item_facts(library.items(), template)
-            .cloned()
-            .ok_or(format!("{template}: no such item template"))?;
+        let facts = worn
+            .iter()
+            .map(|&(template, slot)| {
+                let facts = state
+                    .item_facts(library.items(), template)
+                    .cloned()
+                    .ok_or(format!("{template}: no such item template"))?;
+                Ok((slot, facts))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
         let mut players = self.world.query::<(&Id, &Avatar, &mut PlayerSheet)>();
         let (id, mut sheet) = players
             .iter_mut(&mut self.world)
             .find(|(_, avatar, _)| avatar.0 == seat)
             .map(|(id, _, sheet)| (id.0, sheet))
             .ok_or(format!("seat {} has no character", seat.0))?;
-        sheet.0 = crate::inventory::rewear(sheet.0, &[], &[(slot, &facts)]);
-        state.make_item(library.items(), template, id.0, 1, Some(slot));
+        let after: Vec<(u8, &crate::inventory::ItemFacts)> =
+            facts.iter().map(|(slot, facts)| (*slot, facts)).collect();
+        sheet.0 = crate::inventory::rewear(sheet.0, &[], &after);
+        for &(template, slot) in worn {
+            state.make_item(library.items(), template, id.0, 1, Some(slot));
+        }
         self.set_script_state(state);
         Ok(())
     }

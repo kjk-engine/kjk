@@ -1513,6 +1513,7 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
         save_bonus: ["fortbonus", "refbonus", "willbonus"]
             .map(|label| root.int(label).unwrap_or(0).clamp(-128, 127) as i8),
         form: root.int("CurrentForm").unwrap_or(0).clamp(0, 65535) as u16,
+        picks: Default::default(),
     };
     let mut worn = Vec::new();
     let mut usable = Vec::new();

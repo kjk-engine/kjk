@@ -267,8 +267,9 @@ fn key_of(kind: items::Use) -> Action {
 
 /// What KOTOR's HUD shows: the bars (Force only for a Force user), the
 /// portrait of the character played (the player's persona's, or a
-/// companion's template's while it leads or is driven), the power then
-/// each item kind carried as action slots
+/// companion's template's while it leads or is driven), the power, the feat
+/// attack the weapon in hand carries, then each item kind carried as action
+/// slots
 /// (the power's `spells.2da` icon, pull showing push's; an item kind's the
 /// icon of the party's first item that casts it), then TSL's stance column
 /// for one who knows a Form: the Form in use, else the first it knows
@@ -278,6 +279,7 @@ fn kotor_view(
     sheet: &sim::combat::Sheet,
     fighter: &sim::combat::Fighter,
     (power, slots): (Option<(u8, Vec<u8>)>, &[Slot]),
+    feat_key: Vec<u8>,
     goods: &sim::inventory::Goods,
     (persona, made, template): (
         Option<&sim::persona::Persona>,
@@ -302,6 +304,17 @@ fn kotor_view(
         }) {
             actions.push((name, None));
             keys.push(key);
+        }
+        // The feat attack the weapon in hand carries (`feat_view`); a double
+        // blade with one lit fights as a single blade, its style its feat.
+        use sim::combat::picks::{Picks, Shown};
+        if let Some(Shown::Feat(row)) = Some(fighter)
+            .filter(|fighter| !fighter.saber.second_off)
+            .and_then(|fighter| Picks::shown(sheet, fighter.hand))
+            && let Some(icon) = assets.cell("feat", usize::from(row), "icon")
+        {
+            actions.push((icon, None));
+            keys.push(feat_key);
         }
         for (row, left, key) in slots {
             keys.push(key.clone());
@@ -665,6 +678,7 @@ fn show(
                 &sheet,
                 &fighter,
                 (power.map(|row| (row, keymap.shown(Action::Power))), &slots),
+                keymap.shown(Action::NextFeat),
                 &snapshot.goods,
                 (
                     sim::persona::of(&snapshot.personas, own.0),

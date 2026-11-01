@@ -50,6 +50,7 @@ use vfs::Discovery;
 
 use crate::by_hand::with_defence;
 use crate::saber_verbs::{ALT, ATTACK, Report, STYLES, jedi, saber, weapons_for};
+use sim::combat::picks::Picks;
 use crate::scenes::{self, Stage};
 use crate::stage::ring;
 
@@ -524,6 +525,101 @@ fn feat_attacks(report: &mut Report) -> serde_json::Value {
             .map(|(style, s)| serde_json::json!({ "style": style.name(), "damage": s.0, "hit": s.1, "threat": s.2 }))
             .collect::<Vec<_>>() }));
     }
+    serde_json::Value::Array(rows)
+}
+
+/// What each melee feat is worth: the damage a second of holding attack at
+/// an idle dummy deals, each single-blade style with its feat and the dual
+/// and staff styles carrying each line chosen, at a 75% chance to hit before
+/// the feat's penalty.
+fn feat_worth(level: &Level, report: &mut Report) -> serde_json::Value {
+    outln!("feat worth: damage a second at a dummy, 75% to hit before the feat");
+    const SECONDS: u64 = 40;
+    let per_second = |style: Style, chosen: Option<u16>, known: &[&[u16]], seed: u64| {
+        let mut sheet = jedi(weapons_for(style), 100);
+        sheet.feats = Sheet::commoner().feats;
+        for row in [
+            feats::PROFICIENCY_LIGHTSABER,
+            feats::TWO_WEAPON_FIGHTING[0],
+        ]
+        .iter()
+        .chain(known.iter().flat_map(|rows| rows.iter()))
+        {
+            sheet.feats.insert(*row);
+        }
+        if let Some(row) = chosen {
+            Picks::choose(&mut sheet, 0, row);
+        }
+        let mut target = dummy(weapons_for(Style::Medium));
+        target.max_hp = u16::MAX;
+        target.weapons = [None, None];
+        let weapon = sheet.main_weapon();
+        let bab = (0..=60)
+            .find(|bab| {
+                sheet.bab = *bab;
+                damage::chance(&sheet, &weapon, &target) == 750
+            })
+            .expect("a base attack bonus for 75% to hit");
+        sheet.bab = bab;
+        let mut bout = Bout::new(level, [sheet, target], 48.0, seed);
+        bout.take_style(0, style);
+        bout.light();
+        let from = bout.fighter(1).hp;
+        let end = bout.now() + SECONDS * 1000;
+        while bout.now() < end {
+            bout.step([Keys::press(ATTACK).with(127, 0), Keys::default()]);
+        }
+        f64::from(from - bout.fighter(1).hp) / 100.0 / SECONDS as f64
+    };
+    let average = |style: Style, chosen: Option<u16>, known: &[&[u16]]| {
+        (1..=5u64)
+            .map(|seed| per_second(style, chosen, known, seed))
+            .sum::<f64>()
+            / 5.0
+    };
+    let mut rows = Vec::new();
+    let mut show = |name: String, dps: f64, base: f64| {
+        let gain = dps / base - 1.0;
+        outln!("  {name:<28} {dps:>6.2} HP/s  {:>+5.0}%", gain * 100.0);
+        rows.push(serde_json::json!({ "name": name, "dps": dps, "gain": gain }));
+        dps
+    };
+    let plain = average(Style::Medium, None, &[]);
+    show("medium, no feat".into(), plain, plain);
+    let lines: [(&str, Style, &[u16]); 3] = [
+        ("Power Attack", Style::Strong, &feats::POWER_ATTACK),
+        ("Critical Strike", Style::Medium, &feats::CRITICAL_STRIKE),
+        ("Flurry", Style::Fast, &feats::FLURRY),
+    ];
+    let mut flurry = 0.0;
+    for (name, style, rows_of) in lines {
+        for tier in 1..=rows_of.len() {
+            let dps = show(
+                format!("{name} {tier} ({})", style.name()),
+                average(style, None, &[&rows_of[..tier]]),
+                plain,
+            );
+            if style == Style::Fast && tier == 1 {
+                flurry = dps;
+            }
+        }
+    }
+    for style in [Style::Dual, Style::Staff] {
+        let bare = average(style, None, &[]);
+        show(format!("{}, none", style.name()), bare, plain);
+        for (name, _, rows_of) in lines {
+            show(
+                format!("{}, {name} 1", style.name()),
+                average(style, Some(rows_of[0]), &[&rows_of[..1]]),
+                bare,
+            );
+        }
+    }
+    report.check(
+        "Flurry 1 in the fast style deals more than no feat",
+        flurry > plain,
+        format!("{flurry:.2} against {plain:.2} HP/s"),
+    );
     serde_json::Value::Array(rows)
 }
 
@@ -1796,9 +1892,10 @@ pub fn duel(discovery: &Discovery, only: &[String]) -> ExitCode {
     let mut report = Report::default();
     let mut bouts = Bouts::new();
     type Section<'a> = Box<dyn Fn(&mut Report, &mut Bouts) -> serde_json::Value + 'a>;
-    let sections: [(&str, Section); 14] = [
+    let sections: [(&str, Section); 15] = [
         ("cuts", Box::new(|r, _| cuts(&level, r))),
         ("feat_attacks", Box::new(|r, _| feat_attacks(r))),
+        ("feat_worth", Box::new(|r, _| feat_worth(&level, r))),
         ("blocks", Box::new(|r, b| blocks(&level, r, b))),
         ("bolts", Box::new(|r, _| bolts(&level, r))),
         ("blade_bolts", Box::new(|r, b| blade_bolts(&level, r, b))),
