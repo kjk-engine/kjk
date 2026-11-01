@@ -104,7 +104,12 @@ the games' own compiled scripts; nothing of them is in the repo.
   off) nothing (so `k_ptar_dueldlg`'s second of paralysis, which
   holds the player while Taris's duel announcer begins, is silent). A
   paralysed body's clips stop where the hold found it, and only while the
-  hold lasts (`cast::held_since`).
+  hold lasts (`cast::held_since`); a horrified one plays its `horror`, a
+  choked one its `choke`, looped while the choke holds (`animations.2da`
+  row 72; `ANIMATION_LOOPING_CHOKE` shares 116 with the fire-and-forget
+  one: the Taris rancor clutches its throat as the grenade bursts from
+  its jaws, `k_ptar_rancorcs2`), a
+  whirlwind's victim its `whirlwind` (`cast::held_clip`).
 - TSL's other effects: `EffectBlind` (it neither sees nor hears: its
   perception skipped; the 50 % miss chance and visual 5002 not kept
   [verify: who rolls it]), `EffectTrueSeeing` and `EffectPsychicStatic`
