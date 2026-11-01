@@ -3,13 +3,14 @@
 //! lie until it may be called back.
 //!
 //! - Thrown with the alternate button (move_body's saber step: any style but
-//!   the staff, the weapon ready, KOTOR's Throw Lightsaber known (level 1,
+//!   the staff), or the power button with the throw selected (`by_power`,
+//!   any saber), the weapon ready, KOTOR's Throw Lightsaber known (level 1,
 //!   Advanced level 2), its `spells.2da` cost paid, `CLEAR_AHEAD` clear
 //!   ahead). It leaves the hilt at `OUT_SPEED` along the view; the Force
 //!   pool does not refill while it flies.
-//! - Out: after `HOLD_MS` it turns back when alternate is let go, after
-//!   `MAX_OUT_MS`, beyond `RANGE_PER_LEVEL` × level from its owner, when the
-//!   owner cannot use the Force or after a hit or block. At level 2 it is
+//! - Out: after `HOLD_MS` it turns back when the button that threw it is
+//!   let go, after `MAX_OUT_MS`, beyond `RANGE_PER_LEVEL` × level from its
+//!   owner, when the owner cannot use the Force or after a hit or block. At level 2 it is
 //!   re-aimed every `AIM_L2_MS` at `AIMED_SPEED` at the point the owner's
 //!   view meets the world (level 3, which K1 has no row for, every
 //!   `AIM_L3_MS` at whatever it meets).
@@ -226,6 +227,20 @@ impl Thrown {
             level: input.u8()?,
         })
     }
+}
+
+/// Whether a command asks for the throw as KOTOR's power: the power
+/// button held with a Throw Lightsaber row selected (`combat::force::
+/// choices` offers it). Held, it keeps the saber out as alternate does.
+pub fn by_power(command: &crate::input::Command) -> bool {
+    use crate::combat::spells::{
+        FORCE_POWER_LIGHT_SABER_THROW, FORCE_POWER_LIGHT_SABER_THROW_ADVANCED,
+    };
+    command.buttons & crate::input::buttons::FORCE_POWER != 0
+        && matches!(
+            u16::from(command.force),
+            FORCE_POWER_LIGHT_SABER_THROW | FORCE_POWER_LIGHT_SABER_THROW_ADVANCED
+        )
 }
 
 /// The throw level a character's powers give (K1's `spells.2da`: Throw

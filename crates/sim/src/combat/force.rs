@@ -312,7 +312,8 @@ pub fn selected(powers: &Rows<5>, selected: u8, exact: bool) -> Option<(Power, u
 /// What a player's power button can select (`Command::force`): every
 /// power row it knows, each chain's ranks together and in rank order (the
 /// chains as `Power` lists them, pull after push when push is known), the
-/// rows of one rank by row.
+/// rows of one rank by row; last the saber throw it knows, which the
+/// button throws (`motion::saber`).
 pub fn choices(powers: &Rows<5>) -> Vec<u8> {
     let mut rows: Vec<(Power, u8, u8)> = (0..PULL)
         .filter_map(|row| selected(powers, row, true).map(|(power, level, _)| (power, level, row)))
@@ -321,7 +322,9 @@ pub fn choices(powers: &Rows<5>) -> Vec<u8> {
         rows.push((Power::Pull, 1, PULL));
     }
     rows.sort();
-    rows.into_iter().map(|(.., row)| row).collect()
+    let throw =
+        crate::combat::saber::throw::level(powers).and_then(|(_, row)| u8::try_from(row).ok());
+    rows.into_iter().map(|(.., row)| row).chain(throw).collect()
 }
 
 /// A power channelled while its button is held (JA's grip, lightning,

@@ -263,18 +263,32 @@ pub(super) fn force(
     let_go.0.clear();
     let mut actors: Vec<_> = actors.iter_mut().collect();
     actors.sort_by_key(|(id, avatar, ..)| (avatar.is_none(), avatar.map(|a| a.0), id.0));
+    // The seat whose commands each body casts by, as `move_actors` has it:
+    // the companion leading takes the first seat's, and that seat's own
+    // character, unmanned meanwhile, none.
+    let lent = super::lent(&scripts.state.party);
+    let seats: Vec<Option<Avatar>> = actors
+        .iter()
+        .map(|(id, avatar, ..)| match (avatar, lent) {
+            (Some(avatar), Some(_)) if avatar.0 == super::LEADER_SEAT => None,
+            (Some(avatar), _) => Some(Avatar(avatar.0)),
+            (None, Some(body)) if body == id.0 => Some(Avatar(super::LEADER_SEAT)),
+            (None, _) => None,
+        })
+        .collect();
     let people: Vec<Person> = actors
         .iter()
-        .map(|(id, avatar, object, sheet, player, fighting)| {
+        .zip(&seats)
+        .map(|((id, avatar, object, sheet, player, fighting), seat)| {
             // What runs on it changes its sheet (saves, defence, abilities).
             let base = sheet_of(*sheet, *object);
             let sheet = effects::sheet_now(base, &fighting.0, clock.time_ms);
             Person {
                 pool: base.pool(),
                 id: id.0,
-                seat: avatar.map(|a| a.0),
+                seat: seat.as_ref().map(|a| a.0),
                 party: super::in_party(*avatar, &fighting.0),
-                ordered: avatar.is_some() && !fighting.0.mind.steered,
+                ordered: seat.is_some() && !fighting.0.mind.steered,
                 faction: faction_of(&fighting.0, &sheet),
                 sheet,
                 ps: player.0,
@@ -354,7 +368,7 @@ pub(super) fn force(
     for at in 0..people.len() {
         let command = command_for(
             &inputs.0,
-            actors[at].1,
+            seats[at].as_ref(),
             &people[at].ps,
             &cast.fighters[at],
             clock.time_ms,

@@ -67,6 +67,8 @@ pub(crate) struct Keys {
     buttons: u16,
     /// Degrees turned from facing the other (180: back to it).
     turn: f32,
+    /// The power the power button casts (`Command::force`).
+    force: u8,
 }
 
 impl Keys {
@@ -75,6 +77,10 @@ impl Keys {
             buttons,
             ..Keys::default()
         }
+    }
+
+    pub(crate) fn selecting(self, force: u8) -> Keys {
+        Keys { force, ..self }
     }
 
     pub(crate) fn with(self, forward: i8, right: i8) -> Keys {
@@ -172,6 +178,7 @@ impl Bout {
             right: keys.right,
             up: keys.up,
             buttons: keys.buttons,
+            force: keys.force,
             ..mind::looking(&me, pitch, yaw + keys.turn)
         }
     }
@@ -1086,16 +1093,21 @@ fn lock_down(level: &Level, report: &mut Report, bouts: &mut Bouts) -> serde_jso
 
 /// Throws: seat 0 throws (level 1, then Advanced, level 2) at seat 1 250
 /// units away; then at a defender with defence 2, which knocks a level-1
-/// throw down.
+/// throw down; then a saber staff by the power button with the throw
+/// selected (KOTOR's power: the staff's alternate kicks).
 fn throws(level: &Level, report: &mut Report) -> serde_json::Value {
-    outln!("throws: alternate held 1.5 s at a dummy 250 units away");
+    outln!("throws: alternate (or the power button) held 1.5 s at a dummy 250 units away");
+    let alternate = Keys::press(ALT);
+    let power = Keys::press(buttons::FORCE_POWER).selecting(49);
     let mut rows = Vec::new();
-    for (row, name, defence) in [
-        (49, "Throw Lightsaber", 0),
-        (4, "Advanced", 0),
-        (49, "Throw Lightsaber", 2),
+    for (row, name, defence, style, keys) in [
+        (49, "Throw Lightsaber", 0, Style::Medium, alternate),
+        (4, "Advanced", 0, Style::Medium, alternate),
+        (49, "Throw Lightsaber", 2, Style::Medium, alternate),
+        (49, "Throw Lightsaber by the power button", 0, Style::Medium, power),
+        (49, "Throw Lightsaber by the power button, a staff", 0, Style::Staff, power),
     ] {
-        let mut thrower = jedi(weapons_for(Style::Medium), 100);
+        let mut thrower = jedi(weapons_for(style), 100);
         thrower.powers.insert(row);
         let mut target = with_defence(jedi(weapons_for(Style::Medium), 100), defence);
         target.max_hp = 2000;
@@ -1113,7 +1125,7 @@ fn throws(level: &Level, report: &mut Report) -> serde_json::Value {
             let thrown = bout.fighter(0).saber.thrown;
             let lying = thrown.is_some_and(|t| t.flight == Flight::Lying);
             let keys0 = if t < 1500 {
-                Keys::press(ALT)
+                keys
             } else if lying && t > 1500 {
                 Keys::press(ATTACK)
             } else {
