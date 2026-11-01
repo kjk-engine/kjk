@@ -117,7 +117,7 @@ pub fn of(
                 entry: ui::vm::Entry {
                     name: look.name.clone(),
                     icon: Some(look.icon.clone()),
-                    description: crate::character::described(assets, &look, bao_dur_met),
+                    description: crate::character::described(assets, &look, None, bao_dur_met),
                     kind: Some(look.kind),
                     ..ui::vm::Entry::default()
                 },

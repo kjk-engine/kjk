@@ -157,6 +157,19 @@ pub struct Owned {
     pub slots: u32,
     pub usable: bool,
     pub unpaired: [bool; 2],
+    /// The member's numbers were it put on, a slot each it may go in among
+    /// the hands and the body (the equip page's preview).
+    pub previews: Vec<Preview>,
+}
+
+/// A member's numbers as the equip page shows them (`CharacterView`'s
+/// `attack`, `damage`, `defence`), were an item put on in `slot`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Preview {
+    pub slot: u8,
+    pub attack: [i32; 2],
+    pub damage: [String; 2],
+    pub defence: i32,
 }
 
 /// A 3D view a screen shows in a control, as KOTOR draws a model there.
