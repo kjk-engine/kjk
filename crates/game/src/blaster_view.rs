@@ -99,7 +99,8 @@ pub enum Flashed {
 /// A flash on `by`'s gun in `hand` (`cast::Guns`) from `ms` (the view's),
 /// playing `clip` once: where the gun is not drawn (a sprung mine has
 /// none), at `at` (game space, metres); along `way`, `scale` times its
-/// size.
+/// size. Cut at `until` (the view's ms), its clip stands at its end, its
+/// births over, its particles left to die out (`DIE_OUT_MS`).
 pub struct Flash {
     pub by: SimId,
     pub hand: u8,
@@ -109,7 +110,12 @@ pub struct Flash {
     pub way: Vec3,
     pub ms: f64,
     pub scale: f32,
+    pub until: Option<f64>,
 }
+
+/// How long a flash cut short stays for its particles to die out (ms):
+/// the longest a feat's flash's live (Rapid Shot's flames, 0.3 s).
+const DIE_OUT_MS: f64 = 400.0;
 
 /// A tracer from `from` to `to` (game space, metres) from `ms` (the view's).
 pub struct Tracer {
@@ -183,6 +189,7 @@ enum LiveKind {
         at: Vec3,
         way: Vec3,
         scale: f32,
+        until: Option<f64>,
     },
     Tracer {
         from: Vec3,
@@ -418,7 +425,8 @@ fn spawn(
 
 /// One thing to show this frame in a copy of `model`: its key, where,
 /// which way, how big, its clip, when it began (the view's ms), how far
-/// into the clip it stays (ms), and how far past its emitters their
+/// into the clip it stays (ms), when it began at the latest (a flash cut
+/// short: its clip at its end), and how far past its emitters their
 /// reference nodes stand instead (metres).
 struct Shown {
     model: String,
@@ -429,6 +437,7 @@ struct Shown {
     clip: &'static str,
     since: f64,
     hold_ms: Option<f64>,
+    ended_by: Option<f64>,
     reach: Option<f32>,
 }
 
@@ -494,6 +503,7 @@ fn draw(
                 at: flash.at,
                 way: flash.way,
                 scale: flash.scale,
+                until: flash.until,
             },
             since: flash.ms,
         });
@@ -538,6 +548,7 @@ fn draw(
             clip: TRAVEL,
             since: now,
             hold_ms: None,
+            ended_by: None,
             reach: None,
         })
         .collect();
@@ -557,12 +568,17 @@ fn draw(
             clip: IMPACT,
             since: held.since,
             hold_ms: held.hold_ms,
+            ended_by: None,
             reach: held.reach,
         })
     }));
-    // A flash lasts its clip; a tracer until it reaches its end.
+    // A flash lasts its clip, one cut short until its particles die out; a
+    // tracer until it reaches its end.
     view.live.retain(|live| match live.kind {
-        LiveKind::Flash { clip, .. } => now < live.since + clip_ms(&live.model, clip),
+        LiveKind::Flash { clip, until, .. } => {
+            let end = live.since + clip_ms(&live.model, clip);
+            now < until.map_or(end, |until| end.min(until + DIE_OUT_MS))
+        }
         LiveKind::Tracer { from, to } => {
             let flown = (now - live.since) as f32 / 1000.0 * TRACER_SPEED;
             flown < from.distance(to)
@@ -579,6 +595,7 @@ fn draw(
                 at,
                 way,
                 scale,
+                until,
             } => {
                 counts[1] += 1;
                 Shown {
@@ -590,6 +607,10 @@ fn draw(
                     clip,
                     since: live.since,
                     hold_ms: None,
+                    // Cut: its clip at its end from then on.
+                    ended_by: until
+                        .filter(|until| now >= *until)
+                        .map(|_| now - clip_ms(&live.model, clip)),
                     reach: None,
                 }
             }
@@ -606,6 +627,7 @@ fn draw(
                     clip: TRAVEL,
                     since: live.since,
                     hold_ms: None,
+                    ended_by: None,
                     reach: None,
                 }
             }
@@ -643,6 +665,7 @@ fn draw(
             }
             let since = pooled.shows.map_or(now, |(_, since)| since);
             let since = item.hold_ms.map_or(since, |hold| since.max(now - hold));
+            let since = item.ended_by.map_or(since, |most| since.min(most));
             let copy = &mut pooled.spawned;
             if let Ok(mut transform) = transforms.get_mut(copy.root) {
                 *transform = Transform::from_translation(item.at)

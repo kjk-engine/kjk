@@ -1460,6 +1460,7 @@ pub fn sprung(
             way: Vec3::Y,
             ms: now,
             scale: 1.0,
+            until: None,
         });
     }
 }
