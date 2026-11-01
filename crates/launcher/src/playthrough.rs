@@ -1098,11 +1098,12 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         // As a player disarms a mine it sees from beside it:
                         // again after each try (`sim::traps::DISARM_MS`), a
                         // failure or a blast, until none is left there.
-                        Goal::Disarm(at) => match mine_near(&here, *at) {
+                        Goal::Disarm(at, recover) => match mine_near(&here, *at) {
                             None => met = true,
                             Some(index) => {
                                 if now >= pressed_at + sim::traps::DISARM_MS + 4 * PRESS_MS {
-                                    input.act(Seat(0), Action::Disarm(index));
+                                    let action = if *recover { Action::Recover(index) } else { Action::Disarm(index) };
+                                    input.act(Seat(0), action);
                                     pressed_at = now.max(1);
                                 }
                             }

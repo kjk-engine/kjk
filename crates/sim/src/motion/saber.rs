@@ -568,15 +568,18 @@ impl Move<'_, '_> {
         }
     }
 
-    /// Throws the saber when alternate asks, the kit knows how, the Force
-    /// can pay and there is room ahead. Whether it threw.
+    /// Throws the saber when alternate asks (JA's: not the staff, whose
+    /// alternate kicks) or the power button with the throw selected
+    /// (KOTOR's power, any saber), the kit knows how, the Force can pay and
+    /// there is room ahead. Whether it threw.
     fn throw(&mut self, arms: &mut Arms) -> bool {
         let Some(known) = arms.kit.throw else {
             return false;
         };
         let fighter = &*arms.fighter;
-        let can = self.alternate_held()
-            && fighter.saber.style != Some(Style::Staff)
+        let power = throw::by_power(&self.cmd) && u16::from(self.cmd.force) == known.row;
+        let alternate = self.alternate_held() && fighter.saber.style != Some(Style::Staff);
+        let can = (alternate || power)
             && fighter.weapon_wait_ms < 1
             && fighter.saber.thrown.is_none()
             && fighter.force.gripped_by.is_none()
