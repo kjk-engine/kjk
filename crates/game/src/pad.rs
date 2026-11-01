@@ -389,9 +389,18 @@ impl PadKind {
     }
 }
 
-/// Whether this runs on a Steam Deck (Steam sets `SteamDeck` there).
+/// Whether this runs on a Steam Deck: Steam sets `SteamDeck` for its own
+/// games, and the machine names itself Valve's Jupiter (LCD) or Galileo
+/// (OLED) to all (a non-Steam game gets no `SteamDeck`).
 pub(crate) fn on_deck() -> bool {
-    std::env::var("SteamDeck").is_ok_and(|value| value == "1")
+    static DECK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *DECK.get_or_init(|| {
+        let read = |name: &str| std::fs::read_to_string(format!("/sys/class/dmi/id/{name}"));
+        let valve = read("board_vendor").is_ok_and(|vendor| vendor.trim() == "Valve");
+        let model =
+            read("product_name").is_ok_and(|name| ["Jupiter", "Galileo"].contains(&name.trim()));
+        std::env::var("SteamDeck").is_ok_and(|value| value == "1") || valve && model
+    })
 }
 
 /// What the player last played with.
@@ -754,10 +763,22 @@ fn connected(pads: Query<(Entity, &Gamepad, Option<&Name>), Added<Gamepad>>) {
 /// How many presses a run's log keeps (`heard`).
 const PRESSES_LOGGED: u32 = 40;
 
-/// The first presses and each pad's first push of either stick, in the
-/// run's log: what a player's pad sends, by the names it arrives as.
-fn heard(pads: Query<(Entity, &Gamepad)>, mut logged: Local<(u32, Vec<(Entity, bool)>)>) {
+/// The first presses (a pad's buttons and the keys) and each pad's first
+/// push of either stick, in the run's log: what a player's pad sends, by
+/// the names it arrives as.
+fn heard(
+    pads: Query<(Entity, &Gamepad)>,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    mut logged: Local<(u32, Vec<(Entity, bool)>)>,
+) {
     let (count, moved) = &mut *logged;
+    // Keys too: Steam can turn a pad's buttons into keys (a keyboard layout).
+    for key in keys.iter().flat_map(|keys| keys.get_just_pressed()) {
+        if *count < PRESSES_LOGGED {
+            *count += 1;
+            info!(target: "pad", ?key, "key pressed");
+        }
+    }
     for (entity, pad) in &pads {
         for button in pad.digital().get_just_pressed() {
             if *count < PRESSES_LOGGED {

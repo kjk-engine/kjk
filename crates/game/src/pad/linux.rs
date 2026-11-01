@@ -10,6 +10,9 @@
 
 /// Valve's USB vendor id.
 const VALVE: u16 = 0x28de;
+/// Steam's own virtual pad (Steam Input's), which SDL's database maps
+/// right, its D-pad a hat: left to it.
+const STEAM_VIRTUAL: u16 = 0x11ff;
 
 /// A pad's buttons by their Linux code, as SDL names them.
 const BUTTONS: [(u16, &str); 15] = [
@@ -97,9 +100,10 @@ fn guid([bus, vendor, product, version]: [u16; 4]) -> String {
 }
 
 /// The device's mapping as SDL writes it, from the codes it lists; none for
-/// a device that is no pad of Valve's (or lists no A).
+/// a device that is no pad of Valve's (or lists no A), or is Steam's
+/// virtual pad.
 pub fn mapping(device: &Device) -> Option<String> {
-    if device.ids[1] != VALVE || !device.keys.contains(&0x130) {
+    if device.ids[1] != VALVE || device.ids[2] == STEAM_VIRTUAL || !device.keys.contains(&0x130) {
         return None;
     }
     let buttons = button_order(&device.keys);
@@ -192,6 +196,12 @@ pub(super) fn probes() -> Vec<(&'static str, Result<String, String>)> {
     let others = mapping(&Device {
         ids: [0x0003, 0x045e, 0x028e, 0x0114],
         ..deck(&[], 0)
+    })
+    .or_else(|| {
+        mapping(&Device {
+            ids: [0x0003, VALVE, STEAM_VIRTUAL, 0x0001],
+            ..deck(&[], 0)
+        })
     });
     let mask = codes("f00000000 0 0 0 7fdb000000000000 0 0 0 0");
     vec![
@@ -210,7 +220,7 @@ pub(super) fn probes() -> Vec<(&'static str, Result<String, String>)> {
             check(newer.contains(",a:b3,b:b4,x:b5,y:b6,"), newer.clone()),
         ),
         (
-            "only valve's",
+            "only valve's own",
             check(others.is_none(), format!("{others:?}")),
         ),
         (
