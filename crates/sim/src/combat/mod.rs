@@ -36,6 +36,7 @@ pub mod missiles;
 pub mod pace;
 pub mod pair;
 pub mod passive;
+pub mod picks;
 pub mod rounds;
 pub mod saber;
 pub mod sheet;

@@ -639,6 +639,9 @@ pub struct Sheet {
     /// TSL's Form in use (`CurrentForm`, `combat::forms`): a `spells.2da`
     /// row, 0 for none.
     pub form: u16,
+    /// The feat attacks its weapons carry (`combat::picks`), encoded beside
+    /// the sheet.
+    pub picks: crate::combat::picks::Picks,
 }
 
 impl Sheet {
@@ -787,6 +790,7 @@ impl Sheet {
             bonus_fp: 0,
             save_bonus: [0; 3],
             form: 0,
+            picks: Default::default(),
         }
     }
 
@@ -859,6 +863,7 @@ impl Sheet {
             bonus_fp: 0,
             save_bonus: [0; 3],
             form: 0,
+            picks: Default::default(),
         }
     }
 
@@ -943,6 +948,7 @@ impl Sheet {
             bonus_fp: 0,
             save_bonus: [0; 3],
             form: 0,
+            picks: Default::default(),
         }
     }
 
@@ -1048,6 +1054,7 @@ impl Sheet {
             bonus_fp,
             save_bonus,
             form,
+            picks: Default::default(),
         })
     }
 }

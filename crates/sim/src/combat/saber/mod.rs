@@ -31,6 +31,7 @@ pub use lock::Lock;
 pub use moves::{Block, Hold, Move, MoveData, Quad};
 pub use throw::Thrown;
 
+use crate::combat::picks::Melee;
 use crate::combat::sheet::{Blaster, Delivery, SaberShape, Sheet, Weapon, feats};
 use crate::snapshot::SimId;
 use crate::wire::{DecodeError, Reader, Writer, read_fixed, write_fixed};
@@ -442,6 +443,9 @@ pub struct Kit {
     pub flurry: u8,
     pub power: u8,
     pub two_weapon: u8,
+    /// The melee line the dual style, then the staff style, carries
+    /// (`combat::picks`).
+    pub picks: [Melee; 2],
     /// Jedi Defense tier: how long a parry holds.
     pub jedi_defense: u8,
     /// Force Jump tier: the staff's back-flip attack needs
@@ -483,6 +487,7 @@ impl Kit {
             flurry: sheet.feats.count(&feats::FLURRY),
             power: sheet.feats.count(&feats::POWER_ATTACK),
             two_weapon: sheet.feats.count(&feats::TWO_WEAPON_FIGHTING),
+            picks: sheet.picks.blades(),
             jedi_defense: sheet.feats.count(&feats::JEDI_DEFENSE),
             force_jump: sheet.feats.count(&feats::FORCE_JUMP),
             dueling: sheet.feats.count(&feats::DUELING),
@@ -618,13 +623,13 @@ impl Kit {
     /// blaster's shot. Power Attack in the strong style: more damage at a
     /// cost to hit (`styles::POWER_ATTACK`); Critical Strike in the medium:
     /// a wider threat range (`styles::CRITICAL_THREAT`); Flurry in the fast:
-    /// less to hit (`styles::FLURRY_PENALTY`; its extra attack is the
-    /// style's pace). The dual and staff styles take none; without the feat
-    /// a style swings `weapon` as it is.
+    /// less to hit (`styles::FLURRY_PENALTY`; its extra attack is `paced`).
+    /// The dual and staff styles take the line chosen for them
+    /// (`combat::picks`); without the feat a style swings `weapon` as it is.
     pub fn swing(&self, style: Style, mut weapon: Weapon) -> Weapon {
         let tier = |held: u8| usize::from(held.min(3)).checked_sub(1);
-        match style {
-            Style::Strong => {
+        match self.line(style) {
+            Melee::Power => {
                 if let Some(tier) = tier(self.power) {
                     let bonus = styles::POWER_ATTACK[tier];
                     weapon.damage_bonus = weapon.damage_bonus.saturating_add(bonus);
@@ -633,7 +638,7 @@ impl Kit {
                         .saturating_sub(styles::POWER_ATTACK_PENALTY);
                 }
             }
-            Style::Medium => {
+            Melee::Critical => {
                 if let Some(tier) = tier(self.critical) {
                     weapon.crit_threat = weapon
                         .crit_threat
@@ -641,15 +646,37 @@ impl Kit {
                         .saturating_mul(tier as u8 + styles::CRITICAL_THREAT);
                 }
             }
-            Style::Fast => {
+            Melee::Flurry => {
                 if let Some(tier) = tier(self.flurry) {
                     let penalty = styles::FLURRY_PENALTY[tier.min(1)];
                     weapon.attack_bonus = weapon.attack_bonus.saturating_sub(penalty);
                 }
             }
-            Style::Dual | Style::Staff => {}
+            Melee::None => {}
         }
         weapon
+    }
+
+    /// The melee line `style`'s blows carry: a single blade's style has its
+    /// own, the dual and staff styles the chosen one.
+    fn line(&self, style: Style) -> Melee {
+        match style {
+            Style::Strong => Melee::Power,
+            Style::Medium => Melee::Critical,
+            Style::Fast => Melee::Flurry,
+            Style::Dual => self.picks[0],
+            Style::Staff => self.picks[1],
+        }
+    }
+
+    /// The cadence (C2) a blow in `style` counts for: Flurry's extra attack
+    /// (`styles::FLURRY_PACE`, in thousandths) on the time it truly took.
+    pub fn paced(&self, style: Style, cadence_ms: u32) -> u32 {
+        if self.line(style) == Melee::Flurry && self.flurry > 0 {
+            cadence_ms.saturating_mul(styles::FLURRY_PACE) / 1000
+        } else {
+            cadence_ms
+        }
     }
 
     /// The parry's defence level (JA's saber defence): Jedi Defense with a

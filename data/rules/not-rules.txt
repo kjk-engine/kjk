@@ -26,6 +26,7 @@ crates/sim/src/action.rs LEAVE  # a player action's wire tag
 crates/sim/src/action.rs LEVEL_UP  # a player action's wire tag
 crates/sim/src/action.rs LEVEL_UP_ON  # a player action's wire tag
 crates/sim/src/action.rs MINE  # a player action's wire tag
+crates/sim/src/action.rs NEXT_FEAT  # a player action's wire tag
 crates/sim/src/action.rs OPEN  # a player action's wire tag
 crates/sim/src/action.rs PAZAAK  # a player action's wire tag
 crates/sim/src/action.rs PUT  # a player action's wire tag
@@ -158,6 +159,8 @@ crates/sim/src/combat/pace.rs LIEUTENANT  # the game's rank number of a lieutena
 crates/sim/src/combat/pace.rs NONE  # an index into Pace::holds
 crates/sim/src/combat/pace.rs RIGHT  # an index into Pace::holds
 crates/sim/src/combat/passive.rs NOT_PROFICIENT  # dialog.tlk line
+crates/sim/src/combat/picks.rs GUNS  # table width: the Blaster enum's variants
+crates/sim/src/combat/picks.rs LINES  # table width: the melee feat lines
 crates/sim/src/combat/rounds.rs CLASSES  # table width: combatanimations.2da's classes
 crates/sim/src/combat/rounds.rs CREATURE  # weapon class number: a creature model's
 crates/sim/src/combat/rounds.rs HALF_ROUND_MS  # derived (half of the round)
@@ -265,6 +268,8 @@ crates/sim/src/combat/sheet.rs WEAPON_SPEC_HEAVY_WEAPONS  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs WEAPON_SPEC_LIGHTSABER  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs WEAPON_SPEC_MELEE  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs WOOKIEE_TOUGHNESS  # feat.2da row(s)
+crates/sim/src/combat/specials.rs FEAT_LINES  # table of feat.2da rows by line
+crates/sim/src/combat/specials.rs LINES  # table width: the blaster feat lines
 crates/sim/src/combat/spells.rs K1_FORCE_POWERS  # spells.2da rows
 crates/sim/src/determinism.rs DOOR  # test setup: the proving ground's door index
 crates/sim/src/determinism.rs HOLD_TICKS  # test setup: a scripted seat's stick hold

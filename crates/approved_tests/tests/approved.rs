@@ -1251,6 +1251,17 @@ fn dual_pistols() {
     probed("dual pistols", &sim::pair_probes::probes(), 11);
 }
 
+/// A feat attack chosen with the next-feat key (`combat::picks`): a gun
+/// goes round the lines known, each type keeping its own; two blades and a
+/// double-bladed weapon carry each melee line known in turn, then none, and
+/// a blow carries the chosen feat, Flurry's with its extra pace; a single
+/// blade has no choice; a script's talent chooses too; the choices come
+/// back from their bytes. The sim alone. [awaiting the owner's approval]
+#[test]
+fn feat_picks() {
+    probed("feat picks", &sim::picks_probes::probes(), 8);
+}
+
 /// Saving and loading (I19, the `saves` crate): a world saved into a saves
 /// folder made here, read back and made again goes on as the saved one
 /// does, the same hash every tick for 500; the folder lists the latest first
