@@ -172,6 +172,9 @@ pub enum Action {
     /// stance column, `combat::forms`): the seat's body's, one it knows; no
     /// action, no cost, in a fight too.
     Form(u16),
+    /// The next feat attack of the weapon in the seat's body's `hand`
+    /// (`combat::picks`); no action, no cost, in a fight too.
+    NextFeat { hand: u8 },
     /// Cast power `row` (`spells.2da`) at `target` (by script object id),
     /// as KOTOR's power list does: the seat's body queues the cast as
     /// `ActionCastSpellAtObject` would, one it knows and can pay for when
@@ -342,6 +345,7 @@ const FORFEIT: u8 = 53;
 const ARENA: u8 = 54;
 const CAST: u8 = 55;
 const LEVEL_UP_ON: u8 = 56;
+const NEXT_FEAT: u8 = 57;
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -521,6 +525,10 @@ impl Action {
                 out.u8(FORM);
                 out.u16(*row);
             }
+            Action::NextFeat { hand } => {
+                out.u8(NEXT_FEAT);
+                out.u8(*hand);
+            }
             Action::Cast { row, target } => {
                 out.u8(CAST);
                 out.u16(*row);
@@ -673,6 +681,7 @@ impl Action {
                 row: input.u16()?,
             },
             FORM => Action::Form(input.u16()?),
+            NEXT_FEAT => Action::NextFeat { hand: input.u8()? },
             CAST => Action::Cast {
                 row: input.u16()?,
                 target: input.u32()?,
@@ -747,6 +756,7 @@ impl Action {
             | Action::SwitchWeaponsOn { .. }
             | Action::Assemble { .. }
             | Action::Form(_)
+            | Action::NextFeat { .. }
             | Action::Cast { .. }
             | Action::ScreenOpened
             | Action::Forfeit

@@ -210,6 +210,7 @@ pub fn run(options: RunOptions) -> AppExit {
                 crate::script_fx::ScriptFxPlugin,
                 crate::blaster_view::BlasterViewPlugin,
                 crate::grenade_view::GrenadeViewPlugin,
+                crate::aim_fx::AimFxPlugin,
                 crate::remote_view::RemoteViewPlugin,
                 // The game's logos open the menu (not a run's own session,
                 // nor one opening on a save or back from a game); a headless
@@ -245,6 +246,7 @@ pub fn run(options: RunOptions) -> AppExit {
                 crate::holster_view::HolsterViewPlugin,
                 crate::weapon_set_view::WeaponSetViewPlugin,
                 crate::form_view::FormViewPlugin,
+                crate::feat_view::FeatViewPlugin,
             ),
             crate::merchant::MerchantPlugin,
             crate::pazaak_view::PazaakViewPlugin,

@@ -658,8 +658,9 @@ and companions alike, in combat or out by the game's own rows:
 One second bar (`Sheet::pool`): a Force user's FP, anyone else's stamina,
 100 + 10 × CON modifier, refilling as FP does (20 s). It pays the saber
 specials and the blaster feat specials, 15% each (one a 3 s round
-sustained). The alternate button takes the special the gun suits (else
-another known): **Power Blast** (pistols; JA's Bryar charge): hold up to
+sustained). The alternate button takes the special chosen for that type of
+gun (`combat::picks`: the next-feat key, a creature's script), until then
+the one the gun suits (else another known): **Power Blast** (pistols; JA's Bryar charge): hold up to
 1 s, one shot on release, +5/+8/+10 damage at −3, paced by its whole
 time; **Rapid/Multi Shot** (rifles and the rest; the E-11's fast fire): a
 press queues a burst of 2 (3) shots 150 ms apart, the gun back one refire
@@ -667,7 +668,15 @@ short of them, −4/−2/−1 to hit and defence for 3 s; **Sniper Shot**
 (disruptors; the zoom): held, movement halved and no jumping, each aimed
 shot's threat range ×2/×3/×4 and defence −5 for 3 s. Without a special
 or the bar the alternate fires the primary. Creatures use theirs
-(`ai::choose_special`). **Sneak attack** (+1d6 a tier) lands on a target
+(`ai::choose_special`). Held, each gun shows KOTOR's own feat visual for as
+long as the button (`aim_fx`): a Power Blast's charge-up (`v_pb_p_gen`,
+`v_pb_m_gen`, the first tier the Improved one's) quickening on the muzzle,
+standing at its fullest until the shot, then dying out; a Sniper Shot's
+laser sight (`v_sn_r_gen`'s thin red line) from under each raised gun's
+muzzle to where the shot would land, none while the gun is drawn or swung
+away. While either is held the body holds its guns up as a shot leaves
+them (the shot's last frame, drawn in place of the ready pose: `cast`'s
+`raise`), so the shot let go leaves the guns at that height. **Sneak attack** (+1d6 a tier) lands on a target
 hit from its rear 90° (unless it has Uncanny Dodge), held (stunned,
 knocked down, gripped) or unaware (a creature with no target), within
 10 m; and the first blow out of stealth within 1.5 s of the attack that
@@ -905,7 +914,9 @@ is instant.
   attack (`Kit::swing`, as `Special::shot` shapes a blaster's): Power
   Attack +5/+8/+10 damage at −3 to hit in the strong style, Critical
   Strike's threat range ×2/×3/×4 in the medium, Flurry −4/−2 to hit in
-  the fast; none in the dual and staff styles. Kicks (`saber::kick`): 2 or 3 JA
+  the fast, its blows counting more pace (`Kit::paced`); the dual and staff
+  styles carry the line chosen for them (`combat::picks`), none until one
+  is. `kjk combat duel --only feat_worth` measures each. Kicks (`saber::kick`): 2 or 3 JA
   points, a toss, a 700 ms knockdown for the busy and the bladeless.
 - **Blocks** (C6, `saber::defence`): a holder not attacking turns blows
   within its arc, and the blow it meets is held (no crush of a block by

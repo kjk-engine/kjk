@@ -152,6 +152,12 @@ pub(crate) struct Ordered(pub Vec<SimId>);
 #[derive(Resource, Default)]
 pub(crate) struct ItemTalents(pub Vec<(crate::snapshot::SimId, u16, crate::snapshot::SimId)>);
 
+/// The feat lines minds' talents chose this step (`combat::picks`), by
+/// user, hand and `feat.2da` row: each kept in the scripts' step. Authority
+/// only.
+#[derive(Resource, Default)]
+pub(crate) struct FeatTalents(pub Vec<(crate::snapshot::SimId, u8, u16)>);
+
 /// The combat rounds fighters began this step (`minds`: a melee fight
 /// between creatures nobody plays runs as KOTOR's rounds): each joins the
 /// scripts' blows (`script::effects::Strike`) in their step. Authority only.
@@ -383,10 +389,11 @@ pub(super) fn scripts(
         Res<super::locks::Locks>,
         Res<super::objects::Battered>,
     ),
-    (used, spent, item_talents, mut game): (
+    (used, spent, item_talents, feat_talents, mut game): (
         Res<Used>,
         Res<Spent>,
         Res<ItemTalents>,
+        Res<FeatTalents>,
         ResMut<super::minigame::Minigame>,
     ),
     (inputs, (fight, embattled), mut leaving): (
@@ -912,6 +919,16 @@ pub(super) fn scripts(
                 .map(|(_, player)| acting(&view, seat.0, *player))
         };
         super::arena::orders(library, &view, state, &inputs.0, body, &mut out);
+    }
+    // The feat lines the minds' talents chose.
+    for &(user, hand, row) in &feat_talents.0 {
+        let who = ObjectId(user.0);
+        if let Some(character) = view.thing(who).and_then(|thing| thing.character) {
+            let mut sheet = out.sheet(who, character.worn);
+            if crate::combat::picks::Picks::choose(&mut sheet, hand, row) {
+                out.changes.push(Change::Sheet { who, sheet });
+            }
+        }
     }
     // The items' spells the minds used as talents.
     // Each one used leaves the goods (`use_item`), so they are gathered

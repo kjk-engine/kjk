@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `430ad4e5cc4b0abe`.
+Edition `feaf59094637c7ab`.
 
 ## Contents
 
@@ -298,8 +298,8 @@ selected Force power; [Next power] and [Previous power] choose it (Grip,
 Lightning and Drain last while it is held). [Grenade] charges while held and
 throws on release. [Medpac], [Stim] and [Energy shield] use the first one
 carried. [Stealth mode] and [Lay a mine] act at once. [Saber style] changes
-the saber style, [Next Form] the lightsaber Form. [First person] changes
-the view.
+the saber style, [Next feat attack] the feat attack of the weapon in hand,
+[Next Form] the lightsaber Form. [First person] changes the view.
 
 ### <a id="controls-swings"></a>Swings
 
@@ -322,7 +322,9 @@ medium (requires Critical Strike, or proficiency alone) and strong
 (requires Power Attack). A double-bladed lightsaber turns its second blade
 off and on; with one blade lit it fights as a single blade, with no
 specials but the fast lunge. Two weapons keep the dual style. A change
-made during a swing waits for the swing to end.
+made during a swing waits for the swing to end. [Next feat attack] chooses
+which melee feat two weapons or a double-bladed lightsaber carry: each feat
+known in turn, then none.
 
 ### <a id="controls-specials"></a>Specials
 
@@ -409,11 +411,12 @@ hold [Attack] to call it back. Not usable with a double-bladed lightsaber.
 ### <a id="controls-guns"></a>Blasters
 
 [Attack] fires. [Alt attack] uses the blaster's feat special for
-15% of the second bar: Power Blast with a pistol
-(hold to charge, release to fire), Rapid Shot or Multi Shot with a rifle (a
-burst of shots), Sniper Shot with a disruptor (hold to aim; wider critical
-threat range, slower, no jumping). Without the feat or the bar, it fires
-as [Attack].
+15% of the second bar: at first Power Blast with a
+pistol (hold to charge, release to fire), Rapid Shot or Multi Shot with a
+rifle (a burst of shots), Sniper Shot with a disruptor (hold to aim; wider
+critical threat range, slower, no jumping). [Next feat attack] chooses
+another the character knows, kept for that type of gun. Without the feat or
+the bar, it fires as [Attack].
 
 ### <a id="controls-force"></a>Force Powers
 
@@ -1262,9 +1265,10 @@ Force Focus adds +1 to the DC of the character's Force powers, Advanced Force Fo
 
 The alternate fire of a ranged weapon uses a feat attack: Power Blast for
 blaster pistols, Sniper Shot for disruptors and Rapid Shot for all other
-ranged weapons. A character without the feat, or without enough Force
-points or stamina, fires normally. The penalties of a feat attack last one
-round (3 seconds).
+ranged weapons, until [Next feat attack] chooses another the character
+knows. Each type of gun keeps its choice. A character without the feat, or
+without enough Force points or stamina, fires normally. The penalties of a
+feat attack last one round (3 seconds).
 
 <a id="feats-specials-cost-percent"></a>**Feat Attack Cost** = **15%** · `feats.specials.cost_percent`
 
@@ -2870,10 +2874,11 @@ the strong style. Two weapons fight in the dual style and a double-bladed
 weapon in the staff style. A style's level is its offense in clashes and
 saber locks.
 
-Each style's attacks carry its feat: Power Attack in the strong style,
-Critical Strike in the medium style, Flurry in the fast style, where the
-extra attack is the style's speed. The dual and staff styles carry no feat,
-and their offense is the character's Two-Weapon Fighting tier.
+Each single-blade style's attacks carry its feat: Power Attack in the strong
+style, Critical Strike in the medium style, Flurry in the fast style. The
+dual and staff styles carry the melee feat chosen with [Next feat attack],
+none until one is chosen, and it does not change their moves. Their offense
+is the character's Two-Weapon Fighting tier.
 
 <a id="saber-moves-styles-medium-levels"></a>**Medium Style Level** = **2 / 3 / 3** · `saber_moves.styles.medium_levels`
 
@@ -2893,19 +2898,19 @@ Dueling adds +1 to offense in clashes and saber locks while wielding one blade a
 
 Power Attack **5 HP** · Improved **8 HP** · Master **10 HP**
 
-The strong style adds +5 damage with Power Attack, +8 with Improved Power Attack and +10 with Master Power Attack.
+Blows carrying Power Attack add +5 damage with Power Attack, +8 with Improved Power Attack and +10 with Master Power Attack.
 
 <sub>Source: KOTOR's Power Attack (I22 C8). Code: `sim::combat::saber::Kit::swing`.</sub>
 
 <a id="saber-moves-styles-power-attack-penalty"></a>**Power Attack Penalty** = **3** · `saber_moves.styles.power_attack_penalty`
 
-The strong style's Power Attack also has a -3 to hit.
+Blows carrying Power Attack also have a -3 to hit.
 
 <sub>Source: KOTOR's Power Attack (I22 C8). Code: `sim::combat::saber::Kit::swing`.</sub>
 
 <a id="saber-moves-styles-critical-threat"></a>**Critical Strike Threat** = **×2** · `saber_moves.styles.critical_threat`
 
-Critical Strike multiplies the medium style's critical threat range by ×2, and by one more for each of Improved and Master Critical Strike.
+Critical Strike multiplies the critical threat range of the blows carrying it by ×2, and by one more for each of Improved and Master Critical Strike.
 
 <sub>Source: KOTOR's Critical Strike (I22 C8). Code: `sim::combat::saber::Kit::swing`.</sub>
 
@@ -2913,9 +2918,17 @@ Critical Strike multiplies the medium style's critical threat range by ×2, and 
 
 Flurry **4** · Improved and Master **2**
 
-The fast style's attacks have a -4 to hit with Flurry and -2 with Improved or Master Flurry.
+Blows carrying Flurry have a -4 to hit with Flurry and -2 with Improved or Master Flurry.
 
 <sub>Source: KOTOR's Flurry (I22 C8). Code: `sim::combat::saber::Kit::swing`.</sub>
+
+<a id="saber-moves-styles-flurry-pace"></a>**Flurry Extra Attack** = **200%** (`2000 ‰`) · `saber_moves.styles.flurry_pace`
+
+Blows that carry Flurry deal 200% of the damage their pace gives.
+
+Damage follows the time between blows, so faster swings alone add little: this is KOTOR's extra attack, and what pays for Flurry's penalty to hit.
+
+<sub>Source: ours, measured to match Critical Strike's gain (`kjk combat duel --only feat_worth`). Code: `sim::combat::saber::Kit::paced`.</sub>
 
 <a id="saber-moves-styles-fast-transitions"></a>**Fast Style Recovery** = **×1.5** · `saber_moves.styles.fast_transitions`
 
