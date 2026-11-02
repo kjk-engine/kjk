@@ -1064,7 +1064,7 @@ impl Walker {
         });
         if pushed.is_none() {
             let all: Vec<Vec3> = bodies.iter().map(|other| other.at).collect();
-            self.bump(level, player, met.who, met.at, &all);
+            self.bump(level, player, met.who, met.at, met.walks, &all);
         }
         pushed
     }
@@ -1085,23 +1085,6 @@ impl Walker {
         }
     }
 
-    /// Whether a walker standing at `at` waits behind `met` rather than
-    /// bumping into it: the body walks on (`Met::going`) away along this
-    /// walk's own way, so the way clears [verify: KOTOR's walker behind a
-    /// creature walking ahead of it was not read; counted as bumps, the
-    /// second of two walked out of a door together gave its walk up behind
-    /// the first and stood until its forced move's timeout jumped it there,
-    /// Taris's Rodians leaving Javyar's Cantina].
-    pub fn waits_behind(&self, at: Vec3, met: &Met) -> bool {
-        let Some(going) = met.going else {
-            return false;
-        };
-        let toward = self.heading();
-        let mine = [toward[0] - at[0], toward[1] - at[1]];
-        let theirs = [going[0] - met.at[0], going[1] - met.at[1]];
-        mine[0] * theirs[0] + mine[1] * theirs[1] > 0.0
-    }
-
     /// Whether `met` is one this walk does not bump into: the body at its
     /// goal (whom it follows or fights, `PASS` from it), or the one it is
     /// going round.
@@ -1113,20 +1096,24 @@ impl Walker {
     /// A bump into `body` standing at `at` (its origin) by KOTOR's walker
     /// standing as `player`, the others standing at `bodies`: the walk goes
     /// round it (`beside`), or gives up on its 6th bump, on meeting the
-    /// same body where it met it last, or with no side to go round by.
+    /// same body where it met it last unless that one `walks` on, or with no
+    /// side to go round by. It never waits for a body to clear (TSL's
+    /// `CSWSCreature::WalkUpdateLocationDistance`).
     fn bump(
         &mut self,
         level: &Level,
         player: &MotionState,
         body: SimId,
         at: Vec3,
+        walks: bool,
         bodies: &[Vec3],
     ) {
         let spot = [player.origin[0], player.origin[1]];
-        let again = self.bumped.is_some_and(|(was, there)| {
-            was == body
-                && math::flat_length([there[0] - spot[0], there[1] - spot[1], 0.0]) <= REACHED
-        });
+        let again = !walks
+            && self.bumped.is_some_and(|(was, there)| {
+                was == body
+                    && math::flat_length([there[0] - spot[0], there[1] - spot[1], 0.0]) <= REACHED
+            });
         self.bumps = self.bumps.saturating_add(1).min(STUCK_STALLS);
         self.bumped = Some((body, spot));
         let corner = self
@@ -1201,17 +1188,34 @@ fn beside(level: &Level, at: Vec3, corner: Vec3, body: Vec3, bodies: &[Vec3]) ->
     })
 }
 
+/// How far (units) the navigation mesh's floor rises under the corners of a
+/// standing body's box at `at` (its origin, units), over the floor at `at`.
+pub(crate) fn floor_rise(level: &Level, at: Vec3) -> f32 {
+    let Some(nav) = level.nav() else {
+        return 0.0;
+    };
+    let floor = |p: Vec3| nav.height(soles(p), FLOOR_BELOW_M, FLOOR_ABOVE_M);
+    let Some(here) = floor(at) else {
+        return 0.0;
+    };
+    let half = motion::HALF_WIDTH;
+    [[-half, -half], [-half, half], [half, -half], [half, half]]
+        .into_iter()
+        .filter_map(|[x, y]| floor([at[0] + x, at[1] + y, at[2]]))
+        .fold(0.0, |rise: f32, corner| rise.max(corner - here))
+        / UNIT
+}
+
 /// A body a walker may run into: who, where it stands (its origin, units),
 /// where KOTOR's walker pushes it aside rather than bumping into it (it is
 /// idle, not hostile to the walker, and neither is a player), its personal
-/// space (metres), and where a walk of its own not given up carries it
-/// (its `Walker::heading`).
+/// space (metres), and whether a walk of its own not given up carries it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Met {
     pub who: SimId,
     pub at: Vec3,
     pub push: Option<f32>,
-    pub going: Option<Vec3>,
+    pub walks: bool,
 }
 
 /// How far past the two bodies' personal spaces (metres) KOTOR puts a
@@ -1398,7 +1402,6 @@ pub fn kotor_step(
         })
     };
     let pushed = match blocking {
-        Some(met) if route.waits_behind(at, met) => return Some(stand(None, None)),
         Some(met) => match route.meet(level, player, space, met, bodies) {
             Some(spot) => Some((met.who, spot)),
             None => return Some(stand(Some(met.who), None)),

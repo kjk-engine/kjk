@@ -1,5 +1,5 @@
 //! What each conversation showed, for `kjk dialogue check` (20): its deaths,
-//! blasts, throws and bursts in the order they came, each with whether the
+//! blasts, throws, bursts and camera cuts in the order they came, each with whether the
 //! shot under way held it, and every body a conversation moved, with what
 //! moved it. `SCENES.md` in the run folder holds them scene by scene, and
 //! `faults` reads them for what came before its cause or off camera.
@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 const MOVED_M: f32 = 0.5;
 
 /// One thing a scene showed: when (sim ms), its kind (`death`, `effect
-/// death`, `blast`, `throw`, `burst`), who, what, whether the shot held it
+/// death`, `blast`, `throw`, `burst`, `cut`), who, what, whether the shot held it
 /// (none: no shot), and where (m).
 #[derive(Debug, Clone)]
 pub struct Event {

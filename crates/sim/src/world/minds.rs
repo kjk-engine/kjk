@@ -617,9 +617,16 @@ pub(super) fn think(
         if world_held && mind.task == Task::Chase {
             mind.task = Task::Idle;
         }
-        // A throw its script chose outlasts the fight: end_m01aa's thrower,
-        // out of combat by `CancelCombat`, charges it still.
-        if mind.task != Task::Engage && mind.hold_until > now && mind.hold != buttons::GRENADE {
+        // What its script chose outlasts the fight: end_m01aa's thrower, out
+        // of combat by `CancelCombat`, charges its throw still, and the Star
+        // Forge's Malak (`k_psta_malaklght`) channels his lightning; a talent
+        // is its round's until the script clears it.
+        let ordered = intent.is_some_and(|intent| intent.talent.is_some());
+        if mind.task != Task::Engage
+            && mind.hold_until > now
+            && mind.hold != buttons::GRENADE
+            && !ordered
+        {
             mind.hold_until = 0;
         }
         // A body standing in its way, gone round: by move_body's walks after a

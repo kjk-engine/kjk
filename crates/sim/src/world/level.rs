@@ -545,9 +545,13 @@ impl Level {
     /// level's floor rises a few millimetres over the mesh's under a corner
     /// of the box. Beside Dantooine's Khoonda plaza, a floor 9 mm higher
     /// under one corner left no side of a citizen to go round by but the one
-    /// behind a wall.
+    /// behind a wall. Lifted too by how far the mesh's floor rises under the
+    /// box: on a slope its box cuts the floor wherever it stands (Dantooine's
+    /// enclave ramp left two walkers meeting there no side at all, where
+    /// KOTOR's points on the walkmesh have one).
     pub fn fits_put_down(&self, at: math::Vec3) -> bool {
-        self.fits_lifted(at, &[0.0, rules::walking::walker::FLOOR_GIVE])
+        let give = rules::walking::walker::FLOOR_GIVE;
+        self.fits_lifted(at, &[0.0, give, crate::walk::floor_rise(self, at) + give])
     }
 
     /// Whether a standing body fits at `at` (units) among the level's own

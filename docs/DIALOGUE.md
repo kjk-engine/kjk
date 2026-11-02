@@ -567,6 +567,44 @@ The checks:
     a `talk` clip in its model chain that keys it, the view's mouth plays
     it (`dialogue_view::lips_unmoved`); one with none (a helmet, a mask, a
     droid) is a note.
+16. Bodies move on moving legs: no living body crosses the floor faster
+    than 0.3 m/s, on the floor and not knocked back, with no walk drawn on
+    it, and no dead one at all, while a conversation holds the world. What
+    is drawn is the view's reading (`cast::drawn_acting`,
+    `acting::shows_ms`): a hold's clip, a script's or a round's for its
+    time, then a humanoid's legs (`WALK`, `RUN`) or a creature model's own
+    walk by its speed; a model with none is a fault. Every body is watched,
+    whoever moves it: the cause says a script's move or its AI. Of a talk
+    run, whose scene starts out of its story's order and whose bodies fight
+    the player, the AI's are notes.
+17. Bodies settle (`motion::Motion`): none standing still has legs in
+    `BOTH_JUMP1` or `BOTH_INAIR1` with no jump asked, or leaves the floor
+    twice in 2 s; none treads in place or stops and starts or turns back on
+    itself. Watched through the scene and 2 s past it (`SETTLE_WATCH_MS`);
+    a talk run steps on until 2 s past the last script's move. Past the
+    scene a body's AI is free play's, and only a hop counts.
+18. Doors are no way through or stall: a stall of check 17 within 3 m of a
+    door is this check's, and no body's step goes through a door shut (a
+    trace at its chest, blocked as the doors stand, free with them all
+    open).
+19. What a script orders is done: a button a mind holds on for a talent its
+    script chose is not let go with no fight on (`world::minds`), and a
+    power a conversation's script orders by talent is used within 6 s. A
+    grenade thrown while a conversation holds the world is a note, saying
+    whether the conversation's scripts ordered it (`Report::directed`) or
+    its thrower's AI chose it.
+20. Cause before effect, in the shot (`scene_log`): no body dies more than
+    0.1 s before a thrown grenade bursts within 6 m of it, nor before the
+    gunner's shot that kills it. A death before a script's own blast is a
+    note (its script's order), as a target's answer beginning before the
+    shot is (a round's clips begin together), and a death, burst or blast
+    outside the shot under way. `SCENES.md` in the run folder has every
+    scene's deaths, blasts, throws and bursts, each in shot or off camera,
+    and every body it moved at least 0.5 m and what moved it.
+21. Scenes end clean: 2 s past a conversation its bodies are on the floor,
+    alive or dead, an `EffectDeath` a script applied has killed, and no
+    grenade is live. A looping clip going on, or a hold of over 10 s more, is
+    a note; a talk run's faults are.
     The mouth is the head hung on the body, else the body itself: a body
     made with its face (`appearance.2da` `modeltype` F with no
     `normalhead`: Calo Nord, the aliens' bodies) has the face's nodes

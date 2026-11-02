@@ -11,12 +11,15 @@
 //!   motion only out of a held scene, `acting::Shows::follow`), or a hold
 //!   (fear, a whirlwind) plays its clip.
 //! - **Jitter**: within `WINDOW_MS` its steps turn back on themselves
-//!   (more than 90° from the step before) `REVERSALS` times, or it stops and
-//!   starts again `STOP_GOS` times.
+//!   (more than 90° from the way before, each way kept for `TURN_M`)
+//!   `REVERSALS` times, or it stops for `LEAST_STOP_MS` and starts again
+//!   `STOP_GOS` times.
 //! - **Hop**: a body standing where it is (`everyone`) whose legs flip into
 //!   JA's jump or fall, or that leaves the floor `HOPS` times in
-//!   `HOP_WINDOW_MS`, neither thrown nor jumped by a command: it will not
-//!   settle (a straight-down velocity normalized up, `motion::ground_move`).
+//!   `HOP_WINDOW_MS` (for `HOP_AIR_MS`, or by `HOP_RISE_M`: a step's gravity
+//!   as a walk stops shows nothing), neither thrown nor jumped by a command:
+//!   it will not settle (a straight-down velocity normalized up,
+//!   `motion::ground_move`).
 //!
 //! A playthrough watches the bodies a script moves or the walker carries;
 //! `kjk dialogue check` watches `everyone`, standing or moved by their AI,
@@ -38,6 +41,10 @@ const SNAP_M: f32 = 1.0;
 const WINDOW_MS: u64 = 1000;
 const REVERSALS: usize = 3;
 const STOP_GOS: usize = 3;
+/// A way kept for less than this (m) is no turn: a shudder, seen as one.
+const TURN_M: f32 = 0.05;
+/// A stop shorter than this (ms) is a frame or two's: no stop to the eye.
+const LEAST_STOP_MS: u64 = 64;
 /// Slower than this (m/s) with its legs walking, a body treads in place;
 /// for `LEAST_TREAD_MS` at least, it is kept.
 const TREAD_MPS: f32 = 0.1;
@@ -50,6 +57,9 @@ const LEAST_SLIDE_MS: u64 = 200;
 /// Leaving the floor this often within this long (ms) is a hop.
 const HOPS: usize = 2;
 const HOP_WINDOW_MS: u64 = 2000;
+/// Off the floor this long (ms) or this far (m) up or down is off it to see.
+const HOP_AIR_MS: u64 = 50;
+const HOP_RISE_M: f32 = 0.02;
 
 /// What broke the rule.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -100,11 +110,13 @@ pub struct Episode {
 #[derive(Default)]
 struct Track {
     last: Option<[f32; 3]>,
-    steps: VecDeque<(u64, Option<[f32; 2]>)>,
+    steps: VecDeque<(u64, Option<[f32; 2]>, f32)>,
     jitter_until: u64,
-    /// When it last left the floor, and whether it stood on it last step.
+    /// When it last left the floor to see, whether it stood on it last step,
+    /// and when and how high it left it (none once told).
     left: VecDeque<u64>,
     grounded: bool,
+    leaving: Option<(u64, f32)>,
 }
 
 /// The watcher (see the module documentation).
@@ -303,9 +315,18 @@ impl Motion {
             let track = self.tracks.entry(entity.id.0).or_default();
             if self.everyone {
                 if track.grounded && !on_floor {
-                    track.left.push_back(now);
+                    track.leaving = Some((now, at[2]));
                 }
                 track.grounded = on_floor;
+                if on_floor {
+                    track.leaving = None;
+                }
+                if let Some((from, z)) = track.leaving
+                    && (now >= from + HOP_AIR_MS || (at[2] - z).abs() >= HOP_RISE_M)
+                {
+                    track.left.push_back(from);
+                    track.leaving = None;
+                }
                 while track.left.front().is_some_and(|when| *when + HOP_WINDOW_MS < now) {
                     track.left.pop_front();
                 }
@@ -338,24 +359,16 @@ impl Motion {
             }
             let way = moving.then(|| [step[0] / far, step[1] / far]);
             let track = self.tracks.entry(entity.id.0).or_default();
-            track.steps.push_back((now, way));
+            track.steps.push_back((now, way, far));
             while track
                 .steps
                 .front()
-                .is_some_and(|(when, _)| *when + WINDOW_MS < now)
+                .is_some_and(|(when, ..)| *when + WINDOW_MS < now)
             {
                 track.steps.pop_front();
             }
-            let ways: Vec<Option<[f32; 2]>> = track.steps.iter().map(|(_, way)| *way).collect();
-            let moved: Vec<[f32; 2]> = ways.iter().flatten().copied().collect();
-            let reversals = moved
-                .windows(2)
-                .filter(|pair| pair[0][0] * pair[1][0] + pair[0][1] * pair[1][1] < 0.0)
-                .count();
-            let stop_gos = ways
-                .windows(2)
-                .filter(|pair| pair[0].is_none() && pair[1].is_some())
-                .count();
+            let reversals = turns_back(&track.steps);
+            let stop_gos = stops_and_goes(&track.steps);
             if now >= track.jitter_until {
                 let jitter = if reversals >= REVERSALS {
                     Some("turns back")
@@ -585,4 +598,41 @@ pub fn sweep(discovery: &vfs::Discovery, game: &str, modules: &[String]) -> std:
             std::process::ExitCode::FAILURE
         }
     }
+}
+
+/// How often `steps` turn back on a way kept for `TURN_M`, each way after one
+/// as long: a way shorter than that is passed over.
+fn turns_back(steps: &VecDeque<(u64, Option<[f32; 2]>, f32)>) -> usize {
+    let mut ways: Vec<([f32; 2], f32)> = Vec::new();
+    for (_, way, far) in steps {
+        let Some(way) = way else { continue };
+        match ways.last_mut() {
+            Some((last, kept)) if last[0] * way[0] + last[1] * way[1] >= 0.0 => {
+                *last = *way;
+                *kept += far;
+            }
+            _ => ways.push((*way, *far)),
+        }
+    }
+    ways.retain(|(_, kept)| *kept >= TURN_M);
+    ways.windows(2)
+        .filter(|pair| pair[0].0[0] * pair[1].0[0] + pair[0].0[1] * pair[1].0[1] < 0.0)
+        .count()
+}
+
+/// How often `steps` start again after a stop of `LEAST_STOP_MS`.
+fn stops_and_goes(steps: &VecDeque<(u64, Option<[f32; 2]>, f32)>) -> usize {
+    let mut goes = 0;
+    let mut stopped = None;
+    for (when, way, _) in steps {
+        match (way, stopped) {
+            (None, None) => stopped = Some(*when),
+            (Some(_), Some(from)) => {
+                goes += usize::from(*when >= from + LEAST_STOP_MS);
+                stopped = None;
+            }
+            _ => {}
+        }
+    }
+    goes
 }

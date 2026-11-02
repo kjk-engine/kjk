@@ -100,20 +100,23 @@ place). A corner it only stands beside, short of the way on, is still
 gone round (skipping it walked a player into the Endar Spire bridge's
 rail).
 
-A script's move of a body no seat drives, out of a fight, that stalls on
-move_body (`Walker::stalls`: a second with no headway, where move_body meets
-bodies at once, so the level is in its way) goes on KOTOR's walker to
-its next corner, then on move_body again (`world::move_actors`). KOTOR's
-walker is a point on the walkmesh and meets nothing drawn; the mesh
-planned the leg, so it carries it: a tent's guy rope at waist height
+A script's move of a body no seat drives, out of a fight, goes on KOTOR's
+walker, a conversation holding the world or not (`world::move_actors`).
+KOTOR's walker is a point on the walkmesh that meets nothing drawn, and
+bumps bodies and goes round them. On move_body two walkers met box to box
+and shoved along each other at a crawl, their legs walking, and never bumped
+(Dantooine's enclave droid and Jedi); a tent's guy rope at waist height
 across the Outcast village's walkway (Taris, `tar_m04aa`) held each
 outcast's box until its walkway's forced move jumped it on, 30 s a leg.
-A step that went nowhere against a placeable it touched or the level's
-own solid on the way ahead (`walk::way_clear`; no body in it, nor a door)
-is that stall at once, not a second
-later: a mesh run on under a wall's foot or between a barrel and a crate's
-walkmesh edge held Peragus's Sith troopers boarding the Ebon Hawk (107PER)
-a second at each such gap, twenty times in the turret game.
+It never waits for a body to clear: TSL's
+`CSWSCreature::WalkUpdateLocationDistance` stays put that tick, counts a
+bump, plots round the body and gives up on the 6th. A side to go round by
+fits on a slope too (`Level::fits_put_down`, lifted by how far the mesh's
+floor rises under the box), where a level box cuts the floor on every side.
+Where the mesh has no floor ahead move_body steps it, and a step that went
+nowhere against a placeable it touched or the level's own solid on the way
+ahead (`walk::way_clear`; no body in it, nor a door) is a stall at once, not
+a second later.
 
 While a conversation holds the world (scene mode, S3) the walk is
 KOTOR's (`walk::kotor_step`, `docs/MOVEMENT.md`): a walk KOTOR's walker
@@ -135,9 +138,7 @@ goal, nor the one it is going round) stops it: a bump. It goes round by
 the side `around` would take (`beside`), and gives the walk up on its 6th
 bump (`STUCK_STALLS`), with no side to take, or on bumping into the same
 body where it met it last (`Walker::bumps`, `bumped`, counted afresh for
-each move). A body walking a walk of its own away along the
-walker's way is no bump: the walker waits behind it (`Walker::waits_behind`
-[verify]). A walk given up is
+each move), unless that body walks on (`Met::walks`). A walk given up is
 `Walker::stuck`, which ends the scripts' move; a forced move
 (`ActionForceMove*`) takes it up afresh instead and tries on until its
 timeout jumps it there, as the NWN Lexicon has `ActionForceMoveToObject`. A move to a place arrives on

@@ -418,6 +418,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
             let mut recorder = sim::Recorder::new(rate.hz(), last.clone(), world.level().id(), 100)
                 .with_script(world.script_state().clone());
             let mut motion = crate::motion::Motion::new();
+            let mut story = crate::scene_check::StoryCheck::asked(&installer, game, options.module.clone());
             let mut names = crate::transcript::speakers(&last, world.level());
             // The transcript, written out module by module (each with its
             // own conversations), and how many of the report's lines it has.
@@ -732,7 +733,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         for action in acts.drain(..) {
                             input.act(Seat(0), action);
                         }
-                        last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion), (input, &mut watch, &last));
+                        last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion, &mut story), (input, &mut watch, &last));
                     }
                     let path = options.save_to.as_ref().map_or_else(
                         || checkpoint(&options.game, name),
@@ -2579,7 +2580,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     }
                     let before = module_of(&last);
                     let was_tabled = last.pazaak_of(Seat(0)).is_some();
-                    last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion), (input, &mut watch, &last));
+                    last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion, &mut story), (input, &mut watch, &last));
                     // What the sim heard used by the player this step: the
                     // goal's target, and doors that refused it.
                     for use_heard in world.uses_heard() {
@@ -2677,6 +2678,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         left_through = via.map(|data| data.tag.clone());
                         transcribed =
                             transcribe(&installer, &world, (&names, &last), transcribed, &mut lines);
+                        if let Some(story) = story.as_mut() {
+                            story.leave(&world);
+                        }
                         let request = installer.request_from(
                             &last,
                             &transition.module,
@@ -2738,7 +2742,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 for action in acts.drain(..) {
                     input.act(Seat(0), action);
                 }
-                last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion), (input, &mut watch, &last));
+                last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion, &mut story), (input, &mut watch, &last));
             }
             let report = world.script_report();
             transcribe(&installer, &world, (&names, &last), transcribed, &mut lines);
@@ -2820,10 +2824,11 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 motion.sliding_steps,
                 motion.kept().count()
             ));
-            Ok((facts, lines, (trace, moves), recorder.finish(&last), all_met))
+            let scenes = story.map(|story| story.finish(&world));
+            Ok((facts, lines, (trace, moves, scenes), recorder.finish(&last), all_met))
         };
     match go() {
-        Ok((facts, lines, (trace, moves), recording, all_met)) => {
+        Ok((facts, lines, (trace, moves, scenes), recording, all_met)) => {
             if let Some(folder) = crate::runtime::write_facts(facts) {
                 let mut body = lines.join("\n");
                 body.push('\n');
@@ -2832,6 +2837,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     ("trace.txt", trace.into_bytes()),
                     ("motion.txt", moves.into_bytes()),
                     ("inputs.kjkr", recording.encode()),
+                    ("scene_check.json", scenes.unwrap_or_default().into_bytes()),
                 ] {
                     let path = folder.join(name);
                     if let Err(error) = std::fs::write(&path, bytes) {
@@ -2958,15 +2964,20 @@ fn reply_text(installer: &Installer, world: &sim::SimWorld, dialog: &str, reply:
         .map_or_else(String::new, |node| crate::transcript::text(&talk, node))
 }
 
-/// A run's script trace and its moves' report (`motion.txt`).
-type Logs = (String, String);
+/// A run's script trace, its moves' report (`motion.txt`) and its story
+/// check (`scene_check.json`, `KJK_SCENE_CHECK`).
+type Logs = (String, String, Option<String>);
 
 /// One step of the authority with `input`, recorded and its moves watched.
 fn step_on(
     world: &mut sim::SimWorld,
     tick: &mut u64,
     rate: &TickRate,
-    (recorder, motion): (&mut sim::Recorder, &mut crate::motion::Motion),
+    (recorder, motion, story): (
+        &mut sim::Recorder,
+        &mut crate::motion::Motion,
+        &mut Option<crate::scene_check::StoryCheck>,
+    ),
     (mut input, watch, last): (TickInput, &mut chaos::Watch, &Snapshot),
 ) -> Snapshot {
     watch.before(world, last, &mut input);
@@ -2980,6 +2991,9 @@ fn step_on(
     );
     recorder.record(rate.msec(*tick), &input, &snapshot);
     motion.watch(&snapshot, world.level(), rate.msec(*tick));
+    if let Some(story) = story.as_mut() {
+        story.step(world, &snapshot, rate.msec(*tick));
+    }
     watch.after(last, &snapshot);
     snapshot
 }

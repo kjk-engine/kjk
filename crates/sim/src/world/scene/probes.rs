@@ -3963,7 +3963,7 @@ fn bump_rules() -> Found {
             who: SimId(who),
             at: ahead(route),
             push: None,
-            going: None,
+            walks: false,
         };
         crate::walk::kotor_step(
             level,
@@ -4027,7 +4027,7 @@ fn pushes_idle_aside() -> Found {
             who: SimId(100),
             at: body,
             push,
-            going: None,
+            walks: false,
         };
         let stepped = crate::walk::kotor_step(
             level,

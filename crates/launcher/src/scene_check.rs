@@ -138,6 +138,8 @@ const SETTLE_WATCH_MS: u64 = 2000;
 const AT_DOOR_M: f32 = 3.0;
 /// How near a door (m) a body's step is traced for passing through it.
 const THROUGH_DOOR_M: f32 = 2.0;
+/// A shot's eye jumping farther than this (m) in a step is a cut.
+const CUT_M: f32 = 1.0;
 /// How far before an effect (ms) its cause may come unremarked, and how far
 /// from a burst (m) a death is laid to it (20).
 const ORDER_SLACK_MS: u64 = 100;
@@ -400,7 +402,7 @@ impl Assets {
         self.tables
             .get(&source, "visualeffects")
             .and_then(|table| table.resref(usize::from(row), "label"))
-            .unwrap_or_default()
+            .unwrap_or_else(String::new)
     }
 
     /// The camera model of `dlg` and its stunts' models, each read once.
@@ -571,6 +573,8 @@ struct Watch {
     /// Those let go early: when, who, which, how long it had left, and
     /// whether a talent of its script's stood.
     let_go: Vec<(u64, u32, u16, u64, bool)>,
+    /// The shot's eye last step (m).
+    eye: Option<[f32; 3]>,
     /// How many of the report's effects were read.
     took_read: usize,
     /// Talents seen ordered: (who, its row, from when), and whether used.
@@ -918,9 +922,19 @@ impl Checker<'_> {
             self.watch.cast.extend([pair.speaker.0, pair.listener.0, talk.owner.0, talk.pc.0]);
             self.watch.cast.extend(talk.joined.iter().map(|id| id.0));
         }
-        let camera = talk.as_ref().and_then(|talk| self.camera(snapshot, world, talk, now));
-        let seen = |point: [f32; 3]| camera.as_ref().map(|frustum| frustum.holds(Vec3::from_array(point)));
+        let shot = talk.as_ref().and_then(|talk| self.camera(snapshot, world, talk, now));
+        let camera = shot.as_ref().map(|(frustum, _)| frustum);
+        let seen = |point: [f32; 3]| camera.map(|frustum| frustum.holds(Vec3::from_array(point)));
         let mut events = Vec::new();
+        // The shot cut: its eye jumped.
+        let eye = shot.as_ref().map(|(_, eye)| eye.to_array());
+        if let (Some(eye), Some(was)) = (eye, self.watch.eye)
+            && Vec3::from_array(eye).distance(Vec3::from_array(was)) > CUT_M
+        {
+            let what = format!("eye {:.1},{:.1},{:.1}", eye[0], eye[1], eye[2]);
+            events.push(Event::new(now, "cut", String::new(), what, None, eye));
+        }
+        self.watch.eye = eye;
         let report = world.script_report();
         // Who a script of this conversation directs.
         let began = self.watch.running.last().map_or(u64::MAX, |span| span.0);
@@ -987,10 +1001,10 @@ impl Checker<'_> {
             let chest = place.map(|p| [p[0], p[1], p[2] + 1.0]);
             if let Some(label) = blast {
                 let by = self.name(effect.by.0);
-                events.push(Event::new(now, "blast", by, label.clone(), chest.and_then(&seen), place.unwrap_or_default()));
+                events.push(Event::new(now, "blast", by, label.clone(), chest.and_then(&seen), place.unwrap_or([0.0; 3])));
             } else if effect.death {
                 let on = self.name(effect.target.0);
-                events.push(Event::new(now, "effect death", on, self.name(effect.by.0), chest.and_then(&seen), place.unwrap_or_default()));
+                events.push(Event::new(now, "effect death", on, self.name(effect.by.0), chest.and_then(&seen), place.unwrap_or([0.0; 3])));
             }
         }
         for id in killed {
@@ -1205,22 +1219,22 @@ impl Checker<'_> {
             let Some(target) = blow.target else { continue };
             let window = blow.since..blow.since + BLOW_WINDOW_MS;
             let shot = (self.watch.missiles.iter()).find(|(owner, ms)| *owner == blow.attacker.0 && window.contains(ms));
-            let Some((_, shot)) = shot else { continue };
+            let Some(&(_, shot)) = shot else { continue };
             let name = format!("{} at {}", self.name(blow.attacker.0), self.name(target.0));
-            let timed = |what: u64| format!("{name}: {:.2} s, the shot {:.2} s", what as f32 / 1000.0, *shot as f32 / 1000.0);
+            let timed = |what: u64| format!("{name}: {:.2} s, the shot {:.2} s", what as f32 / 1000.0, shot as f32 / 1000.0);
             // A round's two clips begin together, as KOTOR plays them: the
             // answer's first frames before the bolt are no fault; a death is.
             if let Some(died) = self.watch.dead.get(&target.0).copied().filter(|died| window.contains(died))
-                && died + ORDER_SLACK_MS < *shot
+                && died + ORDER_SLACK_MS < shot
             {
                 let detail = timed(died);
                 self.fail(20, "a target dies before the shot that kills it", &blow.at, detail);
             }
             let hit = (self.watch.reactions.iter()).find(|(who, ms, _)| *who == target.0 && window.contains(ms));
-            if let Some((_, hit, _)) = hit
-                && hit + ORDER_SLACK_MS < *shot
+            if let Some(&(_, hit, _)) = hit
+                && hit + ORDER_SLACK_MS < shot
             {
-                let detail = timed(*hit);
+                let detail = timed(hit);
                 self.note(20, "a target's answer begins before the shot (the round's clips begin together)", &blow.at, detail);
             }
         }
@@ -1683,7 +1697,7 @@ impl Checker<'_> {
     }
 
     /// The view from `talk`'s shot at `now`, as the view takes it.
-    fn camera(&mut self, snapshot: &Snapshot, world: &sim::SimWorld, talk: &Conversation, now: u64) -> Option<Frustum> {
+    fn camera(&mut self, snapshot: &Snapshot, world: &sim::SimWorld, talk: &Conversation, now: u64) -> Option<(Frustum, Vec3)> {
         let level = world.level();
         let states = level.states_in(snapshot);
         let walls = |from: Vec3, to: Vec3| {
@@ -1709,7 +1723,7 @@ impl Checker<'_> {
             &head,
             &walls,
         )?;
-        Some(Frustum::of(eye, angles, fov))
+        Some((Frustum::of(eye, angles, fov), Vec3::from(eye)))
     }
 
     /// The line's shot at `SHOT_AT_MS` after it showed (3): whether its
@@ -2274,6 +2288,18 @@ fn check_module(discovery: &Discovery, game: Game, module: &str) -> Result<Value
         }
         runs.push(json!({ "run": label, "lines": lines.unwrap_or(0) }));
     }
+    Ok(module_report(module, started, &runs, (&library, &assets), &mut found, speakers))
+}
+
+/// A module's part of `report.json`: `found` over `runs`.
+fn module_report(
+    module: &str,
+    started: std::time::Instant,
+    runs: &[Value],
+    (library, assets): (&Library, &Assets),
+    found: &mut Found,
+    speakers: Value,
+) -> Value {
     for (dialog, node, field) in unread_fields(&assets.resolver, &found.shown) {
         found.failures.insert(Failure {
             invariant: 10,
@@ -2284,7 +2310,7 @@ fn check_module(discovery: &Discovery, game: Game, module: &str) -> Result<Value
             detail: String::new(),
         });
     }
-    Ok(json!({
+    json!({
         "module": module,
         "ms": started.elapsed().as_millis() as u64,
         "runs": runs,
@@ -2296,10 +2322,155 @@ fn check_module(discovery: &Discovery, game: Game, module: &str) -> Result<Value
         "talk_runs": runs.len(),
         "failures": found.failures.iter().map(Failure::json).collect::<Vec<_>>(),
         "notes": found.notes.iter().map(Failure::json).collect::<Vec<_>>(),
-        "unraised_hooks": unraised_hooks(&found),
+        "unraised_hooks": unraised_hooks(found),
         "speakers": speakers,
         "scenes": scene_log::json(&found.scenes),
-    }))
+    })
+}
+
+/// The checks over a story's playthrough (`KJK_SCENE_CHECK=1`): every module
+/// it passes through, its bodies, party and state the story's own, where a
+/// `--talk` run's are the module's as placed. What it finds is the evidence;
+/// a talk run's only a lead.
+pub(crate) struct StoryCheck<'a> {
+    installer: &'a Installer,
+    game: Game,
+    route: String,
+    open: Option<StoryModule>,
+    reports: Vec<Value>,
+}
+
+/// The module a story's playthrough is in.
+struct StoryModule {
+    module: String,
+    started: std::time::Instant,
+    now: u64,
+    assets: Assets,
+    library: Arc<Library>,
+    found: Found,
+    watch: Watch,
+}
+
+impl<'a> StoryCheck<'a> {
+    /// One when `KJK_SCENE_CHECK` asks.
+    pub(crate) fn asked(installer: &'a Installer, game: Game, route: String) -> Option<StoryCheck<'a>> {
+        std::env::var_os("KJK_SCENE_CHECK").map(|_| StoryCheck { installer, game, route, open: None, reports: Vec::new() })
+    }
+
+    /// A step `msec` long, `world` as it left it.
+    pub(crate) fn step(&mut self, world: &sim::SimWorld, snapshot: &Snapshot, msec: u32) {
+        let module = snapshot.place.as_ref().map_or_else(String::new, |place| place.module.clone());
+        if self.open.as_ref().is_some_and(|open| open.module != module) {
+            self.leave(world);
+        }
+        if self.open.is_none() {
+            let library = world.level().scripts().cloned();
+            let assets = Assets::open(self.installer, self.game, &module);
+            if let (Some(library), Ok(assets)) = (library, assets) {
+                self.open = Some(StoryModule {
+                    module,
+                    started: std::time::Instant::now(),
+                    now: snapshot.time_ms,
+                    assets,
+                    library,
+                    found: Found::default(),
+                    watch: Watch { motion: Motion::everyone(), ..Watch::default() },
+                });
+            }
+        }
+        let Some(open) = self.open.as_mut() else {
+            return;
+        };
+        open.now = snapshot.time_ms;
+        let mut checker = Checker {
+            assets: &mut open.assets,
+            found: &mut open.found,
+            library: open.library.clone(),
+            watch: std::mem::take(&mut open.watch),
+            talked: false,
+        };
+        let step = crate::dialogue_verbs::Step { now: snapshot.time_ms, msec, snapshot, world, level: world.level() };
+        checker.step(&step, false);
+        open.watch = checker.watch;
+    }
+
+    /// The module ends, `world` still its own.
+    pub(crate) fn leave(&mut self, world: &sim::SimWorld) {
+        let Some(mut open) = self.open.take() else {
+            return;
+        };
+        let mut checker = Checker {
+            assets: &mut open.assets,
+            found: &mut open.found,
+            library: open.library.clone(),
+            watch: open.watch,
+            talked: false,
+        };
+        checker.finish(world, open.now);
+        drop(checker);
+        let speakers = crate::speaker_census::census(&open.library, world.level().placed());
+        let runs = [json!({ "run": self.route, "lines": 0 })];
+        let library = open.library.clone();
+        self.reports.push(module_report(&open.module, open.started, &runs, (&library, &open.assets), &mut open.found, speakers));
+    }
+
+    /// The run ends: `scene_check.json`'s text.
+    pub(crate) fn finish(mut self, world: &sim::SimWorld) -> String {
+        self.leave(world);
+        serde_json::to_string(&self.reports).expect("json values serialize")
+    }
+}
+
+/// `SUMMARY.md`, `SCENES.md` and `report.json` in a chain's run `folder`, of
+/// the routes' `scene_check.json` at `routes`: a module its routes share is
+/// one, what any of them found kept.
+pub(crate) fn story_report(game: &str, folder: &Path, routes: &[std::path::PathBuf], seconds: u64) -> Result<(), String> {
+    let game = Game::from_key(game).ok_or_else(|| format!("{game}: k1 or tsl"))?;
+    let mut modules: BTreeMap<String, Value> = BTreeMap::new();
+    for path in routes {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let reports: Vec<Value> = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+        for report in reports {
+            let module = report["module"].as_str().unwrap_or("").to_string();
+            match modules.get_mut(&module) {
+                None => {
+                    modules.insert(module, report);
+                }
+                Some(was) => merge_module(was, &report),
+            }
+        }
+    }
+    let reports: Vec<Value> = modules.into_values().collect();
+    let summary = summary(game, &reports, seconds);
+    std::fs::write(folder.join("SUMMARY.md"), &summary).map_err(|e| e.to_string())?;
+    std::fs::write(folder.join("SCENES.md"), scene_log::summary(&reports)).map_err(|e| e.to_string())?;
+    let merged = json!({ "seconds": seconds, "story": true, "modules": reports });
+    std::fs::write(folder.join("report.json"), serde_json::to_string(&merged).expect("json")).map_err(|e| e.to_string())?;
+    println!("story check: {}", folder.join("SUMMARY.md").display());
+    Ok(())
+}
+
+/// `other`'s findings added to `was`, the same module's in another route.
+fn merge_module(was: &mut Value, other: &Value) {
+    for field in ["failures", "notes", "reached", "runs"] {
+        let (Some(into), Some(from)) = (was[field].as_array_mut(), other[field].as_array()) else {
+            continue;
+        };
+        for item in from {
+            if !into.contains(item) {
+                into.push(item.clone());
+            }
+        }
+    }
+    for field in ["nodes_shown", "nodes"] {
+        was[field] = json!(was[field].as_u64().unwrap_or(0).max(other[field].as_u64().unwrap_or(0)));
+    }
+    was["ms"] = json!(was["ms"].as_u64().unwrap_or(0) + other["ms"].as_u64().unwrap_or(0));
+    if let (Some(into), Some(from)) = (was["scenes"].as_object_mut(), other["scenes"].as_object()) {
+        for (dialog, scene) in from {
+            into.entry(dialog.clone()).or_insert_with(|| scene.clone());
+        }
+    }
 }
 
 /// A talk run: the player uses the object tagged `tag` and answers its
@@ -2592,6 +2763,8 @@ fn causes(out: &mut String, listed: &[&Value], dialogs: impl Fn(&[&Value]) -> us
 ///   reported;
 /// - 9: in the arena (a floor at z 0) a body standing on it has its floor
 ///   and room; one 3 m above it has no floor;
+/// - 20: a death 2 s before a burst beside it is a fault, a death after it,
+///   or far from it, none; before a script's blast, a note;
 /// - 10: a DLG entry's field no code reads (`Unknown` 3) is a field not
 ///   read; its `CamVidEffect` 3, `Comment` and `SoundExists` 1, and an
 ///   unknown field of −1, are not.
@@ -2667,6 +2840,29 @@ pub fn probes() -> sim::probe::Checks {
                 && close.is_none()
                 && nowhere.is_some(),
             format!("pushed {pushed:?}, close {close:?}, nowhere {nowhere:?}"),
+        ),
+    ));
+    let event = |ms, kind, at| Event::new(ms, kind, "x".into(), String::new(), Some(true), at);
+    let scene = |events| {
+        let mut scene = Scene::default();
+        scene.events = events;
+        scene
+    };
+    let order = |events| scene_log::faults(&scene(events), BURST_M, BURST_BEFORE_MS, ORDER_SLACK_MS);
+    let early = order(vec![event(1000, "death", [0.0; 3]), event(3000, "burst", [1.0, 0.0, 0.0])]);
+    let after = order(vec![event(3000, "burst", [0.0; 3]), event(3100, "death", [1.0, 0.0, 0.0])]);
+    let far = order(vec![event(1000, "death", [0.0; 3]), event(3000, "burst", [20.0, 0.0, 0.0])]);
+    let scripted = order(vec![event(1000, "death", [0.0; 3]), event(3000, "blast", [1.0, 0.0, 0.0])]);
+    checks.push((
+        "check 20: a death before the burst beside it",
+        check(
+            early.len() == 1
+                && !early[0].1
+                && after.is_empty()
+                && far.is_empty()
+                && scripted.len() == 1
+                && scripted[0].1,
+            format!("early {early:?}, after {after:?}, far {far:?}, scripted {scripted:?}"),
         ),
     ));
     let arena = sim::Level::arena();
