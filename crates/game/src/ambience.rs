@@ -16,7 +16,8 @@
 //!   interval, volume and pitch varied, each falling off from its near to
 //!   its far distance; on or off as placed or as scripts switch them;
 //! - **doors and containers**: their opened and closed sounds when the
-//!   snapshot shows them open or close;
+//!   snapshot shows them open or close; one play made (remains, a script's)
+//!   by its placeable appearance's (remains rummaged: `pl_corpse_open`);
 //! - **footsteps**: a character's, each time its footstep cycle (`move_body`'s
 //!   `footstep_cycle`, moving as it walks or runs) passes a quarter, as Quake's
 //!   player steps: one of its appearance's three for the floor
@@ -190,12 +191,16 @@ enum Ask {
     },
     /// More files, by resref, kept alike.
     Files(Keep, Vec<String>),
+    /// Placeable templates' appearances (those play made).
+    Appearances(Vec<String>),
 }
 
-/// What it read: the area's sound for a swap, and files.
+/// What it read: the area's sound for a swap, files, and placeable
+/// templates' appearances.
 enum Read {
     Area { generation: u32, area: Box<Preread> },
     Files(Vec<Got>),
+    Appearances(Vec<(String, Option<u16>)>),
 }
 
 /// How a file is kept: decoded whole, a cue's or a loop's (`Clip`), or as
@@ -364,6 +369,20 @@ impl Worker {
                                 .collect();
                             let _ = told.send(Read::Files(files));
                         }
+                        Ask::Appearances(templates) => {
+                            let Some(resolver) = &module else { continue };
+                            let source = crate::modules::ResolverSource(resolver);
+                            let read = templates
+                                .into_iter()
+                                .map(|template| {
+                                    let appearance = asset_odyssey::sound::placeable_appearance(
+                                        &source, &template,
+                                    );
+                                    (template, appearance)
+                                })
+                                .collect();
+                            let _ = told.send(Read::Appearances(read));
+                        }
                     }
                 }
             })
@@ -423,6 +442,9 @@ struct Ambience {
     turns: BTreeMap<u32, Turn>,
     /// Doors' states and containers' tenants as last seen, by object.
     moved: BTreeMap<u32, u64>,
+    /// Placeable templates' appearances, by template (`None` until read,
+    /// or with none).
+    appearances: BTreeMap<String, Option<u16>>,
     /// Each character's footstep cycle as last seen, by id.
     cycles: BTreeMap<u32, u8>,
     /// Sounds made, for `dump`: footsteps, doors' and containers' by file.
@@ -463,6 +485,7 @@ fn receive(mut ambience: ResMut<Ambience>, mut added: ResMut<Added>) {
                 }
             }
             Read::Files(files) => took(ambience, files, &mut added),
+            Read::Appearances(read) => ambience.appearances.extend(read),
         }
     }
 }
@@ -479,6 +502,7 @@ fn take(ambience: &mut Ambience, read: Preread, added: &mut Added) {
     }
     took(ambience, read.files, added);
     ambience.area = Some((read.sound, read.tables));
+    ambience.appearances.clear();
 }
 
 /// Files read: clips into the bank, beds kept here; those that did not
@@ -672,7 +696,7 @@ fn play(
             .map(|course| course.run_of(seat.0));
         objects(
             ambience,
-            &instances,
+            (&instances, swap.level.module().map(|module| &**module)),
             (current, run),
             now,
             anywhere,
@@ -928,16 +952,67 @@ fn scripted(
     }
 }
 
-/// Sound objects, doors and containers (`instances`: `current`'s), a sound
-/// object as `run` (the viewer's run of a minigame) has it.
+/// The placeable appearances of the placeables play made (`current`'s,
+/// `instances`: its table), by object: remains as their `bodybag.2da` row
+/// has them, another as its template's (asked for until read); the
+/// sounds of each asked for.
+fn made_placeables(
+    ambience: &mut Ambience,
+    (instances, module): (&Instances, Option<&sim::module::ModuleData>),
+    current: &Snapshot,
+) -> BTreeMap<u32, u16> {
+    let mut made = BTreeMap::new();
+    let mut ask = Vec::new();
+    for entity in &current.entities {
+        let Kind::Object(ObjectKind::Placeable, index) = entity.kind else {
+            continue;
+        };
+        let Some(template) = instances.made_from(index).map(|made| &made.template) else {
+            continue;
+        };
+        let appearance = match module.and_then(|module| sim::remains::bag_of(module, template)) {
+            Some(bag) => Some(bag.placeable()),
+            None => *ambience
+                .appearances
+                .entry(template.clone())
+                .or_insert_with(|| {
+                    ask.push(template.clone());
+                    None
+                }),
+        };
+        made.extend(appearance.map(|appearance| (index, appearance)));
+    }
+    if !ask.is_empty()
+        && let Some(worker) = &ambience.worker
+    {
+        let _ = worker.ask.send(Ask::Appearances(ask));
+    }
+    let files: Vec<String> = ambience.area.as_ref().map_or_else(Vec::new, |(area, _)| {
+        made.values()
+            .filter_map(|appearance| match area.placeables.get(usize::from(*appearance)) {
+                Some(Voice::Moves(moves)) => Some(moves.files().map(String::from)),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    });
+    wanted(ambience, Keep::Clip, files.iter().map(String::as_str));
+    made
+}
+
+/// Sound objects, doors and containers (`instances`: `current`'s table,
+/// made in `module`), a sound object as `run` (the viewer's run of a
+/// minigame) has it. A placeable play made sounds as its appearance does
+/// (`made_placeables`).
 fn objects(
     ambience: &mut Ambience,
-    instances: &Instances,
+    (instances, module): (&Instances, Option<&sim::module::ModuleData>),
     (current, run): (&Snapshot, Option<&sim::minigame::Course>),
     now: f64,
     anywhere: bool,
     (loops, cues): (&mut Loops, &mut Cues),
 ) {
+    let made = made_placeables(ambience, (instances, module), current);
     let Some((area, _)) = &ambience.area else {
         return;
     };
@@ -946,8 +1021,11 @@ fn objects(
         let Kind::Object(kind, index) = entity.kind else {
             continue;
         };
-        let (Some(voice), Some(_)) = (area.objects.get(index as usize), instances.get(index))
-        else {
+        let voice = area.objects.get(index as usize).or_else(|| {
+            made.get(&index)
+                .and_then(|appearance| area.placeables.get(usize::from(*appearance)))
+        });
+        let (Some(voice), Some(_)) = (voice, instances.kind(index)) else {
             continue;
         };
         let state = entity.object.unwrap_or(sim::ObjectState::default());
