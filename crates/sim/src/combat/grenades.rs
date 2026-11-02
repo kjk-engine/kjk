@@ -189,7 +189,7 @@ pub fn strength(held_ms: u64) -> f32 {
 }
 
 /// How strong a lob (`LOB_DEGREES` up, with `LIFT`) carries `distance` units
-/// to its own height: a full one reaches about 30 m. KOTOR's thrower has no
+/// to its own height. KOTOR's thrower has no
 /// farthest throw (`AIActionItemCastSpell` only plays its long throw past
 /// 10 m), and a scene's may be far (end_m01aa's, 18 m).
 pub fn lob_strength(distance: f32) -> f32 {
@@ -204,8 +204,7 @@ pub fn lob_strength(distance: f32) -> f32 {
 }
 
 /// From a lob's release to its landing where it was thrown from (seconds):
-/// `velocity` up, `drop` units above the floor. A mind's grenade bursts there,
-/// as KOTOR's do as they land.
+/// `velocity` up, `drop` units above the floor.
 pub fn lob_seconds(velocity_up: f32, drop: f32) -> f32 {
     let g = crate::motion::GRAVITY;
     (velocity_up + (velocity_up * velocity_up + 2.0 * g * drop.max(0.0)).sqrt()) / g

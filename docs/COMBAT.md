@@ -769,13 +769,14 @@ concussion a stun, adhesive entanglement (no save), poison 4 every 3 s for
 two kinds (creatures from their inventory; the dev soldier three frag and
 a thermal, the dev Jedi two frag); fighters count throws and carry poison
 and weakness. Creatures throw at targets 4–12 m off now and then
-(`ai::choose_grenade`), and a script's throw (`ActionUseTalentOnObject`)
-at any distance: 60° up, charged to land on the target
-(`grenades::lob_strength`, about 30 m at full charge), meeting nothing on the
-way and bursting as it lands, as KOTOR's projectile moves to its position
-on a timer. A mind out of a fight keeps a throw's charge
-(end_m01aa's thrower is out of combat by `CancelCombat`). A player's throw
-stays JA's. `kjk combat grenades k1`: 16 checks.
+(`ai::choose_grenade`; on a module `k_ai_master` picks them, thrown the same
+way). A throw while a conversation holds the world
+(`ActionUseTalentOnObject` in a scene: K1's `k_pend_cut2_3`, the only one in
+either game) goes at any distance: 55° up, charged to land on the target
+(`grenades::lob_strength`), meeting nothing on the way and bursting as it
+lands, as KOTOR's projectile moves to its position on a timer. A mind out of
+a fight keeps a scripted throw's charge (end_m01aa's thrower is out of combat
+by `CancelCombat`). Any other grenade bounces and bursts on its fuse. `kjk combat grenades k1`: 16 checks.
 
 How `kjk play` shows a throw (from the snapshots alone; the survey is the
 journal's `grenade-visuals/SURVEY.md`):
