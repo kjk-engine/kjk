@@ -100,7 +100,10 @@ pub enum Flashed {
 /// playing `clip` once: where the gun is not drawn (a sprung mine has
 /// none), at `at` (game space, metres); along `way`, `scale` times its
 /// size. Cut at `until` (the view's ms), its clip stands at its end, its
-/// births over, its particles left to die out (`DIE_OUT_MS`).
+/// births over, its particles left to die out (`DIE_OUT_MS`). With a `glow`
+/// it lights what is near, that bright, fading over `GLOW_MS`. With `lasts`
+/// it stands at its clip's start that long (ms), then is gone. Its particles'
+/// colours and its light are `tint`.
 pub struct Flash {
     pub by: SimId,
     pub hand: u8,
@@ -111,11 +114,20 @@ pub struct Flash {
     pub ms: f64,
     pub scale: f32,
     pub until: Option<f64>,
+    pub glow: f32,
+    pub lasts: Option<f64>,
+    pub tint: Vec3,
 }
 
 /// How long a flash cut short stays for its particles to die out (ms):
 /// the longest a feat's flash's live (Rapid Shot's flames, 0.3 s).
 const DIE_OUT_MS: f64 = 400.0;
+/// How long a flash's light takes to fade (ms) and how far it reaches
+/// (metres).
+const GLOW_MS: f64 = 90.0;
+const GLOW_RADIUS: f32 = 4.0;
+/// A light that reaches everything (`odyssey.wgsl`).
+const LIGHT_DYNAMIC_ALL: u32 = 1;
 
 /// A tracer from `from` to `to` (game space, metres) from `ms` (the view's).
 pub struct Tracer {
@@ -190,6 +202,9 @@ enum LiveKind {
         way: Vec3,
         scale: f32,
         until: Option<f64>,
+        glow: f32,
+        lasts: Option<f64>,
+        tint: Vec3,
     },
     Tracer {
         from: Vec3,
@@ -439,6 +454,7 @@ struct Shown {
     hold_ms: Option<f64>,
     ended_by: Option<f64>,
     reach: Option<f32>,
+    tint: Vec3,
 }
 
 /// The copy of `copies` to show `key` in: the one that showed it last,
@@ -504,6 +520,9 @@ fn draw(
                 way: flash.way,
                 scale: flash.scale,
                 until: flash.until,
+                glow: flash.glow,
+                lasts: flash.lasts,
+                tint: flash.tint,
             },
             since: flash.ms,
         });
@@ -550,6 +569,7 @@ fn draw(
             hold_ms: None,
             ended_by: None,
             reach: None,
+            tint: Vec3::ONE,
         })
         .collect();
     let mut counts = [shown.len(), 0, 0];
@@ -570,13 +590,16 @@ fn draw(
             hold_ms: held.hold_ms,
             ended_by: None,
             reach: held.reach,
+            tint: Vec3::ONE,
         })
     }));
     // A flash lasts its clip, one cut short until its particles die out; a
     // tracer until it reaches its end.
     view.live.retain(|live| match live.kind {
-        LiveKind::Flash { clip, until, .. } => {
-            let end = live.since + clip_ms(&live.model, clip);
+        LiveKind::Flash {
+            clip, until, lasts, ..
+        } => {
+            let end = live.since + lasts.unwrap_or_else(|| clip_ms(&live.model, clip));
             now < until.map_or(end, |until| end.min(until + DIE_OUT_MS))
         }
         LiveKind::Tracer { from, to } => {
@@ -584,6 +607,7 @@ fn draw(
             flown < from.distance(to)
         }
     });
+    let mut lit = Vec::new();
     for live in view.live.iter().filter(|live| live.since <= now) {
         // Flashes and tracers keyed apart from the bolts.
         let key = live.key | 1 << 63;
@@ -596,17 +620,30 @@ fn draw(
                 way,
                 scale,
                 until,
+                glow,
+                lasts,
+                tint,
             } => {
                 counts[1] += 1;
+                let at = muzzle(by, hand).unwrap_or(at);
+                let fading = 1.0 - (now - live.since) / GLOW_MS;
+                if glow > 0.0 && fading > 0.0 {
+                    lit.push(GpuLight {
+                        position_radius: (game_to_bevy() * at).extend(GLOW_RADIUS),
+                        color_multiplier: tint.extend(glow * fading as f32),
+                        // Ambient: at the muzzle, it would only graze the gun.
+                        kind: UVec4::new(1, LIGHT_DYNAMIC_ALL, 0, 0),
+                    });
+                }
                 Shown {
                     model: live.model.clone(),
                     key,
-                    at: muzzle(by, hand).unwrap_or(at),
+                    at,
                     way,
                     scale,
                     clip,
                     since: live.since,
-                    hold_ms: None,
+                    hold_ms: lasts.map(|_| 0.0),
                     // Cut: its clip at its end from then on.
                     ended_by: until
                         .filter(|until| now >= *until)
@@ -614,6 +651,7 @@ fn draw(
                     // Its line folded: a Sniper Shot's sight is the aim's
                     // (`aim_fx`), not drawn again by the shot.
                     reach: Some(0.0),
+                    tint,
                 }
             }
             LiveKind::Tracer { from, to } => {
@@ -631,6 +669,7 @@ fn draw(
                     hold_ms: None,
                     ended_by: None,
                     reach: None,
+                    tint: Vec3::ONE,
                 }
             }
         });
@@ -686,6 +725,7 @@ fn draw(
             // eyes).
             for spray in &mut copy.sprays {
                 spray.grow(item.scale);
+                spray.tint(item.tint);
             }
             // A copy new to this keeps no other's reach; one held reaches out.
             if new || item.reach.is_some() {
@@ -708,7 +748,6 @@ fn draw(
         .and_then(|camera| drawing.transforms.get(camera).ok())
         .map_or(Quat::IDENTITY, |t| t.rotation);
     let facing = fx_model::facing(turn);
-    let mut lit = Vec::new();
     for (model, k, at, since) in placed {
         let Some(copy) = view
             .pools
