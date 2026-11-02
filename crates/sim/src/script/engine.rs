@@ -5185,11 +5185,12 @@ impl Engine<'_> {
             .or_else(|| crate::world::lent(&self.state.party).map(|body| ObjectId(body.0)))
     }
 
-    /// Whether `id` is a player's character: a PC, or the companion
-    /// leading in its player's hands (`leading`; `GetIsPC`). What a script gives or
-    /// takes from one is told in the status summary.
+    /// Whether `id` is a player's character: a PC, the companion leading in
+    /// its player's hands (`leading`), or the one a guest drives into or
+    /// out of the trigger this run is for (`Event::guest`; `GetIsPC`). What
+    /// a script gives or takes from one is told in the status summary.
     pub(super) fn is_pc(&self, id: ObjectId) -> bool {
-        self.pcs().contains(&id) || self.leading() == Some(id)
+        self.pcs().contains(&id) || self.leading() == Some(id) || self.event.guest == Some(id)
     }
 
     /// Whether item `item` is a player's character's: the party's (its
