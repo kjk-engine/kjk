@@ -132,7 +132,16 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 67: deferred code keeps the minigame run whose thing deferred it
 /// (`Delayed::run`). Old saves: old saves read no run: saves are refused in a
 /// minigame, so no deferred code in one is a race's.
-pub const VERSION: u32 = 67 + crate::pending::SAVE;
+/// 68: a kept companion's sheet carries the feat attacks chosen
+/// (`combat::picks::Picks`). Old saves: old saves read no choices on a kept
+/// companion's sheet: it has its own lines, as the snapshot's bodies do.
+/// 69: a kept companion's choices carry the item kind picked for each key
+/// (`Picks::items`). Old saves: old saves read no item picks on a kept
+/// companion's sheet: each key uses what it did.
+/// 70: the party table keeps the item a companion wore in each slot
+/// (`party::Kept::worn`). Old saves: old saves read no worn items: a companion
+/// made from one is dressed as the creature it left stands.
+pub const VERSION: u32 = 70 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
