@@ -367,20 +367,21 @@ fn weather_in_scenes() {
 /// guard. The same probes check how emitters draw and fire: a world-z quad
 /// stands on world z turned to the camera's side (upside down for an
 /// upside-down camera), a particle-direction quad is long along its
-/// particle's heading, and a `detonate` at a loop's last frame is passed
+/// particle's heading, a quad's picture stands upright (its v climbs from
+/// foot to head), and a `detonate` at a loop's last frame is passed
 /// once as the clip wraps, not as it first begins. And as the executable
 /// moves them: a bouncing particle is turned back off what it meets, slowed
 /// by its bounce coefficient, and lies there once slow; one is born within
 /// half its emitter's spread, as fast as its velocity up or down by its
 /// random one; a way into a body's capsule meets it at its skin. Needs
 /// `--features rig` (kjk's library, Bevy).
-/// (proposed 2026-10-08; birth and bounce 2026-10-23)
+/// (proposed 2026-10-08; birth and bounce 2026-10-23; upright 2026-11-02)
 #[test]
 fn particle_limits() {
     #[cfg(not(feature = "rig"))]
     println!("particle_limits skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
-    probed("particle limit", &kjk::probes::particle_limits(), 27);
+    probed("particle limit", &kjk::probes::particle_limits(), 28);
 }
 
 /// A room clip a script plays (`PlayRoomAnimation`) in a module's scene
