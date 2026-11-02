@@ -225,10 +225,11 @@ fn corners(
     let (u1, v1) = (u0 + w, v0 + h);
     batch.quad(
         [
-            (centre - across - along, [u0, v1]),
-            (centre + across - along, [u1, v1]),
-            (centre + across + along, [u1, v0]),
-            (centre - across + along, [u0, v0]),
+            // Low v at the foot: the texture's rows go up bottom first.
+            (centre - across - along, [u0, v0]),
+            (centre + across - along, [u1, v0]),
+            (centre + across + along, [u1, v1]),
+            (centre - across + along, [u0, v1]),
         ],
         [colour[0], colour[1], colour[2], alpha],
         |p| p,

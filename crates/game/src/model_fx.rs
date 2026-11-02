@@ -1175,11 +1175,13 @@ impl Particles {
                 }
                 _ => (centre, centre, x, y),
             };
+            // The texture's rows go up bottom first (as the models' UVs read
+            // them), so the cell's low v is its picture's foot (reone).
             for (corner, uv) in [
-                (tail - x - y, [u0, v1]),
-                (tail + x - y, [u1, v1]),
-                (centre + x + y, [u1, v0]),
-                (centre - x + y, [u0, v0]),
+                (tail - x - y, [u0, v0]),
+                (tail + x - y, [u1, v0]),
+                (centre + x + y, [u1, v1]),
+                (centre - x + y, [u0, v1]),
             ] {
                 out.positions.push(corner.to_array());
                 out.uvs.push(uv);
@@ -1982,9 +1984,9 @@ fn emitter_limit_probes() -> Checks {
 
 /// One particle of a `facing` emitter (heading up its own z, placed by
 /// `space`) drawn to a camera of `right` and `up`: its quad's side and
-/// height as unit vectors.
+/// height as unit vectors, and how far v climbs from its foot to its head.
 #[cfg(feature = "probes")]
-fn facing_axes(facing: Facing, (right, up): (Vec3, Vec3), space: Mat4) -> (Vec3, Vec3) {
+fn facing_axes(facing: Facing, (right, up): (Vec3, Vec3), space: Mat4) -> (Vec3, Vec3, f32) {
     let rest = [
         (emit::LIFE_EXP, 5.0),
         (emit::SIZE_START, 2.0),
@@ -2003,22 +2005,28 @@ fn facing_axes(facing: Facing, (right, up): (Vec3, Vec3), space: Mat4) -> (Vec3,
     (
         (corner(1) - corner(0)).normalize_or_zero(),
         (corner(3) - corner(0)).normalize_or_zero(),
+        shape.uvs[3][1] - shape.uvs[0][1],
     )
 }
 
 /// The orientations drawn about an axis: world z's quad stands on it,
 /// turned to the camera's side (its up down for an upside-down camera), and
 /// the particle direction's is long along where its particle heads, its
-/// side the emitter's x turned square to that.
+/// side the emitter's x turned square to that. A picture stands upright:
+/// its texture's rows go up bottom first, so v climbs to its head (Taris'
+/// hologram dancers stood on their heads, issue 76).
 #[cfg(feature = "probes")]
 fn facing_probes() -> Checks {
     let near = |a: Vec3, b: Vec3| (a - b).length() < 1e-4;
-    let (side, height) = facing_axes(Facing::AlignedWorldZ, (Vec3::X, Vec3::Y), Mat4::IDENTITY);
+    let (side, height, rise) =
+        facing_axes(Facing::AlignedWorldZ, (Vec3::X, Vec3::Y), Mat4::IDENTITY);
+    let (_, _, facing_rise) = facing_axes(Facing::Camera, (Vec3::X, Vec3::Y), Mat4::IDENTITY);
     let hanging = Vec3::new(0.0, 0.6, -0.8);
-    let (_, upside_down) = facing_axes(Facing::AlignedWorldZ, (Vec3::X, hanging), Mat4::IDENTITY);
+    let (_, upside_down, _) =
+        facing_axes(Facing::AlignedWorldZ, (Vec3::X, hanging), Mat4::IDENTITY);
     // The emitter's z turned onto world x, its x onto -z.
     let turned = Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2);
-    let (across, along) = facing_axes(Facing::AlignedDirection, (Vec3::Y, Vec3::Z), turned);
+    let (across, along, _) = facing_axes(Facing::AlignedDirection, (Vec3::Y, Vec3::Z), turned);
     vec![
         (
             "facing_world_z",
@@ -2036,6 +2044,13 @@ fn facing_probes() -> Checks {
             check(
                 near(along, Vec3::X) && near(across, Vec3::NEG_Z),
                 format!("{along} {across}"),
+            ),
+        ),
+        (
+            "facing_picture_upright",
+            check(
+                rise > 0.0 && facing_rise > 0.0,
+                format!("{rise} {facing_rise}"),
             ),
         ),
     ]
