@@ -57,6 +57,14 @@ impl Reach {
     }
 }
 
+/// Whether a foe `d` metres off with no way to it (`out_of_way`) is shot from
+/// here: one seen within a gun's range and past a blade's swing. One at hand
+/// needs no way to it (Jorak Uln at 0.7 m, his floor off the mesh, drew a
+/// pistol that the player then carried to the Star Forge).
+pub(super) fn shot_far(out_of_way: bool, seen: bool, d: f32) -> bool {
+    out_of_way && seen && d > melee_m().1 && d <= GUN_M
+}
+
 /// A fight with one foe at a time by the fight goal's rules, for a `fight`
 /// and for any goal's fight back alike: a gun fires at a foe it sees within
 /// `SHOOT_M`; a blade or fists swing at one they see within the sim's
@@ -77,7 +85,8 @@ pub(super) struct Chase {
     pub(super) planned: Option<(sim::SimId, [f32; 3])>,
     /// A foe at hand the player has not hurt: its HP, and since when.
     pub(super) unhurt: Option<(sim::SimId, i32, u64)>,
-    /// A gun taken up for a foe out of every way's reach.
+    /// A gun taken up for a foe out of every way's reach, put down as its
+    /// goal ends.
     pub(super) armed_far: bool,
     /// The foe a walk stalled on and on to: shot from where the player is.
     pub(super) lost: Option<sim::SimId>,
@@ -153,7 +162,7 @@ impl Chase {
         if walker.as_ref().is_some_and(|w| w.stalls > LOST_STALLS) {
             self.lost = Some(id);
         }
-        let far_shot = (!routable || self.lost == Some(id)) && seen && d <= GUN_M;
+        let far_shot = shot_far(!routable || self.lost == Some(id), seen, d);
         if far_shot && !ranged && !self.armed_far {
             acts.extend(other_weapon(world, here.snapshot, false));
             self.armed_far = true;

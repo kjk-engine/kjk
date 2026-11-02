@@ -288,6 +288,12 @@ const UNWEDGE_MS: u64 = 1000;
 const QUIET_MS: u64 = 2000;
 /// How long a fight goal waits for a first foe (ms).
 const QUIET_FIRST_MS: u64 = 6000;
+/// How long (milliseconds of play) a use fights the foes about before going
+/// to its target whatever still stands. Nothing refuses a use in a fight, as
+/// an exit is refused, and the foes may be what the use stops: the Star Forge's
+/// generators make droids until each is shut down, and the fight waiting for
+/// quiet never saw any with a gun in hand.
+const USE_FIGHT_MS: u64 = 120_000;
 
 /// How long a line plays before the player clicks past it (ms), as a
 /// player skips dialogue (`Pick::Skip`; `--listen` hears every line out).
@@ -1026,6 +1032,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     let shut_since = refused.len() > fought_out.unwrap_or(0);
                     let fight_first = (straggled.is_some()
                         || fights_first(goal, fought_out.is_some(), last.in_combat, shut_since))
+                        && !use_fight_over(goal, now - started_ms)
                         && module_of(&last) == module
                         && matches!(fight_out, Goal::Fight(r)
                             if !hostiles(&here, &world, me.position, r).is_empty());
@@ -2063,6 +2070,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         // its `OnClosed` runs as the screen's close makes it
                         // (TSL's sensor droid box starts its tutorial so).
                         acts.extend(input.actions().iter().map(|(_, action)| action.clone()));
+                        if (chase.armed_far || back.armed_far) && ranged(&me) {
+                            acts.extend(other_weapon(&world, &last, true));
+                        }
                         break;
                     }
                     // The goal's clock is held only by progress (up to

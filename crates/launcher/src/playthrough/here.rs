@@ -775,6 +775,12 @@ pub(super) fn use_met((opened, spoke): (bool, bool), pressed: bool) -> bool {
     opened || spoke || pressed
 }
 
+/// Whether a use `ms` into its goal goes to its target though foes still stand
+/// (`USE_FIGHT_MS`). An exit waits: the party may not leave in a fight.
+pub(super) fn use_fight_over(goal: &Goal, ms: u64) -> bool {
+    matches!(goal, Goal::Use(_)) && ms >= USE_FIGHT_MS
+}
+
 /// The nearest closed door of the module within `DOOR_NEAR_M` of `at`: its
 /// index, and where it stands.
 /// One that leads to another module only when `leaving` (a fight or a walk

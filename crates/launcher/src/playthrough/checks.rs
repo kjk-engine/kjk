@@ -126,6 +126,7 @@ pub fn probes() -> sim::probe::Checks {
         .chain(replans(&chase_once))
         .chain(hovering(&world, &base))
         .chain(gives_up(&base))
+        .chain(fights_end())
         .chain(scenes())
         .chain(loots())
         .chain(picks_remains())
@@ -248,6 +249,43 @@ pub(super) fn gives_up(base: &Snapshot) -> sim::probe::Checks {
             format!("lost behind the wall: given up {hidden}; lost in sight: {seen}; behind the wall, not lost: {not_lost}"),
         ),
     )]
+}
+
+/// A foe with no way to it is shot only past a blade's swing and within a
+/// gun's range, and seen; a use stops waiting for quiet at `USE_FIGHT_MS`, an
+/// exit or a walk never.
+pub(super) fn fights_end() -> sim::probe::Checks {
+    let swing = melee_m().1;
+    let shots = [
+        shot_far(true, true, swing),
+        shot_far(true, true, swing + 1.0),
+        shot_far(false, true, swing + 1.0),
+        shot_far(true, false, swing + 1.0),
+        shot_far(true, true, GUN_M + 1.0),
+    ];
+    let at = || Target::Place([0.0, 0.0]);
+    let over = [
+        use_fight_over(&Goal::Use(at()), USE_FIGHT_MS - 1),
+        use_fight_over(&Goal::Use(at()), USE_FIGHT_MS),
+        use_fight_over(&Goal::Exit(at()), USE_FIGHT_MS),
+        use_fight_over(&Goal::To(at()), USE_FIGHT_MS),
+    ];
+    vec![
+        (
+            "gun_only_past_a_blades_swing",
+            sim::probe::check(
+                shots == [false, true, false, false, false],
+                format!("at hand, past it, with a way, unseen, past a gun's range: {shots:?}"),
+            ),
+        ),
+        (
+            "use_stops_waiting_for_quiet",
+            sim::probe::check(
+                over == [false, true, false, false],
+                format!("a use before its time, at it; an exit, a walk at it: {over:?}"),
+            ),
+        ),
+    ]
 }
 
 /// A gun's chase at a body met where its model is drawn: TSL's sensor ball
