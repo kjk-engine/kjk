@@ -611,7 +611,9 @@ fn draw(
                     ended_by: until
                         .filter(|until| now >= *until)
                         .map(|_| now - clip_ms(&live.model, clip)),
-                    reach: None,
+                    // Its line folded: a Sniper Shot's sight is the aim's
+                    // (`aim_fx`), not drawn again by the shot.
+                    reach: Some(0.0),
                 }
             }
             LiveKind::Tracer { from, to } => {

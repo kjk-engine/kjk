@@ -10,9 +10,9 @@
 //! - a pair broken mid-fight fires its one gun from the right, at its
 //!   refire;
 //! - the same every run;
-//! - the gun feats: Rapid Shot's extra attacks are the main hand's (main,
-//!   off, main; Multi Shot main, off, main, main), Power Blast fires both
-//!   guns at once for one cost, Sniper Shot the main gun alone;
+//! - the gun feats: Rapid Shot alternates (right, left, right, left; Multi
+//!   Shot a shot more), Power Blast and Sniper Shot fire both guns at once for
+//!   one cost; without those feats the alternate only fires plain shots;
 //! - a hostile creature with a pistol in each hand fires both, oftener
 //!   than with one (`ai.gunners.pair_spacing`);
 //! - a pair's trigger state, mid-burst, comes back whole from a snapshot.
@@ -172,7 +172,7 @@ fn gaps(fired: &[Fired]) -> Vec<u64> {
 
 pub fn probes() -> Checks {
     type Case = fn() -> Result<String, String>;
-    let cases: [(&'static str, Case); 11] = [
+    let cases: [(&'static str, Case); 12] = [
         ("pair_hands_alternate", alternate),
         ("pair_hands_to_hit", to_hit),
         ("pair_keys_do_nothing", keys),
@@ -181,7 +181,8 @@ pub fn probes() -> Checks {
         ("pair_same_every_run", same),
         ("pair_rapid_shot_order", rapid),
         ("pair_power_blast_both", power),
-        ("pair_sniper_main_only", sniper),
+        ("pair_sniper_both", sniper),
+        ("pair_no_feats_fire_plain", untrained),
         ("pair_creature_fires_both", creature),
         ("pair_state_round_trip", round_trip),
     ];
@@ -326,8 +327,9 @@ fn same() -> Result<String, String> {
     check(one.is_some() && one == two, format!("{one:?} and {two:?}"))
 }
 
-/// One press of the alternate with Rapid Shot: main, off, main; with Multi
-/// Shot (its third tier) main, off, main, main.
+/// One press of the alternate with Rapid Shot: right, left, right, left; with
+/// Multi Shot (its third tier) a shot more. The trigger then goes on from the
+/// gun whose turn it is.
 fn rapid() -> Result<String, String> {
     let burst = |known: &[u16]| -> Result<Vec<bool>, String> {
         let mut range = Range::new(trained(known))?;
@@ -338,7 +340,7 @@ fn rapid() -> Result<String, String> {
     let rapid = burst(&feats::RAPID_SHOT[..1])?;
     let multi = burst(&feats::RAPID_SHOT)?;
     check(
-        rapid == [false, true, false] && multi == [false, true, false, false],
+        rapid == [false, true, false, true] && multi == [false, true, false, true, false],
         format!("Rapid Shot, left: {rapid:?}; Multi Shot: {multi:?}"),
     )
 }
@@ -371,7 +373,8 @@ fn power() -> Result<String, String> {
     )
 }
 
-/// Aiming a Sniper Shot and firing: every bolt leaves the main gun.
+/// Aiming a Sniper Shot and firing: a bolt from each gun on the same step,
+/// every time, for one cost.
 fn sniper() -> Result<String, String> {
     let mut range = Range::new(trained(&feats::SNIPER_SHOT[..1]))?;
     range.run(200, idle());
@@ -382,10 +385,58 @@ fn sniper() -> Result<String, String> {
             ..firing()
         },
     );
-    let sides = range.sides(0);
+    let together = range
+        .fired
+        .chunks(2)
+        .all(|shots| matches!(shots, [a, b] if a.ms == b.ms && a.left() != b.left()));
     check(
-        sides.len() >= 2 && sides.iter().all(|left| !left),
-        format!("left: {sides:?}"),
+        range.fired.len() >= 4 && together,
+        format!(
+            "left: {:?}, at {:?}",
+            range.sides(0),
+            range.fired.iter().map(|shot| shot.ms).collect::<Vec<_>>()
+        ),
+    )
+}
+
+/// A gunner knowing none of the gun feats has no special on any gun: the
+/// alternate held fires as the trigger does, taking turns half a refire
+/// apart, no aim, no charge, no burst, the bar untouched.
+fn untrained() -> Result<String, String> {
+    use crate::combat::sheet::Blaster;
+    use crate::combat::specials::Special;
+    let sheet = pair();
+    let none = [Blaster::Pistol, Blaster::Rifle, Blaster::Disruptor]
+        .iter()
+        .all(|blaster| Special::of(&sheet, *blaster).is_none());
+    let mut range = Range::new(sheet)?;
+    range.run(200, idle());
+    let before = range.pool();
+    range.run(3000, alt());
+    let shooting = range
+        .last
+        .as_ref()
+        .and_then(|snapshot| snapshot.own(Seat(0)))
+        .and_then(|me| me.fighter)
+        .ok_or("no fighter")?
+        .shooting;
+    let turns = range
+        .sides(0)
+        .iter()
+        .enumerate()
+        .all(|(at, left)| *left == (at % 2 == 1));
+    let even = gaps(&range.fired)
+        .iter()
+        .all(|gap| gap.abs_diff(refire() / 2) <= u64::from(MSEC));
+    let plain = !shooting.aiming && shooting.charging_from.is_none() && shooting.burst == 0;
+    check(
+        none && range.fired.len() >= 6 && turns && even && plain && range.pool() == before,
+        format!(
+            "{} bolts, gaps {:?}; bar {before} then {}; {shooting:?}",
+            range.fired.len(),
+            gaps(&range.fired),
+            range.pool()
+        ),
     )
 }
 
