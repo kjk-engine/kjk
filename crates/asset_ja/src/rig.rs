@@ -923,8 +923,9 @@ pub enum Side {
 /// from the muzzle to `target` (KOTOR model space), kicked up by `kick.0`
 /// (radians), the gun upright; the wrist moved `forward` along the aim and
 /// back by `kick.1` (metres), or with `hold` the arm carrying the muzzle
-/// there (a first-person eye's gun, held up before it); with `support`, the
-/// left palm under the gun there, its fingers round the far side.
+/// there (a first-person eye's gun, held up before it, its kick up turning
+/// the gun about the wrist); with `support`, the left palm under the gun
+/// there, its fingers round the far side.
 #[derive(Debug, Clone, Copy)]
 pub struct Aim {
     pub side: Side,
@@ -1035,9 +1036,13 @@ fn aim_turns(globals: &[Frame], arms: &AimArms, aim: &Aim) -> Vec<(usize, Quat)>
     let turn = Quat::IDENTITY.slerp(wanted * now.inverse(), aim.weight);
     let wrist = hand_frame.position;
     let moved = match aim.hold {
-        // The muzzle as the turned hand carries it, moved onto the hold.
+        // The muzzle as the hand turned but for the kick carries it, moved
+        // onto the hold: the kick lifts it from there.
         Some(hold) => {
-            let carried = turn * (muzzle - wrist);
+            let steady = basis(direction, Vec3::Z).map_or(turn, |wanted| {
+                Quat::IDENTITY.slerp(wanted * now.inverse(), aim.weight)
+            });
+            let carried = steady * (muzzle - wrist);
             wrist.lerp(hold - carried - direction * aim.kick.1, aim.weight)
         }
         None => wrist + direction * ((aim.forward - aim.kick.1) * aim.weight),

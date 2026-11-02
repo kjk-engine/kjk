@@ -1414,6 +1414,14 @@ fn draw(
         view.first.show(&mut visibility);
     }
     eyes.0 = view.me.filter(|_| first.is_some());
+    // The own gun's shots turn the view up a touch; as a shake does, not
+    // where it aims. Up is a smaller pitch.
+    let kicked = view
+        .me
+        .filter(|_| !watching && talk.is_none())
+        .and_then(|me| view.cast.figure(me))
+        .map_or(0.0, cast::Figure::camera_kick);
+    let shaken = [shaken[0] - kicked, shaken[1]];
     aim.0 = place_camera(
         view,
         (talk, first),
