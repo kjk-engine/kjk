@@ -60,6 +60,7 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 | F, [ ] | cast / select a power (grip, lightning, drain: hold F) |
 | T | grenade (hold to charge) |
 | 3 / 4 / 5 | medpac / stim / energy shield |
+| hold T, 3, 4 or 5 + mouse wheel | choose which kind that key uses (RB on a pad) |
 | H / B / V | holster / weapon set / Form |
 | X / O / U | stealth / mine / Security |
 | I J M P K | inventory, journal, map, party, abilities |

@@ -235,7 +235,11 @@ fn target(
     presented: Option<Res<PresentedSnapshot>>,
     (own, swap, aim): (Option<Res<OwnSeat>>, Option<Res<SceneSwap>>, Res<Aim>),
     mut ui: ResMut<Ui>,
-    (mut wheel, actions): (MessageReader<MouseWheel>, Option<Res<crate::pad::Actions>>),
+    (mut wheel, actions, picking): (
+        MessageReader<MouseWheel>,
+        Option<Res<crate::pad::Actions>>,
+        Option<Res<crate::pick_view::Picking>>,
+    ),
     (mut autopilot, mut acted, mut outgoing, mut told): (
         ResMut<Autopilot>,
         ResMut<Acted>,
@@ -250,6 +254,12 @@ fn target(
     // The pad's LB with the D-pad's left and right turn it as the wheel.
     let cycled = actions.as_ref().map_or(0, |actions| actions.cycle);
     let turned: f32 = wheel.read().map(|event| event.y).sum::<f32>() - f32::from(cycled);
+    // An item key held has the wheel (`pick_view`).
+    let turned = if picking.is_some_and(|picking| picking.holding()) {
+        0.0
+    } else {
+        turned
+    };
     let pressed = std::mem::take(&mut acted.0)
         || actions
             .as_ref()

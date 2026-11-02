@@ -179,6 +179,7 @@ pub(super) fn all() -> Vec<Check> {
                     badge: None,
                 })
                 .to_vec(),
+            action_label: None,
             lit: vec!["LBL_PLOTXP"],
             minimap: None,
             stealth: false,
