@@ -856,15 +856,42 @@ fn kept() -> Result<String, String> {
     let hp = body.fighter.map_or(0, |f| f.hp);
     let good_evil = body.sheet.map_or(0, |sheet| sheet.good_evil);
     let holder = state.items.get(&item).map_or(0, |item| item.holder);
+    // Made, destroyed and made again with no save between (Dantooine's
+    // Bastila, between the Padawan scene and the Council): the item goes on
+    // to the newest creature; and a scene's strip of the creature it destroys
+    // (`k_pdan_cut01`) is not the table's: it is worn again.
+    let mut stripped = world.script_state().clone();
+    if let Some(mut held) = stripped.items.get_mut(&item) {
+        held.slot = None;
+    }
+    world.set_script_state(stripped);
+    queue(&mut world, "probe_spawn");
+    run(&mut world, 1, 0);
+    run(&mut world, 1, 0);
+    let state = world.script_state();
+    let again = state
+        .party
+        .available
+        .get(&STANDING)
+        .and_then(|slot| slot.object)
+        .filter(|id| *id != made.0)
+        .ok_or("no companion made again")?;
+    let holder_again = state.items.get(&item).map_or(0, |item| item.holder);
+    let slot_again = state.items.get(&item).and_then(|item| item.slot);
     let mut out = crate::wire::Writer::default();
     state.encode(&mut out);
     let bytes = out.0;
     let back = crate::script::State::decode(&mut crate::wire::Reader::new("state", &bytes))
         .map_err(|error| error.to_string())?;
     check(
-        hp == 300 && good_evil == 7 && holder == made.0 && back.party == state.party,
+        hp == 300
+            && good_evil == 7
+            && holder == made.0
+            && holder_again == again
+            && slot_again == Some(4)
+            && back.party == state.party,
         format!(
-            "made #{}: {hp} hundredths of HP, good/evil {good_evil}, the item with #{holder}; the table {}",
+            "made #{}: {hp} hundredths of HP, good/evil {good_evil}, the item with #{holder}; made again #{again}, the item with #{holder_again} in slot {slot_again:?}; the table {}",
             made.0,
             if back.party == state.party {
                 "round-trips"
