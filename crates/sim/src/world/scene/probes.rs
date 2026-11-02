@@ -96,6 +96,7 @@ const PROBES: &[Probe] = &[
     ("short_voice_text", short_voice_text),
     ("wait_voice_holds", wait_voice_holds),
     ("wait_fade_holds", wait_fade_holds),
+    ("next_node_clears_fade", next_node_clears_fade),
     ("wait_camera_clip_holds", wait_camera_clip_holds),
     ("pause_is_immediate", pause_is_immediate),
     ("pause_behind_actions", pause_behind_actions),
@@ -3049,6 +3050,37 @@ fn wait_fade_holds() -> Found {
         got == [2900, 1400, 337, 337],
         format!("lines last {got:?} ms"),
     )
+}
+
+/// S5: a silent reply's cover (`NodeFade::COVER`, Jolee's first
+/// `kas24_jolee_01` reply) lasts until the next entry, which plays clear; one
+/// with its own fade in plays from the colour.
+fn next_node_clears_fade() -> Found {
+    use fmt_odyssey::dlg::NodeFade;
+    let covered = |kind: u8| {
+        let mut talk = in_turn(&["", ""]);
+        let fade = |kind| NodeFade {
+            kind,
+            delay: 0.0,
+            length: 1.0,
+            colour: [0.0; 3],
+        };
+        talk.replies[0].fade = fade(NodeFade::COVER);
+        talk.entries[1].fade = fade(kind);
+        let mut ground = Ground::staged(
+            1,
+            Stage {
+                talk,
+                ..Stage::default()
+            },
+        )?;
+        ground.cutscene()?;
+        ground.until_entry(1)?;
+        let fade = ground.last.fade.ok_or("no fade")?;
+        Ok::<f32, String>(fade.alpha(fade.start_ms))
+    };
+    let got = [covered(0)?, covered(NodeFade::IN)?];
+    check(got == [0.0, 1.0], format!("covered {got:?}"))
 }
 
 /// S5: wait flag 1 holds a line for its camera model's clip, its own timer

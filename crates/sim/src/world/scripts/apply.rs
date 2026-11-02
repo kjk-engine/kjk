@@ -344,6 +344,24 @@ pub(in crate::world) fn apply(
                     player.0.set_view(view);
                 }
             }
+            Change::KeepAnimating {
+                who,
+                play: (animation, ms),
+            } => {
+                if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
+                    && !fighting.0.dead()
+                    && fighting
+                        .0
+                        .acting
+                        .is_none_or(|acting| acting.animation != animation)
+                {
+                    fighting.0.acting = Some(Acting {
+                        animation,
+                        since: clock.time_ms,
+                        ms,
+                    });
+                }
+            }
             Change::Animate {
                 who,
                 play: (animation, ms),
