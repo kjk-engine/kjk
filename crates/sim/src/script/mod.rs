@@ -1632,6 +1632,13 @@ impl View<'_> {
         self.object(self.thing(id)?.index?)
     }
 
+    /// Whether `id` is a companion a guest drives: a seat's but the first
+    /// one's, and not that seat's own character.
+    pub fn guest_companion(&self, table: &party::Party, id: ObjectId) -> bool {
+        let driver = self.thing(id).and_then(|thing| thing.character?.driver);
+        driver.is_some_and(|seat| seat != crate::world::LEADER_SEAT) && !self.is_player(table, id)
+    }
+
     /// The bodies the seats act through (`seats`), for whether a
     /// conversation holds the world (`Talk::holds_world`).
     pub fn seat_bodies(&self) -> Vec<ObjectId> {
@@ -2217,6 +2224,15 @@ pub(super) struct Event {
     /// Spire's first door opens for Trask leading (`k_pend_door01`), so
     /// for Trask a guest plays too.
     pub leads: Option<ObjectId>,
+    /// The companion a guest drives coming into or leaving the trigger or
+    /// encounter whose `OnEnter` or `OnExit` this is: a PC to this run and
+    /// what it executes (`GetIsPC`), as a guest's own character is, without
+    /// leading the party; deferred code is not followed. KOTOR's player is
+    /// the body it controls, companion or not: Taris's Sith base opens for
+    /// T3-M4 coming up to it (`k_ptar_openbase`), the Leviathan's cells
+    /// destroy the companions that come in that no player controls
+    /// (`k_plev_killparty`).
+    pub guest: Option<ObjectId>,
     /// The body whose use raised it (`Pending::asker`), carried into what
     /// it executes: a conversation it starts is that body's (R1).
     pub asker: Option<ObjectId>,
@@ -3170,20 +3186,26 @@ impl Step<'_> {
                 last.insert((caller, last::PERCEPTION), u32::from(pending.perception));
             }
             let ai = pending.ai || engine::own_ai(self.view, pending.caller, &pending.script);
-            let on_enter = self
-                .view
-                .thing(pending.caller)
-                .is_some_and(|thing| thing.kind == Some(crate::module::ObjectKind::Trigger))
-                && self.view.hook(pending.caller, Hook::Enter).as_deref() == Some(&pending.script);
+            let kind = self.view.thing(pending.caller).and_then(|thing| thing.kind);
+            let hooked =
+                |hook| self.view.hook(pending.caller, hook).as_deref() == Some(&pending.script);
+            let entered = hooked(Hook::Enter);
+            let on_enter = kind == Some(ObjectKind::Trigger) && entered;
             let cue = pending.entering.filter(|_| on_enter).map(|entering| Cue {
                 trigger: pending.caller,
                 entering,
             });
+            let comings = matches!(kind, Some(ObjectKind::Trigger | ObjectKind::Encounter))
+                && (entered || hooked(Hook::Exit));
+            let guest = pending
+                .entering
+                .filter(|&body| comings && self.view.guest_companion(&self.state.party, body));
             let event = Event {
                 entering: pending.entering,
                 number: pending.number,
                 ai: ai.then_some(pending.caller),
                 leads: pending.leads,
+                guest,
                 asker: pending.asker,
                 script_var: pending.script_var,
                 cue,
@@ -3544,9 +3566,18 @@ fn make_npc(
         for item in state.items.ids_held_by(id.0) {
             state.items.remove(&item);
         }
-        for item in state.items.ids_held_by(kept.from) {
-            if let Some(mut item) = state.items.get_mut(&item) {
+        for item_id in state.items.ids_held_by(kept.from) {
+            if let Some(mut item) = state.items.get_mut(&item_id) {
                 item.holder = id.0;
+                // Dressed as the table kept it, whatever the creature it
+                // left wore last (Dantooine's `k_pdan_cut01` strips Bastila
+                // for the sparring, on a creature then destroyed).
+                if let Some(worn) = &kept.worn {
+                    item.slot = worn
+                        .iter()
+                        .position(|kept| *kept == item_id)
+                        .map(|slot| slot as u8);
+                }
             }
         }
         if let Some(career) = state.careers.remove(&kept.from) {
@@ -3570,6 +3601,11 @@ fn make_npc(
     }
     if let Some(slot) = state.party.available.get_mut(&npc) {
         slot.object = Some(id.0);
+        // What was kept stands on this creature now: the next one made, with
+        // no keep between, takes it from here.
+        if let Some(kept) = &mut slot.kept {
+            kept.from = id.0;
+        }
     }
     // TSL: made from the table, it takes its influence's alignment.
     influence::follow(library, view, state, out, id);
@@ -3724,6 +3760,12 @@ fn keep_npc(view: &View, state: &mut State, out: &Out, npc: u8) {
 /// stands now (`keep_npc`; TSL's `SaveNPCByObject`, any creature), if it
 /// stands here and `npc` is available.
 fn keep_creature(view: &View, state: &mut State, out: &Out, npc: u8, who: ObjectId) {
+    let mut worn = [0; crate::inventory::slots::COUNT as usize];
+    for (item, held) in state.items.held_by(who.0) {
+        if let Some(at) = held.slot.and_then(|slot| worn.get_mut(usize::from(slot))) {
+            *at = item;
+        }
+    }
     let Some(slot) = state.party.available.get_mut(&npc) else {
         return;
     };
@@ -3740,6 +3782,7 @@ fn keep_creature(view: &View, state: &mut State, out: &Out, npc: u8, who: Object
             .hp
             .map_or(HUNDREDTHS, |(now, _)| now.max(1) * HUNDREDTHS),
         fp: c.fp,
+        worn: Some(worn),
     });
 }
 

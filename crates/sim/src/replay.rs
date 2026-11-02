@@ -47,7 +47,11 @@ const MAGIC: &[u8; 4] = b"KJKR";
 /// a new action code, 55).
 /// 37: an arena order knocks the seat's body out in a chosen JA death
 /// (`ArenaOrder::Down`, arena order code 3).
-const VERSION: u32 = 37 + crate::pending::REPLAY;
+/// 38: a seat may choose the next feat attack of the weapon in a hand
+/// (`Action::NextFeat`, a new action code, 57).
+/// 39: a seat may pick the kind its item key uses (`Action::PickItem`, a new
+/// action code, 58).
+const VERSION: u32 = 39 + crate::pending::REPLAY;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordedTick {

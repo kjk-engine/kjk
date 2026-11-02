@@ -57,9 +57,10 @@ pub const LOOPING_READY: u16 = 19;
 /// break it off: the stop of a run that brought it there.
 const SETTLE_MS: f64 = 400.0;
 
-/// How long a scripted clip blends in over what the body showed (seconds),
-/// whatever its transition time: reone's `kTransitionLength`.
-const BLEND_IN: f32 = 0.25;
+/// The frame a scripted clip's blend is reckoned at (seconds): the engine's
+/// blend steps by the frame (`blended_in`), so its speed goes with the frame
+/// rate [verify the rate the games were tuned at].
+const BLEND_FRAME: f32 = 1.0 / 60.0;
 
 /// What the engine plays on a body that scripts do not, and the clip's
 /// name: a skill's use on a mine (`sim::traps::animations`) and on a lock
@@ -75,6 +76,10 @@ const ENGINE_CLIPS: &[(u16, &str)] = &[
     (DIE, "die"),
     (WHIRLWIND, "whirlwind"),
     (CHOKED, "choke"),
+    (DAZED, "pausepsn"),
+    (ASLEEP, "sleep"),
+    (PARALYZED, "paralyzed"),
+    (DISABLED, "disabled"),
 ];
 
 /// The constants a body has a clip for, and the clip's name: the scripts'
@@ -92,18 +97,13 @@ fn plays_once(animation: u16) -> bool {
     (FIRE_AND_FORGET..asset_odyssey::creature::LOOPED).contains(&animation)
 }
 
-/// How far in (seconds) a clip of `length` with its `transition` starts
-/// (`shown`): `BLEND_IN` before its transition time.
-fn lead_in(length: f32, transition: f32) -> f32 {
-    (transition.min(length) - BLEND_IN).max(0.0)
-}
-
 /// How long (ms) a body shows `acting`, a clip of `length` with its
-/// `transition`: a once-through to its end (`plays_once`), else its time. A
-/// round's ready stance holds for the blow's time after its clip (`ready`).
+/// `transition`: a once-through to its end and half its transition's fade
+/// (`plays_once`, `shown`), else its time. A round's ready stance holds for
+/// the blow's time after its clip (`ready`).
 pub fn shows_ms(acting: &Acting, length: f32, transition: f32) -> f64 {
     if plays_once(acting.animation) && blows::of(acting.animation).is_none() {
-        f64::from(length - lead_in(length, transition)) * 1000.0
+        f64::from(length) * 1000.0 + f64::from(transition) * 500.0
     } else {
         f64::from(acting.ms)
     }
@@ -117,6 +117,46 @@ pub const WHIRLWIND: u16 = asset_odyssey::creature::LOOPED + 75;
 /// looped while the choke holds: `ANIMATION_LOOPING_CHOKE` shares its
 /// number (116) with the fire-and-forget one, which plays once.
 pub const CHOKED: u16 = asset_odyssey::creature::LOOPED + 72;
+
+/// A stunned body dazed on its feet (states 4, 18, 19), `animations.2da`
+/// row 15 `pausepsn`. A creature model has none and keeps its idle, as
+/// the executables give it `cpause1`.
+pub const DAZED: u16 = asset_odyssey::creature::LOOPED + 15;
+
+/// A sleeping body (state 6), `animations.2da` row 76 `sleep`.
+pub const ASLEEP: u16 = asset_odyssey::creature::LOOPED + 76;
+
+/// A paralysed body (state 5), `animations.2da` row 78 `paralyzed`.
+pub const PARALYZED: u16 = asset_odyssey::creature::LOOPED + 78;
+
+/// A stunned droid (state 3), `animations.2da` row 270 `disabled`.
+pub const DISABLED: u16 = asset_odyssey::creature::LOOPED + 270;
+
+/// A body in TSL's Force Crush (state 15), `animations.2da` row 460
+/// `crushdamage`, which the table marks fire-and-forget.
+pub const CRUSHED: u16 = asset_odyssey::creature::ONCE + 460;
+
+/// `ANIMATION_LOOPING_HORROR`: the body's own `horror` clip (state 8).
+const HORROR: u16 = 18;
+
+/// The clip a KOTOR state plays on its body, as both executables have it
+/// (`CSWSCreature::RecomputeAmbientAnimationState` picks by the state and
+/// `CSWSCreature::SetAnimation` puts its clip in place of the idle). The
+/// states of none leave the idle playing.
+pub fn of_state(state: u8) -> Option<u16> {
+    use sim::combat::effects::state;
+    match state {
+        state::DROID_STUN => Some(DISABLED),
+        state::STUNNED | state::MIND_TRICK | state::DROID_SCRAMBLE => Some(DAZED),
+        state::PARALYZED => Some(PARALYZED),
+        state::SLEEP => Some(ASLEEP),
+        state::CHOKE => Some(CHOKED),
+        state::HORRIFIED => Some(HORROR),
+        state::WHIRLWIND => Some(WHIRLWIND),
+        state::CRUSH => Some(CRUSHED),
+        _ => None,
+    }
+}
 
 /// KOTOR's grenade throw (`spells.2da` rows 87–95: `conjanim` and
 /// `castanim` `throw`), `animations.2da` row 57 `throwgren`, 1.5 s: drawn
@@ -728,36 +768,45 @@ fn shown<'a>(
         .map(|(_, animator)| animator)?;
     let since = acting.since as f64;
     let length = animator.length();
-    // It takes over as reone has KOTOR's clips do: from `BLEND_IN` before
-    // its transition time, its pose there blended in over `BLEND_IN`, then
-    // on from there (the Taris rancor's `choke`, 1 s, is at its throat
-    // as it begins).
-    let mark = animator.transition().min(length);
-    let lead = lead_in(length, animator.transition());
-    let clip_at = lead + ((ms - since) / 1000.0).max(0.0) as f32;
-    let blended = if clip_at < mark { clip_at / mark } else { 1.0 };
-    let end = if plays_once(acting.animation) {
-        since + f64::from(length - lead) * 1000.0
+    let transition = animator.transition();
+    let clip_at = ((ms - since) / 1000.0).max(0.0) as f32;
+    let fade = f64::from(transition) * 1000.0;
+    let once = plays_once(acting.animation);
+    // A clip played once holds its end while it fades, in half its
+    // transition time; a dying clip stays there.
+    let end = if acting.animation == DIE {
+        f64::INFINITY
+    } else if once {
+        since + f64::from(length) * 1000.0 + fade / 2.0
     } else {
         since + f64::from(acting.ms)
     };
-    let fade = f64::from(animator.transition()) * 1000.0;
-    // A dying clip is held at its end.
-    let end = if acting.animation == DIE {
-        f64::INFINITY
+    let out = if once && broke.is_none() {
+        fade / 2.0
     } else {
-        end
+        fade
     };
     let end = broke.map_or(end, |broke| end.min(broke + fade));
-    let weight = blended.min(((end - ms) / fade).clamp(0.0, 1.0) as f32);
-    let at = if clip_at < mark {
-        mark
-    } else if plays_once(acting.animation) {
+    let weight = blended_in(clip_at, transition).min(((end - ms) / out).clamp(0.0, 1.0) as f32);
+    let at = if once {
         clip_at.min(length)
     } else {
         clip_at % length
     };
     (weight > 0.0).then_some((animator, at, weight))
+}
+
+/// How much of a scripted clip shows `seconds` after it began, of
+/// `transition` seconds, as the games' `Gob::Animate` has it: from the clip's
+/// start, each node moves each frame by a weight toward the clip, a weight
+/// that grows by the frame's share of `transition` until it reaches 1. What
+/// is left of the pose before is the product of `1 - weight`, so it is
+/// mostly gone in about a quarter of a second, whatever the transition.
+pub(crate) fn blended_in(seconds: f32, transition: f32) -> f32 {
+    if seconds >= transition {
+        return 1.0;
+    }
+    1.0 - (-seconds * seconds / (2.0 * transition * BLEND_FRAME)).exp()
 }
 
 /// The ready stance (`g<wield>r1`, the pause pose reone holds in combat)

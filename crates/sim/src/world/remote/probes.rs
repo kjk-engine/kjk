@@ -25,6 +25,8 @@ pub fn probes() -> Checks {
         ("not_saved", not_saved()),
         ("minigame_no_droid", minigame()),
         ("phantom_never_drives", phantom()),
+        ("no_droid_while_companion_leads", leads()),
+        ("no_droid_while_companion_down", downed()),
     ];
     checks.extend(flight::probes());
     checks.extend(inert::probes());
@@ -197,6 +199,61 @@ fn minigame() -> Result<String, String> {
     check(
         after.remotes.is_empty(),
         format!("droids {:?}", droids(&after)),
+    )
+}
+
+/// The droids seen over `steps` steps of all three seats speaking.
+fn droids_over(world: &mut SimWorld, steps: usize) -> Vec<u8> {
+    let mut seen: Vec<u8> = (0..steps)
+        .flat_map(|_| droids(&run(world, &[(0, 0), (1, 0), (2, 0)])))
+        .collect();
+    seen.dedup();
+    seen
+}
+
+/// Three characters for three players: a companion leading the party
+/// (seat 0's body, no guest's) leaves seat 2 no body, and still no droid.
+fn leads() -> Result<String, String> {
+    let (mut world, _, [_, b]) = companions(3)?;
+    scripts_of(&mut world).state.party.leader = Some(1);
+    let seen = droids_over(&mut world, 60);
+    let after = run(&mut world, &[(0, 0), (1, 0), (2, 0)]);
+    check(
+        after.leading == Some(b) && seen.is_empty(),
+        format!(
+            "leading {:?}, droids over 60 steps {seen:?}, seat 2's body {:?}",
+            after.leading,
+            after.body(Seat(2)).map(|entity| entity.id)
+        ),
+    )
+}
+
+/// Seat 2's companion goes down: seat 2 keeps it, waiting for the revive,
+/// and flies no droid.
+fn downed() -> Result<String, String> {
+    let (mut world, _, [_, b]) = companions(3)?;
+    let driving = run(&mut world, &[(0, 0), (1, 0), (2, 0)]);
+    if driving.body(Seat(2)).map(|entity| entity.id) != Some(b) {
+        return Err("seat 2 does not drive the second companion".into());
+    }
+    poke(
+        &mut world,
+        b,
+        |fighter: &mut Fighter, _: &mut MotionState| {
+            fighter.fall(0);
+        },
+    );
+    let seen = droids_over(&mut world, 60);
+    let after = run(&mut world, &[(0, 0), (1, 0), (2, 0)]);
+    let body = after.body(Seat(2));
+    check(
+        seen.is_empty() && body.is_some_and(|entity| entity.id == b),
+        format!(
+            "droids over 60 steps {seen:?}, seat 2's body {:?} (down {})",
+            body.map(|entity| entity.id),
+            body.and_then(|entity| entity.fighter)
+                .is_some_and(|fighter| fighter.downed())
+        ),
     )
 }
 

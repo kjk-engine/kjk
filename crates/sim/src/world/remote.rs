@@ -21,8 +21,9 @@ pub(crate) struct Remotes(pub Vec<Remote>);
 #[derive(Resource, Default)]
 pub(crate) struct Launched(pub Vec<(Seat, [f32; 3])>);
 
-/// Gives each held guest seat that spoke and drives no body a droid, and
-/// takes it from one that drives a body again. Runs on the authority after
+/// Gives each held guest seat that spoke and drives no body a droid while
+/// the party has fewer characters than players, and takes it from one that
+/// drives a body again. Runs on the authority after
 /// `drivers::assign` and `scene::hold`.
 pub(super) fn launch(world: &mut World) {
     let launched = std::mem::take(&mut world.resource_mut::<Launched>().0);
@@ -44,7 +45,31 @@ pub(super) fn launch(world: &mut World) {
         .iter(world)
         .map(|avatar| avatar.0)
         .collect();
-    let flies = |seat: &Seat| playing && spoke.contains(seat) && !bodied.contains(seat);
+    // The party's size decides who flies, never a companion's state: with a
+    // character for every player (the host's own and each companion in the
+    // party, down or standing) no guest flies, though a companion leading
+    // leaves one without a body for a while; with fewer, the guests left
+    // over do. A phantom seat flies whatever the party.
+    let phantoms = world.resource::<super::drivers::Phantoms>().0;
+    let phantom = |seat: &Seat| phantoms & (1 << seat.0) != 0;
+    let members: Vec<u32> = world
+        .resource::<super::scripts::Scripts>()
+        .state
+        .party
+        .creatures()
+        .collect();
+    let characters = 1 + world
+        .query_filtered::<(&Id, &super::Fighting), With<super::Object>>()
+        .iter(world)
+        .filter(|(id, fighting)| {
+            members.contains(&id.0.0) && fighting.0.mind.leader.is_some() && !fighting.0.dead()
+        })
+        .count();
+    let players = 1 + spoke.iter().filter(|seat| !phantom(seat)).count();
+    let short = players > characters;
+    let flies = |seat: &Seat| {
+        playing && spoke.contains(seat) && !bodied.contains(seat) && (short || phantom(seat))
+    };
     let leader = leader(world);
     let level = world.resource::<super::Static>().0.clone();
     let states = {

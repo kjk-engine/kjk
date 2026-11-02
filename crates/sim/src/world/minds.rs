@@ -617,16 +617,14 @@ pub(super) fn think(
         if world_held && mind.task == Task::Chase {
             mind.task = Task::Idle;
         }
-        // What its script chose outlasts the fight: end_m01aa's thrower, out
-        // of combat by `CancelCombat`, charges its throw still, and the Star
-        // Forge's Malak (`k_psta_malaklght`) channels his lightning; a talent
-        // is its round's until the script clears it.
+        // What its script chose outlasts the fight: a throw in a held scene
+        // (end_m01aa's thrower, out of combat by `CancelCombat`, charges it
+        // still), and a talent its script ordered, its round's until the
+        // script clears it (the Star Forge's Malak, `k_psta_malaklght`,
+        // channels his lightning).
+        let scene_throw = world_held && mind.hold == buttons::GRENADE;
         let ordered = intent.is_some_and(|intent| intent.talent.is_some());
-        if mind.task != Task::Engage
-            && mind.hold_until > now
-            && mind.hold != buttons::GRENADE
-            && !ordered
-        {
+        if mind.task != Task::Engage && mind.hold_until > now && !scene_throw && !ordered {
             mind.hold_until = 0;
         }
         // A body standing in its way, gone round: by move_body's walks after a
@@ -932,7 +930,11 @@ pub(super) fn think(
                         && cast_into(
                             &mut fighter.mind,
                             &mut command,
-                            Some(ai::throw(far)),
+                            Some(if world_held {
+                                ai::scripted_throw(far)
+                            } else {
+                                ai::throw(far)
+                            }),
                             now,
                             dice,
                         )
@@ -1018,8 +1020,11 @@ pub(super) fn think(
         if fighter.mind.hold_until > now {
             command.buttons |= fighter.mind.hold;
         }
-        // A lob looks up as its charge runs, to the step that lets it go.
-        if fighter.mind.hold == buttons::GRENADE
+        // A held scene's lob looks up as its charge runs, to the step that
+        // lets it go (its row queued, `Pack::queued`, until then).
+        if world_held
+            && fighter.mind.hold == buttons::GRENADE
+            && fighter.pack.queued.is_some()
             && (fighter.mind.hold_until > now || fighter.pack.charging_from.is_some())
         {
             let up = -crate::combat::grenades::LOB_DEGREES;

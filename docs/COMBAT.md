@@ -579,7 +579,8 @@ carry its spell row (`GetEffectSpellId`, `GetHasSpellEffect`, dispel).
   level d4 (at most 10); Disable and Destroy Droid level and level d6;
   Push and Wave knock down 2 s / 6 s (Reflex: none); Whirlwind
   ⅓ level a second for 9 s; Stun 9 s, Stasis 12 s, Droid Stun 12 s, Fear
-  6 s (C11 caps all at 3 s); Cure 5 and Heal 10 + level + WIS + CHA to
+  6 s (C11 caps all at 3 s, and the visuals and icon linked to a hold end
+  with it; a permanent link keeps its look); Cure 5 and Heal 10 + level + WIS + CHA to
   the caster and the party; Energy Resistance 15 against five types for
   120 s. Push level, Wave ⌊1.5 × level⌋, Choke ⌊⅔ level⌋ a tick, fitted
   from casters of levels 5, 10 and 15.
@@ -769,13 +770,14 @@ concussion a stun, adhesive entanglement (no save), poison 4 every 3 s for
 two kinds (creatures from their inventory; the dev soldier three frag and
 a thermal, the dev Jedi two frag); fighters count throws and carry poison
 and weakness. Creatures throw at targets 4–12 m off now and then
-(`ai::choose_grenade`), and a script's throw (`ActionUseTalentOnObject`)
-at any distance: 60° up, charged to land on the target
-(`grenades::lob_strength`, about 30 m at full charge), meeting nothing on the
-way and bursting as it lands, as KOTOR's projectile moves to its position
-on a timer. A mind out of a fight keeps a throw's charge
-(end_m01aa's thrower is out of combat by `CancelCombat`). A player's throw
-stays JA's. `kjk combat grenades k1`: 16 checks.
+(`ai::choose_grenade`; on a module `k_ai_master` picks them, thrown the same
+way). A throw while a conversation holds the world
+(`ActionUseTalentOnObject` in a scene: K1's `k_pend_cut2_3`, the only one in
+either game) goes at any distance: 55° up, charged to land on the target
+(`grenades::lob_strength`), meeting nothing on the way and bursting as it
+lands, as KOTOR's projectile moves to its position on a timer. A mind out of
+a fight keeps a scripted throw's charge (end_m01aa's thrower is out of combat
+by `CancelCombat`). Any other grenade bounces and bursts on its fuse. `kjk combat grenades k1`: 16 checks.
 
 How `kjk play` shows a throw (from the snapshots alone; the survey is the
 journal's `grenade-visuals/SURVEY.md`):
