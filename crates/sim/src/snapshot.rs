@@ -2499,7 +2499,8 @@ fn decode_entity(
         1 => {
             let mut sheet = Sheet::decode(input)?;
             if input.since(crate::since::snapshot::FEAT_CYCLE) {
-                sheet.picks = crate::combat::picks::Picks::decode(input)?;
+                let items = input.since(crate::since::snapshot::ITEM_CYCLE);
+                sheet.picks = crate::combat::picks::Picks::decode(input, items)?;
             }
             Some(sheet)
         }

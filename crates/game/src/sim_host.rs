@@ -482,7 +482,8 @@ impl Plugin for SimHostPlugin {
                             .run_if(resource_exists::<Authority>),
                         crate::net_join::advance.run_if(crate::net_join::joined),
                     )
-                        .after(crate::pad::Sampled),
+                        .after(crate::pad::Sampled)
+                        .after(crate::pick_view::Picked),
                 )
                     .chain(),
             )
@@ -650,6 +651,7 @@ pub(crate) struct PlayerInput<'w, 's> {
     screens: Option<Res<'w, crate::ui_view::UiOpen>>,
     showing: Option<Res<'w, crate::movie_view::Showing>>,
     feel: Option<Res<'w, MouseFeel>>,
+    picking: Option<Res<'w, crate::pick_view::Picking>>,
 }
 
 /// A frame's `PlayerInput`.
@@ -680,7 +682,13 @@ impl PlayerInput<'_, '_> {
         let actions = self
             .actions
             .as_deref()
-            .filter(|_| !headless)
+            .filter(|_| {
+                !headless
+                    || self
+                        .picking
+                        .as_ref()
+                        .is_some_and(|picking| picking.keys_scripted())
+            })
             .map(|actions| if held { Actions::default() } else { *actions });
         let mouse = self
             .motion
@@ -854,8 +862,9 @@ pub struct CameraAim(pub [i8; 3]);
 /// or special with a saber); 1 and 2 pick the hand, L cycles the saber
 /// style, F casts the selected power ([ and ] select; grip, lightning and
 /// drain run while it is held), T charges a grenade (thrown on release), 3 uses a
-/// medpac, 4 takes a stim, 5 puts up a shield, X turns stealth mode on or
-/// off, O lays the best mine carried (H holsters: `holster_view`).
+/// medpac, 4 takes a stim, 5 puts up a shield (each the kind `pick_view` has
+/// picked, the wheel choosing while its key is held), X turns stealth mode on
+/// or off, O lays the best mine carried (H holsters: `holster_view`).
 pub(crate) fn player_command(actions: &Actions, look: Look, controls: Controls) -> Command {
     let held = |action| actions.held(action);
     let (forward, right) = crate::pad::step(actions, held(Action::Walk));

@@ -1,5 +1,7 @@
-//! Which feat attack a weapon carries, chosen by its wielder (KOTOR let a
-//! character pick any feat attack it knew; `docs/COMBAT.md`, C7, C8). One
+//! What a character chose to fight with: the kind of item each item key uses
+//! (`Picks::item`, `Action::PickItem`), and which feat attack a weapon
+//! carries (KOTOR let a character pick any feat attack it knew;
+//! `docs/COMBAT.md`, C7, C8). One
 //! choice is kept for each gun type, for two blades and for a double-bladed
 //! weapon, and the next-feat key (`Action::NextFeat`) moves on the one the
 //! weapon in hand uses; a creature's script chooses by its talent
@@ -15,6 +17,7 @@
 //! Kept beside a sheet rather than in `Sheet::encode`, which module packs
 //! share: a template never has a choice.
 
+use crate::combat::items::{self, Carried, KINDS, Shelf, Use};
 use crate::combat::saber::{Held, Kit, Style};
 use crate::combat::sheet::{Blaster, Sheet, feats};
 use crate::combat::specials::Special;
@@ -103,7 +106,13 @@ pub struct Picks {
     guns: [u8; GUNS],
     /// Two blades', then a double-bladed weapon's.
     blades: [Melee; 2],
+    /// The `spells.2da` row of the kind each key uses (by `Shelf`), none for
+    /// what it uses by itself.
+    items: [Option<u16>; Shelf::ALL.len()],
 }
+
+/// What stands for no pick in the bytes.
+const NO_ITEM: u16 = u16::MAX;
 
 impl Picks {
     /// The line chosen for `blaster`.
@@ -114,6 +123,47 @@ impl Picks {
     /// What `Kit::swing` reads: two blades', then a double-bladed weapon's.
     pub fn blades(&self) -> [Melee; 2] {
         self.blades
+    }
+
+    /// The kind picked for `shelf`.
+    pub fn item(&self, shelf: Shelf) -> Option<u16> {
+        self.items[shelf as usize]
+    }
+
+    /// The kind of `row` picked for its key; which key, if a key takes it.
+    pub fn pick_item(&mut self, row: u16) -> Option<Shelf> {
+        let shelf = items::use_of(row)?.shelf();
+        self.items[shelf as usize] = Some(row);
+        Some(shelf)
+    }
+
+    /// Which of `kinds` (more than a character has slots for) keep a slot,
+    /// in their order: for each key its pick or the kind it would use, a
+    /// medpac key's a heal for its race (a `droid`'s or not) over an antidote,
+    /// then the rest in order.
+    pub fn slotted(&self, kinds: &[Carried], droid: bool) -> Vec<Carried> {
+        let on = |row: u16, shelf| items::use_of(row).is_some_and(|u| u.shelf() == shelf);
+        let heal = |row: u16| matches!(items::use_of(row), Some(Use::Heal { droid: kit, .. }) if kit == droid);
+        let mut kept: Vec<u16> = Shelf::ALL
+            .into_iter()
+            .filter_map(|shelf| {
+                let rows = || kinds.iter().map(|kind| kind.row);
+                self.item(shelf)
+                    .filter(|row| rows().any(|known| known == *row))
+                    .or_else(|| rows().find(|row| on(*row, shelf) && heal(*row)))
+                    .or_else(|| rows().find(|row| on(*row, shelf)))
+            })
+            .collect();
+        for kind in kinds {
+            if kept.len() < KINDS && !kept.contains(&kind.row) {
+                kept.push(kind.row);
+            }
+        }
+        kinds
+            .iter()
+            .filter(|kind| kept.contains(&kind.row))
+            .copied()
+            .collect()
     }
 
     /// The choice after the current one for the weapon in `hand`, kept;
@@ -195,9 +245,13 @@ impl Picks {
         for line in self.blades {
             out.u8(line as u8);
         }
+        for row in self.items {
+            out.u16(row.unwrap_or(NO_ITEM));
+        }
     }
 
-    pub(crate) fn decode(input: &mut Reader) -> Result<Picks, DecodeError> {
+    /// Its bytes; `with_items` where they hold the item picks.
+    pub(crate) fn decode(input: &mut Reader, with_items: bool) -> Result<Picks, DecodeError> {
         let guns: [u8; GUNS] = input.array()?;
         let at = input.at();
         if guns.iter().any(|line| usize::from(*line) > Special::LINES) {
@@ -209,6 +263,16 @@ impl Picks {
             Melee::from_code(code).ok_or_else(|| input.invalid("melee feat choice", at))
         };
         let blades = [blade()?, blade()?];
-        Ok(Picks { guns, blades })
+        let mut items = [None; Shelf::ALL.len()];
+        if with_items {
+            for item in &mut items {
+                *item = Some(input.u16()?).filter(|row| *row != NO_ITEM);
+            }
+        }
+        Ok(Picks {
+            guns,
+            blades,
+            items,
+        })
     }
 }

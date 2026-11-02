@@ -1,14 +1,15 @@
 //! Feat attacks from the player's side (`sim::combat::picks`): the next-feat
 //! key, in play with no screen, conversation or movie up, moves on the feat
-//! the weapon in hand carries (`Action::NextFeat`) and the feedback log names
-//! it. The HUD shows the one in use (`hud`).
+//! the weapon in hand carries (`Action::NextFeat`) and a label over its slot
+//! names it (`pick_view::Picking::say`). The HUD shows the one in use (`hud`).
 
 use bevy::prelude::*;
 use sim::action::Action;
 use sim::combat::picks::{Picks, Shown};
 use sim::notice::Notice;
 
-use crate::loot::{Outgoing, Told, words};
+use crate::loot::{Outgoing, words};
+use crate::pick_view::{LabelOn, Picking};
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
 use crate::ui_view::Ui;
 
@@ -31,21 +32,26 @@ fn next_feat(
     presented: Option<Res<PresentedSnapshot>>,
     own: Option<Res<OwnSeat>>,
     swap: Option<Res<SceneSwap>>,
-    (outgoing, told, ui): (
+    (outgoing, picking, ui): (
         Option<ResMut<Outgoing>>,
-        Option<ResMut<Told>>,
+        Option<ResMut<Picking>>,
         Option<ResMut<Ui>>,
     ),
+    time: Res<Time<Real>>,
 ) {
-    let busy = ui.as_ref().is_some_and(|ui| ui.stack.is_open())
-        || replies.is_some_and(|replies| replies.active)
-        || showing.is_some_and(|showing| showing.0);
+    let busy = crate::pick_view::busy(ui.as_deref(), replies.as_deref(), showing.as_deref());
     let pressed = actions.is_some_and(|actions| actions.pressed(crate::settings::Action::NextFeat));
     if busy || !pressed {
         return;
     }
-    let (Some(presented), Some(own), Some(swap), Some(mut outgoing), Some(mut told), Some(mut ui)) =
-        (presented, own, swap, outgoing, told, ui)
+    let (
+        Some(presented),
+        Some(own),
+        Some(swap),
+        Some(mut outgoing),
+        Some(mut picking),
+        Some(mut ui),
+    ) = (presented, own, swap, outgoing, picking, ui)
     else {
         return;
     };
@@ -76,5 +82,7 @@ fn next_feat(
             .map(|strref| words(&Notice::Line(strref), Some(&mut ui))),
         _ => Some("No feat attack".to_string()),
     };
-    told.0.extend(said);
+    if let Some(said) = said {
+        picking.say(LabelOn::Feat, said.into_bytes(), time.elapsed_secs());
+    }
 }
