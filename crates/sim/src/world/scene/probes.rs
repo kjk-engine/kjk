@@ -146,7 +146,7 @@ const PROBES: &[Probe] = &[
     ("free_jump_avoids_bodies", free_jump_avoids_bodies),
     ("jump_beside_close_body", jump_beside_close_body),
     ("jump_mark_on_walkmesh", jump_mark_on_walkmesh),
-    ("free_play_unchanged", free_play_unchanged),
+    ("free_play_walk", free_play_walk),
     ("ends_mid_walk", ends_mid_walk),
     ("walk_asks_no_exit", walk_asks_no_exit),
     ("leaving_heard", leaving_heard),
@@ -3963,7 +3963,7 @@ fn bump_rules() -> Found {
             who: SimId(who),
             at: ahead(route),
             push: None,
-            going: None,
+            walks: false,
         };
         crate::walk::kotor_step(
             level,
@@ -4027,7 +4027,7 @@ fn pushes_idle_aside() -> Found {
             who: SimId(100),
             at: body,
             push,
-            going: None,
+            walks: false,
         };
         let stepped = crate::walk::kotor_step(
             level,
@@ -4697,10 +4697,9 @@ fn jump_mark_on_walkmesh() -> Found {
     )
 }
 
-/// S3: the same walk with no conversation goes through move_body, never
-/// carried, at KOTOR's walk all the same (free play's pace,
-/// `walk::paced`).
-fn free_play_unchanged() -> Found {
+/// S3: the same walk with no conversation is KOTOR's walker's too, at
+/// KOTOR's walk: a script's move out of a fight is carried, held or not.
+fn free_play_walk() -> Found {
     let (mut ground, walker) = walking_ground(WALK_FROM, false)?;
     // 8 s as the held walk's: the stage's creatures, settled apart as the
     // area's loader stands them, leave one beside the walker's start,
@@ -4709,14 +4708,13 @@ fn free_play_unchanged() -> Found {
     let speed = track.speed(WALK_FROM, WALK_TO, (2.0, 8.0));
     let carried = track.carried.iter().any(|carried| *carried);
     check(
-        speed.is_some_and(|speed| (speed - KOTOR_WALK).abs() <= KOTOR_WALK * 0.05) && !carried,
+        speed.is_some_and(|speed| (speed - KOTOR_WALK).abs() <= KOTOR_WALK * 0.05) && carried,
         format!("walked at {speed:?} m/s (KOTOR's {KOTOR_WALK:.2}), carried {carried}"),
     )
 }
 
-/// S3: the conversation ends halfway through the walk: the next step is
-/// move_body's, the body not jumping (under 0.05 m), and the walk goes on at
-/// KOTOR's walk.
+/// S3: the conversation ends halfway through the walk: the walker carries
+/// it on, the body not jumping (under 0.05 m), at KOTOR's walk.
 fn ends_mid_walk() -> Found {
     let (mut ground, walker) = walking_ground(WALK_FROM, true)?;
     let carried = walked(&mut ground, walker, move_to(WALK_TO, false, None), 3000);
@@ -4746,7 +4744,7 @@ fn ends_mid_walk() -> Found {
         !held
             && was_carried > 0
             && jump < 0.05
-            && !first
+            && first
             && speed.is_some_and(|speed| (speed - KOTOR_WALK).abs() <= KOTOR_WALK * 0.05),
         format!(
             "held {held}, carried {was_carried} steps, then a step of {jump:.3} m, carried \

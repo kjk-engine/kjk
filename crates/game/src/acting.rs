@@ -97,6 +97,18 @@ fn plays_once(animation: u16) -> bool {
     (FIRE_AND_FORGET..asset_odyssey::creature::LOOPED).contains(&animation)
 }
 
+/// How long (ms) a body shows `acting`, a clip of `length` with its
+/// `transition`: a once-through to its end and half its transition's fade
+/// (`plays_once`, `shown`), else its time. A round's ready stance holds for
+/// the blow's time after its clip (`ready`).
+pub fn shows_ms(acting: &Acting, length: f32, transition: f32) -> f64 {
+    if plays_once(acting.animation) && blows::of(acting.animation).is_none() {
+        f64::from(length) * 1000.0 + f64::from(transition) * 500.0
+    } else {
+        f64::from(acting.ms)
+    }
+}
+
 /// A whirlwind's victim spinning (`EffectWhirlWind`), `animations.2da`
 /// row 75 `whirlwind`, which the table marks looping.
 pub const WHIRLWIND: u16 = asset_odyssey::creature::LOOPED + 75;
