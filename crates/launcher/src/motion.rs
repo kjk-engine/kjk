@@ -131,6 +131,32 @@ impl Motion {
             let track = self.tracks.entry(entity.id.0).or_default();
             let at = entity.position;
             let last = track.last.replace(at);
+            if !self.traced.is_empty() && !(scripted || carried) && fighter.alive() {
+                let objects =
+                    instances.get_or_insert_with(|| sim::Instances::in_snapshot(level, snapshot));
+                let tag = objects
+                    .of_entity(entity)
+                    .map_or_else(String::new, |o| o.tag.clone());
+                if self.traced.contains(&tag) {
+                    self.trace.push(format!(
+                        "{module} {now} {tag} rest at {:.3},{:.3} z {:.3} vel {:?} ground {:?} flags {} yaw {:.0} legs {} torso {} acting {:?} task {:?} cmd {},{} buttons {}",
+                        at[0],
+                        at[1],
+                        at[2],
+                        player.velocity,
+                        player.ground,
+                        player.flags,
+                        player.view[1],
+                        player.legs.anim.name(),
+                        player.torso.anim.name(),
+                        fighter.acting.filter(|a| a.playing(now)).map(|a| a.animation),
+                        mind.task,
+                        fighter.last_command.forward,
+                        fighter.last_command.right,
+                        fighter.last_command.buttons,
+                    ));
+                }
+            }
             if !fighter.alive() || !(scripted || carried) {
                 track.steps.clear();
                 continue;
