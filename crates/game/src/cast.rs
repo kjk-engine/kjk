@@ -94,7 +94,7 @@ pub const FAR_EVERY: usize = 4;
 /// as the sim's legs animation says (as JA picks walk or run by the walk
 /// button the scripts' moves press); with legs doing neither, below
 /// `RUN_SPEED` (tuning, between JA's walk and run speeds) it walks.
-const STILL_SPEED: f32 = 10.0;
+pub const STILL_SPEED: f32 = 10.0;
 const RUN_SPEED: f32 = 180.0;
 /// How quickly a gun comes up to its aim (ms, the time constant): about
 /// the blend JA's torso takes into its ready pose.
@@ -2857,6 +2857,16 @@ fn held_clip(fighter: &Fighter, ms: f64) -> Option<Acting> {
     })
 }
 
+/// What `fighter` plays at `ms`, as `place` draws it: a hold's clip, else a
+/// script's animation. One played out is over for a body on the move
+/// (`moving`, faster than `STILL_SPEED`): a round's would hold its ready
+/// stance over a run (`Shows::shown`) until the next line clears it.
+pub fn drawn_acting(fighter: &Fighter, moving: bool, ms: f64) -> Option<Acting> {
+    held_clip(fighter, ms).or(fighter
+        .acting
+        .filter(|acting| !moving || acting.playing(ms as u64)))
+}
+
 /// Whether the character at `at` is dead and dying in place
 /// (`sim::combat::death::in_place`): its own dying clip plays where it
 /// stands and its last frame holds (`acting::Shows`), with no ragdoll.
@@ -3287,13 +3297,10 @@ fn place(
     // An item's use (`sim::combat::items::clips`) plays over a drawn
     // weapon too: a shield's band is switched on in the middle of a fight.
     let using = at.fighter.is_some_and(|f| f.pack.using.is_some());
-    // One played out is over for a body on the move: a round's would hold its
-    // ready stance over a run (`Shows::shown`) until the next line clears it.
-    let moving = (x * x + y * y).sqrt() >= STILL_SPEED;
-    let acting = held.or(at
+    let acting = at
         .fighter
-        .and_then(|f| f.acting)
-        .filter(|acting| !moving || acting.playing(ms as u64)));
+        .as_ref()
+        .and_then(|f| drawn_acting(f, (x * x + y * y).sqrt() >= STILL_SPEED, ms));
     // One that hides the equipped items (Security, a mine's) puts the gun
     // away as it begins: the gun going does not break it off.
     let hiding = acting.is_some_and(|acting| acting::hides_items(&acting, ms));

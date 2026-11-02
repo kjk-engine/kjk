@@ -201,11 +201,10 @@ pub(super) fn move_actors(
     // fight and of conversations; not a player
     // nor the party's, nor one that never moves (`Body::immobile`: Telos's
     // hidden turret in Slusk's office was pushed 0.9 m into the way out)),
-    // with its side; and everyone's personal space, and
-    // where a walk not given up carries it (`walk::Met::going`). All of it
-    // is in the snapshot, so a client predicts the pushes the authority
-    // makes.
-    let mut pushable: Vec<(SimId, Option<Side>, f32, Option<[f32; 3]>)> = actors
+    // with its side; and everyone's personal space, and whether a walk not
+    // given up carries it (`walk::Met::walks`). All of it is in the snapshot,
+    // so a client predicts the pushes the authority makes.
+    let mut pushable: Vec<(SimId, Option<Side>, f32, bool)> = actors
         .iter()
         .filter(|(.., fighting)| fighting.0.alive())
         .map(|(id, avatar, object, sheet, _, fighting)| {
@@ -226,12 +225,8 @@ pub(super) fn move_actors(
                     .and_then(|object| object.facts.as_ref()?.body)
                     .is_some_and(|body| body.immobile());
             let side = idle.then(|| side_of(id.0, *avatar, fighter, &sheet_of(*sheet, *object)));
-            let going = fighter
-                .mind
-                .walker
-                .filter(|walker| !walker.stuck())
-                .map(|walker| walker.heading());
-            (id.0, side, personal_space(*object), going)
+            let walks = fighter.mind.walker.is_some_and(|walker| !walker.stuck());
+            (id.0, side, personal_space(*object), walks)
         })
         .collect();
     pushable.sort_by_key(|(id, ..)| *id);
@@ -345,21 +340,20 @@ pub(super) fn move_actors(
             walk::rates(body, seat_body || object.is_none(), table)
         };
         let ps = &player.0;
-        // A script's move of a body no seat drives, out of a fight, that
-        // stalled on move_body (a second with no headway: the level in its way,
-        // as move_body meets bodies at once) goes on KOTOR's walker to its next
-        // corner, where the walk plans on through move_body again. KOTOR's
-        // walker is a point on the walkmesh and meets nothing drawn: a
-        // tent's guy rope across the Outcast village's walkway (Taris) held
-        // an outcast's box there until its forced move's timeout.
+        // A script's move of a body no seat drives, out of a fight, goes on
+        // KOTOR's walker held or not. KOTOR's walker is a point on the
+        // walkmesh that bumps bodies and goes round them (`walk::kotor_step`);
+        // on move_body two walkers met box to box and shoved along each other
+        // at a crawl, legs walking, never bumping (Dantooine's enclave droid
+        // and Jedi), and a tent's guy rope across the Outcast village's
+        // walkway (Taris) held an outcast's box until its forced move's
+        // timeout.
         let mind = &fighting.0.mind;
-        let stalled_out = seat.is_none()
+        let script_walk = seat.is_none()
             && mind.moving
             && mind.task != crate::combat::ai::Task::Engage
-            && mind
-                .walker
-                .is_some_and(|walker| walker.stalls > 0 && !walker.stuck());
-        let kotor = ((held || stalled_out)
+            && mind.walker.is_some_and(|walker| !walker.stuck());
+        let kotor = ((held || script_walk)
             && routed
             && fighting.0.alive()
             && !fighting.0.force.stunned(clock.time_ms)
@@ -448,7 +442,7 @@ pub(super) fn move_actors(
             .filter_map(|body| {
                 let who = SimId(body.entity & !BODY);
                 let at = pushable.binary_search_by_key(&who, |(id, ..)| *id).ok()?;
-                let (_, side, theirs, going) = pushable[at];
+                let (_, side, theirs, walks) = pushable[at];
                 let push = side
                     .zip(me)
                     .filter(|(side, me)| {
@@ -459,7 +453,7 @@ pub(super) fn move_actors(
                     who,
                     at: origin_of(body),
                     push,
-                    going,
+                    walks,
                 })
             })
             .collect();
@@ -670,22 +664,17 @@ pub(super) fn move_actors(
                 .iter()
                 .filter(|entity| *entity & BODY != 0)
                 .filter_map(|entity| mets.iter().find(|met| met.who.0 == entity & !BODY))
-                .find(|met| !walker.passes(met) && !walker.waits_behind(at, met) && ahead(met.at));
+                .find(|met| !walker.passes(met) && ahead(met.at));
             if let Some(met) = met
                 && let Some(spot) = walker.meet(&level.0, &player.0, space, met, &mets)
             {
                 pushes.push((met.who, spot));
             }
-            // A script's move out of a fight whose step went nowhere against
-            // the level (a placeable it touched, or the level's own solid on
-            // its way ahead, `walk::way_clear`; not a body nor a door, which
-            // keep their own rules) has stalled: it goes on KOTOR's walker
-            // from the next step (`stalled_out`), as after a second with no
-            // headway. The mesh planned the leg, and KOTOR's walker, a point
-            // on the walkmesh, walks it: Peragus's Sith troopers boarding the
-            // Ebon Hawk (107PER), routed between an explosive barrel and a
-            // crate's walkmesh edge their boxes do not fit between, stood a
-            // second at each such gap, twenty times in the turret game.
+            // A script's move out of a fight on move_body (KOTOR's walker
+            // found no floor ahead) whose step went nowhere against the level
+            // (a placeable it touched, or the level's own solid on its way
+            // ahead, `walk::way_clear`; not a body nor a door, which keep
+            // their own rules) has stalled at once, not a second later.
             let commanded = command.forward != 0 || command.right != 0;
             let placeable = |entity: &u32| {
                 level

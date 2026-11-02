@@ -1019,6 +1019,29 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
         count(Ended::Skipped),
         began.elapsed().as_secs_f64()
     );
+    // The routes' story checks (`KJK_SCENE_CHECK`, with `--no-cache`: a cached
+    // route played none), as one report.
+    if std::env::var_os("KJK_SCENE_CHECK").is_some() {
+        let checks: Vec<PathBuf> = done
+            .keys()
+            .filter_map(|index| {
+                let log = std::fs::read_to_string(folder.log(&routes[*index])).ok()?;
+                let run = log
+                    .lines()
+                    .find_map(|line| line.strip_prefix("transcript and recording: "))?;
+                Some(Path::new(run).join("scene_check.json"))
+            })
+            .filter(|path| path.exists())
+            .collect();
+        if let Err(error) = crate::scene_check::story_report(
+            &options.game,
+            &folder.root,
+            &checks,
+            began.elapsed().as_secs(),
+        ) {
+            eprintln!("story check: {error}");
+        }
+    }
     let facts = json!({
         "verb": "chain",
         "game": options.game,

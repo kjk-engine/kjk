@@ -11,8 +11,19 @@
 //!   motion only out of a held scene, `acting::Shows::follow`), or a hold
 //!   (fear, a whirlwind) plays its clip.
 //! - **Jitter**: within `WINDOW_MS` its steps turn back on themselves
-//!   (more than 90° from the step before) `REVERSALS` times, or it stops and
-//!   starts again `STOP_GOS` times.
+//!   (more than 90° from the way before, each way kept for `TURN_M`)
+//!   `REVERSALS` times, or it stops for `LEAST_STOP_MS` and starts again
+//!   `STOP_GOS` times.
+//! - **Hop**: a body standing where it is (`everyone`) whose legs flip into
+//!   JA's jump or fall, or that leaves the floor `HOPS` times in
+//!   `HOP_WINDOW_MS` (for `HOP_AIR_MS`, or by `HOP_RISE_M`: a step's gravity
+//!   as a walk stops shows nothing), neither thrown nor jumped by a command:
+//!   it will not settle (a straight-down velocity normalized up,
+//!   `motion::ground_move`).
+//!
+//! A playthrough watches the bodies a script moves or the walker carries;
+//! `kjk dialogue check` watches `everyone`, standing or moved by their AI,
+//! and says what the view draws over their legs (`watch_drawn`).
 //!
 //! A jump or a push (over `SNAP_M` in a step) starts the body's track
 //! afresh; a body off the floor or knocked back is not walking.
@@ -30,6 +41,10 @@ const SNAP_M: f32 = 1.0;
 const WINDOW_MS: u64 = 1000;
 const REVERSALS: usize = 3;
 const STOP_GOS: usize = 3;
+/// A way kept for less than this (m) is no turn: a shudder, seen as one.
+const TURN_M: f32 = 0.05;
+/// A stop shorter than this (ms) is a frame or two's: no stop to the eye.
+const LEAST_STOP_MS: u64 = 64;
 /// Slower than this (m/s) with its legs walking, a body treads in place;
 /// for `LEAST_TREAD_MS` at least, it is kept.
 const TREAD_MPS: f32 = 0.1;
@@ -39,6 +54,12 @@ const JOIN_MS: u64 = 250;
 /// A slide shorter than this (ms) is not kept: a walk's first and last
 /// steps, as the legs' animation catches up.
 const LEAST_SLIDE_MS: u64 = 200;
+/// Leaving the floor this often within this long (ms) is a hop.
+const HOPS: usize = 2;
+const HOP_WINDOW_MS: u64 = 2000;
+/// Off the floor this long (ms) or this far (m) up or down is off it to see.
+const HOP_AIR_MS: u64 = 50;
+const HOP_RISE_M: f32 = 0.02;
 
 /// What broke the rule.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -51,6 +72,20 @@ pub enum Kind {
     /// Its legs walking or running where it stands (`TREAD_MPS`): a walk
     /// held by what it walks into.
     Treads,
+    /// Standing, it will not stay on the floor: its legs' animation, or
+    /// how often it left.
+    Hop(String),
+}
+
+/// What a moving body shows, as the view draws it (`Motion::watch_drawn`).
+pub enum Drawn {
+    /// Its legs' animation walks it or does not.
+    Legs,
+    /// Its own walk and run, by its speed whatever its legs (a beast's, a
+    /// droid's, `cast::Clips`).
+    Stride,
+    /// This over its legs.
+    Over(String),
 }
 
 /// One episode on one body.
@@ -75,8 +110,13 @@ pub struct Episode {
 #[derive(Default)]
 struct Track {
     last: Option<[f32; 3]>,
-    steps: VecDeque<(u64, Option<[f32; 2]>)>,
+    steps: VecDeque<(u64, Option<[f32; 2]>, f32)>,
     jitter_until: u64,
+    /// When it last left the floor to see, whether it stood on it last step,
+    /// and when and how high it left it (none once told).
+    left: VecDeque<u64>,
+    grounded: bool,
+    leaving: Option<(u64, f32)>,
 }
 
 /// The watcher (see the module documentation).
@@ -96,6 +136,8 @@ pub struct Motion {
     pub trace: Vec<String>,
     /// The level watched: ids are the level's, so another starts afresh.
     level: Option<sim::LevelId>,
+    /// Every living body is watched, not only those a script moves.
+    everyone: bool,
 }
 
 impl Motion {
@@ -109,8 +151,50 @@ impl Motion {
         }
     }
 
-    /// Watches `snapshot`, `msec` after the one before, of `level`.
+    /// A watcher of every body (see the module documentation).
+    pub fn everyone() -> Motion {
+        Motion {
+            everyone: true,
+            ..Motion::new()
+        }
+    }
+
+    /// The name it reports the body `id` by, once seen moving.
+    pub fn name_of(&self, id: u32) -> Option<&str> {
+        self.names.get(&id).map(String::as_str)
+    }
+
+    /// Watches `snapshot`, `msec` after the one before, of `level`, judging
+    /// a held scene's script animation or hold from the sim's own timers.
     pub fn watch(&mut self, snapshot: &Snapshot, level: &sim::Level, msec: u32) {
+        let now = snapshot.time_ms;
+        let held = snapshot.holds_world();
+        self.watch_drawn(snapshot, level, msec, &mut |_, fighter| {
+            let acting = fighter
+                .acting
+                .filter(|acting| acting.playing(now))
+                .filter(|acting| acting.animation != sim::combat::death::DIE)
+                .filter(|_| held);
+            let hold = matches!(
+                fighter.force.hold,
+                sim::script::effects::Hold::Fear | sim::script::effects::Hold::Whirlwind
+            ) && fighter.force.stunned_until > now;
+            match (acting, hold) {
+                (Some(acting), _) => Drawn::Over(format!("animation {}", acting.animation)),
+                (None, true) => Drawn::Over(format!("hold {:?}", fighter.force.hold)),
+                _ => Drawn::Legs,
+            }
+        });
+    }
+
+    /// `watch`, `over` saying what is drawn over a moving body's legs.
+    pub fn watch_drawn(
+        &mut self,
+        snapshot: &Snapshot,
+        level: &sim::Level,
+        msec: u32,
+        over: &mut dyn FnMut(&sim::EntityState, &sim::combat::Fighter) -> Drawn,
+    ) {
         if self.level != Some(level.id()) {
             self.level = Some(level.id());
             self.tracks.clear();
@@ -157,8 +241,32 @@ impl Motion {
                     ));
                 }
             }
-            if !fighter.alive() || !(scripted || carried) {
+            let thrown = player.ground.is_none()
+                || player.flags & sim::motion::motion_flags::KNOCKBACK_HOLD != 0;
+            // A body dead where it lies stays there: one crossing the floor
+            // glides on its dying clip.
+            let glides = self.everyone
+                && fighter.dead()
+                && !thrown
+                && last.is_some_and(|last| {
+                    let far = (at[0] - last[0]).hypot(at[1] - last[1]);
+                    far <= SNAP_M && far / seconds >= MOVING_MPS
+                });
+            if !fighter.alive() || !(scripted || carried || self.everyone) {
                 track.steps.clear();
+                if glides {
+                    let who = Self::named(&mut self.names, entity, level, snapshot, &mut instances);
+                    self.note(Episode {
+                        module: module.clone(),
+                        who,
+                        kind: Kind::Slide("dead".to_string()),
+                        from_ms: now,
+                        to_ms: now,
+                        held,
+                        at,
+                        scripted,
+                    });
+                }
                 continue;
             }
             let Some(last) = last else { continue };
@@ -169,17 +277,7 @@ impl Motion {
                 continue;
             }
             let moving = far / seconds >= MOVING_MPS;
-            let name = self.names.entry(entity.id.0).or_insert_with(|| {
-                let objects =
-                    instances.get_or_insert_with(|| sim::Instances::in_snapshot(level, snapshot));
-                match entity.kind {
-                    sim::Kind::Avatar(seat) => format!("player{}", seat.0),
-                    _ => objects
-                        .of_entity(entity)
-                        .map_or_else(|| format!("#{}", entity.id.0), |o| o.tag.clone()),
-                }
-            });
-            let name = name.clone();
+            let name = Self::named(&mut self.names, entity, level, snapshot, &mut instances);
             if self.traced.contains(&name) {
                 let walker = mind.walker.map(|w| {
                     format!(
@@ -212,30 +310,44 @@ impl Motion {
             let mut found = Vec::new();
             // Thrown or off the floor, a body is moved by its blow or its
             // fall, not its walk.
-            let thrown = player.ground.is_none()
-                || player.flags & sim::motion::motion_flags::KNOCKBACK_HOLD != 0;
             let legs = player.legs.anim.name();
+            let on_floor = player.ground.is_some();
+            let track = self.tracks.entry(entity.id.0).or_default();
+            if self.everyone {
+                if track.grounded && !on_floor {
+                    track.leaving = Some((now, at[2]));
+                }
+                track.grounded = on_floor;
+                if on_floor {
+                    track.leaving = None;
+                }
+                if let Some((from, z)) = track.leaving
+                    && (now >= from + HOP_AIR_MS || (at[2] - z).abs() >= HOP_RISE_M)
+                {
+                    track.left.push_back(from);
+                    track.leaving = None;
+                }
+                while track.left.front().is_some_and(|when| *when + HOP_WINDOW_MS < now) {
+                    track.left.pop_front();
+                }
+                let knocked = player.flags & sim::motion::motion_flags::KNOCKBACK_HOLD != 0;
+                let jumped = fighter.last_command.up > 0;
+                if !knocked && !jumped && !moving {
+                    if matches!(legs, "BOTH_JUMP1" | "BOTH_INAIR1") {
+                        found.push(Kind::Hop(format!("legs {legs}")));
+                    } else if track.left.len() >= HOPS {
+                        found.push(Kind::Hop("leaves the floor again and again".to_string()));
+                    }
+                }
+            }
             let walking = legs.contains("WALK") || legs.contains("RUN");
             if moving && !thrown {
                 self.moving_steps += 1;
                 self.movers.insert(name.clone());
-                let acting = fighter
-                    .acting
-                    .filter(|acting| acting.playing(now))
-                    .filter(|acting| acting.animation != sim::combat::death::DIE)
-                    .filter(|_| held);
-                let hold = matches!(
-                    fighter.force.hold,
-                    sim::script::effects::Hold::Fear | sim::script::effects::Hold::Whirlwind
-                ) && fighter.force.stunned_until > now;
-                let slide = if let Some(acting) = acting {
-                    Some(format!("animation {}", acting.animation))
-                } else if hold {
-                    Some(format!("hold {:?}", fighter.force.hold))
-                } else if !walking {
-                    Some(format!("legs {legs}"))
-                } else {
-                    None
+                let slide = match over(entity, fighter) {
+                    Drawn::Over(how) => Some(how),
+                    Drawn::Legs if !walking => Some(format!("legs {legs}")),
+                    Drawn::Legs | Drawn::Stride => None,
                 };
                 if let Some(slide) = slide {
                     self.sliding_steps += 1;
@@ -246,24 +358,17 @@ impl Motion {
                 found.push(Kind::Treads);
             }
             let way = moving.then(|| [step[0] / far, step[1] / far]);
-            track.steps.push_back((now, way));
+            let track = self.tracks.entry(entity.id.0).or_default();
+            track.steps.push_back((now, way, far));
             while track
                 .steps
                 .front()
-                .is_some_and(|(when, _)| *when + WINDOW_MS < now)
+                .is_some_and(|(when, ..)| *when + WINDOW_MS < now)
             {
                 track.steps.pop_front();
             }
-            let ways: Vec<Option<[f32; 2]>> = track.steps.iter().map(|(_, way)| *way).collect();
-            let moved: Vec<[f32; 2]> = ways.iter().flatten().copied().collect();
-            let reversals = moved
-                .windows(2)
-                .filter(|pair| pair[0][0] * pair[1][0] + pair[0][1] * pair[1][1] < 0.0)
-                .count();
-            let stop_gos = ways
-                .windows(2)
-                .filter(|pair| pair[0].is_none() && pair[1].is_some())
-                .count();
+            let reversals = turns_back(&track.steps);
+            let stop_gos = stops_and_goes(&track.steps);
             if now >= track.jitter_until {
                 let jitter = if reversals >= REVERSALS {
                     Some("turns back")
@@ -292,6 +397,29 @@ impl Motion {
         }
     }
 
+    /// `entity`'s name for a report, kept.
+    fn named(
+        names: &mut BTreeMap<u32, String>,
+        entity: &sim::EntityState,
+        level: &sim::Level,
+        snapshot: &Snapshot,
+        instances: &mut Option<sim::Instances>,
+    ) -> String {
+        names
+            .entry(entity.id.0)
+            .or_insert_with(|| {
+                let objects =
+                    instances.get_or_insert_with(|| sim::Instances::in_snapshot(level, snapshot));
+                match entity.kind {
+                    sim::Kind::Avatar(seat) => format!("player{}", seat.0),
+                    _ => objects
+                        .of_entity(entity)
+                        .map_or_else(|| format!("#{}", entity.id.0), |o| o.tag.clone()),
+                }
+            })
+            .clone()
+    }
+
     /// `episode` kept, or joined to the last of its kind on its body.
     fn note(&mut self, episode: Episode) {
         if let Some(was) = self.episodes.iter_mut().rev().find(|was| {
@@ -311,7 +439,7 @@ impl Motion {
         self.episodes.iter().filter(|episode| match episode.kind {
             Kind::Slide(_) => episode.to_ms - episode.from_ms >= LEAST_SLIDE_MS,
             Kind::Treads => episode.to_ms - episode.from_ms >= LEAST_TREAD_MS,
-            Kind::Jitter(_) => true,
+            Kind::Jitter(_) | Kind::Hop(_) => true,
         })
     }
 
@@ -324,6 +452,7 @@ impl Motion {
                 Kind::Slide(_) => (s + 1, j, t),
                 Kind::Jitter(_) => (s, j + 1, t),
                 Kind::Treads => (s, j, t + 1),
+                Kind::Hop(_) => (s, j + 1, t),
             });
         json!({
             "movers": self.movers.len(),
@@ -344,6 +473,7 @@ impl Episode {
             Kind::Slide(how) => format!("slides ({how})"),
             Kind::Jitter(how) => format!("jitters ({how})"),
             Kind::Treads => "treads in place".to_string(),
+            Kind::Hop(how) => format!("hops ({how})"),
         };
         format!(
             "{} {:>8.2}-{:<8.2} {} {what}{}{} at {:.1},{:.1},{:.1}",
@@ -367,6 +497,7 @@ impl Episode {
                 Kind::Slide(how) => format!("slide: {how}"),
                 Kind::Jitter(how) => format!("jitter: {how}"),
                 Kind::Treads => "treads".to_string(),
+                Kind::Hop(how) => format!("hop: {how}"),
             },
             "from_ms": self.from_ms,
             "to_ms": self.to_ms,
@@ -467,4 +598,41 @@ pub fn sweep(discovery: &vfs::Discovery, game: &str, modules: &[String]) -> std:
             std::process::ExitCode::FAILURE
         }
     }
+}
+
+/// How often `steps` turn back on a way kept for `TURN_M`, each way after one
+/// as long: a way shorter than that is passed over.
+fn turns_back(steps: &VecDeque<(u64, Option<[f32; 2]>, f32)>) -> usize {
+    let mut ways: Vec<([f32; 2], f32)> = Vec::new();
+    for (_, way, far) in steps {
+        let Some(way) = way else { continue };
+        match ways.last_mut() {
+            Some((last, kept)) if last[0] * way[0] + last[1] * way[1] >= 0.0 => {
+                *last = *way;
+                *kept += far;
+            }
+            _ => ways.push((*way, *far)),
+        }
+    }
+    ways.retain(|(_, kept)| *kept >= TURN_M);
+    ways.windows(2)
+        .filter(|pair| pair[0].0[0] * pair[1].0[0] + pair[0].0[1] * pair[1].0[1] < 0.0)
+        .count()
+}
+
+/// How often `steps` start again after a stop of `LEAST_STOP_MS`.
+fn stops_and_goes(steps: &VecDeque<(u64, Option<[f32; 2]>, f32)>) -> usize {
+    let mut goes = 0;
+    let mut stopped = None;
+    for (when, way, _) in steps {
+        match (way, stopped) {
+            (None, None) => stopped = Some(*when),
+            (Some(_), Some(from)) => {
+                goes += usize::from(*when >= from + LEAST_STOP_MS);
+                stopped = None;
+            }
+            _ => {}
+        }
+    }
+    goes
 }

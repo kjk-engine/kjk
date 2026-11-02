@@ -37,7 +37,8 @@ steps), on any `collision::CollisionWorld` (specified: `MOVEMENT-SPEC.md`,
   given up on the 6th, on the same body from the same spot, or with no side
   free). The player pushes no one and is pushed by no one (Q-0267).
 - While a conversation holds the world (scene mode,
-  `DIALOGUE.md`), a body walking a route moves on KOTOR's
+  `DIALOGUE.md`), a body walking a route, and at any time a script's move
+  of a body no seat drives out of a fight, moves on KOTOR's
   walker instead (`walk::kotor_step`): toward its walker's corner (on
   reaching one short of the goal, the step plans the next itself from the
   level and the doors, so a client predicting it goes on round the route as
