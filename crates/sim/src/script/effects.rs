@@ -14,7 +14,8 @@
 //! duration in one of the character's lasting slots
 //! (`combat::effects::Lasting`, folded into its sheet); a hold (stun,
 //! paralysis, fear, ...) as C11's (`ja::STUN_MS` at most, then immune `ja::IMMUNE_MS`; fear
-//! ends on damage) unless an immunity keeps it off; a KOTOR state (TSL's
+//! ends on damage) unless an immunity keeps it off, what is linked to it
+//! showing only while it holds; a KOTOR state (TSL's
 //! cutscene holds, Force Crush's, a mind trick, ...) in a lasting slot for
 //! its whole time (`combat::effects::state`). Visual effects change
 //! nothing in the sim. `GetFirstEffect` walks the lasting slots

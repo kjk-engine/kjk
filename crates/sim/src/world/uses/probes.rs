@@ -1062,6 +1062,115 @@ fn kept_visual_scenario() -> Result<(Vec<u16>, Vec<u16>), String> {
     Ok((spawned, cleared))
 }
 
+/// The linked-hold probe's catalog.
+const HOLD_CATALOG: &str = r#"
+int DURATION_TYPE_TEMPORARY = 1;
+int DURATION_TYPE_PERMANENT = 2;
+// 0
+effect EffectVisualEffect(int nVisualEffectId, int nMissEffect=FALSE);
+// 1
+void ApplyEffectToObject(int nDurationType, effect eEffect, object oTarget, float fDuration=0.0f);
+// 2
+effect EffectParalyze();
+// 3
+effect EffectLinkEffects(effect eChildEffect, effect eParentEffect);
+"#;
+
+/// The rows the linked-hold probe's three links show: the first taken for
+/// the script's 12 s, the second kept off by the first's hold, the third
+/// permanent on another creature.
+const HOLD_ROWS: [u16; 3] = [2040, 2041, 2042];
+
+/// A creature's spawn script links paralysis to a visual twice, for 12 s;
+/// another's links them for good: the visuals running after the spawns and
+/// after C11's hold has ended (`Effects::visuals`).
+fn linked_hold_scenario() -> Result<(Vec<u16>, Vec<u16>), String> {
+    use crate::module::{ObjectData, Placement};
+    use crate::{StepReason, TickInput, WorldConfig};
+    use fmt_odyssey::ncs::{Const, Op};
+
+    let link = |asm: &mut script_ncs::probes::Asm, row: u16, kind: i32, seconds: f32| {
+        asm.op(Op::Const(Const::Float(seconds)))
+            .op(Op::Const(Const::Object(0)))
+            .op(Op::Const(Const::Int(0)))
+            .op(Op::Const(Const::Int(i32::from(row))))
+            .op(Op::Action {
+                routine: 0,
+                args: 2,
+            })
+            .op(Op::Action {
+                routine: 2,
+                args: 0,
+            })
+            .op(Op::Action {
+                routine: 3,
+                args: 2,
+            })
+            .op(Op::Const(Const::Int(kind)))
+            .op(Op::Action {
+                routine: 1,
+                args: 4,
+            });
+    };
+    let mut twice = script_ncs::probes::Asm::default();
+    link(&mut twice, HOLD_ROWS[0], 1, 12.0);
+    link(&mut twice, HOLD_ROWS[1], 1, 12.0);
+    twice.op(Op::Retn);
+    let mut for_good = script_ncs::probes::Asm::default();
+    link(&mut for_good, HOLD_ROWS[2], 2, 0.0);
+    for_good.op(Op::Retn);
+
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    for (tag, script, x) in [
+        ("held", "probe_twice", -6.0),
+        ("captive", "probe_for_good", -4.0),
+    ] {
+        data.placements.push(Placement::Own(ObjectData {
+            kind: ObjectKind::Creature,
+            tag: tag.into(),
+            scripts: vec![("ScriptSpawn".into(), script.into())],
+            ..ObjectData::unknown(tag, floor_at([x, 4.5]), 0.0)
+        }));
+    }
+    let library = crate::probe::library(
+        HOLD_CATALOG,
+        [
+            ("probe_twice", twice.build()),
+            ("probe_for_good", for_good.build()),
+        ],
+    );
+    let level = ground.with_module(data).with_scripts(library);
+    let mut world = super::super::SimWorld::new(WorldConfig::one_seat(), level)
+        .map_err(|error| error.to_string())?;
+    let input = TickInput::default();
+    let mut rows = |steps: std::ops::Range<u64>| -> Result<Vec<u16>, String> {
+        let mut last = None;
+        for step in steps {
+            last = Some(crate::step(
+                &mut world,
+                step,
+                &input,
+                8,
+                StepReason::Authority,
+            ));
+        }
+        let last = last.ok_or("no steps")?;
+        let mut rows: Vec<u16> = last
+            .entities
+            .iter()
+            .filter_map(|entity| entity.fighter.as_ref())
+            .flat_map(|fighter| fighter.effects.visuals(last.time_ms).map(|(row, ..)| row))
+            .collect();
+        rows.sort_unstable();
+        Ok(rows)
+    };
+    let spawned = rows(1..20)?;
+    let steps = crate::combat::force::ja::STUN_MS / 8 + 20;
+    let ended = rows(20..20 + steps)?;
+    Ok((spawned, ended))
+}
+
 /// The held-use probe's phases (8 ms steps): use held 320 ms (three of
 /// JA's 100 ms repeats), let go, held again, let go, then held with a click
 /// on the same panel in its first step.
@@ -1570,6 +1679,7 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
     };
     let made = made_scenario();
     let kept = kept_visual_scenario();
+    let linked_hold = linked_hold_scenario();
     let held = held_scenario();
     let keyed: Result<Vec<_>, String> = [Aim::Door, Aim::Panel, Aim::Away]
         .into_iter()
@@ -1670,6 +1780,16 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
                 Ok((spawned, cleared)) => check(
                     spawned == [GLOW_ROW] && cleared.is_empty(),
                     format!("after the spawn {spawned:?}, after the heartbeat {cleared:?}"),
+                ),
+                Err(why) => Err(why),
+            },
+        ),
+        (
+            "visual_linked_to_a_hold_ends_with_it",
+            match linked_hold {
+                Ok((spawned, ended)) => check(
+                    spawned == [HOLD_ROWS[0], HOLD_ROWS[2]] && ended == [HOLD_ROWS[2]],
+                    format!("after the spawns {spawned:?}, after the hold {ended:?}"),
                 ),
                 Err(why) => Err(why),
             },
