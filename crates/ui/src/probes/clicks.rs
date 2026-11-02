@@ -102,6 +102,48 @@ fn take_all() -> Check {
     })
 }
 
+/// A pad on a container: X takes everything (A the row chosen), Menu only
+/// closes.
+fn pad_take_all() -> Check {
+    use crate::input::Key;
+    let mut assets = Fake::new();
+    assets.layouts.insert(
+        "container",
+        root(
+            640,
+            480,
+            vec![
+                list("LB_ITEMS", 0),
+                button("BTN_OK", [0, 300, 80, 20], b""),
+                button("BTN_CANCEL", [100, 300, 80, 20], b""),
+            ],
+        ),
+    );
+    let vm = ViewModel {
+        loot: Some(LootView {
+            container: 7,
+            ..LootView::default()
+        }),
+        ..ViewModel::default()
+    };
+    let mut by_x = opened("container", &mut assets, &vm);
+    let x = by_x.step(&mut assets, &vm, &keys(&[Key::Primary])).intents;
+    let mut by_menu = opened("container", &mut assets, &vm);
+    let menu = by_menu
+        .step(&mut assets, &vm, &keys(&[Key::Accept]))
+        .intents;
+    check("loot_pad", {
+        expect(
+            &format!("X takes all: {x:?}; Menu closes: {menu:?}"),
+            x == vec![
+                Intent::Game(GameAction::TakeAll(7)),
+                Intent::Game(GameAction::Close(7)),
+            ] && menu == vec![Intent::Game(GameAction::Close(7))],
+        )
+        .map(|()| "X takes all, Menu closes".into())
+    })
+}
+
 /// The container's give mode (KOTOR's): its button lists the party's items,
 /// a row puts its whole stack in, A and OK take nothing there, and the
 /// button again lists the container's.
@@ -521,6 +563,7 @@ pub(super) fn all() -> Vec<Check> {
         control_sounds(),
         tab_swap(),
         take_all(),
+        pad_take_all(),
         give_mode(),
         terminal_click(),
         equip_double(),

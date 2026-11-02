@@ -173,7 +173,12 @@ pub(super) fn all() -> Vec<Check> {
             fp: (0, 0),
             portrait: Some("po_pmhc1".into()),
             actions: vec![("ip_push".into(), None), ("iu_medpac".into(), Some(3))],
-            action_keys: vec![b"F".to_vec(), b"3".to_vec()],
+            action_keys: [b"F", b"3"]
+                .map(|words| crate::vm::KeyLabel {
+                    words: words.to_vec(),
+                    badge: None,
+                })
+                .to_vec(),
             lit: vec!["LBL_PLOTXP"],
             minimap: None,
             stealth: false,

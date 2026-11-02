@@ -119,6 +119,16 @@ impl Party {
 }
 
 impl Screen for Party {
+    /// A slot's double click adds or removes it, as Add or Remove says.
+    fn double_button(&self, tag: &str) -> Option<&'static str> {
+        slot(tag, &["BTN_NPC"]).map(|_| "BTN_ACCEPT")
+    }
+
+    /// Opened from the menu bar, the bumpers step its tabs (`key`).
+    fn tab_bar(&self, vm: &ViewModel) -> bool {
+        !Party::table(vm).is_some_and(|table| table.open)
+    }
+
     fn id(&self) -> ScreenId {
         ScreenId("party")
     }

@@ -72,6 +72,10 @@ impl UpgradeSelect {
 }
 
 impl Screen for UpgradeSelect {
+    fn tabs(&self) -> Vec<&'static str> {
+        KINDS.iter().map(|(tag, _)| *tag).collect()
+    }
+
     fn id(&self) -> ScreenId {
         ScreenId("upgrade_select")
     }

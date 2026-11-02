@@ -87,6 +87,11 @@ included) or its Controller tab (any button, or an LB chord, shown as
 your pad's own buttons). A binding another action has is named first;
 press it again and the two swap. Default resets the tab's device.
 
+On the Steam Deck, add kjk to Steam as a non-Steam game (in Desktop
+Mode: Games → Add a Non-Steam Game) and start it from **Game Mode**: there
+Steam hands it the Deck's controls as a gamepad. Started from Desktop Mode,
+Steam turns them into a keyboard and mouse.
+
 ![The controller layout](docs/controls/controller.svg)
 
 ![The Steam Deck layout](docs/controls/steam-deck.svg)

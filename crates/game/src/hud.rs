@@ -254,7 +254,7 @@ fn spawn(
 }
 
 /// An item slot of the HUD: its `spells.2da` row, the uses left, its key.
-type Slot = (u16, u32, Vec<u8>);
+type Slot = (u16, u32, ui::vm::KeyLabel);
 
 /// The key that uses an item of `kind`.
 fn key_of(kind: items::Use) -> Action {
@@ -279,8 +279,8 @@ fn kotor_view(
     ui: &mut crate::ui_view::Ui,
     sheet: &sim::combat::Sheet,
     fighter: &sim::combat::Fighter,
-    (power, slots): (Option<(u8, Vec<u8>)>, &[Slot]),
-    feat_key: Vec<u8>,
+    (power, slots): (Option<(u8, ui::vm::KeyLabel)>, &[Slot]),
+    feat_key: ui::vm::KeyLabel,
     goods: &sim::inventory::Goods,
     (persona, made, template): (
         Option<&sim::persona::Persona>,
@@ -376,9 +376,9 @@ fn remote_view(
     ui::vm::HudView {
         actions,
         action_keys: vec![
-            b"MB1".to_vec(),
-            b"MB2".to_vec(),
-            prompts.shown(Action::Medpac),
+            prompts.label(Action::Attack),
+            prompts.label(Action::AltAttack),
+            prompts.label(Action::Medpac),
         ],
         ..ui::vm::HudView::default()
     }
@@ -620,7 +620,7 @@ fn show(
         }
         if let Some((item, kind)) = kind {
             carried.push(serde_json::json!({"row": item.row, "left": left}));
-            slots.push((item.row, u32::from(left), prompts.shown(key_of(kind))));
+            slots.push((item.row, u32::from(left), prompts.label(key_of(kind))));
         }
     }
     if let Ok(mut layers) = cameras.get_mut(hud.camera) {
@@ -677,8 +677,8 @@ fn show(
                 ui,
                 &sheet,
                 &fighter,
-                (power.map(|row| (row, prompts.shown(Action::Power))), &slots),
-                prompts.shown(Action::NextFeat),
+                (power.map(|row| (row, prompts.label(Action::Power))), &slots),
+                prompts.label(Action::NextFeat),
                 &snapshot.goods,
                 (
                     sim::persona::of(&snapshot.personas, own.0),
