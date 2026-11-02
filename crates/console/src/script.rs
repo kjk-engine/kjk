@@ -25,7 +25,8 @@ pub enum Command {
     /// of seconds, or lets it run again (`anim run`), so shots repeat.
     Anim(Option<f32>),
     /// Waits until a state the runtime publishes is true (`wait world`: no
-    /// module is loading and the scene is up; `wait loading`: one is).
+    /// module is loading and the scene is up; `wait loading`: one is;
+    /// `wait arrived`: the world has reached an `anim` time).
     Until(String),
     /// Installs a module, arriving at a door or waypoint (or its entry),
     /// and finishes when the world is up in it (`module`), or as soon as

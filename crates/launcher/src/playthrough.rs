@@ -325,6 +325,9 @@ pub struct Options {
     pub stale: bool,
     /// Every line heard out, none clicked past (`--listen`).
     pub listen: bool,
+    /// These conversations' lines heard out, the rest clicked past
+    /// (`--listen-to`).
+    pub listen_to: Vec<String>,
     /// The run ends at the first goal blocked (the default; `--keep-going`
     /// goes on, spending `goal_seconds` on each goal after it).
     pub fail_fast: bool,
@@ -342,7 +345,7 @@ pub struct Options {
 /// Plays `options.route` from `options.module`; see the module's notes.
 pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
     let go =
-        || -> Result<(serde_json::Value, Vec<String>, Logs, sim::Recording, bool), String> {
+        || -> Result<(serde_json::Value, Vec<String>, Logs, Parts, bool), String> {
             let game = Game::from_key(&options.game).ok_or("use k1 or tsl")?;
             let goals = parse(&options.route)?;
             let (anims, _) = crate::stage::anims(discovery);
@@ -417,6 +420,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
             let mut last = world.snapshot();
             let mut recorder = sim::Recorder::new(rate.hz(), last.clone(), world.level().id(), 100)
                 .with_script(world.script_state().clone());
+            let mut earlier: Vec<(u64, Vec<u8>)> = Vec::new();
             let mut motion = crate::motion::Motion::new();
             let mut story = crate::scene_check::StoryCheck::asked(&installer, game, options.module.clone());
             let mut names = crate::transcript::speakers(&last, world.level());
@@ -704,6 +708,16 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     world.set_player_skill(*row, *rank);
                     met = true;
                 }
+                // What a route sets by hand no input makes, so no replay
+                // reaches it: the recording so far is kept beside, and one
+                // starts from here.
+                if matches!(goal, Goal::Global(..) | Goal::Gold(_) | Goal::Skill(..)) {
+                    let fresh =
+                        sim::Recorder::new(rate.hz(), world.snapshot(), world.level().id(), 100)
+                            .with_script(world.script_state().clone());
+                    let before = std::mem::replace(&mut recorder, fresh);
+                    earlier.push((last.tick, before.finish_encoded(&last)));
+                }
                 if let Goal::Goto(module_name, tag) = goal {
                     let request = installer.request_from(&last, module_name, tag.as_deref());
                     let prepared = installer.prepare(&request, false)?;
@@ -928,6 +942,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     // the conversation lets it be), as a player skips them.
                     if let Some(talk) = &talking
                         && !options.listen
+                        && !options.listen_to.contains(&talk.dialog.to_string())
                         && talk.until_ms != u64::MAX
                         && now >= talk.shown_ms + SKIP_AFTER_MS
                         && skipped.insert((talk.id, talk.shown_ms))
@@ -2825,10 +2840,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 motion.kept().count()
             ));
             let scenes = story.map(|story| story.finish(&world));
-            Ok((facts, lines, (trace, moves, scenes), recorder.finish(&last), all_met))
+            Ok((facts, lines, (trace, moves, scenes), (earlier, recorder.finish(&last)), all_met))
         };
     match go() {
-        Ok((facts, lines, (trace, moves, scenes), recording, all_met)) => {
+        Ok((facts, lines, (trace, moves, scenes), (earlier, recording), all_met)) => {
             if let Some(folder) = crate::runtime::write_facts(facts) {
                 let mut body = lines.join("\n");
                 body.push('\n');
@@ -2840,6 +2855,12 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 ]
                 .into_iter()
                 .chain(scenes.map(|text| ("scene_check.json", text.into_bytes())))
+                .map(|(name, bytes)| (name.to_string(), bytes))
+                .chain(
+                    earlier
+                        .into_iter()
+                        .map(|(tick, bytes)| (format!("inputs-{tick}.kjkr"), bytes)),
+                )
                 {
                     let path = folder.join(name);
                     if let Err(error) = std::fs::write(&path, bytes) {
@@ -2969,6 +2990,8 @@ fn reply_text(installer: &Installer, world: &sim::SimWorld, dialog: &str, reply:
 /// A run's script trace, its moves' report (`motion.txt`) and its story
 /// check (`scene_check.json`, `KJK_SCENE_CHECK`).
 type Logs = (String, String, Option<String>);
+/// The recording's parts cut before the last (`inputs-TICK.kjkr`), and the last.
+type Parts = (Vec<(u64, Vec<u8>)>, sim::Recording);
 
 /// One step of the authority with `input`, recorded and its moves watched.
 fn step_on(
