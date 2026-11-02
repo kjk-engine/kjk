@@ -122,7 +122,35 @@ pub fn probes() -> Checks {
         ),
     ));
     checks.push(("body_slides_by_its_round", slides_by_its_round(&level)));
+    checks.push(("body_lands_where_it_stops", lands_where_it_stops(&level)));
     checks
+}
+
+/// A body let go a little above the floor, no way on and no keys (where
+/// KOTOR's walker stops one, end_m01aa's trooper and Trask at a door) lands
+/// and stays down. Its fall turned along the floor went straight back up, and
+/// it hopped there, its legs in `BOTH_JUMP1`, until something moved it.
+fn lands_where_it_stops(level: &Level) -> Result<String, String> {
+    let anims = AnimTable::stand_in();
+    let mut ps = MotionState::standing([-100.0, 100.0, -SOLE_Z + 1.0], 0.0);
+    ps.ground = None;
+    let command = Default::default();
+    let mut left_floor = 0;
+    let mut time_ms = 0;
+    for step in 0..250 {
+        time_ms += 8;
+        move_body(&mut ps, &command, 8, time_ms, level, &anims, None);
+        if step > 25 && ps.ground.is_none() {
+            left_floor += 1;
+        }
+    }
+    check(
+        left_floor == 0 && ps.velocity == [0.0; 3],
+        format!(
+            "off the floor {left_floor} steps after landing, velocity {:?}",
+            ps.velocity
+        ),
+    )
 }
 
 /// A seat's player's step along a body it stands inside is weighed by the

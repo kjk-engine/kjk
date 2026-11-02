@@ -3287,7 +3287,13 @@ fn place(
     // An item's use (`sim::combat::items::clips`) plays over a drawn
     // weapon too: a shield's band is switched on in the middle of a fight.
     let using = at.fighter.is_some_and(|f| f.pack.using.is_some());
-    let acting = held.or(at.fighter.and_then(|f| f.acting));
+    // One played out is over for a body on the move: a round's would hold its
+    // ready stance over a run (`Shows::shown`) until the next line clears it.
+    let moving = (x * x + y * y).sqrt() >= STILL_SPEED;
+    let acting = held.or(at
+        .fighter
+        .and_then(|f| f.acting)
+        .filter(|acting| !moving || acting.playing(ms as u64)));
     // One that hides the equipped items (Security, a mine's) puts the gun
     // away as it begins: the gun going does not break it off.
     let hiding = acting.is_some_and(|acting| acting::hides_items(&acting, ms));

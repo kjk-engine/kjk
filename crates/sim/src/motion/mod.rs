@@ -1164,6 +1164,15 @@ impl Move<'_, '_> {
             self.ps.velocity[2] -= self.ps.gravity * self.seconds;
         }
 
+        // Come straight down (a walker's stop a little above the floor): it
+        // has landed. Turned along the ground its fall would go straight back
+        // up (the plane's overclip leaves a little of it, whose way is up),
+        // and it would hop where it stands.
+        if self.ps.velocity[0] == 0.0 && self.ps.velocity[1] == 0.0 && self.ps.velocity[2] <= 0.0 {
+            self.ps.velocity[2] = 0.0;
+            return;
+        }
+
         // Keep the speed, turned along the ground.
         let speed = length(self.ps.velocity);
         let mut velocity = self.along_plane(self.ps.velocity, plane);
