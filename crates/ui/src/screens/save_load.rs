@@ -199,6 +199,12 @@ impl Screen for SaveLoad {
         self.pointed = index;
     }
 
+    /// Loading, a save is chosen as the cursor comes to it: A loads it.
+    /// Saving, A only chooses the slot (Save writes, asking first).
+    fn activates_primary(&self, list: &str) -> bool {
+        !self.saving && self.primary(list).is_some()
+    }
+
     fn primary(&self, list: &str) -> Option<&'static str> {
         (list == LIST).then_some("BTN_SAVELOAD")
     }

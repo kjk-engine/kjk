@@ -1496,7 +1496,7 @@ fn coop_items_and_levels() {
 /// a lightsaber's crystals fitted and taken out; the sim alone.
 #[test]
 fn item_uses() {
-    probed("item uses", &sim::item_uses::probes(), 24);
+    probed("item uses", &sim::item_uses::probes(), 30);
 }
 
 /// Item properties beyond combat (`sim::inventory::probes`): an item's

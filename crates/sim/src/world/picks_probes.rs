@@ -263,7 +263,8 @@ fn round_trip() -> Result<String, String> {
     Picks::next(&mut sheet, 0);
     let mut out = Writer::default();
     sheet.picks.encode(&mut out);
-    let got = Picks::decode(&mut Reader::new("picks", &out.0)).map_err(|e| format!("{e:?}"))?;
+    let got =
+        Picks::decode(&mut Reader::new("picks", &out.0), true).map_err(|e| format!("{e:?}"))?;
     let action = Action::NextFeat { hand: 1 };
     let back = Action::from_bytes(&action.to_bytes());
     check(

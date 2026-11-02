@@ -1777,6 +1777,9 @@ pub struct Made {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum Change {
+    /// `who` picked a grenade with its button held: what it charged is
+    /// dropped (`Pack::charge_off`).
+    DropCharge { who: ObjectId },
     /// Put `who` at `to` (metres), facing `yaw`.
     Jump {
         who: ObjectId,

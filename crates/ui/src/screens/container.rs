@@ -70,6 +70,16 @@ impl Screen for Container {
         ScreenId("container")
     }
 
+    /// A pad's A takes the item chosen, X takes all.
+    fn pad_x(&self) -> Option<&str> {
+        (!self.giving).then_some("BTN_OK")
+    }
+
+    /// Its Menu closes (Take all is X's).
+    fn accept(&self) -> Option<&str> {
+        Some("BTN_CANCEL")
+    }
+
     fn layout(&self) -> &str {
         "container"
     }
@@ -115,6 +125,7 @@ impl Screen for Container {
                 disabled: true,
                 ..told(Some(GIVE_ITEMS))
             },
+            "BTN_OK" if vm.pad_playing => text(strings::TAKE_ALL_PAD),
             "BTN_OK" => text(strings::TAKE_ALL),
             "BTN_CANCEL" => text(strings::CLOSE),
             "BTN_GIVEITEMS" if self.giving => told(Some(GET_ITEMS)),

@@ -279,6 +279,23 @@ fn chosen(vm: &ViewModel, key: &str, choices: &[(&str, &str)]) -> usize {
 }
 
 impl Screen for Page {
+    /// A page with Cancel (the advanced graphics) puts back what changed.
+    fn cancels(&self) -> bool {
+        self.spec
+            .roles
+            .iter()
+            .any(|(_, role)| matches!(role, Cancel))
+    }
+
+    /// Its OK or Close, which keeps what changed (Menu; B may cancel).
+    fn accept(&self) -> Option<&str> {
+        self.spec
+            .roles
+            .iter()
+            .find(|(_, role)| matches!(role, Back))
+            .map(|(tag, _)| *tag)
+    }
+
     fn id(&self) -> ScreenId {
         ScreenId(self.spec.name)
     }
@@ -352,12 +369,7 @@ impl Screen for Page {
 
     /// Escape: a page with Cancel cancels, the others keep what changed.
     fn back(&mut self, out: &mut Vec<Intent>) {
-        if self
-            .spec
-            .roles
-            .iter()
-            .any(|(_, role)| matches!(role, Cancel))
-        {
+        if self.cancels() {
             for (key, value) in &self.before {
                 out.push(Intent::Setting((*key).into(), value.clone()));
             }
