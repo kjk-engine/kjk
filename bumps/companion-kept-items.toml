@@ -1,0 +1,7 @@
+sim = "a companion made again from the party table is dressed as the table kept it, and its gear follows it through every creature made of it"
+
+[formats]
+save = "the party table keeps the item a companion wore in each slot (`party::Kept::worn`)."
+
+[migrations]
+save = "old saves read no worn items: a companion made from one is dressed as the creature it left stands"
