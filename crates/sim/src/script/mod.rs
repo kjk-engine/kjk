@@ -3522,9 +3522,18 @@ fn make_npc(
         for item in state.items.ids_held_by(id.0) {
             state.items.remove(&item);
         }
-        for item in state.items.ids_held_by(kept.from) {
-            if let Some(mut item) = state.items.get_mut(&item) {
+        for item_id in state.items.ids_held_by(kept.from) {
+            if let Some(mut item) = state.items.get_mut(&item_id) {
                 item.holder = id.0;
+                // Dressed as the table kept it, whatever the creature it
+                // left wore last (Dantooine's `k_pdan_cut01` strips Bastila
+                // for the sparring, on a creature then destroyed).
+                if let Some(worn) = &kept.worn {
+                    item.slot = worn
+                        .iter()
+                        .position(|kept| *kept == item_id)
+                        .map(|slot| slot as u8);
+                }
             }
         }
         if let Some(career) = state.careers.remove(&kept.from) {
@@ -3548,6 +3557,11 @@ fn make_npc(
     }
     if let Some(slot) = state.party.available.get_mut(&npc) {
         slot.object = Some(id.0);
+        // What was kept stands on this creature now: the next one made, with
+        // no keep between, takes it from here.
+        if let Some(kept) = &mut slot.kept {
+            kept.from = id.0;
+        }
     }
     // TSL: made from the table, it takes its influence's alignment.
     influence::follow(library, view, state, out, id);
@@ -3702,6 +3716,12 @@ fn keep_npc(view: &View, state: &mut State, out: &Out, npc: u8) {
 /// stands now (`keep_npc`; TSL's `SaveNPCByObject`, any creature), if it
 /// stands here and `npc` is available.
 fn keep_creature(view: &View, state: &mut State, out: &Out, npc: u8, who: ObjectId) {
+    let mut worn = [0; crate::inventory::slots::COUNT as usize];
+    for (item, held) in state.items.held_by(who.0) {
+        if let Some(at) = held.slot.and_then(|slot| worn.get_mut(usize::from(slot))) {
+            *at = item;
+        }
+    }
     let Some(slot) = state.party.available.get_mut(&npc) else {
         return;
     };
@@ -3718,6 +3738,7 @@ fn keep_creature(view: &View, state: &mut State, out: &Out, npc: u8, who: Object
             .hp
             .map_or(HUNDREDTHS, |(now, _)| now.max(1) * HUNDREDTHS),
         fp: c.fp,
+        worn: Some(worn),
     });
 }
 
