@@ -376,12 +376,13 @@ pub fn choose_grenade(sheet: &Sheet, fighter: &Fighter, distance: f32, pick: f32
 pub const THROW_FACING: f32 = powers::THROW_FACING;
 
 /// A grenade thrown at a target `distance` units away: the button held for
-/// a charge that grows with the distance, full at the farthest a mind
-/// throws.
+/// the charge that lobs it there (`grenades::lob_strength`).
 pub fn throw(distance: f32) -> Cast {
-    let far = rules::minds::items::GRENADE_FARTHEST_M / collision::UNIT;
-    let charge = (distance / far * grenades::CHARGE_MS as f32) as u64;
-    Cast::Hold(buttons::GRENADE, charge.clamp(1, grenades::CHARGE_MS))
+    let charge = grenades::lob_strength(distance) * grenades::CHARGE_MS as f32;
+    Cast::Hold(
+        buttons::GRENADE,
+        (charge as u64).clamp(1, grenades::CHARGE_MS),
+    )
 }
 
 /// What a mind knows of the foe it fights, for its powers.
