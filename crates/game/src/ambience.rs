@@ -989,10 +989,12 @@ fn made_placeables(
     }
     let files: Vec<String> = ambience.area.as_ref().map_or_else(Vec::new, |(area, _)| {
         made.values()
-            .filter_map(|appearance| match area.placeables.get(usize::from(*appearance)) {
-                Some(Voice::Moves(moves)) => Some(moves.files().map(String::from)),
-                _ => None,
-            })
+            .filter_map(
+                |appearance| match area.placeables.get(usize::from(*appearance)) {
+                    Some(Voice::Moves(moves)) => Some(moves.files().map(String::from)),
+                    _ => None,
+                },
+            )
             .flatten()
             .collect()
     });
