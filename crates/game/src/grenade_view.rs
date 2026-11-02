@@ -235,7 +235,12 @@ fn draw(
             seed: id.0 | 1,
             commands: &mut commands,
         };
-        let thrown = missile.until_ms.saturating_sub(grenades::FUSE_MS);
+        // A held scene's lob bursts as it lands, short of the fuse.
+        let thrown = if missile.scripted {
+            missile.from_ms
+        } else {
+            missile.until_ms.saturating_sub(grenades::FUSE_MS)
+        };
         view.drawn.push((missile.owner, thrown));
         view.live.insert(
             id,
