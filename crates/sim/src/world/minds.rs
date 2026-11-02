@@ -925,7 +925,7 @@ pub(super) fn think(
                         && cast_into(
                             &mut fighter.mind,
                             &mut command,
-                            Some(ai::throw(far)),
+                            Some(ai::scripted_throw(far)),
                             now,
                             dice,
                         )
@@ -1011,8 +1011,10 @@ pub(super) fn think(
         if fighter.mind.hold_until > now {
             command.buttons |= fighter.mind.hold;
         }
-        // A lob looks up as its charge runs, to the step that lets it go.
+        // A script's lob looks up as its charge runs, to the step that lets
+        // it go (its row queued, `Pack::queued`, until then).
         if fighter.mind.hold == buttons::GRENADE
+            && fighter.pack.queued.is_some()
             && (fighter.mind.hold_until > now || fighter.pack.charging_from.is_some())
         {
             let up = -crate::combat::grenades::LOB_DEGREES;

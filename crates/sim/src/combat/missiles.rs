@@ -45,8 +45,8 @@ pub struct Missile {
     /// A shot a script decided (`script::effects::Strike`): on its target
     /// it lands the script's damage, if the script's blow is still to land;
     /// on anyone else, or with none, it goes harmlessly. A grenade: a
-    /// creature's lob (`grenades::lob_strength`), which meets nothing on its
-    /// way and bursts as it lands.
+    /// script's throw (`ai::scripted_throw`), which meets nothing on its way
+    /// and bursts as it lands.
     pub scripted: bool,
 }
 

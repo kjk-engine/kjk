@@ -182,6 +182,8 @@ pub(super) fn fire(
         // A grenade: charged while its button is held, thrown on release,
         // whatever is in hand.
         let throwing = fighter.alive() && fighter.last_command.buttons & buttons::GRENADE != 0;
+        // A script's throw (its row queued, `Pack::queued`) is a scene's.
+        let scripted = fighter.pack.queued.is_some();
         if let Some((carried, strength)) = grenades::pull(
             &mut fighter.pack,
             &sheet.items,
@@ -206,9 +208,9 @@ pub(super) fn fire(
             let mut velocity = scale(forward, grenades::SPEED * strength);
             velocity[2] += grenades::LIFT;
             let base = muzzle(ps, grenades::MUZZLE);
-            // A mind's lob bursts as it lands, a player's on its fuse.
-            let lobbed = fighter.mind.hold == buttons::GRENADE;
-            let fuse_ms = if lobbed {
+            // A scene's lob bursts as it lands (`Missile::scripted`); any other
+            // on its fuse.
+            let fuse_ms = if scripted {
                 let drop = base[2] - (ps.origin[2] + motion::SOLE_Z) - grenades::HALF_SIZE;
                 let flight = grenades::lob_seconds(velocity[2], drop);
                 ((flight * 1000.0) as u64).min(grenades::FUSE_MS)
@@ -233,7 +235,7 @@ pub(super) fn fire(
                         resting: false,
                     }),
                     held: None,
-                    scripted: lobbed,
+                    scripted,
                 }),
             ));
             next_id.0 += 1;
