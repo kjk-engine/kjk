@@ -39,6 +39,13 @@ const LED: &str = "probe_led";
 /// The area's OnEnter counting who enters (`ENTERED`, a global).
 const ENTERED_SCRIPT: &str = "probe_area_enter";
 const ENTERED: &str = "probe_entered";
+/// A trigger's OnEnter and OnExit: the global `CAME`, `WENT` set to
+/// `GetIsPC(who) + 2 * (GetPartyMemberByIndex(0) == who)` for the one
+/// entering, leaving (`guest_comings`).
+const CAME_SCRIPT: &str = "probe_came";
+const WENT_SCRIPT: &str = "probe_went";
+const CAME: &str = "probe_came";
+const WENT: &str = "probe_went";
 
 /// The checks (`kjk sim probes`; see each part).
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
@@ -57,6 +64,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("leader_casts_its_powers", leader_casts()));
     checks.push(("area_entered_by_the_party", entered_by_the_party()));
     checks.push(("guest_leads_its_acts", guest_leads()));
+    checks.push(("guest_comings_are_a_pcs", guest_comings()));
     checks.extend(kept_for_seats());
     match scenario() {
         Ok(ran) => {
@@ -144,6 +152,10 @@ event EventUserDefined(int nUserDefinedEventNumber);
 void SetGlobalNumber(string sIdentifier, int nValue);
 // 12
 int GetGlobalNumber(string sIdentifier);
+// 13
+object GetEnteringObject();
+// 14
+object GetExitingObject();
 "#;
     let call = |routine: u16, args: u8| Op::Action { routine, args };
     let icon = || Op::Const(Const::String(Vec::new()));
@@ -207,11 +219,32 @@ int GetGlobalNumber(string sIdentifier);
         .op(Op::Const(Const::String(ENTERED.as_bytes().to_vec())))
         .op(call(11, 2))
         .op(Op::Retn);
+    // `SetGlobalNumber(global, GetIsPC(who()) + 2 * (GetPartyMemberByIndex(0)
+    // == who()))`: a trigger's OnEnter (`who` GetEnteringObject) and OnExit
+    // (GetExitingObject; `guest_comings`).
+    let comings = |who: u16, global: &str| {
+        let mut asm = script_ncs::probes::Asm::default();
+        asm.op(call(who, 0))
+            .op(call(2, 1))
+            .op(Op::Const(Const::Int(0)))
+            .op(call(1, 1))
+            .op(call(who, 0))
+            .op(Op::Equal(fmt_odyssey::ncs::Pair::ObjectObject))
+            .op(Op::Const(Const::Int(2)))
+            .op(Op::Mul(fmt_odyssey::ncs::Pair::IntInt))
+            .op(Op::Add(fmt_odyssey::ncs::Pair::IntInt))
+            .op(Op::Const(Const::String(global.as_bytes().to_vec())))
+            .op(call(11, 2))
+            .op(Op::Retn);
+        asm.build()
+    };
     crate::probe::library(
         CATALOG,
         [
             (PCS, asm.build()),
             (ENTERED_SCRIPT, entered.build()),
+            (CAME_SCRIPT, comings(13, CAME)),
+            (WENT_SCRIPT, comings(14, WENT)),
             (LEADS, leads.build()),
             (AI, moves.build()),
             (STORY, moves.build()),
@@ -718,6 +751,73 @@ fn guest_leads() -> Result<String, String> {
         format!(
             "seat 1 drives {driven:?} ({a:?}): its use saw the companion lead {:?}, leading after {:?}; seat 0's {:?}, after {:?}",
             guest.0, guest.1, host.0, host.1
+        ),
+    )
+}
+
+/// A guest's companion coming into or leaving a trigger is a PC to its
+/// scripts, as a guest's own character is, without leading the party
+/// (KOTOR's player is the body it controls: Taris's Sith base opens for
+/// T3-M4 coming up to it, `k_ptar_openbase`, whoever plays him). A pad on
+/// the ground, its OnEnter and OnExit asking whether who came or went is a
+/// PC and leads (`CAME_SCRIPT`, `WENT_SCRIPT`), sees seat 1's companion a
+/// PC not leading, the companion nobody drives neither, seat 0's own
+/// character both.
+fn guest_comings() -> Result<String, String> {
+    /// The pad's middle and a spot clear of it (metres on the ground's axes).
+    const PAD: [f32; 2] = [-4.0, 2.0];
+    const AWAY: [f32; 2] = [-2.0, -2.0];
+    let (level, numbers) = ground()?;
+    let mut data = (**level.module().ok_or("the ground has no module")?).clone();
+    let [x, y] = PAD;
+    data.placements.push(Placement::Own(ObjectData {
+        kind: ObjectKind::Trigger,
+        tag: "probe_pad".into(),
+        geometry: vec![
+            [-0.75, -0.75, 0.0],
+            [0.75, -0.75, 0.0],
+            [0.75, 0.75, 0.0],
+            [-0.75, 0.75, 0.0],
+        ],
+        scripts: vec![
+            ("ScriptOnEnter".into(), CAME_SCRIPT.into()),
+            ("ScriptOnExit".into(), WENT_SCRIPT.into()),
+        ],
+        ..ObjectData::unknown("", crate::determinism::ground_point(x, y, 0.0), 0.0)
+    }));
+    let (mut world, _, [a, b]) =
+        party_on((level.with_module(data), numbers), Guests::Companions, 2)?;
+    let seats = [(0, 0), (1, 0)];
+    let driven = run(&mut world, &seats).body(Seat(1)).map(|e| e.id);
+    let own = world.snapshot().own(Seat(0)).map(|entity| entity.id);
+    let own = own.ok_or("seat 0 has no own character")?;
+    // `id` set on the pad, then away from it: what its OnEnter and its
+    // OnExit saw.
+    let mut comes = |id: SimId| {
+        let mut seen = [None; 2];
+        for (at, global) in [(PAD, CAME), (AWAY, WENT)] {
+            scripts_of(&mut world).state.numbers.remove(global);
+            let at = crate::determinism::ground_point(at[0], at[1], 0.0);
+            poke(&mut world, id, |_, ps| {
+                ps.origin[0] = at[0] / collision::UNIT;
+                ps.origin[1] = at[1] / collision::UNIT;
+            });
+            for _ in 0..3 {
+                run(&mut world, &seats);
+            }
+            let found = scripts_of(&mut world).state.numbers.get(global).copied();
+            seen[usize::from(global == WENT)] = found;
+        }
+        seen
+    };
+    let (guest, nobody, host) = (comes(a), comes(b), comes(own));
+    check(
+        driven == Some(a)
+            && guest == [Some(1); 2]
+            && nobody == [Some(0); 2]
+            && host == [Some(3); 2],
+        format!(
+            "seat 1 drives {driven:?} ({a:?}); came and went: its companion {guest:?}, the one nobody drives {nobody:?}, seat 0's own {host:?}"
         ),
     )
 }
