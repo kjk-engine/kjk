@@ -122,6 +122,7 @@ pub(super) fn usable(
                 .flatten()
                 .map(|(uses, facts)| (*uses, *facts)),
             |row| library.impact(row).is_some(),
+            (from != who.0).then_some(&sheet.picks),
         );
         let took = |row: u16| {
             taken

@@ -247,6 +247,7 @@ pub fn run(options: RunOptions) -> AppExit {
                 crate::weapon_set_view::WeaponSetViewPlugin,
                 crate::form_view::FormViewPlugin,
                 crate::feat_view::FeatViewPlugin,
+                crate::pick_view::PickViewPlugin,
             ),
             crate::merchant::MerchantPlugin,
             crate::pazaak_view::PazaakViewPlugin,

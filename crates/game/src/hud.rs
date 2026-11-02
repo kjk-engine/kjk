@@ -253,24 +253,19 @@ fn spawn(
     commands.remove_resource::<Pending>();
 }
 
-/// An item slot of the HUD: its `spells.2da` row, the uses left, its key.
-type Slot = (u16, u32, Vec<u8>);
-
-/// The key that uses an item of `kind`.
-fn key_of(kind: items::Use) -> Action {
-    match kind {
-        Use::Grenade => Action::Grenade,
-        Use::Heal { .. } | Use::Antidote | Use::Squad { .. } => Action::Medpac,
-        Use::Shield { .. } => Action::Shield,
-        Use::Stim(_) => Action::Stim,
-    }
-}
+/// An item slot of the HUD: its `spells.2da` row, the uses left, its key and
+/// which key it is.
+type Slot = (u16, u32, Vec<u8>, items::Shelf);
+/// The power's slot: its row and key.
+type PowerSlot = (u8, Vec<u8>);
+/// What the label says (`pick_view::Picking::label`).
+type Label = (crate::pick_view::LabelOn, Vec<u8>, f32);
 
 /// What KOTOR's HUD shows: the bars (Force only for a Force user), the
 /// portrait of the character played (the player's persona's, or a
 /// companion's template's while it leads or is driven), the power, the feat
-/// attack the weapon in hand carries, then each item kind carried as action
-/// slots
+/// attack the weapon in hand carries, then the kind each item key uses as
+/// action slots (`pick_view`)
 /// (the power's `spells.2da` icon, pull showing push's; an item kind's the
 /// icon of the party's first item that casts it), then TSL's stance column
 /// for one who knows a Form: the Form in use, else the first it knows
@@ -279,7 +274,7 @@ fn kotor_view(
     ui: &mut crate::ui_view::Ui,
     sheet: &sim::combat::Sheet,
     fighter: &sim::combat::Fighter,
-    (power, slots): (Option<(u8, Vec<u8>)>, &[Slot]),
+    (power, slots, label): (Option<PowerSlot>, &[Slot], Option<Label>),
     feat_key: Vec<u8>,
     goods: &sim::inventory::Goods,
     (persona, made, template): (
@@ -290,6 +285,7 @@ fn kotor_view(
 ) -> ui::vm::HudView {
     let mut actions = Vec::new();
     let mut keys = Vec::new();
+    let mut label_at = None;
     let mut portrait = made.and_then(|made| made.0.as_ref().map(|made| made.portrait.clone()));
     if let Some(assets) = ui.assets.as_mut() {
         if let Some(template) = template {
@@ -309,15 +305,25 @@ fn kotor_view(
         // The feat attack the weapon in hand carries (`feat_view`); a double
         // blade with one lit fights as a single blade, its style its feat.
         use sim::combat::picks::{Picks, Shown};
-        if let Some(Shown::Feat(row)) = Some(fighter)
+        // None chosen: the slot stands empty, where the label says so.
+        if let Some(shown) = Some(fighter)
             .filter(|fighter| !fighter.saber.second_off)
             .and_then(|fighter| Picks::shown(sheet, fighter.hand))
-            && let Some(icon) = assets.cell("feat", usize::from(row), "icon")
         {
-            actions.push((icon, None));
+            if matches!(label, Some((crate::pick_view::LabelOn::Feat, ..))) {
+                label_at = Some(actions.len());
+            }
+            let icon = match shown {
+                Shown::Feat(row) => assets.cell("feat", usize::from(row), "icon"),
+                Shown::Nothing => None,
+            };
+            actions.push((icon.unwrap_or(String::new()), None));
             keys.push(feat_key);
         }
-        for (row, left, key) in slots {
+        for (row, left, key, shelf) in slots {
+            if matches!(label, Some((crate::pick_view::LabelOn::Item(of), ..)) if of == *shelf) {
+                label_at = Some(actions.len());
+            }
             keys.push(key.clone());
             let icon = goods.carried(sim::inventory::PARTY).find_map(|(_, item)| {
                 let look = assets.item_ref(&item.template)?;
@@ -344,6 +350,9 @@ fn kotor_view(
         portrait,
         actions,
         action_keys: keys,
+        action_label: label
+            .zip(label_at)
+            .map(|((_, words, alpha), at)| (at, words, alpha)),
         stealth: fighter.covert.stealth,
         ..ui::vm::HudView::default()
     }
@@ -445,6 +454,10 @@ type KotorSide<'w, 's> = (
     Option<ResMut<'w, crate::ui_view::Ui>>,
     Option<Res<'w, crate::character::Made>>,
     Option<Res<'w, crate::ui_view::KotorHud>>,
+    (
+        Option<Res<'w, crate::pick_view::Picking>>,
+        Res<'w, Time<Real>>,
+    ),
     Query<'w, 's, &'static mut RenderLayers>,
     Option<Res<'w, crate::scene::SceneContent>>,
 );
@@ -506,7 +519,7 @@ fn show(
     mut parts: Query<(&mut Transform, &mut Visibility)>,
     mut icon: Query<&mut MeshMaterial3d<OdysseyMaterial>>,
     mut facts: ResMut<console::DumpFacts>,
-    (mut ui, made, kotor, mut cameras, scene): KotorSide,
+    (mut ui, made, kotor, (picking, real), mut cameras, scene): KotorSide,
 ) {
     let (Some(hud), Some(own)) = (hud, own) else {
         return;
@@ -618,9 +631,18 @@ fn show(
         for (pip, part) in hud.pips[at].iter().enumerate() {
             set(*part, None, None, kind.is_some() && pip < usize::from(left));
         }
-        if let Some((item, kind)) = kind {
+        if let Some((item, _)) = kind {
             carried.push(serde_json::json!({"row": item.row, "left": left}));
-            slots.push((item.row, u32::from(left), prompts.shown(key_of(kind))));
+        }
+    }
+    let library = swap.as_ref().and_then(|swap| swap.level.scripts());
+    let kinds = crate::pick_view::kinds(snapshot, entity.id, &sheet, &fighter, library);
+    for (shelf, key) in crate::pick_view::KEYS {
+        let pending = picking.as_ref().and_then(|picking| picking.pending(shelf));
+        let now_ms = snapshot.time_ms;
+        let on = crate::pick_view::chosen(&kinds, &sheet, &fighter, shelf, pending, now_ms);
+        if let Some(kind) = on.and_then(|at| kinds[shelf as usize].get(at)) {
+            slots.push((kind.row, kind.left, prompts.shown(key), shelf));
         }
     }
     if let Ok(mut layers) = cameras.get_mut(hud.camera) {
@@ -677,7 +699,13 @@ fn show(
                 ui,
                 &sheet,
                 &fighter,
-                (power.map(|row| (row, prompts.shown(Action::Power))), &slots),
+                (
+                    power.map(|row| (row, prompts.shown(Action::Power))),
+                    &slots,
+                    picking
+                        .as_ref()
+                        .and_then(|picking| picking.label(real.elapsed_secs())),
+                ),
                 prompts.shown(Action::NextFeat),
                 &snapshot.goods,
                 (

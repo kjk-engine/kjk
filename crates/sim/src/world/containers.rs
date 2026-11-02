@@ -291,6 +291,7 @@ pub(super) fn containers(
             | Action::Assemble { .. }
             | Action::Form(_)
             | Action::NextFeat { .. }
+            | Action::PickItem { .. }
             | Action::Cast { .. }
             | Action::ScreenOpened
             | Action::Forfeit

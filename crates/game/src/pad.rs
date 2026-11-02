@@ -414,6 +414,9 @@ pub struct Actions {
     pub turn: Vec2,
     /// The target's action moved on (1) or back (-1) this frame (`CYCLE`).
     pub cycle: i8,
+    /// Steps the item key held takes through its kinds this frame
+    /// (`PICK_STEP`, `pick_view`).
+    pub pick_step: i8,
     pub device: Device,
 }
 
@@ -429,6 +432,20 @@ impl Actions {
     /// Pressed this frame.
     pub fn pressed(&self, action: Action) -> bool {
         self.pressed & bit(action) != 0
+    }
+
+    /// Pressed this frame as `pick_view` has it (a run's commands).
+    pub(crate) fn set_pressed(&mut self, action: Action) {
+        self.pressed |= bit(action);
+    }
+
+    /// Held or not as `pick_view` has it, whatever the device says.
+    pub(crate) fn set_held(&mut self, action: Action, on: bool) {
+        self.held = if on {
+            self.held | bit(action)
+        } else {
+            self.held & !bit(action)
+        };
     }
 }
 
@@ -472,6 +489,11 @@ impl PadPresses {
         buttons.iter().any(|button| self.pressed.contains(button))
     }
 }
+
+/// With an item's chord held and kinds to choose among, the button that steps
+/// through them and, until it is let go, does nothing else (`pick_view`): RB.
+/// LB is the second layer, so it cannot step back.
+const PICK_STEP: GamepadButton = GamepadButton::RightTrigger;
 
 /// How far the stick is pushed to flick.
 const FLICK: f32 = 0.6;
@@ -518,7 +540,13 @@ pub(crate) fn sample(
     time: Res<Time>,
     mut actions: ResMut<Actions>,
     mut presses: ResMut<PadPresses>,
-    (mut boost, mut was_busy, mut flicked): (Local<f32>, Local<bool>, Local<IVec2>),
+    (mut boost, mut was_busy, mut flicked, mut stepping): (
+        Local<f32>,
+        Local<bool>,
+        Local<IVec2>,
+        Local<bool>,
+    ),
+    picking: Option<Res<crate::pick_view::Picking>>,
 ) {
     if headless.0 {
         *actions = Actions::default();
@@ -605,8 +633,20 @@ pub(crate) fn sample(
         if pushed == IVec2::ZERO {
             pushed = IVec2::new(axis(stick.x), axis(stick.y));
         }
+        let choosing = picking
+            .as_ref()
+            .filter(|_| !menus)
+            .and_then(|picking| picking.choosing());
+        if choosing.is_some() && pad.just_pressed(PICK_STEP) {
+            next.pick_step += 1;
+            *stepping = true;
+        }
         for (action, chord) in &pad_map.0 {
-            if menus && !SCREEN_ACTIONS.contains(action) || chord.shifted != shift {
+            let layer = chord.shifted == shift || choosing == Some(*action);
+            if menus && !SCREEN_ACTIONS.contains(action) || !layer {
+                continue;
+            }
+            if *stepping && chord.button == PICK_STEP {
                 continue;
             }
             next.held |= u64::from(pad.pressed(chord.button)) * bit(*action);
@@ -628,6 +668,7 @@ pub(crate) fn sample(
         }
     }
 
+    *stepping = *stepping && gamepads.iter().any(|pad| pad.pressed(PICK_STEP));
     presses.flick = IVec2::select(pushed.cmpne(*flicked), pushed, IVec2::ZERO);
     *flicked = pushed;
 

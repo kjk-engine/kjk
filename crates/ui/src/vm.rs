@@ -490,6 +490,9 @@ pub struct HudView {
     pub actions: Vec<(String, Option<u32>)>,
     /// The key that uses each action, as the screens name it (`3`, `F`).
     pub action_keys: Vec<Vec<u8>>,
+    /// What is being chosen, over its slot, fading: the slot, the words, and
+    /// their opacity.
+    pub action_label: Option<(usize, Vec<u8>, f32)>,
     /// The status icons lit (`LBL_JOURNAL`, `LBL_PLOTXP`, …): what the
     /// last status summary told, a moment ago.
     pub lit: Vec<&'static str>,

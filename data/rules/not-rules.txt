@@ -29,6 +29,7 @@ crates/sim/src/action.rs MINE  # a player action's wire tag
 crates/sim/src/action.rs NEXT_FEAT  # a player action's wire tag
 crates/sim/src/action.rs OPEN  # a player action's wire tag
 crates/sim/src/action.rs PAZAAK  # a player action's wire tag
+crates/sim/src/action.rs PICK_ITEM  # a player action's wire tag
 crates/sim/src/action.rs PUT  # a player action's wire tag
 crates/sim/src/action.rs READY  # a player action's wire tag
 crates/sim/src/action.rs RECOVER  # a player action's wire tag
@@ -143,6 +144,7 @@ crates/sim/src/combat/idle.rs FIRE_AND_FORGET  # the first fire-and-forget ANIMA
 crates/sim/src/combat/idle.rs IDLES  # a list of JA animations
 crates/sim/src/combat/idle.rs LOOPED_ROWS  # numbering: where looping animations.2da rows are numbered from
 crates/sim/src/combat/items.rs ACTIVATE  # a script constant's number (ANIMATION_FIREFORGET_ACTIVATE)
+crates/sim/src/combat/items.rs ALL  # table width: the Shelf enum's variants
 crates/sim/src/combat/items.rs COLD  # a damageflags bit
 crates/sim/src/combat/items.rs ELECTRICAL  # a damageflags bit
 crates/sim/src/combat/items.rs FIRE  # a damageflags bit

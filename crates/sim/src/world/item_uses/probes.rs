@@ -1,7 +1,8 @@
 //! Items used and upgraded, on the proving ground, for the approved test
 //! `item_uses`: consumables the party carries (`consumables`), a droid's
-//! worn utility items and shield (`droids`) and a lightsaber's crystals
-//! (`upgrades`), each scenario stepped twice to end alike.
+//! worn utility items and shield (`droids`), a lightsaber's crystals
+//! (`upgrades`) and the kinds picked for the item keys (`picked`), each
+//! scenario stepped twice to end alike.
 
 use std::collections::BTreeMap;
 
@@ -21,6 +22,7 @@ use super::super::SimWorld;
 
 mod consumables;
 mod droids;
+mod picked;
 mod upgrades;
 
 type Checks = Vec<(&'static str, Result<String, String>)>;
@@ -258,6 +260,11 @@ pub fn probes() -> Checks {
         "upgrades_same_every_run",
         upgrades::scenario,
         upgrades::cases,
+    ));
+    checks.extend(twice(
+        "picked_same_every_run",
+        picked::scenario,
+        picked::cases,
     ));
     checks
 }

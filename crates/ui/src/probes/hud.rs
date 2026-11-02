@@ -174,6 +174,7 @@ pub(super) fn all() -> Vec<Check> {
             portrait: Some("po_pmhc1".into()),
             actions: vec![("ip_push".into(), None), ("iu_medpac".into(), Some(3))],
             action_keys: vec![b"F".to_vec(), b"3".to_vec()],
+            action_label: None,
             lit: vec!["LBL_PLOTXP"],
             minimap: None,
             stealth: false,

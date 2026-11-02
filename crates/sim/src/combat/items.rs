@@ -102,7 +102,31 @@ pub enum Use {
     Stim(Stim),
 }
 
+/// The keys items are used by, each with the kinds it takes; a character
+/// picks the kind each uses (`combat::picks`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Shelf {
+    Medpac,
+    Stim,
+    Shield,
+    Grenade,
+}
+
+impl Shelf {
+    pub const ALL: [Shelf; 4] = [Shelf::Medpac, Shelf::Stim, Shelf::Shield, Shelf::Grenade];
+}
+
 impl Use {
+    /// The key that uses it.
+    pub fn shelf(self) -> Shelf {
+        match self {
+            Use::Grenade => Shelf::Grenade,
+            Use::Heal { .. } | Use::Antidote | Use::Squad { .. } => Shelf::Medpac,
+            Use::Shield { .. } => Shelf::Shield,
+            Use::Stim(_) => Shelf::Stim,
+        }
+    }
+
     /// The clip its use plays (`clips`).
     pub fn clip(self) -> u16 {
         match self {
@@ -383,6 +407,9 @@ pub struct Pack {
     pub last: (u16, u64),
     /// When the grenade button began a throw's charge (sim ms).
     pub charging_from: Option<u64>,
+    /// A pick dropped the charge: none begins until the button is let go,
+    /// and letting it go throws nothing (`grenades::pull`).
+    pub charge_off: bool,
     /// A use under way: its row, and when it lands (sim ms).
     pub using: Option<(u16, u64)>,
     pub shield: Option<Shielded>,
@@ -446,6 +473,32 @@ impl Pack {
                 .filter(|carried| use_of(carried.row).is_some_and(&fits))
                 .map(|carried| (at, carried))
         })
+    }
+
+    /// The kind `sheet`'s wearer picked for `shelf`, if it has one left, and
+    /// which it is; else the one the key takes by itself (a medpac's: an
+    /// antidote if `afflicted`, a heal for its race, then a squad stim).
+    pub fn keyed(&self, sheet: &Sheet, shelf: Shelf, now: u64) -> Option<(usize, Carried)> {
+        let items = &sheet.items;
+        let droid = sheet.race == races::DROID;
+        let of_shelf = |u: Use| u.shelf() == shelf;
+        sheet
+            .picks
+            .item(shelf)
+            .and_then(|row| self.left_of(items, row))
+            .or_else(|| match shelf {
+                Shelf::Medpac => self
+                    .next(items, |u| u == Use::Antidote)
+                    .filter(|_| self.afflicted(now))
+                    .or_else(|| {
+                        self.next(
+                            items,
+                            |u| matches!(u, Use::Heal { droid: kit, .. } if kit == droid),
+                        )
+                    })
+                    .or_else(|| self.next(items, |u| matches!(u, Use::Squad { .. }))),
+                _ => self.next(items, of_shelf),
+            })
     }
 
     /// The kind of `items` of `row`, if it has one left, and which it is.
@@ -551,6 +604,7 @@ impl Pack {
         out.u32(self.vitality as u32);
         write_fixed(out, self.queued.as_ref(), &0, |row, out| out.u16(*row));
         out.u8(u8::from(self.ordered));
+        out.u8(u8::from(self.charge_off));
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Pack, DecodeError> {
@@ -603,6 +657,7 @@ impl Pack {
             } else {
                 false
             },
+            charge_off: input.since(crate::since::snapshot::ITEM_CYCLE) && input.u8()? != 0,
         })
     }
 }
@@ -686,7 +741,6 @@ pub fn press(
     scripted: impl Fn(u16) -> bool,
 ) -> Pressed {
     use crate::input::buttons;
-    let droid = sheet.race == races::DROID;
     let alive = fighter.alive();
     let items = buttons::MEDPAC | buttons::SHIELD | buttons::STIM;
     let pressed = held & items & !fighter.pack.held;
@@ -717,29 +771,17 @@ pub fn press(
             ..begin(fighter, sheet, row, now)
         };
     }
-    let medpac = || {
-        let afflicted = pack.afflicted(now);
-        pack.next(&sheet.items, |u| u == Use::Antidote)
-            .filter(|_| afflicted)
-            .or_else(|| {
-                pack.next(
-                    &sheet.items,
-                    |u| matches!(u, Use::Heal { droid: kit, .. } if kit == droid),
-                )
-            })
-            .or_else(|| pack.next(&sheet.items, |u| matches!(u, Use::Squad { .. })))
-    };
     let found = (pressed & buttons::MEDPAC != 0)
-        .then(medpac)
+        .then(|| pack.keyed(sheet, Shelf::Medpac, now))
         .flatten()
         .or_else(|| {
             (pressed & buttons::SHIELD != 0 && pack.shield.is_none())
-                .then(|| pack.next(&sheet.items, |u| matches!(u, Use::Shield { .. })))
+                .then(|| pack.keyed(sheet, Shelf::Shield, now))
                 .flatten()
         })
         .or_else(|| {
             (pressed & buttons::STIM != 0 && pack.stim.is_none())
-                .then(|| pack.next(&sheet.items, |u| matches!(u, Use::Stim(_))))
+                .then(|| pack.keyed(sheet, Shelf::Stim, now))
                 .flatten()
         });
     let Some((at, carried)) = found.filter(|_| alive) else {
