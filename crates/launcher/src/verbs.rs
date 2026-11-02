@@ -154,6 +154,11 @@ pub(crate) enum Verb {
         /// past each, as a player skips dialogue)
         #[arg(long)]
         listen: bool,
+        /// This conversation's lines heard out, the others clicked past
+        /// (a route's own bot presses on through a long `--listen`);
+        /// repeatable
+        #[arg(long = "listen-to")]
+        listen_to: Vec<String>,
         /// The player's rank in a skill, NAME=RANK, as `kjk play --skill`;
         /// repeatable
         #[arg(long = "skill", value_parser = by_hand::parse_skill)]
@@ -428,6 +433,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             mighty,
             stale,
             listen,
+            listen_to,
             skills,
             blocks,
             save_to,
@@ -478,6 +484,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                         goal_seconds,
                         stale,
                         listen,
+                        listen_to,
                         fail_fast: blocks.fail_fast(),
                         save_to,
                         droids: droids.is_some(),

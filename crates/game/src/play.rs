@@ -430,9 +430,6 @@ pub fn load_for(
         stage::anim_table(&files, &gla, &cfg)
     })?;
     let replay = options.replay.as_ref();
-    if replay.is_some_and(|r| r.start.place.is_some() || !r.installs.is_empty()) {
-        return Err("a recording made in a module is not drawn yet".into());
-    }
     let saved = options
         .save
         .map(|save| {
@@ -469,8 +466,10 @@ pub fn load_for(
     // save's for the players its module was planned for; a joined player's
     // for the host's count.
     let players = players.unwrap_or_else(|| {
-        saved
-            .and_then(|(save, ..)| save.snapshot.place.as_ref())
+        replay
+            .map(|recording| &recording.start)
+            .or(saved.map(|(save, ..)| &save.snapshot))
+            .and_then(|start| start.place.as_ref())
             .map_or(1, |place| place.players)
     });
     let (stage, ja) = std::thread::scope(|scope| {
@@ -534,11 +533,12 @@ pub fn load_for(
         Err(_) => Ok([None, None]),
     })?;
     let (mut world, first) = match (replay, saved) {
-        (Some(recording), _) => (
-            sim::SimWorld::from_snapshot(&recording.start, stage.level.clone())
-                .map_err(|error| error.to_string())?,
-            None,
-        ),
+        (Some(recording), _) => {
+            let mut world = sim::SimWorld::from_snapshot(&recording.start, stage.level.clone())
+                .map_err(|error| error.to_string())?;
+            world.set_script_state(recording.script.clone());
+            (world, None)
+        }
         (None, Some((save, ..))) => {
             let (world, first) = from_save(save, &stage.level, seats, None)?;
             (world, Some(first))
