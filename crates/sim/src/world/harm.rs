@@ -121,6 +121,40 @@ pub(super) fn hurt(
                 .until
                 .map(|until| until.min(now + u64::from(course.for_ms))),
         };
+        // A hold decides how its link shows, as C11 cuts it short: its visuals
+        // and icon for as long as it holds, none where it is kept off. What
+        // else is linked keeps its time; a permanent link (a scene's stasis)
+        // keeps its look.
+        let mut held = None;
+        if let (Some(at), Some(until)) = (at, until) {
+            for leaf in &leaves {
+                if let ScriptEffect::Hold(hold) = leaf {
+                    let (.., object, sheet, _, fighting) = &mut actors[at];
+                    let feats = sheet_of(*sheet, *object).feats;
+                    let fighter = &mut fighting.0;
+                    let mind_immune = crate::combat::force::crowd::immunity::MIND_SPELLS;
+                    let immune = hold.immunity().is_some_and(|kind| {
+                        [kind, mind_immune]
+                            .iter()
+                            .any(|kind| fighter.effects.immune_to(*kind, now))
+                    }) || hold.feat().is_some_and(|feat| feats.has(feat));
+                    let took = fighter.alive()
+                        && !immune
+                        && fighter.force.hold(now, until.saturating_sub(now));
+                    if took {
+                        fighter.force.hold = *hold;
+                    }
+                    let end = took.then_some(fighter.force.stunned_until);
+                    held = Some(held.flatten().or(end));
+                }
+            }
+        }
+        let (shown, kept_off) = match held {
+            Some(_) if until == Some(u64::MAX) => (until, false),
+            Some(None) => (until, true),
+            Some(end) => (end, false),
+            None => (until, false),
+        };
         for leaf in leaves {
             let mut source = None;
             match leaf {
@@ -162,6 +196,11 @@ pub(super) fn hurt(
                     amount,
                     of,
                 } => {
+                    let icon = *modifies == effects::Modifies::Icon;
+                    if icon && kept_off {
+                        continue;
+                    }
+                    let until = if icon { shown } else { until };
                     if let (Some(at), Some(until)) = (at, until) {
                         let (_, avatar, object, sheet, _, fighting) = &mut actors[at];
                         let fighter = &mut fighting.0;
@@ -206,25 +245,8 @@ pub(super) fn hurt(
                         effects::add(fighter, lasting, now);
                     }
                 }
-                ScriptEffect::Hold(hold) => {
-                    if let (Some(at), Some(until)) = (at, until) {
-                        let (.., object, sheet, _, fighting) = &mut actors[at];
-                        let feats = sheet_of(*sheet, *object).feats;
-                        let fighter = &mut fighting.0;
-                        let mind_immune = crate::combat::force::crowd::immunity::MIND_SPELLS;
-                        let immune = hold.immunity().is_some_and(|kind| {
-                            [kind, mind_immune]
-                                .iter()
-                                .any(|kind| fighter.effects.immune_to(*kind, now))
-                        }) || hold.feat().is_some_and(|feat| feats.has(feat));
-                        if fighter.alive()
-                            && !immune
-                            && fighter.force.hold(now, until.saturating_sub(now))
-                        {
-                            fighter.force.hold = *hold;
-                        }
-                    }
-                }
+                // Taken above, before what is linked to it.
+                ScriptEffect::Hold(_) => {}
                 // A KOTOR state into a lasting slot, unless refused (its
                 // immunities; a cutscene's only by sleep immunity); which
                 // state holds is settled after (`settle_effects`).
@@ -264,6 +286,10 @@ pub(super) fn hurt(
                     from,
                     part,
                 } => {
+                    if kept_off {
+                        continue;
+                    }
+                    let until = shown;
                     let ms = until.map_or(0, |until| {
                         until.saturating_sub(now).min(u64::from(u32::MAX)) as u32
                     });
