@@ -19,7 +19,6 @@ use collision_odyssey::Surfaces;
 use fmt_odyssey::ResType;
 use fmt_odyssey::bwm::Walkmesh;
 use fmt_odyssey::mdl::Model;
-use fmt_odyssey::texture::Texture;
 use fmt_odyssey::txi::Txi;
 use vfs::resolver::Resolver;
 use vfs::{Discovery, Game};
@@ -706,12 +705,7 @@ pub fn texture_facts(
         .find(name, ResType::TXI)
         .and_then(|found| found.location.read().ok())
         .map(|bytes| Txi::parse(&bytes));
-    let parsed = match resolver.find(name, ResType::TPC) {
-        Some(found) => Texture::parse_tpc(&found.location.read().ok()?).ok()?,
-        None => {
-            Texture::parse_tga(&resolver.find(name, ResType::TGA)?.location.read().ok()?).ok()?
-        }
-    };
+    let parsed = resolver.texture(name)?;
     let alpha = matches!(
         parsed.format,
         fmt_odyssey::texture::PixelFormat::Rgba8 | fmt_odyssey::texture::PixelFormat::Dxt5
@@ -725,19 +719,14 @@ pub fn texture_facts(
     Some((facts, cube, frames))
 }
 
-/// The texture the games would pick for a name: TPC first, then TGA.
+/// The texture the games would pick for a name: the highest layer's TPC or
+/// TGA, TPC first within a layer (`Resolver::find_any`).
 pub(crate) fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
     let loose = resolver
         .find(name, ResType::TXI)
         .and_then(|found| found.location.read().ok())
         .map(|bytes| Txi::parse(&bytes));
-    if let Some(found) = resolver.find(name, ResType::TPC) {
-        let bytes = found.location.read().ok()?;
-        return TextureIr::from_texture(&Texture::parse_tpc(&bytes).ok()?, loose.as_ref());
-    }
-    let found = resolver.find(name, ResType::TGA)?;
-    let bytes = found.location.read().ok()?;
-    TextureIr::from_texture(&Texture::parse_tga(&bytes).ok()?, loose.as_ref())
+    TextureIr::from_texture(&resolver.texture(name)?, loose.as_ref())
 }
 
 pub fn model(resolver: &Resolver, name: &str) -> Result<Option<ModelIr>, String> {
