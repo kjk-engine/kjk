@@ -99,8 +99,6 @@ const RUN_SPEED: f32 = 180.0;
 /// How quickly a gun comes up to its aim (ms, the time constant): about
 /// the blend JA's torso takes into its ready pose.
 const AIM_EASE_MS: f32 = 60.0;
-/// How long a shot's kick takes to peak (ms).
-const KICK_RISE_MS: f32 = 25.0;
 /// How long the torso blends as a gun comes out, the moment a fight starts
 /// (a first shot is fired as it does), and as it goes away (ms); the aim
 /// eases out over the latter.
@@ -730,10 +728,13 @@ pub struct Figure {
     /// animation it was in.
     frames: [Option<(i32, Anim)>; 2],
     /// The torso as the snapshots last had it (animation, flip), and when
-    /// each hand's gun last fired (sim ms; right, left): its kick runs from
-    /// there.
+    /// each hand's gun last fired (sim ms; right, left) and fired before
+    /// that: its kick runs from there.
     shown_torso: Option<(Anim, bool)>,
     shot_ms: [Option<f64>; 2],
+    shot_before_ms: [Option<f64>; 2],
+    /// How far its last shot turns the camera up now (degrees, `gun_aim`).
+    camera_kick: f32,
     /// Its gun put away, the torso playing the legs' part (`follow`).
     away: bool,
     /// How far each hand's gun is held up and aimed (`gun_aim`), as of
@@ -808,6 +809,8 @@ impl Figure {
             frames: [None; 2],
             shown_torso: None,
             shot_ms: [None; 2],
+            shot_before_ms: [None; 2],
+            camera_kick: 0.0,
             away: false,
             aim: [0.0; 2],
             drawing: crate::draw_anim::Drawing::default(),
@@ -985,6 +988,7 @@ impl Figure {
                 let hands = entity.fighter.map_or(1, |f| f.shooting.hands);
                 for (hand, shot) in self.shot_ms.iter_mut().enumerate() {
                     if hands & 1 << hand != 0 || (hand == 0 && hands & 3 == 0) {
+                        self.shot_before_ms[hand] = *shot;
                         *shot = Some(time_ms as f64);
                     }
                 }
@@ -1232,6 +1236,12 @@ impl Figure {
     /// Its hand grips a blade as last posed.
     pub fn blade(&self) -> bool {
         self.blade
+    }
+
+    /// How far its gun's last shot turns the camera up as last posed
+    /// (degrees).
+    pub fn camera_kick(&self) -> f32 {
+        self.camera_kick
     }
 
     /// When its snapshots first said it was dead (sim ms).
@@ -3013,11 +3023,19 @@ fn gun_aim(
         (0.0, HOLSTER_BLEND_MS / 3.0)
     };
     // One gun's shots are the gun out's whichever hand the sim names.
-    let shots = if pair {
-        figure.shot_ms
+    let (shots, befores) = if pair {
+        (figure.shot_ms, figure.shot_before_ms)
     } else {
-        [figure.shot_ms.into_iter().flatten().reduce(f64::max), None]
+        let last = usize::from(
+            figure.shot_ms[1]
+                .is_some_and(|left| figure.shot_ms[0].is_none_or(|right| left > right)),
+        );
+        (
+            [figure.shot_ms[last], None],
+            [figure.shot_before_ms[last], None],
+        )
     };
+    figure.camera_kick = 0.0;
     let shooting = shots
         .iter()
         .flatten()
@@ -3054,17 +3072,11 @@ fn gun_aim(
             continue;
         }
         let handling = blaster.map_or(weapons::Handling::STILL, weapons::handling);
-        // Up over `KICK_RISE_MS`, then settling.
         let kick = shots[hand].map_or(0.0, |shot| {
-            let since = (ms - shot) as f32;
-            if since < 0.0 {
-                0.0
-            } else if since < KICK_RISE_MS {
-                since / KICK_RISE_MS
-            } else {
-                (-(since - KICK_RISE_MS) * 3.0 / handling.settle_ms).exp()
-            }
+            let gap = befores[hand].map(|before| (shot - before) as f32);
+            handling.kick((ms - shot) as f32, gap)
         });
+        figure.camera_kick = figure.camera_kick.max(handling.camera_degrees * kick);
         // The barrel aims at the shot's way `CONVERGE` units out, where the
         // bolt drawn from the muzzle meets it (`combat_fx::Path`); what
         // shoots nothing, along the view. A pair's left gun from its own

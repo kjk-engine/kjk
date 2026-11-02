@@ -704,6 +704,9 @@ pub struct Particles {
     /// with their emitter (`Spray::grow`: an own muzzle flash before the
     /// eyes, `first_person::FLASH_SCALE`); 1 unless its drawer says.
     pub grown: f32,
+    /// What its particles' colours are multiplied by (`Spray::tint`: a
+    /// gun's flash, as its bolt's colour); white unless its drawer says.
+    pub tint: Vec3,
 }
 
 impl Particles {
@@ -725,14 +728,15 @@ impl Particles {
             bolts: Vec::new(),
             next_bolt: 0.0,
             grown: 1.0,
+            tint: Vec3::ONE,
         }
     }
 
     /// None alive and none owed, as new (its rolls go on).
     pub fn clear(&mut self) {
-        let grown = self.grown;
+        let (grown, tint) = (self.grown, self.tint);
         *self = Particles::new(self.seed, self.limit);
-        self.grown = grown;
+        (self.grown, self.tint) = (grown, tint);
     }
 
     /// In [-1, 1).
@@ -1071,7 +1075,7 @@ impl Particles {
         self.list.iter().map(move |particle| {
             let f = values.share(particle.age);
             let alpha = values.three([emit::ALPHA_START, emit::ALPHA_MID, emit::ALPHA_END], f);
-            let colour = values.colour_at(f);
+            let colour = values.colour_at(f) * self.tint;
             let centre = if emitter.world {
                 particle.at
             } else {
@@ -1559,6 +1563,11 @@ impl Spray {
     /// (`blaster_view`).
     pub fn grow(&mut self, by: f32) {
         self.particles.grown = by;
+    }
+
+    /// Its particles' colours multiplied `by` this (`Particles::tint`).
+    pub fn tint(&mut self, by: Vec3) {
+        self.particles.tint = by;
     }
 
     /// Its emitter's birthrate now (the dumps).

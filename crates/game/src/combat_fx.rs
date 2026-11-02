@@ -1125,7 +1125,7 @@ fn flash(
 /// shooter's gun's muzzle as drawn (where the executable hangs them, on
 /// its `bullethook`); for a gun not drawn, `GUN` units on from the gun hand
 /// along the shot; else at the sim's muzzle. A flash before the eyes the
-/// camera looks through (`eyes`) plays smaller.
+/// camera looks through (`eyes`) plays as its gun has it (`weapons::EyeFlash`).
 fn place_flashes(
     drawn: &mut Drawn,
     (now, kotor): (f32, Option<&WeaponSounds>),
@@ -1150,10 +1150,15 @@ fn place_flashes(
         let at = gun_muzzle(guns, places, (shot.by, shot.hand))
             .or_else(hand)
             .unwrap_or(shot.muzzle);
-        let scale = if eyes == Some(shot.by) {
-            crate::first_person::FLASH_SCALE
+        let handling = match sim::combat::Delivery::of_base_item(shot.base_item) {
+            Some(sim::combat::Delivery::Blaster(blaster)) => crate::weapons::handling(blaster),
+            _ => crate::weapons::Handling::STILL,
+        };
+        let eye_flash = handling.eye_flash;
+        let (scale, glow, lasts) = if eyes == Some(shot.by) {
+            (eye_flash.scale, eye_flash.glow, eye_flash.lasts_ms)
         } else {
-            1.0
+            (1.0, 0.0, None)
         };
         let muzzle = kotor
             .and_then(|kotor| kotor.ammo(shot.base_item))
@@ -1175,22 +1180,25 @@ fn place_flashes(
         let rapid = matches!(shot.special, Some(Special::RapidShot(_)))
             .then(|| ms + f64::from(sim::combat::specials::BURST_GAP_MS));
         let feat = feat.map(|shows| (shows, rapid));
+        let shown = |shows, until, glow, lasts, tint| Flash {
+            by: shot.by,
+            hand: shot.hand,
+            shows,
+            clip: crate::blaster_view::IMPACT,
+            at: at * UNIT,
+            way: shot.forward,
+            ms,
+            scale,
+            until,
+            glow,
+            lasts,
+            tint,
+        };
         out.extend(
             muzzle
-                .map(|shows| (shows, None))
+                .map(|shows| shown(shows, None, glow, lasts, handling.flash_tint))
                 .into_iter()
-                .chain(feat)
-                .map(|(shows, until)| Flash {
-                    by: shot.by,
-                    hand: shot.hand,
-                    shows,
-                    clip: crate::blaster_view::IMPACT,
-                    at: at * UNIT,
-                    way: shot.forward,
-                    ms,
-                    scale,
-                    until,
-                }),
+                .chain(feat.map(|(shows, until)| shown(shows, until, 0.0, None, Vec3::ONE))),
         );
     }
 }
