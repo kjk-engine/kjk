@@ -138,6 +138,10 @@ fn selling_text(selling: bool, words: &str) -> ControlState {
 }
 
 impl Screen for Store {
+    fn tabs(&self) -> Vec<&'static str> {
+        self.filter.tags()
+    }
+
     fn id(&self) -> ScreenId {
         ScreenId("store")
     }

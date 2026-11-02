@@ -36,8 +36,11 @@ No game data comes with kjk.
 Starting
 --------
 Windows:  run kjk.exe.
-Linux:    run ./kjk (on the Steam Deck: add it to Steam as a non-Steam
-          game, or run it from Desktop Mode).
+Linux:    run ./kjk.
+Steam Deck: in Desktop Mode, add kjk to Steam (Games, Add a Non-Steam
+          Game), then start it from Game Mode: there Steam hands it the
+          Deck's controls as a gamepad. Started from Desktop Mode it gets
+          them as a keyboard and mouse instead.
 macOS:    the app is not signed by a known developer, so macOS refuses it
           the first time. Open it once, choose Done, then in System
           Settings → Privacy & Security choose Open Anyway (on macOS 14

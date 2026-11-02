@@ -479,6 +479,29 @@ fn parse_cli() -> Cli {
         .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }
 
+/// What winit and gilrs read from the environment, set for Linux before
+/// they start (and before any thread):
+/// - The screen's scale, 1: X11 guesses it from the panel's size where
+///   nothing sets it (2.2 on a Steam Deck), and the screens scale with the
+///   window's height themselves (`ui::draw::scale`). A player's own
+///   `WINIT_X11_SCALE_FACTOR` stands.
+/// - Valve's pads (the Deck's own controls) mapped as this kernel lists
+///   their buttons (`pad::linux`), after Steam's own mappings.
+#[cfg(target_os = "linux")]
+fn linux_environment() {
+    const SCALE: &str = "WINIT_X11_SCALE_FACTOR";
+    const MAPPINGS: &str = "SDL_GAMECONTROLLERCONFIG";
+    if std::env::var_os(SCALE).is_none() {
+        // SAFETY: set before any thread is started.
+        unsafe { std::env::set_var(SCALE, "1") };
+    }
+    if let Some(ours) = kjk_game::pad::linux::valve_mappings() {
+        let steams = std::env::var(MAPPINGS).unwrap_or_else(|_| String::new());
+        // SAFETY: as above.
+        unsafe { std::env::set_var(MAPPINGS, format!("{steams}\n{ours}")) };
+    }
+}
+
 /// Parses the command line and runs what it asks for.
 pub fn run() -> ExitCode {
     launch_times::start();
@@ -493,6 +516,8 @@ pub fn run() -> ExitCode {
         // SAFETY: set before any thread is started.
         unsafe { std::env::set_var(kjk_game::sound::MUTE, "1") };
     }
+    #[cfg(target_os = "linux")]
+    linux_environment();
     // The runs that play (a module, the menu, a session) read the installs:
     // opened on threads now, they are read while the rest starts.
     if matches!(

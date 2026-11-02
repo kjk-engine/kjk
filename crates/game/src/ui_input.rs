@@ -2,9 +2,11 @@
 //! (`ui::input`): arrows and Tab move, Enter activates, Escape goes back,
 //! Page Up and Down scroll, typed text goes to edit boxes; a gamepad's
 //! d-pad or left stick moves (repeating while held), A activates, B goes
-//! back (on a screen: in play it is the pad's crouch), Start opens the menu
-//! (not with LB held: the quick save), X does a list row's double click,
-//! the shoulders switch tabs, the right stick scrolls.
+//! back (on a screen: in play it is the pad's crouch), Menu opens the menu
+//! in play and presses a screen's OK or Done (not with LB held: the quick
+//! save), X does a double click, Y the screen's second button (Default),
+//! the shoulders switch the menu bar's tabs, the triggers a page's own, the
+//! right stick scrolls.
 
 use bevy::input::ButtonState;
 use bevy::input::gamepad::{Gamepad, GamepadButton};
@@ -166,11 +168,20 @@ pub(crate) fn gather(
             (GamepadButton::South, Key::Activate),
             (GamepadButton::East, Key::Back),
             (GamepadButton::West, Key::Primary),
-            (GamepadButton::Start, Key::Back),
+            (GamepadButton::North, Key::Second),
+            // Menu opens the menu in play, and accepts a screen open.
+            (
+                GamepadButton::Start,
+                if open { Key::Accept } else { Key::Back },
+            ),
             (GamepadButton::LeftTrigger, Key::PrevTab),
             (GamepadButton::RightTrigger, Key::NextTab),
+            (GamepadButton::LeftTrigger2, Key::PrevPage),
+            (GamepadButton::RightTrigger2, Key::NextPage),
         ] {
-            let play = key == Key::Back && (!open && button == GamepadButton::East || shift);
+            // In play B crouches, and LB's Menu is the quick save.
+            let play =
+                !open && button == GamepadButton::East || shift && button == GamepadButton::Start;
             if gamepad.just_pressed(button) && !play {
                 input.keys.push(key);
             }
