@@ -36,6 +36,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use fmt_odyssey::ResType;
+use fmt_odyssey::texture::Texture;
 use fmt_odyssey::tlk::Tlk;
 use fmt_odyssey::twoda::TwoDa;
 
@@ -500,6 +501,33 @@ impl Resolver {
             location,
             shadowed: holders.collect(),
         })
+    }
+
+    /// The first of `restypes` the highest layer holding any of them has,
+    /// with its type: a texture is a TPC or a TGA, and a TGA in `override/`
+    /// replaces the texture pack's TPC, as the games load mods.
+    pub fn find_any(&self, resref: &str, restypes: &[ResType]) -> Option<(ResType, Resolved<'_>)> {
+        let resref = resref.to_ascii_lowercase();
+        let restype = self.layers.iter().rev().find_map(|layer| {
+            restypes
+                .iter()
+                .copied()
+                .find(|&restype| layer.resources.contains_key(&(resref.clone(), restype)))
+        })?;
+        Some((restype, self.find(&resref, restype)?))
+    }
+
+    /// The texture the games would pick for a name, parsed: the highest
+    /// layer's TPC or TGA (`find_any`).
+    pub fn texture(&self, name: &str) -> Option<Texture> {
+        let (restype, found) = self.find_any(name, &[ResType::TPC, ResType::TGA])?;
+        let bytes = found.location.read().ok()?;
+        let parsed = if restype == ResType::TPC {
+            Texture::parse_tpc(&bytes)
+        } else {
+            Texture::parse_tga(&bytes)
+        };
+        parsed.ok()
     }
 
     /// The resource's bytes, after precedence; `None` when it is missing or
