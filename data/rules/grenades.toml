@@ -65,7 +65,7 @@ name = "Scripted Throw"
 value = 55.0
 unit = "°"
 range = [0.0, 89.0]
-summary = "A grenade a script throws (not one a creature picks in a fight) goes {grenades.throw.lob_degrees:bare}° up, charged to land on its target however far, meets nothing on the way and bursts as it lands."
+summary = "A grenade thrown while a conversation holds the world (not one in a fight) goes {grenades.throw.lob_degrees:bare}° up, charged to land on its target however far, meets nothing on the way and bursts as it lands."
 source = "engine: end_m01aa's blast falls in the shot its script cuts to and just before the deaths it scripts; the flight and burst on landing follow KOTOR's projectile, whose own arc is not read"
 see = "sim::combat::grenades::lob_strength"
 

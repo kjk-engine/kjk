@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `8f4bda65464f7632`.
+Edition `dbe0c52037730cbd`.
 
 ## Contents
 
@@ -1878,7 +1878,7 @@ Every throw also rises at 3 meters per second.
 
 <a id="grenades-throw-lob-degrees"></a>**Scripted Throw** = **55°** · `grenades.throw.lob_degrees`
 
-A grenade a script throws (not one a creature picks in a fight) goes 55° up, charged to land on its target however far, meets nothing on the way and bursts as it lands.
+A grenade thrown while a conversation holds the world (not one in a fight) goes 55° up, charged to land on its target however far, meets nothing on the way and bursts as it lands.
 
 <sub>Source: engine: end_m01aa's blast falls in the shot its script cuts to and just before the deaths it scripts; the flight and burst on landing follow KOTOR's projectile, whose own arc is not read. Code: `sim::combat::grenades::lob_strength`.</sub>
 

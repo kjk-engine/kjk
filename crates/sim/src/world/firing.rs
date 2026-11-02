@@ -21,7 +21,7 @@ pub(super) fn fire(
     mut next_id: ResMut<NextId>,
     (mut hits, mut battering): (ResMut<Hits>, ResMut<objects::Battering>),
     mut heals: ResMut<Heals>,
-    scripts: Res<scripts::Scripts>,
+    (scripts, scene): (Res<scripts::Scripts>, Res<super::scene::Held>),
     (mut casts, mut spent): (ResMut<scripts::Casts>, ResMut<scripts::Spent>),
     objects: Query<&Object>,
     mut actors: Query<(
@@ -182,8 +182,10 @@ pub(super) fn fire(
         // A grenade: charged while its button is held, thrown on release,
         // whatever is in hand.
         let throwing = fighter.alive() && fighter.last_command.buttons & buttons::GRENADE != 0;
-        // A script's throw (its row queued, `Pack::queued`) is a scene's.
-        let scripted = fighter.pack.queued.is_some();
+        // A talent's throw (its row queued, `Pack::queued`) while a
+        // conversation holds the world is a scene's. A fight's, `k_ai_master`'s
+        // talents too, is any grenade.
+        let scene_throw = scene.world && fighter.pack.queued.is_some();
         if let Some((carried, strength)) = grenades::pull(
             &mut fighter.pack,
             &sheet.items,
@@ -210,7 +212,7 @@ pub(super) fn fire(
             let base = muzzle(ps, grenades::MUZZLE);
             // A scene's lob bursts as it lands (`Missile::scripted`); any other
             // on its fuse.
-            let fuse_ms = if scripted {
+            let fuse_ms = if scene_throw {
                 let drop = base[2] - (ps.origin[2] + motion::SOLE_Z) - grenades::HALF_SIZE;
                 let flight = grenades::lob_seconds(velocity[2], drop);
                 ((flight * 1000.0) as u64).min(grenades::FUSE_MS)
@@ -235,7 +237,7 @@ pub(super) fn fire(
                         resting: false,
                     }),
                     held: None,
-                    scripted,
+                    scripted: scene_throw,
                 }),
             ));
             next_id.0 += 1;

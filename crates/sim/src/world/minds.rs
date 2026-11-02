@@ -617,9 +617,10 @@ pub(super) fn think(
         if world_held && mind.task == Task::Chase {
             mind.task = Task::Idle;
         }
-        // A throw its script chose outlasts the fight: end_m01aa's thrower,
+        // A throw in a held scene outlasts the fight: end_m01aa's thrower,
         // out of combat by `CancelCombat`, charges it still.
-        if mind.task != Task::Engage && mind.hold_until > now && mind.hold != buttons::GRENADE {
+        let scene_throw = world_held && mind.hold == buttons::GRENADE;
+        if mind.task != Task::Engage && mind.hold_until > now && !scene_throw {
             mind.hold_until = 0;
         }
         // A body standing in its way, gone round: by move_body's walks after a
@@ -925,7 +926,11 @@ pub(super) fn think(
                         && cast_into(
                             &mut fighter.mind,
                             &mut command,
-                            Some(ai::scripted_throw(far)),
+                            Some(if world_held {
+                                ai::scripted_throw(far)
+                            } else {
+                                ai::throw(far)
+                            }),
                             now,
                             dice,
                         )
@@ -1011,9 +1016,10 @@ pub(super) fn think(
         if fighter.mind.hold_until > now {
             command.buttons |= fighter.mind.hold;
         }
-        // A script's lob looks up as its charge runs, to the step that lets
-        // it go (its row queued, `Pack::queued`, until then).
-        if fighter.mind.hold == buttons::GRENADE
+        // A held scene's lob looks up as its charge runs, to the step that
+        // lets it go (its row queued, `Pack::queued`, until then).
+        if world_held
+            && fighter.mind.hold == buttons::GRENADE
             && fighter.pack.queued.is_some()
             && (fighter.mind.hold_until > now || fighter.pack.charging_from.is_some())
         {

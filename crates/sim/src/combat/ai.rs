@@ -384,7 +384,7 @@ pub fn throw(distance: f32) -> Cast {
     Cast::Hold(buttons::GRENADE, charge.clamp(1, grenades::CHARGE_MS))
 }
 
-/// A grenade its script throws at a target `distance` units away, however
+/// A grenade thrown in a held scene at a target `distance` units away, however
 /// far (KOTOR's thrower has no farthest throw): the button held for the
 /// charge that lobs it there (`grenades::lob_strength`), looking up as it
 /// charges.

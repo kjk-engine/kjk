@@ -235,7 +235,7 @@ fn draw(
             seed: id.0 | 1,
             commands: &mut commands,
         };
-        // A script's lob bursts as it lands, short of the fuse.
+        // A held scene's lob bursts as it lands, short of the fuse.
         let thrown = if missile.scripted {
             missile.from_ms
         } else {
