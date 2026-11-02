@@ -102,14 +102,29 @@ the games' own compiled scripts; nothing of them is in the repo.
   `v_imp_stun`), a droid's stun 1007, a paralysis, horror, sleep,
   whirlwind or choke (`EffectChoke`, the gas traps': no immunity keeps it
   off) nothing (so `k_ptar_dueldlg`'s second of paralysis, which
-  holds the player while Taris's duel announcer begins, is silent). A
-  paralysed body's clips stop where the hold found it, and only while the
-  hold lasts (`cast::held_since`); a horrified one plays its `horror`, a
-  choked one its `choke`, looped while the choke holds (`animations.2da`
-  row 72; `ANIMATION_LOOPING_CHOKE` shares 116 with the fire-and-forget
-  one: the Taris rancor clutches its throat as the grenade bursts from
-  its jaws, `k_ptar_rancorcs2`), a
-  whirlwind's victim its `whirlwind` (`cast::held_clip`).
+  holds the player while Taris's duel announcer begins, is silent). Each
+  state plays its clip as both executables have it, whether a weapon is
+  out or not (`acting::of_state`, `cast::held_clip`;
+  `CSWSCreature::RecomputeAmbientAnimationState`): a stun, a mind trick and
+  a droid's scramble `pausepsn` (a creature model has none and keeps its
+  idle), a droid's stun `disabled`, a paralysis `paralyzed` (a still pose of
+  its own: nothing stops its time), a sleep `sleep`, a horror `horror`, a
+  choke `choke`, looped while the choke holds (`animations.2da` row 72;
+  `ANIMATION_LOOPING_CHOKE` shares 116 with the fire-and-forget one: the
+  Taris rancor clutches its throat as the grenade bursts from its jaws,
+  `k_ptar_rancorcs2`), a whirlwind `whirlwind`, TSL's Force Crush
+  `crushdamage`. A confusion and a fright have none. A cutscene's states
+  play the same.
+- A scripted clip takes over as `Gob::Animate` has it (`acting::shown`,
+  `acting::blended_in`): from its start, each node moved each frame by a
+  weight toward the clip, the weight growing by the frame's share of the
+  clip's transition time, so the pose before is mostly gone within about a
+  quarter of a second. A clip played once holds its end while it fades, in
+  half its transition time. reone's rule (`kTransitionLength`, skipping to
+  a quarter second before the transition time) is not the executables'.
+  [verify] the frame rate the blend is reckoned at (60 here), and a looping
+  clip's start: the executable carries over the phase of the clip before,
+  here it starts at 0.
 - TSL's other effects: `EffectBlind` (it neither sees nor hears: its
   perception skipped; the 50 % miss chance and visual 5002 not kept
   [verify: who rolls it]), `EffectTrueSeeing` and `EffectPsychicStatic`
