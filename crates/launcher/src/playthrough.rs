@@ -2837,8 +2837,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     ("trace.txt", trace.into_bytes()),
                     ("motion.txt", moves.into_bytes()),
                     ("inputs.kjkr", recording.encode()),
-                    ("scene_check.json", scenes.unwrap_or_default().into_bytes()),
-                ] {
+                ]
+                .into_iter()
+                .chain(scenes.map(|text| ("scene_check.json", text.into_bytes())))
+                {
                     let path = folder.join(name);
                     if let Err(error) = std::fs::write(&path, bytes) {
                         eprintln!("{}: {error}", path.display());

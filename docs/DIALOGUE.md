@@ -443,6 +443,15 @@ kjk dialogue sweep k1 end_m01aa    # Trask's opening
 kjk dialogue sweep k1 lev_m40ac    # Malak on the Leviathan (its --talk)
 ```
 
+`KJK_SCENE_CHECK=1 kjk chain k1|tsl --keep-going --no-cache` runs these checks
+inside the story's own routes (`scene_check::StoryCheck`): every conversation
+they pass through, with the bodies, party and state the story has given it.
+Its `SUMMARY.md`, `SCENES.md` and `report.json` in the chain's run folder are
+the evidence a scene works; it reaches only what the routes reach, and takes
+some 3 to 5 times as long, so it is asked for once a batch of cutscene fixes.
+A run below that starts a conversation out of its story's order, so what it
+finds is a lead, to be seen in story state or on film.
+
 `kjk dialogue check k1|tsl [MODULE…]` plays every conversation of a
 game's modules headless and checks each line, so a cutscene's faults are found
 by the machine (`scene_check`). Each module runs the sweep's runs (from
