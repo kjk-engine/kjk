@@ -579,7 +579,8 @@ carry its spell row (`GetEffectSpellId`, `GetHasSpellEffect`, dispel).
   level d4 (at most 10); Disable and Destroy Droid level and level d6;
   Push and Wave knock down 2 s / 6 s (Reflex: none); Whirlwind
   ⅓ level a second for 9 s; Stun 9 s, Stasis 12 s, Droid Stun 12 s, Fear
-  6 s (C11 caps all at 3 s); Cure 5 and Heal 10 + level + WIS + CHA to
+  6 s (C11 caps all at 3 s, and the visuals and icon linked to a hold end
+  with it; a permanent link keeps its look); Cure 5 and Heal 10 + level + WIS + CHA to
   the caster and the party; Energy Resistance 15 against five types for
   120 s. Push level, Wave ⌊1.5 × level⌋, Choke ⌊⅔ level⌋ a tick, fitted
   from casters of levels 5, 10 and 15.
