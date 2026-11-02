@@ -630,6 +630,100 @@ fn feat_worth(level: &Level, report: &mut Report) -> serde_json::Value {
     serde_json::Value::Array(rows)
 }
 
+/// What each gun feat is worth to one pistol and to a pair: the damage a
+/// second at an idle dummy and the bar it leaves, the feat's button held
+/// (a burst pressed again as soon as it may be), at a 75% chance to hit with
+/// the right gun before the feat's penalty. Aiming's slower walk and the
+/// Defense a feat costs are outside these numbers.
+fn gun_worth(level: &Level, report: &mut Report) -> serde_json::Value {
+    use crate::specials_verbs::{pistol, rifle};
+    outln!("gun worth: damage a second at a dummy, 75% to hit, over the opening 10 s and 60 s");
+    const SECONDS: [u64; 2] = [10, 60];
+    const PRESS_EVERY_MS: u64 = 400;
+    let run = |guns: [Option<Weapon>; 2], known: &[u16], pressed: bool, seed: u64| {
+        let mut sheet = Sheet::dev_soldier();
+        sheet.weapons = guns;
+        for row in known {
+            sheet.feats.insert(*row);
+        }
+        let mut target = dummy([None, None]);
+        target.max_hp = u16::MAX;
+        let weapon = sheet.main_weapon();
+        sheet.bab = (0..=60)
+            .find(|bab| {
+                sheet.bab = *bab;
+                damage::chance(&sheet, &weapon, &target) >= 750
+            })
+            .expect("a base attack bonus for 75% to hit");
+        let mut bout = Bout::new(level, [sheet, target], 160.0, seed);
+        let from = bout.fighter(1).hp;
+        let start = bout.now();
+        SECONDS.map(|seconds| {
+            while bout.now() < start + seconds * 1000 {
+                let alt = match (known.is_empty(), pressed) {
+                    (true, _) => 0,
+                    (false, false) => ALT,
+                    (false, true) if (bout.now() - start) % PRESS_EVERY_MS < 50 => ALT,
+                    (false, true) => 0,
+                };
+                bout.step([Keys::press(ATTACK | alt), Keys::default()]);
+            }
+            (
+                f64::from(from - bout.fighter(1).hp) / 100.0 / seconds as f64,
+                bout.fighter(0).fp / 100,
+            )
+        })
+    };
+    let average = |guns: [Option<Weapon>; 2], known: &[u16], pressed: bool| {
+        let runs: Vec<_> = (1..=8u64).map(|seed| run(guns, known, pressed, seed)).collect();
+        [0, 1].map(|at| {
+            runs.iter().map(|shots| shots[at].0).sum::<f64>() / runs.len() as f64
+        })
+    };
+    let lines: [(&str, &[u16], bool); 5] = [
+        ("no feat", &[], false),
+        ("Sniper Shot", &feats::SNIPER_SHOT[..1], false),
+        ("Master Sniper Shot", &feats::SNIPER_SHOT, false),
+        ("Rapid Shot", &feats::RAPID_SHOT[..1], true),
+        ("Multi Shot", &feats::RAPID_SHOT, true),
+    ];
+    let mut rows = Vec::new();
+    let mut sniper_gain = [0.0; 3];
+    let hands: [(&str, [Option<Weapon>; 2]); 3] = [
+        ("one pistol", [Some(pistol()), None]),
+        ("a pair", [Some(pistol()), Some(pistol())]),
+        ("a rifle", [Some(rifle()), None]),
+    ];
+    for (at, (hands, guns)) in hands.into_iter().enumerate() {
+        let plain = average(guns, &[], false);
+        for (name, known, pressed) in lines {
+            let dps = average(guns, known, pressed);
+            let gain = [0, 1].map(|at| dps[at] / plain[at] - 1.0);
+            outln!(
+                "  {hands:<11} {name:<19} {:>6.2} HP/s {:>+5.0}%   {:>6.2} HP/s {:>+5.0}%",
+                dps[0],
+                gain[0] * 100.0,
+                dps[1],
+                gain[1] * 100.0
+            );
+            if name == "Sniper Shot" {
+                sniper_gain[at] = gain[1];
+            }
+            rows.push(serde_json::json!({ "hands": hands, "name": name, "dps": dps, "gain": gain }));
+        }
+    }
+    report.check(
+        "Sniper Shot's sustained gain on a pair stays near its gain on one pistol",
+        (sniper_gain[1] - sniper_gain[0]).abs() < 0.1,
+        format!(
+            "{:+.0}% on a pair, {:+.0}% on one pistol",
+            sniper_gain[1] * 100.0,
+            sniper_gain[0] * 100.0
+        ),
+    );
+    serde_json::Value::Array(rows)
+}
+
 /// Blocks: medium swings at a dummy of each defence level, from the front
 /// and from behind; and a vibroblade's block.
 fn blocks(level: &Level, report: &mut Report, bouts: &mut Bouts) -> serde_json::Value {
@@ -1904,10 +1998,11 @@ pub fn duel(discovery: &Discovery, only: &[String]) -> ExitCode {
     let mut report = Report::default();
     let mut bouts = Bouts::new();
     type Section<'a> = Box<dyn Fn(&mut Report, &mut Bouts) -> serde_json::Value + 'a>;
-    let sections: [(&str, Section); 15] = [
+    let sections: [(&str, Section); 16] = [
         ("cuts", Box::new(|r, _| cuts(&level, r))),
         ("feat_attacks", Box::new(|r, _| feat_attacks(r))),
         ("feat_worth", Box::new(|r, _| feat_worth(&level, r))),
+        ("gun_worth", Box::new(|r, _| gun_worth(&level, r))),
         ("blocks", Box::new(|r, b| blocks(&level, r, b))),
         ("bolts", Box::new(|r, _| bolts(&level, r))),
         ("blade_bolts", Box::new(|r, b| blade_bolts(&level, r, b))),
