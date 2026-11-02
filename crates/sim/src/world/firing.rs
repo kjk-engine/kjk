@@ -205,6 +205,16 @@ pub(super) fn fire(
             let (forward, ..) = math::angle_vectors(ps.view);
             let mut velocity = scale(forward, grenades::SPEED * strength);
             velocity[2] += grenades::LIFT;
+            let base = muzzle(ps, grenades::MUZZLE);
+            // A mind's lob bursts as it lands, a player's on its fuse.
+            let lobbed = fighter.mind.hold == buttons::GRENADE;
+            let fuse_ms = if lobbed {
+                let drop = base[2] - (ps.origin[2] + motion::SOLE_Z) - grenades::HALF_SIZE;
+                let flight = grenades::lob_seconds(velocity[2], drop);
+                ((flight * 1000.0) as u64).min(grenades::FUSE_MS)
+            } else {
+                grenades::FUSE_MS
+            };
             commands.spawn((
                 Id(SimId(next_id.0)),
                 Bolt(Missile {
@@ -212,18 +222,18 @@ pub(super) fn fire(
                     weapon: sheet.main_weapon(),
                     cadence_ms: 0,
                     share: 1000,
-                    base: muzzle(ps, grenades::MUZZLE),
+                    base,
                     from_ms: clock.time_ms,
                     velocity: velocity.map(f32::round_ties_even),
                     half_size: grenades::HALF_SIZE,
                     blockable: false,
-                    until_ms: clock.time_ms + grenades::FUSE_MS,
+                    until_ms: clock.time_ms + fuse_ms,
                     lob: Some(grenades::Lob {
                         row: carried.row,
                         resting: false,
                     }),
                     held: None,
-                    scripted: false,
+                    scripted: lobbed,
                 }),
             ));
             next_id.0 += 1;

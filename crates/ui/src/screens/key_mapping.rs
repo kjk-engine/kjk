@@ -142,6 +142,19 @@ fn filter(selected: bool) -> ControlState {
 }
 
 impl Screen for KeyMapping {
+    fn tabs(&self) -> Vec<&'static str> {
+        vec!["BTN_Filter_Move", "BTN_Filter_Game", "BTN_Filter_Mini"]
+    }
+
+    /// Back puts the bindings back as they were (KOTOR's Cancel).
+    fn cancels(&self) -> bool {
+        true
+    }
+
+    fn accept(&self) -> Option<&str> {
+        Some("BTN_Accept")
+    }
+
     fn id(&self) -> ScreenId {
         ScreenId("options_keymap")
     }

@@ -241,10 +241,29 @@ pub(crate) fn rest(stick: Vec2, dead: f32) -> Vec2 {
 /// the slowest walk, not a crawl in place.
 const LEAST_STEP: f32 = 0.2;
 
+/// How far below sideways the stick still strafes (the tangent of 30°):
+/// the sim backpedals for any backward push, so a stick held sideways and a
+/// little down would turn the run into a backpedal.
+const STRAFE_SLOPE: f32 = 0.577;
+
+/// The buttons whose moves the sim picks by the keys' directions (a roll,
+/// a flip or cartwheel, a saber's lunge or kick): while one is held the
+/// stick reads as the keys would, one of eight ways.
+const DIRECTED: [Action; 4] = [
+    Action::Jump,
+    Action::Crouch,
+    Action::Attack,
+    Action::AltAttack,
+];
+
 /// The command's forward and right axes: the movement keys' (`WALK_AXIS`
 /// with `walk` held, as JA's client sends for a walk), or the stick's when
 /// no key is held: from `LEAST_STEP` just past its middle to a full run at
-/// its edge, the sim stepping as far as the axes ask.
+/// its edge, the sim stepping as far as the axes ask. While a `DIRECTED`
+/// button is held the stick snaps to the nearest of the keys' eight ways
+/// (its push kept): the sim reads a move's direction from each axis' sign,
+/// and a stick pushed left is rarely without some forward, which rolled
+/// forward, or pushed forward without some side, which cartwheeled.
 pub(crate) fn step(actions: &Actions, walk: bool) -> (i8, i8) {
     let speed = if walk {
         rules::movement::keys::WALK_AXIS as i8
@@ -257,10 +276,31 @@ pub(crate) fn step(actions: &Actions, walk: bool) -> (i8, i8) {
         axis(Action::Forward, Action::Backward),
         axis(Action::Right, Action::Left),
     );
-    let stick = actions.stick;
+    let mut stick = actions.stick;
     let length = stick.length();
     if keys != (0, 0) || length == 0.0 {
         return keys;
+    }
+    if !DIRECTED.iter().any(|action| actions.held(*action))
+        && stick.y < 0.0
+        && stick.y.abs() < stick.x.abs() * STRAFE_SLOPE
+    {
+        // Sideways and a little down strafes: no backpedal.
+        stick = Vec2::new(stick.x.signum() * length, 0.0);
+    }
+    if DIRECTED.iter().any(|action| actions.held(*action)) {
+        let eighth = std::f32::consts::FRAC_PI_4;
+        let way = (stick.y.atan2(stick.x) / eighth).round() * eighth;
+        let (y, x) = way.sin_cos();
+        // As the keys hold both of a diagonal's axes full.
+        let snap = |value: f32| {
+            if value.abs() < 0.5 {
+                0.0
+            } else {
+                value.signum() * length
+            }
+        };
+        stick = Vec2::new(snap(x), snap(y));
     }
     let scale = (LEAST_STEP + (1.0 - LEAST_STEP) * length) / length;
     let axis = |value: f32| (value * scale * 127.0).round().clamp(-127.0, 127.0) as i8;
@@ -389,9 +429,18 @@ impl PadKind {
     }
 }
 
-/// Whether this runs on a Steam Deck (Steam sets `SteamDeck` there).
+/// Whether this runs on a Steam Deck: Steam sets `SteamDeck` for its own
+/// games, and the machine names itself Valve's Jupiter (LCD) or Galileo
+/// (OLED) to all (a non-Steam game gets no `SteamDeck`).
 pub(crate) fn on_deck() -> bool {
-    std::env::var("SteamDeck").is_ok_and(|value| value == "1")
+    static DECK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *DECK.get_or_init(|| {
+        let read = |name: &str| std::fs::read_to_string(format!("/sys/class/dmi/id/{name}"));
+        let valve = read("board_vendor").is_ok_and(|vendor| vendor.trim() == "Valve");
+        let model =
+            read("product_name").is_ok_and(|name| ["Jupiter", "Galileo"].contains(&name.trim()));
+        std::env::var("SteamDeck").is_ok_and(|value| value == "1") || valve && model
+    })
 }
 
 /// What the player last played with.
@@ -472,6 +521,42 @@ impl Prompts<'_> {
             (Device::Pad(kind), Some(chord)) => kind.chord(chord).into_bytes(),
             _ => keys.shown(action),
         }
+    }
+
+    /// `action`'s binding over a HUD slot: while a pad plays, its buttons
+    /// drawn (`ui::icons`, compact where words would overflow); else its
+    /// key, a mouse button as `MB1` (`MB4` the side's first).
+    pub(crate) fn label(&self, action: Action) -> ui::vm::KeyLabel {
+        let device = self
+            .actions
+            .as_ref()
+            .map_or(Device::Keys, |actions| actions.device);
+        let chord = self.pads.as_ref().and_then(|pads| pads.chord(action));
+        let badge = match (device, chord) {
+            (Device::Pad(kind), Some(chord)) => {
+                Some(ui::icons::pad_texture(kind.key(), &chord.name()))
+            }
+            _ => None,
+        };
+        let keys = self.keys.as_deref().unwrap_or(KeyMap::defaults());
+        let words = match keys.input(action) {
+            Input::Mouse(button) => format!("MB{}", mouse_number(button)).into_bytes(),
+            Input::Key(_) => keys.shown(action),
+        };
+        ui::vm::KeyLabel { words, badge }
+    }
+}
+
+/// A mouse button's number, as players count them (the side buttons 4 and
+/// 5).
+fn mouse_number(button: MouseButton) -> u16 {
+    match button {
+        MouseButton::Left => 1,
+        MouseButton::Right => 2,
+        MouseButton::Middle => 3,
+        MouseButton::Back => 4,
+        MouseButton::Forward => 5,
+        MouseButton::Other(n) => n,
     }
 }
 
@@ -775,6 +860,59 @@ fn felt(
     }
 }
 
+/// Each pad as it connects, in the run's log: its name and maker, to tell
+/// from a report which device a player's buttons came from.
+fn connected(pads: Query<(Entity, &Gamepad, Option<&Name>), Added<Gamepad>>) {
+    for (entity, pad, name) in &pads {
+        let kind = PadKind::of(pad.vendor_id(), pad.product_id());
+        info!(
+            target: "pad",
+            ?entity,
+            name = name.map_or("?", |name| name.as_str()),
+            vendor = ?pad.vendor_id().map(|id| format!("{id:04x}")),
+            product = ?pad.product_id().map(|id| format!("{id:04x}")),
+            ?kind,
+            "pad connected"
+        );
+    }
+}
+
+/// How many presses a run's log keeps (`heard`).
+const PRESSES_LOGGED: u32 = 40;
+
+/// The first presses (a pad's buttons and the keys) and each pad's first
+/// push of either stick, in the run's log: what a player's pad sends, by
+/// the names it arrives as.
+fn heard(
+    pads: Query<(Entity, &Gamepad)>,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    mut logged: Local<(u32, Vec<(Entity, bool)>)>,
+) {
+    let (count, moved) = &mut *logged;
+    // Keys too: Steam can turn a pad's buttons into keys (a keyboard layout).
+    for key in keys.iter().flat_map(|keys| keys.get_just_pressed()) {
+        if *count < PRESSES_LOGGED {
+            *count += 1;
+            info!(target: "pad", ?key, "key pressed");
+        }
+    }
+    for (entity, pad) in &pads {
+        for button in pad.digital().get_just_pressed() {
+            if *count < PRESSES_LOGGED {
+                *count += 1;
+                info!(target: "pad", ?entity, ?button, "pressed");
+            }
+        }
+        for (right, stick) in [(false, pad.left_stick()), (true, pad.right_stick())] {
+            if stick.length() > 0.5 && !moved.contains(&(entity, right)) {
+                moved.push((entity, right));
+                let side = if right { "right" } else { "left" };
+                info!(target: "pad", ?entity, side, x = stick.x, y = stick.y, "stick moved");
+            }
+        }
+    }
+}
+
 fn rumble(
     mut asked: MessageReader<Rumble>,
     feel: Option<Res<PadFeel>>,
@@ -844,15 +982,19 @@ impl Plugin for PadPlugin {
                     .after(bevy::input::InputSystems)
                     .after(crate::swallow::hold_up),
             )
-            .add_systems(Update, ((felt, rumble).chain(), pad_names));
+            .add_systems(Update, ((felt, rumble).chain(), pad_names, connected, heard));
         #[cfg(feature = "steam")]
         app.add_systems(Update, on_screen_keyboard.after(crate::ui_view::Stepped));
     }
 }
 
+pub mod linux;
+
 #[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
-    probes::checks()
+    let mut checks = probes::checks();
+    checks.extend(linux::probes());
+    checks
 }
 
 #[cfg(feature = "probes")]

@@ -48,6 +48,7 @@ const PROBES: &[Probe] = &[
     ("cutscene_shot_rounds", cutscene_shot_rounds),
     ("cutscene_shot_at_object", cutscene_shot_at_object),
     ("script_push_throws", script_push_throws),
+    ("creature_lob_lands_on_target", creature_lob_lands_on_target),
     ("assured_shot_rounds", assured_shot_rounds),
     ("assured_shot_once_a_round", assured_shot_once_a_round),
     ("scene_shots_follow_clip", scene_shots_follow_clip),
@@ -1523,6 +1524,23 @@ fn cutscene_shot_at_object() -> Found {
         fired.is_some_and(|(_, off)| off <= 10.0),
         format!("its bolt (ms, degrees off the gate): {fired:?}"),
     )
+}
+
+/// A creature's lob carries as far as its target, near or far (the Endar
+/// Spire's thrower stands 18.4 m from its soldiers): charged as `ai::throw`
+/// charges it, it comes back to its own height within half a metre of there.
+fn creature_lob_lands_on_target() -> Found {
+    use crate::combat::grenades;
+    let (forward, ..) = crate::math::angle_vectors([-grenades::LOB_DEGREES, 0.0, 0.0]);
+    let mut worst = 0.0f32;
+    for metres in [5.0f32, 12.0, 18.4, 25.0] {
+        let distance = metres / collision::UNIT;
+        let speed = grenades::SPEED * grenades::lob_strength(distance);
+        let up = speed * forward[2] + grenades::LIFT;
+        let flight = grenades::lob_seconds(up, 0.0);
+        worst = worst.max((speed * forward[0] * flight - distance).abs() * collision::UNIT);
+    }
+    check(worst < 0.5, format!("{worst:.3} m off at worst"))
 }
 
 /// A script's push outside a cast (`EffectForcePushTargeted`: the Endar

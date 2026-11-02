@@ -23,7 +23,7 @@
 </style>
 <rect class="bg" width="1560" height="800"/>
 <text x="24" y="34" class="title" text-anchor="start">kjk · Steam Deck</text>
-<text x="24" y="56" class="note" text-anchor="start">Steam Input&#x27;s Gamepad template (the default for non-Steam games)</text>
+<text x="24" y="56" class="note" text-anchor="start">Add kjk to Steam as a non-Steam game and start it from Game Mode (Steam&#x27;s Gamepad layout)</text>
 <rect class="part" x="345" y="145" width="90" height="32" rx="10"/>
 <rect class="part" x="1125" y="145" width="90" height="32" rx="10"/>
 <rect class="part" x="330" y="180" width="120" height="18" rx="9"/>
@@ -102,7 +102,7 @@
 <polyline class="lead" points="1282,86 1210,158"/>
 <circle class="dot" cx="1210" cy="158" r="3"/>
 <text x="1290" y="145" class="main" text-anchor="start"><tspan class="key">R1</tspan>  Force power: cast the selected one</text>
-<text x="1290" y="163" class="sub" text-anchor="start">Grip, lightning, drain: hold · L1+R1: next feat attack · Menus: next tab</text>
+<text x="1290" y="163" class="sub" text-anchor="start">Hold: grip, lightning, drain · L1+R1: next feat</text>
 <polyline class="lead" points="1282,141 1226,190"/>
 <circle class="dot" cx="1226" cy="190" r="3"/>
 <text x="1290" y="205" class="main" text-anchor="start"><tspan class="key">Menu</tspan>  Game menu</text>

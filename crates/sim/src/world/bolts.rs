@@ -379,10 +379,10 @@ pub(super) fn bolt_source(bolt: &Missile) -> Source {
     }
 }
 
-/// A grenade's step (`combat::grenades`): traced from where it was to
-/// where it is against the level and the bodies its owner's shots meet; a
-/// body bursts it there, a surface bounces it (or it comes to rest), and
-/// its fuse's end bursts it where it is. Where it bursts, if it does.
+/// A grenade's step (`combat::grenades`): a player's traced from where it
+/// was to where it is against the level and the bodies its owner's shots
+/// meet; a body bursts it there, a surface bounces it (or it comes to rest),
+/// and its fuse's end bursts it where it is. Where it bursts, if it does.
 pub(super) fn lob(
     level: &Level,
     states: Option<&[u8]>,
@@ -392,7 +392,10 @@ pub(super) fn lob(
     msec: u32,
 ) -> Option<[f32; 3]> {
     let resting = bolt.lob.is_some_and(|lob| lob.resting);
-    if !resting {
+    // A creature's flies to where it was thrown, as KOTOR's projectile moves
+    // to its position on a timer (`CSWCProjectile::MoveProjectileToPosition`
+    // traces nothing).
+    if !resting && !bolt.scripted {
         let (from, to) = (bolt.at(now - u64::from(msec)), bolt.at(now));
         let half = bolt.half_size * UNIT;
         let extents = Extents {

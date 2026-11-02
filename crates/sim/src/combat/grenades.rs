@@ -32,6 +32,8 @@ pub const MIN_STRENGTH: f32 = rules::grenades::throw::MIN_STRENGTH;
 /// Throw speed at full strength, and the lift every throw gets (units/s).
 pub const SPEED: f32 = rules::grenades::throw::SPEED;
 pub const LIFT: f32 = rules::grenades::throw::LIFT;
+/// How far up a mind's lob goes (degrees).
+pub const LOB_DEGREES: f32 = rules::grenades::throw::LOB_DEGREES;
 /// Where it leaves the hand: units forward, right and up of the eye.
 pub const MUZZLE: [f32; 3] = rules::grenades::throw::MUZZLE;
 /// From the throw to the blast (ms).
@@ -184,6 +186,29 @@ pub fn effect(row: u16) -> Option<Effect> {
 /// How strong a throw held `held_ms` is (JA's thermal).
 pub fn strength(held_ms: u64) -> f32 {
     (held_ms.min(CHARGE_MS) as f32 / CHARGE_MS as f32).max(MIN_STRENGTH)
+}
+
+/// How strong a lob (`LOB_DEGREES` up, with `LIFT`) carries `distance` units
+/// to its own height: a full one reaches about 30 m. KOTOR's thrower has no
+/// farthest throw (`AIActionItemCastSpell` only plays its long throw past
+/// 10 m), and a scene's may be far (end_m01aa's, 18 m).
+pub fn lob_strength(distance: f32) -> f32 {
+    let (forward, ..) = crate::math::angle_vectors([-LOB_DEGREES, 0.0, 0.0]);
+    let steep = forward[2] / forward[0];
+    let g = crate::motion::GRAVITY;
+    let d = distance.max(1.0);
+    // Flat speed a: d × steep + LIFT × d / a − g/2 × (d / a)² = 0, in 1 / a.
+    let root = (LIFT * LIFT * d * d + 2.0 * g * d * d * d * steep).sqrt();
+    let flat = g * d * d / (LIFT * d + root);
+    (flat / (SPEED * forward[0])).clamp(MIN_STRENGTH, 1.0)
+}
+
+/// From a lob's release to its landing where it was thrown from (seconds):
+/// `velocity` up, `drop` units above the floor. A mind's grenade bursts there,
+/// as KOTOR's do as they land.
+pub fn lob_seconds(velocity_up: f32, drop: f32) -> f32 {
+    let g = crate::motion::GRAVITY;
+    (velocity_up + (velocity_up * velocity_up + 2.0 * g * drop.max(0.0)).sqrt()) / g
 }
 
 /// Whether `target` makes its Reflex save against `dc` with `d20` (1 to

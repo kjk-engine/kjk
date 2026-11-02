@@ -18,6 +18,10 @@ pub trait Page: Send + Sync {
     const NAME: &'static str;
     const LAYOUT: &'static str;
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState;
+    /// Its own tabs, in order (`Screen::tabs`: the triggers step them).
+    fn tabs(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
     fn press(&mut self, _tag: &str, _vm: &ViewModel, _out: &mut Vec<Intent>) {}
     fn row(&mut self, _list: &str, _index: usize, _vm: &ViewModel) {}
     /// A list's cursor moved to `index` (`Screen::pointed`).
@@ -95,6 +99,14 @@ impl<P: Page> Screen for Tab<P> {
 
     fn key(&mut self, key: Key, _: &ViewModel, out: &mut Vec<Intent>) -> bool {
         tabs::key(key, P::NAME, out)
+    }
+
+    fn tab_bar(&self, _: &ViewModel) -> bool {
+        true
+    }
+
+    fn tabs(&self) -> Vec<&'static str> {
+        self.page.tabs()
     }
 
     fn back(&mut self, out: &mut Vec<Intent>) {

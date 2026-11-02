@@ -172,6 +172,11 @@ impl Screen for NewOrLoad {
         self.pointed = index;
     }
 
+    /// A save (or New Game) is chosen as the cursor comes to it: A starts it.
+    fn activates_primary(&self, list: &str) -> bool {
+        self.primary(list).is_some()
+    }
+
     fn primary(&self, list: &str) -> Option<&'static str> {
         (list == "LB_GAMES").then_some("BTN_SAVELOAD")
     }

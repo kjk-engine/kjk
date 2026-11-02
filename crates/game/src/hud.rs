@@ -255,9 +255,9 @@ fn spawn(
 
 /// An item slot of the HUD: its `spells.2da` row, the uses left, its key and
 /// which key it is.
-type Slot = (u16, u32, Vec<u8>, items::Shelf);
+type Slot = (u16, u32, ui::vm::KeyLabel, items::Shelf);
 /// The power's slot: its row and key.
-type PowerSlot = (u8, Vec<u8>);
+type PowerSlot = (u8, ui::vm::KeyLabel);
 /// What the label says (`pick_view::Picking::label`).
 type Label = (crate::pick_view::LabelOn, Vec<u8>, f32);
 
@@ -275,7 +275,7 @@ fn kotor_view(
     sheet: &sim::combat::Sheet,
     fighter: &sim::combat::Fighter,
     (power, slots, label): (Option<PowerSlot>, &[Slot], Option<Label>),
-    feat_key: Vec<u8>,
+    feat_key: ui::vm::KeyLabel,
     goods: &sim::inventory::Goods,
     (persona, made, template): (
         Option<&sim::persona::Persona>,
@@ -385,9 +385,9 @@ fn remote_view(
     ui::vm::HudView {
         actions,
         action_keys: vec![
-            b"MB1".to_vec(),
-            b"MB2".to_vec(),
-            prompts.shown(Action::Medpac),
+            prompts.label(Action::Attack),
+            prompts.label(Action::AltAttack),
+            prompts.label(Action::Medpac),
         ],
         ..ui::vm::HudView::default()
     }
@@ -642,7 +642,7 @@ fn show(
         let now_ms = snapshot.time_ms;
         let on = crate::pick_view::chosen(&kinds, &sheet, &fighter, shelf, pending, now_ms);
         if let Some(kind) = on.and_then(|at| kinds[shelf as usize].get(at)) {
-            slots.push((kind.row, kind.left, prompts.shown(key), shelf));
+            slots.push((kind.row, kind.left, prompts.label(key), shelf));
         }
     }
     if let Ok(mut layers) = cameras.get_mut(hud.camera) {
@@ -700,13 +700,13 @@ fn show(
                 &sheet,
                 &fighter,
                 (
-                    power.map(|row| (row, prompts.shown(Action::Power))),
+                    power.map(|row| (row, prompts.label(Action::Power))),
                     &slots,
                     picking
                         .as_ref()
                         .and_then(|picking| picking.label(real.elapsed_secs())),
                 ),
-                prompts.shown(Action::NextFeat),
+                prompts.label(Action::NextFeat),
                 &snapshot.goods,
                 (
                     sim::persona::of(&snapshot.personas, own.0),
