@@ -15,6 +15,9 @@ pub mod save {
     pub const TSL_BUGS: crate::Since = crate::Since(crate::Stored::Save, 65);
     pub const CLAUDE_TSL_FINALE_2: crate::Since = crate::Since(crate::Stored::Save, 66);
     pub const COOP_PLAYTEST_FIXES: crate::Since = crate::Since(crate::Stored::Save, 67);
+    pub const FEAT_CYCLE: crate::Since = crate::Since(crate::Stored::Save, 68);
+    pub const ITEM_CYCLE: crate::Since = crate::Since(crate::Stored::Save, 69);
+    pub const COMPANION_KEPT_ITEMS: crate::Since = crate::Since(crate::Stored::Save, 70);
     #[allow(unused_imports)]
     pub use crate::pending::since::save::*;
 }
@@ -23,6 +26,8 @@ pub mod snapshot {
     pub const REMOTE_DROID: crate::Since = crate::Since(crate::Stored::Snapshot, 73);
     pub const CLAUDE_ITEMS_LOAD: crate::Since = crate::Since(crate::Stored::Snapshot, 74);
     pub const CLAUDE_UI_ISSUES: crate::Since = crate::Since(crate::Stored::Snapshot, 75);
+    pub const FEAT_CYCLE: crate::Since = crate::Since(crate::Stored::Snapshot, 76);
+    pub const ITEM_CYCLE: crate::Since = crate::Since(crate::Stored::Snapshot, 77);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }

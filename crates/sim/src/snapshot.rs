@@ -181,7 +181,14 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 75: an effect's modification may be an icon linked to it (`Modifies::Icon`,
 /// index 30). Old saves: old saves read as they are: no effect in them carries
 /// an icon.
-pub const VERSION: u32 = 75 + crate::pending::SNAPSHOT;
+/// 76: a sheet carries the feat attacks its wearer chose
+/// (`combat::picks::Picks`). Old saves: old saves read no choices: guns take
+/// their own line, two blades and double-bladed weapons carry none.
+/// 77: a sheet's choices carry the item kind picked for each key, and a pack
+/// whether a pick dropped the grenade charge (`Picks::items`,
+/// `Pack::charge_off`). Old saves: old saves read no item picks and no dropped
+/// charge: each key uses what it did.
+pub const VERSION: u32 = 77 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
