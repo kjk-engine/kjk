@@ -442,6 +442,25 @@ impl Level {
         }))
     }
 
+    /// `states_in` with every door open: what a body's way would be if no
+    /// door stood in it.
+    pub fn states_open_in(&self, snapshot: &Snapshot) -> Option<Vec<u8>> {
+        let open: Vec<(u32, ObjectState)> = snapshot
+            .entities
+            .iter()
+            .filter_map(|entity| match (entity.kind, entity.object) {
+                (Kind::Object(_, index), Some(mut object)) => {
+                    if object.state != collision::GONE {
+                        object.state = 1;
+                    }
+                    Some((index, object))
+                }
+                _ => None,
+            })
+            .collect();
+        self.states(open.iter().map(|(index, object)| (*index, object)))
+    }
+
     /// The collision's entity states for `objects` (a door's state; 0 for
     /// a placeable, whatever its look; `collision::GONE` for one no longer
     /// in play), in the

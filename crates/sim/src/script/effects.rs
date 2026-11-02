@@ -384,6 +384,30 @@ pub struct Applied {
 }
 
 impl Applied {
+    /// What `kjk dialogue check` is told of it, taking hold at `ms`.
+    #[cfg(feature = "probes")]
+    pub fn took(&self, ms: u64) -> super::Took {
+        let leaves = self.effect.leaves();
+        super::Took {
+            ms,
+            target: self.target,
+            by: self.by,
+            effect: self.effect.name(),
+            death: leaves
+                .iter()
+                .any(|leaf| matches!(leaf, Effect::Death | Effect::DeathKept)),
+            visuals: leaves
+                .iter()
+                .filter_map(|leaf| match leaf {
+                    Effect::Visual { row, .. } => *row,
+                    _ => None,
+                })
+                .collect(),
+            at: self.at,
+            cast: self.cast(),
+        }
+    }
+
     /// The `spell` of a scene's melee blow landing (`Strike::applied`): no
     /// `spells.2da` row, it marks the damage as struck with the attacker's
     /// weapon in hand.

@@ -88,6 +88,7 @@ probes!(
     routines_verbs,
     saber_verbs,
     scene_check,
+    scene_log,
     scene_sweep,
     scenes,
     script_verbs,

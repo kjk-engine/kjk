@@ -92,6 +92,23 @@ fn plays_once(animation: u16) -> bool {
     (FIRE_AND_FORGET..asset_odyssey::creature::LOOPED).contains(&animation)
 }
 
+/// How far in (seconds) a clip of `length` with its `transition` starts
+/// (`shown`): `BLEND_IN` before its transition time.
+fn lead_in(length: f32, transition: f32) -> f32 {
+    (transition.min(length) - BLEND_IN).max(0.0)
+}
+
+/// How long (ms) a body shows `acting`, a clip of `length` with its
+/// `transition`: a once-through to its end (`plays_once`), else its time. A
+/// round's ready stance holds for the blow's time after its clip (`ready`).
+pub fn shows_ms(acting: &Acting, length: f32, transition: f32) -> f64 {
+    if plays_once(acting.animation) && blows::of(acting.animation).is_none() {
+        f64::from(length - lead_in(length, transition)) * 1000.0
+    } else {
+        f64::from(acting.ms)
+    }
+}
+
 /// A whirlwind's victim spinning (`EffectWhirlWind`), `animations.2da`
 /// row 75 `whirlwind`, which the table marks looping.
 pub const WHIRLWIND: u16 = asset_odyssey::creature::LOOPED + 75;
@@ -716,7 +733,7 @@ fn shown<'a>(
     // on from there (the Taris rancor's `choke`, 1 s, is at its throat
     // as it begins).
     let mark = animator.transition().min(length);
-    let lead = (mark - BLEND_IN).max(0.0);
+    let lead = lead_in(length, animator.transition());
     let clip_at = lead + ((ms - since) / 1000.0).max(0.0) as f32;
     let blended = if clip_at < mark { clip_at / mark } else { 1.0 };
     let end = if plays_once(acting.animation) {

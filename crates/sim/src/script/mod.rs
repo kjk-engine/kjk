@@ -2024,6 +2024,25 @@ pub struct Report {
     /// ms): the ones it directs (`kjk dialogue check`).
     #[cfg(feature = "probes")]
     pub directed: Vec<(ObjectId, u64)>,
+    /// Every effect as it took hold, in order (`kjk dialogue check`).
+    #[cfg(feature = "probes")]
+    pub took: Vec<Took>,
+}
+
+/// An effect taking hold: when (sim ms), on whom, by whom, its name, the
+/// `visualeffects.2da` rows it shows, and the place it was put, if at one.
+#[cfg(feature = "probes")]
+#[derive(Debug, Clone, PartialEq)]
+pub struct Took {
+    pub ms: u64,
+    pub target: ObjectId,
+    pub by: ObjectId,
+    pub effect: String,
+    pub death: bool,
+    pub visuals: Vec<u16>,
+    pub at: Option<[f32; 3]>,
+    /// A spell's impact (a power, a grenade), not a script's own.
+    pub cast: bool,
 }
 
 /// A script's jump as it came out: when (sim ms), who, its mark (metres,

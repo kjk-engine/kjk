@@ -90,6 +90,8 @@ pub(super) fn hurt(
     let count = applied.len() as u32;
     for (index, applied) in applied.into_iter().enumerate() {
         remove(&mut actors, index as u32, index as u32 + 1);
+        #[cfg(feature = "probes")]
+        scripts.report.took.push(applied.took(now));
         let (target, by) = (SimId(applied.target.0), SimId(applied.by.0));
         let at = find(&actors, target);
         // A poison decides its link (`EffectLinkEffects`): kept off where
