@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `dbe0c52037730cbd`.
+Edition `d5c6679ccdf33321`.
 
 ## Contents
 
@@ -855,7 +855,7 @@ A blaster pistol fires once every 0.8 seconds.
 
 <a id="weapons-pistol-pair-gap"></a>**Two Pistols' Turns** = **50%** (`500 ‰`) · `weapons.pistol.pair_gap`
 
-With a pistol in each hand the guns take turns, neither firing within 50% of its refire after the other, and a Rapid Shot's left shot leaves that share of a burst's gap after the first.
+With a pistol in each hand the guns take turns, neither firing within 50% of its refire after the other, and a Rapid Shot's left shots leave that share of a burst's gap after each right one.
 
 KOTOR's two pistols attack with each hand in a round.
 
@@ -1317,9 +1317,10 @@ A Power Blast is made with a penalty of -3 to hit.
 #### <a id="feats-specials-rapid-shot"></a>Rapid Shot
 
 The alternate fire fires a burst of shots when the weapon is next ready.
-The weapon is ready again one shot sooner than the burst would take at its
-normal rate, granting an extra attack. For the round after, the character
-suffers a penalty to attacks and Defense.
+The weapon is ready again one shot's time after the burst's first shot (or
+as the burst ends, if that is later), so every shot past the first is an
+extra attack. For the round after, the character suffers a penalty to attacks
+and Defense.
 
 <a id="feats-specials-rapid-shot-gap-ms"></a>**Burst Interval** = **0.15 seconds** (`150 ms`) · `feats.specials.rapid_shot.gap_ms`
 
@@ -1327,17 +1328,21 @@ The shots of a burst are 0.15 seconds apart, or closer if the weapon's own rate 
 
 <sub>Source: JA (the E-11's alternate refire). Code: `sim::combat::specials::pull`.</sub>
 
-<a id="feats-specials-rapid-shot-shots"></a>**Rapid Shot Burst** = **2** · `feats.specials.rapid_shot.shots`
+<a id="feats-specials-rapid-shot-shots"></a>**Rapid Shot Burst** = **3** · `feats.specials.rapid_shot.shots`
 
-Rapid Shot and Improved Rapid Shot fire a burst of 2 shots.
+Rapid Shot and Improved Rapid Shot fire a burst of 3 shots.
 
-<sub>Source: the feats' descriptions (an extra attack). Code: `sim::combat::specials::Special::burst`.</sub>
+KOTOR's feats give one extra attack; the owner asked for more shots (2026-11-02), as one extra made a burst worth little under its penalty (`kjk combat duel --only gun_worth`).
 
-<a id="feats-specials-rapid-shot-multi-shots"></a>**Master Rapid Shot Burst** = **3** · `feats.specials.rapid_shot.multi_shots`
+<sub>Source: ours, after the feats' descriptions (an extra attack). Code: `sim::combat::specials::Special::burst`.</sub>
 
-Master Rapid Shot fires a burst of 3 shots.
+<a id="feats-specials-rapid-shot-multi-shots"></a>**Master Rapid Shot Burst** = **4** · `feats.specials.rapid_shot.multi_shots`
 
-<sub>Source: the feats' descriptions (two extra attacks). Code: `sim::combat::specials::Special::burst`.</sub>
+Master Rapid Shot fires a burst of 4 shots.
+
+KOTOR's feat gives two extra attacks; one more here, with Rapid Shot's (2026-11-02).
+
+<sub>Source: ours, after the feats' descriptions (two extra attacks). Code: `sim::combat::specials::Special::burst`.</sub>
 
 <a id="feats-specials-rapid-shot-penalty"></a>**Rapid Shot Penalty** = **-4 points / -2 points / -1 points** (`-4 / -2 / -1 points`) · `feats.specials.rapid_shot.penalty`
 
@@ -1350,8 +1355,8 @@ For the round after a burst, the character suffers -4 to attacks and Defense wit
 #### <a id="feats-specials-sniper-shot"></a>Sniper Shot
 
 Hold the alternate fire to aim. While aiming, the character moves slowly and
-cannot jump. Each shot fired while aiming has its critical threat range
-multiplied, and the character suffers a Defense penalty for the round
+cannot jump. Each shot fired while aiming gets a bonus to hit and has its
+critical threat range multiplied, and the character suffers a Defense penalty for the round
 after. Sniper Shot does not stun.
 
 <a id="feats-specials-sniper-shot-aim-speed"></a>**Aiming Speed** = **×0.5** · `feats.specials.sniper_shot.aim_speed`
@@ -1367,6 +1372,16 @@ Sniper Shot **×2** · Improved **×3** · Master **×4**
 Sniper Shot multiplies the critical threat range by 2, Improved Sniper Shot by 3 and Master Sniper Shot by 4.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::shot`.</sub>
+
+<a id="feats-specials-sniper-shot-attack-bonus"></a>**Sniper Shot Accuracy** = **4 points / 6 points / 8 points** (`4 / 6 / 8 points`) · `feats.specials.sniper_shot.attack_bonus`
+
+Sniper Shot **4 points** · Improved **6 points** · Master **8 points**
+
+An aimed shot gets +4 to hit with Sniper Shot, +6 with Improved Sniper Shot and +8 with Master Sniper Shot.
+
+The owner asked for Sniper Shot to be much more accurate (2026-11-02): KOTOR's threat range alone made an aimed shot worth a few percent over a plain one (`kjk combat duel --only gun_worth`).
+
+<sub>Source: ours. Code: `sim::combat::specials::Special::shot`.</sub>
 
 <a id="feats-specials-sniper-shot-defence-penalty"></a>**Sniper Shot Penalty** = **-5 points** · `feats.specials.sniper_shot.defence_penalty`
 

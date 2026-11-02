@@ -14,9 +14,10 @@
 //! - **Rapid Shot**, Improved, **Multi Shot** (30, 92, 26; first for
 //!   rifles and the rest, JA's E-11 fast fire): a press fires a burst
 //!   (more with Multi Shot) `BURST_GAP_MS` apart from when the gun is next
-//!   ready, and the gun is ready again when the burst would have taken one
-//!   shot fewer at its own cadence (KOTOR's extra attack); a penalty to hit
-//!   and to defence for the round (`rules::feats::specials::rapid_shot`).
+//!   ready, and the gun is ready again a refire after the first shot, or as
+//!   the burst ends (every shot past the first an extra attack, as KOTOR's
+//!   one is); a penalty to hit and to defence for the round
+//!   (`rules::feats::specials::rapid_shot`).
 //! - **Sniper Shot**, Improved, Master (31, 20, 77; first for disruptors,
 //!   JA's zoom): hold the button to aim (movement slowed, `AIM_SPEED`, no
 //!   jumping); each shot taken aiming has its threat range multiplied and
@@ -163,7 +164,7 @@ impl Special {
     }
 
     /// `weapon` as this special's shot carries it: Power Blast's damage and
-    /// its penalty to hit; Sniper Shot's threat range. (Rapid Shot's penalty
+    /// its penalty to hit; Sniper Shot's threat range and bonus to hit. (Rapid Shot's penalty
     /// is the round's, `Shooting::exposed`.)
     pub fn shot(self, mut weapon: Weapon) -> Weapon {
         use rules::feats::specials::power_blast;
@@ -177,8 +178,14 @@ impl Special {
                     .saturating_sub(power_blast::ATTACK_PENALTY);
             }
             Special::SniperShot(tier) => {
-                let times = sniper_shot::THREAT_TIMES[usize::from(tier.clamp(1, 3) - 1)];
-                weapon.crit_threat = weapon.crit_threat.max(1).saturating_mul(times);
+                let tier = usize::from(tier.clamp(1, 3) - 1);
+                weapon.crit_threat = weapon
+                    .crit_threat
+                    .max(1)
+                    .saturating_mul(sniper_shot::THREAT_TIMES[tier]);
+                weapon.attack_bonus = weapon
+                    .attack_bonus
+                    .saturating_add(sniper_shot::ATTACK_BONUS[tier]);
             }
             Special::RapidShot(_) => {}
         }
@@ -200,7 +207,7 @@ impl Special {
 
     /// A Rapid Shot's shots: Multi Shot's (its third tier), else Rapid
     /// Shot's.
-    fn burst(self) -> u8 {
+    pub(super) fn burst(self) -> u8 {
         use rules::feats::specials::rapid_shot;
         match self {
             Special::RapidShot(3) => rapid_shot::MULTI_SHOTS,
@@ -396,11 +403,11 @@ pub fn pull(
                 let wait = if shooting.burst > 0 {
                     gap
                 } else {
-                    // From the first shot the gun waits (shots − 1) of its
-                    // own refires in all: one attack more than its cadence
-                    // (with nothing left to wait, ready on the next step).
+                    // From the first shot the gun waits one of its own
+                    // refires in all (with nothing left to wait, ready on
+                    // the next step).
                     let shots = u32::from(special.burst());
-                    (shots - 1) * (refire_ms - gap)
+                    refire_ms.saturating_sub((shots - 1) * gap)
                 };
                 *timer_ms += wait as i32;
                 return Some(Shot {

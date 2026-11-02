@@ -1242,14 +1242,16 @@ fn holster_weapon() {
 /// take turns, right then left, each from its own muzzle with its own
 /// two-weapon penalty; the hand keys take neither down; a trigger let go
 /// banks no shot; a pair broken mid-fight fires its one gun from the right;
-/// Rapid Shot fires main, off, main, Power Blast both guns for one cost,
-/// Sniper Shot the main gun alone; a hostile creature with a pair fires
+/// Rapid Shot alternates (right, left, right, left; Multi Shot a shot more),
+/// Power Blast and Sniper Shot fire both guns at once for one cost
+/// (owner's ask, 2026-11-02), and a gunner without the feats only fires plain
+/// shots with the alternate; a hostile creature with a pair fires
 /// both, oftener than with one; the pair's state comes back whole from a
 /// snapshot mid-burst; two runs end the same. The sim alone.
 /// (approved 2026-10-25)
 #[test]
 fn dual_pistols() {
-    probed("dual pistols", &sim::pair_probes::probes(), 11);
+    probed("dual pistols", &sim::pair_probes::probes(), 12);
 }
 
 /// A feat attack chosen with the next-feat key (`combat::picks`): a gun

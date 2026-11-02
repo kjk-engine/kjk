@@ -6,14 +6,12 @@
 //! hand's own (its weapon, its two-weapon penalty: `passive::hand_attack`;
 //! its muzzle: `world::hand_muzzle`).
 //!
-//! The feat specials (`combat::specials`) are the main gun's, as KOTOR's
-//! feat attack is the main hand's and the off hand keeps its one attack:
-//! - **Rapid Shot**'s burst is the right gun's, the left firing its one
-//!   shot the pair's share of a burst gap after the first (main, off, main; Multi Shot
-//!   main, off, main, main);
-//! - **Power Blast**'s charge goes off from both guns at once, for one
-//!   cost;
-//! - **Sniper Shot** aims the right gun alone; the left's timer runs on.
+//! The feat specials (`combat::specials`) take both guns, for one cost:
+//! - **Rapid Shot**'s burst alternates, a shot more than one gun's, each the
+//!   pair's share of a burst gap after the last, starting from the right;
+//! - **Power Blast**'s charge goes off from both guns at once;
+//! - **Sniper Shot** fires both guns at once, plain shots from both once the
+//!   bar runs dry.
 
 use crate::combat::specials::{self, BURST_GAP_MS, Shooting, Shot, Special, Trigger};
 use crate::combat::weapons;
@@ -106,22 +104,43 @@ pub fn pull_special(
         let main = specials::pull(shooting, main_ms, pool, special, cost, trigger);
         shots[0] = main;
         match (special, main) {
-            (Some(Special::PowerBlast(_)), Some(shot)) if shot.special.is_some() => {
-                let charge = shot.cadence_ms.saturating_sub(hands.paces[0]);
+            // A blast goes off from both guns; an aim fires both too, without
+            // the bar for it as plain shots (else the pair's rate would halve).
+            (Some(Special::PowerBlast(_) | Special::SniperShot(_)), Some(shot))
+                if shot.special.is_some() || matches!(special, Some(Special::SniperShot(_))) =>
+            {
+                let extra = shot.cadence_ms.saturating_sub(hands.paces[0]);
                 shots[1] = Some(Shot {
-                    cadence_ms: hands.paces[1] + charge,
+                    cadence_ms: hands.paces[1] + extra,
                     ..shot
                 });
                 shooting.off_ms = shooting.off_ms.max(0) + hands.refires[1] as i32;
             }
-            // A burst begun (its first shot fired or waiting on the gun).
-            // The left fires the pair's share of a gap after the right's first shot,
-            // fired now or once the right is ready (raised, say).
-            (Some(Special::RapidShot(_)), _) if !bursting && shooting.burst > 0 => {
-                shooting.off_burst = true;
-                let after = gap(BURST_GAP_MS.min(hands.refires[0]));
-                let first = if main.is_some() { 0 } else { (*main_ms).max(0) };
-                shooting.off_ms = shooting.off_ms.max(first + after);
+            (Some(rapid @ Special::RapidShot(_)), _) => {
+                let begun = !bursting && shooting.burst > 0;
+                let special_shot = main.is_some_and(|shot| shot.special.is_some());
+                // The burst's shots with the left's one more, shared out in
+                // turn: the right keeps its half (the odd one), and an even
+                // count ends on the left.
+                let total = rapid.burst() + 1;
+                let lent = rapid.burst() - total.div_ceil(2);
+                let ends_left = total % 2 == 0;
+                if begun {
+                    shooting.burst -= lent;
+                }
+                // The right's last shot comes that many gaps sooner than its
+                // own burst's would: its wait after keeps the same whole.
+                if special_shot && shooting.burst == 0 {
+                    *main_ms += (u32::from(lent) * BURST_GAP_MS.min(hands.refires[0])) as i32;
+                }
+                // The left answers each of the right's shots, fired now or
+                // once the right is ready (raised, say).
+                if (begun || special_shot) && (shooting.burst > 0 || ends_left) {
+                    shooting.off_burst = true;
+                    let after = gap(BURST_GAP_MS.min(hands.refires[0]));
+                    let first = if main.is_some() { 0 } else { (*main_ms).max(0) };
+                    shooting.off_ms = first + after;
+                }
             }
             _ => {}
         }
@@ -159,6 +178,10 @@ pub fn pull_special(
         .fold(0, |bits, (hand, _)| bits | 1 << hand);
     if fired != 0 {
         shooting.hands = fired;
+    }
+    // After one gun's shot, the trigger's next turn is the other's.
+    if fired == 1 || fired == 2 {
+        shooting.next_off = fired == 1;
     }
     shots
 }

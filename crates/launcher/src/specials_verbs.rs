@@ -8,8 +8,9 @@
 //! - stamina: its size by CON, and an empty bar refilling in 20 s;
 //! - Power Blast: the charge, its cost, one shot on the release, heavier
 //!   than the pistol's plain shots;
-//! - Rapid Shot and Multi Shot: the burst's shots and spacing, the gun's
-//!   recovery, the cost and the round's penalties;
+//! - Rapid Shot and Multi Shot: the burst's shots and spacing, the gun back
+//!   a refire after the first or as the burst ends, the cost and the round's
+//!   penalties;
 //! - Sniper Shot: aiming halves movement, each aimed shot pays and leaves
 //!   defence −5;
 //! - sneak attack: the rule's cases, and a scoundrel's disruptor on a held
@@ -36,7 +37,7 @@ fn blaster(row: u16, dice: u8, line: [u16; 3]) -> Weapon {
     Weapon::plain(row, dice, 6, (1, 2), damage_types::ENERGY, line)
 }
 
-fn pistol() -> Weapon {
+pub(crate) fn pistol() -> Weapon {
     blaster(
         12,
         1,
@@ -48,7 +49,7 @@ fn pistol() -> Weapon {
     )
 }
 
-fn rifle() -> Weapon {
+pub(crate) fn rifle() -> Weapon {
     blaster(
         20,
         1,
@@ -294,8 +295,8 @@ pub fn specials(discovery: &Discovery, game: &str, module: &str, target_tag: &st
 
     // Rapid Shot and Multi Shot: the burst.
     for (name, feat, count, penalty) in [
-        ("Rapid Shot", feats::RAPID_SHOT[0], 2usize, -4i8),
-        ("Multi Shot", feats::RAPID_SHOT[2], 3, -1),
+        ("Rapid Shot", feats::RAPID_SHOT[0], 3usize, -4i8),
+        ("Multi Shot", feats::RAPID_SHOT[2], 4, -1),
     ] {
         outln!("  {name} (rifle, 350 ms): a press at 0, the trigger held from 100 ms");
         let bursting = gunner(rifle(), &[feat]);
@@ -306,11 +307,18 @@ pub fn specials(discovery: &Discovery, game: &str, module: &str, target_tag: &st
             _ => (0, 0, 0),
         });
         let fired = shots(&run, &start);
-        // The burst 150 ms apart, then the next plain shot one refire short
-        // of the burst's shots.
-        let ready = (count as u64 - 1) * 350;
+        // The burst 150 ms apart, then the next plain shot a refire after
+        // the first, or as the burst ends.
+        let ended = (count as u64 - 1) * 150;
         let mut expected: Vec<u64> = (0..count as u64).map(|shot| shot * 150).collect();
-        expected.push(ready);
+        if ended < 350 {
+            expected.push(350);
+        } else {
+            // A last shot with nothing left to wait leaves the timer as it
+            // was (`shots` sees it rise): the plain shot, a step on, in its place.
+            expected.pop();
+            expected.push(ended + 8);
+        }
         let after = fighter(at(&run, 8), me);
         let (attack, defence) = after.shooting.exposed(start.time_ms + 8);
         report.check(
