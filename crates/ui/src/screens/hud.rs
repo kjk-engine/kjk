@@ -756,57 +756,68 @@ pub fn action_keys(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut D
     action_label(gui, hud, painter, out);
 }
 
-/// The label's padding in its box, its gap over the slot, and its colours.
-const LABEL_PAD: [f32; 2] = [8.0, 3.0];
+/// The label's padding round its words, and its gap over the slot (layout
+/// pixels).
+const LABEL_PAD: [f32; 2] = [10.0, 4.0];
 const LABEL_GAP: f32 = 4.0;
-const LABEL_PANEL: [f32; 4] = [0.0, 0.03, 0.08, 0.82];
 
-/// What is being chosen, in a small box over its action slot, kept inside
-/// the layout (`HudView::action_label`).
+/// What is being chosen over its action slot, fading (`HudView::action_label`),
+/// in the HUD's own look: the target's action words (`LBL_ACTIONDESC`: its
+/// font and colour) in the frame round the action bar (`LBL_MOULDING3`, else
+/// the words' own backing), sized to the words, at least the frame's corners
+/// tall, and kept inside the layout.
 fn action_label(gui: &Gui, hud: &HudView, painter: &mut Painter, out: &mut DrawList) {
     let Some((nth, words, alpha)) = hud.action_label.as_ref() else {
         return;
     };
-    let Some(button) = gui.find(&format!("BTN_ACTION{nth}")) else {
+    let (Some(button), Some(backing), Some(desc)) = (
+        gui.find(&format!("BTN_ACTION{nth}")),
+        gui.find("LBL_MOULDING3")
+            .or_else(|| gui.find("LBL_ACTIONDESCBG")),
+        gui.find("LBL_ACTIONDESC"),
+    ) else {
         return;
     };
     let source = painter.source;
-    let Some((width, line)) = painter
-        .textures
-        .font(source, EXCLAIM_FONT)
+    let Some((width, line)) = desc
+        .text
+        .as_ref()
+        .and_then(|text| painter.textures.font(source, &text.font))
         .map(|(_, font)| (font.measure(words), font.line_height()))
     else {
         return;
     };
     let [x, y, w, _] = rect_of(button);
     let right = gui.extent.width as f32;
-    let size = [width + 2.0 * LABEL_PAD[0], line + 2.0 * LABEL_PAD[1]];
+    let corners = backing
+        .border
+        .as_ref()
+        .map_or(0.0, |border| 2.0 * border.dimension as f32);
+    let size = [
+        (width + 2.0 * LABEL_PAD[0]).max(corners),
+        (line + 2.0 * LABEL_PAD[1]).max(corners),
+    ];
     let left =
         (x + (w - size[0]) / 2.0).clamp(LABEL_GAP, (right - size[0] - LABEL_GAP).max(LABEL_GAP));
     let top = y - LABEL_GAP - size[1];
-    let [r, g, b, a] = LABEL_PANEL;
-    out.quads.push(Quad::solid(
-        [left, top, size[0], size[1]],
-        [r, g, b, a * alpha],
-    ));
-    let [r, g, b] = painter.palette.base;
-    for edge in [
-        [left, top, size[0], 1.0],
-        [left, top + size[1] - 1.0, size[0], 1.0],
-        [left, top, 1.0, size[1]],
-        [left + size[0] - 1.0, top, 1.0, size[1]],
-    ] {
-        out.quads.push(Quad::solid(edge, [r, g, b, 0.6 * alpha]));
+    let placed = |control: &Control| {
+        let mut control = control.clone();
+        control.extent.left = left.round() as i32;
+        control.extent.top = top.round() as i32;
+        control.extent.width = size[0].round() as i32;
+        control.extent.height = size[1].round() as i32;
+        control
+    };
+    let from = out.quads.len();
+    painter.control(&placed(backing), &ControlState::default(), out);
+    let state = ControlState {
+        text: Some(words.clone()),
+        ..ControlState::default()
+    };
+    painter.control(&placed(desc), &state, out);
+    for quad in &mut out.quads[from..] {
+        quad.color[3] *= alpha;
     }
-    let [r, g, b] = painter.palette.hilight;
-    painter.text(
-        EXCLAIM_FONT,
-        words,
-        [left, top, size[0], size[1]],
-        align::CENTRE | align::MIDDLE,
-        [r, g, b, *alpha],
-        out,
-    );
 }
 
 /// How the banner layer shows `control`: the line in KOTOR's combat message
