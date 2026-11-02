@@ -188,7 +188,7 @@ pub(super) fn fire(
         let scene_throw = scene.world && fighter.pack.queued.is_some();
         if let Some((carried, strength)) = grenades::pull(
             &mut fighter.pack,
-            &sheet.items,
+            (&sheet.items, sheet.picks.item(items::Shelf::Grenade)),
             fighter.weapon_wait_ms,
             throwing,
             clock.time_ms,
@@ -247,6 +247,7 @@ pub(super) fn fire(
         // The grenade button takes over from the trigger: a gun's timer
         // runs out (a blade's runs in its own step) and the charge begins.
         let readying = throwing
+            && !fighter.pack.charge_off
             && fighter
                 .pack
                 .next(&sheet.items, |u| u == items::Use::Grenade)

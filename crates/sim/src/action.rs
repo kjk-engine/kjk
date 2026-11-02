@@ -175,6 +175,10 @@ pub enum Action {
     /// The next feat attack of the weapon in the seat's body's `hand`
     /// (`combat::picks`); no action, no cost, in a fight too.
     NextFeat { hand: u8 },
+    /// The kind of item of `spells.2da` row `row` picked for its key
+    /// (`combat::picks`); no action, no cost, in a fight too. A grenade
+    /// picked while the key is held drops the charge (`Pack::charge_off`).
+    PickItem { row: u16 },
     /// Cast power `row` (`spells.2da`) at `target` (by script object id),
     /// as KOTOR's power list does: the seat's body queues the cast as
     /// `ActionCastSpellAtObject` would, one it knows and can pay for when
@@ -346,6 +350,7 @@ const ARENA: u8 = 54;
 const CAST: u8 = 55;
 const LEVEL_UP_ON: u8 = 56;
 const NEXT_FEAT: u8 = 57;
+const PICK_ITEM: u8 = 58;
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -529,6 +534,10 @@ impl Action {
                 out.u8(NEXT_FEAT);
                 out.u8(*hand);
             }
+            Action::PickItem { row } => {
+                out.u8(PICK_ITEM);
+                out.u16(*row);
+            }
             Action::Cast { row, target } => {
                 out.u8(CAST);
                 out.u16(*row);
@@ -682,6 +691,7 @@ impl Action {
             },
             FORM => Action::Form(input.u16()?),
             NEXT_FEAT => Action::NextFeat { hand: input.u8()? },
+            PICK_ITEM => Action::PickItem { row: input.u16()? },
             CAST => Action::Cast {
                 row: input.u16()?,
                 target: input.u32()?,
@@ -757,6 +767,7 @@ impl Action {
             | Action::Assemble { .. }
             | Action::Form(_)
             | Action::NextFeat { .. }
+            | Action::PickItem { .. }
             | Action::Cast { .. }
             | Action::ScreenOpened
             | Action::Forfeit

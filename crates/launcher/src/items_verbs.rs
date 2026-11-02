@@ -140,7 +140,7 @@ pub(crate) fn given_items(
             infinite: false,
         });
     }
-    theirs.items = sim::inventory::usable(theirs.race, facts, |row| library.impact(row).is_some());
+    theirs.items = sim::inventory::usable(theirs.race, facts, |row| library.impact(row).is_some(), None);
     creature.sheet = Some(theirs);
     let given = stage.level.clone().with_module(data);
     // Its scenes start from the install's scripts' state: the items

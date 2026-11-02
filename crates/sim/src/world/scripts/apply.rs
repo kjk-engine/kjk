@@ -679,6 +679,14 @@ pub(in crate::world) fn apply(
                     commands.entity(entity).insert(PlayerSheet(sheet));
                 }
             }
+            Change::DropCharge { who } => {
+                if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
+                    && fighting.0.last_command.buttons & crate::input::buttons::GRENADE != 0
+                {
+                    fighting.0.pack.charge_off = true;
+                    fighting.0.pack.charging_from = None;
+                }
+            }
             Change::UseItem { who, row } => {
                 if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
                 {

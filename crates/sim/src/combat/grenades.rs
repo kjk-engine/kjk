@@ -262,16 +262,22 @@ impl Lob {
 /// One step of the grenade button for a character whose weapon timer is
 /// `timer_ms`: a press with the timer run out and a grenade left starts the
 /// charge; the release throws the kind an item talent chose
-/// (`Pack::queued`) if one is left, else the first kind left. The throw:
-/// the kind, and its strength.
+/// (`Pack::queued`) if one is left, else the one its thrower `picked`, else
+/// the first kind left. A pick while it is held drops the charge
+/// (`Pack::charge_off`): nothing is thrown, and none begins until it is let
+/// go. The throw: the kind, and its strength.
 pub fn pull(
     pack: &mut Pack,
-    items: &[Option<Carried>; KINDS],
+    (items, picked): (&[Option<Carried>; KINDS], Option<u16>),
     timer_ms: i32,
     held: bool,
     now: u64,
 ) -> Option<(Carried, f32)> {
     let grenade = |u| u == Use::Grenade;
+    if pack.charge_off {
+        pack.charge_off = held;
+        return None;
+    }
     match pack.charging_from {
         Some(_) if held => None,
         Some(from) => {
@@ -283,7 +289,9 @@ pub fn pull(
             if chosen.is_some() {
                 pack.queued = None;
             }
-            let (at, kind) = chosen.or_else(|| pack.next(items, grenade))?;
+            let (at, kind) = chosen
+                .or_else(|| picked.and_then(|row| pack.left_of(items, row)))
+                .or_else(|| pack.next(items, grenade))?;
             pack.spend(at, kind.row, now);
             Some((kind, strength(now.saturating_sub(from))))
         }

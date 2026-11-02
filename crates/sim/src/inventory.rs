@@ -994,13 +994,12 @@ fn add_guards(guards: &mut Guards, more: &Guards) {
 /// casts a row with an impact script (`scripted`: the games' `spells.2da`
 /// `impactscript`, which does what the item does) that an item button
 /// takes (`ItemFacts::combat_row`) and that are for its race
-/// (`ItemFacts::fits`), counted by their uses, the first `items::KINDS`
-/// kinds.
-pub fn usable<'a>(
+/// (`ItemFacts::fits`), counted by their uses, every kind.
+pub fn kinds<'a>(
     race: u8,
     held: impl IntoIterator<Item = (u16, &'a ItemFacts)>,
     scripted: impl Fn(u16) -> bool,
-) -> [Option<Carried>; items::KINDS] {
+) -> Vec<Carried> {
     let mut kinds: Vec<Carried> = Vec::new();
     for (uses, facts) in held {
         let Some(row) = facts
@@ -1015,5 +1014,23 @@ pub fn usable<'a>(
             None => kinds.push(Carried { row, count }),
         }
     }
-    std::array::from_fn(|at| kinds.get(at).copied())
+    kinds
+}
+
+/// The `kinds` that fit a sheet's `items::KINDS` slots: the first, or those a
+/// party member's `picks` keep where it carries more (`Picks::slotted`).
+pub fn usable<'a>(
+    race: u8,
+    held: impl IntoIterator<Item = (u16, &'a ItemFacts)>,
+    scripted: impl Fn(u16) -> bool,
+    picks: Option<&crate::combat::picks::Picks>,
+) -> [Option<Carried>; items::KINDS] {
+    let kinds = kinds(race, held, scripted);
+    let kept = match picks {
+        Some(picks) if kinds.len() > items::KINDS => {
+            picks.slotted(&kinds, race == crate::combat::sheet::races::DROID)
+        }
+        _ => kinds,
+    };
+    std::array::from_fn(|at| kept.get(at).copied())
 }

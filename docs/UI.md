@@ -600,9 +600,17 @@ The story's progress (I19, `docs/WORLD-STATE.md`) rides in the snapshot
   (`sim::combat::forms`, `docs/COMBAT.md`). The next-feat key (6, LB + RB on a
   pad, `Next feat attack` in the key map) moves on the feat attack the weapon in hand
   carries, the same way (`Action::NextFeat`, wire 57; `game::feat_view`),
-  named in the feedback log, its `feat.2da` icon the action slot after the
-  power's (`sim::combat::picks`). [verify] KOTOR 2 picks from
+  named in a label over its slot, its `feat.2da` icon the action slot after
+  the power's (`sim::combat::picks`). [verify] KOTOR 2 picks from
   the column's list with the mouse and shows that line 4 s on the HUD.
+- The item keys (`game::pick_view`, `sim::combat::picks`): each has one action
+  slot, showing the kind it uses. Hold one and the mouse wheel (RB on a pad)
+  moves through the kinds carried (`Action::PickItem`, wire 58), a label over
+  the slot naming each with its uses left; letting go having moved uses
+  nothing. A grenade's key still charges from its press, the first step
+  dropping the charge. The others are used on the press with one kind carried
+  and on the let-go with more. Not KOTOR's: its item column is picked from
+  with the mouse.
 - KOTOR's status summary (`statussummary`, KOTOR 2's `statussummary_p`
   with the skin): what the scripts told the party (`docs/WORLD-STATE.md`'s
   table: journal entry added, XP and credits received or lost, light or
