@@ -133,6 +133,23 @@ pub(super) fn seat_actions(
                 out.changes.push(Change::Sheet { who: body, sheet });
                 Ok(())
             }
+            // The kind an item key uses (`combat::picks`): the seat's acting
+            // body's, at once. One not carried is never found by the key.
+            Action::PickItem { row } => {
+                let body = acting(view, seat.0, player);
+                let Some(worn) = view.thing(body).and_then(|thing| thing.character) else {
+                    continue;
+                };
+                let mut sheet = out.sheet(body, worn.worn);
+                let Some(shelf) = sheet.picks.pick_item(*row) else {
+                    continue;
+                };
+                out.changes.push(Change::Sheet { who: body, sheet });
+                if shelf == crate::combat::items::Shelf::Grenade {
+                    out.changes.push(Change::DropCharge { who: body });
+                }
+                Ok(())
+            }
             // A power cast from KOTOR's power list: queued on the seat's
             // acting body as `ActionCastSpellAtObject` queues it, the cast's
             // step refusing one it does not know or cannot pay for.

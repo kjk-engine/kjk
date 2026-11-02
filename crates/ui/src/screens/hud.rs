@@ -41,7 +41,7 @@ use crate::draw::{DrawList, Quad, Textures};
 use crate::paint::{ControlState, Painter, rect_of};
 use crate::screens::tab::hidden;
 use crate::skin::Source;
-use crate::vm::{Busy, HudView, MemberView, MinimapView, TargetView, ViewModel};
+use crate::vm::{Busy, HudView, KeyLabel, MemberView, MinimapView, TargetView, ViewModel};
 
 pub const LAYOUT: &str = "mipc28x6";
 
@@ -703,6 +703,9 @@ pub fn busy(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut DrawList
     }
 }
 
+/// A pad's buttons' height over an action slot (layout pixels).
+const BADGE_TALL: f32 = 14.0;
+
 /// Each action slot's key at the top of its button and the uses left at
 /// its bottom right, small and ringed in black (the layout's own count
 /// shares the icon's corner with the key, so it is drawn here instead).
@@ -734,14 +737,27 @@ pub fn action_keys(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut D
                 out,
             );
         };
+    let mut badges = Vec::new();
     for (nth, (_, left)) in hud.actions.iter().enumerate() {
         let Some(button) = gui.find(&format!("BTN_ACTION{nth}")) else {
             continue;
         };
         let [x, y, w, h] = rect_of(button);
-        if let Some(key) = hud.action_keys.get(nth) {
-            let rect = |dx: f32, dy: f32| [x + 2.0 + dx, y + 2.0 + dy, w - 4.0, 18.0];
-            write(key, &rect, align::CENTRE | align::TOP, palette.hilight);
+        match hud.action_keys.get(nth) {
+            // A pad's buttons, as large as fit the slot's top.
+            Some(KeyLabel {
+                badge: Some(badge), ..
+            }) => badges.push((badge, [x + 2.0, y + 2.0, w - 4.0, BADGE_TALL])),
+            Some(key) => {
+                let rect = |dx: f32, dy: f32| [x + 2.0 + dx, y + 2.0 + dy, w - 4.0, 18.0];
+                write(
+                    &key.words,
+                    &rect,
+                    align::CENTRE | align::TOP,
+                    palette.hilight,
+                );
+            }
+            None => {}
         }
         if let Some(left) = left {
             let rect = |dx: f32, dy: f32| [x + dx, y + h - 20.0 + dy, w - 4.0, 18.0];
@@ -752,6 +768,74 @@ pub fn action_keys(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut D
                 palette.base,
             );
         }
+    }
+    for (badge, area) in badges {
+        painter.badge(badge, area, out);
+    }
+    action_label(gui, hud, painter, out);
+}
+
+/// The label's padding round its words, and its gap over the slot (layout
+/// pixels).
+const LABEL_PAD: [f32; 2] = [10.0, 4.0];
+const LABEL_GAP: f32 = 4.0;
+
+/// What is being chosen over its action slot, fading (`HudView::action_label`),
+/// in the HUD's own look: the target's action words (`LBL_ACTIONDESC`: its
+/// font and colour) in the frame round the action bar (`LBL_MOULDING3`, else
+/// the words' own backing), sized to the words, at least the frame's corners
+/// tall, and kept inside the layout.
+fn action_label(gui: &Gui, hud: &HudView, painter: &mut Painter, out: &mut DrawList) {
+    let Some((nth, words, alpha)) = hud.action_label.as_ref() else {
+        return;
+    };
+    let (Some(button), Some(backing), Some(desc)) = (
+        gui.find(&format!("BTN_ACTION{nth}")),
+        gui.find("LBL_MOULDING3")
+            .or_else(|| gui.find("LBL_ACTIONDESCBG")),
+        gui.find("LBL_ACTIONDESC"),
+    ) else {
+        return;
+    };
+    let source = painter.source;
+    let Some((width, line)) = desc
+        .text
+        .as_ref()
+        .and_then(|text| painter.textures.font(source, &text.font))
+        .map(|(_, font)| (font.measure(words), font.line_height()))
+    else {
+        return;
+    };
+    let [x, y, w, _] = rect_of(button);
+    let right = gui.extent.width as f32;
+    let corners = backing
+        .border
+        .as_ref()
+        .map_or(0.0, |border| 2.0 * border.dimension as f32);
+    let size = [
+        (width + 2.0 * LABEL_PAD[0]).max(corners),
+        (line + 2.0 * LABEL_PAD[1]).max(corners),
+    ];
+    let left =
+        (x + (w - size[0]) / 2.0).clamp(LABEL_GAP, (right - size[0] - LABEL_GAP).max(LABEL_GAP));
+    let top = y - LABEL_GAP - size[1];
+    let placed = |control: &Control| {
+        let mut control = control.clone();
+        control.extent.left = left.round() as i32;
+        control.extent.top = top.round() as i32;
+        control.extent.width = size[0].round() as i32;
+        control.extent.height = size[1].round() as i32;
+        control
+    };
+    let from = out.quads.len();
+    painter.control(&placed(backing), &ControlState::default(), out);
+    let state = ControlState {
+        text: Some(words.clone()),
+        ..ControlState::default()
+    };
+    painter.control(&placed(desc), &state, out);
+    for quad in &mut out.quads[from..] {
+        quad.color[3] *= alpha;
     }
 }
 

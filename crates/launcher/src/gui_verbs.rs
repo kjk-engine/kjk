@@ -88,7 +88,7 @@ pub fn render(
 /// as play opens it, `steps` taken in turn (`press TAG`, `type TEXT`, `scroll N`;
 /// `key MOVE` a screen move, `Down`, `Activate`; `raw NAME` a key, mouse
 /// button or pad chord pressed, `KeyZ`, `MouseBack`, `Pad:LB+South`; `pad
-/// KIND` the pad played with, `xbox`, `playstation`, `nintendo`, `deck`), its
+/// KIND` the pad played with, its hints shown, `xbox`, `playstation`, `nintendo`, `deck`), its
 /// layers drawn into one PNG named `file`. The view model is what the game
 /// fills for the screen (character creation's choices, the session's
 /// `error` for `message`); the 3D views are not drawn.
@@ -140,6 +140,7 @@ pub fn screen(
                     let kind = kjk_game::pad::PadKind::named(kind)
                         .ok_or(format!("{kind}: xbox, playstation, nintendo or deck"))?;
                     padded(&mut vm, kind);
+                    vm.pad_playing = true;
                 }
                 Some(("raw", pressed)) => {
                     let raw = ui::input::UiInput {

@@ -189,7 +189,7 @@ pub fn strength(held_ms: u64) -> f32 {
 }
 
 /// How strong a lob (`LOB_DEGREES` up, with `LIFT`) carries `distance` units
-/// to its own height: a full one reaches about 30 m. KOTOR's thrower has no
+/// to its own height. KOTOR's thrower has no
 /// farthest throw (`AIActionItemCastSpell` only plays its long throw past
 /// 10 m), and a scene's may be far (end_m01aa's, 18 m).
 pub fn lob_strength(distance: f32) -> f32 {
@@ -204,8 +204,7 @@ pub fn lob_strength(distance: f32) -> f32 {
 }
 
 /// From a lob's release to its landing where it was thrown from (seconds):
-/// `velocity` up, `drop` units above the floor. A mind's grenade bursts there,
-/// as KOTOR's do as they land.
+/// `velocity` up, `drop` units above the floor.
 pub fn lob_seconds(velocity_up: f32, drop: f32) -> f32 {
     let g = crate::motion::GRAVITY;
     (velocity_up + (velocity_up * velocity_up + 2.0 * g * drop.max(0.0)).sqrt()) / g
@@ -263,16 +262,22 @@ impl Lob {
 /// One step of the grenade button for a character whose weapon timer is
 /// `timer_ms`: a press with the timer run out and a grenade left starts the
 /// charge; the release throws the kind an item talent chose
-/// (`Pack::queued`) if one is left, else the first kind left. The throw:
-/// the kind, and its strength.
+/// (`Pack::queued`) if one is left, else the one its thrower `picked`, else
+/// the first kind left. A pick while it is held drops the charge
+/// (`Pack::charge_off`): nothing is thrown, and none begins until it is let
+/// go. The throw: the kind, and its strength.
 pub fn pull(
     pack: &mut Pack,
-    items: &[Option<Carried>; KINDS],
+    (items, picked): (&[Option<Carried>; KINDS], Option<u16>),
     timer_ms: i32,
     held: bool,
     now: u64,
 ) -> Option<(Carried, f32)> {
     let grenade = |u| u == Use::Grenade;
+    if pack.charge_off {
+        pack.charge_off = held;
+        return None;
+    }
     match pack.charging_from {
         Some(_) if held => None,
         Some(from) => {
@@ -284,7 +289,9 @@ pub fn pull(
             if chosen.is_some() {
                 pack.queued = None;
             }
-            let (at, kind) = chosen.or_else(|| pack.next(items, grenade))?;
+            let (at, kind) = chosen
+                .or_else(|| picked.and_then(|row| pack.left_of(items, row)))
+                .or_else(|| pack.next(items, grenade))?;
             pack.spend(at, kind.row, now);
             Some((kind, strength(now.saturating_sub(from))))
         }

@@ -1543,6 +1543,7 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
             race,
             usable.iter().map(|(uses, facts)| (*uses, facts)),
             |row| scripted.contains(&row),
+            None,
         ),
         ..inventory::dress(naked, worn.iter().map(|(slot, facts)| (*slot, facts)))
     })

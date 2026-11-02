@@ -479,6 +479,14 @@ pub struct PicksView {
     pub known: Vec<u16>,
 }
 
+/// A binding as a prompt shows it: its words (`F`, `Mouse 4`), and while a
+/// pad plays, its buttons drawn (`icons`) in their place.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct KeyLabel {
+    pub words: Vec<u8>,
+    pub badge: Option<String>,
+}
+
 /// What KOTOR's HUD shows of the player in play.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct HudView {
@@ -488,8 +496,11 @@ pub struct HudView {
     pub portrait: Option<String>,
     /// The action slots, left to right: an icon, and uses left.
     pub actions: Vec<(String, Option<u32>)>,
-    /// The key that uses each action, as the screens name it (`3`, `F`).
-    pub action_keys: Vec<Vec<u8>>,
+    /// The key that uses each action (`3`, `F`; a pad's buttons drawn).
+    pub action_keys: Vec<KeyLabel>,
+    /// What is being chosen, over its slot, fading: the slot, the words, and
+    /// their opacity.
+    pub action_label: Option<(usize, Vec<u8>, f32)>,
     /// The status icons lit (`LBL_JOURNAL`, `LBL_PLOTXP`, …): what the
     /// last status summary told, a moment ago.
     pub lit: Vec<&'static str>,

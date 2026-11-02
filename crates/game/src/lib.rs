@@ -92,6 +92,7 @@ mod party_calls;
 pub mod pazaak_view;
 mod perf;
 pub mod persona;
+pub mod pick_view;
 pub mod play;
 pub mod play_view;
 mod power_fx;

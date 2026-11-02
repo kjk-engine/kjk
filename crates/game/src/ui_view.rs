@@ -300,10 +300,11 @@ fn requests(
         ResMut<crate::leader_view::Picked>,
         ResMut<crate::target_view::Pinned>,
     ),
-    (mut replies, mut called, mut watch): (
+    (mut replies, mut called, mut watch, mut picking): (
         Option<ResMut<crate::dialogue_view::ReplyInput>>,
         Option<ResMut<crate::dialogue_view::Called>>,
         ResMut<crate::pazaak_view::WatchAsked>,
+        ResMut<crate::pick_view::Picking>,
     ),
 ) {
     use sim::script::dialogue::Pick;
@@ -330,6 +331,11 @@ fn requests(
                 Err(_) => warn!(target: "console", "ui double: {row} is not a row's number"),
             },
             ["close"] => ui.stack.pop(),
+            ["key" | "wheel", ..] => {
+                if !picking.script(&words) {
+                    warn!(target: "console", "ui: {words:?} is no key or wheel request");
+                }
+            }
             ["script", what @ ..] => match crate::script_screens::parse(what) {
                 Some(screen) => shown.0.push(screen),
                 None => warn!(target: "console", "ui script: {what:?} is not a script's screen"),

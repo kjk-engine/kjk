@@ -29,17 +29,21 @@ pub struct Npc {
 }
 
 /// What the party table keeps of a companion away from the party
-/// (`SaveNPCState`, a member leaving it): the creature it was, whose items,
-/// career and XP the next one made of it takes (`script::make_npc`), its
+/// (`SaveNPCState`, a member leaving it): the creature that last had it, whose
+/// items, career and XP the next one made of it takes (`script::make_npc`), its
 /// sheet as it stood (levels, what it wore) and its hit and Force points
-/// (hundredths). KOTOR's table keeps the whole creature; without it a
-/// companion sent away came back as its template, its gear and levels lost.
+/// (hundredths), and the item it wore in each slot (0: none; none at all from
+/// a save older than this), as a scene that strips a creature it later
+/// destroys leaves the table's copy dressed. KOTOR's table keeps the whole
+/// creature; without it a companion sent away came back as its template, its
+/// gear and levels lost.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Kept {
     pub from: u32,
     pub sheet: Sheet,
     pub hp: i32,
     pub fp: i32,
+    pub worn: Option<[u32; crate::inventory::slots::COUNT as usize]>,
 }
 
 /// The party selection screen a script showed (`ShowPartySelectionGUI`),
@@ -357,6 +361,10 @@ impl Party {
                     kept.sheet.picks.encode(out);
                     out.u32(kept.hp as u32);
                     out.u32(kept.fp as u32);
+                    out.u8(u8::from(kept.worn.is_some()));
+                    for item in kept.worn.iter().flatten() {
+                        out.u32(*item);
+                    }
                 }
                 None => out.u8(0),
             }
@@ -415,12 +423,24 @@ impl Party {
                     sheet: {
                         let mut sheet = Sheet::decode(input)?;
                         if input.since(crate::since::save::FEAT_CYCLE) {
-                            sheet.picks = crate::combat::picks::Picks::decode(input)?;
+                            let items = input.since(crate::since::save::ITEM_CYCLE);
+                            sheet.picks = crate::combat::picks::Picks::decode(input, items)?;
                         }
                         sheet
                     },
                     hp: input.u32()? as i32,
                     fp: input.u32()? as i32,
+                    worn: if input.since(crate::since::save::COMPANION_KEPT_ITEMS)
+                        && input.u8()? != 0
+                    {
+                        let mut worn = [0; crate::inventory::slots::COUNT as usize];
+                        for item in &mut worn {
+                            *item = input.u32()?;
+                        }
+                        Some(worn)
+                    } else {
+                        None
+                    },
                 }),
             };
             let data = input.section()?;

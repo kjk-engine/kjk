@@ -60,6 +60,7 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 | F, [ ] | cast / select a power (grip, lightning, drain: hold F) |
 | T | grenade (hold to charge) |
 | 3 / 4 / 5 | medpac / stim / energy shield |
+| hold T, 3, 4 or 5 + mouse wheel | choose which kind that key uses (RB on a pad) |
 | H / B / V | holster / weapon set / Form |
 | X / O / U | stealth / mine / Security |
 | I J M P K | inventory, journal, map, party, abilities |
@@ -86,6 +87,11 @@ Keyboard and Mouse tabs (any key or mouse button, Mouse 4 and 5
 included) or its Controller tab (any button, or an LB chord, shown as
 your pad's own buttons). A binding another action has is named first;
 press it again and the two swap. Default resets the tab's device.
+
+On the Steam Deck, add kjk to Steam as a non-Steam game (in Desktop
+Mode: Games → Add a Non-Steam Game) and start it from **Game Mode**: there
+Steam hands it the Deck's controls as a gamepad. Started from Desktop Mode,
+Steam turns them into a keyboard and mouse.
 
 ![The controller layout](docs/controls/controller.svg)
 

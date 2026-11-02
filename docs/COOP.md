@@ -48,7 +48,14 @@ ready check: `PARTY.md`; the party's fall: `FALLING.md`.
 ## The remote droid
 Design: `docs/superpowers/specs/2026-10-29-remote-droid-design.md`; its
 numbers: `data/rules/remote.toml` (`kjk rules`).
-- A guest with no party member free flies TSL's remote (Bao-Dur's,
+- The party's size alone decides who flies one: a guest with no party
+  member free flies only while the party has fewer characters than
+  players (the host's own and each companion in the party table, down or
+  standing). With one for every player no guest ever flies: a guest whose
+  companion is down keeps it and waits for the revive, and one left
+  bodiless while a companion leads watches the party. Phantom seats fly
+  regardless (probes `no_droid_while_companion_leads`, `…_down`).
+- It is TSL's remote (Bao-Dur's,
   `Droid_SensorBall`): launched from the body it let go, else behind the
   leader; docked the step a companion frees up (`world::remote::launch`,
   after `drivers::assign` and `scene::hold`). Not an entity: a world
