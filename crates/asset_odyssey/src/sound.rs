@@ -277,6 +277,22 @@ pub struct Moves {
     pub destroyed: Option<String>,
 }
 
+impl Moves {
+    /// Every file it plays.
+    pub fn files(&self) -> impl Iterator<Item = &str> {
+        [
+            &self.opened,
+            &self.closed,
+            &self.locked,
+            &self.used,
+            &self.destroyed,
+        ]
+        .into_iter()
+        .flatten()
+        .map(String::as_str)
+    }
+}
+
 /// What an object sounds like.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Voice {
@@ -287,11 +303,14 @@ pub enum Voice {
     None,
 }
 
-/// An area's sound: its tracks, and each object's, in the module's order.
+/// An area's sound: its tracks, and each object's, in the module's order;
+/// each placeable appearance's (`placeables.2da` row's), for the objects
+/// play makes (remains, a script's `CreateObject`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AreaSound {
     pub tracks: Tracks,
     pub objects: Vec<Voice>,
+    pub placeables: Vec<Voice>,
 }
 
 impl AreaSound {
@@ -300,17 +319,7 @@ impl AreaSound {
         self.objects.iter().flat_map(|voice| -> Vec<&str> {
             match voice {
                 Voice::Emitter(emitter) => emitter.sounds.iter().map(String::as_str).collect(),
-                Voice::Moves(moves) => [
-                    &moves.opened,
-                    &moves.closed,
-                    &moves.locked,
-                    &moves.used,
-                    &moves.destroyed,
-                ]
-                .into_iter()
-                .flatten()
-                .map(String::as_str)
-                .collect(),
+                Voice::Moves(moves) => moves.files().collect(),
                 Voice::Steps(_) | Voice::None => Vec::new(),
             }
         })
@@ -434,5 +443,20 @@ pub fn area(source: &dyn Source, area: &str) -> Option<AreaSound> {
             });
         }
     }
-    Some(AreaSound { tracks, objects })
+    let placeable_rows = placeables.as_ref().map_or(0, |table| table.cells.len());
+    let placeables = (0..placeable_rows as u32)
+        .map(|row| moves(app_type(&placeables, Some(row))))
+        .collect();
+    Some(AreaSound {
+        tracks,
+        objects,
+        placeables,
+    })
+}
+
+/// Placeable template `template`'s appearance (its UTP's `Appearance`, a
+/// `placeables.2da` row).
+pub fn placeable_appearance(source: &dyn Source, template: &str) -> Option<u16> {
+    let utp = Gff::parse(&source.read(template, ResType::UTP)?).ok()?;
+    u16::try_from(utp.root.uint("Appearance")?).ok()
 }
