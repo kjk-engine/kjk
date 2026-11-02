@@ -60,6 +60,15 @@ summary = "Every throw also rises at {grenades.throw.lift:m}."
 source = "JA (the thermal detonator)"
 see = "sim::combat::grenades::LIFT"
 
+[throw.lob_degrees]
+name = "Creature's Lob"
+value = 60.0
+unit = "°"
+range = [0.0, 89.0]
+summary = "A creature throws {grenades.throw.lob_degrees:bare}° up, charged to land on its target; its grenade bursts as it lands."
+source = "engine: end_m01aa's script lets its soldiers die 2.75 s after its throw, which this arc lands on; KOTOR's own arc is not read"
+see = "sim::combat::grenades::lob_strength"
+
 [throw.muzzle]
 name = "Release Point"
 value = [12.0, 0.0, -4.0]

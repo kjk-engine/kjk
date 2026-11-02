@@ -617,7 +617,9 @@ pub(super) fn think(
         if world_held && mind.task == Task::Chase {
             mind.task = Task::Idle;
         }
-        if mind.task != Task::Engage && mind.hold_until > now {
+        // A throw its script chose outlasts the fight: end_m01aa's thrower,
+        // out of combat by `CancelCombat`, charges it still.
+        if mind.task != Task::Engage && mind.hold_until > now && mind.hold != buttons::GRENADE {
             mind.hold_until = 0;
         }
         // A body standing in its way, gone round: by move_body's walks after a
@@ -1008,6 +1010,13 @@ pub(super) fn think(
         }
         if fighter.mind.hold_until > now {
             command.buttons |= fighter.mind.hold;
+        }
+        // A lob looks up as its charge runs, to the step that lets it go.
+        if fighter.mind.hold == buttons::GRENADE
+            && (fighter.mind.hold_until > now || fighter.pack.charging_from.is_some())
+        {
+            let up = -crate::combat::grenades::LOB_DEGREES;
+            command.angles[0] = mind::looking(ps, up, 0.0).angles[0];
         }
         // Caught in a saber lock it hammers attack, a press every two
         // `LOCK_TAP_MS` (JA's NPCs push their locks; the rate is a stand-in).
