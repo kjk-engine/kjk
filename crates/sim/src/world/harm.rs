@@ -817,7 +817,10 @@ pub(super) fn hurt(
         }
         if let Some(by) = attacker {
             let theirs = &mut actors[by].5.0;
-            theirs.combat_until = clock.time_ms + COMBAT_MS;
+            // The story's death is no fight of its giver's.
+            if !death {
+                theirs.combat_until = clock.time_ms + COMBAT_MS;
+            }
             if killed && by != at {
                 let effects = &mut theirs.effects;
                 effects.fury = effects

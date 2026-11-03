@@ -18,6 +18,8 @@
 //! - **Formats:** a kind whose maker's format changes names it
 //!   (`bake/k1/area-v3`), so `gc` drops the older ones whole once a newer
 //!   one is there.
+//! - **Cap:** a kind keyed by data that keeps changing (a bake per rulebook
+//!   edition) is held to a size with `cap`, the least recently used going.
 
 use std::fs;
 use std::io;
@@ -213,6 +215,27 @@ impl Store {
             }
         }
         Ok(collected)
+    }
+
+    /// Removes `kind`'s least recently used files (by modified time) until
+    /// it takes at most `bytes`, keeping the most recent one whatever its
+    /// size; what it removed. Bakes keyed by data no longer current go
+    /// first, and those still used stay warm.
+    pub fn cap(&self, kind: &str, bytes: u64) -> io::Result<Usage> {
+        let mut found = files(&self.root.join(kind))?;
+        found.sort_by_key(|(path, meta)| (meta.modified().ok(), path.clone()));
+        let mut total: u64 = found.iter().map(|(_, meta)| meta.len()).sum();
+        let mut removed = Usage::default();
+        for (path, meta) in found.iter().take(found.len().saturating_sub(1)) {
+            if total <= bytes {
+                break;
+            }
+            if fs::remove_file(path).is_ok() {
+                total -= meta.len();
+                removed.add(meta);
+            }
+        }
+        Ok(removed)
     }
 
     /// The kind folders a newer format of theirs supersedes: `<name>-v<N>`

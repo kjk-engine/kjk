@@ -577,6 +577,19 @@ impl Fade {
         }
     }
 
+    /// This fade gone at once, the screen clear from `now_ms`.
+    pub fn cleared(self, now_ms: u64) -> Fade {
+        Fade {
+            start_ms: now_ms,
+            wait_ms: 0,
+            length_ms: 0,
+            out: false,
+            from: 0.0,
+            conversation: false,
+            ..self
+        }
+    }
+
     /// The fade as the engine leaves it lifting it at `now_ms`: a covering
     /// one not locked fades in from where it is over `LIFT_MS` (a clear
     /// screen stays clear); any other stands.

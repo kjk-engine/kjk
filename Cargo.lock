@@ -252,6 +252,7 @@ dependencies = [
  "script_ncs",
  "session",
  "sim",
+ "store",
  "ui",
  "vfs",
 ]

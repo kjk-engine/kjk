@@ -20,6 +20,7 @@ rules.workspace = true
 saves = { workspace = true, features = ["probes"] }
 script_ncs = { workspace = true, features = ["probes"] }
 session.workspace = true
+store.workspace = true
 sim = { workspace = true, features = ["probes"] }
 ui = { workspace = true, features = ["probes"] }
 vfs.workspace = true

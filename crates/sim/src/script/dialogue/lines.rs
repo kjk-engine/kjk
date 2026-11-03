@@ -248,12 +248,24 @@ impl Step<'_> {
             .collect()
     }
 
+    /// What the last node left of its fade goes as the next one plays, at
+    /// once and whichever kind it is, as both executables' clients reset the
+    /// dialog's fade between an entry and its replies: an empty reply's
+    /// cover (`NodeFade::COVER`) lasts until the line after it.
+    fn clear_node_fade(&mut self) {
+        let now = self.view.now_ms;
+        if let Some(fade) = self.out.fade(self.view).filter(|fade| fade.conversation) {
+            self.out.fade = Some(fade.cleared(now));
+        }
+    }
+
     /// A node's own fade as it plays, before its scripts (theirs then
-    /// win): 3 fades in, holding its colour through its delay (a first
+    /// win), the last node's gone (`clear_node_fade`): 3 fades in, holding its colour through its delay (a first
     /// entry's opens a scene from black), 4 fades out, 1 covers at once, 2
     /// uncovers at once; marked as the conversation's, which lifts it as it
     /// ends (`finish`). Any other kind does nothing.
     pub(super) fn node_fade(&mut self, fade: &NodeFade) {
+        self.clear_node_fade();
         let (length, out) = match fade.kind {
             NodeFade::COVER => (0.0, true),
             NodeFade::UNCOVER => (0.0, false),

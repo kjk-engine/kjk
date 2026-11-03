@@ -207,6 +207,13 @@ pub struct Bakes {
 /// the bakes' folder too, so `kjk store gc` drops the older ones.
 const AREA_FORMAT: &str = "area-v6";
 
+/// The bytes a game's area bakes may take, the least recently used going
+/// past it: every rulebook edition and data change bakes a whole new set
+/// (about 2 GB for K1 or TSL) and nothing else removes the old ones, which
+/// once grew to 59 GB. Three sets and more fit, for worktrees on different
+/// editions.
+const AREA_BAKES_KEPT: u64 = 8 << 30;
+
 /// The scripts the game's own screens run, not named by any object: the
 /// galaxy map's travel (`sim::script` runs it for the traveller).
 const SCREEN_SCRIPTS: [&str; 1] = [sim::script::TRAVEL_SCRIPT];
@@ -313,8 +320,10 @@ impl AreaCache {
     }
 
     fn bake(&self, place: Option<(String, store::Key)>, area: &Area) {
-        if let (Some(bakes), Some((kind, key))) = (&self.bakes, place) {
-            let _ = bakes.store.put(&kind, &key, &area.encode());
+        if let (Some(bakes), Some((kind, key))) = (&self.bakes, place)
+            && bakes.store.put(&kind, &key, &area.encode()).is_ok()
+        {
+            let _ = bakes.store.cap(&kind, AREA_BAKES_KEPT);
         }
     }
 

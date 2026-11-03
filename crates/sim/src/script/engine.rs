@@ -1503,6 +1503,16 @@ impl Engine<'_> {
         stop(self.state, self.out, self.view, who);
     }
 
+    /// `ClearAllActions` on `who` (unless it is not commandable): its queue
+    /// cleared, and what it plays stops too, even a clip that outlasts its
+    /// queued time.
+    fn clear_all(&mut self, who: ObjectId) {
+        if !self.state.uncommandable.contains(&who.0) {
+            clear_queue(self.state, self.view, who);
+            self.out.changes.push(Change::Clear { who });
+        }
+    }
+
     /// Whether `who`'s queue holds an animation of `LONG_ANIMATION_MS` or
     /// more playing `animation` for `ms`, so that this later copy is
     /// dropped. KOTOR compares the clip and its speed; the queue keeps the
@@ -2338,7 +2348,25 @@ impl Engine<'_> {
                 } else {
                     caller
                 };
+                // While a conversation holds the world a power used on an
+                // object is cast as the executables cast every one
+                // (`AddUseTalentOnObjectActions` hands a spell to
+                // `AddCastSpellActions`): turned to its target, its clips
+                // for their time, then its impact; the Star Forge's Malak
+                // throws his saber and lightning on cue
+                // (`k_psta_malaklght`). Out of one the mind fights with it.
+                let held =
+                    bound == ActionUseTalentOnObject && state.talk.holds_world(&view.seat_bodies());
                 match talent(args, 0) {
+                    Some(Use::Power(row)) if held && view.thing(target).is_some() => {
+                        let cast = Action::Cast {
+                            row,
+                            target: Target::Object(target),
+                            fake: false,
+                            cheat: false,
+                        };
+                        self.queue(caller, cast)
+                    }
                     Some(talent) if target != ObjectId::INVALID => {
                         self.queue(caller, Action::Talent { talent, target })
                     }
@@ -2808,9 +2836,13 @@ impl Engine<'_> {
                 }
                 Value::Int(0)
             }
+            // The executables' `CSWSCreature::CancelCombat` clears all its
+            // actions first: the Star Forge's Malak drops the saber throw
+            // still flying for the lightning that follows (`k_psta_malaklght`).
             CancelCombat => {
                 let who = object(args, 0);
                 if self.character(who).is_some() {
+                    self.clear_all(who);
                     self.out.changes.push(Change::CancelCombat { who });
                 }
                 Value::Int(0)
@@ -4347,12 +4379,7 @@ impl Engine<'_> {
                 Value::Int(0)
             }
             ClearAllActions => {
-                // What it plays stops too, even a clip that outlasts its
-                // queued time.
-                if !state.uncommandable.contains(&caller.0) {
-                    clear_queue(state, self.view, caller);
-                    self.out.changes.push(Change::Clear { who: caller });
-                }
+                self.clear_all(caller);
                 Value::Int(0)
             }
             GetCurrentAction => {

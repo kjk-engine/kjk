@@ -85,9 +85,11 @@ const ENGINE_CLIPS: &[(u16, &str)] = &[
 /// The constants a body has a clip for, and the clip's name: the scripts'
 /// `ANIMATION_…` constants and the conversations' own clips
 /// (`asset_odyssey::creature::scripted_clips`, the table the sim's lengths
-/// are read by) and the engine's own.
+/// are read by), the engine's own and a Force power's casting.
 pub fn clips() -> impl Iterator<Item = (u16, &'static str)> {
-    asset_odyssey::creature::scripted_clips().chain(ENGINE_CLIPS.iter().copied())
+    asset_odyssey::creature::scripted_clips()
+        .chain(ENGINE_CLIPS.iter().copied())
+        .chain(asset_odyssey::creature::CAST_CLIPS.iter().copied())
 }
 
 /// Whether `animation` plays its clip once to its end, whatever its time:
@@ -104,9 +106,19 @@ fn plays_once(animation: u16) -> bool {
 pub fn shows_ms(acting: &Acting, length: f32, transition: f32) -> f64 {
     if plays_once(acting.animation) && blows::of(acting.animation).is_none() {
         f64::from(length) * 1000.0 + f64::from(transition) * 500.0
+    } else if holds_full_time(acting.animation) {
+        f64::from(acting.ms) + f64::from(transition) * 1000.0
     } else {
         f64::from(acting.ms)
     }
+}
+
+/// Whether a loop stays whole for its time and fades after: a cast's, whose
+/// transition (1 s) is most of a usual power's 1.33 s, the arm out to its end.
+fn holds_full_time(animation: u16) -> bool {
+    asset_odyssey::creature::CAST_CLIPS
+        .iter()
+        .any(|&(clip, _)| clip == animation && !plays_once(clip))
 }
 
 /// A whirlwind's victim spinning (`EffectWhirlWind`), `animations.2da`
@@ -646,6 +658,9 @@ impl Throw {
 pub struct Shows {
     playing: Option<(Acting, Option<f64>)>,
     fading: Option<(Acting, f64)>,
+    /// The round's clip it last finished, whole: the ready stance it holds
+    /// until the next round (`shown`).
+    last_round: Option<Acting>,
     /// The one playing when its events were last read, and how far in
     /// (seconds; `passed`).
     heard: Option<(Acting, f32)>,
@@ -671,6 +686,8 @@ impl Shows {
         if self.playing.map(|(was, _)| was) != acting {
             if let Some((was, broke)) = self.playing.take() {
                 self.fading = Some((was, broke.map_or(ms, |broke| broke.min(ms))));
+                self.last_round =
+                    (broke.is_none() && blows::of(was.animation).is_some()).then_some(was);
             }
             self.playing = acting.map(|acting| (acting, None));
         }
@@ -713,7 +730,7 @@ impl Shows {
     /// `wield`), the one fading out first; in a fight (`combat`: its own
     /// melee wield number) a character whose last clip was a round's holds
     /// its wield's ready stance once that clip ends (`ready`), under it as
-    /// it fades.
+    /// it fades, and on between rounds.
     pub fn shown<'a>(
         &self,
         bound: &'a Bound,
@@ -721,7 +738,9 @@ impl Shows {
         (wield, combat): (u8, Option<u8>),
     ) -> impl Iterator<Item = (&'a Animator, f32, f32)> {
         let ready = combat.and_then(|wield| {
-            let (acting, broke) = self.playing?;
+            let (acting, broke) = self
+                .playing
+                .or(self.last_round.map(|round| (round, None)))?;
             ready(bound, (&acting, broke), wield, ms)
         });
         let fading = self
@@ -778,6 +797,8 @@ fn shown<'a>(
         f64::INFINITY
     } else if once {
         since + f64::from(length) * 1000.0 + fade / 2.0
+    } else if holds_full_time(acting.animation) {
+        since + f64::from(acting.ms) + fade
     } else {
         since + f64::from(acting.ms)
     };
