@@ -430,14 +430,28 @@ const TALK_RINGS: [f32; 4] = [0.4, 0.55, 0.7, 0.8];
 /// dunes), not one it walked out of; and the faces of the navigation mesh
 /// under them (`sim::walk::faces_under`), which the goal's walks plan round
 /// where a way round them leads (`Here::walled`), as a player keeps off an
-/// edge once shown it. Of one level: another's are dropped.
+/// edge once shown it. And the bodies the goal's walks went round
+/// (`Walker::around`, where each stood, units, and how often), and the
+/// faces under those gone round `ROUNDS_TO_WALL` times standing where they
+/// stood (`sim::walk::faces_under_body`), walled too: KOTOR's planner keeps
+/// its lines off creatures, so a walk takes another way past one standing in
+/// a gap (Moza in Chodo's office, where the way out ran between him and a
+/// wall, gone round and planned back through him for good). Of one level:
+/// another's are dropped.
 pub(super) struct TurnedBack {
     pub(super) level: String,
     pub(super) stood_in: BTreeSet<u32>,
     pub(super) was_at: Option<[f32; 3]>,
     pub(super) triggers: BTreeSet<u32>,
+    pub(super) rounded: Vec<([f32; 3], u8)>,
     pub(super) walled: Arc<[bool]>,
 }
+
+/// How often a walk goes round a body standing at one spot before its
+/// faces are walled (`TurnedBack::rounded`), and how near (metres) that spot
+/// is the same.
+pub(super) const ROUNDS_TO_WALL: u8 = 2;
+pub(super) const SAME_SPOT_M: f32 = 0.3;
 
 impl Default for TurnedBack {
     fn default() -> Self {
@@ -446,6 +460,7 @@ impl Default for TurnedBack {
             stood_in: BTreeSet::new(),
             was_at: None,
             triggers: BTreeSet::new(),
+            rounded: Vec::new(),
             walled: Arc::new([]),
         }
     }
@@ -486,11 +501,38 @@ impl TurnedBack {
         self.triggers.len() > known
     }
 
-    /// The faces under the triggers that turned the player back, made anew.
+    /// A walk went round a body standing at `at` (its origin, units):
+    /// whether it is now walled (`ROUNDS_TO_WALL` times at that spot).
+    pub(super) fn went_round(&mut self, at: [f32; 3]) -> bool {
+        let same = |was: [f32; 3]| flat(was.map(|v| v * UNIT), at.map(|v| v * UNIT)) <= SAME_SPOT_M;
+        let count = match self.rounded.iter_mut().find(|(was, _)| same(*was)) {
+            Some((_, count)) => {
+                *count = count.saturating_add(1);
+                *count
+            }
+            None => {
+                self.rounded.push((at, 1));
+                1
+            }
+        };
+        count == ROUNDS_TO_WALL
+    }
+
+    /// The faces under the triggers that turned the player back and the
+    /// bodies walled (`went_round`), made anew.
     pub(super) fn wall(&mut self, here: &Here) {
         let mut walled = Vec::new();
-        for trigger in self.triggers.iter().filter_map(|index| here.facts(*index)) {
-            let under = sim::walk::faces_under(here.level, &trigger);
+        let triggers = self
+            .triggers
+            .iter()
+            .filter_map(|index| here.facts(*index))
+            .map(|trigger| sim::walk::faces_under(here.level, &trigger));
+        let bodies = self
+            .rounded
+            .iter()
+            .filter(|(_, count)| *count >= ROUNDS_TO_WALL)
+            .map(|(at, _)| sim::walk::faces_under_body(here.level, *at));
+        for under in triggers.chain(bodies) {
             walled.resize(under.len(), false);
             for (walled, under) in walled.iter_mut().zip(under) {
                 *walled |= under;

@@ -971,8 +971,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     // What this step's use key is pressed for: the door, or
                     // the goal's own target (its press, below).
                     let mut pressed_for = door.filter(|_| pulse != 0).map(|(index, _)| index);
-                    // A body standing in the walk's way, gone round.
-                    if let Some(w) = walker.as_mut() {
+                    // A body standing in the walk's way, gone round; one gone
+                    // round again where it stood, planned round from the next
+                    // step (`TurnedBack::went_round`).
+                    let rounded = walker.as_mut().and_then(|w| {
                         let bodies: Vec<[f32; 3]> = last
                             .entities
                             .iter()
@@ -980,7 +982,11 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             .filter(|e| !sim::bodies_pass(&level, true, sim::party_member(e)))
                             .filter_map(|e| e.player.map(|ps| ps.origin))
                             .collect();
-                        w.around(&level, &player, &bodies);
+                        w.around(&level, &player, &bodies)
+                    });
+                    if rounded.is_some_and(|body| turned_back.went_round(body)) {
+                        turned_back.wall(&here);
+                        walker = None;
                     }
                     // The party in combat (`Snapshot::in_combat`): the nearest
                     // of those keeping it so (`keepers`, not plot) the player

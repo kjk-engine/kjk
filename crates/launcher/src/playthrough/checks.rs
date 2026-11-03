@@ -619,8 +619,9 @@ pub(super) fn shut_doors(base: &Snapshot, level: &sim::Level) -> sim::probe::Che
 /// wide across the way from the player to a goal 16 m east. Turned back by
 /// it, the walk goes round it by its open end, no leg in it; with no open
 /// end, through it. A trigger the player stood in while talking and was
-/// jumped out of turned it back; one it walked out of did not. A walk
-/// approached off the mesh makes for the floor it would from the mesh
+/// jumped out of turned it back; one it walked out of did not. A body gone
+/// round twice where it stands is walled and the way keeps clear of it; one
+/// that moved between rounds is not. A walk approached off the mesh makes for the floor it would from the mesh
 /// (`Here::approach`).
 pub fn wall_probes() -> sim::probe::Checks {
     let mut world = match sim::SimWorld::new(sim::WorldConfig::one_seat(), sim::Level::arena()) {
@@ -797,9 +798,51 @@ pub fn wall_probes() -> sim::probe::Checks {
             },
         )
     };
+    // A body standing at (0, 0) on the way from `from` to `to`, gone round
+    // there twice (Moza in Chodo's office), and another gone round once at
+    // (0, 4) and then a metre on: the first's faces are walled and the way
+    // keeps a body's pass from it; the second, moved, is not.
+    let walled_body = {
+        let mut turned = TurnedBack::default();
+        let (body, moving) = (origin(0.0, 0.0), origin(0.0, 4.0));
+        let once = turned.went_round(body);
+        let moved = turned.went_round(moving) || turned.went_round(origin(1.0, 4.0));
+        let twice = turned.went_round(body);
+        turned.wall(&Here::new(&level, &snapshot, &BTreeSet::new()));
+        let refused = BTreeSet::new();
+        let here = Here::new(&level, &snapshot, &refused).walled(&turned.walled);
+        let nearest = here.route(from, to, true).map(|corners| {
+            std::iter::once(from)
+                .chain(corners)
+                .collect::<Vec<_>>()
+                .windows(2)
+                .flat_map(|leg| {
+                    let (a, b) = (leg[0].map(|v| v * UNIT), leg[1].map(|v| v * UNIT));
+                    let steps = (flat(a, b) / 0.1).ceil().max(1.0) as usize;
+                    (0..=steps).map(move |k| {
+                        let t = k as f32 / steps as f32;
+                        flat([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, 0.0], [0.0; 3])
+                    })
+                })
+                .fold(f32::MAX, f32::min)
+        });
+        let pass = 2.0 * sim::motion::HALF_WIDTH * UNIT;
+        let detail = format!(
+            "walled after one round {once}, a moved body {moved}, after two {twice}; the way's nearest to it {nearest:?} m"
+        );
+        (
+            "walk_walls_a_body_gone_round_twice_where_it_stands",
+            if !once && !moved && twice && nearest.is_some_and(|m| m >= pass) {
+                Ok(detail)
+            } else {
+                Err(detail)
+            },
+        )
+    };
     vec![
         rounds,
         used,
+        walled_body,
         routed("walk_goes_round_a_trigger_that_turned_it_back", 5.0, true),
         routed("walk_goes_through_one_with_no_way_round", 10.0, false),
         left(
