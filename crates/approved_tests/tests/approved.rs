@@ -895,6 +895,13 @@ fn dialogue_state() {
     passed("dialogue state", &sim::script::dialogue_probes::kept(), 4);
 }
 
+/// A save against a module whose placements changed: where each old number
+/// stands in the new list, and the roster's encoding.
+#[test]
+fn reconcile_numbers() {
+    passed("reconcile", &sim::reconcile_probes::checks(), 6);
+}
+
 /// K1's Endar Spire, headless, answering through seat 0's command as
 /// `kjk dialogue run` does: Trask walks up and his opening plays to
 /// "Okay." with the first reply each time (the class checks choose the

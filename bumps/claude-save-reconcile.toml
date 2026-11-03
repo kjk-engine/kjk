@@ -1,0 +1,5 @@
+[formats]
+snapshot = "the snapshot and each module left keep the placements' roster as installed (`Snapshot::roster`)."
+
+[migrations]
+snapshot = "old saves read no roster: trusted as before"

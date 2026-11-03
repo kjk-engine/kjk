@@ -319,6 +319,8 @@ struct Module {
     /// Every object of the area, by number: its placements and what play
     /// made (`crate::instance`).
     pub(super) instances: Instances,
+    /// Its placements as first installed (`Snapshot::roster`).
+    roster: Option<Vec<crate::reconcile::Origin>>,
     /// What the party explored of each area's map (`crate::fog`).
     explored: Vec<crate::fog::Explored>,
     /// The scripts' visual effects on its doors and placeables

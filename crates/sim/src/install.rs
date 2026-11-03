@@ -40,6 +40,7 @@ use crate::math;
 use crate::module::ObjectData;
 use crate::module::{ModuleData, ObjectKind, Spot};
 use crate::motion::{self, MotionState};
+use crate::reconcile::roster;
 use crate::snapshot::{
     EntityState, Kind, ObjectState, Place, SimId, Snapshot, SnapshotHash, Stashed,
 };
@@ -354,6 +355,7 @@ pub(crate) fn assemble(
             place: current.clone(),
             entities: objects,
             spawned: before.spawned.clone(),
+            roster: before.roster.clone(),
         });
     }
     // The area as it was left, else its placements anew (new ids, in their
@@ -372,6 +374,12 @@ pub(crate) fn assemble(
             module: place.module,
         });
     }
+    // The placements as the module was first installed: kept through the
+    // stash, taken from the level only when it is planned anew.
+    let roster = match &stashed {
+        Some(stashed) => stashed.roster.clone(),
+        None => Some(roster(level.placed())),
+    };
     let made = stashed.as_ref().map_or(&[][..], |stashed| &stashed.spawned);
     let mut instances = Instances::of(level, made);
     let fresh = stashed.is_none();
@@ -670,6 +678,7 @@ pub(crate) fn assemble(
         // stands (`world::lent`).
         leading: None,
         spawned: instances.made().to_vec(),
+        roster,
         shared: before.shared,
         authority: before.authority,
         next_id,
