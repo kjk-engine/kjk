@@ -4,6 +4,7 @@
 //! (`harness_chase`); and watching a pazaak match (`pazaak_watch_view`).
 //! Built with the `probes` feature, as the checks are.
 
+pub use crate::dangly::probes as dangly;
 pub use crate::grass::probes as grass;
 pub use crate::model_fx::limit_probes as particle_limits;
 pub use crate::own_fx::probes as script_room_clips;

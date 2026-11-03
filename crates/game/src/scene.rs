@@ -195,6 +195,8 @@ impl Plugin for ScenePlugin {
             crate::speed_blur::SpeedBlurPlugin,
             crate::own_fx::OwnFxPlugin,
             crate::grass::GrassPlugin,
+            crate::dangly::DanglyPlugin,
+            crate::wind::WindPlugin,
             crate::weather::WeatherPlugin,
             crate::shadows::ShadowsPlugin,
         ))
@@ -758,6 +760,7 @@ pub(crate) struct Tally {
     lightmapped: usize,
     hidden: usize,
     skinned_meshes: usize,
+    dangly: usize,
     animated: usize,
     additive_without_hint: usize,
     unweighted_skins: Vec<String>,
@@ -936,8 +939,8 @@ impl<'t> Spawner<'t> {
         let textures = &self.textures;
         // A skinned mesh stays in main memory too: a cut reads it
         // (`severing`), and so do a body's marks (`body_marks`), a head's
-        // too.
-        let usage = if part.skin.is_some() || placed.attach.is_some() {
+        // too; a danglymesh's vertices are rewritten each frame (`dangly`).
+        let usage = if part.skin.is_some() || placed.attach.is_some() || part.dangly.is_some() {
             RenderAssetUsages::default()
         } else {
             RenderAssetUsages::RENDER_WORLD
@@ -1080,6 +1083,12 @@ impl<'t> Spawner<'t> {
                 Transform::IDENTITY,
             ))
             .id();
+        if let Some(dangly) = &part.dangly {
+            commands
+                .entity(child)
+                .insert(crate::dangly::Dangly::new(dangly));
+            tally.dangly += 1;
+        }
         if let Some(skin) = skinned {
             let binds: Vec<Mat4> = skin.inverse_binds.iter().map(to_mat4).collect();
             // The bones can carry the mesh far from its rest bounds (a
@@ -1429,6 +1438,7 @@ pub(crate) fn spawn_scene(
             "surfaces": tally.surfaces,
             "hidden_no_texture_loaded": tally.hidden,
             "skinned_meshes": tally.skinned_meshes,
+            "dangly_meshes": tally.dangly,
             "animated": tally.animated,
             "missing_clips": loaded.missing_clips,
             "creature_notes": loaded.creature_notes,

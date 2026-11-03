@@ -120,6 +120,22 @@ fn model_node(node: &Node, depth: usize) {
             mesh.saber,
             mesh.animate_uv
         );
+        if let Some(dangly) = &mesh.dangly {
+            let (low, high) = dangly
+                .constraints
+                .iter()
+                .fold((f32::MAX, f32::MIN), |(low, high), &c| {
+                    (low.min(c), high.max(c))
+                });
+            let pinned = dangly.constraints.iter().filter(|&&c| c == 0.0).count();
+            outln!(
+                "{pad}    dangly: displacement {}, tightness {}, period {}, constraints {low}..{high} ({pinned} of {} at 0)",
+                dangly.displacement,
+                dangly.tightness,
+                dangly.period,
+                dangly.constraints.len()
+            );
+        }
         for i in 0..mesh.positions.len().min(3) {
             outln!(
                 "{pad}    v{i} pos {:?} normal {:?} uv1 {:?} uv2 {:?}",
