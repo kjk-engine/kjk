@@ -886,6 +886,11 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     };
                     scenes.note(level.name(), &world.script_report().talk, me.id, trigger_of, now);
                     let talked_with = talking.as_ref().and_then(owner_of);
+                    if let (Some(index), Some(talk)) = (talked_with, talks.under_way.as_ref())
+                        && last.entities.iter().any(|e| e.kind == sim::Kind::Object(ObjectKind::Creature, index))
+                    {
+                        scenes.talked(index, talk, now);
+                    }
                     let mut command = mind::looking(&player, player.view[0], player.view[1]);
                     let mut input = TickInput::default();
                     // Each offer is answered once its line has played.
@@ -1389,12 +1394,20 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // as the beach's fight ended).
                                 met = true;
                             } else if matches!(goal, Goal::To(_))
-                                && let Some(scene) =
-                                    found.and_then(|(index, _)| scenes.take_before(index, started_ms))
+                                && let Some(scene) = found
+                                    .filter(|(index, _)| {
+                                        // A creature's, only for a `talk` after.
+                                        here.entity(*index).is_none_or(|e| {
+                                            !matches!(e.kind, sim::Kind::Object(ObjectKind::Creature, _))
+                                        }) || matches!(goals.get(next), Some((_, Goal::Talk)))
+                                    })
+                                    .and_then(|(index, _)| scenes.take_before(index, started_ms))
                             {
                                 // A trigger whose own scene the player set
-                                // off during a goal before (`Scenes`): the
-                                // `talk` after it takes that scene.
+                                // off during a goal before, or a creature
+                                // whose talk with the player began before
+                                // (`Scenes`): the `talk` after it takes that
+                                // scene.
                                 talks.ended.push_back(Talk {
                                     ended_ms: now,
                                     ..scene

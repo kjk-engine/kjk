@@ -178,19 +178,45 @@ pub(super) fn scenes() -> sim::probe::Checks {
         taken(PLAYER, "m", 0),
         taken(PLAYER, "n", 500),
     );
-    vec![(
-        "to_a_trigger_whose_scene_played_is_met",
-        sim::probe::check(
-            player == (Some(9), None)
-                && other == (None, None)
-                && after == (None, None)
-                && moved == (None, None),
-            format!(
-                "(taken, again): the player's {player:?}; another body's {other:?}; \
-                 the `to` begun before it {after:?}; another module since {moved:?}"
+    // A creature's own talk with the player (object 41, Nar Shaddaa's
+    // Serroco leader), begun at 0.2 s: taken by a `to` it begun at 0.5 s,
+    // once; not by one begun before it.
+    let talked = |since: u64| {
+        let mut scenes = Scenes::default();
+        scenes.note("m", &[], sim::SimId(PLAYER), trigger_of, 100);
+        let talk = Talk {
+            id: 11,
+            owner: Some(41),
+            ended_ms: u64::MAX,
+        };
+        scenes.talked(41, &talk, 200);
+        scenes.talked(41, &talk, 250);
+        let first = scenes.take_before(41, since).map(|talk| talk.id);
+        (first, scenes.take_before(41, since).map(|talk| talk.id))
+    };
+    let (creature, creature_after) = (talked(500), talked(0));
+    vec![
+        (
+            "to_a_trigger_whose_scene_played_is_met",
+            sim::probe::check(
+                player == (Some(9), None)
+                    && other == (None, None)
+                    && after == (None, None)
+                    && moved == (None, None),
+                format!(
+                    "(taken, again): the player's {player:?}; another body's {other:?}; \
+                     the `to` begun before it {after:?}; another module since {moved:?}"
+                ),
             ),
         ),
-    )]
+        (
+            "to_a_creature_whose_talk_played_is_met",
+            sim::probe::check(
+                creature == (Some(11), None) && creature_after == (None, None),
+                format!("(taken, again): begun before the `to` {creature:?}; after it {creature_after:?}"),
+            ),
+        ),
+    ]
 }
 
 /// A foe the walk to stalled on and on (`Chase::lost`) is given up while the

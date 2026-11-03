@@ -494,6 +494,15 @@ impl Scenes {
         self.read = lines.len();
     }
 
+    /// Creature `index`'s own conversation with the player (`talk`), begun
+    /// `now`: its scene as a trigger's is, for a `to` it with a `talk` after
+    /// (`take_before`). Nar Shaddaa's Serroco leader spoke up as the walk to
+    /// his thugs passed him; their `talk` took his with theirs, and the one
+    /// after `to SerrocoLeader` waited for good.
+    pub(super) fn talked(&mut self, index: u32, talk: &Talk, now: u64) {
+        self.played.entry(index).or_insert((now, talk.clone()));
+    }
+
     /// The scene of trigger `index` set off before `since` (the `to`'s
     /// start), if any. Taken either way: one set off since is the `to`'s
     /// own, met by stepping in; a later `to` the same trigger wants another.
