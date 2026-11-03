@@ -143,7 +143,9 @@ fn scenario() -> Result<Ran, String> {
         data.placements
             .push(Placement::Own(crate::module::ObjectData {
                 sheet: Some(sheet),
-                classes: vec![START],
+                // A level below the sheet's, as a companion carried on past
+                // its template's (issue 89): its levels go on from the sheet's.
+                classes: vec![(START.0, START.1 - 1)],
                 template: tag.to_string(),
                 ..crate::module::ObjectData::bare(
                     ObjectKind::Creature,
