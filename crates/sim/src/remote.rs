@@ -23,6 +23,11 @@ pub struct Remote {
     pub velocity: [f32; 3],
     /// Degrees, as the seat's view turns it.
     pub yaw: f32,
+    /// Degrees, as the seat's view tilts it (down positive).
+    pub pitch: f32,
+    /// Where its last shock bolt stopped (metres): what it struck, or the
+    /// wall, or its range's end.
+    pub bolt_to: [f32; 3],
     /// When each of the kit's buttons is ready again (sim ms).
     pub ready_ms: [u64; 3],
     /// Not drawn and its kit off: the world holds (a conversation, a scene,
@@ -38,6 +43,8 @@ impl Remote {
             at,
             velocity: [0.0; 3],
             yaw,
+            pitch: 0.0,
+            bolt_to: at,
             ready_ms: [0; 3],
             hidden: false,
         }
@@ -53,6 +60,10 @@ pub(crate) fn encode(remotes: &[Remote], out: &mut Writer) {
             out.f32(*value);
         }
         out.f32(remote.yaw);
+        out.f32(remote.pitch);
+        for value in remote.bolt_to {
+            out.f32(value);
+        }
         for ready in remote.ready_ms {
             out.u64(ready);
         }
@@ -73,6 +84,11 @@ pub(crate) fn decode(input: &mut Reader) -> Result<Vec<Remote>, DecodeError> {
             *value = input.f32()?;
         }
         let yaw = input.f32()?;
+        let (pitch, bolt_to) = if input.since(crate::since::snapshot::DROID_FEEL) {
+            (input.f32()?, [input.f32()?, input.f32()?, input.f32()?])
+        } else {
+            (0.0, [values[0], values[1], values[2]])
+        };
         let mut ready_ms = [0; 3];
         for ready in &mut ready_ms {
             *ready = input.u64()?;
@@ -88,6 +104,8 @@ pub(crate) fn decode(input: &mut Reader) -> Result<Vec<Remote>, DecodeError> {
             at: [values[0], values[1], values[2]],
             velocity: [values[3], values[4], values[5]],
             yaw,
+            pitch,
+            bolt_to,
             ready_ms,
             hidden,
         });

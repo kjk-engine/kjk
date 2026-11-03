@@ -90,9 +90,14 @@ numbers: `data/rules/remote.toml` (`kjk rules`).
   what the story does differently goes to `story-changes.txt` for a look:
   dice and timing (random lines, swoop times) and fights won sooner
   (Hendar saved at the Undercity gate) are expected.
-- The client: its model and press flashes (`remote_view`), the camera
-  follows it (`cast::remote_at`), KOTOR's HUD shows its three buttons with
-  the seconds left.
+- The client: its model turned to its seat's view, yaw and pitch, and its
+  kit drawn with KOTOR's own (`remote_view`: the ion blaster's bolt to
+  where the shock bolt stopped, `Remote::bolt_to`; the sonic grenade's
+  blast; the medpac's heal on the dart's patient). The camera follows the
+  own droid from its predictions (`cast::remote_in`, `play_view::OwnRemote`),
+  as it does the own body; KOTOR's HUD shows its three buttons with the
+  grenades' and medpac's icons, the seconds left, the name of the one last
+  fired, and "No one hurt" for a dart with no one to treat.
 
 ## Over the link
 - A module is planned for the players driving a body then (P21,

@@ -20,6 +20,7 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 audio.workspace = true
 movie.workspace = true
 bevy.workspace = true
+bevy_post_process.workspace = true
 vfs.workspace = true
 fmt_odyssey.workspace = true
 script_ncs.workspace = true

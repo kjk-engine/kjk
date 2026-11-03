@@ -2,7 +2,8 @@
 //! seat's body, a covering fade): hidden, still, its kit off; shown again
 //! behind the leader. A guest who first speaks during one gets no droid
 //! until it ends. A movie or a break holds the session itself: no step
-//! runs (`docs/COOP.md`), so neither needs the sim's own rule.
+//! runs (`docs/COOP.md`), so neither needs the sim's own rule; the movie
+//! still reaches the droid's seat (`scripts::apply`).
 
 use script_ncs::vm::ObjectId;
 
@@ -19,6 +20,7 @@ pub(super) fn probes() -> Checks {
         ("held_in_conversation", conversation()),
         ("join_mid_hold", join()),
         ("hidden_in_fade", fade()),
+        ("movie_reaches_droid", movie()),
     ]
 }
 
@@ -148,5 +150,31 @@ fn join() -> Result<String, String> {
     check(
         during.is_empty() && after.is_some_and(|remote| !remote.hidden),
         format!("droids in the conversation {during:?}, after {after:?}"),
+    )
+}
+
+/// A movie a script plays for everyone (the escape pod's) is told to the
+/// seat flying a droid as well as to seat 0.
+fn movie() -> Result<String, String> {
+    use crate::notice::{Notice, Screen};
+    let mut world = bare(2)?;
+    for _ in 0..20 {
+        step(&mut world, Some(Command::default()));
+    }
+    world.take_notices();
+    let flying = droid(&world.snapshot()).is_some();
+    let shown = Notice::Show(Screen::movie("01c"));
+    (world.world)
+        .resource_mut::<super::super::super::scripts::Scripts>()
+        .notices
+        .push((None, shown.clone()));
+    step(&mut world, Some(Command::default()));
+    let told: Vec<u8> = (world.take_notices().into_iter())
+        .filter(|(_, notice)| *notice == shown)
+        .map(|(seat, _)| seat.0)
+        .collect();
+    check(
+        flying && told == [0, 1],
+        format!("seat 1 flying {flying}, the movie told to seats {told:?}"),
     )
 }
