@@ -605,7 +605,10 @@ pub fn load_for(
                     sim::inventory::slots::RIGHT_WEAPON,
                 )?;
             }
-            if let Some(tag) = options.talk {
+            // A companion talked to (`--party`) is there once it joins; any
+            // other is talked to first, as before.
+            let talk_later = !options.party.is_empty();
+            if let Some(tag) = options.talk.filter(|_| !talk_later) {
                 crate::by_hand::talk_to(&mut world, tag)?;
             }
             crate::by_hand::queue_scripts(&mut world, options.scripts)?;
@@ -618,6 +621,9 @@ pub fn load_for(
                 )?);
             }
             crate::by_hand::party(&mut world, options.party, stage.installer.as_deref())?;
+            if let Some(tag) = options.talk.filter(|_| talk_later) {
+                crate::by_hand::talk_to(&mut world, tag)?;
+            }
             (world, first)
         }
     };
