@@ -824,6 +824,23 @@ pub(super) fn use_met((opened, spoke): (bool, bool), pressed: bool) -> bool {
     opened || spoke || pressed
 }
 
+/// Making party member `npc` the leader (`u8::MAX`: the player) as the
+/// HUD's portrait click asks it: by the member's body (a companion with no
+/// creature here, by number).
+pub(super) fn lead_to(world: &sim::SimWorld, snapshot: &Snapshot, npc: u8) -> Action {
+    let body = match npc {
+        u8::MAX => snapshot.own(Seat(0)).map(|own| own.id),
+        npc => world
+            .script_state()
+            .party
+            .available
+            .get(&npc)
+            .and_then(|known| known.object)
+            .map(sim::SimId),
+    };
+    body.map_or(Action::SetLeader(npc), Action::Lead)
+}
+
 /// Whether a living body other than the player (`me`) stands where a walk
 /// ends (`goal`, units): within a body's width of it, on the flat.
 pub(super) fn goal_taken(snapshot: &Snapshot, me: sim::SimId, goal: [f32; 3]) -> bool {

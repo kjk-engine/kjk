@@ -681,19 +681,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     acts.push(Action::Solo(*on));
                 }
                 if let Goal::Leader(npc) = goal {
-                    // As the HUD's portrait click asks it: by the member's
-                    // body (a companion with no creature here, by number).
-                    let body = match *npc {
-                        u8::MAX => last.own(Seat(0)).map(|own| own.id),
-                        npc => world
-                            .script_state()
-                            .party
-                            .available
-                            .get(&npc)
-                            .and_then(|known| known.object)
-                            .map(sim::SimId),
-                    };
-                    acts.push(body.map_or(Action::SetLeader(*npc), Action::Lead));
+                    acts.push(lead_to(&world, &last, *npc));
                 }
                 if let Goal::Global(name, value) = goal {
                     let mut state = world.script_state().clone();
@@ -1104,9 +1092,16 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         }
                         // Met once the party table has it (the next goal
                         // moves the body it gives).
+                        // Asked again while not yet led, as a player clicks
+                        // the portrait again: a member down when first asked
+                        // (Bao-Dur, knocked out in the military base's hall
+                        // fight) is passed over until he gets up.
                         Goal::Leader(npc) => {
                             met = world.script_state().party.leader
                                 == Some(*npc).filter(|npc| *npc != u8::MAX);
+                            if !met && pressed(now) {
+                                acts.push(lead_to(&world, &last, *npc));
+                            }
                         }
                         Goal::Solo(on) => met = world.script_state().party.solo == *on,
                         // Pressed once out of a conversation (as the HUD's
