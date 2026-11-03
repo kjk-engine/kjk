@@ -556,12 +556,14 @@ pub(super) fn scripts(
                 .as_ref()
                 .map_or(data.map_or(0, |data| data.gender), |persona| persona.gender),
             subrace: data.map_or(0, |data| data.subrace),
+            // As its level-up reads them (`script::levelling::career`).
             classes: std::array::from_fn(|at| {
-                let career = scripts.state.careers.get(&id.0.0);
-                career
-                    .or(data.map(|data| &data.classes))
-                    .and_then(|classes| classes.get(at).copied())
-                    .unwrap_or((u8::MAX, 0))
+                let template = data.map_or(&[][..], |data| &data.classes[..]);
+                match scripts.state.careers.get(&id.0.0) {
+                    Some(career) => career.get(at).copied(),
+                    None => crate::levels::untaken_class(template, sheet.level, at),
+                }
+                .unwrap_or((u8::MAX, 0))
             }),
             powers: sheet.powers,
             still: player.is_none_or(|player| crate::stealth::pace(player.0.velocity).0),
