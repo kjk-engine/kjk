@@ -53,6 +53,9 @@ pub const READY: u16 = 4000;
 /// names it (by the creature's wield type):
 /// `g<wield>r1`, a creature model's `creadyr` (`stance_of`).
 pub const LOOPING_READY: u16 = 19;
+/// `ANIMATION_LOOPING_TALK_NORMAL` (`tlknorm`): what a conversation's
+/// speaker plays standing where nothing else plays on it (`cast::talking`).
+pub const LOOPING_TALK_NORMAL: u16 = 5;
 /// How long (ms) after an animation begins its body's motion does not
 /// break it off: the stop of a run that brought it there.
 const SETTLE_MS: f64 = 400.0;
@@ -110,6 +113,37 @@ pub fn shows_ms(acting: &Acting, length: f32, transition: f32) -> f64 {
         f64::from(acting.ms) + f64::from(transition) * 1000.0
     } else {
         f64::from(acting.ms)
+    }
+}
+
+/// What a body shows of `scripted` (what it plays as `cast::drawn_acting`
+/// has it) and of `talk` (its talk as a conversation's speaker,
+/// `cast::talking`): the talk where nothing plays, or where what plays is
+/// played once and has reached its clip's end (of those `bound`, by
+/// `wield`), as reone's speaker talks on once a line's gesture is done
+/// (`Creature::updateModelAnimation`); else what plays.
+pub fn or_talk(
+    scripted: Option<Acting>,
+    talk: Option<Acting>,
+    (bound, wield): (&Bound, u8),
+    ms: f64,
+) -> Option<Acting> {
+    let Some(talk) = talk else {
+        return scripted;
+    };
+    let done = |acting: &Acting| {
+        let clip = stance_of(acting.animation, wield)
+            .into_iter()
+            .flatten()
+            .find_map(|wanted| bound.iter().find(|(a, _)| *a == wanted));
+        plays_once(acting.animation)
+            && clip.is_some_and(|(_, animator)| {
+                ms >= acting.since as f64 + f64::from(animator.length()) * 1000.0
+            })
+    };
+    match scripted {
+        Some(acting) if acting.playing(ms as u64) && !done(&acting) => Some(acting),
+        _ => Some(talk),
     }
 }
 

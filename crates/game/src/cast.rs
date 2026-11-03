@@ -1611,6 +1611,9 @@ pub struct Cast {
     wields: stance::Wields,
     /// The bodies the conversations under way hide items of (S8).
     unequipped: Vec<Unequipped>,
+    /// Each conversation's speaker and since when (sim ms) it has spoken
+    /// its lines running (`note_talking`).
+    talking: Vec<Talking>,
     /// The KOTOR clips each body posed plays this frame and how far into
     /// each (seconds), by its model: what keys its emitters and lights
     /// (`own_fx::BodyClips`).
@@ -1625,6 +1628,14 @@ struct Unequipped {
     dialog: String,
     who: SimId,
     hide: Hide,
+}
+
+/// The speaker of a conversation's lines (`Conversation::speaker`, `id`'s)
+/// and since when (sim ms) it has said them one after another.
+struct Talking {
+    id: u32,
+    who: SimId,
+    since: u64,
 }
 
 /// The camera's player: the body `seat` plays (`Snapshot::body`: its own
@@ -1657,6 +1668,7 @@ impl Cast {
             eye: None,
             wields,
             unequipped: Vec::new(),
+            talking: Vec::new(),
             body_clips: BTreeMap::new(),
         }
     }
@@ -2582,6 +2594,33 @@ impl Cast {
         }
     }
 
+    /// Notes each conversation's speaker in `snapshot` (but an animated
+    /// cut's or a staged one's, its bodies on their stunt clips): since its
+    /// first line of those it says running, so its talk loops on through
+    /// them; forgets those of a conversation that has ended.
+    fn note_talking(&mut self, snapshot: Option<&Snapshot>, level: &sim::Level) {
+        let talks = snapshot.map_or(&[][..], |snapshot| &snapshot.talk.conversations[..]);
+        let scripts = level.scripts();
+        let talking = talks.iter().filter_map(|talk| {
+            let dlg = scripts?.dialogue(&talk.dialog)?;
+            let who = SimId(talk.speaker.0);
+            if dlg.staged() || talk.speaker == ObjectId::INVALID {
+                return None;
+            }
+            let since = self
+                .talking
+                .iter()
+                .find(|kept| kept.id == talk.id && kept.who == who)
+                .map_or(talk.shown_ms, |kept| kept.since);
+            Some(Talking {
+                id: talk.id,
+                who,
+                since,
+            })
+        });
+        self.talking = talking.collect();
+    }
+
     /// Places every drawn character at `ms`, poses those in `posing` (a
     /// gripping hand reaching for its blade in `reach`, as the sim has it,
     /// unless `quirks`), and draws what they hold. A character's death is a
@@ -2608,6 +2647,7 @@ impl Cast {
         let held = newest.is_some_and(Snapshot::holds_world);
         let states = newest.and_then(|newest| level.states_in(newest));
         self.note_unequipped(newest, level);
+        self.note_talking(newest, level);
         let looks = history
             .last()
             .map_or_else(Vec::new, |newest| looks(newest, level));
@@ -2703,6 +2743,7 @@ impl Cast {
                         reach,
                     ),
                     (held, look, drawn),
+                    talking(&self.talking, id),
                     self.holdings.wielded(id),
                     transforms,
                 );
@@ -2845,6 +2886,20 @@ fn looks(snapshot: &Snapshot, level: &sim::Level) -> Vec<(SimId, SimId, f32)> {
         }
     }
     looks
+}
+
+/// What `who` plays as a conversation's speaker (`Cast::talking`): its
+/// `tlknorm` looped from its first line of those it says running, as
+/// reone's speaker talks (`Creature::startTalking`) until another speaks
+/// or the conversation ends, the replies offered between included. A
+/// listener plays only what its line's `AnimList` gives it [verify].
+fn talking(talking: &[Talking], who: SimId) -> Option<Acting> {
+    let talk = talking.iter().find(|talk| talk.who == who)?;
+    Some(Acting {
+        animation: acting::LOOPING_TALK_NORMAL,
+        since: talk.since,
+        ms: u32::MAX,
+    })
 }
 
 /// What the conversations under way hide of `who`'s item models.
@@ -3294,7 +3349,9 @@ fn view_axes(at: &Blended) -> [Vec3; 3] {
 /// up and aimed (`gun_aim`). Looked through (`eye`, `Cast::eye`), its gun
 /// and its blade at rest are held up before its eyes. In a conversation a
 /// head looks at the one its line pairs it with (`look`: where that one
-/// stands, and the head's arc, `Head`) after the pose. A script's animation
+/// stands, and the head's arc, `Head`) after the pose; as a line's speaker
+/// it talks (`talking`) standing where no script's animation plays on it.
+/// A script's animation
 /// shows on every body, a droid's or a beast's as a humanoid's does, in a
 /// conversation or out of one, its clip's events heard (`hear`). While one
 /// holds the world (`world_held`) it plays out (`acting`), a droid's or a
@@ -3303,6 +3360,7 @@ fn view_axes(at: &Blended) -> [Vec3; 3] {
 /// conversation under way, it is drawn as it was before scene mode (S7).
 /// A droid or beast that leans with the floor stands on `floor`
 /// (`ground_lean`).
+#[allow(clippy::too_many_arguments)]
 fn place(
     Member {
         body,
@@ -3314,6 +3372,7 @@ fn place(
     (soles, ms, eye, floor): (Vec3, f64, Option<Vec3>, Option<Floor>),
     (pose, armed, reach): (bool, bool, &[(Blade, Hand)]),
     (world_held, look, drawn): (bool, Option<(Vec3, f32)>, Option<DrawPose>),
+    talking: Option<Acting>,
     wielded: Option<&Wielded>,
     transforms: &mut Query<&mut Transform>,
 ) -> Option<Posed> {
@@ -3328,10 +3387,13 @@ fn place(
     // An item's use (`sim::combat::items::clips`) plays over a drawn
     // weapon too: a shield's band is switched on in the middle of a fight.
     let using = at.fighter.is_some_and(|f| f.pack.using.is_some());
+    let moving = (x * x + y * y).sqrt() >= STILL_SPEED;
     let acting = at
         .fighter
         .as_ref()
-        .and_then(|f| drawn_acting(f, (x * x + y * y).sqrt() >= STILL_SPEED, ms));
+        .and_then(|f| drawn_acting(f, moving, ms));
+    // A speaker talks standing (`acting::or_talk`); a character has none.
+    let talk = talking.filter(|_| !moving && at.alive && at.fighter.is_some());
     // One that hides the equipped items (Security, a mine's) puts the gun
     // away as it begins: the gun going does not break it off.
     let hiding = acting.is_some_and(|acting| acting::hides_items(&acting, ms));
@@ -3357,6 +3419,7 @@ fn place(
             let hand_out = at.fighter.map_or(0, |f| f.hand.min(1));
             let gripping = gripped[usize::from(hand_out)].as_ref().filter(|_| armed);
             let rig = gripping.unwrap_or(&*rig);
+            let acting = acting::or_talk(acting, talk, (acted, figure.breath.wield), ms);
             shows.follow(acting, (still, at.alive, world_held), ms);
             hear(heard, shows, (acted, figure.breath.wield), ms);
             throw.follow(at.fighter.as_ref());
@@ -3623,6 +3686,8 @@ fn place(
             None
         }
         Look::Clips(clips) => {
+            let wield = figure.breath.wield;
+            let acting = acting::or_talk(acting, talk, (&clips.acted, wield), ms);
             clips
                 .shows
                 .follow(acting, (still, at.alive, world_held), ms);
