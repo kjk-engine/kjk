@@ -2836,13 +2836,6 @@ impl Step<'_> {
                         if starting {
                             self.attacking(id, Some(*talent));
                         }
-                        // In a conversation a power shows as a script's cast
-                        // does: the scene's, not a fight's, hand.
-                        if let Use::Power(row) = *talent
-                            && self.state.talk.conversations.iter().any(|c| c.holds(who))
-                        {
-                            self.show_cast(who, row, (starting, started));
-                        }
                         if !over {
                             let intent = Intent {
                                 target: *target,
@@ -2939,9 +2932,9 @@ impl Step<'_> {
     /// its clock running from its start, a turn not waited for; its loop
     /// asked for every step, so a line's own clip over it gives way), or a
     /// hand out where it has none. The row's hand and ground visuals and
-    /// projectile are not drawn. A
-    /// real one is paid for then (none for a `cheat`'s) and its impact
-    /// script runs at the target; a fake one does nothing more. A real one
+    /// projectile are not drawn. A real one is paid for as its conjuring
+    /// ends (none for a `cheat`'s) and its impact script runs at the target
+    /// then; a fake one does nothing more. A real one
     /// by one not commandable, or of a power it does not know or cannot pay
     /// for (but a cheat's), does nothing. A player casts as a creature does,
     /// as the games' PC is one (its power list's cast, `action::Action::Cast`).
@@ -2979,10 +2972,22 @@ impl Step<'_> {
             }
         }
         self.show_cast(who, row, (starting, started));
-        if now < started + u64::from(ms) {
-            return false;
-        }
-        if !fake {
+        // The impact lands as the conjuring ends and the cast's own clip
+        // begins (TSL's `CSWSCreature::AIActionCastSpell` calls
+        // `SpellCastAndImpact` once past `conjtime`, then holds the action
+        // for `casttime`): the rest of the cast only looks cast.
+        if !fake && now >= started + u64::from(talent.conjure_ms) {
+            if let Some(actions::Queued {
+                action: Action::Cast { fake, .. },
+                ..
+            }) = self
+                .state
+                .actions
+                .get_mut(&who.0)
+                .and_then(|q| q.first_mut())
+            {
+                *fake = true;
+            }
             if let Some(cost) = engine::cast_cost(self.view, thing, row).filter(|_| !cheat) {
                 self.out.changes.push(Change::Pay { who, cost });
             }
@@ -3005,7 +3010,7 @@ impl Step<'_> {
                 caught,
             });
         }
-        true
+        now >= started + u64::from(ms)
     }
 
     /// `row`'s clips on `who`, cast from `started` (`Talent::cast_clips`).
