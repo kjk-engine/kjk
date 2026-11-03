@@ -16,19 +16,16 @@ use crate::combat::Sheet;
 use crate::inventory::PARTY;
 use crate::levels::{Career, Choices};
 
-/// `who`'s career: the levels it took here, else its template's classes;
-/// a player without one has its sheet's level in `class` (the class its
-/// level-up asks for: character creation's, which the sim does not hold
-/// yet [verify]).
+/// `who`'s career: the levels it took here, else its template's classes
+/// with its sheet's level (`levels::untaken`); a player without one has its
+/// sheet's level in `class` (the class its level-up asks for: character
+/// creation's, which the sim does not hold yet [verify]).
 pub fn career(view: &View, state: &State, who: ObjectId, sheet: &Sheet, class: u8) -> Career {
     if let Some(career) = state.careers.get(&who.0) {
         return career.clone();
     }
-    let template = view
-        .facts(who)
-        .map(|facts| facts.classes.clone())
-        .filter(|classes| !classes.is_empty());
-    template.unwrap_or_else(|| vec![(class, sheet.level)])
+    let template = view.facts(who).map_or(&[][..], |facts| &facts.classes[..]);
+    crate::levels::untaken(template, sheet.level, class)
 }
 
 impl super::engine::Engine<'_> {
