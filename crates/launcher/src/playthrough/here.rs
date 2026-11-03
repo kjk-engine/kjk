@@ -824,6 +824,18 @@ pub(super) fn use_met((opened, spoke): (bool, bool), pressed: bool) -> bool {
     opened || spoke || pressed
 }
 
+/// Whether a living body other than the player (`me`) stands where a walk
+/// ends (`goal`, units): within a body's width of it, on the flat.
+pub(super) fn goal_taken(snapshot: &Snapshot, me: sim::SimId, goal: [f32; 3]) -> bool {
+    let goal = goal.map(|v| v * UNIT);
+    snapshot.entities.iter().any(|e| {
+        e.id != me
+            && e.fighter.is_some_and(|f| f.alive())
+            && e.player.is_some()
+            && flat(e.position, goal) <= 2.0 * sim::motion::HALF_WIDTH * UNIT
+    })
+}
+
 /// Whether a use `ms` into its goal goes to its target though foes still stand
 /// (`USE_FIGHT_MS`). An exit waits: the party may not leave in a fight.
 pub(super) fn use_fight_over(goal: &Goal, ms: u64) -> bool {

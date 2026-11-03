@@ -126,6 +126,7 @@ pub fn probes() -> sim::probe::Checks {
         .chain(replans(&chase_once))
         .chain(hovering(&world, &base))
         .chain(hidden_foes(&base))
+        .chain(goal_held(&base))
         .chain(fights_end())
         .chain(scenes())
         .chain(loots())
@@ -315,6 +316,43 @@ pub(super) fn hidden_foes(base: &Snapshot) -> sim::probe::Checks {
             ),
         ),
     ]
+}
+
+/// A walk's end is taken (`goal_taken`) by another living body standing
+/// on it, not by one a metre off, nor by the player there: a use from within
+/// reach is pressed past a body in the doorway (the citadel's TSF station).
+pub(super) fn goal_held(base: &Snapshot) -> sim::probe::Checks {
+    let name = "use_presses_past_a_body_where_its_walk_ends";
+    let Some(me) = base
+        .entities
+        .iter()
+        .find(|e| e.kind == sim::Kind::Avatar(Seat(0)))
+        .copied()
+    else {
+        return vec![(name, Err("no player on the arena".into()))];
+    };
+    let goal = me.position.map(|v| v / UNIT);
+    // Whether the goal is taken with another body `off` metres from it.
+    let held = |off: Option<f32>| {
+        let mut snapshot = base.clone();
+        if let Some(off) = off {
+            snapshot.entities.push(sim::EntityState {
+                id: sim::SimId(u32::MAX - 1),
+                kind: sim::Kind::Object(ObjectKind::Creature, 0),
+                position: [me.position[0] + off, me.position[1], me.position[2]],
+                ..me
+            });
+        }
+        goal_taken(&snapshot, me.id, goal)
+    };
+    let cases = [held(Some(0.2)), held(Some(1.0)), held(None)];
+    vec![(
+        name,
+        sim::probe::check(
+            cases == [true, false, false],
+            format!("a body 0.2 m off, 1 m off, only the player: {cases:?}"),
+        ),
+    )]
 }
 
 /// A foe with no way to it is shot only past a blade's swing (in space: one

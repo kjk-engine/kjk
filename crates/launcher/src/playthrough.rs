@@ -1579,6 +1579,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // body in the way) but near: straight at it.
                                 // Arrived short of it: the last stretch straight.
                                 let arrived = walker.arrived(&player);
+                                let goal_held = goal_taken(&last, me.id, walker.goal);
                                 let routed = !arrived && here.leads(player.origin, walker.goal);
                                 let round = routed && here.goes_round(player.origin, walker.goal);
                                 let mut walking = || Command {
@@ -1608,13 +1609,17 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // block walks up (`Walk::near`), or, the walk
                                 // come as near as it can (across a counter:
                                 // Greeta Holda answers from 3.4 m), within the
-                                // reach itself.
+                                // reach itself; or within the reach while
+                                // another body stands where the walk ends
+                                // (`goal_taken`: a wounded soldier following
+                                // the party into the citadel's TSF station
+                                // doorway held the Exile 0.9 m off for good).
                                 let near = choice.zip(data.as_ref()).map_or(d <= NEAR_M, |(choice, data)| {
                                     sim::target::Walk::near(
                                         &player,
                                         sim::target::Spot::plain(at, choice, data.kind),
                                     )
-                                        || arrived && d <= sim::target::reach(choice, data.kind)
+                                        || (arrived || goal_held) && d <= sim::target::reach(choice, data.kind)
                                 });
                                 let alive = |e: &sim::EntityState| e.fighter.is_some_and(|f| f.alive());
                                 // In its fight, or in a scene of its
