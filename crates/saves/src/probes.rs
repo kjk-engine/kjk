@@ -206,6 +206,7 @@ pub fn refusal_probes() -> Vec<(&'static str, Result<String, String>)> {
 /// - a slot write puts `story.json` in the folder and `story` in the
 ///   meta's formats; a slot without one, or with one that does not read,
 ///   has no story, and an older meta's formats read;
+/// - an item the module lacks is restored from the lookup, else lost;
 /// - a story restored and written again is the story (spec 4c), but for
 ///   its build, its time and the place within the 2 m snap, and for what
 ///   each case names as lost, each with why.
@@ -226,6 +227,7 @@ pub fn story_probes() -> sim::probe::Checks {
         ("story_restores_sink", restores_sink(&level, &save)),
         ("story_restores_roster_module", restores_roster_module(&level, &save)),
         ("story_restores_left_and_here", restores_left_and_here(&save)),
+        ("story_restores_items_elsewhere", restores_items_elsewhere(&level, &save)),
     ];
     let _ = std::fs::remove_dir_all(&root);
     checks
@@ -545,7 +547,7 @@ fn round_trip(
     excluded: &[Exclusion],
     lost: &[&str],
 ) -> Result<String, String> {
-    let (mut world, said) = story.restore(level, 1)?;
+    let (mut world, said) = story.restore(level, 1, &|_| None)?;
     let again = sim::Save {
         hz: sim::TICK_HZ,
         level: level.id(),
@@ -588,6 +590,35 @@ fn restores_roster_module(level: &sim::Level, save: &sim::Save) -> Result<String
         },
     )];
     round_trip(&story, level, &excluded, &["no such placement here"])
+}
+
+/// An item the module's catalog lacks, in the party's pool: restored when
+/// the lookup has it, a line of what was lost when it has none.
+fn restores_items_elsewhere(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
+    const ITEM: &str = "fixture_elsewhere";
+    let mut story = Story::of(save, level);
+    story.items.entry("party".into()).or_default().push(story::StoryItem {
+        template: ITEM.into(),
+        stack: 1,
+        ..story::StoryItem::default()
+    });
+    let outcome = |lookup: story::ItemLookup| -> Result<(bool, bool), String> {
+        let (world, said) = story.restore(level, 1, lookup)?;
+        let held = world
+            .script_state()
+            .items
+            .held_by(sim::inventory::PARTY)
+            .any(|(_, item)| item.template == ITEM);
+        Ok((held, said.iter().any(|line| line.contains(ITEM))))
+    };
+    let found = outcome(&|template| {
+        (template == ITEM).then(|| sim::inventory::ItemFacts::plain(template))
+    })?;
+    let none = outcome(&|_| None)?;
+    check(
+        found == (true, false) && none == (false, true),
+        format!("(held, said lost) with the lookup {found:?}, without {none:?}"),
+    )
 }
 
 /// The key of the first placement of `kind` in `level`.
@@ -646,7 +677,7 @@ fn restores_left_and_here(save: &sim::Save) -> Result<String, String> {
         },
     );
     let trip = round_trip(&story, &level, &[], &[])?;
-    let (mut world, _) = story.restore(&level, 1)?;
+    let (mut world, _) = story.restore(&level, 1, &|_| None)?;
     world
         .install(left.clone(), None)
         .map_err(|error| format!("entering the module left: {error}"))?;

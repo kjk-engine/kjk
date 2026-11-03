@@ -49,12 +49,22 @@ fn unnamed() -> Origin {
     }
 }
 
+/// The facts of an item template the module restored in lacks, from the
+/// install's whole data (none where it has none); `&|_| None` for a host
+/// without one.
+pub type ItemLookup<'a> = &'a dyn Fn(&str) -> Option<ItemFacts>;
+
 impl Story {
     /// The world this story restores in `level` (its module's, planned) for
     /// a session of `seats` (more when the story has players past them),
     /// and a line for each thing of the story it could not bring back. The
     /// save it came from is not touched: the next save is a normal one.
-    pub fn restore(&self, level: &sim::Level, seats: u8) -> Result<(SimWorld, Vec<String>), String> {
+    pub fn restore(
+        &self,
+        level: &sim::Level,
+        seats: u8,
+        items: ItemLookup,
+    ) -> Result<(SimWorld, Vec<String>), String> {
         let place = level.place().ok_or("the level has no module")?;
         if !place.module.eq_ignore_ascii_case(&self.place.module) {
             return Err(format!(
@@ -83,6 +93,10 @@ impl Story {
             story: self,
             level,
             catalog: level.scripts().map(|library| library.items()),
+            elsewhere: Catalog::new(self.items.values().flatten().filter_map(|item| {
+                let here = level.scripts().and_then(|library| library.items().get(&item.template));
+                here.is_none().then(|| items(&item.template)).flatten()
+            })),
             snapshot: fresh.snapshot(),
             state: fresh.script_state().clone(),
             holders: BTreeMap::from([("party".to_string(), PARTY)]),
@@ -172,6 +186,8 @@ struct Restore<'a> {
     story: &'a Story,
     level: &'a sim::Level,
     catalog: Option<&'a Catalog>,
+    /// The story's items the module's catalog lacks, as the lookup has them.
+    elsewhere: Catalog,
     snapshot: Snapshot,
     state: State,
     /// The id each holder the story names has here (`Story::items`).
@@ -497,13 +513,16 @@ impl Restore<'_> {
                 continue;
             };
             for item in items {
-                let made = self.catalog.and_then(|catalog| {
-                    self.state
-                        .make_item(catalog, &item.template, holder, item.stack, item.slot)
-                });
+                let make = |state: &mut State, catalog: &Catalog| {
+                    state.make_item(catalog, &item.template, holder, item.stack, item.slot)
+                };
+                let made = self
+                    .catalog
+                    .and_then(|catalog| make(&mut self.state, catalog))
+                    .or_else(|| make(&mut self.state, &self.elsewhere));
                 let Some(made) = made else {
                     self.lost.push(format!(
-                        "{label}: item {}, not among this module's items",
+                        "{label}: item {}, not among this module's items or the install's",
                         item.template
                     ));
                     continue;

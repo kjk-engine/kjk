@@ -565,7 +565,8 @@ pub fn load_for(
             (world, Some(first))
         }
         (None, None, Some(story)) => {
-            let (world, first) = from_story(story, &stage.level, seats)?;
+            let search = stage.installer.as_deref().map(crate::lifecycle::ItemSearch::new);
+            let (world, first) = from_story(story, &stage.level, seats, search.as_ref())?;
             (world, Some(first))
         }
         (None, None, None) => {
@@ -886,8 +887,10 @@ fn from_story(
     story: &saves::Story,
     level: &sim::Level,
     seats: u8,
+    search: Option<&crate::lifecycle::ItemSearch>,
 ) -> Result<(sim::SimWorld, sim::Announcement), String> {
-    let (mut world, lost) = story.restore(level, seats)?;
+    let items = |template: &str| search.and_then(|search| search.facts(template));
+    let (mut world, lost) = story.restore(level, seats, &items)?;
     bevy::log::warn!(
         target: "save-migrate",
         build = story.build,

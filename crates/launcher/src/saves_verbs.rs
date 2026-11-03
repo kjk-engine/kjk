@@ -16,6 +16,7 @@ use sim::determinism::{Run, pilot};
 use sim::{Level, Save, StepReason, TickRate};
 
 use crate::levels::Installers;
+use kjk_game::lifecycle::ItemSearch;
 
 /// The ticks each save is stepped, headless.
 const TICKS: u64 = 300;
@@ -313,7 +314,14 @@ fn check_slot(
             if let Err(problem) = load_and_step(installers, discovery, &save, &level, &mut row) {
                 problems.push(problem);
             }
-            match story_round_trip(slot.story.as_ref(), &save, &level) {
+            let installer = save
+                .snapshot
+                .place
+                .as_ref()
+                .and_then(|place| installers.get(discovery, &place.game).ok());
+            let search = installer.as_deref().map(ItemSearch::new);
+            let items = |template: &str| search.as_ref().and_then(|search| search.facts(template));
+            match story_round_trip(slot.story.as_ref(), &save, &level, &items) {
                 Ok(()) => row.story = "OK".into(),
                 Err((short, long)) => {
                     row.story = short;
@@ -409,12 +417,13 @@ fn story_round_trip(
     stored: Option<&Story>,
     save: &Save,
     level: &Level,
+    items: saves::story::ItemLookup,
 ) -> Result<(), (String, String)> {
     let story = stored
         .cloned()
         .unwrap_or_else(|| Story::of(&as_loaded(save, level), level));
     let (mut world, said) = story
-        .restore(level, 1)
+        .restore(level, 1, items)
         .map_err(|error| ("restore failed".to_string(), format!("story: {error}")))?;
     let again = Save {
         hz: save.hz,

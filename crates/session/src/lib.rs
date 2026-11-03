@@ -362,6 +362,12 @@ impl AreaCache {
     }
 }
 
+/// The item template `name` as `source` has it, the facts a catalog holds;
+/// none when it does not read.
+pub fn item_facts(source: &dyn Source, name: &str) -> Option<sim::inventory::ItemFacts> {
+    items::facts(&mut sheets::Tables::new(source), name)
+}
+
 /// Resolves `request` through `source` (a resolver opened with the
 /// module), with the player skeleton's animation lengths.
 pub fn plan(

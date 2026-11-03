@@ -9,6 +9,7 @@
 //! a reader takes what it knows and leaves the rest.
 
 mod restore;
+pub use restore::ItemLookup;
 
 use std::collections::BTreeMap;
 
@@ -457,6 +458,7 @@ fn held_items(snapshot: &Snapshot, script: &State) -> BTreeMap<String, Vec<Story
                 .party
                 .available
                 .iter()
+                .filter(|(number, npc)| npc.kept.is_some() || script.party.members.contains(number))
                 .filter_map(|(number, npc)| Some((holder(npc)?, format!("npc{number}")))),
         );
     holders
