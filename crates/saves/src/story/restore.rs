@@ -8,9 +8,12 @@
 //! (`SimWorld::from_snapshot`), as a save loads.
 //!
 //! Each module left is a stash entry the next arrival there reconciles
-//! with its placements (`sim::reconcile`): its roster names what was
-//! destroyed, at its place in the module's list, so that stays gone; every
-//! other placement is placed anew and comes alive as on a first visit.
+//! with its placements (`sim::reconcile`): its roster names, at their
+//! places in the module's list, what was destroyed (it stays gone), the
+//! doors and placeables moved (open or locked as they were) and the
+//! objects with locals (kept under their ids), each standing where its
+//! placement does; every other placement is placed anew and comes alive as
+//! on a first visit.
 //! What the story has that cannot come back is said in the lines returned.
 
 use std::collections::BTreeMap;
@@ -108,6 +111,58 @@ impl Story {
             world.set_persona(persona);
         }
         Ok((world, lost))
+    }
+}
+
+/// A module left as a stash entry knows it (`Restore::left_objects`):
+/// the objects the story names, by their placements' numbers.
+#[derive(Default)]
+struct Left {
+    entities: Vec<EntityState>,
+    roster: Vec<Origin>,
+}
+
+impl Left {
+    /// Placement `key` in the roster, as `origin`, the places before it
+    /// unnamed.
+    fn name(&mut self, key: &OriginKey, origin: Origin) {
+        let at = key.index as usize;
+        if self.roster.len() <= at {
+            self.roster.resize(at + 1, unnamed());
+        }
+        self.roster[at] = origin;
+    }
+
+    /// The id of the object of placement `key`, if there is one.
+    fn id_of(&self, key: &OriginKey) -> Option<u32> {
+        self.entities
+            .iter()
+            .find(|entity| matches!(entity.kind, Kind::Object(_, number) if number == key.index))
+            .map(|entity| entity.id.0)
+    }
+
+    /// Placement `key` (`origin`, not a creature) as object `id` in `state`,
+    /// unless an object of it is there already.
+    fn object(&mut self, id: u32, key: &OriginKey, origin: Origin, state: ObjectState) {
+        if self.id_of(key).is_some() {
+            return;
+        }
+        self.entities.push(EntityState {
+            id: SimId(id),
+            kind: Kind::Object(origin.kind, key.index),
+            // Where its placement stands, once the module is there.
+            position: [0.0; 3],
+            velocity: [0.0; 3],
+            player: None,
+            retarget_ms: 0,
+            life_ms: None,
+            going: None,
+            object: Some(state),
+            fighter: None,
+            sheet: None,
+            missile: None,
+        });
+        self.name(key, origin);
     }
 }
 
@@ -316,36 +371,47 @@ impl Restore<'_> {
                 .unwrap_or_else(Sheet::commoner);
             let from = facts.map_or_else(Career::new, |facts| facts.classes.clone());
             let sheet = self.sheet(base, &from, &before, character, &label);
-            let mut npc = Npc {
-                template: character.template.clone(),
-                object: None,
-                kept: None,
-                template_data: None,
-            };
-            let holder = match (character.member, facts) {
-                (true, Some(_)) => {
+            self.state.party.available.insert(
+                number,
+                Npc {
+                    template: character.template.clone(),
+                    object: None,
+                    kept: None,
+                    template_data: None,
+                },
+            );
+            let room = self.state.party.members.len() < sim::script::party::FOLLOWERS;
+            let holder = match (character.member, facts, room) {
+                (true, Some(_), true) => {
                     let id = self.member(character, sheet, (beside, made));
                     beside += 1;
-                    npc.object = Some(id);
-                    self.state.party.members.push(number);
+                    // The table's own rule (`Party::join`): its object, in
+                    // the party, room checked above.
+                    self.state.party.join(number, id);
                     Some(id)
                 }
-                (member, _) => {
+                (member, facts, _) => {
                     if member {
+                        let why = match facts {
+                            None => "this module has no template to make it of",
+                            Some(_) => "the party is full",
+                        };
                         self.lost.push(format!(
-                            "{label} ({}): in the party, but this module has no template to make it of; kept away from the party",
+                            "{label} ({}): in the party, but {why}; kept away from the party",
                             character.template
                         ));
                     }
                     (character.level > 0).then(|| {
                         let from = self.next_id();
-                        npc.kept = Some(Kept {
-                            from,
-                            sheet,
-                            hp: character.hp,
-                            fp: character.fp,
-                            worn: None,
-                        });
+                        if let Some(npc) = self.state.party.available.get_mut(&number) {
+                            npc.kept = Some(Kept {
+                                from,
+                                sheet,
+                                hp: character.hp,
+                                fp: character.fp,
+                                worn: None,
+                            });
+                        }
                         from
                     })
                 }
@@ -364,7 +430,6 @@ impl Restore<'_> {
             if character.leader {
                 party.leader = Some(number);
             }
-            party.available.insert(number, npc);
         }
     }
 
@@ -515,10 +580,14 @@ impl Restore<'_> {
         }
     }
 
-    /// Each module left, as a stash entry its next arrival reconciles: its
-    /// spawns ran, its destroyed in its roster at their numbers (a creature
-    /// absent, anything else an object gone), everything else placed anew.
-    /// Its doors and locals are lost: their objects are placed only then.
+    /// Each module left, as a stash entry its next arrival reconciles
+    /// (`sim::reconcile::apply`): its spawns ran, and its roster names, at
+    /// their numbers, the placements the story knows something of. A
+    /// creature destroyed is absent; any other object destroyed is gone; a
+    /// door or placeable moved stands open or locked as it was; an object
+    /// with locals has them under its id. Each of those objects stands
+    /// where its placement does once there (the stash knows it only by its
+    /// state); every other placement is placed anew.
     fn left(&mut self, here: &Place) {
         let story = self.story;
         let mut stash = self.snapshot.stash.to_vec();
@@ -530,14 +599,7 @@ impl Restore<'_> {
                 self.lost_facts(module, kept, "its spawns never ran");
                 continue;
             }
-            let (entities, roster) = self.destroyed(module, &kept.destroyed);
-            for (what, count) in [("doors and placeables moved", kept.doors.len()), ("locals", kept.locals.len())] {
-                if count > 0 {
-                    self.lost.push(format!(
-                        "{module}: {count} {what}, placed anew on the next arrival"
-                    ));
-                }
-            }
+            let (entities, roster) = self.left_objects(module, kept);
             stash.retain(|stashed| !stashed.place.module.eq_ignore_ascii_case(module));
             stash.push(Stashed {
                 // Another digest than any data's: the next arrival takes the
@@ -557,36 +619,58 @@ impl Restore<'_> {
         self.snapshot.stash = stash.into();
     }
 
-    /// The stash entities and roster of a module left whose placements
-    /// `destroyed` were destroyed.
-    fn destroyed(&mut self, module: &str, destroyed: &[OriginKey]) -> (Vec<EntityState>, Vec<Origin>) {
-        let length = destroyed.iter().map(|key| key.index as usize + 1).max();
-        let mut roster = vec![unnamed(); length.unwrap_or(0)];
-        let mut entities = Vec::new();
-        for key in destroyed {
+    /// The stash entities and roster of `module`, left as `kept` says.
+    fn left_objects(&mut self, module: &str, kept: &StoryModule) -> (Vec<EntityState>, Vec<Origin>) {
+        let mut left = Left::default();
+        for key in &kept.destroyed {
+            match key.origin() {
+                Some(origin) if origin.kind == ObjectKind::Creature => left.name(key, origin),
+                Some(origin) => {
+                    let id = self.next_id();
+                    left.object(id, key, origin, ObjectState::GONE);
+                }
+                None => self.unmatched(module, "destroyed", key),
+            }
+        }
+        for (key, state, lock) in &kept.doors {
             let Some(origin) = key.origin() else {
-                self.unmatched(module, "destroyed", key);
+                self.unmatched(module, "door or placeable", key);
                 continue;
             };
-            if origin.kind != ObjectKind::Creature {
-                entities.push(EntityState {
-                    id: SimId(self.next_id()),
-                    kind: Kind::Object(origin.kind, key.index),
-                    position: [0.0; 3],
-                    velocity: [0.0; 3],
-                    player: None,
-                    retarget_ms: 0,
-                    life_ms: None,
-                    going: None,
-                    object: Some(ObjectState::GONE),
-                    fighter: None,
-                    sheet: None,
-                    missile: None,
-                });
-            }
-            roster[key.index as usize] = origin;
+            let state = ObjectState {
+                state: *state,
+                lock: *lock,
+                ..ObjectState::default()
+            };
+            let id = self.next_id();
+            left.object(id, key, origin, state);
         }
-        (entities, roster)
+        let mut creatures = 0;
+        for (key, kind, index, value) in &kept.locals {
+            let (Some(origin), Ok(index)) = (key.origin(), i32::try_from(*index)) else {
+                self.unmatched(module, "local's object", key);
+                continue;
+            };
+            let id = match left.id_of(key) {
+                Some(id) => id,
+                None if origin.kind == ObjectKind::Creature => {
+                    creatures += 1;
+                    continue;
+                }
+                None => {
+                    let id = self.next_id();
+                    left.object(id, key, origin, ObjectState::default());
+                    id
+                }
+            };
+            self.state.locals.insert((id, *kind, index), *value);
+        }
+        if creatures > 0 {
+            self.lost.push(format!(
+                "{module}: {creatures} creatures' locals, their creatures placed anew on the next arrival"
+            ));
+        }
+        (left.entities, left.roster)
     }
 
     /// A line for the facts of `module` lost, and why.

@@ -621,63 +621,83 @@ fn restores_roster_module(level: &sim::Level, save: &sim::Save) -> Result<String
     round_trip(&story, level, &excluded, &["no such placement here"])
 }
 
-/// The roster module's facts moved to a module left (the placeable
-/// destroyed, the creatures gone, the door open and locked with a local),
-/// and here the proving ground with Carth: the gate open and locked with a
-/// local, Carth destroyed.
+/// The key of the first placement of `kind` in `level`.
+fn first_of(level: &sim::Level, kind: sim::module::ObjectKind) -> Option<story::OriginKey> {
+    let placed = level.placed();
+    let index = placed.iter().position(|facts| facts.kind == kind)?;
+    let facts = &placed[index];
+    let origin = sim::reconcile::Origin {
+        kind,
+        template: facts.template.clone(),
+        tag: facts.tag.clone(),
+    };
+    Some(story::OriginKey::of(index as u32, &origin))
+}
+
+/// Here the proving ground with Carth: the gate open and locked with a
+/// local, Carth destroyed. Left, the proving ground it was entered from:
+/// its gate open and locked with a local, its way out destroyed. Restored
+/// and written again, the story is itself; the module left entered again,
+/// its gate stands at its placement open and locked with its local, its
+/// way out gone.
 fn restores_left_and_here(save: &sim::Save) -> Result<String, String> {
     use sim::module::ObjectKind;
-    let level = with_carth()?;
-    let mut story = Story::of(&roster_save(save)?, &level);
+    const LEFT: &str = "proving_ground_left";
+    let (level, left) = (with_carth()?, sim::fixtures::left());
+    let mut story = Story::of(save, &level);
     let here = story.place.module.to_ascii_lowercase();
-    // The proving ground has no scripts, so no spawns ran there; a module
+    let (Some(gate), Some(carth), Some(left_gate), Some(way_out)) = (
+        first_of(&level, ObjectKind::Door),
+        first_of(&level, ObjectKind::Creature),
+        first_of(&left, ObjectKind::Door),
+        first_of(&left, ObjectKind::Trigger),
+    ) else {
+        return Err("the grounds lack a gate, Carth or a way out".into());
+    };
+    let open_locked = |key: &story::OriginKey| story::StoryModule {
+        doors: vec![(key.clone(), 1, sim::lock::LOCKED)],
+        locals: vec![(key.clone(), 1, 5, 7)],
+        ..story::StoryModule::default()
+    };
+    // The proving ground has no scripts, so no spawns ran here; a module
     // left with its objects destroyed had its spawns run.
-    let roster = story::StoryModule {
-        spawns_ran: true,
-        ..story.visited.remove(&here).unwrap_or_else(story::StoryModule::default)
-    };
-    story.visited.insert("proving_ground_left".into(), roster);
-    let placed = level.placed();
-    let key = |kind: ObjectKind| {
-        let index = placed.iter().position(|facts| facts.kind == kind)?;
-        let facts = &placed[index];
-        let origin = sim::reconcile::Origin {
-            kind,
-            template: facts.template.clone(),
-            tag: facts.tag.clone(),
-        };
-        Some(story::OriginKey::of(index as u32, &origin))
-    };
-    let (Some(gate), Some(carth)) = (key(ObjectKind::Door), key(ObjectKind::Creature)) else {
-        return Err("the ground with Carth has no gate or no Carth".into());
-    };
     story.visited.insert(
         here,
         story::StoryModule {
-            spawns_ran: false,
             destroyed: vec![carth],
-            doors: vec![(gate.clone(), 1, sim::lock::LOCKED)],
-            locals: vec![(gate, 1, 5, 7)],
+            ..open_locked(&gate)
         },
     );
-    let excluded: [Exclusion; 1] = [(
-        "the module left's doors and locals",
-        "their objects are placed only on the next arrival there, so nothing holds them meanwhile",
-        |story| {
-            if let Some(kept) = story.visited.get_mut("proving_ground_left") {
-                (kept.doors, kept.locals) = Default::default();
-            }
+    story.visited.insert(
+        LEFT.into(),
+        story::StoryModule {
+            spawns_ran: true,
+            destroyed: vec![way_out.clone()],
+            ..open_locked(&left_gate)
         },
-    )];
-    let trip = round_trip(&story, &level, &excluded, &["1 doors and placeables moved", "1 locals"])?;
-    // The module left entered again: its stash entry reconciled with it.
+    );
+    let trip = round_trip(&story, &level, &[], &[])?;
     let (mut world, _) = story.restore(&level, 1)?;
     world
-        .install(sim::fixtures::left(), None)
+        .install(left.clone(), None)
         .map_err(|error| format!("entering the module left: {error}"))?;
-    let reconciled = world.reconciled().map(ToString::to_string);
+    let snapshot = world.snapshot();
+    let object = |key: &story::OriginKey| {
+        snapshot
+            .entities
+            .iter()
+            .find(|entity| matches!(entity.kind, sim::Kind::Object(_, number) if number == key.index))
+    };
+    let gate = object(&left_gate);
+    let placed_at = left.placed()[left_gate.index as usize].position;
+    let local = gate.and_then(|gate| world.script_state().locals.get(&(gate.id.0, 1, 5)).copied());
+    let gate = gate.map(|gate| {
+        let state = gate.object.unwrap_or(sim::ObjectState::GONE);
+        (state.state, state.lock, gate.position == placed_at)
+    });
+    let gone = object(&way_out).is_none_or(|way_out| way_out.object == Some(sim::ObjectState::GONE));
     check(
-        reconciled.is_some(),
-        format!("{trip}; entered again: {reconciled:?}"),
+        gate == Some((1, sim::lock::LOCKED, true)) && local == Some(7) && gone,
+        format!("{trip}; entered again: gate (state, lock, at its placement) {gate:?}, local {local:?}, way out gone {gone}"),
     )
 }

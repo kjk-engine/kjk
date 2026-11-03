@@ -363,8 +363,9 @@ fn nearest_waypoint(level: &Level, from: Vec3) -> Option<Vec3> {
 /// made from): an entity whose placement is gone is dropped, but for a
 /// party member's and one holding the party's items (`Party::stored_in`),
 /// which stay where they stand as objects made in play (`made_in_play`);
-/// the new placements stand as the module's first install stands them
-/// (`install::anew`).
+/// an object of a placement that is not a creature stands where its
+/// placement does; the new placements stand as the module's first install
+/// stands them (`install::anew`).
 pub fn apply(
     renumber: &Renumber,
     old: &[Origin],
@@ -391,6 +392,15 @@ pub fn apply(
             };
             report.moved += usize::from(now != number);
             entity.kind = Kind::Object(kind, now);
+            // An object of a placement, not a creature, stands where the
+            // placement does: no script of either game moves one, and a
+            // stash may know it only by its id and state (a story
+            // restore's, `saves::Story::restore`), not where it stood.
+            if let Some(facts) = level.placed().get(now as usize)
+                && kind != ObjectKind::Creature
+            {
+                entity.position = facts.position;
+            }
         }
         held.entities.push(entity);
     }
