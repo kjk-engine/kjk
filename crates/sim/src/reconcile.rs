@@ -28,7 +28,8 @@
 //!
 //! When the data moved (`Held::snap`), `onto_ground` puts characters the
 //! collision no longer holds up back on the walkable mesh, for a save with a
-//! roster and one without alike.
+//! roster and one without alike; a creature not of the party further off
+//! stays where it is.
 //!
 //! Everything else names an object by its entity's `SimId`, which a script
 //! sees as its `ObjectId` (`ObjectId(entity.id.0)`): a door's open state and
@@ -160,7 +161,8 @@ pub struct Report {
     pub added: Vec<SimId>,
     /// The entities moved onto walkable ground.
     pub snapped: usize,
-    /// One line for each of them: who, from where to where.
+    /// One line for each of them, who and from where to where, and for each
+    /// creature left off the mesh (`onto_ground`).
     pub snaps: Vec<String>,
 }
 
@@ -244,8 +246,9 @@ pub fn reconcile(mut held: Held, level: &Level, party: &Party) -> Report {
     if held.snap {
         // What `apply` just placed stands as a first install stands it.
         let settled = held.entities.len() - report.added.len();
-        report.snaps = onto_ground(level, &mut held.entities[..settled]);
-        report.snapped = report.snaps.len();
+        let grounding = onto_ground(level, &mut held.entities[..settled], party.members);
+        report.snapped = grounding.moved;
+        report.snaps = grounding.lines;
     }
     report.module = level.id().name;
     *held.roster = Some(roster(placed));
@@ -253,24 +256,42 @@ pub fn reconcile(mut held: Held, level: &Level, party: &Party) -> Report {
 }
 
 /// How far (metres) a body off the walkable mesh is moved to the nearest
-/// walkable point; one further off goes to the module's nearest waypoint
-/// (spec 3c of the save design).
+/// walkable point; a player or party member further off goes to the
+/// module's nearest waypoint (spec 3c of the save design).
 const SNAP_M: f32 = 2.0;
+
+/// What `onto_ground` did: one line for each character it moved or left
+/// off the mesh, and how many it moved.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Grounding {
+    pub moved: usize,
+    pub lines: Vec<String>,
+}
 
 /// The characters of `entities` (avatars and creatures) the level's
 /// collision no longer holds up (`Level::held_up`: in the air or in a wall,
 /// as a change in the nav or the collision left them) put back on the
 /// walkable mesh, and at rest: onto `walk::back_on`'s nearest walkable point
-/// when it lies within `SNAP_M`, else onto the nearest waypoint of the
-/// module's placements (none: where they stand). The mesh says only where,
-/// never whether: a body off it but held up (on a bed, a placeable, or in a
-/// place with no mesh) stays. Returns a line for each move.
-pub fn onto_ground(level: &Level, entities: &mut [EntityState]) -> Vec<String> {
-    let mut moves = Vec::new();
+/// when it lies within `SNAP_M`, else, for an avatar or a creature of the
+/// party's `members` (`install::members`), onto the nearest waypoint of the
+/// module's placements (none: where it stands). Any other creature further
+/// off stays where it is: it stands where the game's own scripts put it,
+/// while a stranded player or companion must be recoverable. The mesh says
+/// only where, never whether: a body off it but held up (on a bed, a
+/// placeable, or in a place with no mesh) stays.
+pub fn onto_ground(
+    level: &Level,
+    entities: &mut [EntityState],
+    members: &[(u32, String)],
+) -> Grounding {
+    let mut grounding = Grounding::default();
     for entity in entities {
-        let who = match entity.kind {
-            Kind::Avatar(seat) => format!("avatar {}", seat.0),
-            Kind::Object(ObjectKind::Creature, number) => format!("creature {number}"),
+        let (who, recovered) = match entity.kind {
+            Kind::Avatar(seat) => (format!("avatar {}", seat.0), true),
+            Kind::Object(ObjectKind::Creature, number) => (
+                format!("creature {number}"),
+                members.iter().any(|(member, _)| *member == entity.id.0),
+            ),
             _ => continue,
         };
         let Some(player) = entity.player.as_mut() else {
@@ -279,32 +300,44 @@ pub fn onto_ground(level: &Level, entities: &mut [EntityState]) -> Vec<String> {
         if level.held_up(player.origin) || crate::walk::on_mesh(level, player.origin) {
             continue;
         }
+        let from = entity.position;
         let near = crate::walk::back_on(level, player.origin)
-            .filter(|&to| flat_m(to, player.origin) <= SNAP_M)
-            .or_else(|| nearest_waypoint(level, player.origin));
-        if let Some(to) = near {
-            moves.push(format!(
-                "{who} (entity {}) snapped onto the ground: ({:.2}, {:.2}, {:.2}) to ({:.2}, {:.2}, {:.2}) m",
-                entity.id.0,
-                entity.position[0],
-                entity.position[1],
-                entity.position[2],
-                to[0] * UNIT,
-                to[1] * UNIT,
-                to[2] * UNIT,
-            ));
-            let rest = MotionState::standing(to, 0.0);
-            player.origin = to;
-            player.velocity = rest.velocity;
-            player.ground = rest.ground;
-            player.in_air_anim = rest.in_air_anim;
-            player.hold_ms = rest.hold_ms;
-            player.flags &= !(motion_flags::LAND_HOLD | motion_flags::KNOCKBACK_HOLD);
-            entity.position = math::scale(to, UNIT);
-            entity.velocity = [0.0; 3];
-        }
+            .filter(|&to| flat_m(to, player.origin) <= SNAP_M);
+        let Some(to) = near.or_else(|| {
+            recovered
+                .then(|| nearest_waypoint(level, player.origin))
+                .flatten()
+        }) else {
+            if !recovered {
+                grounding.lines.push(format!(
+                    "{who} (entity {}) left off the mesh, more than {SNAP_M} m from it: ({:.2}, {:.2}, {:.2}) m",
+                    entity.id.0, from[0], from[1], from[2],
+                ));
+            }
+            continue;
+        };
+        grounding.lines.push(format!(
+            "{who} (entity {}) snapped onto the ground: ({:.2}, {:.2}, {:.2}) to ({:.2}, {:.2}, {:.2}) m",
+            entity.id.0,
+            from[0],
+            from[1],
+            from[2],
+            to[0] * UNIT,
+            to[1] * UNIT,
+            to[2] * UNIT,
+        ));
+        grounding.moved += 1;
+        let rest = MotionState::standing(to, 0.0);
+        player.origin = to;
+        player.velocity = rest.velocity;
+        player.ground = rest.ground;
+        player.in_air_anim = rest.in_air_anim;
+        player.hold_ms = rest.hold_ms;
+        player.flags &= !(motion_flags::LAND_HOLD | motion_flags::KNOCKBACK_HOLD);
+        entity.position = math::scale(to, UNIT);
+        entity.velocity = [0.0; 3];
     }
-    moves
+    grounding
 }
 
 /// The distance (metres, seen from above) between two origins (units).

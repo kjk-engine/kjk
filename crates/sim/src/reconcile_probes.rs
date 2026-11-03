@@ -171,10 +171,12 @@ fn character(entity: &EntityState) -> bool {
 }
 
 /// Where a body ends up.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum Ends {
     /// Untouched, bit for bit.
     Stays,
+    /// Untouched, bit for bit, with a line saying it was left off the mesh.
+    Left,
     /// On the mesh within `SNAP_M` of where it was, at rest.
     Nearby,
     /// At the module's nearest waypoint, at rest.
@@ -183,32 +185,50 @@ enum Ends {
 
 /// `onto_ground` on every character of a world, all saved falling at a spot
 /// of the room, `lift` metres over its floor: on the mesh, off it but on
-/// the floor, and off it in the air by a metre and by five.
+/// the floor, and off it in the air by a metre and by five; the player's
+/// avatar ends as the first `Ends` says, the creatures as the second, of
+/// the party or not as the row says.
 fn grounds() -> Vec<Check> {
     let cases = [
-        ("a body on the mesh stays", (-6.0, -1.0), 0.0, Ends::Stays),
+        (
+            "a body on the mesh stays",
+            (-6.0, -1.0),
+            0.0,
+            (Ends::Stays, Ends::Stays),
+            false,
+        ),
         (
             "a body off the mesh on the floor stays",
             (-3.5, -1.0),
             0.0,
-            Ends::Stays,
+            (Ends::Stays, Ends::Stays),
+            false,
         ),
         (
             "a body falling 1 m off the mesh: onto it, at rest",
             (-3.5, -1.0),
             2.0,
-            Ends::Nearby,
+            (Ends::Nearby, Ends::Nearby),
+            false,
         ),
         (
-            "a body falling 5 m off the mesh: to the waypoint, at rest",
+            "a body falling 5 m off the mesh: the player to the waypoint, at rest; a creature not of the party left as it was",
             (-4.0, 5.5),
             2.0,
-            Ends::Waypoint,
+            (Ends::Waypoint, Ends::Left),
+            false,
+        ),
+        (
+            "a party member falling 5 m off the mesh: to the waypoint, at rest",
+            (-4.0, 5.5),
+            2.0,
+            (Ends::Waypoint, Ends::Waypoint),
+            true,
         ),
     ];
     cases
         .into_iter()
-        .map(|(name, (x, y), lift, ends)| {
+        .map(|(name, (x, y), lift, (avatar, creature), in_party)| {
             let level = mesh_ground();
             let Ok(mut world) = SimWorld::new(crate::WorldConfig::one_seat(), level.clone()) else {
                 return check(name, false, "no world".into());
@@ -226,14 +246,37 @@ fn grounds() -> Vec<Check> {
                     player.flags |= crate::motion::motion_flags::KNOCKBACK_HOLD;
                 }
             }
+            let members: Vec<(u32, String)> = entities
+                .iter()
+                .filter(|body| in_party && matches!(body.kind, Kind::Object(..)) && character(body))
+                .map(|body| (body.id.0, MEMBER.to_string()))
+                .collect();
+            let ends = |body: &EntityState| match body.kind {
+                Kind::Avatar(_) => avatar,
+                _ => creature,
+            };
             let before = entities.clone();
-            let moves = onto_ground(&level, &mut entities);
+            let grounding = onto_ground(&level, &mut entities, &members);
+            let lines = &grounding.lines;
             let bodies = entities.iter().filter(|body| character(body)).count();
+            let creatures = bodies
+                - entities
+                    .iter()
+                    .filter(|body| matches!(body.kind, Kind::Avatar(_)))
+                    .count();
             let home = origin_at(ground_point(HOME.0, HOME.1, 0.0));
             let placed_alike = before.iter().zip(&entities).all(|(was, now)| {
                 character(was) || (was.position == now.position && was.player == now.player)
             });
-            let ok = bodies >= 2
+            let counted = |wanted: fn(Ends) -> bool| {
+                before
+                    .iter()
+                    .filter(|body| character(body) && wanted(ends(body)))
+                    .count()
+            };
+            let moved = counted(|ends| matches!(ends, Ends::Nearby | Ends::Waypoint));
+            let left = counted(|ends| ends == Ends::Left);
+            let ok = creatures >= 1
                 && placed_alike
                 && entities
                     .iter()
@@ -253,22 +296,23 @@ fn grounds() -> Vec<Check> {
                             && !player.in_air_anim
                             && player.hold_ms == 0
                             && player.flags & crate::motion::motion_flags::KNOCKBACK_HOLD == 0;
+                        let named = |says: &str| {
+                            let entity = format!("(entity {}) {says}", body.id.0);
+                            lines.iter().any(|line| line.contains(&entity))
+                        };
                         body.position == scale(player.origin, collision::UNIT)
-                            && match ends {
+                            && match ends(body) {
                                 Ends::Stays => body == was,
+                                Ends::Left => body == was && named("left off the mesh"),
                                 Ends::Nearby => {
                                     at_rest && on_mesh(&level, player.origin) && flat <= 2.0
                                 }
                                 Ends::Waypoint => at_rest && player.origin == home,
                             }
                     })
-                && moves.len()
-                    == if matches!(ends, Ends::Stays) {
-                        0
-                    } else {
-                        bodies
-                    };
-            check(name, ok, format!("{moves:?}"))
+                && grounding.moved == moved
+                && lines.len() == moved + left;
+            check(name, ok, format!("{lines:?}"))
         })
         .collect()
 }
