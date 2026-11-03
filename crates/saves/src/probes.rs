@@ -557,49 +557,18 @@ fn round_trip(
         blank(&mut before);
         blank(&mut after);
     }
-    let [a, b] = [before.place.position, after.place.position];
-    let off = ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
-    for story in [&mut before, &mut after] {
-        (story.build, story.saved, story.place.position) = (String::new(), 0, [0.0; 3]);
-    }
-    let differ = differing(&before, &after);
+    let (differ, off) = before.compare(&after);
     let unsaid: Vec<&&str> = lost
         .iter()
         .filter(|words| !said.iter().any(|line| line.contains(**words)))
         .collect();
     let named: Vec<&str> = excluded.iter().map(|(what, _, _)| *what).collect();
     check(
-        differ.is_empty() && off <= 2.0 && unsaid.is_empty(),
+        differ.is_empty() && off <= story::PLACE_SLACK_M && unsaid.is_empty(),
         format!(
             "differ {differ:?}, place {off:.2} m off, lost {said:?}, unsaid {unsaid:?}, excluded {named:?}"
         ),
     )
-}
-
-/// The top-level fields of two stories that differ.
-fn differing(a: &Story, b: &Story) -> Vec<&'static str> {
-    let fields = [
-        ("schema", a.schema == b.schema),
-        ("game", a.game == b.game),
-        ("place", a.place == b.place),
-        ("globals", a.globals == b.globals),
-        ("party", a.party == b.party),
-        ("party_ai", a.party_ai == b.party_ai),
-        ("leader", a.leader == b.leader),
-        ("items", a.items == b.items),
-        ("purse", (a.gold, a.components, a.chemicals) == (b.gold, b.components, b.chemicals)),
-        ("journal", a.journal == b.journal),
-        ("galaxy", a.galaxy == b.galaxy),
-        ("reputation", a.reputation == b.reputation),
-        ("unescapable", a.unescapable == b.unescapable),
-        ("transit", a.transit == b.transit),
-        ("visited", a.visited == b.visited),
-    ];
-    fields
-        .into_iter()
-        .filter(|(_, same)| !same)
-        .map(|(name, _)| name)
-        .collect()
 }
 
 fn restores_sink(level: &sim::Level, save: &sim::Save) -> Result<String, String> {

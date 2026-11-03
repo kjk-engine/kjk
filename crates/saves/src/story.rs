@@ -23,6 +23,10 @@ use sim::{EntityState, Kind, ObjectState, Save, Snapshot};
 /// The version of `story.json` (`meta.json`'s `formats.story`).
 pub const STORY_SCHEMA: u32 = 1;
 
+/// How far the leader may stand from where the story put it after a
+/// restore (`Story::restore` snaps to the nearest ground), metres.
+pub const PLACE_SLACK_M: f32 = 2.0;
+
 /// What a save's story holds.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -198,8 +202,8 @@ pub struct StoryModule {
     /// A door's or placeable's state (0 closed, 1 and 2 open) and lock
     /// (`ObjectState::lock`) where either moved from as placed.
     pub doors: Vec<(OriginKey, u8, u8)>,
-    /// An object's locals: its object, 0 for booleans or 1 for numbers,
-    /// the index and the value.
+    /// The locals of an object not destroyed: its object, 0 for booleans or
+    /// 1 for numbers, the index and the value.
     pub locals: Vec<(OriginKey, u8, u32, i32)>,
 }
 
@@ -243,6 +247,50 @@ impl Story {
             visited: visited(snapshot, script),
             ..Story::default()
         }
+    }
+
+    /// How `other`, a story written again after a restore of `self`, differs
+    /// from it: the top-level fields that differ, and how far apart the
+    /// leaders stand (metres). The build, the time and the leader's exact
+    /// position are the write's, not the story's.
+    pub fn compare(&self, other: &Story) -> (Vec<&'static str>, f32) {
+        let [a, b] = [self.place.position, other.place.position];
+        let off = ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+        let [mut before, mut after] = [self.clone(), other.clone()];
+        for story in [&mut before, &mut after] {
+            (story.build, story.saved, story.place.position) = (String::new(), 0, [0.0; 3]);
+        }
+        (before.differing(&after), off)
+    }
+
+    /// The top-level fields in which `self` and `other` differ.
+    pub fn differing(&self, other: &Story) -> Vec<&'static str> {
+        let (a, b) = (self, other);
+        let fields = [
+            ("schema", a.schema == b.schema),
+            ("game", a.game == b.game),
+            ("place", a.place == b.place),
+            ("globals", a.globals == b.globals),
+            ("party", a.party == b.party),
+            ("party_ai", a.party_ai == b.party_ai),
+            ("leader", a.leader == b.leader),
+            ("items", a.items == b.items),
+            (
+                "purse",
+                (a.gold, a.components, a.chemicals) == (b.gold, b.components, b.chemicals),
+            ),
+            ("journal", a.journal == b.journal),
+            ("galaxy", a.galaxy == b.galaxy),
+            ("reputation", a.reputation == b.reputation),
+            ("unescapable", a.unescapable == b.unescapable),
+            ("transit", a.transit == b.transit),
+            ("visited", a.visited == b.visited),
+        ];
+        fields
+            .into_iter()
+            .filter(|(_, same)| !same)
+            .map(|(name, _)| name)
+            .collect()
     }
 }
 
@@ -471,7 +519,12 @@ fn visited(snapshot: &Snapshot, script: &State) -> BTreeMap<String, StoryModule>
         let (Some((module, origin)), Ok(index)) = (named.get(&object), u32::try_from(index)) else {
             continue;
         };
-        if let Some(kept) = out.get_mut(module) {
+        // A destroyed object is gone with its locals: nothing is there to
+        // hold them when the story is restored.
+        if let Some(kept) = out
+            .get_mut(module)
+            .filter(|kept| !kept.destroyed.contains(origin))
+        {
             kept.locals.push((origin.clone(), kind, index, value));
         }
     }

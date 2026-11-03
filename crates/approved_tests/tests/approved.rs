@@ -1685,10 +1685,14 @@ fn save_copy_round_trip() {
 /// and an older meta, a damaged save listed and refused, one without a hash
 /// trusted, autosaves rotating, the backup before a new release, a failed
 /// write leaving nothing, a refusal naming the build that made the save;
-/// no install.
+/// and the release gate's corpus (`saves::corpus_probes`): a slot folder read
+/// back whole and a damaged one refused, the corpus's slots found by release,
+/// a current save passing, one older than a fake `breaking` entry expected
+/// (and failing without the entry), the table printed; no install.
 #[test]
 fn save_safety() {
     probed("save safety", &saves::safety_probes(), 11);
+    probed("save corpus", &saves::corpus_probes(), 5);
 }
 
 /// The flight recorder's file (`sim::flight::probes`): the pinned run kept

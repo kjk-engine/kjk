@@ -84,7 +84,7 @@ pub use instance::Instances;
 pub use rate::{Accumulator, MAX_CATCH_UP, TICK_HZ, TickRate};
 pub use replay::{Divergence, RecordedTick, Recorder, Recording};
 pub use rng::SimRng;
-pub use save::{FORMAT as SAVE_FORMAT, Save, ScriptVmState};
+pub use save::{FORMAT as SAVE_FORMAT, Save, ScriptVmState, StoredVersions};
 pub use snapshot::FORMAT as SNAPSHOT_FORMAT;
 pub use snapshot::{
     AreaSound, Busy, Census, Departing, Departure, EntityState, Fade, Feedback, Going, Kill, Kind,

@@ -20,6 +20,7 @@
 //! free (`restore`, at every listing and write).
 
 pub mod copies;
+pub mod corpus;
 pub mod safety;
 pub mod story;
 
@@ -328,6 +329,38 @@ fn write_files(
         remove(&aside)?;
     }
     std::fs::create_dir_all(&fresh).map_err(failed(&fresh))?;
+    if let Err(error) = fill(&fresh, world, meta, story, received) {
+        // A full disk: nothing half-written is left.
+        let _ = remove(&fresh);
+        return Err(error);
+    }
+    let replacing = folder.exists();
+    if replacing {
+        std::fs::rename(&folder, &aside).map_err(failed(&folder))?;
+    }
+    if let Err(error) = std::fs::rename(&fresh, &folder) {
+        if replacing {
+            let _ = std::fs::rename(&aside, &folder);
+        }
+        return Err(failed(&folder)(error));
+    }
+    // Saved: an aside not removed now is at the next write of `id`.
+    if replacing {
+        let _ = remove(&aside);
+    }
+    Ok(())
+}
+
+/// `world`, `meta` and `story` written as the files of `folder`, which
+/// exists: the meta carrying the world's hash, the story stamped with the
+/// meta's build and time.
+fn fill(
+    folder: &Path,
+    world: &[u8],
+    meta: &Meta,
+    story: Option<&Story>,
+    received: Option<&copies::Received>,
+) -> Result<(), String> {
     let meta = Meta {
         blake3: Some(blake3::hash(world).to_hex().to_string()),
         ..meta.clone()
@@ -352,31 +385,14 @@ fn write_files(
         .into_iter()
         .filter_map(|(name, bytes)| Some((name, bytes?)))
     {
-        let path = fresh.join(name);
+        let path = folder.join(name);
         // The handle that wrote it: Windows refuses to flush a read-only one.
-        let written = std::fs::File::create(&path).and_then(|mut file| {
-            std::io::Write::write_all(&mut file, bytes)?;
-            file.sync_all()
-        });
-        if let Err(error) = written {
-            // A full disk: nothing half-written is left.
-            let _ = remove(&fresh);
-            return Err(failed(&path)(error));
-        }
-    }
-    let replacing = folder.exists();
-    if replacing {
-        std::fs::rename(&folder, &aside).map_err(failed(&folder))?;
-    }
-    if let Err(error) = std::fs::rename(&fresh, &folder) {
-        if replacing {
-            let _ = std::fs::rename(&aside, &folder);
-        }
-        return Err(failed(&folder)(error));
-    }
-    // Saved: an aside not removed now is at the next write of `id`.
-    if replacing {
-        let _ = remove(&aside);
+        std::fs::File::create(&path)
+            .and_then(|mut file| {
+                std::io::Write::write_all(&mut file, bytes)?;
+                file.sync_all()
+            })
+            .map_err(failed(&path))?;
     }
     Ok(())
 }
@@ -547,6 +563,8 @@ const MINIGAME: &str = "You cannot save during a minigame.";
 
 #[cfg(feature = "probes")]
 mod probes;
+#[cfg(feature = "probes")]
+pub use corpus::probes as corpus_probes;
 #[cfg(feature = "probes")]
 pub use probes::{refusal_probes, story_probes};
 #[cfg(feature = "probes")]

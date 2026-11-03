@@ -87,6 +87,7 @@ probes!(
     remote_census,
     routines_verbs,
     saber_verbs,
+    saves_verbs,
     scene_check,
     scene_log,
     scene_sweep,
@@ -394,6 +395,13 @@ enum Command {
         #[command(subcommand)]
         verb: ReportVerb,
     },
+    /// The saves of past releases each release is checked against
+    /// (docs/RELEASE.md): captured into a corpus, then loaded on this build
+    #[cfg(feature = "probes")]
+    Saves {
+        #[command(subcommand)]
+        verb: SavesVerb,
+    },
     #[cfg(feature = "probes")]
     #[command(flatten)]
     Verb(verbs::Verb),
@@ -443,6 +451,33 @@ enum ReportVerb {
         /// (another edition or a mod), up to where it diverges
         #[arg(long)]
         ignore_data: bool,
+    },
+}
+
+#[cfg(feature = "probes")]
+#[derive(Subcommand)]
+enum SavesVerb {
+    /// Copies saves into the corpus (`kjk-artifacts/save-corpus/<tag>/`), a
+    /// story made for those without one
+    Capture {
+        /// The release the saves are of: v0.5.0, or main-646e008 for a
+        /// commit of main
+        tag: String,
+        /// k1 or tsl
+        #[arg(long, default_value = "k1")]
+        game: String,
+        /// Slot folders, zips of one, or chain checkpoints (`.kjkv`); without
+        /// them the game's Endar Spire, Taris, Korriban (K1) or Peragus
+        /// (TSL) checkpoints in `kjk-artifacts/checkpoints/<game>/`
+        #[arg(long, num_args = 1..)]
+        from: Vec<std::path::PathBuf>,
+    },
+    /// Loads every save of the corpus on this build: migrated, re-stamped,
+    /// reconciled, 300 ticks, a module left entered again, its story
+    /// restored; a table, and a failure if any save failed
+    Check {
+        /// The corpus's folder; `kjk-artifacts/save-corpus` without it
+        corpus: Option<std::path::PathBuf>,
     },
 }
 
@@ -699,6 +734,13 @@ pub fn run() -> ExitCode {
                 headless,
                 ignore_data,
             } => report_verbs::replay(&zip, to_tick, headless, ignore_data),
+        },
+        #[cfg(feature = "probes")]
+        Some(Command::Saves { verb }) => match verb {
+            SavesVerb::Capture { tag, game, from } => {
+                saves_verbs::capture(&discover(), &tag, &game, &from)
+            }
+            SavesVerb::Check { corpus } => saves_verbs::check(&discover(), corpus.as_deref()),
         },
         Some(Command::Store { verb }) => match verb {
             StoreVerb::Path => store_verbs::path(),
