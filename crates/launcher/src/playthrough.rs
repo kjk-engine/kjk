@@ -1650,8 +1650,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                             matches!(e.kind, sim::Kind::Object(_, i) if i == index)
                                         })
                                     })
-                                });
-                                match goal {
+                                });                                match goal {
                                     // A trigger: inside its outline; one that
                                     // leads out, at it (inside is out: the
                                     // Dune Sea's way on, walked up to so the
@@ -1783,7 +1782,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     Goal::Use(_) if busy => command = facing(&player, at),
                                     Goal::Use(_) if !near || (stand_for_sight && !(arrived && usable)) => {
                                         command = walking();
-                                        met = opened || spoke;
+                                        met = use_met((opened, spoke), false);
                                     }
                                     // Security tried, again while it fails.
                                     Goal::Unlock(_, spike) => {
@@ -1973,12 +1972,14 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                                     })
                                                 })
                                             });
-                                            met = answered
-                                                || played_out
-                                                || barked
-                                                || one_line
-                                                || opened
-                                                || module_of(&last) != module;
+                                            met = use_met(
+                                                (opened, spoke),
+                                                answered
+                                                    || played_out
+                                                    || barked
+                                                    || one_line
+                                                    || module_of(&last) != module,
+                                            );
                                         }
                                     }
                                 }

@@ -766,6 +766,15 @@ pub(super) fn fights_first(goal: &Goal, fought: bool, in_combat: bool, shut_sinc
     }
 }
 
+/// Whether a use is answered: by its door opening or its target speaking
+/// (`opened`, `spoke`), whether the player stands near or far and pressed
+/// or not, else by what the press set going (`pressed`). Visquis's sealed
+/// door speaks as the player comes, its scene handing the player to Mira:
+/// from within reach, before the press, it answered as from afar.
+pub(super) fn use_met((opened, spoke): (bool, bool), pressed: bool) -> bool {
+    opened || spoke || pressed
+}
+
 /// The nearest closed door of the module within `DOOR_NEAR_M` of `at`: its
 /// index, and where it stands.
 /// One that leads to another module only when `leaving` (a fight or a walk

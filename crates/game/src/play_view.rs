@@ -1717,30 +1717,16 @@ fn line_shot(
     let heads = (head(shot.pair.0)?, head(shot.pair.1)?);
     let angle = if shot.close { ANGLE_CLOSE } else { shot.angle };
     let kind = ShotKind::Dialog(angle, shot.pair);
-    // A node's script jumping one of the pair away leaves the line's shot
-    // where it was (TSL's `a_262imprison` takes the Exile to a cell in the
-    // line that fades out): re-aimed, it turned round to the Handmaiden's back.
-    if let Some(framed) = sides.framed.filter(|framed| framed.line == line)
-        && (framed.jumped || framed.jumped_from(heads))
-    {
-        sides.framed = Some(Framed {
-            jumped: true,
-            ..framed
-        });
-        return Some((kind, framed.shot));
-    }
+    // Filmed from where the pair stand now, every frame, as TSL's dialog
+    // camera re-aims each frame on its shot's two bodies, its side kept: one
+    // a node's script jumps away is followed (`a_262imprison` takes the
+    // Exile to a cell under its own fade).
     let (eye, target) = shot.film(heads.0, heads.1);
     let filmed = (
         eye.to_array(),
         angles::look_angles((target - eye).to_array()),
         DIALOG_FOV,
     );
-    sides.framed = Some(Framed {
-        line,
-        heads,
-        shot: filmed,
-        jumped: false,
-    });
     Some((kind, filmed))
 }
 
@@ -1954,25 +1940,6 @@ fn kept(angle: u8, before: Option<DialogShot>) -> Option<DialogShot> {
 struct Sides {
     id: Option<u32>,
     pairs: Vec<((SimId, SimId), u8)>,
-    framed: Option<Framed>,
-}
-
-/// The line's dialog shot as last filmed: the line, the pair's heads then, what
-/// it filmed, and whether one of the pair has jumped since.
-#[derive(Debug, Clone, Copy)]
-struct Framed {
-    line: (u32, u64, bool),
-    heads: (Vec3, Vec3),
-    shot: TalkShot,
-    jumped: bool,
-}
-
-impl Framed {
-    /// Whether a head left where it was by more than a body walks in a frame.
-    fn jumped_from(&self, heads: (Vec3, Vec3)) -> bool {
-        const JUMP_M: f32 = 3.0;
-        self.heads.0.distance(heads.0) > JUMP_M || self.heads.1.distance(heads.1) > JUMP_M
-    }
 }
 
 impl Sides {
@@ -1988,7 +1955,6 @@ impl Sides {
         let sign = |side: u8| if side == 1 { 1.0 } else { -1.0 };
         if self.id != Some(id) {
             *self = Sides {
-                framed: None,
                 id: Some(id),
                 pairs: Vec::new(),
             };

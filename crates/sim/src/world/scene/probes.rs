@@ -60,6 +60,12 @@ const PROBES: &[Probe] = &[
     ("start_refused_held", start_refused_held),
     ("made_stand_apart", made_stand_apart),
     ("scripted_death_in_place", scripted_death_in_place),
+    ("explosion_deaths_fall_free", explosion_deaths_fall_free),
+    ("lit_saber_one_act", lit_saber_one_act),
+    ("party_sheathes_in_talk", party_sheathes_in_talk),
+    ("conversed_owns", conversed_owns),
+    ("cinematic_start_distance", cinematic_start_distance),
+    ("talk_end_clears_video", talk_end_clears_video),
     ("held_duel_spacing", held_duel_spacing),
     ("scene_attacks_at_once", scene_attacks_at_once),
     ("duel_closes_to_spacing", duel_closes_to_spacing),
@@ -268,9 +274,16 @@ int GetIsObjectValid(object oObject);
 void DelayCommand(float fSeconds, action aActionToDelay);
 // 27
 void AssignCommand(object oActionSubject, action aActionToAssign);
-
+// 28
 void CancelCombat(object oidCreature);
+// 29
+void EnableVideoEffect(int nEffectType);
+// 30
+effect EffectDeath(int nSpectacularDeath=FALSE, int nDisplayFeedback=TRUE, int nNoFadeAway=FALSE);
 "#;
+
+/// The `videoeffects.2da` row `probe_video` enables.
+const VIDEO_ROW: u16 = 1;
 
 /// The globals `probe_acquired` sets: whether its `GetEnteringObject` was
 /// the first PC (TSL's acquire scripts' test), and whether
@@ -339,7 +352,14 @@ fn tagged(tag: &str) -> [Op; 3] {
 /// - `probe_bow_fast` bows at speed 2 and `probe_victory` cheers
 ///   (`ActionPlayAnimation`, fire and forget), `probe_talk_3s` talks for
 ///   3 s, `probe_talk_on` waits 1 s and talks on and on (a duration of −1),
-///   and `probe_sleep_twice` sleeps for 40 s twice.
+///   and `probe_sleep_twice` sleeps for 40 s twice;
+/// - `probe_converse` starts a cinematic conversation with the first PC
+///   (`ActionStartConversation`), `probe_computer` a computer one (type 1),
+///   `probe_converse_here` a cinematic one where it stands (its start range
+///   ignored), `probe_converse_walker` and `probe_converse_talker` the same
+///   with the walker and the talker;
+/// - `probe_video` enables the video effect `VIDEO_ROW`, and
+///   `probe_death_dummy` kills the dummy (`EffectDeath`, applied at once).
 fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::script::Library {
     let call = |routine, args| Op::Action { routine, args };
     let begin = program(&[
@@ -405,14 +425,24 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
         ]
     };
     let sleep = play(SLEEP, 1.0, 40.0);
+    // `ActionStartConversation(target, dialog, FALSE, kind, ignore_range)`.
+    let converse_to = |target: &[Op], kind: i32, ignore_range: i32| {
+        let mut ops: Vec<Op> = (0..6)
+            .map(|_| Op::Const(Const::String(Vec::new())))
+            .collect();
+        ops.extend([ignore_range, kind, 0].map(|value| Op::Const(Const::Int(value))));
+        ops.push(Op::Const(Const::String(dialog.as_bytes().to_vec())));
+        ops.extend_from_slice(target);
+        ops.push(call(17, 11));
+        ops
+    };
+    let first_pc = [call(3, 0)];
     // `ActionStartConversation(GetFirstPC(), dialog)`, a door's locked line.
-    let mut converse: Vec<Op> = (0..6)
-        .map(|_| Op::Const(Const::String(Vec::new())))
-        .collect();
-    converse.extend((0..3).map(|_| Op::Const(Const::Int(0))));
-    converse.push(Op::Const(Const::String(dialog.as_bytes().to_vec())));
-    converse.push(call(3, 0));
-    converse.push(call(17, 11));
+    let converse = converse_to(&first_pc, 0, 0);
+    let mut death = vec![Op::Const(Const::Float(0.0))];
+    death.extend(tagged("dummy"));
+    death.extend([0, 1, 0].map(|value| Op::Const(Const::Int(value))));
+    death.extend([call(30, 3), Op::Const(Const::Int(0)), call(14, 4)]);
     // `DelayCommand(0.1, AssignCommand(GetObjectByTag("talker"),
     // ActionStartConversation(GetFirstPC(), dialog)))`, as TSL's
     // `tr_end_riiken` has its keeper speak to whoever comes in.
@@ -487,6 +517,24 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_module_leave", program(&[])),
             ("probe_leave", leave),
             ("probe_converse", converse),
+            ("probe_computer", program(&converse_to(&first_pc, 1, 0))),
+            (
+                "probe_converse_here",
+                program(&converse_to(&first_pc, 0, 1)),
+            ),
+            (
+                "probe_converse_walker",
+                program(&converse_to(&tagged("walker"), 0, 1)),
+            ),
+            (
+                "probe_converse_talker",
+                program(&converse_to(&tagged("talker"), 0, 1)),
+            ),
+            (
+                "probe_video",
+                program(&[Op::Const(Const::Int(i32::from(VIDEO_ROW))), call(29, 1)]),
+            ),
+            ("probe_death_dummy", program(&death)),
             ("probe_cue", cue),
             ("probe_twins", twins),
             ("probe_cutscene", cutscene(0, SCENE_DAMAGE)),
@@ -928,13 +976,38 @@ impl Ground {
     /// Placement `caller` runs `script`, in the next step.
     fn run_script(&mut self, script: &str, caller: u32) -> Result<(), String> {
         let caller = self.object(caller)?;
+        self.run_by(script, caller);
+        Ok(())
+    }
+
+    /// `caller` (a seat's body too) runs `script`, in the next step.
+    fn run_by(&mut self, script: &str, caller: SimId) {
         let mut state = self.world.script_state().clone();
         state
             .pending
             .push(crate::script::Pending::new(script, ObjectId(caller.0)));
         self.world.set_script_state(state);
         self.step();
-        Ok(())
+    }
+
+    /// What `change` makes of `who`'s fighter, if it has one.
+    fn fighter<T>(
+        &mut self,
+        who: SimId,
+        change: impl FnOnce(&mut crate::combat::Fighter) -> T,
+    ) -> Option<T> {
+        let mut fighters = self.world.world.query::<(&Id, &mut Fighting)>();
+        fighters
+            .iter_mut(&mut self.world.world)
+            .find(|(id, _)| id.0 == who)
+            .map(|(_, mut fighting)| change(&mut fighting.0))
+    }
+
+    /// Placement `index` fights for the players' faction: no foe of theirs.
+    fn befriend(&mut self, index: u32) -> Result<SimId, String> {
+        let who = self.object(index)?;
+        self.fighter(who, |fighter| fighter.faction = Some(PLAYER));
+        Ok(who)
     }
 
     /// A script of the talker begins its party conversation.
@@ -2166,6 +2239,373 @@ fn scripted_death_in_place() -> Found {
             after.map(|acting| acting.animation)
         ),
     )
+}
+
+/// Each row's label, what it came to and what it should: passed when every
+/// row came to it.
+fn rows<T: PartialEq + std::fmt::Debug>(rows: &[(&str, T, T)]) -> Found {
+    let seen: Vec<String> = rows
+        .iter()
+        .map(|(label, got, want)| match got == want {
+            true => format!("{label}: {got:?}"),
+            false => format!("{label}: {got:?}, not {want:?}"),
+        })
+        .collect();
+    check(
+        rows.iter().all(|(_, got, want)| got == want),
+        seen.join("; "),
+    )
+}
+
+/// How long the probes hold a fighter in combat (ms): past their watch.
+const COMBAT_HELD_MS: u64 = 60_000;
+
+/// The ground with the jedi brawler made the host's companion (the
+/// party's, led by seat 0) beside the dummy, a friend now: no one on it is
+/// another's foe. The companion's id.
+fn jedi_companion() -> Result<(Ground, SimId), String> {
+    let stage = Stage {
+        jedi: true,
+        ..Stage::default()
+    };
+    let mut ground = Ground::staged(1, stage)?;
+    let host = ground.body(0)?;
+    ground.put(host, [-6.0, -3.0]);
+    ground.place(TALKER, [-7.0, -3.0])?;
+    ground.place(DUMMY, DUMMY_AT)?;
+    ground.place(FOE, FOE_FROM)?;
+    ground.befriend(DUMMY)?;
+    let foe = ground.befriend(FOE)?;
+    ground.fighter(foe, |fighter| fighter.mind.leader = Some(Seat(0)));
+    ground.step();
+    Ok((ground, foe))
+}
+
+/// A script's lit saber (`Sheath::Lit`, `SetOverrideLightsaberState`) is
+/// one act: a party member's goes back to the game's rule (`Sheath::Fight`)
+/// once no conversation has it, and anyone's once it fights; a party member
+/// saying its own conversation keeps it till that ends, and a bystander in
+/// none keeps it. Lit 200 ms on, and again after the conversation ends.
+fn lit_saber_one_act() -> Found {
+    let lit = |member: bool, talks: bool, fights: bool| -> Result<(bool, bool), String> {
+        let (mut ground, companion) = jedi_companion()?;
+        let who = if member {
+            companion
+        } else {
+            ground.object(DUMMY)?
+        };
+        if talks {
+            ground.run_by("probe_begin", who);
+            let owner = ground.last.talk.conversations.first().map(|c| c.owner);
+            if owner != Some(ObjectId(who.0)) {
+                return Err(format!("its conversation is {owner:?}'s"));
+            }
+        }
+        let now = ground.last.time_ms;
+        ground.fighter(who, |fighter| {
+            fighter.sheath = crate::combat::Sheath::Lit;
+            fighter.saber.on = true;
+            if fights {
+                fighter.combat_until = now + COMBAT_HELD_MS;
+            }
+        });
+        let is_lit = |ground: &mut Ground| {
+            ground.fighter(who, |fighter| fighter.sheath) == Some(crate::combat::Sheath::Lit)
+        };
+        ground.idle(200);
+        let during = is_lit(&mut ground);
+        if talks {
+            ground.goodbye()?;
+            ground.idle(200);
+        }
+        Ok((during, is_lit(&mut ground)))
+    };
+    rows(&[
+        (
+            "a companion in no conversation",
+            lit(true, false, false)?,
+            (false, false),
+        ),
+        (
+            "a companion saying its own",
+            lit(true, true, false)?,
+            (true, false),
+        ),
+        (
+            "a companion saying its own, fighting",
+            lit(true, true, true)?,
+            (false, false),
+        ),
+        (
+            "a bystander in none",
+            lit(false, false, false)?,
+            (true, true),
+        ),
+    ])
+}
+
+/// In a conversation holding the world a party member with its blade out
+/// and no fight of its own puts it away and draws it no more while the talk
+/// lasts, though its combat would hold it out (`Arms::at_rest`); out of
+/// one the same blade stays out, and one with a scene's blow due as the
+/// talk begins (`CutsceneAttack`) keeps it till the blow lands. Over 3 s
+/// each.
+fn party_sheathes_in_talk() -> Found {
+    // Whether its blade was out each step, and the step the dummy was hit.
+    let blade = |talk: bool, strike: bool| -> Result<(Vec<bool>, Option<usize>), String> {
+        let (mut ground, companion) = jedi_companion()?;
+        let now = ground.last.time_ms;
+        ground.fighter(companion, |fighter| {
+            fighter.combat_until = now + COMBAT_HELD_MS;
+        });
+        let out = |ground: &mut Ground| ground.fighter(companion, |f| f.saber.on) == Some(true);
+        ground.idle(1000);
+        if !out(&mut ground) {
+            return Err("the companion in combat drew no blade".into());
+        }
+        let dummy = ground.object(DUMMY)?;
+        let full = ground.hp(dummy);
+        // Its blow is due as the talk begins.
+        if strike {
+            ground.run_script("probe_cutscene", FOE)?;
+        }
+        if talk {
+            ground.cutscene()?;
+        }
+        let (mut seen, mut struck) = (Vec::new(), None);
+        for step in 0..steps(3000) {
+            ground.step();
+            seen.push(out(&mut ground));
+            if struck.is_none() && ground.hp(dummy) < full {
+                struck = Some(step);
+            }
+        }
+        Ok((seen, struck))
+    };
+    let (free, _) = blade(false, false)?;
+    let (talk, _) = blade(true, false)?;
+    let (blow, struck) = blade(true, true)?;
+    let put_away = talk.iter().position(|out| !out);
+    let stayed_away = put_away.is_some_and(|at| talk[at..].iter().all(|out| !out));
+    let dropped = blow.iter().position(|out| !out);
+    let kept = struck.is_some_and(|at| dropped.is_none_or(|off| off >= at));
+    let ms = |step: Option<usize>| step.map(|step| (step as u64 + 1) * STEP_MS);
+    check(
+        free.iter().all(|out| *out)
+            && ms(put_away).is_some_and(|ms| ms <= 1000)
+            && stayed_away
+            && kept,
+        format!(
+            "free play: out throughout {}; in the talk: put away at {:?} ms, away since {stayed_away}; with a blow due: struck at {:?} ms, put away at {:?} ms",
+            free.iter().all(|out| *out),
+            ms(put_away),
+            ms(struck),
+            ms(dropped)
+        ),
+    )
+}
+
+/// Who owns the conversation `ActionStartConversation` begins: the one
+/// conversed with when neither is a player nor a companion (the exe's
+/// dialog event to it: a scene's `a_start_miraend` runs for Visquis naming
+/// Mira), the asker when it asks a player, the one asked when a player
+/// asks.
+fn conversed_owns() -> Found {
+    let owner = |caller: Option<u32>, script: &str| -> Result<&'static str, String> {
+        let stage = Stage {
+            walker: true,
+            ..Stage::default()
+        };
+        let mut ground = Ground::staged(1, stage)?;
+        let host = ground.body(0)?;
+        ground.put(host, [-6.0, -3.0]);
+        let talker = ground.place(TALKER, [-7.0, -3.0])?;
+        let walker = ground.place(WALKER, [-7.0, -2.0])?;
+        let by = match caller {
+            Some(index) => ground.object(index)?,
+            None => host,
+        };
+        ground.run_by(script, by);
+        for _ in 0..steps(1000) {
+            if let Some(c) = ground.last.talk.conversations.first() {
+                let named = [
+                    (host, "the host"),
+                    (talker, "the talker"),
+                    (walker, "the walker"),
+                ];
+                return Ok(named
+                    .iter()
+                    .find(|(id, _)| ObjectId(id.0) == c.owner)
+                    .map_or("another", |(_, name)| name));
+            }
+            ground.step();
+        }
+        Err(format!("{script} began no conversation"))
+    };
+    rows(&[
+        (
+            "the talker asks the walker",
+            owner(Some(TALKER), "probe_converse_walker")?,
+            "the walker",
+        ),
+        (
+            "the talker asks the host",
+            owner(Some(TALKER), "probe_converse_here")?,
+            "the talker",
+        ),
+        (
+            "the host asks the talker",
+            owner(None, "probe_converse_talker")?,
+            "the talker",
+        ),
+    ])
+}
+
+/// A cinematic conversation (type 0) asked from farther than the start
+/// distance walks its asker only to half the way, halved till within it
+/// (TSL's `AIActionDialogObject`); one asked from nearer begins where it
+/// stands; a computer one (type 1) walks up to the conversation range. How
+/// far apart the asker and the host stood, and stood as it began.
+fn cinematic_start_distance() -> Found {
+    const TALKER_FROM: [f32; 2] = [-7.2, -4.0];
+    let begun = |script: &str, host_at: [f32; 2]| -> Result<(f32, f32), String> {
+        let mut ground = Ground::new(1)?;
+        let host = ground.body(0)?;
+        ground.put(host, host_at);
+        let talker = ground.place(TALKER, TALKER_FROM)?;
+        for foe in [FOE, DUMMY] {
+            ground.befriend(foe)?;
+        }
+        ground.step();
+        let apart = |ground: &Ground| between(ground.at(host), ground.at(talker));
+        let before = apart(&ground);
+        ground.run_script(script, TALKER)?;
+        for _ in 0..steps(6000) {
+            if !ground.last.talk.conversations.is_empty() {
+                return Ok((before, apart(&ground)));
+            }
+            ground.step();
+        }
+        Err(format!("{script} began no conversation"))
+    };
+    let start = rules::scripts::talk::START_DISTANCE;
+    let (far, near) = ([-0.8, 5.2], [-3.0, -1.0]);
+    // Each case's share of the way apart it begins at, or none for the
+    // conversation range.
+    let cases = [
+        ("cinematic, far", begun("probe_converse", far)?, Some(0.5)),
+        ("cinematic, near", begun("probe_converse", near)?, Some(1.0)),
+        ("computer, far", begun("probe_computer", far)?, None),
+    ];
+    let seen: Vec<String> = cases
+        .iter()
+        .map(|(label, (before, at), _)| format!("{label}: {before:.2} m apart, began at {at:.2}"))
+        .collect();
+    // A walk stops once within its range, a step's run and its slide short.
+    let right = cases.iter().all(|(_, (before, at), share)| {
+        let want = share.map_or(crate::script::CONVERSATION_RANGE, |share| before * share);
+        (want - ARRIVED_M..=want + 0.01).contains(at)
+    });
+    check(
+        right && cases[0].1.0 > start && cases[1].1.0 < start,
+        format!("{} (start distance {start} m)", seen.join("; ")),
+    )
+}
+
+/// How far short of a walk's range its walker may stop (m).
+const ARRIVED_M: f32 = 0.3;
+
+/// A conversation ending turns the video effect off, whoever enabled it
+/// (TSL's `CloseDialog`): one a script enabled in a scene is gone once the
+/// scene ends.
+fn talk_end_clears_video() -> Found {
+    let mut ground = Ground::new(1)?;
+    let host = ground.body(0)?;
+    ground.put(host, [-6.0, -3.0]);
+    ground.place(TALKER, [-7.0, -3.0])?;
+    ground.cutscene()?;
+    ground.run_script("probe_video", TALKER)?;
+    let on = ground.last.video_effect;
+    ground.goodbye()?;
+    ground.step();
+    let after = ground.last.video_effect;
+    check(
+        on == Some(VIDEO_ROW) && after.is_none(),
+        format!("in the scene {on:?}, after its end {after:?}"),
+    )
+}
+
+/// An explosion's death is never staged in place (`death::in_place`): a
+/// grenade's blast, even in a scene, nor a script's `EffectDeath` of one a
+/// push has floored; `EffectDeath` of one standing and a staged blow are. On
+/// the ground, in a scene: the dummy dies by `EffectDeath` playing KOTOR's
+/// dying clip where it stands, and not once a script's push has thrown it.
+fn explosion_deaths_fall_free() -> Found {
+    use crate::combat::damage::Source;
+    use crate::combat::death::{DIE, in_place};
+    let script = |staged| Source::Script {
+        damage: 1,
+        damage_type: None,
+        cast: false,
+        shot: None,
+        staged,
+    };
+    let (staged, free) = (script(true), script(false));
+    // Whether the dummy's death played the dying clip in place.
+    let dies_in_place = |thrown: bool| -> Result<bool, String> {
+        let mut ground = Ground::new(1)?;
+        let host = ground.body(0)?;
+        ground.put(host, [-6.0, -3.0]);
+        ground.place(TALKER, [-5.0, 2.0])?;
+        let dummy = ground.place(DUMMY, [-4.0, 2.0])?;
+        ground.cutscene()?;
+        if thrown {
+            ground.run_script("probe_push_dummy", TALKER)?;
+            for _ in 0..steps(500) {
+                if ground.fighter(dummy, |f| f.saber.floored()) == Some(true) {
+                    break;
+                }
+                ground.step();
+            }
+        }
+        ground.run_script("probe_death_dummy", TALKER)?;
+        ground.idle(200);
+        if ground.hp(dummy) > 0 {
+            return Err(format!("the dummy lives (thrown {thrown})"));
+        }
+        let acting = ground.entity(dummy).and_then(|e| e.fighter?.acting);
+        Ok(acting.is_some_and(|acting| acting.animation == DIE))
+    };
+    rows(&[
+        (
+            "a blast in a scene",
+            in_place(&Source::Blast { row: 0 }, true, false),
+            false,
+        ),
+        (
+            "EffectDeath of one thrown, in a scene",
+            in_place(&Source::Death, true, true),
+            false,
+        ),
+        (
+            "EffectDeath of one standing",
+            in_place(&Source::Death, false, false),
+            true,
+        ),
+        (
+            "a staged blow on one thrown",
+            in_place(&staged, false, true),
+            true,
+        ),
+        ("a free blow in a scene", in_place(&free, true, false), true),
+        (
+            "a free blow out of one",
+            in_place(&free, false, false),
+            false,
+        ),
+        ("the dummy standing", dies_in_place(false)?, true),
+        ("the dummy thrown", dies_in_place(true)?, false),
+    ])
 }
 
 /// S4: in a held scene the brawler attacking the companion closes to the

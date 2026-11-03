@@ -493,7 +493,8 @@ pub(super) fn picks() -> sim::probe::Checks {
 /// passing (`closed_door_near`), but the goal's own is; a use or an exit
 /// whose way one shut
 /// fights the foes near first (`fights_first`); a walk, or a use with no
-/// door refused, does not.
+/// door refused, does not. A use is answered by its target speaking before
+/// any press, as by its door opening (`use_met`), but by no other talk.
 pub(super) fn shut_doors(base: &Snapshot, level: &sim::Level) -> sim::probe::Checks {
     let mut snapshot = base.clone();
     let Some(me) = snapshot
@@ -527,7 +528,22 @@ pub(super) fn shut_doors(base: &Snapshot, level: &sim::Level) -> sim::probe::Che
         fights_first(&Goal::Exit(at()), false, true, false),
         fights_first(&Goal::To(at()), false, true, true),
     ];
+    // Its target speaking, its door opening, the press answered; nothing.
+    let answers = [
+        use_met((false, true), false),
+        use_met((true, false), false),
+        use_met((false, false), true),
+        use_met((false, false), false),
+    ];
     vec![
+        (
+            "use_met_by_its_target_speaking_unpressed",
+            if answers == [true, true, true, false] {
+                Ok(format!("spoke, opened, pressed, nothing: {answers:?}"))
+            } else {
+                Err(format!("spoke, opened, pressed, nothing: {answers:?}"))
+            },
+        ),
         (
             "door_refused_not_pressed",
             if pressed == Some(0) && passed.is_none() {
