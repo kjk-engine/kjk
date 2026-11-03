@@ -1,0 +1,2 @@
+# The sim's hash moves on purpose: why.
+sim = "a door's action point is on the floor by its x and y, so one under a ramp rising to the door is still the near side's (Taris' Upper Sewers door before the rancor, #88)"
