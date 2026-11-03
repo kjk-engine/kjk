@@ -215,7 +215,7 @@ impl Party<'_> {
     /// item that is not among the template's goods is taken for the
     /// party's; what a script gave it counts too, which keeps a little more
     /// than needed rather than lose the party's gear.
-    fn stored_in(
+    pub fn stored_in(
         &self,
         entity: &EntityState,
         kind: ObjectKind,

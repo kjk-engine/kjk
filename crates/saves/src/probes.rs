@@ -593,23 +593,45 @@ fn restores_roster_module(level: &sim::Level, save: &sim::Save) -> Result<String
     round_trip(&story, level, &excluded, &["no such placement here"])
 }
 
-/// A companion who joined and left the party (no longer a member, not
-/// kept, her creature in play with its sheet) keeps her items in the story;
-/// one who never joined (a creature id nothing in play has) lists none.
+/// A companion's creature in play, not a member and not kept, is listed in
+/// the story by what it holds beyond her template's own goods: one that
+/// never joined (a spawned creature holding only her template's belt) is
+/// not; one dismissed carrying a non-template item (the player's) is.
 fn companion_left(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
+    use sim::inventory::{Catalog, Held, Item, ItemFacts};
+    use sim::module::ObjectData;
     let mut save = save.clone();
+    let template = "p_fixture";
+    let mut facts = ObjectData::unknown(template, [0.0; 3], 0.0);
+    facts.inventory = vec![Held {
+        template: "g_i_belt".into(),
+        stack: 1,
+        slot: None,
+        droppable: true,
+        infinite: false,
+    }];
+    let library = sim::probe::library_of([facts], Catalog::new([ItemFacts::plain("g_i_belt")]));
+    let level = level.clone().with_scripts(library);
     let Some(player) = save
         .snapshot
         .entities
         .iter()
         .find(|entity| matches!(entity.kind, sim::Kind::Avatar(_)) && entity.sheet.is_some())
-        .map(|entity| entity.id.0)
+        .cloned()
     else {
         return Err("the sink has no player with a sheet".into());
     };
-    let item = |holder| sim::inventory::Item {
-        template: "g_i_belt".into(),
-        holder,
+    // Her creature in play: a creature of the player's make, under her id.
+    let id = 9_400;
+    let mut body = player;
+    (body.id, body.kind) = (
+        sim::SimId(id),
+        sim::Kind::Object(sim::module::ObjectKind::Creature, 0),
+    );
+    save.snapshot.entities.push(body);
+    let item = |template: &str| Item {
+        template: template.into(),
+        holder: id,
         slot: None,
         stack: 1,
         charges: 0,
@@ -621,25 +643,19 @@ fn companion_left(level: &sim::Level, save: &sim::Save) -> Result<String, String
         upgrades: 0,
         fitted: Vec::new(),
     };
-    let never = 888_888;
-    save.script.items.insert(9_301, item(player));
-    save.script.items.insert(9_302, item(never));
+    save.script.items.insert(9_301, item("g_i_belt"));
     let party = &mut save.script.party;
     party.members.retain(|member| *member != 0);
     let Some(companion) = party.available.get_mut(&0) else {
         return Err("the sink has no companion".into());
     };
-    companion.kept = None;
-    let listed = |object: u32, save: &mut sim::Save| {
-        if let Some(companion) = save.script.party.available.get_mut(&0) {
-            companion.object = Some(object);
-        }
-        Story::of(save, level).items.contains_key("npc0")
-    };
-    let (left, never_joined) = (listed(player, &mut save), listed(never, &mut save));
+    (companion.kept, companion.object, companion.template) = (None, Some(id), template.into());
+    let never_joined = Story::of(&save, &level).items.contains_key("npc0");
+    save.script.items.insert(9_302, item("g_i_medpac"));
+    let dismissed = Story::of(&save, &level).items.contains_key("npc0");
     check(
-        left && !never_joined,
-        format!("joined and left lists her items {left}, never joined {never_joined}"),
+        !never_joined && dismissed,
+        format!("holding her template's goods only: listed {never_joined}; carrying another's: listed {dismissed}"),
     )
 }
 

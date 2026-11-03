@@ -228,7 +228,7 @@ impl Story {
             party: characters(snapshot, script),
             party_ai: script.party.party_ai,
             leader: leader_label(snapshot, script),
-            items: held_items(snapshot, script),
+            items: held_items(snapshot, script, level),
             gold: script.gold,
             components: script.components,
             chemicals: script.chemicals,
@@ -442,7 +442,7 @@ fn leader_label(snapshot: &Snapshot, script: &State) -> String {
 }
 
 /// What the party pool, each player and each companion has.
-fn held_items(snapshot: &Snapshot, script: &State) -> BTreeMap<String, Vec<StoryItem>> {
+fn held_items(snapshot: &Snapshot, script: &State, level: &sim::Level) -> BTreeMap<String, Vec<StoryItem>> {
     let holders = std::iter::once((sim::inventory::PARTY, "party".to_string()))
         .chain(
             snapshot
@@ -459,15 +459,27 @@ fn held_items(snapshot: &Snapshot, script: &State) -> BTreeMap<String, Vec<Story
                 .available
                 .iter()
                 .filter(|(number, npc)| {
-                    // One who joined and left (`Party::leave` keeps its
-                    // creature) has the creature in play still; one that
-                    // never joined has a creature of its module's making.
-                    let in_play = npc.object.is_some_and(|id| {
-                        snapshot
-                            .get(sim::SimId(id))
-                            .is_some_and(|entity| entity.sheet.is_some())
-                    });
-                    npc.kept.is_some() || script.party.members.contains(number) || in_play
+                    // One neither in the party nor kept away has her
+                    // creature in play (joined and left, or never joined):
+                    // her items are listed when it holds more than her
+                    // template's own, which come back with the template.
+                    let carrying = || {
+                        let party = sim::reconcile::Party {
+                            members: &[],
+                            items: &script.items,
+                        };
+                        npc.object
+                            .and_then(|id| snapshot.get(sim::SimId(id)))
+                            .is_some_and(|entity| {
+                                party.stored_in(
+                                    entity,
+                                    sim::module::ObjectKind::Creature,
+                                    &npc.template,
+                                    level,
+                                )
+                            })
+                    };
+                    npc.kept.is_some() || script.party.members.contains(number) || carrying()
                 })
                 .filter_map(|(number, npc)| Some((holder(npc)?, format!("npc{number}")))),
         );
