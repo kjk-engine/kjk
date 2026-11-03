@@ -1519,12 +1519,18 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // one of a tag fell, moved by the next of it
                                 // to fall: the sewers' two Gamorrean leaders):
                                 // planned again. (A walk's goal stands up to
-                                // 3.2 m short of its target, `approach`.)
+                                // 3.2 m short of its target, `approach`.) Its
+                                // stalls go on with it: a patrol moving every
+                                // few seconds planned the walk anew before
+                                // its stalls added up, and the player stood
+                                // wedged on Dantooine's sensor boxes, its
+                                // walk never stalling (`Walker::stalls`).
+                                let mut stalls = None;
                                 if walker
                                     .as_ref()
                                     .is_some_and(|w| flat(w.goal.map(|v| v * UNIT), at) > REPLAN_M)
                                 {
-                                    walker = None;
+                                    stalls = walker.take().map(|w| w.stalls);
                                 }
                                 // Pressed at from within reach but out of its
                                 // sight (a desk's side, a frame's edge between):
@@ -1570,6 +1576,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     }
                                     _ => here.approach(&player, at),
                                 });
+                                if let Some(stalls) = stalls {
+                                    walker.stalls = stalls;
+                                }
                                 // No way there (a locked door's doorway, a
                                 // body in the way) but near: straight at it.
                                 // Arrived short of it: the last stretch straight.
