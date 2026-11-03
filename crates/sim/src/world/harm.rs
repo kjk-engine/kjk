@@ -367,6 +367,9 @@ pub(super) fn hurt(
                         .or_else(|| find(&actors, by).map(|them| actors[them].4.0.origin));
                     if let (Some(at), Some(centre)) = (at, centre) {
                         let (.., player, fighting) = &mut actors[at];
+                        if fighting.0.alive() {
+                            fighting.0.blasted_ms = now;
+                        }
                         pushed(&mut player.0, &mut fighting.0, centre, now);
                     }
                 }

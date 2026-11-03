@@ -2607,7 +2607,8 @@ impl Cast {
                     None => continue,
                 },
             };
-            if at.alive {
+            let blasted = blasted(&at, ms);
+            if at.alive && blasted.is_none() {
                 self.ragdolls.rise(id);
             }
             let still = self.ragdolls.still(id);
@@ -2623,10 +2624,10 @@ impl Cast {
                 .get(&id)
                 .filter(|_| !self.rig.quirks)
                 .map_or(&[][..], Vec::as_slice);
-            // Only the dead fall as ragdolls: the downed must get up, and
-            // one dying in place lies as its clip leaves it.
+            // Only the dead and the blasted fall as ragdolls: the downed
+            // must get up, and one dying in place lies as its clip leaves it.
             let in_place = dying_in_place(&at);
-            let falls = at.dead && member.body.doll.is_some() && !in_place;
+            let falls = (at.dead || blasted.is_some()) && member.body.doll.is_some() && !in_place;
             let death_plays = member.playing_death(ms);
             // Holstered guns drawn or put away as the body readies them
             // (`draw_anim`): only a body that carries them.
@@ -2690,7 +2691,8 @@ impl Cast {
             }
             if falls
                 && !still
-                && let Some(one) = as_drawn_dead(&self.rig, (id, member), at, moved, transforms)
+                && let Some(one) =
+                    as_drawn_dead(&self.rig, (id, member), (at, blasted), moved, transforms)
             {
                 dying.push(one);
             }
@@ -2885,7 +2887,7 @@ fn dying_in_place(at: &Blended) -> bool {
 fn as_drawn_dead(
     rig: &Rig,
     (id, member): (SimId, &Member),
-    at: Blended,
+    (at, blasted): (Blended, Option<u64>),
     moved: Option<(usize, Vec3)>,
     transforms: &Query<&mut Transform>,
 ) -> Option<Dying> {
@@ -2906,15 +2908,36 @@ fn as_drawn_dead(
         Look::Ja => return None,
     };
     let root = transforms.get(member.body.root).ok()?;
+    // A blasted body falls from the blast, limp at once: no clip of its own
+    // to hold to.
+    let (died_ms, length_ms) = match blasted {
+        Some(blasted) => (blasted, Some(BLASTED_MS)),
+        None => (member.figure.died()?, length_ms),
+    };
     Some(Dying {
         id,
         pose: ragdolls::drawn_pose(&doll.rest, &member.body.nodes, transforms, lengths),
         doll,
         root: ragdoll::Frame::new(root.translation, root.rotation),
         at,
-        died_ms: member.figure.died()? as f64,
+        died_ms: died_ms as f64,
         length_ms,
     })
+}
+
+/// How long (ms) a blasted body's muscles hold before it goes limp.
+const BLASTED_MS: f64 = 150.0;
+
+/// When the script's push (a blast, `Fighter::blasted_ms`) threw the body at
+/// `at`, while `ms` is within JA's knockdown from it: it falls as a ragdoll
+/// from then, the throw's velocity carried, not knocked down by JA's clip,
+/// and a death meanwhile (the scene's that follows its blast: TSL's Sith
+/// troopers on the Ravager, pushed from `wp_explosion` and killed 0.9 s on)
+/// lets it lie as it fell; alive past the knockdown, it rises.
+fn blasted(at: &Blended, ms: f64) -> Option<u64> {
+    let blasted = at.fighter.as_ref()?.blasted_ms;
+    let since = (ms as u64).checked_sub(blasted)?;
+    (blasted > 0 && since < sim::combat::force::ja::KNOCKDOWN_MS).then_some(blasted)
 }
 
 /// Shows or hides `root` (a body's), if it is not so already.
@@ -3297,10 +3320,11 @@ fn place(
     // An item's use (`sim::combat::items::clips`) plays over a drawn
     // weapon too: a shield's band is switched on in the middle of a fight.
     let using = at.fighter.is_some_and(|f| f.pack.using.is_some());
+    let moving = (x * x + y * y).sqrt() >= STILL_SPEED;
     let acting = at
         .fighter
         .as_ref()
-        .and_then(|f| drawn_acting(f, (x * x + y * y).sqrt() >= STILL_SPEED, ms));
+        .and_then(|f| drawn_acting(f, moving, ms));
     // One that hides the equipped items (Security, a mine's) puts the gun
     // away as it begins: the gun going does not break it off.
     let hiding = acting.is_some_and(|acting| acting::hides_items(&acting, ms));
@@ -3326,7 +3350,7 @@ fn place(
             let hand_out = at.fighter.map_or(0, |f| f.hand.min(1));
             let gripping = gripped[usize::from(hand_out)].as_ref().filter(|_| armed);
             let rig = gripping.unwrap_or(&*rig);
-            shows.follow(acting, (still, at.alive, world_held), ms);
+            shows.follow(acting, (still, moving, at.alive, world_held), ms);
             hear(heard, shows, (acted, figure.breath.wield), ms);
             throw.follow(at.fighter.as_ref());
             // A player's own body (its gait) keeps JA's; JA's own pain,
@@ -3594,7 +3618,7 @@ fn place(
         Look::Clips(clips) => {
             clips
                 .shows
-                .follow(acting, (still, at.alive, world_held), ms);
+                .follow(acting, (still, moving, at.alive, world_held), ms);
             clips.flinch.follow(at.fighter.as_ref(), false, true);
             clips.attack.follow(at.fighter.as_ref());
             // Its scripted clips show and sound as a retargeted body's do,
