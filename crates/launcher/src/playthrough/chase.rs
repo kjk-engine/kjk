@@ -122,6 +122,32 @@ pub(super) struct Chase {
     /// The foe out of sight and of every way walked to where it is seen
     /// from (`Reach::spot`): shot from there.
     pub(super) sighted: Option<sim::SimId>,
+    /// The foe gone after, the nearest the player has come to it (metres)
+    /// and since when (`gaining`).
+    pub(super) gain: Option<(sim::SimId, f32, u64)>,
+}
+
+/// How long (ms) a chase gains no ground on its foe before it is lost
+/// (`gaining`), and by how much (metres) it must come nearer.
+const NO_GAIN_MS: u64 = 30_000;
+const GAIN_M: f32 = 0.5;
+
+/// The chase's ground on foe `id`, `d` metres off at `now`, after `gain`
+/// (`Chase::gain`): whether it is lost, gaining no ground for `NO_GAIN_MS`
+/// out of a blade's swing, as one whose walk stalled on and on. A walk
+/// wedged at a step, making for one corner then another, starts its stalls
+/// afresh at each (Telos's restoration zone: the mercenaries by the mined
+/// entrance, 23 m up the ramp, chased for 100 s from one spot).
+pub(super) fn gaining(
+    gain: Option<(sim::SimId, f32, u64)>,
+    (id, d): (sim::SimId, f32),
+    now: u64,
+) -> (Option<(sim::SimId, f32, u64)>, bool) {
+    let gain = match gain {
+        Some((foe, best, since)) if foe == id && d > melee_m().1 && d >= best - GAIN_M => (foe, best, since),
+        _ => (id, d, now),
+    };
+    (Some(gain), now >= gain.2 + NO_GAIN_MS)
 }
 
 impl Chase {
@@ -194,7 +220,9 @@ impl Chase {
         // shooting from past the dormitories' wreckage, its way blocked):
         // shot from here, a gun taken up for it, as a player would.
         let (floor, routable) = reach.ways(here, player, (id, at), now);
-        if walker.as_ref().is_some_and(|w| w.stalls > LOST_STALLS) {
+        let (gain, stuck) = gaining(self.gain, (id, d), now);
+        self.gain = gain;
+        if stuck || walker.as_ref().is_some_and(|w| w.stalls > LOST_STALLS) {
             self.lost = Some(id);
         }
         // One unseen with no way to its floor: walked to where it is seen

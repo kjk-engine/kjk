@@ -127,6 +127,7 @@ pub fn probes() -> sim::probe::Checks {
         .chain(hovering(&world, &base))
         .chain(hidden_foes(&base))
         .chain(goal_held(&base))
+        .chain(gains())
         .chain(fights_end())
         .chain(scenes())
         .chain(loots())
@@ -316,6 +317,30 @@ pub(super) fn hidden_foes(base: &Snapshot) -> sim::probe::Checks {
             ),
         ),
     ]
+}
+
+/// A chase 23 m from its foe that gains no ground for 30 s is lost
+/// (`gaining`); not one that came 1 m nearer meanwhile, nor one whose foe
+/// is at hand (a long duel), nor one that turned to another foe.
+pub(super) fn gains() -> sim::probe::Checks {
+    let (foe, other) = (sim::SimId(1), sim::SimId(2));
+    let after = |d: f32, then: (sim::SimId, f32)| {
+        let (gain, _) = gaining(None, (foe, d), 0);
+        gaining(gain, then, 30_000).1
+    };
+    let cases = [
+        after(23.0, (foe, 23.0)),
+        after(23.0, (foe, 22.0)),
+        after(0.5, (foe, 0.5)),
+        after(23.0, (other, 23.0)),
+    ];
+    vec![(
+        "chase_lost_gaining_no_ground",
+        sim::probe::check(
+            cases == [true, false, false, false],
+            format!("no ground gained, 1 m gained, at hand, another foe: {cases:?}"),
+        ),
+    )]
 }
 
 /// A walk's end is taken (`goal_taken`) by another living body standing
