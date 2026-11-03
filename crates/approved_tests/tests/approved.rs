@@ -1518,12 +1518,12 @@ fn item_properties() {
 
 /// `SwitchPlayerCharacter` (K1's Leviathan, TSL's many): `sim::switch::probes`,
 /// a script switching the first seat to a companion made from its
-/// template, the seat walking it, scripts seeing it, a switch back, saves,
-/// snapshots and prediction, a standing creature taken, a guest giving way;
-/// the sim alone.
+/// template, or as the party table kept it, the seat walking it, scripts
+/// seeing it, a switch back, saves, snapshots and prediction, a standing
+/// creature taken, a guest giving way; the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 16);
+    probed("switch", &sim::switch::probes(), 17);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and

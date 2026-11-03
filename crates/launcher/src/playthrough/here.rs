@@ -1353,10 +1353,15 @@ pub(super) fn companion_levels_due(
                 && followed.driver.is_none()
                 && library.classes().may_level(sheet.level, xp))
             .then_some(())?;
-            let career = state.careers.get(&id).unwrap_or(&data.classes);
+            // As the sim's level-up reads it (`script::levelling::career`).
+            let career = match state.careers.get(&id) {
+                Some(career) => career.clone(),
+                None if data.classes.is_empty() => return None,
+                None => sim::levels::untaken(&data.classes, sheet.level, 0),
+            };
             let &(class, _) = career.last()?;
             let banked = state.unspent.get(&id).copied().unwrap_or(0);
-            Some((id, library.classes().auto(&sheet, career, class, banked)?))
+            Some((id, library.classes().auto(&sheet, &career, class, banked)?))
         })
         .collect()
 }
