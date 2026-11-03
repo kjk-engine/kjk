@@ -430,12 +430,7 @@ fn restored_story(
     discovery: &vfs::Discovery,
     story: &Story,
 ) -> Result<(), (String, String)> {
-    let seats = story
-        .party
-        .iter()
-        .filter_map(|character| character.seat)
-        .max()
-        .map_or(1, |seat| seat.saturating_add(1));
+    let seats = story.seats();
     let place = sim::Place {
         game: story.game.clone(),
         module: story.place.module.clone(),

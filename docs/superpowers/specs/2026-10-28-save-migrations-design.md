@@ -273,6 +273,10 @@ only checked to be refused with the right message.
 
 ### 2b. Real saves from every release (the owner's machine, before a tag)
 
+*Status 2026-11-03:* built as `kjk saves capture <tag>` and `kjk saves
+check [<corpus>]` (`saves::corpus`: the slot reader, the verdict and the
+table); `docs/RELEASE.md` has the capture, check and mirror steps.
+
 The data half needs the games' files, so it runs where they are:
 
 - **Corpus**: per release, at least Endar Spire, Taris, mid-Korriban and TSL
