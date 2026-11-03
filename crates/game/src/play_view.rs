@@ -1723,7 +1723,8 @@ fn line_shot(
         angles::look_angles((target - eye).to_array()),
         DIALOG_FOV,
     );
-    Some((kind, sides.frame(line, heads, filmed)))
+    let fading_out = latest.fade.is_some_and(|fade| fade.out);
+    Some((kind, sides.frame(line, (heads, fading_out), filmed)))
 }
 
 /// The shots a conversation's lines are filmed from, followed line by line
@@ -1960,12 +1961,22 @@ impl Framed {
 impl Sides {
     /// What `line` films this frame, its pair's heads at `heads`: `filmed`,
     /// from where the pair stand now, as TSL's dialog camera re-aims each
-    /// frame on its shot's two bodies; but once one of the pair jumps away
-    /// (a node's script), the shot as it was for the rest of the line (TSL's
-    /// `a_262imprison` takes the Exile to a cell in a line that fades out
-    /// over a second: re-aimed, it turned round to the Handmaiden's back
-    /// while the fade was still light).
-    fn frame(&mut self, line: (u32, u64, bool), heads: (Vec3, Vec3), filmed: TalkShot) -> TalkShot {
+    /// frame on its shot's two bodies; but the shot last filmed while the
+    /// screen fades out (`fading_out`), whatever line plays, and once one of
+    /// the pair jumps away (a node's script), the shot as it was for the
+    /// rest of the line. TSL's `a_262imprison`: the reply that gives up the
+    /// weapons fades out over a second and jumps the Exile to a cell; the
+    /// silent entry after it, filmed afresh, turned round to the
+    /// Handmaiden's back while the fade was still light.
+    fn frame(
+        &mut self,
+        line: (u32, u64, bool),
+        (heads, fading_out): ((Vec3, Vec3), bool),
+        filmed: TalkShot,
+    ) -> TalkShot {
+        if let Some(framed) = self.framed.filter(|_| fading_out) {
+            return framed.shot;
+        }
         if let Some(framed) = self.framed.filter(|framed| framed.line == line)
             && (framed.jumped || framed.jumped_from(heads))
         {
@@ -2367,24 +2378,27 @@ fn rule_probes() -> sim::probe::Checks {
 /// `jump_holds_shot`: a line follows its pair walking (0.1 m a frame), but
 /// once one of them jumps away (4 m) it keeps the shot it last filmed for
 /// the rest of the line, the pair walking on included; the next line films
-/// afresh.
+/// afresh, unless the screen fades out, when the shot last filmed holds
+/// over the next line (one of the pair jumped away) until the fade is gone.
 #[cfg(feature = "probes")]
 fn jump_holds_shot((a, b): (Vec3, Vec3)) -> Result<String, String> {
     let line = |ms| (7, ms, false);
     let shot = |n: f32| ([n, 0.0, 0.0], [0.0; 3], DIALOG_FOV);
-    let step = Vec3::new(0.0, 0.1, 0.0);
+    let (step, away) = (Vec3::new(0.0, 0.1, 0.0), Vec3::new(4.0, 0.0, 0.0));
     let mut sides = Sides::default();
     let filmed = [
-        sides.frame(line(1), (a, b), shot(1.0)),
-        sides.frame(line(1), (a + step, b), shot(2.0)),
-        sides.frame(line(1), (a + step, b + Vec3::new(4.0, 0.0, 0.0)), shot(3.0)),
-        sides.frame(line(1), (a + step * 2.0, b), shot(4.0)),
-        sides.frame(line(2), (a, b), shot(5.0)),
+        sides.frame(line(1), ((a, b), false), shot(1.0)),
+        sides.frame(line(1), ((a + step, b), false), shot(2.0)),
+        sides.frame(line(1), ((a + step, b + away), false), shot(3.0)),
+        sides.frame(line(1), ((a + step * 2.0, b), false), shot(4.0)),
+        sides.frame(line(2), ((a, b), false), shot(5.0)),
+        sides.frame(line(3), ((a, b + away), true), shot(6.0)),
+        sides.frame(line(3), ((a, b + away), false), shot(7.0)),
     ]
     .map(|(eye, ..)| eye[0]);
     sim::probe::check(
-        filmed == [1.0, 2.0, 2.0, 2.0, 5.0],
-        format!("filmed {filmed:?} (want [1, 2, 2, 2, 5])"),
+        filmed == [1.0, 2.0, 2.0, 2.0, 5.0, 5.0, 7.0],
+        format!("filmed {filmed:?} (want [1, 2, 2, 2, 5, 5, 7])"),
     )
 }
 
