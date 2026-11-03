@@ -96,6 +96,18 @@ impl Step<'_> {
             let Some((sheet, career)) = self.now(who, choices.class) else {
                 continue;
             };
+            // Levels taken here with none recorded: a career lost on the way
+            // (issue 89), told for the chain's transcripts to find.
+            let template = self.view.facts(who).map_or(&[][..], |f| &f.classes[..]);
+            if !self.state.careers.contains_key(&who.0)
+                && !template.is_empty()
+                && template != &career[..]
+            {
+                self.report.line(format!(
+                    "career not recorded for #{} (level {}, template {template:?})",
+                    who.0, sheet.level
+                ));
+            }
             let choices = classes.complete(&sheet, &career, &choices);
             let banked = banked(self.state, who);
             let asked = format!(

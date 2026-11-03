@@ -100,24 +100,32 @@ void DestroyObject(object oDestroy, float fDelay=0.0f, int bNoFade = FALSE, floa
     token(&mut back, 9, &[int(0), made, call(9, 2), call(6, 1)], false);
     token(&mut back, 10, &switch(i32::from(UNKNOWN)), false);
     back.op(Op::Retn);
-    // `probe_keep`: `SaveNPCState(STANDING)`; `probe_spawn`: the standing
-    // one destroyed, as the games' scripts send a companion away, then 11
+    // `probe_keep`: `SaveNPCState(STANDING)`; `probe_send`: the standing
+    // one destroyed, as the games' scripts send a companion away;
+    // `probe_spawn`: that, then 11
     // `GetTag(SpawnAvailableNPC(STANDING, GetLocation(GetFirstPC())))`.
     let mut keep = script_ncs::probes::Asm::default();
     keep.op(int(i32::from(STANDING)))
         .op(call(10, 1))
         .op(Op::Retn);
-    let mut spawn = script_ncs::probes::Asm::default();
     let standing = Op::Const(Const::String(TEMPLATES[1].1.as_bytes().to_vec()));
-    spawn
-        .op(int(0))
-        .op(Op::Const(Const::Float(0.0)))
-        .op(int(0))
-        .op(Op::Const(Const::Float(0.0)))
-        .op(int(0))
-        .op(standing)
-        .op(call(9, 2))
-        .op(call(13, 5));
+    let send_away = [
+        int(0),
+        Op::Const(Const::Float(0.0)),
+        int(0),
+        Op::Const(Const::Float(0.0)),
+        int(0),
+        standing,
+        call(9, 2),
+        call(13, 5),
+    ];
+    let mut send = script_ncs::probes::Asm::default();
+    let mut spawn = script_ncs::probes::Asm::default();
+    for op in &send_away {
+        send.op(op.clone());
+        spawn.op(op.clone());
+    }
+    send.op(Op::Retn);
     let made_here = [
         call(4, 0),
         call(12, 1),
@@ -135,6 +143,7 @@ void DestroyObject(object oDestroy, float fDelay=0.0f, int bNoFade = FALSE, floa
         ("probe_sw_seen".to_string(), seen.build()),
         ("probe_sw_back".to_string(), back.build()),
         ("probe_keep".to_string(), keep.build()),
+        ("probe_send".to_string(), send.build()),
         ("probe_spawn".to_string(), spawn.build()),
         ("probe_first".to_string(), first.build()),
     ]);
@@ -356,6 +365,7 @@ pub fn probes() -> crate::probe::Checks {
     };
     checks.push(("standing_creature_taken", standing_taken()));
     checks.push(("party_table_keeps_a_companion", kept()));
+    checks.push(("switch_makes_the_kept_companion", switch_makes_kept()));
     checks.push(("guest_gives_way", guest_gives_way()));
     checks.push(("leads_a_companion_while_switched", leads_while_switched()));
     checks.push(("install_after_switching_back", install_after_back()));
@@ -899,5 +909,57 @@ fn kept() -> Result<String, String> {
                 "differs after a round trip"
             }
         ),
+    )
+}
+
+/// A companion the table kept (levelled past its template: its sheet and
+/// career), sent away, then switched to with no creature here: the one
+/// made is the table's, as the party selection screen makes it (issue 89),
+/// not its template anew.
+fn switch_makes_kept() -> Result<String, String> {
+    const LEVEL: u8 = 9;
+    let (mut world, _, standing) = switch_world(1, true)?;
+    let entity = world
+        .world
+        .query::<(bevy_ecs::entity::Entity, &Id)>()
+        .iter(&world.world)
+        .find(|(_, id)| id.0 == standing)
+        .map(|(entity, _)| entity)
+        .ok_or("no standing companion")?;
+    let sheet = Sheet {
+        level: LEVEL,
+        ..Sheet::dev_soldier()
+    };
+    world
+        .world
+        .entity_mut(entity)
+        .insert(super::super::PlayerSheet(sheet));
+    let career = vec![(0, LEVEL)];
+    let mut state = world.script_state().clone();
+    state.careers.insert(standing.0, career.clone());
+    world.set_script_state(state);
+    for script in ["probe_keep", "probe_send", "probe_sw_to3"] {
+        run(&mut world, 1, 0);
+        queue(&mut world, script);
+    }
+    run(&mut world, 1, 0);
+    let after = run(&mut world, 1, 0);
+    let state = world.script_state();
+    let made = state
+        .party
+        .available
+        .get(&STANDING)
+        .and_then(|slot| slot.object)
+        .map(SimId)
+        .filter(|id| *id != standing)
+        .ok_or("no companion made")?;
+    let level = after
+        .get(made)
+        .and_then(|body| body.sheet)
+        .map_or(0, |sheet| sheet.level);
+    let made_career = state.careers.get(&made.0);
+    check(
+        level == LEVEL && made_career == Some(&career),
+        format!("made #{}: level {level}, career {made_career:?}", made.0),
     )
 }

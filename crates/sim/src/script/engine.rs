@@ -5285,8 +5285,11 @@ impl Engine<'_> {
                     (made.at, made.yaw)
                 }
             };
+            // As the table keeps it (its sheet, items and career), as the
+            // party selection screen makes it.
             let side = rules::scripts::moves::BESIDE_M;
-            self.make(&slot.template, super::beside(at, yaw, side), yaw)
+            let at = super::beside(at, yaw, side);
+            super::make_npc(self.library, self.view, self.state, self.out, npc, at, yaw)
         });
         let Some(body) = body else {
             return false;
