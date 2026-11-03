@@ -210,8 +210,9 @@ const AREA_FORMAT: &str = "area-v6";
 /// The bytes a game's area bakes may take, the least recently used going
 /// past it: every rulebook edition and data change bakes a whole new set
 /// (about 2 GB for K1 or TSL) and nothing else removes the old ones, which
-/// once grew to 59 GB. Two sets fit, for worktrees on different editions.
-const AREA_BAKES_KEPT: u64 = 4 << 30;
+/// once grew to 59 GB. Three sets and more fit, for worktrees on different
+/// editions.
+const AREA_BAKES_KEPT: u64 = 8 << 30;
 
 /// The scripts the game's own screens run, not named by any object: the
 /// galaxy map's travel (`sim::script` runs it for the traveller).
