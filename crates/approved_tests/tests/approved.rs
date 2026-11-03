@@ -1678,7 +1678,7 @@ fn feats() {
 fn save_copy_round_trip() {
     probed("save copies", &saves::copies::probes(), 12);
     probed("save refusals", &saves::refusal_probes(), 14);
-    probed("save story", &saves::story_probes(), 7);
+    probed("save story", &saves::story_probes(), 8);
 }
 
 /// The saves' safety net (`saves::safety_probes`): the meta's new fields

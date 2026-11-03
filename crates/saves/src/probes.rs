@@ -214,6 +214,7 @@ pub fn story_probes() -> sim::probe::Checks {
     let checks = vec![
         ("story_of_sink", of_sink(&story)),
         ("story_roster_module", roster_module(&level, &save)),
+        ("story_companions_items", companions_items(&level, &save)),
         ("story_json_round_trip", json_round_trip(&story)),
         ("story_reads_few_fields", reads_few_fields()),
         ("story_written_with_slot", slot_write(&root, &story)),
@@ -310,6 +311,7 @@ fn roster_module(level: &sim::Level, save: &sim::Save) -> Result<String, String>
         origin(ObjectKind::Door, "door_a"),
         origin(ObjectKind::Placeable, "plc_b"),
         origin(ObjectKind::Creature, "cre_c"),
+        origin(ObjectKind::Creature, "cre_d"),
     ]);
     let made = |id, kind, number, state| sim::EntityState {
         id: sim::SimId(id),
@@ -317,6 +319,11 @@ fn roster_module(level: &sim::Level, save: &sim::Save) -> Result<String, String>
         object: Some(state),
         ..proto
     };
+    // A body lying dead (cre_d) is destroyed too.
+    let mut dead = made(9_003, ObjectKind::Creature, 3, sim::ObjectState::default());
+    let mut fighter = sim::combat::fighter::Fighter::fresh(10, 0);
+    fighter.life = sim::combat::fighter::Life::Dead;
+    dead.fighter = Some(fighter);
     let open_locked = sim::ObjectState {
         state: 1,
         lock: sim::lock::LOCKED,
@@ -325,6 +332,7 @@ fn roster_module(level: &sim::Level, save: &sim::Save) -> Result<String, String>
     save.snapshot.entities.extend([
         made(9_001, ObjectKind::Door, 0, open_locked),
         made(9_002, ObjectKind::Placeable, 1, sim::ObjectState::GONE),
+        dead,
     ]);
     save.script.locals.insert((9_001, 1, 5), 7);
     let module = save
@@ -340,7 +348,7 @@ fn roster_module(level: &sim::Level, save: &sim::Save) -> Result<String, String>
     let kept = module.and_then(|module| story.visited.get(&module));
     let ok = kept.is_some_and(|kept| {
         kept.doors == [(key(0, "door_a"), 1, sim::lock::LOCKED)]
-            && kept.destroyed == [key(1, "plc_b"), key(2, "cre_c")]
+            && kept.destroyed == [key(1, "plc_b"), key(2, "cre_c"), key(3, "cre_d")]
             && kept.locals == [(key(0, "door_a"), 1, 5, 7)]
     });
     check(ok, format!("{kept:?}"))
@@ -413,4 +421,92 @@ fn old_formats() -> Result<String, String> {
             }),
         format!("{:?}", meta.formats),
     )
+}
+
+/// The sink with a player's equipped and carried items, an away companion
+/// (`Kept`, no creature) holding gear, a career and XP under its old
+/// creature's id, and a companion leading: each is in the story by name.
+fn companions_items(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
+    use sim::inventory::Item;
+    use sim::script::party::Kept;
+    let mut save = save.clone();
+    let Some(player) = save
+        .snapshot
+        .entities
+        .iter()
+        .find(|entity| matches!(entity.kind, sim::Kind::Avatar(_)))
+        .map(|entity| entity.id.0)
+    else {
+        return Err("the sink has no player".into());
+    };
+    let item = |template: &str, holder, slot| Item {
+        template: template.into(),
+        holder,
+        slot,
+        stack: 1,
+        charges: 0,
+        droppable: true,
+        plot: false,
+        identified: true,
+        infinite: false,
+        non_equippable: false,
+        upgrades: 0,
+        fitted: Vec::new(),
+    };
+    let away = 777;
+    let mut sheet = sim::combat::sheet::Sheet::commoner();
+    sheet.feats.insert(5);
+    for (id, item) in [
+        (9_101, item("w_blade", player, Some(4))),
+        (9_102, item("g_i_medpac", player, None)),
+        (9_103, item("w_pistol", away, Some(4))),
+        (9_104, item("g_i_belt", away, None)),
+    ] {
+        save.script.items.insert(id, item);
+    }
+    save.script.careers.insert(away, vec![(0, 3)]);
+    save.script.xp.insert(away, 450);
+    let companion = save.script.party.available.get_mut(&0);
+    let Some(companion) = companion else {
+        return Err("the sink has no companion".into());
+    };
+    companion.kept = Some(Kept {
+        from: away,
+        sheet,
+        hp: 100,
+        fp: 50,
+        worn: None,
+    });
+    save.script.party.leader = Some(0);
+    let story = Story::of(&save, level);
+    let held = |who: &str| -> Vec<(&str, Option<u8>)> {
+        story.items.get(who).map_or_else(Vec::new, |items| {
+            items
+                .iter()
+                .map(|i| (i.template.as_str(), i.slot))
+                .collect()
+        })
+    };
+    let companion = story.party.iter().find(|c| c.npc == Some(0));
+    let named = [
+        (
+            "player's items",
+            held("player0") == [("w_blade", Some(4)), ("g_i_medpac", None)],
+        ),
+        (
+            "away companion's items",
+            held("npc0") == [("w_pistol", Some(4)), ("g_i_belt", None)],
+        ),
+        (
+            "away companion's career, xp and feats",
+            companion.is_some_and(|c| c.classes == [(0, 3)] && c.xp == 450 && c.feats == [5]),
+        ),
+        ("leader", story.leader == "npc0"),
+    ];
+    let missing: Vec<&str> = named
+        .iter()
+        .filter(|(_, ok)| !ok)
+        .map(|(name, _)| *name)
+        .collect();
+    check(missing.is_empty(), format!("missing: {missing:?}"))
 }

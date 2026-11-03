@@ -11,6 +11,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use sim::combat::fighter::Life;
 use sim::combat::sheet::{Rows, Sheet};
 use sim::module::{ObjectKind, Placement};
 use sim::reconcile::Origin;
@@ -36,6 +37,8 @@ pub struct Story {
     pub party: Vec<StoryCharacter>,
     /// The party's AI style (`PARTY_AISTYLE_*`).
     pub party_ai: i32,
+    /// Who leads, as `items` names holders: `player<seat>` or `npc<number>`.
+    pub leader: String,
     /// The items each holder has, by who holds them: `party` (the shared
     /// pool), `player<seat>`, `npc<number>` (a companion's `NPC_*`).
     pub items: BTreeMap<String, Vec<StoryItem>>,
@@ -188,6 +191,7 @@ impl Story {
             },
             party: characters(snapshot, script),
             party_ai: script.party.party_ai,
+            leader: leader_label(snapshot, script),
             items: held_items(snapshot, script),
             gold: script.gold,
             components: script.components,
@@ -311,6 +315,7 @@ fn characters(snapshot: &Snapshot, script: &State) -> Vec<StoryCharacter> {
     for (&number, npc) in &party.available {
         let entity = npc.object.and_then(|id| snapshot.get(sim::SimId(id)));
         let kept = npc.kept.as_ref();
+        let id = holder(npc);
         let base = StoryCharacter {
             npc: Some(number),
             template: npc.template.clone(),
@@ -318,11 +323,8 @@ fn characters(snapshot: &Snapshot, script: &State) -> Vec<StoryCharacter> {
             leader: party.leader == Some(number),
             influence: party.influence.get(&number).copied(),
             base: party.bases.get(&number).copied(),
-            ai_style: npc.object.and_then(|id| party.ai_styles.get(&id).copied()),
-            xp: npc
-                .object
-                .and_then(|id| script.xp.get(&id).copied())
-                .unwrap_or(0),
+            ai_style: id.and_then(|id| party.ai_styles.get(&id).copied()),
+            xp: id.and_then(|id| script.xp.get(&id).copied()).unwrap_or(0),
             ..StoryCharacter::default()
         };
         let sheet = entity
@@ -332,10 +334,31 @@ fn characters(snapshot: &Snapshot, script: &State) -> Vec<StoryCharacter> {
             .and_then(|entity| entity.fighter.as_ref())
             .map(|fighter| (fighter.hp, fighter.fp))
             .or(kept.map(|kept| (kept.hp, kept.fp)));
-        let id = npc.object.or(kept.map(|kept| kept.from));
         out.push(character(base, sheet, hp_fp, script, id));
     }
     out
+}
+
+/// The creature id a companion's items, career and XP are under: its
+/// creature, or the one that last had it when it is away from the party
+/// (`Kept::from`).
+fn holder(npc: &sim::script::party::Npc) -> Option<u32> {
+    npc.object.or(npc.kept.as_ref().map(|kept| kept.from))
+}
+
+/// Who leads, as `items` names holders: `npc<number>` or `player<seat>`.
+fn leader_label(snapshot: &Snapshot, script: &State) -> String {
+    if let Some(number) = script.party.leader {
+        return format!("npc{number}");
+    }
+    let seat = snapshot
+        .leading
+        .and_then(|id| snapshot.get(id))
+        .and_then(|entity| match entity.kind {
+            Kind::Avatar(seat) => Some(seat.0),
+            _ => None,
+        });
+    format!("player{}", seat.unwrap_or(0))
 }
 
 /// What the party pool, each player and each companion has.
@@ -355,7 +378,7 @@ fn held_items(snapshot: &Snapshot, script: &State) -> BTreeMap<String, Vec<Story
                 .party
                 .available
                 .iter()
-                .filter_map(|(number, npc)| Some((npc.object?, format!("npc{number}")))),
+                .filter_map(|(number, npc)| Some((holder(npc)?, format!("npc{number}")))),
         );
     holders
         .filter_map(|(holder, label)| {
@@ -439,6 +462,8 @@ fn fill_module(
         template: roster[index as usize].template.clone(),
     };
     let mut present = vec![false; roster.len()];
+    // Creatures lying dead (`Life::Dead`): their bodies are in play still.
+    let mut dead = vec![false; roster.len()];
     for entity in entities {
         let Kind::Object(object_kind, number) = entity.kind else {
             continue;
@@ -447,6 +472,10 @@ fn fill_module(
             continue;
         };
         present[number as usize] = true;
+        dead[number as usize] = entity
+            .fighter
+            .as_ref()
+            .is_some_and(|fighter| fighter.life == Life::Dead);
         named.insert(entity.id.0, (module.to_string(), key(number)));
         let Some(state) = entity.object else {
             continue;
@@ -461,7 +490,7 @@ fn fill_module(
         }
     }
     for (number, origin) in roster.iter().enumerate() {
-        if origin.kind == ObjectKind::Creature && !present[number] {
+        if origin.kind == ObjectKind::Creature && (!present[number] || dead[number]) {
             kept.destroyed.push(key(number as u32));
         }
     }
