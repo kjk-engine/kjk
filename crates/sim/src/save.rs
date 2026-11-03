@@ -235,6 +235,7 @@ impl Save {
                 spawned: &mut snapshot.spawned,
                 roster: &mut snapshot.roster,
                 next_id: &mut snapshot.next_id,
+                snap: restamp.is_some(),
             };
             reconcile(held, &level, &party)
         });

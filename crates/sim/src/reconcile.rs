@@ -26,8 +26,8 @@
 //!   install: `world::Object::index`, `Instances`, the collision's door
 //!   slots (`Level::states`). Nothing to rewrite.
 //!
-//! Whatever the numbers, `onto_ground` puts characters left off the walkable
-//! mesh by a change in the nav or the collision back on it, for a save with a
+//! When the data moved (`Held::snap`), `onto_ground` puts characters the
+//! collision no longer holds up back on the walkable mesh, for a save with a
 //! roster and one without alike.
 //!
 //! Everything else names an object by its entity's `SimId`, which a script
@@ -54,7 +54,7 @@ use crate::instance::Instances;
 use crate::inventory::Items;
 use crate::math::{self, Vec3};
 use crate::module::{ObjectData, ObjectKind};
-use crate::motion;
+use crate::motion::{self, MotionState, motion_flags};
 use crate::snapshot::{EntityState, Kind, SimId, Spawned};
 use crate::wire::{DecodeError, Reader, Writer};
 use crate::world::Level;
@@ -136,6 +136,10 @@ pub struct Held<'a> {
     pub roster: &'a mut Option<Vec<Origin>>,
     /// The world's next id, which the new placements' entities take.
     pub next_id: &'a mut u32,
+    /// Whether the level's data moved since the objects were saved
+    /// (`Restamp`), which is when bodies it left unsupported are put back
+    /// on the ground (`onto_ground`).
+    pub snap: bool,
 }
 
 /// What reconciling a module's saved objects did: one `save-migrate` line.
@@ -154,6 +158,8 @@ pub struct Report {
     pub added: Vec<SimId>,
     /// The entities moved onto walkable ground.
     pub snapped: usize,
+    /// One line for each of them: who, from where to where.
+    pub snaps: Vec<String>,
 }
 
 impl fmt::Display for Report {
@@ -233,7 +239,12 @@ pub fn reconcile(mut held: Held, level: &Level, party: &Party) -> Report {
         Some(old) => apply(&renumber(&old, placed), &old, level, &mut held, party),
         None => trust(level, &mut held, party),
     };
-    report.snapped = onto_ground(level, held.entities);
+    if held.snap {
+        // What `apply` just placed stands as a first install stands it.
+        let settled = held.entities.len() - report.added.len();
+        report.snaps = onto_ground(level, &mut held.entities[..settled]);
+        report.snapped = report.snaps.len();
+    }
     report.module = level.id().name;
     *held.roster = Some(roster(placed));
     report
@@ -244,35 +255,54 @@ pub fn reconcile(mut held: Held, level: &Level, party: &Party) -> Report {
 /// (spec 3c of the save design).
 const SNAP_M: f32 = 2.0;
 
-/// The characters of `entities` (avatars and creatures) standing off the
-/// walkable mesh, as a change in the nav or the collision left them, put
-/// back on it: onto `walk::back_on`'s nearest walkable point when it lies
-/// within `SNAP_M`, else onto the nearest waypoint of the module's
-/// placements (none: where they stand). A level without a mesh has nothing
-/// to be off. Returns how many moved.
-pub fn onto_ground(level: &Level, entities: &mut [EntityState]) -> usize {
-    let mut moved = 0;
+/// The characters of `entities` (avatars and creatures) the level's
+/// collision no longer holds up (`Level::held_up`: in the air or in a wall,
+/// as a change in the nav or the collision left them) put back on the
+/// walkable mesh, and at rest: onto `walk::back_on`'s nearest walkable point
+/// when it lies within `SNAP_M`, else onto the nearest waypoint of the
+/// module's placements (none: where they stand). The mesh says only where,
+/// never whether: a body off it but held up (on a bed, a placeable, or in a
+/// place with no mesh) stays. Returns a line for each move.
+pub fn onto_ground(level: &Level, entities: &mut [EntityState]) -> Vec<String> {
+    let mut moves = Vec::new();
     for entity in entities {
-        let character = matches!(
-            entity.kind,
-            Kind::Avatar(_) | Kind::Object(ObjectKind::Creature, _)
-        );
-        let Some(player) = entity.player.as_mut().filter(|_| character) else {
+        let who = match entity.kind {
+            Kind::Avatar(seat) => format!("avatar {}", seat.0),
+            Kind::Object(ObjectKind::Creature, number) => format!("creature {number}"),
+            _ => continue,
+        };
+        let Some(player) = entity.player.as_mut() else {
             continue;
         };
-        if crate::walk::on_mesh(level, player.origin) {
+        if level.held_up(player.origin) || crate::walk::on_mesh(level, player.origin) {
             continue;
         }
         let near = crate::walk::back_on(level, player.origin)
             .filter(|&to| flat_m(to, player.origin) <= SNAP_M)
             .or_else(|| nearest_waypoint(level, player.origin));
         if let Some(to) = near {
+            moves.push(format!(
+                "{who} (entity {}) snapped onto the ground: ({:.2}, {:.2}, {:.2}) to ({:.2}, {:.2}, {:.2}) m",
+                entity.id.0,
+                entity.position[0],
+                entity.position[1],
+                entity.position[2],
+                to[0] * UNIT,
+                to[1] * UNIT,
+                to[2] * UNIT,
+            ));
+            let rest = MotionState::standing(to, 0.0);
             player.origin = to;
+            player.velocity = rest.velocity;
+            player.ground = rest.ground;
+            player.in_air_anim = rest.in_air_anim;
+            player.hold_ms = rest.hold_ms;
+            player.flags &= !(motion_flags::LAND_HOLD | motion_flags::KNOCKBACK_HOLD);
             entity.position = math::scale(to, UNIT);
-            moved += 1;
+            entity.velocity = [0.0; 3];
         }
     }
-    moved
+    moves
 }
 
 /// The distance (metres, seen from above) between two origins (units).

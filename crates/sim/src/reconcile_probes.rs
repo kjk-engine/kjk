@@ -125,7 +125,9 @@ pub fn checks() -> Vec<Check> {
 const HOME: (f32, f32) = (-3.0, 0.0);
 
 /// The proving ground with a waypoint at `HOME` and a navigation mesh of
-/// half-metre squares over the half of its floor the party arrives in.
+/// half-metre squares over a 3 m square of its floor, x -7.5 to -4.5 and y
+/// -2.5 to 0.5 in the room's frame; the rest of the floor is collision
+/// alone.
 fn mesh_ground() -> Level {
     const CELL: f32 = 0.5;
     let level = ground(|placements| {
@@ -134,9 +136,9 @@ fn mesh_ground() -> Level {
             ..ObjectData::unknown("wp_home", ground_point(HOME.0, HOME.1, 0.0), 0.0)
         }));
     });
-    let corner = |i: i32, j: i32| ground_point(-7.5 + i as f32 * CELL, -5.5 + j as f32 * CELL, 0.0);
-    let triangles: Vec<[Vec3; 3]> = (0..14)
-        .flat_map(|i| (0..22).map(move |j| (i, j)))
+    let corner = |i: i32, j: i32| ground_point(-7.5 + i as f32 * CELL, -2.5 + j as f32 * CELL, 0.0);
+    let triangles: Vec<[Vec3; 3]> = (0..6)
+        .flat_map(|i| (0..6).map(move |j| (i, j)))
         .flat_map(|(i, j)| {
             let [a, b, c, d] =
                 [(i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)].map(|(i, j)| corner(i, j));
@@ -166,50 +168,64 @@ fn character(entity: &EntityState) -> bool {
         )
 }
 
-/// Where a body put off the mesh ends up.
+/// Where a body ends up.
 #[derive(Clone, Copy)]
 enum Ends {
     /// Untouched, bit for bit.
     Stays,
-    /// Within `SNAP_M` of where it was, on the mesh.
+    /// On the mesh within `SNAP_M` of where it was, at rest.
     Nearby,
-    /// At the module's nearest waypoint.
+    /// At the module's nearest waypoint, at rest.
     Waypoint,
 }
 
-/// `onto_ground` on every character of a world, all put at a spot of the
-/// room: the bodies off the mesh by a metre, by five, and on it.
+/// `onto_ground` on every character of a world, all saved falling at a spot
+/// of the room, `lift` metres over its floor: on the mesh, off it but on
+/// the floor, and off it in the air by a metre and by five.
 fn grounds() -> Vec<Check> {
     let cases = [
-        ("a body on the mesh stays", (-4.0, 0.0), Ends::Stays),
+        ("a body on the mesh stays", (-6.0, -1.0), 0.0, Ends::Stays),
         (
-            "a body 1 m off the mesh: onto it",
-            (-8.5, 0.0),
+            "a body off the mesh on the floor stays",
+            (-3.5, -1.0),
+            0.0,
+            Ends::Stays,
+        ),
+        (
+            "a body falling 1 m off the mesh: onto it, at rest",
+            (-3.5, -1.0),
+            2.0,
             Ends::Nearby,
         ),
         (
-            "a body 5 m off the mesh: to the waypoint",
-            (-12.5, 0.0),
+            "a body falling 5 m off the mesh: to the waypoint, at rest",
+            (-4.0, 5.5),
+            2.0,
             Ends::Waypoint,
         ),
     ];
     cases
         .into_iter()
-        .map(|(name, (x, y), ends)| {
+        .map(|(name, (x, y), lift, ends)| {
             let level = mesh_ground();
             let Ok(mut world) = SimWorld::new(crate::WorldConfig::one_seat(), level.clone()) else {
                 return check(name, false, "no world".into());
             };
             let mut entities = world.snapshot().entities;
-            let origin = origin_at(ground_point(x, y, 0.0));
+            let origin = origin_at(ground_point(x, y, lift));
             for body in entities.iter_mut().filter(|body| character(body)) {
                 body.position = scale(origin, collision::UNIT);
-                body.player
-                    .iter_mut()
-                    .for_each(|player| player.origin = origin);
+                body.velocity = [0.0, 0.0, -3.0];
+                if let Some(player) = body.player.as_mut() {
+                    player.origin = origin;
+                    player.velocity = [0.0, 0.0, -120.0];
+                    player.in_air_anim = true;
+                    player.hold_ms = 250;
+                    player.flags |= crate::motion::motion_flags::KNOCKBACK_HOLD;
+                }
             }
             let before = entities.clone();
-            let moved = onto_ground(&level, &mut entities);
+            let moves = onto_ground(&level, &mut entities);
             let bodies = entities.iter().filter(|body| character(body)).count();
             let home = origin_at(ground_point(HOME.0, HOME.1, 0.0));
             let placed_alike = before.iter().zip(&entities).all(|(was, now)| {
@@ -217,26 +233,40 @@ fn grounds() -> Vec<Check> {
             });
             let ok = bodies >= 2
                 && placed_alike
-                && entities.iter().filter(|body| character(body)).all(|body| {
-                    let now = body.player.map_or(origin, |player| player.origin);
-                    let flat = collision::nav::flat_length(
-                        scale(now, collision::UNIT),
-                        scale(origin, collision::UNIT),
-                    );
-                    body.position == scale(now, collision::UNIT)
-                        && match ends {
-                            Ends::Stays => now == origin,
-                            Ends::Nearby => on_mesh(&level, now) && flat <= 2.0,
-                            Ends::Waypoint => now == home,
-                        }
-                })
-                && moved
+                && entities
+                    .iter()
+                    .zip(&before)
+                    .filter(|(body, _)| character(body))
+                    .all(|(body, was)| {
+                        let Some(player) = body.player else {
+                            return false;
+                        };
+                        let flat = collision::nav::flat_length(
+                            scale(player.origin, collision::UNIT),
+                            scale(origin, collision::UNIT),
+                        );
+                        let at_rest = body.velocity == [0.0; 3]
+                            && player.velocity == [0.0; 3]
+                            && player.ground.is_none()
+                            && !player.in_air_anim
+                            && player.hold_ms == 0
+                            && player.flags & crate::motion::motion_flags::KNOCKBACK_HOLD == 0;
+                        body.position == scale(player.origin, collision::UNIT)
+                            && match ends {
+                                Ends::Stays => body == was,
+                                Ends::Nearby => {
+                                    at_rest && on_mesh(&level, player.origin) && flat <= 2.0
+                                }
+                                Ends::Waypoint => at_rest && player.origin == home,
+                            }
+                    })
+                && moves.len()
                     == if matches!(ends, Ends::Stays) {
                         0
                     } else {
                         bodies
                     };
-            check(name, ok, format!("{moved} of {bodies} moved"))
+            check(name, ok, format!("{moves:?}"))
         })
         .collect()
 }

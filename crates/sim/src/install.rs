@@ -404,6 +404,7 @@ pub(crate) fn assemble(
                 spawned: &mut stashed.spawned,
                 roster: &mut stashed.roster,
                 next_id: &mut next_id,
+                snap: Restamp::of(&stashed.place, &place).is_some(),
             };
             reconcile(held, level, &party)
         });

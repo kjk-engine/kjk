@@ -1413,6 +1413,9 @@ fn advance(
                         .map_err(|error| error.to_string())?;
                     if let Some(report) = authority.world.reconciled() {
                         warn!(target: "save-migrate", "{report}");
+                        for snap in &report.snaps {
+                            warn!(target: "save-migrate", "{snap}");
+                        }
                     }
                     announcement
                 }
