@@ -871,13 +871,15 @@ pub fn wall_probes() -> sim::probe::Checks {
     // A body standing at (0, 0) on the way from `from` to `to`, gone round
     // there twice (Moza in Chodo's office), and another gone round once at
     // (0, 4) and then a metre on: the first's faces are walled and the way
-    // keeps a body's pass from it; the second, moved, is not.
+    // keeps a body's pass from it; the second, moved, is not; nor a hostile
+    // one gone round twice at (0, -4) (a storm beast on Malachor).
     let walled_body = {
         let mut turned = TurnedBack::default();
-        let (body, moving) = (origin(0.0, 0.0), origin(0.0, 4.0));
-        let once = turned.went_round(body);
-        let moved = turned.went_round(moving) || turned.went_round(origin(1.0, 4.0));
-        let twice = turned.went_round(body);
+        let (body, moving, foe) = (origin(0.0, 0.0), origin(0.0, 4.0), origin(0.0, -4.0));
+        let once = turned.went_round(body, false);
+        let moved = turned.went_round(moving, false) || turned.went_round(origin(1.0, 4.0), false);
+        let hostile = turned.went_round(foe, true) || turned.went_round(foe, true);
+        let twice = turned.went_round(body, false);
         turned.wall(&Here::new(&level, &snapshot, &BTreeSet::new()));
         let refused = BTreeSet::new();
         let here = Here::new(&level, &snapshot, &refused).walled(&turned.walled);
@@ -898,11 +900,11 @@ pub fn wall_probes() -> sim::probe::Checks {
         });
         let pass = 2.0 * sim::motion::HALF_WIDTH * UNIT;
         let detail = format!(
-            "walled after one round {once}, a moved body {moved}, after two {twice}; the way's nearest to it {nearest:?} m"
+            "walled after one round {once}, a moved body {moved}, a hostile one {hostile}, after two {twice}; the way's nearest to it {nearest:?} m"
         );
         (
             "walk_walls_a_body_gone_round_twice_where_it_stands",
-            if !once && !moved && twice && nearest.is_some_and(|m| m >= pass) {
+            if !once && !moved && !hostile && twice && nearest.is_some_and(|m| m >= pass) {
                 Ok(detail)
             } else {
                 Err(detail)

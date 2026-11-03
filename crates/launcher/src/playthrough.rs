@@ -972,19 +972,25 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     // the goal's own target (its press, below).
                     let mut pressed_for = door.filter(|_| pulse != 0).map(|(index, _)| index);
                     // A body standing in the walk's way, gone round; one gone
-                    // round again where it stood, planned round from the next
-                    // step (`TurnedBack::went_round`).
+                    // round again where it stood, not hostile, planned round
+                    // from the next step (`TurnedBack::went_round`).
+                    let blockers: Vec<(sim::SimId, [f32; 3])> = last
+                        .entities
+                        .iter()
+                        .filter(|e| e.id != me.id && e.fighter.is_some_and(|f| f.alive()))
+                        .filter(|e| !sim::bodies_pass(&level, true, sim::party_member(e)))
+                        .filter_map(|e| e.player.map(|ps| (e.id, ps.origin)))
+                        .collect();
                     let rounded = walker.as_mut().and_then(|w| {
-                        let bodies: Vec<[f32; 3]> = last
-                            .entities
-                            .iter()
-                            .filter(|e| e.id != me.id && e.fighter.is_some_and(|f| f.alive()))
-                            .filter(|e| !sim::bodies_pass(&level, true, sim::party_member(e)))
-                            .filter_map(|e| e.player.map(|ps| ps.origin))
-                            .collect();
+                        let bodies: Vec<[f32; 3]> = blockers.iter().map(|(_, at)| *at).collect();
                         w.around(&level, &player, &bodies)
                     });
-                    if rounded.is_some_and(|body| turned_back.went_round(body)) {
+                    let hostile = |body: [f32; 3]| {
+                        blockers.iter().any(|(id, at)| {
+                            *at == body && world.relation(*id, me.id) == Some(sim::combat::Relation::Hostile)
+                        })
+                    };
+                    if rounded.is_some_and(|body| turned_back.went_round(body, hostile(body))) {
                         turned_back.wall(&here);
                         walker = None;
                     }

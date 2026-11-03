@@ -502,8 +502,15 @@ impl TurnedBack {
     }
 
     /// A walk went round a body standing at `at` (its origin, units):
-    /// whether it is now walled (`ROUNDS_TO_WALL` times at that spot).
-    pub(super) fn went_round(&mut self, at: [f32; 3]) -> bool {
+    /// whether it is now walled (`ROUNDS_TO_WALL` times at that spot). Never
+    /// one `hostile` to the player: KOTOR's walker runs a hostile blocker's
+    /// scripts rather than plotting round it (`PlotPathAroundCreature`, rep
+    /// <= 10). A storm beast by Malachor's south ship, walled, sent Bao-Dur's
+    /// remote another way, where it wedged on a drawn rock.
+    pub(super) fn went_round(&mut self, at: [f32; 3], hostile: bool) -> bool {
+        if hostile {
+            return false;
+        }
         let same = |was: [f32; 3]| flat(was.map(|v| v * UNIT), at.map(|v| v * UNIT)) <= SAME_SPOT_M;
         let count = match self.rounded.iter_mut().find(|(was, _)| same(*was)) {
             Some((_, count)) => {
