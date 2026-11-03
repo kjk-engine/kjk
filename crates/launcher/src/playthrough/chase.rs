@@ -57,12 +57,15 @@ impl Reach {
     }
 }
 
-/// Whether a foe `d` metres off with no way to it (`out_of_way`) is shot from
-/// here: one seen within a gun's range and past a blade's swing. One at hand
-/// needs no way to it (Jorak Uln at 0.7 m, his floor off the mesh, drew a
-/// pistol that the player then carried to the Star Forge).
-pub(super) fn shot_far(out_of_way: bool, seen: bool, d: f32) -> bool {
-    out_of_way && seen && d > melee_m().1 && d <= GUN_M
+/// Whether a foe at `at` with no way to it (`out_of_way`) is shot from `from`
+/// (metres): one seen within a gun's range (on the flat) and past a blade's
+/// swing (in space: a turret on a wall above is out of it, Iziz's over the
+/// spaceport's ramp 1.8 m off and 3 m up). One at hand needs no way to it
+/// (Jorak Uln at 0.7 m, his floor off the mesh, drew a pistol that the
+/// player then carried to the Star Forge).
+pub(super) fn shot_far(out_of_way: bool, seen: bool, from: [f32; 3], at: [f32; 3]) -> bool {
+    let apart = (0..3).map(|k| (at[k] - from[k]).powi(2)).sum::<f32>().sqrt();
+    out_of_way && seen && apart > melee_m().1 && flat(at, from) <= GUN_M
 }
 
 /// A fight with one foe at a time by the fight goal's rules, for a `fight`
@@ -162,7 +165,7 @@ impl Chase {
         if walker.as_ref().is_some_and(|w| w.stalls > LOST_STALLS) {
             self.lost = Some(id);
         }
-        let far_shot = shot_far(!routable || self.lost == Some(id), seen, d);
+        let far_shot = shot_far(!routable || self.lost == Some(id), seen, me.position, at);
         if far_shot && !ranged && !self.armed_far {
             acts.extend(other_weapon(world, here.snapshot, false));
             self.armed_far = true;

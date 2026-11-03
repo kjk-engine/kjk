@@ -251,17 +251,21 @@ pub(super) fn gives_up(base: &Snapshot) -> sim::probe::Checks {
     )]
 }
 
-/// A foe with no way to it is shot only past a blade's swing and within a
-/// gun's range, and seen; a use stops waiting for quiet at `USE_FIGHT_MS`, an
-/// exit or a walk never.
+/// A foe with no way to it is shot only past a blade's swing (in space: one
+/// just within it on the flat but 3 m up is past it) and within a gun's
+/// range, and seen; a use stops waiting for quiet at `USE_FIGHT_MS`, an exit
+/// or a walk never.
 pub(super) fn fights_end() -> sim::probe::Checks {
     let swing = melee_m().1;
+    let at = |x: f32, z: f32| [x, 0.0, z];
+    let shot = |out_of_way: bool, seen: bool, foe: [f32; 3]| shot_far(out_of_way, seen, [0.0; 3], foe);
     let shots = [
-        shot_far(true, true, swing),
-        shot_far(true, true, swing + 1.0),
-        shot_far(false, true, swing + 1.0),
-        shot_far(true, false, swing + 1.0),
-        shot_far(true, true, GUN_M + 1.0),
+        shot(true, true, at(swing, 0.0)),
+        shot(true, true, at(swing + 1.0, 0.0)),
+        shot(false, true, at(swing + 1.0, 0.0)),
+        shot(true, false, at(swing + 1.0, 0.0)),
+        shot(true, true, at(GUN_M + 1.0, 0.0)),
+        shot(true, true, at(swing - 0.1, 3.0)),
     ];
     let at = || Target::Place([0.0, 0.0]);
     let over = [
@@ -274,8 +278,8 @@ pub(super) fn fights_end() -> sim::probe::Checks {
         (
             "gun_only_past_a_blades_swing",
             sim::probe::check(
-                shots == [false, true, false, false, false],
-                format!("at hand, past it, with a way, unseen, past a gun's range: {shots:?}"),
+                shots == [false, true, false, false, false, true],
+                format!("at hand, past it, with a way, unseen, past a gun's range, 3 m up: {shots:?}"),
             ),
         ),
         (
