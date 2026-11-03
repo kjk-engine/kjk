@@ -841,12 +841,20 @@ pub(super) fn lead_to(world: &sim::SimWorld, snapshot: &Snapshot, npc: u8) -> Ac
     body.map_or(Action::SetLeader(npc), Action::Lead)
 }
 
-/// Whether a living body other than the player (`me`) stands where a walk
-/// ends (`goal`, units): within a body's width of it, on the flat.
-pub(super) fn goal_taken(snapshot: &Snapshot, me: sim::SimId, goal: [f32; 3]) -> bool {
+/// Whether a living body other than the player (`me`) and the walk's own
+/// target (`target`: a creature walked up to, whose walk ends at it; a
+/// pazaak player on Dantooine, pressed from afar, began no match) stands
+/// where a walk ends (`goal`, units): within a body's width of it, on the
+/// flat.
+pub(super) fn goal_taken(
+    snapshot: &Snapshot,
+    (me, target): (sim::SimId, Option<sim::SimId>),
+    goal: [f32; 3],
+) -> bool {
     let goal = goal.map(|v| v * UNIT);
     snapshot.entities.iter().any(|e| {
         e.id != me
+            && Some(e.id) != target
             && e.fighter.is_some_and(|f| f.alive())
             && e.player.is_some()
             && flat(e.position, goal) <= 2.0 * sim::motion::HALF_WIDTH * UNIT

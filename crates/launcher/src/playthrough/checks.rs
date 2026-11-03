@@ -344,8 +344,10 @@ pub(super) fn gains() -> sim::probe::Checks {
 }
 
 /// A walk's end is taken (`goal_taken`) by another living body standing
-/// on it, not by one a metre off, nor by the player there: a use from within
-/// reach is pressed past a body in the doorway (the citadel's TSF station).
+/// on it, not by one a metre off, nor by the player there, nor by the
+/// walk's own target: a use from within reach is pressed past a body in the
+/// doorway (the citadel's TSF station), not at once at a creature walked up
+/// to (Dantooine's pazaak players).
 pub(super) fn goal_held(base: &Snapshot) -> sim::probe::Checks {
     let name = "use_presses_past_a_body_where_its_walk_ends";
     let Some(me) = base
@@ -357,25 +359,32 @@ pub(super) fn goal_held(base: &Snapshot) -> sim::probe::Checks {
         return vec![(name, Err("no player on the arena".into()))];
     };
     let goal = me.position.map(|v| v / UNIT);
-    // Whether the goal is taken with another body `off` metres from it.
-    let held = |off: Option<f32>| {
+    // Whether the goal is taken with another body `off` metres from it,
+    // that body the walk's target or not.
+    let other = sim::SimId(u32::MAX - 1);
+    let held = |off: Option<f32>, target: bool| {
         let mut snapshot = base.clone();
         if let Some(off) = off {
             snapshot.entities.push(sim::EntityState {
-                id: sim::SimId(u32::MAX - 1),
+                id: other,
                 kind: sim::Kind::Object(ObjectKind::Creature, 0),
                 position: [me.position[0] + off, me.position[1], me.position[2]],
                 ..me
             });
         }
-        goal_taken(&snapshot, me.id, goal)
+        goal_taken(&snapshot, (me.id, target.then_some(other)), goal)
     };
-    let cases = [held(Some(0.2)), held(Some(1.0)), held(None)];
+    let cases = [
+        held(Some(0.2), false),
+        held(Some(1.0), false),
+        held(None, false),
+        held(Some(0.2), true),
+    ];
     vec![(
         name,
         sim::probe::check(
-            cases == [true, false, false],
-            format!("a body 0.2 m off, 1 m off, only the player: {cases:?}"),
+            cases == [true, false, false, false],
+            format!("a body 0.2 m off, 1 m off, only the player, the target 0.2 m off: {cases:?}"),
         ),
     )]
 }

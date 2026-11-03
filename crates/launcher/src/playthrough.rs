@@ -1583,7 +1583,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // body in the way) but near: straight at it.
                                 // Arrived short of it: the last stretch straight.
                                 let arrived = walker.arrived(&player);
-                                let goal_held = goal_taken(&last, me.id, walker.goal);
+                                let goal_held = goal_taken(&last, (me.id, here.entity(index).map(|e| e.id)), walker.goal);
                                 let routed = !arrived && here.leads(player.origin, walker.goal);
                                 let round = routed && here.goes_round(player.origin, walker.goal);
                                 let mut walking = || Command {
