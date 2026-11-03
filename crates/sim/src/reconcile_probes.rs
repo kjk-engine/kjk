@@ -7,11 +7,13 @@ use std::sync::Arc;
 use script_ncs::probes::Check;
 
 use crate::determinism::ground_point;
+use crate::math::{Vec3, scale};
 use crate::module::{ObjectData, ObjectKind, Placement};
-use crate::reconcile::{Renumber, Report, decode, encode, renumber, roster};
+use crate::reconcile::{Renumber, Report, decode, encode, onto_ground, renumber, roster};
 use crate::script::party::Npc;
 use crate::script::{Library, State};
 use crate::snapshot::{EntityState, Kind, SimId, Snapshot};
+use crate::walk::on_mesh;
 use crate::wire::{Reader, Writer};
 use crate::world::Level;
 use crate::{Save, SimWorld};
@@ -115,7 +117,128 @@ pub fn checks() -> Vec<Check> {
         round_trips,
         format!("{} rosters", rosters.len()),
     ));
+    out.extend(grounds());
     out
+}
+
+/// Where the waypoint of `mesh_ground` stands, in the room's frame.
+const HOME: (f32, f32) = (-3.0, 0.0);
+
+/// The proving ground with a waypoint at `HOME` and a navigation mesh of
+/// half-metre squares over the half of its floor the party arrives in.
+fn mesh_ground() -> Level {
+    const CELL: f32 = 0.5;
+    let level = ground(|placements| {
+        placements.push(Placement::Own(ObjectData {
+            kind: ObjectKind::Waypoint,
+            ..ObjectData::unknown("wp_home", ground_point(HOME.0, HOME.1, 0.0), 0.0)
+        }));
+    });
+    let corner = |i: i32, j: i32| ground_point(-7.5 + i as f32 * CELL, -5.5 + j as f32 * CELL, 0.0);
+    let triangles: Vec<[Vec3; 3]> = (0..14)
+        .flat_map(|i| (0..22).map(move |j| (i, j)))
+        .flat_map(|(i, j)| {
+            let [a, b, c, d] =
+                [(i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)].map(|(i, j)| corner(i, j));
+            [[a, b, c], [a, c, d]]
+        })
+        .collect();
+    let mut nav =
+        collision::nav::NavMesh::build(&triangles, crate::walk::CLEARANCE * collision::UNIT);
+    if let Some(floor) = level.collision().level() {
+        nav.mark(floor);
+    }
+    level.with_nav(nav)
+}
+
+/// The origin (JA units) of a character standing at `feet` (metres).
+fn origin_at(feet: Vec3) -> Vec3 {
+    let [x, y, z] = scale(feet, 1.0 / collision::UNIT);
+    [x, y, z - crate::motion::SOLE_Z]
+}
+
+/// Whether `entity` is an avatar or a creature, which `onto_ground` moves.
+fn character(entity: &EntityState) -> bool {
+    entity.player.is_some()
+        && matches!(
+            entity.kind,
+            Kind::Avatar(_) | Kind::Object(ObjectKind::Creature, _)
+        )
+}
+
+/// Where a body put off the mesh ends up.
+#[derive(Clone, Copy)]
+enum Ends {
+    /// Untouched, bit for bit.
+    Stays,
+    /// Within `SNAP_M` of where it was, on the mesh.
+    Nearby,
+    /// At the module's nearest waypoint.
+    Waypoint,
+}
+
+/// `onto_ground` on every character of a world, all put at a spot of the
+/// room: the bodies off the mesh by a metre, by five, and on it.
+fn grounds() -> Vec<Check> {
+    let cases = [
+        ("a body on the mesh stays", (-4.0, 0.0), Ends::Stays),
+        (
+            "a body 1 m off the mesh: onto it",
+            (-8.5, 0.0),
+            Ends::Nearby,
+        ),
+        (
+            "a body 5 m off the mesh: to the waypoint",
+            (-12.5, 0.0),
+            Ends::Waypoint,
+        ),
+    ];
+    cases
+        .into_iter()
+        .map(|(name, (x, y), ends)| {
+            let level = mesh_ground();
+            let Ok(mut world) = SimWorld::new(crate::WorldConfig::one_seat(), level.clone()) else {
+                return check(name, false, "no world".into());
+            };
+            let mut entities = world.snapshot().entities;
+            let origin = origin_at(ground_point(x, y, 0.0));
+            for body in entities.iter_mut().filter(|body| character(body)) {
+                body.position = scale(origin, collision::UNIT);
+                body.player
+                    .iter_mut()
+                    .for_each(|player| player.origin = origin);
+            }
+            let before = entities.clone();
+            let moved = onto_ground(&level, &mut entities);
+            let bodies = entities.iter().filter(|body| character(body)).count();
+            let home = origin_at(ground_point(HOME.0, HOME.1, 0.0));
+            let placed_alike = before.iter().zip(&entities).all(|(was, now)| {
+                character(was) || (was.position == now.position && was.player == now.player)
+            });
+            let ok = bodies >= 2
+                && placed_alike
+                && entities.iter().filter(|body| character(body)).all(|body| {
+                    let now = body.player.map_or(origin, |player| player.origin);
+                    let flat = collision::nav::flat_length(
+                        scale(now, collision::UNIT),
+                        scale(origin, collision::UNIT),
+                    );
+                    body.position == scale(now, collision::UNIT)
+                        && match ends {
+                            Ends::Stays => now == origin,
+                            Ends::Nearby => on_mesh(&level, now) && flat <= 2.0,
+                            Ends::Waypoint => now == home,
+                        }
+                })
+                && moved
+                    == if matches!(ends, Ends::Stays) {
+                        0
+                    } else {
+                        bodies
+                    };
+            check(name, ok, format!("{moved} of {bodies} moved"))
+        })
+        .collect()
 }
 
 /// The proving ground, with a creature of the party's and a footlocker

@@ -26,6 +26,10 @@
 //!   install: `world::Object::index`, `Instances`, the collision's door
 //!   slots (`Level::states`). Nothing to rewrite.
 //!
+//! Whatever the numbers, `onto_ground` puts characters left off the walkable
+//! mesh by a change in the nav or the collision back on it, for a save with a
+//! roster and one without alike.
+//!
 //! Everything else names an object by its entity's `SimId`, which a script
 //! sees as its `ObjectId` (`ObjectId(entity.id.0)`): a door's open state and
 //! its lock (`ObjectState`, on the entity itself), the scripts' locals,
@@ -44,9 +48,13 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
+use collision::UNIT;
+
 use crate::instance::Instances;
 use crate::inventory::Items;
+use crate::math::{self, Vec3};
 use crate::module::{ObjectData, ObjectKind};
+use crate::motion;
 use crate::snapshot::{EntityState, Kind, SimId, Spawned};
 use crate::wire::{DecodeError, Reader, Writer};
 use crate::world::Level;
@@ -225,9 +233,65 @@ pub fn reconcile(mut held: Held, level: &Level, party: &Party) -> Report {
         Some(old) => apply(&renumber(&old, placed), &old, level, &mut held, party),
         None => trust(level, &mut held, party),
     };
+    report.snapped = onto_ground(level, held.entities);
     report.module = level.id().name;
     *held.roster = Some(roster(placed));
     report
+}
+
+/// How far (metres) a body off the walkable mesh is moved to the nearest
+/// walkable point; one further off goes to the module's nearest waypoint
+/// (spec 3c of the save design).
+const SNAP_M: f32 = 2.0;
+
+/// The characters of `entities` (avatars and creatures) standing off the
+/// walkable mesh, as a change in the nav or the collision left them, put
+/// back on it: onto `walk::back_on`'s nearest walkable point when it lies
+/// within `SNAP_M`, else onto the nearest waypoint of the module's
+/// placements (none: where they stand). A level without a mesh has nothing
+/// to be off. Returns how many moved.
+pub fn onto_ground(level: &Level, entities: &mut [EntityState]) -> usize {
+    let mut moved = 0;
+    for entity in entities {
+        let character = matches!(
+            entity.kind,
+            Kind::Avatar(_) | Kind::Object(ObjectKind::Creature, _)
+        );
+        let Some(player) = entity.player.as_mut().filter(|_| character) else {
+            continue;
+        };
+        if crate::walk::on_mesh(level, player.origin) {
+            continue;
+        }
+        let near = crate::walk::back_on(level, player.origin)
+            .filter(|&to| flat_m(to, player.origin) <= SNAP_M)
+            .or_else(|| nearest_waypoint(level, player.origin));
+        if let Some(to) = near {
+            player.origin = to;
+            entity.position = math::scale(to, UNIT);
+            moved += 1;
+        }
+    }
+    moved
+}
+
+/// The distance (metres, seen from above) between two origins (units).
+fn flat_m(a: Vec3, b: Vec3) -> f32 {
+    collision::nav::flat_length(math::scale(a, UNIT), math::scale(b, UNIT))
+}
+
+/// The origin (units) of a character standing on the waypoint of `level`'s
+/// placements nearest `from` (an origin, units).
+fn nearest_waypoint(level: &Level, from: Vec3) -> Option<Vec3> {
+    level
+        .placed()
+        .iter()
+        .filter(|object| object.kind == ObjectKind::Waypoint)
+        .map(|object| {
+            let [x, y, z] = math::scale(object.position, 1.0 / UNIT);
+            [x, y, z - motion::SOLE_Z]
+        })
+        .min_by(|&a, &b| flat_m(a, from).total_cmp(&flat_m(b, from)))
 }
 
 /// `held`'s objects numbered as `renumber` says (`old` the roster it was
