@@ -3,32 +3,39 @@
 //! - **Its model**: TSL's remote (Bao-Dur's, `p_remote.utc`), the model of
 //!   the `appearance.2da` row labelled `Droid_SensorBall` in TSL's data (K2
 //!   is required), found by label, not by number. It hovers where the sim
-//!   has it, bobbing a little, turned to its seat's yaw; not drawn while it
+//!   has it, bobbing a little, turned to its seat's view (yaw and pitch);
+//!   the own seat's where the view shows it (`play_view::OwnRemote`, its
+//!   predictions), so it and the camera move together. Not drawn while it
 //!   waits out a hold (`Remote::hidden`).
 //! - **Its kit**: a press is seen as a button's ready time moving on
-//!   (`Remote::ready_ms`): a flash at the droid and a sound (the shock
-//!   bolt KOTOR's ion zap, the Sonic Blast the sonic grenade's burst, the
-//!   stim dart `gui_inject`).
+//!   (`Remote::ready_ms`), drawn with KOTOR's own: the shock bolt as the
+//!   ion blaster's bolt (its tracer and shot sound, `blaster_view`) from
+//!   the droid to where it stopped (`Remote::bolt_to`), with the blaster's
+//!   sparks there; the Sonic Blast as the sonic grenade's blast
+//!   (`VFX_FNF_GRENADE_SONIC`, `script_fx`) at the droid; the stim dart as
+//!   `gui_inject`, its patient showing the medpac's heal (the sim's visual
+//!   event).
 //!
-//! Its camera is `play_view`'s (`cast::remote_at`); its buttons are the HUD's
+//! Its camera is `play_view`'s (`cast::remote_in`); its buttons are the HUD's
 //! (`hud`).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use asset_ja::fx::sprite_particle;
 use bevy::prelude::*;
 use bevy::tasks::AsyncComputeTaskPool;
 use sim::Seat;
-use sim::remote::Remote;
+use sim::remote::{KIT_BOLT, KIT_DART, KIT_SONIC, Remote};
 
-use crate::combat_fx::Added;
+use crate::blaster_view::{BlasterShots, Tracer};
 use crate::fx_model::{Spawned, Spawning};
 use crate::heat_haze::HeatHazeMaterial;
+use crate::play_view::OwnRemote;
 use crate::scene::{ModelAssets, SceneContent, SceneRoot, Spawner};
-use crate::script_fx::{Loaded, Read};
-use crate::sim_host::{PresentedSnapshot, SceneSwap, view_ms};
+use crate::script_fx::{HookVisual, HookVisuals, Loaded, Place, Read};
+use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap, view_ms};
 use crate::sound::{Cue, Cues};
+use crate::weapon_sounds::WeaponSounds;
 
 const UNIT: f32 = collision::UNIT;
 /// The droid's box, middle to side (metres): the model's lowest point sits
@@ -39,15 +46,14 @@ pub const APPEARANCE: &str = "Droid_SensorBall";
 /// How far it bobs (metres) and how often (bobs a second).
 const BOB_M: f32 = 0.05;
 const BOBS: f32 = 0.6;
-/// What each button sounds (KOTOR resrefs, read with `power_fx`'s).
-const SOUNDS: [&str; 3] = ["cb_gr_ion", "cb_gr_sonic", "gui_inject"];
-/// Each button's flash: its size (units) and colour.
-const FLASHES: [(f32, [f32; 3]); 3] = [
-    (8.0, [0.4, 0.7, 1.0]),
-    (60.0, [0.6, 0.8, 1.0]),
-    (6.0, [0.5, 1.0, 0.5]),
-];
-const GLOW: &str = "gfx/effects/sabers/yellow_glow";
+/// The ion blaster's `baseitems.2da` row: the shock bolt is its bolt.
+const ION_BLASTER: u16 = 15;
+/// `visualeffects.2da`'s sonic grenade blast (`VFX_FNF_GRENADE_SONIC`),
+/// and the blaster's sparks where a bolt stops (`VFX_COM_SPARKS_BLASTER`).
+const SONIC_BLAST: u16 = 3007;
+const SPARKS: u16 = 4033;
+/// The stim dart's sound (a KOTOR resref, read with `power_fx`'s).
+const DART_SOUND: &str = "k1/gui_inject";
 
 pub struct RemoteViewPlugin;
 
@@ -84,14 +90,27 @@ fn read_remote() -> Read {
     Some((Arc::new(model), Arc::new(textures)))
 }
 
-/// Where `remote` is drawn at `ms` (metres): ahead along its way since its
-/// snapshot, bobbing.
-fn drawn_at(remote: &Remote, since_ms: f32, ms: f32) -> Vec3 {
+/// Where `remote` is drawn (metres), `since_ms` past its snapshot: ahead
+/// along its way.
+fn drawn_at(remote: &Remote, since_ms: f32) -> Vec3 {
     let ahead = (since_ms / 1000.0).clamp(0.0, 0.1);
-    let at = Vec3::from_array(remote.at) + Vec3::from_array(remote.velocity) * ahead;
-    let bob = BOB_M * (std::f32::consts::TAU * BOBS * ms / 1000.0 + f32::from(remote.seat.0)).sin();
-    at + Vec3::Z * bob
+    Vec3::from_array(remote.at) + Vec3::from_array(remote.velocity) * ahead
 }
+
+/// `remote`'s place (metres) bobbing at `ms`.
+fn bobbed(remote: &Remote, ms: f32) -> Vec3 {
+    let bob = BOB_M * (std::f32::consts::TAU * BOBS * ms / 1000.0 + f32::from(remote.seat.0)).sin();
+    Vec3::from_array(remote.at) + Vec3::Z * bob
+}
+
+/// Where the kit's presses go: their sounds, the bolt's tracer, the
+/// effects at a place; and the blasters' table.
+type Kit<'w> = (
+    ResMut<'w, Cues>,
+    ResMut<'w, BlasterShots>,
+    Option<ResMut<'w, HookVisuals>>,
+    Option<Res<'w, WeaponSounds>>,
+);
 
 #[allow(clippy::too_many_arguments)]
 fn draw(
@@ -104,7 +123,8 @@ fn draw(
     mut transforms: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
     seen: Query<&InheritedVisibility>,
-    (mut added, mut cues): (ResMut<Added>, ResMut<Cues>),
+    (own_seat, own_remote): (Option<Res<OwnSeat>>, Res<OwnRemote>),
+    (mut cues, mut shots, mut hooks, kotor): Kit,
     (mut facts, dump_due): (ResMut<console::DumpFacts>, Res<console::DumpDue>),
     mut commands: Commands,
 ) {
@@ -132,31 +152,60 @@ fn draw(
     }
     view.ready.retain(|seat, _| flying.contains_key(seat));
     let now = view_ms(&presented.0) as f32;
-    // A press: a flash and a sound where the droid is.
+    let since = now - current.time_ms as f32;
+    let own_seat = own_seat.map_or(Seat(0), |seat| seat.0);
+    // Where each droid is drawn (metres): the own from its predictions.
+    let drawn: BTreeMap<Seat, Remote> = flying
+        .iter()
+        .map(|(seat, remote)| {
+            let shown = match own_remote.0 {
+                Some(own) if *seat == own_seat => own,
+                _ => Remote {
+                    at: drawn_at(remote, since).to_array(),
+                    ..*remote
+                },
+            };
+            (*seat, shown)
+        })
+        .collect();
+    // A press: KOTOR's effect for its button.
     for (seat, remote) in &flying {
         let before = view.ready.insert(*seat, remote.ready_ms);
         let Some(before) = before else { continue };
-        for kit in 0..3 {
-            if remote.ready_ms[kit] <= before[kit] {
-                continue;
+        let from = Vec3::from_array(drawn[seat].at);
+        let pressed = |kit: usize| remote.ready_ms[kit] > before[kit];
+        if pressed(KIT_BOLT) {
+            let to = Vec3::from_array(remote.bolt_to);
+            let ammo = kotor.as_deref().and_then(|kotor| kotor.ammo(ION_BLASTER));
+            if let Some(model) = ammo.and_then(|ammo| ammo.models[0].clone()) {
+                shots.tracers.push(Tracer {
+                    model,
+                    from,
+                    to,
+                    ms: f64::from(now),
+                });
             }
-            let at = Vec3::from_array(remote.at) / UNIT;
-            cues.0.push(Cue::at(format!("k1/{}", SOUNDS[kit]), at, now));
-            let (size, colour) = FLASHES[kit];
-            let colour = Vec3::from_array(colour);
-            added.0.push(asset_ja::fx::Spawned {
-                rgb_start: colour,
-                rgb_end: colour,
-                ..sprite_particle(
-                    at,
-                    (size, size * 1.5),
-                    (1.0, 0.0),
-                    now,
-                    250.0,
-                    GLOW,
-                    asset_ja::fx::Flags::NONE,
-                )
+            if let Some(sound) = kotor.as_deref().and_then(|k| k.shot(ION_BLASTER, false)) {
+                cues.0.push(Cue::at(sound, from / UNIT, now));
+            }
+            if let Some(hooks) = hooks.as_deref_mut() {
+                hooks.0.push(HookVisual {
+                    row: SPARKS,
+                    place: Place::At(to),
+                });
+            }
+        }
+        if pressed(KIT_SONIC)
+            && let Some(hooks) = hooks.as_deref_mut()
+        {
+            hooks.0.push(HookVisual {
+                row: SONIC_BLAST,
+                place: Place::At(from),
             });
+        }
+        if pressed(KIT_DART) {
+            cues.0
+                .push(Cue::at(DART_SOUND.to_string(), from / UNIT, now));
         }
     }
     let model = view.model.get_or_insert_with(|| {
@@ -183,18 +232,22 @@ fn draw(
             view.live.insert(*seat, spawning.spawn(model.copy(), true));
         }
     }
-    let since = now - current.time_ms as f32;
     let mut shown = Vec::new();
     for (seat, spawned) in &view.live {
-        let Some(remote) = flying.get(seat) else {
+        let Some(remote) = drawn.get(seat) else {
             continue;
         };
         // The model stands on its root as a creature does (TSL's remote
         // floats a metre and more over it): its middle where the droid is.
-        let at = drawn_at(remote, since, now) - Vec3::Z * (spawned.model.floor + HALF_SIZE_M);
+        let at = bobbed(remote, now) - Vec3::Z * (spawned.model.floor + HALF_SIZE_M);
         if let Ok(mut transform) = transforms.get_mut(spawned.root) {
-            *transform = Transform::from_translation(at)
-                .with_rotation(Quat::from_rotation_z(remote.yaw.to_radians()));
+            // Turned to its yaw, then tilted to its pitch (down positive)
+            // about its middle.
+            let middle = Vec3::Z * (spawned.model.floor + HALF_SIZE_M);
+            let turned = Quat::from_rotation_z(remote.yaw.to_radians())
+                * Quat::from_rotation_y(remote.pitch.to_radians());
+            *transform =
+                Transform::from_translation(at + middle - turned * middle).with_rotation(turned);
         }
         if let Ok(mut seen) = visibility.get_mut(spawned.root) {
             *seen = if remote.hidden {

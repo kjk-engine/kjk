@@ -523,9 +523,17 @@ impl Prompts<'_> {
         }
     }
 
+    /// Whether `action` was pressed this frame.
+    pub(crate) fn pressed(&self, action: Action) -> bool {
+        self.actions
+            .as_ref()
+            .is_some_and(|actions| actions.pressed(action))
+    }
+
     /// `action`'s binding over a HUD slot: while a pad plays, its buttons
     /// drawn (`ui::icons`, compact where words would overflow); else its
-    /// key, a mouse button as `MB1` (`MB4` the side's first).
+    /// key, a mouse button as `M1` (`M4` the side's first): short enough
+    /// to fit a slot's top on one line.
     pub(crate) fn label(&self, action: Action) -> ui::vm::KeyLabel {
         let device = self
             .actions
@@ -540,7 +548,7 @@ impl Prompts<'_> {
         };
         let keys = self.keys.as_deref().unwrap_or(KeyMap::defaults());
         let words = match keys.input(action) {
-            Input::Mouse(button) => format!("MB{}", mouse_number(button)).into_bytes(),
+            Input::Mouse(button) => format!("M{}", mouse_number(button)).into_bytes(),
             Input::Key(_) => keys.shown(action),
         };
         ui::vm::KeyLabel { words, badge }

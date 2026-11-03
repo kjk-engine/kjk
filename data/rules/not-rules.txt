@@ -656,3 +656,5 @@ crates/sim/src/world/remains.rs BACKPACK  # placeables.2da row
 crates/sim/src/world/sabers.rs SABER  # a bit flag on a saber's entity number in bolt traces
 crates/sim/src/world/sabers.rs VIEW_REACH  # a geometric reach, longer than any throw's; not a game number
 crates/sim/src/notice.rs ENDING_MOVIES  # TSL's ending movies' names (the executable's own)
+crates/sim/src/world/remote/kit.rs HEALED_VISUAL  # a visualeffects.2da row
+crates/sim/src/world/remote/kit.rs REVIVED_VISUAL  # a visualeffects.2da row

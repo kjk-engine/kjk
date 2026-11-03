@@ -20,6 +20,7 @@ pub(super) fn probes() -> Checks {
     vec![
         ("bolt_hits_fair_only", bolt_fair()),
         ("bolt_kill_gives_xp", bolt_xp()),
+        ("bolt_marks_its_end", bolt_end()),
         ("sonic_pushes_fair_only", sonic()),
         ("dart_revives_and_heals", dart()),
         ("dart_respects_duel", dart_duel()),
@@ -243,10 +244,23 @@ impl Range {
         Ok(())
     }
 
-    fn ready(&mut self, seat: u8) -> [u64; 3] {
+    fn remote(&self, seat: u8) -> Option<crate::remote::Remote> {
         (self.world.world.resource::<Remotes>().0.iter())
             .find(|remote| remote.seat == Seat(seat))
-            .map_or([0; 3], |remote| remote.ready_ms)
+            .copied()
+    }
+
+    fn ready(&mut self, seat: u8) -> [u64; 3] {
+        self.remote(seat).map_or([0; 3], |remote| remote.ready_ms)
+    }
+
+    /// The visual effects' rows shown on `id` (its fighter's events).
+    fn visuals(&mut self, id: SimId) -> Vec<u16> {
+        self.fighter(id).map_or_else(Vec::new, |fighter| {
+            (fighter.events.iter().flatten())
+                .filter_map(|event| event.visual.map(|visual| visual.row))
+                .collect()
+        })
     }
 
     /// Seat `seat` pressing `button` with its droid at `from` looking at
@@ -319,6 +333,33 @@ fn bolt_fair() -> Result<String, String> {
     check(
         wrong.is_empty(),
         format!("(target, fighting, hp before, after, last attacker, ok): {seen:?}"),
+    )
+}
+
+/// A bolt at a fair foe 3 m ahead stops at its body (`Remote::bolt_to`,
+/// for the views' tracer), the droid looking down at it as its seat does
+/// (`Remote::pitch`).
+fn bolt_end() -> Result<String, String> {
+    let mut range = range(2)?;
+    let id = range.id(FOE)?;
+    let spot = range.spot(3.0, 0.0);
+    range.put(id, spot);
+    range.fights(id);
+    let from = over(&range);
+    range.fire(2, 1, from, buttons::ATTACK, id)?;
+    let chest = range
+        .motion(id)
+        .map(|motion| math::scale(crate::combat::mind::chest(&motion), UNIT))
+        .ok_or("no foe")?;
+    let remote = range.remote(1).ok_or("no droid")?;
+    let (pitch, _) = crate::combat::mind::aim(from, chest);
+    let off = math::length(math::sub(remote.bolt_to, chest));
+    check(
+        off < 0.75 && (remote.pitch - pitch).abs() < 0.5 && pitch > 1.0,
+        format!(
+            "stopped {off:.2} m from the foe's chest, pitch {:.1} (wanted {pitch:.1})",
+            remote.pitch
+        ),
     )
 }
 
@@ -427,6 +468,7 @@ fn dart() -> Result<String, String> {
     let revived = range
         .fighter(mate)
         .map(|fighter| (fighter.alive(), fighter.hp));
+    let revive_shown = range.visuals(mate);
     let after_revive = range.ready(1);
     let half = max / 2;
     let mut healer = self::range(2)?;
@@ -445,15 +487,18 @@ fn dart() -> Result<String, String> {
     healer.fire(2, 1, from, buttons::MEDPAC, mate)?;
     let healed = healer.hp(mate);
     let after_heal = healer.ready(1);
+    let heal_shown = healer.visuals(mate);
     let rise = max * super::super::kit::REVIVE_PERMILLE / 1000;
     let gain = max * super::super::kit::HEAL_PERMILLE / 1000;
     check(
         revived == Some((true, rise))
             && after_revive[crate::remote::KIT_DART] > now
             && healed == half + gain
-            && after_heal[crate::remote::KIT_DART] > now,
+            && after_heal[crate::remote::KIT_DART] > now
+            && revive_shown.contains(&super::super::kit::REVIVED_VISUAL)
+            && heal_shown.contains(&super::super::kit::HEALED_VISUAL),
         format!(
-            "revived (up, hp) {revived:?} (wanted {rise}), ready {after_revive:?}; healed {half} to {healed} (wanted {}), ready {after_heal:?}",
+            "revived (up, hp) {revived:?} (wanted {rise}), ready {after_revive:?}, shown {revive_shown:?}; healed {half} to {healed} (wanted {}), ready {after_heal:?}, shown {heal_shown:?}",
             half + gain
         ),
     )

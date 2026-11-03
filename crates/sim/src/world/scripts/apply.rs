@@ -4,7 +4,9 @@ use super::*;
 
 /// Puts the scripts' changes into the world (jumps, facings, doors,
 /// animations, sounds, sheets), and what they tell players into the
-/// step's notices, by seat.
+/// step's notices, by seat: one told to an object, its driver's; one told
+/// to all, every seat the session holds, a body or not (a guest flying a
+/// droid, or waiting on a downed companion, sees the movie too).
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(in crate::world) fn apply(
     mut commands: Commands,
@@ -12,9 +14,12 @@ pub(in crate::world) fn apply(
     level: Res<Static>,
     clock: Res<Clock>,
     mut scripts: ResMut<Scripts>,
-    (mut notices, avatars, mut area, mut lost): (
+    (mut notices, (avatars, held), mut area, mut lost): (
         ResMut<crate::notice::Notices>,
-        Query<(&Id, &crate::world::Avatar)>,
+        (
+            Query<(&Id, &crate::world::Avatar)>,
+            Option<Res<crate::world::SeatsHeld>>,
+        ),
         ResMut<crate::world::Module>,
         ResMut<crate::world::falls::Lost>,
     ),
@@ -38,7 +43,12 @@ pub(in crate::world) fn apply(
             .filter(|(id, _)| to.is_none_or(|to| id.0.0 == to.0))
             .map(|(_, avatar)| avatar.0)
             .collect();
+        if to.is_none() {
+            let held = held.as_ref().map_or(0, |held| held.0);
+            seats.extend((0..held).map(crate::input::Seat));
+        }
         seats.sort();
+        seats.dedup();
         notices
             .0
             .extend(seats.into_iter().map(|seat| (seat, notice.clone())));
