@@ -1899,8 +1899,9 @@ pub enum Change {
     /// `who` leaves combat: no one to fight, out of it from now
     /// (`CancelCombat`).
     CancelCombat { who: ObjectId },
-    /// `who` attacks a target in its reach with a blade or fists: in
-    /// combat from now, as after a blow (`script::actions`, attack).
+    /// `who` attacks a target in its reach with a blade or fists, or
+    /// begins using a talent: in combat from now, as after a blow
+    /// (`script::actions`, attack and talent).
     InCombat { who: ObjectId },
     /// `who` in TSL's fake combat (`on`, unless it fights for real) or out
     /// of it (`SetFakeCombatState`, `combat::Fighter::fake_until`).
@@ -2833,8 +2834,14 @@ impl Step<'_> {
                         // come within the talent's reach).
                         let end = self.state.rounds.get(&id).copied();
                         let over = now >= end.unwrap_or(u64::MAX).min(started + ROUND_MS);
+                        // A cast starts a combat round, on itself too (the
+                        // exes' AIActionCastSpell calls StartCombatRound), so
+                        // its end-of-round script runs: the Star Forge
+                        // freezer's Resist Force on itself is what makes it
+                        // engage and unlock its door.
                         if starting {
                             self.attacking(id, Some(*talent));
+                            self.out.changes.push(Change::InCombat { who });
                         }
                         if !over {
                             let intent = Intent {
