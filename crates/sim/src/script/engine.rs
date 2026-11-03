@@ -3946,12 +3946,13 @@ impl Engine<'_> {
                     let ms = u64::from(seconds_ms(float(args, 0)));
                     let talk = super::dialogue::running(&state.talk, &self.event);
                     let run = deferring_run(&self.event, caller);
+                    let ai = self.event.ai == Some(caller);
                     state.defer(
                         now + ms,
                         caller,
                         self.script,
                         code,
-                        (self.spell.cloned(), talk, self.event.cue, run),
+                        (self.spell.cloned(), talk, self.event.cue, run, ai),
                     );
                 }
                 Value::Int(0)
@@ -3961,7 +3962,8 @@ impl Engine<'_> {
                 if let Some(code) = action(args, 1).filter(|_| target != ObjectId::INVALID) {
                     let talk = super::dialogue::running(&state.talk, &self.event);
                     let run = deferring_run(&self.event, caller);
-                    let carried = (self.spell.cloned(), talk, self.event.cue, run);
+                    let ai = self.event.ai == Some(target);
+                    let carried = (self.spell.cloned(), talk, self.event.cue, run, ai);
                     state.defer(now, target, self.script, code, carried);
                 }
                 Value::Int(0)
@@ -4004,6 +4006,7 @@ impl Engine<'_> {
                     Action::Code {
                         script: self.script.to_string(),
                         deferred,
+                        ai: self.event.ai == Some(caller),
                     },
                 ),
                 None => Value::Int(0),

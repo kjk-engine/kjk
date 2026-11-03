@@ -2215,7 +2215,10 @@ pub(super) struct Event {
     /// A conversation script's parameters (TSL's `GetScriptParameter`).
     pub params: Option<Arc<fmt_odyssey::dlg::Call>>,
     /// The creature whose own AI this run is (`engine::own_ai`), carried
-    /// into what it executes; deferred code is not followed.
+    /// into what it executes and the code it defers, assigns or queues for
+    /// itself (`Delayed::ai`, `Action::Code`): K1's `k_ai_master` attacks
+    /// through deferred code, which steered a guest's companion into the
+    /// fight while its seat played it.
     pub ai: Option<ObjectId>,
     /// The companion a guest drives whose own act raised the event
     /// (`Pending::leads`): this run, and what it executes, see it lead the
@@ -2495,9 +2498,17 @@ impl Step<'_> {
                     // Code ends the object's turn this step: KOTOR starts
                     // one action a frame, so code that queues itself again
                     // (an idle loop) runs once a step, not on and on.
-                    Action::Code { script, deferred } => {
+                    Action::Code {
+                        script,
+                        deferred,
+                        ai,
+                    } => {
                         pop(self.state);
-                        self.run(script, who, Event::default(), Some(deferred));
+                        let event = Event {
+                            ai: ai.then_some(who),
+                            ..Event::default()
+                        };
+                        self.run(script, who, event, Some(deferred));
                         *self.report.actions.entry("code").or_insert(0) += 1;
                         break;
                     }
@@ -3427,6 +3438,7 @@ pub fn run_due(
             talk: due.talk,
             cue: due.cue,
             run: due.run,
+            ai: due.ai.then_some(due.caller),
             ..Event::default()
         };
         step.run_as(

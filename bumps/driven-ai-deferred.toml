@@ -1,0 +1,7 @@
+sim = "code a creature's own AI defers, assigns or queues for itself still runs as that AI: a guest's companion is no longer steered by its own AI's deferred attacks"
+
+[formats]
+save = "deferred and queued code carry whether their caller's own AI deferred them (`Delayed::ai`, `Action::Code::ai`)."
+
+[migrations]
+save = "old saves read `ai = false`: code deferred before ran as a story script's, as it did"
