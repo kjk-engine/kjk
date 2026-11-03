@@ -40,7 +40,7 @@ use crate::math;
 use crate::module::ObjectData;
 use crate::module::{ModuleData, ObjectKind, Spot};
 use crate::motion::{self, MotionState};
-use crate::reconcile::{Held, Party, Report, reconcile, roster};
+use crate::reconcile::{Held, Party, Report, reconcile, roster, stale_left_code};
 use crate::snapshot::{
     EntityState, Kind, ObjectState, Place, SimId, Snapshot, SnapshotHash, Stashed,
 };
@@ -64,6 +64,9 @@ pub enum InstallError {
     NoRoom { module: String, at: [f32; 3] },
     /// A seat past the last a world holds (`MAX_SEATS`).
     Seat(Seat),
+    /// Deferred code waiting in the state points into scripts that changed
+    /// (`reconcile::stale_code`): it cannot be resumed.
+    CodeChanged { scripts: Vec<String> },
 }
 
 impl fmt::Display for InstallError {
@@ -99,6 +102,11 @@ impl fmt::Display for InstallError {
                 "seat {}: a world holds seats 0 to {}",
                 seat.0,
                 crate::world::MAX_SEATS - 1
+            ),
+            InstallError::CodeChanged { scripts } => write!(
+                f,
+                "the save was made while {} was running, and that script changed since",
+                scripts.join(", ")
             ),
         }
     }
@@ -176,6 +184,13 @@ impl SimWorld {
         arrival: Option<&str>,
     ) -> Result<Snapshot, InstallError> {
         self.settle_switch();
+        // What the module left waiting must still be the code it was.
+        if let (Some(library), Some(place)) = (level.scripts(), level.place()) {
+            let scripts = stale_left_code(library, self.script_state(), &place.module);
+            if !scripts.is_empty() {
+                return Err(InstallError::CodeChanged { scripts });
+            }
+        }
         let party = &self.script_state().party;
         let level = with_party_templates(level, party);
         // All of the party table's members come along, following or not

@@ -1,5 +1,7 @@
 [formats]
 snapshot = "the snapshot and each module left keep the placements' roster as installed (`Snapshot::roster`)."
+save = "deferred code keeps its script's digest (`Delayed::code`)."
 
 [migrations]
 snapshot = "old saves read no roster: trusted as before"
+save = "old saves read `code = None`: trusted as before"

@@ -404,6 +404,9 @@ pub fn alien_sound<'a>(
 pub struct Library {
     routines: Routines,
     programs: BTreeMap<String, Program>,
+    /// BLAKE3 of each program's compiled bytes, by script name: what a
+    /// saved continuation of it is checked against (`script_digest`).
+    digests: BTreeMap<String, [u8; 32]>,
     bound: Vec<Option<Bound>>,
     /// `OBJECT_TYPE_*` by kind, from the catalog.
     object_types: BTreeMap<ObjectKind, i32>,
@@ -522,9 +525,12 @@ impl Library {
         for routine in &catalog.routines {
             hasher.update(routine.to_string().as_bytes());
         }
+        let mut digests = BTreeMap::new();
         for (name, ncs) in &scripts {
+            let bytes = ncs.write();
             hasher.update(name.as_bytes());
-            hasher.update(&ncs.write());
+            hasher.update(&bytes);
+            digests.insert(name.clone(), *blake3::hash(&bytes).as_bytes());
         }
         let bound = catalog
             .routines
@@ -559,6 +565,7 @@ impl Library {
                 .into_iter()
                 .map(|(name, ncs)| (name, Program::new(ncs)))
                 .collect(),
+            digests,
             bound,
             object_types,
             criteria,
@@ -1267,6 +1274,12 @@ impl Library {
 
     pub fn program(&self, name: &str) -> Option<&Program> {
         self.programs.get(&key(name))
+    }
+
+    /// The BLAKE3 of script `name`'s compiled bytes, taken once as the
+    /// library was built.
+    pub fn script_digest(&self, name: &str) -> Option<[u8; 32]> {
+        self.digests.get(&key(name)).copied()
     }
 
     pub fn names(&self) -> impl Iterator<Item = &str> {
@@ -2515,6 +2528,7 @@ impl Step<'_> {
                         script,
                         deferred,
                         ai,
+                        ..
                     } => {
                         pop(self.state);
                         let event = Event {

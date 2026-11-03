@@ -205,6 +205,16 @@ impl Save {
         }))
     }
 
+    /// The scripts whose deferred code in this save no longer matches
+    /// `level`'s (`reconcile::stale_code`): `world` refuses the save while
+    /// there are any, with `InstallError::CodeChanged`'s text. The code a
+    /// module left waits in is checked as it is entered (`SimWorld::install`).
+    pub fn stale_code(&self, level: &Level) -> Vec<String> {
+        level.scripts().map_or_else(Vec::new, |library| {
+            crate::reconcile::stale_code(library, &self.script)
+        })
+    }
+
     /// The world going on from this save in `level` (the level it was
     /// made in, re-stamped with its data if that changed, else refused:
     /// `restamp`), for a session that holds `seats`: the save's
@@ -215,6 +225,10 @@ impl Save {
     /// No container is held open in it (`containers::let_go`).
     pub fn world(&self, level: &Level, seats: u8, tick: Option<u64>) -> Result<SimWorld, String> {
         let restamp = self.restamp(level)?;
+        let scripts = self.stale_code(level);
+        if !scripts.is_empty() {
+            return Err(InstallError::CodeChanged { scripts }.to_string());
+        }
         // The companions' kept templates the level lacks, as an install adds
         // them (`install::with_party_templates`).
         let level = crate::install::with_party_templates(level.clone(), &self.script.party);

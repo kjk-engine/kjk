@@ -44,7 +44,7 @@
 //! them; a dropped entity's are left as a destroyed object's are (its queue
 //! goes at the next step, its locals and goods are not read again).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
@@ -55,6 +55,8 @@ use crate::inventory::Items;
 use crate::math::{self, Vec3};
 use crate::module::{ObjectData, ObjectKind};
 use crate::motion::{self, MotionState, motion_flags};
+use crate::script::actions::{Action, Queued};
+use crate::script::{self, Delayed, Library};
 use crate::snapshot::{EntityState, Kind, SimId, Spawned};
 use crate::wire::{DecodeError, Reader, Writer};
 use crate::world::Level;
@@ -416,6 +418,49 @@ fn made_in_play(
         holds: Vec::new(),
     });
     number
+}
+
+/// The scripts whose saved continuations (`Delayed`, queued
+/// `Action::Code`) were deferred from other bytes than `library`'s now: code
+/// points into a compiled script, so one whose script changed cannot be
+/// resumed. Continuations saved before digests were kept are trusted; a
+/// script the library lacks counts as changed. Sorted, each once.
+pub fn stale_code(library: &Library, script: &script::State) -> Vec<String> {
+    stale(library, &script.delayed, &script.actions)
+}
+
+/// `stale_code` of what the scripts keep waiting in `module`, a module the
+/// party left (`script::State::left`).
+pub fn stale_left_code(library: &Library, script: &script::State, module: &str) -> Vec<String> {
+    script.left.get(module).map_or_else(Vec::new, |left| {
+        stale(library, &left.delayed, &left.actions)
+    })
+}
+
+fn stale(
+    library: &Library,
+    delayed: &[Delayed],
+    actions: &BTreeMap<u32, Vec<Queued>>,
+) -> Vec<String> {
+    let queued = actions
+        .values()
+        .flatten()
+        .filter_map(|queued| match &queued.action {
+            Action::Code { script, code, .. } => Some((script, *code)),
+            _ => None,
+        });
+    let mut stale: Vec<String> = delayed
+        .iter()
+        .map(|delayed| (&delayed.script, delayed.code))
+        .chain(queued)
+        .filter(|(script, code)| {
+            code.is_some_and(|code| library.script_digest(script) != Some(code))
+        })
+        .map(|(script, _)| script.clone())
+        .collect();
+    stale.sort();
+    stale.dedup();
+    stale
 }
 
 /// A placement as the log names it: its kind, template and tag.

@@ -7,11 +7,13 @@ use std::sync::Arc;
 use script_ncs::probes::Check;
 
 use crate::determinism::ground_point;
+use crate::install::InstallError;
 use crate::math::{Vec3, scale};
 use crate::module::{ObjectData, ObjectKind, Placement};
 use crate::reconcile::{Renumber, Report, decode, encode, onto_ground, renumber, roster};
+use crate::script::actions::{Action, Queued};
 use crate::script::party::Npc;
-use crate::script::{Library, State};
+use crate::script::{Delayed, Library, State};
 use crate::snapshot::{EntityState, Kind, SimId, Snapshot};
 use crate::walk::on_mesh;
 use crate::wire::{Reader, Writer};
@@ -582,20 +584,194 @@ pub fn loads() -> Vec<Check> {
             },
         },
     ];
-    cases
-        .iter()
-        .map(|case| match run(case) {
-            Ok((before, mut world, changed)) => {
-                let snapshot = world.snapshot();
-                let report = world.reconciled();
-                let (trusted, moved, dropped, added, snapped) = case.says;
-                let ok = report.map(says)
-                    == Some((trusted, moved, dropped.to_vec(), added, snapped))
-                    && snapshot.roster.as_deref() == Some(&roster(changed.placed())[..])
-                    && (case.holds)(&before, &snapshot, world.script_state());
-                check(case.name, ok, format!("{report:?}"))
-            }
-            Err(error) => check(case.name, false, error),
+    let placements = cases.iter().map(|case| match run(case) {
+        Ok((before, mut world, changed)) => {
+            let snapshot = world.snapshot();
+            let report = world.reconciled();
+            let (trusted, moved, dropped, added, snapped) = case.says;
+            let ok = report.map(says) == Some((trusted, moved, dropped.to_vec(), added, snapped))
+                && snapshot.roster.as_deref() == Some(&roster(changed.placed())[..])
+                && (case.holds)(&before, &snapshot, world.script_state());
+            check(case.name, ok, format!("{report:?}"))
+        }
+        Err(error) => check(case.name, false, error),
+    });
+    placements.chain(deferred_code()).collect()
+}
+
+/// The script every deferred continuation of the code cases stems from.
+const CODE_SCRIPT: &str = "k_deferred";
+
+/// A library holding `CODE_SCRIPT` of `length` instructions: another length,
+/// other bytes.
+fn scripted(length: usize) -> Library {
+    let mut asm = script_ncs::probes::Asm::default();
+    for _ in 0..length {
+        asm.op(fmt_odyssey::ncs::Op::Retn);
+    }
+    let routines = script_ncs::catalog::Catalog::parse("").expect("an empty catalog parses");
+    let programs = std::collections::BTreeMap::from([(CODE_SCRIPT.to_string(), asm.build())]);
+    Library::new(routines, programs, Default::default())
+}
+
+/// Where a save keeps deferred code.
+#[derive(Clone, Copy)]
+enum Waits {
+    /// `Delayed`, in the state.
+    Delayed,
+    /// A queued `Action::Code`.
+    Queued,
+    /// A `Delayed` of a module left, entered again.
+    Left,
+}
+
+/// The script digest a continuation was saved with.
+#[derive(Clone, Copy)]
+enum Saved {
+    /// Saved before digests were kept.
+    Nothing,
+    /// The digest of the script as it is now.
+    Current,
+    /// The digest of the script as it was.
+    Changed,
+}
+
+/// The save's continuation of `CODE_SCRIPT`, as a `Delayed` carrying `code`.
+fn continuation(code: Option<[u8; 32]>) -> Delayed {
+    Delayed {
+        due_ms: 500,
+        order: 0,
+        caller: script_ncs::vm::ObjectId(1),
+        script: CODE_SCRIPT.into(),
+        deferred: script_ncs::vm::Deferred {
+            resume: 16,
+            globals: Vec::new(),
+            locals: Vec::new(),
+        },
+        spell: None,
+        talk: None,
+        cue: None,
+        run: None,
+        ai: false,
+        code,
+    }
+}
+
+/// Loads a save holding deferred code of `CODE_SCRIPT` in `waits`, saved
+/// with `saved`, into a level whose script is `scripted(1)`.
+fn load_with_code(waits: Waits, saved: Saved) -> Result<(), String> {
+    let code = match saved {
+        Saved::Nothing => None,
+        Saved::Current => scripted(1).script_digest(CODE_SCRIPT),
+        Saved::Changed => scripted(2).script_digest(CODE_SCRIPT),
+    };
+    let (base, changed) = (ground(|_| {}), ground(|_| {}).with_scripts(scripted(1)));
+    let (mut save, before) = save(&base)?;
+    let held = continuation(code);
+    match waits {
+        Waits::Delayed => save.script.delayed.push(held),
+        Waits::Queued => {
+            let Delayed {
+                script, deferred, ..
+            } = held;
+            let action = Action::Code {
+                script,
+                deferred,
+                ai: false,
+                code,
+            };
+            let queued = Queued {
+                action,
+                started_ms: None,
+            };
+            save.script
+                .actions
+                .entry(before.gate.0)
+                .or_default()
+                .push(queued);
+        }
+        Waits::Left => {
+            let mut world = save.world(&base, 1, None)?;
+            let module = base.place().ok_or("the ground is a module")?.module;
+            let elsewhere = crate::determinism::proving_ground_named("probe_elsewhere");
+            world
+                .install(elsewhere, None)
+                .map_err(|error| error.to_string())?;
+            let mut state = world.script_state().clone();
+            state.left.entry(module).or_default().delayed.push(held);
+            world.set_script_state(state);
+            return world
+                .install(changed, None)
+                .map(drop)
+                .map_err(|error| error.to_string());
+        }
+    }
+    save.world(&changed, 1, None).map(drop)
+}
+
+/// Saved continuations of scripts that changed refuse the load, naming the
+/// script; those of the same bytes, and those saved before digests were
+/// kept, load.
+fn deferred_code() -> Vec<Check> {
+    let rows = [
+        (
+            "deferred code of a changed script",
+            Waits::Delayed,
+            Saved::Changed,
+            true,
+        ),
+        (
+            "deferred code of the same script",
+            Waits::Delayed,
+            Saved::Current,
+            false,
+        ),
+        (
+            "deferred code saved before digests",
+            Waits::Delayed,
+            Saved::Nothing,
+            false,
+        ),
+        (
+            "queued code of a changed script",
+            Waits::Queued,
+            Saved::Changed,
+            true,
+        ),
+        (
+            "queued code of the same script",
+            Waits::Queued,
+            Saved::Current,
+            false,
+        ),
+        (
+            "a module left, its code changed",
+            Waits::Left,
+            Saved::Changed,
+            true,
+        ),
+        (
+            "a module left, its code the same",
+            Waits::Left,
+            Saved::Current,
+            false,
+        ),
+    ];
+    rows.into_iter()
+        .map(|(name, waits, saved, refused)| {
+            let outcome = load_with_code(waits, saved);
+            let ok = match &outcome {
+                Ok(()) => !refused,
+                Err(error) => {
+                    refused
+                        && *error
+                            == InstallError::CodeChanged {
+                                scripts: vec![CODE_SCRIPT.into()],
+                            }
+                            .to_string()
+                }
+            };
+            check(name, ok, format!("{outcome:?}"))
         })
         .collect()
 }
