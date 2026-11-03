@@ -61,6 +61,10 @@ use sim::determinism::{Setup, pilot};
 use sim::moves::{Script, view_angles};
 use sim::script::dialogue::{self, Conversation, Pick};
 
+/// Snapshots of a frame's ticks kept for the view, at least, when a frame
+/// steps more than twice this.
+const KEPT_IN_A_JUMP: usize = 256;
+
 /// Ticks between the hashes a live session's recording keeps.
 const RECORD_EVERY: u64 = 100;
 
@@ -1409,10 +1413,16 @@ fn advance(
                         .map_err(|error| error.to_string())?
                 }
             };
-            if let Some(expect) = &job.expect {
-                expect
-                    .check_after(&authority.world.snapshot())
-                    .map_err(|mismatch| format!("replayed install: {mismatch}"))?;
+            // The announcement's hash, not the world's now: entering a
+            // module clears what its objects were doing when it was left.
+            if let Some(expect) = &job.expect
+                && expect.after != announcement.after
+            {
+                return Err(format!(
+                    "replayed install: state after the install: recorded {}, here {}",
+                    expect.after.short(),
+                    announcement.after.short()
+                ));
             }
             Ok((
                 prepared,
@@ -1586,15 +1596,22 @@ fn advance(
     // too (`PlayerInput`).
     let held_ms = held.0.map(|seconds| f64::from(seconds) * 1000.0);
     waited.frame(waiting, held_ms, time.delta_secs_f64() * 1000.0);
+    // The time the ticks are due up to, while it is held.
+    let held_target = held_ms.map(|ms| (ms - waited.ms).max(0.0) as u64);
+    // Whether the world has reached the held time (`wait arrived`: an `anim`
+    // far ahead takes modules and frames to get to), or a replay ran out.
+    let arrived = !installing
+        && (held_target.is_none_or(|target| rate.time_ms(authority.last.tick) >= target)
+            || matches!(&authority.source, Source::Replay { recording, next, .. } if *next == recording.ticks.len()));
+    states.0.insert("arrived".into(), arrived);
     let due: Vec<(u64, u32)> = if installing || !playing || waiting {
         if !playing || waiting {
             authority.clock = Accumulator::new(rate, authority.last.tick);
         }
         Vec::new()
     } else {
-        match held_ms {
-            Some(ms) => {
-                let target = (ms - waited.ms).max(0.0) as u64;
+        match held_target {
+            Some(target) => {
                 let mut due = Vec::new();
                 let mut tick = authority.last.tick;
                 while rate.time_ms(tick) < target {
@@ -1784,6 +1801,14 @@ fn advance(
                     StepReason::Replay,
                 );
                 *next += 1;
+                let recorded_hash = recording
+                    .checkpoints
+                    .binary_search_by_key(&snapshot.tick, |(at, _)| *at)
+                    .ok()
+                    .map(|at| recording.checkpoints[at].1);
+                if recorded_hash.is_some_and(|hash| hash != snapshot.hash()) {
+                    error!(target: "sim", tick = snapshot.tick, "the replay left its recording");
+                }
                 (recorded.input.clone(), snapshot)
             }
         };
@@ -1793,6 +1818,11 @@ fn advance(
         let snapshot = Arc::new(snapshot);
         authority.solo.stepped(&input, &snapshot);
         presented.1.push(snapshot.clone());
+        // A replay's jump (`anim` far ahead) steps its ticks in one frame:
+        // the view reads the last of them, and each holds about 100 KB.
+        if presented.1.len() >= 2 * KEPT_IN_A_JUMP {
+            presented.1.drain(..KEPT_IN_A_JUMP);
+        }
         authority.last = snapshot;
         // A replay's install after this tick: the world waits for it.
         if authority.replay_install(tick, &mut loading) {

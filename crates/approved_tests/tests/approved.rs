@@ -739,6 +739,45 @@ fn coop_data_check() {
     assert_eq!(browsed.files, kotor.len(), "KOTOR's files covered");
 }
 
+/// The store's cap (`store::Store::cap`), which holds a game's area bakes
+/// to a size: the least recently used go first, one read again counting as
+/// new, down to the size; the most recent stays even alone over it; other
+/// kinds are untouched. No installs (proposed 2026-11-03).
+#[test]
+fn store_cap() {
+    let root = std::env::temp_dir().join(format!("kjk-store-cap-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let store = store::Store::at(&root);
+    let kind = "bake/k1/area-v1";
+    let keys = [b"x", b"y", b"z"].map(|input| store::Key::of("cap-v1", &[input]));
+    let now = std::time::SystemTime::now();
+    // Made three, two and one hours ago, ten bytes each.
+    for (hours, key) in (1..=3).rev().zip(&keys) {
+        let path = store.put(kind, key, &[0; 10]).expect("put");
+        std::fs::File::options()
+            .append(true)
+            .open(&path)
+            .and_then(|file| file.set_modified(now - std::time::Duration::from_secs(hours * 3600)))
+            .expect("aged");
+    }
+    let other = store
+        .put("bake/k1/library-v1", &keys[0], &[0; 10])
+        .expect("put");
+    assert!(store.get(kind, &keys[0]).is_some(), "the oldest read again");
+    // Looked at by path: a read would mark them used.
+    let kept = || keys.each_ref().map(|key| store.path(kind, key).exists());
+
+    let removed = store.cap(kind, 25).expect("capped");
+    assert_eq!((removed.files, removed.bytes), (1, 10));
+    assert_eq!(kept(), [true, false, true], "the least recently used went");
+
+    let removed = store.cap(kind, 0).expect("capped");
+    assert_eq!(removed.files, 1);
+    assert_eq!(kept(), [true, false, false], "the most recent stays");
+    assert!(other.exists(), "another kind untouched");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Areas' grass and weather from the ARE (`docs/GRASS-WEATHER.md`):
 /// a module made here reads its grass texture, density, size and variant
 /// chances, none without a texture, its weather chances and wind, and the

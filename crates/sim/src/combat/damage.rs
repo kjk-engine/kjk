@@ -622,8 +622,11 @@ pub fn apply(
     }
     // Attacked: a hit that harms, or a foe's that does not (a plot
     // character struck still hears of it and answers, as KOTOR's
-    // OnPhysicalAttacked fires: Jolee and the katarns on Kashyyyk).
+    // OnPhysicalAttacked fires: Jolee and the katarns on Kashyyyk). The
+    // story's death is no attack: TSL's OnApplyDeath signals its death event
+    // alone, so those about it stay at what their scene has them do.
     if let Some(by) = blow.attacker
+        && !death
         && (damage > 0 || blow.relation == Relation::Hostile)
     {
         state.last_attacker = Some((by, now));

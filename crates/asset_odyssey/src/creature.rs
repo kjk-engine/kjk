@@ -345,6 +345,35 @@ pub const DIALOG_CLIPS: &[(&str, u16, &str)] = &[
     ("Talk_Prone_Die", 10_569, "talkpronedie"),
 ];
 
+/// The clips of a Force power's casting, `animations.2da` rows by name, for
+/// `spells.2da`'s `castanim` (both executables read that column alone for
+/// both phases; `conjanim` is never read): the row played once for the
+/// power's `conjtime`, and the one looped for its `casttime` (none for a jump
+/// and a monster's, which stay on the first). A word no row uses is `point`'s.
+pub fn cast_rows(castanim: &str) -> (u16, Option<u16>) {
+    match castanim.to_ascii_lowercase().as_str() {
+        "self" => (62, Some(63)),
+        "dark" => (64, Some(65)),
+        "up" => (66, Some(67)),
+        "throw" => (69, Some(70)),
+        "jump" | "monster" | "area" => (62, None),
+        _ => (62, Some(70)),
+    }
+}
+
+/// `cast_rows`' clips: what a body shows a cast by, numbered as
+/// `row_animation` does.
+pub const CAST_CLIPS: &[(u16, &str)] = &[
+    (ONCE + 62, "castout1"),
+    (LOOPED + 63, "castoutlp1"),
+    (ONCE + 64, "castout2"),
+    (LOOPED + 65, "castoutlp2"),
+    (ONCE + 66, "castout3"),
+    (LOOPED + 67, "castoutlp3"),
+    (ONCE + 69, "throwsab"),
+    (LOOPED + 70, "throwsablp"),
+];
+
 /// What scripts and conversations play on a body that it may have a clip
 /// for, and the clip's name: the constants (`SCRIPTED_CLIPS`) and the
 /// conversations' own clips (`DIALOG_CLIPS`). The views draw and the sim

@@ -249,6 +249,11 @@ pub struct Talent {
     /// A power's conjure and cast time (`spells.2da` `conjtime` +
     /// `casttime`, ms): how long a script's cast takes (`Action::Cast`).
     pub cast_ms: u16,
+    /// How much of `cast_ms` is its conjuring (`conjtime`).
+    pub conjure_ms: u16,
+    /// The clip played once for `conjure_ms` and the one looped for the rest
+    /// (`creature::cast_rows`; 0 for none).
+    pub cast_clips: [u16; 2],
 }
 
 /// A `forceshields.2da` row (`EffectForceShield`: the energy shields' own
@@ -495,6 +500,12 @@ impl Library {
                 if talent.cast_ms != 0 {
                     hasher.update(b"cast");
                     hasher.update(&talent.cast_ms.to_le_bytes());
+                }
+                if talent.cast_clips != [0; 2] {
+                    hasher.update(b"clips");
+                    hasher.update(&talent.conjure_ms.to_le_bytes());
+                    hasher.update(&talent.cast_clips[0].to_le_bytes());
+                    hasher.update(&talent.cast_clips[1].to_le_bytes());
                 }
             }
         }
@@ -1820,6 +1831,8 @@ pub enum Change {
     /// `who` plays an `ANIMATION_…` constant for `ms` (`u32::MAX`: until
     /// stopped), from now.
     Animate { who: ObjectId, play: (u16, u32) },
+    /// As `Animate`, but a body already playing that clip goes on with it.
+    KeepAnimating { who: ObjectId, play: (u16, u32) },
     /// `who` struck by a scene's shot that landed without its bolt, its
     /// answer row `row` (`effects::blows::struck`).
     Struck { who: ObjectId, row: u16 },
@@ -2924,12 +2937,15 @@ impl Step<'_> {
     }
 
     /// A cast action's step (`Action::Cast`), `thing` casting `row` at
-    /// `target`: it begins turned to its target with its hand out (the
-    /// hand every power here shows; the row's own animations, hand and
-    /// ground visuals and projectile are not drawn) for the row's conjure
-    /// and cast time (`spells.2da` `conjtime` + `casttime`), done then. A
-    /// real one is paid for then (none for a `cheat`'s) and its impact
-    /// script runs at the target; a fake one does nothing more. A real one
+    /// `target`: it begins turned to its target for the row's conjure and
+    /// cast time (`spells.2da` `conjtime` + `casttime`), done then, showing
+    /// the row's clips (`Talent::cast_clips`: both executables' cast action,
+    /// its clock running from its start, a turn not waited for; its loop
+    /// asked for every step, so a line's own clip over it gives way), or a
+    /// hand out where it has none. The row's hand and ground visuals and
+    /// projectile are not drawn. A real one is paid for as its conjuring
+    /// ends (none for a `cheat`'s) and its impact script runs at the target
+    /// then; a fake one does nothing more. A real one
     /// by one not commandable, or of a power it does not know or cannot pay
     /// for (but a cheat's), does nothing. A player casts as a creature does,
     /// as the games' PC is one (its power list's cast, `action::Action::Cast`).
@@ -2942,7 +2958,8 @@ impl Step<'_> {
     ) -> bool {
         let who = thing.id;
         let now = self.view.now_ms;
-        let ms = self.library.spell(row).cast_ms;
+        let talent = self.library.spell(row);
+        let ms = talent.cast_ms;
         if starting {
             let able =
                 thing.character.is_some() && (cheat || engine::can_cast(self.view, thing, row));
@@ -2958,15 +2975,30 @@ impl Step<'_> {
                     crate::math::atan2_deg(at[1] - thing.position[1], at[0] - thing.position[0]);
                 self.out.changes.push(Change::Face { who, yaw });
             }
-            self.out.changes.push(Change::Hand {
-                who,
-                ms: u32::from(ms),
-            });
+            if talent.cast_clips[0] == 0 {
+                self.out.changes.push(Change::Hand {
+                    who,
+                    ms: u32::from(ms),
+                });
+            }
         }
-        if now < started + u64::from(ms) {
-            return false;
-        }
-        if !fake {
+        self.show_cast(who, row, (starting, started));
+        // The impact lands as the conjuring ends and the cast's own clip
+        // begins (TSL's `CSWSCreature::AIActionCastSpell` calls
+        // `SpellCastAndImpact` once past `conjtime`, then holds the action
+        // for `casttime`): the rest of the cast only looks cast.
+        if !fake && now >= started + u64::from(talent.conjure_ms) {
+            if let Some(actions::Queued {
+                action: Action::Cast { fake, .. },
+                ..
+            }) = self
+                .state
+                .actions
+                .get_mut(&who.0)
+                .and_then(|q| q.first_mut())
+            {
+                *fake = true;
+            }
             if let Some(cost) = engine::cast_cost(self.view, thing, row).filter(|_| !cheat) {
                 self.out.changes.push(Change::Pay { who, cost });
             }
@@ -2989,7 +3021,27 @@ impl Step<'_> {
                 caught,
             });
         }
-        true
+        now >= started + u64::from(ms)
+    }
+
+    /// `row`'s clips on `who`, cast from `started` (`Talent::cast_clips`).
+    fn show_cast(&mut self, who: ObjectId, row: u16, (starting, started): (bool, u64)) {
+        let now = self.view.now_ms;
+        let talent = self.library.spell(row);
+        let [once, looped] = talent.cast_clips;
+        if starting && once != 0 && talent.conjure_ms != 0 {
+            self.out.changes.push(Change::Animate {
+                who,
+                play: (once, u32::from(talent.conjure_ms)),
+            });
+        }
+        let end = started + u64::from(talent.cast_ms);
+        if looped != 0 && now >= started + u64::from(talent.conjure_ms) && now < end {
+            self.out.changes.push(Change::KeepAnimating {
+                who,
+                play: (looped, (end - now) as u32),
+            });
+        }
     }
 
     /// `cast`'s impact: its power's impact script run by its caster, what
