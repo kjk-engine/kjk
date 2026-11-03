@@ -613,6 +613,37 @@ impl Classes {
         grown
     }
 
+    /// `sheet`, of a character whose career was `from` (its template's
+    /// classes; none for a level-0 character), grown to career `to`: the
+    /// base attack bonus, saves and class defence of each class's levels in
+    /// `to` past `from`'s (`grown`, level by level), and the level `to`
+    /// totals. Hit and Force points, feats, powers, skills and abilities stay
+    /// as they are: a story restore sets them as they were.
+    pub fn grown_to(&self, sheet: &Sheet, from: &Career, to: &Career) -> Sheet {
+        let mut out = *sheet;
+        for &(class, levels) in to {
+            let Some(of) = self.classes.get(usize::from(class)) else {
+                continue;
+            };
+            let had = from
+                .iter()
+                .find(|(was, _)| *was == class)
+                .map_or(0, |(_, levels)| *levels);
+            for class_level in had.saturating_add(1)..=levels {
+                let offer = Offer {
+                    class_level,
+                    level: out.level.saturating_add(1),
+                    feats: 0,
+                    powers: 0,
+                    ability: false,
+                };
+                out = Self::grown(&out, of, offer);
+            }
+        }
+        out.level = to.iter().fold(0u8, |sum, (_, levels)| sum.saturating_add(*levels));
+        out
+    }
+
     /// `choices` taken by a character with `sheet`, `career` and `banked`
     /// points left from its levels before: its new sheet and career and the
     /// points it leaves unspent (the level's added to those banked, TSL's

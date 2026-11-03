@@ -205,7 +205,10 @@ pub fn refusal_probes() -> Vec<(&'static str, Result<String, String>)> {
 /// - the JSON round trip is equal, and a JSON without most fields reads;
 /// - a slot write puts `story.json` in the folder and `story` in the
 ///   meta's formats; a slot without one, or with one that does not read,
-///   has no story, and an older meta's formats read.
+///   has no story, and an older meta's formats read;
+/// - a story restored and written again is the story (spec 4c), but for
+///   its build, its time and the place within the 2 m snap, and for what
+///   each case names as lost, each with why.
 pub fn story_probes() -> sim::probe::Checks {
     let (level, save) = sim::fixtures::kitchen_sink();
     let story = Story::of(&save, &level);
@@ -220,6 +223,9 @@ pub fn story_probes() -> sim::probe::Checks {
         ("story_written_with_slot", slot_write(&root, &story)),
         ("story_missing_is_none", missing_is_none(&root)),
         ("formats_without_story_read", old_formats()),
+        ("story_restores_sink", restores_sink(&level, &save)),
+        ("story_restores_roster_module", restores_roster_module(&level, &save)),
+        ("story_restores_left_and_here", restores_left_and_here(&save)),
     ];
     let _ = std::fs::remove_dir_all(&root);
     checks
@@ -296,13 +302,8 @@ fn of_sink(story: &Story) -> Result<String, String> {
 /// The sink with a roster of a door, a placeable and a creature, and
 /// objects of them in play: the door open and locked, the placeable
 /// destroyed, the creature gone, a local on the door.
-fn roster_module(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
+fn roster_save(save: &sim::Save) -> Result<sim::Save, String> {
     use sim::module::ObjectKind;
-    let origin = |kind, template: &str| sim::reconcile::Origin {
-        kind,
-        template: template.into(),
-        tag: template.into(),
-    };
     let mut save = save.clone();
     let Some(proto) = save.snapshot.entities.first().copied() else {
         return Err("the sink has no entity".into());
@@ -335,21 +336,40 @@ fn roster_module(level: &sim::Level, save: &sim::Save) -> Result<String, String>
         dead,
     ]);
     save.script.locals.insert((9_001, 1, 5), 7);
+    Ok(save)
+}
+
+/// A hand-made roster's placement of `kind` and `template`, its tag the
+/// template.
+fn origin(kind: sim::module::ObjectKind, template: &str) -> sim::reconcile::Origin {
+    sim::reconcile::Origin {
+        kind,
+        template: template.into(),
+        tag: template.into(),
+    }
+}
+
+fn roster_module(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
+    use sim::module::ObjectKind;
+    let save = roster_save(save)?;
     let module = save
         .snapshot
         .place
         .as_ref()
         .map(|place| place.module.to_ascii_lowercase());
     let story = Story::of(&save, level);
-    let key = |index, template: &str| story::OriginKey {
-        index,
-        template: template.into(),
-    };
+    let key = |index, kind, template| story::OriginKey::of(index, &origin(kind, template));
+    let door = key(0, ObjectKind::Door, "door_a");
     let kept = module.and_then(|module| story.visited.get(&module));
     let ok = kept.is_some_and(|kept| {
-        kept.doors == [(key(0, "door_a"), 1, sim::lock::LOCKED)]
-            && kept.destroyed == [key(1, "plc_b"), key(2, "cre_c"), key(3, "cre_d")]
-            && kept.locals == [(key(0, "door_a"), 1, 5, 7)]
+        kept.doors == [(door.clone(), 1, sim::lock::LOCKED)]
+            && kept.destroyed
+                == [
+                    key(1, ObjectKind::Placeable, "plc_b"),
+                    key(2, ObjectKind::Creature, "cre_c"),
+                    key(3, ObjectKind::Creature, "cre_d"),
+                ]
+            && kept.locals == [(door.clone(), 1, 5, 7)]
     });
     check(ok, format!("{kept:?}"))
 }
@@ -509,4 +529,155 @@ fn companions_items(level: &sim::Level, save: &sim::Save) -> Result<String, Stri
         .map(|(name, _)| *name)
         .collect();
     check(missing.is_empty(), format!("missing: {missing:?}"))
+}
+
+/// What a round trip leaves out of the comparison: what it is, why it
+/// cannot come back, and the change that blanks it in both stories.
+type Exclusion = (&'static str, &'static str, fn(&mut Story));
+
+/// `story` restored in `level` for one seat and written again
+/// (`Story::of`): equal to it but for `build`, `saved`, the place within
+/// the 2 m snap and `excluded`, and what the restore said it lost holds
+/// each of `lost` (a line's words).
+fn round_trip(
+    story: &Story,
+    level: &sim::Level,
+    excluded: &[Exclusion],
+    lost: &[&str],
+) -> Result<String, String> {
+    let (mut world, said) = story.restore(level, 1)?;
+    let again = sim::Save {
+        hz: sim::TICK_HZ,
+        level: level.id(),
+        snapshot: world.snapshot(),
+        script: world.script_state().clone(),
+    };
+    let (mut before, mut after) = (story.clone(), Story::of(&again, level));
+    for (_, _, blank) in excluded {
+        blank(&mut before);
+        blank(&mut after);
+    }
+    let [a, b] = [before.place.position, after.place.position];
+    let off = ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+    for story in [&mut before, &mut after] {
+        (story.build, story.saved, story.place.position) = (String::new(), 0, [0.0; 3]);
+    }
+    let differ = differing(&before, &after);
+    let unsaid: Vec<&&str> = lost
+        .iter()
+        .filter(|words| !said.iter().any(|line| line.contains(**words)))
+        .collect();
+    let named: Vec<&str> = excluded.iter().map(|(what, _, _)| *what).collect();
+    check(
+        differ.is_empty() && off <= 2.0 && unsaid.is_empty(),
+        format!(
+            "differ {differ:?}, place {off:.2} m off, lost {said:?}, unsaid {unsaid:?}, excluded {named:?}"
+        ),
+    )
+}
+
+/// The top-level fields of two stories that differ.
+fn differing(a: &Story, b: &Story) -> Vec<&'static str> {
+    let fields = [
+        ("schema", a.schema == b.schema),
+        ("game", a.game == b.game),
+        ("place", a.place == b.place),
+        ("globals", a.globals == b.globals),
+        ("party", a.party == b.party),
+        ("party_ai", a.party_ai == b.party_ai),
+        ("leader", a.leader == b.leader),
+        ("items", a.items == b.items),
+        ("purse", (a.gold, a.components, a.chemicals) == (b.gold, b.components, b.chemicals)),
+        ("journal", a.journal == b.journal),
+        ("galaxy", a.galaxy == b.galaxy),
+        ("reputation", a.reputation == b.reputation),
+        ("unescapable", a.unescapable == b.unescapable),
+        ("transit", a.transit == b.transit),
+        ("visited", a.visited == b.visited),
+    ];
+    fields
+        .into_iter()
+        .filter(|(_, same)| !same)
+        .map(|(name, _)| name)
+        .collect()
+}
+
+fn restores_sink(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
+    round_trip(&Story::of(save, level), level, &[], &[])
+}
+
+fn restores_roster_module(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
+    let story = Story::of(&roster_save(save)?, level);
+    let excluded: [Exclusion; 1] = [(
+        "the module here's facts",
+        "its roster is made by hand: none of its placements are the proving ground's, so the restore finds none of them",
+        |story| {
+            let here = story.place.module.to_ascii_lowercase();
+            if let Some(kept) = story.visited.get_mut(&here) {
+                (kept.destroyed, kept.doors, kept.locals) = Default::default();
+            }
+        },
+    )];
+    round_trip(&story, level, &excluded, &["no such placement here"])
+}
+
+/// The roster module's facts moved to a module left (the placeable
+/// destroyed, the creatures gone, the door open and locked with a local),
+/// and here the proving ground with Carth: the gate open and locked with a
+/// local, Carth destroyed.
+fn restores_left_and_here(save: &sim::Save) -> Result<String, String> {
+    use sim::module::ObjectKind;
+    let level = with_carth()?;
+    let mut story = Story::of(&roster_save(save)?, &level);
+    let here = story.place.module.to_ascii_lowercase();
+    // The proving ground has no scripts, so no spawns ran there; a module
+    // left with its objects destroyed had its spawns run.
+    let roster = story::StoryModule {
+        spawns_ran: true,
+        ..story.visited.remove(&here).unwrap_or_else(story::StoryModule::default)
+    };
+    story.visited.insert("proving_ground_left".into(), roster);
+    let placed = level.placed();
+    let key = |kind: ObjectKind| {
+        let index = placed.iter().position(|facts| facts.kind == kind)?;
+        let facts = &placed[index];
+        let origin = sim::reconcile::Origin {
+            kind,
+            template: facts.template.clone(),
+            tag: facts.tag.clone(),
+        };
+        Some(story::OriginKey::of(index as u32, &origin))
+    };
+    let (Some(gate), Some(carth)) = (key(ObjectKind::Door), key(ObjectKind::Creature)) else {
+        return Err("the ground with Carth has no gate or no Carth".into());
+    };
+    story.visited.insert(
+        here,
+        story::StoryModule {
+            spawns_ran: false,
+            destroyed: vec![carth],
+            doors: vec![(gate.clone(), 1, sim::lock::LOCKED)],
+            locals: vec![(gate, 1, 5, 7)],
+        },
+    );
+    let excluded: [Exclusion; 1] = [(
+        "the module left's doors and locals",
+        "their objects are placed only on the next arrival there, so nothing holds them meanwhile",
+        |story| {
+            if let Some(kept) = story.visited.get_mut("proving_ground_left") {
+                (kept.doors, kept.locals) = Default::default();
+            }
+        },
+    )];
+    let trip = round_trip(&story, &level, &excluded, &["1 doors and placeables moved", "1 locals"])?;
+    // The module left entered again: its stash entry reconciled with it.
+    let (mut world, _) = story.restore(&level, 1)?;
+    world
+        .install(sim::fixtures::left(), None)
+        .map_err(|error| format!("entering the module left: {error}"))?;
+    let reconciled = world.reconciled().map(ToString::to_string);
+    check(
+        reconciled.is_some(),
+        format!("{trip}; entered again: {reconciled:?}"),
+    )
 }

@@ -8,6 +8,8 @@
 //! Its `schema` only grows: fields are added, never removed or renamed, and
 //! a reader takes what it knows and leaves the rest.
 
+mod restore;
+
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -147,12 +149,41 @@ pub struct StoryGalaxy {
 }
 
 /// An object of a module as the games name it: its place in the module's
-/// placements in GIT order, and the template it was placed from.
+/// placements in GIT order, the template it was placed from, its kind
+/// (`ObjectKind::name`) and its tag, which find it again in a module whose
+/// placements moved (`sim::reconcile::renumber`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OriginKey {
     pub index: u32,
     pub template: String,
+    pub kind: String,
+    pub tag: String,
+}
+
+impl OriginKey {
+    /// The key of placement `index`, of `origin`.
+    pub fn of(index: u32, origin: &Origin) -> OriginKey {
+        OriginKey {
+            index,
+            template: origin.template.clone(),
+            kind: origin.kind.name().to_string(),
+            tag: origin.tag.clone(),
+        }
+    }
+
+    /// The placement it names, as a roster keeps it; none for a kind no
+    /// build knows.
+    pub fn origin(&self) -> Option<Origin> {
+        let kind = ObjectKind::ALL
+            .into_iter()
+            .find(|kind| kind.name() == self.kind)?;
+        Some(Origin {
+            kind,
+            template: self.template.clone(),
+            tag: self.tag.clone(),
+        })
+    }
 }
 
 /// What a module visited keeps. A save without a placement roster (from
@@ -457,10 +488,7 @@ fn fill_module(
     module: &str,
     named: &mut BTreeMap<u32, (String, OriginKey)>,
 ) {
-    let key = |index: u32| OriginKey {
-        index,
-        template: roster[index as usize].template.clone(),
-    };
+    let key = |index: u32| OriginKey::of(index, &roster[index as usize]);
     let mut present = vec![false; roster.len()];
     // Creatures lying dead (`Life::Dead`): their bodies are in play still.
     let mut dead = vec![false; roster.len()];

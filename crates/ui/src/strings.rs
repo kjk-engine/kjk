@@ -68,6 +68,7 @@ pub const LOAD_TITLE: &str = "Load a game";
 pub const NEW_SAVE: &str = "New save";
 pub const SAVE: &str = "Save";
 pub const LOAD: &str = "Load";
+pub const RESTORE: &str = "Restore";
 pub const DELETE: &str = "Delete";
 pub const NO_SAVES: &str = "No saved games";
 /// Why the host's answer to a join request waits: a ready check is up, the

@@ -276,6 +276,25 @@ pub fn read_story(root: &Path, id: &str) -> Option<Story> {
     serde_json::from_str(&text).ok()
 }
 
+/// What a player is asked when save `id` cannot be loaded exactly and has
+/// a story to restore (spec 4b), with the release and commit its meta names;
+/// none without a story, when the refusal is told as it is.
+pub fn restore_prompt(root: &Path, id: &str) -> Option<String> {
+    read_story(root, id)?;
+    let meta = checked(root, id)
+        .ok()
+        .and_then(|folder| read_meta(&folder).ok());
+    let meta = meta.unwrap_or_else(Meta::default);
+    let version = meta.version.as_deref().unwrap_or("an earlier release");
+    let made = match meta.build.as_deref() {
+        Some(build) => format!("{version} ({})", build.chars().take(8).collect::<String>()),
+        None => version.to_string(),
+    };
+    Some(format!(
+        "This save was made with {made} and can't be loaded exactly. Restore your story progress? Party, items, journal and choices come back; modules you already visited may be reset."
+    ))
+}
+
 /// `root`'s folder for `id` ending in `end` (`FRESH`, `ASIDE`).
 fn beside(root: &Path, id: &str, end: &str) -> PathBuf {
     root.join(format!(".{id}{end}"))

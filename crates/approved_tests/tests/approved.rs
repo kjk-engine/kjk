@@ -1673,12 +1673,12 @@ fn feats() {
 /// kept byte for byte, refused when foreign, replaced by a later copy, the
 /// player's own saves untouched, two hosts of one name apart, a host's
 /// copies capped, no number left refused, ids inside the folder) and
-/// `saves::refusal_probes` (what refuses a save) and `saves::story_probes` (a save's story by name, its roster module, a JSON round trip, a slot write with `story.json`, a missing one read as none); no install.
+/// `saves::refusal_probes` (what refuses a save) and `saves::story_probes` (a save's story by name, its roster module, a JSON round trip, a slot write with `story.json`, a missing one read as none, and the story restored and written again equal but for what each case names as lost, spec 4c); no install.
 #[test]
 fn save_copy_round_trip() {
     probed("save copies", &saves::copies::probes(), 12);
     probed("save refusals", &saves::refusal_probes(), 14);
-    probed("save story", &saves::story_probes(), 8);
+    probed("save story", &saves::story_probes(), 11);
 }
 
 /// The saves' safety net (`saves::safety_probes`): the meta's new fields

@@ -101,6 +101,68 @@ impl Screen for Pages {
     }
 }
 
+/// A save that cannot be loaded exactly, whose story can be restored
+/// (`story_restore:<id>`, docs/superpowers/specs/2026-10-28-save-migrations-design.md
+/// 4b): the question (the session's error, `SessionView::error`) as a
+/// message's, Restore plays the story (`SessionIntent::Restore`), Cancel or
+/// Back closes it. A pad's Menu presses Restore (`BTN_OK`).
+pub struct Restore {
+    save: String,
+    asked: Message,
+}
+
+impl Restore {
+    pub fn new(save: &str, vm: &ViewModel) -> Restore {
+        Restore {
+            save: save.to_string(),
+            asked: Message::new(vm.session.error.as_deref().unwrap_or("")),
+        }
+    }
+}
+
+impl Screen for Restore {
+    fn id(&self) -> ScreenId {
+        ScreenId("story_restore")
+    }
+
+    fn layout(&self) -> &str {
+        "confirm"
+    }
+
+    fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
+        let words = |words: &str| ControlState {
+            text: Some(strings::bytes(words)),
+            ..ControlState::default()
+        };
+        match control.tag.as_str() {
+            "BTN_OK" => words(strings::RESTORE),
+            "BTN_CANCEL" => words(strings::CANCEL),
+            _ => self.asked.state(control, vm),
+        }
+    }
+
+    fn press(&mut self, tag: &str, _: &ViewModel, out: &mut Vec<Intent>) {
+        match tag {
+            "BTN_OK" => out.extend([
+                Intent::CloseAll,
+                Intent::Session(crate::intent::SessionIntent::Restore {
+                    save: self.save.clone(),
+                }),
+            ]),
+            "BTN_CANCEL" => out.push(Intent::Close),
+            _ => {}
+        }
+    }
+
+    fn first_focus(&self) -> Option<&str> {
+        Some("BTN_OK")
+    }
+
+    fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
+        self.asked.fit(gui, textures, source);
+    }
+}
+
 /// Lines of room the box gains for its message.
 const GROW: i32 = 3 * 18;
 

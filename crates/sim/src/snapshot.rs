@@ -1280,6 +1280,15 @@ impl Snapshot {
             .chain(self.departing.iter().map(|going| &going.entity))
     }
 
+    /// A new id, the next the world would give, taken: for what is put
+    /// into a snapshot by hand before a world is made of it (a story
+    /// restore's companions, and the holders of what companions away keep).
+    pub fn take_id(&mut self) -> SimId {
+        let id = SimId(self.next_id);
+        self.next_id += 1;
+        id
+    }
+
     /// The body `seat`'s player moves: the creature it drives (a
     /// companion, I30 P2; for the first seat, the one it is switched to,
     /// `world::switch`, its own character benched meanwhile), for the first
