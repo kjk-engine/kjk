@@ -4,7 +4,9 @@
 //! a name (the Endar Spire by default), with the module's item templates:
 //!
 //! 1. Given two melee weapons and a ranged one, it equips the most damaging
-//!    melee weapon, then the most damaging ranged one; it attacks the
+//!    melee weapon, then the most damaging ranged one, passing over a more
+//!    damaging blade it lacks the feats for (Brejik and Bastila's
+//!    lightsaber on Taris); it attacks the
 //!    player, and that attack is its last (`GetLastAttackAction`) with no
 //!    combat feat; it is no party member, so `ActionFollowLeader` leaves it
 //!    be, and it has used no power (`GetSpellTarget`).
@@ -88,8 +90,10 @@ pub fn fighting(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             for object in data.objects() {
                 if object.kind == sim::module::ObjectKind::Creature {
                     let nth = seen.entry(object.tag.clone()).or_insert(0);
-                    if chosen.is_none() && object.sheet.is_some() && !object.name.is_empty() {
-                        chosen = Some((object.tag.clone(), *nth));
+                    if let Some(sheet) = object.sheet.as_ref().filter(|_| chosen.is_none())
+                        && !object.name.is_empty()
+                    {
+                        chosen = Some((object.tag.clone(), *nth, sheet.feats));
                     }
                     *nth += 1;
                 }
@@ -99,23 +103,41 @@ pub fn fighting(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
                 .ok_or("the module has no scripts")?
                 .items()
                 .clone();
-            // The module's hand weapons by kind, weakest first.
-            let mut weapons: Vec<(String, String, Weapon)> = items
+            // The module's hand weapons by kind, weakest first, and
+            // whether the chosen creature is trained for each.
+            let feats = chosen.as_ref().map(|(.., feats)| *feats).ok_or("no creature chosen")?;
+            let mut weapons: Vec<(String, String, Weapon, bool)> = items
                 .iter()
                 .filter(|facts| facts.slots & 1 << slots::RIGHT_WEAPON != 0)
                 .filter_map(|facts| {
-                    Some((facts.template.clone(), facts.tag.clone(), facts.weapon?))
+                    let trained = sim::combat::passive::may_equip(&feats, &facts.needs);
+                    Some((facts.template.clone(), facts.tag.clone(), facts.weapon?, trained))
                 })
                 .collect();
-            weapons.sort_by_key(|(template, _, weapon)| (average(weapon), template.clone()));
+            weapons.sort_by_key(|(template, _, weapon, _)| (average(weapon), template.clone()));
+            // The strongest blade it is not trained for, if the module has
+            // one: never drawn, though the trained blades given beside it
+            // deal less.
+            let untrained = weapons
+                .iter()
+                .rev()
+                .find(|(_, _, weapon, trained)| !trained && !weapon.delivery.ranged())
+                .map(|(template, tag, weapon, _)| (template.clone(), tag.clone(), average(weapon)));
+            let below = untrained.as_ref().map_or(i32::MAX, |(.., deals)| *deals);
             let kind = |ranged: bool| {
                 weapons
                     .iter()
-                    .filter(|(.., weapon)| weapon.delivery.ranged() == ranged)
-                    .cloned()
+                    .filter(|(_, _, weapon, trained)| weapon.delivery.ranged() == ranged && *trained)
+                    .map(|(template, tag, weapon, _)| (template.clone(), tag.clone(), *weapon))
                     .collect::<Vec<_>>()
             };
-            let (melee, ranged) = (kind(false), kind(true));
+            let (mut melee, ranged) = (kind(false), kind(true));
+            if melee.iter().filter(|(.., weapon)| average(weapon) < below).count() >= 2 {
+                melee.retain(|(.., weapon)| average(weapon) < below);
+            }
+            let untrained = untrained
+                .filter(|_| melee.iter().all(|(.., weapon)| average(weapon) < below))
+                .map(|(template, tag, _)| (template, tag));
             let weakest = melee.first().ok_or("no melee weapon")?.clone();
             let strongest = melee.last().ok_or("no melee weapon")?.clone();
             let gun = ranged.last().ok_or("no ranged weapon")?.clone();
@@ -132,6 +154,7 @@ pub fn fighting(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             };
             let player = vec![Call::Routine("GetFirstPC", 0)];
             let mut first = vec![
+                untrained.as_ref().map_or_else(Vec::new, |(template, _)| give(template)),
                 give(&weakest.0),
                 give(&strongest.0),
                 give(&gun.0),
@@ -218,14 +241,14 @@ pub fn fighting(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             ] {
                 scripts.insert(name.to_string(), program(&routines, &calls)?);
             }
-            armoury = Some((strongest.1, gun.1, weakest.1));
+            armoury = Some((strongest.1, gun.1, weakest.1, untrained.map(|(_, tag)| tag)));
             Ok(
                 sim::script::Library::new(routines, scripts, sim::script::Talents::default())
                     .with_items(items),
             )
         })?;
-        let (tag, nth) = chosen.ok_or("no creature chosen")?;
-        let (strongest, gun, weakest) = armoury.ok_or("no weapons chosen")?;
+        let (tag, nth, _) = chosen.ok_or("no creature chosen")?;
+        let (strongest, gun, weakest, untrained) = armoury.ok_or("no weapons chosen")?;
         let snapshot = probe.world.snapshot();
         let creature = crate::scenes::tagged(probe.world.level(), &snapshot, &tag)
             .get(nth as usize)
@@ -257,7 +280,10 @@ pub fn fighting(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
         let melee = strings(&probe, "kjk_melee");
         report.check(
             melee.eq_ignore_ascii_case(&strongest),
-            format!("{tag} equips the most damaging melee weapon: {melee} (not {weakest})"),
+            format!(
+                "{tag} equips the most damaging melee weapon it is trained for: {melee} (not {weakest}, nor the untrained {})",
+                untrained.as_deref().unwrap_or("(none in the module)")
+            ),
         );
         let ranged = strings(&probe, "kjk_ranged");
         report.check(
