@@ -392,6 +392,14 @@ restored when it ends.
   it; in co-op a guest's private one leaves the area to JA. A
   conversation's own rules (its lines' turns, timing, camera, gestures and
   hidden items) hold in every conversation.
+- **Hostiles** (K1's and TSL's `UpdateDialog`, which runs
+  `ClearAllPlayerHostileActions` every frame of a player's conversation):
+  while a conversation holds the world, each step every creature of the
+  area out of the party, commandable and hostile to the player has its
+  queue cleared (`Step::hold_hostiles`): told to attack or walk, it does
+  nothing until the talk ends, whether or not it takes part. A script's
+  `CutsceneAttack` is no action and plays; one not commandable keeps its
+  queue.
 - **Walks** (S3): a body walking a route moves on KOTOR's walker at its
   `creaturespeed.2da` rates (`MOVEMENT.md`, `NAV.md`).
 - **Spaces**: the party keeps its personal spaces, as KOTOR's creatures
@@ -970,7 +978,9 @@ conversation).
     pair and 0.3·L up. `CamHeightOffset` and `TarHeightOffset` raise the
     eye and the aim. 55 degrees. The shot, its side and its wall
     fall-back are fixed as the line starts; the heads are read every
-    frame, so the camera follows the pair. Each line cuts.
+    frame, so the camera follows the pair, as TSL's dialog camera re-aims
+    each frame: one a node's script jumps away is followed to where it
+    lands (`a_262imprison`'s cell, under its own fade). Each line cuts.
   - *Heads*: a body's `camerahook` as last drawn (its model's, else its
     head's, `Cast::fit`), else its soles raised by its model's height, the
     top of its meshes and its head's at rest (`Cast::model_height`;

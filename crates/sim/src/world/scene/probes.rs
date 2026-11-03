@@ -7,7 +7,7 @@ use super::super::{Avatar, Fighting, Id, Player, SimWorld, Talking, strikes};
 use crate::action::{Action, Verb};
 use crate::combat::Sheet;
 use crate::combat::idle::Acting;
-use crate::combat::sheet::factions::{HOSTILE_1, PLAYER};
+use crate::combat::sheet::factions::{FRIENDLY_2, HOSTILE_1, HOSTILE_2, NEUTRAL, PLAYER};
 use crate::input::{Command, Seat, TickInput, buttons};
 use crate::module::{Body, ObjectData, ObjectKind, Placement, Repute};
 use crate::probe::check;
@@ -38,6 +38,7 @@ pub fn all() -> Vec<Case> {
 
 const PROBES: &[Probe] = &[
     ("bystander_holds_ground", bystander_holds_ground),
+    ("hostile_held_in_talk", hostile_held_in_talk),
     ("companion_stays", companion_stays),
     ("party_kept_apart", party_kept_apart),
     ("party_cannot_use", party_cannot_use),
@@ -585,6 +586,10 @@ fn floor_at([x, y]: [f32; 2]) -> [f32; 3] {
     crate::determinism::ground_point(x, y, 0.0)
 }
 
+/// Two factions at war with each other and neutral to everyone else,
+/// the players' among them (`Stage::feud`).
+const FEUD: [u8; 2] = [HOSTILE_2, FRIENDLY_2];
+
 /// Where the talker, the buddy, the foe and the dummy wait, a metre apart
 /// as the area's loader stands bodies (`install::settle`), and the walker.
 const WAITING: [[f32; 2]; 4] = [[-6.0, -5.0], [-5.0, -5.0], [-7.0, -5.0], [-4.0, -5.0]];
@@ -663,6 +668,9 @@ struct Stage {
     leaving: bool,
     /// A trigger at `PAD_AT` whose `OnEnter` is `probe_cue`.
     pad: bool,
+    /// The brawler and the dummy feud (`FEUD`), neither hostile to the
+    /// players, the dummy armed as the companion is (`Brawler`).
+    feud: bool,
 }
 
 impl Default for Stage {
@@ -688,6 +696,7 @@ impl Default for Stage {
             jedi: false,
             leaving: false,
             pad: false,
+            feud: false,
         }
     }
 }
@@ -728,17 +737,39 @@ impl Ground {
         if data.placements.len() != TALKER as usize {
             return Err(format!("the ground has {} objects", data.placements.len()));
         }
+        let [brawler_side, dummy_side] = if stage.feud { FEUD } else { [HOSTILE_1; 2] };
         let brawler = if stage.jedi {
             Sheet {
-                faction: HOSTILE_1,
+                faction: brawler_side,
                 ..Sheet::dev_jedi()
             }
         } else {
             Sheet {
                 abilities: [16, 14, 14, 10, 10, 10],
-                faction: HOSTILE_1,
+                faction: brawler_side,
                 ..Sheet::commoner()
             }
+        };
+        let companion = sturdy(Sheet {
+            flags: if stage.assured {
+                crate::combat::sheet::flags::ASSURED_HIT
+            } else {
+                0
+            },
+            ..if stage.brawling {
+                Sheet::commoner()
+            } else if stage.two_pistols {
+                let mut pair = Sheet::dev_soldier();
+                pair.weapons[1] = pair.weapons[0];
+                pair
+            } else {
+                Sheet::dev_soldier()
+            }
+        });
+        let dummy = if stage.feud {
+            companion
+        } else {
+            sturdy(Sheet::commoner())
         };
         data.placements.extend(
             [
@@ -746,33 +777,14 @@ impl Ground {
                     body: (stage.arc > 0.0 || !stage.clips.is_empty()).then(|| body(stage.arc)),
                     ..creature("talker", Sheet::commoner(), stage.dialog)
                 },
-                creature(
-                    "buddy",
-                    sturdy(Sheet {
-                        flags: if stage.assured {
-                            crate::combat::sheet::flags::ASSURED_HIT
-                        } else {
-                            0
-                        },
-                        ..if stage.brawling {
-                            Sheet::commoner()
-                        } else if stage.two_pistols {
-                            let mut pair = Sheet::dev_soldier();
-                            pair.weapons[1] = pair.weapons[0];
-                            pair
-                        } else {
-                            Sheet::dev_soldier()
-                        }
-                    }),
-                    "",
-                ),
+                creature("buddy", companion, ""),
                 creature("foe", sturdy(brawler), ""),
                 creature(
                     "dummy",
-                    sturdy(Sheet {
-                        faction: HOSTILE_1,
-                        ..Sheet::commoner()
-                    }),
+                    Sheet {
+                        faction: dummy_side,
+                        ..dummy
+                    },
                     "",
                 ),
             ]
@@ -808,6 +820,9 @@ impl Ground {
             }));
         }
         data.repute = Repute::at_war([PLAYER, HOSTILE_1]);
+        let [a, b] = FEUD.map(usize::from);
+        data.repute.rows[a][b] = 0;
+        data.repute.rows[b][a] = 0;
         if stage.leaving {
             data.area_scripts = vec![("OnExit".into(), "probe_area_exit".into())];
             data.module_scripts = [
@@ -1005,8 +1020,13 @@ impl Ground {
 
     /// Placement `index` fights for the players' faction: no foe of theirs.
     fn befriend(&mut self, index: u32) -> Result<SimId, String> {
+        self.side(index, PLAYER)
+    }
+
+    /// Placement `index` fights for `faction`.
+    fn side(&mut self, index: u32, faction: u8) -> Result<SimId, String> {
         let who = self.object(index)?;
-        self.fighter(who, |fighter| fighter.faction = Some(PLAYER));
+        self.fighter(who, |fighter| fighter.faction = Some(faction));
         Ok(who)
     }
 
@@ -1169,17 +1189,20 @@ impl Ground {
     /// it closed in, until it first came within its reach (`mind::REACH`),
     /// a mean over those steps (both m/s). The drift is what a wandering
     /// aim turns a run aside by; the slide along the body it then meets is
-    /// left out. A step first shows where the bodies were put.
+    /// left out. A step first shows where the bodies were put. With them
+    /// the most actions `who` had queued at a step's end.
     fn strafe(&mut self, who: SimId, to: SimId, ms: u64) -> Strafe {
         self.step();
         let before = between(self.at(who), self.at(to));
         let reach = crate::combat::mind::REACH * UNIT;
         let (mut keyed, mut drift, mut closing) = (0.0, 0.0, 0);
         let mut reached = false;
+        let mut queued = self.queued(who);
         for _ in 0..steps(ms) {
             let from = self.at(who);
             reached |= between(from, self.at(to)) <= reach;
             self.step();
+            queued = queued.max(self.queued(who));
             let Some(entity) = self.entity(who) else {
                 continue;
             };
@@ -1201,6 +1224,7 @@ impl Ground {
             keyed: keyed / window,
             drift: drift / (closing.max(1) as f32 * STEP_MS as f32 / 1000.0),
             closed: before - between(self.at(who), self.at(to)),
+            queued,
         }
     }
 }
@@ -1221,14 +1245,15 @@ struct Strafe {
     keyed: f32,
     drift: f32,
     closed: f32,
+    queued: usize,
 }
 
 impl std::fmt::Display for Strafe {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "strafe {:.3} m/s (drift {:.3} m/s, closed {:.2} m)",
-            self.keyed, self.drift, self.closed
+            "strafe {:.3} m/s (drift {:.3} m/s, closed {:.2} m, queued {} at most)",
+            self.keyed, self.drift, self.closed, self.queued
         )
     }
 }
@@ -1248,26 +1273,68 @@ const FOE_FROM: [f32; 2] = [-1.0, 2.0];
 const TALKER_AT: [f32; 2] = [-6.0, -4.0];
 
 /// The brawler attacking `target` (`probe_attack_…`) from 6 m once it is
-/// aware of it: its strafe over 2 s.
+/// aware of it: its strafe over 2 s, its queue counted from the order on.
 fn charge(ground: &mut Ground, script: &str, target: SimId) -> Result<Strafe, String> {
     ground.run_script(script, FOE)?;
-    ground.idle(AWARE_MS);
-    let foe = ground.place(FOE, FOE_FROM)?;
+    let foe = ground.object(FOE)?;
+    let mut queued = ground.queued(foe);
+    for _ in 0..steps(AWARE_MS) {
+        ground.step();
+        queued = queued.max(ground.queued(foe));
+    }
+    ground.place(FOE, FOE_FROM)?;
     ground.put(target, BUDDY_AT);
-    Ok(ground.strafe(foe, target, 2000))
+    let strafe = ground.strafe(foe, target, 2000);
+    Ok(Strafe {
+        queued: strafe.queued.max(queued),
+        ..strafe
+    })
 }
 
-/// S4: a party conversation up, a hostile brawler attacking the companion
-/// (not in it) closes in and holds its ground with no strafe, its aim not
-/// wandering its run aside; once it ends, the brawler bears off to the side
-/// as JA's do.
-fn bystander_holds_ground() -> Result<String, String> {
-    let mut ground = Ground::new(1)?;
+/// Whom the brawler of `fight_scene` fights, and as whom. One hostile to
+/// the player does nothing in its talk, its queue cleared each step as the
+/// exes clear it (`Step::hold_hostiles`): a held scene's fighter is of the
+/// party, or of a faction at peace with the player.
+#[derive(Clone, Copy, PartialEq)]
+enum Brawler {
+    /// Hostile to the players, at the companion.
+    Hostile,
+    /// At the companion, the companion's faction made the brawler's foe
+    /// in the feud (`Stage::feud`), the player's still at peace with it.
+    Rival,
+    /// At the dummy, the two feuding (`Stage::feud`).
+    Feuding,
+}
+
+/// The fight probes' scene on `stage`: the host and the talker placed, the
+/// brawler's target at `BUDDY_AT` as `brawler` has it, and a party
+/// conversation up. The target's id.
+fn fight_scene(stage: Stage, brawler: Brawler) -> Result<(Ground, SimId), String> {
+    let feud = brawler != Brawler::Hostile;
+    let mut ground = Ground::staged(1, Stage { feud, ..stage })?;
     let host = ground.body(0)?;
     ground.put(host, HOST_AT);
     ground.place(TALKER, TALKER_AT)?;
-    let buddy = ground.place(BUDDY, BUDDY_AT)?;
+    if brawler == Brawler::Rival {
+        ground.side(BUDDY, FEUD[1])?;
+    }
+    let target = match brawler {
+        Brawler::Hostile | Brawler::Rival => BUDDY,
+        Brawler::Feuding => DUMMY,
+    };
+    let target = ground.place(target, BUDDY_AT)?;
     ground.cutscene()?;
+    Ok((ground, target))
+}
+
+/// S4: a party conversation up, a brawler attacking the companion (neither
+/// in it) closes in and holds its ground with no strafe, its aim not
+/// wandering its run aside; once it ends, the brawler bears off to the side
+/// as JA's do. The brawler is the companion's rival, at peace with the
+/// player: one hostile to it would do nothing in its talk
+/// (`hostile_held_in_talk`).
+fn bystander_holds_ground() -> Found {
+    let (mut ground, buddy) = fight_scene(Stage::default(), Brawler::Rival)?;
     let held = charge(&mut ground, "probe_attack_buddy", buddy)?;
     ground.goodbye()?;
     let free = charge(&mut ground, "probe_attack_buddy", buddy)?;
@@ -1276,6 +1343,22 @@ fn bystander_holds_ground() -> Result<String, String> {
             && held.drift < DRIFT_MAX
             && held.closed > 2.0
             && free.keyed > STRAFE_MAX,
+        format!("held: {held}; after the end: {free}"),
+    )
+}
+
+/// S4, K1's and TSL's `ClearAllPlayerHostileActions`: during a party
+/// conversation a creature hostile to the player told to attack the
+/// companion (`ActionAttack`) does nothing, its queue empty at every
+/// step's end and the 6 m between them kept; once the conversation ends,
+/// the same order makes it close in.
+fn hostile_held_in_talk() -> Found {
+    let (mut ground, buddy) = fight_scene(Stage::default(), Brawler::Hostile)?;
+    let held = charge(&mut ground, "probe_attack_buddy", buddy)?;
+    ground.goodbye()?;
+    let free = charge(&mut ground, "probe_attack_buddy", buddy)?;
+    check(
+        held.queued == 0 && held.closed.abs() < 0.05 && free.closed > 2.0,
         format!("held: {held}; after the end: {free}"),
     )
 }
@@ -2612,14 +2695,10 @@ fn explosion_deaths_fall_free() -> Found {
 /// spacing KOTOR's round clips are made for and stands there: its centre
 /// `DUEL_SPACING_M` from its target's (`appearance.2da` `prefatckdist`,
 /// centre to centre; the paired `c2a`/`c2p` clips cross their blades with
-/// the bodies 1.25 to 1.3 m apart).
+/// the bodies 1.25 to 1.3 m apart). The brawler is the companion's rival,
+/// at peace with the player: one hostile to it would do nothing in its talk.
 fn held_duel_spacing() -> Found {
-    let mut ground = Ground::new(1)?;
-    let host = ground.body(0)?;
-    ground.put(host, HOST_AT);
-    ground.place(TALKER, TALKER_AT)?;
-    let buddy = ground.place(BUDDY, BUDDY_AT)?;
-    ground.cutscene()?;
+    let (mut ground, buddy) = fight_scene(Stage::default(), Brawler::Rival)?;
     charge(&mut ground, "probe_attack_buddy", buddy)?;
     let foe = ground.object(FOE)?;
     let mut nearest = f32::MAX;
@@ -2637,25 +2716,21 @@ fn held_duel_spacing() -> Found {
 /// S4: two of a scene's blade fighters running at each other (the duel of
 /// end_cut04: KOTOR rounds, `ActionAttack` between creatures) both stop at
 /// `DUEL_SPACING_M`, each letting go of its run as far before it as both
-/// slide.
+/// slide. The duellists are the brawler and the dummy, feuding, both at
+/// peace with the player: one hostile to it would do nothing in its talk.
 fn duel_closes_to_spacing() -> Found {
-    let mut ground = Ground::new(1)?;
-    let host = ground.body(0)?;
-    ground.put(host, HOST_AT);
-    ground.place(TALKER, TALKER_AT)?;
-    let buddy = ground.place(BUDDY, BUDDY_AT)?;
-    ground.cutscene()?;
-    ground.run_script("probe_attack_buddy", FOE)?;
-    ground.run_script("probe_attack_foe", BUDDY)?;
+    let (mut ground, dummy) = fight_scene(Stage::default(), Brawler::Feuding)?;
+    ground.run_script("probe_attack_dummy", FOE)?;
+    ground.run_script("probe_attack_foe", DUMMY)?;
     ground.idle(AWARE_MS);
     let foe = ground.place(FOE, FOE_FROM)?;
-    ground.put(buddy, BUDDY_AT);
+    ground.put(dummy, BUDDY_AT);
     let mut nearest = f32::MAX;
     for _ in 0..steps(3000) {
         ground.step();
-        nearest = nearest.min(between(ground.at(foe), ground.at(buddy)));
+        nearest = nearest.min(between(ground.at(foe), ground.at(dummy)));
     }
-    let apart = between(ground.at(foe), ground.at(buddy));
+    let apart = between(ground.at(foe), ground.at(dummy));
     check(
         (apart - DUEL_SPACING_M).abs() < 0.12 && nearest > DUEL_SPACING_M - 0.15,
         format!("{apart:.2} m apart after closing in, {nearest:.2} m at the nearest"),
@@ -2666,19 +2741,15 @@ fn duel_closes_to_spacing() -> Found {
 /// companion beside it (`ActionAttack`) swings at once, with no moment of
 /// awareness, and keeps swinging, never holding off to guard. Over 3 s:
 /// when (ms) it first pressed attack, and the share of the steps after
-/// that it held attack.
+/// that it held attack. The wielder is the companion's rival, at peace with
+/// the player: one hostile to it would do nothing in its talk.
 fn scene_attacks_at_once() -> Found {
     let stage = Stage {
         jedi: true,
         ..Stage::default()
     };
-    let mut ground = Ground::staged(1, stage)?;
-    let host = ground.body(0)?;
-    ground.put(host, HOST_AT);
-    ground.place(TALKER, TALKER_AT)?;
-    ground.place(BUDDY, BUDDY_AT)?;
+    let (mut ground, _) = fight_scene(stage, Brawler::Rival)?;
     let foe = ground.place(FOE, [BUDDY_AT[0] + 1.4, BUDDY_AT[1]])?;
-    ground.cutscene()?;
     ground.run_script("probe_attack_buddy", FOE)?;
     let (mut first, mut pressed, mut after) = (None, 0, 0);
     for step in 1..=steps(3000) {
@@ -4411,13 +4482,17 @@ fn side_fits_over_a_rising_corner() -> Found {
 /// Three bodies across the ground at y = 0 (the dummy, the companion and
 /// the brawler), every side a walker meeting the middle one could go round
 /// it by taken or off the mesh; each busy (a long wait queued), so none is
-/// pushed aside.
+/// pushed aside, and none hostile to the players, whose talk would clear
+/// its wait (`Step::hold_hostiles`).
 fn wall(ground: &mut Ground) -> Result<(), String> {
     for (index, at) in [
         (DUMMY, [-2.0, 0.0]),
         (BUDDY, [-3.8, 0.0]),
         (FOE, [-1.1, 0.0]),
     ] {
+        if index != BUDDY {
+            ground.side(index, NEUTRAL)?;
+        }
         let body = ground.place(index, at)?;
         ground.queue(body, Queue::Wait { ms: 60_000 });
     }
@@ -4426,7 +4501,9 @@ fn wall(ground: &mut Ground) -> Result<(), String> {
 }
 
 /// S3: walled in by three bodies, the walk gives up: its move ends within
-/// 2 s, short of the wall.
+/// 2 s, short of the wall. The wall's brawler and dummy stand neutral
+/// (`wall`): hostile to the player, their waits would be cleared in its
+/// talk and they pushed aside.
 fn gives_up_blocked() -> Found {
     let (mut ground, walker) = walking_ground([-2.0, -3.0], true)?;
     wall(&mut ground)?;
