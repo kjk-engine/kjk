@@ -115,6 +115,20 @@ pub struct MeshIr {
     /// `animateuv`: the scroll direction (reone reads only the direction).
     pub uv_scroll: Option<[f32; 2]>,
     pub skin: Option<SkinIr>,
+    /// A danglymesh's spring (hair, flaps, capes, leaves); `None` for any
+    /// other mesh, or one whose arrays do not match its vertices.
+    pub dangly: Option<DanglyIr>,
+}
+
+/// A danglymesh as its header has it: per vertex a constraint (0 to 255)
+/// and a rest place in the node's space, and the spring's three numbers.
+#[derive(Debug, Clone)]
+pub struct DanglyIr {
+    pub displacement: f32,
+    pub tightness: f32,
+    pub period: f32,
+    pub constraints: Vec<f32>,
+    pub rest: Vec<[f32; 3]>,
 }
 
 /// A skinned mesh's bones. `joints[slot]` is the node driving bone slot
@@ -497,6 +511,19 @@ impl ModelIr {
                 .animate_uv
                 .map(|uv| [uv[0], uv[1]])
                 .filter(|dir| dir[0] != 0.0 || dir[1] != 0.0),
+            dangly: mesh
+                .dangly
+                .as_ref()
+                .filter(|dangly| {
+                    dangly.constraints.len() == vertices && dangly.positions.len() == vertices
+                })
+                .map(|dangly| DanglyIr {
+                    displacement: dangly.displacement,
+                    tightness: dangly.tightness,
+                    period: dangly.period,
+                    constraints: dangly.constraints.clone(),
+                    rest: dangly.positions.clone(),
+                }),
         })
     }
 }

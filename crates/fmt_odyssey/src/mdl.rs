@@ -296,6 +296,9 @@ pub struct Dangly {
     pub tightness: f32,
     pub period: f32,
     pub constraints: Vec<f32>,
+    /// Each vertex's rest place, one per constraint: where the spring pulls
+    /// it back to.
+    pub positions: Vec<[f32; 3]>,
 }
 
 #[derive(Debug, Clone)]
@@ -599,11 +602,15 @@ impl Cursor<'_> {
         }
         if flags & FLAG_DANGLY != 0 {
             let constraints = self.array(sub)?;
+            let positions_at = self.u32(sub + 24)? as usize;
             dangly = Some(Dangly {
                 displacement: self.f32(sub + 12)?,
                 tightness: self.f32(sub + 16)?,
                 period: self.f32(sub + 20)?,
                 constraints: self.f32s(constraints.0, constraints.1)?,
+                positions: (0..constraints.1)
+                    .map(|i| self.floats::<3>(positions_at + i * 12))
+                    .collect::<Result<_, _>>()?,
             });
             sub += 28;
         }

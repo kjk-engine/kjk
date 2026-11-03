@@ -150,6 +150,7 @@ pub fn model(glm: &Glm, gla: &Gla, skin: &BTreeMap<String, String>) -> ModelIr {
             ambient: [1.0; 3],
             diffuse: [1.0; 3],
             uv_scroll: None,
+            dangly: None,
             skin: Some(SkinIr {
                 joints: (1..=slots).collect(),
                 inverse_binds: vec![IDENTITY; slots],
