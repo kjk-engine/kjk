@@ -80,10 +80,18 @@ impl Lean {
             None => wanted,
         };
         self.up = Some((up, ms));
-        let soles = match floor {
-            Some(floor) if floor.normal.z < LEVEL_NORMAL_Z => soles.with_z(floor.z),
-            _ => soles,
-        };
-        (soles, Quat::from_rotation_arc(Vec3::Z, up))
+        (on_slope(floor, soles), Quat::from_rotation_arc(Vec3::Z, up))
+    }
+}
+
+/// Where a body whose box stands at `soles` is drawn over `floor`
+/// (`floor_under`): on a sloping floor, on the slope under its middle, not
+/// on the box's corner resting on the slope's high side (KOTOR's walker is
+/// a point); on a level one, where its box is, so it does not sink off a
+/// ledge.
+pub fn on_slope(floor: Option<Floor>, soles: Vec3) -> Vec3 {
+    match floor {
+        Some(floor) if floor.normal.z < LEVEL_NORMAL_Z => soles.with_z(floor.z),
+        _ => soles,
     }
 }
