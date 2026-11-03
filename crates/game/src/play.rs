@@ -450,10 +450,7 @@ pub fn load_for(
     // A save does not fix the session's seats (I31): it holds those asked
     // for, and guests take the save's companions.
     // The players a story has keep their seats, as a save's do.
-    let story_seats = options.story.map(|story| {
-        let own = story.party.iter().filter_map(|character| character.seat);
-        own.max().map_or(1, |seat| seat.saturating_add(1))
-    });
+    let story_seats = options.story.map(saves::Story::seats);
     let seats = match (replay, saved, story_seats) {
         (Some(recording), ..) => recording.start.seats(),
         (None, Some((save, ..)), _) => save.seats_for(options.seats),
@@ -831,7 +828,8 @@ pub fn load_for(
 /// The world going on from `save` in `level` (its module's, planned), for
 /// `seats`, numbered from `tick` when given (`sim::Save::world`), logged as
 /// `saves … loaded` with its tick, its hash and the whole save's (the world
-/// made again, saved again, is the save itself when nothing was changed);
+/// made again and saved again: the save itself when the load changed
+/// nothing, while one without a roster gains its module's);
 /// and the announcement of its module, as if just installed: guests plan
 /// it. The menu's load and the reload after the party fell (`sim_host`).
 pub(crate) fn from_save(

@@ -180,15 +180,47 @@ impl OriginKey {
     /// The placement it names, as a roster keeps it; none for a kind no
     /// build knows.
     pub fn origin(&self) -> Option<Origin> {
-        let kind = ObjectKind::ALL
-            .into_iter()
-            .find(|kind| kind.name() == self.kind)?;
-        Some(Origin {
-            kind,
-            template: self.template.clone(),
-            tag: self.tag.clone(),
-        })
+        named(&self.kind, &self.template, &self.tag)
     }
+}
+
+/// A placement of a module's roster: its kind (`ObjectKind::name`), the
+/// template it was placed from and its tag.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StoryPlacement {
+    pub kind: String,
+    pub template: String,
+    pub tag: String,
+}
+
+impl StoryPlacement {
+    /// The placement `origin` stands for, marked `ANEW` or not.
+    pub fn of(origin: &Origin) -> StoryPlacement {
+        StoryPlacement {
+            kind: origin.kind.name().to_string(),
+            template: origin.unmarked().0.to_string(),
+            tag: origin.tag.clone(),
+        }
+    }
+
+    /// The placement, as a roster keeps it; none for a kind no build knows.
+    pub fn origin(&self) -> Option<Origin> {
+        named(&self.kind, &self.template, &self.tag)
+    }
+}
+
+/// The placement of kind `kind` (`ObjectKind::name`), `template` and `tag`;
+/// none for a kind no build knows.
+fn named(kind: &str, template: &str, tag: &str) -> Option<Origin> {
+    let kind = ObjectKind::ALL
+        .into_iter()
+        .find(|known| known.name() == kind)?;
+    Some(Origin {
+        kind,
+        template: template.to_string(),
+        tag: tag.to_string(),
+    })
 }
 
 /// What a module visited keeps. A save without a placement roster (from
@@ -198,6 +230,11 @@ impl OriginKey {
 pub struct StoryModule {
     /// Whether the module's creatures' spawn scripts have run.
     pub spawns_ran: bool,
+    /// Its placements as the save's roster has them, in GIT order: what the
+    /// numbers of the keys below count in, so a restore finds each again
+    /// among placements that moved (`sim::reconcile::renumber`). Empty in a
+    /// story from before it was kept.
+    pub roster: Vec<StoryPlacement>,
     /// Placements destroyed, or creatures gone from their place.
     pub destroyed: Vec<OriginKey>,
     /// A door's or placeable's state (0 closed, 1 and 2 open) and lock
@@ -250,6 +287,16 @@ impl Story {
         }
     }
 
+    /// The seats the story's players hold: one past the last of theirs, at
+    /// least one.
+    pub fn seats(&self) -> u8 {
+        self.party
+            .iter()
+            .filter_map(|character| character.seat)
+            .max()
+            .map_or(1, |seat| seat.saturating_add(1))
+    }
+
     /// How `other`, a story written again after a restore of `self`, differs
     /// from it: the top-level fields that differ, and how far apart the
     /// leaders stand (metres). The build, the time and the leader's exact
@@ -260,6 +307,15 @@ impl Story {
         let [mut before, mut after] = [self.clone(), other.clone()];
         for story in [&mut before, &mut after] {
             (story.build, story.saved, story.place.position) = (String::new(), 0, [0.0; 3]);
+        }
+        // A module kept without its roster (a story from before it was) is
+        // compared without it.
+        for (module, kept) in &before.visited {
+            if let Some(again) = after.visited.get_mut(module)
+                && kept.roster.is_empty()
+            {
+                again.roster.clear();
+            }
         }
         (before.differing(&after), off)
     }
@@ -528,6 +584,7 @@ fn visited(snapshot: &Snapshot, script: &State) -> BTreeMap<String, StoryModule>
             ..StoryModule::default()
         };
         if let Some(roster) = roster {
+            kept.roster = roster.iter().map(StoryPlacement::of).collect();
             fill_module(&mut kept, entities, roster, &key, &mut named);
         }
         out.insert(key, kept);
@@ -594,8 +651,12 @@ fn fill_module(
             kept.doors.push((key(number), state.state, state.lock));
         }
     }
+    // A placement marked to be placed anew (a story restore's) is not gone.
     for (number, origin) in roster.iter().enumerate() {
-        if origin.kind == ObjectKind::Creature && (!present[number] || dead[number]) {
+        if origin.kind == ObjectKind::Creature
+            && !origin.unmarked().1
+            && (!present[number] || dead[number])
+        {
             kept.destroyed.push(key(number as u32));
         }
     }

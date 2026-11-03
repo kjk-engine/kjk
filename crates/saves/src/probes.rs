@@ -200,8 +200,11 @@ pub fn refusal_probes() -> Vec<(&'static str, Result<String, String>)> {
 /// The story record (`story`, group "save story"):
 /// - the kitchen sink's story has its party, journal, globals, galaxy and
 ///   the modules it visited by name;
-/// - a module with a roster keeps its destroyed objects, moved doors and
-///   locals by origin key, one without keeps its spawns alone;
+/// - a module with a roster keeps it, and its destroyed objects, moved
+///   doors and locals by origin key, one without keeps its spawns alone;
+/// - of two doors alike and two creatures alike, the second's facts go to
+///   the second after a placement is inserted before them, here and in a
+///   module left entered again;
 /// - the JSON round trip is equal, and a JSON without most fields reads;
 /// - a slot write puts `story.json` in the folder and `story` in the
 ///   meta's formats; a slot without one, or with one that does not read,
@@ -229,6 +232,8 @@ pub fn story_probes() -> sim::probe::Checks {
         ("story_restores_left_and_here", restores_left_and_here(&save)),
         ("story_companion_left_keeps_items", companion_left(&level, &save)),
         ("story_restores_items_elsewhere", restores_items_elsewhere(&level, &save)),
+        ("story_restores_twins_left", restores_twins_left(&save)),
+        ("story_restores_twins_here", restores_twins_here(&save)),
     ];
     let _ = std::fs::remove_dir_all(&root);
     checks
@@ -586,7 +591,7 @@ fn restores_roster_module(level: &sim::Level, save: &sim::Save) -> Result<String
         |story| {
             let here = story.place.module.to_ascii_lowercase();
             if let Some(kept) = story.visited.get_mut(&here) {
-                (kept.destroyed, kept.doors, kept.locals) = Default::default();
+                (kept.roster, kept.destroyed, kept.doors, kept.locals) = Default::default();
             }
         },
     )];
@@ -767,4 +772,144 @@ fn restores_left_and_here(save: &sim::Save) -> Result<String, String> {
         gate == Some((1, sim::lock::LOCKED, true)) && local == Some(7) && gone,
         format!("{trip}; entered again: gate (state, lock, at its placement) {gate:?}, local {local:?}, way out gone {gone}"),
     )
+}
+
+/// The tag and template of the two doors alike and of the two creatures
+/// alike `with_twins` adds.
+const TWIN_DOOR: &str = "door_twin";
+const TWIN: &str = "n_twin";
+
+/// `level` with two doors alike and two creatures alike at its end, each
+/// pair the same template and tag; with a waypoint first when `moved`, so
+/// every placement after it is one further on.
+fn with_twins(level: &sim::Level, moved: bool) -> Result<sim::Level, String> {
+    use sim::module::{ObjectData, ObjectKind, Placement};
+    let mut data = (**level.module().ok_or("the ground has no module")?).clone();
+    let [x, y, z] = data.entry.position;
+    let twin = |kind, template: &str, dx: f32| {
+        Placement::Own(ObjectData {
+            kind,
+            tag: template.into(),
+            ..ObjectData::unknown(template, [x + dx, y + 2.0, z], 0.0)
+        })
+    };
+    data.placements.extend([
+        twin(ObjectKind::Door, TWIN_DOOR, -2.0),
+        twin(ObjectKind::Door, TWIN_DOOR, 2.0),
+        twin(ObjectKind::Creature, TWIN, -1.0),
+        twin(ObjectKind::Creature, TWIN, 1.0),
+    ]);
+    if moved {
+        let first = ObjectData {
+            kind: ObjectKind::Waypoint,
+            tag: "wp_first".into(),
+            ..ObjectData::unknown("wp_first", [x, y, z], 0.0)
+        };
+        data.placements.insert(0, Placement::Own(first));
+    }
+    Ok(level.clone().with_module(data))
+}
+
+/// The story of `level`'s module (`with_twins`, not moved) as the save's
+/// roster keeps it: the second twin door open, the second twin creature
+/// destroyed, its roster the level's placements.
+fn twins_kept(level: &sim::Level) -> story::StoryModule {
+    use sim::module::ObjectKind;
+    let roster = sim::reconcile::roster(level.placed());
+    let second = |kind, template: &str| {
+        let (index, origin) = roster
+            .iter()
+            .enumerate()
+            .filter(|(_, origin)| origin.kind == kind && origin.template == template)
+            .nth(1)?;
+        Some(story::OriginKey::of(index as u32, origin))
+    };
+    story::StoryModule {
+        spawns_ran: true,
+        roster: roster.iter().map(story::StoryPlacement::of).collect(),
+        doors: second(ObjectKind::Door, TWIN_DOOR)
+            .map(|key| (key, 1, 0))
+            .into_iter()
+            .collect(),
+        destroyed: second(ObjectKind::Creature, TWIN).into_iter().collect(),
+        ..story::StoryModule::default()
+    }
+}
+
+/// The twins of `level` as `snapshot` has them, in their order: each
+/// door's state (none for one absent), then whether each creature is there.
+fn twins_seen(level: &sim::Level, snapshot: &sim::Snapshot) -> (Vec<Option<u8>>, Vec<bool>) {
+    use sim::module::ObjectKind;
+    let numbers = |kind, template: &str| -> Vec<u32> {
+        let placed = level.placed().iter().enumerate();
+        placed
+            .filter(|(_, facts)| facts.kind == kind && facts.template == template)
+            .map(|(at, _)| at as u32)
+            .collect()
+    };
+    let entity = |kind, number| {
+        snapshot
+            .entities
+            .iter()
+            .find(|entity| entity.kind == sim::Kind::Object(kind, number))
+    };
+    let doors = numbers(ObjectKind::Door, TWIN_DOOR)
+        .into_iter()
+        .map(|number| {
+            entity(ObjectKind::Door, number)
+                .and_then(|door| door.object)
+                .map(|state| state.state)
+        })
+        .collect();
+    let creatures = numbers(ObjectKind::Creature, TWIN)
+        .into_iter()
+        .map(|number| entity(ObjectKind::Creature, number).is_some())
+        .collect();
+    (doors, creatures)
+}
+
+/// The twins of `level` in `world` as they should be: the first door shut,
+/// the second open; the first creature there, the second gone.
+fn twins_right(
+    level: &sim::Level,
+    world: &mut sim::SimWorld,
+    said: &[String],
+) -> Result<String, String> {
+    let seen = twins_seen(level, &world.snapshot());
+    check(
+        seen.0 == [Some(0), Some(1)] && seen.1 == [true, false],
+        format!("twins (doors, creatures) {seen:?}; lost {said:?}"),
+    )
+}
+
+/// A module left with two doors alike, only the second opened, and two
+/// creatures alike, only the second killed: restored from the story's
+/// roster and entered again with a placement inserted before them, the
+/// second door is open and the second creature gone.
+fn restores_twins_left(save: &sim::Save) -> Result<String, String> {
+    const LEFT: &str = "proving_ground_left";
+    let level = with_carth()?;
+    let (left, moved) = (
+        with_twins(&sim::fixtures::left(), false)?,
+        with_twins(&sim::fixtures::left(), true)?,
+    );
+    let mut story = Story::of(save, &level);
+    story.visited.insert(LEFT.into(), twins_kept(&left));
+    let (mut world, said) = story.restore(&level, 1, &|_| None)?;
+    world
+        .install(moved.clone(), None)
+        .map_err(|error| format!("entering the module left: {error}"))?;
+    twins_right(&moved, &mut world, &said)
+}
+
+/// The module here with the same twins, restored in its data with a
+/// placement inserted before them: the facts find the second of each.
+fn restores_twins_here(save: &sim::Save) -> Result<String, String> {
+    let level = with_carth()?;
+    let (level, moved) = (with_twins(&level, false)?, with_twins(&level, true)?);
+    let mut story = Story::of(save, &level);
+    let here = story.place.module.to_ascii_lowercase();
+    story.visited.insert(here, twins_kept(&level));
+    let (mut world, said) = story.restore(&moved, 1, &|_| None)?;
+    twins_right(&moved, &mut world, &said)
 }

@@ -24,7 +24,7 @@ use sim::inventory::{Catalog, ItemFacts, PARTY};
 use sim::levels::Career;
 use sim::module::{ObjectData, ObjectKind};
 use sim::motion::{MotionState, UNIT};
-use sim::reconcile::Origin;
+use sim::reconcile::{Origin, Renumber, renumber};
 use sim::script::State;
 use sim::script::party::{Kept, Npc};
 use sim::{
@@ -39,14 +39,25 @@ use super::{OriginKey, Story, StoryCharacter, StoryModule};
 const COMPANION_M: f32 = 1.0;
 const COMPANION_APART_DEG: f32 = 45.0;
 
-/// A roster's place that names no placement: kept so the destroyed after it
-/// keep their numbers. No resref is `*`, so it matches none.
+/// A roster's place that names no placement, for a story without the
+/// module's roster: kept so the destroyed after it keep their numbers. No
+/// resref is `*`, so it matches none.
 fn unnamed() -> Origin {
     Origin {
         kind: ObjectKind::Waypoint,
         template: "*".into(),
         tag: "*".into(),
     }
+}
+
+/// `kept`'s roster as a stash keeps it for a restore: each placement
+/// marked to be placed anew (`sim::reconcile::ANEW`) until a fact names
+/// it, one of a kind no build knows unnamed. Empty without one.
+fn marked(kept: &StoryModule) -> Vec<Origin> {
+    kept.roster
+        .iter()
+        .map(|placed| placed.origin().map_or_else(unnamed, |origin| origin.anew()))
+        .collect()
 }
 
 /// The facts of an item template the module restored in lacks, from the
@@ -72,12 +83,7 @@ impl Story {
                 self.place.module, place.module
             ));
         }
-        let own = self
-            .party
-            .iter()
-            .filter_map(|character| character.seat)
-            .max()
-            .map_or(1, |seat| seat.saturating_add(1));
+        let own = self.seats();
         let seats = seats.max(own);
         let config = WorldConfig {
             seats,
@@ -536,15 +542,22 @@ impl Restore<'_> {
         }
     }
 
-    /// The entity of the placement `key` names in the module here: the
-    /// level's placement at its number, of its template.
-    fn placement(&self, key: &OriginKey) -> Option<usize> {
-        let facts = self.level.placed().get(key.index as usize)?;
+    /// The entity of the placement `key` names in the module here: where
+    /// `moved` (the story's roster renumbered onto the level's placements)
+    /// puts it, else, for a story without the roster, the level's placement
+    /// at its number, of its template.
+    fn placement(&self, key: &OriginKey, moved: Option<&Renumber>) -> Option<usize> {
+        let placed = self.level.placed();
+        let at = match moved {
+            Some(moved) => (*moved.map.get(key.index as usize)?)?,
+            None => key.index,
+        };
+        let facts = placed.get(at as usize)?;
         if !facts.template.eq_ignore_ascii_case(&key.template) {
             return None;
         }
         self.snapshot.entities.iter().position(|entity| {
-            matches!(entity.kind, Kind::Object(kind, number) if number == key.index && kind == facts.kind)
+            matches!(entity.kind, Kind::Object(kind, number) if number == at && kind == facts.kind)
         })
     }
 
@@ -564,8 +577,15 @@ impl Restore<'_> {
         let Some(kept) = self.story.visited.get(&module.to_ascii_lowercase()) else {
             return;
         };
+        let roster: Vec<Origin> = kept
+            .roster
+            .iter()
+            .map(|placed| placed.origin().unwrap_or_else(unnamed))
+            .collect();
+        let moved = (!roster.is_empty()).then(|| renumber(&roster, self.level.placed()));
+        let moved = moved.as_ref();
         for key in &kept.destroyed {
-            let Some(at) = self.placement(key) else {
+            let Some(at) = self.placement(key, moved) else {
                 self.unmatched(module, "destroyed", key);
                 continue;
             };
@@ -582,7 +602,7 @@ impl Restore<'_> {
             }
         }
         for (key, state, lock) in &kept.doors {
-            let Some(at) = self.placement(key) else {
+            let Some(at) = self.placement(key, moved) else {
                 self.unmatched(module, "door or placeable", key);
                 continue;
             };
@@ -590,7 +610,7 @@ impl Restore<'_> {
             (object.state, object.lock) = (*state, *lock);
         }
         for (key, kind, index, value) in &kept.locals {
-            let (Some(at), Ok(index)) = (self.placement(key), i32::try_from(*index)) else {
+            let (Some(at), Ok(index)) = (self.placement(key, moved), i32::try_from(*index)) else {
                 self.unmatched(module, "local's object", key);
                 continue;
             };
@@ -600,8 +620,11 @@ impl Restore<'_> {
     }
 
     /// Each module left, as a stash entry its next arrival reconciles
-    /// (`sim::reconcile::apply`): its spawns ran, and its roster names, at
-    /// their numbers, the placements the story knows something of. A
+    /// (`sim::reconcile::apply`): its spawns ran, and its roster is the
+    /// story's, each placement the story knows nothing of marked to be
+    /// placed anew (`marked`), so placements alike are told apart by their
+    /// order as a save's are; a story without the roster names, at their
+    /// numbers, only the placements it knows something of. A
     /// creature destroyed is absent; any other object destroyed is gone; a
     /// door or placeable moved stands open or locked as it was; an object
     /// with locals has them under its id. Each of those objects stands
@@ -640,7 +663,10 @@ impl Restore<'_> {
 
     /// The stash entities and roster of `module`, left as `kept` says.
     fn left_objects(&mut self, module: &str, kept: &StoryModule) -> (Vec<EntityState>, Vec<Origin>) {
-        let mut left = Left::default();
+        let mut left = Left {
+            roster: marked(kept),
+            ..Left::default()
+        };
         for key in &kept.destroyed {
             match key.origin() {
                 Some(origin) if origin.kind == ObjectKind::Creature => left.name(key, origin),
