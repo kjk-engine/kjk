@@ -917,16 +917,22 @@ conversation).
   films its lines from that model's `camerahook` (`play_view::animated_shot`):
   the model stands at the area's origin, as reone puts it, and plays the
   line's `CameraAnimation` clip (`cut%03dw` from 1200, `camera_clip_name`)
-  from when the line showed, held at its end; the camera looks down the
-  hook's −z; the line's `CamFieldOfView`, else 55 (Q-0141: reone keeps 55).
-  A line that waits on its clip (`WaitFlags` 1) lasts its own timer (its
-  voice or text, `Delay` and other waits) raised to the clip (the library's
-  `camera_clips`, read from the models' clip lengths), as the K1 and TSL
-  executables end a line once its timer and every flagged wait are done
-  (reone takes the clip alone). The camera keeps the hook's roll.
-  A line with no clip (no `CameraAnimation`, or one its model lacks) has
-  an ordinary shot, as KOTOR's does (reone keeps the camera where the
-  last clip left it), the placed camera or the dialog camera below.
+  from when the line showed, held at its end; a line of 1000 (1000 + n)
+  carries the clip playing (`cut%03dw` from 1000, `camera_cue`) on from
+  when the line that began it showed (`Conversation::clip_from_ms`; TSL
+  only: 33 lines in 11 DLGs, `kreia_kr`'s pan round Korriban, the
+  prologue's, `851medit`'s; K1 has none) [verify in the exe; reone names
+  it `cut-199w`, no clip, so its camera plays on too]. The camera looks
+  down the hook's −z; the line's `CamFieldOfView`, else 55 (Q-0141: reone
+  keeps 55). A line that waits on its clip (`WaitFlags` 1) lasts its own
+  timer (its voice or text, `Delay` and other waits) raised to what is
+  left of the clip (the library's `camera_clips`, read from the models'
+  clip lengths), as the K1 and TSL executables end a line once its timer
+  and every flagged wait are done (reone takes the clip alone). The camera
+  keeps the hook's roll. A line with no clip (no `CameraAnimation`, or one
+  its model lacks) has an ordinary shot, as KOTOR's does (reone keeps the
+  camera where the last clip left it), the placed camera or the dialog
+  camera below.
   Else a placed camera a script cut to
   (`SetDialogPlaceableCamera`, `Conversation::camera`, KJKS 38, KJKV 25:
   the conversation whose script runs it, else the one the caller is in,

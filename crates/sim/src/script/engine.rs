@@ -1471,10 +1471,20 @@ impl Engine<'_> {
         answer
     }
 
+    /// Where `id` stands: one made this step where it was made, as the
+    /// executables make an object at once (`tr_sion` makes Darth Sion and has
+    /// him start his talk from there, 18 m from the Exile).
     pub(super) fn position(&self, id: ObjectId) -> Option<[f32; 3]> {
         self.view
             .thing(id)
             .map(|thing| thing.position)
+            .or_else(|| {
+                self.out
+                    .made
+                    .iter()
+                    .find(|made| made.id == id)
+                    .map(|made| made.at)
+            })
             .or_else(|| self.lying(id).map(|lying| lying.at))
     }
 

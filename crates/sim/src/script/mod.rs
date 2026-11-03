@@ -288,6 +288,24 @@ pub fn camera_clip_name(animation: u16) -> Option<String> {
     Some(format!("cut{n:03}w"))
 }
 
+/// The clip a node's `CameraAnimation` has its conversation's camera model
+/// play, and whether it carries on the one already playing: 1200 on start
+/// `cut001w` and up (`camera_clip_name`); 1000 on carry on that clip from
+/// where it is (TSL: Kreia's lines on arriving at Korriban, `kreia_kr`'s
+/// 1000s after the pan's 1200; `miratch`'s 1001 after 1201) [verify in the
+/// exe]. reone names a 1000 `cut-199w`, a clip no model has, so its camera
+/// plays on as well.
+pub fn camera_cue(animation: u16) -> Option<(String, bool)> {
+    match animation.checked_sub(FIRST_CONTINUED_CLIP)? {
+        n @ 0..200 => Some((format!("cut{:03}w", n + 1), true)),
+        _ => Some((camera_clip_name(animation)?, false)),
+    }
+}
+
+/// The first `CameraAnimation` value carrying on a playing clip
+/// (`camera_cue`).
+const FIRST_CONTINUED_CLIP: u16 = 1000;
+
 /// The first `CameraAnimation` / `AnimList` value naming a clip
 /// (`camera_clip_name`), and the first naming a `dialoganimations.2da` row
 /// (`Library::dialog_animation`).
@@ -1018,9 +1036,10 @@ impl Library {
     }
 
     /// How long a conversation's camera model plays a node's
-    /// `CameraAnimation` (ms), if the model has that clip.
+    /// `CameraAnimation` (ms) from its start, if the model has that clip
+    /// (`camera_cue`).
     pub fn camera_clip(&self, model: &str, animation: u16) -> Option<u32> {
-        let clip = camera_clip_name(animation)?;
+        let (clip, _) = camera_cue(animation)?;
         self.camera_clips.get(&(key(model), clip)).copied()
     }
 

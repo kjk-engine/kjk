@@ -105,6 +105,7 @@ const PROBES: &[Probe] = &[
     ("wait_fade_holds", wait_fade_holds),
     ("next_node_clears_fade", next_node_clears_fade),
     ("wait_camera_clip_holds", wait_camera_clip_holds),
+    ("carried_camera_clip_holds", carried_camera_clip_holds),
     ("pause_is_immediate", pause_is_immediate),
     ("pause_behind_actions", pause_behind_actions),
     ("pause_cleared_with_its_queue", pause_cleared_with_its_queue),
@@ -468,22 +469,42 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
         .op(Op::Retn);
     let cue = asm.build();
     let converse = program(&converse);
-    // Two `probe_twin`s made at `TWINS_AT` (`CreateObject`).
-    let [x, y, z] = floor_at(TWINS_AT);
-    let make = [
-        Op::Const(Const::Int(0)),
-        Op::Const(Const::Float(0.0)),
-        Op::Const(Const::Float(z)),
-        Op::Const(Const::Float(y)),
-        Op::Const(Const::Float(x)),
-        call(18, 3),
-        call(19, 2),
-        Op::Const(Const::String(b"probe_twin".to_vec())),
-        Op::Const(Const::Int(1)),
-        call(20, 4),
-        Op::MovSp(-4),
-    ];
+    // A `probe_twin` made at `at` (`CreateObject`), left on the stack.
+    let make_at = |at: [f32; 2]| {
+        let [x, y, z] = floor_at(at);
+        [
+            Op::Const(Const::Int(0)),
+            Op::Const(Const::Float(0.0)),
+            Op::Const(Const::Float(z)),
+            Op::Const(Const::Float(y)),
+            Op::Const(Const::Float(x)),
+            call(18, 3),
+            call(19, 2),
+            Op::Const(Const::String(b"probe_twin".to_vec())),
+            Op::Const(Const::Int(1)),
+            call(20, 4),
+        ]
+    };
+    // Two made at `TWINS_AT`.
+    let make = [make_at(TWINS_AT).as_slice(), &[Op::MovSp(-4)]].concat();
     let twins = program(&[make.clone(), make].concat());
+    // One made at `TALKER_FROM` and at once `AssignCommand(made,
+    // ActionStartConversation(GetFirstPC(), dialog))`, as TSL's `tr_sion`
+    // makes Darth Sion.
+    let mut asm = script_ncs::probes::Asm::default();
+    for op in make_at(TALKER_FROM) {
+        asm.op(op);
+    }
+    asm.op(Op::StoreState { bp: 0, sp: 0 })
+        .to(Op::Jmp, "assign");
+    for op in converse_to(&first_pc, 0, 0) {
+        asm.op(op);
+    }
+    asm.op(Op::Retn)
+        .label("assign")
+        .op(call(27, 2))
+        .op(Op::Retn);
+    let made_converse = asm.build();
     let dialogues: BTreeMap<String, Dlg> = [(dialog.to_string(), talk)].into();
     // K1's `creaturespeed.2da` rows `PLAYER` and `DEFAULT`.
     let rates = crate::script::MoveRates {
@@ -539,6 +560,7 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_death_dummy", program(&death)),
             ("probe_cue", cue),
             ("probe_twins", twins),
+            ("probe_converse_made", made_converse),
             ("probe_cutscene", cutscene(0, SCENE_DAMAGE)),
             ("probe_cutscene_shot", cutscene(SHOT_ROW, SCENE_DAMAGE)),
             ("probe_cutscene_kill", cutscene(SHOT_ROW, KILLING_DAMAGE)),
@@ -2063,6 +2085,9 @@ fn start_refused_held() -> Found {
     )
 }
 
+/// Where `cinematic_start_distance`'s asker stands or is made.
+const TALKER_FROM: [f32; 2] = [-7.2, -4.0];
+
 /// Where `probe_twins` makes its two creatures (the ground's axes).
 const TWINS_AT: [f32; 2] = [-3.0, 0.0];
 
@@ -2549,24 +2574,34 @@ fn conversed_owns() -> Found {
 /// distance walks its asker only to half the way, halved till within it
 /// (TSL's `AIActionDialogObject`); one asked from nearer begins where it
 /// stands; a computer one (type 1) walks up to the conversation range. How
-/// far apart the asker and the host stood, and stood as it began.
+/// far apart the asker and the host stood, and stood as it began. An asker
+/// a script makes and has ask in one go is measured from where it was made
+/// (`tr_sion`'s Darth Sion, else run up to the Exile and walked back by his
+/// scene).
 fn cinematic_start_distance() -> Found {
-    const TALKER_FROM: [f32; 2] = [-7.2, -4.0];
     let begun = |script: &str, host_at: [f32; 2]| -> Result<(f32, f32), String> {
         let mut ground = Ground::new(1)?;
         let host = ground.body(0)?;
         ground.put(host, host_at);
-        let talker = ground.place(TALKER, TALKER_FROM)?;
+        let made = script == "probe_converse_made";
+        let placed = (!made)
+            .then(|| ground.place(TALKER, TALKER_FROM))
+            .transpose()?;
         for foe in [FOE, DUMMY] {
             ground.befriend(foe)?;
         }
         ground.step();
-        let apart = |ground: &Ground| between(ground.at(host), ground.at(talker));
-        let before = apart(&ground);
+        let before = between(ground.at(host), floor_at(TALKER_FROM));
+        let known: Vec<SimId> = ground.last.entities.iter().map(|e| e.id).collect();
         ground.run_script(script, TALKER)?;
         for _ in 0..steps(6000) {
             if !ground.last.talk.conversations.is_empty() {
-                return Ok((before, apart(&ground)));
+                let talker = placed.or_else(|| {
+                    let mut new = ground.last.entities.iter().map(|e| e.id);
+                    new.find(|id| !known.contains(id))
+                });
+                let talker = talker.ok_or(format!("{script} made no asker"))?;
+                return Ok((before, between(ground.at(host), ground.at(talker))));
             }
             ground.step();
         }
@@ -2580,6 +2615,11 @@ fn cinematic_start_distance() -> Found {
         ("cinematic, far", begun("probe_converse", far)?, Some(0.5)),
         ("cinematic, near", begun("probe_converse", near)?, Some(1.0)),
         ("computer, far", begun("probe_computer", far)?, None),
+        (
+            "cinematic, made far",
+            begun("probe_converse_made", far)?,
+            Some(0.5),
+        ),
     ];
     let seen: Vec<String> = cases
         .iter()
@@ -3630,6 +3670,49 @@ fn wait_camera_clip_holds() -> Found {
         filmed("Hi.", 1201)?,
     ];
     check(got == [2000, 4500, 337], format!("lines last {got:?} ms"))
+}
+
+/// S5: a line whose `CameraAnimation` is 1000 carries the camera clip the
+/// line before began on (TSL's `kreia_kr`: 1200, then three 1000s under
+/// Kreia's words as the camera pans round Korriban): it films from where
+/// the clip began, and waiting on it (flag 1) it lasts what is left of the
+/// clip, 3 s from the first line's start; a second 1200 begins the clip
+/// afresh, 3 s from its own.
+fn carried_camera_clip_holds() -> Found {
+    let second = |animation: u16| {
+        let mut talk = in_turn(&["", ""]);
+        talk.camera_model = "probe_cam".into();
+        talk.entries[0].camera_animation = 1200;
+        talk.entries[1].camera_animation = animation;
+        talk.entries[1].wait_flags = 1;
+        let mut ground = Ground::staged(
+            1,
+            Stage {
+                talk,
+                camera_clips: [(("probe_cam".to_string(), "cut001w".to_string()), 3000)].into(),
+                ..Stage::default()
+            },
+        )?;
+        ground.cutscene()?;
+        let first = (ground.last.talk.conversations.first())
+            .ok_or("no conversation under way")?
+            .shown_ms;
+        ground.until_entry(1)?;
+        let c = (ground.last.talk.conversations.first()).ok_or("the conversation ended")?;
+        Ok::<[u64; 3], String>([
+            c.shown_ms - first,
+            c.clip_from_ms - first,
+            c.until_ms - first,
+        ])
+    };
+    let (carried, afresh) = (second(1000)?, second(1200)?);
+    let shown = carried[0];
+    check(
+        shown > 0 && carried == [shown, 0, 3000] && afresh == [shown, shown, shown + 3000],
+        format!(
+            "second line [shown, clip from, until] after the first: carried {carried:?}, afresh {afresh:?}"
+        ),
+    )
 }
 
 /// The conversation's first line after `ms` of the talker's pause script
