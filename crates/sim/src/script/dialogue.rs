@@ -1317,6 +1317,9 @@ impl Step<'_> {
             return;
         };
         let c = self.state.talk.conversations.remove(at);
+        // The screen goes back with it: TSL's `CGuiInGame::CloseDialog`
+        // disables the video effect, whoever enabled it.
+        self.out.video_effect = Some(None);
         // Its end script's store opens for whoever asked, as its nodes' do.
         self.state.talk.ending = Some(c.asker);
         self.finish(id, (c.owner, c.pc), &c.dialog, (aborted, Heard::Area));

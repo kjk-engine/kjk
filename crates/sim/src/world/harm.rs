@@ -757,7 +757,7 @@ pub(super) fn hurt(
         // flinch (a scene's blow plays its own reaction, `blows::HURT`).
         let scene =
             scene_held.scene(&talking.0, hit.target) || scene_held.scene(&talking.0, hit.attacker);
-        let staged = death::in_place(&hit.source, scene);
+        let staged = death::in_place(&hit.source, scene, fighting.0.saber.floored());
         let in_place = resolved.died && !was_down && staged;
         if let Some((push, timer)) = resolved.push.filter(|_| !staged && !immobile) {
             ps.velocity = math::add(ps.velocity, push);

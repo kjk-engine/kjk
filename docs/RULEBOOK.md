@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `dbe0c52037730cbd`.
+Edition `f62f9aed5a061d90`.
 
 ## Contents
 
@@ -9325,6 +9325,12 @@ as far as its volume carries, and no farther than the listener's hearing.
 A conversation begins within 4 meters. A player may start one from as far, measured across the floor: a speaker on a ledge above is talked to from below.
 
 <sub>Source: reone (the longest distance a conversation starts at; navigateTo's flat distance) [verify in K1's exe]. Code: `sim::script::CONVERSATION_RANGE`.</sub>
+
+<a id="scripts-talk-start-distance"></a>**Conversation Start Distance** = **10 m** · `scripts.talk.start_distance`
+
+A scene's speaker farther than 10 meters from whom it talks to closes half the distance, again until it is within; nearer, the conversation begins where it stands.
+
+<sub>Source: TSL's exe (`CSWSArea::MAX_OBJECT_START_CONVERSATION_DISTANCE`, `CSWSObject::AIActionDialogObject`, a cinematic conversation) [verify in K1's exe]. Code: `sim::script::dialogue`.</sub>
 
 <a id="scripts-talk-volume-reach"></a>**Voice Range** = **1000 m / 3 m / 250 m / 35 m / 1000 m** (`1000 / 3 / 250 / 35 / 1000 m`) · `scripts.talk.volume_reach`
 

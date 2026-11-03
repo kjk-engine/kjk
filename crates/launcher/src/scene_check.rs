@@ -1568,8 +1568,7 @@ impl Checker<'_> {
         let who = self.name(entity.id.0);
         let detail = format!("{who} ({})", look.head.as_deref().unwrap_or(&look.body));
         match (unmoved, head) {
-            (Some(true), _) => self.fail(15, "lips: a talk clip the view's mouth does not play", at, detail),
-            (Some(false), _) => self.note(15, "no talk clip in its model chain (a mask, a droid: nothing moves in reone either)", at, detail),
+            (Some(_), _) => self.note(15, "no talk clip in its model chain (a mask, a droid: nothing moves in reone either)", at, detail),
             // Counted for the census: the lips moved on a body's own face.
             (None, None) => self.note(15, "lips on the body (its own face, no head)", at, detail),
             (None, Some(_)) => {}

@@ -1875,6 +1875,12 @@ impl SimWorld {
             .iter_mut(&mut self.world)
         {
             fighting.0.acting = None;
+            // The new area makes its bodies afresh: a script's lit saber
+            // (`SetOverrideLightsaberState`, one act) does not come along.
+            if fighting.0.sheath == Sheath::Lit {
+                fighting.0.sheath = Sheath::Fight;
+                fighting.0.saber.on = false;
+            }
         }
         let level = self.level().clone();
         if let (Some(module), Some(library)) = (level.module(), level.scripts()) {

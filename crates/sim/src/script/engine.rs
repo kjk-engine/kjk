@@ -4798,7 +4798,7 @@ impl Engine<'_> {
 }
 
 /// The distance between two points (metres).
-fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+pub(in crate::script) fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     let d: [f32; 3] = std::array::from_fn(|i| a[i] - b[i]);
     (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
 }
@@ -5278,6 +5278,7 @@ impl Engine<'_> {
         // The character switched to leads (the first seat plays it), until
         // a portrait click or `SetPartyLeader` lends the lead again.
         if npc == NPC_PLAYER {
+            self.leave_switched();
             self.state.party.switched = None;
             self.state.party.leader = None;
             return true;
@@ -5315,6 +5316,9 @@ impl Engine<'_> {
         let Some(body) = body else {
             return false;
         };
+        if self.state.party.switched != Some(npc) {
+            self.leave_switched();
+        }
         let party = &mut self.state.party;
         if let Some(slot) = party.available.get_mut(&npc) {
             slot.object = Some(body.0);
@@ -5322,6 +5326,36 @@ impl Engine<'_> {
         party.switched = Some(npc);
         party.leader = None;
         true
+    }
+
+    /// The companion played till now is left: as the exe's
+    /// `SwitchPlayerCharacter` (`SaveMember`, `KillNPCObject`), the table keeps
+    /// it as it stands and its creature goes, so a scene that makes its own
+    /// (`a_create_cut`'s Mira, TSL's arena) has the only one of that tag. One
+    /// in the party stays: the exe's left the party on being played, ours not.
+    fn leave_switched(&mut self) {
+        let Some(npc) = self.state.party.switched else {
+            return;
+        };
+        if self.state.party.has(npc) {
+            return;
+        }
+        super::keep_npc(self.view, self.state, self.out, npc);
+        let slot = self.state.party.available.get_mut(&npc);
+        if let Some(who) = slot.and_then(|slot| slot.object.take()).map(ObjectId) {
+            // What it carried stays the party's (T3-M4's shield, from TSL's
+            // prologue, as it joins later): the table keeps what it wears.
+            let carried: Vec<u32> = (self.state.items.held_by(who.0))
+                .filter(|(_, held)| held.slot.is_none())
+                .map(|(item, _)| item)
+                .collect();
+            for item in carried {
+                self.state
+                    .carry(self.out, ObjectId(item), crate::inventory::PARTY);
+            }
+            self.out.deleted.push(who);
+            self.out.changes.push(Change::destroy(who));
+        }
     }
 
     /// TSL's influence (`Party::influence`), as its exe's commands keep

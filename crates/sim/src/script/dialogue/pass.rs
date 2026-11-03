@@ -203,13 +203,31 @@ impl Engine<'_> {
                         )
                     )
                 });
+                // A cinematic one (type 0) starts from up to the start
+                // distance: TSL's `AIActionDialogObject` walks a farther one
+                // to the midpoint and asks again. Darth Sion, made 21 m from
+                // the Exile, stops about where his scene's `wp_sion` has him.
+                // A computer's walks up.
+                let range = match int(args, 3) {
+                    0 => self.position(caller).zip(self.position(with)).map_or(
+                        crate::script::engine::CONVERSATION_RANGE,
+                        |(from, to)| {
+                            let mut apart = crate::script::engine::distance(from, to);
+                            while apart > rules::scripts::talk::START_DISTANCE {
+                                apart /= 2.0;
+                            }
+                            apart
+                        },
+                    ),
+                    _ => crate::script::engine::CONVERSATION_RANGE,
+                };
                 if int(args, 4) == 0 && with != caller && walks {
                     self.queue(
                         caller,
                         Action::Move {
                             to: crate::script::actions::Target::Object(with),
                             run: true,
-                            range: crate::script::engine::CONVERSATION_RANGE,
+                            range,
                             force_ms: None,
                         },
                     );
@@ -406,8 +424,9 @@ impl Step<'_> {
     }
 
     /// `Action::Converse` at the front of `who`'s queue: ask to start a
-    /// conversation, its owner by reone's rule (the other party when a
-    /// player asks, else the asker), its DLG the one named or the owner's.
+    /// conversation, its owner the other party when a player asks, the asker
+    /// when it asks a player, else the one conversed with (the exe's dialog
+    /// event), its DLG the one named or the owner's.
     /// With none named, a non-player conversed with that has a DLG of its
     /// own owns it with that DLG, as nwscript.nss says starting one "will
     /// cause their OnDialog event to fire": the one conversed with speaks
@@ -433,14 +452,21 @@ impl Step<'_> {
         let mut pcs = view.pcs(&self.state.party);
         pcs.extend(self.host());
         pcs.extend(view.seats.iter().map(|&(_, body)| body));
+        let companion = self.state.party.creatures().any(|body| body == with.0);
         let (owner, pc) = if pcs.contains(&who) && with != ObjectId::INVALID {
             (with, who)
         } else if pcs.contains(&with) {
             (who, with)
+        } else if with != ObjectId::INVALID && !companion && view.thing(with).is_some() {
+            // TSL's `AIActionDialogObject` signals the dialog event to the
+            // one conversed with, the conversation's name with it, and its
+            // `OnDialog` begins it: the owner is that one, whoever asked (a
+            // scene's `a_start_miraend` runs for Visquis, naming Mira, who
+            // says the lines with no `Speaker`).
+            (with, view.first_pc(&self.state.party))
         } else {
             (who, view.first_pc(&self.state.party))
         };
-        let companion = self.state.party.creatures().any(|body| body == with.0);
         let through =
             (dialog.is_empty() && with != ObjectId::INVALID && !pcs.contains(&with) && !companion)
                 .then(|| view.conversation(with).map(str::to_string))

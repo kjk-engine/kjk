@@ -1888,14 +1888,16 @@ fn start_refused_held() -> Found {
         }
         ground.run_script("probe_converse", BUDDY)?;
         let state = ground.world.script_state();
-        Ok(state.actions.get(&buddy.0).is_some_and(|queue| {
-            queue.iter().any(|queued| {
-                matches!(
-                    queued.action,
-                    crate::script::actions::Action::Converse { .. }
-                )
-            })
-        }))
+        let begun = !held && !state.talk.conversations.is_empty();
+        Ok(begun
+            || state.actions.get(&buddy.0).is_some_and(|queue| {
+                queue.iter().any(|queued| {
+                    matches!(
+                        queued.action,
+                        crate::script::actions::Action::Converse { .. }
+                    )
+                })
+            }))
     };
     let (free, held) = (queued(false)?, queued(true)?);
     check(

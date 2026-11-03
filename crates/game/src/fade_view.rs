@@ -22,13 +22,26 @@ use crate::sim_host::{PresentedSnapshot, view_ms};
 const LAYER: usize = 6;
 const ORDER: isize = 5;
 
+/// The fade's camera: while it draws, the video effect grades its frame
+/// (`video_effect::grade`), the world under it included.
+#[derive(Component)]
+pub(crate) struct FadeCamera;
+
 pub struct FadeViewPlugin;
 
 impl Plugin for FadeViewPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, fade.run_if(resource_exists::<PresentedSnapshot>));
+        app.add_systems(
+            Update,
+            fade.in_set(FadeSet)
+                .run_if(resource_exists::<PresentedSnapshot>),
+        );
     }
 }
+
+/// The fade's system: what asks whether its camera draws comes after it.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct FadeSet;
 
 /// The fade's camera and quad, once a fade has come; the scene camera its
 /// target was copied from.
@@ -102,6 +115,7 @@ fn fade(
                 Transform::from_xyz(0.0, 0.0, 100.0),
                 RenderLayers::layer(LAYER),
                 OverlayCamera,
+                FadeCamera,
             ))
             .id();
         let material = materials.add(unlit(Vec4::ZERO, None));
