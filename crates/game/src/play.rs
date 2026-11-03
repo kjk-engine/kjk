@@ -812,6 +812,9 @@ pub(crate) fn from_save(
         bevy::log::warn!(target: "save-migrate", "{restamp}");
     }
     let mut world = save.world(level, seats, tick)?;
+    if let Some(report) = world.reconciled() {
+        bevy::log::warn!(target: "save-migrate", "{report}");
+    }
     let again = sim::Save {
         hz: save.hz,
         level: level.id(),

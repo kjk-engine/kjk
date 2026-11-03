@@ -40,7 +40,7 @@ use crate::math;
 use crate::module::ObjectData;
 use crate::module::{ModuleData, ObjectKind, Spot};
 use crate::motion::{self, MotionState};
-use crate::reconcile::roster;
+use crate::reconcile::{Held, Report, reconcile, roster};
 use crate::snapshot::{
     EntityState, Kind, ObjectState, Place, SimId, Snapshot, SnapshotHash, Stashed,
 };
@@ -178,19 +178,11 @@ impl SimWorld {
         self.settle_switch();
         let party = &self.script_state().party;
         let level = with_party_templates(level, party);
-        // The party table's members' creatures, each with its template: all
-        // of them come along, following or not (KOTOR places the whole
-        // party at a module's arrival).
-        let members: Vec<(u32, String)> = party
-            .members
-            .iter()
-            .filter_map(|npc| {
-                let slot = party.available.get(npc)?;
-                Some((slot.object?, slot.template.clone()))
-            })
-            .collect();
+        // All of the party table's members come along, following or not
+        // (KOTOR places the whole party at a module's arrival).
+        let members = members(party);
         let before = self.snapshot();
-        let after = assemble(&before, &level, arrival, Some(self.level()), &members)?;
+        let (after, reconciled) = assemble(&before, &level, arrival, Some(self.level()), &members)?;
         let empty = crate::inventory::Catalog::new([]);
         let catalog = |level: &Level| level.scripts().map(|library| library.items().clone());
         let (last, next_catalog) = (catalog(self.level()), catalog(&level));
@@ -219,8 +211,23 @@ impl SimWorld {
         );
         *self = next;
         self.enter_module(carried);
+        if let Some(report) = reconciled {
+            self.reconciled_with(report);
+        }
         Ok(after)
     }
+}
+
+/// The party table's members' creatures, each with its template.
+pub(crate) fn members(party: &crate::script::party::Party) -> Vec<(u32, String)> {
+    party
+        .members
+        .iter()
+        .filter_map(|npc| {
+            let slot = party.available.get(npc)?;
+            Some((slot.object?, slot.template.clone()))
+        })
+        .collect()
 }
 
 /// `level` with the creature templates the party table kept for its
@@ -290,14 +297,15 @@ fn arrived(fighter: Option<Fighter>) -> Option<Fighter> {
 /// seat or not: one left behind in the module left, or in another's stash
 /// (the dark side's Bastila at her Battle Meditation on the Star Forge,
 /// whose lines the ceremony after it says), arrives with the party, as
-/// KOTOR places the whole party at a module's arrival.
+/// KOTOR places the whole party at a module's arrival. With it, what
+/// reconciling the module left with the level's placements did, if it ran.
 pub(crate) fn assemble(
     before: &Snapshot,
     level: &Level,
     arrival: Option<&str>,
     old: Option<&Level>,
     members: &[(u32, String)],
-) -> Result<Snapshot, InstallError> {
+) -> Result<(Snapshot, Option<Report>), InstallError> {
     let module = level.module().cloned().ok_or(InstallError::NoModule)?;
     let place = level.place().ok_or(InstallError::NoModule)?;
     let mut stash = before.stash.to_vec();
@@ -360,7 +368,7 @@ pub(crate) fn assemble(
     }
     // The area as it was left, else its placements anew (new ids, in their
     // order).
-    let stashed = stash
+    let mut stashed = stash
         .iter()
         .position(|stashed| stashed.place.module == place.module)
         .map(|at| stash.remove(at));
@@ -374,6 +382,21 @@ pub(crate) fn assemble(
             module: place.module,
         });
     }
+    // Its objects brought onto the level's placements when the data moved
+    // or it was left before rosters were kept (`crate::reconcile`).
+    let reconciled = stashed
+        .as_mut()
+        .filter(|stashed| stashed.roster.is_none() || Restamp::of(&stashed.place, &place).is_some())
+        .map(|stashed| {
+            let party = members.iter().map(|(id, _)| SimId(*id)).collect();
+            let held = Held {
+                entities: &mut stashed.entities,
+                spawned: &mut stashed.spawned,
+                roster: &mut stashed.roster,
+                next_id: &mut next_id,
+            };
+            reconcile(held, level, &party)
+        });
     // The placements as the module was first installed: kept through the
     // stash, taken from the level only when it is planned anew.
     let roster = match &stashed {
@@ -382,30 +405,17 @@ pub(crate) fn assemble(
     };
     let made = stashed.as_ref().map_or(&[][..], |stashed| &stashed.spawned);
     let mut instances = Instances::of(level, made);
-    let fresh = stashed.is_none();
     let mut entities = match stashed {
         Some(stashed) => stashed.entities,
-        None => instances
-            .placements()
-            .map(|(index, object)| {
-                let id = SimId(next_id);
-                next_id += 1;
-                placed(id, index, object)
-            })
-            .collect(),
+        None => {
+            let numbers: Vec<u32> = instances.placements().map(|(index, _)| index).collect();
+            anew(level, &instances, &numbers, &mut next_id, &[])
+        }
     };
     stash.sort_by(|a, b| a.place.module.cmp(&b.place.module));
 
     // The players, where they arrive.
-    let states = level.states(entities.iter().filter_map(|entity| match entity.kind {
-        Kind::Object(_, index) => entity.object.as_ref().map(|object| (index, object)),
-        _ => None,
-    }));
-    if fresh {
-        level.with(states.as_deref(), |world| {
-            settle(level, world, &instances, &mut entities)
-        });
-    }
+    let states = level.states(objects(&entities));
     let (spot, _) = module.entry_for(arrival);
     let mut avatars: Vec<&EntityState> = before
         .entities
@@ -619,7 +629,7 @@ pub(crate) fn assemble(
         }
     }
     entities.sort_by_key(|entity| entity.id);
-    Ok(Snapshot {
+    let after = Snapshot {
         tick: before.tick,
         time_ms: before.time_ms,
         place: Some(place),
@@ -683,7 +693,8 @@ pub(crate) fn assemble(
         authority: before.authority,
         next_id,
         seats_held: before.seats_held,
-    })
+    };
+    Ok((after, reconciled))
 }
 
 /// The module's creatures stood where KOTOR's area loader stands them, one
@@ -725,6 +736,43 @@ fn settle(
         }
         stood.push((player.origin, mine));
     }
+}
+
+/// The objects' states among `entities`, by number (`Level::states`).
+fn objects(entities: &[EntityState]) -> impl Iterator<Item = (u32, &ObjectState)> {
+    entities
+        .iter()
+        .filter_map(|entity| match (entity.kind, entity.object.as_ref()) {
+            (Kind::Object(_, index), Some(object)) => Some((index, object)),
+            _ => None,
+        })
+}
+
+/// Placements `numbers` of `instances` as a module's first install makes
+/// them, as entities from `next_id` on: each where the module puts it
+/// (`placed`), the creatures settled one after another (`settle`) with the
+/// doors as they and `others` leave them.
+pub(crate) fn anew(
+    level: &Level,
+    instances: &Instances,
+    numbers: &[u32],
+    next_id: &mut u32,
+    others: &[EntityState],
+) -> Vec<EntityState> {
+    let mut entities: Vec<EntityState> = numbers
+        .iter()
+        .filter_map(|&index| {
+            let object = instances.get(index)?;
+            let id = SimId(*next_id);
+            *next_id += 1;
+            Some(placed(id, index, object))
+        })
+        .collect();
+    let states = level.states(objects(others).chain(objects(&entities)));
+    level.with(states.as_deref(), |world| {
+        settle(level, world, instances, &mut entities)
+    });
+    entities
 }
 
 /// Placement `index` (`object`) standing as the module puts it, as entity

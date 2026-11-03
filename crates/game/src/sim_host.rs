@@ -1407,10 +1407,14 @@ fn advance(
                     if let Some(restamp) = authority.world.stale_stamp(&prepared.plan.level) {
                         warn!(target: "save-migrate", "{restamp}");
                     }
-                    prepared
+                    let announcement = prepared
                         .plan
                         .commit(&mut authority.world)
-                        .map_err(|error| error.to_string())?
+                        .map_err(|error| error.to_string())?;
+                    if let Some(report) = authority.world.reconciled() {
+                        warn!(target: "save-migrate", "{report}");
+                    }
+                    announcement
                 }
             };
             // The announcement's hash, not the world's now: entering a

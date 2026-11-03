@@ -896,10 +896,13 @@ fn dialogue_state() {
 }
 
 /// A save against a module whose placements changed: where each old number
-/// stands in the new list, and the roster's encoding.
+/// stands in the new list, the roster's encoding, and saves loaded and
+/// modules left entered again on the proving ground after a placement was
+/// inserted, removed or added (the save migrations design, 3c).
 #[test]
 fn reconcile_numbers() {
     passed("reconcile", &sim::reconcile_probes::checks(), 6);
+    passed("reconcile at load", &sim::reconcile_probes::loads(), 6);
 }
 
 /// K1's Endar Spire, headless, answering through seat 0's command as

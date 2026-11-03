@@ -170,7 +170,7 @@ impl SimWorld {
             seats_held: config.seats,
         };
         let start = if level.module.is_some() {
-            crate::install::assemble(&start, &level, None, None, &[])?
+            crate::install::assemble(&start, &level, None, None, &[])?.0
         } else {
             start
         };
@@ -303,6 +303,7 @@ impl SimWorld {
             video_effect: snapshot.video_effect,
             instances: instances.clone(),
             roster: snapshot.roster.clone(),
+            reconciled: None,
             explored: snapshot.explored.clone(),
             visuals: snapshot.visuals.clone(),
         });

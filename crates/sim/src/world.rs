@@ -321,6 +321,9 @@ struct Module {
     pub(super) instances: Instances,
     /// Its placements as first installed (`Snapshot::roster`).
     roster: Option<Vec<crate::reconcile::Origin>>,
+    /// What reconciling the saved objects did as the world loaded or
+    /// entered the module (`SimWorld::reconciled`): not state.
+    reconciled: Option<crate::reconcile::Report>,
     /// What the party explored of each area's map (`crate::fog`).
     explored: Vec<crate::fog::Explored>,
     /// The scripts' visual effects on its doors and placeables

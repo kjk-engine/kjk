@@ -5,7 +5,8 @@
 //! Not a KOTOR save: original save games are out of scope (`ROADMAP.md`).
 
 use crate::install::{InstallError, Restamp};
-use crate::snapshot::{Kind, Snapshot};
+use crate::reconcile::{Held, reconcile};
+use crate::snapshot::{Kind, SimId, Snapshot};
 use crate::wire::{DecodeError, Reader, Stored, Writer};
 use crate::world::{Level, LevelId, SimWorld};
 
@@ -213,22 +214,43 @@ impl Save {
     /// fell, I30 P13). The menu's load and the reload both make it here.
     /// No container is held open in it (`containers::let_go`).
     pub fn world(&self, level: &Level, seats: u8, tick: Option<u64>) -> Result<SimWorld, String> {
-        self.restamp(level)?;
+        let restamp = self.restamp(level)?;
+        // The companions' kept templates the level lacks, as an install adds
+        // them (`install::with_party_templates`).
+        let level = crate::install::with_party_templates(level.clone(), &self.script.party);
         let mut snapshot = self.snapshot.clone();
+        // Its objects brought onto the level's placements when the data
+        // moved or the save was made before rosters were kept
+        // (`crate::reconcile`).
+        let reconciled = (level.place().is_some()
+            && (restamp.is_some() || snapshot.roster.is_none()))
+        .then(|| {
+            let party = crate::install::members(&self.script.party)
+                .into_iter()
+                .map(|(id, _)| SimId(id))
+                .collect();
+            let held = Held {
+                entities: &mut snapshot.entities,
+                spawned: &mut snapshot.spawned,
+                roster: &mut snapshot.roster,
+                next_id: &mut snapshot.next_id,
+            };
+            reconcile(held, &level, &party)
+        });
         snapshot.place = level.place();
         snapshot.seats_held = self.seats_for(seats);
         // The world makes its droids again (`crate::remote`).
         snapshot.remotes.clear();
-        crate::containers::let_go(&mut snapshot, level);
+        crate::containers::let_go(&mut snapshot, &level);
         if let Some(tick) = tick {
             snapshot.tick = tick;
         }
-        // The companions' kept templates the level lacks, as an install adds
-        // them (`install::with_party_templates`).
-        let level = crate::install::with_party_templates(level.clone(), &self.script.party);
         let mut world =
             SimWorld::from_snapshot(&snapshot, level).map_err(|error| error.to_string())?;
         world.set_script_state(self.script.clone());
+        if let Some(report) = reconciled {
+            world.reconciled_with(report);
+        }
         Ok(world)
     }
 
