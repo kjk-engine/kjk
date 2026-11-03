@@ -1,6 +1,7 @@
 //! The crate's probes (`kjk sim probes`).
 
 use super::*;
+use sim::probe::check;
 
 /// A refusal case: its name, the refusal expected, the change made.
 type Case<'a> = (
@@ -194,4 +195,222 @@ pub fn refusal_probes() -> Vec<(&'static str, Result<String, String>)> {
             )
         })
         .collect()
+}
+
+/// The story record (`story`, group "save story"):
+/// - the kitchen sink's story has its party, journal, globals, galaxy and
+///   the modules it visited by name;
+/// - a module with a roster keeps its destroyed objects, moved doors and
+///   locals by origin key, one without keeps its spawns alone;
+/// - the JSON round trip is equal, and a JSON without most fields reads;
+/// - a slot write puts `story.json` in the folder and `story` in the
+///   meta's formats; a slot without one, or with one that does not read,
+///   has no story, and an older meta's formats read.
+pub fn story_probes() -> sim::probe::Checks {
+    let (level, save) = sim::fixtures::kitchen_sink();
+    let story = Story::of(&save, &level);
+    let root = std::env::temp_dir().join(format!("kjk-save-story-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let checks = vec![
+        ("story_of_sink", of_sink(&story)),
+        ("story_roster_module", roster_module(&level, &save)),
+        ("story_json_round_trip", json_round_trip(&story)),
+        ("story_reads_few_fields", reads_few_fields()),
+        ("story_written_with_slot", slot_write(&root, &story)),
+        ("story_missing_is_none", missing_is_none(&root)),
+        ("formats_without_story_read", old_formats()),
+    ];
+    let _ = std::fs::remove_dir_all(&root);
+    checks
+}
+
+fn of_sink(story: &Story) -> Result<String, String> {
+    // Each name the sink's save holds, and what the story has of it.
+    let named = [
+        ("schema", story.schema == STORY_SCHEMA),
+        (
+            "number",
+            story.globals.numbers.get("K_FIXTURE_NUMBER") == Some(&7),
+        ),
+        (
+            "boolean",
+            story.globals.booleans.get("K_FIXTURE_BOOLEAN") == Some(&true),
+        ),
+        (
+            "string",
+            story
+                .globals
+                .strings
+                .get("K_FIXTURE_STRING")
+                .map(String::as_str)
+                == Some("kept"),
+        ),
+        (
+            "place",
+            story.globals.places.get("K_FIXTURE_PLACE") == Some(&([1.0, 2.0, 0.0], 90.0)),
+        ),
+        (
+            "journal",
+            story.journal == [("k_fixture_quest".to_string(), 20)],
+        ),
+        (
+            "companion",
+            story
+                .party
+                .iter()
+                .any(|c| c.npc == Some(0) && c.template == "p_fixture"),
+        ),
+        ("player", story.party.iter().any(|c| c.seat == Some(0))),
+        ("gold", story.gold == 250),
+        ("components", (story.components, story.chemicals) == (4, 6)),
+        (
+            "galaxy",
+            story.galaxy.available == [1, 2] && story.galaxy.selected == Some(1),
+        ),
+        (
+            "unescapable",
+            story.unescapable == [sim::determinism::GROUND],
+        ),
+        (
+            "transit",
+            story.transit.get(sim::determinism::GROUND) == Some(&true),
+        ),
+        (
+            "left module",
+            story
+                .visited
+                .get("proving_ground_left")
+                .is_some_and(|m| m.spawns_ran),
+        ),
+        ("leader module", !story.place.module.is_empty()),
+    ];
+    let missing: Vec<&str> = named
+        .iter()
+        .filter(|(_, ok)| !ok)
+        .map(|(name, _)| *name)
+        .collect();
+    check(missing.is_empty(), format!("missing: {missing:?}"))
+}
+
+/// The sink with a roster of a door, a placeable and a creature, and
+/// objects of them in play: the door open and locked, the placeable
+/// destroyed, the creature gone, a local on the door.
+fn roster_module(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
+    use sim::module::ObjectKind;
+    let origin = |kind, template: &str| sim::reconcile::Origin {
+        kind,
+        template: template.into(),
+        tag: template.into(),
+    };
+    let mut save = save.clone();
+    let Some(proto) = save.snapshot.entities.first().copied() else {
+        return Err("the sink has no entity".into());
+    };
+    save.snapshot.roster = Some(vec![
+        origin(ObjectKind::Door, "door_a"),
+        origin(ObjectKind::Placeable, "plc_b"),
+        origin(ObjectKind::Creature, "cre_c"),
+    ]);
+    let made = |id, kind, number, state| sim::EntityState {
+        id: sim::SimId(id),
+        kind: sim::Kind::Object(kind, number),
+        object: Some(state),
+        ..proto
+    };
+    let open_locked = sim::ObjectState {
+        state: 1,
+        lock: sim::lock::LOCKED,
+        ..sim::ObjectState::default()
+    };
+    save.snapshot.entities.extend([
+        made(9_001, ObjectKind::Door, 0, open_locked),
+        made(9_002, ObjectKind::Placeable, 1, sim::ObjectState::GONE),
+    ]);
+    save.script.locals.insert((9_001, 1, 5), 7);
+    let module = save
+        .snapshot
+        .place
+        .as_ref()
+        .map(|place| place.module.to_ascii_lowercase());
+    let story = Story::of(&save, level);
+    let key = |index, template: &str| story::OriginKey {
+        index,
+        template: template.into(),
+    };
+    let kept = module.and_then(|module| story.visited.get(&module));
+    let ok = kept.is_some_and(|kept| {
+        kept.doors == [(key(0, "door_a"), 1, sim::lock::LOCKED)]
+            && kept.destroyed == [key(1, "plc_b"), key(2, "cre_c")]
+            && kept.locals == [(key(0, "door_a"), 1, 5, 7)]
+    });
+    check(ok, format!("{kept:?}"))
+}
+
+fn json_round_trip(story: &Story) -> Result<String, String> {
+    let text = serde_json::to_string_pretty(story).map_err(|error| error.to_string())?;
+    let back: Story = serde_json::from_str(&text).map_err(|error| error.to_string())?;
+    check(back == *story, format!("{} bytes", text.len()))
+}
+
+fn reads_few_fields() -> Result<String, String> {
+    let text = r#"{"schema":9,"future":{"a":1},"globals":{"numbers":{"N":2}},"party":[{"npc":3}]}"#;
+    let story: Story = serde_json::from_str(text).map_err(|error| error.to_string())?;
+    check(
+        story.schema == 9
+            && story.globals.numbers.get("N") == Some(&2)
+            && story.party.len() == 1
+            && story.visited.is_empty(),
+        format!("{story:?}"),
+    )
+}
+
+fn slot_write(root: &Path, story: &Story) -> Result<String, String> {
+    let meta = Meta {
+        build: Some("ab12cd34ef".into()),
+        saved: 77,
+        formats: Some(Formats {
+            story: STORY_SCHEMA,
+            ..Formats::default()
+        }),
+        ..Meta::default()
+    };
+    let id = write_encoded(root, Some("0001"), b"world", &meta, Some(story))?;
+    let read = read_story(root, &id);
+    let formats = read_meta(&root.join(&id))?
+        .formats
+        .map(|formats| formats.story);
+    let stamped = Story {
+        build: "ab12cd34ef".into(),
+        saved: 77,
+        ..story.clone()
+    };
+    check(
+        root.join(&id).join(STORY).exists()
+            && read.as_ref() == Some(&stamped)
+            && formats == Some(STORY_SCHEMA),
+        format!("{:?}", read.map(|story| (story.build, story.saved))),
+    )
+}
+
+fn missing_is_none(root: &Path) -> Result<String, String> {
+    let meta = Meta::default();
+    write_encoded(root, Some("0002"), b"world", &meta, None)?;
+    write_encoded(root, Some("0003"), b"world", &meta, Some(&Story::default()))?;
+    std::fs::write(root.join("0003").join(STORY), "not json").map_err(|error| error.to_string())?;
+    let found = ["0002", "0003", "0004", "../0001"].map(|id| read_story(root, id).is_some());
+    check(found == [false; 4], format!("{found:?}"))
+}
+
+fn old_formats() -> Result<String, String> {
+    let text = r#"{"name":"old","module":"m","area":"a","saved":1,"seats":1,"formats":{"save":59,"snapshot":72}}"#;
+    let (meta, _) = parse_meta(text)?;
+    check(
+        meta.formats
+            == Some(Formats {
+                save: 59,
+                snapshot: 72,
+                story: 0,
+            }),
+        format!("{:?}", meta.formats),
+    )
 }

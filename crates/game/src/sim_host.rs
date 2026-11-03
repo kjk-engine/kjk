@@ -1121,6 +1121,7 @@ fn store(
         formats: Some(saves::Formats {
             save: sim::SAVE_FORMAT,
             snapshot: sim::SNAPSHOT_FORMAT,
+            story: saves::STORY_SCHEMA,
         }),
         ..saves::Meta::default()
     };
@@ -1132,10 +1133,13 @@ fn store(
         snapshot,
     };
     let world = save.encode();
+    let story = saves::Story::of(&save, authority.world.level());
     let root = crate::save_view::folder().ok_or("no folder for saves here")?;
     let id = match slot {
-        Slot::Named(slot) => saves::write_encoded(&root, slot.as_deref(), &world, &meta)?,
-        Slot::Auto => saves::write_auto(&root, &world, &meta)?,
+        Slot::Named(slot) => {
+            saves::write_encoded(&root, slot.as_deref(), &world, &meta, Some(&story))?
+        }
+        Slot::Auto => saves::write_auto(&root, &world, &meta, Some(&story))?,
     };
     // The whole save's hash (the VM's state too): a load of it says the
     // same (`play::load`).

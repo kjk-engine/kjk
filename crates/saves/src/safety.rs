@@ -9,11 +9,14 @@ use serde::{Deserialize, Serialize};
 use crate::Meta;
 
 /// The formats a save was written in (`sim::save::FORMAT`,
-/// `sim::snapshot::FORMAT`).
+/// `sim::snapshot::FORMAT`), and the schema of the story beside it (0 for
+/// none, as in a meta from before it).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Formats {
     pub save: u32,
     pub snapshot: u32,
+    #[serde(default)]
+    pub story: u32,
 }
 
 /// The autosaves' slots, the newest first.
@@ -30,8 +33,13 @@ pub(crate) const KEPT_BACKUPS: usize = 5;
 pub(crate) const STAMP: &str = ".build";
 
 /// `world` written as the newest autosave, the earlier two moved down a
-/// slot (the oldest gone); its id.
-pub fn write_auto(root: &Path, world: &[u8], meta: &Meta) -> Result<String, String> {
+/// slot (the oldest gone), with its `story` if it has one; its id.
+pub fn write_auto(
+    root: &Path,
+    world: &[u8],
+    meta: &Meta,
+    story: Option<&crate::Story>,
+) -> Result<String, String> {
     std::fs::create_dir_all(root).map_err(crate::failed(root))?;
     for pair in (0..AUTOS.len() - 1).rev() {
         let (from, to) = (root.join(AUTOS[pair]), root.join(AUTOS[pair + 1]));
@@ -43,7 +51,7 @@ pub fn write_auto(root: &Path, world: &[u8], meta: &Meta) -> Result<String, Stri
         }
         std::fs::rename(&from, &to).map_err(crate::failed(&from))?;
     }
-    crate::write_encoded(root, Some(AUTOS[0]), world, meta)
+    crate::write_encoded(root, Some(AUTOS[0]), world, meta, story)
 }
 
 /// Before `version` (`build`) first touches the saves in `root`: when the
