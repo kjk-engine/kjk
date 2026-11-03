@@ -1900,7 +1900,7 @@ pub enum Change {
     /// (`CancelCombat`).
     CancelCombat { who: ObjectId },
     /// `who` attacks a target in its reach with a blade or fists, or
-    /// begins using a talent: in combat from now, as after a blow
+    /// begins using a talent on itself: in combat from now, as after a blow
     /// (`script::actions`, attack and talent).
     InCombat { who: ObjectId },
     /// `who` in TSL's fake combat (`on`, unless it fights for real) or out
@@ -2834,14 +2834,20 @@ impl Step<'_> {
                         // come within the talent's reach).
                         let end = self.state.rounds.get(&id).copied();
                         let over = now >= end.unwrap_or(u64::MAX).min(started + ROUND_MS);
-                        // A cast starts a combat round, on itself too (the
-                        // exes' AIActionCastSpell calls StartCombatRound), so
-                        // its end-of-round script runs: the Star Forge
-                        // freezer's Resist Force on itself is what makes it
-                        // engage and unlock its door.
+                        // A cast on itself starts a combat round (the exes'
+                        // AIActionCastSpell calls StartCombatRound), so its
+                        // end-of-round script runs: the Star Forge freezer's
+                        // Resist Force on itself is what makes it engage and
+                        // unlock its door. One on another is in combat as
+                        // its blow lands; in combat from its start, the
+                        // feats and powers of Telos's mercenaries and
+                        // Korriban's Mandalorian vision kept fights going
+                        // that their scripts end.
                         if starting {
                             self.attacking(id, Some(*talent));
-                            self.out.changes.push(Change::InCombat { who });
+                            if *target == who {
+                                self.out.changes.push(Change::InCombat { who });
+                            }
                         }
                         if !over {
                             let intent = Intent {

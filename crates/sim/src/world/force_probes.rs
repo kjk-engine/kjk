@@ -365,6 +365,16 @@ fn rounds() -> (Ncs, Ncs) {
     (done(round), done(cast))
 }
 
+/// `probe_other_talent`, run as the NPC: it uses `KNOWN` on the player.
+fn other_talent() -> Ncs {
+    let mut cast = Asm::default();
+    cast.op(pc())
+        .op(int(i32::from(KNOWN)))
+        .op(call(42, 1))
+        .op(call(43, 2));
+    done(cast)
+}
+
 /// `probe_mines`: a mine spawned at the spot with no creator (DCs +2, +3),
 /// then one the player spawned. Run as a mine, `probe_mine_owner`: the
 /// Demolitions it was set with (token 70); `probe_detonate` sets it off.
@@ -452,6 +462,7 @@ fn library(regeneration: bool) -> crate::script::Library {
     let mut scripts = vec![
         ("probe_round_end", round),
         ("probe_self_talent", self_talent),
+        ("probe_other_talent", other_talent()),
         ("probe_book", book()),
         ("probe_forms", form_routines()),
         ("probe_bonus_add", add),
@@ -1061,6 +1072,7 @@ fn fake_combat() -> Result<String, String> {
 /// combat and its rounds run (the Star Forge freezer's Resist Force, after
 /// which it engages and its door opens).
 fn talent_starts_a_round() -> Result<String, String> {
+    let mut other_world = world(false)?;
     let mut world = world(false)?;
     let first = idle(&mut world);
     let jedi = npc(&first).ok_or("no NPC")?;
@@ -1072,14 +1084,22 @@ fn talent_starts_a_round() -> Result<String, String> {
             .and_then(|text| text.parse::<i32>().ok())
             .unwrap_or(0)
     };
+    // A cast on another (the player) starts no round of its own: in combat
+    // only as its blow lands, as Telos's mercenaries' feats.
+    idle(&mut other_world);
+    let other = run(&mut other_world, "probe_other_talent", ObjectId(jedi.0));
+    let other_fighting =
+        fighter_of(&idle(&mut other_world), jedi).is_some_and(|f| f.combat_until > other.time_ms);
     let idle_rounds = count(&wait(&mut world, 4000));
     let cast = run(&mut world, "probe_self_talent", ObjectId(jedi.0));
     let fighting =
         fighter_of(&idle(&mut world), jedi).is_some_and(|f| f.combat_until > cast.time_ms);
     let rounds = count(&wait(&mut world, 4000));
     check(
-        idle_rounds == 0 && fighting && rounds >= 1,
-        format!("rounds out of combat {idle_rounds}, in combat {fighting}, rounds after {rounds}"),
+        idle_rounds == 0 && fighting && rounds >= 1 && !other_fighting,
+        format!(
+            "rounds out of combat {idle_rounds}, in combat {fighting}, rounds after {rounds}; a cast on the player in combat {other_fighting}"
+        ),
     )
 }
 
