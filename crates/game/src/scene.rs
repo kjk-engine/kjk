@@ -186,6 +186,12 @@ impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(crate::warmup::WarmupPlugin)
             .add_observer(lean_camera);
+        // A camera drawing over the world (`over_world`) starts from the
+        // target as the cameras before it left it, their post passes (the
+        // video grade) included: without the writeback its MSAA samples
+        // still hold the world as drawn, and resolving them over the frame
+        // undid every pass between whenever it drew anything.
+        app.add_plugins(bevy_post_process::msaa_writeback::MsaaWritebackPlugin);
         app.add_plugins((
             OdysseyMaterialPlugin,
             crate::shell::ShellPlugin,

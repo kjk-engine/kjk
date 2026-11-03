@@ -33,6 +33,11 @@ const DART_REVIVE_COOLDOWN_MS: u64 = rules::remote::dart::REVIVE_COOLDOWN_MS;
 const DART_HEAL_COOLDOWN_MS: u64 = rules::remote::dart::HEAL_COOLDOWN_MS;
 pub(crate) const HEAL_PERMILLE: i32 = rules::remote::dart::HEAL_PERMILLE;
 pub(crate) const REVIVE_PERMILLE: i32 = rules::remote::dart::REVIVE_PERMILLE;
+/// The `visualeffects.2da` rows a stim dart shows on its patient: KOTOR's
+/// medpac's (`VFX_IMP_HEALING_SMALL`), and its full heal's for one got up
+/// (`VFX_IMP_HEAL`).
+pub(crate) const HEALED_VISUAL: u16 = 1001;
+pub(crate) const REVIVED_VISUAL: u16 = 1019;
 
 /// What a shock bolt strikes with: its fixed points, untyped, the sim's
 /// own (not a story's staged blow).
@@ -88,6 +93,8 @@ struct Deeds {
     thrown: Vec<(SimId, Vec3, bool)>,
     /// Up again with hundredths of an HP.
     revived: Vec<(SimId, i32)>,
+    /// A visual effect's row shown on a body.
+    marked: Vec<(SimId, u16)>,
 }
 
 /// See the module documentation.
@@ -95,7 +102,10 @@ pub(crate) fn kit(world: &mut World) {
     if world.resource::<Remotes>().0.is_empty() {
         return;
     }
-    let now = world.resource::<Clock>().time_ms;
+    let (now, tick) = {
+        let clock = world.resource::<Clock>();
+        (clock.time_ms, clock.tick)
+    };
     let lost = world.resource::<falls::Lost>().0.is_some();
     let level = world.resource::<Static>().0.clone();
     let states = {
@@ -131,6 +141,10 @@ pub(crate) fn kit(world: &mut World) {
             if pressed(buttons::ATTACK, KIT_BOLT) {
                 remote.ready_ms[KIT_BOLT] = now + BOLT_CADENCE_MS;
                 let met = scene.first(remote.at, aim, BOLT_RANGE_M, |_| true);
+                remote.bolt_to = met.map_or_else(
+                    || math::mad(remote.at, scene.open(remote.at, aim, BOLT_RANGE_M), aim),
+                    |(_, point)| point,
+                );
                 if let (Some((at, point)), Some(credit)) = (met, credit)
                     && gate.fair(bodies[at].id) == gate::Fair::Yes
                 {
@@ -164,6 +178,12 @@ pub(crate) fn kit(world: &mut World) {
                     continue;
                 }
                 darted.push(body.id);
+                let row = if body.downed {
+                    REVIVED_VISUAL
+                } else {
+                    HEALED_VISUAL
+                };
+                deeds.marked.push((body.id, row));
                 if body.downed {
                     deeds
                         .revived
@@ -180,7 +200,7 @@ pub(crate) fn kit(world: &mut World) {
         deeds
     };
     world.resource_mut::<Remotes>().0 = remotes;
-    apply(world, deeds, now);
+    apply(world, deeds, now, tick);
 }
 
 /// Where a seat's view points: its full direction.
@@ -343,10 +363,10 @@ fn entry(from: Vec3, aim: Vec3, min: Vec3, max: Vec3) -> Option<f32> {
 
 /// Does the step's deeds: the hits and heals for `hurt`, the throws and
 /// revives on the bodies now.
-fn apply(world: &mut World, deeds: Deeds, now: u64) {
+fn apply(world: &mut World, deeds: Deeds, now: u64, tick: u64) {
     world.resource_mut::<Hits>().0.extend(deeds.hits);
     world.resource_mut::<Heals>().0.extend(deeds.heals);
-    if deeds.thrown.is_empty() && deeds.revived.is_empty() {
+    if deeds.thrown.is_empty() && deeds.revived.is_empty() && deeds.marked.is_empty() {
         return;
     }
     let anims = world.resource::<Static>().0.anims.clone();
@@ -366,6 +386,17 @@ fn apply(world: &mut World, deeds: Deeds, now: u64) {
         }
         for (_, hp) in deeds.revived.iter().filter(|(of, _)| *of == id.0) {
             falls::get_up(&mut player.0, &mut fighting.0, &anims, *hp, now);
+        }
+        for (_, row) in deeds.marked.iter().filter(|(of, _)| *of == id.0) {
+            let visual = crate::combat::fighter::Visual {
+                row: *row,
+                ms: 0,
+                beam: false,
+                part: 0,
+            };
+            (fighting.0).record(crate::combat::fighter::Event::visual(
+                visual, None, None, tick,
+            ));
         }
     }
 }

@@ -1,0 +1,7 @@
+sim = "a remote droid's kit marks what it does with KOTOR's visual effects (the stim dart's heal on its patient)"
+
+[formats]
+snapshot = "a remote droid carries its view's pitch and where its last shock bolt stopped (`Remote::pitch`, `Remote::bolt_to`)."
+
+[migrations]
+snapshot = "old saves read a level view and the last bolt stopped at the droid: a save holds no droid, the world makes them again each step"

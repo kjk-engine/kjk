@@ -68,6 +68,7 @@ use sim::combat::sheet::{Blaster, Sheet};
 use sim::combat::{Delivery, Fighter, Location, Weapon};
 use sim::module::ObjectKind;
 use sim::motion::{self, Anim, MotionState};
+use sim::remote::Remote;
 use sim::script::dialogue::Conversation;
 use sim::skeleton::{Blade, Hand};
 use sim::{EntityState, Instances, Kind, Seat, SimId, Snapshot};
@@ -391,11 +392,10 @@ pub fn blended(history: &[Arc<Snapshot>], id: SimId, ms: f64) -> Option<Blended>
     })
 }
 
-/// Seat `seat`'s remote droid at `ms` in `history`, as the camera follows
-/// it: a body standing at its place (units), looking along its yaw at
-/// `pitch`, its eyes at its middle. None while it waits out a hold
-/// (`Remote::hidden`) or has none.
-pub fn remote_at(history: &[Arc<Snapshot>], seat: Seat, ms: f64, pitch: f32) -> Option<Blended> {
+/// Seat `seat`'s remote droid at `ms` in `history`: its place, yaw and
+/// pitch blended between the snapshots either side. None while it waits
+/// out a hold (`Remote::hidden`) or has none.
+pub fn remote_in(history: &[Arc<Snapshot>], seat: Seat, ms: f64) -> Option<Remote> {
     let after = history.iter().position(|s| s.time_ms as f64 >= ms);
     let (a, b) = match after {
         Some(0) => (history.first()?, history.first()?),
@@ -410,19 +410,30 @@ pub fn remote_at(history: &[Arc<Snapshot>], seat: Seat, ms: f64, pitch: f32) -> 
     } else {
         1.0
     };
-    let origin = lerp(ra.at, rb.at, t).map(|metres| metres / UNIT);
-    let yaw = ra.yaw + angles::wrap_180(rb.yaw - ra.yaw) * t;
-    let mut state = MotionState::standing(origin, yaw);
+    let turned = |from: f32, to: f32| from + angles::wrap_180(to - from) * t;
+    Some(Remote {
+        at: lerp(ra.at, rb.at, t),
+        yaw: turned(ra.yaw, rb.yaw),
+        pitch: turned(ra.pitch, rb.pitch),
+        ..*rb
+    })
+}
+
+/// A remote droid as the camera follows it: a body standing at its place
+/// (units), looking along its view, its eyes at its middle.
+pub fn remote_body(remote: &Remote) -> Blended {
+    let origin = remote.at.map(|metres| metres / UNIT);
+    let mut state = MotionState::standing(origin, remote.yaw);
     state.eye_height = 0.0;
-    Some(Blended {
+    Blended {
         state,
         origin,
-        view: [pitch, yaw, 0.0],
+        view: [remote.pitch, remote.yaw, 0.0],
         alive: true,
         dead: false,
         fighter: None,
         thrown_at: None,
-    })
+    }
 }
 
 /// An entity of a snapshot by id (entities are ordered by id).

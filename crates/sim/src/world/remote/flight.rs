@@ -132,6 +132,7 @@ pub(in crate::world) fn fly(
             continue;
         }
         remote.yaw = short_to_degrees(command.angles[1]);
+        remote.pitch = short_to_degrees(command.angles[0]);
         let (sin, cos) = sin_cos_deg(remote.yaw);
         let [ahead, right, up] =
             [command.forward, command.right, command.up].map(|axis| f32::from(axis) / 127.0);
