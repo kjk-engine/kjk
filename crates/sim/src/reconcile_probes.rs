@@ -678,6 +678,17 @@ enum Saved {
     Current,
     /// The digest of the script as it was.
     Changed,
+    /// The digest of a script the level lacks: code carried from another
+    /// module.
+    Absent,
+}
+
+/// `level` with its module named in capitals, as KOTOR's module names
+/// often are while the scripts' state keys them in lower case.
+fn capitals(level: Level) -> Level {
+    let mut data = (**level.module().expect("the proving ground is a module")).clone();
+    data.name = data.name.to_uppercase();
+    level.with_module(data)
 }
 
 /// The save's continuation of `CODE_SCRIPT`, as a `Delayed` carrying `code`.
@@ -702,14 +713,19 @@ fn continuation(code: Option<[u8; 32]>) -> Delayed {
 }
 
 /// Loads a save holding deferred code of `CODE_SCRIPT` in `waits`, saved
-/// with `saved`, into a level whose script is `scripted(1)`.
-fn load_with_code(waits: Waits, saved: Saved) -> Result<(), String> {
+/// with `saved`, into a level whose script is `scripted(1)` (none for
+/// `Saved::Absent`); its module named in capitals.
+fn load_with_code(waits: Waits, saved: Saved) -> Result<SimWorld, String> {
     let code = match saved {
         Saved::Nothing => None,
-        Saved::Current => scripted(1).script_digest(CODE_SCRIPT),
+        Saved::Current | Saved::Absent => scripted(1).script_digest(CODE_SCRIPT),
         Saved::Changed => scripted(2).script_digest(CODE_SCRIPT),
     };
-    let (base, changed) = (ground(|_| {}), ground(|_| {}).with_scripts(scripted(1)));
+    let base = capitals(ground(|_| {}));
+    let changed = match saved {
+        Saved::Absent => base.clone(),
+        _ => base.clone().with_scripts(scripted(1)),
+    };
     let (mut save, before) = save(&base)?;
     let held = continuation(code);
     match waits {
@@ -742,80 +758,102 @@ fn load_with_code(waits: Waits, saved: Saved) -> Result<(), String> {
                 .install(elsewhere, None)
                 .map_err(|error| error.to_string())?;
             let mut state = world.script_state().clone();
-            state.left.entry(module).or_default().delayed.push(held);
+            // Keyed as `State::leave_module` keys it.
+            let key = crate::script::key(&module);
+            state.left.entry(key).or_default().delayed.push(held);
             world.set_script_state(state);
-            return world
+            world
                 .install(changed, None)
-                .map(drop)
-                .map_err(|error| error.to_string());
+                .map_err(|error| error.to_string())?;
+            return Ok(world);
         }
     }
-    save.world(&changed, 1, None).map(drop)
+    save.world(&changed, 1, None)
+}
+
+/// Whether `world` keeps none of `CODE_SCRIPT`'s code, waiting or queued,
+/// and logs one line for each continuation dropped.
+fn code_dropped(world: &SimWorld) -> bool {
+    let state = world.script_state();
+    let queued = state.actions.values().flatten().any(
+        |queued| matches!(&queued.action, Action::Code { script, .. } if script == CODE_SCRIPT),
+    );
+    let waiting = state
+        .delayed
+        .iter()
+        .any(|delayed| delayed.script == CODE_SCRIPT);
+    let lines = world.dropped_code();
+    !queued && !waiting && lines.len() == 1 && lines[0].contains(CODE_SCRIPT)
 }
 
 /// Saved continuations of scripts that changed refuse the load, naming the
 /// script; those of the same bytes, and those saved before digests were
-/// kept, load.
+/// kept, load; those of a script the level lacks load without them, each
+/// logged. A module left is found whatever the case of its name.
 fn deferred_code() -> Vec<Check> {
     let rows = [
         (
             "deferred code of a changed script",
             Waits::Delayed,
             Saved::Changed,
-            true,
         ),
         (
             "deferred code of the same script",
             Waits::Delayed,
             Saved::Current,
-            false,
         ),
         (
             "deferred code saved before digests",
             Waits::Delayed,
             Saved::Nothing,
-            false,
+        ),
+        (
+            "deferred code of a script the level lacks",
+            Waits::Delayed,
+            Saved::Absent,
         ),
         (
             "queued code of a changed script",
             Waits::Queued,
             Saved::Changed,
-            true,
         ),
         (
             "queued code of the same script",
             Waits::Queued,
             Saved::Current,
-            false,
+        ),
+        (
+            "queued code of a script the level lacks",
+            Waits::Queued,
+            Saved::Absent,
         ),
         (
             "a module left, its code changed",
             Waits::Left,
             Saved::Changed,
-            true,
         ),
         (
             "a module left, its code the same",
             Waits::Left,
             Saved::Current,
-            false,
         ),
+        ("a module left, its script gone", Waits::Left, Saved::Absent),
     ];
+    let refusal = InstallError::CodeChanged {
+        scripts: vec![CODE_SCRIPT.into()],
+    }
+    .to_string();
     rows.into_iter()
-        .map(|(name, waits, saved, refused)| {
+        .map(|(name, waits, saved)| {
             let outcome = load_with_code(waits, saved);
-            let ok = match &outcome {
-                Ok(()) => !refused,
-                Err(error) => {
-                    refused
-                        && *error
-                            == InstallError::CodeChanged {
-                                scripts: vec![CODE_SCRIPT.into()],
-                            }
-                            .to_string()
-                }
+            let ok = match (&outcome, saved) {
+                (Err(error), Saved::Changed) => *error == refusal,
+                (Ok(world), Saved::Absent) => code_dropped(world),
+                (Ok(world), _) => world.dropped_code().is_empty(),
+                (Err(_), _) => false,
             };
-            check(name, ok, format!("{outcome:?}"))
+            let seen = outcome.map(|world| world.dropped_code().to_vec());
+            check(name, ok, format!("{seen:?}"))
         })
         .collect()
 }

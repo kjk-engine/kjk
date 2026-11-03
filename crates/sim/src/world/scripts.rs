@@ -1983,6 +1983,16 @@ impl SimWorld {
         }
         self.world.resource_mut::<super::Module>().reconciled = Some(report);
     }
+
+    /// The saved continuations dropped as this world loaded or entered its
+    /// module, one `save-migrate` line each (`reconcile::drop_absent_code`).
+    pub fn dropped_code(&self) -> &[String] {
+        &self.world.resource::<super::Module>().dropped_code
+    }
+
+    pub(crate) fn dropped_code_with(&mut self, lines: Vec<String>) {
+        self.world.resource_mut::<super::Module>().dropped_code = lines;
+    }
 }
 
 /// Placements come alive (each its entity's id and facts): every one's

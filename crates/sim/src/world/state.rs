@@ -304,6 +304,7 @@ impl SimWorld {
             instances: instances.clone(),
             roster: snapshot.roster.clone(),
             reconciled: None,
+            dropped_code: Vec::new(),
             explored: snapshot.explored.clone(),
             visuals: snapshot.visuals.clone(),
         });

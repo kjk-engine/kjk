@@ -207,8 +207,10 @@ impl Save {
 
     /// The scripts whose deferred code in this save no longer matches
     /// `level`'s (`reconcile::stale_code`): `world` refuses the save while
-    /// there are any, with `InstallError::CodeChanged`'s text. The code a
-    /// module left waits in is checked as it is entered (`SimWorld::install`).
+    /// there are any, with `InstallError::CodeChanged`'s text, and drops
+    /// those whose script the level lacks (`reconcile::drop_absent_code`).
+    /// The code a module left waits in is checked as it is entered
+    /// (`SimWorld::install`).
     pub fn stale_code(&self, level: &Level) -> Vec<String> {
         level.scripts().map_or_else(Vec::new, |library| {
             crate::reconcile::stale_code(library, &self.script)
@@ -261,12 +263,20 @@ impl Save {
         if let Some(tick) = tick {
             snapshot.tick = tick;
         }
+        let mut script = self.script.clone();
+        let dropped = match (level.scripts(), level.place()) {
+            (Some(library), Some(place)) => {
+                crate::reconcile::drop_absent_code(library, &mut script, &place.module)
+            }
+            _ => Vec::new(),
+        };
         let mut world =
             SimWorld::from_snapshot(&snapshot, level).map_err(|error| error.to_string())?;
-        world.set_script_state(self.script.clone());
+        world.set_script_state(script);
         if let Some(report) = reconciled {
             world.reconciled_with(report);
         }
+        world.dropped_code_with(dropped);
         Ok(world)
     }
 

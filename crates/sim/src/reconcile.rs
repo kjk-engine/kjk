@@ -456,8 +456,9 @@ fn made_in_play(
 /// The scripts whose saved continuations (`Delayed`, queued
 /// `Action::Code`) were deferred from other bytes than `library`'s now: code
 /// points into a compiled script, so one whose script changed cannot be
-/// resumed. Continuations saved before digests were kept are trusted; a
-/// script the library lacks counts as changed. Sorted, each once.
+/// resumed. Continuations saved before digests were kept are trusted, and
+/// so is one whose script the library lacks (`drop_absent_code`). Sorted,
+/// each once.
 pub fn stale_code(library: &Library, script: &script::State) -> Vec<String> {
     stale(library, &script.delayed, &script.actions)
 }
@@ -465,9 +466,74 @@ pub fn stale_code(library: &Library, script: &script::State) -> Vec<String> {
 /// `stale_code` of what the scripts keep waiting in `module`, a module the
 /// party left (`script::State::left`).
 pub fn stale_left_code(library: &Library, script: &script::State, module: &str) -> Vec<String> {
-    script.left.get(module).map_or_else(Vec::new, |left| {
-        stale(library, &left.delayed, &left.actions)
-    })
+    script
+        .left
+        .get(&script::key(module))
+        .map_or_else(Vec::new, |left| {
+            stale(library, &left.delayed, &left.actions)
+        })
+}
+
+/// Drops the saved continuations whose script `library` lacks, the code
+/// the party carried from the module it came from (`State::leave_module`
+/// keeps the party's own): run, it would do nothing, as no program is
+/// found. One line for each, naming `module` and the script.
+pub fn drop_absent_code(
+    library: &Library,
+    script: &mut script::State,
+    module: &str,
+) -> Vec<String> {
+    absent(library, &mut script.delayed, &mut script.actions, module)
+}
+
+/// `drop_absent_code` of what the scripts keep waiting in `module`, a
+/// module the party left.
+pub fn drop_absent_left_code(
+    library: &Library,
+    script: &mut script::State,
+    module: &str,
+) -> Vec<String> {
+    script
+        .left
+        .get_mut(&script::key(module))
+        .map_or_else(Vec::new, |left| {
+            absent(library, &mut left.delayed, &mut left.actions, module)
+        })
+}
+
+/// Whether code `code` deferred from `script` is saved with a digest but
+/// `library` holds no such script.
+fn lacks(library: &Library, script: &str, code: Option<[u8; 32]>) -> bool {
+    code.is_some() && library.script_digest(script).is_none()
+}
+
+fn absent(
+    library: &Library,
+    delayed: &mut Vec<Delayed>,
+    actions: &mut BTreeMap<u32, Vec<Queued>>,
+    module: &str,
+) -> Vec<String> {
+    let mut dropped = Vec::new();
+    let mut drop_if = |script: &str, code: Option<[u8; 32]>| {
+        let gone = lacks(library, script, code);
+        if gone {
+            dropped.push(format!(
+                "{module}: deferred code of {script} dropped, a script the module lacks"
+            ));
+        }
+        !gone
+    };
+    delayed.retain(|delayed| drop_if(&delayed.script, delayed.code));
+    // A queue left empty by its code dropped goes too.
+    actions.retain(|_, queue| {
+        let held = queue.len();
+        queue.retain(|queued| match &queued.action {
+            Action::Code { script, code, .. } => drop_if(script, *code),
+            _ => true,
+        });
+        held == 0 || !queue.is_empty()
+    });
+    dropped
 }
 
 fn stale(
@@ -487,7 +553,7 @@ fn stale(
         .map(|delayed| (&delayed.script, delayed.code))
         .chain(queued)
         .filter(|(script, code)| {
-            code.is_some_and(|code| library.script_digest(script) != Some(code))
+            code.is_some_and(|code| library.script_digest(script).is_some_and(|now| now != code))
         })
         .map(|(script, _)| script.clone())
         .collect();

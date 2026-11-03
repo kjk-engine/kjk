@@ -324,6 +324,9 @@ struct Module {
     /// What reconciling the saved objects did as the world loaded or
     /// entered the module (`SimWorld::reconciled`): not state.
     reconciled: Option<crate::reconcile::Report>,
+    /// The saved continuations dropped as the world loaded or entered the
+    /// module, one line each (`reconcile::drop_absent_code`): not state.
+    dropped_code: Vec<String>,
     /// What the party explored of each area's map (`crate::fog`).
     explored: Vec<crate::fog::Explored>,
     /// The scripts' visual effects on its doors and placeables

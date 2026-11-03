@@ -902,7 +902,7 @@ fn dialogue_state() {
 #[test]
 fn reconcile_numbers() {
     passed("reconcile", &sim::reconcile_probes::checks(), 11);
-    passed("reconcile at load", &sim::reconcile_probes::loads(), 14);
+    passed("reconcile at load", &sim::reconcile_probes::loads(), 17);
 }
 
 /// K1's Endar Spire, headless, answering through seat 0's command as

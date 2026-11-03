@@ -40,7 +40,9 @@ use crate::math;
 use crate::module::ObjectData;
 use crate::module::{ModuleData, ObjectKind, Spot};
 use crate::motion::{self, MotionState};
-use crate::reconcile::{Held, Party, Report, reconcile, roster, stale_left_code};
+use crate::reconcile::{
+    Held, Party, Report, drop_absent_left_code, reconcile, roster, stale_left_code,
+};
 use crate::snapshot::{
     EntityState, Kind, ObjectState, Place, SimId, Snapshot, SnapshotHash, Stashed,
 };
@@ -232,11 +234,19 @@ impl SimWorld {
             last.as_ref().unwrap_or(&empty),
             next_catalog.as_ref().unwrap_or(&empty),
         );
+        // What the module left waiting in scripts it lacks does nothing.
+        let dropped = match (next.level().scripts(), &after.place) {
+            (Some(library), Some(place)) => {
+                drop_absent_left_code(library, &mut carried.state, &place.module)
+            }
+            _ => Vec::new(),
+        };
         *self = next;
         self.enter_module(carried);
         if let Some(report) = reconciled {
             self.reconciled_with(report);
         }
+        self.dropped_code_with(dropped);
         Ok(after)
     }
 }
