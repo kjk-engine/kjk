@@ -1673,12 +1673,12 @@ fn feats() {
 /// kept byte for byte, refused when foreign, replaced by a later copy, the
 /// player's own saves untouched, two hosts of one name apart, a host's
 /// copies capped, no number left refused, ids inside the folder) and
-/// `saves::refusal_probes` (what refuses a save) and `saves::story_probes` (a save's story by name, its roster module, a JSON round trip, a slot write with `story.json`, a missing one read as none, an item the module lacks restored from the install's lookup, else lost, and the story restored and written again equal but for what each case names as lost, spec 4c); no install.
+/// `saves::refusal_probes` (what refuses a save) and `saves::story_probes` (a save's story by name, its roster module, a JSON round trip, a slot write with `story.json`, a missing one read as none, a companion who joined and left keeping her items in the story, one who never joined none, an item the module lacks restored from the install's lookup, else lost, and the story restored and written again equal but for what each case names as lost, spec 4c); no install.
 #[test]
 fn save_copy_round_trip() {
     probed("save copies", &saves::copies::probes(), 12);
     probed("save refusals", &saves::refusal_probes(), 14);
-    probed("save story", &saves::story_probes(), 12);
+    probed("save story", &saves::story_probes(), 13);
 }
 
 /// The saves' safety net (`saves::safety_probes`): the meta's new fields
@@ -1688,11 +1688,11 @@ fn save_copy_round_trip() {
 /// and the release gate's corpus (`saves::corpus_probes`): a slot folder read
 /// back whole and a damaged one refused, the corpus's slots found by release,
 /// a current save passing, one older than a fake `breaking` entry expected
-/// (and failing without the entry), the table printed; no install.
+/// (and failing without the entry or when its story restore lost something), the table printed, a slot written only under a plain name, a panicking save a FAIL row among the others; no install.
 #[test]
 fn save_safety() {
     probed("save safety", &saves::safety_probes(), 11);
-    probed("save corpus", &saves::corpus_probes(), 5);
+    probed("save corpus", &saves::corpus_probes(), 7);
 }
 
 /// The flight recorder's file (`sim::flight::probes`): the pinned run kept

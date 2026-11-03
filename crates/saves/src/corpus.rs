@@ -56,16 +56,27 @@ impl Slot {
         Ok(Slot { world, meta, story })
     }
 
-    /// The slot written as `folder`, which a slot there before is replaced
-    /// by.
-    pub fn write(&self, folder: &Path) -> Result<(), String> {
-        if folder.exists() {
-            std::fs::remove_dir_all(folder).map_err(crate::failed(folder))?;
+    /// The slot written as `name` under `root`, a slot of that name there
+    /// before replaced. Only that folder is ever removed: `name` is one
+    /// plain folder name (`valid_name`).
+    pub fn write(&self, root: &Path, name: &str) -> Result<(), String> {
+        if !valid_name(name) {
+            return Err(format!("{name:?}: not a name for a slot"));
         }
-        std::fs::create_dir_all(folder).map_err(crate::failed(folder))?;
+        let folder = root.join(name);
+        if folder.exists() {
+            std::fs::remove_dir_all(&folder).map_err(crate::failed(&folder))?;
+        }
+        std::fs::create_dir_all(&folder).map_err(crate::failed(&folder))?;
         let meta = self.meta.clone().unwrap_or_else(Meta::default);
-        crate::fill(folder, &self.world, &meta, self.story.as_ref(), None)
+        crate::fill(&folder, &self.world, &meta, self.story.as_ref(), None)
     }
+}
+
+/// Whether `name` is one plain folder name: not empty, not starting with a
+/// dot (`.`, `..`, a hidden folder), with no separator in it.
+pub fn valid_name(name: &str) -> bool {
+    !name.is_empty() && !name.starts_with('.') && !name.contains(['/', '\\'])
 }
 
 /// The slots under `corpus`: `<release>/<name>` folders, or `<name>` ones
@@ -155,8 +166,10 @@ pub enum Verdict {
 }
 
 impl Verdict {
-    /// The verdict on a save that `decoded` (or was refused, with
-    /// `error`) and met `problems` in the steps after.
+    /// The verdict on a save that `decoded` (or was refused, with `error`)
+    /// and met `problems` in the steps after. A refusal is expected when
+    /// the save's release is before a `breaking` bump, and stays so only if
+    /// what rescues it, the story's restore, held (no `problems`).
     pub fn of(
         decoded: Result<(), &sim::DecodeError>,
         breaking: &Breaking,
@@ -164,7 +177,8 @@ impl Verdict {
     ) -> Verdict {
         match decoded {
             Err(error) => match breaking.refusal(error) {
-                Some(why) => Verdict::Expected(why),
+                Some(why) if problems.is_empty() => Verdict::Expected(why),
+                Some(why) => Verdict::Fail(format!("{why}, and {}", problems.join("; "))),
                 None => Verdict::Fail(format!("refused: {error}")),
             },
             Ok(()) if problems.is_empty() => Verdict::Pass,
@@ -216,6 +230,30 @@ impl Row {
             self.verdict.to_string(),
         ]
     }
+}
+
+/// `step`'s row, or, if it panics, a row of `name` and `release` that
+/// failed with the panic's words: one save's panic is that save's failure,
+/// not the table's.
+pub fn guarded(name: &str, release: &str, step: impl FnOnce() -> Row) -> Row {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(step)).unwrap_or_else(|panic| Row {
+        name: name.to_string(),
+        release: release.to_string(),
+        formats: "-".into(),
+        stamps: 0,
+        reconcile: "-".into(),
+        story: "-".into(),
+        verdict: Verdict::Fail(format!("panicked: {}", panic_words(&*panic))),
+    })
+}
+
+/// The words of a caught panic.
+pub fn panic_words(panic: &(dyn std::any::Any + Send)) -> &str {
+    panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap_or("a panic")
 }
 
 const HEADERS: [&str; 7] = [

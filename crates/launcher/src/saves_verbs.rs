@@ -84,8 +84,8 @@ fn capture_slots(
             .collect()
     } else {
         from.iter()
-            .map(|path| (slot_name(path, tag), path.clone()))
-            .collect()
+            .map(|path| Ok((slot_name(path, tag)?, path.clone())))
+            .collect::<Result<_, String>>()?
     };
     let folder = crate::runtime::artifacts().join(corpus::FOLDER).join(tag);
     let mut installers = Installers::default();
@@ -94,7 +94,7 @@ fn capture_slots(
         let failed = |error: String| format!("{}: {error}", path.display());
         let slot = read_source(&path).map_err(failed)?;
         let (slot, how) = completed(slot, &mut installers, discovery, &name, tag).map_err(failed)?;
-        slot.write(&folder.join(&name))?;
+        slot.write(&folder, &name)?;
         lines.push(format!(
             "{} → {} ({how})",
             path.display(),
@@ -106,12 +106,20 @@ fn capture_slots(
 
 /// The name a source goes under: its file's or folder's, a zip's without
 /// the `kjk-` and `<tag>-` a shared one carries.
-fn slot_name(path: &Path, tag: &str) -> String {
+fn slot_name(path: &Path, tag: &str) -> Result<String, String> {
     let stem = path
         .file_stem()
         .map_or_else(String::new, |stem| stem.to_string_lossy().into_owned());
     let stem = stem.strip_prefix("kjk-").unwrap_or(&stem);
-    stem.strip_prefix(&format!("{tag}-")).unwrap_or(stem).to_string()
+    let name = stem.strip_prefix(&format!("{tag}-")).unwrap_or(stem);
+    if corpus::valid_name(name) {
+        Ok(name.to_string())
+    } else {
+        Err(format!(
+            "{}: no name for a slot comes of it (a file or folder with a name, not `.` or `..`)",
+            path.display()
+        ))
+    }
 }
 
 /// The slot a source is: a slot folder, a zip of one, or a bare `.kjkv`.
@@ -260,7 +268,9 @@ pub(crate) fn check(discovery: &vfs::Discovery, corpus: Option<&Path>) -> ExitCo
         .iter()
         .map(|(release, name, slot)| {
             eprintln!("saves check: {release}/{name}");
-            let row = check_slot(&mut installers, discovery, &breaking, (release, name), slot);
+            let row = corpus::guarded(name, release, || {
+                check_slot(&mut installers, discovery, &breaking, (release, name), slot)
+            });
             eprintln!("saves check: {release}/{name}: {}", row.verdict);
             row
         })
@@ -302,7 +312,19 @@ fn check_slot(
     let (save, found) = match Save::decode_versioned(&slot.world) {
         Ok(decoded) => decoded,
         Err(error) => {
-            row.verdict = Verdict::of(Err(&error), breaking, &[]);
+            // Refused: its story is what rescues the player, so it must hold.
+            let mut problems = Vec::new();
+            match slot.story.as_ref() {
+                None => row.story = "none".into(),
+                Some(story) => match restored_story(installers, discovery, story) {
+                    Ok(()) => row.story = "OK".into(),
+                    Err((short, long)) => {
+                        row.story = short;
+                        problems.push(long);
+                    }
+                },
+            }
+            row.verdict = Verdict::of(Err(&error), breaking, &problems);
             return row;
         }
     };
@@ -314,14 +336,11 @@ fn check_slot(
             if let Err(problem) = load_and_step(installers, discovery, &save, &level, &mut row) {
                 problems.push(problem);
             }
-            let installer = save
-                .snapshot
-                .place
-                .as_ref()
-                .and_then(|place| installers.get(discovery, &place.game).ok());
-            let search = installer.as_deref().map(ItemSearch::new);
-            let items = |template: &str| search.as_ref().and_then(|search| search.facts(template));
-            match story_round_trip(slot.story.as_ref(), &save, &level, &items) {
+            let story = slot
+                .story
+                .clone()
+                .unwrap_or_else(|| Story::of(&as_loaded(&save, &level), &level));
+            match restore_checked(installers, discovery, &story, &level) {
                 Ok(()) => row.story = "OK".into(),
                 Err((short, long)) => {
                     row.story = short;
@@ -385,14 +404,8 @@ fn load_and_step(
 
 /// What `step` made of a panic in it, as a problem rather than a stop.
 fn caught<T>(what: &str, step: impl FnOnce() -> T) -> Result<T, String> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(step)).map_err(|panic| {
-        let why = panic
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| panic.downcast_ref::<&str>().copied())
-            .unwrap_or("a panic");
-        format!("{what} panicked: {why}")
-    })
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(step))
+        .map_err(|panic| format!("{what} panicked: {}", corpus::panic_words(&*panic)))
 }
 
 /// `save` as this build writes it again once it is loaded: its world's
@@ -410,23 +423,56 @@ fn as_loaded(save: &Save, level: &Level) -> Save {
     }
 }
 
-/// The story of a save (`stored`, else made from the save) restored in
-/// `level` and written again, as the saves' probes compare them; on a loss,
-/// the table's words and the whole of it.
+/// `story` of a refused save restored in its module, planned as the game's
+/// restore path plans it (for the players the story has).
+fn restored_story(
+    installers: &mut Installers,
+    discovery: &vfs::Discovery,
+    story: &Story,
+) -> Result<(), (String, String)> {
+    let seats = story
+        .party
+        .iter()
+        .filter_map(|character| character.seat)
+        .max()
+        .map_or(1, |seat| seat.saturating_add(1));
+    let place = sim::Place {
+        game: story.game.clone(),
+        module: story.place.module.clone(),
+        digest: [0; 32],
+        players: seats,
+    };
+    let level = installers
+        .module(discovery, &place, seats)
+        .map_err(|error| ("no level".to_string(), format!("story: {error}")))?;
+    restore_checked(installers, discovery, story, &level)
+}
+
+/// `story` restored in `level` with the install's items to look up.
+fn restore_checked(
+    installers: &mut Installers,
+    discovery: &vfs::Discovery,
+    story: &Story,
+    level: &Level,
+) -> Result<(), (String, String)> {
+    let installer = installers.get(discovery, &story.game).ok();
+    let search = installer.as_deref().map(ItemSearch::new);
+    let items = |template: &str| search.as_ref().and_then(|search| search.facts(template));
+    story_round_trip(story, level, &items)
+}
+
+/// The story restored in `level` and written again, as the saves' probes
+/// compare them; on a loss, the table's words and the whole of it.
 fn story_round_trip(
-    stored: Option<&Story>,
-    save: &Save,
+    story: &Story,
     level: &Level,
     items: saves::story::ItemLookup,
 ) -> Result<(), (String, String)> {
-    let story = stored
-        .cloned()
-        .unwrap_or_else(|| Story::of(&as_loaded(save, level), level));
     let (mut world, said) = story
         .restore(level, 1, items)
         .map_err(|error| ("restore failed".to_string(), format!("story: {error}")))?;
     let again = Save {
-        hz: save.hz,
+        hz: sim::TICK_HZ,
         level: level.id(),
         snapshot: world.snapshot(),
         script: world.script_state().clone(),

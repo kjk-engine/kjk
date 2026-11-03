@@ -227,6 +227,7 @@ pub fn story_probes() -> sim::probe::Checks {
         ("story_restores_sink", restores_sink(&level, &save)),
         ("story_restores_roster_module", restores_roster_module(&level, &save)),
         ("story_restores_left_and_here", restores_left_and_here(&save)),
+        ("story_companion_left_keeps_items", companion_left(&level, &save)),
         ("story_restores_items_elsewhere", restores_items_elsewhere(&level, &save)),
     ];
     let _ = std::fs::remove_dir_all(&root);
@@ -590,6 +591,56 @@ fn restores_roster_module(level: &sim::Level, save: &sim::Save) -> Result<String
         },
     )];
     round_trip(&story, level, &excluded, &["no such placement here"])
+}
+
+/// A companion who joined and left the party (no longer a member, not
+/// kept, her creature in play with its sheet) keeps her items in the story;
+/// one who never joined (a creature id nothing in play has) lists none.
+fn companion_left(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
+    let mut save = save.clone();
+    let Some(player) = save
+        .snapshot
+        .entities
+        .iter()
+        .find(|entity| matches!(entity.kind, sim::Kind::Avatar(_)) && entity.sheet.is_some())
+        .map(|entity| entity.id.0)
+    else {
+        return Err("the sink has no player with a sheet".into());
+    };
+    let item = |holder| sim::inventory::Item {
+        template: "g_i_belt".into(),
+        holder,
+        slot: None,
+        stack: 1,
+        charges: 0,
+        droppable: true,
+        plot: false,
+        identified: true,
+        infinite: false,
+        non_equippable: false,
+        upgrades: 0,
+        fitted: Vec::new(),
+    };
+    let never = 888_888;
+    save.script.items.insert(9_301, item(player));
+    save.script.items.insert(9_302, item(never));
+    let party = &mut save.script.party;
+    party.members.retain(|member| *member != 0);
+    let Some(companion) = party.available.get_mut(&0) else {
+        return Err("the sink has no companion".into());
+    };
+    companion.kept = None;
+    let listed = |object: u32, save: &mut sim::Save| {
+        if let Some(companion) = save.script.party.available.get_mut(&0) {
+            companion.object = Some(object);
+        }
+        Story::of(save, level).items.contains_key("npc0")
+    };
+    let (left, never_joined) = (listed(player, &mut save), listed(never, &mut save));
+    check(
+        left && !never_joined,
+        format!("joined and left lists her items {left}, never joined {never_joined}"),
+    )
 }
 
 /// An item the module's catalog lacks, in the party's pool: restored when

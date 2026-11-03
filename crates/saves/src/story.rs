@@ -458,7 +458,17 @@ fn held_items(snapshot: &Snapshot, script: &State) -> BTreeMap<String, Vec<Story
                 .party
                 .available
                 .iter()
-                .filter(|(number, npc)| npc.kept.is_some() || script.party.members.contains(number))
+                .filter(|(number, npc)| {
+                    // One who joined and left (`Party::leave` keeps its
+                    // creature) has the creature in play still; one that
+                    // never joined has a creature of its module's making.
+                    let in_play = npc.object.is_some_and(|id| {
+                        snapshot
+                            .get(sim::SimId(id))
+                            .is_some_and(|entity| entity.sheet.is_some())
+                    });
+                    npc.kept.is_some() || script.party.members.contains(number) || in_play
+                })
                 .filter_map(|(number, npc)| Some((holder(npc)?, format!("npc{number}")))),
         );
     holders

@@ -15,6 +15,8 @@ const FAKE: &str = "# not an entry\n- KJKV 60 (fake-bump): why old saves can't b
 /// - a current save passes, and one older than the breaking entry is
 ///   expected; the same save with no entry before it, or one it is not
 ///   before, fails;
+/// - a slot is written only as a plain folder name, and the neighbours stay;
+/// - a panic in one save's step is that save's FAIL row, the table whole;
 /// - what the table says of both, and that a failing row fails the run.
 pub fn probes() -> Checks {
     let root = std::env::temp_dir().join(format!("kjk-save-corpus-{}", std::process::id()));
@@ -27,6 +29,8 @@ pub fn probes() -> Checks {
             ("current_passes", current_passes(slots)),
             ("older_expected", older_expected(slots)),
             ("table_prints", table_prints(slots)),
+            ("slot_names_kept_to_the_slot", slot_names(&root, slots)),
+            ("panic_is_a_row", panic_is_a_row()),
         ],
         Err(error) => vec![("synthetic_slots", Err(error.clone()))],
     };
@@ -56,7 +60,7 @@ fn synthetic(root: &Path) -> Result<Slots, String> {
             }),
             story: None,
         };
-        slot.write(&root.join(release).join(name))?;
+        slot.write(&root.join(release), name)?;
     }
     Ok(Slots { current, older })
 }
@@ -111,10 +115,14 @@ fn older_expected(slots: &Slots) -> Result<String, String> {
     let expected = of(FAKE);
     let none = of("");
     let not_before = of("- KJKV 1 (fake-bump): the version it is");
+    // Expected only while the story restore that rescues it holds.
+    let lost = ["story: lost items".to_string()];
+    let unrescued = Verdict::of(Err(&refused), &Breaking::parse(FAKE), &lost);
     check(
         matches!(&expected, Verdict::Expected(why) if why.contains("KJKV 1 is before the breaking bump KJKV 60"))
             && none.failed()
-            && not_before.failed(),
+            && not_before.failed()
+            && unrescued.failed(),
         format!("{expected:?}; no entry {none:?}; entry not after it {not_before:?}"),
     )
 }
@@ -156,6 +164,48 @@ EXPECTED: older: KJKV 1 is before the breaking bump KJKV 60
         text == expected
             && !rows.iter().any(|row| row.verdict.failed())
             && failing.iter().any(|row| row.verdict.failed()),
+        text,
+    )
+}
+
+fn slot_names(root: &Path, slots: &Slots) -> Result<String, String> {
+    let slot = Slot {
+        world: slots.current.clone(),
+        meta: None,
+        story: None,
+    };
+    let release = root.join("v9.9.9");
+    let refused: Vec<bool> = ["", ".", "..", ".hidden", "a/b", "a\\b"]
+        .iter()
+        .map(|name| slot.write(&release, name).is_err())
+        .collect();
+    let kept = release.join("current").join(WORLD).exists()
+        && root.join("v0.0.1").join("older").join(WORLD).exists();
+    check(
+        refused.iter().all(|refused| *refused) && kept,
+        format!("refused {refused:?}, neighbours kept {kept}"),
+    )
+}
+
+fn panic_is_a_row() -> Result<String, String> {
+    let row = |name: &str| Row {
+        name: name.into(),
+        release: "v9.9.9".into(),
+        formats: "none".into(),
+        stamps: 0,
+        reconcile: "-".into(),
+        story: "OK".into(),
+        verdict: Verdict::Pass,
+    };
+    let rows = [
+        guarded("first", "v9.9.9", || row("first")),
+        guarded("second", "v9.9.9", || panic!("the step panicked")),
+        guarded("third", "v9.9.9", || row("third")),
+    ];
+    let text = table(&rows);
+    check(
+        rows.map(|row| row.verdict.to_string()) == ["PASS", "FAIL", "PASS"]
+            && text.contains("FAIL: second: panicked: the step panicked"),
         text,
     )
 }
