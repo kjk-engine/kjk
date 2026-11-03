@@ -1137,7 +1137,22 @@ pub fn draw_probes() -> sim::probe::Checks {
     let (scout_blade, scout_draw) = draws(Some(&scout));
     let (all_blade, _) = draws(Some(&all));
     let (sheetless_blade, _) = draws(None);
+    // A rifle limited to two feats (Iziz's escape: `w_brifle_18`), weighed
+    // for one with neither, one with the second, and one with Proficiency
+    // All.
+    let limited = {
+        use sim::inventory::properties::Limit;
+        let limits = [Limit::Feat(33), Limit::Feat(47), Limit::Class(1)];
+        [scout, trained(&[47]), all].map(|feats| super::gear::feat_limits_met(&feats, &limits))
+    };
     vec![
+        (
+            "draw_passes_over_a_gun_of_feats_not_trained",
+            sim::probe::check(
+                limited == [false, true, true],
+                format!("limited to feats 33 or 47: untrained, trained in 47, Proficiency All: {limited:?}"),
+            ),
+        ),
         (
             "draw_strongest_trained_blade",
             sim::probe::check(
