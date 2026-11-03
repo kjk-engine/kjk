@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `d5c6679ccdf33321`.
+Edition `3c5357b7c72beb0f`.
 
 ## Contents
 
@@ -7237,7 +7237,10 @@ A punch strikes only an opponent in front of the attacker, where the cosine of t
 A droid or beast whose appearance says so (T3-M4, the astromechs, the Mark
 Two and Four droids, banthas, dewbacks and rontos) leans with the floor
 under it: on a ramp it tilts to the slope and stands on it, instead of
-staying upright as if the floor were flat.
+staying upright as if the floor were flat. Every other body standing on a
+ramp stays upright and stands on the slope under its middle, not on the
+corner of its box resting on the slope's high side (KOTOR's walker is a
+point), so it does not hover.
 
 The lean is how it is drawn; where it walks and what it touches are the
 same as upright. It follows the floor under its middle, eased over
@@ -7260,7 +7263,7 @@ Enough for a body's box resting on the high side of a steep ramp, its middle ove
 
 <a id="creatures-ground-level-normal-z"></a>**Level Floor** = **0.999** · `creatures.ground.level_normal_z`
 
-A floor whose slope's cosine is at least 0.999 counts as level: a leaning body stands where its box does, not on the floor under its middle, so it does not sink off a ledge.
+A floor whose slope's cosine is at least 0.999 counts as level: a body stands where its box does, not on the floor under its middle, so it does not sink off a ledge.
 
 <sub>Source: ours. Code: `game::ground_lean::Lean::stand`.</sub>
 

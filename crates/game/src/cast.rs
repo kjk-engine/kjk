@@ -2666,18 +2666,26 @@ impl Cast {
                             arc,
                         ))
                     });
-                // A body that leans with the floor finds it under its middle.
+                // A body that leans with the floor, or stands on it, finds
+                // it under its middle; one standing upright is drawn on a
+                // slope there (`ground_lean::on_slope`), the leaning one as
+                // its lean has it.
                 let leans = matches!(&member.body.look, Look::Clips(clips) if clips.lean.is_some());
-                let floor = leans
+                let floor = (leans || at.state.ground.is_some())
                     .then(|| {
                         let middle = Vec3::from_array(at.origin) * UNIT;
                         ground_lean::floor_under(level, states.as_deref(), (middle, soles))
                     })
                     .flatten();
+                let stands = if leans {
+                    soles
+                } else {
+                    ground_lean::on_slope(floor, soles)
+                };
                 let posed = place(
                     member,
                     &at,
-                    (soles, ms, eye, floor),
+                    (stands, ms, eye, floor),
                     (
                         posing.contains(&id) || falls || in_place || death_plays,
                         armed,

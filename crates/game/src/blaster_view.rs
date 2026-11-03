@@ -501,13 +501,23 @@ fn draw(
         Some(Loaded::Ready(rows)) => rows.clone(),
         _ => BTreeMap::new(),
     };
-    // The new flashes and tracers join those in play.
+    // The new flashes and tracers join those in play. A feat's visual shows
+    // once on a gun: the next shot's starts it over (Sniper Shot's scope),
+    // never a second copy over the first.
     for flash in shots.flashes {
+        let feat = matches!(flash.shows, Flashed::Row(_));
         let model = match flash.shows {
             Flashed::Model(name) => Some(name),
             Flashed::Row(row) => rows.get(&row).cloned(),
         };
         let Some(model) = model else { continue };
+        if feat {
+            view.live.retain(|live| {
+                !(live.model == model
+                    && matches!(live.kind, LiveKind::Flash { by, hand, .. }
+                        if by == flash.by && hand == flash.hand))
+            });
+        }
         view.next += 1;
         view.live.push(Live {
             model,
