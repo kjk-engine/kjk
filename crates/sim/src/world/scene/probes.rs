@@ -158,6 +158,7 @@ const PROBES: &[Probe] = &[
     ("free_play_walk", free_play_walk),
     ("ends_mid_walk", ends_mid_walk),
     ("walk_asks_no_exit", walk_asks_no_exit),
+    ("walked_into_exit_leaves_not", walked_into_exit_leaves_not),
     ("leaving_heard", leaving_heard),
     ("item_lost_heard", item_lost_heard),
     ("cue_names_trigger_and_comer", cue_names_trigger_and_comer),
@@ -5370,6 +5371,43 @@ fn walk_asks_no_exit() -> Found {
     check(
         carried > 0 && off <= 0.1 && !asked,
         format!("carried {carried} steps, {off:.3} m off the end, asked to leave {asked}"),
+    )
+}
+
+/// S3: the host's body walked by a script into the open gate that leads
+/// out, standing in its doorway as the conversation ends, asks to leave
+/// neither then nor after: it is the doorway's tenant, not one who walked
+/// in (TSL's Trayus Academy: `a_903kreia` walks the Exile up to
+/// `d_entrance`, over the way back to the depths, and the scene's end left
+/// for 902MAL).
+fn walked_into_exit_leaves_not() -> Found {
+    let mut ground = Ground::staged(
+        1,
+        Stage {
+            way_out: true,
+            ..Stage::default()
+        },
+    )?;
+    let host = ground.body(0)?;
+    ground.put(host, [-3.0, 0.0]);
+    ground.place(TALKER, TALKER_AT)?;
+    ground.step();
+    ground.cutscene()?;
+    let mut asked = false;
+    ground.queue(host, move_to([0.0, 0.0], false, None));
+    for _ in 0..steps(3000) {
+        ground.step();
+        asked |= ground.last.ready.is_some() || ground.last.transition.is_some();
+    }
+    let off = between(ground.at(host), floor_at([0.0, 0.0]));
+    ground.goodbye()?;
+    for _ in 0..steps(1000) {
+        ground.step();
+        asked |= ground.last.ready.is_some() || ground.last.transition.is_some();
+    }
+    check(
+        off <= 0.3 && !asked,
+        format!("{off:.3} m off the doorway's middle, asked to leave {asked}"),
     )
 }
 
