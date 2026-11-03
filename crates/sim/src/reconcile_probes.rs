@@ -118,12 +118,18 @@ pub fn checks() -> Vec<Check> {
     out
 }
 
-/// The proving ground, with a creature of the party's after its door and
-/// trigger, and its placements as `change` leaves them.
+/// The proving ground, with a creature of the party's and a footlocker
+/// after its door and trigger, and its placements as `change` leaves them.
 fn ground(change: fn(&mut Vec<Placement>)) -> Level {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().expect("the proving ground is a module")).clone();
     data.placements.push(creature(MEMBER, None));
+    data.placements.push(Placement::Own(ObjectData {
+        kind: ObjectKind::Placeable,
+        tag: "locker".into(),
+        container: true,
+        ..ObjectData::unknown(LOCKER, ground_point(-6.0, -4.0, 0.0), 0.0)
+    }));
     change(&mut data.placements);
     let library = Library::new(Default::default(), Default::default(), Default::default());
     ground.with_module(data).with_scripts(library)
@@ -142,6 +148,9 @@ fn creature(tag: &str, spawn: Option<&str>) -> Placement {
 }
 
 const MEMBER: &str = "p_member";
+const LOCKER: &str = "plc_footlker";
+/// The item the party stored in the footlocker.
+const STORED: u32 = crate::inventory::FIRST_ITEM + 100;
 const LATE: &str = "n_late";
 const LATE_SPAWN: &str = "k_late_spawn";
 /// The door's local the save sets: numbers, index 9.
@@ -152,11 +161,12 @@ struct Before {
     gate: SimId,
     way_out: SimId,
     member: SimId,
+    locker: SimId,
     next_id: u32,
 }
 
 /// A save on `level`: its door open with a local, its creature in the
-/// party.
+/// party, an item of the party's stored in its footlocker.
 fn save(level: &Level) -> Result<(Save, Before), String> {
     let mut world = SimWorld::new(crate::WorldConfig::one_seat(), level.clone())
         .map_err(|error| error.to_string())?;
@@ -178,6 +188,7 @@ fn save(level: &Level) -> Result<(Save, Before), String> {
         gate: numbered(0)?,
         way_out: numbered(1)?,
         member: numbered(2)?,
+        locker: numbered(3)?,
         next_id: save.snapshot.next_id,
     };
     for entity in &mut save.snapshot.entities {
@@ -200,6 +211,23 @@ fn save(level: &Level) -> Result<(Save, Before), String> {
         },
     );
     party.members.push(0);
+    save.script.items.insert(
+        STORED,
+        crate::inventory::Item {
+            template: "g_w_blaster01".into(),
+            holder: before.locker.0,
+            slot: None,
+            stack: 1,
+            charges: 0,
+            droppable: true,
+            plot: false,
+            identified: true,
+            infinite: false,
+            non_equippable: false,
+            upgrades: 0,
+            fitted: Vec::new(),
+        },
+    );
     Ok((save, before))
 }
 
@@ -250,6 +278,22 @@ fn numbered(snapshot: &Snapshot, kind: ObjectKind, number: u32) -> Option<&Entit
     snapshot.entities.iter().find(|entity| entity.kind == want)
 }
 
+/// The entity `id` kept as the last object made in play: a `kind`
+/// numbered `number`, made from `template`.
+fn kept_as_made(
+    snapshot: &Snapshot,
+    id: SimId,
+    kind: ObjectKind,
+    number: u32,
+    template: &str,
+) -> bool {
+    entity(snapshot, id).is_some_and(|kept| kept.kind == Kind::Object(kind, number))
+        && snapshot
+            .spawned
+            .last()
+            .is_some_and(|made| made.kind == kind && made.template == template)
+}
+
 /// The door, numbered `number`, still open with its local.
 fn door_kept(before: &Before, snapshot: &Snapshot, state: &State, number: u32) -> bool {
     let (kind, index, value) = LOCAL;
@@ -297,7 +341,7 @@ pub fn loads() -> Vec<Check> {
             path: Path::Load,
             rostered: true,
             change: first,
-            says: (false, 3, &[], 1, 0),
+            says: (false, 4, &[], 1, 0),
             holds: |before, snapshot, state| {
                 door_kept(before, snapshot, state, 1)
                     && numbered(snapshot, ObjectKind::Waypoint, 0)
@@ -309,7 +353,7 @@ pub fn loads() -> Vec<Check> {
             path: Path::Reenter,
             rostered: true,
             change: first,
-            says: (false, 2, &[], 1, 0),
+            says: (false, 3, &[], 1, 0),
             holds: |before, snapshot, state| {
                 door_kept(before, snapshot, state, 1)
                     && entity(snapshot, before.way_out)
@@ -321,18 +365,30 @@ pub fn loads() -> Vec<Check> {
             path: Path::Load,
             rostered: true,
             change: |placements| {
-                placements.truncate(1);
+                placements.drain(1..3);
             },
             says: (false, 1, &["trigger way_out"], 0, 0),
             holds: |before, snapshot, state| {
                 door_kept(before, snapshot, state, 0)
                     && entity(snapshot, before.way_out).is_none()
-                    && entity(snapshot, before.member)
-                        .is_some_and(|member| member.kind == Kind::Object(ObjectKind::Creature, 1))
-                    && snapshot
-                        .spawned
-                        .last()
-                        .is_some_and(|made| made.template == MEMBER)
+                    && kept_as_made(snapshot, before.member, ObjectKind::Creature, 2, MEMBER)
+            },
+        },
+        Case {
+            name: "a footlocker gone from the data, holding the party's items: kept with them",
+            path: Path::Load,
+            rostered: true,
+            change: |placements| {
+                placements.remove(3);
+                placements.remove(1);
+            },
+            says: (false, 2, &["trigger way_out"], 0, 0),
+            holds: |before, snapshot, state| {
+                kept_as_made(snapshot, before.locker, ObjectKind::Placeable, 2, LOCKER)
+                    && state
+                        .items
+                        .held_by(before.locker.0)
+                        .any(|(item, _)| item == STORED)
             },
         },
         Case {
@@ -343,7 +399,7 @@ pub fn loads() -> Vec<Check> {
             says: (false, 0, &[], 1, 0),
             holds: |before, snapshot, state| {
                 door_kept(before, snapshot, state, 0)
-                    && numbered(snapshot, ObjectKind::Creature, 3).is_some_and(|late| {
+                    && numbered(snapshot, ObjectKind::Creature, 4).is_some_and(|late| {
                         late.id.0 >= before.next_id
                             && late.fighter.is_some()
                             && state.pending.iter().any(|pending| {
@@ -361,14 +417,15 @@ pub fn loads() -> Vec<Check> {
             holds: |before, snapshot, state| door_kept(before, snapshot, state, 0),
         },
         Case {
-            name: "a save without a roster, a placement inserted first: other kinds dropped",
+            name: "a save without a roster, a placement inserted first: other kinds dropped, the party's creature kept",
             path: Path::Load,
             rostered: false,
             change: first,
-            says: (true, 0, &["door 0", "trigger 1", "creature 2"], 0, 0),
+            says: (true, 1, &["door 0", "trigger 1", "placeable 3"], 0, 0),
             holds: |before, snapshot, _| {
                 entity(snapshot, before.gate).is_none()
                     && numbered(snapshot, ObjectKind::Waypoint, 0).is_none()
+                    && kept_as_made(snapshot, before.member, ObjectKind::Creature, 5, MEMBER)
             },
         },
     ];

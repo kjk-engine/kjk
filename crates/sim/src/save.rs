@@ -5,8 +5,8 @@
 //! Not a KOTOR save: original save games are out of scope (`ROADMAP.md`).
 
 use crate::install::{InstallError, Restamp};
-use crate::reconcile::{Held, reconcile};
-use crate::snapshot::{Kind, SimId, Snapshot};
+use crate::reconcile::{Held, Party, reconcile};
+use crate::snapshot::{Kind, Snapshot};
 use crate::wire::{DecodeError, Reader, Stored, Writer};
 use crate::world::{Level, LevelId, SimWorld};
 
@@ -225,10 +225,11 @@ impl Save {
         let reconciled = (level.place().is_some()
             && (restamp.is_some() || snapshot.roster.is_none()))
         .then(|| {
-            let party = crate::install::members(&self.script.party)
-                .into_iter()
-                .map(|(id, _)| SimId(id))
-                .collect();
+            let members = crate::install::members(&self.script.party);
+            let party = Party {
+                members: &members,
+                items: &self.script.items,
+            };
             let held = Held {
                 entities: &mut snapshot.entities,
                 spawned: &mut snapshot.spawned,

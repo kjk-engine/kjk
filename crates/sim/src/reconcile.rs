@@ -14,7 +14,10 @@
 //! - `EntityState::kind`, `Kind::Object(kind, number)`, of the snapshot's
 //!   entities and of each module left (`Stashed::entities`): rewritten. A
 //!   placement the data no longer has drops its entity, but for a party
-//!   member's, which stays where it stands as an object made in play.
+//!   member's and one holding the party's items (a footlocker the player
+//!   stored gear in), which stay where they stand as objects made in play.
+//!   A save without a roster keeps its numbers, but for those naming an
+//!   object of another kind now: dropped, a party member's kept likewise.
 //! - `Snapshot::spawned` and `Stashed::spawned`, what play made: numbered
 //!   after the placements in their order, so their numbers move with the
 //!   placements' count (`Renumber::made_shift`); the list itself holds no
@@ -37,11 +40,12 @@
 //! them; a dropped entity's are left as a destroyed object's are (its queue
 //! goes at the next step, its locals and goods are not read again).
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
 use crate::instance::Instances;
+use crate::inventory::Items;
 use crate::module::{ObjectData, ObjectKind};
 use crate::snapshot::{EntityState, Kind, SimId, Spawned};
 use crate::wire::{DecodeError, Reader, Writer};
@@ -170,14 +174,56 @@ impl fmt::Display for Report {
     }
 }
 
+/// The party, as reconciling keeps what is its: its members' creatures,
+/// each with its template (`install::members`), and every item in play,
+/// to find what it put away.
+pub struct Party<'a> {
+    pub members: &'a [(u32, String)],
+    pub items: &'a Items,
+}
+
+impl Party<'_> {
+    /// The template of the member whose creature is `id`.
+    fn member(&self, id: SimId) -> Option<&str> {
+        self.members
+            .iter()
+            .find(|(member, _)| *member == id.0)
+            .map(|(_, template)| template.as_str())
+    }
+
+    /// Whether `entity`, made from `template`, holds anything its
+    /// template's own inventory does not have. Nothing marks an item the
+    /// party put into a container (`State::put_in` moves its holder), so an
+    /// item that is not among the template's goods is taken for the
+    /// party's; what a script gave it counts too, which keeps a little more
+    /// than needed rather than lose the party's gear.
+    fn stored_in(
+        &self,
+        entity: &EntityState,
+        kind: ObjectKind,
+        template: &str,
+        level: &Level,
+    ) -> bool {
+        let facts = level.template(kind, template);
+        let own: Vec<String> = facts
+            .iter()
+            .flat_map(|facts| &facts.inventory)
+            .map(|held| held.template.to_lowercase())
+            .collect();
+        self.items
+            .held_by(entity.id.0)
+            .any(|(_, item)| !own.contains(&item.template.to_lowercase()))
+    }
+}
+
 /// `held` brought onto `level`'s placements: renumbered by its roster
 /// (`apply`), else its numbers trusted where they name an object of their
 /// kind (`trust`). Its roster is `level`'s from then on.
-pub fn reconcile(mut held: Held, level: &Level, party: &BTreeSet<SimId>) -> Report {
+pub fn reconcile(mut held: Held, level: &Level, party: &Party) -> Report {
     let placed = level.placed();
     let mut report = match held.roster.take() {
         Some(old) => apply(&renumber(&old, placed), &old, level, &mut held, party),
-        None => trust(level, &mut held),
+        None => trust(level, &mut held, party),
     };
     report.module = level.id().name;
     *held.roster = Some(roster(placed));
@@ -186,35 +232,31 @@ pub fn reconcile(mut held: Held, level: &Level, party: &BTreeSet<SimId>) -> Repo
 
 /// `held`'s objects numbered as `renumber` says (`old` the roster it was
 /// made from): an entity whose placement is gone is dropped, but for a
-/// party member's (in `party`), which stays as an object made in play; the
-/// new placements stand as the module's first install stands them
+/// party member's and one holding the party's items (`Party::stored_in`),
+/// which stay where they stand as objects made in play (`made_in_play`);
+/// the new placements stand as the module's first install stands them
 /// (`install::anew`).
 pub fn apply(
     renumber: &Renumber,
     old: &[Origin],
     level: &Level,
     held: &mut Held,
-    party: &BTreeSet<SimId>,
+    party: &Party,
 ) -> Report {
-    let placed = level.placed().len() as u32;
     let mut report = Report::default();
     for mut entity in std::mem::take(held.entities) {
         if let Kind::Object(kind, number) = entity.kind {
             let now = match renumber.map.get(number as usize) {
                 Some(&Some(now)) => now,
-                Some(None) if party.contains(&entity.id) => {
-                    let now = placed + held.spawned.len() as u32;
-                    held.spawned.push(Spawned {
-                        kind,
-                        template: old[number as usize].template.clone(),
-                        yaw: entity.player.map_or(0.0, |player| player.view[1]),
-                        holds: Vec::new(),
-                    });
-                    now
-                }
                 Some(None) => {
-                    report.dropped.push(describe(&old[number as usize]));
-                    continue;
+                    let origin = &old[number as usize];
+                    let kept = party.member(entity.id).is_some()
+                        || party.stored_in(&entity, kind, &origin.template, level);
+                    if !kept {
+                        report.dropped.push(describe(origin));
+                        continue;
+                    }
+                    made_in_play(&entity, kind, &origin.template, level, held.spawned)
                 }
                 None => (i64::from(number) + renumber.made_shift) as u32,
             };
@@ -237,22 +279,49 @@ pub fn apply(
 }
 
 /// `held`'s objects whose number names no object of their kind in `level`
-/// dropped; the rest trusted, as a save from before rosters were kept
-/// gives nothing to match them by.
-fn trust(level: &Level, held: &mut Held) -> Report {
+/// dropped, but for a party member's, which stays as an object made in
+/// play from the party table's template; the rest trusted, as a save from
+/// before rosters were kept gives nothing to match them by.
+fn trust(level: &Level, held: &mut Held, party: &Party) -> Report {
     let instances = Instances::of(level, held.spawned);
     let mut report = Report {
         trusted: true,
         ..Report::default()
     };
-    held.entities.retain(|entity| match entity.kind {
-        Kind::Object(kind, number) if instances.kind(number) != Some(kind) => {
-            report.dropped.push(format!("{} {number}", kind.name()));
-            false
+    for mut entity in std::mem::take(held.entities) {
+        if let Kind::Object(kind, number) = entity.kind
+            && instances.kind(number) != Some(kind)
+        {
+            let Some(template) = party.member(entity.id) else {
+                report.dropped.push(format!("{} {number}", kind.name()));
+                continue;
+            };
+            let now = made_in_play(&entity, kind, template, level, held.spawned);
+            report.moved += 1;
+            entity.kind = Kind::Object(kind, now);
         }
-        _ => true,
-    });
+        held.entities.push(entity);
+    }
     report
+}
+
+/// `entity`, a `kind` made from `template`, kept as an object made in
+/// play where it stands: added to `spawned`, its new number.
+fn made_in_play(
+    entity: &EntityState,
+    kind: ObjectKind,
+    template: &str,
+    level: &Level,
+    spawned: &mut Vec<Spawned>,
+) -> u32 {
+    let number = (level.placed().len() + spawned.len()) as u32;
+    spawned.push(Spawned {
+        kind,
+        template: template.to_string(),
+        yaw: entity.player.map_or(0.0, |player| player.view[1]),
+        holds: Vec::new(),
+    });
+    number
 }
 
 /// A placement as the log names it: its kind, template and tag.

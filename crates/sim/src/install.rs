@@ -40,7 +40,7 @@ use crate::math;
 use crate::module::ObjectData;
 use crate::module::{ModuleData, ObjectKind, Spot};
 use crate::motion::{self, MotionState};
-use crate::reconcile::{Held, Report, reconcile, roster};
+use crate::reconcile::{Held, Party, Report, reconcile, roster};
 use crate::snapshot::{
     EntityState, Kind, ObjectState, Place, SimId, Snapshot, SnapshotHash, Stashed,
 };
@@ -182,7 +182,15 @@ impl SimWorld {
         // (KOTOR places the whole party at a module's arrival).
         let members = members(party);
         let before = self.snapshot();
-        let (after, reconciled) = assemble(&before, &level, arrival, Some(self.level()), &members)?;
+        let items = &self.script_state().items;
+        let (after, reconciled) = assemble(
+            &before,
+            &level,
+            arrival,
+            Some(self.level()),
+            &members,
+            items,
+        )?;
         let empty = crate::inventory::Catalog::new([]);
         let catalog = |level: &Level| level.scripts().map(|library| library.items().clone());
         let (last, next_catalog) = (catalog(self.level()), catalog(&level));
@@ -298,13 +306,15 @@ fn arrived(fighter: Option<Fighter>) -> Option<Fighter> {
 /// (the dark side's Bastila at her Battle Meditation on the Star Forge,
 /// whose lines the ceremony after it says), arrives with the party, as
 /// KOTOR places the whole party at a module's arrival. With it, what
-/// reconciling the module left with the level's placements did, if it ran.
+/// reconciling the module left with the level's placements did, if it ran
+/// (`items`: every item in play, for what the party stored in it).
 pub(crate) fn assemble(
     before: &Snapshot,
     level: &Level,
     arrival: Option<&str>,
     old: Option<&Level>,
     members: &[(u32, String)],
+    items: &crate::inventory::Items,
 ) -> Result<(Snapshot, Option<Report>), InstallError> {
     let module = level.module().cloned().ok_or(InstallError::NoModule)?;
     let place = level.place().ok_or(InstallError::NoModule)?;
@@ -388,7 +398,7 @@ pub(crate) fn assemble(
         .as_mut()
         .filter(|stashed| stashed.roster.is_none() || Restamp::of(&stashed.place, &place).is_some())
         .map(|stashed| {
-            let party = members.iter().map(|(id, _)| SimId(*id)).collect();
+            let party = Party { members, items };
             let held = Held {
                 entities: &mut stashed.entities,
                 spawned: &mut stashed.spawned,
