@@ -329,6 +329,23 @@ fn grass_in_scenes() {
     probed("grass in scenes", &kjk::probes::grass(), 3);
 }
 
+/// A danglymesh's spring and the area's wind (`kjk::probes::dangly`), as
+/// the executables run them: a still area has no wind, a windy one's noise
+/// cells stay within 0 to 0.963 and its gusts turn it within its limits; a
+/// still mesh stays at rest and in a wind leans its tip downwind, its root
+/// pinned; a walk leaves its tip behind while its
+/// pinned root (constraint 0) stays, a turn swings the tip no further than
+/// its box (`displacement × (1 − constraint/255)` per axis), and a jump of
+/// more than 5 m snaps it back to rest. Needs `--features rig`.
+/// (proposed 2026-11-03)
+#[test]
+fn dangly_spring() {
+    #[cfg(not(feature = "rig"))]
+    println!("dangly_spring skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("dangly spring", &kjk::probes::dangly(), 7);
+}
+
 /// TSL's rain and snow held round the camera (`kjk::probes::weather`): the
 /// six copies stand on a hexagon of 4.5 m round the camera's ground point,
 /// one ahead, one behind and four at the sides 5 m higher, turning with the
