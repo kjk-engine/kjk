@@ -416,7 +416,7 @@ fn state() -> Check {
         globals: Vec::new(),
         locals: Vec::new(),
     };
-    let carried = (None, Some(3), Some(cue), Some(1));
+    let carried = (None, Some(3), Some(cue), Some(1), true);
     state.defer(500, ObjectId(1), "k_def_dialogue01", code, carried);
     let mut out = Writer::default();
     state.encode(&mut out);

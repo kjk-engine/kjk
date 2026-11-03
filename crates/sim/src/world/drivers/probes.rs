@@ -30,6 +30,11 @@ const STORY: &str = "probe_story";
 const AI_SIGNAL: &str = "probe_ai_signal";
 const STORY_SIGNAL: &str = "probe_story_signal";
 const USER: &str = "probe_user";
+/// The first companion's notice hook (an AI hook) and a story's script:
+/// each defers `AI`'s move (`DelayCommand`), as K1's `k_ai_master` defers
+/// its attacks.
+const AI_DELAY: &str = "probe_ai_delay";
+const STORY_DELAY: &str = "probe_story_delay";
 /// A locked door's fail-to-open script: the global `LED` set to whether
 /// the party's leader (`GetPartyMemberByIndex(0)`) is the first companion,
 /// as the Endar Spire's first door asks whether Trask leads
@@ -156,6 +161,8 @@ int GetGlobalNumber(string sIdentifier);
 object GetEnteringObject();
 // 14
 object GetExitingObject();
+// 15
+void DelayCommand(float fSeconds, action aActionToDelay);
 "#;
     let call = |routine: u16, args: u8| Op::Action { routine, args };
     let icon = || Op::Const(Const::String(Vec::new()));
@@ -178,14 +185,32 @@ object GetExitingObject();
     // `ActionMoveToObject(GetObjectByTag(the second companion), TRUE)`:
     // the first companion's end-of-round hook (`AI`), and a story's script
     // (`STORY`).
+    let move_ops = [
+        Op::Const(Const::Float(1.0)),
+        Op::Const(Const::Int(1)),
+        Op::Const(Const::Int(0)),
+        Op::Const(Const::String(COMPANIONS[1].as_bytes().to_vec())),
+        call(7, 2),
+        call(8, 3),
+    ];
     let mut moves = script_ncs::probes::Asm::default();
-    moves
-        .op(Op::Const(Const::Float(1.0)))
-        .op(Op::Const(Const::Int(1)))
-        .op(Op::Const(Const::Int(0)))
-        .op(Op::Const(Const::String(COMPANIONS[1].as_bytes().to_vec())))
-        .op(call(7, 2))
-        .op(call(8, 3))
+    for op in &move_ops {
+        moves.op(op.clone());
+    }
+    moves.op(Op::Retn);
+    // `DelayCommand(0.1, the move)`: `AI_DELAY` and `STORY_DELAY`.
+    let mut delays = script_ncs::probes::Asm::default();
+    delays
+        .op(Op::StoreState { bp: 0, sp: 0 })
+        .to(Op::Jmp, "delay");
+    for op in &move_ops {
+        delays.op(op.clone());
+    }
+    delays
+        .op(Op::Retn)
+        .label("delay")
+        .op(Op::Const(Const::Float(0.1)))
+        .op(call(15, 2))
         .op(Op::Retn);
     // `SignalEvent(OBJECT_SELF, EventUserDefined(1001))`.
     let mut signals = script_ncs::probes::Asm::default();
@@ -251,6 +276,8 @@ object GetExitingObject();
             (USER, moves.build()),
             (AI_SIGNAL, signals.build()),
             (STORY_SIGNAL, signals.build()),
+            (AI_DELAY, delays.build()),
+            (STORY_DELAY, delays.build()),
         ],
     )
 }
@@ -278,6 +305,7 @@ fn ground() -> Result<(Level, [u32; 2]), String> {
                         ("ScriptEndRound".to_string(), AI.to_string()),
                         ("ScriptHeartbeat".to_string(), AI_SIGNAL.to_string()),
                         ("ScriptUserDefine".to_string(), USER.to_string()),
+                        ("ScriptOnNotice".to_string(), AI_DELAY.to_string()),
                     ]
                 } else {
                     Vec::new()
@@ -965,29 +993,32 @@ fn benched_first() -> Result<String, String> {
 /// story's script signals (`STORY_SIGNAL`).
 fn own_ai() -> Result<String, String> {
     let mut seen = Vec::new();
-    for script in [AI, STORY, AI_SIGNAL, STORY_SIGNAL] {
+    for script in [AI, STORY, AI_SIGNAL, STORY_SIGNAL, AI_DELAY, STORY_DELAY] {
         let (mut world, _, [a, _]) = party_world(Guests::Companions, 2)?;
         let start = run(&mut world, &BOTH[..2]);
         scripts_of(&mut world)
             .state
             .pending
             .push(Pending::new(script, script_ncs::vm::ObjectId(a.0)));
-        let mut last = run(&mut world, &BOTH[..2]);
-        let queued = world
-            .script_state()
-            .actions
-            .get(&a.0)
-            .is_some_and(|queue| !queue.is_empty());
-        for _ in 0..30 {
+        // Queued and steered at any step: a deferred move is queued once its
+        // delay ends, and may be over by the last.
+        let (mut queued, mut steered) = (false, false);
+        let mut last = start.clone();
+        for _ in 0..31 {
             last = run(&mut world, &BOTH[..2]);
+            queued |= world
+                .script_state()
+                .actions
+                .get(&a.0)
+                .is_some_and(|queue| !queue.is_empty());
+            steered |= last
+                .get(a)
+                .and_then(|entity| entity.fighter)
+                .is_some_and(|fighter| fighter.mind.steered);
         }
-        let steered = last
-            .get(a)
-            .and_then(|entity| entity.fighter)
-            .is_some_and(|fighter| fighter.mind.steered);
         let driven = last.body(Seat(1)).map(|entity| entity.id) == Some(a);
         let ran = moved(&start, &last, a);
-        let wanted = script == STORY || script == STORY_SIGNAL;
+        let wanted = [STORY, STORY_SIGNAL, STORY_DELAY].contains(&script);
         if !driven || queued != wanted || steered != wanted || (!wanted && ran < 0.8) {
             return Err(format!(
                 "{script}: driven {driven}, queued {queued}, steered {steered}, ran {ran:.2} m"

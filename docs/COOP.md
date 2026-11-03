@@ -20,7 +20,11 @@ ready check: `PARTY.md`; the party's fall: `FALLING.md`.
   names the seat and the world derives `Avatar(seat)`, so moving, Use,
   containers, locks and exits are its seat's. A story's script or a
   conversation still moves it (`Mind::steered`, predicted as a creature);
-  its own AI hooks do not (`Engine::own_ai_on_driven`). One PC to scripts.
+  its own AI hooks do not (`Engine::own_ai_on_driven`), nor the code they
+  defer, assign or queue for it (`Delayed::ai`: K1's `k_ai_master` attacks
+  through it, which took a guest's companion off its player whenever
+  another party member was hit, probe `own_ai_skipped_when_driven`). One
+  PC to scripts.
 - What a guest's companion does itself is done by the character its
   player controls, KOTOR's party leader: a script its act raises (a door
   it opens or fails to open, a lock it picks, a thing it uses) sees it

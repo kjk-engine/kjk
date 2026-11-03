@@ -36,6 +36,9 @@ pub struct Delayed {
     pub cue: Option<super::Cue>,
     /// The minigame run whose thing deferred it (`Event::run`).
     pub run: Option<u8>,
+    /// Deferred by a run of its caller's own AI (`Event::ai`): it runs as
+    /// that AI still.
+    pub ai: bool,
 }
 
 /// A script to run from its start, for an event: its caller, the object
@@ -467,7 +470,13 @@ impl State {
         caller: ObjectId,
         script: &str,
         deferred: Deferred,
-        (spell, talk, cue, run): (Option<Cast>, Option<u32>, Option<super::Cue>, Option<u8>),
+        (spell, talk, cue, run, ai): (
+            Option<Cast>,
+            Option<u32>,
+            Option<super::Cue>,
+            Option<u8>,
+            bool,
+        ),
     ) {
         self.delayed.push(Delayed {
             due_ms,
@@ -479,6 +488,7 @@ impl State {
             talk,
             cue,
             run,
+            ai,
         });
         self.next += 1;
     }
@@ -1477,10 +1487,15 @@ fn decode_use(input: &mut Reader) -> Result<Option<Use>, DecodeError> {
 
 fn encode_action(out: &mut Writer, action: &Action) {
     match action {
-        Action::Code { script, deferred } => {
+        Action::Code {
+            script,
+            deferred,
+            ai,
+        } => {
             out.u8(0);
             out.string(script);
             encode_deferred(out, deferred);
+            out.u8(u8::from(*ai));
         }
         Action::Wait { ms } => {
             out.u8(1);
@@ -1610,6 +1625,7 @@ fn decode_action(input: &mut Reader) -> Result<Action, DecodeError> {
         0 => Action::Code {
             script: input.string()?,
             deferred: decode_deferred(input)?,
+            ai: input.since(crate::since::save::DRIVEN_AI_DEFERRED) && input.u8()? != 0,
         },
         1 => Action::Wait { ms: input.u32()? },
         9 => Action::Animate {
@@ -1798,6 +1814,7 @@ fn encode_delayeds(out: &mut Writer, delayeds: &[Delayed]) {
         out.u32(delayed.talk.unwrap_or(u32::MAX));
         encode_cue(out, delayed.cue);
         out.u8(delayed.run.unwrap_or(u8::MAX));
+        out.u8(u8::from(delayed.ai));
     }
 }
 
@@ -1848,6 +1865,7 @@ fn decode_delayeds(input: &mut Reader) -> Result<Vec<Delayed>, DecodeError> {
                 } else {
                     None
                 },
+                ai: input.since(crate::since::save::DRIVEN_AI_DEFERRED) && input.u8()? != 0,
             })
         })
         .collect()
