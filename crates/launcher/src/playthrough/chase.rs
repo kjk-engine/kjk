@@ -6,10 +6,33 @@ use super::*;
 /// Whether a way leads to a foe, asked every `REACH_EVERY_MS` rather than
 /// each step (a way's search is most of a fight's time): to the floor
 /// where it stands, and to where a walk to it ends (`Here::approach`).
+/// And where a foe out of sight and of every way is seen from
+/// (`sight_spot`), asked as seldom.
 #[derive(Default)]
-pub(super) struct Reach(pub(super) BTreeMap<sim::SimId, (u64, bool, bool)>);
+pub(super) struct Reach(
+    pub(super) BTreeMap<sim::SimId, (u64, bool, bool)>,
+    BTreeMap<sim::SimId, (u64, Option<[f32; 3]>)>,
+);
 
 impl Reach {
+    /// Where the player sees foe `id` at `at` from (`sight_spot`, units).
+    pub(super) fn spot(
+        &mut self,
+        here: &Here,
+        player: &sim::motion::MotionState,
+        (id, at): (sim::SimId, [f32; 3]),
+        now: u64,
+    ) -> Option<[f32; 3]> {
+        if let Some((asked, spot)) = self.1.get(&id)
+            && now < asked + REACH_EVERY_MS
+        {
+            return *spot;
+        }
+        let spot = sight_spot(here, player, (id, at));
+        self.1.insert(id, (now, spot));
+        spot
+    }
+
     /// (to its floor, to where a walk to it ends) for foe `id` at `at`.
     pub(super) fn ways(
         &mut self,
@@ -33,8 +56,11 @@ impl Reach {
     /// with no closed door between (a gun hits it; a blade closes on it
     /// straight, off the mesh as a scene may stand it), or one with a way
     /// to it, or to the floor before one in sight (one on a rock off the
-    /// mesh, a Sand Person by the herd); not one unseen behind what shuts
-    /// it off (a Sith teacher in the academy's doorway out to the valley).
+    /// mesh, a Sand Person by the herd), or one unseen with no way to it
+    /// but seen from a floor a way leads to (`Reach::spot`: Iziz's wall
+    /// turrets, firing at the player under them); not one unseen behind
+    /// what shuts it off (a Sith teacher in the academy's doorway out to
+    /// the valley).
     pub(super) fn gettable(
         &mut self,
         here: &Here,
@@ -53,7 +79,7 @@ impl Reach {
             return true;
         }
         let (floor, walk) = self.ways(here, player, foe, now);
-        (seen || floor) && walk
+        ((seen || floor) && walk) || (!seen && !floor && self.spot(here, player, foe, now).is_some())
     }
 }
 
@@ -93,6 +119,9 @@ pub(super) struct Chase {
     pub(super) armed_far: bool,
     /// The foe a walk stalled on and on to: shot from where the player is.
     pub(super) lost: Option<sim::SimId>,
+    /// The foe out of sight and of every way walked to where it is seen
+    /// from (`Reach::spot`): shot from there.
+    pub(super) sighted: Option<sim::SimId>,
 }
 
 impl Chase {
@@ -153,6 +182,9 @@ impl Chase {
         now: u64,
         acts: &mut Vec<Action>,
     ) -> (Command, bool) {
+        if self.foe != Some(id) {
+            self.sighted = None;
+        }
         self.foe = Some(id);
         let ranged = ranged(me);
         let d = flat(at, me.position);
@@ -161,11 +193,21 @@ impl Chase {
         // or one the walk to stalled on and on (Peragus's assassin droid
         // shooting from past the dormitories' wreckage, its way blocked):
         // shot from here, a gun taken up for it, as a player would.
-        let (_, routable) = reach.ways(here, player, (id, at), now);
+        let (floor, routable) = reach.ways(here, player, (id, at), now);
         if walker.as_ref().is_some_and(|w| w.stalls > LOST_STALLS) {
             self.lost = Some(id);
         }
-        let far_shot = shot_far(!routable || self.lost == Some(id), seen, me.position, at);
+        // One unseen with no way to its floor: walked to where it is seen
+        // from, then shot (Iziz's wall turrets, hidden by the wall's top
+        // from the player under them, held the party in combat for good).
+        let spot = (!seen && !floor)
+            .then(|| reach.spot(here, player, (id, at), now))
+            .flatten();
+        if spot.is_some() {
+            self.sighted = Some(id);
+        }
+        let out_of_way = !routable || self.lost == Some(id) || self.sighted == Some(id);
+        let far_shot = shot_far(out_of_way, seen, me.position, at);
         if far_shot && !ranged && !self.armed_far {
             acts.extend(other_weapon(world, here.snapshot, false));
             self.armed_far = true;
@@ -246,6 +288,14 @@ impl Chase {
                 command.right = if turn { 127 } else { -127 };
             }
             return (command, false);
+        }
+        if let Some(spot) = spot {
+            if walker.as_ref().is_none_or(|w| w.goal != spot) {
+                *walker = Some(Walker::new(spot));
+                self.planned = Some((id, at));
+            }
+            let w = walker.as_mut().expect("planned above");
+            return (w.command_eager(here.level, player, now, &|index| here.to_try(index)), true);
         }
         // A walk stalling (no headway for half a stall's time, or getting
         // round a stall) keeps its plan while the same foe shifts about: a

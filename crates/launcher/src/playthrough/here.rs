@@ -1036,6 +1036,36 @@ pub(super) fn sighted_stand(
         .map(|(_, walker)| walker)
 }
 
+/// Where the player sees foe `id` from (units): the nearest floor round the
+/// player (the sim gunners' rings of sixteen, `minds::spot_for`) within
+/// `GUN_M` of the foe at `at` (metres, on the flat), from whose eye its chest
+/// is seen and which a way leads to, as KOTOR's attack walks on until its
+/// line is clear (`AIActionPhysicalAttacks` asks `ClearLineOfSight`). Iziz's
+/// wall turrets over the Merchant Quarter's ramp, 3 m up, are hidden by the
+/// wall's top from below them, and seen from 8 m off.
+pub(super) fn sight_spot(
+    here: &Here,
+    player: &sim::motion::MotionState,
+    (id, at): (sim::SimId, [f32; 3]),
+) -> Option<[f32; 3]> {
+    let chest = here.chest(id)?;
+    let from = sim::walk::back_on(here.level, player.origin).unwrap_or(player.origin);
+    rules::ai::gunners::spots::RINGS
+        .iter()
+        .flat_map(|&far| {
+            (0..16).map(move |k| {
+                let angle = k as f32 * std::f32::consts::TAU / 16.0;
+                [from[0] + far * angle.cos(), from[1] + far * angle.sin(), from[2]]
+            })
+        })
+        .map(|spot| sim::walk::on_floor(here.level, spot))
+        .filter(|spot| sim::walk::stands(here.level, *spot) && flat(spot.map(|v| v * UNIT), at) <= GUN_M)
+        .find(|spot| {
+            let eye = [spot[0], spot[1], spot[2] + player.eye_height];
+            here.level.sees(here.sight(), eye, chest) && here.open_way(from, *spot)
+        })
+}
+
 /// The command that looks at `at` (metres) from where `player` stands.
 pub(super) fn facing(player: &sim::motion::MotionState, at: [f32; 3]) -> Command {
     let (pitch, yaw) = mind::aim(player.origin, at.map(|v| v / UNIT));
