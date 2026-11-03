@@ -92,6 +92,9 @@ pub enum Action {
     Code {
         script: String,
         deferred: Deferred,
+        /// Queued by a run of its caller's own AI (`Event::ai`): it runs as
+        /// that AI still.
+        ai: bool,
     },
     Wait {
         ms: u32,
