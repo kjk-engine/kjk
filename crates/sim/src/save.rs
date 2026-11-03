@@ -141,7 +141,10 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 70: the party table keeps the item a companion wore in each slot
 /// (`party::Kept::worn`). Old saves: old saves read no worn items: a companion
 /// made from one is dressed as the creature it left stands.
-pub const VERSION: u32 = 70 + crate::pending::SAVE;
+/// 71: deferred and queued code carry whether their caller's own AI deferred
+/// them (`Delayed::ai`, `Action::Code::ai`). Old saves: old saves read `ai =
+/// false`: code deferred before ran as a story script's, as it did.
+pub const VERSION: u32 = 71 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
