@@ -47,6 +47,7 @@ use bevy::prelude::{
     Assets, Children, Commands, Entity, Handle, Image, Mesh, Mesh3d, MeshMaterial3d, Query,
     Transform, Visibility,
 };
+use bevy::render::storage::ShaderBuffer;
 use fmt_odyssey::mdl::{
     self, CONTROLLER_ALPHA as ALPHA, CONTROLLER_SCALE as SCALE,
     CONTROLLER_SELF_ILLUM as SELF_ILLUM, Node, emitter_controller as emit,
@@ -54,7 +55,7 @@ use fmt_odyssey::mdl::{
 use vfs::resolver::Resolver;
 
 use crate::heat_haze::HeatHazeMaterial;
-use crate::material::{self, AreaLight, Lighting, OdysseyMaterial};
+use crate::material::{self, AreaLight, Lighting, OdysseyMaterial, PARTICLE_BYTES};
 #[cfg(feature = "probes")]
 use crate::probe_kit::{Checks, check};
 use crate::scene::Stores;
@@ -1464,12 +1465,77 @@ pub struct Spray {
     values: Values,
     particles: Particles,
     mesh: Handle<Mesh>,
+    /// A quads emitter's list its mesh is placed by (`Pulled`); none for a
+    /// chunk's or a heat haze's, whose mesh is made anew.
+    pulled: Option<Pulled>,
     /// Its mesh holds nothing (`fill`): an emitter with nothing to draw
     /// leaves it as it is, rather than sending an empty mesh anew each
     /// frame.
     empty: bool,
     pub entity: Entity,
     pub weather: Option<WeatherSpray>,
+}
+
+/// A quads emitter's particles as the GPU reads them: its list
+/// (`OdysseyMaterial::particles`) and the material reading it, and how many
+/// quads both its list and its mesh hold. Its mesh is that many quads of
+/// nothing, made once; its list is written in place each frame, unused
+/// quads all at the origin (none drawn), and both grow together when its
+/// quads outgrow them.
+struct Pulled {
+    buffer: Handle<ShaderBuffer>,
+    material: Handle<OdysseyMaterial>,
+    quads: usize,
+}
+
+/// The quads a pulled spray's list and mesh first hold (`Pulled`).
+const FIRST_QUADS: usize = 16;
+
+/// A spray's particles laid out (`Spray::build`): a mesh made anew, or its
+/// list's bytes.
+pub enum Laid {
+    Mesh(Mesh),
+    Pulled(Vec<u8>),
+}
+
+/// The stores a spray's particles are written to (`Spray::put`): its
+/// mesh, its list and the material reading it.
+pub type SprayAssets<'a> = (
+    &'a mut Assets<Mesh>,
+    &'a mut Assets<ShaderBuffer>,
+    &'a mut Assets<OdysseyMaterial>,
+);
+
+/// The stores of `SprayAssets` as a system takes them.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct SprayStores<'w> {
+    meshes: bevy::prelude::ResMut<'w, Assets<Mesh>>,
+    buffers: bevy::prelude::ResMut<'w, Assets<ShaderBuffer>>,
+    materials: bevy::prelude::ResMut<'w, Assets<OdysseyMaterial>>,
+}
+
+impl SprayStores<'_> {
+    /// Its stores, to write a spray's particles to.
+    pub fn assets(&mut self) -> SprayAssets<'_> {
+        (&mut self.meshes, &mut self.buffers, &mut self.materials)
+    }
+}
+
+/// `quads` quads of nothing, as a pulled spray's mesh (`Pulled`).
+fn blank_quads(quads: usize) -> Mesh {
+    let vertices = quads * 4;
+    crate::scene::coloured_quads(
+        vec![[0.0; 3]; vertices],
+        vec![[0.0; 2]; vertices],
+        vec![[0.0; 4]; vertices],
+    )
+}
+
+/// `bytes` as a pulled spray's list: moved to the GPU, not kept.
+fn particle_list(bytes: Vec<u8>) -> ShaderBuffer {
+    let mut buffer = ShaderBuffer::new(&[], bevy::asset::RenderAssetUsages::RENDER_WORLD);
+    buffer.data = Some(bytes);
+    buffer
 }
 
 /// A spray under `parent` for each emitter of a model (`fx`, `ir`, its
@@ -1491,11 +1557,16 @@ pub(crate) fn sprays(
         .enumerate()
         .filter(|(_, e)| e.update != Update::Other)
         .map(|(k, e)| {
-            let mesh = stores.meshes.add(crate::scene::coloured_quads(
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-            ));
+            let chunk = e.chunk.as_ref().and_then(|name| chunks.get(name));
+            // Room for a few quads, grown as its particles need: most
+            // emitters have far fewer than they may, and the whole list
+            // is written each frame.
+            let quads = (!e.distorts() && chunk.is_none()).then_some(FIRST_QUADS);
+            let mesh = stores.meshes.add(match quads {
+                Some(quads) => blank_quads(quads),
+                None => crate::scene::coloured_quads(Vec::new(), Vec::new(), Vec::new()),
+            });
+            let mut pulled = None;
             let spray = commands
                 .spawn((
                     Mesh3d(mesh.clone()),
@@ -1510,7 +1581,6 @@ pub(crate) fn sprays(
                     .entity(spray)
                     .insert(MeshMaterial3d(hazes.add(HeatHazeMaterial::new(art))));
             } else {
-                let chunk = e.chunk.as_ref().and_then(|name| chunks.get(name));
                 let (texture, surface) = match chunk {
                     Some(chunk) => (chunk.texture.as_str(), material::Surface::BlendVertex),
                     // Added by the texture's alpha: KOTOR's flares and
@@ -1541,9 +1611,23 @@ pub(crate) fn sprays(
                 );
                 // Punch-through: whole where its alpha is above nothing
                 // (the second ion ray's rings), as the executable draws it.
-                let material = stores.materials.add(match (chunk, e.blend) {
+                let mut made = match (chunk, e.blend) {
                     (None, Blend::PunchThrough) => made.punch_through(),
                     _ => made,
+                };
+                let buffer = quads.map(|quads| {
+                    stores
+                        .buffers
+                        .add(particle_list(vec![0; quads * 4 * PARTICLE_BYTES]))
+                });
+                if let Some(buffer) = &buffer {
+                    made.particles = buffer.clone();
+                }
+                let material = stores.materials.add(made);
+                pulled = buffer.zip(quads).map(|(buffer, quads)| Pulled {
+                    buffer,
+                    material: material.clone(),
+                    quads,
                 });
                 commands.entity(spray).insert(MeshMaterial3d(material));
             }
@@ -1561,6 +1645,7 @@ pub(crate) fn sprays(
                 values: Values::of(e),
                 particles: Particles::new(*seed, e.limit()),
                 mesh,
+                pulled,
                 empty: true,
                 entity: spray,
                 weather: None,
@@ -1686,10 +1771,10 @@ impl Spray {
         space: Mat4,
         facing: (Vec3, Vec3),
         shown: bool,
-        meshes: &mut Assets<Mesh>,
+        stores: SprayAssets,
     ) {
-        if let Some(mesh) = self.build((fx, chunks), space, facing, shown) {
-            self.put(mesh, meshes);
+        if let Some(laid) = self.build((fx, chunks), space, facing, shown) {
+            self.put(laid, stores);
         }
     }
 
@@ -1702,7 +1787,7 @@ impl Spray {
         space: Mat4,
         facing: (Vec3, Vec3),
         shown: bool,
-    ) -> Option<Mesh> {
+    ) -> Option<Laid> {
         let emitter = &fx.emitters[self.emitter];
         let mut shape = Shape::default();
         if shown {
@@ -1721,7 +1806,26 @@ impl Spray {
             return None;
         }
         self.empty = empty;
-        Some(if shape.indices.is_empty() {
+        if let Some(pulled) = &self.pulled {
+            // Its quads, then nothing to its list's end (grown to the next
+            // power of two when they outgrow it).
+            let quads = shape.positions.len() / 4;
+            let room = match quads > pulled.quads {
+                true => quads.next_power_of_two(),
+                false => pulled.quads,
+            };
+            let mut bytes = Vec::with_capacity(room * 4 * PARTICLE_BYTES);
+            for ((position, uv), colour) in
+                shape.positions.iter().zip(&shape.uvs).zip(&shape.colours)
+            {
+                for value in position.iter().chain(uv).chain(colour) {
+                    bytes.extend_from_slice(&value.to_ne_bytes());
+                }
+            }
+            bytes.resize(room * 4 * PARTICLE_BYTES, 0);
+            return Some(Laid::Pulled(bytes));
+        }
+        Some(Laid::Mesh(if shape.indices.is_empty() {
             crate::scene::coloured_quads(shape.positions, shape.uvs, shape.colours)
         } else {
             crate::scene::coloured_triangles(
@@ -1730,13 +1834,34 @@ impl Spray {
                 shape.colours,
                 shape.indices,
             )
-        })
+        }))
     }
 
-    /// `mesh` (`build`'s) made its mesh.
-    pub fn put(&self, mesh: Mesh, meshes: &mut Assets<Mesh>) {
-        if let Some(mut slot) = meshes.get_mut(&self.mesh) {
-            *slot = mesh;
+    /// `laid` (`build`'s) made its mesh, or written to its list; a list
+    /// grown gets a mesh as long and its material reads the new one.
+    pub fn put(&mut self, laid: Laid, (meshes, buffers, materials): SprayAssets) {
+        match (laid, self.pulled.as_mut()) {
+            (Laid::Pulled(bytes), Some(pulled)) => {
+                let quads = bytes.len() / (4 * PARTICLE_BYTES);
+                if quads == pulled.quads {
+                    if let Some(mut buffer) = buffers.get_mut(&pulled.buffer) {
+                        buffer.data = Some(bytes);
+                    }
+                    return;
+                }
+                pulled.quads = quads;
+                pulled.buffer = buffers.add(particle_list(bytes));
+                let _ = meshes.insert(&self.mesh, blank_quads(quads));
+                if let Some(mut material) = materials.get_mut(&pulled.material) {
+                    material.particles = pulled.buffer.clone();
+                }
+            }
+            (Laid::Mesh(mesh), _) => {
+                if let Some(mut slot) = meshes.get_mut(&self.mesh) {
+                    *slot = mesh;
+                }
+            }
+            (Laid::Pulled(_), None) => {}
         }
     }
 }

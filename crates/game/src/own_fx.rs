@@ -121,7 +121,7 @@ struct Stepping<'a> {
     placed_at: Option<bevy::math::Affine3A>,
     shown: bool,
     seen: bool,
-    mesh: Option<Mesh>,
+    laid: Option<model_fx::Laid>,
 }
 
 impl Stepping<'_> {
@@ -142,7 +142,7 @@ impl Stepping<'_> {
             _ => true,
         };
         if self.shown && self.seen {
-            self.mesh = (self.spray).build((fx, &self.own.chunks), space, self.facing, true);
+            self.laid = (self.spray).build((fx, &self.own.chunks), space, self.facing, true);
         }
     }
 }
@@ -535,7 +535,7 @@ fn draw(
     (transforms, globals): (Query<&Transform>, Query<&GlobalTransform>),
     cameras: Query<(Entity, &Projection), SceneCamera>,
     mut visibility: Query<&mut Visibility>,
-    (mut meshes, mut body_lights): (ResMut<Assets<Mesh>>, ResMut<crate::scene::BodyLights>),
+    (mut stores, mut body_lights): (model_fx::SprayStores, ResMut<crate::scene::BodyLights>),
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
 ) {
     let movers = &mut *movers;
@@ -645,7 +645,7 @@ fn draw(
                 placed_at,
                 shown,
                 seen: true,
-                mesh: None,
+                laid: None,
             });
         }
     }
@@ -664,8 +664,8 @@ fn draw(
         }
     });
     for one in stepping {
-        if let Some(mesh) = one.mesh {
-            one.spray.put(mesh, &mut meshes);
+        if let Some(laid) = one.laid {
+            one.spray.put(laid, stores.assets());
         }
         let drawn = if one.seen {
             Visibility::Inherited

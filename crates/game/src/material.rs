@@ -38,6 +38,9 @@ use bevy::shader::ShaderRef;
 
 const SHADER: Handle<Shader> = uuid_handle!("5d0f3b8e-3f7c-4d8e-9a51-0b7c2e61d4a3");
 const PREPASS_SHADER: Handle<Shader> = uuid_handle!("e2a7c5d1-0b84-4f3e-9c26-7d1f8a3b5e90");
+/// An emitter's particles' vertex stage: their places, texture coordinates
+/// and colours read from its own list (`OdysseyMaterial::particles`).
+const PARTICLES_SHADER: Handle<Shader> = uuid_handle!("a4d81f37-6c2e-4b95-8f03-1e7b9c5d2a68");
 /// `kjk::lighting`, the flash and the fog this material and the grass share.
 const LIGHTING: Handle<Shader> = uuid_handle!("c3a7e215-8d4b-4f6e-b0d2-5e91f7a4c836");
 
@@ -46,6 +49,15 @@ pub const AREA_LIGHTS: Handle<ShaderBuffer> = uuid_handle!("b6e2a9d4-71c3-4f08-8
 
 /// The animated materials' slots (`Animated`), which every material reads.
 pub const ANIMATED: Handle<ShaderBuffer> = uuid_handle!("8f4b2c61-d93e-4a75-b018-6e2f9c3d7a54");
+
+/// No particles' list: a material's own vertices place it.
+pub const NO_PARTICLES: Handle<ShaderBuffer> = uuid_handle!("3e9b7d52-0a1c-4f86-b4e7-6d2c8f1a5b39");
+
+/// A particles' list of one, for the pipeline warm-up's stand-ins
+/// (`warmup`): a material reading any list but `NO_PARTICLES` takes the
+/// particles' pipeline.
+pub const STAND_IN_PARTICLES: Handle<ShaderBuffer> =
+    uuid_handle!("7c15e8a3-94d2-4b60-a1f7-2e8d3b6c9f04");
 
 /// How many materials can be animated through `ANIMATED` at once (slot 0
 /// is none); past that, a material is written itself. Our chosen cap (the
@@ -139,6 +151,18 @@ impl GpuAnimated {
         uv: Vec4::ZERO,
     };
 }
+
+/// A particle quad's vertex as `particles.wgsl` reads it: place (its
+/// emitter's parent's space), texture coordinate and colour.
+#[derive(ShaderType, Clone, Copy, Default)]
+pub struct GpuParticle {
+    pub position: [f32; 3],
+    pub uv: [f32; 2],
+    pub colour: [f32; 4],
+}
+
+/// `GpuParticle`'s size in the list.
+pub const PARTICLE_BYTES: usize = 36;
 
 /// The materials animated every frame and their slots in `ANIMATED`,
 /// which `upload_animated` writes when they change. A material takes a
@@ -329,6 +353,7 @@ impl Plugin for OdysseyMaterialPlugin {
     fn build(&self, app: &mut App) {
         load_internal_asset!(app, LIGHTING, "lighting.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, SHADER, "odyssey.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, PARTICLES_SHADER, "particles.wgsl", Shader::from_wgsl);
         load_internal_asset!(
             app,
             PREPASS_SHADER,
@@ -345,6 +370,17 @@ impl Plugin for OdysseyMaterialPlugin {
             .insert(
                 &ANIMATED,
                 ShaderBuffer::from([GpuAnimated::NONE; ANIMATED_SLOTS]),
+            );
+        let _ = app
+            .world_mut()
+            .resource_mut::<Assets<ShaderBuffer>>()
+            .insert(&NO_PARTICLES, ShaderBuffer::from([GpuParticle::default()]));
+        let _ = app
+            .world_mut()
+            .resource_mut::<Assets<ShaderBuffer>>()
+            .insert(
+                &STAND_IN_PARTICLES,
+                ShaderBuffer::from([GpuParticle::default()]),
             );
         app.init_resource::<AreaLights>()
             .init_resource::<Animated>()
@@ -506,6 +542,12 @@ pub struct OdysseyMaterial {
     /// The animated materials' slots (`ANIMATED`).
     #[storage(9, read_only)]
     pub animated: Handle<ShaderBuffer>,
+    /// An emitter's particles, four `GpuParticle` vertices a quad, which
+    /// place its mesh's vertices by their index (`model_fx::Spray`):
+    /// written in place each frame, where a mesh written anew is freed and
+    /// allocated again on the GPU. `NO_PARTICLES` for the rest.
+    #[storage(10, read_only)]
+    pub particles: Handle<ShaderBuffer>,
     pub surface: Surface,
     /// Its back faces are not drawn (reone and xoreos cull a KOTOR mesh's
     /// back faces, a decal texture's excepted): a camera behind a wall or
@@ -625,6 +667,7 @@ impl OdysseyMaterial {
             lights: AREA_LIGHTS,
             shadows: crate::shadows::AREA_SHADOWS,
             animated: ANIMATED,
+            particles: NO_PARTICLES,
             surface,
             culled: false,
         }
@@ -662,6 +705,7 @@ pub struct OdysseyKey {
     blend: Option<BlendState>,
     depth_write: bool,
     culled: bool,
+    particles: bool,
 }
 
 impl From<&OdysseyMaterial> for OdysseyKey {
@@ -679,6 +723,7 @@ impl From<&OdysseyMaterial> for OdysseyKey {
                     | Surface::Modulate
             ),
             culled: material.culled,
+            particles: material.particles.id() != NO_PARTICLES.id(),
         }
     }
 }
@@ -781,6 +826,9 @@ impl Material for OdysseyMaterial {
             // Both faces cast: a cloak or a sleeve is one sheet.
             descriptor.primitive.cull_mode = None;
             return Ok(());
+        }
+        if key.particles {
+            descriptor.vertex.shader = PARTICLES_SHADER;
         }
         descriptor.primitive.cull_mode = key
             .culled

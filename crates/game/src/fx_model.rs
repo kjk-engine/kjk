@@ -12,6 +12,7 @@ use std::sync::Arc;
 use asset_odyssey::anim::{AnimationIr, sample_orientation, sample_position};
 use asset_odyssey::texture::TextureIr;
 use bevy::prelude::*;
+use bevy::render::storage::ShaderBuffer;
 use sim::minigame::Anim;
 use vfs::resolver::Resolver;
 
@@ -497,6 +498,7 @@ pub struct Drawing<'w, 's> {
     materials: ResMut<'w, Assets<OdysseyMaterial>>,
     animated: Option<ResMut<'w, crate::material::Animated>>,
     meshes: ResMut<'w, Assets<Mesh>>,
+    buffers: ResMut<'w, Assets<ShaderBuffer>>,
     pub visibility: Query<'w, 's, &'static mut Visibility>,
 }
 
@@ -611,7 +613,7 @@ impl Drawing<'_, '_> {
                 space,
                 facing,
                 shown || lingering,
-                &mut self.meshes,
+                (&mut self.meshes, &mut self.buffers, &mut self.materials),
             );
             if let Ok(mut visible) = self.visibility.get_mut(spray.entity) {
                 *visible = if shown || lingering {

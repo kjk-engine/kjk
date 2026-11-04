@@ -738,6 +738,8 @@ pub(crate) struct Stores<'a> {
     pub meshes: &'a mut Assets<Mesh>,
     pub materials: &'a mut Assets<OdysseyMaterial>,
     pub bindposes: &'a mut Assets<SkinnedMeshInverseBindposes>,
+    /// Emitters' particle lists (`model_fx::Spray`).
+    pub buffers: &'a mut Assets<ShaderBuffer>,
 }
 
 /// The asset stores as a system takes them.
@@ -747,6 +749,7 @@ pub(crate) struct ModelAssets<'w> {
     materials: ResMut<'w, Assets<OdysseyMaterial>>,
     images: ResMut<'w, Assets<Image>>,
     bindposes: ResMut<'w, Assets<SkinnedMeshInverseBindposes>>,
+    buffers: ResMut<'w, Assets<ShaderBuffer>>,
 }
 
 impl ModelAssets<'_> {
@@ -759,6 +762,7 @@ impl ModelAssets<'_> {
                 meshes: &mut self.meshes,
                 materials: &mut self.materials,
                 bindposes: &mut self.bindposes,
+                buffers: &mut self.buffers,
             },
         )
     }
