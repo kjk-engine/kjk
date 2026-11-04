@@ -1310,6 +1310,19 @@ fn send_copies(solo: &mut Solo, host: String, id: &str, meta: &saves::Meta, worl
     }
 }
 
+/// An install's error as text, a refusal for changed deferred code also a
+/// `save-migrate` line naming the scripts.
+fn refused(error: sim::InstallError) -> String {
+    if let sim::InstallError::CodeChanged { scripts } = &error {
+        warn!(
+            target: "save-migrate",
+            scripts = %scripts.join(", "),
+            "refused: deferred code of scripts that changed"
+        );
+    }
+    error.to_string()
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn advance(
     time: Res<Time<Real>>,
@@ -1407,10 +1420,20 @@ fn advance(
                     if let Some(restamp) = authority.world.stale_stamp(&prepared.plan.level) {
                         warn!(target: "save-migrate", "{restamp}");
                     }
-                    prepared
+                    let announcement = prepared
                         .plan
                         .commit(&mut authority.world)
-                        .map_err(|error| error.to_string())?
+                        .map_err(refused)?;
+                    if let Some(report) = authority.world.reconciled() {
+                        warn!(target: "save-migrate", "{report}");
+                        for snap in &report.snaps {
+                            warn!(target: "save-migrate", "{snap}");
+                        }
+                    }
+                    for line in authority.world.dropped_code() {
+                        warn!(target: "save-migrate", "{line}");
+                    }
+                    announcement
                 }
             };
             // The announcement's hash, not the world's now: entering a

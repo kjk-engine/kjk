@@ -3985,6 +3985,7 @@ impl Engine<'_> {
                         self.script,
                         code,
                         (self.spell.cloned(), talk, self.event.cue, run, ai),
+                        self.library.script_digest(self.script),
                     );
                 }
                 Value::Int(0)
@@ -3996,7 +3997,8 @@ impl Engine<'_> {
                     let run = deferring_run(&self.event, caller);
                     let ai = self.event.ai == Some(target);
                     let carried = (self.spell.cloned(), talk, self.event.cue, run, ai);
-                    state.defer(now, target, self.script, code, carried);
+                    let digest = self.library.script_digest(self.script);
+                    state.defer(now, target, self.script, code, carried, digest);
                 }
                 Value::Int(0)
             }
@@ -4039,6 +4041,7 @@ impl Engine<'_> {
                         script: self.script.to_string(),
                         deferred,
                         ai: self.event.ai == Some(caller),
+                        code: self.library.script_digest(self.script),
                     },
                 ),
                 None => Value::Int(0),

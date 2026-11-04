@@ -817,7 +817,24 @@ pub(crate) fn from_save(
     if let Some(restamp) = save.restamp(level)? {
         bevy::log::warn!(target: "save-migrate", "{restamp}");
     }
+    let changed = save.stale_code(level);
+    if !changed.is_empty() {
+        bevy::log::warn!(
+            target: "save-migrate",
+            scripts = %changed.join(", "),
+            "refused: deferred code of scripts that changed"
+        );
+    }
     let mut world = save.world(level, seats, tick)?;
+    if let Some(report) = world.reconciled() {
+        bevy::log::warn!(target: "save-migrate", "{report}");
+        for snap in &report.snaps {
+            bevy::log::warn!(target: "save-migrate", "{snap}");
+        }
+    }
+    for line in world.dropped_code() {
+        bevy::log::warn!(target: "save-migrate", "{line}");
+    }
     let again = sim::Save {
         hz: save.hz,
         level: level.id(),
