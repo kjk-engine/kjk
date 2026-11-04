@@ -16,6 +16,7 @@ path = "src/main.rs"
 required-features = ["app"]
 
 [dependencies]
+asset_odyssey.workspace = true
 blake3.workspace = true
 edit.workspace = true
 fmt_odyssey.workspace = true

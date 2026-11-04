@@ -5334,6 +5334,7 @@ dependencies = [
 name = "save_editor"
 version = "0.0.0"
 dependencies = [
+ "asset_odyssey",
  "blake3",
  "edit",
  "eframe",
