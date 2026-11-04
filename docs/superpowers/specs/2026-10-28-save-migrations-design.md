@@ -307,10 +307,19 @@ bumps.
 
 *Status 2026-10-30:* 3b is built (`sim::Save::restamp`,
 `SimWorld::stale_stamp`, `sim::Restamp`; the approved test
-`stale_stamps_load`). 3c's reconciliation and the new snapshot fields it
-needs (component digests, origin keys and rosters, per-continuation script
-digests) are not built yet: a re-stamped save is trusted as `restamp.rs`
-trusted it.
+`stale_stamps_load`).
+
+*Status 2026-11-03:* 3c is built (`sim::reconcile`; branch
+`claude/save-reconcile`): the roster (origin keys in `Snapshot::roster` and
+`Stashed::roster`, not on each entity), the renumbering of objects onto
+changed placements, the keep rules for what is the party's, the snap of
+bodies the collision no longer holds up, and the script digests on deferred
+code, with a load refused when a continuation points into a script that
+changed. Decisions: the origin keys live in a roster, not on each entity;
+there are no separate component digests, and reconcile runs every check
+whenever the combined digest moved; a save without a roster is trusted as
+before (logged once per module), with only a kind check on its object
+numbers. Every step logs on the `save-migrate` target.
 
 ### 3a. What a digest mismatch means
 

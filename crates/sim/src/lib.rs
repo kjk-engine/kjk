@@ -49,6 +49,9 @@ pub mod persona;
 #[cfg(feature = "probes")]
 pub mod probe;
 mod rate;
+pub mod reconcile;
+#[cfg(feature = "probes")]
+pub mod reconcile_probes;
 pub mod remote;
 mod replay;
 pub mod rng;

@@ -95,6 +95,9 @@ pub enum Action {
         /// Queued by a run of its caller's own AI (`Event::ai`): it runs as
         /// that AI still.
         ai: bool,
+        /// The digest of `script`'s bytes the code was queued from
+        /// (`Library::script_digest`); none for a save from before it was kept.
+        code: Option<[u8; 32]>,
     },
     Wait {
         ms: u32,

@@ -511,11 +511,7 @@ impl Level {
     /// move_body's ground trace holds a body on the highest of the floor under
     /// its box; the footprint looked for under `at` itself.
     fn fits_lifted(&self, at: math::Vec3, lifts: &[f32]) -> bool {
-        let half = crate::motion::HALF_WIDTH * UNIT;
-        let extents = Extents {
-            mins: [-half, -half, crate::motion::SOLE_Z * UNIT],
-            maxs: [half, half, crate::motion::STAND_HEIGHT * UNIT],
-        };
+        let extents = standing_box();
         let at = scale(at, UNIT);
         let below = [
             at[0],
@@ -536,6 +532,26 @@ impl Level {
             });
             let under = world.trace(at, below, &Extents::POINT, Contents::NONWALK);
             clear && !(under.fraction < 1.0 && under.entity.is_some())
+        })
+    }
+
+    /// Whether a standing body at `at` (units) is held by the level's
+    /// collision: its box starts clear of solid and a floor lies under it
+    /// within a step (the ground trace move_body holds a body by), walkable
+    /// as move_body takes it. A body in the air, or in a wall, is not.
+    pub fn held_up(&self, at: math::Vec3) -> bool {
+        let at = scale(at, UNIT);
+        let from = [
+            at[0],
+            at[1],
+            at[2] + rules::walking::walker::FLOOR_GIVE * UNIT,
+        ];
+        let below = [at[0], at[1], at[2] - crate::motion::STEP_HEIGHT * UNIT];
+        self.with(None, |world| {
+            let floor = world.trace(from, below, &standing_box(), Contents::PLAYER_SOLID);
+            !floor.start_solid
+                && floor.fraction < 1.0
+                && floor.plane.normal[2] >= crate::motion::WALKABLE_NORMAL_Z
         })
     }
 
@@ -593,4 +609,14 @@ impl Level {
 /// Whether `trace` went all the way, from a start in the open.
 pub fn unobstructed(trace: &collision::Trace) -> bool {
     trace.fraction >= 1.0 && !trace.start_solid
+}
+
+/// The box move_body moves (metres, round its origin): across to its half
+/// width, from the soles up to a standing body's height.
+fn standing_box() -> Extents {
+    let half = crate::motion::HALF_WIDTH * UNIT;
+    Extents {
+        mins: [-half, -half, crate::motion::SOLE_Z * UNIT],
+        maxs: [half, half, crate::motion::STAND_HEIGHT * UNIT],
+    }
 }

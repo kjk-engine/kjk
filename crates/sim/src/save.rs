@@ -5,6 +5,7 @@
 //! Not a KOTOR save: original save games are out of scope (`ROADMAP.md`).
 
 use crate::install::{InstallError, Restamp};
+use crate::reconcile::{Held, Party, reconcile};
 use crate::snapshot::{Kind, Snapshot};
 use crate::wire::{DecodeError, Reader, Stored, Writer};
 use crate::world::{Level, LevelId, SimWorld};
@@ -204,6 +205,18 @@ impl Save {
         }))
     }
 
+    /// The scripts whose deferred code in this save no longer matches
+    /// `level`'s (`reconcile::stale_code`): `world` refuses the save while
+    /// there are any, with `InstallError::CodeChanged`'s text, and drops
+    /// those whose script the level lacks (`reconcile::drop_absent_code`).
+    /// The code a module left waits in is checked as it is entered
+    /// (`SimWorld::install`).
+    pub fn stale_code(&self, level: &Level) -> Vec<String> {
+        level.scripts().map_or_else(Vec::new, |library| {
+            crate::reconcile::stale_code(library, &self.script)
+        })
+    }
+
     /// The world going on from this save in `level` (the level it was
     /// made in, re-stamped with its data if that changed, else refused:
     /// `restamp`), for a session that holds `seats`: the save's
@@ -213,22 +226,57 @@ impl Save {
     /// fell, I30 P13). The menu's load and the reload both make it here.
     /// No container is held open in it (`containers::let_go`).
     pub fn world(&self, level: &Level, seats: u8, tick: Option<u64>) -> Result<SimWorld, String> {
-        self.restamp(level)?;
-        let mut snapshot = self.snapshot.clone();
-        snapshot.place = level.place();
-        snapshot.seats_held = self.seats_for(seats);
-        // The world makes its droids again (`crate::remote`).
-        snapshot.remotes.clear();
-        crate::containers::let_go(&mut snapshot, level);
-        if let Some(tick) = tick {
-            snapshot.tick = tick;
+        let restamp = self.restamp(level)?;
+        let scripts = self.stale_code(level);
+        if !scripts.is_empty() {
+            return Err(InstallError::CodeChanged { scripts }.to_string());
         }
         // The companions' kept templates the level lacks, as an install adds
         // them (`install::with_party_templates`).
         let level = crate::install::with_party_templates(level.clone(), &self.script.party);
+        let mut snapshot = self.snapshot.clone();
+        // Its objects brought onto the level's placements when the data
+        // moved or the save was made before rosters were kept
+        // (`crate::reconcile`).
+        let reconciled = (level.place().is_some()
+            && (restamp.is_some() || snapshot.roster.is_none()))
+        .then(|| {
+            let members = crate::install::members(&self.script.party);
+            let party = Party {
+                members: &members,
+                items: &self.script.items,
+            };
+            let held = Held {
+                entities: &mut snapshot.entities,
+                spawned: &mut snapshot.spawned,
+                roster: &mut snapshot.roster,
+                next_id: &mut snapshot.next_id,
+                snap: restamp.is_some(),
+            };
+            reconcile(held, &level, &party)
+        });
+        snapshot.place = level.place();
+        snapshot.seats_held = self.seats_for(seats);
+        // The world makes its droids again (`crate::remote`).
+        snapshot.remotes.clear();
+        crate::containers::let_go(&mut snapshot, &level);
+        if let Some(tick) = tick {
+            snapshot.tick = tick;
+        }
+        let mut script = self.script.clone();
+        let dropped = match (level.scripts(), level.place()) {
+            (Some(library), Some(place)) => {
+                crate::reconcile::drop_absent_code(library, &mut script, &place.module)
+            }
+            _ => Vec::new(),
+        };
         let mut world =
             SimWorld::from_snapshot(&snapshot, level).map_err(|error| error.to_string())?;
-        world.set_script_state(self.script.clone());
+        world.set_script_state(script);
+        if let Some(report) = reconciled {
+            world.reconciled_with(report);
+        }
+        world.dropped_code_with(dropped);
         Ok(world)
     }
 
