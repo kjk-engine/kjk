@@ -13,7 +13,41 @@ pub fn all() -> Vec<Probe> {
         ("saves_folder", saves_folder()),
         ("open_refusals", open_refusals()),
         ("open_from_folder", open_from_folder()),
+        ("data_k1", data_of(vfs::Game::Kotor1)),
+        ("data_tsl", data_of(vfs::Game::Kotor2)),
     ]
+}
+
+/// The installs, as kjk finds them from the environment.
+fn discovery() -> vfs::Discovery {
+    vfs::discover(|name| std::env::var(name).ok())
+}
+
+/// `game`'s data for edits: every item the install holds, a lightsaber a
+/// weapon among them, and classes that use the Force.
+fn data_of(game: vfs::Game) -> Result<String, String> {
+    let discovery = discovery();
+    if discovery.get(game).is_none() {
+        return Ok(format!("skipped: no {} install", game.key()));
+    }
+    let data = crate::Data::load(&discovery, game)?;
+    let saber = data
+        .catalog
+        .get("g_w_lghtsbr01")
+        .ok_or("no g_w_lghtsbr01 among the items")?;
+    if saber.weapon.is_none() {
+        return Err("the lightsaber is no weapon".into());
+    }
+    let force = data.classes.classes.iter().filter(|class| class.force_die > 0).count();
+    if data.catalog.len() < 500 || force == 0 {
+        return Err(format!("{} items, {force} Force classes", data.catalog.len()));
+    }
+    Ok(format!(
+        "{} items ({} unread), {} classes ({force} with the Force)",
+        data.catalog.len(),
+        data.unreadable.len(),
+        data.classes.classes.len()
+    ))
 }
 
 /// The fixtures' save with every kind of state in it, encoded.

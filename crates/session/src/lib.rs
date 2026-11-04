@@ -41,6 +41,7 @@ use sim::motion::AnimTable;
 use sim::{Announcement, InstallError, Level, Mismatch, SimWorld, WorldConfig};
 
 pub use library::{clip_names, clip_probes, gather_probes};
+pub use items::item_catalog;
 pub use objects::module_data;
 pub use sheets::{BulkRow, blade_probes, bulk_census, bulk_probes, speed_probes};
 
