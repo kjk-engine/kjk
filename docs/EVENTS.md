@@ -128,7 +128,11 @@ travels in saves and recordings (`script::State`).
   with `GetListenPatternNumber` and `GetLastSpeaker`: allies answer "I was
   attacked", "I am dead" (`k_def_dialogue01`).
 - Conversations (I18): `DIALOGUE.md`; a player's use runs a creature's
-  `ScriptDialogue` with pattern −1, a placeable's `OnUsed`.
+  `ScriptDialogue` with pattern −1, a placeable's `OnUsed`. The pattern
+  is kept on the creature (`last::PATTERN`): its `OnUserDefined`, which
+  `k_ai_master` signals with 1004 for one whose spawn asked for it, reads
+  it too, not the event's number (Tanis Venn's droids begin their
+  conversations only for −1, `k_ptat_tandrduse`).
 - Which field each holder names its script under, per event (UTC, UTD,
   UTP, UTT, UTE, UTM, ARE, IFO): `script::hooks::Hook::label`.
 

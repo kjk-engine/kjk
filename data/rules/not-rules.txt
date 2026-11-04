@@ -475,6 +475,7 @@ crates/sim/src/script/engine.rs LOOPS_AT_ONCE  # script constant: the looping AN
 crates/sim/src/script/engine.rs NEUTRAL  # script constant: ALIGNMENT_*
 crates/sim/src/script/engine.rs NPC_PLAYER  # script constant: NPC_PLAYER
 crates/sim/src/script/engine.rs OPENED  # a `last` kind id
+crates/sim/src/script/engine.rs PATTERN  # a `last` kind id
 crates/sim/src/script/engine.rs PCS  # iterator kind id
 crates/sim/src/script/engine.rs PERCEIVED  # a `last` kind id
 crates/sim/src/script/engine.rs PERCEPTION  # a `last` kind id
