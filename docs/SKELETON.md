@@ -26,6 +26,16 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   hilts and blade overlay (the drawn body takes rotations only and never
   showed it), and the sim's blades, whose skeleton (`sim::skeleton::turn`)
   mixes the same way.
+- Legs mid-blend go by position (`Player::limbs_blended`): knee and ankle
+  move straight from the captured pose's places to the new animation's,
+  measured from the hip in the pelvis's frame; thigh and shin swing (no
+  more) from their blended turns to reach them, the foot turns the short
+  way. Bone by bone, a thigh half a turn of twist from its old pose carried
+  the bent knee round with it: the medium combo's blend into
+  `BOTH_T2_BR_TR` looped the right foot 1.9 m (40 cm out, 30 cm up) at
+  23 m/s in 100 ms; now 0.25 m at 2.6 m/s, on JA's skeleton and every
+  body. Ghoul2's lerped matrices fold the shin through the middle there
+  instead. View only: the sim's skeleton mixes its own way.
 - `kjk play --trace` writes JA's shoulders, elbows and wrists
   (`rig::JA_ARMS`, `ja_*` columns) beside the drawn arm nodes, in the same
   world frame.
