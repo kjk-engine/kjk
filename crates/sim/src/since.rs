@@ -19,6 +19,7 @@ pub mod save {
     pub const ITEM_CYCLE: crate::Since = crate::Since(crate::Stored::Save, 69);
     pub const COMPANION_KEPT_ITEMS: crate::Since = crate::Since(crate::Stored::Save, 70);
     pub const DRIVEN_AI_DEFERRED: crate::Since = crate::Since(crate::Stored::Save, 71);
+    pub const CLAUDE_SAVE_RECONCILE: crate::Since = crate::Since(crate::Stored::Save, 72);
     #[allow(unused_imports)]
     pub use crate::pending::since::save::*;
 }
@@ -29,6 +30,8 @@ pub mod snapshot {
     pub const CLAUDE_UI_ISSUES: crate::Since = crate::Since(crate::Stored::Snapshot, 75);
     pub const FEAT_CYCLE: crate::Since = crate::Since(crate::Stored::Snapshot, 76);
     pub const ITEM_CYCLE: crate::Since = crate::Since(crate::Stored::Snapshot, 77);
+    pub const DROID_FEEL: crate::Since = crate::Since(crate::Stored::Snapshot, 78);
+    pub const CLAUDE_SAVE_RECONCILE: crate::Since = crate::Since(crate::Stored::Snapshot, 79);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }
