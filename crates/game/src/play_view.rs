@@ -1578,8 +1578,11 @@ fn write_trace(
     for (index, &(parent, rest, rest_rotation)) in rig.rest.iter().enumerate() {
         let mut local = Transform::from_translation(rest)
             .with_rotation(*rotations.get(&index).unwrap_or(&rest_rotation));
-        if let Some((root, offset)) = posed.root
-            && root == index
+        if let Some(&(_, offset)) = posed
+            .root
+            .iter()
+            .chain(&posed.weapons)
+            .find(|m| m.0 == index)
         {
             local.translation = rest + rig.animation_scale * offset;
         }

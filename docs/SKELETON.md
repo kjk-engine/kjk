@@ -40,9 +40,34 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   pose stands 3.1 units up: `Options::ja_sole`) plus the jump's height,
   soft-minimum over both feet; JA clips put the floor 24 units under the
   origin (`ORIGIN_HEIGHT`).
+- K1 has two humanoid skeletons, a man's (every male body, Carth's) and a
+  woman's (every female body, Bastila's); three rules fit JA's motion to
+  both:
+  - A collar that starts off the spine keeps its own rest under JA's base
+    pose (`off_spine`). The woman's starts 7.7 cm out and slopes 35° down;
+    lined up level with JA's clavicle it lifted her shoulders 3 to 7 cm
+    into her neck (now within 1 cm of JA's). The man's starts on the spine,
+    as JA's does, and is lined up as before.
+  - The pelvis turns about the hips: KOTOR's `pelvis_g` sits 13 (a
+    woman's) to 19 cm (a man's) above its hip joints, JA's at them, so the
+    root moves across to keep the hips' middle where JA's travel puts the
+    pelvis. Feet slide beyond JA's own 16 to 55% less on a man, 31 to 72% on
+    a woman (`kjk rig` timelines).
+  - With JA's hands together (`TWO_HANDED`), the left wrist keeps JA's own
+    spacing from the right (`Retargeter::spaced`) before any reach.
 - `rig::Grip`: the hilt hangs at KOTOR's `rhand` as K1 hangs weapons (blade
   +Z) and the hand turns so the blade points as JA's; fingers take KOTOR's
-  `g2r1` pose (`Options::hold`). `rig::rebind` is probe (b), kept.
+  `g2r1` pose (`Options::hold`). Where JA's tag bone carries the hilt off
+  its hand (the victory toss, `BOTH_A6_SABERPROTECT`'s orbit, the taunts and
+  show-offs; past `DEPART`, 12 to 35 cm, so the 5 to 15 cm JA's swings shift
+  it stay in hand), the weapon node goes with it, scaled (`Posed::weapons`,
+  keyed as the root is), and the hand goes back to JA's arm: the dual
+  protect's hilts came 2 m from JA's, now 0.4. A staff (`Grip::staff`) is
+  held by its middle; K1's is shorter than JA's (blade starts 0.37 m apart,
+  JA's 0.58), so where JA's hands hold its staff 35 to 43 cm apart
+  (`STAFF_HANDS`) the left hand takes K1's beside the right fist, short of
+  the far blade (`staff_hold`, `STAFF_SPAN`). `rig::rebind` is probe (b),
+  kept.
 - `rig::Reach` (`kjk play`): the gripping hand turns onto the sim's blade
   and the upper arm and forearm carry the wrist up to `REACH` (0.3 m)
   toward it (`game::cast`'s share). One solver (`rig::bend`): the arm's own
@@ -204,7 +229,10 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
 ## Checking a change
 Compare b (JA exact) or JA with c at the same times; film c with a camera
 following the ground track and look at every frame; hilt close-ups; re-read
-the measures; try Bastila and `pmbam`/`pmha01`, `pfbam`/`pfha01`.
+the measures; try Bastila and `pmbam`/`pmha01`, `pfbam`/`pfha01`: every
+change on a man's body and a woman's, the two skeletons K1 has. `--trace`
+carries the hips and spine (`pelvis_g`, `torso_g`, the thighs) for foot
+slide and hands in the body.
 
 Journal (the owner's own; `context/` is not in git):
 `context/artifacts/2026-09-29-i10-skeleton/` (3-PROBES, 4-MOVES,
