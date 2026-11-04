@@ -71,6 +71,31 @@ pub struct Origin {
     pub tag: String,
 }
 
+/// The mark before a roster entry's template that stands for its placement
+/// without keeping anything of it (a story restore's stash,
+/// `saves::Story::restore`): it counts among its alike, so those kept after
+/// it keep their order, and the placement it matches is placed anew
+/// (`renumber`). No resref has one.
+pub const ANEW: char = '*';
+
+impl Origin {
+    /// This placement, marked `ANEW`.
+    pub fn anew(&self) -> Origin {
+        Origin {
+            template: format!("{ANEW}{}", self.template),
+            ..self.clone()
+        }
+    }
+
+    /// The template it names and whether it is marked `ANEW`.
+    pub fn unmarked(&self) -> (&str, bool) {
+        match self.template.strip_prefix(ANEW) {
+            Some(template) => (template, true),
+            None => (&self.template, false),
+        }
+    }
+}
+
 /// The origins of a module's placements, in their order.
 pub fn roster(placed: &[Arc<ObjectData>]) -> Vec<Origin> {
     placed
@@ -102,7 +127,8 @@ fn key(kind: ObjectKind, template: &str, tag: &str) -> (ObjectKind, String, Stri
 }
 
 /// Matches the old placements to the new: the n-th of a key in `old` is the
-/// n-th of it in `new`, so two alike keep their order.
+/// n-th of it in `new`, so two alike keep their order. One marked `ANEW`
+/// counts among its alike but maps to nothing: its match is added.
 pub fn renumber(old: &[Origin], new: &[Arc<ObjectData>]) -> Renumber {
     let mut found: HashMap<_, Vec<u32>> = HashMap::new();
     for (at, object) in new.iter().enumerate() {
@@ -115,11 +141,12 @@ pub fn renumber(old: &[Origin], new: &[Arc<ObjectData>]) -> Renumber {
     let map: Vec<Option<u32>> = old
         .iter()
         .map(|origin| {
-            let key = key(origin.kind, &origin.template, &origin.tag);
+            let (template, anew) = origin.unmarked();
+            let key = key(origin.kind, template, &origin.tag);
             let nth = seen.entry(key.clone()).or_default();
             let matched = found.get(&key).and_then(|at| at.get(*nth)).copied();
             *nth += 1;
-            matched
+            matched.filter(|_| !anew)
         })
         .collect();
     let taken: HashSet<u32> = map.iter().flatten().copied().collect();
@@ -215,7 +242,7 @@ impl Party<'_> {
     /// item that is not among the template's goods is taken for the
     /// party's; what a script gave it counts too, which keeps a little more
     /// than needed rather than lose the party's gear.
-    fn stored_in(
+    pub fn stored_in(
         &self,
         entity: &EntityState,
         kind: ObjectKind,
@@ -363,8 +390,9 @@ fn nearest_waypoint(level: &Level, from: Vec3) -> Option<Vec3> {
 /// made from): an entity whose placement is gone is dropped, but for a
 /// party member's and one holding the party's items (`Party::stored_in`),
 /// which stay where they stand as objects made in play (`made_in_play`);
-/// the new placements stand as the module's first install stands them
-/// (`install::anew`).
+/// an object of a placement that is not a creature stands where its
+/// placement does; the new placements stand as the module's first install
+/// stands them (`install::anew`).
 pub fn apply(
     renumber: &Renumber,
     old: &[Origin],
@@ -391,6 +419,15 @@ pub fn apply(
             };
             report.moved += usize::from(now != number);
             entity.kind = Kind::Object(kind, now);
+            // An object of a placement, not a creature, stands where the
+            // placement does: no script of either game moves one, and a
+            // stash may know it only by its id and state (a story
+            // restore's, `saves::Story::restore`), not where it stood.
+            if let Some(facts) = level.placed().get(now as usize)
+                && kind != ObjectKind::Creature
+            {
+                entity.position = facts.position;
+            }
         }
         held.entities.push(entity);
     }

@@ -320,6 +320,12 @@ impl Save {
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        Save::decode_versioned(bytes).map(|(save, _)| save)
+    }
+
+    /// `decode`, and the versions of the stored formats the bytes were
+    /// written in (what a migration read them by).
+    pub fn decode_versioned(bytes: &[u8]) -> Result<(Self, StoredVersions), DecodeError> {
         let mut input = Reader::new("save", bytes);
         input.header_since(MAGIC, Stored::Save, OLDEST, VERSION)?;
         let hz = input.u32()?;
@@ -351,6 +357,19 @@ impl Save {
             script,
         };
         crate::migrate::save(&mut save, versions)?;
-        Ok(save)
+        let found = StoredVersions {
+            save: versions.save,
+            snapshot: versions.snapshot,
+            pack: versions.pack,
+        };
+        Ok((save, found))
     }
+}
+
+/// The versions of the formats a save's bytes hold (`Save::decode_versioned`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StoredVersions {
+    pub save: u32,
+    pub snapshot: u32,
+    pub pack: u32,
 }

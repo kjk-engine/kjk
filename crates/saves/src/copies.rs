@@ -108,7 +108,7 @@ pub fn receive(root: &Path, copy: &[u8], build: &str) -> Result<String, String> 
         Some((id, _)) => id,
         None => next_id(root, RECEIVED)?,
     };
-    write_files(root, &id, &world, &meta, Some(&received))?;
+    write_files(root, &id, &world, &meta, None, Some(&received))?;
     drop_oldest(root, &received.host, &id).map_err(|why| {
         format!("{from}'s save \"{name}\" was kept as {id}, but an older copy stays: {why}")
     })?;

@@ -104,7 +104,18 @@ impl Installers {
             None if id.name == "duel" => kjk_game::stage::duel_level(self.anims(discovery)),
             None if id.name == "ring" => kjk_game::stage::ring(&self.anims(discovery)),
             None => return Err(format!("{}: no such level without a module", id.name)),
-            Some(place) => planned(&*self.get(discovery, &place.game)?, place, seats)?,
+            Some(place) => self.module(discovery, place, seats)?,
         })
+    }
+
+    /// `place`'s module planned for `seats` players, whatever the data it
+    /// was stamped with.
+    pub(crate) fn module(
+        &mut self,
+        discovery: &vfs::Discovery,
+        place: &sim::Place,
+        seats: u8,
+    ) -> Result<Level, String> {
+        planned(&*self.get(discovery, &place.game)?, place, seats)
     }
 }

@@ -1121,6 +1121,7 @@ fn store(
         formats: Some(saves::Formats {
             save: sim::SAVE_FORMAT,
             snapshot: sim::SNAPSHOT_FORMAT,
+            story: saves::STORY_SCHEMA,
         }),
         ..saves::Meta::default()
     };
@@ -1132,10 +1133,13 @@ fn store(
         snapshot,
     };
     let world = save.encode();
+    let story = saves::Story::of(&save, authority.world.level());
     let root = crate::save_view::folder().ok_or("no folder for saves here")?;
     let id = match slot {
-        Slot::Named(slot) => saves::write_encoded(&root, slot.as_deref(), &world, &meta)?,
-        Slot::Auto => saves::write_auto(&root, &world, &meta)?,
+        Slot::Named(slot) => {
+            saves::write_encoded(&root, slot.as_deref(), &world, &meta, Some(&story))?
+        }
+        Slot::Auto => saves::write_auto(&root, &world, &meta, Some(&story))?,
     };
     // The whole save's hash (the VM's state too): a load of it says the
     // same (`play::load`).
@@ -1144,9 +1148,17 @@ fn store(
     Ok((id, meta, world))
 }
 
+/// A session a save's story restored (`SessionIntent::Restore`): its first
+/// module owes no autosave, which would rotate the autosaves and so move or
+/// remove the slot restored from when it is one of them (the restore never
+/// writes over its slot). Taken by the autosave once seen.
+#[derive(Resource)]
+pub struct FromStory;
+
 /// An autosave owed since a module was installed (`installs` counts them;
-/// none counted yet: the first module the game starts in is owed one too):
-/// tried each second until nothing refuses it.
+/// none counted yet: the first module the game starts in is owed one too,
+/// but for a game a story restored): tried each second until nothing
+/// refuses it.
 #[derive(Default)]
 struct AutosaveDue {
     installs: Option<usize>,
@@ -1156,18 +1168,20 @@ struct AutosaveDue {
 
 impl AutosaveDue {
     /// The authority's `installs` seen (`fresh` when it was just made: a
-    /// game started or loaded); whether an autosave became owed, which only
-    /// a player's game with `eligible` (live, Autosave on) owes.
-    fn observe(&mut self, installs: usize, fresh: bool, eligible: bool) -> bool {
+    /// game started or loaded, `restored` from a story); whether an
+    /// autosave became owed, which only a player's game with `eligible`
+    /// (live, Autosave on) owes.
+    fn observe(&mut self, installs: usize, fresh: bool, eligible: bool, restored: bool) -> bool {
         if fresh {
             *self = AutosaveDue::default();
         }
         if Some(installs) == self.installs {
             return false;
         }
+        let first = self.installs.is_none();
         self.installs = Some(installs);
-        self.owed = eligible;
-        eligible
+        self.owed = eligible && !(first && restored);
+        self.owed
     }
 }
 
@@ -1176,20 +1190,34 @@ impl AutosaveDue {
 #[cfg(feature = "probes")]
 pub fn autosave_probes() -> sim::probe::Checks {
     let mut due = AutosaveDue::default();
-    let first = due.observe(0, true, true);
+    let first = due.observe(0, true, true, false);
     due.owed = false;
-    let same = due.observe(0, false, true);
-    let again = due.observe(0, true, true);
+    let same = due.observe(0, false, true, false);
+    let again = due.observe(0, true, true, false);
     due.owed = false;
-    let entered = due.observe(1, false, true);
-    let off = AutosaveDue::default().observe(0, true, false);
-    vec![(
-        "autosave_owed_each_game",
-        sim::probe::check(
-            first && !same && entered && again && !off,
-            format!("first {first}, same {same}, entered {entered}, a new game {again}, off {off}"),
+    let entered = due.observe(1, false, true, false);
+    let off = AutosaveDue::default().observe(0, true, false, false);
+    let mut restored = AutosaveDue::default();
+    let restored_first = restored.observe(0, true, true, true);
+    let restored_entered = restored.observe(1, false, true, true);
+    vec![
+        (
+            "autosave_owed_each_game",
+            sim::probe::check(
+                first && !same && entered && again && !off,
+                format!(
+                    "first {first}, same {same}, entered {entered}, a new game {again}, off {off}"
+                ),
+            ),
         ),
-    )]
+        (
+            "autosave_not_owed_on_restore",
+            sim::probe::check(
+                !restored_first && restored_entered,
+                format!("first module {restored_first}, the next entered {restored_entered}"),
+            ),
+        ),
+    ]
 }
 
 /// The autosave owed after each module installed (KOTOR's rule), once a
@@ -1204,13 +1232,26 @@ fn autosave(
     ),
     showing: Option<Res<crate::movie_view::Showing>>,
     own: Option<Res<OwnSeat>>,
-    made: Option<Res<crate::character::Made>>,
+    (made, from_story, mut commands): (
+        Option<Res<crate::character::Made>>,
+        Option<Res<FromStory>>,
+        Commands,
+    ),
 ) {
+    let restored = from_story.is_some();
+    if restored {
+        commands.remove_resource::<FromStory>();
+    }
     let eligible = player.is_some_and(|player| player.0)
         && matches!(authority.source, Source::Live { .. })
         && settings
             .is_some_and(|settings| settings.value(crate::settings::AUTOSAVE) == Some("true"));
-    if due.observe(authority.installs.len(), authority.is_added(), eligible) {
+    if due.observe(
+        authority.installs.len(),
+        authority.is_added(),
+        eligible,
+        restored,
+    ) {
         info!(target: "saves", installs = authority.installs.len(), "autosave owed");
     }
     let now = Instant::now();

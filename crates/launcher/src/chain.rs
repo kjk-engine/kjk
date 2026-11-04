@@ -792,7 +792,7 @@ fn write_saves(game: &str) -> Result<(Vec<String>, Vec<String>), String> {
             seats: save.snapshot.seats(),
             ..saves::Meta::default()
         };
-        saves::write_encoded(&root, Some(&id), &bytes, &meta)?;
+        saves::write_encoded(&root, Some(&id), &bytes, &meta, None)?;
         written.push(id);
     }
     // Numbers past the list's end, left by a longer list.

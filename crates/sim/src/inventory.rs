@@ -428,6 +428,47 @@ pub struct Catalog {
     items: std::collections::BTreeMap<String, ItemFacts>,
 }
 
+#[cfg(feature = "probes")]
+impl ItemFacts {
+    /// An item template with nothing to it but its name.
+    pub fn plain(template: &str) -> ItemFacts {
+        ItemFacts {
+            template: template.into(),
+            tag: template.into(),
+            cased_tag: String::new(),
+            name: u32::MAX,
+            base_item: 0,
+            stack: 1,
+            stacking: 1,
+            charges: 0,
+            cost: 0,
+            plot: false,
+            slots: 0,
+            weapon: None,
+            bare: None,
+            armour: None,
+            guards: crate::combat::sheet::Guards::default(),
+            properties: Vec::new(),
+            gear: Default::default(),
+            limits: Vec::new(),
+            rows: 0,
+            spell: None,
+            droids: None,
+            upgrades: Vec::new(),
+            upgrade: None,
+            upgrade_level: 0,
+            slot_kinds: Vec::new(),
+            parts: Vec::new(),
+            recolours: Vec::new(),
+            tools: 0,
+            needs: Vec::new(),
+            trap: None,
+            stealth_unit: false,
+            shield: false,
+        }
+    }
+}
+
 impl Catalog {
     pub fn new(items: impl IntoIterator<Item = ItemFacts>) -> Catalog {
         Catalog {

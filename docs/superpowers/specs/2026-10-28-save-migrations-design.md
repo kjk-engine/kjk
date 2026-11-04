@@ -273,6 +273,10 @@ only checked to be refused with the right message.
 
 ### 2b. Real saves from every release (the owner's machine, before a tag)
 
+*Status 2026-11-03:* built as `kjk saves capture <tag>` and `kjk saves
+check [<corpus>]` (`saves::corpus`: the slot reader, the verdict and the
+table); `docs/RELEASE.md` has the capture, check and mirror steps.
+
 The data half needs the games' files, so it runs where they are:
 
 - **Corpus**: per release, at least Endar Spire, Taris, mid-Korriban and TSL
@@ -309,14 +313,15 @@ bumps.
 `SimWorld::stale_stamp`, `sim::Restamp`; the approved test
 `stale_stamps_load`).
 
-*Status 2026-11-03:* 3c is built (`sim::reconcile`; branch
-`claude/save-reconcile`): the roster (origin keys in `Snapshot::roster` and
-`Stashed::roster`, not on each entity), the renumbering of objects onto
-changed placements, the keep rules for what is the party's, the snap of
-bodies the collision no longer holds up, and the script digests on deferred
-code, with a load refused when a continuation points into a script that
-changed. Decisions: the origin keys live in a roster, not on each entity;
-there are no separate component digests, and reconcile runs every check
+*Status 2026-11-03:* 3c is built (`sim::reconcile`): the roster (origin
+keys in `Snapshot::roster` and `Stashed::roster`, not on each entity), the
+renumbering of objects onto changed placements, the keep rules for what is
+the party's, the snap of bodies the collision no longer holds up, and the
+script digests on deferred code, with a load refused when a continuation
+points into a script that changed (one whose script the module lacks,
+carried from another module, is dropped and logged). Decisions: the origin
+keys live in a roster, not on each entity; there are no separate component
+digests, and reconcile runs every check
 whenever the combined digest moved; a save without a roster is trusted as
 before (logged once per module), with only a kind check on its object
 numbers. Every step logs on the `save-migrate` target.
@@ -388,6 +393,13 @@ net's bug report picks them up from `kjk.log`. *My call:* no in-game notice,
 since a digest change is the normal case after every update.
 
 ## 4. Story record and story restore
+
+*Status 2026-11-03:* part 4 is built (`saves::Story`, written as
+`story.json` in the slot's atomic write; `Story::restore`, offered when a
+save is refused). Each visited module keeps its roster beside its facts,
+so a restore finds placements alike by their order among the module's
+placements now, in the module here and, on the next arrival, in each
+module left; a story without rosters restores by the facts' numbers.
 
 ### 4a. What it is
 
