@@ -120,8 +120,9 @@ fn door_clip_alpha() -> Result<String, String> {
                 let [field] = &mut lit[..] else {
                     return None;
                 };
+                // Written to the material itself, to be read back.
                 let alpha = |lit: &Lit, materials: &mut Assets<OdysseyMaterial>| {
-                    lit.show(materials);
+                    lit.show(materials, None);
                     materials.get(&lit.material).map(|m| m.params.tint.w)
                 };
                 let mut keyed = [0.0; 3];

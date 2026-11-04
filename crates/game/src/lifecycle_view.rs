@@ -392,17 +392,22 @@ fn door_state(snapshot: &sim::Snapshot, instances: &sim::Instances, object: u32)
     (state.state, broken)
 }
 
+/// What a door's keyed alpha is shown through: its meshes' materials, and
+/// the animated materials' slots where the material plugin runs.
+type DoorMaterials<'w, 's> = (
+    Query<'w, 's, &'static Children>,
+    Query<'w, 's, &'static mut MeshMaterial3d<crate::material::OdysseyMaterial>>,
+    ResMut<'w, Assets<crate::material::OdysseyMaterial>>,
+    Option<ResMut<'w, crate::material::Animated>>,
+);
+
 fn doors(
     scene: Option<Res<SceneContent>>,
     swap: Option<Res<crate::sim_host::SceneSwap>>,
     presented: Res<PresentedSnapshot>,
     models: Query<&SceneModel>,
     mut transforms: Query<&mut Transform>,
-    (children, mut mesh_materials, mut materials): (
-        Query<&Children>,
-        Query<&mut MeshMaterial3d<crate::material::OdysseyMaterial>>,
-        ResMut<Assets<crate::material::OdysseyMaterial>>,
-    ),
+    (children, mut mesh_materials, mut materials, mut animated): DoorMaterials,
     mut doors: Local<Doors>,
 ) {
     let (Some(scene), Some(swap)) = (scene, swap) else {
@@ -500,7 +505,7 @@ fn doors(
                 Some((name, at)) => lit.key((&fx, &placed.ir), name, *at),
                 None => lit.reset(&placed.ir),
             }
-            lit.show(&mut materials);
+            lit.show(&mut materials, animated.as_deref_mut());
         }
     }
 }
