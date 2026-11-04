@@ -32,10 +32,11 @@ game = { workspace = true, optional = true }
 # The save editor's API: only with `--features editor` (save_edits), run by
 # editor.yml when the editor changes, never by the engine's own suite.
 edit = { workspace = true, features = ["probes"], optional = true }
+save_editor = { workspace = true, features = ["probes"], optional = true }
 
 [features]
 rig = ["dep:launcher", "dep:game"]
-editor = ["dep:edit"]
+editor = ["dep:edit", "dep:save_editor"]
 
 [lints]
 workspace = true

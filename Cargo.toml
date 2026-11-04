@@ -46,6 +46,14 @@ libc = "0.2"
 # XDG portal on Linux and the Steam Deck).
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 steamworks = "0.13"
+# The save editor's window (`crates/save_editor`, its `app` feature alone):
+# OpenGL through glow, X11 and Wayland for Linux and the Steam Deck's
+# desktop; tables that draw only the rows in view. No fonts of egui's own
+# (`default_fonts` off): the editor reads the system's (`model::fonts`).
+eframe = { version = "0.37", default-features = false, features = ["glow", "wayland", "x11"] }
+egui = "0.37"
+egui_extras = { version = "0.37", default-features = false }
+save_editor = { path = "crates/save_editor", default-features = false }
 # The sim uses the ECS alone, never the Bevy app; `std` only, so it builds
 # without task pools, reflection and backtraces.
 bevy_ecs = { version = "0.19.1", default-features = false, features = ["std"] }
