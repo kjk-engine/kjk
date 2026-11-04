@@ -10,6 +10,8 @@ mod shell;
 mod shot;
 mod style;
 
+pub use style::use_fonts;
+
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};

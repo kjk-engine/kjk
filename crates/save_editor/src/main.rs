@@ -17,6 +17,23 @@ fn main() -> eframe::Result {
         println!("kjk save editor {}\n{USAGE}", save_editor::VERSION);
         return Ok(());
     }
+    // The system's own font (none ships with the editor): without one there
+    // is no window to write in, so say so and stop.
+    let fonts = match save_editor::model::fonts::system() {
+        Ok(fonts) => fonts,
+        Err(why) => {
+            let words = format!(
+                "kjk save editor cannot start: {why}. Install a common font (DejaVu Sans or Noto Sans on Linux) and try again."
+            );
+            eprintln!("{words}");
+            rfd::MessageDialog::new()
+                .set_title("kjk save editor")
+                .set_description(&words)
+                .set_level(rfd::MessageLevel::Error)
+                .show();
+            std::process::exit(1);
+        }
+    };
     let title = format!("kjk save editor {}", save_editor::VERSION);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -28,6 +45,9 @@ fn main() -> eframe::Result {
     eframe::run_native(
         &title,
         options,
-        Box::new(|cc| Ok(Box::new(ui::App::new(&cc.egui_ctx)))),
+        Box::new(|cc| {
+            ui::use_fonts(&cc.egui_ctx, fonts);
+            Ok(Box::new(ui::App::new(&cc.egui_ctx)))
+        }),
     )
 }

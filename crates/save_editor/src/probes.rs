@@ -2,6 +2,7 @@
 //! `edit::probes`: each a name and what it found, or why it failed.
 
 mod catalog;
+mod fonts;
 mod locate;
 mod session;
 mod write;
@@ -14,6 +15,8 @@ pub fn all() -> Vec<Probe> {
         ("locate_saves_folder", locate::saves_folder()),
         ("locate_installs", locate::installs()),
         ("locate_game_of_save", locate::game_of_save()),
+        ("fonts_found", fonts::found()),
+        ("fonts_this_system", fonts::this_system()),
         ("catalog_search", catalog::search()),
         ("catalog_k1", catalog::install(vfs::Game::Kotor1)),
         ("catalog_tsl", catalog::install(vfs::Game::Kotor2)),

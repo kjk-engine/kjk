@@ -19,8 +19,3 @@ accepted = [
     "MPL-2.0",
 ]
 private = { ignore = true }
-
-# The save editor's window font (egui's default fonts; `kjk-save-editor`
-# only, kjk itself ships no egui): free font licences that allow bundling.
-[epaint_default_fonts]
-accepted = ["OFL-1.1", "Ubuntu-font-1.0"]

@@ -42,3 +42,23 @@ pub fn compact(ctx: &egui::Context) {
         style.interaction.tooltip_delay = 0.2;
     });
 }
+
+/// The system's fonts (`model::fonts`) as the window's: the text's for
+/// every family, the fixed-width one first for monospace.
+pub fn use_fonts(ctx: &egui::Context, fonts: save_editor::model::fonts::Fonts) {
+    let mut definitions = egui::FontDefinitions::empty();
+    for (name, font) in [("system", fonts.text), ("system mono", fonts.mono)] {
+        definitions.font_data.insert(
+            name.to_string(),
+            std::sync::Arc::new(egui::FontData::from_owned(font.bytes)),
+        );
+    }
+    definitions
+        .families
+        .insert(FontFamily::Proportional, vec!["system".into()]);
+    definitions.families.insert(
+        FontFamily::Monospace,
+        vec!["system mono".into(), "system".into()],
+    );
+    ctx.set_fonts(definitions);
+}

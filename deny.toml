@@ -26,12 +26,6 @@ allow = [
     # link to their source in THIRD-PARTY-LICENSES.html.
     "MPL-2.0",
 ]
-# The save editor's window font (egui's default fonts, `kjk-save-editor`
-# only; kjk itself ships no egui): free font licences that allow bundling,
-# their texts in the editor's THIRD-PARTY-LICENSES.
-exceptions = [
-    { crate = "epaint_default_fonts", allow = ["OFL-1.1", "Ubuntu-font-1.0"] },
-]
 
 # Our own crates are MIT and never published.
 [licenses.private]
