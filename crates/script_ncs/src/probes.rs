@@ -3,9 +3,7 @@
 //! `kjk script probes` prints them; the approved test `script_vm` needs
 //! every one to pass.
 
-use std::collections::BTreeMap;
-
-use fmt_odyssey::ncs::{Const, Instruction, Ncs, Op, Pair, Ty};
+use fmt_odyssey::ncs::{Const, Ncs, Op, Pair, Ty};
 
 use crate::catalog::{Catalog, Routine};
 use crate::vm::{self, Deferred, Fault, Host, ObjectId, Program, Routines, Value};
@@ -36,58 +34,7 @@ string Name(object oWho = OBJECT_SELF);
 float Half(float f);
 "#;
 
-/// Builds a program from instructions and labelled jumps.
-#[derive(Default)]
-pub struct Asm {
-    code: Vec<(Op, Option<&'static str>)>,
-    labels: BTreeMap<&'static str, usize>,
-}
-
-impl Asm {
-    pub fn op(&mut self, op: Op) -> &mut Asm {
-        self.code.push((op, None));
-        self
-    }
-
-    /// A jump (`Op::Jmp(0)` and the like) to `label`.
-    pub fn to(&mut self, jump: fn(i32) -> Op, label: &'static str) -> &mut Asm {
-        self.code.push((jump(0), Some(label)));
-        self
-    }
-
-    pub fn label(&mut self, name: &'static str) -> &mut Asm {
-        self.labels.insert(name, self.code.len());
-        self
-    }
-
-    /// The program, jumps resolved.
-    pub fn build(&self) -> Ncs {
-        let mut ncs = Ncs {
-            code: self
-                .code
-                .iter()
-                .map(|(op, _)| Instruction {
-                    offset: 0,
-                    op: op.clone(),
-                })
-                .collect(),
-        };
-        ncs.lay_out();
-        let offsets: Vec<u32> = ncs.code.iter().map(|i| i.offset).collect();
-        for (at, (_, label)) in self.code.iter().enumerate() {
-            let Some(label) = label else { continue };
-            let target = self.labels.get(label).map_or(0, |&n| offsets[n]);
-            let rel = target as i32 - offsets[at] as i32;
-            ncs.code[at].op = match ncs.code[at].op {
-                Op::Jmp(_) => Op::Jmp(rel),
-                Op::Jsr(_) => Op::Jsr(rel),
-                Op::Jz(_) => Op::Jz(rel),
-                _ => Op::Jnz(rel),
-            };
-        }
-        ncs
-    }
-}
+pub use crate::asm::Asm;
 
 /// The probes' host: records each call, returns fixed answers.
 #[derive(Default)]

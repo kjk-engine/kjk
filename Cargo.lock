@@ -242,6 +242,7 @@ dependencies = [
  "bumps",
  "collision",
  "collision_odyssey",
+ "edit",
  "fmt_odyssey",
  "game",
  "launcher",
@@ -2308,6 +2309,20 @@ name = "dpi"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
+
+[[package]]
+name = "edit"
+version = "0.0.0"
+dependencies = [
+ "asset_odyssey",
+ "fmt_odyssey",
+ "saves",
+ "script_ncs",
+ "session",
+ "sim",
+ "store",
+ "vfs",
+]
 
 [[package]]
 name = "either"
@@ -4853,6 +4868,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sim",
+ "store",
  "ui",
 ]
 

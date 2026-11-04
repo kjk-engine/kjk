@@ -38,10 +38,22 @@ impl<const WORDS: usize> Rows<WORDS> {
         }
     }
 
+    /// Takes `row` out; one past the set's end is not in it.
+    pub fn remove(&mut self, row: u16) {
+        if let Some(word) = self.0.get_mut(usize::from(row / 64)) {
+            *word &= !(1 << (row % 64));
+        }
+    }
+
     pub fn has(&self, row: u16) -> bool {
         self.0
             .get(usize::from(row / 64))
             .is_some_and(|word| word & (1 << (row % 64)) != 0)
+    }
+
+    /// The rows in the set, lowest first.
+    pub fn rows(&self) -> impl Iterator<Item = u16> + '_ {
+        (0..Self::ROWS).filter(|row| self.has(*row))
     }
 
     /// How many of `rows` are in the set (a feat line's tier).

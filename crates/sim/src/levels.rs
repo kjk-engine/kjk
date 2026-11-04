@@ -80,6 +80,24 @@ pub struct Needs {
     pub abilities: [u8; 6],
 }
 
+/// Why a feat or power may not be picked (`Classes::why_not_feat`,
+/// `why_not_power`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unpickable {
+    /// The class's list does not hold it.
+    NotTheClass,
+    /// It is known already.
+    Known,
+    /// It needs this feat (or power) first.
+    Needs(u16),
+    /// It needs this level: a feat the total, a power the class's.
+    Level(u8),
+    /// It needs this base attack bonus.
+    Bab(u8),
+    /// It needs this ability (`Ability` order) at least this score.
+    Ability(u8, u8),
+}
+
 /// Classes (by `classes.2da` row), what levels cost, what feats need and
 /// which power each power needs (`spells.2da` `prerequisites`).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -374,38 +392,86 @@ impl Classes {
 
     /// Whether `feat` may be picked by `grown` (the sheet the level makes,
     /// its ability raised) knowing `known`.
-    fn may_feat(&self, class: &Class, feat: u16, known: &[u16], grown: &Sheet) -> bool {
+    pub fn may_feat(&self, class: &Class, feat: u16, known: &[u16], grown: &Sheet) -> bool {
+        self.why_not_feat(class, feat, known, grown).is_none()
+    }
+
+    /// Why `feat` may not be picked by `grown` knowing `known`, the first
+    /// of its asks that fails; `None` when it may.
+    pub fn why_not_feat(
+        &self,
+        class: &Class,
+        feat: u16,
+        known: &[u16],
+        grown: &Sheet,
+    ) -> Option<Unpickable> {
         let needs = self
             .needs
             .get(&feat)
             .copied()
             .unwrap_or_else(Needs::default);
-        class.feats.contains(&feat)
-            && !known.contains(&feat)
-            && needs
-                .feats
-                .iter()
-                .flatten()
-                .all(|need| known.contains(need))
-            && needs.level <= grown.level
-            && needs.bab <= grown.bab
-            && needs
-                .abilities
-                .iter()
-                .zip(grown.abilities)
-                .all(|(least, score)| score >= *least)
+        if !class.feats.contains(&feat) {
+            return Some(Unpickable::NotTheClass);
+        }
+        if known.contains(&feat) {
+            return Some(Unpickable::Known);
+        }
+        if let Some(need) = needs
+            .feats
+            .iter()
+            .flatten()
+            .find(|need| !known.contains(need))
+        {
+            return Some(Unpickable::Needs(*need));
+        }
+        if needs.level > grown.level {
+            return Some(Unpickable::Level(needs.level));
+        }
+        if needs.bab > grown.bab {
+            return Some(Unpickable::Bab(needs.bab));
+        }
+        let short = needs
+            .abilities
+            .iter()
+            .zip(grown.abilities)
+            .position(|(least, score)| score < *least);
+        short.map(|ability| Unpickable::Ability(ability as u8, needs.abilities[ability]))
     }
 
-    fn may_power(&self, class: &Class, power: u16, known: &[u16], class_level: u8) -> bool {
-        class
+    /// Whether `power` may be picked at `class_level` of `class` knowing
+    /// `known`.
+    pub fn may_power(&self, class: &Class, power: u16, known: &[u16], class_level: u8) -> bool {
+        self.why_not_power(class, power, known, class_level)
+            .is_none()
+    }
+
+    /// Why `power` may not be picked at `class_level` knowing `known`, the
+    /// first of its asks that fails; `None` when it may.
+    pub fn why_not_power(
+        &self,
+        class: &Class,
+        power: u16,
+        known: &[u16],
+        class_level: u8,
+    ) -> Option<Unpickable> {
+        let from = class
             .powers
             .iter()
-            .any(|(from, row)| *row == power && *from <= class_level)
-            && !known.contains(&power)
-            && self
-                .prerequisites
-                .get(&power)
-                .is_none_or(|need| known.contains(need))
+            .filter(|(_, row)| *row == power)
+            .map(|(from, _)| *from)
+            .min();
+        match from {
+            None => return Some(Unpickable::NotTheClass),
+            Some(from) if from > class_level => return Some(Unpickable::Level(from)),
+            Some(_) => {}
+        }
+        if known.contains(&power) {
+            return Some(Unpickable::Known);
+        }
+        self.prerequisites
+            .get(&power)
+            .filter(|need| !known.contains(need))
+            .map(|need| Unpickable::Needs(*need))
     }
 
     /// What a level of `class` lets a character with `sheet` and `career`

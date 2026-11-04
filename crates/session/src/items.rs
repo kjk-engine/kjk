@@ -686,6 +686,22 @@ pub(crate) fn catalog<'a>(
     catalog_of(tables, names)
 }
 
+/// Every UTI `source` lists, as scripts know items, and the names of those
+/// that did not read: what a tool outside play gives and shows (the save
+/// editor, `edit::Data`).
+pub fn item_catalog(source: &dyn asset_odyssey::module::Source) -> (Catalog, Vec<String>) {
+    let mut tables = Tables::new(source);
+    let mut names = source.names(ResType::UTI);
+    names.sort();
+    names.dedup();
+    let catalog = catalog_of(&mut tables, names.clone());
+    let unread = names
+        .into_iter()
+        .filter(|name| catalog.get(name).is_none())
+        .collect();
+    (catalog, unread)
+}
+
 /// The templates `names` that read, each once.
 pub(crate) fn catalog_of(tables: &mut Tables, mut names: Vec<String>) -> Catalog {
     names.sort();
