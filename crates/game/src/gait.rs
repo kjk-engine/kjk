@@ -8,8 +8,9 @@
 //!   animation playing, and its legs in JA's plain standing (its idle
 //!   too), walking or running, forwards, sideways or backwards
 //!   (`BOTH_STAND1`, `BOTH_STAND1IDLE1`, `BOTH_WALK1`, `BOTH_RUN1`,
-//!   `BOTH_WALKBACK1`, `BOTH_RUNBACK1`): the KOTOR clip of the same.
-//!   Anything else (a fight, a jump, a roll, a Force move) is JA's.
+//!   `BOTH_WALKBACK1`, `BOTH_RUNBACK1`) with the torso going along
+//!   (`of_body`): the KOTOR clip of the same. Anything else (a fight, a
+//!   jump, a roll, a Force move, a Force hand cast standing) is JA's.
 //! - **Facing** (the owner's call): moving, the body turns to the way it
 //!   goes, as KOTOR's characters do (KOTOR has no strafing), at
 //!   `TURN_DEG_S`; going backwards it faces the other way and plays its
@@ -60,9 +61,17 @@ pub struct Step {
     pub backwards: bool,
 }
 
-/// The JA legs' animation as a gait clip, if it is plain standing, walking
-/// or running (backwards: the clip reversed).
-pub fn of_legs(legs: Anim) -> Option<Step> {
+/// The JA body's animation as a gait clip, if its legs stand, walk or run
+/// plainly (backwards: the clip reversed) and its torso goes along: playing
+/// what the legs play, or a gun's ready pose (drawn as the legs' with the
+/// gun away). A torso of its own (a Force hand's hold, a push) is JA's: the
+/// clip, over the whole body, would hang its arms.
+pub fn of_body(legs: Anim, torso: Anim) -> Option<Step> {
+    let along =
+        torso == legs || matches!(torso, Anim::TORSO_WEAPONREADY2 | Anim::TORSO_WEAPONREADY3);
+    if !along {
+        return None;
+    }
     let (clip, backwards) = match legs {
         Anim::BOTH_STAND1 | Anim::BOTH_STAND1IDLE1 => (PAUSE, false),
         Anim::BOTH_WALK1 => (WALK, false),

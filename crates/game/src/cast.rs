@@ -3507,7 +3507,7 @@ fn place(
             let mut facing = None;
             if let Some(gait) = gait {
                 let wanted = (at.alive && !armed && !readying && shown.is_empty())
-                    .then(|| crate::gait::of_legs(at.state.legs.anim))
+                    .then(|| crate::gait::of_body(at.state.legs.anim, at.state.torso.anim))
                     .flatten();
                 let legs = figure.yaw().unwrap_or(0.0);
                 let motion = crate::gait::Motion {
