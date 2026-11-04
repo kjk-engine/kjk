@@ -40,6 +40,9 @@ pub fn compact(ctx: &egui::Context) {
         spacing.combo_height = 300.0;
         spacing.scroll.bar_width = 6.0;
         style.interaction.tooltip_delay = 0.2;
+        // A label's text is not selectable: a click on a row's or a button's
+        // words then reaches the row or button, not a text selection.
+        style.interaction.selectable_labels = false;
     });
 }
 
