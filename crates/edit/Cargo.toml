@@ -11,6 +11,7 @@ description = "A saved game opened, changed by kjk's own rules and checked, for 
 asset_odyssey.workspace = true
 fmt_odyssey.workspace = true
 saves.workspace = true
+script_ncs = { workspace = true, optional = true }
 session.workspace = true
 sim.workspace = true
 store.workspace = true
@@ -18,7 +19,7 @@ vfs.workspace = true
 
 [features]
 # The probes (the approved test `save_edits`): checks, not the editor.
-probes = ["sim/probes", "saves/probes"]
+probes = ["sim/probes", "saves/probes", "dep:script_ncs"]
 
 [lints]
 workspace = true

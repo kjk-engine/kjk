@@ -2317,6 +2317,7 @@ dependencies = [
  "asset_odyssey",
  "fmt_odyssey",
  "saves",
+ "script_ncs",
  "session",
  "sim",
  "store",

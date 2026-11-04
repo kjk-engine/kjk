@@ -21,6 +21,7 @@
 //! value and is counted (`Report`).
 
 pub mod actions;
+pub mod calls;
 pub mod dialogue;
 #[cfg(feature = "probes")]
 pub mod dialogue_probes;
@@ -2462,7 +2463,18 @@ impl Step<'_> {
         code: Option<&Deferred>,
         spell: Option<&Cast>,
     ) -> Option<i32> {
-        let program = self.report.program(self.library, script)?;
+        // Calls a tool queued in a save (`calls::QUEUED`): their program
+        // assembled from this level's catalogue, as often as they run.
+        let routines = self.library.routines();
+        let queued = calls::read(script, routines.catalog()).map(|read| read.map(Program::new));
+        let program = match &queued {
+            Some(Ok(program)) => program,
+            Some(Err(why)) => {
+                self.report.line(format!("{script}: {why}"));
+                return None;
+            }
+            None => self.report.program(self.library, script)?,
+        };
         self.runs += 1;
         let counts = if code.is_some() {
             &mut self.report.deferred
@@ -2485,7 +2497,6 @@ impl Step<'_> {
             depth: 0,
         };
         engine.trace(&format!("{what} {script} for {}", name(caller)));
-        let routines = self.library.routines();
         let outcome = match code {
             Some(deferred) => vm::resume(program, routines, caller, deferred, &mut engine),
             None => vm::run(program, routines, caller, &mut engine),

@@ -25,9 +25,14 @@ pub fn all() -> Vec<Probe> {
         ("learn_unlearn_identity", sheets::learn_unlearn_identity()),
         ("sheet_setters", sheets::sheet_setters()),
         ("pick_warnings_k1", sheets::pick_warnings(vfs::Game::Kotor1)),
+        ("party_queued", party::party_queued()),
+        ("party_joins_k1", party::party_joins_k1()),
+        ("checked_k1", party::checked_k1()),
+        ("panic_told", party::panic_told()),
     ]
 }
 
+mod party;
 mod sheets;
 
 const SABER: &str = "g_w_lghtsbr01";

@@ -37,21 +37,35 @@ impl Data {
     }
 }
 
-/// An install's shared data (no module) as a module reader's `Source`.
+/// An install's data (its shared data, a module's archives on it if one)
+/// as a module reader's `Source`.
 pub struct InstallSource(pub Resolver);
 
 impl InstallSource {
     /// `game`'s install, or why not.
     pub fn open(discovery: &Discovery, game: Game) -> Result<InstallSource, String> {
+        InstallSource::with_module(discovery, game, None)
+    }
+
+    /// `game`'s install with `module`'s archives on it (none: its shared
+    /// data alone), or why not, naming the module.
+    pub fn with_module(
+        discovery: &Discovery,
+        game: Game,
+        module: Option<&str>,
+    ) -> Result<InstallSource, String> {
         let install = discovery.get(game).ok_or(format!(
             "{}: no install found (set {})",
             game.key(),
             game.env_var()
         ))?;
         let index = DirIndex::build(&install.data_root).map_err(|error| error.to_string())?;
-        Resolver::open(game, &index, None, TextureQuality::High)
+        Resolver::open(game, &index, module, TextureQuality::High)
             .map(InstallSource)
-            .map_err(|error| error.to_string())
+            .map_err(|error| match module {
+                Some(module) => format!("{module}: {error}"),
+                None => error.to_string(),
+            })
     }
 }
 
