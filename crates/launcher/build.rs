@@ -4,10 +4,19 @@ mod stamp;
 use std::path::{Path, PathBuf};
 
 /// Stamps the commit into the binary as `KJK_GIT_SHA` (`game/stamp.rs`),
-/// stamped again when any crate's source changes; on Windows, builds in the
-/// icon (`kjk.rc`); with Steam, puts Steam's library beside the binary.
+/// stamped again when any crate's source changes but the save editor's
+/// (`edit`, `save_editor`: kjk is not built of them, so editing them never
+/// rebuilds it); on Windows, builds in the icon (`kjk.rc`); with Steam, puts
+/// Steam's library beside the binary.
 fn main() {
-    stamp::git_sha(&[".."]);
+    let sources: Vec<PathBuf> = std::fs::read_dir("..")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| !matches!(entry.file_name().to_str(), Some("edit" | "save_editor")))
+        .map(|entry| entry.path())
+        .collect();
+    stamp::git_sha(&sources);
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         println!("cargo:rerun-if-changed=kjk.ico");
         embed_resource::compile("kjk.rc", embed_resource::NONE)

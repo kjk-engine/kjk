@@ -1,0 +1,41 @@
+//! The editor's own checks, run by the approved test `save_edits` beside
+//! `edit::probes`: each a name and what it found, or why it failed.
+
+mod catalog;
+mod fonts;
+mod locate;
+mod session;
+mod write;
+
+type Probe = (&'static str, Result<String, String>);
+
+/// Every check, in order.
+pub fn all() -> Vec<Probe> {
+    vec![
+        ("locate_saves_folder", locate::saves_folder()),
+        ("locate_installs", locate::installs()),
+        ("locate_game_of_save", locate::game_of_save()),
+        ("fonts_found", fonts::found()),
+        ("fonts_this_system", fonts::this_system()),
+        ("catalog_search", catalog::search()),
+        ("catalog_k1", catalog::install(vfs::Game::Kotor1)),
+        ("catalog_tsl", catalog::install(vfs::Game::Kotor2)),
+        ("catalog_tsl_own_items", catalog::tsl_own_items()),
+        ("catalog_creature_k1", catalog::creature_k1()),
+        ("session_undo_exact", session::undo_exact()),
+        ("session_told_in_words", session::told_in_words()),
+        ("session_feat_warned_k1", session::feat_warned_k1()),
+        ("session_give_equipped", session::give_equipped()),
+        ("write_good", write::good()),
+        ("write_failed_check", write::failed_check()),
+        ("write_saved_over", write::saved_over()),
+        ("write_older_note", write::older_note()),
+        ("write_loaded_k1", write::loaded_k1()),
+        ("write_own_folder_only", write::own_folder_only()),
+        (
+            "write_forced_backs_up_again",
+            write::forced_backs_up_again(),
+        ),
+        ("write_received_kept", write::received_kept()),
+    ]
+}

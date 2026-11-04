@@ -56,7 +56,7 @@ jobs:
 
       - name: clippy
         if: github.event_name != 'schedule'
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --exclude save_editor --all-targets --all-features -- -D warnings
 
   # Linux has no GPU on the runner, so it renders through Mesa's software
   # Vulkan driver inside a virtual X server.

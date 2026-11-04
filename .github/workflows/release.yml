@@ -72,21 +72,25 @@ jobs:
           cd target/packages
           ls -la
           stage=$(ls -d kjk-*/ | head -n 1)
-          for f in README.txt LICENSE.txt NOTICE.txt THIRD-PARTY-LICENSES.html; do
+          for f in README.txt LICENSE.txt NOTICE.txt THIRD-PARTY-LICENSES.html THIRD-PARTY-LICENSES-save-editor.html; do
             test -f "$stage$f" || { echo "missing $f"; exit 1; }
           done
-          case "$RUNNER_OS" in
-            macOS)
-              app="${stage}kjk.app"
-              plutil -lint "$app/Contents/Info.plist"
-              test -f "$app/Contents/Resources/kjk.icns"
-              codesign --verify --strict -vv "$app"
-              program="$app/Contents/MacOS/kjk" ;;
-            Windows) program="${stage}kjk.exe" ;;
-            *) program="${stage}kjk" ;;
-          esac
-          file "$program" || true
-          "$program" --help
+          # kjk and the save editor beside it, each started once.
+          for pair in "kjk.app:kjk" "kjk Save Editor.app:kjk-save-editor"; do
+            app="${stage}${pair%%:*}"
+            binary="${pair##*:}"
+            case "$RUNNER_OS" in
+              macOS)
+                plutil -lint "$app/Contents/Info.plist"
+                test -f "$app/Contents/Resources/kjk.icns"
+                codesign --verify --strict -vv "$app"
+                program="$app/Contents/MacOS/$binary" ;;
+              Windows) program="${stage}${binary}.exe" ;;
+              *) program="${stage}${binary}" ;;
+            esac
+            file "$program" || true
+            "$program" --help
+          done
 
       - uses: actions/upload-artifact@v4
         with:

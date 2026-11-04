@@ -110,6 +110,12 @@ pub fn discover(var: impl Fn(&str) -> Option<String>) -> Discovery {
     discovery
 }
 
+/// `path` as an install of `game`, or why it is not one: the check
+/// `discover` makes of every folder, for a folder a person picks.
+pub fn install_at(game: Game, path: &Path) -> Result<Install, String> {
+    probe(game, path, Source::Env(game.env_var()))
+}
+
 /// Names directly inside `dir`, lowercased; folders get a trailing `/`.
 fn listing(dir: &Path) -> Result<Vec<String>, String> {
     let entries = std::fs::read_dir(dir).map_err(|error| format!("cannot read folder: {error}"))?;

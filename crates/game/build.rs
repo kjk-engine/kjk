@@ -4,10 +4,11 @@ mod stamp;
 /// code that reads JA's shaders as `KJK_JA_SHADERS`.
 fn main() {
     // What the game is built from: every crate but the two built on it
-    // (`launcher`, `approved_tests`), so a change to a verb or a test does
-    // not rebuild the game. A tree dirty only there is stamped `-dirty`
-    // here once the game next builds; the binary's own stamp
-    // (`launcher/build.rs`) watches every crate.
+    // (`launcher`, `approved_tests`) and the save editor's two, which it
+    // does not use, so a change to a verb, a test or the editor does not
+    // rebuild the game. A tree dirty only there is stamped `-dirty` here
+    // once the game next builds; the binary's own stamp
+    // (`launcher/build.rs`) watches every crate but the editor's.
     let sources: Vec<std::path::PathBuf> = std::fs::read_dir("..")
         .into_iter()
         .flatten()
@@ -15,7 +16,7 @@ fn main() {
         .filter(|entry| {
             !matches!(
                 entry.file_name().to_str(),
-                Some("launcher" | "approved_tests")
+                Some("launcher" | "approved_tests" | "edit" | "save_editor")
             )
         })
         .map(|entry| entry.path())
