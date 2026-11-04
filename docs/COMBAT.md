@@ -16,7 +16,7 @@ Every number below is the rulebook's ([`RULEBOOK.md`](RULEBOOK.md),
   outcome, the location, the damage, the weapon that struck or was turned,
   and where a block happened), the saber's
   and the Force's state, the blades' pose and trails, the blade hits held
-  for its grace). Snapshots (`KJKS` v54) carry both, each record one
+  for its grace). Snapshots (`KJKS`) carry both, each record one
   width whatever it holds (absent values blank behind a flag) so the
   network's XOR deltas stay small; players also carry their `Sheet`. A
   creature stands up at its GIT spot when its module installs.
@@ -27,8 +27,9 @@ Every number below is the rulebook's ([`RULEBOOK.md`](RULEBOOK.md),
   `Weapon`s with their proficiency, focus and specialization feats; the
   armour's DEX cap). `session::sheets` reads a creature's from its UTC,
   UTIs and `classes`/`cls_atk_*`/`cls_st_*`/`acbonus`/`baseitems`/
-  `iprp_damagecost`; players are `Sheet::dev_soldier` until the party
-  table (I19).
+  `iprp_damagecost`; a player's is the character it made
+  (`sim::creation`); `Sheet::dev_soldier` is the probes' and the arena's
+  default.
 - Factions: `repute.2da` as a square matrix (`module::Repute`; the table
   has no player column, so it is taken from the player's row); row `a`,
   column `b` is how `a` regards `b`, 10 or less hostile. `kjk combat
@@ -44,8 +45,7 @@ Every number below is the rulebook's ([`RULEBOOK.md`](RULEBOOK.md),
 ## Passive feats (`combat::passive`)
 What a feat a character simply has does, by `feat.2da`'s rows K1 and TSL
 share; a line's tier is how many of its rows a sheet holds (each needs the
-one before). Every K1 row's rule and its source: the feats journal
-(2026-10-04). `kjk combat feats k1` shows them on the party's templates;
+one before). `kjk combat feats k1` shows them on the party's templates;
 the approved test `feats` checks them.
 
 - **Equipping** (`passive::may_equip`, `State::wear`): an item needs every
@@ -72,7 +72,7 @@ the approved test `feats` checks them.
   neither down; the hands of the last shot ride in `Shooting::hands`.
 - **Dueling**, Improved, Master: +1, +2, +3 to hit and to defence with one
   one-handed weapon (`weaponwield` 1, 2, 4) and nothing in the left hand,
-  melee or ranged (beside the saber clash offence, C8).
+  melee or ranged (beside the saber clash offence).
 - **Saves**: Conditioning, Improved, Master +1, +2, +3 to every save
   (`Sheet::save`, which scripts' saves, powers, grenades and the character
   sheet read); Uncanny Dodge 1, 2 +2, +4 against grenades.
@@ -124,11 +124,11 @@ systems.
 ## A hit (`combat::damage`: `assess`, then `apply`)
 The size: a weapon's dice + bonus dice + item bonus (+STR melee, +2 with
 its specialization feat) × the margin `p` = (21 + AB − defence) / 20 in
-[5%, 95%] (C1; AB: BAB, DEX or STR, item, +1 focus, −4 without the
+[5%, 95%] (AB: BAB, DEX or STR, item, +1 focus, −4 without the
 proficiency, the hands' two-weapon penalty or Dueling's bonus; defence:
 10 + DEX up to the armour's cap + armour, natural and class, + Dueling's:
-"Passive feats" below) × pace 4 × cadence / 3 s (C2) × `crithitmult` on a d20 in the
-threat range (C4), plus sneak attack d6s not multiplied (the target's
+"Passive feats" below) × pace 4 × cadence / 3 s × `crithitmult` on a d20 in the
+threat range, plus sneak attack d6s not multiplied (the target's
 defence less a feat's round penalty), then the target's guards by damage
 type, before the margin and pace (step 9: `Sheet::guards` from every
 equipped item, immunity and vulnerability in percent adding up, the best
@@ -138,8 +138,8 @@ as its own type; then Improved and Wookiee Toughness's damage reduction;
 all of it guarded deals nothing); a power's JA points as % of the target's maximum → ×
 JA's location (box method, `combat::location`) → × the shard's share →
 the knockback from that (5 units/s per JA-equivalent point, with the
-knockback timer; none when the share refuses it, QUIRKS Q-0031) → the share (C17:
-hostile yes, one side (the party, or friendly factions: repute 90 or
+knockback timer; none when the share refuses it, QUIRKS Q-0031) → the share
+(hostile yes, one side (the party, or friendly factions: repute 90 or
 more) by friendly fire, plot never, a neutral outsider not by the party's
 attacks nor by any blast or area, but by anyone else's aimed ones (the
 outsider its attacker's target; a swing or bolt meant for another passes
@@ -171,7 +171,7 @@ or kick takes a fighter in a scene. The sim's own damage in a script's
 shape (a poison's doses, Force stun's sting, a saber lock's loss) is free
 play's: JA's death, pushed, the lock loser's shove kept.
 
-`kjk combat worked` recomputes I22 section 11's worked Endar Spire fights
+`kjk combat worked` recomputes the design's worked Endar Spire fights
 through this pipeline from the modules' own creatures: every hit's mean
 within 15% of the design's number (5% allowed for the crits it leaves
 out), and the hits to kill.
@@ -259,7 +259,7 @@ dormitory door so. A broken door plays its model's `busted` where its
 stock row does), else stands open. The target block shows a door's
 vitality once blows have told on it. Approved test `bash_doors`.
 
-## Lag compensation (`world::history`; I25, C18)
+## Lag compensation (`world::history`)
 A seat's view lag rides in `TickInput` (recorded). The authority keeps 32
 ticks of every character (from its own steps, never before its first):
 its body (`remember`, the step's last system) and its fence (the blades
@@ -272,7 +272,7 @@ players to about 300 ms round trip): a player's hitscan meets the others as it
 saw them, a bolt starts as far on as the lag (its way there traced the
 same), and its aimed powers (grip, level-1 push and pull, trick, aimed
 crowd control, the lightning and drain lines) find their target there;
-its blades' sweeps meet the others' blades (clashes), guards (C6's state
+its blades' sweeps meet the others' blades (clashes), guards (the state
 block, its arc taken from where the guard stood then) and bodies as they
 were at its view tick, the tree, locks and damage then running on both as
 they are now. A tick the history has no fence for (the one a world
@@ -281,7 +281,7 @@ started from) is met as it stands. Creatures are never rewound.
 every lag, uncompensated ones fall away (150 ms: lightning 10/10 against
 2/10).
 
-**Defender grace** (`saber::grace`; C19). A blade's hit on a remote
+**Defender grace** (`saber::grace`). A blade's hit on a remote
 player (its seat's view lags) who could block it (a lit blade, a defence
 level) is held for g = min(view lag, 100 ms) in ticks, in the fighter's
 `grace` record (four held at most, in the snapshot; a fifth lands the
@@ -304,7 +304,7 @@ player looking aside 400 ms, then at it, 20 s: at 80 and 150 ms 28 bolts
 held, 7 turned by its late facing, 21 hits against 28; none held at 0 ms
 or without the lag sent.
 
-`kjk combat duel-lag` measures both (I25 measures): two players on the
+`kjk combat duel-lag` measures both: two players on the
 duel ring, seat 0 remote at 0 to 350 ms, its client predicting its
 swing from the snapshot it has. A swing *shows contact* when its predicted
 blade cuts the other's body as the client saw it, by the authority's own
@@ -312,7 +312,7 @@ test (`sim::seen_cuts`, what the contact sparks show); the **disagreement rate**
 swings the authority neither landed nor turned (blocked or clashed),
 or never began: a swing the client predicted that the authority's
 verdict on it (a parry, a hit) kept from starting, which grows with the
-lag and which no rewind helps (C20 predicts no verdict); compensation is
+lag and which no rewind helps (the client predicts no verdict); compensation is
 checked on the swings the authority began. Four seeds of 30 s each way:
 compensated, 0%, 2.1%, 2%, 5.9%, 3.6%, 12% and 9.5% at 0, 80, 150, 200,
 250, 300 and 350 ms; past 80 ms every rejected swing but one (at 300)
@@ -326,7 +326,7 @@ turned 10 and 8 of them into blocks; the remote player took 30 and 34
 hits, against 53 and 62 without compensation. The rewinds cost a few µs a tick in end_m01aa (26 sword
 users and a lagging player swinging among them, 150 ms: 2–6 µs).
 
-## Minds (`combat::ai`, the step in `world::minds`; I27)
+## Minds (`combat::ai`, the step in `world::minds`)
 A creature observes on its look ticks (every 200 ms): where the games'
 scripts run, the one its script attacks (`ActionAttack`, however far) or
 the one it fights while the fight lasts (within `ranges.2da`'s
@@ -372,7 +372,7 @@ decision (`decisions.tsv`).
 A creature's melee round on another outside the party (its script's
 attack, an assured blow, any creature's fight while a scene holds the
 world) plays K1's executable's clips, read off its rules and the game's
-`combatanimations.2da` (journal `2026-10-24-gang-war/EXE.md`): blade
+`combatanimations.2da`: blade
 against blade is choreographed, the attacker's class's cinematic set
 `c<class>a1` to `c<class>a5`; any other pairing plain, `g<class>a1` or
 `g<class>a2` (a stun baton always so, K1 having no `c1a*`; bare hands
@@ -394,12 +394,12 @@ included. Not drawn: the executable's reroll of a choreographed swing
 repeating either of the last two, and its rule that a plain round's
 target answers only out of a looping clip.
 
-## Encounters (`session::encounters`; I28)
+## Encounters (`session::encounters`)
 Our own per-module changes, `data/encounters/<game>/<module>.encounter`
 (built in; never written into the install): HP (whole or ×), move, add
 (absolute or `by` an offset), remove, faction, plot/min1hp flags, and
 `per_player hp x<f>` for co-op; any line may hold only `if players >= n`.
-Planned for the players driving a body then (I30 P21) and kept: stash,
+Planned for the players driving a body then, and kept: stash,
 saves and own link plan it so again (`Place::players`, in the digest). An
 added creature goes last (its collision number); a removed one a waypoint.
 The Endar Spire: hostiles gain half again per player past the first, and
@@ -407,11 +407,10 @@ the Starboard Section adds a trooper from three players. `kjk combat
 encounters k1 end_m01ab` prints the table for 1–4 players. Not KOTOR's
 encounter objects: those are "UTE encounters", below.
 
-## UTE encounters (`sim::spawner`, the step in `world::spawners`; I35 B8)
+## UTE encounters (`sim::spawner`, the step in `world::spawners`)
 KOTOR's own encounters: the GIT's `Encounter List` objects, each from a
 UTE (its fields and creature list) with the GIT's outline and spawn
-points, run as both games' executables run them
-(`context/artifacts/i35/encounters.md` maps each rule).
+points, run as both games' executables run them.
 - **Who starts one**: a living creature hostile to its `Faction` (the
   encounter's standing toward it under 11) in its outline seen from
   above, while it is active and not started; with `PlayerOnly`, a player
@@ -452,7 +451,7 @@ points, run as both games' executables run them
   patrol: 30 s, always). Its heartbeat runs only while active, every 6 s,
   the first skipped.
 - **Kept**: its active, started, resets, difficulty, alive count, list,
-  last entered and left, reset and heartbeat clocks (the save, KJKV 51;
+  last entered and left, reset and heartbeat clocks (the save, since KJKV 51;
   a module left keeps its own, its clocks moved on by the time away). Not
   kept, as in the games: the creatures' links (QUIRKS.md Q-0261), K1's
   pool, TSL's round. Every draw is the authority stream's.
@@ -460,16 +459,16 @@ points, run as both games' executables run them
   tar_m03ab and kas_m25aa numbers; placement; the step; the save).
 
 ## The Force (`combat::force`, the step in `world::powers`)
-KOTOR's powers become JA's (I22's chains: push, lightning, drain, grip,
+KOTOR's powers become JA's (by chain: push, lightning, drain, grip,
 speed, heal, protect, absorb, mind trick; the stun and fear rows are
 KOTOR crowd control); a character's best row of a chain is its JA level.
 `Command::force` selects a row (or `force::PULL`); `FORCE_POWER` casts it
 on the press, and grip, lightning and drain run while their buttons are
 held. Costs are `spells.2da` `forcepoints` (`ModuleData::force_costs`; in
 TSL as its executable adjusts them, below), paid at the cast; a held power
-pays it again per second after its first half second (C12). The pool
-refills in 20 s, paused while a power runs (C13); in TSL its own rule
-replaces that for Force points (below), stamina keeping C13. JA's shapes and physics: push/pull at 256 × level less 0.7 a unit
+pays it again per second after its first half second. The pool
+refills in 20 s, paused while a power runs; in TSL its own rule
+replaces that for Force points (below), stamina keeping that refill. JA's shapes and physics: push/pull at 256 × level less 0.7 a unit
 (counters, absorb); grip's squeeze, lift, carry and crush; lightning's
 50 ms strikes from the eye (JA's from the origin, Q-0032) and forked
 bolts (Q-0015); drain takes FP and heals; speed scales movement (`force.speed.scale`);
@@ -477,9 +476,9 @@ protect and absorb (and TSL's Fury, JA's rage) exclusive; sight (TSL's
 Force Sight) breaks tricks on its user; mind trick confuses creatures and
 hides the caster from players; crowd control stuns for 3 s at most on a
 failed save (Fortitude, the fear chain Will), then 1 s immune, fear ending
-on damage (C11).
+on damage.
 
-**Impacts are KOTOR's** (C10, the owner's choice (a), 2026-10-01): where a
+**Impacts are KOTOR's** (the owner's choice, 2026-10-01): where a
 row has an impact script in the level's library (K1: `k_sp1_generic`), JA's
 delivery only finds whom the power catches and moves them (the shove, the
 lift, the carry); the script, run as the caster first in the scripts'
@@ -487,8 +486,8 @@ step, decides everything else, damage included: `GetSpellId`, `…Target…`,
 `GetSpellSaveDC` (`force::save_dc`), `ResistForce` (`force::resistance`),
 the saves (d20 + `Sheet::save`; immune: 2), its
 `GetFirst/NextObjectInShape` the caught. Push, lightning, drain, grip and
-crowd control so; a held lightning or drain impacts once a second held
-(C12's pace), a grip at its latch. Choke, Kill and Wound tick from code
+crowd control so; a held lightning or drain impacts once a second held,
+a grip at its latch. Choke, Kill and Wound tick from code
 their impact defers (K1's iterative damage, 1, 3 and 5 s in), and the grip
 is that damage: it holds while the code waits (no level's time limit), and
 let go (released, out of reach or sight, knocked down) its ticks still to
@@ -512,7 +511,7 @@ damage, an attack or a hostile within √10 m, `SCRIPTS.md`) or turning it
 Fury counting kills for damage (JA's rage, its health cost and its ÷ on
 hits, gives way). KOTOR's states (`combat::effects::state`: the
 cutscene holds, Force Crush's, a mind trick, a droid's scramble) hold as
-long as their effects, no 3 s and no immune second: C11 is for the plain
+long as their effects, no 3 s and no immune second: those are for the plain
 holds. Under TSL's Force Body a cast's cost is 50 / 40 / 30 % from FP and
 as much from HP (`combat::effects::pay`), refused unless more than one HP
 is left after. Only Affliction and
@@ -535,8 +534,8 @@ grace).
 ### KOTOR's effects (`combat::effects`)
 What KOTOR's powers add to JA's (K1's descriptions' numbers): speed
 +2/+4/+4 defence, Knight and Master Speed's extra attacks multiplying a
-weapon hit's budget (C2); Aura, Shield and Armor +2/+4/+6 defence and
-saves; Whirlwind (push's second level) holds (C11) and strikes for a third
+weapon hit's budget; Aura, Shield and Armor +2/+4/+6 defence and
+saves; Whirlwind (push's second level) holds (3 s at most) and strikes for a third
 of the caster's level unless a Reflex save. KOTOR's own effect powers:
 **Valor** (+2/+3/+5 STR, DEX, CON and saves, 20 s, the caster's side
 within 20 m; poison immunity from the second level), **Energy
@@ -579,7 +578,7 @@ carry its spell row (`GetEffectSpellId`, `GetHasSpellEffect`, dispel).
   level d4 (at most 10); Disable and Destroy Droid level and level d6;
   Push and Wave knock down 2 s / 6 s (Reflex: none); Whirlwind
   ⅓ level a second for 9 s; Stun 9 s, Stasis 12 s, Droid Stun 12 s, Fear
-  6 s (C11 caps all at 3 s, and the visuals and icon linked to a hold end
+  6 s (a hold is capped at 3 s, and the visuals and icon linked to a hold end
   with it; a permanent link keeps its look); Cure 5 and Heal 10 + level + WIS + CHA to
   the caster and the party; Energy Resistance 15 against five types for
   120 s. Push level, Wave ⌊1.5 × level⌋, Choke ⌊⅔ level⌋ a tick, fitted
@@ -587,8 +586,7 @@ carry its spell row (`GetEffectSpellId`, `GetHasSpellEffect`, dispel).
 
 ### TSL's Forms, costs and regeneration (`combat::forms`, `ModuleData::power_cost`, `force::regenerate_tsl`)
 Where TSL's rules meet our fight, TSL's win (the owner's call,
-2026-10-19); every number is its executable's
-(`context/artifacts/i35/combat-force.md`).
+2026-10-19); every number is its executable's.
 - **Forms** are `spells.2da` rows 258 to 268 (`formmask` 0x40): known as
   powers are, granted at Jedi levels 11 to 14 by the base class's table
   (Guardian Shii-Cho, Makashi, Soresu, Force Focus; Consular Shii-Cho,
@@ -646,7 +644,7 @@ and companions alike, in combat or out by the game's own rows:
   points a second, at least 0.0001 a second, in whole points (the
   executable keeps the fraction). K1 ships 0 in both: a point every
   10,000 s, so no healing in play. Its `forceregen` (1 % of the most FP a
-  second out of combat, the floor in it) is not read: C13 keeps JA's.
+  second out of combat, the floor in it) is not read: JA's refill stays.
 - **TSL** (`Regeneration`, `CSWSCreature::HandleHPRegeneration`): see
   `SCRIPTS.md` (`DisableHealthRegen`); every `TimePerHP` (6 s) a rate of
   the out-of-combat base 1 (in combat 0) + CON modifier × 0.3 + Treat
@@ -655,7 +653,7 @@ and companions alike, in combat or out by the game's own rows:
   minute, a 1 % table's share, its in-combat row, TSL's healing, each on
   both seats of a co-op party (5 checks).
 
-## Stamina and feat specials (`combat::specials`; C7, I22 section 4)
+## Stamina and feat specials (`combat::specials`)
 One second bar (`Sheet::pool`): a Force user's FP, anyone else's stamina,
 100 + 10 × CON modifier, refilling as FP does (20 s). It pays the saber
 specials and the blaster feat specials, 15% each (one a 3 s round
@@ -718,7 +716,7 @@ listening). `kjk combat stealth k1`: 4 checks against `tar_m09aa`'s Sith
 (seen plain at 10 m, unseen stealthed on the same spot for 5 s, the
 cadence, the opener's sneak attack); `kjk script traps k1`: the traps.
 
-## Items (`combat::items`; I22 sections 5 and 7)
+## Items (`combat::items`)
 KOTOR's consumables, four kinds carried (`Sheet::items`: creatures from
 their inventory), what was used and what runs in `Fighter::pack`; the
 numbers are K1's item descriptions. **Medpacs** (3, `buttons::MEDPAC`)
@@ -752,7 +750,7 @@ left, its target out of reach). Minds heal below 35% (an antidote when
 afflicted), raise a shield and take a stim in a fight (`ai::choose_item`),
 never before they are aware. `kjk combat items k1`: 15 checks.
 
-## Grenades (`combat::grenades`; I22 section 7)
+## Grenades (`combat::grenades`)
 KOTOR's grenades thrown as JA's thermal detonator: the grenade button
 (`buttons::GRENADE`, T in `kjk play`, `grenade` in `--moves`) charges
 while held (0.15 to 1 over 900 ms; a gun stops firing meanwhile) and
@@ -767,7 +765,7 @@ saves, a 1 fails), and its secondary unless the save spares it: frag 20
 piercing, thermal 60 energy and a knockdown, plasma 36 fire, ion 15 (45 on
 droids), sonic 20 and −6 DEX for 30 s, CryoBan 20 cold and paralysis,
 concussion a stun, adhesive entanglement (no save), poison 4 every 3 s for
-30 s (DC 25); holds are C11's 3 s and a second's immunity. Sheets carry
+30 s (DC 25); holds last 3 s at most, then a second's immunity. Sheets carry
 two kinds (creatures from their inventory; the dev soldier three frag and
 a thermal, the dev Jedi two frag); fighters count throws and carry poison
 and weakness. Creatures throw at targets 4–12 m off now and then
@@ -818,12 +816,12 @@ at 1.5 and 0.75) or whole. The specials start as JA's do (lunge, flip,
 death from above, back attacks, cartwheels and butterflies, the pair's
 and the staff's jump and spin attacks, the staff's back-flip, katas,
 kicks, stab-downs, the roll stab, mirror attacks), paying JA's cost as a
-share of the pool (I22 C7: a kata half of max FP, the forward and back
+share of the pool (a kata half of max FP, the forward and back
 specials a quarter, the side ones a tenth; without the Force from
 stamina, and an empty bar pays for nothing),
 and move the body as JA's saber-move and kata movement commands do; the
 attacks slow the runner (JA's client speed adjustment). Swords, vibroblades and
-staves use the same tables (C9). KOTOR's feats open the styles (C8):
+staves use the same tables. KOTOR's feats open the styles:
 lightsaber or melee proficiency medium, Critical Strike medium 2 and 3,
 Flurry fast, Power Attack strong; two blades fight in the dual style, a
 double-bladed weapon in the staff style. The style follows what the hands
@@ -885,8 +883,16 @@ rig's `Aim` with `Stowed`). Who says what is out (`combat::Sheath`):
   though its 8 s still run, or as a swing under way ends; away even in a
   fight, until the player attacks (a click draws, held it swings or
   fires) or takes out a weapon. JA has a saber toggle, KOTOR none.
-- **Lit**: a script holds the saber lit (`SetLightsaberPowered` with its
-  override) until a script lets go; a scene's blows light it as a fight.
+- **Lit**: a script lit the saber (`SetLightsaberPowered` with its
+  override). The exe powers it once and holds nothing: it stays lit until a
+  script lets go, a fight takes over (`SetCombatState` decides again), its
+  module is left (the new area makes its bodies afresh), or, for the party,
+  no conversation has it any more. A scene's blows light it as a fight.
+
+In a conversation a party member with no fight of its own (no target, no fake
+combat, no script's blow to deal) puts its blade away as the talk begins and
+draws none (`Arms::at_rest`); its 8 s run on untouched. The exe has no such
+rule; the owner asked for it after the cutscene reel.
 
 `kjk sim probes`' `sheath` checks (the approved test `holster_weapon`).
 
@@ -900,21 +906,21 @@ was doing (`Fighter::weapon_wait_ms`), as an item's use waits. Out of a fight,
 and a script's swap (`ActionSwitchWeapons`, which attacks on after it), it
 is instant.
 
-### Blades (the step in `world::sabers`; I24 part 2)
+### Blades (the step in `world::sabers`)
 - **Where**: each character's copy of JA's skeleton (`saber::blades`,
   `docs/SKELETON-SIM.md`) follows its animations, posed with the server's
   look (`saber::look`); `kjk play` draws the blades there (QUIRKS.md
   Q-0083); a lit weapon's blades
   are placed when someone or a bolt is near (`single_1`; `dual_1` for a
   double-bladed one; swords and staves the same tags, 32 and 28 units).
-- **Cuts** (C5): an attacking blade (an attack, or a special inside its
+- **Cuts**: an attacking blade (an attack, or a special inside its
   animation-power window) is swept from last tick's place (`saber::sweep`:
   every 8 units, each point traced to where it went, cut into arcs) through the
-  bodies its holder may harm (a player's as it saw them, C18); each body
+  bodies its holder may harm (a player's as it saw them); each body
   it cuts is owed one roll of the weapon at most per move, the share its
   sweep is of `NOMINAL` (160 units) and half at least (`LEAST_SHARE`: a
   graze still tells), delivered as one hit when the blade leaves it. Its
-  cadence (C2) is the time since its holder's last attack began, its
+  cadence is the time since its holder's last attack began, its
   move's hold at least and 750 ms at most (a first attack's; KOTOR's round
   over P): a chain's swings are a third of a second, the return and
   transition between them less so, and the pace once counted the hold
@@ -927,7 +933,7 @@ is instant.
   styles carry the line chosen for them (`combat::picks`), none until one
   is. `kjk combat duel --only feat_worth` measures each. Kicks (`saber::kick`): 2 or 3 JA
   points, a toss, a 700 ms knockdown for the busy and the bladeless.
-- **Blocks** (C6, `saber::defence`): a holder not attacking turns blows
+- **Blocks** (`saber::defence`): a holder not attacking turns blows
   within its arc, and the blow it meets is held (no crush of a block by
   state, QUIRKS.md Q-0060; a second blow while its parry plays still breaks
   it) (Jedi Defense ±49.5°/69.5°/87°; a proficient melee
@@ -950,9 +956,9 @@ is instant.
   run JA's tree (knockaways, broken parries, bounces, deflections, the
   both-attacking contest) with its disarm odds; 10% of clashes (5%/30% of
   blocks) try a lock (`saber::lock`: presses, offence + 1 frames per 25 ms,
-  super-breaks, knockdowns, C22's kill for creatures). Throws
+  super-breaks, knockdowns, a kill for creatures). Throws
   (`saber::throw`): Throw Lightsaber's row and cost, out, back, caught,
-  knocked down by a better defender. All of it on the authority (C20).
+  knocked down by a better defender. All of it on the authority.
 
 ```bash
 kjk combat roster k1 end_m01aa
@@ -961,7 +967,7 @@ kjk combat force k1    # each power at end_m01aa's Sith soldier, checked
 kjk combat saber       # each style's moves, specials, knockdowns, checked
 kjk combat duel        # cuts, blocks, bolts, clashes, locks, throws, kicks, roll stab, cost
 kjk combat duel --only bolts,blade_bolts   # some sections; bouts kept as *.kjkr
-kjk combat duel-lag    # C18 and C19 at 0 to 350 ms: disagreement, grace, rewinds
+kjk combat duel-lag    # lag compensation and grace at 0 to 350 ms: disagreement, grace, rewinds
 ```
 
 ## Drawing a fight (`kjk play`)
@@ -993,13 +999,13 @@ over the screen in JA, a sprite at the clash here, as large on screen),
 and KOTOR's `VFX_COM_BLASTER_DEFLECTION` (`v_blastdef_imp`) for a bolt.
 A blaster's hit on a body plays KOTOR's `VFX_COM_BLASTER_IMPACT`
 (`v_blaster_imp`) there, as its executable plays it on a bolt's arrival
-(`blaster_view`; `context/artifacts/kotor-blasters/SURVEY.md`). Dumps count them
+(`blaster_view`). Dumps count them
 (`combat_fx.blade_blocks_seen`, `bolt_blocks_seen`). Effects run the
 effects their runners name and lay their decals as marks (100 at once; one
 pushed out fades over 1 s); see `FX-PRIMITIVES.md`. Deaths are the
 snapshot's `BOTH_DEATH*`, played to the end and held.
 
-**Contact sparks (C20).** A joined player sees its own swing ahead of the
+**Contact sparks.** A joined player sees its own swing ahead of the
 host's snapshots (its predictions); waiting for the hit's event would put
 the sparks a round trip after the blade went through. So each prediction
 `play_view` follows sweeps the player's blades from the one before,
@@ -1080,7 +1086,7 @@ but a shot is aimed in full at once, always leaving along the barrel;
 putting it away blends and eases out over 250 ms. A joined player's own
 shots come from its
 predictions, at once. Each bolt the prediction fired flies from the muzzle
-at own time; the host's copy (advanced by the view lag, C18) stands where
+at own time; the host's copy (advanced by the view lag) stands where
 it does when the remote view shows it, takes over, and any distance left
 closes with a 50 ms half-life (a copy is its bolt when it left the same
 muzzle the same way within half the shot's cadence). An own bolt the
@@ -1088,7 +1094,7 @@ host's snapshots lack four ticks on was not fired there: it stops and
 vanishes. Every own bolt stops at the first wall or body it meets as
 drawn; a body's impact plays then, and the hit event that follows plays
 none again. A bolt the host holds on a remote player's body for its grace
-(C19) is not drawn while held; a block that turns it plays its deflection.
+is not drawn while held; a block that turns it plays its deflection.
 Dumps count `flashes_own`, `flashes_others`, `own_bolts`, and of them
 `own_bolts_handed`, `own_bolts_met` (a body), `own_bolts_unfired` and
 `own_bolts_stopped` (a wall, or a body the host met that the view never

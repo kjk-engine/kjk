@@ -48,7 +48,7 @@ merges it. What has gone wrong before, and the rule that prevents it:
   code against it. Additions are fine; changing it is reported.
 * **The gate before every commit**, run from the worktree root:
   `cargo fmt --all -- --check && cargo clippy -q --workspace --all-targets
-  -- -D warnings`, then `cargo test --release -p approved_tests` (the
+  --all-features -- -D warnings`, then `cargo test --release -p approved_tests` (the
   owner-approved scenarios; `--features rig` adds the timeline jolt
   ceilings, which need the game installs). A change to what the verbs
   share with play also gets `cargo clippy -q -p launcher --all-targets

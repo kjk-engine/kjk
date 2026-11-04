@@ -165,16 +165,19 @@ impl Motion {
     }
 
     /// Watches `snapshot`, `msec` after the one before, of `level`, judging
-    /// a held scene's script animation or hold from the sim's own timers.
+    /// what the view keeps drawing on a moving body (`acting::kept_on`: a
+    /// held scene's script animation; a round's clip, never once it moves)
+    /// or a hold from the sim's own timers.
     pub fn watch(&mut self, snapshot: &Snapshot, level: &sim::Level, msec: u32) {
         let now = snapshot.time_ms;
         let held = snapshot.holds_world();
         self.watch_drawn(snapshot, level, msec, &mut |_, fighter| {
+            let shown = (false, true, fighter.alive(), held);
             let acting = fighter
                 .acting
                 .filter(|acting| acting.playing(now))
                 .filter(|acting| acting.animation != sim::combat::death::DIE)
-                .filter(|_| held);
+                .filter(|acting| kjk_game::acting::kept_on(acting, shown, now as f64));
             let hold = matches!(
                 fighter.force.hold,
                 sim::script::effects::Hold::Fear | sim::script::effects::Hold::Whirlwind
@@ -420,11 +423,18 @@ impl Motion {
             .clone()
     }
 
-    /// `episode` kept, or joined to the last of its kind on its body.
+    /// `episode` kept, or joined to the last of its kind on its body (a
+    /// slide to the last slide, whatever was drawn: a gunner sliding under
+    /// one flinch after another is one slide, not many each too short to
+    /// keep).
     fn note(&mut self, episode: Episode) {
+        let same = |a: &Kind, b: &Kind| match (a, b) {
+            (Kind::Slide(_), Kind::Slide(_)) => true,
+            _ => a == b,
+        };
         if let Some(was) = self.episodes.iter_mut().rev().find(|was| {
             was.who == episode.who
-                && was.kind == episode.kind
+                && same(&was.kind, &episode.kind)
                 && was.to_ms + JOIN_MS >= episode.from_ms
         }) {
             was.to_ms = episode.to_ms;

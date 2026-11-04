@@ -31,7 +31,7 @@ value = 1500
 unit = "ms"
 range = [0, 10000]
 summary = "Using a medpac or repair kit takes {items.using.heal_ms:s} for a character with no skill ranks."
-source = "I22 section 5 (ours)"
+source = "ours"
 see = "sim::combat::items::heal_ms"
 applies = ["kind:medpac", "kind:repairkit"]
 
@@ -42,7 +42,7 @@ value = 100
 unit = "ms"
 range = [0, 1000]
 summary = "Each rank of Treat Injury (Repair for a droid) takes {items.using.per_rank_ms:s} off the time to use a medpac or repair kit."
-source = "I22 section 5 (ours)"
+source = "ours"
 see = "sim::combat::items::heal_ms"
 applies = ["kind:medpac", "kind:repairkit", "skill:TREAT_INJURY", "skill:REPAIR"]
 
@@ -53,7 +53,7 @@ value = 500
 unit = "ms"
 range = [0, 10000]
 summary = "Using a medpac or repair kit always takes at least {items.using.least_ms:s}."
-source = "I22 section 5 (ours)"
+source = "ours"
 see = "sim::combat::items::heal_ms"
 applies = ["kind:medpac", "kind:repairkit"]
 

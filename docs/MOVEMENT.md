@@ -14,7 +14,7 @@ steps), on any `collision::CollisionWorld` (specified: `MOVEMENT-SPEC.md`,
   With the character's fight (`motion::Arms`) it also runs JA's weapon
   step: weapon changes, knockdowns and the saber's moves, which change the
   command and the speed before the move (docs/COMBAT.md). Force jumps
-  (`motion::force_jump`, I26): a character with a jump level that keeps
+  (`motion::force_jump`): a character with a jump level that keeps
   jump held while rising is lifted toward its level's height (96 / 192 /
   384 units). Not yet: water.
 - Bodies (`world::move_actors`): a body's own moves use JA's box; what

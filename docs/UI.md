@@ -72,7 +72,7 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   lists only its own body and its followers, so the other players' icons
   show on the host's. A click on a companion's pazaak icon (while the
   pointer is free) watches its player's match (`hud::watch_at`,
-  `Action::Watch`; R9a), where a click on the portrait beside it would
+  `Action::Watch`), where a click on the portrait beside it would
   make it lead; both name the member by its body (`MemberView::id`).
 - The inventory's and the store's filters sort items by kind
   (`vm::ItemKind`, from the template). An item row shows its icon in a
@@ -317,7 +317,7 @@ turning in the 3D view (`planetary.2da`'s `model`, seen from its
 `camerahook`, lit by its own aurora light). A selectable planet pressed is
 chosen; Accept travels there (`GameAction::Travel` → `Action::Travel`);
 Back closes the map. Every player sees it; only the host's Accept travels
-(I30 P6: a guest's map has none, and closes when the module goes).
+(a guest's map has none, and closes when the module goes).
 
 The credits (`credits`, KOTOR 2's `credits_p`, skinned), which a script
 starts (`StartCreditSequence`: K1's ending): each `credits.2da` row's
@@ -334,9 +334,9 @@ the match the snapshot carries (`sim::pazaak::Match`): the view opens the
 one for the match's stage (`pazaakwager`, `pazaaksetup`, `pazaakgame`;
 TSL's `_p` skinned) and closes them at its end; a script's `PlayPazaak`
 notice opens nothing itself, as with the store. Each seat sees the match
-it plays (`Snapshot::pazaak_of`, I30 P20), so two players can sit at two
+it plays (`Snapshot::pazaak_of`), so two players can sit at two
 tables at once; the others play on. A player watching another's match
-(R9a, `Snapshot::watching`) sees its table read-only whatever its stage:
+(`Snapshot::watching`) sees its table read-only whatever its stage:
 the player's hand as the player sees it, "Watching Carth" in place of the
 player's name (shortened to fit, `ControlState::shorter`), a wager or a
 side deck being chosen in words over the hand, a result in the third
@@ -346,7 +346,7 @@ a conversation", L) leaving too (`Action::Watch` with no player); no
 tutorial pages. A paused match's screens and its tutorial pages close on
 its player's screen and come back at its stage (`docs/PAZAAK.md`); a
 watcher keeps the table, Leave live, and is told why in the same words'
-place ("Carth is away.", "Carth is hurt.": R39). The cards are drawn in
+place ("Carth is away.", "Carth is hurt."). The cards are drawn in
 the campaign's own art over the layout's (K1's `lbl_card*`: the main
 deck's yellow, + blue, − red, ± either way as its sign is chosen), their
 words on the label over each; a set won lights a score mark
@@ -386,7 +386,7 @@ of more than one seat:
   no player's character in it), else points at it.
 - **The host's request card** (`ui::screens::dialog::Card`, its own
   layer over the conversation's screen and the HUD, under the screens):
-  while a guest asks the host in (R5), each "Carth asks you to join:
+  while a guest asks the host in, each "Carth asks you to join:
   Garouk", then "Y: accept   N: end" in the highlight colour, the bound
   keys named (key mapping "Accept a join request" Y, "End a join
   request" N). It stands in the top bar's bottom right corner while the
@@ -542,7 +542,7 @@ and a sonic grenade, QUIRKS.md Q-0266) begins with "Cannot Equip:" and
 asks of its wearer, its properties) are not written here.
 
 
-The story's progress (I19, `docs/WORLD-STATE.md`) rides in the snapshot
+The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
 (`sim::Progress`: the journal and the party's XP):
 
 - the journal page lists the quests, the latest updated first, each by
@@ -778,8 +778,7 @@ checks are in `gui_layouts`.
 
 ### Area transitions
 
-KOTOR names the area a door or exit leads to while the player faces it
-(survey: `context/artifacts/2026-10-30-transition-label/SURVEY.md`):
+KOTOR names the area a door or exit leads to while the player faces it:
 
 - **Which** (`sim::transition::faced`, render side, `game::target_view`):
   each door and trigger that leads to a module (`ObjectData::exit`) is
@@ -846,12 +845,12 @@ save was made (a guest's, a quick save while looting) loads closed and
 held by no one (`sim::containers::let_go`), as KOTOR's loot screen opens
 only by looting. `kjk --load <id>` opens on a save; the console's `ui
 save [name]`, `ui quicksave` and `ui load <id>` do what the screens do.
-A save hosted holds the seats chosen (its guests take its companions,
-I31; `kjk host --load <id>`). A guest keeps a copy of every save its host
-makes (I30 P17), listed as
+A save hosted holds the seats chosen (its guests take its companions;
+`kjk host --load <id>`). A guest keeps a copy of every save its host
+makes, listed as
 "<name> (from <host>)"; another build's copy is refused, with why.
 
-The fall (I30 P11–P13, `docs/FALLING.md`): a revive shows in the target
+The fall (`docs/FALLING.md`): a revive shows in the target
 block (`TargetView::progress`, above); the whole party down holds the
 lost box (`lost`, on `confirm`) open on every seat, from the snapshot's
 `lost` (`ui_view::fall`): the host's Load raises `Intent::ReloadLatest`

@@ -5,7 +5,10 @@ use super::*;
 /// Wearing the strongest weapon of the other kind (`ranged` or not) the
 /// party carries in the player's right hand (by its damage's average, as
 /// its upgrades leave it), if it carries one: back from a gun, the saber,
-/// not the first blade in the pack.
+/// not the first blade in the pack. Not one whose use limits name feats the
+/// player has none of (`feat_limits_met`): Iziz's escape took up a rifle
+/// limited to two feats the Exile lacks, the sim refused it, and the
+/// wall turrets a gun was taken up for were never shot.
 pub(super) fn other_weapon(world: &sim::SimWorld, snapshot: &Snapshot, ranged: bool) -> Option<Action> {
     let catalog = world.level().scripts()?.items();
     let hand = sim::inventory::slots::RIGHT_WEAPON;
@@ -16,12 +19,41 @@ pub(super) fn other_weapon(world: &sim::SimWorld, snapshot: &Snapshot, ranged: b
         .goods
         .carried(sim::inventory::PARTY)
         .filter_map(|(id, item)| {
-            let facts = catalog.get(&item.template)?;
-            let weapon = facts.fitted(item.upgrades, &item.fitted, catalog).weapon?;
+            let facts = catalog
+                .get(&item.template)?
+                .fitted(item.upgrades, &item.fitted, catalog);
+            let weapon = facts.weapon.filter(|_| feats.is_none_or(|feats| feat_limits_met(&feats, &facts.limits)))?;
             Some((id, weapon, facts.needs.clone(), facts.slots))
         })
         .collect();
     strongest(&candidates, feats.as_ref(), ranged).map(|item| Action::Equip { item, slot: hand })
+}
+
+/// Whether one with `feats` meets the feat limits among `limits` as the sim
+/// weighs them (`properties::may_wear`: one of them, or Proficiency All).
+pub(super) fn feat_limits_met(
+    feats: &sim::combat::sheet::Rows<4>,
+    limits: &[sim::inventory::properties::Limit],
+) -> bool {
+    use sim::inventory::properties::{Limit, Wearer, may_wear};
+    let of_feats: Vec<Limit> = limits
+        .iter()
+        .filter(|limit| matches!(limit, Limit::Feat(_)))
+        .cloned()
+        .collect();
+    let wearer = Wearer {
+        good_evil: sim::combat::sheet::NEUTRAL,
+        classes: [u8::MAX; 2],
+        race: 0,
+        subrace: 0,
+        feats: *feats,
+        gender: 0,
+        abilities: [10; 6],
+        player: true,
+        tag: String::new(),
+        tsl: false,
+    };
+    may_wear(&of_feats, &wearer).is_ok()
 }
 
 /// Of `candidates` (an item, the weapon it is, the feats it needs and the

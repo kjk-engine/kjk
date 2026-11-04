@@ -207,6 +207,10 @@ pub struct Conversation {
     /// (`SetLockHeadFollowInDialog`). Both empty as it starts.
     pub lock_turn: Vec<ObjectId>,
     pub lock_head: Vec<ObjectId>,
+    /// When the line that began its camera model's clip showed (sim ms): a
+    /// line carrying the clip on films and waits from there
+    /// (`script::camera_cue`).
+    pub clip_from_ms: u64,
 }
 
 /// A line over someone's head, outside any conversation.
@@ -509,6 +513,7 @@ impl Default for Conversation {
             pair: (ObjectId::INVALID, ObjectId::INVALID),
             lock_turn: Vec::new(),
             lock_head: Vec::new(),
+            clip_from_ms: 0,
         }
     }
 }
@@ -862,7 +867,7 @@ impl Talk {
     }
 
     pub(super) fn decode(input: &mut Reader) -> Result<Talk, DecodeError> {
-        let told = Told::decode(input)?;
+        let told = Told::decode_since(input, crate::since::save::REEL_NOTES)?;
         let mut talk = Talk {
             conversations: told.conversations,
             barks: told.barks,
@@ -1317,6 +1322,9 @@ impl Step<'_> {
             return;
         };
         let c = self.state.talk.conversations.remove(at);
+        // The screen goes back with it: TSL's `CGuiInGame::CloseDialog`
+        // disables the video effect, whoever enabled it.
+        self.out.video_effect = Some(None);
         // Its end script's store opens for whoever asked, as its nodes' do.
         self.state.talk.ending = Some(c.asker);
         self.finish(id, (c.owner, c.pc), &c.dialog, (aborted, Heard::Area));

@@ -64,49 +64,49 @@ pub(crate) enum Verb {
         /// k1 or tsl
         game: String,
     },
-    /// KOTOR's screens without a window (I21): the UI's probes, one layout
+    /// KOTOR's screens without a window: the UI's probes, one layout
     /// drawn to a PNG, a sweep of every layout, a contact sheet.
     Gui {
         #[command(subcommand)]
         verb: GuiVerb,
     },
-    /// The sim funnel (I11): determinism, record and replay, saves, tick
+    /// The sim funnel: determinism, record and replay, saves, tick
     /// rates, and a live view that reads snapshots only.
     Sim {
         #[command(subcommand)]
         verb: SimVerb,
     },
-    /// A module's collision (I12): what it is built from, trace probes,
+    /// A module's collision: what it is built from, trace probes,
     /// and the containment audit.
     Collision {
         #[command(subcommand)]
         verb: CollisionVerb,
     },
-    /// Player movement (I13): JA's movement on the collision contract,
+    /// Player movement: JA's movement on the collision contract,
     /// measured and walked without a window.
     Move {
         #[command(subcommand)]
         verb: MoveVerb,
     },
-    /// Module installs (I14): plans, commits, announcements, and runs that
+    /// Module installs: plans, commits, announcements, and runs that
     /// go between modules and count what is left behind.
     Lifecycle {
         #[command(subcommand)]
         verb: LifecycleVerb,
     },
-    /// Combat (I23): a module's creatures as combat reads them, and a
+    /// Combat: a module's creatures as combat reads them, and a
     /// fight stepped without a window.
     Combat {
         #[command(subcommand)]
         verb: CombatVerb,
     },
-    /// The network layer (I15): its probes and the snapshot codec's
+    /// The network layer: its probes and the snapshot codec's
     /// measures.
     Net {
         #[command(subcommand)]
         verb: NetVerb,
     },
-    /// A module played headless goal by goal (I29): walking to what a goal
+    /// A module played headless goal by goal: walking to what a goal
     /// names, using it, answering, fighting, on into the next module; a
     /// goal not met in time is a blocker (`playthrough.rs`)
     Playthrough {
@@ -234,12 +234,12 @@ pub(crate) enum Verb {
         #[arg(long, value_parser = ["chaos"])]
         droids: Option<String>,
     },
-    /// Conversations (I18): a module's DLGs, and conversations run headless
+    /// Conversations: a module's DLGs, and conversations run headless
     Dialogue {
         #[command(subcommand)]
         verb: DialogueVerb,
     },
-    /// Scripts (I16): the games' compiled scripts and the routines they call
+    /// Scripts: the games' compiled scripts and the routines they call
     Script {
         #[command(subcommand)]
         verb: ScriptVerb,
@@ -972,7 +972,7 @@ pub(crate) enum CollisionVerb {
         #[command(flatten)]
         module: CollisionModule,
     },
-    /// Walk routes of the navigation mesh (I27) for real: a player steered
+    /// Walk routes of the navigation mesh for real: a player steered
     /// by `sim::walk` through move_body, from a drawn face to another
     Walk {
         /// k1 or tsl
@@ -986,7 +986,7 @@ pub(crate) enum CollisionVerb {
         #[arg(long, default_value_t = 1)]
         seed: u64,
     },
-    /// The navigation mesh (I27): bake it from the walkable faces, route
+    /// The navigation mesh: bake it from the walkable faces, route
     /// between drawn points of its largest island and check every route.
     Nav {
         #[command(flatten)]
@@ -1132,7 +1132,7 @@ pub(crate) enum CombatVerb {
         #[arg(long, default_value_t = 30)]
         seconds: u64,
     },
-    /// Lag compensation (I25): a player shoots at a runner, aiming where it
+    /// Lag compensation: a player shoots at a runner, aiming where it
     /// was L ms before, with and without its view lag in the input
     Lag {
         /// k1 or tsl
@@ -1147,7 +1147,7 @@ pub(crate) enum CombatVerb {
         #[arg(long, default_value = "end_bridgerep1")]
         runner: String,
     },
-    /// Encounter overrides (I28): a module's creatures before and with its
+    /// Encounter overrides: a module's creatures before and with its
     /// overrides for one to four players
     Encounters {
         /// k1 or tsl
@@ -1158,7 +1158,7 @@ pub(crate) enum CombatVerb {
         #[arg(long, default_value_t = 4)]
         players: u8,
     },
-    /// Minds (I27): a player walks toward the hostiles with companions;
+    /// Minds: a player walks toward the hostiles with companions;
     /// every mind's decisions are logged and checked
     Ai {
         /// k1 or tsl
@@ -1180,7 +1180,7 @@ pub(crate) enum CombatVerb {
         #[arg(long)]
         companion: Vec<String>,
     },
-    /// The Force (I26): a dev Jedi casts each power at a creature turned
+    /// The Force: a dev Jedi casts each power at a creature turned
     /// hostile, one recorded scene per power, checked against the rules
     Force {
         /// k1 or tsl
@@ -1195,7 +1195,7 @@ pub(crate) enum CombatVerb {
         #[arg(long, default_value = "end_darkjedi01")]
         drained: String,
     },
-    /// The damage pipeline's type step (I22 section 1 step 9): immunity,
+    /// The damage pipeline's type step: immunity,
     /// vulnerability and resistance by damage type, bonuses against a
     /// race, measured over seeded rolls and on a module's guarded creatures
     Damage {
@@ -1205,7 +1205,7 @@ pub(crate) enum CombatVerb {
         #[arg(default_value = "end_m01ab")]
         module: String,
     },
-    /// Grenades (I22 section 7): KOTOR's kinds thrown as JA's thermal
+    /// Grenades: KOTOR's kinds thrown as JA's thermal
     /// detonator, their blasts, saves and secondary effects, one recorded
     /// scene each against a creature turned hostile
     Grenades {
@@ -1227,7 +1227,7 @@ pub(crate) enum CombatVerb {
         #[arg(default_value = "tar_m09aa")]
         module: String,
     },
-    /// KOTOR's consumables (I22 sections 5 and 7): medpacs and repair kits,
+    /// KOTOR's consumables: medpacs and repair kits,
     /// antidotes, squad stims, energy shields, stims, in the arena and
     /// against a creature turned hostile
     Items {
@@ -1240,10 +1240,10 @@ pub(crate) enum CombatVerb {
         #[arg(long, default_value = "end_gensith")]
         target: String,
     },
-    /// I22 section 11's worked Endar Spire fights recomputed through the
+    /// The design's worked Endar Spire fights recomputed through the
     /// pipeline from the modules' own creatures
     Worked,
-    /// The second bar (stamina, C7) and the feat specials (I22 section 4):
+    /// The second bar (stamina) and the feat specials:
     /// Power Blast, Rapid and Multi Shot, Sniper Shot and sneak attack,
     /// one recorded scene each against a creature turned hostile
     Specials {
@@ -1256,12 +1256,12 @@ pub(crate) enum CombatVerb {
         #[arg(long, default_value = "sithsoldier")]
         target: String,
     },
-    /// Sabers (I24): a character per style driven through JA's saber moves
+    /// Sabers: a character per style driven through JA's saber moves
     /// (attack held each way, the rig's combos, every special,
     /// knockdowns, weapon changes, style cycling), checked against the
     /// rulebook and the rig's timelines
     Saber,
-    /// Blades (I24): two players' duels on a floor (cuts and the C5
+    /// Blades: two players' duels on a floor (cuts and their
     /// budget, blocks at each defence level, bolts deflected and reflected,
     /// clashes, locks, throws, kicks) checked against the rules, and the
     /// blades' cost per tick in end_m01aa with 2, 8 and 26 sword users.
@@ -1272,9 +1272,9 @@ pub(crate) enum CombatVerb {
         #[arg(long, value_delimiter = ',')]
         only: Vec<String>,
     },
-    /// Duels under latency (I25): a remote player's swings as its client
-    /// showed them against the authority's verdicts (C18), the blows held
-    /// for its grace (C19) and the rewinds, at 0, 80 and 150 ms
+    /// Duels under latency: a remote player's swings as its client
+    /// showed them against the authority's verdicts, the blows held
+    /// for its grace and the rewinds, at 0, 80 and 150 ms
     DuelLag {
         /// Sim seconds each duel lasts
         #[arg(long, default_value_t = 30)]

@@ -23,6 +23,17 @@ pub(crate) fn hung_head(models: &[Placed], body: usize) -> Option<usize> {
         .position(|placed| placed.attach.is_some() && placed.hook.map(|(on, _)| on) == Some(body))
 }
 
+/// The models hung on body `body` with a place of their own, in order.
+pub(crate) fn hung(models: &[Placed], body: usize) -> impl Iterator<Item = usize> + '_ {
+    models
+        .iter()
+        .enumerate()
+        .filter(move |(_, placed)| {
+            placed.attach.is_some() && placed.hook.map(|(on, _)| on) == Some(body)
+        })
+        .map(|(index, _)| index)
+}
+
 /// A body's hung head: its animated nodes at rest, its body's clips bound
 /// on them, and the clips it plays where the body plays none of KOTOR's (a
 /// JA pose or a ragdoll has no face): standing, and dead (the lids shut).

@@ -369,7 +369,11 @@ pub(super) fn interact(
         // a trigger does; the seat is its tenant until it steps out. The
         // first seat enters with the companion it leads while one leads
         // (TSL's area transitions answer the party leader the player
-        // controls: Bao-Dur leaving 233TEL after the pad's scene).
+        // controls: Bao-Dur leaving 233TEL after the pad's scene). One a
+        // conversation holding the world walks it into asks nothing: it is
+        // the tenant, and the scene's end takes no one out (TSL's Trayus
+        // Academy: `a_903kreia` walks the Exile up to `d_entrance`, over the
+        // way back to the depths, and the Academy was left for 902MAL).
         for (id, object) in objects.iter_mut() {
             if object.kind != ObjectKind::Door {
                 continue;
@@ -386,7 +390,9 @@ pub(super) fn interact(
             let tenant = object.state.tenants & bit != 0;
             if inside && !tenant {
                 object.state.tenants |= bit;
-                asks.push(ask(id, link, seat, Some(object.index)));
+                if !held {
+                    asks.push(ask(id, link, seat, Some(object.index)));
+                }
             } else if !inside && tenant {
                 object.state.tenants &= !bit;
             }
@@ -404,7 +410,7 @@ pub(super) fn interact(
             let tenant = object.state.tenants & bit != 0;
             if inside && !tenant {
                 object.state.tenants |= bit;
-                if let Some(link) = facts.exit() {
+                if let Some(link) = facts.exit().filter(|_| !held) {
                     asks.push(ask(id, link, seat, Some(object.index)));
                 }
             } else if !inside && tenant {

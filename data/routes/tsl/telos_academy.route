@@ -63,7 +63,6 @@ equip g_a_clothes01  # what the mat took off worn again, as it was
 equip a_belt_03
 equip 100_fore01
 equip 100_mask01
-equip a_shield_01
 say Enter the Ebon Hawk # the loading ramp
 to tr_setup_ebo
 talk

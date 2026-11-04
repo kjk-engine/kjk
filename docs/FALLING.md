@@ -1,11 +1,11 @@
-# Falling, reviving, losing (`sim::falls`; I30 P11–P13)
+# Falling, reviving, losing (`sim::falls`)
 
 - **The rule** (`combat::damage::apply`): at 0 HP a party member (a seat's
   avatar, a companion, driven or not) is downed: `Life::Downed`, recorded
   in `Fighter::fallen` (when, who revives it); anyone else dies. A
   script's `EffectDeath` kills a party member too, standing or downed, past
   shields and protect; Min1HP still holds (Trask's scene lifts it). JA's
-  saber-lock loss (C22, P12) downs a party member, kills a creature.
+  saber-lock loss downs a party member, kills a creature.
 - `alive()` stays "can act": the downed press nothing, are not hit, healed
   (medpacs, Force heals [verify]) or perceived, lie as the dead do (no
   ragdoll; `game::cast`), and hold no exit (no doorway's or trigger's
@@ -71,7 +71,7 @@
   `GetNearestCreature` skips the downed unless asked [verify]; the downed
   have 0 HP (`GetIsDead` [verify]), stay in their script triggers, keep
   their bodies when the party is picked again. No `Mod_OnPlrDying`/`Death`.
-- **Probes**: `kjk sim probes --only falls` (17), `--only "up again"`
+- **Probes**: `kjk sim probes --only falls` (20), `--only "up again"`
   (each of the 19 get-ups' turned first frame against its death's last:
   side, head, pelvis), `kjk combat duel --only
   lock_down`, `kjk gui probes`; approved test `downed_and_revive`.

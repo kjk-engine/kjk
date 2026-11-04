@@ -356,6 +356,12 @@ struct DoorAnim {
     /// `None` for a door that has not moved since the scene was built.
     from: u8,
     since: Option<f64>,
+    /// The scene's model, what its clips key on its meshes, and those
+    /// meshes' materials, once it has played (a force field fades by
+    /// alpha as it opens: Onderon's palace, `DOR_OND05`).
+    model: usize,
+    fx: Option<std::sync::Arc<crate::model_fx::ModelFx>>,
+    lit: Option<Vec<crate::model_fx::Lit>>,
 }
 
 #[derive(Default)]
@@ -392,6 +398,11 @@ fn doors(
     presented: Res<PresentedSnapshot>,
     models: Query<&SceneModel>,
     mut transforms: Query<&mut Transform>,
+    (children, mut mesh_materials, mut materials): (
+        Query<&Children>,
+        Query<&mut MeshMaterial3d<crate::material::OdysseyMaterial>>,
+        ResMut<Assets<crate::material::OdysseyMaterial>>,
+    ),
     mut doors: Local<Doors>,
 ) {
     let (Some(scene), Some(swap)) = (scene, swap) else {
@@ -424,6 +435,9 @@ fn doors(
                 state,
                 from: 0,
                 since: None,
+                model: door.model,
+                fx: door.fx.clone(),
+                lit: None,
             });
         }
     }
@@ -450,6 +464,10 @@ fn doors(
             _ if door.broken && door.busted.is_some() => door.busted.as_ref(),
             state => way(&door.opening, state),
         };
+        let shown = clip.map(|animator| {
+            let at = seconds.clamp(0.0, animator.length());
+            (animator.clip_name(), at)
+        });
         match clip {
             Some(animator) => animator.pose(seconds.clamp(0.0, animator.length()), &mut transforms),
             None if door.state == 0 => {
@@ -458,6 +476,31 @@ fn doors(
                 }
             }
             None => {}
+        }
+        // Its meshes' alpha as the clip keys it, once it has moved or stands
+        // open; a door never moved draws as its model is.
+        let Some(fx) = door.fx.clone().filter(|fx| !fx.surfaces.is_empty()) else {
+            continue;
+        };
+        let placed = &scene.0.models[door.model];
+        if door.lit.is_none() && shown.is_some() {
+            let nodes = models.iter().find(|model| model.index == door.model);
+            door.lit = nodes.and_then(|model| {
+                crate::model_fx::own_materials(
+                    (&fx, &placed.ir, &model.nodes),
+                    &crate::model_fx::glows(&placed.ir, &scene.0.textures),
+                    &children,
+                    &mut mesh_materials,
+                    &mut materials,
+                )
+            });
+        }
+        for lit in door.lit.iter_mut().flatten() {
+            match &shown {
+                Some((name, at)) => lit.key((&fx, &placed.ir), name, *at),
+                None => lit.reset(&placed.ir),
+            }
+            lit.show(&mut materials);
         }
     }
 }

@@ -336,6 +336,7 @@ pub fn conversation() -> Conversation {
         pair: (ObjectId(7), ObjectId(4)),
         lock_turn: vec![ObjectId(7)],
         lock_head: vec![ObjectId(2), ObjectId(4)],
+        clip_from_ms: 1250,
     }
 }
 

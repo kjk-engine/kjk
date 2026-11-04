@@ -2,6 +2,8 @@
 
 # kjk
 
+**[Join the Discord](https://discord.gg/23bAu2wvH)**
+
 A Rust engine (Bevy, wgpu) that plays **KOTOR** and **KOTOR II** with
 **Jedi Academy**'s real-time movement, sabers and Force, plus native co-op.
 KOTOR 1 comes first.

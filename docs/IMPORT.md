@@ -75,7 +75,7 @@ The sim and the game see the packs only; the readers in `fmt_odyssey`,
   word and its inputs (their bytes, or the install fingerprint for a whole
   pack). Two branches with different importers write different keys: they
   never overwrite each other. A key hit is always the same bytes a miss
-  would write (PLAN's cache rule).
+  would write.
 - **Atomic.** Written to a temporary file and renamed into place: a reader
   never sees half a product, and two processes importing the same thing at
   once both end with the same file.
@@ -129,7 +129,7 @@ yet, so old ones are deleted by hand.
 2. **Game and dialogue packs:** catalogs and dialogue graphs with voice
    lengths imported once; plans read them. This removes the per-plan
    parsing, and the party's conversations can then be loaded in every
-   module at no cost (the open point from I19).
+   module at no cost.
    - Done (2026-10-02): `kjk import <game>` fingerprints the install (K1:
      15,374 files, 5.6 s the first time, then from the cache) and makes the
      **templates** (every item and creature template of the shared data,
@@ -172,7 +172,7 @@ yet, so old ones are deleted by hand.
      in about 155 ms (was about 255). The `area-v2` bakes stay for
      worktrees not yet rebased, until `kjk store gc` drops them.
    - Since 2026-10-02 the bakes' folders name their format
-     (`bake/<game>/area-v6`, `bake/<game>/library-v2`), and `kjk store gc`
+     (`bake/<game>/area-v6`, `bake/<game>/library-v<N>`, N being `sim::pack::GATHERED_VERSION`), and `kjk store gc`
      drops the superseded ones whole: on this machine the old
      `bake/k1/area` (deflated `area-v2` and the first `area-v3` bakes) and
      `bake/k1/library`, 126 files, 1,036 MB. An area left in the old folder
@@ -181,7 +181,7 @@ yet, so old ones are deleted by hand.
      (the scripts and conversations its objects and the creature templates
      reach, and the strings its scripts hold: `sim::pack::Gathered`, our
      own encoding of each conversation) is kept in the store once gathered
-     (`bake/<game>/library-v2`, deflated, about 0.3 MB a module), keyed by the
+     (`bake/<game>/library-v<N>`, deflated, about 0.3 MB a module), keyed by the
      install's world data, the module, what the walk starts from and the
      gathering's code (`KJK_LIBRARY_GATHERER`, a hash of
      `session/src/library.rs` and the DLG, GFF and NCS readers). Each DLG
@@ -228,7 +228,7 @@ yet, so old ones are deleted by hand.
      later one: 0.1 to 0.2 ms of a frame, where loading took 20 to 300 ms
      of one (half a second from a cold disk). docs/WORLD-STATE.md has the
      measures.
-   - Done (2026-10-02, I20): **movies**. Each Bink made ours by `ffmpeg`
+   - Done (2026-10-02): **movies**. Each Bink made ours by `ffmpeg`
      (JPEG frames and an MP3, `movie`), in `import/<game>/movies` keyed by
      the Bink's bytes, made when first played or all at once by `kjk movie
      import <game>` (K1: 64 movies, about 600 MB). The owner's choice: the
@@ -264,7 +264,7 @@ yet, so old ones are deleted by hand.
      (the level's digest changed); the proving ground's did not change but
      for the version, so the pinned hash moved for that alone.
 
-I19's remaining parts (journal, XP, stores) go on top of slice 2.
+The journal, XP and stores go on top of slice 2 (`WORLD-STATE.md`).
 
 ## Part 3: disk space across worktrees
 

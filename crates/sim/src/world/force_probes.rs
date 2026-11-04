@@ -125,6 +125,10 @@ void SetHealTarget(object oidHealer, object oidTarget);
 object GetHealTarget(object oidHealer);
 // 41
 int GetIsObjectValid(object oObject);
+// 42
+talent TalentSpell(int nSpell);
+// 43
+void ActionUseTalentOnObject(talent tChosenTalent, object oTarget);
 "#;
 
 /// The rows the probes use: a power the player knows and one it does not
@@ -337,6 +341,40 @@ fn beats() -> (Ncs, Ncs) {
     (done(beat), done(force))
 }
 
+/// `probe_round_end`, the NPC's end of round: counts its runs in its local
+/// number 2, told as token 61. `probe_self_talent`, run as the NPC: it uses
+/// `KNOWN` on itself (`ActionUseTalentOnObject`).
+fn rounds() -> (Ncs, Ncs) {
+    let me = Op::Const(Const::Object(0));
+    let mut round = Asm::default();
+    round
+        .op(int(2))
+        .op(me.clone())
+        .op(call(36, 2))
+        .op(int(1))
+        .op(Op::Add(fmt_odyssey::ncs::Pair::IntInt))
+        .op(int(2))
+        .op(me.clone())
+        .op(call(35, 3));
+    token(&mut round, 61, &[int(2), me.clone(), call(36, 2)]);
+    let mut cast = Asm::default();
+    cast.op(me)
+        .op(int(i32::from(KNOWN)))
+        .op(call(42, 1))
+        .op(call(43, 2));
+    (done(round), done(cast))
+}
+
+/// `probe_other_talent`, run as the NPC: it uses `KNOWN` on the player.
+fn other_talent() -> Ncs {
+    let mut cast = Asm::default();
+    cast.op(pc())
+        .op(int(i32::from(KNOWN)))
+        .op(call(42, 1))
+        .op(call(43, 2));
+    done(cast)
+}
+
 /// `probe_mines`: a mine spawned at the spot with no creator (DCs +2, +3),
 /// then one the player spawned. Run as a mine, `probe_mine_owner`: the
 /// Demolitions it was set with (token 70); `probe_detonate` sets it off.
@@ -420,7 +458,11 @@ fn library(regeneration: bool) -> crate::script::Library {
     let (adjust, ranks) = stats();
     let (beat, force_beat) = beats();
     let (sight, heal) = sight_and_heal();
+    let (round, self_talent) = rounds();
     let mut scripts = vec![
+        ("probe_round_end", round),
+        ("probe_self_talent", self_talent),
+        ("probe_other_talent", other_talent()),
         ("probe_book", book()),
         ("probe_forms", form_routines()),
         ("probe_bonus_add", add),
@@ -539,7 +581,10 @@ fn world(regeneration: bool) -> Result<SimWorld, String> {
             ..jedi_sheet()
         },
     );
-    npc.scripts = vec![("ScriptHeartbeat".into(), "probe_beat".into())];
+    npc.scripts = vec![
+        ("ScriptHeartbeat".into(), "probe_beat".into()),
+        ("ScriptEndRound".into(), "probe_round_end".into()),
+    ];
     let spot = ObjectData {
         kind: ObjectKind::Waypoint,
         tag: SPOT.into(),
@@ -1021,6 +1066,43 @@ fn fake_combat() -> Result<String, String> {
     )
 }
 
+/// A power used on oneself starts a combat round, as every cast does (the
+/// exes' `AIActionCastSpell` calls `StartCombatRound`): out of combat the
+/// NPC's end of round never runs; once it used one on itself it is in
+/// combat and its rounds run (the Star Forge freezer's Resist Force, after
+/// which it engages and its door opens).
+fn talent_starts_a_round() -> Result<String, String> {
+    let mut other_world = world(false)?;
+    let mut world = world(false)?;
+    let first = idle(&mut world);
+    let jedi = npc(&first).ok_or("no NPC")?;
+    let count = |snapshot: &Snapshot| {
+        snapshot
+            .talk
+            .tokens
+            .get(&61)
+            .and_then(|text| text.parse::<i32>().ok())
+            .unwrap_or(0)
+    };
+    // A cast on another (the player) starts no round of its own: in combat
+    // only as its blow lands, as Telos's mercenaries' feats.
+    idle(&mut other_world);
+    let other = run(&mut other_world, "probe_other_talent", ObjectId(jedi.0));
+    let other_fighting =
+        fighter_of(&idle(&mut other_world), jedi).is_some_and(|f| f.combat_until > other.time_ms);
+    let idle_rounds = count(&wait(&mut world, 4000));
+    let cast = run(&mut world, "probe_self_talent", ObjectId(jedi.0));
+    let fighting =
+        fighter_of(&idle(&mut world), jedi).is_some_and(|f| f.combat_until > cast.time_ms);
+    let rounds = count(&wait(&mut world, 4000));
+    check(
+        idle_rounds == 0 && fighting && rounds >= 1 && !other_fighting,
+        format!(
+            "rounds out of combat {idle_rounds}, in combat {fighting}, rounds after {rounds}; a cast on the player in combat {other_fighting}"
+        ),
+    )
+}
+
 /// `ForceHeartbeat`: the heartbeat runs at once, and the next a whole
 /// period later.
 fn forced_heartbeat() -> Result<String, String> {
@@ -1240,6 +1322,7 @@ pub fn probes() -> Checks {
         ("sight_and_heal_targets", sight_and_heal_targets()),
         ("random_destination", random_destinations()),
         ("forfeit_on_power", forfeit_on_power()),
+        ("talent_starts_a_round", talent_starts_a_round()),
     ]
 }
 
