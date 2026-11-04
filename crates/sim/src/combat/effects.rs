@@ -1187,17 +1187,21 @@ fn capped(worn: &Sheet, now: &mut Sheet) {
     for (is, was) in now.saves.iter_mut().zip(worn.saves) {
         *is = hold(caps.save, i32::from(was), i32::from(*is)).clamp(-128, 127) as i8;
     }
-    // A Constitution moved moves the hit points: its modifier's change a
-    // level.
-    let con = |sheet: &Sheet| sheet.modifier(super::sheet::Ability::Constitution);
-    let gained = (con(now) - con(worn)) * i32::from(worn.level.max(1));
-    now.max_hp = (i32::from(worn.max_hp) + gained).clamp(1, i32::from(u16::MAX)) as u16;
+    constitution_moved(worn, now);
     now.attack = super::gear::Caps::hold(caps.attack, i32::from(now.attack)).clamp(-128, 127) as i8;
     // A weapon's flat damage bonus is its items' and the effects' alone.
     for weapon in now.weapons.iter_mut().flatten() {
         let bonus = super::gear::Caps::hold(caps.damage, i32::from(weapon.damage_bonus));
         weapon.damage_bonus = bonus.clamp(-128, 127) as i8;
     }
+}
+
+/// `now`'s most hit points as `was`'s moved by its Constitution's change:
+/// the modifier's change a level (at least one), never below 1.
+pub fn constitution_moved(was: &Sheet, now: &mut Sheet) {
+    let con = |sheet: &Sheet| sheet.modifier(super::sheet::Ability::Constitution);
+    let gained = (con(now) - con(was)) * i32::from(was.level.max(1));
+    now.max_hp = (i32::from(was.max_hp) + gained).clamp(1, i32::from(u16::MAX)) as u16;
 }
 
 /// The extra attacks a round speed gives a fighter at `now` (Knight 1,

@@ -145,6 +145,18 @@ pub fn learn(sheet: &mut Sheet, feat: u16, levels: u8) {
     }
 }
 
+/// What `learn` gave a sheet of `levels` levels, taken back, for a tool
+/// that takes a feat away outside play (the save editor; KOTOR never
+/// does). Toughness's HP are one a level whenever it was learned (learning
+/// gives those before, each level after its own), so they all go.
+pub fn unlearn(sheet: &mut Sheet, feat: u16, levels: u8) {
+    if feats::TOUGHNESS.contains(&feat) {
+        sheet.max_hp = sheet.max_hp.saturating_sub(u16::from(levels));
+    } else if feat == feats::FORCE_SENSITIVE {
+        sheet.max_fp = sheet.max_fp.saturating_sub(FORCE_SENSITIVE_FP);
+    }
+}
+
 /// Whole points of a KOTOR attack's `points` of damage type `row` its
 /// target's feats take off: Improved Toughness (K1: points off physical
 /// damage; TSL: a share of what is over a threshold) and Wookiee Toughness

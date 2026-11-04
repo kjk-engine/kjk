@@ -28,6 +28,18 @@ pub struct Npc {
     pub template_data: Option<std::sync::Arc<[u8]>>,
 }
 
+impl Npc {
+    /// The template the table kept, as `make_npc` makes it when the module
+    /// lacks it; none for a companion made available by object.
+    pub fn template_facts(&self) -> Option<crate::module::ObjectData> {
+        crate::pack::creature_of(
+            self.template_data.as_deref()?,
+            crate::wire::Versions::THIS_BUILD,
+        )
+        .ok()
+    }
+}
+
 /// What the party table keeps of a companion away from the party
 /// (`SaveNPCState`, a member leaving it): the creature that last had it, whose
 /// items, career and XP the next one made of it takes (`script::make_npc`), its

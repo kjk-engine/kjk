@@ -5,6 +5,7 @@
 //! Pure: no file I/O, no game data in the repository. The launcher reads
 //! the install and hands the bytes over.
 
+pub mod asm;
 pub mod catalog;
 pub mod disasm;
 #[cfg(feature = "probes")]

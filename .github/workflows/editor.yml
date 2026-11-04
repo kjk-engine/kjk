@@ -1,0 +1,49 @@
+name: editor
+
+# The save editor's checks (`crates/edit`, docs/EDIT.md), apart from ci.yml
+# so the engine's runs neither build nor wait on them: only when the editor,
+# the saves it reads, or this file change, on a runner of its own. ci.yml's
+# clippy (`--all-features`) still compiles `edit`, so an engine change that
+# breaks its build is caught there at no extra cost; what it does is checked
+# here. No installs on the runner: the probes needing one skip.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/edit/**"
+      - "crates/saves/**"
+      - ".github/workflows/editor.yml"
+  pull_request:
+    paths:
+      - "crates/edit/**"
+      - "crates/saves/**"
+      - ".github/workflows/editor.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: editor-${{ github.event_name }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  save_edits:
+    name: save edits (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: clippy
+        run: cargo clippy -p edit --all-targets --all-features -- -D warnings
+
+      - name: save_edits
+        run: cargo test --release -p approved_tests --features editor --test approved save_edits

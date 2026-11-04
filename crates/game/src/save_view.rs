@@ -53,9 +53,7 @@ pub(crate) const QUICK_NAME: &str = "Quick save";
 
 /// Where the saves are: `KJK_SAVES`, else `saves` beside the settings.
 pub fn folder() -> Option<PathBuf> {
-    std::env::var_os("KJK_SAVES")
-        .map(PathBuf::from)
-        .or_else(|| crate::settings::folder().map(|folder| folder.join("saves")))
+    saves::folder(|name| std::env::var(name).ok())
 }
 
 /// The save `id` in the saves' folder: its world and its meta.
