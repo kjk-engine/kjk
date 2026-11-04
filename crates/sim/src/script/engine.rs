@@ -1588,9 +1588,13 @@ impl Engine<'_> {
     /// The weapon `who` has (worn in `slot` or carried) for `slot` whose
     /// blow deals the most on average, of the kind asked for (ranged or
     /// melee), else of the other: what it wears first, then the first
-    /// carried; `None` when that is what it wears, or it has none.
+    /// carried; `None` when that is what it wears, or it has none. One it
+    /// lacks the feats for (`passive::may_equip`, as the equip screen) is
+    /// passed over: Brejik carries Bastila's lightsaber on Taris and
+    /// fights with his own blade.
     fn most_damaging(&self, who: ObjectId, ranged: bool, slot: u8) -> Option<ObjectId> {
         let catalog = self.library.items();
+        let feats = self.character(who).map(|c| c.feats);
         let worn = self.state.in_slot(who.0, slot);
         let carried = self.state.carried(items::holder(self.view, who));
         let weapons: Vec<(ObjectId, crate::combat::Weapon)> = worn
@@ -1599,7 +1603,9 @@ impl Engine<'_> {
             .filter_map(|id| {
                 let item = self.state.items.get(&id.0)?;
                 let facts = self.state.item_facts(catalog, &item.template)?;
-                (facts.slots & 1 << slot != 0).then_some((id, facts.weapon?))
+                let trained = feats
+                    .is_none_or(|feats| crate::combat::passive::may_equip(&feats, &facts.needs));
+                (facts.slots & 1 << slot != 0 && trained).then_some((id, facts.weapon?))
             })
             .collect();
         let kind = |wanted: bool| {
