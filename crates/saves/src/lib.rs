@@ -250,6 +250,15 @@ fn whole(folder: &Path, meta: &Meta) -> Result<Vec<u8>, String> {
     }
 }
 
+/// Save `id`'s world as written and its meta, undecoded, refused when
+/// either is missing or the world is not what the meta's hash says: for a
+/// tool that tells the decoder's refusals apart (`edit::open`).
+pub fn read_bytes(root: &Path, id: &str) -> Result<(Vec<u8>, Meta), String> {
+    let folder = checked(root, id)?;
+    let meta = read_meta(&folder)?;
+    Ok((whole(&folder, &meta)?, meta))
+}
+
 /// `save` written as `slot` (a new number without one), with `meta`; its
 /// id.
 pub fn write(

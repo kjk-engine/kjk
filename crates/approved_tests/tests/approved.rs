@@ -1682,10 +1682,11 @@ fn save_copy_round_trip() {
 }
 
 /// The save editor's ground (`edit::probes::all`, proposed 2026-11-04,
-/// awaiting the owner): kjk's folder and the saves' found without the game.
+/// awaiting the owner): kjk's folder and the saves' found without the game;
+/// a save opened, or refused by its format version, cut short or missing.
 #[test]
 fn save_edits() {
-    probed("save edits", &edit::probes::all(), 3);
+    probed("save edits", &edit::probes::all(), 5);
 }
 
 /// The saves' safety net (`saves::safety_probes`): the meta's new fields
