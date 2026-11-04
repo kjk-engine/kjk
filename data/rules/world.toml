@@ -33,7 +33,7 @@ value = 500
 unit = "ms"
 range = [0, 6000]
 summary = "A character's damaged script, and its attacked script for each attacker, runs at most once every {world.timings.damaged_every_ms:s}."
-source = "ours (I22 C15)"
+source = "ours"
 see = "sim::world::scripts::scripts"
 
 [timings.flourish_ms]

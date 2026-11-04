@@ -111,7 +111,7 @@ type = "u8"
 value = 10
 range = [0, 30]
 summary = "A Stealth roll is {stealth.rolls.sneak_base:bare} + 1-{stealth.rolls.sneak_die:bare}."
-source = "K1's executable (S12)"
+source = "K1's executable"
 see = "sim::stealth::Rolls::draw"
 applies = ["kind:stealth", "skill:Stealth"]
 
@@ -121,7 +121,7 @@ type = "u32"
 value = 10
 range = [1, 40]
 summary = "A Stealth roll adds 1-{stealth.rolls.sneak_die:bare} to its base."
-source = "K1's executable (S12)"
+source = "K1's executable"
 see = "sim::stealth::Rolls::draw"
 applies = ["kind:stealth", "skill:Stealth"]
 
@@ -131,7 +131,7 @@ type = "u32"
 value = 20
 range = [1, 40]
 summary = "Spot and listen rolls are 1-{stealth.rolls.watch_die:bare}."
-source = "K1's executable (S12)"
+source = "K1's executable"
 see = "sim::stealth::Rolls::draw"
 applies = ["kind:stealth", "skill:Awareness"]
 
@@ -161,7 +161,7 @@ value = 5
 unit = "points"
 range = [0, 20]
 summary = "A running opponent suffers -{stealth.spot.running:bare} to its spot check."
-source = "K1's executable (S12)"
+source = "K1's executable"
 see = "sim::stealth::spot_score"
 applies = ["kind:stealth", "skill:Awareness"]
 
@@ -172,7 +172,7 @@ value = 5
 unit = "points"
 range = [0, 20]
 summary = "An opponent suffers -{stealth.spot.behind:bare} to its spot check against a character behind it."
-source = "K1's executable (S12)"
+source = "K1's executable"
 see = "sim::stealth::spot_score"
 applies = ["kind:stealth", "skill:Stealth"]
 
@@ -186,7 +186,7 @@ A character is behind an opponent when the cosine of the angle between
 the opponent's facing and the character is {stealth.spot.behind_cos:bare}
 or less.
 """
-source = "K1's executable (S12)"
+source = "K1's executable"
 see = "sim::stealth::spot_score"
 applies = ["kind:stealth", "skill:Stealth"]
 
@@ -197,7 +197,7 @@ value = 10
 unit = "points"
 range = [0, 30]
 summary = "An opponent in combat suffers -{stealth.spot.in_combat:bare} to its spot check."
-source = "K1's executable (S12)"
+source = "K1's executable"
 see = "sim::stealth::spot_score"
 applies = ["kind:stealth", "skill:Awareness"]
 
@@ -208,7 +208,7 @@ value = 5
 unit = "points"
 range = [0, 20]
 summary = "A character in Stealth Mode standing still gives -{stealth.spot.still_sneaker:bare} to the opponent's spot check."
-source = "K1's executable (S12)"
+source = "K1's executable"
 see = "sim::stealth::spot_score"
 applies = ["kind:stealth", "skill:Stealth"]
 
@@ -219,7 +219,7 @@ value = 5
 unit = "points"
 range = [0, 20]
 summary = "An opponent standing still gains +{stealth.spot.still_watcher:bare} to its spot check."
-source = "K1's executable (S12)"
+source = "K1's executable"
 see = "sim::stealth::spot_score"
 applies = ["kind:stealth", "skill:Awareness"]
 
@@ -230,7 +230,7 @@ value = 3.0
 unit = "m"
 range = [0.5, 20.0]
 summary = "Every {stealth.spot.metres_a_point:bare} meters of distance gives -1 to the spot check."
-source = "K1's executable (S12)"
+source = "K1's executable"
 see = "sim::stealth::spot_score"
 applies = ["kind:stealth", "skill:Stealth"]
 
@@ -244,7 +244,7 @@ The first {stealth.spot.free_points:bare} steps of
 {stealth.spot.metres_a_point:bare} meters give no penalty to the spot
 check.
 """
-source = "K1's executable (S12)"
+source = "K1's executable"
 see = "sim::stealth::spot_score"
 applies = ["kind:stealth", "skill:Stealth"]
 
@@ -271,7 +271,7 @@ value = 3.0
 unit = "m"
 range = [0.5, 20.0]
 summary = "Every {stealth.listen.metres_a_point:bare} meters of distance gives -1 to the listen check."
-source = "K1's executable (S12)"
+source = "K1's executable"
 see = "sim::stealth::listen_score"
 applies = ["kind:stealth", "skill:Stealth"]
 
@@ -283,7 +283,7 @@ unit = "points"
 labels = ["Tiny", "Small", "Medium", "Large", "Huge"]
 range = [-30, 30]
 summary = "A creature's size modifies the listen check against it, from Tiny to Huge: {stealth.listen.size}."
-source = "K1's executable (S12)"
+source = "K1's executable"
 see = "sim::stealth::listen_score"
 applies = ["kind:stealth", "skill:Stealth", "kind:creature"]
 
@@ -294,7 +294,7 @@ value = 5.0
 unit = "points"
 range = [0.0, 50.0]
 summary = "Each meter of wall between them gives -{stealth.listen.wall_a_metre:bare} to the listen check."
-source = "K1's executable (S12)"
+source = "K1's executable"
 see = "sim::stealth::listen_score"
 applies = ["kind:stealth", "skill:Stealth"]
 
@@ -316,7 +316,7 @@ value = 300
 unit = "ms"
 range = [50, 5000]
 summary = "An active creature checks what it perceives at least {stealth.perception.active_least_ms:s} apart."
-source = "K1's executable (S13, the owner's choice 2026-10-04)"
+source = "K1's executable (the owner's choice 2026-10-04)"
 see = "sim::world::scripts::perceive"
 applies = ["kind:stealth", "skill:Awareness"]
 
@@ -327,7 +327,7 @@ value = 400
 unit = "ms"
 range = [1, 5000]
 summary = "Each wait between perception checks is up to {stealth.perception.active_spread_ms:s} longer, at random."
-source = "K1's executable (S13)"
+source = "K1's executable"
 see = "sim::world::scripts::perceive"
 applies = ["kind:stealth", "skill:Awareness"]
 
@@ -338,7 +338,7 @@ value = 4000
 unit = "ms"
 range = [300, 30000]
 summary = "A creature in a conversation checks what it perceives every {stealth.perception.idle_ms:s}."
-source = "K1's executable (S13)"
+source = "K1's executable"
 see = "sim::world::scripts::perceive"
 applies = ["kind:stealth", "skill:Awareness"]
 
@@ -358,6 +358,6 @@ value = 6000
 unit = "ms"
 range = [0, 60000]
 summary = "The area's stealth experience is reduced {stealth.stealth_xp.loss_after_ms:s} after a hostile creature sees a party member."
-source = "K1's executable (S15)"
+source = "K1's executable"
 see = "sim::world::scripts::stealth_loss"
 applies = ["kind:stealth", "skill:Stealth"]

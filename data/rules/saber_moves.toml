@@ -33,7 +33,7 @@ value = [2, 3, 3]
 labels = ["Critical Strike", "Improved", "Master"]
 range = [0, 3]
 summary = "The medium style's level is {saber_moves.styles.medium_levels[0]} with Critical Strike, {saber_moves.styles.medium_levels[1]} with Improved Critical Strike and {saber_moves.styles.medium_levels[2]} with Master Critical Strike. Without the feat it is 1."
-source = "I22 C8, ours"
+source = "ours"
 see = "sim::combat::saber::Kit::level"
 applies = ["feat:CRITICAL_STRIKE", "feat:IMPROVED_CRITICAL_STRIKE", "feat:MASTER_CRITICAL_STRIKE"]
 
@@ -43,7 +43,7 @@ type = "u8"
 value = 1
 range = [0, 3]
 summary = "Dueling adds +{saber_moves.styles.dueling} to offense in clashes and saber locks while wielding one blade and nothing in the off hand."
-source = "I22 C8, ours"
+source = "ours"
 see = "sim::combat::saber::Kit::offence"
 applies = ["feat:DUELING", "feat:ADVANCED_DUELING", "feat:MASTER_DUELING"]
 
@@ -55,7 +55,7 @@ labels = ["Power Attack", "Improved", "Master"]
 unit = "HP"
 range = [0, 30]
 summary = "Blows carrying Power Attack add +{saber_moves.styles.power_attack[0]:bare} damage with Power Attack, +{saber_moves.styles.power_attack[1]:bare} with Improved Power Attack and +{saber_moves.styles.power_attack[2]:bare} with Master Power Attack."
-source = "KOTOR's Power Attack (I22 C8)"
+source = "KOTOR's Power Attack"
 see = "sim::combat::saber::Kit::swing"
 applies = ["feat:POWER_ATTACK", "feat:IMPROVED_POWER_ATTACK", "feat:MASTER_POWER_ATTACK"]
 
@@ -65,7 +65,7 @@ type = "i8"
 value = 3
 range = [0, 10]
 summary = "Blows carrying Power Attack also have a -{saber_moves.styles.power_attack_penalty} to hit."
-source = "KOTOR's Power Attack (I22 C8)"
+source = "KOTOR's Power Attack"
 see = "sim::combat::saber::Kit::swing"
 applies = ["feat:POWER_ATTACK", "feat:IMPROVED_POWER_ATTACK", "feat:MASTER_POWER_ATTACK"]
 
@@ -76,7 +76,7 @@ value = 2
 unit = "×"
 range = [1, 5]
 summary = "Critical Strike multiplies the critical threat range of the blows carrying it by {saber_moves.styles.critical_threat}, and by one more for each of Improved and Master Critical Strike."
-source = "KOTOR's Critical Strike (I22 C8)"
+source = "KOTOR's Critical Strike"
 see = "sim::combat::saber::Kit::swing"
 applies = ["feat:CRITICAL_STRIKE", "feat:IMPROVED_CRITICAL_STRIKE", "feat:MASTER_CRITICAL_STRIKE"]
 
@@ -87,7 +87,7 @@ value = [4, 2]
 labels = ["Flurry", "Improved and Master"]
 range = [0, 10]
 summary = "Blows carrying Flurry have a -{saber_moves.styles.flurry_penalty[0]} to hit with Flurry and -{saber_moves.styles.flurry_penalty[1]} with Improved or Master Flurry."
-source = "KOTOR's Flurry (I22 C8)"
+source = "KOTOR's Flurry"
 see = "sim::combat::saber::Kit::swing"
 applies = ["feat:FLURRY", "feat:IMPROVED_FLURRY"]
 
