@@ -2,6 +2,7 @@
 //! those the party table holds away from it.
 
 use sim::combat::sheet::Sheet;
+use sim::levels::Career;
 use sim::{Kind, Level, Save, Seat, SimId};
 
 /// Who a character is in a save.
@@ -25,6 +26,9 @@ pub struct Character {
     pub sheet: Sheet,
     pub hp: i32,
     pub fp: i32,
+    /// Its classes and their levels, as the scripts' state keeps them
+    /// (empty when it keeps none).
+    pub career: Career,
 }
 
 /// The characters of `save`: its players by seat, the party's members in
@@ -48,6 +52,7 @@ pub fn characters(save: &Save, level: Option<&Level>) -> Vec<Character> {
                 sheet,
                 hp,
                 fp,
+                career: career(save, entity.id.0),
             })
         })
         .collect();
@@ -67,6 +72,7 @@ pub fn characters(save: &Save, level: Option<&Level>) -> Vec<Character> {
             sheet,
             hp,
             fp,
+            career: career(save, id.0),
         })
     });
     let away = party
@@ -93,6 +99,10 @@ pub fn characters(save: &Save, level: Option<&Level>) -> Vec<Character> {
                 sheet,
                 hp,
                 fp,
+                career: slot
+                    .kept
+                    .map(|kept| career(save, kept.from))
+                    .unwrap_or_else(Career::new),
             }
         });
     players.extend(members);
@@ -117,6 +127,15 @@ pub fn unsheeted(save: &Save, level: Option<&Level>) -> Vec<u8> {
         .collect()
 }
 
+/// `holder`'s classes as the scripts' state keeps them.
+fn career(save: &Save, holder: u32) -> Career {
+    save.script
+        .careers
+        .get(&holder)
+        .cloned()
+        .unwrap_or_else(Career::new)
+}
+
 /// A placed creature's sheet as its module's facts give it.
 fn module_sheet(kind: Kind, level: Option<&Level>) -> Option<Sheet> {
     let Kind::Object(_, index) = kind else {
@@ -125,10 +144,12 @@ fn module_sheet(kind: Kind, level: Option<&Level>) -> Option<Sheet> {
     level?.module()?.object(index as usize)?.sheet
 }
 
-/// Hit and Force points (hundredths): the fighter's, else full.
-fn points(fighter: Option<&sim::combat::Fighter>, sheet: &Sheet) -> (i32, i32) {
+/// Hit and Force points (hundredths): the fighter's, else full as
+/// `Fighter::of` makes them (the bar a stamina pool for one without the
+/// Force).
+pub(crate) fn points(fighter: Option<&sim::combat::Fighter>, sheet: &Sheet) -> (i32, i32) {
     match fighter {
         Some(fighter) => (fighter.hp, fighter.fp),
-        None => (i32::from(sheet.max_hp) * 100, i32::from(sheet.max_fp) * 100),
+        None => (i32::from(sheet.max_hp) * 100, i32::from(sheet.pool()) * 100),
     }
 }

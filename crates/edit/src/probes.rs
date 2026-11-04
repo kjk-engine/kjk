@@ -22,8 +22,13 @@ pub fn all() -> Vec<Probe> {
         ("equip_and_unequip", equip_and_unequip()),
         ("equip_away", equip_away()),
         ("equip_needs_its_feat", equip_needs_its_feat()),
+        ("learn_unlearn_identity", sheets::learn_unlearn_identity()),
+        ("sheet_setters", sheets::sheet_setters()),
+        ("pick_warnings_k1", sheets::pick_warnings(vfs::Game::Kotor1)),
     ]
 }
+
+mod sheets;
 
 const SABER: &str = "g_w_lghtsbr01";
 const MASTERS: &str = "g_w_masters01";
@@ -60,7 +65,8 @@ fn equip_and_unequip() -> Result<String, String> {
     // empty-handed, as what it wears leaves it, a hand's weapon is its
     // item's alone (`inventory::rewear`).
     for entity in &mut save.snapshot.entities {
-        if let (sim::Kind::Avatar(sim::Seat(0)), Some(sheet)) = (entity.kind, entity.sheet.as_mut()) {
+        if let (sim::Kind::Avatar(sim::Seat(0)), Some(sheet)) = (entity.kind, entity.sheet.as_mut())
+        {
             sheet.weapons = [None; 2];
         }
     }
@@ -74,7 +80,10 @@ fn equip_and_unequip() -> Result<String, String> {
     let held = sheet_of(&save, player)?;
     let item = save.script.items.get(&saber).ok_or("the saber is gone")?;
     if held.weapons[0].is_none() || item.slot != Some(RIGHT_WEAPON) {
-        return Err(format!("not held: {:?} in {:?}", held.weapons[0], item.slot));
+        return Err(format!(
+            "not held: {:?} in {:?}",
+            held.weapons[0], item.slot
+        ));
     }
     stepped(&save, &level)?;
     crate::Editor::new(&mut save, &catalog).unequip(&player, RIGHT_WEAPON)?;
@@ -95,8 +104,33 @@ fn equip_and_unequip() -> Result<String, String> {
 fn equip_away() -> Result<String, String> {
     let (_, mut save) = sim::fixtures::kitchen_sink();
     let catalog = armory();
+    let away = kept_away(&mut save)?;
+    let saber = {
+        let mut edit = crate::Editor::new(&mut save, &catalog);
+        let saber = edit.add_item(sim::inventory::PARTY, SABER, 1)?;
+        edit.equip(&away, saber, RIGHT_WEAPON)?;
+        saber
+    };
+    let kept = save.script.party.available[&0]
+        .kept
+        .ok_or("the kept state went")?;
+    let worn = kept.worn.ok_or("no kept slots")?[usize::from(RIGHT_WEAPON)];
+    if kept.sheet.weapons[0].is_none() || worn != saber {
+        return Err(format!("kept {:?}, slot {worn:#x}", kept.sheet.weapons[0]));
+    }
+    Ok("the kept companion holds it".into())
+}
+
+/// The kitchen sink's companion 0, away, kept by the party table as a
+/// commoner who wears nothing (as one who left the party is kept).
+fn kept_away(save: &mut sim::Save) -> Result<crate::Who, String> {
     let sheet = sim::combat::sheet::Sheet::commoner();
-    let npc = save.script.party.available.get_mut(&0).ok_or("no companion")?;
+    let npc = save
+        .script
+        .party
+        .available
+        .get_mut(&0)
+        .ok_or("no companion")?;
     npc.kept = Some(sim::script::party::Kept {
         from: 0x7d00_0100,
         sheet,
@@ -104,19 +138,7 @@ fn equip_away() -> Result<String, String> {
         fp: 0,
         worn: Some([0; sim::inventory::slots::COUNT as usize]),
     });
-    let away = crate::Who::Away { npc: 0 };
-    let saber = {
-        let mut edit = crate::Editor::new(&mut save, &catalog);
-        let saber = edit.add_item(sim::inventory::PARTY, SABER, 1)?;
-        edit.equip(&away, saber, RIGHT_WEAPON)?;
-        saber
-    };
-    let kept = save.script.party.available[&0].kept.ok_or("the kept state went")?;
-    let worn = kept.worn.ok_or("no kept slots")?[usize::from(RIGHT_WEAPON)];
-    if kept.sheet.weapons[0].is_none() || worn != saber {
-        return Err(format!("kept {:?}, slot {worn:#x}", kept.sheet.weapons[0]));
-    }
-    Ok("the kept companion holds it".into())
+    Ok(crate::Who::Away { npc: 0 })
 }
 
 /// A blade that needs a feat the player lacks is refused, in words.
@@ -151,7 +173,13 @@ fn stepped(save: &sim::Save, level: &sim::Level) -> Result<sim::SimWorld, String
     let mut world = save.world(level, 2, None)?;
     let tick = save.snapshot.tick + 1;
     let input = sim::determinism::pilot(1, tick, 2);
-    sim::step(&mut world, tick, &input, 1_000 / save.hz, sim::StepReason::Authority);
+    sim::step(
+        &mut world,
+        tick,
+        &input,
+        1_000 / save.hz,
+        sim::StepReason::Authority,
+    );
     Ok(world)
 }
 
@@ -185,15 +213,37 @@ fn edits_reach_the_world() -> Result<String, String> {
     let held = |id: u32| state.items.get(&id);
     let checks = [
         ("credits", goods.gold == 999 && state.gold == 999),
-        ("xp", snapshot.progress.xp == 4_000 && state.xp(party) == 4_000),
-        ("quest", snapshot.progress.journal.contains(&("k_fixture_quest".into(), 30))),
+        (
+            "xp",
+            snapshot.progress.xp == 4_000 && state.xp(party) == 4_000,
+        ),
+        (
+            "quest",
+            snapshot
+                .progress
+                .journal
+                .contains(&("k_fixture_quest".into(), 30)),
+        ),
         ("number", state.numbers.get("K_FIXTURE_NUMBER") == Some(&11)),
-        ("boolean", state.booleans.get("K_FIXTURE_BOOLEAN") == Some(&false)),
-        ("string", state.strings.get("K_FIXTURE_STRING").map(String::as_str) == Some("edited")),
-        ("medpacs", held(medpacs).is_some_and(|item| item.stack == 5 && item.template == MEDPAC)),
+        (
+            "boolean",
+            state.booleans.get("K_FIXTURE_BOOLEAN") == Some(&false),
+        ),
+        (
+            "string",
+            state.strings.get("K_FIXTURE_STRING").map(String::as_str) == Some("edited"),
+        ),
+        (
+            "medpacs",
+            held(medpacs).is_some_and(|item| item.stack == 5 && item.template == MEDPAC),
+        ),
         ("pistol gone", held(pistol).is_none()),
     ];
-    let failed: Vec<&str> = checks.iter().filter(|(_, ok)| !ok).map(|(name, _)| *name).collect();
+    let failed: Vec<&str> = checks
+        .iter()
+        .filter(|(_, ok)| !ok)
+        .map(|(name, _)| *name)
+        .collect();
     if failed.is_empty() {
         Ok(format!("{} edits seen after a step", checks.len()))
     } else {
@@ -206,7 +256,8 @@ fn unknown_item_refused() -> Result<String, String> {
     let (_, mut save) = sim::fixtures::kitchen_sink();
     let before = save.clone();
     let catalog = catalog();
-    let refused = crate::Editor::new(&mut save, &catalog).add_item(sim::inventory::PARTY, "no_such_item", 1);
+    let refused =
+        crate::Editor::new(&mut save, &catalog).add_item(sim::inventory::PARTY, "no_such_item", 1);
     match refused {
         Err(why) if why.contains("no_such_item") && save == before => Ok(why),
         Err(why) => Err(format!("refused ({why}) but the save changed")),
@@ -240,7 +291,10 @@ fn characters_listed() -> Result<String, String> {
     if away.template != "p_fixture" || away.hp != i32::from(away.sheet.max_hp) * 100 {
         return Err(format!("away as {} at {} hp", away.template, away.hp));
     }
-    Ok(format!("{players} players, {} away", listed.len() - players))
+    Ok(format!(
+        "{players} players, {} away",
+        listed.len() - players
+    ))
 }
 
 /// A member whose body has no sheet of its own and whose module has no
@@ -248,20 +302,39 @@ fn characters_listed() -> Result<String, String> {
 fn characters_unsheeted() -> Result<String, String> {
     let (level, mut save) = sim::fixtures::kitchen_sink();
     let mut body = save.snapshot.entities[0];
-    body.id = sim::SimId(save.snapshot.entities.iter().map(|e| e.id.0).max().unwrap_or(0) + 1);
+    body.id = sim::SimId(
+        save.snapshot
+            .entities
+            .iter()
+            .map(|e| e.id.0)
+            .max()
+            .unwrap_or(0)
+            + 1,
+    );
     body.kind = sim::Kind::Object(sim::module::ObjectKind::Creature, 9_999);
     body.sheet = None;
     let id = body.id;
     save.snapshot.entities.push(body);
-    let npc = save.script.party.available.get_mut(&0).ok_or("no companion")?;
+    let npc = save
+        .script
+        .party
+        .available
+        .get_mut(&0)
+        .ok_or("no companion")?;
     npc.object = Some(id.0);
     save.script.party.members = vec![0];
     for level in [None, Some(&level)] {
         let unsheeted = crate::unsheeted(&save, level);
         if unsheeted != [0] {
-            return Err(format!("unsheeted {unsheeted:?} with a level: {}", level.is_some()));
+            return Err(format!(
+                "unsheeted {unsheeted:?} with a level: {}",
+                level.is_some()
+            ));
         }
-        if crate::characters(&save, level).iter().any(|c| matches!(c.who, crate::Who::Companion { npc: 0, .. })) {
+        if crate::characters(&save, level)
+            .iter()
+            .any(|c| matches!(c.who, crate::Who::Companion { npc: 0, .. }))
+        {
             return Err("the sheetless member is listed".into());
         }
     }
@@ -288,9 +361,17 @@ fn data_of(game: vfs::Game) -> Result<String, String> {
     if saber.weapon.is_none() {
         return Err("the lightsaber is no weapon".into());
     }
-    let force = data.classes.classes.iter().filter(|class| class.force_die > 0).count();
+    let force = data
+        .classes
+        .classes
+        .iter()
+        .filter(|class| class.force_die > 0)
+        .count();
     if data.catalog.len() < 500 || force == 0 {
-        return Err(format!("{} items, {force} Force classes", data.catalog.len()));
+        return Err(format!(
+            "{} items, {force} Force classes",
+            data.catalog.len()
+        ));
     }
     Ok(format!(
         "{} items ({} unread), {} classes ({force} with the Force)",
@@ -319,12 +400,16 @@ fn open_refusals() -> Result<String, String> {
     let half = bytes[..bytes.len() / 2].to_vec();
     type Case = (&'static str, Vec<u8>, fn(&Refusal) -> bool);
     let cases: [Case; 3] = [
-        ("newer", versioned(bytes.clone(), now + 3), |r| {
-            matches!(r, Refusal::Newer { found, reads_up_to } if *found == sim::SAVE_FORMAT + 3 && *reads_up_to == sim::SAVE_FORMAT)
-        }),
-        ("older", versioned(bytes.clone(), oldest - 1), |r| {
-            matches!(r, Refusal::Older { found, reads_from } if *found == sim::SAVE_OLDEST - 1 && *reads_from == sim::SAVE_OLDEST)
-        }),
+        (
+            "newer",
+            versioned(bytes.clone(), now + 3),
+            |r| matches!(r, Refusal::Newer { found, reads_up_to } if *found == sim::SAVE_FORMAT + 3 && *reads_up_to == sim::SAVE_FORMAT),
+        ),
+        (
+            "older",
+            versioned(bytes.clone(), oldest - 1),
+            |r| matches!(r, Refusal::Older { found, reads_from } if *found == sim::SAVE_OLDEST - 1 && *reads_from == sim::SAVE_OLDEST),
+        ),
         ("cut", half, |r| matches!(r, Refusal::Damaged(_))),
     ];
     crate::open_bytes(&bytes).map_err(|why| format!("the fixture refused: {why}"))?;
@@ -336,10 +421,16 @@ fn open_refusals() -> Result<String, String> {
             Err(refusal) => return Err(format!("{name}: {refusal:?}")),
         }
     }
-    let newer = crate::open_bytes(&versioned(bytes, now + 3)).err().map(|r| r.to_string());
-    let both = newer.is_some_and(|text| text.contains(&(now + 3).to_string()) && text.contains(&now.to_string()));
+    let newer = crate::open_bytes(&versioned(bytes, now + 3))
+        .err()
+        .map(|r| r.to_string());
+    let both = newer.is_some_and(|text| {
+        text.contains(&(now + 3).to_string()) && text.contains(&now.to_string())
+    });
     if !both {
-        return Err(format!("the newer refusal does not name both versions: {told:?}"));
+        return Err(format!(
+            "the newer refusal does not name both versions: {told:?}"
+        ));
     }
     Ok(told.join("; "))
 }
@@ -397,7 +488,10 @@ fn folder_platform() -> Result<String, String> {
     } else {
         "/xdg"
     };
-    expect(store::kjk_folder(env(&HOMES)), Some(Path::new(base).join("kjk")))
+    expect(
+        store::kjk_folder(env(&HOMES)),
+        Some(Path::new(base).join("kjk")),
+    )
 }
 
 /// Without a home there is no folder to tell.

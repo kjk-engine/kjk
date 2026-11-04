@@ -13,14 +13,14 @@ use sim::inventory::{Catalog, slots};
 use sim::notice::Notice;
 use sim::script::party::Kept;
 use sim::script::set_global;
-use sim::{Kind, Save, SimId};
+use sim::{EntityState, Kind, Save, SimId};
 
 use crate::Who;
 
 /// A save being changed, with the items an install holds.
 pub struct Editor<'a> {
-    save: &'a mut Save,
-    catalog: &'a Catalog,
+    pub(crate) save: &'a mut Save,
+    pub(crate) catalog: &'a Catalog,
 }
 
 impl<'a> Editor<'a> {
@@ -72,7 +72,11 @@ impl<'a> Editor<'a> {
 
     /// A string global, its name's case aside.
     pub fn set_string(&mut self, name: &str, value: &str) -> Result<(), String> {
-        set_global(&mut self.save.script.strings, named(name)?, value.to_string());
+        set_global(
+            &mut self.save.script.strings,
+            named(name)?,
+            value.to_string(),
+        );
         Ok(())
     }
 
@@ -100,7 +104,10 @@ impl<'a> Editor<'a> {
     /// Item `id`'s stack, at least one and at most what its kind stacks to.
     pub fn set_stack(&mut self, id: u32, stack: u16) -> Result<(), String> {
         let item = self.save.script.items.get(&id).ok_or(no_item(id))?;
-        let most = self.catalog.get(&item.template).map_or(1, |facts| facts.stacking.max(1));
+        let most = self
+            .catalog
+            .get(&item.template)
+            .map_or(1, |facts| facts.stacking.max(1));
         if !(1..=most).contains(&stack) {
             return Err(format!("{} stacks 1 to {most}, not {stack}", item.template));
         }
@@ -141,33 +148,49 @@ impl Editor<'_> {
                 kept.sheet = sheet;
                 kept.worn = Some(worn);
             }
-            Who::Player(_) | Who::Companion { .. } => {
-                let id = SimId(holder);
-                let body = self.save.snapshot.entities.iter_mut().find(|e| e.id == id);
-                body.ok_or(format!("no body {holder:#x} in the save"))?.sheet = Some(sheet);
-            }
+            Who::Player(_) | Who::Companion { .. } => self.body_mut(holder)?.sheet = Some(sheet),
         }
         Ok(())
     }
 
+    /// The body `holder` stands as in the save.
+    pub(crate) fn body_mut(&mut self, holder: u32) -> Result<&mut EntityState, String> {
+        let id = SimId(holder);
+        let body = self.save.snapshot.entities.iter_mut().find(|e| e.id == id);
+        body.ok_or(format!("no body {holder:#x} in the save"))
+    }
+
     /// Who holds `who`'s items, its sheet, and whether it is a player.
-    fn dressed(&self, who: &Who) -> Result<(u32, Sheet, bool), String> {
+    pub(crate) fn dressed(&self, who: &Who) -> Result<(u32, Sheet, bool), String> {
         let body = |id: SimId| {
             self.save
                 .snapshot
                 .get(id)
                 .and_then(|entity| entity.sheet)
-                .ok_or(format!("{id:?} has no sheet of its own yet: load and save it in kjk once"))
+                .ok_or(format!(
+                    "{id:?} has no sheet of its own yet: load and save it in kjk once"
+                ))
         };
         match *who {
             Who::Player(seat) => {
-                let entity = self.save.snapshot.entities.iter().find(|e| e.kind == Kind::Avatar(seat));
+                let entity = self
+                    .save
+                    .snapshot
+                    .entities
+                    .iter()
+                    .find(|e| e.kind == Kind::Avatar(seat));
                 let id = entity.ok_or(format!("no player in seat {}", seat.0))?.id;
                 Ok((id.0, body(id)?, true))
             }
             Who::Companion { id, .. } => Ok((id.0, body(id)?, false)),
             Who::Away { npc } => {
-                let kept = self.save.script.party.available.get(&npc).and_then(|slot| slot.kept);
+                let kept = self
+                    .save
+                    .script
+                    .party
+                    .available
+                    .get(&npc)
+                    .and_then(|slot| slot.kept);
                 let kept = kept.ok_or(format!(
                     "companion {npc} has never been in the party: its gear is its template's until it joins"
                 ))?;
@@ -186,7 +209,12 @@ impl Editor<'_> {
                 *into = *class;
             }
         }
-        let game = self.save.snapshot.place.as_ref().map_or("", |place| place.game.as_str());
+        let game = self
+            .save
+            .snapshot
+            .place
+            .as_ref()
+            .map_or("", |place| place.game.as_str());
         Wearer {
             good_evil: sheet.good_evil,
             classes,
@@ -213,7 +241,7 @@ impl Editor<'_> {
         worn
     }
 
-    fn kept_mut(&mut self, npc: u8) -> Result<&mut Kept, String> {
+    pub(crate) fn kept_mut(&mut self, npc: u8) -> Result<&mut Kept, String> {
         self.save
             .script
             .party

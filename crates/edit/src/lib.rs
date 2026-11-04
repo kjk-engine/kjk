@@ -7,11 +7,14 @@ mod characters;
 mod data;
 mod edits;
 mod open;
+mod sheets;
+mod warnings;
 
 pub use characters::{Character, Who, characters, unsheeted};
 pub use data::{Data, InstallSource};
 pub use edits::Editor;
 pub use open::{Opened, Refusal, open, open_bytes};
+pub use warnings::{feat_warning, power_warning};
 
 #[cfg(feature = "probes")]
 pub mod probes;

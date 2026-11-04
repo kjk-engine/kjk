@@ -43,9 +43,11 @@ pub struct InstallSource(pub Resolver);
 impl InstallSource {
     /// `game`'s install, or why not.
     pub fn open(discovery: &Discovery, game: Game) -> Result<InstallSource, String> {
-        let install = discovery
-            .get(game)
-            .ok_or(format!("{}: no install found (set {})", game.key(), game.env_var()))?;
+        let install = discovery.get(game).ok_or(format!(
+            "{}: no install found (set {})",
+            game.key(),
+            game.env_var()
+        ))?;
         let index = DirIndex::build(&install.data_root).map_err(|error| error.to_string())?;
         Resolver::open(game, &index, None, TextureQuality::High)
             .map(InstallSource)

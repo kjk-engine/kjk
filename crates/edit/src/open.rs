@@ -48,7 +48,10 @@ pub fn open(root: &Path, id: &str) -> Result<Opened, Refusal> {
     let folder = root.join(id);
     for file in ["save.kjkv", "meta.json"] {
         if !folder.join(file).is_file() {
-            return Err(Refusal::NotASave(format!("no {file} in {}", folder.display())));
+            return Err(Refusal::NotASave(format!(
+                "no {file} in {}",
+                folder.display()
+            )));
         }
     }
     let (bytes, meta) = saves::read_bytes(root, id).map_err(Refusal::Damaged)?;
