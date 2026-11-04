@@ -1,4 +1,4 @@
-# Playtests: a module played headless, end to end (I29)
+# Playtests: a module played headless, end to end
 
 `kjk playthrough` drives one player through modules goal by goal, with the
 games' own scripts running everything else. It answers one question: *does
@@ -11,8 +11,7 @@ method; the verb's flags and output are in `RUN.md`. Routes live in
 `k1/leviathan.route`, `k1/unknown_world*.route`, `k1/star_forge*.route`,
 `tsl/prologue.route` (the Ebon Hawk to Peragus, one marked stand-in),
 `tsl/planets.route` (each later planet's first module, cold: stand-ins
-throughout), and the branches, each from the checkpoint its header names); each run's
-journal keeps its blocker table.
+throughout), and the branches, each from the checkpoint its header names).
 
 ## Before the first run (minutes that save hours)
 
@@ -20,7 +19,7 @@ journal keeps its blocker table.
    which doors are optional, where the spikes are, which terminal opens
    what. Most dead ends come from guessing the route.
    - IGN's K1 walkthrough wiki (one page per area in play order; the
-     maintainer keeps an offline copy in `context/walkthroughs/`). Its author plays a male **Scout, default
+     maintainer keeps an offline copy). Its author plays a male **Scout, default
      build, Dark Side**: its picks, XP and rewards follow that path. The
      text is IGN's: read it, never copy it into routes or docs.
    - Cross-check another source for what IGN's path skips: GameBanshee's
@@ -224,7 +223,7 @@ The report says what held it. Sort it into one of these:
 | looks like | is | where to look |
 |---|---|---|
 | a conversation paused, a queue with work in it (`#219 … is on Move …`) | a scene waiting on someone | that creature's queue line: its mind, walker, route |
-| `no way there … on the straight way: Door … locked, DC 28` | a door the route did not open | the walkthrough; `unlock TAG [SPIKE]`, a terminal, a script |
+| `no way there … on the straight way: Door … locked, DC 28` | a door the route did not open | the walkthrough; `unlock TAG [SPIKE]`, `bash TAG`, a terminal, a script |
 | `stalled N times`, the player high off the floor | navigation: the mesh sends a body where collision stops it | `kjk collision trace` (below) |
 | `no object tagged …` after a module change | the route's goal is for the last module | the route |
 | gaps, faults, missing scripts in the summary | an engine routine not bound or failing | `SCRIPTS.md`, `kjk script coverage` |
@@ -259,7 +258,7 @@ Tools for the second look:
   module may lose.
 - Gate before committing: fmt, clippy, approved tests with `KJK_SIM_HASH`
   (`TESTS.md`). The sim hash moves only for a change on purpose.
-- Log every blocker and its fate in the run's journal table.
+- Log every blocker and its fate.
 
 ## Keeping the chain robust
 
@@ -368,4 +367,4 @@ So:
 
 ## Not yet
 
-Drawing a module's recording; bashing locked doors.
+Drawing a module's recording.

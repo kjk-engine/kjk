@@ -34,8 +34,7 @@ Stream folders (`streammusic`, `streamsounds`, `streamwaves`/`streamvoice`,
 `movies`) are separate namespaces, asked for by folder, never stacked. The
 voice folder is whichever of the two the install has (K1's `streamwaves`,
 TSL's `streamvoice`).
-The references this was measured against, and where they disagree, are in the
-I01 journal.
+The references this was measured against are credited in `NOTICE`.
 
 ## Jedi Academy
 

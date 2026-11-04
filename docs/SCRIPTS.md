@@ -1,4 +1,4 @@
-# Scripts (I16; `script_ncs`, `fmt_odyssey::ncs`, `sim::script`)
+# Scripts (`script_ncs`, `fmt_odyssey::ncs`, `sim::script`)
 
 KOTOR's logic is NWScript compiled to NCS, run by the engine's VM. We run
 the games' own compiled scripts; nothing of them is in the repo.
@@ -69,7 +69,7 @@ the games' own compiled scripts; nothing of them is in the repo.
   immunity by type, immunities, speed, extra attacks, skills, Force
   resistance) in 24 slots on the character (`combat::effects::
   Lasting`, read by `sheet_now`); holds (stun, paralysis, fear, sleep,
-  choke, droid stun, whirlwind) as C11's unless an immunity keeps them
+  choke, droid stun, whirlwind) held 3 s at most, then a second immune, unless an immunity keeps them
   off; visual effects change nothing. `GetFirst/NextEffect`,
   `GetEffectType`, `…Creator`, `…SpellId`, `RemoveEffect`,
   `ClearAllEffects` (in the scripts' order), `GetHasSpellEffect`;
@@ -95,7 +95,7 @@ the games' own compiled scripts; nothing of them is in the repo.
   reaching it, and a hostile it perceives within √10 m not in stealth.
   `GetEffectType` reads the executable's table (24, 25, 35, 29, 27, 30, 79,
   80, 81; 0 for choke, horror, whirlwind, crush), `GetIsLinkImmune` a
-  state's link. The plain holds stay C11's (their K1 and TSL callers'
+  state's link. The plain holds keep that 3 s cap (their K1 and TSL callers'
   timings stand; [verify] moving them onto the state with the chains);
   each shows its state's visual while it lasts as the state does
   (`Hold::state`, drawn by `script_fx::new_holds`): a stun 2002 (its
@@ -169,7 +169,7 @@ the games' own compiled scripts; nothing of them is in the repo.
   unsaid; the day from hour 0 [verify]); `EndGame` loses the game with its
   death screen, else ends it (`WORLD-STATE.md`, "The game's end");
   `FloatToString` with no decimals keeps its point ("4.": the swoop's
-  heartbeat cuts it off) [verify in the game]. `CutsceneAttack` (C16): the
+  heartbeat cuts it off) [verify in the game]. `CutsceneAttack`: the
   attacker faces its target for the round, a hit's damage applied so; a
   gunner fires it (`EVENTS.md`, scripted blows), at a door or placeable
   too, aimed 0.6 m above where it stands [verify] (the Endar Spire's
@@ -181,10 +181,10 @@ the games' own compiled scripts; nothing of them is in the repo.
   delivery unread [verify]); in a cast's impact the shove is the power's or
   grenade's own delivery and the effect does nothing more. While a conversation
   holds the world, a party member's attacks, powers and throws are its
-  `CutsceneAttack`'s alone (scene mode's S4, `scene::ROLLS`: KOTOR rolls
+  `CutsceneAttack`'s alone (scene mode, `scene::ROLLS`: KOTOR rolls
   no party attack in a conversation; that this takes in powers and throws
   is [verify]).
-- Items, inventories, equipment and gold (`script::items`, I19):
+- Items, inventories, equipment and gold (`script::items`):
   `WORLD-STATE.md`.
 - Names (the whole-game sweep's most reached gaps): a plan reads the
   install's talk table (`dialog.tlk`, `vfs::resolver::TalkTable`, read
@@ -228,7 +228,7 @@ the games' own compiled scripts; nothing of them is in the repo.
   power at it, never a dead or destroyed one. `GetPartyLeader` is
   party member 0: the companion made leader, else the first seat's
   character (`WORLD-STATE.md`: each seat still moves its own body); `GetUserActionsPending` is
-  always false (a seat's commands act at once, never queued: C14).
+  always false (a seat's commands act at once, never queued).
 - Skills: TSL's `GetSkillRank` is the rank as its executable reads it
   (`CSWSCreatureStats::GetSkillRank`): the stored rank with its effects,
   worn items and feats, plus the key ability's modifier (`skills.2da`'s
@@ -241,7 +241,7 @@ the games' own compiled scripts; nothing of them is in the repo.
   adds the ability]. `GetHasSkill` a rank above 0 (reone, xoreos).
   Computer terminals: the games' own scripts price and take spikes
   (`DIALOGUE.md`, "Computers").
-- Movies and module changes (I20): `PlayMovie` and `StartNewModule`'s
+- Movies and module changes: `PlayMovie` and `StartNewModule`'s
   `sMovie1..6` are told to every seat as a screen (`SOUND.md`, "Movies");
   `StartNewModule` asks for the module change as a door's link would (the
   first seat asking, for everyone), arriving at the tagged waypoint.
@@ -436,7 +436,7 @@ the games' own compiled scripts; nothing of them is in the repo.
   so `k_def_pathfail01` never runs. `GetInventoryDisturbItem` is the
   item last put into the container (one taken out is not kept).
 - TSL's combat and Force routines (`script::force`, `script::traps`; its
-  executable's commands, `context/artifacts/i35/combat-force.md`): the
+  executable's commands): the
   spell book (`GetSpellBaseForcePointCost`, the row's `forcepoints`;
   `GetSpellFormMask`; `GetSpellAcquired`, known whatever it costs, where
   `GetHasSpell` asks it be paid for at its adjusted cost; `GrantSpell`,
@@ -466,7 +466,7 @@ the games' own compiled scripts; nothing of them is in the repo.
   a place, its DCs the row's and those given, the creator's or hostile,
   seen by no one; `DetonateMine`, taken away, the blast its caller's
   script's) and `EffectFPRegenModifier` (`COMBAT.md`).
-- Presentation and flow (I35, `script::presentation`, from TSL's
+- Presentation and flow (`script::presentation`, from TSL's
   executable and K1's where it has the routine): `RoundsToSeconds` is `n`
   × 3.0 (not the nss's 6.0: QUIRKS Q-0238), `TurnsToSeconds` ten rounds,
   `HoursToSeconds` the IFO's minutes; `AngleToVector` the unit vector of
@@ -522,12 +522,12 @@ the games' own compiled scripts; nothing of them is in the repo.
   in an encounter's script its last to come in; `GetFirst/NextInPersistentObject`
   on an encounter the area's objects of the type over its outline.
   `kjk sim probes --only "ute encounters"`.
-- What runs them, and the action queues: `EVENTS.md` (I17). 503 routines
-  bound in K1 and 598 in TSL by `CreateItemOnFloor`, as `kjk script coverage` counts them,
-  then `SetItemNonEquippable` (a player's equip of the item refused; one
-  worn stays worn [verify]) and `YavinHackCloseDoor` (the door shut at once,
-  no walk to it)
-  (globals, locals, objects by tag, party, positions, locations, HP,
+- `SetItemNonEquippable`: a player's equip of the item refused; one worn
+  stays worn [verify]. `YavinHackCloseDoor`: the door shut at once, no walk
+  to it.
+- What runs them, and the action queues: `EVENTS.md`. The routines bound
+  (`script::engine`'s `bound!` table; `kjk script coverage` counts each
+  game's) are (globals, locals, objects by tag, party, positions, locations, HP,
   deferral, events, actions, perception, factions and characters, the
   combat AI's, effects, items, sounds, movies, fades, module changes,
   conversations, locks, random and dice, strings, names); every other
