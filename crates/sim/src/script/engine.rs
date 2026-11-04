@@ -1467,9 +1467,9 @@ impl Engine<'_> {
             .collect();
         for (listener, number) in listeners {
             if let Some(script) = self.view.hook(listener, Hook::Dialogue) {
-                let last = &mut self.state.last;
-                last.insert((listener.0, last::SPEAKER), speaker.0);
-                last.insert((listener.0, last::PATTERN), number as u32);
+                self.state
+                    .last
+                    .insert((listener.0, last::SPEAKER), speaker.0);
                 let mut pending = Pending::new(&script, listener);
                 pending.entering = Some(speaker);
                 pending.number = number;

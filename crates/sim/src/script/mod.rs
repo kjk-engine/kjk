@@ -3282,6 +3282,14 @@ impl Step<'_> {
             let kind = self.view.thing(pending.caller).and_then(|thing| thing.kind);
             let hooked =
                 |hook| self.view.hook(pending.caller, hook).as_deref() == Some(&pending.script);
+            if hooked(Hook::Dialogue) {
+                // Kept as the event runs, not as it is queued: a shout
+                // queued after a click must not give the click its number.
+                let bits = pending.number as u32;
+                self.state
+                    .last
+                    .insert((pending.caller.0, last::PATTERN), bits);
+            }
             let entered = hooked(Hook::Enter);
             let on_enter = kind == Some(ObjectKind::Trigger) && entered;
             let cue = pending.entering.filter(|_| on_enter).map(|entering| Cue {

@@ -359,9 +359,9 @@ pub(super) fn talk_to(view: &View, state: &mut State, object: ObjectId, user: Ob
         pending.number = -1;
         pending.leads = guest_body(view, user);
         pending.asker = Some(user);
-        let last = &mut state.last;
-        last.insert((object.0, script::last::SPEAKER), player.0);
-        last.insert((object.0, script::last::PATTERN), pending.number as u32);
+        state
+            .last
+            .insert((object.0, script::last::SPEAKER), player.0);
         state.pending.push(pending);
     } else if let Some(script) = on_used {
         state.last.insert((object.0, script::last::USED), user.0);
