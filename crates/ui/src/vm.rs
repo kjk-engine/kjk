@@ -363,7 +363,7 @@ pub struct PortraitView {
 pub struct ChargenView {
     /// The class buttons (`screens::chargen::offer_of`).
     pub offer: &'static [crate::screens::chargen::Offer],
-    /// By `classes.2da` row.
+    /// Every `classes.2da` row, by row (level-up shows any class).
     pub classes: Vec<ClassView>,
     /// "Male", "Female".
     pub genders: [Vec<u8>; 2],
