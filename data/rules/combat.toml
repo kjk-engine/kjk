@@ -32,7 +32,7 @@ Each combat round of attacks deals {combat.damage.pace:bare} rounds' worth
 of damage, divided among the weapon's attacks. A fast weapon deals many
 light hits, a slow weapon few heavy ones.
 """
-source = "I22 C2, the owner's choice (2026-09-30)"
+source = "the owner's choice (2026-09-30)"
 see = "sim::combat::damage::pace"
 
 [damage.mighty_times]
@@ -106,7 +106,7 @@ value = 50
 unit = "‰"
 range = [0, 1000]
 summary = "A hit always deals at least {combat.margin.least:pct} of its damage, however high the target's Defense."
-source = "I22 C1; KOTOR's natural 20"
+source = "KOTOR's natural 20"
 see = "sim::combat::damage::margin"
 
 [margin.most]
@@ -116,7 +116,7 @@ value = 950
 unit = "‰"
 range = [0, 1000]
 summary = "A hit deals at most {combat.margin.most:pct} of its damage, however low the target's Defense."
-source = "I22 C1; KOTOR's natural 1"
+source = "KOTOR's natural 1"
 see = "sim::combat::damage::margin"
 
 [location]
@@ -311,7 +311,7 @@ value = 500
 unit = "‰"
 range = [0, 1000]
 summary = "With area friendly fire, an ally caught in a grenade blast or an area Force power takes {combat.friendly_fire.ally_area:pct} of its damage, and aimed attacks do not harm allies. With all friendly fire, an ally takes full damage."
-source = "I22 C17"
+source = "ours"
 see = "sim::combat::damage::share"
 applies = ["kind:grenade", "kind:force"]
 
@@ -322,7 +322,7 @@ value = 500
 unit = "‰"
 range = [0, 1000]
 summary = "A character caught in its own grenade blast takes {combat.friendly_fire.own:pct} of the damage, unless friendly fire is off."
-source = "I22 C17"
+source = "ours"
 see = "sim::combat::damage::share"
 applies = ["kind:grenade"]
 
@@ -409,7 +409,7 @@ value = 100
 unit = "points"
 range = [10, 1000]
 summary = "A character who is not a Force user has {combat.sheet.stamina_base:bare} stamina points, before its Constitution modifier."
-source = "I22 C7 (2026-09-30)"
+source = "ours (2026-09-30)"
 see = "sim::combat::sheet::Sheet::pool"
 applies = ["kind:stamina"]
 
@@ -420,7 +420,7 @@ value = 10
 unit = "points"
 range = [0, 100]
 summary = "Each point of Constitution modifier adds {combat.sheet.stamina_per_con:bare} stamina points, or removes them if the modifier is negative."
-source = "I22 C7"
+source = "ours"
 see = "sim::combat::sheet::Sheet::pool"
 applies = ["kind:stamina"]
 
@@ -431,7 +431,7 @@ value = 10
 unit = "points"
 range = [0, 100]
 summary = "A character always has at least {combat.sheet.stamina_least:bare} stamina points, however low its Constitution."
-source = "I22 C7"
+source = "ours"
 see = "sim::combat::sheet::Sheet::pool"
 applies = ["kind:stamina"]
 

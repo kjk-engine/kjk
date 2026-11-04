@@ -173,7 +173,7 @@ name = "Strength Bonus"
 value = 2
 range = [0, 10]
 summary = "A character with a Strength modifier of +{saber_locks.contest.strong_arm:bare} or more pushes harder in a lock."
-source = "I22, ours"
+source = "ours"
 see = "sim::world::sabers"
 
 [contest.strong_arm_hits]
@@ -181,7 +181,7 @@ name = "Strength Bonus Pushes"
 value = 1
 range = [0, 5]
 summary = "A strong character adds +{saber_locks.contest.strong_arm_hits:bare} push to each press in a lock."
-source = "I22, ours"
+source = "ours"
 see = "sim::combat::saber::lock::press_hits"
 
 [contest.random_hits]
@@ -284,6 +284,6 @@ value = 40
 unit = "%"
 range = [0, 100]
 summary = "A creature knocked down by a lost lock dies if a roll of 0-{saber_locks.end.loss_kill} is higher than its remaining vitality points as a percent of its maximum."
-source = "JA (C22)"
+source = "JA"
 see = "sim::combat::saber::lock::loss_kills"
 applies = ["kind:creature"]
