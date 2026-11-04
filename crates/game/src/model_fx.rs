@@ -1676,6 +1676,21 @@ impl Spray {
         shown: bool,
         meshes: &mut Assets<Mesh>,
     ) {
+        if let Some(mesh) = self.build((fx, chunks), space, facing, shown) {
+            self.put(mesh, meshes);
+        }
+    }
+
+    /// Its mesh as `fill` makes it, none when it stays as it is (empty
+    /// before and now); it reads and writes nothing else, so sprays build
+    /// theirs side by side (`own_fx`).
+    pub fn build(
+        &mut self,
+        (fx, chunks): (&ModelFx, &BTreeMap<String, Chunk>),
+        space: Mat4,
+        facing: (Vec3, Vec3),
+        shown: bool,
+    ) -> Option<Mesh> {
         let emitter = &fx.emitters[self.emitter];
         let mut shape = Shape::default();
         if shown {
@@ -1691,20 +1706,25 @@ impl Spray {
         }
         let empty = shape.positions.is_empty();
         if empty && self.empty {
-            return;
+            return None;
         }
         self.empty = empty;
-        if let Some(mut mesh) = meshes.get_mut(&self.mesh) {
-            *mesh = if shape.indices.is_empty() {
-                crate::scene::coloured_quads(shape.positions, shape.uvs, shape.colours)
-            } else {
-                crate::scene::coloured_triangles(
-                    shape.positions,
-                    shape.uvs,
-                    shape.colours,
-                    shape.indices,
-                )
-            };
+        Some(if shape.indices.is_empty() {
+            crate::scene::coloured_quads(shape.positions, shape.uvs, shape.colours)
+        } else {
+            crate::scene::coloured_triangles(
+                shape.positions,
+                shape.uvs,
+                shape.colours,
+                shape.indices,
+            )
+        })
+    }
+
+    /// `mesh` (`build`'s) made its mesh.
+    pub fn put(&self, mesh: Mesh, meshes: &mut Assets<Mesh>) {
+        if let Some(mut slot) = meshes.get_mut(&self.mesh) {
+            *slot = mesh;
         }
     }
 }
