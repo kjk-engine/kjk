@@ -17,7 +17,92 @@ pub fn all() -> Vec<Probe> {
         ("data_tsl", data_of(vfs::Game::Kotor2)),
         ("characters_listed", characters_listed()),
         ("characters_unsheeted", characters_unsheeted()),
+        ("edits_reach_the_world", edits_reach_the_world()),
+        ("unknown_item_refused", unknown_item_refused()),
     ]
+}
+
+const MEDPAC: &str = "g_i_medeqpmnt01";
+const PISTOL: &str = "g_w_blstrpstl001";
+
+/// Two items scripts may make: a medpac stacking to ten, and a pistol.
+fn catalog() -> sim::inventory::Catalog {
+    let mut medpac = sim::inventory::ItemFacts::plain(MEDPAC);
+    medpac.stacking = 10;
+    sim::inventory::Catalog::new([medpac, sim::inventory::ItemFacts::plain(PISTOL)])
+}
+
+/// `save` round-tripped, loaded in `level` and stepped once: the world as
+/// it then stands.
+fn stepped(save: &sim::Save, level: &sim::Level) -> Result<sim::SimWorld, String> {
+    let again = sim::Save::decode(&save.encode()).map_err(|e| e.to_string())?;
+    if again != *save {
+        return Err("the edited save does not round-trip".into());
+    }
+    let mut world = save.world(level, 2, None)?;
+    let tick = save.snapshot.tick + 1;
+    let input = sim::determinism::pilot(1, tick, 2);
+    sim::step(&mut world, tick, &input, 1_000 / save.hz, sim::StepReason::Authority);
+    Ok(world)
+}
+
+/// Credits, the party's XP, a quest, the three kinds of global and the
+/// party's items edited; a step after loading keeps every one, in the
+/// scripts' state and in the snapshot's views of it (the proving ground
+/// has no scripts to gather the views again: the editor shows them as
+/// set, and the party's items are the state's).
+fn edits_reach_the_world() -> Result<String, String> {
+    let (level, mut save) = sim::fixtures::kitchen_sink();
+    let catalog = catalog();
+    let party = sim::inventory::PARTY;
+    let (medpacs, pistol) = {
+        let mut edit = crate::Editor::new(&mut save, &catalog);
+        edit.set_credits(999)?;
+        edit.set_party_xp(4_000)?;
+        edit.set_quest("k_fixture_quest", 30)?;
+        edit.set_number("k_fixture_number", 11)?;
+        edit.set_boolean("K_FIXTURE_BOOLEAN", false)?;
+        edit.set_string("K_FIXTURE_STRING", "edited")?;
+        let medpacs = edit.add_item(party, MEDPAC, 3)?;
+        edit.set_stack(medpacs, 5)?;
+        let pistol = edit.add_item(party, PISTOL, 1)?;
+        edit.remove_item(pistol)?;
+        (medpacs, pistol)
+    };
+    let mut world = stepped(&save, &level)?;
+    let snapshot = world.snapshot();
+    let state = world.script_state();
+    let goods = &snapshot.goods;
+    let held = |id: u32| state.items.get(&id);
+    let checks = [
+        ("credits", goods.gold == 999 && state.gold == 999),
+        ("xp", snapshot.progress.xp == 4_000 && state.xp(party) == 4_000),
+        ("quest", snapshot.progress.journal.contains(&("k_fixture_quest".into(), 30))),
+        ("number", state.numbers.get("K_FIXTURE_NUMBER") == Some(&11)),
+        ("boolean", state.booleans.get("K_FIXTURE_BOOLEAN") == Some(&false)),
+        ("string", state.strings.get("K_FIXTURE_STRING").map(String::as_str) == Some("edited")),
+        ("medpacs", held(medpacs).is_some_and(|item| item.stack == 5 && item.template == MEDPAC)),
+        ("pistol gone", held(pistol).is_none()),
+    ];
+    let failed: Vec<&str> = checks.iter().filter(|(_, ok)| !ok).map(|(name, _)| *name).collect();
+    if failed.is_empty() {
+        Ok(format!("{} edits seen after a step", checks.len()))
+    } else {
+        Err(format!("not seen: {failed:?}"))
+    }
+}
+
+/// An item no install holds is refused by name, and nothing changes.
+fn unknown_item_refused() -> Result<String, String> {
+    let (_, mut save) = sim::fixtures::kitchen_sink();
+    let before = save.clone();
+    let catalog = catalog();
+    let refused = crate::Editor::new(&mut save, &catalog).add_item(sim::inventory::PARTY, "no_such_item", 1);
+    match refused {
+        Err(why) if why.contains("no_such_item") && save == before => Ok(why),
+        Err(why) => Err(format!("refused ({why}) but the save changed")),
+        Ok(id) => Err(format!("made {id}")),
+    }
 }
 
 /// The kitchen sink's characters: its players by seat first, then the

@@ -111,7 +111,7 @@ impl State {
     /// `lower` does not allow going back (`AddJournalQuestEntry`'s
     /// `bAllowOverrideHigher`); the quest moves to the end, the latest
     /// updated. Whether it changed.
-    pub(crate) fn set_quest(&mut self, tag: &str, entry: i32, lower: bool) -> bool {
+    pub fn set_quest(&mut self, tag: &str, entry: i32, lower: bool) -> bool {
         let tag = key(tag);
         let now = self.quest(&tag);
         if tag.is_empty() || now == entry || (now > entry && !lower) {

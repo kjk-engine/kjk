@@ -5,10 +5,12 @@
 
 mod characters;
 mod data;
+mod edits;
 mod open;
 
 pub use characters::{Character, Who, characters, unsheeted};
 pub use data::{Data, InstallSource};
+pub use edits::Editor;
 pub use open::{Opened, Refusal, open, open_bytes};
 
 #[cfg(feature = "probes")]
