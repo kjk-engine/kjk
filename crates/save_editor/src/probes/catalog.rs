@@ -132,3 +132,46 @@ pub fn tsl_own_items() -> Result<String, String> {
         _ => Err(format!("{} TSL-only items", own.len())),
     }
 }
+
+/// With K1, a companion's template gives her name and a portrait that
+/// decodes (the party strip).
+pub fn creature_k1() -> Result<String, String> {
+    let discovery = locate::discovery();
+    if discovery.get(vfs::Game::Kotor1).is_none() {
+        return Ok("skipped: no k1 install".into());
+    }
+    let catalog = Catalog::load(&discovery, vfs::Game::Kotor1)?;
+    let bastila = catalog.creature("p_bastilla");
+    let portrait = bastila
+        .portrait
+        .as_deref()
+        .and_then(|name| catalog.icon(name))
+        .ok_or(format!(
+            "her portrait {:?} does not decode",
+            bastila.portrait
+        ))?;
+    if bastila.name != "Bastila" {
+        return Err(format!("p_bastilla is called {:?}", bastila.name));
+    }
+    // A companion whose template the install lacks, by the template the
+    // party table keeps in the save (`Npc::template_data`).
+    let kept = catalog
+        .data
+        .source
+        .0
+        .find("p_bastilla", fmt_odyssey::ResType::UTC)
+        .and_then(|found| found.location.read().ok())
+        .ok_or("no p_bastilla.utc")?;
+    let from_save = catalog.creature_from(&kept);
+    if from_save != bastila {
+        return Err(format!("from the kept template: {from_save:?}"));
+    }
+    let unknown = catalog.creature("no_such_npc");
+    if !unknown.name.is_empty() || unknown.portrait.is_some() {
+        return Err(format!("a template the install lacks: {unknown:?}"));
+    }
+    Ok(format!(
+        "{} ({:?}, {}×{})",
+        bastila.name, bastila.portrait, portrait.size[0], portrait.size[1]
+    ))
+}

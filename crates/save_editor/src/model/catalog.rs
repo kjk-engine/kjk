@@ -90,6 +90,13 @@ pub struct Icon {
     pub rgba: Vec<u8>,
 }
 
+/// A creature as its template names and pictures it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Creature {
+    pub name: String,
+    pub portrait: Option<String>,
+}
+
 /// Everything an install holds that the editor names.
 pub struct Catalog {
     pub game: Game,
@@ -228,6 +235,24 @@ impl Catalog {
         })
     }
 
+    /// A creature template's name (`FirstName` and `LastName`) and portrait
+    /// (`PortraitId` in `portraits.2da`); empty when the install lacks it.
+    pub fn creature(&self, template: &str) -> Creature {
+        let utc = (self.data.source.read(template, ResType::UTC))
+            .and_then(|bytes| Gff::parse(&bytes).ok());
+        utc.map_or(Creature::default(), |utc| {
+            creature_of(&self.data.source, &utc)
+        })
+    }
+
+    /// The same of a template's bytes: a party table keeps them in the
+    /// save, for a companion whose template only one module holds.
+    pub fn creature_from(&self, bytes: &[u8]) -> Creature {
+        Gff::parse(bytes).map_or(Creature::default(), |utc| {
+            creature_of(&self.data.source, &utc)
+        })
+    }
+
     /// The item whose template is `resref`.
     pub fn item(&self, resref: &str) -> Option<&Entry> {
         self.items.iter().find(|entry| entry.resref == resref)
@@ -250,18 +275,7 @@ fn items(data: &edit::Data) -> Vec<Entry> {
             let name = uti
                 .as_ref()
                 .and_then(|uti| uti.root.locstring("LocalizedName"))
-                .map(|loc| {
-                    let told = line(source, loc.strref);
-                    if told.is_empty() {
-                        loc.strings
-                            .first()
-                            .map(|(_, bytes)| text(bytes))
-                            .unwrap_or(told)
-                    } else {
-                        told
-                    }
-                })
-                .unwrap_or_else(String::new);
+                .map_or(String::new(), |loc| told(source, loc));
             let mut entry = Entry::new(index as u32, &facts.template, &name);
             let row = usize::from(facts.base_item);
             if let Some(base) = &base {
@@ -299,4 +313,35 @@ fn detail(facts: &sim::inventory::ItemFacts) -> String {
     } else {
         String::new()
     }
+}
+
+/// A localized string as the game shows it: its talk-table line, else its
+/// own first string; empty when it has neither.
+fn told(source: &dyn Source, loc: &fmt_odyssey::gff::LocString) -> String {
+    let told = line(source, loc.strref);
+    match loc.strings.first() {
+        Some((_, bytes)) if told.is_empty() => text(bytes),
+        _ => told,
+    }
+}
+
+/// A creature template's (`utc`) name, `FirstName` and `LastName`, and
+/// portrait, `PortraitId` in `source`'s `portraits.2da`.
+fn creature_of(source: &dyn Source, utc: &Gff) -> Creature {
+    let part = |label: &str| {
+        utc.root
+            .locstring(label)
+            .map_or(String::new(), |loc| told(source, loc))
+    };
+    let name = [part("FirstName"), part("LastName")]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let portrait = utc
+        .root
+        .int("PortraitId")
+        .and_then(|row| usize::try_from(row).ok())
+        .and_then(|row| table(source, "portraits")?.resref(row, "baseresref"));
+    Creature { name, portrait }
 }

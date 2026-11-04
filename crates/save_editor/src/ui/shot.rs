@@ -24,15 +24,16 @@ impl Shot {
         }
     }
 
-    /// Counts a frame, asks for the picture once settled, and closes the
+    /// Counts a frame, asks for the picture once settled and nothing is
+    /// being read (`busy`), and closes the
     /// window once it is written.
-    pub fn frame(&mut self, ctx: &egui::Context) {
+    pub fn frame(&mut self, ctx: &egui::Context, busy: bool) {
         let Some(to) = self.to.clone() else {
             return;
         };
         self.frames += 1;
         ctx.request_repaint();
-        if self.frames < SETTLE || self.asked {
+        if self.frames < SETTLE || busy || self.asked {
             return;
         }
         self.asked = true;

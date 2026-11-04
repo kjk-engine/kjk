@@ -22,5 +22,9 @@ fn main() -> eframe::Result {
             .with_min_inner_size([720.0, 420.0]),
         ..Default::default()
     };
-    eframe::run_native(&title, options, Box::new(|_| Ok(Box::new(ui::App::new()))))
+    eframe::run_native(
+        &title,
+        options,
+        Box::new(|cc| Ok(Box::new(ui::App::new(&cc.egui_ctx)))),
+    )
 }

@@ -76,10 +76,19 @@ fn env(name: &str) -> Option<String> {
 /// The installs as kjk finds them: from the environment, else the folders
 /// chosen in kjk's settings, else the Steam and GOG folders.
 pub fn discovery() -> vfs::Discovery {
+    discovery_over(&BTreeMap::new())
+}
+
+/// The same, with the install folders `chosen` (by their variables' names,
+/// `KJK_KOTOR1`, …) picked here first.
+pub fn discovery_over(chosen: &BTreeMap<String, String>) -> vfs::Discovery {
     let settings = std::env::var_os("KJK_SETTINGS")
         .map(PathBuf::from)
         .or_else(|| store::kjk_folder(env).map(|folder| folder.join("settings.json")));
-    discovery_with(env, settings.as_deref())
+    discovery_with(
+        |name| chosen.get(name).cloned().or_else(|| env(name)),
+        settings.as_deref(),
+    )
 }
 
 /// The installs `var` names, else those chosen in the settings file
