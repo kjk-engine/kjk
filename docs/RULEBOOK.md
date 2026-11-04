@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `3c5357b7c72beb0f`.
+Edition `8e69dbcea623aec0`.
 
 ## Contents
 
@@ -469,7 +469,7 @@ Each combat round of attacks deals 4 rounds' worth
 of damage, divided among the weapon's attacks. A fast weapon deals many
 light hits, a slow weapon few heavy ones.
 
-<sub>Source: I22 C2, the owner's choice (2026-09-30). Code: `sim::combat::damage::pace`.</sub>
+<sub>Source: the owner's choice (2026-09-30). Code: `sim::combat::damage::pace`.</sub>
 
 <a id="combat-damage-mighty-times"></a>**Mighty Damage** = **×10** · `combat.damage.mighty_times`
 
@@ -520,13 +520,13 @@ Each point of attack bonus over Defense adds one part in 20 to the chance to hit
 
 A hit always deals at least 5% of its damage, however high the target's Defense.
 
-<sub>Source: I22 C1; KOTOR's natural 20. Code: `sim::combat::damage::margin`.</sub>
+<sub>Source: KOTOR's natural 20. Code: `sim::combat::damage::margin`.</sub>
 
 <a id="combat-margin-most"></a>**Maximum Chance to Hit** = **95%** (`950 ‰`) · `combat.margin.most`
 
 A hit deals at most 95% of its damage, however low the target's Defense.
 
-<sub>Source: I22 C1; KOTOR's natural 1. Code: `sim::combat::damage::margin`.</sub>
+<sub>Source: KOTOR's natural 1. Code: `sim::combat::damage::margin`.</sub>
 
 ### <a id="combat-location"></a>Hit Locations
 
@@ -659,13 +659,13 @@ Damage dealt by a script harms whomever it names, except a plot character.
 
 With area friendly fire, an ally caught in a grenade blast or an area Force power takes 50% of its damage, and aimed attacks do not harm allies. With all friendly fire, an ally takes full damage.
 
-<sub>Source: I22 C17. Code: `sim::combat::damage::share`.</sub>
+<sub>Source: ours. Code: `sim::combat::damage::share`.</sub>
 
 <a id="combat-friendly-fire-own"></a>**Own Blast Damage** = **50%** (`500 ‰`) · `combat.friendly_fire.own`
 
 A character caught in its own grenade blast takes 50% of the damage, unless friendly fire is off.
 
-<sub>Source: I22 C17. Code: `sim::combat::damage::share`.</sub>
+<sub>Source: ours. Code: `sim::combat::damage::share`.</sub>
 
 ### <a id="combat-timing"></a>Rounds and Timers
 
@@ -724,19 +724,19 @@ Force points do.
 
 A character who is not a Force user has 100 stamina points, before its Constitution modifier.
 
-<sub>Source: I22 C7 (2026-09-30). Code: `sim::combat::sheet::Sheet::pool`.</sub>
+<sub>Source: ours (2026-09-30). Code: `sim::combat::sheet::Sheet::pool`.</sub>
 
 <a id="combat-sheet-stamina-per-con"></a>**Stamina per Constitution** = **10 points** · `combat.sheet.stamina_per_con`
 
 Each point of Constitution modifier adds 10 stamina points, or removes them if the modifier is negative.
 
-<sub>Source: I22 C7. Code: `sim::combat::sheet::Sheet::pool`.</sub>
+<sub>Source: ours. Code: `sim::combat::sheet::Sheet::pool`.</sub>
 
 <a id="combat-sheet-stamina-least"></a>**Minimum Stamina** = **10 points** · `combat.sheet.stamina_least`
 
 A character always has at least 10 stamina points, however low its Constitution.
 
-<sub>Source: I22 C7. Code: `sim::combat::sheet::Sheet::pool`.</sub>
+<sub>Source: ours. Code: `sim::combat::sheet::Sheet::pool`.</sub>
 
 <a id="combat-sheet-defence-base"></a>**Base Defense** = **10 points** · `combat.sheet.defence_base`
 
@@ -851,7 +851,7 @@ Blaster pistols, heavy blasters and hold-out blasters fire slow, single, heavy s
 
 A blaster pistol fires once every 0.8 seconds.
 
-<sub>Source: JA (the Bryar's fire interval); I23 table 1.2. Code: `sim::combat::weapons::primary`.</sub>
+<sub>Source: JA (the Bryar's fire interval). Code: `sim::combat::weapons::primary`.</sub>
 
 <a id="weapons-pistol-pair-gap"></a>**Two Pistols' Turns** = **50%** (`500 ‰`) · `weapons.pistol.pair_gap`
 
@@ -883,7 +883,7 @@ Blaster rifles and carbines fire a steady stream of bolts. The alternate fire is
 
 A blaster rifle fires once every 0.35 seconds.
 
-<sub>Source: JA (the E-11's fire interval); I23 table 1.2. Code: `sim::combat::weapons::primary`.</sub>
+<sub>Source: JA (the E-11's fire interval). Code: `sim::combat::weapons::primary`.</sub>
 
 <a id="weapons-rifle-speed"></a>**Bolt Speed** = **58.4 meters per second** (`2300 units/s`) · `weapons.rifle.speed`
 
@@ -899,7 +899,7 @@ Repeating blasters and heavy repeating blasters fire a spray of small, quick bol
 
 A repeating blaster fires once every 0.1 seconds.
 
-<sub>Source: JA (the repeater's fire interval); I23 table 1.2. Code: `sim::combat::weapons::primary`.</sub>
+<sub>Source: JA (the repeater's fire interval). Code: `sim::combat::weapons::primary`.</sub>
 
 <a id="weapons-repeater-speed"></a>**Bolt Speed** = **40.6 meters per second** (`1600 units/s`) · `weapons.repeater.speed`
 
@@ -929,7 +929,7 @@ The bowcaster fires one slow, wide bolt with each pull of the trigger.
 
 A bowcaster fires once every 1 second.
 
-<sub>Source: JA (the bowcaster's fire interval); I23 table 1.2. Code: `sim::combat::weapons::primary`.</sub>
+<sub>Source: JA (the bowcaster's fire interval). Code: `sim::combat::weapons::primary`.</sub>
 
 <a id="weapons-bowcaster-speed"></a>**Bolt Speed** = **33 meters per second** (`1300 units/s`) · `weapons.bowcaster.speed`
 
@@ -959,7 +959,7 @@ Disruptor pistols and disruptor rifles fire no bolt: the shot strikes the first 
 
 A disruptor fires once every 0.6 seconds.
 
-<sub>Source: JA (the disruptor's fire interval); I23 table 1.2. Code: `sim::combat::weapons::primary`.</sub>
+<sub>Source: JA (the disruptor's fire interval). Code: `sim::combat::weapons::primary`.</sub>
 
 <a id="weapons-disruptor-muzzle"></a>**Muzzle** = **0 meters / 0 meters / 0 meters** (`0 / 0 / 0 units`) · `weapons.disruptor.muzzle`
 
@@ -989,7 +989,7 @@ Ion blasters and ion rifles fire a wide bolt that passes through lightsaber blad
 
 An ion weapon fires once every 0.5 seconds.
 
-<sub>Source: JA (the DEMP2's fire interval); I23 table 1.2. Code: `sim::combat::weapons::primary`.</sub>
+<sub>Source: JA (the DEMP2's fire interval). Code: `sim::combat::weapons::primary`.</sub>
 
 <a id="weapons-ion-speed"></a>**Bolt Speed** = **45.7 meters per second** (`1800 units/s`) · `weapons.ion.speed`
 
@@ -1017,7 +1017,7 @@ Sonic pistols and sonic rifles fire several shards with each shot. The first fli
 
 A sonic weapon fires once every 0.7 seconds.
 
-<sub>Source: JA (the flechette's fire interval); I23 table 1.2. Code: `sim::combat::weapons::primary`.</sub>
+<sub>Source: JA (the flechette's fire interval). Code: `sim::combat::weapons::primary`.</sub>
 
 <a id="weapons-sonic-speed"></a>**Shard Speed** = **88.9 meters per second** (`3500 units/s`) · `weapons.sonic.speed`
 
@@ -1274,7 +1274,7 @@ feat attack last one round (3 seconds).
 
 A feat attack costs 15% of the character's maximum Force points, or of its stamina if it is not a Force user.
 
-<sub>Source: I22 C7. Code: `sim::combat::specials::cost`.</sub>
+<sub>Source: ours. Code: `sim::combat::specials::cost`.</sub>
 
 #### <a id="feats-specials-power-blast"></a>Power Blast
 
@@ -1437,19 +1437,19 @@ use medpacs, shields and stims in combat.
 
 Using a medpac or repair kit takes 1.5 seconds for a character with no skill ranks.
 
-<sub>Source: I22 section 5 (ours). Code: `sim::combat::items::heal_ms`.</sub>
+<sub>Source: ours. Code: `sim::combat::items::heal_ms`.</sub>
 
 <a id="items-using-per-rank-ms"></a>**Healing Time per Rank** = **0.1 seconds** (`100 ms`) · `items.using.per_rank_ms`
 
 Each rank of Treat Injury (Repair for a droid) takes 0.1 seconds off the time to use a medpac or repair kit.
 
-<sub>Source: I22 section 5 (ours). Code: `sim::combat::items::heal_ms`.</sub>
+<sub>Source: ours. Code: `sim::combat::items::heal_ms`.</sub>
 
 <a id="items-using-least-ms"></a>**Fastest Healing** = **0.5 seconds** (`500 ms`) · `items.using.least_ms`
 
 Using a medpac or repair kit always takes at least 0.5 seconds.
 
-<sub>Source: I22 section 5 (ours). Code: `sim::combat::items::heal_ms`.</sub>
+<sub>Source: ours. Code: `sim::combat::items::heal_ms`.</sub>
 
 <a id="items-using-use-ms"></a>**Item Use Time** = **1.5 seconds** (`1500 ms`) · `items.using.use_ms`
 
@@ -2277,7 +2277,7 @@ A blade that turns far in one moment is checked along its arc in steps of 0.33 o
 
 A blade must pass through 4.1 meters of a body in one attack to deal its full damage roll.
 
-<sub>Source: ours (I22 C5, a delegated number). Code: `sim::combat::saber::sweep::Contact::due_share`.</sub>
+<sub>Source: ours. Code: `sim::combat::saber::sweep::Contact::due_share`.</sub>
 
 <a id="sabers-sweep-least-share"></a>**Graze Damage** = **50%** (`500 ‰`) · `sabers.sweep.least_share`
 
@@ -2730,7 +2730,7 @@ A bolt that strikes a lit lightsaber blade is always turned, even at level
 
 Every 5 points of deflection bonus on a lightsaber raises its bolt level by 1. A penalty lowers it.
 
-<sub>Source: I22 C6, ours. Code: `sim::combat::saber::defence::bolt_level`.</sub>
+<sub>Source: ours. Code: `sim::combat::saber::defence::bolt_level`.</sub>
 
 <a id="sabers-bolts-cooldown-ms"></a>**Deflection Recovery** = **0.35 seconds** (`350 ms`) · `sabers.bolts.cooldown_ms`
 
@@ -2872,13 +2872,13 @@ the player blocked in time; otherwise it lands when the wait ends.
 
 A player's attacks are checked against the world as that player saw it, up to 0.4 seconds ago.
 
-<sub>Source: I25, ours. Code: `sim::world::history::History::view_tick`.</sub>
+<sub>Source: ours. Code: `sim::world::history::History::view_tick`.</sub>
 
 <a id="sabers-lag-grace-ms"></a>**Block Allowance** = **0.1 seconds** (`100 ms`) · `sabers.lag.grace_ms`
 
 A blade's hit on a player on another machine waits up to 0.1 seconds for that player's block.
 
-<sub>Source: I22 C19, ours. Code: `sim::combat::saber::grace::wait`.</sub>
+<sub>Source: ours. Code: `sim::combat::saber::grace::wait`.</sub>
 
 ## <a id="saber-moves"></a>Saber Moves
 
@@ -2907,13 +2907,13 @@ Critical Strike **2** · Improved **3** · Master **3**
 
 The medium style's level is 2 with Critical Strike, 3 with Improved Critical Strike and 3 with Master Critical Strike. Without the feat it is 1.
 
-<sub>Source: I22 C8, ours. Code: `sim::combat::saber::Kit::level`.</sub>
+<sub>Source: ours. Code: `sim::combat::saber::Kit::level`.</sub>
 
 <a id="saber-moves-styles-dueling"></a>**Dueling Offense** = **1** · `saber_moves.styles.dueling`
 
 Dueling adds +1 to offense in clashes and saber locks while wielding one blade and nothing in the off hand.
 
-<sub>Source: I22 C8, ours. Code: `sim::combat::saber::Kit::offence`.</sub>
+<sub>Source: ours. Code: `sim::combat::saber::Kit::offence`.</sub>
 
 <a id="saber-moves-styles-power-attack"></a>**Power Attack Damage** = **5 HP / 8 HP / 10 HP** (`5 / 8 / 10 HP`) · `saber_moves.styles.power_attack`
 
@@ -2921,19 +2921,19 @@ Power Attack **5 HP** · Improved **8 HP** · Master **10 HP**
 
 Blows carrying Power Attack add +5 damage with Power Attack, +8 with Improved Power Attack and +10 with Master Power Attack.
 
-<sub>Source: KOTOR's Power Attack (I22 C8). Code: `sim::combat::saber::Kit::swing`.</sub>
+<sub>Source: KOTOR's Power Attack. Code: `sim::combat::saber::Kit::swing`.</sub>
 
 <a id="saber-moves-styles-power-attack-penalty"></a>**Power Attack Penalty** = **3** · `saber_moves.styles.power_attack_penalty`
 
 Blows carrying Power Attack also have a -3 to hit.
 
-<sub>Source: KOTOR's Power Attack (I22 C8). Code: `sim::combat::saber::Kit::swing`.</sub>
+<sub>Source: KOTOR's Power Attack. Code: `sim::combat::saber::Kit::swing`.</sub>
 
 <a id="saber-moves-styles-critical-threat"></a>**Critical Strike Threat** = **×2** · `saber_moves.styles.critical_threat`
 
 Critical Strike multiplies the critical threat range of the blows carrying it by ×2, and by one more for each of Improved and Master Critical Strike.
 
-<sub>Source: KOTOR's Critical Strike (I22 C8). Code: `sim::combat::saber::Kit::swing`.</sub>
+<sub>Source: KOTOR's Critical Strike. Code: `sim::combat::saber::Kit::swing`.</sub>
 
 <a id="saber-moves-styles-flurry-penalty"></a>**Flurry Penalty** = **4 / 2** · `saber_moves.styles.flurry_penalty`
 
@@ -2941,7 +2941,7 @@ Flurry **4** · Improved and Master **2**
 
 Blows carrying Flurry have a -4 to hit with Flurry and -2 with Improved or Master Flurry.
 
-<sub>Source: KOTOR's Flurry (I22 C8). Code: `sim::combat::saber::Kit::swing`.</sub>
+<sub>Source: KOTOR's Flurry. Code: `sim::combat::saber::Kit::swing`.</sub>
 
 <a id="saber-moves-styles-flurry-pace"></a>**Flurry Extra Attack** = **200%** (`2000 ‰`) · `saber_moves.styles.flurry_pace`
 
@@ -3573,13 +3573,13 @@ A lock lasts at most 10 seconds, then breaks with no winner.
 
 A character with a Strength modifier of +2 or more pushes harder in a lock.
 
-<sub>Source: I22, ours. Code: `sim::world::sabers`.</sub>
+<sub>Source: ours. Code: `sim::world::sabers`.</sub>
 
 <a id="saber-locks-contest-strong-arm-hits"></a>**Strength Bonus Pushes** = **1** · `saber_locks.contest.strong_arm_hits`
 
 A strong character adds +1 push to each press in a lock.
 
-<sub>Source: I22, ours. Code: `sim::combat::saber::lock::press_hits`.</sub>
+<sub>Source: ours. Code: `sim::combat::saber::lock::press_hits`.</sub>
 
 <a id="saber-locks-contest-random-hits"></a>**Random Pushes** = **2** · `saber_locks.contest.random_hits`
 
@@ -3652,7 +3652,7 @@ A lock with no winner lifts both fighters at 3.8 meters per second.
 
 A creature knocked down by a lost lock dies if a roll of 0-40% is higher than its remaining vitality points as a percent of its maximum.
 
-<sub>Source: JA (C22). Code: `sim::combat::saber::lock::loss_kills`.</sub>
+<sub>Source: JA. Code: `sim::combat::saber::lock::loss_kills`.</sub>
 
 ## <a id="saber-throw"></a>Thrown and Lost Lightsabers
 
@@ -3899,7 +3899,7 @@ later. A held power pays its cost again every second after the first
 
 An empty pool of Force points refills in 20 seconds, whatever its size, 1 point at a time.
 
-<sub>Source: I22 C13 (JA's 20 s for a full pool). Code: `sim::combat::force::regen_every`.</sub>
+<sub>Source: ours, after JA's 20 s for a full pool. Code: `sim::combat::force::regen_every`.</sub>
 
 ### <a id="force-casting"></a>Using Force Powers
 
@@ -3914,7 +3914,7 @@ one power, no other power of the hand can be used.
 
 A toggled power must be active for 1.5 seconds before using it again deactivates it.
 
-<sub>Source: JA (I23 4.3). Code: `sim::world::powers::Cast::toggle`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::toggle`.</sub>
 
 <a id="force-casting-hand-ms"></a>**Power Gesture** = **1 second** (`1000 ms`) · `force.casting.hand_ms`
 
@@ -3923,7 +3923,7 @@ Affliction, Plague, Force Suppression, Force Breach or Fury, the Jedi's
 hand stays out for 1 second. No other power of the hand
 and no shot can be used meanwhile.
 
-<sub>Source: JA (I23 4.3: mind trick 1000 ms). Code: `sim::world::powers::Cast::trick`.</sub>
+<sub>Source: JA (mind trick 1000 ms). Code: `sim::world::powers::Cast::trick`.</sub>
 
 ### <a id="force-channel"></a>Lightning and Drain
 
@@ -3941,7 +3941,7 @@ Life, Death Field), the script sets the damage and strikes once every
 
 Held lightning and drain strike every 0.05 seconds.
 
-<sub>Source: JA (I23 4.6.5, 4.6.6). Code: `sim::world::powers::Cast::run`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::run`.</sub>
 
 <a id="force-channel-run-ms"></a>**Held Power Duration** = **0.5 seconds** (`500 ms`) · `force.channel.run_ms`
 
@@ -3951,7 +3951,7 @@ power, Choke included, pays its cost for the first
 
 A Choke the target resisted ends after this time.
 
-<sub>Source: JA (I23 4.6.5); I22 C12. Code: `sim::combat::force::channel_cost`.</sub>
+<sub>Source: JA. Code: `sim::combat::force::channel_cost`.</sub>
 
 <a id="force-channel-delay-ms"></a>**Lightning and Drain Delay** = **3 seconds / 1.5 seconds** (`3000 / 1500 ms`) · `force.channel.delay_ms`
 
@@ -3961,13 +3961,13 @@ After lightning or drain ends, it cannot be used again for
 3 seconds at rank 1 and 1.5 seconds
 at ranks 2 and 3.
 
-<sub>Source: JA (I23 4.6.5, 4.6.6). Code: `sim::world::powers::Cast::end`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::end`.</sub>
 
 <a id="force-channel-line-range"></a>**Lightning and Drain Range** = **52 meters** (`2048 units`) · `force.channel.line_range`
 
 Rank 1 and 2 lightning and drain reach 52 meters in line of sight.
 
-<sub>Source: JA (I23 4.6.5). Code: `sim::world::powers::Cast::caught`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::caught`.</sub>
 
 <a id="force-channel-cone-dot"></a>**Rank 3 Cone** = **0.5** · `force.channel.cone_dot`
 
@@ -3975,13 +3975,13 @@ Rank 3 lightning and drain strike everyone in a cone before the Jedi.
 Cone width: 0.5 (1 is a straight line, 0 is
 everything in front).
 
-<sub>Source: JA (I23 4.6.5). Code: `sim::world::powers::Cast::caught`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::caught`.</sub>
 
 <a id="force-channel-impact-every-ms"></a>**Scripted Strike Rate** = **1 second** (`1000 ms`) · `force.channel.impact_every_ms`
 
 When the power's script runs, held lightning and drain strike with it at once and then every 1 second.
 
-<sub>Source: ours (C10 with C12's pace). Code: `sim::world::powers::Cast::run`.</sub>
+<sub>Source: ours. Code: `sim::world::powers::Cast::run`.</sub>
 
 ### <a id="force-push"></a>Force Push, Force Whirlwind and Force Wave
 
@@ -4002,7 +4002,7 @@ thrown, and a strong enough push frees the Jedi from a Choke.
 
 Force Push and Force Pull reach a target up to 13 meters away in line of sight.
 
-<sub>Source: JA (I23 4.6.3). Code: `sim::world::powers::Cast::push_pull`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-area-reach"></a>**Area Throw Range** = **26 meters** (`1024 units`) · `force.push.area_reach`
 
@@ -4010,7 +4010,7 @@ Force Whirlwind, Force Wave and Force Repulsion reach
 26 meters around the Jedi. Force Push and Force Whirlwind
 choose their target within the same range.
 
-<sub>Source: JA (I23 4.6.3). Code: `sim::world::powers::Cast::push_pull`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-field"></a>**Area Throw Arc** = **30° / 90°** (`30 / 90°`) · `force.push.field`
 
@@ -4020,7 +4020,7 @@ Area throws reach targets up to 30° (rank 2) or
 90° (rank 3) to either side of, above or below the
 Jedi's aim.
 
-<sub>Source: JA (I23 4.6.3). Code: `sim::world::powers::Cast::push_pull`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-front-dot"></a>**Front Arc** = **0.6** · `force.push.front_dot`
 
@@ -4028,55 +4028,55 @@ Area throws and area stun and fear powers affect only targets in front of
 the Jedi. Arc: 0.6 (1 is a straight line, 0 is
 everything in front).
 
-<sub>Source: JA (I23 4.6.3). Code: `sim::world::powers::Scene::around`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Scene::around`.</sub>
 
 <a id="force-push-strength"></a>**Throw Strength** = **6.5 meters per second** (`256 units/s`) · `force.push.strength`
 
 Each rank of a throw pushes the target at 6.5 meters per second, less the loss with distance.
 
-<sub>Source: JA (I23 4.6.3). Code: `sim::world::powers::Cast::push_pull`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-falloff"></a>**Throw Falloff** = **0.7** · `force.push.falloff`
 
 A throw loses 0.7 meters per second for every meter between the Jedi and the target.
 
-<sub>Source: JA (I23 4.6.3). Code: `sim::world::powers::Cast::push_pull`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-least-shove"></a>**Minimum Throw** = **0.41 meters per second** (`16 units/s`) · `force.push.least_shove`
 
 A throw that reaches a target pushes it at least 0.41 meters per second, however far.
 
-<sub>Source: JA (I23 4.6.3). Code: `sim::world::powers::Cast::push_pull`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-least-lift"></a>**Throw Lift** = **3.3 meters per second** (`128 units/s`) · `force.push.least_lift`
 
 A thrown target leaves the ground, rising at 3.3 meters per second or more.
 
-<sub>Source: JA (I23 4.6.3). Code: `sim::world::powers::Cast::push_pull`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-push-hand-ms"></a>**Force Push Gesture** = **1 second** (`1000 ms`) · `force.push.push_hand_ms`
 
 The Jedi's hand stays out for 1 second after a push, or after resisting one with a push.
 
-<sub>Source: JA (I23 4.3). Code: `sim::world::powers::Cast::push_pull`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-pull-hand-ms"></a>**Force Pull Gesture** = **0.4 seconds** (`400 ms`) · `force.push.pull_hand_ms`
 
 The Jedi's hand stays out for 0.4 seconds after a pull.
 
-<sub>Source: JA (I23 4.3). Code: `sim::world::powers::Cast::push_pull`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-push-cooldown-ms"></a>**Force Push Delay** = **1.1 seconds** (`1100 ms`) · `force.push.push_cooldown_ms`
 
 After a push, the next push or pull cannot be used for 1.1 seconds.
 
-<sub>Source: JA (I23 4.3). Code: `sim::world::powers::Cast::push_pull`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-pull-cooldown-ms"></a>**Force Pull Delay** = **0.6 seconds** (`600 ms`) · `force.push.pull_cooldown_ms`
 
 After a pull, the next push or pull cannot be used for 0.6 seconds.
 
-<sub>Source: JA (I23 4.3). Code: `sim::world::powers::Cast::push_pull`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-countered"></a>**Resisted Throw** = **×0 / ×0.2 / ×0.6** (`×0 / 0.2 / 0.6`) · `force.push.countered`
 
@@ -4087,13 +4087,13 @@ A target that resists a throw with Force Push of its own takes
 higher, 0.2 times one rank lower and
 0.6 times two or more ranks lower.
 
-<sub>Source: JA: countering a throw (I23 4.6.3). Code: `sim::world::powers::Cast::countered`.</sub>
+<sub>Source: JA: countering a throw. Code: `sim::world::powers::Cast::countered`.</sub>
 
 <a id="force-push-knockdown-ms"></a>**Throw Knockdown** = **0.7 seconds** (`700 ms`) · `force.push.knockdown_ms`
 
 A rank 3 throw knocks down a target of lower rank for 0.7 seconds. The target gets up faster than from a blow.
 
-<sub>Source: JA (I23 5.2). Code: `sim::world::powers::Cast::push_pull`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-knockdown-reach"></a>**Knockdown Range** = **1.6 meters** (`64 units`) · `force.push.knockdown_reach`
 
@@ -4101,7 +4101,7 @@ A rank 3 throw knocks down a target within 1.6 meters
 for each rank by which its own Force Push falls short of rank 2. A target
 with rank 2 or higher is never knocked down.
 
-<sub>Source: JA (I23 4.6.3). Code: `sim::world::powers::Cast::push_pull`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 #### <a id="force-push-whirlwind"></a>Force Whirlwind Damage
 
@@ -4140,19 +4140,19 @@ script runs, the script sets the damage.
 
 Force Storm reaches 7.6 meters around the Jedi, in its cone.
 
-<sub>Source: JA (I23 4.6.5). Code: `sim::world::powers::Cast::lightning`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::lightning`.</sub>
 
 <a id="force-lightning-points"></a>**Lightning Damage** = **1 points** · `force.lightning.points`
 
 Each lightning strike deals 1% of the target's maximum vitality points.
 
-<sub>Source: JA (I23 4.6.5: a random 1 or 2). Code: `sim::world::powers::Cast::lightning`.</sub>
+<sub>Source: JA (a random 1 or 2). Code: `sim::world::powers::Cast::lightning`.</sub>
 
 <a id="force-lightning-extra"></a>**Lightning Bonus Damage** = **1 points** · `force.lightning.extra`
 
 Each lightning strike may deal up to 1% more of the target's maximum vitality points.
 
-<sub>Source: JA (I23 4.6.5: a random 1 or 2). Code: `sim::world::powers::Cast::lightning`.</sub>
+<sub>Source: JA (a random 1 or 2). Code: `sim::world::powers::Cast::lightning`.</sub>
 
 ### <a id="force-drain"></a>Drain Life, Death Field and Drain Force
 
@@ -4170,7 +4170,7 @@ power's script runs, the script sets the damage and healing.
 
 Death Field and Master Drain Force reach 13 meters around the Jedi, in its cone.
 
-<sub>Source: JA (I23 4.6.6). Code: `sim::world::powers::Cast::drain`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::drain`.</sub>
 
 <a id="force-drain-points"></a>**Force Drained** = **2 points / 3 points / 4 points** (`2 / 3 / 4 points`) · `force.drain.points`
 
@@ -4181,19 +4181,19 @@ Force points at rank 1, 3% at rank 2 and
 4% at rank 3, and heals the Jedi by the same
 share of his or her maximum vitality points.
 
-<sub>Source: JA (I23 4.6.6). Code: `sim::world::powers::Cast::drain`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::drain`.</sub>
 
 <a id="force-drain-caster-wait-ms"></a>**Drain Regeneration Pause** = **0.5 seconds** (`500 ms`) · `force.drain.caster_wait_ms`
 
 Each drain strike stops the Jedi's own Force point regeneration for 0.5 seconds.
 
-<sub>Source: JA (I23 4.4). Code: `sim::world::powers::Cast::drain`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::drain`.</sub>
 
 <a id="force-drain-victim-wait-ms"></a>**Drained Regeneration Pause** = **0.8 seconds** (`800 ms`) · `force.drain.victim_wait_ms`
 
 Each strike that drains Force points stops the target's Force point regeneration for 0.8 seconds.
 
-<sub>Source: JA (I23 4.4). Code: `sim::world::powers::Cast::drain`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::drain`.</sub>
 
 ### <a id="force-grip"></a>Wound, Choke, Kill and Force Crush
 
@@ -4216,19 +4216,19 @@ and releasing it early cancels the damage still to come.
 
 The grip seizes a target up to 6.5 meters away in line of sight, and releases it beyond that range.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::squeeze`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-points"></a>**Grip Damage** = **2 points** · `force.grip.points`
 
 Each squeeze inflicts 2% of the target's maximum vitality points.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::squeeze`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-squeeze-every-ms"></a>**Squeeze Rate** = **1 second** (`1000 ms`) · `force.grip.squeeze_every_ms`
 
 The grip squeezes at once and then every 1 second.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::squeeze`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-hold-ms"></a>**Grip Duration** = **5 seconds / 4 seconds / 4 seconds** (`5000 / 4000 / 4000 ms`) · `force.grip.hold_ms`
 
@@ -4240,13 +4240,13 @@ The grip lasts at most 5 seconds at rank 1,
 
 When the power's script runs, the grip lasts until the script's last damage.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::start`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::start`.</sub>
 
 <a id="force-grip-crush-ms"></a>**Crush Time** = **3 seconds** (`3000 ms`) · `force.grip.crush_ms`
 
 At ranks 2 and 3, the grip crushes the target once, 3 seconds after it begins.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::squeeze`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-crush"></a>**Crush Damage** = **0 points / 20 points / 40 points** (`0 / 20 / 40 points`) · `force.grip.crush`
 
@@ -4257,13 +4257,13 @@ vitality points at rank 2 and 40% at rank 3
 (0% at rank 1). The target chokes, and its own
 grip ends.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::squeeze`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-crush-hand-ms"></a>**Crush Choking** = **2 seconds** (`2000 ms`) · `force.grip.crush_hand_ms`
 
 After the crush, the target clutches its throat for 2 seconds and cannot use its hands.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::squeeze`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-front-dot"></a>**Grip Arc** = **0.9** · `force.grip.front_dot`
 
@@ -4271,31 +4271,31 @@ At ranks 1 and 2 the grip ends when the target leaves the Jedi's front.
 Arc: 0.9 (1 is a straight line, 0 is everything in
 front). Rank 3 has no arc.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::squeeze`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-lift-every-ms"></a>**Lift Rate** = **0.3 seconds** (`300 ms`) · `force.grip.lift_every_ms`
 
 A rank 2 grip lifts the target, and a rank 3 grip moves it, every 0.3 seconds.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::squeeze`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-lift"></a>**Lift Speed** = **0.76 meters per second** (`30 units/s`) · `force.grip.lift`
 
 Each lift raises the target of a rank 2 grip at 0.76 meters per second. The target floats, free of gravity.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::squeeze`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-carry-ahead"></a>**Carry Distance** = **3.3 meters** (`128 units`) · `force.grip.carry_ahead`
 
 A rank 3 grip carries its target to a point 3.3 meters before the Jedi.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::squeeze`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-carry-up"></a>**Carry Height** = **0.41 meters** (`16 units`) · `force.grip.carry_up`
 
 The point a rank 3 grip carries its target to is 0.41 meters above the Jedi's center.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::squeeze`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-carry-within"></a>**Carry Ranges** = **0.41 meters / 1.6 meters / 3.3 meters / 5.1 meters** (`16 / 64 / 128 / 200 units`) · `force.grip.carry_within`
 
@@ -4304,7 +4304,7 @@ slowest **0.41 meters** · slow **1.6 meters** · fast **3.3 meters** · faster 
 A carried target nearer the carry point than 0.41 meters / 1.6 meters / 3.3 meters / 5.1 meters
 moves at the slowest, slow, fast and faster carry speeds.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::squeeze`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-carry-speeds"></a>**Carry Speeds** = **0.2 meters per second / 3.3 meters per second / 6.5 meters per second / 13 meters per second** (`8 / 128 / 256 / 512 units/s`) · `force.grip.carry_speeds`
 
@@ -4312,31 +4312,31 @@ slowest **0.2 meters per second** · slow **3.3 meters per second** · fast **6.
 
 A carried target moves toward the carry point at 0.2 meters per second / 3.3 meters per second / 6.5 meters per second / 13 meters per second, by its distance.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::squeeze`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-carry-beyond"></a>**Carry Speed, Far** = **17.8 meters per second** (`700 units/s`) · `force.grip.carry_beyond`
 
 A carried target farther than every carry range moves toward the carry point at 17.8 meters per second.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::squeeze`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-cooldown-ms"></a>**Grip Delay** = **3 seconds** (`3000 ms`) · `force.grip.cooldown_ms`
 
 After a grip ends, the next cannot be used for 3 seconds.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::end`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::end`.</sub>
 
 <a id="force-grip-broken-ms"></a>**Broken Grip Delay** = **1 second** (`1000 ms`) · `force.grip.broken_ms`
 
 When the target breaks a grip with Force Push, the Jedi cannot grip again for 1 second.
 
-<sub>Source: JA (I23 4.6.3). Code: `sim::world::powers::Cast::push_pull`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-grip-gripping-scale"></a>**Gripping Speed** = **×0.4** · `force.grip.gripping_scale`
 
 The Jedi moves at 0.4 times normal speed while holding a grip.
 
-<sub>Source: JA (I23 4.6.4). Code: `sim::world::powers::Cast::upkeep`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
 <a id="force-grip-gripped-scale"></a>**Gripped Speed** = **×0.2 / ×0.8** (`×0.2 / 0.8`) · `force.grip.gripped_scale`
 
@@ -4345,7 +4345,7 @@ seized **×0.2** · seized under a speed power **×0.8**
 A seized target moves at 0.2 times normal
 speed, or 0.8 times under a speed power.
 
-<sub>Source: JA (I23 4.6.2, 4.6.4). Code: `sim::world::powers::Cast::upkeep`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
 ### <a id="force-speed"></a>Burst of Speed, Knight Speed and Master Speed
 
@@ -4371,7 +4371,7 @@ Burst of Speed **10 seconds** · Knight Speed **15 seconds** · Master Speed **2
 Burst of Speed lasts 10 seconds, Knight Speed
 15 seconds and Master Speed 20 seconds.
 
-<sub>Source: JA (I23 4.6.2). Code: `sim::world::powers::toggle_length`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
 ### <a id="force-protect"></a>Force Aura, Force Shield and Force Armor
 
@@ -4390,7 +4390,7 @@ Force Aura, Force Shield, Force Armor, Force Resistance and Force Immunity
 last 20 seconds, as does any toggled power without a
 duration of its own.
 
-<sub>Source: JA (I23 4.6.10, 4.6.13). Code: `sim::world::powers::toggle_length`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
 <a id="force-protect-share"></a>**Damage Prevented** = **40% / 60% / 80%** (`400 / 600 / 800 ‰`) · `force.protect.share`
 
@@ -4400,7 +4400,7 @@ Force Aura prevents 40% of the damage counted,
 Force Shield 60% and Force Armor
 80%.
 
-<sub>Source: JA (I23 4.6.10). Code: `sim::combat::force::protect`.</sub>
+<sub>Source: JA. Code: `sim::combat::force::protect`.</sub>
 
 <a id="force-protect-rate"></a>**Protection Cost** = **100% / 50% / 25%** (`1000 / 500 / 250 ‰`) · `force.protect.rate`
 
@@ -4411,7 +4411,7 @@ Each 1% of maximum vitality points counted costs the Jedi
 Aura, 50% under Force Shield and
 25% under Force Armor.
 
-<sub>Source: JA (I23 4.6.10). Code: `sim::combat::force::protect`.</sub>
+<sub>Source: JA. Code: `sim::combat::force::protect`.</sub>
 
 <a id="force-protect-cap"></a>**Damage Counted** = **100 points / 200 points / 400 points** (`100 / 200 / 400 points`) · `force.protect.cap`
 
@@ -4421,7 +4421,7 @@ Of a single hit, Force Aura counts at most 100%
 of the Jedi's maximum vitality points, Force Shield
 200% and Force Armor 400%.
 
-<sub>Source: JA (I23 4.6.10). Code: `sim::combat::force::protect`.</sub>
+<sub>Source: JA. Code: `sim::combat::force::protect`.</sub>
 
 ### <a id="force-absorb"></a>Force Resistance and Force Immunity
 
@@ -4434,13 +4434,13 @@ Jedi also gains Force resistance against other powers.
 
 The Jedi gains 6% of his or her maximum Force points from each push or pull, for each rank of the power.
 
-<sub>Source: JA (I23 4.5). Code: `sim::world::powers::Cast::push_pull`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-absorb-tick-gain"></a>**Force Gained from Strikes** = **1 points** · `force.absorb.tick_gain`
 
 The Jedi gains 1% of his or her maximum Force points from each lightning or drain strike.
 
-<sub>Source: JA (I23 4.5). Code: `sim::world::powers::Cast::lightning`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::lightning`.</sub>
 
 ### <a id="force-heal"></a>Cure, Heal and Master Heal
 
@@ -4458,7 +4458,7 @@ Cure **6.5 meters** · Heal **9.8 meters** · Master Heal **13 meters**
 Cure reaches 6.5 meters, Heal 9.8 meters and
 Master Heal 13 meters around the Jedi.
 
-<sub>Source: JA (I23 4.6.8). Code: `sim::world::powers::Cast::heal`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::heal`.</sub>
 
 <a id="force-heal-points"></a>**Vitality Healed** = **50 points / 33 points / 25 points** (`50 / 33 / 25 points`) · `force.heal.points`
 
@@ -4468,7 +4468,7 @@ Each character healed regains 50% of maximum
 vitality points when one is healed, 33% when two
 are and 25% when three or more are.
 
-<sub>Source: JA (I23 4.6.8). Code: `sim::world::powers::Cast::heal`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::heal`.</sub>
 
 ### <a id="force-mind-trick"></a>Affect Mind, Dominate Mind, Mind Trick and Force Confusion
 
@@ -4486,19 +4486,19 @@ say, on the target within 26 meters.
 
 Rank 1 reaches a target up to 6.5 meters away in line of sight.
 
-<sub>Source: JA (I23 4.6.11). Code: `sim::world::powers::Cast::trick`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::trick`.</sub>
 
 <a id="force-mind-trick-area-reach"></a>**Dominate Mind Range** = **13 meters** (`512 units`) · `force.mind_trick.area_reach`
 
 Rank 2 reaches 13 meters around the Jedi.
 
-<sub>Source: JA (I23 4.6.11). Code: `sim::world::powers::Cast::trick`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::trick`.</sub>
 
 <a id="force-mind-trick-area-field"></a>**Dominate Mind Arc** = **90°** · `force.mind_trick.area_field`
 
 Rank 2 affects targets up to 90° to either side of, above or below the Jedi's aim.
 
-<sub>Source: JA (I23 4.6.11). Code: `sim::world::powers::Cast::trick`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::trick`.</sub>
 
 <a id="force-mind-trick-length-ms"></a>**Unseen Duration** = **20 seconds / 25 seconds / 30 seconds** (`20000 / 25000 / 30000 ms`) · `force.mind_trick.length_ms`
 
@@ -4509,7 +4509,7 @@ The power lasts, and affected players cannot see the Jedi, for
 25 seconds at rank 2 and
 30 seconds at rank 3.
 
-<sub>Source: JA (I23 4.6.11). Code: `sim::world::powers::toggle_length`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
 <a id="force-mind-trick-confuse-ms"></a>**Confusion Duration** = **5 seconds / 10 seconds / 15 seconds** (`5000 / 10000 / 15000 ms`) · `force.mind_trick.confuse_ms`
 
@@ -4520,7 +4520,7 @@ for 5 seconds at rank 1,
 10 seconds at rank 2 and
 15 seconds at rank 3.
 
-<sub>Source: JA (I23 4.6.11). Code: `sim::world::powers::Cast::trick`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::trick`.</sub>
 
 ### <a id="force-crowd"></a>Stun, Stasis, Fear and the Droid Powers
 
@@ -4549,13 +4549,13 @@ Confusion.
 A stun, paralysis, fear, sleep or Force Whirlwind holds its target for at
 most 3 seconds, whatever the power's duration.
 
-<sub>Source: I22 C11. Code: `sim::combat::force::ForceState::hold`.</sub>
+<sub>Source: ours. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-immune-ms"></a>**Hold Immunity** = **1 second** (`1000 ms`) · `force.crowd.immune_ms`
 
 After a hold ends, the target cannot be held again for 1 second.
 
-<sub>Source: I22 C11. Code: `sim::combat::force::ForceState::hold`.</sub>
+<sub>Source: ours. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-area-field"></a>**Area Power Arc** = **90°** · `force.crowd.area_field`
 
@@ -4599,7 +4599,7 @@ Fury **8 seconds** · Improved Fury **14 seconds** · Master Fury **20 seconds**
 Fury lasts 8 seconds, Improved Fury
 14 seconds and Master Fury 20 seconds.
 
-<sub>Source: JA (I23 4.6.9). Code: `sim::world::powers::toggle_length`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
 <a id="force-rage-hp-every-ms"></a>**Fury Vitality Cost Rate** = **0.15 seconds / 0.3 seconds / 0.45 seconds** (`150 / 300 / 450 ms`) · `force.rage.hp_every_ms`
 
@@ -4609,55 +4609,55 @@ Fury costs vitality every 0.15 seconds, Improved Fury
 every 0.3 seconds and Master Fury every
 0.45 seconds.
 
-<sub>Source: JA (I23 4.6.9). Code: `sim::world::powers::Cast::rage`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::rage`.</sub>
 
 <a id="force-rage-hp"></a>**Fury Vitality Cost** = **2 points** · `force.rage.hp`
 
 Each payment for Fury costs 2% of the character's maximum vitality points.
 
-<sub>Source: JA (I23 4.6.9). Code: `sim::world::powers::Cast::rage`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::rage`.</sub>
 
 <a id="force-rage-least"></a>**Fury Minimum Vitality** = **10 points** · `force.rage.least`
 
 Fury cannot be activated with less than 10% of maximum vitality points.
 
-<sub>Source: JA (I23 4.6.9). Code: `sim::world::powers::Cast::toggle`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::toggle`.</sub>
 
 <a id="force-rage-floor-hp"></a>**Fury Vitality Floor** = **1 HP** · `force.rage.floor_hp`
 
 Fury's cost never reduces vitality below 1 point; Fury ends instead.
 
-<sub>Source: JA (I23 4.6.9). Code: `sim::world::powers::Cast::rage`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::rage`.</sub>
 
 <a id="force-rage-recover-ms"></a>**Fury Recovery** = **10 seconds** (`10000 ms`) · `force.rage.recover_ms`
 
 After Fury ends, the character recovers for 10 seconds.
 
-<sub>Source: JA (I23 4.6.9). Code: `sim::world::powers::Cast::rage`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::rage`.</sub>
 
 <a id="force-rage-speed"></a>**Fury Speed** = **×1.3** · `force.rage.speed`
 
 Under Fury the character moves 1.3 times as fast.
 
-<sub>Source: JA (I23 4.6.9). Code: `sim::world::powers::Cast::upkeep`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
 <a id="force-rage-recover-speed"></a>**Recovery Speed** = **×0.75** · `force.rage.recover_speed`
 
 While recovering from Fury, the character moves at 0.75 times normal speed.
 
-<sub>Source: JA (I23 4.6.9). Code: `sim::world::powers::Cast::upkeep`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
 <a id="force-rage-refire"></a>**Fury Attack Speed** = **×0.75** · `force.rage.refire`
 
 Under Fury the character attacks and fires in 0.75 times the normal time.
 
-<sub>Source: JA: weapon timing (I23 4.6.9). Code: `sim::combat::force::ForceState::refire`.</sub>
+<sub>Source: JA: weapon timing. Code: `sim::combat::force::ForceState::refire`.</sub>
 
 <a id="force-rage-recover-refire"></a>**Recovery Attack Speed** = **×1.5** · `force.rage.recover_refire`
 
 While recovering from Fury, the character attacks and fires in 1.5 times the normal time.
 
-<sub>Source: JA: weapon timing (I23 4.6.9). Code: `sim::combat::force::ForceState::refire`.</sub>
+<sub>Source: JA: weapon timing. Code: `sim::combat::force::ForceState::refire`.</sub>
 
 ### <a id="force-sight"></a>Force Sight
 
@@ -4674,7 +4674,7 @@ Force Sight lasts 10 seconds at rank 1,
 20 seconds at rank 2 and 30 seconds at
 rank 3.
 
-<sub>Source: JA (I23 4.6.12). Code: `sim::world::powers::toggle_length`.</sub>
+<sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
 ### <a id="force-rolls"></a>Saving Throws and Force Resistance
 
@@ -4737,7 +4737,7 @@ Force Jump rises 2.4 meters at rank 1,
 4.9 meters at rank 2 and 9.8 meters at rank
 3.
 
-<sub>Source: JA (I23 4.6.1). Code: `sim::motion::force_jump`.</sub>
+<sub>Source: JA. Code: `sim::motion::force_jump`.</sub>
 
 <a id="force-jump-strengths"></a>**Jump Strength** = **420 / 590 / 840** · `force.jump.strengths`
 
@@ -4747,7 +4747,7 @@ Force Jump lifts with a strength of 420 / 590 / 840 (rank 1,
 2 and 3). A tenth of it, scaled by the share of the height still to rise,
 is added to the jump's speed.
 
-<sub>Source: JA (I23 4.6.1). Code: `sim::motion::force_jump`.</sub>
+<sub>Source: JA. Code: `sim::motion::force_jump`.</sub>
 
 <a id="force-jump-pay-every-ms"></a>**Jump Cost Rate** = **0.2 seconds / 0.3 seconds** (`200 / 300 ms`) · `force.jump.pay_every_ms`
 
@@ -4757,7 +4757,7 @@ An active Force Jump spends Force points every
 0.2 seconds at rank 1 and every
 0.3 seconds at ranks 2 and 3.
 
-<sub>Source: JA (I23 4.6.1). Code: `sim::motion::force_jump`.</sub>
+<sub>Source: JA. Code: `sim::motion::force_jump`.</sub>
 
 <a id="force-jump-cost-above"></a>**Jump Cost Speeds** = **6.4 meters per second / 5.1 meters per second / 3.8 meters per second / 2.5 meters per second / 1.3 meters per second / 0 meters per second** (`250 / 200 / 150 / 100 / 50 / 0 units/s`) · `force.jump.cost_above`
 
@@ -4767,7 +4767,7 @@ Each Force Jump cost applies above a rising speed of
 6.4 meters per second / 5.1 meters per second / 3.8 meters per second / 2.5 meters per second / 1.3 meters per second / 0 meters per second, from the fastest to the slowest. A falling
 character pays nothing.
 
-<sub>Source: JA (I23 4.6.1). Code: `sim::motion::force_jump`.</sub>
+<sub>Source: JA. Code: `sim::motion::force_jump`.</sub>
 
 <a id="force-jump-cost-points"></a>**Jump Cost** = **20 points / 16 points / 12 points / 8 points / 6 points / 4 points** (`20 / 16 / 12 / 8 / 6 / 4 points`) · `force.jump.cost_points`
 
@@ -4776,7 +4776,7 @@ fastest **20 points** · faster **16 points** · fast **12 points** · slow **8 
 Each payment costs 20 / 16 / 12 / 8 / 6 / 4% of maximum Force points,
 from the fastest rise to the slowest, divided by the rank.
 
-<sub>Source: JA (I23 4.6.1). Code: `sim::motion::force_jump`.</sub>
+<sub>Source: JA. Code: `sim::motion::force_jump`.</sub>
 
 ### <a id="force-tsl-regeneration"></a>Regeneration in TSL
 
@@ -6184,13 +6184,13 @@ A creature with no perception range of its own sees 30.5 meters.
 
 A creature that spots an enemy outside combat acts after 1.5 seconds, less 0.15 seconds for each rank of Awareness.
 
-<sub>Source: ours (I22 section 5). Code: `sim::combat::ai::reaction_ms`.</sub>
+<sub>Source: ours. Code: `sim::combat::ai::reaction_ms`.</sub>
 
 <a id="minds-looking-reaction-per-rank-ms"></a>**Awareness Reaction Bonus** = **0.15 seconds** (`150 ms`) · `minds.looking.reaction_per_rank_ms`
 
 Each rank of Awareness lets a creature act 0.15 seconds sooner on an enemy it spots.
 
-<sub>Source: ours (I22 section 5). Code: `sim::combat::ai::reaction_ms`.</sub>
+<sub>Source: ours. Code: `sim::combat::ai::reaction_ms`.</sub>
 
 ### <a id="minds-tasks"></a>Combat Tactics
 
@@ -6600,7 +6600,7 @@ can take it.
 
 A party member stays reserved for its player for 60 seconds after that player's last command.
 
-<sub>Source: ours (I30 P5). Code: `sim::world::drivers::assign`.</sub>
+<sub>Source: ours. Code: `sim::world::drivers::assign`.</sub>
 
 ### <a id="party-exits"></a>Leaving an Area
 
@@ -6614,7 +6614,7 @@ party cannot leave during combat.
 
 The host may force the party to leave 5 seconds after a player asks to leave.
 
-<sub>Source: ours (I30 P16). Code: `sim::world::party::ready`.</sub>
+<sub>Source: ours. Code: `sim::world::party::ready`.</sub>
 
 ## <a id="stealth"></a>Stealth and Awareness
 
@@ -6686,19 +6686,19 @@ A creature's Stealth, spot and listen rolls last 20 seconds before they are roll
 
 A Stealth roll is 10 + 1-10.
 
-<sub>Source: K1's executable (S12). Code: `sim::stealth::Rolls::draw`.</sub>
+<sub>Source: K1's executable. Code: `sim::stealth::Rolls::draw`.</sub>
 
 <a id="stealth-rolls-sneak-die"></a>**Stealth Roll Die** = **10** · `stealth.rolls.sneak_die`
 
 A Stealth roll adds 1-10 to its base.
 
-<sub>Source: K1's executable (S12). Code: `sim::stealth::Rolls::draw`.</sub>
+<sub>Source: K1's executable. Code: `sim::stealth::Rolls::draw`.</sub>
 
 <a id="stealth-rolls-watch-die"></a>**Awareness Roll Die** = **20** · `stealth.rolls.watch_die`
 
 Spot and listen rolls are 1-20.
 
-<sub>Source: K1's executable (S12). Code: `sim::stealth::Rolls::draw`.</sub>
+<sub>Source: K1's executable. Code: `sim::stealth::Rolls::draw`.</sub>
 
 ### <a id="stealth-spot"></a>Spot Check
 
@@ -6719,13 +6719,13 @@ opponent with True Seeing always sees.
 
 A running opponent suffers -5 to its spot check.
 
-<sub>Source: K1's executable (S12). Code: `sim::stealth::spot_score`.</sub>
+<sub>Source: K1's executable. Code: `sim::stealth::spot_score`.</sub>
 
 <a id="stealth-spot-behind"></a>**Behind Penalty** = **5 points** · `stealth.spot.behind`
 
 An opponent suffers -5 to its spot check against a character behind it.
 
-<sub>Source: K1's executable (S12). Code: `sim::stealth::spot_score`.</sub>
+<sub>Source: K1's executable. Code: `sim::stealth::spot_score`.</sub>
 
 <a id="stealth-spot-behind-cos"></a>**Behind Arc** = **-0.707** · `stealth.spot.behind_cos`
 
@@ -6733,31 +6733,31 @@ A character is behind an opponent when the cosine of the angle between
 the opponent's facing and the character is -0.707
 or less.
 
-<sub>Source: K1's executable (S12). Code: `sim::stealth::spot_score`.</sub>
+<sub>Source: K1's executable. Code: `sim::stealth::spot_score`.</sub>
 
 <a id="stealth-spot-in-combat"></a>**Combat Penalty** = **10 points** · `stealth.spot.in_combat`
 
 An opponent in combat suffers -10 to its spot check.
 
-<sub>Source: K1's executable (S12). Code: `sim::stealth::spot_score`.</sub>
+<sub>Source: K1's executable. Code: `sim::stealth::spot_score`.</sub>
 
 <a id="stealth-spot-still-sneaker"></a>**Standing Still Bonus** = **5 points** · `stealth.spot.still_sneaker`
 
 A character in Stealth Mode standing still gives -5 to the opponent's spot check.
 
-<sub>Source: K1's executable (S12). Code: `sim::stealth::spot_score`.</sub>
+<sub>Source: K1's executable. Code: `sim::stealth::spot_score`.</sub>
 
 <a id="stealth-spot-still-watcher"></a>**Watching Bonus** = **5 points** · `stealth.spot.still_watcher`
 
 An opponent standing still gains +5 to its spot check.
 
-<sub>Source: K1's executable (S12). Code: `sim::stealth::spot_score`.</sub>
+<sub>Source: K1's executable. Code: `sim::stealth::spot_score`.</sub>
 
 <a id="stealth-spot-metres-a-point"></a>**Spot Distance** = **3 m** · `stealth.spot.metres_a_point`
 
 Every 3 meters of distance gives -1 to the spot check.
 
-<sub>Source: K1's executable (S12). Code: `sim::stealth::spot_score`.</sub>
+<sub>Source: K1's executable. Code: `sim::stealth::spot_score`.</sub>
 
 <a id="stealth-spot-free-points"></a>**Spot Distance Free** = **2** · `stealth.spot.free_points`
 
@@ -6765,7 +6765,7 @@ The first 2 steps of
 3 meters give no penalty to the spot
 check.
 
-<sub>Source: K1's executable (S12). Code: `sim::stealth::spot_score`.</sub>
+<sub>Source: K1's executable. Code: `sim::stealth::spot_score`.</sub>
 
 ### <a id="stealth-listen"></a>Listen Check
 
@@ -6783,7 +6783,7 @@ creature neither sees nor hears.
 
 Every 3 meters of distance gives -1 to the listen check.
 
-<sub>Source: K1's executable (S12). Code: `sim::stealth::listen_score`.</sub>
+<sub>Source: K1's executable. Code: `sim::stealth::listen_score`.</sub>
 
 <a id="stealth-listen-size"></a>**Size** = **-8 points / -4 points / 0 points / 4 points / 8 points** (`-8 / -4 / 0 / 4 / 8 points`) · `stealth.listen.size`
 
@@ -6791,13 +6791,13 @@ Tiny **-8 points** · Small **-4 points** · Medium **0 points** · Large **4 po
 
 A creature's size modifies the listen check against it, from Tiny to Huge: -8 points / -4 points / 0 points / 4 points / 8 points.
 
-<sub>Source: K1's executable (S12). Code: `sim::stealth::listen_score`.</sub>
+<sub>Source: K1's executable. Code: `sim::stealth::listen_score`.</sub>
 
 <a id="stealth-listen-wall-a-metre"></a>**Wall Penalty** = **5 points** · `stealth.listen.wall_a_metre`
 
 Each meter of wall between them gives -5 to the listen check.
 
-<sub>Source: K1's executable (S12). Code: `sim::stealth::listen_score`.</sub>
+<sub>Source: K1's executable. Code: `sim::stealth::listen_score`.</sub>
 
 ### <a id="stealth-perception"></a>Perception
 
@@ -6811,19 +6811,19 @@ checked before sight.
 
 An active creature checks what it perceives at least 0.3 seconds apart.
 
-<sub>Source: K1's executable (S13, the owner's choice 2026-10-04). Code: `sim::world::scripts::perceive`.</sub>
+<sub>Source: K1's executable (the owner's choice 2026-10-04). Code: `sim::world::scripts::perceive`.</sub>
 
 <a id="stealth-perception-active-spread-ms"></a>**Perception Spread** = **0.4 seconds** (`400 ms`) · `stealth.perception.active_spread_ms`
 
 Each wait between perception checks is up to 0.4 seconds longer, at random.
 
-<sub>Source: K1's executable (S13). Code: `sim::world::scripts::perceive`.</sub>
+<sub>Source: K1's executable. Code: `sim::world::scripts::perceive`.</sub>
 
 <a id="stealth-perception-idle-ms"></a>**Perception in Conversation** = **4 seconds** (`4000 ms`) · `stealth.perception.idle_ms`
 
 A creature in a conversation checks what it perceives every 4 seconds.
 
-<sub>Source: K1's executable (S13). Code: `sim::world::scripts::perceive`.</sub>
+<sub>Source: K1's executable. Code: `sim::world::scripts::perceive`.</sub>
 
 ### <a id="stealth-stealth-xp"></a>Stealth Experience
 
@@ -6835,7 +6835,7 @@ hostile creature sees a party member, the award is reduced
 
 The area's stealth experience is reduced 6 seconds after a hostile creature sees a party member.
 
-<sub>Source: K1's executable (S15). Code: `sim::world::scripts::stealth_loss`.</sub>
+<sub>Source: K1's executable. Code: `sim::world::scripts::stealth_loss`.</sub>
 
 ## <a id="traps"></a>Mines
 
@@ -6859,31 +6859,31 @@ party.
 
 Every creature searches for mines every 0.1 seconds. Awareness is always active.
 
-<sub>Source: K1's executable (S5). Code: `sim::world::traps::detect`.</sub>
+<sub>Source: K1's executable. Code: `sim::world::traps::detect`.</sub>
 
 <a id="traps-detect-range-m"></a>**Search Range** = **20 m** · `traps.detect.range_m`
 
 A creature searches for mines up to 20 meters beyond a mine's radius.
 
-<sub>Source: K1's executable (S5). Code: `sim::world::traps::detect`.</sub>
+<sub>Source: K1's executable. Code: `sim::world::traps::detect`.</sub>
 
 <a id="traps-detect-base"></a>**Search Bonus** = **10** · `traps.detect.base`
 
 An Awareness check against a mine adds +10 to the roll.
 
-<sub>Source: K1's executable (S5). Code: `sim::traps::detects`.</sub>
+<sub>Source: K1's executable. Code: `sim::traps::detects`.</sub>
 
 <a id="traps-detect-die"></a>**Search Die** = **10** · `traps.detect.die`
 
 An Awareness check against a mine rolls 1d10.
 
-<sub>Source: K1's executable (S5). Code: `sim::world::traps::detect`.</sub>
+<sub>Source: K1's executable. Code: `sim::world::traps::detect`.</sub>
 
 <a id="traps-detect-running"></a>**Running Penalty** = **5 points** · `traps.detect.running`
 
 A running character suffers a -5 penalty to Awareness checks against mines.
 
-<sub>Source: K1's executable (S5). Code: `sim::traps::detects`.</sub>
+<sub>Source: K1's executable. Code: `sim::traps::detects`.</sub>
 
 ### <a id="traps-disarm"></a>Disarm Mine
 
@@ -6905,7 +6905,7 @@ enough). A failed attempt may be tried again.
 
 Disarming or recovering a mine takes 4.5 seconds.
 
-<sub>Source: K1's executable (S7). Code: `sim::world::traps::skill_uses`.</sub>
+<sub>Source: K1's executable. Code: `sim::world::traps::skill_uses`.</sub>
 
 <a id="traps-disarm-reach-m"></a>**Disarm Range** = **3 m** · `traps.disarm.reach_m`
 
@@ -6917,13 +6917,13 @@ A mine can be disarmed or recovered from up to 3 meters of its center, outside i
 
 A mine with a disarm DC above 35 cannot be disarmed.
 
-<sub>Source: K1's executable (S7). Code: `sim::traps::disarm`.</sub>
+<sub>Source: K1's executable. Code: `sim::traps::disarm`.</sub>
 
 <a id="traps-disarm-springs-short-by"></a>**Disarm Failure** = **10 points** · `traps.disarm.springs_short_by`
 
 Failing to disarm a mine by more than 10 sets it off.
 
-<sub>Source: K1's executable (S7). Code: `sim::traps::disarm`.</sub>
+<sub>Source: K1's executable. Code: `sim::traps::disarm`.</sub>
 
 ### <a id="traps-recover"></a>Recover Mine
 
@@ -6935,13 +6935,13 @@ the mine. A recovered mine is added to the party's inventory.
 
 Attempting to recover a mine adds +10 to the disarm DC.
 
-<sub>Source: K1's executable (S8). Code: `sim::traps::recover`.</sub>
+<sub>Source: K1's executable. Code: `sim::traps::recover`.</sub>
 
 <a id="traps-recover-springs-short-by"></a>**Recover Failure** = **5 points** · `traps.recover.springs_short_by`
 
 Failing to recover a mine by more than 5 sets it off.
 
-<sub>Source: K1's executable (S8). Code: `sim::traps::recover`.</sub>
+<sub>Source: K1's executable. Code: `sim::traps::recover`.</sub>
 
 ### <a id="traps-lay"></a>Set Mine
 
@@ -6960,37 +6960,37 @@ anyway. A set mine covers 2 meters to each side.
 
 Setting a mine, or a mine on a door in TSL, takes 2 seconds.
 
-<sub>Source: K1's executable (S9). Code: `sim::world::traps::begin_laying`.</sub>
+<sub>Source: K1's executable. Code: `sim::world::traps::begin_laying`.</sub>
 
 <a id="traps-lay-most"></a>**Most Mines Set** = **15** · `traps.lay.most`
 
 The party may have at most 15 mines set in an area.
 
-<sub>Source: K1's executable (S9). Code: `sim::world::traps::begin_laying`.</sub>
+<sub>Source: K1's executable. Code: `sim::world::traps::begin_laying`.</sub>
 
 <a id="traps-lay-half-m"></a>**Mine Area** = **2 m** · `traps.lay.half_m`
 
 A mine set by the party covers 2 meters to each side.
 
-<sub>Source: K1's executable (S9). Code: `sim::world::traps::holds`.</sub>
+<sub>Source: K1's executable. Code: `sim::world::traps::holds`.</sub>
 
 <a id="traps-lay-ranks-for-bonus"></a>**Set Bonus Ranks** = **5** · `traps.lay.ranks_for_bonus`
 
 A character with 5 or more ranks in Demolitions, not counting bonuses, gains a bonus to set mines.
 
-<sub>Source: K1's executable (S9). Code: `sim::traps::lay`.</sub>
+<sub>Source: K1's executable. Code: `sim::traps::lay`.</sub>
 
 <a id="traps-lay-ranks-bonus"></a>**Set Bonus** = **2 points** · `traps.lay.ranks_bonus`
 
 Enough ranks in Demolitions give a +2 bonus to set mines.
 
-<sub>Source: K1's executable (S9). Code: `sim::traps::lay`.</sub>
+<sub>Source: K1's executable. Code: `sim::traps::lay`.</sub>
 
 <a id="traps-lay-lays-anyway-short-by"></a>**Set in Combat** = **10 points** · `traps.lay.lays_anyway_short_by`
 
 In combat, a check to set a mine that fails by more than 10 sets the mine anyway.
 
-<sub>Source: K1's executable (S9, QUIRKS.md Q-0142). Code: `sim::traps::lay`.</sub>
+<sub>Source: K1's executable (QUIRKS.md Q-0142). Code: `sim::traps::lay`.</sub>
 
 ### <a id="traps-springing"></a>Triggering Mines
 
@@ -7287,7 +7287,7 @@ once.
 
 An unconscious party member stays down at least 2 seconds before it can get up.
 
-<sub>Source: ours (I30 P11). Code: `sim::world::falls::falls`.</sub>
+<sub>Source: ours. Code: `sim::world::falls::falls`.</sub>
 
 <a id="downed-rising-rise-hp"></a>**Vitality on Rising** = **100** · `downed.rising.rise_hp`
 
@@ -7309,7 +7309,7 @@ Party members under AI control do not revive others.
 
 A character with no ranks in Treat Injury revives an ally in 3 seconds.
 
-<sub>Source: I30 P11's "a few seconds" (ours). Code: `sim::world::falls::revive_ms`.</sub>
+<sub>Source: ours ("a few seconds"). Code: `sim::world::falls::revive_ms`.</sub>
 
 <a id="downed-revive-rank-ms"></a>**Revive Time per Rank** = **0.1 seconds** (`100 ms`) · `downed.revive.rank_ms`
 
@@ -7588,7 +7588,7 @@ Heartbeat scripts run every 6 seconds, once a round.
 
 A character's damaged script, and its attacked script for each attacker, runs at most once every 0.5 seconds.
 
-<sub>Source: ours (I22 C15). Code: `sim::world::scripts::scripts`.</sub>
+<sub>Source: ours. Code: `sim::world::scripts::scripts`.</sub>
 
 <a id="world-timings-flourish-ms"></a>**Weapon Flourish** = **1 second** (`1000 ms`) · `world.timings.flourish_ms`
 
@@ -8867,13 +8867,13 @@ only as far as its head cannot.
 
 A line with no camera angle of its own takes the next angle in this sequence: 1 / 3 / 1 / 3 / 2 / 2 / 1 / 3 / 1 / 2 / 1 / 2 / 1 / 3 / 2 / 3 / 1 / 1 / 1.
 
-<sub>Source: KOTOR's executable (design S6). Code: `sim::script::dialogue::angle_walk`.</sub>
+<sub>Source: KOTOR's executable. Code: `sim::script::dialogue::angle_walk`.</sub>
 
 <a id="dialogue-cameras-first-default-angle"></a>**First Angle** = **2** · `dialogue.cameras.first_default_angle`
 
 The first line of a conversation, and the first set of replies, use angle 2 when they have none of their own.
 
-<sub>Source: KOTOR's executable (design S6). Code: `sim::script::dialogue`.</sub>
+<sub>Source: KOTOR's executable. Code: `sim::script::dialogue`.</sub>
 
 <a id="dialogue-cameras-head-margin"></a>**Turning to the Listener** = **1°** · `dialogue.cameras.head_margin`
 
@@ -8914,13 +8914,13 @@ When a conversation begins, party members farther than 10 meters away are brough
 
 A line spoken by another player's character waits up to 10 seconds for that player's own conversation to end, then plays without it.
 
-<sub>Source: ours (R4). Code: `sim::script::dialogue`.</sub>
+<sub>Source: ours. Code: `sim::script::dialogue`.</sub>
 
 <a id="dialogue-coop-story-depth"></a>**Story Replies** = **4** · `dialogue.coop.story_depth`
 
 A reply advances the story if it, or any of the next 4 lines it leads to, gives a quest or plot experience or runs a script that may.
 
-<sub>Source: ours (R6). Code: `sim::script::dialogue::story`.</sub>
+<sub>Source: ours. Code: `sim::script::dialogue::story`.</sub>
 
 ### <a id="dialogue-clock"></a>Rounds and Turns
 
@@ -9006,7 +9006,7 @@ which waits up to 20 seconds for the others.
 
 Once the first player finishes, a co-op race waits up to 20 seconds for the others.
 
-<sub>Source: ours (M10). Code: `sim::minigame::course::Leaving`.</sub>
+<sub>Source: ours. Code: `sim::minigame::course::Leaving`.</sub>
 
 ## <a id="pazaak"></a>Pazaak
 

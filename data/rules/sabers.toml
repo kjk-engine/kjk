@@ -247,7 +247,7 @@ value = 160.0
 unit = "units"
 range = [16.0, 1000.0]
 summary = "A blade must pass through {sabers.sweep.nominal:m} of a body in one attack to deal its full damage roll."
-source = "ours (I22 C5, a delegated number)"
+source = "ours"
 see = "sim::combat::saber::sweep::Contact::due_share"
 applies = ["kind:lightsaber", "kind:melee"]
 
@@ -810,7 +810,7 @@ value = 5
 unit = "points"
 range = [1, 50]
 summary = "Every {sabers.bolts.deflect_per_level} of deflection bonus on a lightsaber raises its bolt level by 1. A penalty lowers it."
-source = "I22 C6, ours"
+source = "ours"
 see = "sim::combat::saber::defence::bolt_level"
 applies = ["kind:lightsaber"]
 
@@ -1017,7 +1017,7 @@ value = 400
 unit = "ms"
 range = [0, 512]
 summary = "A player's attacks are checked against the world as that player saw it, up to {sabers.lag.rewind_ms:s} ago."
-source = "I25, ours"
+source = "ours"
 see = "sim::world::history::History::view_tick"
 applies = ["kind:player"]
 
@@ -1028,6 +1028,6 @@ value = 100
 unit = "ms"
 range = [0, 400]
 summary = "A blade's hit on a player on another machine waits up to {sabers.lag.grace_ms:s} for that player's block."
-source = "I22 C19, ours"
+source = "ours"
 see = "sim::combat::saber::grace::wait"
 applies = ["kind:player", "kind:lightsaber", "kind:melee"]

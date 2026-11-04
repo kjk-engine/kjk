@@ -93,5 +93,5 @@ value = 20_000
 unit = "ms"
 range = [0, 120000]
 summary = "Once the first player finishes, a co-op race waits up to {minigames.coop.leave_wait_ms:s} for the others."
-source = "ours (M10)"
+source = "ours"
 see = "sim::minigame::course::Leaving"

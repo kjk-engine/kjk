@@ -80,7 +80,7 @@ value = 800
 unit = "ms"
 range = [50, 5000]
 summary = "A blaster pistol fires once every {weapons.pistol.refire_ms:s}."
-source = "JA (the Bryar's fire interval); I23 table 1.2"
+source = "JA (the Bryar's fire interval)"
 see = "sim::combat::weapons::primary"
 
 [pistol.pair_gap]
@@ -125,7 +125,7 @@ value = 350
 unit = "ms"
 range = [50, 5000]
 summary = "A blaster rifle fires once every {weapons.rifle.refire_ms:s}."
-source = "JA (the E-11's fire interval); I23 table 1.2"
+source = "JA (the E-11's fire interval)"
 see = "sim::combat::weapons::primary"
 
 [rifle.speed]
@@ -149,7 +149,7 @@ value = 100
 unit = "ms"
 range = [20, 5000]
 summary = "A repeating blaster fires once every {weapons.repeater.refire_ms:s}."
-source = "JA (the repeater's fire interval); I23 table 1.2"
+source = "JA (the repeater's fire interval)"
 see = "sim::combat::weapons::primary"
 
 [repeater.speed]
@@ -191,7 +191,7 @@ value = 1000
 unit = "ms"
 range = [50, 5000]
 summary = "A bowcaster fires once every {weapons.bowcaster.refire_ms:s}."
-source = "JA (the bowcaster's fire interval); I23 table 1.2"
+source = "JA (the bowcaster's fire interval)"
 see = "sim::combat::weapons::primary"
 
 [bowcaster.speed]
@@ -233,7 +233,7 @@ value = 600
 unit = "ms"
 range = [50, 5000]
 summary = "A disruptor fires once every {weapons.disruptor.refire_ms:s}."
-source = "JA (the disruptor's fire interval); I23 table 1.2"
+source = "JA (the disruptor's fire interval)"
 see = "sim::combat::weapons::primary"
 
 [disruptor.muzzle]
@@ -274,7 +274,7 @@ value = 500
 unit = "ms"
 range = [50, 5000]
 summary = "An ion weapon fires once every {weapons.ion.refire_ms:s}."
-source = "JA (the DEMP2's fire interval); I23 table 1.2"
+source = "JA (the DEMP2's fire interval)"
 see = "sim::combat::weapons::primary"
 
 [ion.speed]
@@ -315,7 +315,7 @@ value = 700
 unit = "ms"
 range = [50, 5000]
 summary = "A sonic weapon fires once every {weapons.sonic.refire_ms:s}."
-source = "JA (the flechette's fire interval); I23 table 1.2"
+source = "JA (the flechette's fire interval)"
 see = "sim::combat::weapons::primary"
 
 [sonic.speed]
