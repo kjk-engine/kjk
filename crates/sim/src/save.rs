@@ -145,7 +145,9 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 71: deferred and queued code carry whether their caller's own AI deferred
 /// them (`Delayed::ai`, `Action::Code::ai`). Old saves: old saves read `ai =
 /// false`: code deferred before ran as a story script's, as it did.
-pub const VERSION: u32 = 71 + crate::pending::SAVE;
+/// 72: deferred code keeps its script's digest (`Delayed::code`). Old saves:
+/// old saves read `code = None`: trusted as before.
+pub const VERSION: u32 = 72 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

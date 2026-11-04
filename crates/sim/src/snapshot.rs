@@ -189,7 +189,14 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// whether a pick dropped the grenade charge (`Picks::items`,
 /// `Pack::charge_off`). Old saves: old saves read no item picks and no dropped
 /// charge: each key uses what it did.
-pub const VERSION: u32 = 77 + crate::pending::SNAPSHOT;
+/// 78: a remote droid carries its view's pitch and where its last shock bolt
+/// stopped (`Remote::pitch`, `Remote::bolt_to`). Old saves: old saves read a
+/// level view and the last bolt stopped at the droid: a save holds no droid,
+/// the world makes them again each step.
+/// 79: the snapshot and each module left keep the placements' roster as
+/// installed (`Snapshot::roster`). Old saves: old saves read no roster: trusted
+/// as before.
+pub const VERSION: u32 = 79 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
