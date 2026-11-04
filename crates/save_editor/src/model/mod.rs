@@ -2,3 +2,4 @@
 
 pub mod catalog;
 pub mod locate;
+pub mod session;
