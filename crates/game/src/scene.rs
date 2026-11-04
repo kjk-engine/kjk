@@ -1923,6 +1923,11 @@ impl Animator {
         (Vec3::from_array(place), Quat::from_xyzw(x, y, z, w))
     }
 
+    /// The clip's name, as `model_fx` keys it (lowercase).
+    pub(crate) fn clip_name(&self) -> String {
+        self.clip.name.to_ascii_lowercase()
+    }
+
     /// Poses the bound nodes as the clip has them `at` seconds in.
     pub(crate) fn pose(&self, at: f32, transforms: &mut Query<&mut Transform>) {
         for &(entity, rest_t, rest_r, track) in &self.bindings {

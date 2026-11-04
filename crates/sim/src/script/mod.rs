@@ -288,6 +288,24 @@ pub fn camera_clip_name(animation: u16) -> Option<String> {
     Some(format!("cut{n:03}w"))
 }
 
+/// The clip a node's `CameraAnimation` has its conversation's camera model
+/// play, and whether it carries on the one already playing: 1200 on start
+/// `cut001w` and up (`camera_clip_name`); 1000 on carry on that clip from
+/// where it is (TSL: Kreia's lines on arriving at Korriban, `kreia_kr`'s
+/// 1000s after the pan's 1200; `miratch`'s 1001 after 1201) [verify in the
+/// exe]. reone names a 1000 `cut-199w`, a clip no model has, so its camera
+/// plays on as well.
+pub fn camera_cue(animation: u16) -> Option<(String, bool)> {
+    match animation.checked_sub(FIRST_CONTINUED_CLIP)? {
+        n @ 0..200 => Some((format!("cut{:03}w", n + 1), true)),
+        _ => Some((camera_clip_name(animation)?, false)),
+    }
+}
+
+/// The first `CameraAnimation` value carrying on a playing clip
+/// (`camera_cue`).
+const FIRST_CONTINUED_CLIP: u16 = 1000;
+
 /// The first `CameraAnimation` / `AnimList` value naming a clip
 /// (`camera_clip_name`), and the first naming a `dialoganimations.2da` row
 /// (`Library::dialog_animation`).
@@ -404,6 +422,9 @@ pub fn alien_sound<'a>(
 pub struct Library {
     routines: Routines,
     programs: BTreeMap<String, Program>,
+    /// BLAKE3 of each program's compiled bytes, by script name: what a
+    /// saved continuation of it is checked against (`script_digest`).
+    digests: BTreeMap<String, [u8; 32]>,
     bound: Vec<Option<Bound>>,
     /// `OBJECT_TYPE_*` by kind, from the catalog.
     object_types: BTreeMap<ObjectKind, i32>,
@@ -522,9 +543,12 @@ impl Library {
         for routine in &catalog.routines {
             hasher.update(routine.to_string().as_bytes());
         }
+        let mut digests = BTreeMap::new();
         for (name, ncs) in &scripts {
+            let bytes = ncs.write();
             hasher.update(name.as_bytes());
-            hasher.update(&ncs.write());
+            hasher.update(&bytes);
+            digests.insert(name.clone(), *blake3::hash(&bytes).as_bytes());
         }
         let bound = catalog
             .routines
@@ -559,6 +583,7 @@ impl Library {
                 .into_iter()
                 .map(|(name, ncs)| (name, Program::new(ncs)))
                 .collect(),
+            digests,
             bound,
             object_types,
             criteria,
@@ -1018,9 +1043,10 @@ impl Library {
     }
 
     /// How long a conversation's camera model plays a node's
-    /// `CameraAnimation` (ms), if the model has that clip.
+    /// `CameraAnimation` (ms) from its start, if the model has that clip
+    /// (`camera_cue`).
     pub fn camera_clip(&self, model: &str, animation: u16) -> Option<u32> {
-        let clip = camera_clip_name(animation)?;
+        let (clip, _) = camera_cue(animation)?;
         self.camera_clips.get(&(key(model), clip)).copied()
     }
 
@@ -1267,6 +1293,12 @@ impl Library {
 
     pub fn program(&self, name: &str) -> Option<&Program> {
         self.programs.get(&key(name))
+    }
+
+    /// The BLAKE3 of script `name`'s compiled bytes, taken once as the
+    /// library was built.
+    pub fn script_digest(&self, name: &str) -> Option<[u8; 32]> {
+        self.digests.get(&key(name)).copied()
     }
 
     pub fn names(&self) -> impl Iterator<Item = &str> {
@@ -1764,6 +1796,22 @@ impl Out {
         ))
     }
 
+    /// Whether door or placeable `id` is locked as this step's scripts
+    /// leave it so far (their `SetLocked` and finished lock actions over
+    /// the step's view); `None` for what is neither. KOTOR's `SetLocked`
+    /// sets the object's flag at once, so the same script reads it back:
+    /// the Taris Sith base's cell panels (`tar09_wall1`…`5`) flip
+    /// themselves and their neighbours, then free the Duros when all five
+    /// read locked.
+    pub(super) fn locked(&self, view: &View, id: ObjectId) -> Option<bool> {
+        let now = view.thing(id)?.locked?;
+        let set = self.changes.iter().rev().find_map(|change| match *change {
+            Change::Lock { door, locked } if door == id => Some(locked),
+            _ => None,
+        });
+        Some(set.unwrap_or(now))
+    }
+
     /// The module's fade in as this step's scripts leave it so far.
     pub(super) fn world_fade_in(&self, view: &View) -> crate::snapshot::WorldFadeIn {
         self.world_fade_in.unwrap_or(view.world_fade_in)
@@ -1899,8 +1947,9 @@ pub enum Change {
     /// `who` leaves combat: no one to fight, out of it from now
     /// (`CancelCombat`).
     CancelCombat { who: ObjectId },
-    /// `who` attacks a target in its reach with a blade or fists: in
-    /// combat from now, as after a blow (`script::actions`, attack).
+    /// `who` attacks a target in its reach with a blade or fists, or
+    /// begins using a talent on itself: in combat from now, as after a blow
+    /// (`script::actions`, attack and talent).
     InCombat { who: ObjectId },
     /// `who` in TSL's fake combat (`on`, unless it fights for real) or out
     /// of it (`SetFakeCombatState`, `combat::Fighter::fake_until`).
@@ -2515,6 +2564,7 @@ impl Step<'_> {
                         script,
                         deferred,
                         ai,
+                        ..
                     } => {
                         pop(self.state);
                         let event = Event {
@@ -2844,8 +2894,20 @@ impl Step<'_> {
                         // come within the talent's reach).
                         let end = self.state.rounds.get(&id).copied();
                         let over = now >= end.unwrap_or(u64::MAX).min(started + ROUND_MS);
+                        // A cast on itself starts a combat round (the exes'
+                        // AIActionCastSpell calls StartCombatRound), so its
+                        // end-of-round script runs: the Star Forge freezer's
+                        // Resist Force on itself is what makes it engage and
+                        // unlock its door. One on another is in combat as
+                        // its blow lands; in combat from its start, the
+                        // feats and powers of Telos's mercenaries and
+                        // Korriban's Mandalorian vision kept fights going
+                        // that their scripts end.
                         if starting {
                             self.attacking(id, Some(*talent));
+                            if *target == who {
+                                self.out.changes.push(Change::InCombat { who });
+                            }
                         }
                         if !over {
                             let intent = Intent {
@@ -3252,6 +3314,14 @@ impl Step<'_> {
             let kind = self.view.thing(pending.caller).and_then(|thing| thing.kind);
             let hooked =
                 |hook| self.view.hook(pending.caller, hook).as_deref() == Some(&pending.script);
+            if hooked(Hook::Dialogue) {
+                // Kept as the event runs, not as it is queued: a shout
+                // queued after a click must not give the click its number.
+                let bits = pending.number as u32;
+                self.state
+                    .last
+                    .insert((pending.caller.0, last::PATTERN), bits);
+            }
             let entered = hooked(Hook::Enter);
             let on_enter = kind == Some(ObjectKind::Trigger) && entered;
             let cue = pending.entering.filter(|_| on_enter).map(|entering| Cue {

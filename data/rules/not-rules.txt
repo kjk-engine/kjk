@@ -475,6 +475,7 @@ crates/sim/src/script/engine.rs LOOPS_AT_ONCE  # script constant: the looping AN
 crates/sim/src/script/engine.rs NEUTRAL  # script constant: ALIGNMENT_*
 crates/sim/src/script/engine.rs NPC_PLAYER  # script constant: NPC_PLAYER
 crates/sim/src/script/engine.rs OPENED  # a `last` kind id
+crates/sim/src/script/engine.rs PATTERN  # a `last` kind id
 crates/sim/src/script/engine.rs PCS  # iterator kind id
 crates/sim/src/script/engine.rs PERCEIVED  # a `last` kind id
 crates/sim/src/script/engine.rs PERCEPTION  # a `last` kind id
@@ -505,6 +506,7 @@ crates/sim/src/script/influence.rs TOP  # the alignment and influence scale's to
 crates/sim/src/script/locks.rs DOOR_ACTIONS  # DOOR_ACTION_* script constants' names
 crates/sim/src/script/mod.rs CRITERIA  # script constants: CREATURE_TYPE_* names
 crates/sim/src/script/mod.rs FIRST_CUT_CLIP  # DLG value range: camera clips
+crates/sim/src/script/mod.rs FIRST_CONTINUED_CLIP  # DLG value range: camera clips carried on
 crates/sim/src/script/mod.rs FIRST_DIALOG_ANIMATION  # DLG value range: dialoganimations.2da rows
 crates/sim/src/script/mod.rs FLOOR_SEARCH_M  # placement: a place's floor search
 crates/sim/src/script/mod.rs HEARD  # perception kind id
@@ -658,3 +660,4 @@ crates/sim/src/world/sabers.rs VIEW_REACH  # a geometric reach, longer than any 
 crates/sim/src/notice.rs ENDING_MOVIES  # TSL's ending movies' names (the executable's own)
 crates/sim/src/world/remote/kit.rs HEALED_VISUAL  # a visualeffects.2da row
 crates/sim/src/world/remote/kit.rs REVIVED_VISUAL  # a visualeffects.2da row
+crates/sim/src/reconcile.rs SNAP_M  # kjk's own save migration: how far a body off the mesh is moved to the nearest walkable point, not a game number

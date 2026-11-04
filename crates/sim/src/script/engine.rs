@@ -295,6 +295,22 @@ pub mod last {
     /// The item its inventory was last disturbed with
     /// (`GetInventoryDisturbItem`).
     pub const DISTURB_ITEM: u8 = 31;
+    /// The number of the listen pattern its last dialogue event matched
+    /// (`GetListenPatternNumber`, as an `i32`'s bits): −1 for a click.
+    pub const PATTERN: u8 = 32;
+}
+
+/// The listen pattern number `who`'s last dialogue event matched, kept on
+/// it (`last::PATTERN`) so its other scripts read it too: K1's
+/// `k_ai_master` hands a click on one whose spawn asked for it to its
+/// `OnUserDefined` (event 1004), which begins the conversation only for
+/// pattern −1 (Tatooine's Tanis Venn's droids, `k_ptat_tandrduse`). −1
+/// ("no string matched") before it has had one.
+fn listen_pattern(state: &State, who: ObjectId) -> i32 {
+    state
+        .last
+        .get(&(who.0, last::PATTERN))
+        .map_or(-1, |bits| *bits as i32)
 }
 
 /// The game's clock as `GetTimeHour` … `GetTimeMillisecond` read it, sim
@@ -1471,10 +1487,20 @@ impl Engine<'_> {
         answer
     }
 
+    /// Where `id` stands: one made this step where it was made, as the
+    /// executables make an object at once (`tr_sion` makes Darth Sion and has
+    /// him start his talk from there, 18 m from the Exile).
     pub(super) fn position(&self, id: ObjectId) -> Option<[f32; 3]> {
         self.view
             .thing(id)
             .map(|thing| thing.position)
+            .or_else(|| {
+                self.out
+                    .made
+                    .iter()
+                    .find(|made| made.id == id)
+                    .map(|made| made.at)
+            })
             .or_else(|| self.lying(id).map(|lying| lying.at))
     }
 
@@ -1588,9 +1614,13 @@ impl Engine<'_> {
     /// The weapon `who` has (worn in `slot` or carried) for `slot` whose
     /// blow deals the most on average, of the kind asked for (ranged or
     /// melee), else of the other: what it wears first, then the first
-    /// carried; `None` when that is what it wears, or it has none.
+    /// carried; `None` when that is what it wears, or it has none. One it
+    /// lacks the feats for (`passive::may_equip`, as the equip screen) is
+    /// passed over: Brejik carries Bastila's lightsaber on Taris and
+    /// fights with his own blade.
     fn most_damaging(&self, who: ObjectId, ranged: bool, slot: u8) -> Option<ObjectId> {
         let catalog = self.library.items();
+        let feats = self.character(who).map(|c| c.feats);
         let worn = self.state.in_slot(who.0, slot);
         let carried = self.state.carried(items::holder(self.view, who));
         let weapons: Vec<(ObjectId, crate::combat::Weapon)> = worn
@@ -1599,7 +1629,9 @@ impl Engine<'_> {
             .filter_map(|id| {
                 let item = self.state.items.get(&id.0)?;
                 let facts = self.state.item_facts(catalog, &item.template)?;
-                (facts.slots & 1 << slot != 0).then_some((id, facts.weapon?))
+                let trained = feats
+                    .is_none_or(|feats| crate::combat::passive::may_equip(&feats, &facts.needs));
+                (facts.slots & 1 << slot != 0 && trained).then_some((id, facts.weapon?))
             })
             .collect();
         let kind = |wanted: bool| {
@@ -1938,11 +1970,7 @@ impl Engine<'_> {
                     .and_then(|thing| thing.open)
                     .is_some_and(|open| open != 0),
             ),
-            GetLocked => truth(
-                view.thing(object(args, 0))
-                    .and_then(|thing| thing.locked)
-                    .unwrap_or(false),
-            ),
+            GetLocked => truth(self.out.locked(view, object(args, 0)).unwrap_or(false)),
             SetLocked => {
                 self.out.changes.push(Change::Lock {
                     door: object(args, 0),
@@ -2654,7 +2682,7 @@ impl Engine<'_> {
                 patterns.push((pattern, int(args, 2)));
                 Value::Int(0)
             }
-            GetListenPatternNumber => Value::Int(self.event.number),
+            GetListenPatternNumber => Value::Int(listen_pattern(state, caller)),
             GetLastSpeaker => maybe(
                 state
                     .last
@@ -3985,6 +4013,7 @@ impl Engine<'_> {
                         self.script,
                         code,
                         (self.spell.cloned(), talk, self.event.cue, run, ai),
+                        self.library.script_digest(self.script),
                     );
                 }
                 Value::Int(0)
@@ -3996,7 +4025,8 @@ impl Engine<'_> {
                     let run = deferring_run(&self.event, caller);
                     let ai = self.event.ai == Some(target);
                     let carried = (self.spell.cloned(), talk, self.event.cue, run, ai);
-                    state.defer(now, target, self.script, code, carried);
+                    let digest = self.library.script_digest(self.script);
+                    state.defer(now, target, self.script, code, carried, digest);
                 }
                 Value::Int(0)
             }
@@ -4039,6 +4069,7 @@ impl Engine<'_> {
                         script: self.script.to_string(),
                         deferred,
                         ai: self.event.ai == Some(caller),
+                        code: self.library.script_digest(self.script),
                     },
                 ),
                 None => Value::Int(0),
@@ -4801,7 +4832,7 @@ impl Engine<'_> {
 }
 
 /// The distance between two points (metres).
-fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+pub(in crate::script) fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     let d: [f32; 3] = std::array::from_fn(|i| a[i] - b[i]);
     (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
 }
@@ -5281,6 +5312,7 @@ impl Engine<'_> {
         // The character switched to leads (the first seat plays it), until
         // a portrait click or `SetPartyLeader` lends the lead again.
         if npc == NPC_PLAYER {
+            self.leave_switched();
             self.state.party.switched = None;
             self.state.party.leader = None;
             return true;
@@ -5321,6 +5353,9 @@ impl Engine<'_> {
         let Some(body) = body else {
             return false;
         };
+        if self.state.party.switched != Some(npc) {
+            self.leave_switched();
+        }
         let party = &mut self.state.party;
         if let Some(slot) = party.available.get_mut(&npc) {
             slot.object = Some(body.0);
@@ -5328,6 +5363,36 @@ impl Engine<'_> {
         party.switched = Some(npc);
         party.leader = None;
         true
+    }
+
+    /// The companion played till now is left: as the exe's
+    /// `SwitchPlayerCharacter` (`SaveMember`, `KillNPCObject`), the table keeps
+    /// it as it stands and its creature goes, so a scene that makes its own
+    /// (`a_create_cut`'s Mira, TSL's arena) has the only one of that tag. One
+    /// in the party stays: the exe's left the party on being played, ours not.
+    fn leave_switched(&mut self) {
+        let Some(npc) = self.state.party.switched else {
+            return;
+        };
+        if self.state.party.has(npc) {
+            return;
+        }
+        super::keep_npc(self.view, self.state, self.out, npc);
+        let slot = self.state.party.available.get_mut(&npc);
+        if let Some(who) = slot.and_then(|slot| slot.object.take()).map(ObjectId) {
+            // What it carried stays the party's (T3-M4's shield, from TSL's
+            // prologue, as it joins later): the table keeps what it wears.
+            let carried: Vec<u32> = (self.state.items.held_by(who.0))
+                .filter(|(_, held)| held.slot.is_none())
+                .map(|(item, _)| item)
+                .collect();
+            for item in carried {
+                self.state
+                    .carry(self.out, ObjectId(item), crate::inventory::PARTY);
+            }
+            self.out.deleted.push(who);
+            self.out.changes.push(Change::destroy(who));
+        }
     }
 
     /// TSL's influence (`Party::influence`), as its exe's commands keep

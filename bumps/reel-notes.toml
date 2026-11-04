@@ -1,1 +1,9 @@
-sim = "A conversation node's fade ends as the next node plays, scripted Force casts play KOTOR's cast clips and land as their conjuring ends, a script's powers in a cutscene are cast as KOTOR casts them, a cleared queue leaves a conversation pause on, and CancelCombat clears all actions."
+sim = "A conversation node's fade ends as the next node plays, scripted Force casts play KOTOR's cast clips and land as their conjuring ends, a script's powers in a cutscene are cast as KOTOR casts them, a cleared queue leaves a conversation pause on, and CancelCombat clears all actions. A script's lit saber is one act, party sabers go out in talk, a switched-away companion's creature goes, the conversed-with owns a talk, a talk's end clears the video effect, explosion deaths fall free, cinematic talks start from 10 m, and hostiles do nothing while the player talks (their queues cleared each step, as the exes' ClearAllPlayerHostileActions). A talent used on oneself starts a combat round, so its end of round runs (one used on another is in combat as it lands) (the Star Forge freezer engages after its Resist Force). A seat's body a conversation walks into an exit is its tenant and asks nothing, then or after (the Trayus Academy's opening scene no longer sends the Exile back to the depths). A creature a script makes is where it was made for the rest of that step (Darth Sion starts his talk from 18 m, not run up to the Exile), and a conversation line of CameraAnimation 1000 carries its camera clip on, waiting for what is left of it. A script's push records when it threw its target (`Fighter::blasted_ms`)."
+
+[formats]
+snapshot = "a conversation carries when its camera clip began (`Conversation::clip_from_ms`), and a fighter when a script's push last threw it (`Fighter::blasted_ms`)."
+save = "a conversation carries when its camera clip began (`Conversation::clip_from_ms`)."
+
+[migrations]
+snapshot = "old snapshots read `clip_from_ms = 0` and `blasted_ms = 0`: no camera clip playing, no body blasted"
+save = "old saves read `clip_from_ms = 0`: no camera clip playing"

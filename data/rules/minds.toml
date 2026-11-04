@@ -48,7 +48,7 @@ value = 1500
 unit = "ms"
 range = [0, 10000]
 summary = "A creature that spots an enemy outside combat acts after {minds.looking.reaction_ms:s}, less {minds.looking.reaction_per_rank_ms:s} for each rank of Awareness."
-source = "ours (I22 section 5)"
+source = "ours"
 see = "sim::combat::ai::reaction_ms"
 applies = ["skill:Awareness"]
 
@@ -59,7 +59,7 @@ value = 150
 unit = "ms"
 range = [0, 1000]
 summary = "Each rank of Awareness lets a creature act {minds.looking.reaction_per_rank_ms:s} sooner on an enemy it spots."
-source = "ours (I22 section 5)"
+source = "ours"
 see = "sim::combat::ai::reaction_ms"
 applies = ["skill:Awareness"]
 

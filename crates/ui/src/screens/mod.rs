@@ -54,6 +54,9 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
     if let Some(then) = name.strip_prefix("chargen:") {
         return Some(Box::new(chargen::Chargen::new(then)?));
     }
+    if let Some(id) = name.strip_prefix("story_restore:") {
+        return Some(Box::new(message::Restore::new(id, vm)));
+    }
     if let Some(strref) = name.strip_prefix("message_box:") {
         return Some(Box::new(message::Message::told(strref)?));
     }

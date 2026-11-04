@@ -336,6 +336,7 @@ pub fn conversation() -> Conversation {
         pair: (ObjectId(7), ObjectId(4)),
         lock_turn: vec![ObjectId(7)],
         lock_head: vec![ObjectId(2), ObjectId(4)],
+        clip_from_ms: 1250,
     }
 }
 
@@ -417,7 +418,7 @@ fn state() -> Check {
         locals: Vec::new(),
     };
     let carried = (None, Some(3), Some(cue), Some(1), true);
-    state.defer(500, ObjectId(1), "k_def_dialogue01", code, carried);
+    state.defer(500, ObjectId(1), "k_def_dialogue01", code, carried, None);
     let mut out = Writer::default();
     state.encode(&mut out);
     let read = State::decode(&mut Reader::new("state", &out.0));

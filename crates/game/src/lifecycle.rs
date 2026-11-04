@@ -204,6 +204,50 @@ impl Prepared {
     }
 }
 
+/// The item templates of the whole install by resref, for a story restore
+/// (`saves::Story::restore`): an item that no module planned lacks is read
+/// from the module whose archives hold it. The modules' archives are listed
+/// once, at the first ask.
+pub struct ItemSearch<'a> {
+    installer: &'a Installer,
+    owners: std::cell::OnceCell<std::collections::BTreeMap<String, String>>,
+}
+
+impl<'a> ItemSearch<'a> {
+    pub fn new(installer: &'a Installer) -> Self {
+        ItemSearch {
+            installer,
+            owners: std::cell::OnceCell::new(),
+        }
+    }
+
+    /// The facts of item template `template`: the install's shared data's,
+    /// else the first module's whose own archives hold it.
+    pub fn facts(&self, template: &str) -> Option<sim::inventory::ItemFacts> {
+        let name = template.to_ascii_lowercase();
+        let shared = self.installer.base_resolver().ok();
+        if let Some(found) =
+            shared.and_then(|base| session::item_facts(&ResolverSource(base), &name))
+        {
+            return Some(found);
+        }
+        let owners = self.owners.get_or_init(|| {
+            let mut owners = std::collections::BTreeMap::new();
+            for module in Resolver::modules(&self.installer.install.index) {
+                let Ok(resolver) = self.installer.resolver(&module) else {
+                    continue;
+                };
+                for item in resolver.module_names(fmt_odyssey::ResType::UTI) {
+                    owners.entry(item).or_insert_with(|| module.clone());
+                }
+            }
+            owners
+        });
+        let resolver = self.installer.resolver(owners.get(&name)?).ok()?;
+        session::item_facts(&ResolverSource(&resolver), &name)
+    }
+}
+
 impl Installer {
     /// Every module of the install, by name.
     #[cfg(feature = "probes")]

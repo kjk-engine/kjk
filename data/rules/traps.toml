@@ -30,7 +30,7 @@ value = 100
 unit = "ms"
 range = [10, 5000]
 summary = "Every creature searches for mines every {traps.detect.every_ms:s}. Awareness is always active."
-source = "K1's executable (S5)"
+source = "K1's executable"
 see = "sim::world::traps::detect"
 applies = ["kind:mine", "skill:Awareness"]
 
@@ -41,7 +41,7 @@ value = 20.0
 unit = "m"
 range = [1.0, 100.0]
 summary = "A creature searches for mines up to {traps.detect.range_m:bare} meters beyond a mine's radius."
-source = "K1's executable (S5)"
+source = "K1's executable"
 see = "sim::world::traps::detect"
 applies = ["kind:mine", "skill:Awareness"]
 
@@ -51,7 +51,7 @@ type = "i16"
 value = 10
 range = [0, 30]
 summary = "An Awareness check against a mine adds +{traps.detect.base:bare} to the roll."
-source = "K1's executable (S5)"
+source = "K1's executable"
 see = "sim::traps::detects"
 applies = ["kind:mine", "skill:Awareness"]
 
@@ -61,7 +61,7 @@ type = "u32"
 value = 10
 range = [1, 40]
 summary = "An Awareness check against a mine rolls 1d{traps.detect.die:bare}."
-source = "K1's executable (S5)"
+source = "K1's executable"
 see = "sim::world::traps::detect"
 applies = ["kind:mine", "skill:Awareness"]
 
@@ -72,7 +72,7 @@ value = 5
 unit = "points"
 range = [0, 20]
 summary = "A running character suffers a -{traps.detect.running:bare} penalty to Awareness checks against mines."
-source = "K1's executable (S5)"
+source = "K1's executable"
 see = "sim::traps::detects"
 applies = ["kind:mine", "skill:Awareness"]
 
@@ -103,7 +103,7 @@ value = 4500
 unit = "ms"
 range = [0, 30000]
 summary = "Disarming or recovering a mine takes {traps.disarm.ms:s}."
-source = "K1's executable (S7)"
+source = "K1's executable"
 see = "sim::world::traps::skill_uses"
 applies = ["kind:mine", "skill:Demolitions"]
 
@@ -124,7 +124,7 @@ type = "i16"
 value = 35
 range = [0, 255]
 summary = "A mine with a disarm DC above {traps.disarm.hopeless_dc:bare} cannot be disarmed."
-source = "K1's executable (S7)"
+source = "K1's executable"
 see = "sim::traps::disarm"
 applies = ["kind:mine", "skill:Demolitions"]
 
@@ -135,7 +135,7 @@ value = 10
 unit = "points"
 range = [0, 40]
 summary = "Failing to disarm a mine by more than {traps.disarm.springs_short_by:bare} sets it off."
-source = "K1's executable (S7)"
+source = "K1's executable"
 see = "sim::traps::disarm"
 applies = ["kind:mine", "skill:Demolitions"]
 
@@ -155,7 +155,7 @@ value = 10
 unit = "points"
 range = [0, 40]
 summary = "Attempting to recover a mine adds +{traps.recover.harder:bare} to the disarm DC."
-source = "K1's executable (S8)"
+source = "K1's executable"
 see = "sim::traps::recover"
 applies = ["kind:mine", "skill:Demolitions"]
 
@@ -166,7 +166,7 @@ value = 5
 unit = "points"
 range = [0, 40]
 summary = "Failing to recover a mine by more than {traps.recover.springs_short_by:bare} sets it off."
-source = "K1's executable (S8)"
+source = "K1's executable"
 see = "sim::traps::recover"
 applies = ["kind:mine", "skill:Demolitions"]
 
@@ -194,7 +194,7 @@ value = 2000
 unit = "ms"
 range = [0, 30000]
 summary = "Setting a mine, or a mine on a door in TSL, takes {traps.lay.ms:s}."
-source = "K1's executable (S9)"
+source = "K1's executable"
 see = "sim::world::traps::begin_laying"
 applies = ["kind:mine", "skill:Demolitions"]
 
@@ -204,7 +204,7 @@ type = "usize"
 value = 15
 range = [0, 100]
 summary = "The party may have at most {traps.lay.most:bare} mines set in an area."
-source = "K1's executable (S9)"
+source = "K1's executable"
 see = "sim::world::traps::begin_laying"
 applies = ["kind:mine", "skill:Demolitions"]
 
@@ -215,7 +215,7 @@ value = 2.0
 unit = "m"
 range = [0.25, 10.0]
 summary = "A mine set by the party covers {traps.lay.half_m:bare} meters to each side."
-source = "K1's executable (S9)"
+source = "K1's executable"
 see = "sim::world::traps::holds"
 applies = ["kind:mine"]
 
@@ -225,7 +225,7 @@ type = "u8"
 value = 5
 range = [0, 40]
 summary = "A character with {traps.lay.ranks_for_bonus:bare} or more ranks in Demolitions, not counting bonuses, gains a bonus to set mines."
-source = "K1's executable (S9)"
+source = "K1's executable"
 see = "sim::traps::lay"
 applies = ["kind:mine", "skill:Demolitions"]
 
@@ -236,7 +236,7 @@ value = 2
 unit = "points"
 range = [0, 20]
 summary = "Enough ranks in Demolitions give a +{traps.lay.ranks_bonus:bare} bonus to set mines."
-source = "K1's executable (S9)"
+source = "K1's executable"
 see = "sim::traps::lay"
 applies = ["kind:mine", "skill:Demolitions"]
 
@@ -247,7 +247,7 @@ value = 10
 unit = "points"
 range = [0, 40]
 summary = "In combat, a check to set a mine that fails by more than {traps.lay.lays_anyway_short_by:bare} sets the mine anyway."
-source = "K1's executable (S9, QUIRKS.md Q-0142)"
+source = "K1's executable (QUIRKS.md Q-0142)"
 see = "sim::traps::lay"
 applies = ["kind:mine", "skill:Demolitions"]
 

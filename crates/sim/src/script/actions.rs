@@ -38,7 +38,9 @@
 //!   or feat used on a target, to the end of the object's round as an
 //!   attack: its intent's `talent`, which the mind uses once within the
 //!   power's reach (a power pressed or held, a ranged feat's special, a
-//!   melee feat's saber style);
+//!   melee feat's saber style); begun on itself, it is in combat
+//!   (`Change::InCombat`), as the exes' cast starts a combat round, so its
+//!   end of round runs;
 //! - **random walk** (`ActionRandomWalk`): to random points within
 //!   `WANDER_M` of where the walker stood as the walk began, one after
 //!   another, until the queue is cleared;
@@ -95,6 +97,9 @@ pub enum Action {
         /// Queued by a run of its caller's own AI (`Event::ai`): it runs as
         /// that AI still.
         ai: bool,
+        /// The digest of `script`'s bytes the code was queued from
+        /// (`Library::script_digest`); none for a save from before it was kept.
+        code: Option<[u8; 32]>,
     },
     Wait {
         ms: u32,

@@ -60,6 +60,9 @@ use crate::material::{self, AreaLight, Lighting, OdysseyMaterial, PARTICLE_BYTES
 use crate::probe_kit::{Checks, check};
 use crate::scene::Stores;
 
+#[cfg(feature = "probes")]
+mod probes;
+
 /// Emitter header flags (as reone reads them; KotorBlender `p2p`,
 /// `p2p_sel`).
 const P2P: u32 = 0x1;
@@ -1978,6 +1981,7 @@ pub fn limit_probes() -> Checks {
     .chain(bounce_probes())
     .chain(birth_probes())
     .chain(crate::particle_surfaces::probes())
+    .chain(probes::probes())
     .collect()
 }
 

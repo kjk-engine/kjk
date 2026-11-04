@@ -94,6 +94,14 @@ pub struct Options<'a> {
     /// A saved game to go on from instead: its module and world replace the
     /// options' stage and arrival (the seats stay the options').
     pub save: Option<&'a sim::Save>,
+    /// Told why when `save` cannot be made into a world exactly
+    /// (`sim::Save::world` refused it), before the load fails with it: the
+    /// menu offers the save's story then (`session_flow`).
+    pub inexact: Option<&'a (dyn Fn(&str) + Sync)>,
+    /// A save's story to restore instead (`saves::Story::restore`): its
+    /// module the stage, the module installed fresh and the story laid over
+    /// it; the save it is of is not touched.
+    pub story: Option<&'a saves::Story>,
     /// The character the first seat plays as, when one was made (a new
     /// world's only: a save's players are its own).
     pub made: Option<crate::persona::Made<'a>>,
@@ -441,10 +449,13 @@ pub fn load_for(
         .transpose()?;
     // A save does not fix the session's seats (I31): it holds those asked
     // for, and guests take the save's companions.
-    let seats = match (replay, saved) {
-        (Some(recording), _) => recording.start.seats(),
-        (None, Some((save, ..))) => save.seats_for(options.seats),
-        (None, None) => options.seats,
+    // The players a story has keep their seats, as a save's do.
+    let story_seats = options.story.map(saves::Story::seats);
+    let seats = match (replay, saved, story_seats) {
+        (Some(recording), ..) => recording.start.seats(),
+        (None, Some((save, ..)), _) => save.seats_for(options.seats),
+        (None, None, Some(own)) => options.seats.max(own),
+        (None, None, None) => options.seats,
     };
     if options.seat >= seats {
         return Err(format!(
@@ -454,10 +465,11 @@ pub fn load_for(
     }
     // The rig lives as long as the run.
     let gla: &'static fmt_ja::ghoul2::Gla = Box::leak(Box::new(gla));
-    let (stage_name, arrive) = match (replay, saved) {
-        (Some(recording), _) => (recording.level.name.as_str(), options.arrive),
-        (None, Some((_, module, _))) => (module, None),
-        (None, None) => (options.stage, options.arrive),
+    let (stage_name, arrive) = match (replay, saved, options.story) {
+        (Some(recording), ..) => (recording.level.name.as_str(), options.arrive),
+        (None, Some((_, module, _)), _) => (module, None),
+        (None, None, Some(story)) => (story.place.module.as_str(), None),
+        (None, None, None) => (options.stage, options.arrive),
     };
     // The KOTOR stage (the module's plan and scene) and JA's rig, effects
     // and sounds need nothing of each other: they load side by side.
@@ -470,7 +482,9 @@ pub fn load_for(
             .map(|recording| &recording.start)
             .or(saved.map(|(save, ..)| &save.snapshot))
             .and_then(|start| start.place.as_ref())
-            .map_or(1, |place| place.players)
+            .map(|place| place.players)
+            .or(story_seats)
+            .unwrap_or(1)
     });
     let (stage, ja) = std::thread::scope(|scope| {
         let stage = scope.spawn(|| {
@@ -532,18 +546,30 @@ pub fn load_for(
         Ok(resolver) => weapons::sheet_models(resolver, &mut cache, &options.sheet, &[None, None]),
         Err(_) => Ok([None, None]),
     })?;
-    let (mut world, first) = match (replay, saved) {
-        (Some(recording), _) => {
+    let (mut world, first) = match (replay, saved, options.story) {
+        (Some(recording), ..) => {
             let mut world = sim::SimWorld::from_snapshot(&recording.start, stage.level.clone())
                 .map_err(|error| error.to_string())?;
             world.set_script_state(recording.script.clone());
             (world, None)
         }
-        (None, Some((save, ..))) => {
-            let (world, first) = from_save(save, &stage.level, seats, None)?;
+        (None, Some((save, ..)), _) => {
+            let made = from_save(save, &stage.level, seats, None);
+            if let (Err(why), Some(inexact)) = (&made, options.inexact) {
+                inexact(why);
+            }
+            let (world, first) = made?;
             (world, Some(first))
         }
-        (None, None) => {
+        (None, None, Some(story)) => {
+            let search = stage
+                .installer
+                .as_deref()
+                .map(crate::lifecycle::ItemSearch::new);
+            let (world, first) = from_story(story, &stage.level, seats, search.as_ref())?;
+            (world, Some(first))
+        }
+        (None, None, None) => {
             let (world, first) = stage.world(1)?;
             let mut world =
                 stage::with_followers(world, options.followers, stage.installer.as_deref())?;
@@ -805,7 +831,8 @@ pub fn load_for(
 /// The world going on from `save` in `level` (its module's, planned), for
 /// `seats`, numbered from `tick` when given (`sim::Save::world`), logged as
 /// `saves … loaded` with its tick, its hash and the whole save's (the world
-/// made again, saved again, is the save itself when nothing was changed);
+/// made again and saved again: the save itself when the load changed
+/// nothing, while one without a roster gains its module's);
 /// and the announcement of its module, as if just installed: guests plan
 /// it. The menu's load and the reload after the party fell (`sim_host`).
 pub(crate) fn from_save(
@@ -817,7 +844,24 @@ pub(crate) fn from_save(
     if let Some(restamp) = save.restamp(level)? {
         bevy::log::warn!(target: "save-migrate", "{restamp}");
     }
+    let changed = save.stale_code(level);
+    if !changed.is_empty() {
+        bevy::log::warn!(
+            target: "save-migrate",
+            scripts = %changed.join(", "),
+            "refused: deferred code of scripts that changed"
+        );
+    }
     let mut world = save.world(level, seats, tick)?;
+    if let Some(report) = world.reconciled() {
+        bevy::log::warn!(target: "save-migrate", "{report}");
+        for snap in &report.snaps {
+            bevy::log::warn!(target: "save-migrate", "{snap}");
+        }
+    }
+    for line in world.dropped_code() {
+        bevy::log::warn!(target: "save-migrate", "{line}");
+    }
     let again = sim::Save {
         hz: save.hz,
         level: level.id(),
@@ -834,6 +878,31 @@ pub(crate) fn from_save(
     );
     let first = sim::Announcement::new(level, None, &again.snapshot)
         .ok_or("the save was not made in a module")?;
+    Ok((world, first))
+}
+
+/// The world `story` restores in `level` (its module's, planned) for
+/// `seats` (`saves::Story::restore`), what it lost logged as `save-migrate`
+/// lines, and the announcement of its module, as if just installed.
+fn from_story(
+    story: &saves::Story,
+    level: &sim::Level,
+    seats: u8,
+    search: Option<&crate::lifecycle::ItemSearch>,
+) -> Result<(sim::SimWorld, sim::Announcement), String> {
+    let items = |template: &str| search.and_then(|search| search.facts(template));
+    let (mut world, lost) = story.restore(level, seats, &items)?;
+    bevy::log::warn!(
+        target: "save-migrate",
+        build = story.build,
+        lost = lost.len(),
+        "restored from the save's story"
+    );
+    for line in &lost {
+        bevy::log::warn!(target: "save-migrate", "{line}");
+    }
+    let first = sim::Announcement::new(level, None, &world.snapshot())
+        .ok_or("the story was not made in a module")?;
     Ok((world, first))
 }
 

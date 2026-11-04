@@ -397,6 +397,8 @@ pub struct DoorView {
     /// `busted`, played once blows break it, for a door whose
     /// `genericdoors` row names it (`Instance::busted`).
     pub busted: Option<Arc<AnimationIr>>,
+    /// What its clips key beyond places and turns: its meshes' alpha.
+    pub fx: Option<Arc<ModelFx>>,
 }
 
 /// A creature drawn in the scene: which object of the module it is (its
@@ -443,6 +445,9 @@ pub struct CreatureClips {
     /// The metres its walk and run cycles cover (`appearance.2da`): a
     /// humanoid's gait (`gait`), another's walk and run (`cast::Clips`).
     pub strides: [f32; 2],
+    /// A creature model (type S or L, `creature::creature_model`): its own
+    /// `c…` names, and no wield's ready stance in a fight.
+    pub creature: bool,
 }
 
 /// Effects the scene draws each frame, facing the camera: JA's FX
@@ -1133,6 +1138,8 @@ pub fn module_scene(
     let mut instance_models = BTreeMap::new();
     // Each placeable model's own clips and emitters, read once.
     let mut fx_of: BTreeMap<String, Option<OwnFx>> = BTreeMap::new();
+    // Each door model's clips' alpha (a force field fades as it opens).
+    let mut door_fx: BTreeMap<String, Arc<ModelFx>> = BTreeMap::new();
     for (object, instance) in area.instances.iter().enumerate() {
         let Some(name) = &instance.model else {
             continue;
@@ -1150,6 +1157,12 @@ pub fn module_scene(
                     (0, sim::look::DEFAULT),
                 );
                 fx_of.insert(name.clone(), own);
+            }
+            if instance.kind == Kind::Door
+                && let Some(parsed) = &parsed
+            {
+                let fx = fx_through_chain(resolver, parsed);
+                door_fx.insert(name.clone(), Arc::new(fx));
             }
             loaded.insert(name.clone(), ir);
         }
@@ -1177,6 +1190,7 @@ pub fn module_scene(
                     true => clip(loaded, resolver, game, &ir, "busted")?,
                     false => None,
                 },
+                fx: door_fx.get(name).cloned(),
             });
         }
         match &loaded[name] {
@@ -1502,6 +1516,7 @@ impl CreatureLoad {
                 run: named(loaded, "crun", "run")?,
                 acted,
                 strides,
+                creature: creature_type,
                 ..CreatureClips::default()
             }
         } else {
@@ -1514,6 +1529,7 @@ impl CreatureLoad {
                 getup: named(loaded, "cgetupdead", "getupdead")?,
                 acted,
                 strides,
+                creature: creature_type,
             }
         };
         let body_index = models.len();
@@ -1785,12 +1801,15 @@ pub fn scripted_clips(
             acted.push((animation, found));
         }
     }
+    // Attacks for a body on its own clips (a retargeted one swings and aims
+    // JA's way), and for a creature model on JA's skeleton.
+    let attacks = creature || !asset_ja::rig::is_humanoid(body);
     let engine = crate::acting::ready_names(creature)
         .chain(crate::acting::draw_names())
         .chain(crate::acting::flinch_names(creature))
         .chain(
-            creature
-                .then(crate::acting::attack_names)
+            attacks
+                .then(|| crate::acting::attack_names(creature))
                 .into_iter()
                 .flatten(),
         );

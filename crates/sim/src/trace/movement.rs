@@ -345,6 +345,7 @@ impl Rig {
                     others: &fight.others,
                     rng: &mut fight.rng,
                     enemy: fight.enemy,
+                    at_rest: false,
                 };
                 match stepped {
                     None => motion::move_body(

@@ -50,6 +50,10 @@ pub enum SessionIntent {
     },
     /// Someone's game at `address` (`host` or `host:port`), as `name`.
     Join { address: String, name: String },
+    /// The save `save`'s story restored, played alone: the last rung of a
+    /// load the save itself cannot make (`saves::Story::restore`); the save
+    /// is not written over.
+    Restore { save: String },
     /// Back to the main menu.
     ToMenu,
 }

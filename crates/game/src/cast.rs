@@ -18,8 +18,11 @@
 //! - Any other creature (droids, beasts) plays its own KOTOR clips, picked
 //!   from its state: standing, walking or running (by its legs' animation
 //!   and speed), and once dead its dying clip to the end, then its dead
-//!   one, looped (reone's `die` and `dead`). A clip that takes over fades
-//!   in from where the last one stopped over its transition time.
+//!   one, looped (reone's `die` and `dead`). Standing in a fight, one that
+//!   is not a creature model (HK-47) holds its wield's ready stance
+//!   (`g<wield>r1`); each attack plays its clip over the pose
+//!   (`acting::Attack`). A clip that takes over fades in from where the
+//!   last one stopped over its transition time.
 //! - Each is placed between the snapshots around the moment and turned to
 //!   its legs' yaw.
 //! - Each holds its weapons and lights its blades as `weapons` says; a
@@ -1317,9 +1320,11 @@ impl Figure {
 /// sim ms); its clips for scripts' animations and what it shows of them
 /// (`acting`); the metres its walk and run cycles cover and how far into
 /// each it is, as of when (sim ms); its nodes' parents and rest
-/// (`rest_of`); how it leans with the floor, if it does (`ground_lean`).
+/// (`rest_of`); how it leans with the floor, if it does (`ground_lean`);
+/// whether it is a creature model (`CreatureClips::creature`).
 struct Clips {
     clips: [Option<Animator>; 6],
+    creature: bool,
     shown: Option<(usize, f32)>,
     fading: Option<(usize, f32, f64)>,
     acted: acting::Bound,
@@ -1339,6 +1344,9 @@ const RUN: usize = 2;
 const DIE: usize = 3;
 const DEAD: usize = 4;
 const GETUP: usize = 5;
+/// Past the clips above, the ready stance of wield number `n` at `READY_AT`
+/// + `n` (`acting::READY` + `n` among its scripted clips).
+const READY_AT: usize = 6;
 
 /// How a body is posed.
 enum Look {
@@ -2148,9 +2156,11 @@ impl Cast {
                 getup,
                 acted,
                 strides,
+                creature,
             } = &view.clips;
             Look::Clips(Box::new(Clips {
                 clips: [pause, walk, run, die, dead, getup].map(bind),
+                creature: *creature,
                 shown: None,
                 fading: None,
                 acted: acting::bind(placed, acted, nodes),
@@ -2687,7 +2697,8 @@ impl Cast {
                     None => continue,
                 },
             };
-            if at.alive {
+            let blasted = blasted(&at, ms);
+            if at.alive && blasted.is_none() {
                 self.ragdolls.rise(id);
             }
             let still = self.ragdolls.still(id);
@@ -2703,10 +2714,10 @@ impl Cast {
                 .get(&id)
                 .filter(|_| !self.rig.quirks)
                 .map_or(&[][..], Vec::as_slice);
-            // Only the dead fall as ragdolls: the downed must get up, and
-            // one dying in place lies as its clip leaves it.
+            // Only the dead and the blasted fall as ragdolls: the downed
+            // must get up, and one dying in place lies as its clip leaves it.
             let in_place = dying_in_place(&at);
-            let falls = at.dead && member.body.doll.is_some() && !in_place;
+            let falls = (at.dead || blasted.is_some()) && member.body.doll.is_some() && !in_place;
             let death_plays = member.playing_death(ms);
             // Holstered guns drawn or put away as the body readies them
             // (`draw_anim`): only a body that carries them.
@@ -2787,7 +2798,8 @@ impl Cast {
             }
             if falls
                 && !still
-                && let Some(one) = as_drawn_dead(&self.rig, (id, member), at, moved, transforms)
+                && let Some(one) =
+                    as_drawn_dead(&self.rig, (id, member), (at, blasted), moved, transforms)
             {
                 dying.push(one);
             }
@@ -2996,7 +3008,7 @@ fn dying_in_place(at: &Blended) -> bool {
 fn as_drawn_dead(
     rig: &Rig,
     (id, member): (SimId, &Member),
-    at: Blended,
+    (at, blasted): (Blended, Option<u64>),
     moved: Option<(usize, Vec3)>,
     transforms: &Query<&mut Transform>,
 ) -> Option<Dying> {
@@ -3017,15 +3029,36 @@ fn as_drawn_dead(
         Look::Ja => return None,
     };
     let root = transforms.get(member.body.root).ok()?;
+    // A blasted body falls from the blast, limp at once: no clip of its own
+    // to hold to.
+    let (died_ms, length_ms) = match blasted {
+        Some(blasted) => (blasted, Some(BLASTED_MS)),
+        None => (member.figure.died()?, length_ms),
+    };
     Some(Dying {
         id,
         pose: ragdolls::drawn_pose(&doll.rest, &member.body.nodes, transforms, lengths),
         doll,
         root: ragdoll::Frame::new(root.translation, root.rotation),
         at,
-        died_ms: member.figure.died()? as f64,
+        died_ms: died_ms as f64,
         length_ms,
     })
+}
+
+/// How long (ms) a blasted body's muscles hold before it goes limp.
+const BLASTED_MS: f64 = 150.0;
+
+/// When the script's push (a blast, `Fighter::blasted_ms`) threw the body at
+/// `at`, while `ms` is within JA's knockdown from it: it falls as a ragdoll
+/// from then, the throw's velocity carried, not knocked down by JA's clip,
+/// and a death meanwhile (the scene's that follows its blast: TSL's Sith
+/// troopers on the Ravager, pushed from `wp_explosion` and killed 0.9 s on)
+/// lets it lie as it fell; alive past the knockdown, it rises.
+fn blasted(at: &Blended, ms: f64) -> Option<u64> {
+    let blasted = at.fighter.as_ref()?.blasted_ms;
+    let since = (ms as u64).checked_sub(blasted)?;
+    (blasted > 0 && since < sim::combat::force::ja::KNOCKDOWN_MS).then_some(blasted)
 }
 
 /// Shows or hides `root` (a body's), if it is not so already.
@@ -3446,7 +3479,7 @@ fn place(
             let gripping = gripped[usize::from(hand_out)].as_ref().filter(|_| armed);
             let rig = gripping.unwrap_or(&*rig);
             let acting = acting::or_talk(acting, talk, (acted, figure.breath.wield), ms);
-            shows.follow(acting, (still, at.alive, world_held), ms);
+            shows.follow(acting, (still, moving, at.alive, world_held), ms);
             hear(heard, shows, (acted, figure.breath.wield), ms);
             throw.follow(at.fighter.as_ref());
             // A player's own body (its gait) keeps JA's; JA's own pain,
@@ -3716,7 +3749,7 @@ fn place(
             let acting = acting::or_talk(acting, talk, (&clips.acted, wield), ms);
             clips
                 .shows
-                .follow(acting, (still, at.alive, world_held), ms);
+                .follow(acting, (still, moving, at.alive, world_held), ms);
             clips.flinch.follow(at.fighter.as_ref(), false, true);
             clips.attack.follow(at.fighter.as_ref());
             // Its scripted clips show and sound as a retargeted body's do,
@@ -3742,7 +3775,14 @@ fn place(
                 at_rest((&body.nodes, &clips.rest), transforms);
                 let playing = body.playing.as_mut();
                 let face = body.face.as_ref();
-                clips.pose(figure, at, (ms, world_held), transforms, playing, face);
+                clips.pose(
+                    figure,
+                    at,
+                    (ms, world_held, armed),
+                    transforms,
+                    playing,
+                    face,
+                );
                 if let Some(node) = body.head {
                     let target = look.map(|look| look_toward(soles, faces, look));
                     let bound = (&body.nodes[..], &clips.rest[..]);
@@ -3786,15 +3826,15 @@ impl Clips {
         &mut self,
         figure: &Figure,
         at: &Blended,
-        (ms, held): (f64, bool),
+        (ms, held, armed): (f64, bool, bool),
         transforms: &mut Query<&mut Transform>,
         mut playing: Option<&mut Vec<(Arc<AnimationIr>, f32)>>,
         face: Option<&crate::face::Face>,
     ) {
-        self.pose_own(figure, at, (ms, held), transforms);
+        self.pose_own(figure, at, (ms, held, armed), transforms);
         let own = self
             .shown
-            .and_then(|(clip, at)| Some((self.clips[clip].as_ref()?, at)));
+            .and_then(|(clip, at)| Some((self.clip(clip)?, at)));
         if let Some(face) = face {
             face.stand((ms, at.alive), transforms);
             if let Some((own, at)) = own {
@@ -3836,31 +3876,44 @@ impl Clips {
         &mut self,
         figure: &Figure,
         at: &Blended,
-        (ms, held): (f64, bool),
+        (ms, held, armed): (f64, bool, bool),
         transforms: &mut Query<&mut Transform>,
     ) {
-        let Some((clip, seconds)) = self.at(figure, at, (ms, held)) else {
+        let Some((clip, seconds)) = self.at(figure, at, (ms, held, armed)) else {
             return;
         };
         if let Some((old, old_at)) = self.shown.filter(|&(old, _)| old != clip) {
             self.fading = Some((old, old_at, ms));
         }
         self.shown = Some((clip, seconds));
-        let Some(animator) = &self.clips[clip] else {
+        let Some(animator) = self.clip(clip) else {
             return;
         };
         let fade = self.fading.and_then(|(old, old_at, since)| {
             let toward = ((ms - since) as f32 / 1000.0) / animator.transition();
-            let from = self.clips[old].as_ref()?;
+            let from = self.clip(old)?;
             (toward < 1.0).then_some((from, old_at, toward.max(0.0)))
         });
         match fade {
             Some((from, from_at, toward)) => {
                 animator.pose_from(seconds, (from, from_at), toward, transforms);
             }
-            None => {
-                self.fading = None;
-                animator.pose(seconds, transforms);
+            None => animator.pose(seconds, transforms),
+        }
+        if fade.is_none() {
+            self.fading = None;
+        }
+    }
+
+    /// Its clip `index`: one of its own (`PAUSE` to `GETUP`), or a wield's
+    /// ready stance (`READY_AT`).
+    fn clip(&self, index: usize) -> Option<&Animator> {
+        match index.checked_sub(READY_AT) {
+            None => self.clips[index].as_ref(),
+            Some(wield) => {
+                let wanted = acting::READY + u16::try_from(wield).ok()?;
+                let (_, ready) = self.acted.iter().find(|(a, _)| *a == wanted)?;
+                Some(ready)
             }
         }
     }
@@ -3875,9 +3928,8 @@ impl Clips {
     /// scripted clip shows over them at `ms` (by its wield number `wield`),
     /// for dumps.
     fn facts(&self, ms: f64, wield: u8) -> serde_json::Value {
-        let name = |clip: Option<usize>| {
-            clip.and_then(|clip| Some(self.clips[clip].as_ref()?.name().to_string()))
-        };
+        let name =
+            |clip: Option<usize>| clip.and_then(|clip| Some(self.clip(clip)?.name().to_string()));
         let acted: Vec<_> = (self.shows.shown(&self.acted, ms, (wield, None)))
             .map(|(clip, _, weight)| (clip.clip().name.clone(), weight))
             .collect();
@@ -3895,12 +3947,13 @@ impl Clips {
     /// looped (or the dying clip held); alive, standing, walking or running,
     /// looped on the clock, but while the world is held (`held`, S7) walking
     /// and running by the distance covered, a cycle a stride
-    /// (`gait::by_stride`), as a humanoid's gait does.
+    /// (`gait::by_stride`), as a humanoid's gait does; standing with its
+    /// weapons readied (`armed`), its wield's ready stance where it has one.
     fn at(
         &mut self,
         figure: &Figure,
         at: &Blended,
-        (ms, held): (f64, bool),
+        (ms, held, armed): (f64, bool, bool),
     ) -> Option<(usize, f32)> {
         let seconds = (self.cycled_ms).map_or(0.0, |was| ((ms - was) / 1000.0).clamp(0.0, 0.25));
         self.cycled_ms = Some(ms);
@@ -3917,7 +3970,7 @@ impl Clips {
                 self.cycles[cycle] = (self.cycles[cycle] + by).rem_euclid(length.max(1e-3));
             }
         }
-        let length = |clip: usize| self.clips[clip].as_ref().map(Animator::length);
+        let length = |clip: usize| self.clip(clip).map(Animator::length);
         let looped = |clip: usize, since: f64| -> Option<(usize, f32)> {
             let seconds = ((ms - since) / 1000.0).max(0.0) as f32;
             Some((clip, seconds % length(clip)?))
@@ -3947,10 +4000,16 @@ impl Clips {
         let either = |first: usize, second: usize| {
             [first, second]
                 .into_iter()
-                .find(|&clip| self.clips[clip].is_some())
+                .find(|&clip| self.clip(clip).is_some())
         };
+        // Standing in a fight, a body that is not a creature model holds its
+        // wield's ready stance (reone's pause in combat, `g<wield>r1`).
+        let ready = READY_AT + usize::from(figure.breath.wield);
         let clip = if speed < STILL_SPEED {
-            either(PAUSE, PAUSE)
+            match armed && at.fighter.is_some() && !self.creature {
+                true => either(ready, PAUSE),
+                false => either(PAUSE, PAUSE),
+            }
         } else if walking {
             either(WALK, RUN)
         } else {

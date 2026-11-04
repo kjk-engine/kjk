@@ -41,6 +41,7 @@ use bevy::render::view::{ExtractedView, ViewTarget};
 use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
 use fmt_odyssey::twoda::TwoDa;
 
+use crate::fade_view::{FadeCamera, FadeSet};
 use crate::lifecycle::Installer;
 use crate::lifecycle_view::SceneCamera;
 use crate::sim_host::{PresentedSnapshot, SceneSwap};
@@ -196,7 +197,7 @@ pub fn install(world: &mut World, installer: Option<Arc<Installer>>) {
     });
 }
 
-/// On the scene camera while a row grades or noises its frame: the
+/// On the last camera drawing the world (`grade`) while a row grades or noises its frame: the
 /// modulation (xyz) and saturation (w), the noise's strength (x) and the
 /// frame's seed (y).
 #[derive(Component, ExtractComponent, Clone, Copy, PartialEq)]
@@ -213,7 +214,7 @@ impl Plugin for VideoEffectPlugin {
         app.add_plugins(ExtractComponentPlugin::<VideoGrade>::default())
             .add_systems(
                 Update,
-                grade.run_if(
+                grade.after(FadeSet).run_if(
                     resource_exists::<PresentedSnapshot>.and_then(resource_exists::<VideoEffects>),
                 ),
             );
@@ -227,7 +228,9 @@ impl Plugin for VideoEffectPlugin {
     }
 }
 
-/// Puts the presented row's grade on the scene camera, or takes it off.
+/// Puts the presented row's grade on the last camera drawing the world, the
+/// fade's while it draws (a grade on the scene's camera is lost under it, and
+/// the frame shows its natural colours through the fade), or takes it off.
 #[allow(clippy::too_many_arguments)]
 fn grade(
     presented: Res<PresentedSnapshot>,
@@ -236,6 +239,7 @@ fn grade(
     watching: Option<Res<crate::dialogue_view::Watching>>,
     mut effects: ResMut<VideoEffects>,
     cameras: Query<(Entity, Option<&VideoGrade>), SceneCamera>,
+    faders: Query<(Entity, &Camera, Option<&VideoGrade>), With<FadeCamera>>,
     mut facts: ResMut<console::DumpFacts>,
     (mut frame, mut lines): (Local<u32>, Local<LineEffect>),
     mut commands: Commands,
@@ -274,8 +278,23 @@ fn grade(
             });
     }
     let row = current.and_then(|row| effects.rows.as_ref()?.get(usize::from(row)).copied());
-    let Some((camera, had)) = cameras.iter().next() else {
+    let Some(scene) = cameras.iter().next() else {
         return;
+    };
+    let fader = faders.iter().next();
+    let (camera, had) = match fader.filter(|(_, camera, _)| camera.is_active) {
+        Some((fader, _, had)) => {
+            if scene.1.is_some() {
+                commands.entity(scene.0).remove::<VideoGrade>();
+            }
+            (fader, had)
+        }
+        None => {
+            if let Some((fader, _, Some(_))) = fader {
+                commands.entity(fader).remove::<VideoGrade>();
+            }
+            scene
+        }
     };
     let wanted = row
         .filter(|row| row.grade.is_some() || row.noise)

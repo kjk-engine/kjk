@@ -335,6 +335,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         talk: _,
         goods: _,
         spawned: _,
+        roster: _,
         progress: _,
         personas: _,
         seats_held: _,
@@ -357,7 +358,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
     } = &save.snapshot;
     check!("snapshot", save.snapshot, start;
         tick, time_ms, place, entities, transition, stash, area_sound, fade,
-        world_fade_in, video_effect, talk, goods, spawned, progress, personas,
+        world_fade_in, video_effect, talk, goods, spawned, roster, progress, personas,
         seats_held, lost, in_combat, paused_by, ready, kept, leading, minigame,
         pazaak, explored, visuals, departing, screens, remotes, shared, authority,
         next_id,

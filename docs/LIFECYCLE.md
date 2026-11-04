@@ -9,10 +9,10 @@ one call; its GIT instances are sim entities; doors and triggers lead on.
   lookups; `cased_tag` keeps the data's capitals for `GetTag`, since
   scripts compare tags as strings), place, facing via
   `sim::math::atan2_deg`, links, door `Opens`/`AnimationState`, trigger
-  outline, event scripts kept for I16), the entry area's collision, the
+  outline, event scripts), the entry area's collision, the
   link overrides (`data/links/<game>/<module>.links`; only with
   `kjk --playtest-links`, `session::Overrides`), a trial arrival for
-  the request's `seats`, encounters for its `players` (I30 P21). Typed
+  the request's `seats`, encounters for its `players`. Typed
   `PlanError`s; nothing running is touched. A module's archives stack on
   the install's base layers, opened once per `Installer`
   (`Resolver::with_module`).
@@ -35,7 +35,7 @@ one call; its GIT instances are sim entities; doors and triggers lead on.
 - It returns an `Announcement` (`KJKA` v4: game, module, arrival, tick,
   seats, players, digests of module facts, collision, animation lengths, the
   navigation mesh, the hash after). A client plans from it alone (`Request::of`), `Plan::check`s it
-  (a `Mismatch` names what differs), commits, `check_after`s. I15 sends it.
+  (a `Mismatch` names what differs), commits, `check_after`s. The host sends it to clients.
 
 ## In the sim (every step)
 Holding use (`buttons::USE`: a scripted `--moves … use`; in play E is

@@ -20,9 +20,12 @@
 //! free (`restore`, at every listing and write).
 
 pub mod copies;
+pub mod corpus;
 pub mod safety;
+pub mod story;
 
 pub use safety::{AUTOS, Formats, backup_on_new_version, write_auto};
+pub use story::{STORY_SCHEMA, Story};
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -35,6 +38,8 @@ pub const QUICK: &str = "quick";
 
 const WORLD: &str = "save.kjkv";
 const META: &str = "meta.json";
+/// The player's progress by the games' names (`story`).
+const STORY: &str = "story.json";
 /// The ends of a save's folder being written (`.0001.new`) and of the one
 /// it replaces, set aside meanwhile (`.0001.old`).
 const FRESH: &str = ".new";
@@ -218,16 +223,20 @@ fn damaged(folder: &Path, meta: &Meta) -> bool {
     })
 }
 
-/// How many worlds were hashed (`whole`), for the probes.
 #[cfg(feature = "probes")]
-pub(crate) static HASHED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+thread_local! {
+    /// How many worlds were hashed (`whole`) on this thread, for the
+    /// probes: per thread, so saves read by tests running alongside them
+    /// are not counted.
+    pub(crate) static HASHED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// The world in `folder`, refused as damaged when it is not what `meta`'s
 /// hash says.
 fn whole(folder: &Path, meta: &Meta) -> Result<Vec<u8>, String> {
     let bytes = std::fs::read(folder.join(WORLD)).map_err(|error| error.to_string())?;
     #[cfg(feature = "probes")]
-    HASHED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    HASHED.with(|hashed| hashed.set(hashed.get() + 1));
     match &meta.blake3 {
         Some(hash) if *hash != blake3::hash(&bytes).to_hex().as_str() => {
             Err("the save is damaged: its world is not the one saved".into())
@@ -244,23 +253,51 @@ pub fn write(
     save: &sim::Save,
     meta: &Meta,
 ) -> Result<String, String> {
-    write_encoded(root, slot, &save.encode(), meta)
+    write_encoded(root, slot, &save.encode(), meta, None)
 }
 
 /// `world` (a save as `sim::Save::encode` makes it) written as `slot` (a
-/// new number without one), with `meta`; its id.
+/// new number without one), with `meta` and the `story` of it if there is
+/// one; its id.
 pub fn write_encoded(
     root: &Path,
     slot: Option<&str>,
     world: &[u8],
     meta: &Meta,
+    story: Option<&Story>,
 ) -> Result<String, String> {
     let id = match slot {
         Some(id) => id.to_string(),
         None => next_id(root, "")?,
     };
-    write_files(root, &id, world, meta, None)?;
+    write_files(root, &id, world, meta, story, None)?;
     Ok(id)
+}
+
+/// The story of save `id`; none where it has none or it does not read:
+/// a load never fails for it.
+pub fn read_story(root: &Path, id: &str) -> Option<Story> {
+    let text = std::fs::read_to_string(checked(root, id).ok()?.join(STORY)).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// What a player is asked when save `id` cannot be loaded exactly and has
+/// a story to restore (spec 4b), with the release and commit its meta names;
+/// none without a story, when the refusal is told as it is.
+pub fn restore_prompt(root: &Path, id: &str) -> Option<String> {
+    read_story(root, id)?;
+    let meta = checked(root, id)
+        .ok()
+        .and_then(|folder| read_meta(&folder).ok());
+    let meta = meta.unwrap_or_else(Meta::default);
+    let version = meta.version.as_deref().unwrap_or("an earlier release");
+    let made = match meta.build.as_deref() {
+        Some(build) => format!("{version} ({})", build.chars().take(8).collect::<String>()),
+        None => version.to_string(),
+    };
+    Some(format!(
+        "This save was made with {made} and can't be loaded exactly. Restore your story progress? Party, items, journal and choices come back; modules you already visited may be reset."
+    ))
 }
 
 /// `root`'s folder for `id` ending in `end` (`FRESH`, `ASIDE`).
@@ -272,15 +309,16 @@ fn failed(path: &Path) -> impl Fn(std::io::Error) -> String + '_ {
     move |error| format!("{}: {error}", path.display())
 }
 
-/// `world` (a save's bytes) and `meta` written as `id`, with where it came
-/// from when it is a copy: whole into a folder of its own, then renamed
-/// into its place (the save there before set aside meanwhile, then
-/// removed).
+/// `world` (a save's bytes), `meta` and `story` written as `id`, with where
+/// it came from when it is a copy: whole into a folder of its own, then
+/// renamed into its place (the save there before set aside meanwhile, then
+/// removed). The story is stamped with the meta's build and time.
 fn write_files(
     root: &Path,
     id: &str,
     world: &[u8],
     meta: &Meta,
+    story: Option<&Story>,
     received: Option<&copies::Received>,
 ) -> Result<(), String> {
     let folder = checked(root, id)?;
@@ -295,25 +333,10 @@ fn write_files(
         remove(&aside)?;
     }
     std::fs::create_dir_all(&fresh).map_err(failed(&fresh))?;
-    let meta = Meta {
-        blake3: Some(blake3::hash(world).to_hex().to_string()),
-        ..meta.clone()
-    };
-    let text = serde_json::to_vec_pretty(&meta_file(&meta, received)).expect("a meta serializes");
-    // On the disk before the renames: a power cut leaves the old save or
-    // the new one whole.
-    for (name, bytes) in [(WORLD, world), (META, text.as_slice())] {
-        let path = fresh.join(name);
-        // The handle that wrote it: Windows refuses to flush a read-only one.
-        let written = std::fs::File::create(&path).and_then(|mut file| {
-            std::io::Write::write_all(&mut file, bytes)?;
-            file.sync_all()
-        });
-        if let Err(error) = written {
-            // A full disk: nothing half-written is left.
-            let _ = remove(&fresh);
-            return Err(failed(&path)(error));
-        }
+    if let Err(error) = fill(&fresh, world, meta, story, received) {
+        // A full disk: nothing half-written is left.
+        let _ = remove(&fresh);
+        return Err(error);
     }
     let replacing = folder.exists();
     if replacing {
@@ -328,6 +351,52 @@ fn write_files(
     // Saved: an aside not removed now is at the next write of `id`.
     if replacing {
         let _ = remove(&aside);
+    }
+    Ok(())
+}
+
+/// `world`, `meta` and `story` written as the files of `folder`, which
+/// exists: the meta carrying the world's hash, the story stamped with the
+/// meta's build and time.
+fn fill(
+    folder: &Path,
+    world: &[u8],
+    meta: &Meta,
+    story: Option<&Story>,
+    received: Option<&copies::Received>,
+) -> Result<(), String> {
+    let meta = Meta {
+        blake3: Some(blake3::hash(world).to_hex().to_string()),
+        ..meta.clone()
+    };
+    let text = serde_json::to_vec_pretty(&meta_file(&meta, received)).expect("a meta serializes");
+    // On the disk before the renames: a power cut leaves the old save or
+    // the new one whole.
+    let story = story.map(|story| {
+        let stamped = Story {
+            build: meta.build.clone().unwrap_or_else(String::new),
+            saved: meta.saved,
+            ..story.clone()
+        };
+        serde_json::to_vec_pretty(&stamped).expect("a story serializes")
+    });
+    let files = [
+        (WORLD, Some(world)),
+        (META, Some(text.as_slice())),
+        (STORY, story.as_deref()),
+    ];
+    for (name, bytes) in files
+        .into_iter()
+        .filter_map(|(name, bytes)| Some((name, bytes?)))
+    {
+        let path = folder.join(name);
+        // The handle that wrote it: Windows refuses to flush a read-only one.
+        std::fs::File::create(&path)
+            .and_then(|mut file| {
+                std::io::Write::write_all(&mut file, bytes)?;
+                file.sync_all()
+            })
+            .map_err(failed(&path))?;
     }
     Ok(())
 }
@@ -499,6 +568,8 @@ const MINIGAME: &str = "You cannot save during a minigame.";
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
-pub use probes::refusal_probes;
+pub use corpus::probes as corpus_probes;
+#[cfg(feature = "probes")]
+pub use probes::{refusal_probes, story_probes};
 #[cfg(feature = "probes")]
 pub use safety::probes as safety_probes;

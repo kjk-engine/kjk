@@ -895,6 +895,16 @@ fn dialogue_state() {
     passed("dialogue state", &sim::script::dialogue_probes::kept(), 4);
 }
 
+/// A save against a module whose placements changed: where each old number
+/// stands in the new list, the roster's encoding, and saves loaded and
+/// modules left entered again on the proving ground after a placement was
+/// inserted, removed or added (the save migrations design, 3c).
+#[test]
+fn reconcile_numbers() {
+    passed("reconcile", &sim::reconcile_probes::checks(), 11);
+    passed("reconcile at load", &sim::reconcile_probes::loads(), 17);
+}
+
 /// K1's Endar Spire, headless, answering through seat 0's command as
 /// `kjk dialogue run` does: Trask walks up and his opening plays to
 /// "Okay." with the first reply each time (the class checks choose the
@@ -1498,7 +1508,7 @@ fn guests_drive_companions() {
 /// cases and the whole scenario run twice ending alike; the sim alone.
 #[test]
 fn dialogue_coop() {
-    probed("coop talk", &sim::coop_talk::probes(), 138);
+    probed("coop talk", &sim::coop_talk::probes(), 141);
 }
 
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,
@@ -1663,21 +1673,26 @@ fn feats() {
 /// kept byte for byte, refused when foreign, replaced by a later copy, the
 /// player's own saves untouched, two hosts of one name apart, a host's
 /// copies capped, no number left refused, ids inside the folder) and
-/// `saves::refusal_probes` (what refuses a save); no install.
+/// `saves::refusal_probes` (what refuses a save) and `saves::story_probes` (a save's story by name, its roster module, a JSON round trip, a slot write with `story.json`, a missing one read as none, a companion who joined and left keeping her items in the story, one who never joined none, an item the module lacks restored from the install's lookup, else lost, the story restored and written again equal but for what each case names as lost, spec 4c, and placements alike told apart by the story's roster, here and in a module left, when a placement is inserted before them); no install.
 #[test]
 fn save_copy_round_trip() {
     probed("save copies", &saves::copies::probes(), 12);
     probed("save refusals", &saves::refusal_probes(), 14);
+    probed("save story", &saves::story_probes(), 15);
 }
 
 /// The saves' safety net (`saves::safety_probes`): the meta's new fields
 /// and an older meta, a damaged save listed and refused, one without a hash
 /// trusted, autosaves rotating, the backup before a new release, a failed
 /// write leaving nothing, a refusal naming the build that made the save;
-/// no install.
+/// and the release gate's corpus (`saves::corpus_probes`): a slot folder read
+/// back whole and a damaged one refused, the corpus's slots found by release,
+/// a current save passing, one older than a fake `breaking` entry expected
+/// (and failing without the entry or when its story restore lost something), the table printed, a slot written only under a plain name, a panicking save a FAIL row among the others; no install.
 #[test]
 fn save_safety() {
     probed("save safety", &saves::safety_probes(), 11);
+    probed("save corpus", &saves::corpus_probes(), 7);
 }
 
 /// The flight recorder's file (`sim::flight::probes`): the pinned run kept

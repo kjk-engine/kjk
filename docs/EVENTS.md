@@ -1,4 +1,4 @@
-# Objects' events and action queues (I17; `sim::script`, `world::scripts`)
+# Objects' events and action queues (`sim::script`, `world::scripts`)
 
 What makes the games' scripts run, and what their `Action…` calls do.
 Authority only; the state (queues, who did what last, trigger occupants)
@@ -67,7 +67,7 @@ travels in saves and recordings (`script::State`).
   (the Lower City's gang scene: the baton Vulkar's Power Attack `g1a1`, the
   blades' `c2a*`; probes `scene` `assured_blow_answered`,
   `round_clips_by_wield`).
-- **Damage** `ScriptDamaged` at most every 500 ms (C15), **death**
+- **Damage** `ScriptDamaged` at most every 500 ms, **death**
   `ScriptDeath`; the attacker is `GetLastDamager`'s / `GetLastKiller`'s.
   A dead creature not of the party is taken away after its appearance's
   `destroyobjectdelay` (3 s where blank), fading out over its
@@ -108,13 +108,13 @@ travels in saves and recordings (`script::State`).
   criterion (whether the *target* perceives the creature, as NWScript
   says; reone asks the reverse).
 - **Attacked** `ScriptAttacked`: a character hit, at most every 500 ms
-  per attacker (C15), before its damaged event (`GetLastAttacker`).
-- **Spell cast at** `ScriptSpellAt` (C15): a power that reached the
+  per attacker, before its damaged event (`GetLastAttacker`).
+- **Spell cast at** `ScriptSpellAt`: a power that reached the
   object (struck, caught, healed or blessed by it; signalled before its
   resistance and save, as KOTOR's impact script does), at most every
   500 ms per caster: `GetLastSpellCaster`, `GetLastSpell` (the
   `spells.2da` row), `GetLastSpellHarmful`.
-- **End of round** `ScriptEndRound` (I22 C14): a creature in combat
+- **End of round** `ScriptEndRound`: a creature in combat
   (`GetIsInCombat`: 8 s after its last hit or attack), every 3 s from
   when it entered it. K1's `k_def_combend01` asks `k_ai_master` for the
   round. A script's attack with a blade or fists on a target in its
@@ -127,8 +127,12 @@ travels in saves and recordings (`script::State`).
   area) whose pattern fits (exact, `**` any run) runs `ScriptDialogue`
   with `GetListenPatternNumber` and `GetLastSpeaker`: allies answer "I was
   attacked", "I am dead" (`k_def_dialogue01`).
-- Conversations (I18): `DIALOGUE.md`; a player's use runs a creature's
-  `ScriptDialogue` with pattern −1, a placeable's `OnUsed`.
+- Conversations: `DIALOGUE.md`; a player's use runs a creature's
+  `ScriptDialogue` with pattern −1, a placeable's `OnUsed`. The pattern
+  is kept on the creature (`last::PATTERN`): its `OnUserDefined`, which
+  `k_ai_master` signals with 1004 for one whose spawn asked for it, reads
+  it too, not the event's number (Tanis Venn's droids begin their
+  conversations only for −1, `k_ptat_tandrduse`).
 - Which field each holder names its script under, per event (UTC, UTD,
   UTP, UTT, UTE, UTM, ARE, IFO): `script::hooks::Hook::label`.
 
@@ -139,7 +143,7 @@ travels in saves and recordings (`script::State`).
 - Each step the front action runs and the next starts once it is done
   (16 a step at most): code (`ActionDoCommand`) runs; waits (`ActionWait`,
   `ActionPlayAnimation`'s time, the object playing it meanwhile: SKELETON.md,
-  Idles) time out. An animation's time is KOTOR's script semantics (S7),
+  Idles) time out. An animation's time is KOTOR's script semantics,
   everywhere, a conversation holding the world or not: a looping one
   given a duration lasts exactly that; any other one plays its clip once at
   its speed (`Library::clip_ms`, the clip's length on the body's model, ÷
@@ -176,8 +180,8 @@ travels in saves and recordings (`script::State`).
   (who stands in a trigger), `…InShape` (sphere, cube, cylinder, cone;
   line of sight not tested yet), `GetNearestObject`; type filters are
   `OBJECT_TYPE_*` bits.
-- A player's moves are dropped (a seat's legs are its own, C14).
-- `ActionAttack(target, passive)` (C14: the script chooses what, the
+- A player's moves are dropped (a seat's legs are its own).
+- `ActionAttack(target, passive)` (the script chooses what, the
   mind how): to the end of the creature's round, the mind fights that
   target while it lives, stays hostile and is in reach (else its own
   choice); a passive one faces it without swinging. Fighting beats a
@@ -185,7 +189,7 @@ travels in saves and recordings (`script::State`).
   while the target stands within 3 m (from its second step: the mind
   first meets the target as a foe newly spotted); a gun's keeps it so by
   its shots.
-- Talents (C14): a power (`spells.2da` row) or feat. `GetCreatureTalent…`
+- Talents: a power (`spells.2da` row) or feat. `GetCreatureTalent…`
   return those it has and can use now (a power it knows and has the FP
   for) whose category code lies within the asked one (`code & mask ==
   code`: the AI's masks, `0xf8ff` the buffs, `0x1104` the melee feats),
@@ -193,7 +197,7 @@ travels in saves and recordings (`script::State`).
   lasts to the end of the round; the mind uses it once within the power's
   reach (`ai::power_reach`): a power pressed (grip, lightning and drain
   held), a ranged feat as the gun's special, a melee feat as its saber
-  style (C8). Classes (`GetLevelByClass`, `GetClassByPosition`, the class
+  style. Classes (`GetLevelByClass`, `GetClassByPosition`, the class
   criterion) come from the template's `ClassList`.
 
 ## What scripts read of characters
@@ -210,7 +214,7 @@ kjk script coverage k1 tar_m02aa --seconds 24 --walk 130.7,95.4 --frames DIR
 kjk lifecycle cycle k1 tar_m02aa tar_m02ab        # run, replay, save: same
 ```
 
-## Where dialogue (I18) meets this
+## Where dialogue meets this
 - `ScriptDialogue` is raised by shouts, with `GetListenPatternNumber`
   the pattern's number and `GetLastSpeaker` the speaker
   (`script::engine::Engine::speak`), and by a player's use with −1
