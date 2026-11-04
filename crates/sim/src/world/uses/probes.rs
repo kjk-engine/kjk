@@ -654,12 +654,17 @@ object GetLastOpenedBy();
 void ActionOpenDoor(object oDoor);
 // 9
 void ActionLockObject(object oTarget);
+// 10
+void SetLocked(object oTarget, int bLocked);
+// 11
+int GetLocked(object oTarget);
 "#;
 
 /// Spawn scripts that use the object tagged so (by routine), the panel's
 /// `OnUsed`, which tells the player its user's tag, the gate's `OnOpen`,
 /// which tells its opener's, and heartbeats that open and lock their own
-/// door.
+/// door, or lock and unlock it, telling the player each lock it reads back
+/// as set (`READ_BACK`).
 fn npc_library() -> crate::script::Library {
     use fmt_odyssey::ncs::{Const, Op};
     let uses = |routine: u16, tag: &str| {
@@ -702,6 +707,36 @@ fn npc_library() -> crate::script::Library {
             .op(Op::Retn);
         asm.build()
     };
+    // `SetLocked(OBJECT_SELF, v); if (GetLocked(OBJECT_SELF) == v)
+    // SendMessageToPC(GetFirstPC(), word)`, for each of `READ_BACK`.
+    let mut flips = script_ncs::probes::Asm::default();
+    for (locked, word, skip) in READ_BACK {
+        let jump: fn(i32) -> Op = if locked { Op::Jz } else { Op::Jnz };
+        flips
+            .op(Op::Const(Const::Int(i32::from(locked))))
+            .op(Op::Const(Const::Object(0)))
+            .op(Op::Action {
+                routine: 10,
+                args: 2,
+            })
+            .op(Op::Const(Const::Object(0)))
+            .op(Op::Action {
+                routine: 11,
+                args: 1,
+            })
+            .to(jump, skip)
+            .op(Op::Const(Const::String(word.as_bytes().to_vec())))
+            .op(Op::Action {
+                routine: 3,
+                args: 0,
+            })
+            .op(Op::Action {
+                routine: 0,
+                args: 2,
+            })
+            .label(skip);
+    }
+    flips.op(Op::Retn);
     crate::probe::library(
         NPC_CATALOG,
         [
@@ -711,9 +746,14 @@ fn npc_library() -> crate::script::Library {
             ("probe_opened_by", tells(7)),
             ("probe_opens_itself", on_itself(8)),
             ("probe_locks_itself", on_itself(9)),
+            ("probe_flips_its_lock", flips.build()),
         ],
     )
 }
+
+/// What `probe_flips_its_lock` sets its lock to in turn, the word it tells
+/// when it reads that back, and its jump's label past the telling.
+const READ_BACK: [(bool, &str, &str); 2] = [(true, "locked", "set"), (false, "unlocked", "unset")];
 
 /// How long the NPC probe runs at most (8 ms steps).
 const NPC_STEPS: usize = 500;
@@ -1714,6 +1754,14 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
             })
         })
         .collect();
+    // KOTOR's `SetLocked` sets the flag at once: the same script reads it
+    // back (Taris's Sith base cell panels, `tar09_wall1`…`5`).
+    let read_back = ground_scenario(
+        &[("OnHeartbeat", "probe_flips_its_lock")],
+        None,
+        false,
+        SELF_OPEN_STEPS,
+    );
     let opened_at = gates.iter().position(|state| *state == 1);
     let told_by = |tag: &str| -> Vec<usize> {
         told.iter()
@@ -1758,6 +1806,20 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
                     locked == [Some(false), Some(true)],
                     format!("locked after its heartbeat, unlockable and lockable: {locked:?}"),
                 ),
+                Err(why) => Err(why),
+            },
+        ),
+        (
+            "lock_reads_back_as_set",
+            match read_back {
+                Ok((_, told, _)) => {
+                    let words: Vec<&str> = told.iter().map(|(_, words)| words.as_str()).collect();
+                    let want: Vec<&str> = READ_BACK.iter().map(|(_, word, _)| *word).collect();
+                    // Each heartbeat tells both, in order.
+                    let each =
+                        !words.is_empty() && words.chunks(want.len()).all(|beat| beat == want);
+                    check(each, format!("told {words:?}"))
+                }
                 Err(why) => Err(why),
             },
         ),

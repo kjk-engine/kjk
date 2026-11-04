@@ -325,7 +325,10 @@ the games' own compiled scripts; nothing of them is in the repo.
   `GetLockLockDC`, `GetLastUnlocked`, `GetLastLocked`, `ActionUnlockObject`,
   `ActionLockObject`, `GetIsDoorActionPossible` and `DoDoorAction` (open,
   unlock where the caller's Security reaches, and bash what blows may
-  break; knock not yet): `WORLD-STATE.md`, Locks.
+  break; knock not yet): `WORLD-STATE.md`, Locks. `SetLocked` holds at
+  once: the same step's scripts read the lock as they set it
+  (`Out::locked`; Taris's Sith base cell panels flip, then read back all
+  five).
 - The combat AI's (`k_ai_master`, `k_inc_generic`; the playtests' most
   reached gaps): `GetLastAttackAction` is `ACTION_ATTACKOBJECT` for a
   creature's last attack (a blow, a combat feat's too) and

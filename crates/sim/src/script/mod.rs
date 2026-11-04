@@ -1777,6 +1777,22 @@ impl Out {
         ))
     }
 
+    /// Whether door or placeable `id` is locked as this step's scripts
+    /// leave it so far (their `SetLocked` and finished lock actions over
+    /// the step's view); `None` for what is neither. KOTOR's `SetLocked`
+    /// sets the object's flag at once, so the same script reads it back:
+    /// the Taris Sith base's cell panels (`tar09_wall1`…`5`) flip
+    /// themselves and their neighbours, then free the Duros when all five
+    /// read locked.
+    pub(super) fn locked(&self, view: &View, id: ObjectId) -> Option<bool> {
+        let now = view.thing(id)?.locked?;
+        let set = self.changes.iter().rev().find_map(|change| match *change {
+            Change::Lock { door, locked } if door == id => Some(locked),
+            _ => None,
+        });
+        Some(set.unwrap_or(now))
+    }
+
     /// The module's fade in as this step's scripts leave it so far.
     pub(super) fn world_fade_in(&self, view: &View) -> crate::snapshot::WorldFadeIn {
         self.world_fade_in.unwrap_or(view.world_fade_in)

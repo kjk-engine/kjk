@@ -1938,11 +1938,7 @@ impl Engine<'_> {
                     .and_then(|thing| thing.open)
                     .is_some_and(|open| open != 0),
             ),
-            GetLocked => truth(
-                view.thing(object(args, 0))
-                    .and_then(|thing| thing.locked)
-                    .unwrap_or(false),
-            ),
+            GetLocked => truth(self.out.locked(view, object(args, 0)).unwrap_or(false)),
             SetLocked => {
                 self.out.changes.push(Change::Lock {
                     door: object(args, 0),
