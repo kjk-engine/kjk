@@ -63,6 +63,9 @@ pub fn probes() -> Checks {
                 continue;
             }
         };
+        let name: &'static str =
+            Box::leak(format!("{}: level-up knows every class", game.key()).into_boxed_str());
+        checks.push((name, every_class(&discovery, game)));
         for (at, &(class, named)) in classes.iter().enumerate() {
             let portrait = portraits[at % 2];
             let made = made(&installer, module, (class, portrait));
@@ -73,6 +76,39 @@ pub fn probes() -> Checks {
         }
     }
     checks
+}
+
+/// The screens' class views (`character::chargen`, which level-up reads by
+/// the character's class row) hold every `classes.2da` row with its own skill
+/// points and class skills, the sim's: issue 106, Bastila's Jedi class
+/// (past the classes K1's creation offers) levelled up with no class's
+/// points and every skill cross-class.
+fn every_class(discovery: &vfs::Discovery, game: Game) -> Result<String, String> {
+    let mut assets = ui::assets::GuiAssets::open(discovery, game)?;
+    let view = crate::character::chargen(&mut assets);
+    let source = kjk_game::viewer::ResolverSource(assets.resolver());
+    let sim = session::classes::classes(&source);
+    let rows = assets.rows("classes");
+    let wrong: Vec<usize> = (0..rows)
+        .filter(|&row| {
+            let shown = view.classes.get(row);
+            let own = sim.classes.get(row);
+            match (shown, own) {
+                (Some(shown), Some(own)) => {
+                    shown.skill_points != own.skill_points
+                        || shown.class_skills != own.class_skills
+                }
+                _ => true,
+            }
+        })
+        .collect();
+    check(
+        rows > 0 && view.classes.len() == rows && wrong.is_empty(),
+        format!(
+            "{} views of {rows} rows, rows differing from the sim's {wrong:?}",
+            view.classes.len()
+        ),
+    )
 }
 
 /// Quick creation of `class` of `portrait` in `module`, checked against the

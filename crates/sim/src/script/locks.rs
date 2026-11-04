@@ -37,10 +37,10 @@ static NO_LOCK: Lock = Lock {
 };
 
 impl Engine<'_> {
-    /// `target`'s lock facts, and whether it is locked now; `None` for
-    /// what is not a door or placeable.
+    /// `target`'s lock facts, and whether it is locked now (`Out::locked`);
+    /// `None` for what is not a door or placeable.
     fn lock_of(&self, target: ObjectId) -> Option<(&Lock, bool)> {
-        let locked = self.view.thing(target)?.locked?;
+        let locked = self.out.locked(self.view, target)?;
         let facts = self.view.facts(target)?;
         Some((facts.lock.as_ref().unwrap_or(&NO_LOCK), locked))
     }

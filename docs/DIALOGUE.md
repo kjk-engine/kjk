@@ -743,7 +743,11 @@ kjk play --stage end_m01ab --arrive end_explode04 --skill computer=8 \
     every screen shows it (a watching seat the conversation holding the
     member it follows, else this one), and, while more than one seat plays
     (`View::together`), party members farther than 10 m [verify] come to
-    free places in sight (`Gathered::Everyone`), but not a seat's body
+    free places in sight (`Gathered::Everyone`) of its PC, or of the
+    seat's body whose coming into a trigger set it off (its `Cue`), which
+    so stays in the trigger (Tanis Venn's call on Tatooine, issue 111: a
+    guest walking in was taken to the host, out of the trigger, and set the
+    call off again coming back), but not a seat's body
     standing in a player's own conversation; one player's party stays where
     it stands, as in KOTOR (scene mode's S9). Starting
     it cuts every conversation a seat's body stands in short ("a cutscene

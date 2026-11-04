@@ -295,6 +295,22 @@ pub mod last {
     /// The item its inventory was last disturbed with
     /// (`GetInventoryDisturbItem`).
     pub const DISTURB_ITEM: u8 = 31;
+    /// The number of the listen pattern its last dialogue event matched
+    /// (`GetListenPatternNumber`, as an `i32`'s bits): −1 for a click.
+    pub const PATTERN: u8 = 32;
+}
+
+/// The listen pattern number `who`'s last dialogue event matched, kept on
+/// it (`last::PATTERN`) so its other scripts read it too: K1's
+/// `k_ai_master` hands a click on one whose spawn asked for it to its
+/// `OnUserDefined` (event 1004), which begins the conversation only for
+/// pattern −1 (Tatooine's Tanis Venn's droids, `k_ptat_tandrduse`). −1
+/// ("no string matched") before it has had one.
+fn listen_pattern(state: &State, who: ObjectId) -> i32 {
+    state
+        .last
+        .get(&(who.0, last::PATTERN))
+        .map_or(-1, |bits| *bits as i32)
 }
 
 /// The game's clock as `GetTimeHour` … `GetTimeMillisecond` read it, sim
@@ -1944,11 +1960,7 @@ impl Engine<'_> {
                     .and_then(|thing| thing.open)
                     .is_some_and(|open| open != 0),
             ),
-            GetLocked => truth(
-                view.thing(object(args, 0))
-                    .and_then(|thing| thing.locked)
-                    .unwrap_or(false),
-            ),
+            GetLocked => truth(self.out.locked(view, object(args, 0)).unwrap_or(false)),
             SetLocked => {
                 self.out.changes.push(Change::Lock {
                     door: object(args, 0),
@@ -2660,7 +2672,7 @@ impl Engine<'_> {
                 patterns.push((pattern, int(args, 2)));
                 Value::Int(0)
             }
-            GetListenPatternNumber => Value::Int(self.event.number),
+            GetListenPatternNumber => Value::Int(listen_pattern(state, caller)),
             GetLastSpeaker => maybe(
                 state
                     .last

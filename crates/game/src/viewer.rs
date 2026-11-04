@@ -443,6 +443,9 @@ pub struct CreatureClips {
     /// The metres its walk and run cycles cover (`appearance.2da`): a
     /// humanoid's gait (`gait`), another's walk and run (`cast::Clips`).
     pub strides: [f32; 2],
+    /// A creature model (type S or L, `creature::creature_model`): its own
+    /// `c…` names, and no wield's ready stance in a fight.
+    pub creature: bool,
 }
 
 /// Effects the scene draws each frame, facing the camera: JA's FX
@@ -1502,6 +1505,7 @@ impl CreatureLoad {
                 run: named(loaded, "crun", "run")?,
                 acted,
                 strides,
+                creature: creature_type,
                 ..CreatureClips::default()
             }
         } else {
@@ -1514,6 +1518,7 @@ impl CreatureLoad {
                 getup: named(loaded, "cgetupdead", "getupdead")?,
                 acted,
                 strides,
+                creature: creature_type,
             }
         };
         let body_index = models.len();
@@ -1785,12 +1790,15 @@ pub fn scripted_clips(
             acted.push((animation, found));
         }
     }
+    // Attacks for a body on its own clips (a retargeted one swings and aims
+    // JA's way), and for a creature model on JA's skeleton.
+    let attacks = creature || !asset_ja::rig::is_humanoid(body);
     let engine = crate::acting::ready_names(creature)
         .chain(crate::acting::draw_names())
         .chain(crate::acting::flinch_names(creature))
         .chain(
-            creature
-                .then(crate::acting::attack_names)
+            attacks
+                .then(|| crate::acting::attack_names(creature))
                 .into_iter()
                 .flatten(),
         );

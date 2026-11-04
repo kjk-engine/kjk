@@ -307,7 +307,8 @@ pub(super) fn answers(
 /// A player used `object`.
 /// - A creature with a dialogue hook runs it as the Aurora engine's
 ///   click: pattern −1 ("no string matched", nwscript.nss's
-///   `GetListenPatternNumber`), the PC its last speaker. The games'
+///   `GetListenPatternNumber`, kept on it for its other scripts), the PC
+///   its last speaker. The games'
 ///   handlers answer with `BeginConversation` (`k_def_dialogue01` →
 ///   `k_ai_master`). reone starts the creature's conversation itself.
 /// - A placeable with an `OnUsed` runs it, which starts what conversation
@@ -351,9 +352,6 @@ pub(super) fn talk_to(view: &View, state: &mut State, object: ObjectId, user: Ob
     let hook = view.hook(object, Hook::Dialogue);
     let on_used = view.hook(object, Hook::Used);
     if let Some(script) = hook {
-        state
-            .last
-            .insert((object.0, script::last::SPEAKER), player.0);
         // The run carries who asked, each use its own: the conversation
         // the hook begins takes it (`BeginConversation`, `Event::asker`).
         let mut pending = Pending::new(&script, object);
@@ -361,6 +359,9 @@ pub(super) fn talk_to(view: &View, state: &mut State, object: ObjectId, user: Ob
         pending.number = -1;
         pending.leads = guest_body(view, user);
         pending.asker = Some(user);
+        state
+            .last
+            .insert((object.0, script::last::SPEAKER), player.0);
         state.pending.push(pending);
     } else if let Some(script) = on_used {
         state.last.insert((object.0, script::last::USED), user.0);

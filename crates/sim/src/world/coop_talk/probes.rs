@@ -163,6 +163,14 @@ const WHO_TOKEN: i32 = 7;
 const ABORT_TOKEN: i32 = 8;
 /// The custom token `probe_busy` sets: `GetIsInConversation(GetFirstPC())`.
 const BUSY_TOKEN: i32 = 9;
+/// The custom token `probe_pattern` sets: `GetListenPatternNumber()`.
+const PATTERN_TOKEN: i32 = 10;
+/// The user-defined event K1's `k_ai_master` signals for a click
+/// (`probe_ask`).
+const USER_DIALOGUE: i32 = 1004;
+/// Half the side of the square trigger round the one who talks that calls
+/// the host's character to it (`probe_call`; metres).
+const CALL_HALF_M: f32 = 1.5;
 
 /// The co-op conversation probes (`kjk sim probes`): every phase's cases,
 /// one seat alone, and the whole scenario run twice ending in the same
@@ -183,6 +191,11 @@ pub fn probes() -> Vec<Case> {
             .unwrap_or_else(|why| vec![("fight_near_not_pulled_in", Err(why))]),
     );
     cases.extend(use_while_paused().unwrap_or_else(|why| vec![("use_while_paused", Err(why))]));
+    cases.extend(
+        trigger_call_gathers_there()
+            .unwrap_or_else(|why| vec![("trigger_call_gathers_there", Err(why))]),
+    );
+    cases.push(("click_pattern_kept", click_pattern_kept()));
     cases.push((
         "same_every_run",
         check(
@@ -1142,6 +1155,11 @@ fn program(ops: &[Op]) -> Ncs {
 /// - `probe_k1_dialog` clears its caller's queue and begins `probe_hold`
 ///   (K1's `k_ai_master`), whose line's `probe_hold` pauses, waits
 ///   `HOLD_S` and resumes;
+/// - `probe_call`, a trigger's `OnEnter`, has the one tagged `talker`
+///   queue `probe_talk` with the first PC, out of range, when a PC comes
+///   in;
+/// - `probe_ask` signals its caller's user-defined event 1004, whose
+///   `probe_pattern` sets `PATTERN_TOKEN` to `GetListenPatternNumber()`;
 /// - `probe_talk` (`probe_who`; "Again.", "Goodbye.", and "Join me."
 ///   running `probe_dark`; cut short, `probe_aborted`), `probe_bark` (a
 ///   one-liner), `probe_shop` (two replies, `probe_store`), `probe_deal`
@@ -1199,6 +1217,14 @@ void ClearAllActions();
 void ActionWait(float fSeconds);
 // 21
 void ActionResumeConversation();
+// 22
+object GetEnteringObject();
+// 23
+void SignalEvent(object oObject, event evToRun);
+// 24
+event EventUserDefined(int nUserDefinedEventNumber);
+// 25
+int GetListenPatternNumber();
 "#;
     let call = |routine, args| Op::Action { routine, args };
     let who = program(&[
@@ -1258,14 +1284,15 @@ void ActionResumeConversation();
     ]);
     // `ActionStartConversation(GetFirstPC(), "probe_talk")`, out of range,
     // as Taris's sewer console's `k_ptar_startconv` does.
-    let console = program(&[
+    let start_ops = [
         Op::Const(Const::Int(1)),
         Op::Const(Const::Int(0)),
         Op::Const(Const::Int(0)),
         Op::Const(Const::String(b"probe_talk".to_vec())),
         call(9, 0),
         call(10, 5),
-    ]);
+    ];
+    let console = program(&start_ops);
     // `ActionStartConversation(GetLastUsedBy())`, no DLG named: the
     // terminal's own, as the Endar Spire's `k_pend_comp07` does.
     let terminal = program(&[
@@ -1342,6 +1369,42 @@ void ActionResumeConversation();
         call(20, 1),
         call(21, 0),
     ]);
+    // `if (GetIsPC(GetEnteringObject())) AssignCommand(GetObjectByTag(
+    // "talker"), ActionStartConversation(GetFirstPC(), "probe_talk", FALSE,
+    // 0, TRUE))`, as Tanis Venn's trigger calls (`k_ptat_taniscall`).
+    let mut asm = script_ncs::probes::Asm::default();
+    asm.op(call(22, 0))
+        .op(call(5, 1))
+        .to(Op::Jz, "done")
+        .op(Op::StoreState { bp: 0, sp: 0 })
+        .to(Op::Jmp, "assign");
+    for op in &start_ops {
+        asm.op(op.clone());
+    }
+    asm.op(Op::Retn)
+        .label("assign")
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::String(b"talker".to_vec())))
+        .op(call(2, 2))
+        .op(call(16, 2))
+        .label("done")
+        .op(Op::Retn);
+    let call_out = asm.build();
+    // `SignalEvent(OBJECT_SELF, EventUserDefined(1004))`, as K1's
+    // `k_ai_master` answers a click on one whose spawn asked for it.
+    let ask = program(&[
+        Op::Const(Const::Int(USER_DIALOGUE)),
+        call(24, 1),
+        Op::Const(Const::Object(0)),
+        call(23, 2),
+    ]);
+    // `SetCustomToken(PATTERN_TOKEN, IntToString(GetListenPatternNumber()))`.
+    let pattern = program(&[
+        call(25, 0),
+        call(4, 1),
+        Op::Const(Const::Int(PATTERN_TOKEN)),
+        call(3, 2),
+    ]);
     let talk = Dlg {
         on_abort: "probe_aborted".into(),
         ..joining(talking(2, "probe_who"), "probe_dark")
@@ -1411,6 +1474,9 @@ void ActionResumeConversation();
             ("probe_later", later),
             ("probe_k1_dialog", k1_dialog),
             ("probe_hold", hold),
+            ("probe_call", call_out),
+            ("probe_ask", ask),
+            ("probe_pattern", pattern),
         ],
     )
     .with_dialogues(dialogues, BTreeMap::new())
@@ -4515,6 +4581,97 @@ fn use_while_paused() -> Result<Vec<Case>, String> {
             ),
         ),
     ])
+}
+
+/// Tatooine's Tanis Venn (issue 111): a trigger round the one who talks
+/// calls the host's character to it when a PC comes in (`probe_call`, as
+/// `k_ptat_taniscall`). The guest's companion comes in, the host far off:
+/// the party conversation gathers everyone to the guest's companion, which
+/// stays by the one who talks, not to the host, which would take it out of
+/// the trigger. Standing there again once it ends sets nothing off: the
+/// call was made once.
+fn trigger_call_gathers_there() -> Result<Vec<Case>, String> {
+    let mut run = Run::on_ground(SEATS, Some(Seat(1)), |data| {
+        let entry = data.entry.position;
+        let [x, y] = TALKER_AT;
+        let corner = |sx: f32, sy: f32| [sx * CALL_HALF_M, sy * CALL_HALF_M, 0.0];
+        data.placements.push(Placement::Own(ObjectData {
+            kind: ObjectKind::Trigger,
+            tag: "probe_call".into(),
+            geometry: vec![
+                corner(-1.0, -1.0),
+                corner(1.0, -1.0),
+                corner(1.0, 1.0),
+                corner(-1.0, 1.0),
+            ],
+            scripts: vec![("ScriptOnEnter".into(), "probe_call".into())],
+            ..ObjectData::unknown("", [entry[0] + x, entry[1] + y, entry[2]], 0.0)
+        }));
+    })?;
+    let (host, buddy, talker) = (run.body(0)?, run.body(1)?, object(&run.last, TALKER)?);
+    let calls = |run: &Run| {
+        run.world
+            .script_report()
+            .talk
+            .iter()
+            .filter(|line| matches!(line, Line::Cued { .. }))
+            .count()
+    };
+    run.put(host, FAR);
+    run.idle(USE_GAP);
+    run.put(buddy, TALK_FROM);
+    run.idle(steps(1000));
+    let talk = run.talk().map(|c| (c.party, c.listener.0 == host.0));
+    let (stayed, came) = (between(&run, buddy, talker), between(&run, host, buddy));
+    run.goodbye();
+    run.put(buddy, TALK_FROM);
+    run.idle(steps(1000));
+    let (made, after) = (calls(&run), run.last.talk.conversations.len());
+    Ok(vec![
+        (
+            "trigger_call_gathers_there",
+            check(
+                talk == Some((true, true)) && stayed < CALL_HALF_M && came <= GATHER_BEYOND_M,
+                format!(
+                    "(party, the host listening) {talk:?}; the guest's companion {stayed:.2} m from the one who talks, the host {came:.2} m from it"
+                ),
+            ),
+        ),
+        (
+            "trigger_call_once",
+            check(
+                made == 1 && after == 0,
+                format!("calls made {made}, conversations up after {after}"),
+            ),
+        ),
+    ])
+}
+
+/// K1's `k_ai_master` hands a click on one whose spawn asked for it to its
+/// `OnUserDefined` (event 1004, `probe_ask`), which begins the conversation
+/// only for listen pattern −1: there `GetListenPatternNumber` reads the
+/// click's pattern, kept on the one clicked, not the event's number
+/// (Tatooine's Tanis Venn's droids, `k_ptat_tandrduse`).
+fn click_pattern_kept() -> Result<String, String> {
+    let mut run = Run::on_ground(1, None, |data| {
+        for placement in &mut data.placements {
+            if let Placement::Own(object) = placement
+                && object.tag == "hooked"
+            {
+                object.scripts = vec![
+                    ("ScriptDialogue".into(), "probe_ask".into()),
+                    ("ScriptUserDefine".into(), "probe_pattern".into()),
+                ];
+            }
+        }
+    })?;
+    run.click(0, HOOK_FROM, 0.0)?;
+    run.idle(USE_GAP);
+    let read = run.last.talk.tokens.get(&PATTERN_TOKEN).cloned();
+    check(
+        read.as_deref() == Some("-1"),
+        format!("GetListenPatternNumber() in the click's OnUserDefined {read:?}"),
+    )
 }
 
 /// R9a: one seat alone has no one to watch it. Its companion, its own
