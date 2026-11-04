@@ -4,6 +4,10 @@
 //! - a creature's spawn script makes Taris (row 1) available and Dantooine
 //!   (row 3) available and selectable, and shows the map on Dantooine:
 //!   both seats are shown it, with those planets;
+//! - the same script makes the Xbox Live planets (rows 11 and 12)
+//!   available as `GetIsLiveContentAvailable` answers for their packages,
+//!   as K1's `k_pebn_galaxy` does: K1 shows Yavin Station (package 1, row
+//!   11) and no other, TSL neither;
 //! - the guest's travel to Dantooine is the host's to make (I30 P6), and
 //!   the host's to Taris is refused (not selectable): neither runs the
 //!   travel script; the host's to Dantooine runs it, which hears the
@@ -52,10 +56,16 @@ void StartCreditSequence(int bTransparentBackground);
 void QueueMovie(string sMovie, int nSkippable = TRUE);
 // 10
 void PlayMovieQueue(int nAllowSkips = TRUE);
+// 11
+int GetIsLiveContentAvailable(int nPkg);
 "#;
 
 const TARIS: u8 = 1;
 const DANTOOINE: u8 = 3;
+/// The Xbox Live planets asked for: (package, `planetary.2da` row).
+const LIVE: [(u8, u8); 2] = [(1, 11), (2, 12)];
+/// K1's Yavin Station (package 1), the only one either game ships.
+const YAVIN: u8 = 11;
 /// The steps the map's scenario takes, and those the end's.
 const STEPS: usize = 8;
 
@@ -75,6 +85,17 @@ fn planets(asm: &mut script_ncs::probes::Asm, calls: &[(u16, u8)]) {
 fn map() -> Ncs {
     let mut asm = script_ncs::probes::Asm::default();
     planets(&mut asm, &[(4, TARIS), (4, DANTOOINE), (5, DANTOOINE)]);
+    // `SetPlanetAvailable(row, GetIsLiveContentAvailable(package))`.
+    for (package, row) in LIVE {
+        int(&mut asm, package).op(Op::Action {
+            routine: 11,
+            args: 1,
+        });
+        int(&mut asm, row).op(Op::Action {
+            routine: 4,
+            args: 2,
+        });
+    }
     int(&mut asm, DANTOOINE).op(Op::Action {
         routine: 6,
         args: 1,
@@ -146,12 +167,13 @@ fn end(before: Before, shown: Option<u8>) -> Ncs {
 /// Each step's snapshot, and the notices it told by seat.
 type Ran = (Vec<Snapshot>, Vec<Vec<(Seat, Notice)>>);
 
-/// Two seats on the ground, a creature by the entry running `spawn` as it
-/// spawns, the travel script beside it; each step's actions by seat. Each
-/// step's snapshot and notices.
-fn run(spawn: Ncs, steps: &[Vec<(u8, Action)>]) -> Result<Ran, String> {
+/// Two seats on the ground (a module of `game`), a creature by the entry
+/// running `spawn` as it spawns, the travel script beside it; each step's
+/// actions by seat. Each step's snapshot and notices.
+fn run(game: &str, spawn: Ncs, steps: &[Vec<(u8, Action)>]) -> Result<Ran, String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.game = game.into();
     let at = data.entry.position;
     data.placements.push(Placement::Own(ObjectData {
         scripts: vec![("ScriptSpawn".into(), "probe_spawn".into())],
@@ -212,28 +234,36 @@ fn told(notices: &[Vec<(Seat, Notice)>], wanted: impl Fn(&Notice) -> bool) -> Ve
         .collect()
 }
 
+/// The map shown on Dantooine: Taris and Dantooine available, the `live`
+/// planets too, Dantooine selectable.
+fn map_shown(live: u32) -> Notice {
+    Notice::Show(Screen::GalaxyMap {
+        planet: DANTOOINE,
+        available: 1 << TARIS | 1 << DANTOOINE | live,
+        selectable: 1 << DANTOOINE,
+    })
+}
+
 fn galaxy() -> Checks {
     // The map shows in the first steps; travels from step 4, one a step.
     let mut steps = vec![Vec::new(); STEPS];
     steps[4] = vec![(1, Action::Travel(DANTOOINE)), (0, Action::Travel(TARIS))];
     steps[6] = vec![(0, Action::Travel(DANTOOINE))];
-    let (_, notices) = match run(map(), &steps) {
+    let (_, notices) = match run("k1", map(), &steps) {
         Ok(ran) => ran,
         Err(why) => return vec![("galaxy_scenario", Err(why))],
     };
-    let shown = told(&notices, |notice| {
-        *notice
-            == Notice::Show(Screen::GalaxyMap {
-                planet: DANTOOINE,
-                available: 1 << TARIS | 1 << DANTOOINE,
-                selectable: 1 << DANTOOINE,
-            })
-    });
+    let shown = told(&notices, |notice| *notice == map_shown(1 << YAVIN));
     let travelled = told(&notices, |notice| {
         *notice == Notice::Said(DANTOOINE.to_string())
     });
     let shown_at = shown.first().map(|(at, _)| *at);
+    let tsl_live = run("tsl", map(), &vec![Vec::new(); 4]).and_then(|(_, notices)| {
+        let shown = told(&notices, |notice| *notice == map_shown(0));
+        check(shown.len() == 2, format!("shown {shown:?}"))
+    });
     vec![
+        ("galaxy_no_live_planet_in_tsl", tsl_live),
         (
             "galaxy_shown_to_both",
             check(
@@ -300,7 +330,7 @@ fn ending() -> Checks {
     ]
     .into_iter()
     .map(|(name, before, shown, loses, wanted)| {
-        let result = run(end(before, shown), &steps).and_then(|(snapshots, notices)| {
+        let result = run("k1", end(before, shown), &steps).and_then(|(snapshots, notices)| {
             let lost = snapshots.last().and_then(|last| last.lost);
             let mut screens: Vec<(u8, Screen)> = notices
                 .iter()
