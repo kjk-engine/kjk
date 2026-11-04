@@ -117,9 +117,14 @@ impl Step<'_> {
             self.cut_short();
         }
         // Those far off come to the PC, or to the body whose use started
-        // it: a player's own brings its seat's companions, the first party
-        // one everyone (I30 P7, P8). Only with more than one seat playing
-        // (S9): one player's party stays where it stands, as in KOTOR.
+        // it, or to the seat's body whose coming into a trigger did (its
+        // `Cue`): a player's own brings its seat's companions, the first
+        // party one everyone (I30 P7, P8). A guest walking up to Tatooine's
+        // Tanis Venn sets his trigger's call to the host's character going
+        // (`k_ptat_taniscall`); brought to the host, out of the trigger,
+        // it set the call off again each time it came back. Only with more
+        // than one seat playing (S9): one player's party stays where it
+        // stands, as in KOTOR.
         let gathers = if private {
             self.view
                 .seat_of(listener)
@@ -133,10 +138,14 @@ impl Step<'_> {
         if matches!(gathers, Some(crate::script::Gathered::Everyone)) {
             self.close_stores();
         }
-        let around = if start.asker == ObjectId::INVALID {
-            start.pc
-        } else {
+        let entering = start
+            .cue
+            .map(|cue| cue.entering)
+            .filter(|&body| self.view.seat_of(body).is_some());
+        let around = if start.asker != ObjectId::INVALID {
             start.asker
+        } else {
+            entering.unwrap_or(start.pc)
         };
         self.state.talk.conversations.push(Conversation {
             id,

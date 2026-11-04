@@ -11,7 +11,11 @@
 //!   the asker carried by each use (a console's `OnUsed`, two players at
 //!   one NPC in a step);
 //! - a party conversation (the game's, or a cutscene's) holding every body
-//!   and every screen, cutting the players' own short;
+//!   and every screen, cutting the players' own short; one a seat's body
+//!   coming into a trigger set off gathered to that body, which stays in
+//!   the trigger;
+//! - a click's listen pattern read by the `OnUserDefined` its dialogue
+//!   hook signals;
 //! - a bark holding nobody;
 //! - a guest's use talking with the host's character as the PC;
 //! - the store that conversation opens, opening for whoever asked; two

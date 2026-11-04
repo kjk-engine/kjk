@@ -295,6 +295,22 @@ pub mod last {
     /// The item its inventory was last disturbed with
     /// (`GetInventoryDisturbItem`).
     pub const DISTURB_ITEM: u8 = 31;
+    /// The number of the listen pattern its last dialogue event matched
+    /// (`GetListenPatternNumber`, as an `i32`'s bits): −1 for a click.
+    pub const PATTERN: u8 = 32;
+}
+
+/// The listen pattern number `who`'s last dialogue event matched, kept on
+/// it (`last::PATTERN`) so its other scripts read it too: K1's
+/// `k_ai_master` hands a click on one whose spawn asked for it to its
+/// `OnUserDefined` (event 1004), which begins the conversation only for
+/// pattern −1 (Tatooine's Tanis Venn's droids, `k_ptat_tandrduse`). −1
+/// ("no string matched") before it has had one.
+fn listen_pattern(state: &State, who: ObjectId) -> i32 {
+    state
+        .last
+        .get(&(who.0, last::PATTERN))
+        .map_or(-1, |bits| *bits as i32)
 }
 
 /// The game's clock as `GetTimeHour` … `GetTimeMillisecond` read it, sim
@@ -1451,9 +1467,9 @@ impl Engine<'_> {
             .collect();
         for (listener, number) in listeners {
             if let Some(script) = self.view.hook(listener, Hook::Dialogue) {
-                self.state
-                    .last
-                    .insert((listener.0, last::SPEAKER), speaker.0);
+                let last = &mut self.state.last;
+                last.insert((listener.0, last::SPEAKER), speaker.0);
+                last.insert((listener.0, last::PATTERN), number as u32);
                 let mut pending = Pending::new(&script, listener);
                 pending.entering = Some(speaker);
                 pending.number = number;
@@ -2650,7 +2666,7 @@ impl Engine<'_> {
                 patterns.push((pattern, int(args, 2)));
                 Value::Int(0)
             }
-            GetListenPatternNumber => Value::Int(self.event.number),
+            GetListenPatternNumber => Value::Int(listen_pattern(state, caller)),
             GetLastSpeaker => maybe(
                 state
                     .last
