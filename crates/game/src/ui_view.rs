@@ -72,6 +72,27 @@ pub struct Ui {
     summary: Option<Option<(fmt_odyssey::gui::Gui, ui::skin::Source)>>,
     /// The area transition panel's layout, the same way.
     transition: Option<Option<ui::screens::transition::Panel>>,
+    /// KOTOR's HUD as last drawn, and its banner, with what they were
+    /// drawn from (`hud_layer`).
+    hud_drawn: [Option<(HudDrawn, DrawList)>; 2],
+}
+
+/// All KOTOR's HUD is drawn from (`hud_layer`): the view-model's parts it
+/// reads, the window, the palette, the campaign and how often the module's
+/// art was let go. The same again, it draws the same; unless it pulsed, which changes
+/// from frame to frame.
+#[derive(PartialEq)]
+struct HudDrawn {
+    window: (f32, f32),
+    hud: Option<ui::vm::HudView>,
+    party: Vec<ui::vm::MemberView>,
+    target: Option<ui::vm::TargetView>,
+    calls: ui::vm::CallsView,
+    requests: Option<ui::vm::RequestsView>,
+    crosshair: bool,
+    palette: ui::paint::Palette,
+    game: vfs::Game,
+    released: u32,
 }
 
 impl Ui {
@@ -253,6 +274,7 @@ impl Plugin for UiViewPlugin {
             transition: None,
             dialog: None,
             summary: None,
+            hud_drawn: [None, None],
         })
         .init_resource::<UiIntents>()
         .init_resource::<crate::leader_view::Picked>()
@@ -778,6 +800,33 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
     } else {
         ui.vm.hud.as_ref()?;
     }
+    let vm = &ui.vm;
+    let from = HudDrawn {
+        window,
+        hud: vm.hud.clone(),
+        party: vm.party.clone(),
+        target: vm.target.clone(),
+        calls: vm.calls.clone(),
+        requests: vm.requests.clone(),
+        crosshair: vm.crosshair,
+        palette: ui.stack.palette,
+        game: ui.assets.as_ref()?.game,
+        released: ui.assets.as_ref()?.released(),
+    };
+    let at = usize::from(banner);
+    if let Some((last, out)) = &ui.hud_drawn[at]
+        && *last == from
+    {
+        return Some(out.clone());
+    }
+    let (out, pulsed) = draw_hud(ui, window, banner)?;
+    ui.hud_drawn[at] = (!pulsed).then(|| (from, out.clone()));
+    Some(out)
+}
+
+/// KOTOR's HUD drawn afresh (`hud_layer`), and whether anything in it
+/// pulses.
+fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, bool)> {
     let (gui, source) = hud_gui(ui, window)?;
     let Ui {
         assets, vm, stack, ..
@@ -816,7 +865,7 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
     if vm.crosshair {
         out.quads.extend(ui::screens::hud::crosshair(&gui));
     }
-    Some(out)
+    Some((out, painter.pulsed))
 }
 
 /// The words floating over creatures for a window of `window` pixels,
