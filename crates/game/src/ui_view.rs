@@ -268,7 +268,91 @@ impl Plugin for UiViewPlugin {
                 .in_set(Stepped)
                 .after(console::ConsoleQueue),
         )
+        .add_systems(
+            PostUpdate,
+            host_composite.after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
+        )
         .add_systems(Last, unclaimed);
+    }
+}
+
+/// Whether two cameras draw to the same place: the primary window (none
+/// given, or a window), or the same image.
+fn same_target(a: Option<&RenderTarget>, b: Option<&RenderTarget>) -> bool {
+    let image = |target: Option<&RenderTarget>| match target {
+        None | Some(RenderTarget::Window(_)) => Some(None),
+        Some(RenderTarget::Image(image)) => Some(Some(image.handle.id())),
+        Some(_) => None,
+    };
+    image(a).is_some_and(|a| image(b) == Some(a))
+}
+
+/// On the window's last camera before the composite's, while it composites
+/// in the composite camera's stead (`host_composite`).
+#[derive(Component)]
+struct CompositeHost;
+
+/// The composite camera draws only while something shows on its layers (the
+/// fight HUD's parts, a conversation's): with nothing there, it rests, and
+/// the window's last active camera before it composites the screens over
+/// the world after its own pass, as it would have, so the frame pays for
+/// one 3D pass fewer. It takes the composite back the frame something shows.
+#[allow(clippy::type_complexity)]
+fn host_composite(
+    mut commands: Commands,
+    drawn: Res<Drawn>,
+    mut cameras: Query<(
+        Entity,
+        &mut Camera,
+        &RenderLayers,
+        Option<&RenderTarget>,
+        Option<&UiComposite>,
+        Has<CompositeHost>,
+    )>,
+    shown: Query<(&RenderLayers, &InheritedVisibility), With<Mesh3d>>,
+) {
+    let Some(ui) = drawn.camera else {
+        return;
+    };
+    let Ok((_, camera, layers, target, Some(composite), _)) = cameras.get(ui) else {
+        return;
+    };
+    let (order, target, composite) = (camera.order, target.cloned(), composite.clone());
+    let busy = shown
+        .iter()
+        .any(|(on, visible)| visible.get() && on.intersects(layers));
+    // The window's camera drawn last before it, the one it would draw over.
+    let host = (!busy)
+        .then(|| {
+            cameras
+                .iter()
+                .filter(|(entity, camera, _, at, ..)| {
+                    *entity != ui
+                        && camera.is_active
+                        && camera.order < order
+                        && same_target(*at, target.as_ref())
+                })
+                .max_by_key(|(_, camera, ..)| camera.order)
+                .map(|(entity, ..)| entity)
+        })
+        .flatten();
+    for (entity, mut camera, _, _, held, hosting) in &mut cameras {
+        if entity == ui {
+            let active = host.is_none();
+            if camera.is_active != active {
+                camera.is_active = active;
+            }
+        } else if Some(entity) == host {
+            if !hosting || held.is_none_or(|held| held.gamma != composite.gamma) {
+                commands
+                    .entity(entity)
+                    .insert((composite.clone(), CompositeHost));
+            }
+        } else if hosting {
+            commands
+                .entity(entity)
+                .remove::<(UiComposite, CompositeHost)>();
+        }
     }
 }
 
