@@ -19,7 +19,116 @@ pub fn all() -> Vec<Probe> {
         ("characters_unsheeted", characters_unsheeted()),
         ("edits_reach_the_world", edits_reach_the_world()),
         ("unknown_item_refused", unknown_item_refused()),
+        ("equip_and_unequip", equip_and_unequip()),
+        ("equip_away", equip_away()),
+        ("equip_needs_its_feat", equip_needs_its_feat()),
     ]
+}
+
+const SABER: &str = "g_w_lghtsbr01";
+const MASTERS: &str = "g_w_masters01";
+use sim::inventory::slots::RIGHT_WEAPON;
+
+/// A saber for the right hand, and one that needs a feat no one has.
+fn armory() -> sim::inventory::Catalog {
+    let blade = |template: &str, needs: Vec<u16>| {
+        let mut facts = sim::inventory::ItemFacts::plain(template);
+        facts.slots = 1 << sim::inventory::slots::rules(RIGHT_WEAPON);
+        facts.weapon = Some(sim::combat::sheet::Weapon::UNARMED);
+        facts.needs = needs;
+        facts
+    };
+    sim::inventory::Catalog::new([blade(SABER, Vec::new()), blade(MASTERS, vec![255])])
+}
+
+/// The sheet `who` has in `save` as `characters` lists it.
+fn sheet_of(save: &sim::Save, who: crate::Who) -> Result<sim::combat::sheet::Sheet, String> {
+    crate::characters(save, None)
+        .into_iter()
+        .find(|character| character.who == who)
+        .map(|character| character.sheet)
+        .ok_or(format!("{who:?} is not listed"))
+}
+
+/// The first seat's player takes up a saber the party carries, its sheet
+/// holding it, and puts it down again, its sheet as it was.
+fn equip_and_unequip() -> Result<String, String> {
+    let (level, mut save) = sim::fixtures::kitchen_sink();
+    let catalog = armory();
+    let player = crate::Who::Player(sim::Seat(0));
+    // The sink's player holds weapons no item of its gives (made by hand):
+    // empty-handed, as what it wears leaves it, a hand's weapon is its
+    // item's alone (`inventory::rewear`).
+    for entity in &mut save.snapshot.entities {
+        if let (sim::Kind::Avatar(sim::Seat(0)), Some(sheet)) = (entity.kind, entity.sheet.as_mut()) {
+            sheet.weapons = [None; 2];
+        }
+    }
+    let before = sheet_of(&save, player)?;
+    let saber = {
+        let mut edit = crate::Editor::new(&mut save, &catalog);
+        let saber = edit.add_item(sim::inventory::PARTY, SABER, 1)?;
+        edit.equip(&player, saber, RIGHT_WEAPON)?;
+        saber
+    };
+    let held = sheet_of(&save, player)?;
+    let item = save.script.items.get(&saber).ok_or("the saber is gone")?;
+    if held.weapons[0].is_none() || item.slot != Some(RIGHT_WEAPON) {
+        return Err(format!("not held: {:?} in {:?}", held.weapons[0], item.slot));
+    }
+    stepped(&save, &level)?;
+    crate::Editor::new(&mut save, &catalog).unequip(&player, RIGHT_WEAPON)?;
+    let after = sheet_of(&save, player)?;
+    let item = save.script.items.get(&saber).ok_or("the saber is gone")?;
+    if after != before || item.holder != sim::inventory::PARTY {
+        return Err(format!(
+            "put down, the sheet is not as it was (weapons {:?}), the saber with {:#x}",
+            after.weapons, item.holder
+        ));
+    }
+    stepped(&save, &level)?;
+    Ok("held, loaded, put down, loaded".into())
+}
+
+/// A companion away from the party, as the table keeps it, is dressed
+/// there: its kept sheet holds the saber and its kept slots name it.
+fn equip_away() -> Result<String, String> {
+    let (_, mut save) = sim::fixtures::kitchen_sink();
+    let catalog = armory();
+    let sheet = sim::combat::sheet::Sheet::commoner();
+    let npc = save.script.party.available.get_mut(&0).ok_or("no companion")?;
+    npc.kept = Some(sim::script::party::Kept {
+        from: 0x7d00_0100,
+        sheet,
+        hp: i32::from(sheet.max_hp) * 100,
+        fp: 0,
+        worn: Some([0; sim::inventory::slots::COUNT as usize]),
+    });
+    let away = crate::Who::Away { npc: 0 };
+    let saber = {
+        let mut edit = crate::Editor::new(&mut save, &catalog);
+        let saber = edit.add_item(sim::inventory::PARTY, SABER, 1)?;
+        edit.equip(&away, saber, RIGHT_WEAPON)?;
+        saber
+    };
+    let kept = save.script.party.available[&0].kept.ok_or("the kept state went")?;
+    let worn = kept.worn.ok_or("no kept slots")?[usize::from(RIGHT_WEAPON)];
+    if kept.sheet.weapons[0].is_none() || worn != saber {
+        return Err(format!("kept {:?}, slot {worn:#x}", kept.sheet.weapons[0]));
+    }
+    Ok("the kept companion holds it".into())
+}
+
+/// A blade that needs a feat the player lacks is refused, in words.
+fn equip_needs_its_feat() -> Result<String, String> {
+    let (_, mut save) = sim::fixtures::kitchen_sink();
+    let catalog = armory();
+    let mut edit = crate::Editor::new(&mut save, &catalog);
+    let blade = edit.add_item(sim::inventory::PARTY, MASTERS, 1)?;
+    match edit.equip(&crate::Who::Player(sim::Seat(0)), blade, RIGHT_WEAPON) {
+        Err(why) if why.contains("feat") => Ok(why),
+        other => Err(format!("{other:?}")),
+    }
 }
 
 const MEDPAC: &str = "g_i_medeqpmnt01";

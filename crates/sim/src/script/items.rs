@@ -14,7 +14,7 @@ use super::state::State;
 use super::{Cast, Change, Library, Out, View, key, workbench};
 use crate::action::{Action, Fitting};
 use crate::combat::passive;
-use crate::combat::sheet::Weapon;
+use crate::combat::sheet::{Sheet, Weapon};
 use crate::inventory::properties::Wearer;
 use crate::inventory::{
     CREDITS, CRYSTAL, Catalog, Cost, FIRST_ITEM, Held, Item, ItemFacts, PARTY, has_upgrade, pairs,
@@ -981,6 +981,25 @@ impl State {
 
     /// The new sheets of those whose equipment changed this step.
     pub(crate) fn dress_changed(&self, catalog: &Catalog, view: &View, out: &mut Out) {
+        for (who, before) in std::mem::take(&mut out.worn_before) {
+            let Some(character) = view.thing(ObjectId(who)).and_then(|thing| thing.character)
+            else {
+                continue;
+            };
+            let after = self.worn(who);
+            if after == before {
+                continue;
+            }
+            let worn = out.sheet(ObjectId(who), character.worn);
+            out.changes.push(Change::Sheet {
+                who: ObjectId(who),
+                sheet: self.redress(catalog, worn, &before, &after),
+            });
+        }
+    }
+
+    /// `sheet` dressed anew for what was worn `before` now being `after`.
+    fn redress(&self, catalog: &Catalog, sheet: Sheet, before: &[Worn], after: &[Worn]) -> Sheet {
         let facts = |worn: &[Worn]| -> Vec<(u8, ItemFacts)> {
             worn.iter()
                 .filter_map(|(slot, template, upgrades, fitted)| {
@@ -992,22 +1011,25 @@ impl State {
         fn by_ref(worn: &[(u8, ItemFacts)]) -> Vec<(u8, &ItemFacts)> {
             worn.iter().map(|(slot, facts)| (*slot, facts)).collect()
         }
-        for (who, before) in std::mem::take(&mut out.worn_before) {
-            let Some(character) = view.thing(ObjectId(who)).and_then(|thing| thing.character)
-            else {
-                continue;
-            };
-            let after = self.worn(who);
-            if after == before {
-                continue;
-            }
-            let worn = out.sheet(ObjectId(who), character.worn);
-            let (before, after) = (facts(&before), facts(&after));
-            let sheet = rewear(worn, &by_ref(&before), &by_ref(&after));
-            out.changes.push(Change::Sheet {
-                who: ObjectId(who),
-                sheet,
-            });
-        }
+        let (before, after) = (facts(before), facts(after));
+        rewear(sheet, &by_ref(&before), &by_ref(&after))
+    }
+
+    /// `action` (`Action::Equip` of an item the party carries, or
+    /// `Action::Unequip`) done on `who` outside play, by the rules a
+    /// player's own goes through (`wear`): its `sheet` dressed anew as the
+    /// step's end dresses it. For a tool that changes a save (the save
+    /// editor); a refusal as its player is told it.
+    pub fn wear_outside(
+        &mut self,
+        catalog: &Catalog,
+        (who, wearer): (u32, &Wearer),
+        sheet: Sheet,
+        action: Action,
+    ) -> Result<Sheet, Notice> {
+        let mut out = Out::default();
+        let before = self.worn(who);
+        self.wear(catalog, &mut out, (who, wearer), action)?;
+        Ok(self.redress(catalog, sheet, &before, &self.worn(who)))
     }
 }
