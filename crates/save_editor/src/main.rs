@@ -1,6 +1,9 @@
 //! `kjk-save-editor`: a window for opening a kjk save, changing it and
 //! writing it back.
 
+// A window program on Windows: no console beside it in a release build.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod ui;
 
 const USAGE: &str = "usage: kjk-save-editor [--help]\n\
