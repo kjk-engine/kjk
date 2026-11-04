@@ -498,7 +498,11 @@ fn leader_label(snapshot: &Snapshot, script: &State) -> String {
 }
 
 /// What the party pool, each player and each companion has.
-fn held_items(snapshot: &Snapshot, script: &State, level: &sim::Level) -> BTreeMap<String, Vec<StoryItem>> {
+fn held_items(
+    snapshot: &Snapshot,
+    script: &State,
+    level: &sim::Level,
+) -> BTreeMap<String, Vec<StoryItem>> {
     let holders = std::iter::once((sim::inventory::PARTY, "party".to_string()))
         .chain(
             snapshot

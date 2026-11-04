@@ -307,30 +307,29 @@ fn prepare(intent: SessionIntent) -> Receiver<Progress> {
             } => {
                 let id = save.clone().unwrap_or_else(String::new);
                 let inexact = |why: &str| offer(&id, why);
-                read(save)
-                    .inspect_err(|why| inexact(why))
-                    .and_then(|save| {
-                        let stage = new_game(campaign);
-                        if save.is_none() {
-                            status(format!("Loading {stage}"));
-                        }
-                        let options = play::Options {
-                            save: save.as_ref(),
-                            inexact: Some(&inexact),
-                            made: character.as_ref().map(crate::persona::Made::Desc),
-                            ..solo_options(stage)?
-                        };
-                        play::load(&discovery, &options)
-                    })
+                read(save).inspect_err(|why| inexact(why)).and_then(|save| {
+                    let stage = new_game(campaign);
+                    if save.is_none() {
+                        status(format!("Loading {stage}"));
+                    }
+                    let options = play::Options {
+                        save: save.as_ref(),
+                        inexact: Some(&inexact),
+                        made: character.as_ref().map(crate::persona::Made::Desc),
+                        ..solo_options(stage)?
+                    };
+                    play::load(&discovery, &options)
+                })
             }
-            SessionIntent::Restore { save: id } => restore(&id, &status, &sender)
-                .and_then(|story| {
+            SessionIntent::Restore { save: id } => {
+                restore(&id, &status, &sender).and_then(|story| {
                     let options = play::Options {
                         story: Some(&story),
                         ..solo_options(new_game(None))?
                     };
                     play::load(&discovery, &options)
-                }),
+                })
+            }
             SessionIntent::Host {
                 save,
                 seats,

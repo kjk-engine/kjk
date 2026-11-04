@@ -100,7 +100,9 @@ impl Story {
             level,
             catalog: level.scripts().map(|library| library.items()),
             elsewhere: Catalog::new(self.items.values().flatten().filter_map(|item| {
-                let here = level.scripts().and_then(|library| library.items().get(&item.template));
+                let here = level
+                    .scripts()
+                    .and_then(|library| library.items().get(&item.template));
                 here.is_none().then(|| items(&item.template)).flatten()
             })),
             snapshot: fresh.snapshot(),
@@ -662,7 +664,11 @@ impl Restore<'_> {
     }
 
     /// The stash entities and roster of `module`, left as `kept` says.
-    fn left_objects(&mut self, module: &str, kept: &StoryModule) -> (Vec<EntityState>, Vec<Origin>) {
+    fn left_objects(
+        &mut self,
+        module: &str,
+        kept: &StoryModule,
+    ) -> (Vec<EntityState>, Vec<Origin>) {
         let mut left = Left {
             roster: marked(kept),
             ..Left::default()
@@ -722,7 +728,8 @@ impl Restore<'_> {
     fn lost_facts(&mut self, module: &str, kept: &StoryModule, why: &str) {
         let facts = kept.destroyed.len() + kept.doors.len() + kept.locals.len();
         if facts > 0 {
-            self.lost.push(format!("{module}: {facts} facts lost, {why}"));
+            self.lost
+                .push(format!("{module}: {facts} facts lost, {why}"));
         }
     }
 
@@ -746,9 +753,10 @@ impl Restore<'_> {
             .map(|entity| entity.id.0)
             .chain(self.members.iter().map(|(id, _)| *id))
             .collect();
-        let (mut moved, rest): (Vec<EntityState>, Vec<EntityState>) = std::mem::take(&mut self.snapshot.entities)
-            .into_iter()
-            .partition(|entity| party.contains(&entity.id.0));
+        let (mut moved, rest): (Vec<EntityState>, Vec<EntityState>) =
+            std::mem::take(&mut self.snapshot.entities)
+                .into_iter()
+                .partition(|entity| party.contains(&entity.id.0));
         for entity in &mut moved {
             let Some(player) = entity.player.as_mut() else {
                 continue;

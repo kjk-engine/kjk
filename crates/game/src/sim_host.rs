@@ -1205,7 +1205,9 @@ pub fn autosave_probes() -> sim::probe::Checks {
             "autosave_owed_each_game",
             sim::probe::check(
                 first && !same && entered && again && !off,
-                format!("first {first}, same {same}, entered {entered}, a new game {again}, off {off}"),
+                format!(
+                    "first {first}, same {same}, entered {entered}, a new game {again}, off {off}"
+                ),
             ),
         ),
         (
@@ -1244,7 +1246,12 @@ fn autosave(
         && matches!(authority.source, Source::Live { .. })
         && settings
             .is_some_and(|settings| settings.value(crate::settings::AUTOSAVE) == Some("true"));
-    if due.observe(authority.installs.len(), authority.is_added(), eligible, restored) {
+    if due.observe(
+        authority.installs.len(),
+        authority.is_added(),
+        eligible,
+        restored,
+    ) {
         info!(target: "saves", installs = authority.installs.len(), "autosave owed");
     }
     let now = Instant::now();

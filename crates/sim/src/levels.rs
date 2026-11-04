@@ -640,7 +640,9 @@ impl Classes {
                 out = Self::grown(&out, of, offer);
             }
         }
-        out.level = to.iter().fold(0u8, |sum, (_, levels)| sum.saturating_add(*levels));
+        out.level = to
+            .iter()
+            .fold(0u8, |sum, (_, levels)| sum.saturating_add(*levels));
         out
     }
 

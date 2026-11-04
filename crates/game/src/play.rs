@@ -562,7 +562,10 @@ pub fn load_for(
             (world, Some(first))
         }
         (None, None, Some(story)) => {
-            let search = stage.installer.as_deref().map(crate::lifecycle::ItemSearch::new);
+            let search = stage
+                .installer
+                .as_deref()
+                .map(crate::lifecycle::ItemSearch::new);
             let (world, first) = from_story(story, &stage.level, seats, search.as_ref())?;
             (world, Some(first))
         }

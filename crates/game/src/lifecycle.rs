@@ -226,7 +226,8 @@ impl<'a> ItemSearch<'a> {
     pub fn facts(&self, template: &str) -> Option<sim::inventory::ItemFacts> {
         let name = template.to_ascii_lowercase();
         let shared = self.installer.base_resolver().ok();
-        if let Some(found) = shared.and_then(|base| session::item_facts(&ResolverSource(base), &name))
+        if let Some(found) =
+            shared.and_then(|base| session::item_facts(&ResolverSource(base), &name))
         {
             return Some(found);
         }

@@ -228,10 +228,22 @@ pub fn story_probes() -> sim::probe::Checks {
         ("story_missing_is_none", missing_is_none(&root)),
         ("formats_without_story_read", old_formats()),
         ("story_restores_sink", restores_sink(&level, &save)),
-        ("story_restores_roster_module", restores_roster_module(&level, &save)),
-        ("story_restores_left_and_here", restores_left_and_here(&save)),
-        ("story_companion_left_keeps_items", companion_left(&level, &save)),
-        ("story_restores_items_elsewhere", restores_items_elsewhere(&level, &save)),
+        (
+            "story_restores_roster_module",
+            restores_roster_module(&level, &save),
+        ),
+        (
+            "story_restores_left_and_here",
+            restores_left_and_here(&save),
+        ),
+        (
+            "story_companion_left_keeps_items",
+            companion_left(&level, &save),
+        ),
+        (
+            "story_restores_items_elsewhere",
+            restores_items_elsewhere(&level, &save),
+        ),
         ("story_restores_twins_left", restores_twins_left(&save)),
         ("story_restores_twins_here", restores_twins_here(&save)),
     ];
@@ -660,7 +672,9 @@ fn companion_left(level: &sim::Level, save: &sim::Save) -> Result<String, String
     let dismissed = Story::of(&save, &level).items.contains_key("npc0");
     check(
         !never_joined && dismissed,
-        format!("holding her template's goods only: listed {never_joined}; carrying another's: listed {dismissed}"),
+        format!(
+            "holding her template's goods only: listed {never_joined}; carrying another's: listed {dismissed}"
+        ),
     )
 }
 
@@ -669,11 +683,15 @@ fn companion_left(level: &sim::Level, save: &sim::Save) -> Result<String, String
 fn restores_items_elsewhere(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
     const ITEM: &str = "fixture_elsewhere";
     let mut story = Story::of(save, level);
-    story.items.entry("party".into()).or_default().push(story::StoryItem {
-        template: ITEM.into(),
-        stack: 1,
-        ..story::StoryItem::default()
-    });
+    story
+        .items
+        .entry("party".into())
+        .or_default()
+        .push(story::StoryItem {
+            template: ITEM.into(),
+            stack: 1,
+            ..story::StoryItem::default()
+        });
     let outcome = |lookup: story::ItemLookup| -> Result<(bool, bool), String> {
         let (world, said) = story.restore(level, 1, lookup)?;
         let held = world
@@ -755,10 +773,9 @@ fn restores_left_and_here(save: &sim::Save) -> Result<String, String> {
         .map_err(|error| format!("entering the module left: {error}"))?;
     let snapshot = world.snapshot();
     let object = |key: &story::OriginKey| {
-        snapshot
-            .entities
-            .iter()
-            .find(|entity| matches!(entity.kind, sim::Kind::Object(_, number) if number == key.index))
+        snapshot.entities.iter().find(
+            |entity| matches!(entity.kind, sim::Kind::Object(_, number) if number == key.index),
+        )
     };
     let gate = object(&left_gate);
     let placed_at = left.placed()[left_gate.index as usize].position;
@@ -767,10 +784,13 @@ fn restores_left_and_here(save: &sim::Save) -> Result<String, String> {
         let state = gate.object.unwrap_or(sim::ObjectState::GONE);
         (state.state, state.lock, gate.position == placed_at)
     });
-    let gone = object(&way_out).is_none_or(|way_out| way_out.object == Some(sim::ObjectState::GONE));
+    let gone =
+        object(&way_out).is_none_or(|way_out| way_out.object == Some(sim::ObjectState::GONE));
     check(
         gate == Some((1, sim::lock::LOCKED, true)) && local == Some(7) && gone,
-        format!("{trip}; entered again: gate (state, lock, at its placement) {gate:?}, local {local:?}, way out gone {gone}"),
+        format!(
+            "{trip}; entered again: gate (state, lock, at its placement) {gate:?}, local {local:?}, way out gone {gone}"
+        ),
     )
 }
 
