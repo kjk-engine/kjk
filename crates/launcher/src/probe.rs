@@ -2,62 +2,9 @@
 //! in a module installed headless, for the end-to-end checks of what the
 //! script engine carries out (`kjk script effects`, `kjk script items`).
 
-use fmt_odyssey::ncs::{Const, Ncs, Op};
-use script_ncs::Catalog;
 use vfs::Discovery;
 
-/// A step of a probe program: an op, or a routine called with its
-/// arguments already pushed (the last argument first).
-#[derive(Clone)]
-pub(crate) enum Call {
-    Op(Op),
-    Routine(&'static str, u8),
-}
-
-pub(crate) fn int(v: i32) -> Call {
-    Call::Op(Op::Const(Const::Int(v)))
-}
-
-pub(crate) fn float(v: f32) -> Call {
-    Call::Op(Op::Const(Const::Float(v)))
-}
-
-pub(crate) fn text(v: &str) -> Call {
-    Call::Op(Op::Const(Const::String(v.as_bytes().to_vec())))
-}
-
-/// `OBJECT_SELF`.
-/// `GetObjectByTag(tag, nth)`.
-pub(crate) fn by_tag(tag: &str, nth: i32) -> Vec<Call> {
-    vec![int(nth), text(tag), Call::Routine("GetObjectByTag", 2)]
-}
-
-pub(crate) fn me() -> Call {
-    Call::Op(Op::Const(Const::Object(0)))
-}
-
-/// A program that runs `calls` in order and returns.
-pub(crate) fn program(catalog: &Catalog, calls: &[Vec<Call>]) -> Result<Ncs, String> {
-    let mut asm = script_ncs::probes::Asm::default();
-    for step in calls.iter().flatten() {
-        match step {
-            Call::Op(op) => {
-                asm.op(op.clone());
-            }
-            Call::Routine(name, args) => {
-                let routine = catalog
-                    .routine_named(name)
-                    .ok_or(format!("{name}: not in nwscript.nss"))?;
-                asm.op(Op::Action {
-                    routine: routine.id,
-                    args: *args,
-                });
-            }
-        }
-    }
-    asm.op(Op::Retn);
-    Ok(asm.build())
-}
+pub(crate) use sim::script::calls::{Call, by_tag, float, int, me, program, text};
 
 /// A module installed for one player (the dev soldier) with `library` as
 /// its scripts, stepped on the authority.

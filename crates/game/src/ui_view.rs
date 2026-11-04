@@ -72,6 +72,27 @@ pub struct Ui {
     summary: Option<Option<(fmt_odyssey::gui::Gui, ui::skin::Source)>>,
     /// The area transition panel's layout, the same way.
     transition: Option<Option<ui::screens::transition::Panel>>,
+    /// KOTOR's HUD as last drawn, and its banner, with what they were
+    /// drawn from (`hud_layer`).
+    hud_drawn: [Option<(HudDrawn, DrawList)>; 2],
+}
+
+/// All KOTOR's HUD is drawn from (`hud_layer`): the view-model's parts it
+/// reads, the window, the palette, the campaign and how often the module's
+/// art was let go. The same again, it draws the same; unless it pulsed, which changes
+/// from frame to frame.
+#[derive(PartialEq)]
+struct HudDrawn {
+    window: (f32, f32),
+    hud: Option<ui::vm::HudView>,
+    party: Vec<ui::vm::MemberView>,
+    target: Option<ui::vm::TargetView>,
+    calls: ui::vm::CallsView,
+    requests: Option<ui::vm::RequestsView>,
+    crosshair: bool,
+    palette: ui::paint::Palette,
+    game: vfs::Game,
+    released: u32,
 }
 
 impl Ui {
@@ -104,7 +125,7 @@ pub struct UiOpen(pub bool);
 /// The camera that composites the screens over the world, the window's
 /// size (what the screens are laid out in).
 #[derive(Component)]
-struct UiCamera;
+pub(crate) struct UiCamera;
 
 /// The camera that draws the screens into their image.
 #[derive(Component)]
@@ -193,7 +214,16 @@ struct Drawn {
     size: Vec2,
     /// The assets' `released` these copies were kept at.
     released: u32,
+    /// Frames left to draw the screens' image again after a change (their
+    /// meshes, textures and size reach the GPU over the next frames); none,
+    /// and it keeps what it shows, its camera resting.
+    fresh: u8,
+    /// A shown run shows a 3D view (`gui_scene`), which moves of itself.
+    live: bool,
 }
+
+/// How many frames the screens' image is drawn after a change.
+const REDRAWN: u8 = 3;
 
 pub struct UiViewPlugin {
     assets: std::sync::Mutex<Option<GuiAssets>>,
@@ -244,6 +274,7 @@ impl Plugin for UiViewPlugin {
             transition: None,
             dialog: None,
             summary: None,
+            hud_drawn: [None, None],
         })
         .init_resource::<UiIntents>()
         .init_resource::<crate::leader_view::Picked>()
@@ -254,12 +285,96 @@ impl Plugin for UiViewPlugin {
         .init_resource::<Drawn>()
         .add_systems(
             Update,
-            (requests, step, draw)
+            (requests, step, draw, rest_screens)
                 .chain()
                 .in_set(Stepped)
                 .after(console::ConsoleQueue),
         )
+        .add_systems(
+            PostUpdate,
+            host_composite.after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
+        )
         .add_systems(Last, unclaimed);
+    }
+}
+
+/// Whether two cameras draw to the same place: the primary window (none
+/// given, or a window), or the same image.
+fn same_target(a: Option<&RenderTarget>, b: Option<&RenderTarget>) -> bool {
+    let image = |target: Option<&RenderTarget>| match target {
+        None | Some(RenderTarget::Window(_)) => Some(None),
+        Some(RenderTarget::Image(image)) => Some(Some(image.handle.id())),
+        Some(_) => None,
+    };
+    image(a).is_some_and(|a| image(b) == Some(a))
+}
+
+/// On the window's last camera before the composite's, while it composites
+/// in the composite camera's stead (`host_composite`).
+#[derive(Component)]
+struct CompositeHost;
+
+/// The composite camera draws only while something shows on its layers (the
+/// fight HUD's parts, a conversation's): with nothing there, it rests, and
+/// the window's last active camera before it composites the screens over
+/// the world after its own pass, as it would have, so the frame pays for
+/// one 3D pass fewer. It takes the composite back the frame something shows.
+#[allow(clippy::type_complexity)]
+fn host_composite(
+    mut commands: Commands,
+    drawn: Res<Drawn>,
+    mut cameras: Query<(
+        Entity,
+        &mut Camera,
+        &RenderLayers,
+        Option<&RenderTarget>,
+        Option<&UiComposite>,
+        Has<CompositeHost>,
+    )>,
+    shown: Query<(&RenderLayers, &InheritedVisibility), With<Mesh3d>>,
+) {
+    let Some(ui) = drawn.camera else {
+        return;
+    };
+    let Ok((_, camera, layers, target, Some(composite), _)) = cameras.get(ui) else {
+        return;
+    };
+    let (order, target, composite) = (camera.order, target.cloned(), composite.clone());
+    let busy = shown
+        .iter()
+        .any(|(on, visible)| visible.get() && on.intersects(layers));
+    // The window's camera drawn last before it, the one it would draw over.
+    let host = (!busy)
+        .then(|| {
+            cameras
+                .iter()
+                .filter(|(entity, camera, _, at, ..)| {
+                    *entity != ui
+                        && camera.is_active
+                        && camera.order < order
+                        && same_target(*at, target.as_ref())
+                })
+                .max_by_key(|(_, camera, ..)| camera.order)
+                .map(|(entity, ..)| entity)
+        })
+        .flatten();
+    for (entity, mut camera, _, _, held, hosting) in &mut cameras {
+        if entity == ui {
+            let active = host.is_none();
+            if camera.is_active != active {
+                camera.is_active = active;
+            }
+        } else if Some(entity) == host {
+            if !hosting || held.is_none_or(|held| held.gamma != composite.gamma) {
+                commands
+                    .entity(entity)
+                    .insert((composite.clone(), CompositeHost));
+            }
+        } else if hosting {
+            commands
+                .entity(entity)
+                .remove::<(UiComposite, CompositeHost)>();
+        }
     }
 }
 
@@ -685,6 +800,33 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
     } else {
         ui.vm.hud.as_ref()?;
     }
+    let vm = &ui.vm;
+    let from = HudDrawn {
+        window,
+        hud: vm.hud.clone(),
+        party: vm.party.clone(),
+        target: vm.target.clone(),
+        calls: vm.calls.clone(),
+        requests: vm.requests.clone(),
+        crosshair: vm.crosshair,
+        palette: ui.stack.palette,
+        game: ui.assets.as_ref()?.game,
+        released: ui.assets.as_ref()?.released(),
+    };
+    let at = usize::from(banner);
+    if let Some((last, out)) = &ui.hud_drawn[at]
+        && *last == from
+    {
+        return Some(out.clone());
+    }
+    let (out, pulsed) = draw_hud(ui, window, banner)?;
+    ui.hud_drawn[at] = (!pulsed).then(|| (from, out.clone()));
+    Some(out)
+}
+
+/// KOTOR's HUD drawn afresh (`hud_layer`), and whether anything in it
+/// pulses.
+fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, bool)> {
     let (gui, source) = hud_gui(ui, window)?;
     let Ui {
         assets, vm, stack, ..
@@ -723,7 +865,7 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
     if vm.crosshair {
         out.quads.extend(ui::screens::hud::crosshair(&gui));
     }
-    Some(out)
+    Some((out, painter.pulsed))
 }
 
 /// The words floating over creatures for a window of `window` pixels,
@@ -1073,6 +1215,25 @@ fn mipmaps(width: u32, height: u32, rgba: &[u8]) -> Vec<Vec<u8>> {
     levels
 }
 
+/// The screens' camera draws their image only while it changes (`fresh`)
+/// or shows a 3D view; the rest of the time the image keeps what it shows,
+/// and the frame pays for no camera to draw it again.
+fn rest_screens(
+    mut drawn: ResMut<Drawn>,
+    mut cameras: Query<&mut Camera, (With<ScreensCamera>, Without<UiCamera>)>,
+) {
+    let draws = drawn.fresh > 0 || drawn.live;
+    drawn.fresh = drawn.fresh.saturating_sub(1);
+    let Some((screens, _)) = drawn.screens else {
+        return;
+    };
+    if let Ok(mut camera) = cameras.get_mut(screens)
+        && camera.is_active != draws
+    {
+        camera.is_active = draws;
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw(
     mut commands: Commands,
@@ -1127,9 +1288,12 @@ fn draw(
                 ScreensCamera,
             ))
             .id();
+        // It draws the HUD too, under the screens (`hud`): the HUD's view,
+        // its layers given it while there is one.
         let mut camera = commands.spawn((
             Camera3d::default(),
             crate::scene::over_world(13),
+            crate::hud::overlay_view(),
             crate::scene::encoded_view(),
             RenderLayers::none(),
             OverlayCamera,
@@ -1141,6 +1305,7 @@ fn draw(
         }
         drawn.camera = Some(camera.id());
         drawn.screens = Some((screens, image));
+        drawn.fresh = REDRAWN;
         return;
     }
     let Some((size, pixels)) = own.iter().next().and_then(|camera| {
@@ -1161,6 +1326,7 @@ fn draw(
                 height: pixels.y.max(1),
                 depth_or_array_layers: 1,
             });
+            drawn.fresh = REDRAWN;
         }
         if let Ok(mut projection) = projections.get_mut(*screens)
             && let Projection::Orthographic(ortho) = &mut *projection
@@ -1185,10 +1351,12 @@ fn draw(
         };
         drawn.images.retain(|id, _| kept(id));
         drawn.materials.retain(|(id, _), _| kept(id));
+        drawn.fresh = REDRAWN;
     }
     if drawn.layers == ui.layers && drawn.size == size {
         return;
     }
+    drawn.fresh = REDRAWN;
     drawn.layers = ui.layers.clone();
     drawn.size = size;
     let Some(assets) = &ui.assets else {
@@ -1220,6 +1388,7 @@ fn draw(
         }
     }
     let count = runs.len();
+    drawn.live = runs.iter().any(|run| assets.scene_of(run.key.0).is_some());
     for (at, run) in runs.into_iter().enumerate() {
         let Run {
             key,

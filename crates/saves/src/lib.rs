@@ -36,6 +36,15 @@ use ui::intent::CharacterDesc;
 /// The quick save's id.
 pub const QUICK: &str = "quick";
 
+/// Where the saves are, as `var` (the environment) gives it: `KJK_SAVES`,
+/// else `saves` in kjk's folder (`store::kjk_folder`).
+pub fn folder(var: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    var("KJK_SAVES")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| store::kjk_folder(&var).map(|folder| folder.join("saves")))
+}
+
 const WORLD: &str = "save.kjkv";
 const META: &str = "meta.json";
 /// The player's progress by the games' names (`story`).
@@ -223,22 +232,35 @@ fn damaged(folder: &Path, meta: &Meta) -> bool {
     })
 }
 
-/// How many worlds were hashed (`whole`), for the probes.
 #[cfg(feature = "probes")]
-pub(crate) static HASHED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+thread_local! {
+    /// How many worlds were hashed (`whole`) on this thread, for the
+    /// probes: per thread, so saves read by tests running alongside them
+    /// are not counted.
+    pub(crate) static HASHED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// The world in `folder`, refused as damaged when it is not what `meta`'s
 /// hash says.
 fn whole(folder: &Path, meta: &Meta) -> Result<Vec<u8>, String> {
     let bytes = std::fs::read(folder.join(WORLD)).map_err(|error| error.to_string())?;
     #[cfg(feature = "probes")]
-    HASHED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    HASHED.with(|hashed| hashed.set(hashed.get() + 1));
     match &meta.blake3 {
         Some(hash) if *hash != blake3::hash(&bytes).to_hex().as_str() => {
             Err("the save is damaged: its world is not the one saved".into())
         }
         _ => Ok(bytes),
     }
+}
+
+/// Save `id`'s world as written and its meta, undecoded, refused when
+/// either is missing or the world is not what the meta's hash says: for a
+/// tool that tells the decoder's refusals apart (`edit::open`).
+pub fn read_bytes(root: &Path, id: &str) -> Result<(Vec<u8>, Meta), String> {
+    let folder = checked(root, id)?;
+    let meta = read_meta(&folder)?;
+    Ok((whole(&folder, &meta)?, meta))
 }
 
 /// `save` written as `slot` (a new number without one), with `meta`; its
@@ -268,6 +290,23 @@ pub fn write_encoded(
     };
     write_files(root, &id, world, meta, story, None)?;
     Ok(id)
+}
+
+/// Save `id` written again as `world` (a save as `sim::Save::encode` makes
+/// it) with `meta` and `story`, keeping where it came from when it is a
+/// copy of another's game (`copies::Received`): for a tool that changes a
+/// save in place (the save editor).
+pub fn rewrite(
+    root: &Path,
+    id: &str,
+    world: &[u8],
+    meta: &Meta,
+    story: Option<&Story>,
+) -> Result<(), String> {
+    let received = read_meta_received(&checked(root, id)?)
+        .ok()
+        .and_then(|(_, received)| received);
+    write_files(root, id, world, meta, story, received.as_ref())
 }
 
 /// The story of save `id`; none where it has none or it does not read:

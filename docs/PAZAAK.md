@@ -1,11 +1,9 @@
 # Pazaak
 
 KOTOR's card game, played in the sim (`sim::pazaak`) by whoever sat down,
-alone, with the party's credits (I30 P20): only that player's screen shows
+alone, with the party's credits: only that player's screen shows
 the table, and the others play on, at a table of their own if they like. A conversation's script starts
-a match; the games' own data decides the rest. Journal:
-`context/artifacts/2026-10-04-pazaak/` (the rules list with its
-evidence, the decisions, screenshots).
+a match; the games' own data decides the rest.
 
 ## What decides what
 
@@ -59,11 +57,11 @@ evidence, the decisions, screenshots).
   ("Credits Received") or lost ("Credits Lost") once the screens close
   (`pazaak_view` → `progress::Told`: the sim settles the credits without
   a status). The table sounds as K1's (`docs/SOUND.md`).
-- **Paused** (`Match::paused`; R9, R12): while more than one seat plays
+- **Paused** (`Match::paused`): while more than one seat plays
   a body, a match pauses while a party conversation holds every seat, and
   from a hurt until its player is out of combat (`Match::hurt`, each cause
   ending its own pause); its player's table is put away meanwhile (its
-  watchers keep theirs, told why: R39). A paused match
+  watchers keep theirs, told why). A paused match
   takes no move and its clock stands: resumed, it plays on where it
   stood. One player's match plays on, as the originals' does.
 - **Ended as a quit**: its player died or left the party (at once); its
@@ -86,7 +84,7 @@ evidence, the decisions, screenshots).
   2&4 and 3&6 turn the sign of the player's own table cards of those
   values (and count 0).
 
-## Watching a match (R9a)
+## Watching a match
 
 Other players can watch a match (`Match::watchers`, the bodies in the
 order they came; `Snapshot::watching` the one a seat watches). One player
@@ -95,35 +93,35 @@ alone has no one to watch it, so nothing changes alone.
 - **Free** (`script::pazaak`'s one rule for both ways in): a seat's body,
   standing, in no conversation (a party one holds every seat), trade or
   match, not in a fight (its own, or a hostile one keeping the party in
-  combat within the party's combat reach of it, `party::embattled`: R34),
+  combat within the party's combat reach of it, `party::embattled`),
   and watching none.
-- A seat "watching" with no body (I30 P3) is another thing: a body
+- A seat "watching" with no body is another thing: a body
   watching a match stands by the table.
 - **As a match begins** (`PlayPazaak`), every other seat's free body
   within `GATHER_BEYOND_M` (10 m) of its player watches it at once, in
   seat order, and so does each player joined to the conversation whose
   line dealt it, stepping out of that conversation, its mark going with
-  it (R35).
-- **As that conversation ends** (R37: it remembers the match,
+  it.
+- **As that conversation ends** (it remembers the match,
   `Conversation::dealt`), its listener and those still joined, free now
   and within 10 m of the match's player, watch it while it goes on: a
   guest took the dealing reply in the host's own conversation, the host
-  watches once it ends. Only as it ends normally (R40): one cut short, by
+  watches once it ends. Only as it ends normally: one cut short, by
   its listener's Leave among others, pulls no one in.
 - **Later**, a free player watches by using the player's body, or with
   `Action::Watch { player }` (wire code 37, any seat's: a click on a
   pazaak icon on the host's party bar sends it). The use key meets a body
-  at a table only for a user free to watch it (R41: `world::watchable`,
+  at a table only for a user free to watch it (`world::watchable`,
   the scripts' rule, `script::WatchRule`, read off the step's own
   conversations, trades, matches and fights, as a client predicting reads
   them, so a loaded save uses alike); otherwise it passes
   through the party's bodies, the companion the host leads through among
-  them (R36), to whatever is behind (the dealer across the table). The
+  them, to whatever is behind (the dealer across the table). The
   asks are decided in the step's pazaak pass, in seat order, before the
   matches play.
 - A watcher is held where it stands, facing the table's player, as a
   listener is (`world::hold_talkers`), the match paused or not: a paused
-  match keeps its watchers' table up, told why (R39). It is not busy: a
+  match keeps its watchers' table up, told why. It is not busy: a
   save, the exit ready check and benching do not wait on it.
 - **It stops** with its Leave (its seat's answer byte's Leave while the
   body the seat acts through stands in no conversation, or
@@ -132,7 +130,7 @@ alone has no one to watch it, so nothing changes alone.
   hurt, or its ready at an exit; the match gone (its end, a quit, a
   module change); and, decided after the step's scripts and
   conversations, its seat no longer driving it or it down, a fight
-  reaching it (R34's test, R39), a conversation holding it (its own, one
+  reaching it, a conversation holding it (its own, one
   it joined, a party one's gather), a trade or a match of its own.
 
 Moves are `Action::Pazaak(Move)` (wire code 30), taken from the seat
@@ -166,7 +164,7 @@ stage once it resumes (the pages not shown again).
   focused), a chosen one to take it back, Clear Cards (TSL), Play at ten.
 - Table: a hand card plays (click, or 1–4), Flip turns its sign first
   (F1–F4), TSL's Change its size; End Turn (E), Stand (S), TSL's Forfeit.
-- Watching (R9a, `Snapshot::watching`): the table only, whatever the
+- Watching (`Snapshot::watching`): the table only, whatever the
   match's stage (the wager and the side deck are chosen on its player's
   screen), shown as its player sees it (its hand, the opponent's face
   down); "Watching Carth" in place of the player's name (shortened to fit:
@@ -177,8 +175,8 @@ stage once it resumes (the pages not shown again).
   not even turned), no tutorial pages; Leave (L, the bound "Leave a
   conversation" key) on TSL's Forfeit button, and the key itself, send
   `Action::Watch` with no player. A paused match keeps the watcher's
-  table, Leave live, and tells why where the wager's words go (R39:
-  "Carth is away." while the player's seat is dropped, "Carth is hurt."
+  table, Leave live, and tells why where the wager's words go
+  ("Carth is away." while the player's seat is dropped, "Carth is hurt."
   while the player is hurt). Its screens close as watching stops and open
   as the watcher's own match's if it deals one. On the host's party bar a
   click on a companion's pazaak icon watches its player's match

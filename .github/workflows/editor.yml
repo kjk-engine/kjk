@@ -1,0 +1,56 @@
+name: editor
+
+# The save editor's checks (`crates/edit`, docs/EDIT.md, and the app on it,
+# `crates/save_editor`), apart from ci.yml so the engine's runs neither build
+# nor wait on them: only when the editor, the saves it reads, or this file
+# change, on a runner of its own. ci.yml's clippy (`--all-features`) still
+# compiles `edit` and the app's model (never its window), so an engine change
+# that breaks their build is caught there at no extra cost; what they do is
+# checked here. No installs on the runner: the probes needing one skip.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/edit/**"
+      - "crates/save_editor/**"
+      - "crates/saves/**"
+      - ".github/workflows/editor.yml"
+  pull_request:
+    paths:
+      - "crates/edit/**"
+      - "crates/save_editor/**"
+      - "crates/saves/**"
+      - ".github/workflows/editor.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: editor-${{ github.event_name }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  save_edits:
+    name: save edits (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # The editor's window (eframe on X11 and Wayland) wants these to build.
+      - name: Linux packages
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev
+
+      - name: clippy
+        run: cargo clippy -p edit -p save_editor --all-targets --all-features -- -D warnings
+
+      - name: save_edits
+        run: cargo test --release -p approved_tests --features editor --test approved save_edits

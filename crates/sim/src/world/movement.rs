@@ -254,6 +254,7 @@ pub(super) fn move_actors(
     // While a conversation holds the world (S3) a body walking a route
     // moves on KOTOR's walker (`walk::kotor_step`), at its
     // `creaturespeed.2da` rates: a seat's body at the player's.
+    let scene_held = &*held;
     let held = held.world;
     // The bodies the seats move, which walk at the `PLAYER` row's rates.
     let seat_bodies = scene::seat_bodies(
@@ -312,6 +313,29 @@ pub(super) fn move_actors(
             .map(|_| Avatar(LEADER_SEAT));
         let stands = avatar.is_some_and(|avatar| avatar.0 == LEADER_SEAT) && lent.is_some();
         let seat = avatar.or(leads.as_ref()).filter(|_| !scripted && !stands);
+        // A script's lit saber is one act: `SetOverrideLightsaberState`
+        // powers it once and holds nothing. The game decides again from the
+        // next fight (`SetCombatState`), and the party's goes out once no
+        // conversation has it.
+        let member = in_party(avatar, &fighting.0);
+        let fights = fighting.0.target.is_some() || fighting.0.combat_until > clock.time_ms;
+        if fighting.0.sheath == Sheath::Lit
+            && (fights || (member && !scene_held.talks(&talking.0, id.0)))
+        {
+            fighting.0.sheath = Sheath::Fight;
+        }
+        // In a conversation a party member with no fight of its own, nor a
+        // script's blow to deal, puts its blade away (`weapon::sheathes`).
+        let at_rest = member
+            && fighting.0.sheath == Sheath::Fight
+            && fighting.0.target.is_none()
+            && !fighting.0.faking(clock.time_ms)
+            && scene_held.scene(&talking.0, id.0)
+            && !scripts
+                .state
+                .strikes
+                .iter()
+                .any(|strike| strike.by.0 == id.0.0);
         // Its seat's holster key puts its weapon away (`Sheath::Holstering`,
         // its weapon step plays it).
         if let Some(seat) = seat
@@ -496,6 +520,7 @@ pub(super) fn move_actors(
             others: &others,
             rng: &mut rolls,
             enemy,
+            at_rest,
         };
         // A made box it stands in (made where it stood) holds it not: it
         // walks out of it.

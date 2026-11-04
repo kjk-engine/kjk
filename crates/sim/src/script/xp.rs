@@ -188,6 +188,12 @@ impl State {
         self.xp.get(&holder).copied().unwrap_or(0)
     }
 
+    /// `holder`'s XP set to `xp` (never below 0), as a tool outside play
+    /// sets it (the save editor).
+    pub fn set_xp(&mut self, holder: u32, xp: i32) {
+        self.xp.insert(holder, xp.max(0));
+    }
+
     /// `holder` gains `amount` (loses, if negative; never below 0); what
     /// it gained.
     pub(crate) fn give_xp(&mut self, holder: u32, amount: i32) -> i32 {

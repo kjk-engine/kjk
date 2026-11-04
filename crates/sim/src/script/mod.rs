@@ -21,6 +21,7 @@
 //! value and is counted (`Report`).
 
 pub mod actions;
+pub mod calls;
 pub mod dialogue;
 #[cfg(feature = "probes")]
 pub mod dialogue_probes;
@@ -287,6 +288,24 @@ pub fn camera_clip_name(animation: u16) -> Option<String> {
     let n = animation.checked_sub(FIRST_CUT_CLIP)? + 1;
     Some(format!("cut{n:03}w"))
 }
+
+/// The clip a node's `CameraAnimation` has its conversation's camera model
+/// play, and whether it carries on the one already playing: 1200 on start
+/// `cut001w` and up (`camera_clip_name`); 1000 on carry on that clip from
+/// where it is (TSL: Kreia's lines on arriving at Korriban, `kreia_kr`'s
+/// 1000s after the pan's 1200; `miratch`'s 1001 after 1201) [verify in the
+/// exe]. reone names a 1000 `cut-199w`, a clip no model has, so its camera
+/// plays on as well.
+pub fn camera_cue(animation: u16) -> Option<(String, bool)> {
+    match animation.checked_sub(FIRST_CONTINUED_CLIP)? {
+        n @ 0..200 => Some((format!("cut{:03}w", n + 1), true)),
+        _ => Some((camera_clip_name(animation)?, false)),
+    }
+}
+
+/// The first `CameraAnimation` value carrying on a playing clip
+/// (`camera_cue`).
+const FIRST_CONTINUED_CLIP: u16 = 1000;
 
 /// The first `CameraAnimation` / `AnimList` value naming a clip
 /// (`camera_clip_name`), and the first naming a `dialoganimations.2da` row
@@ -1025,9 +1044,10 @@ impl Library {
     }
 
     /// How long a conversation's camera model plays a node's
-    /// `CameraAnimation` (ms), if the model has that clip.
+    /// `CameraAnimation` (ms) from its start, if the model has that clip
+    /// (`camera_cue`).
     pub fn camera_clip(&self, model: &str, animation: u16) -> Option<u32> {
-        let clip = camera_clip_name(animation)?;
+        let (clip, _) = camera_cue(animation)?;
         self.camera_clips.get(&(key(model), clip)).copied()
     }
 
@@ -1928,8 +1948,9 @@ pub enum Change {
     /// `who` leaves combat: no one to fight, out of it from now
     /// (`CancelCombat`).
     CancelCombat { who: ObjectId },
-    /// `who` attacks a target in its reach with a blade or fists: in
-    /// combat from now, as after a blow (`script::actions`, attack).
+    /// `who` attacks a target in its reach with a blade or fists, or
+    /// begins using a talent on itself: in combat from now, as after a blow
+    /// (`script::actions`, attack and talent).
     InCombat { who: ObjectId },
     /// `who` in TSL's fake combat (`on`, unless it fights for real) or out
     /// of it (`SetFakeCombatState`, `combat::Fighter::fake_until`).
@@ -2462,7 +2483,18 @@ impl Step<'_> {
         code: Option<&Deferred>,
         spell: Option<&Cast>,
     ) -> Option<i32> {
-        let program = self.report.program(self.library, script)?;
+        // Calls a tool queued in a save (`calls::QUEUED`): their program
+        // assembled from this level's catalogue, as often as they run.
+        let routines = self.library.routines();
+        let queued = calls::read(script, routines.catalog()).map(|read| read.map(Program::new));
+        let program = match &queued {
+            Some(Ok(program)) => program,
+            Some(Err(why)) => {
+                self.report.line(format!("{script}: {why}"));
+                return None;
+            }
+            None => self.report.program(self.library, script)?,
+        };
         self.runs += 1;
         let counts = if code.is_some() {
             &mut self.report.deferred
@@ -2485,7 +2517,6 @@ impl Step<'_> {
             depth: 0,
         };
         engine.trace(&format!("{what} {script} for {}", name(caller)));
-        let routines = self.library.routines();
         let outcome = match code {
             Some(deferred) => vm::resume(program, routines, caller, deferred, &mut engine),
             None => vm::run(program, routines, caller, &mut engine),
@@ -2874,8 +2905,20 @@ impl Step<'_> {
                         // come within the talent's reach).
                         let end = self.state.rounds.get(&id).copied();
                         let over = now >= end.unwrap_or(u64::MAX).min(started + ROUND_MS);
+                        // A cast on itself starts a combat round (the exes'
+                        // AIActionCastSpell calls StartCombatRound), so its
+                        // end-of-round script runs: the Star Forge freezer's
+                        // Resist Force on itself is what makes it engage and
+                        // unlock its door. One on another is in combat as
+                        // its blow lands; in combat from its start, the
+                        // feats and powers of Telos's mercenaries and
+                        // Korriban's Mandalorian vision kept fights going
+                        // that their scripts end.
                         if starting {
                             self.attacking(id, Some(*talent));
+                            if *target == who {
+                                self.out.changes.push(Change::InCombat { who });
+                            }
                         }
                         if !over {
                             let intent = Intent {
@@ -3671,16 +3714,10 @@ fn make_npc(
         for item_id in state.items.ids_held_by(kept.from) {
             if let Some(mut item) = state.items.get_mut(&item_id) {
                 item.holder = id.0;
-                // Dressed as the table kept it, whatever the creature it
-                // left wore last (Dantooine's `k_pdan_cut01` strips Bastila
-                // for the sparring, on a creature then destroyed).
-                if let Some(worn) = &kept.worn {
-                    item.slot = worn
-                        .iter()
-                        .position(|kept| *kept == item_id)
-                        .map(|slot| slot as u8);
-                }
             }
+        }
+        if let Some(worn) = &kept.worn {
+            state.dress_as_kept(id.0, worn);
         }
         if let Some(career) = state.careers.remove(&kept.from) {
             state.careers.insert(id.0, career);

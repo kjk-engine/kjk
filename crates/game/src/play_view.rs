@@ -1279,7 +1279,14 @@ fn draw(
         .iter()
         .take_while(|s| (s.time_ms as f64) < ms - crate::ragdolls::KEPT_MS)
         .count();
-    view.history.drain(..old);
+    // Freed beside the frame: the view often holds a snapshot's last
+    // handle, and a whole world's state takes a while to give back.
+    let gone: Vec<Arc<Snapshot>> = view.history.drain(..old).collect();
+    if !gone.is_empty() {
+        bevy::tasks::AsyncComputeTaskPool::get()
+            .spawn(async move { drop(gone) })
+            .detach();
+    }
     let own = view.own.at(view.me, ms);
     // Where the sim's blades are, for the hands that grip them to reach.
     let reach = view
@@ -1765,16 +1772,17 @@ fn line_shot(
             shot
         }
     };
-    let (eye, target) = shot.film(head(shot.pair.0)?, head(shot.pair.1)?);
+    let heads = (head(shot.pair.0)?, head(shot.pair.1)?);
     let angle = if shot.close { ANGLE_CLOSE } else { shot.angle };
-    Some((
-        ShotKind::Dialog(angle, shot.pair),
-        (
-            eye.to_array(),
-            angles::look_angles((target - eye).to_array()),
-            DIALOG_FOV,
-        ),
-    ))
+    let kind = ShotKind::Dialog(angle, shot.pair);
+    let (eye, target) = shot.film(heads.0, heads.1);
+    let filmed = (
+        eye.to_array(),
+        angles::look_angles((target - eye).to_array()),
+        DIALOG_FOV,
+    );
+    let fading_out = latest.fade.is_some_and(|fade| fade.out);
+    Some((kind, sides.frame(line, (heads, fading_out), filmed)))
 }
 
 /// The shots a conversation's lines are filmed from, followed line by line
@@ -1987,6 +1995,63 @@ fn kept(angle: u8, before: Option<DialogShot>) -> Option<DialogShot> {
 struct Sides {
     id: Option<u32>,
     pairs: Vec<((SimId, SimId), u8)>,
+    framed: Option<Framed>,
+}
+
+/// The line's dialog shot as last filmed: the line, the pair's heads then, what
+/// it filmed, and whether one of the pair has jumped since.
+#[derive(Debug, Clone, Copy)]
+struct Framed {
+    line: (u32, u64, bool),
+    heads: (Vec3, Vec3),
+    shot: TalkShot,
+    jumped: bool,
+}
+
+impl Framed {
+    /// Whether a head left where it was by more than a body walks in a frame.
+    fn jumped_from(&self, heads: (Vec3, Vec3)) -> bool {
+        const JUMP_M: f32 = 3.0;
+        self.heads.0.distance(heads.0) > JUMP_M || self.heads.1.distance(heads.1) > JUMP_M
+    }
+}
+
+impl Sides {
+    /// What `line` films this frame, its pair's heads at `heads`: `filmed`,
+    /// from where the pair stand now, as TSL's dialog camera re-aims each
+    /// frame on its shot's two bodies; but the shot last filmed while the
+    /// screen fades out (`fading_out`), whatever line plays, and once one of
+    /// the pair jumps away (a node's script), the shot as it was for the
+    /// rest of the line. TSL's `a_262imprison`: the reply that gives up the
+    /// weapons fades out over a second and jumps the Exile to a cell; the
+    /// silent entry after it, filmed afresh, turned round to the
+    /// Handmaiden's back while the fade was still light.
+    fn frame(
+        &mut self,
+        line: (u32, u64, bool),
+        (heads, fading_out): ((Vec3, Vec3), bool),
+        filmed: TalkShot,
+    ) -> TalkShot {
+        if let Some(framed) = self.framed.filter(|_| fading_out) {
+            return framed.shot;
+        }
+        if let Some(framed) = self.framed.filter(|framed| framed.line == line)
+            && (framed.jumped || framed.jumped_from(heads))
+        {
+            self.framed = Some(Framed {
+                jumped: true,
+                ..framed
+            });
+            return framed.shot;
+        }
+        self.framed = Some(Framed {
+            line,
+            heads,
+            shot: filmed,
+            jumped: false,
+        });
+        filmed
+    }
 }
 
 impl Sides {
@@ -2003,7 +2068,7 @@ impl Sides {
         if self.id != Some(id) {
             *self = Sides {
                 id: Some(id),
-                pairs: Vec::new(),
+                ..Sides::default()
             };
         }
         let known = self.pairs.iter().find_map(|&(seen, side)| {
@@ -2364,7 +2429,35 @@ fn rule_probes() -> sim::probe::Checks {
                 format!("camera 3 {found:?}, camera 9 {missing:?}, none {unnamed:?}"),
             ),
         ),
+        ("jump_holds_shot", jump_holds_shot((a, b))),
     ]
+}
+
+/// `jump_holds_shot`: a line follows its pair walking (0.1 m a frame), but
+/// once one of them jumps away (4 m) it keeps the shot it last filmed for
+/// the rest of the line, the pair walking on included; the next line films
+/// afresh, unless the screen fades out, when the shot last filmed holds
+/// over the next line (one of the pair jumped away) until the fade is gone.
+#[cfg(feature = "probes")]
+fn jump_holds_shot((a, b): (Vec3, Vec3)) -> Result<String, String> {
+    let line = |ms| (7, ms, false);
+    let shot = |n: f32| ([n, 0.0, 0.0], [0.0; 3], DIALOG_FOV);
+    let (step, away) = (Vec3::new(0.0, 0.1, 0.0), Vec3::new(4.0, 0.0, 0.0));
+    let mut sides = Sides::default();
+    let filmed = [
+        sides.frame(line(1), ((a, b), false), shot(1.0)),
+        sides.frame(line(1), ((a + step, b), false), shot(2.0)),
+        sides.frame(line(1), ((a + step, b + away), false), shot(3.0)),
+        sides.frame(line(1), ((a + step * 2.0, b), false), shot(4.0)),
+        sides.frame(line(2), ((a, b), false), shot(5.0)),
+        sides.frame(line(3), ((a, b + away), true), shot(6.0)),
+        sides.frame(line(3), ((a, b + away), false), shot(7.0)),
+    ]
+    .map(|(eye, ..)| eye[0]);
+    sim::probe::check(
+        filmed == [1.0, 2.0, 2.0, 2.0, 5.0, 5.0, 7.0],
+        format!("filmed {filmed:?} (want [1, 2, 2, 2, 5, 5, 7])"),
+    )
 }
 
 /// Where KOTOR's camera films a line of angle 6 whose `CameraID` the area
@@ -2398,9 +2491,11 @@ fn line_camera<'a>(
 /// The shot a conversation's camera model gives its line at `ms`: the
 /// model stands at the area's origin (reone), and the camera on its
 /// `camerahook` as the line's `CameraAnimation` clip has moved it since the
-/// line showed, held at the clip's end; it looks down the hook's own −z.
-/// Its field of view is the line's `CamFieldOfView`, else 55 degrees
-/// (Q-0141); it may roll. None without a clip (a line with
+/// line that began the clip showed (`Conversation::clip_from_ms`: a line
+/// carrying it on, `sim::script::camera_cue`, films on from there), held
+/// at the clip's end; it looks down
+/// the hook's own −z. Its field of view is the line's `CamFieldOfView`,
+/// else 55 degrees (Q-0141); it may roll. None without a clip (a line with
 /// no animation, or one its model lacks): the line then has an ordinary
 /// shot, as KOTOR's does.
 fn animated_shot(
@@ -2412,10 +2507,10 @@ fn animated_shot(
     let dlg = level.scripts()?.dialogue(&talk.dialog)?;
     let model = models.get(&dlg.camera_model.to_ascii_lowercase())?;
     let node = dlg.entries.get(talk.entry as usize)?;
-    let name = sim::script::camera_clip_name(node.camera_animation)?;
+    let (name, _) = sim::script::camera_cue(node.camera_animation)?;
     let clip = model.animation(&name)?;
     let hook = model.node_index(hooks::CAMERA_HOOK)?;
-    let seconds = ((ms - talk.shown_ms as f64) / 1000.0).max(0.0) as f32;
+    let seconds = ((ms - talk.clip_from_ms as f64) / 1000.0).max(0.0) as f32;
     let posed = posed_node(
         model,
         (clip, model.animation_scale),

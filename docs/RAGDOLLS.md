@@ -111,7 +111,3 @@ deterministic and costs the sim nothing. Rapier, 120 steps a second.
 chest of the nearest creature with that tag (the living first, then the
 body): scripted fights hit, and the camera stays on the fall. Approved
 test: `ragdoll_physics` (docs/TESTS.md).
-
-Journals (the owner's own; `context/` is not in git):
-`context/artifacts/2026-10-02-ragdolls/`,
-`context/artifacts/2026-10-02-dismemberment/`.

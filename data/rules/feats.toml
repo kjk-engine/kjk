@@ -272,7 +272,7 @@ value = 15
 unit = "%"
 range = [0, 100]
 summary = "A feat attack costs {feats.specials.cost_percent} of the character's maximum Force points, or of its stamina if it is not a Force user."
-source = "I22 C7"
+source = "ours"
 see = "sim::combat::specials::cost"
 applies = ["kind:stamina"]
 

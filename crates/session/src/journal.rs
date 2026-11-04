@@ -22,7 +22,7 @@ fn strref(value: Option<&GffValue>) -> u32 {
 }
 
 /// The install's quests; none when it has no journal that reads.
-pub(crate) fn quests(source: &dyn Source) -> Quests {
+pub fn quests(source: &dyn Source) -> Quests {
     let Some(jrl) = source
         .read("global", ResType::JRL)
         .and_then(|bytes| Gff::parse(&bytes).ok())

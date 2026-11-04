@@ -10,8 +10,13 @@
 //!   `kjk-<version>-macos-<arch>.tar.gz`;
 //! - Linux (the Steam Deck too): `kjk-<version>-linux-<arch>.tar.gz`.
 //!
-//! Everything goes to `target/packages/`. `--skip-build` packs the `kjk`
-//! the last run built.
+//! The save editor (`kjk-save-editor`, `crates/save_editor`) is built from
+//! the same commit in a cargo run of its own (so kjk's build is the same
+//! with or without it) and staged beside kjk: `kjk Save Editor.app` on
+//! macOS, with its own `THIRD-PARTY-LICENSES-save-editor.html`.
+//!
+//! Everything goes to `target/packages/`. `--skip-build` packs the
+//! programs the last run built.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -47,6 +52,8 @@ macOS:    the app is not signed by a known developer, so macOS refuses it
           and older: right-click kjk.app, choose Open, then Open
           again). Or run this once in Terminal from the folder it is in:
               xattr -dr com.apple.quarantine kjk.app
+          The same goes for kjk Save Editor.app:
+              xattr -dr com.apple.quarantine \"kjk Save Editor.app\"
 
 The first start opens the setup: Steam and GOG installs are found by
 themselves; locate any other. KOTOR's shared data is then read once (a few
@@ -63,6 +70,16 @@ Imported game data (safe to delete; it is made again):
   macOS    ~/Library/Caches/kjk
   Linux    ~/.cache/kjk
 
+Save editor
+-----------
+kjk-save-editor (kjk Save Editor.app on macOS) opens a kjk save to change
+it: give a character another weapon, a modded item or a Force power, set
+credits, stats, quests and story flags, or fix a save (a stuck quest, a
+missing companion, lost gear). It finds kjk's saves and your games by
+itself. Every change is listed and can be undone, the save is checked
+before it is written, and the save as it was is kept beside it
+(<id>.backup-<time>). On the Steam Deck it runs in Desktop Mode.
+
 Movies need ffmpeg on the PATH; without it they are skipped.
 
 Co-op: friends join by the host's address, as on a LAN; over the internet
@@ -72,7 +89,7 @@ Star Wars, Knights of the Old Republic and Jedi Academy are trademarks of
 their respective owners; kjk is not affiliated with or endorsed by
 them. kjk is MIT licensed (LICENSE); NOTICE credits the projects read
 as references, and THIRD-PARTY-LICENSES.html lists the libraries it is
-built from.
+built from (THIRD-PARTY-LICENSES-save-editor.html the save editor's).
 ";
 
 pub fn run(args: &[String]) -> Result<(), String> {
@@ -96,28 +113,33 @@ pub fn run(args: &[String]) -> Result<(), String> {
             .chain([(root.clone(), ".")])
             .map(|(from, to)| format!("--remap-path-prefix={}={to}", from.display()))
             .collect();
-        let status = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
-            .current_dir(&root)
-            .env("CARGO_ENCODED_RUSTFLAGS", remaps.join("\u{1f}"))
-            .args([
-                "build",
-                "--profile",
-                "dist",
-                "-p",
-                "launcher",
-                "--no-default-features",
-            ])
-            .status()
-            .map_err(|error| format!("cargo build: {error}"))?;
-        if !status.success() {
-            return Err("dist: the build failed".to_string());
+        // One cargo run each: the editor's crates and features never touch
+        // kjk's build.
+        for package in [
+            &["-p", "launcher", "--no-default-features"][..],
+            &["-p", "save_editor"],
+        ] {
+            let status = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+                .current_dir(&root)
+                .env("CARGO_ENCODED_RUSTFLAGS", remaps.join("\u{1f}"))
+                .args(["build", "--profile", "dist"])
+                .args(package)
+                .status()
+                .map_err(|error| format!("cargo build: {error}"))?;
+            if !status.success() {
+                return Err(format!("dist: the build of {} failed", package[1]));
+            }
         }
     }
-    let exe = if cfg!(windows) { "kjk.exe" } else { "kjk" };
-    let built = target_dir(&root).join("dist").join(exe);
-    if !built.is_file() {
-        return Err(format!("dist: {} is not built", built.display()));
-    }
+    let built = |program: &Program| {
+        let built = target_dir(&root).join("dist").join(program.file());
+        if built.is_file() {
+            Ok(built)
+        } else {
+            Err(format!("dist: {} is not built", built.display()))
+        }
+    };
+    let builds = [built(&KJK)?, built(&EDITOR)?];
 
     let version = version()?;
     let os = match std::env::consts::OS {
@@ -133,24 +155,25 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
     std::fs::create_dir_all(&stage).map_err(|error| format!("{}: {error}", stage.display()))?;
 
-    let program = if os == "macos" {
-        let app = stage.join("kjk.app").join("Contents");
-        let binaries = app.join("MacOS");
-        create(&binaries)?;
-        write(&app.join("Info.plist"), &info_plist(&version))?;
-        app_icon(&packages, &app.join("Resources"))?;
-        binaries.join(exe)
-    } else {
-        stage.join(exe)
-    };
-    copy(&built, &program)?;
-    if os == "macos" {
-        sign_ad_hoc(&stage.join("kjk.app"))?;
+    for (program, built) in [KJK, EDITOR].iter().zip(&builds) {
+        if os == "macos" {
+            let app = stage.join(program.app).join("Contents");
+            let binaries = app.join("MacOS");
+            create(&binaries)?;
+            write(&app.join("Info.plist"), &info_plist(&version, program))?;
+            app_icon(&packages, &app.join("Resources"))?;
+            copy(built, &binaries.join(program.file()))?;
+            sign_ad_hoc(&stage.join(program.app))?;
+        } else {
+            copy(built, &stage.join(program.file()))?;
+        }
     }
     write(&stage.join("README.txt"), PLAYERS_README)?;
     copy(&root.join("LICENSE"), &stage.join("LICENSE.txt"))?;
     copy(&root.join("NOTICE"), &stage.join("NOTICE.txt"))?;
-    third_party_licenses(&root, &stage.join("THIRD-PARTY-LICENSES.html"))?;
+    for program in [KJK, EDITOR] {
+        third_party_licenses(&root, program, &stage.join(program.licences))?;
+    }
 
     let archive = if os == "windows" {
         packages.join(format!("{name}.zip"))
@@ -207,6 +230,55 @@ pub fn run(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// A program the package holds.
+#[derive(Clone, Copy)]
+struct Program {
+    /// Its binary's name, without `.exe`.
+    binary: &'static str,
+    /// Its crate's manifest and the features `cargo about` reads it with.
+    manifest: &'static str,
+    features: &'static [&'static str],
+    /// Its licences' page in the package.
+    licences: &'static str,
+    /// On macOS: its app, the name shown, and the bundle id.
+    app: &'static str,
+    name: &'static str,
+    id: &'static str,
+    category: &'static str,
+}
+
+impl Program {
+    fn file(&self) -> String {
+        if cfg!(windows) {
+            format!("{}.exe", self.binary)
+        } else {
+            self.binary.to_string()
+        }
+    }
+}
+
+const KJK: Program = Program {
+    binary: "kjk",
+    manifest: "crates/launcher/Cargo.toml",
+    features: &["--no-default-features"],
+    licences: "THIRD-PARTY-LICENSES.html",
+    app: "kjk.app",
+    name: "kjk",
+    id: "io.github.kjk",
+    category: "public.app-category.role-playing-games",
+};
+
+const EDITOR: Program = Program {
+    binary: "kjk-save-editor",
+    manifest: "crates/save_editor/Cargo.toml",
+    features: &[],
+    licences: "THIRD-PARTY-LICENSES-save-editor.html",
+    app: "kjk Save Editor.app",
+    name: "kjk Save Editor",
+    id: "io.github.kjk.save-editor",
+    category: "public.app-category.utilities",
+};
+
 fn target_dir(root: &Path) -> PathBuf {
     std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), PathBuf::from)
 }
@@ -218,9 +290,9 @@ fn version() -> Result<String, String> {
     Ok(String::from_utf8_lossy(&described).trim().to_string())
 }
 
-/// `cargo about` writes the licences of every crate the program is built
+/// `cargo about` writes the licences of every crate `program` is built
 /// from (`about.toml`, `about.hbs`).
-fn third_party_licenses(root: &Path, to: &Path) -> Result<(), String> {
+fn third_party_licenses(root: &Path, program: Program, to: &Path) -> Result<(), String> {
     let status = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
         .current_dir(root)
         .args([
@@ -231,7 +303,8 @@ fn third_party_licenses(root: &Path, to: &Path) -> Result<(), String> {
             "-c",
             "about.toml",
         ])
-        .args(["-m", "crates/launcher/Cargo.toml", "--no-default-features"])
+        .args(["-m", program.manifest])
+        .args(program.features)
         .args(["about.hbs", "-o"])
         .arg(to)
         .status()
@@ -297,23 +370,30 @@ fn bundle_version(version: &str) -> &str {
     }
 }
 
-fn info_plist(version: &str) -> String {
+fn info_plist(version: &str, program: &Program) -> String {
     let bundle = bundle_version(version);
+    let Program {
+        name,
+        id,
+        binary,
+        category,
+        ..
+    } = program;
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>kjk</string>
-  <key>CFBundleDisplayName</key><string>kjk</string>
-  <key>CFBundleIdentifier</key><string>io.github.kjk</string>
-  <key>CFBundleExecutable</key><string>kjk</string>
+  <key>CFBundleName</key><string>{name}</string>
+  <key>CFBundleDisplayName</key><string>{name}</string>
+  <key>CFBundleIdentifier</key><string>{id}</string>
+  <key>CFBundleExecutable</key><string>{binary}</string>
   <key>CFBundleIconFile</key><string>kjk</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>{bundle}</string>
   <key>CFBundleVersion</key><string>{bundle}</string>
-  <key>CFBundleGetInfoString</key><string>kjk {version}</string>
-  <key>LSApplicationCategoryType</key><string>public.app-category.role-playing-games</string>
+  <key>CFBundleGetInfoString</key><string>{name} {version}</string>
+  <key>LSApplicationCategoryType</key><string>{category}</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>

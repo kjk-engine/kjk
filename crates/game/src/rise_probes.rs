@@ -158,7 +158,7 @@ fn played(
             }
         };
         let now = now as f64;
-        shows.follow(Some(acting), (true, true, false), now);
+        shows.follow(Some(acting), (true, false, true, false), now);
         let Ok(mut transforms) = state.get_mut(&mut world) else {
             return f32::NAN;
         };

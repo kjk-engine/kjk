@@ -121,12 +121,25 @@ impl Step<'_> {
         let variant = self.state.talk.conversations[at].entry_variant(entry, alien);
         let voice = library.entry_voice(dlg, node, variant);
         let voiced = alien || !node.sound.is_empty() || !node.vo.is_empty();
+        // A line that begins its camera model's clip films it from now; one
+        // carrying it on, from where the clip began (`camera_cue`).
+        let cue = crate::script::camera_cue(node.camera_animation);
+        let clip_from = {
+            let from = self.state.talk.conversations[at].clip_from_ms;
+            match cue {
+                Some((_, true)) if from != 0 => from,
+                Some(_) => now,
+                None => from,
+            }
+        };
         // A line that waits on its camera model's clip lasts its own timer
-        // (`line_ms`) raised to the clip, as the K1 and TSL executables end a
-        // line once its timer and every wait its flags name are done.
+        // (`line_ms`) raised to what is left of the clip, as the K1 and TSL
+        // executables end a line once its timer and every wait its flags
+        // name are done.
         let clip = (node.wait_flags & WAIT_ANIMATION != 0)
             .then(|| library.camera_clip(&dlg.camera_model, node.camera_animation))
-            .flatten();
+            .flatten()
+            .map(|ms| (clip_from + u64::from(ms)).saturating_sub(now));
         let gestures = match dlg.animated_cut {
             true => Vec::new(),
             false => self.gestures(node, (owner, player)),
@@ -149,7 +162,7 @@ impl Step<'_> {
             dlg.animated_cut,
         );
         let length = timed
-            .max(clip.map_or(0, u64::from))
+            .max(clip.unwrap_or(0))
             .max(gestured.map_or(0, u64::from));
         {
             let c = &mut self.state.talk.conversations[at];
@@ -157,6 +170,7 @@ impl Step<'_> {
             c.speaker = speaker;
             c.replies.clear();
             c.shown_ms = now;
+            c.clip_from_ms = clip_from;
             c.until_ms = now + length;
             c.auto = false;
             c.marks.clear();

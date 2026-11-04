@@ -12,6 +12,7 @@ use std::sync::Arc;
 use asset_odyssey::anim::{AnimationIr, sample_orientation, sample_position};
 use asset_odyssey::texture::TextureIr;
 use bevy::prelude::*;
+use bevy::render::storage::ShaderBuffer;
 use sim::minigame::Anim;
 use vfs::resolver::Resolver;
 
@@ -495,7 +496,9 @@ pub struct Drawing<'w, 's> {
     children: Query<'w, 's, &'static Children>,
     mesh_materials: Query<'w, 's, &'static mut MeshMaterial3d<OdysseyMaterial>>,
     materials: ResMut<'w, Assets<OdysseyMaterial>>,
+    animated: Option<ResMut<'w, crate::material::Animated>>,
     meshes: ResMut<'w, Assets<Mesh>>,
+    buffers: ResMut<'w, Assets<ShaderBuffer>>,
     pub visibility: Query<'w, 's, &'static mut Visibility>,
 }
 
@@ -569,7 +572,7 @@ impl Drawing<'_, '_> {
             for playing in ended.iter().chain(&playing) {
                 lit.key(model, playing.name, playing.at);
             }
-            lit.show(&mut self.materials);
+            lit.show(&mut self.materials, self.animated.as_deref_mut());
         }
         let transforms = &self.transforms;
         let local = |e: Entity| transforms.get(e).ok().map(|t| t.to_matrix());
@@ -610,7 +613,7 @@ impl Drawing<'_, '_> {
                 space,
                 facing,
                 shown || lingering,
-                &mut self.meshes,
+                (&mut self.meshes, &mut self.buffers, &mut self.materials),
             );
             if let Ok(mut visible) = self.visibility.get_mut(spray.entity) {
                 *visible = if shown || lingering {

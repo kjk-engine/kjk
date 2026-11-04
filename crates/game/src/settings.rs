@@ -691,18 +691,7 @@ pub(crate) fn chosen_installs() -> std::collections::HashMap<String, String> {
 
 /// The folder for this program's settings: the platform's own place.
 pub(crate) fn folder() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME").map(PathBuf::from);
-    let base = if cfg!(target_os = "macos") {
-        home.map(|home| home.join("Library").join("Application Support"))
-    } else if cfg!(windows) {
-        std::env::var_os("APPDATA").map(PathBuf::from)
-    } else {
-        std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .or_else(|| home.map(|home| home.join(".config")))
-    };
-    base.map(|base| base.join("kjk"))
-        .inspect(|folder| store::carry_old_name(folder))
+    store::kjk_folder(|name| std::env::var(name).ok())
 }
 
 impl Settings {

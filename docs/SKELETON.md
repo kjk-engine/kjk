@@ -89,7 +89,7 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   (toward the line of travel, at most 60°, swung at 1.3°/ms), the torso's
   aim (for effects), and angle overrides for `lower_lumbar`,
   `upper_lumbar`, `thoracic`, `cervical` and `cranium`. The player
-  controller (I13) feeds it real input.
+  controller feeds it real input.
 - `g2::bake_steered` runs it every sample before the skeleton is built, as
   the cgame does: the model turns to the legs' yaw about its origin
   (bone 0), the overrides apply as Ghoul2's `BONE_ANGLES_POSTMULT` in each
@@ -152,7 +152,7 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   and clips).
 - In every conversation the line's pair turn their heads toward each
   other (`DIALOGUE.md`, "Lines"). While a conversation holds the world
-  (S7), and only then:
+  (scene mode), and only then:
   - a scripted clip is broken off only by dying, the rest being the
     queue's to end;
   - a droid or a beast (`cast::Clips`) draws its scripted clips over its
@@ -233,7 +233,3 @@ the measures; try Bastila and `pmbam`/`pmha01`, `pfbam`/`pfha01`: every
 change on a man's body and a woman's, the two skeletons K1 has. `--trace`
 carries the hips and spine (`pelvis_g`, `torso_g`, the thighs) for foot
 slide and hands in the body.
-
-Journal (the owner's own; `context/` is not in git):
-`context/artifacts/2026-09-29-i10-skeleton/` (3-PROBES, 4-MOVES,
-5-DRIVEN, 6-ANGLES-FX).

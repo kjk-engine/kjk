@@ -3,7 +3,7 @@
 The host's
 world is the only truth; clients receive it exactly and run ahead only for
 their own seat. All sans-IO: state machines fed bytes and a `NetTime`.
-Co-op on top of it (I31: seats and bodies, holds, save copies): `COOP.md`.
+Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
 
 ## Layers (`crates/net`)
 - `wire`, `link`: the 19-byte header, frames, acks, RTT and loss, one
@@ -18,7 +18,7 @@ Co-op on top of it (I31: seats and bodies, holds, save copies): `COOP.md`.
   (past that, dropped), so online guessing goes at 32 a second at most;
   a captured proof can still be attacked offline, and a reconnect token
   travels in clear (see below). Hellos are limited per host too (8 a
-  second). Protocol 2.
+  second). Protocol 3.
 - `codec`: snapshots as exact XOR deltas against one the peer confirmed,
   deflated when that is smaller (`pack`: a fight's deltas by half,
   keyframes by ~10); an 8-byte hash check on every rebuild. The modules
@@ -34,10 +34,10 @@ Co-op on top of it (I31: seats and bodies, holds, save copies): `COOP.md`.
   to a host's own client), to every 4th when loss passes 10% over 2 s or
   the RTT doubles, back after 5 s. A host splits and hashes a tick's
   snapshot only when a frame, a hold or a joiner reads it.
-- Each command carries its view lag (I25, C18: its tick minus the remote
+- Each command carries its view lag (its tick minus the remote
   time shown, the lead in it: about the RTT and 75–80 ms more, 181 ms at
   100 ms RTT and 375 at 300; the sim rewinds at most 400, and holds blade hits
-  on that seat for C19's grace, at most 100). A missing one: the seat's last
+  on that seat for the defender's grace, at most 100). A missing one: the seat's last
   for 16 ticks, then its idle command (`Command::idle`, `COOP.md`).
 - Client lead: slack + loss margin; remote view D = interval + p95 jitter
   + 4 ms behind arriving snapshots. The host measures each command's slack
@@ -54,7 +54,7 @@ Co-op on top of it (I31: seats and bodies, holds, save copies): `COOP.md`.
   so the animation the host started shows as far in as the host has it
   (QUIRKS.md Q-0072); its place is corrected
   as before (50 ms half-life, a snap past 64 units).
-- Installs (D13): clients plan in parallel, commit locally, `check_after`;
+- Installs: clients plan in parallel, commit locally, `check_after`;
   the world resumes when all loaded or after 30 s (a late loader catches
   up). Each `Installer` keeps built areas (`session::AreaCache`).
 - Ending: a disconnect goes in three packets (`HostQuit`, `Left`).
@@ -84,7 +84,7 @@ Co-op on top of it (I31: seats and bodies, holds, save copies): `COOP.md`.
   the codec stays proven in every session (`net.json`'s `rebuilt`,
   `check_failures`) without costing a rebuild a tick.
 - `kjk host`: the same for `--seats`, listening on UDP 29170; a net thread
-  (`net_thread`, D3) pumps the socket and links, so acks never wait for a
+  (`net_thread`) pumps the socket and links, so acks never wait for a
   frame. Every stepped hash goes to `hashes.txt`. It says "listening on"
   once its stage is loaded: `cargo xtask duo` and `refusals` join on that
   line (whole lines only, a line still being written is not read).
@@ -133,6 +133,6 @@ kjk join 127.0.0.1[:29170] [--password P] [--moves …] [--plan-delay S] [--trac
 #   --password: the command line only for now (the menu's host and join screens have no field for it)
 cargo xtask duo [--netem …] [--connect ::1] [--plan-delay 35]   # or: make duo
 #   host + player as processes: rebuilds, replay, installs, avatars, net-feel.md
-cargo xtask duo --stage duel   # two Jedi facing off, fighting (I25)
+cargo xtask duo --stage duel   # two Jedi facing off, fighting
 cargo xtask refusals [--old-build PATH]   # each refusal, as processes
 ```
