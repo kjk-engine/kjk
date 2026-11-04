@@ -30,6 +30,16 @@ struct OdysseyParams {
     fog_range: vec4<f32>,
     uv_offset: vec2<f32>,
     flags: u32,
+    // Its slot of `animated` (`material::Animated`); 0 for none.
+    slot: u32,
+}
+
+// What changes every frame, over a material's own values
+// (`material::GpuAnimated`): rgb the self-illumination keyed (where uv.z
+// is 1), a times the tint's alpha; uv.xy added to the UVs.
+struct Animated {
+    illum_alpha: vec4<f32>,
+    uv: vec4<f32>,
 }
 
 struct LightList {
@@ -86,6 +96,7 @@ const LIGHT_DYNAMIC_TYPE_ALL: u32 = 1u;
 @group(#{MATERIAL_BIND_GROUP}) @binding(6) var envmap_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(7) var<storage, read> lights: LightList;
 @group(#{MATERIAL_BIND_GROUP}) @binding(8) var<storage, read> shadows: ShadowList;
+@group(#{MATERIAL_BIND_GROUP}) @binding(9) var<storage, read> animated: array<Animated, 1024>;
 
 // `shadows.rs`'s slots: the lamps' spot maps, then the sun's cascades.
 const POINT_SLOTS: u32 = 2u;
@@ -535,8 +546,11 @@ fn room_shadow(position: vec3<f32>, normal: vec3<f32>, frag: vec2<f32>) -> f32 {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Its slot's values over its own (slot 0, none, leaves them).
+    let moving = animated[params.slot];
+    let tint = vec4<f32>(params.tint.rgb, params.tint.a * moving.illum_alpha.a);
 #ifdef VERTEX_UVS_A
-    let uv = in.uv + params.uv_offset;
+    let uv = in.uv + params.uv_offset + moving.uv.xy;
 #else
     let uv = vec2<f32>(0.0);
 #endif
@@ -551,11 +565,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if (params.flags & OPAQUE_TEXTURE) != 0u {
         texel.a = 1.0;
     }
-    let base = texel * params.tint;
+    let base = texel * tint;
     // The second UV set's lightmap, read on every fragment so the sample
     // stays in uniform control flow (a mesh without one binds a stand-in).
     let lightmap = textureSample(lightmap_texture, lightmap_sampler, uv2).rgb;
-    let self_lit = params.self_illum.rgb;
+    let self_lit = select(params.self_illum.rgb, moving.illum_alpha.rgb, moving.uv.z > 0.5);
     // A lightmapped surface starts from its baked light plus its own glow;
     // anything else from full light. An unlit surface keeps this as it is.
     var lighting = vec3<f32>(1.0);
@@ -684,7 +698,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // An added surface a clip fades (the swoop's thruster cards, its start
     // lights' flares) adds by the alpha it keys (`faded_additive`).
     if (params.flags & ADD_FADE) != 0u {
-        colour = colour * clamp(params.tint.a, 0.0, 1.0);
+        colour = colour * clamp(tint.a, 0.0, 1.0);
     }
     return vec4<f32>(colour, alpha);
 }

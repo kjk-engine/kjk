@@ -17,7 +17,7 @@ This file lists quirks in our own words. It never quotes reference code.
 - Expected:   what a "correct" implementation would do instead
 - Status:     kept | fixed (approved YYYY-MM-DD)
 - Ours:       the crate and module that reproduces it
-- Evidence:   the differential probe and the journal artifact that proved parity
+- Evidence:   the differential probe or run that proved parity
 ```
 
 Numbers are never reused. A quirk that turns out not to be one is marked
@@ -36,8 +36,8 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   `_x.pk3` before `a.pk3`.
 - Status:     kept
 - Ours:       `vfs::ja::pak_order`
-- Evidence:   I01.5 journal, `negative-ja.log`: load order
-  `a < assets0 < B < bad < z < _x` on archives we built ourselves
+- Evidence:   archives we built ourselves load in the order
+  `a < assets0 < B < bad < z < _x`
 
 ### Q-0002 — Saber blade axis: single player and multiplayer agree
 
@@ -54,10 +54,9 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     not a divergence (this entry once said multiplayer's axis
   pointed sideways, from reading the axis name without the bolt query's
   turn; kept here so the number stays taken).
-- Ours:       `launcher::viewer_ja::hilt` (the raw bolt's −X);
+- Ours:       `game::viewer_ja::hilt` (the raw bolt's −X);
   `sim::skeleton` (the bolt query's turn, then −Y), docs/SKELETON-SIM.md
-- Evidence:   I10.2b journal (the `*blade1` vertices and axes,
-  `kyle-saber-fixed.png`); `kjk sim skeleton`: the sim's blade, turned as
+- Evidence:   `kjk sim skeleton`: the sim's blade, turned as
   multiplayer's query turns it, agrees with Ghoul2's method in `f64` within
   0.2°.
 
@@ -84,8 +83,8 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   owner's no-jank rule, 2026-09-30). `asset_ja::playback` still lists the
   game's frames.
 - Ours:       `asset_ja::playback`, `asset_ja::g2::Player`
-- Evidence:   I10.3 journal (`BOTH_T2_BR_TR`, 7 frames at −30 fps in the
-  medium-style combo)
+- Evidence:   `BOTH_T2_BR_TR`, 7 frames at −30 fps in the medium-style
+  combo
 
 ### Q-0004 — Ghoul2 weighs the captured blend pose's two frames the wrong way round
 
@@ -102,7 +101,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   boundary jolts (3300 m/s² at the left hand when a swing starts on the
   run, 1300 without). By default the weights are the right way round.
 - Ours:       `asset_ja::g2::Player::pose`
-- Evidence:   I10.3 journal
 
 ### Q-0005 — A saber lights and goes out at a speed that depends on frame rate
 
@@ -117,7 +115,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     kept, evaluated at 60 fps so every machine and every shot sees
   the same blade
 - Ours:       `asset_ja::blade_lengths`
-- Evidence:   I10.3 journal
 
 ### Q-0006 — The staff's leaping attacks leave the ground before their animations do
 
@@ -134,9 +131,8 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the leap timed to the animation, as the dual attack and the
   forward staff attack wait for theirs.
 - Status:     kept
-- Ours:       `launcher::rig_timeline` (`Builder::driven`), `launcher::rig_ground`
+- Ours:       `game::rig_timeline` (`Builder::driven`), `game::rig_ground`
   hops
-- Evidence:   I10.5 journal
 
 ### Q-0007 — A thrown saber jumps back when it turns for home
 
@@ -152,8 +148,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   review): by default it turns back from where it is and flies home at once,
   with no hang; `quirks` keeps JA's jump back and hang. (The sim's thrown
   saber, `sim::combat::saber::throw`, always turned home at once.)
-- Ours:       `launcher::saber_flight`
-- Evidence:   I10.5 journal
+- Ours:       `game::saber_flight`
 
 ### Q-0008 — A sped-up transition's move timer is not its played length
 
@@ -167,8 +162,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   of it while it takes 1.33.
 - Expected:   the hold divided by the speed.
 - Status:     kept (it is the fast and strong styles' rhythm)
-- Ours:       `asset_ja::move_hold_ms`, `launcher::rig_timeline`
-- Evidence:   I10.5 journal
+- Ours:       `asset_ja::move_hold_ms`, `game::rig_timeline`
 
 ### Q-0009 — Deaths start without a blend
 
@@ -183,7 +177,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   and a steered bake's `g2::Look::quirks`: `kjk rig --quirks`); by default
   deaths blend in over 100 ms
 - Ours:       `asset_ja::blend_ms`
-- Evidence:   I10.5 journal
 
 ### Q-0010 — A backward sequence's blend starts from a whole frame
 
@@ -198,7 +191,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   with Q-0003 and Q-0004; `kjk rig --quirks`, `kjk play --quirks`); by
   default the shown pose
 - Ours:       `asset_ja::g2::Player::set`
-- Evidence:   I10.5 journal
 
 ### Q-0011 — The spine turns only 90% of the way to the view
 
@@ -212,7 +204,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the whole yaw up the spine.
 - Status:     kept (smooth, and small)
 - Ours:       `asset_ja::angles::player_angles`
-- Evidence:   I10.6 journal
 
 ### Q-0012 — Running backward diagonally, the legs turn by the keys, not the travel
 
@@ -228,7 +219,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   `kjk rig --quirks`); by default the legs flip while the keys hold
   backward (directions 3 to 5) and the velocity points behind
 - Ours:       `asset_ja::angles`
-- Evidence:   I10.6 journal (`look`, back right from ahead left)
+- Evidence:   the rig's `look` timeline, back right from ahead left
 
 ### Q-0013 — Legs whose aim jumps past 90° snap
 
@@ -242,7 +233,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   `kjk rig --quirks`: 9 700 m/s² at the right foot in `look`'s strafe
   reversal, 2 000 without)
 - Ours:       `asset_ja::angles`
-- Evidence:   I10.6 journal
 
 ### Q-0014 — The spine's motion correction switches on and off at once
 
@@ -259,7 +249,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   `kjk rig --quirks`); by default it eases in and out over 100 ms (the
   cgame's blend), the last correction held while it eases out
 - Ours:       `asset_ja::angles`
-- Evidence:   I10.6 journal (`showcase` at 4 020 ms)
+- Evidence:   the rig's `showcase` timeline at 4 020 ms
 
 ### Q-0015 — Multiplayer's lightning never branches
 
@@ -276,8 +266,8 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   (its 20-unit steps, the 0.94 draw, the width left) decide where they
   fall (docs/FX-SPEC.md, "Lightning").
 - Ours:       `asset_ja::fx::bolt` (`Walk::wander`)
-- Evidence:   I10.6 journal (`force` timeline's lightning); the fix's
-  journal: `kjk rig a --moves force`, the lightning before and after
+- Evidence:   `kjk rig a --moves force`, the lightning before and after
+  the fix
 
 ### Q-0016 — The third-person camera is pulled into the player under a low ceiling
 
@@ -294,8 +284,8 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   the camera backs off from the aim point as far as the ceiling lets it
   rise, level with it and then up or down (a ceiling stops the rise, not
   the way back)
-- Ours:       `launcher::play_view` (`View::third_person`)
-- Evidence:   I13 journal (the course's tunnel, 6 to 7.5 s)
+- Ours:       `game::play_view` (`View::third_person`)
+- Evidence:   the `course` stage's tunnel, 6 to 7.5 s
 
 ### Q-0017 — A blend set while another is under way pops
 
@@ -313,7 +303,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   pose shown
 - Ours:       `asset_ja::g2::Player::set`; the sim's skeleton blends from the
   pose shown too (Q-0081)
-- Evidence:   I13 journal (the course's 1.7 m drop, 4 390 ms)
+- Evidence:   the `course` stage's 1.7 m drop, 4 390 ms
 
 ### Q-0018 — The slope stances step one level, then jump to the rest
 
@@ -326,7 +316,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   a level every 100 ms, toward the stance wanted.
 - Status:     kept (each change blends over 100 ms: no jolt)
 - Ours:       `sim::motion` (`Move::stand_on_slope`)
-- Evidence:   I13 journal (turning on the course's 30° ramp)
+- Evidence:   turning on the `course` stage's 30° ramp
 
 ### Q-0019 — A capsule meets a brush's edges square
 
@@ -342,7 +332,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     kept
 - Ours:       `collision::brush` (`Swept::Capsule`), through `Level::sweep`
 - Evidence:   `kjk collision probes`, `capsule edge` (and `capsule slope`
-  for the faces); I12 journal
+  for the faces)
 
 ### Q-0020 — A trace that stops short of a brush's bounds is not pulled back
 
@@ -358,7 +348,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     reproduced in every collision world (`BoxWorld`,
   `BrushWorld`, `Level`: `collision::reaches`); decided 2026-09-30
 - Ours:       `collision::boxes`, `collision::level`
-- Evidence:   I12 journal, `jadiff` (OpenJK's own trace code run over our
+- Evidence:   `jadiff` (OpenJK's own trace code run over our
   brushes): 4 to 6 in 20 000 random traces through boxes, 1 to 2 in 3 000
   through the Endar Spire
 
@@ -374,7 +364,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     not reproduced: every brush is tried. KOTOR levels have no
   map brush order to match; decided 2026-09-30
 - Ours:       `collision::boxes`, `collision::level`
-- Evidence:   I12 journal, `jadiff`: 4 to 49 in 20 000 random box traces,
+- Evidence:   `jadiff`: 4 to 49 in 20 000 random box traces,
   2 in 3 000 through the Endar Spire
 
 ### Q-0022 — Multiplayer sweeps a capsule through brushes as its box
@@ -389,7 +379,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   position test and Quake 3 do; JA's game code never traces the world
   with a capsule. Decided 2026-09-30
 - Ours:       `collision::brush` (`Swept::Capsule`)
-- Evidence:   I12 journal, `jadiff`: OpenJK's capsule answers as our box in
+- Evidence:   `jadiff`: OpenJK's capsule answers as our box in
   19 938 to 19 995 of 20 000 random traces, 2 979 of 3 000 through the
   Endar Spire
 
@@ -414,12 +404,11 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Ours:       `sim::module::ObjectData::contains` (through
   `sim::Level::in_trigger`): `sim` `interact`, the scripts' enter and exit,
   arrivals (`install`), `kjk playthrough`
-- Evidence:   `context/artifacts/2026-10-03-quirk-fixes/1-TRIGGER-VOLUMES-READY/`:
-  every trigger of K1's and TSL's entry areas against the walkable floor
-  under it (`shipped-triggers.txt`, 991 and 794 triggers): none has a
+- Evidence:   every trigger of K1's and TSL's entry areas against the
+  walkable floor under it (991 and 794 triggers): none has a
   second floor under its outline, so none changes by height; a plain 2 m
   prism would have lost the star map's trigger whole and parts of 13
-  more. Floors made there (`trigger-floors.txt`): 12 of 12, the floor above
+  more. Floors made there: 12 of 12, the floor above
   and below left out. `kjk sweep all --skip render,audit` before and after
   differs in 9 of 199 modules, all by the outline (Q-0024; the same with the
   height test off).
@@ -437,16 +426,15 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   polygon itself, an even-odd test (`sim::module::inside_outline`, which
   the containment audit's exits use too).
 - Ours:       `sim::module::inside_outline`, `ObjectData::contains`
-- Evidence:   `context/artifacts/2026-10-03-quirk-fixes/1-TRIGGER-VOLUMES-READY/`:
-  the fan is never smaller than the polygon on shipped outlines; it
+- Evidence:   the fan is never smaller than the polygon on shipped outlines; it
   counts more of 44 of K1's 991 triggers and 20 of TSL's 794
-  (`shipped-triggers.txt`: Tatooine's dune edges most, 208 000 of 274 000
-  spots outside). The sweep loses 1 to 10 script runs in 9 modules
-  (`sweep-diff.txt`), each a creature placed outside a concave outline but
-  inside its fan entering at once (`trigger-runs-diff.txt`: the Endar
+  (Tatooine's dune edges most, 208 000 of 274 000
+  spots outside). The sweep loses 1 to 10 script runs in 9 modules,
+  each a creature placed outside a concave outline but
+  inside its fan entering at once (the Endar
   Spire's `end_cut2_soldier1` in `end_reinfrc`, TSL's Vaklu and Talia in
   `tr_end_riiken`, …); the Endar Spire route still meets 57 of 57 goals,
-  its fights shorter by that start (`endar-spire-route-*.txt`).
+  its fights shorter by that start.
 
 ### Q-0025 — A door always opens the same way
 
@@ -472,14 +460,12 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   shipped door still takes 1.
 - Ours:       `sim::module::ObjectData::opening` (`Ways`), `session::doors`
   (from the walkmeshes and clips), `sim` `interact`, `uses::use_object`,
-  `world::locks`, the scripts' door changes; `launcher::lifecycle_view`
+  `world::locks`, the scripts' door changes; `game::lifecycle_view`
   (`doors`)
-- Evidence:   `context/artifacts/2026-10-03-quirk-fixes/2-DOOR-WAYS-READY/`:
-  the proving ground's door made two-way, opened from each side by a use,
+- Evidence:   the proving ground's door made two-way, opened from each side by a use,
   takes 1 and 2 as it should, one-way 1 from both, each state the same
-  through a snapshot's bytes (`door-ways.txt`, 6 of 6); every K1 and TSL
-  door model's walkmeshes and clips (`door-models.txt`, `door-sides.txt`:
-  0 of 114 open both ways). `kjk sim determinism` keeps its pinned hash.
+  through a snapshot's bytes (6 of 6); every K1 and TSL
+  door model's walkmeshes and clips (0 of 114 open both ways). `kjk sim determinism` keeps its pinned hash.
 
 ### Q-0026 — reone never loads a module's stores
 
@@ -488,9 +474,9 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   not exist in the area (xoreos reads it).
 - Expected:   stores exist like the other instances.
 - Status:     not reproduced: stores are entities like every other GIT
-  instance (the Endar Spire has none). Decided in I14.
+  instance (the Endar Spire has none).
 - Ours:       `sim::module` (`ObjectKind::Store`), `session`
-- Evidence:   read, not run: I14 journal
+- Evidence:   read, not run.
 
 ### Q-0027 — reone takes a door's and a trigger's tag from the template
 
@@ -501,9 +487,8 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the instance's tag (its GIT struct is the instance).
 - Status:     not reproduced: the instance's tag, else the template's
   (xoreos). A transition arriving by tag finds the door the GIT names.
-  Decided in I14.
 - Ours:       `asset_odyssey::module` (`ModuleIr::build`)
-- Evidence:   read, not run: I14 journal; `end_m01aa`'s transition door is
+- Evidence:   read, not run; `end_m01aa`'s transition door is
   tagged `end_door10` in both
 
 ### Q-0028 — A backward loop's first wrap starts a frame lower than the rest
@@ -523,9 +508,9 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   wrap took the neighbour frame without quirks too (13 601 m/s² at the right
   hand at each wrap of `BOTH_WALKBACK_STAFF`, 463 since)
 - Ours:       `asset_ja::g2::BoneAnim::timing` (docs/G2-SPEC.md)
-- Evidence:   2026-09-30 anim-fixes journal (`kjk rig a --moves
-  BOTH_WALKBACK_STAFF,BOTH_WALKBACK_STAFF,BOTH_WALKBACK_STAFF`; the timing
-  probe against the earlier code)
+- Evidence:   `kjk rig a --moves
+  BOTH_WALKBACK_STAFF,BOTH_WALKBACK_STAFF,BOTH_WALKBACK_STAFF` and the timing
+  probe against the earlier code
 
 ### Q-0029 — A legs restart can pick up the torso's frame, then the torso restarts
 
@@ -564,7 +549,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   picks by the chest's rules. A hit with no point (a power's, a blast's) or
   at the body's very centre still has no location.
 - Ours:       `sim::combat::location::locate`
-- Evidence:   read in the reference (I23 rulebook quirk candidate 10); no
+- Evidence:   read in the reference; no
   differential probe yet.
 
 ### Q-0031 — A hit that harms nothing still pushes
@@ -582,7 +567,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   the share, as before.
 - Ours:       `sim::combat::damage::assess` (the push from the located
   damage, only with a share)
-- Evidence:   read in the reference (I23 rulebook 3.1, the pipeline's
+- Evidence:   read in the reference (the pipeline's
   order); `kjk combat force k1`: 20 JA points shove a hostile, not the
   party's neutral outsider.
 
@@ -600,8 +585,8 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   front) is measured from the eye; the bolts are drawn from the hand as
   before.
 - Ours:       `sim::world::powers` (`Cast::caught`, `Scene::around_from`)
-- Evidence:   read in the reference (I23 rulebook 4.6.5, quirk candidate
-  8); `kjk combat force k1` strikes a standing target 20 times a second,
+- Evidence:   read in the reference;
+  `kjk combat force k1` strikes a standing target 20 times a second,
   and, with Force Lightning (level 2), strikes one aimed at the shins
   from 100 units (from the waist the line meets the floor first).
 
@@ -617,8 +602,8 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     fixed (approved 2026-10-03, the owner): the share and the
   cost of the hit up to the cap, the rest let through.
 - Ours:       `sim::combat::force::protect`
-- Evidence:   read in the reference (I23 rulebook 4.6.10, quirk candidate
-  3); `kjk combat force k1` checks 150 points on level 1: 40 prevented
+- Evidence:   read in the reference;
+  `kjk combat force k1` checks 150 points on level 1: 40 prevented
   (JA: 90).
 
 ### Q-0034 — A timesynced roll never reaches its top
@@ -630,7 +615,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   review): a synced roll comes up anywhere from a to b, both included; the
   server-time change is still not ours.
 - Ours:       `sim::motion::saber` (the move step), `sim::combat::saber`
-- Evidence:   read in the reference (I24 part 1 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   saber` exercises the moves around it (299 checks).
 
 ### Q-0035 — Readying from a pure attack returns the wrong way
@@ -641,7 +626,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     fixed (approved 2026-10-03, the owner's saber combat quirks
   review): readying from a pure attack takes that attack's own return.
 - Ours:       `sim::motion::saber` (the move step), `sim::combat::saber`
-- Evidence:   read in the reference (I24 part 1 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   saber` exercises the moves around it (299 checks).
 
 ### Q-0036 — Only the fast style counts as both parts playing
@@ -651,7 +636,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the style-shifted animation compared.
 - Status:     kept (parity).
 - Ours:       `sim::motion::saber` (the move step), `sim::combat::saber`
-- Evidence:   read in the reference (I24 part 1 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   saber` exercises the moves around it (299 checks).
 
 ### Q-0037 — A bounce never re-rolls to bottom left
@@ -663,7 +648,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   review): the re-roll covers bottom right to bottom left, bottom left
   included (with Q-0034's roll).
 - Ours:       `sim::motion::saber` (the move step), `sim::combat::saber`
-- Evidence:   read in the reference (I24 part 1 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   saber` exercises the moves around it (299 checks).
 
 ### Q-0038 — Footsteps override a pain on the legs
@@ -675,7 +660,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   review): a pain on the legs plays out under a stand, a walk or a crouch;
   only running sets the run over it.
 - Ours:       `sim::motion::saber` (the move step), `sim::combat::saber`
-- Evidence:   read in the reference (I24 part 1 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   saber` exercises the moves around it (299 checks).
 
 ### Q-0039 — A bounce with no transition ends the move
@@ -687,7 +672,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   review): an attack bounce with no transition to the new quadrant returns
   from where it was, to ready.
 - Ours:       `sim::motion::saber` (the move step), `sim::combat::saber`
-- Evidence:   read in the reference (I24 part 1 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   saber` exercises the moves around it (299 checks).
 
 ### Q-0040 — Reacting to a block cancels a weapon change
@@ -698,7 +683,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     fixed (approved 2026-10-03, the owner's saber combat quirks
   review): reacting to a block leaves a weapon change under way alone.
 - Ours:       `sim::motion::saber` (the move step), `sim::combat::saber`
-- Evidence:   read in the reference (I24 part 1 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   saber` exercises the moves around it (299 checks).
 
 ### Q-0041 — The staff's back-flip attack is free
@@ -710,7 +695,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   review): it costs the forward and back specials' quarter of the pool, and
   needs it to start.
 - Ours:       `sim::motion::saber` (the move step), `sim::combat::saber`
-- Evidence:   read in the reference (I24 part 1 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   saber` exercises the moves around it (299 checks).
 
 ### Q-0042 — The dual jump attack starts in the air
@@ -720,7 +705,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   from the ground.
 - Status:     kept (parity).
 - Ours:       `sim::motion::saber` (the move step), `sim::combat::saber`
-- Evidence:   read in the reference (I24 part 1 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   saber` exercises the moves around it (299 checks).
 
 ### Q-0043 — A level-2 jump getup never happens after lying
@@ -733,7 +718,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   the acrobatic get-up (`BOTH_FORCE_GETUP_B3`, 300 units/s up); jump below
   that the force get-up, as before.
 - Ours:       `sim::motion::saber` (the move step), `sim::combat::saber`
-- Evidence:   read in the reference (I24 part 1 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   saber` exercises the moves around it (299 checks).
 
 ### Q-0044 — A raging character cannot be killed by another
@@ -750,14 +735,14 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   HP and ends the rage; scripts' damage (`Source::Script`, no attacker)
   is not reduced.
 - Ours:       `sim::world` (`hurt`), `sim::combat::force::ForceState::raging`
-- Evidence:   read in the reference (I23 rulebook 4.6.9, quirk candidate 4);
+- Evidence:   read in the reference;
   `kjk combat force k1` runs rage (its speed, cost and recovery), and
   the saber kills a target raging at level 1 with 1 HP (JA: its blows
   land for nothing).
 
 ### Q-0045 — A blade's extrapolated trace overshoots, and stays off for the frame
 
-- Reference:  OpenJK (the server's saber sweep, rulebook I24 5.2)
+- Reference:  OpenJK (the server's saber sweep)
 - Behaviour:  when a blade's sweep is extended past its old point, the extra trace reaches a fixed 16 units from the old point rather than just past the new one, and once the extension switches off it stays off for every later step and chunk of that frame.
 - Expected:   an extension measured from the new point, decided per step.
 - Status:     fixed (approved 2026-10-03, the owner's saber combat quirks
@@ -766,7 +751,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   place to its new one, all the way, so a cut lands only where the blade
   went.
 - Ours:       `sim::combat::saber::sweep`, the step's `sim::world::sabers`
-- Evidence:   read in the reference (I24 part 2 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   duel` exercises it among its 38 checks.
 
 ### Q-0046 — A sweep is cut by the size of its angle, not its direction
@@ -778,48 +763,47 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   review): a turn is cut into chunks when the directions' dot is below 0.67,
   signed, so a swing past a right angle is cut finer.
 - Ours:       `sim::combat::saber::sweep`, the step's `sim::world::sabers`
-- Evidence:   read in the reference (I24 part 2 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   duel` exercises it among its 38 checks.
 
 ### Q-0047 — Bolt defence falls to a level that reflects
 
-- Reference:  OpenJK (bolt blocking, rulebook I24 7.5)
+- Reference:  OpenJK (bolt blocking)
 - Behaviour:  level-1 bolt defence drops to level 0 while rising or backpedalling, and level 0 reflects a bolt straight back at the shooter, whether it met the holder's body (a block by state) or its blade; so a defence-0 lightsaber reflects every bolt that strikes it, and a level-1 defender jumping or backing off reflects perfectly. (An earlier version of this entry said a level raised past the top by a deflection property wraps to 0; JA has no such property, and ours caps it at 3: `defence::bolt_level`.)
 - Expected:   level 0 never turning a bolt.
 - Status:     fixed (approved 2026-10-01, the owner): level 0 turns nothing by state (a defence-0 holder, or level 1 rising or backing off, takes the bolt on the body), and a bolt that strikes the blade itself at level 0 is deflected along the holder's view (as level 2), not reflected; reflecting at the shooter is level 3's.
 - Ours:       `sim::combat::saber::defence` (`bolt_level_now`, `bolt`), `sim::world::sabers::bolt_block`
 - Evidence:   `kjk combat duel --only bolts,blade_bolts`: level 0 backing off
   blocks none by state; a defence-0 saber's blade deflects 18 of 18 aimed
-  at it, none back at the shooter, where defence 3 reflects them (saber
-  defence journal, slice 2).
+  at it, none back at the shooter, where defence 3 reflects them.
 
 ### Q-0048 — Half the clash tree is dead in practice
 
-- Reference:  OpenJK (the saber clash decision, rulebook I24 8.2)
+- Reference:  OpenJK (the saber clash decision)
 - Behaviour:  the branches of the clash decision that need an attacking blade's power below 3 never run, because an attacking blade's power is always 3 or more.
 - Expected:   reachable branches for weak attacks.
 - Status:     fixed (approved 2026-10-03, the owner's saber combat quirks
   review): the dead branch (A deflecting off D's blade below power 3, which
   needs a true clash, always at power 3 or more) is gone. The weak-attack
-  knockaway roll stays: a blow held for a lagging player's grace (C19) and
+  knockaway roll stays: a blow held for a lagging player's grace and
   blocked late reaches the tree after the attack ended.
 - Ours:       `sim::combat::saber::clash`, the step's `sim::world::sabers`
-- Evidence:   read in the reference (I24 part 2 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   duel` exercises it among its 38 checks.
 
 ### Q-0049 — When both attack, a tie knocks the swinger away
 
-- Reference:  OpenJK (the saber clash decision, both attacking, rulebook I24 8.2 branch 7)
+- Reference:  OpenJK (the saber clash decision, both attacking)
 - Behaviour:  two attacking blades compare their power; a tie knocks the swinging side away, and the outcomes where one or both bounce can never be reached.
 - Expected:   a tie bouncing both blades.
 - Status:     kept (parity).
 - Ours:       `sim::combat::saber::clash`, the step's `sim::world::sabers`
-- Evidence:   read in the reference (I24 part 2 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   duel` exercises it among its 38 checks.
 
 ### Q-0050 — The deflection routine's quadrant arithmetic
 
-- Reference:  OpenJK (the saber deflection routine, rulebook I24 8.3)
+- Reference:  OpenJK (the saber deflection routine)
 - Behaviour:  picking the quadrant a deflected blade goes to measures the first quadrant difference without mirroring it, its wrap for negative values does nothing, and it wraps below 0 with 7 (not 8) and not at all above 7; a result past the bottom plays move 0.
 - Expected:   a symmetric difference wrapping with 8 both ways.
 - Status:     fixed (approved 2026-10-03, the owner's saber combat quirks
@@ -827,39 +811,39 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   ways (D's end seen from A's side for both differences) and wrap with 8, so
   it never falls past the bottom.
 - Ours:       `sim::combat::saber::clash`, the step's `sim::world::sabers`
-- Evidence:   read in the reference (I24 part 2 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   duel` exercises it among its 38 checks.
 
 ### Q-0051 — A saber lock's delay before pushing is cleared at once
 
-- Reference:  OpenJK (saber locks, rulebook I24 9.2)
+- Reference:  OpenJK (saber locks)
 - Behaviour:  a lock sets a one-to-three-second delay before either side may push, then clears it in the same step.
 - Expected:   the delay holding.
 - Status:     kept (parity).
 - Ours:       `sim::combat::saber::lock`, the step's `sim::world::sabers`
-- Evidence:   read in the reference (I24 part 2 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   duel` exercises it among its 38 checks.
 
 ### Q-0052 — A no-winner top-lock break knocks down one side
 
-- Reference:  OpenJK (saber locks, rulebook I24 9.4)
+- Reference:  OpenJK (saber locks)
 - Behaviour:  when a top lock breaks with no winner, the side in the BF1 role plays a knockdown animation all the same.
 - Expected:   both sides parting evenly.
 - Status:     fixed (approved 2026-10-03, the owner's saber combat quirks
   review): a top lock breaking with no winner plays the break on both sides;
   neither is knocked down.
 - Ours:       `sim::combat::saber::lock`, the step's `sim::world::sabers`
-- Evidence:   read in the reference (I24 part 2 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   duel` exercises it among its 38 checks.
 
 ### Q-0053 — The lock-loss disarm is almost unreachable
 
-- Reference:  OpenJK (saber locks, rulebook I24 9.4)
+- Reference:  OpenJK (saber locks)
 - Behaviour:  the loser of a lock is disarmed only if it cannot be knocked down, which ordinary fighters always can.
 - Expected:   a disarm chance for every loser.
 - Status:     kept (parity).
 - Ours:       `sim::combat::saber::lock`, the step's `sim::world::sabers`
-- Evidence:   read in the reference (I24 part 2 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   duel` exercises it among its 38 checks.
 
 ### Q-0054 — A circle lock's loser forgets it was blocked
@@ -871,29 +855,29 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   review): a circle lock's loser does nothing (its weapon timer held) until
   its broken move has played.
 - Ours:       `sim::combat::saber::lock`, the step's `sim::world::sabers`
-- Evidence:   read in the reference (I24 part 2 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   duel` exercises it among its 38 checks.
 
 ### Q-0055 — Air kicks all guess forward, and the spin kick's names disagree
 
-- Reference:  OpenJK (kicks, rulebook I24 10.2)
+- Reference:  OpenJK (kicks)
 - Behaviour:  a kick in the air takes its direction as forward whatever the movement keys say, and the spin kick's labels and the turns it makes do not match.
 - Expected:   air kicks by the keys; matching labels.
 - Status:     fixed (approved 2026-10-03, the owner's saber combat quirks
   review): air kicks go the way their animation (picked from the keys) goes;
   the spin kick turns clockwise 45° a slice, round the compass.
 - Ours:       `sim::combat::saber::kick`, the step's `sim::world::sabers`
-- Evidence:   read in the reference (I24 part 2 journal); `kjk combat
+- Evidence:   read in the reference; `kjk combat
   duel` exercises it among its 38 checks.
 
 ### Q-0060 — A block by state is crushed by any stronger attack
 
-- Reference:  OpenJK (the legacy block feeding the clash tree, rulebook I24 7.2 and 8.2 branch 8)
+- Reference:  OpenJK (the legacy block feeding the clash tree)
 - Behaviour:  when a defender turns a blow by state (not attacking, facing it), the tree's blocking branch smashes its parry at once whenever the attacker's animation power and offence beat the defender's style and defence; the swing goes on and lands through the broken parry. Below defence 3 nearly every block against a proficient attacker is a broken parry: an idle defence-1 or defence-2 defender facing 13 strong medium swings took 10 hits, the block reading on screen as a hit.
 - Expected:   a block holding the blow it meets.
 - Status:     fixed (approved 2026-10-01, the owner): a block by state holds the blow it meets; the crush applies only where the blades truly met (a clash) or to a special. A second blow while the parry still plays still breaks it (the tree's fifth branch, JA's "a parry stops one hit"), so defence 1 still gives way to fast chains: 4 hits of 13, defence 2 and 3 none.
 - Ours:       `sim::combat::saber::clash::resolve`
-- Evidence:   `kjk combat duel --only blocks` (the check "holds every blow no clash crushed" at defence 2 and 3: blows after a true clash in the same swing may land); saber defence journal, slice 4 (`slice4-crush-variants.mp4`).
+- Evidence:   `kjk combat duel --only blocks` (the check "holds every blow no clash crushed" at defence 2 and 3: blows after a true clash in the same swing may land).
 
 ### Q-0070 — A player's own bolt shows only when the server's snapshot has it
 
@@ -901,15 +885,15 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Behaviour:  the client predicts its own fire event (the muzzle flash and
   the sound play at once), but the bolt is a server entity: it is drawn
   only once a snapshot carries it, a round trip after the shot. With
-  kjk's C18 fast-forward the host's bolt is also already a view lag
+  kjk's lag-compensation fast-forward the host's bolt is also already a view lag
   along its way when it first shows (about 350 units at 150 ms), and a
   target nearer than that is hit before any bolt is drawn.
 - Expected:   the bolt leaving the gun when the trigger is pulled.
 - Status:     fixed (owner policy on net feel, 2026-10-01)
-- Ours:       `launcher::shots` (the own bolts from the predictions, their
+- Ours:       `game::shots` (the own bolts from the predictions, their
   handover to the host's copy, their end on a body or wall), drawn by
-  `launcher::combat_fx`; the sim is unchanged.
-- Evidence:   NET-FEEL slice 2 journal: the same scene before and after at
+  `game::combat_fx`; the sim is unchanged.
+- Evidence:   the same scene before and after at
   80, 150 and 250 ms round trip, and the joined player's counts (own bolts
   drawn, handed over, met, unfired).
 
@@ -923,9 +907,9 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   key; the hand comes up late with them.
 - Expected:   the effect at the key, as the cast's animation is.
 - Status:     fixed (owner policy on net feel, 2026-10-01)
-- Ours:       `launcher::force_view`, from the own character's predictions
+- Ours:       `game::force_view`, from the own character's predictions
   (`shots::OwnFire::own`); its effect on others stays the authority's.
-- Evidence:   NET-FEEL slice 2b journal: push and lightning from the joined
+- Evidence:   push and lightning from the joined
   player's own view at 80, 150 and 250 ms round trip, and on main (none
   drawn).
 
@@ -941,11 +925,11 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Ours:       `cast::Figure::adopt` (Q-0083): the own figure plays its
   predictions' skeleton, whose parts start where the host started them,
   so a verdict a rewind brings shows as far in as the host has it.
-  `launcher::play_view` counts the rewrites (`play.own_rewrites`). The
+  `game::play_view` counts the rewrites (`play.own_rewrites`). The
   ~100 ms the wrong animation was shown stays: the client predicts no
-  verdict (I22 C20).
-- Evidence:   NET-FEEL journal: the duel at 150 ms before, with slice 4's
-  own start-in, and on the merged tree (`kjk join --trace`, the own
+  verdict.
+- Evidence:   the duel at 150 ms before, with an earlier own start-in,
+  and after (`kjk join --trace`, the own
   body's jerk p95 0.184, 0.180 and 0.123 m; at most 0.905, 0.821 and
   0.446).
 
@@ -979,12 +963,11 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   attack) makes the next blend start from that animation's own frames, and
   the blade swings about 114° in one frame and back over 150 ms.
 - Expected:   the blend starting from the pose shown.
-- Status:     fixed (owner policy 2026-10-01, CHARACTER-LOOK): a blend set
+- Status:     fixed (owner policy 2026-10-01): a blend set
   mid-blend keeps the blend it began in (`skeleton::Under`), one level deep
   (a third change within the blend falls back to the frames).
 - Ours:       `sim::skeleton::Playback::set`, `sim::skeleton::turn`
-- Evidence:   CHARACTER-LOOK journal (the `BOTH_FLIP_F` tick in
-  `1-solo-swings.mp4`); `kjk sim skeleton`'s "blending from a blend": 2.3
+- Evidence:   `kjk sim skeleton`'s "blending from a blend": 2.3
   units mean, 5.6 at most from the renderer, which keeps the whole pose.
 
 ### Q-0082 — The server's head looks at the player's position
@@ -996,7 +979,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   and the blades the server cuts with, turn by up to about 3° depending on
   where the player stands on the map.
 - Expected:   the head looking level, as the cgame has it.
-- Status:     fixed (owner policy 2026-10-01, CHARACTER-LOOK).
+- Status:     fixed (owner policy 2026-10-01).
 - Ours:       `sim::combat::saber::look`
 - Evidence:   read in the reference; the look's spine and neck shares are
   the cgame's (`asset_ja::angles`, docs/LOOK-SPEC.md).
@@ -1020,7 +1003,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   there pulled the longer KOTOR arm up to 30 cm off JA's every frame and
   the elbow flipped (owner, 2026-10-29). With
   `--quirks` the view keeps the cgame's way.
-- Ours:       `launcher::cast`, `launcher::sim_blades`, `asset_ja::rig`
+- Ours:       `game::cast`, `game::sim_blades`, `asset_ja::rig`
 - Evidence:   `kjk play --sim-blades`: the drawn blade within 1 unit of the
   sim's on average and 0° apart (duel, solo), within 4 on the module's
   saber creatures; CHARACTER-LOOK journal. 2026-10-29, the arena's nine
@@ -1031,8 +1014,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 
 ### Q-0084 — A block by state judges where the blade met a box
 
-- Reference:  OpenJK (the saber can-block test from the saber damage check, rulebook
-  I24 5.3 and 7.2)
+- Reference:  OpenJK (the saber can-block test from the saber damage check)
 - Behaviour:  the block arc is judged at the hit point: in JA the point on
   the Ghoul2 model the blade's sweep met first (a per-polygon trace). The
   sim has no model to trace, only the player box (±15 units, about twice
@@ -1044,10 +1026,9 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   when it has turned away (a blow from behind blocked, 1 to 3).
 - Expected:   a defender blocking the blows of those it faces, never one
   from behind.
-- Status:     fixed (owner's delegation 2026-10-01, the merge of
-  CHARACTER-LOOK and SABER-DEFENCE; owner policy: defence readable over
-  faithful): a blade's arc is judged from where its attacker stands (the
-  sweep and C19's held blows). The hit point still picks the parry and
+- Status:     fixed (owner's delegation 2026-10-01; owner policy:
+  defence readable over faithful): a blade's arc is judged from where its attacker stands (the
+  sweep and the defender grace's held blows). The hit point still picks the parry and
   places the contact; bolts and thrown sabers keep their points.
 - Ours:       `sim::world::sabers` (`contacts`, `turns`, `graces`)
 - Evidence:   `kjk combat duel --only blocks`: from behind none blocked at
@@ -1068,16 +1049,14 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   fire sound) is left out. The one sound plays at gain 1.4
   (`combat_fx::FIRE_GAIN`), as loud as JA's stack at 60 frames a second,
   at any frame rate.
-- Ours:       `launcher::combat_fx` (`flash`, `place_flashes`); shots found
-  by `shots::shots` (`launcher::shot_fx` draws the ends and beams)
-- Evidence:   `context/artifacts/2026-10-03-quirk-fixes/3-ONE-FIRE-SOUND-READY/`:
-  the player's Bryar fired five times on the course, recorded at 60 and 120
-  frames a second (`shots.sh.txt`): `sound.asked` 15 fire sounds for 5
-  shots before, 5 after, at both rates (`sound-asked.txt`). Loudness of
-  the 150 ms after each shot (`loudness.txt`): before RMS 0.170 at 60 and
+- Ours:       `game::combat_fx` (`flash`, `place_flashes`); shots found
+  by `shots::shots` (`game::shot_fx` draws the ends and beams)
+- Evidence:   the player's Bryar fired five times on the course, recorded at 60 and 120
+  frames a second: `sound.asked` 15 fire sounds for 5
+  shots before, 5 after, at both rates. Loudness of
+  the 150 ms after each shot: before RMS 0.170 at 60 and
   0.223 at 120 (the stack grew with the rate), after RMS 0.125 at gain 1,
-  0.176 at gain 1.4 at both rates. Videos `base-shots*.mp4`,
-  `g14-shots*.mp4`.
+  0.176 at gain 1.4 at both rates.
 
 ### Q-0076 — Effect particles marked `usePhysics` fly through walls
 
@@ -1099,12 +1078,10 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   level's traces are already at hand in the view, cost about a microsecond,
   and need no render readback. Bodies are not collided with.
 - Ours:       `asset_ja::fx` (`Spawned::collide`, `Path`), called by
-  `launcher::combat_fx` (`draw`, its impacts)
-- Evidence:   `context/artifacts/2026-10-03-quirk-fixes/4-BOUNCING-PARTICLES-READY/`:
-  a `kjk combat duel --only blocks` bout (saber defence 0) drawn back from
-  a low camera: `blood-before-after.png` (the same moment: the sparks gone
-  under the floor before, lying and hopping on it after) and the two
-  recordings. Cost, the bout's 4 hits each forced to the heaviest blood
+  `game::combat_fx` (`draw`, its impacts)
+- Evidence:   a `kjk combat duel --only blocks` bout (saber defence 0) drawn back from
+  a low camera, the same moment before and after (the sparks gone
+  under the floor before, lying and hopping on it after). Cost, the bout's 4 hits each forced to the heaviest blood
   (`saber/blood_sparks_mp` three times, 90 to 150 particles a hit):
   28 806 traces, at most 358 in a frame, the slowest frame's traces
   0.10 ms at 60 frames a second, 0.25 ms at 120 (the same 28 806 traces
@@ -1132,11 +1109,11 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   to that aim and kept upright, the other hand under it at the foregrip,
   each shot kicking as its blaster does; with it put away the torso
   plays the legs' part. Where bolts fly and hit is the sim's, unchanged.
-- Ours:       `launcher::combat_fx` (`Path::launch`), `cast::Guns`,
+- Ours:       `game::combat_fx` (`Path::launch`), `cast::Guns`,
   `cast::gun_aim`, `weapons::GunShape`, `asset_ja::rig::Aim`
-- Evidence:   blaster animations journal: hold fire from the side, before
-  and after, at quarter speed (`closeup-hold-fire-quarter-speed.mp4`);
-  rifle animations journal: every rifle held and fired, moving, close.
+- Evidence:   hold fire from the side, before
+  and after, at quarter speed;
+  every rifle held and fired, moving, close.
 
 ### Q-0120 — The games name scripts they do not ship, and nothing runs
 
@@ -1159,7 +1136,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   `Engine::execute`)
 - Evidence:   `kjk sweep tsl --only 30 --skip render,audit` (and `--only 35`,
   `--only 40`): no faults; the names under "Scripts named but missing".
-  Journal `context/artifacts/2026-10-02-sweep-missing-scripts/`.
 
 ### Q-0124 — An arrival stands on the floor drawn, not on the walkmesh under it
 
@@ -1171,14 +1147,14 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   track (`tat_m17mg`) puts its entry on a walkmesh that lies half a metre
   under the track drawn over it.
 - Expected:   the same, where the level is the walkmesh only.
-- Status:     not reproduced: our level is solid where the rooms are drawn
-  (I12), so a player standing on that walkmesh would start inside the
+- Status:     not reproduced: our level is solid where the rooms are drawn,
+  so a player standing on that walkmesh would start inside the
   drawn floor. The arrival's drop starts a step above the spot, and where
   no spot near it leaves room, from a step higher, up to four steps
   (1.8 m): the player stands on the floor drawn above the entry. A drop
   from far above is not taken, as it would land on roofs.
 - Ours:       `sim::install` (`spots`)
-- Evidence:   sweep arrival-search journal: `kjk sweep k1 --only
+- Evidence:   `kjk sweep k1 --only
   tat_m17mg` before (`no room to stand near (88.69, 286.44, 0.00)`) and
   after (installed); `kjk collision trace k1 tat_m17mg` shows the
   walkmesh at z 0 and the drawn floor at z 0.5 there.
@@ -1199,9 +1175,8 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   jump would leave the level).
 - Ours:       `collision_odyssey::edges` (`Contents::WALK_CLIP`, which only
   walkers' moves meet: the camera, shots and sight lines pass)
-- Evidence:   sweep walk containment journal
-  (`context/artifacts/2026-10-02-sweep-walk-containment`): audits before
-  and after, `danm14ac-river-walk.gif`, `danm14ac-bank-camera.gif`.
+- Evidence:   the sweep's audits before and after; a walk along
+  `danm14ac`'s river, and the camera on its bank.
 
 ### Q-0136 — Droids built with `pause1` stand frozen as creature models
 
@@ -1221,8 +1196,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   unchanged: none carries both names. A model with neither (the turrets
   `c_turret01`…`03`, `stuntsaberr`) has no idle; it stands at rest and is
   noted, not reported as a missing clip.
-- Ours:       `launcher::viewer` (`creature_clip`), `launcher::clips`
-- Evidence:   `context/artifacts/2026-10-02-sweep-creature-idles/`
+- Ours:       `game::viewer` (`creature_clip`), `launcher::clips`
 
 ### Q-0137 — A unique appearance row draws nobody in armour
 
@@ -1240,7 +1214,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   armour's texture variation, falling back to `01` as before). In both
   rows `race` names the same model, so `race` would draw the same body.
 - Ours:       `asset_odyssey::creature` (`resolve`)
-- Evidence:   `context/artifacts/2026-10-02-sweep-creature-idles/`
 
 ### Q-0132 — xoreos puts on a body texture the game does not have
 
@@ -1256,9 +1229,8 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   (Talia and the Gand are seen in the games).
 - Status:     not reproduced: reone's rule.
 - Ours:       `asset_odyssey::creature::resolve` (`missing_body_texture`),
-  `launcher::viewer::module_scene`
-- Evidence:   read, not run: sweep-textures journal
-  (`context/artifacts/2026-10-02-sweep-textures/`), TSL 506ond's Talia
+  `game::viewer::module_scene`
+- Evidence:   read, not run; TSL 506ond's Talia
   and 352nar's Gand before and after.
 
 ### Q-0133 — reone does not draw a mesh whose diffuse is missing
@@ -1271,15 +1243,15 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   (`lda_wall02`, `lta_blast03`, `dantflag`, `mal_rk01aa`), on lightmapped
   meshes: reone leaves holes there.
 - Expected:   the surface shown, lit, rather than a hole in a wall.
-- Status:     not reproduced: xoreos's rule (`launcher::scene`, `mesh`).
-- Ours:       `launcher::scene` (`Spawner::mesh`), `launcher::viewer::stand_in`
-- Evidence:   read, not run: sweep-textures journal; the sweep's missing
+- Status:     not reproduced: xoreos's rule (`game::scene`, `mesh`).
+- Ours:       `game::scene` (`Spawner::mesh`), `game::viewer::stand_in`
+- Evidence:   read, not run; the sweep's missing
   textures list says what is drawn in each one's place.
 
 ### Q-0090 — A loud moment clips
 
 - Reference:  JA (its mixer adds every channel and clamps the sum), and
-  ours before I20
+  ours before the fix
 - Behaviour:  sounds that add up past full scale are cut flat: the Endar
   Spire's fight clipped 255 samples in 18 s with no music, over 1,000 in
   30 s once the battle music played under it.
@@ -1289,8 +1261,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   release) after its volume; the same fight peaks at −0.07 dB, none
   clipped.
 - Ours:       `audio::mixer` (`Mixer::new`)
-- Evidence:   `context/artifacts/2026-10-02-i20-audio/` (the fight's
-  `audio.wav` measured before and after)
+- Evidence:   the fight's `audio.wav` measured before and after
 
 ### Q-0091 — xoreos takes a generic door's sounds from the wrong row
 
@@ -1302,7 +1273,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     not reproduced: the generic type's row (owner policy
   2026-10-01); `doortypes.2da` by a non-zero appearance as xoreos.
 - Ours:       `asset_odyssey::sound::area`
-- Evidence:   read, not run: I20 journal; the Endar Spire's door plays
+- Evidence:   read, not run; the Endar Spire's door plays
   `dr_lhr01_open`.
 
 ### Q-0092 — xoreos plays the night ambience at full volume
@@ -1314,7 +1285,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the GIT's `AmbientSndNitVol`.
 - Status:     not reproduced: the GIT's field.
 - Ours:       `asset_odyssey::sound::area`
-- Evidence:   read, not run: I20 journal.
+- Evidence:   read, not run.
 
 ### Q-0093 — Footsteps follow the gait, not the animation's events
 
@@ -1327,8 +1298,8 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   cycle passes a quarter (Quake's footstep rule), 3 a second running,
   1.5 walking. The sound is KOTOR's: `footstepsounds.2da` by appearance
   and floor.
-- Ours:       `launcher::ambience` (`footsteps`)
-- Evidence:   I20 journal, the Taris walk video.
+- Ours:       `game::ambience` (`footsteps`)
+- Evidence:   a recorded walk on Taris.
 
 ### Q-0086 — The turret's loss hands every fighter but the first 2000 HP
 
@@ -1351,7 +1322,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   a wind louder with speed, a reflux on a boost.
 - Status:     kept
 - Ours:       the scripts' sound routines (no object, nothing played)
-- Evidence:   `context/artifacts/2026-10-03-minigames/` (GIT dumps)
+- Evidence:   the modules' GIT files, dumped
 
 ### Q-0141 — reone's animated camera never takes a line's field of view
 
@@ -1362,8 +1333,8 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   opening asks 34.5).
 - Expected:   the line's `CamFieldOfView`, 55 when it is 0.
 - Status:     not reproduced: the line's (owner, 2026-10-04).
-- Ours:       `launcher::play_view::animated_shot`
-- Evidence:   read, not run: `context/artifacts/2026-10-04-dialogue-cameras/`.
+- Ours:       `game::play_view::animated_shot`
+- Evidence:   read, not run.
 
 ### Q-0142 — A mine laid in combat with a badly failed check is laid anyway
 
@@ -1376,7 +1347,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   object does).
 - Status:     kept
 - Ours:       `traps::lay`
-- Evidence:   `context/artifacts/2026-10-04-stealth-traps/` (the reading)
+- Evidence:   read, not run
 
 ### Q-0155 — Garouk's pazaak lesson ends with no word from him
 
@@ -1400,8 +1371,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     kept
 - Ours:       `script::pazaak` queues the end script; the library counts it
   missing
-- Evidence:   `context/artifacts/2026-10-04-pazaak/` (`kjk ls k1
-  '*pazend*' --module tar_m03ae`)
+- Evidence:   `kjk ls k1 '*pazend*' --module tar_m03ae`
 
 ### Q-0157 — The commoners' AI loops for good on a hostile beyond 20 m
 
@@ -1428,7 +1398,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   its own chance.
 - Status:     kept
 - Ours:       `combat::gear::on_hits`
-- Evidence:   `context/artifacts/2026-10-05-item-properties/README.md`
 
 ### Q-0159 — Improved Saving Throws against an element reads it as a save
 
@@ -1440,7 +1409,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   a bonus to saves against that element only.
 - Status:     kept
 - Ours:       `session::items::read_property` (`Property::Save`)
-- Evidence:   `context/artifacts/2026-10-05-item-properties/README.md`
 
 ### Q-0160 — A Jedi mind's sidestep reads its enemy's side off its own angles
 
@@ -1472,7 +1440,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   side of the line between them, and a wall on the sight line dropping
   the line to the close-up. A line of a DLG with a camera model and no clip
   of its own takes these shots too (reone holds the last clip's frame).
-- Status:     not reproduced: the executable's camera (design S6), its own
+- Status:     not reproduced: the executable's camera, its own
   quirk too: a line of angle 6 whose `CameraID` the area lacks is filmed
   from the area's origin at 55 degrees [likely], looking straight down,
   its orientation unturned and no pitch [verify]. A script's cut to a
@@ -1481,11 +1449,11 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   dialog shot before it, where the executable likely has the previous
   line's pair face each other again [verify].
 - Ours:       `sim::script::dialogue` (`Conversation::angle`, `angle_walk`),
-  `launcher::play_view::talk_camera` (`DialogShot`, `Sides::side`,
+  `game::play_view::talk_camera` (`DialogShot`, `Sides::side`,
   `dialog_shot`)
-- Evidence:   `context/artifacts/2026-10-16-scene-mode/exe.md` (Q7); the
+- Evidence:   the
   scene probes' `default_angles` and the `dialog camera` probes
-  (`kjk sim probes`); `context/artifacts/holistic-view/SURVEY.md` (§6).
+  (`kjk sim probes`).
 
 ### Q-0231 — reone hangs no visual effect on a creature
 
@@ -1494,8 +1462,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the row's models on the creature's `impact`, `headconjure`
   and `handconjure` nodes (the K1 executable's names for its attach points).
 - Status:     not reproduced: the models hang from those nodes.
-- Ours:       `launcher::script_fx` (`Node::name`, `body_node`)
-- Evidence:   `context/artifacts/holistic-view/SURVEY.md` (§1).
+- Ours:       `game::script_fx` (`Node::name`, `body_node`)
 
 ### Q-0232 — TSL adds a joining creature's own components at every join
 
@@ -1511,7 +1478,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   join and keeps it. The gold the routine moves the same way is not moved
   in ours (a creature's purse stays its own) [verify K1's].
 - Ours:       `sim::script::workbench` (`takes_in`, `pool_carried`)
-- Evidence:   `context/artifacts/i35/crafting.md` (§1); the workbench probe
+- Evidence:   the workbench probe
   "it joins" (`kjk sim probes --only workbench`).
 
 ### Q-0237 — TSL's PlayMovieQueue keeps its nAllowSkips and never reads it
@@ -1566,7 +1533,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the rate raised by the percentage (+50 %).
 - Status:     kept
 - Ours:       `world::powers::regenerate` (`Effects::healing_doubled`)
-- Evidence:   `context/artifacts/i35/effects-actions.md` (2.13); the
+- Evidence:   the
   `tsl effects` probe `healing_doubled`.
 
 ### Q-0243 — Scramble Droid and Droid Trick describe each other's effect
@@ -1581,8 +1548,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     kept (the scripts decide; the descriptions are the game's)
 - Ours:       the powers' impact scripts (`EffectDroidScramble`,
   `EffectFactionModifier`)
-- Evidence:   `context/artifacts/i35/effects-actions.md` (2.12; TLK 49070,
-  108458, 114571, 114572).
+- Evidence:   the descriptions, TLK 49070, 108458, 114571 and 114572.
 
 ### Q-0244 — True Seeing's end marks the wrong bit while another runs
 
@@ -1596,7 +1562,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   to see through; `EffectTrueSeeing` is kept and walked only (no shipped
   script applies one, Q-0245).
 - Ours:       `combat::effects::Modifies::TrueSeeing`
-- Evidence:   `context/artifacts/i35/effects-actions.md` (2.6).
 
 ### Q-0245 — Enhanced Senses makes True Seeing and never applies it
 
@@ -1608,7 +1573,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the true seeing linked in.
 - Status:     kept (the game's script)
 - Ours:       the script as it runs
-- Evidence:   `context/artifacts/i35/effects-actions.md` (2.6).
 
 ### Q-0246 — Body Fuel takes no vitality for its refills
 
@@ -1620,7 +1584,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the hit points paid for the Force points.
 - Status:     kept
 - Ours:       `combat::effects::regenerate` (`Modifies::BodyFuel`)
-- Evidence:   `context/artifacts/i35/effects-actions.md` (2.10).
 
 ### Q-0247 — TSL tells a lowered bonus by the bonus left
 
@@ -1635,8 +1598,8 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     reproduced: `StatusKind::MaxForcePoints` carries what the
   executable passes; the summary adds it up as KOTOR 2's does.
 - Ours:       `sim::script::force` (`AddBonusForcePoints`,
-  `SetBonusForcePoints`), `launcher::progress` (`Summary`)
-- Evidence:   `context/artifacts/i35/combat-force.md` (2.5); the `tsl force`
+  `SetBonusForcePoints`), `game::progress` (`Summary`)
+- Evidence:   the `tsl force`
   probes' `bonus_force_points`.
 
 ### Q-0248 — TSL's room Force rating outside every room reads before its table
@@ -1648,7 +1611,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   no room's rating: 0.
 - Status:     not reproduced (an undefined read): 0.
 - Ours:       `sim::module::ForceRules::rating`
-- Evidence:   `context/artifacts/i35/combat-force.md` (3.6); the `tsl
+- Evidence:   the `tsl
   force` probes' `room_ratings`.
 
 ### Q-0249 — TSL's GetRandomDestination divides by its range
@@ -1660,7 +1623,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the creature's own place.
 - Status:     not reproduced: a range of 0 or less is the creature's place.
 - Ours:       `sim::script::random_destination`
-- Evidence:   `context/artifacts/i35/combat-force.md` (7); the `tsl force`
+- Evidence:   the `tsl force`
   probes' `random_destination`.
 
 ### Q-0250 — TSL's AdjustCreatureAttributes wraps the score
@@ -1672,7 +1635,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the score held within its range.
 - Status:     reproduced (no shipped script lowers a score past 0).
 - Ours:       `sim::script::force` (`AdjustCreatureAttributes`)
-- Evidence:   `context/artifacts/i35/combat-force.md` (5).
 
 ### Q-0251 — TSL's AdjustCreatureSkills keeps a signed rank
 
@@ -1685,7 +1647,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   and 127 (no shipped script lowers one: `a_adjust_skill`, `a_hk_skill`
   add).
 - Ours:       `sim::script::force` (`AdjustCreatureSkills`)
-- Evidence:   `context/artifacts/i35/combat-force.md` (5).
 
 ### Q-0257 — SWMG_SetPlayerInvincibility stops the script that calls it
 
@@ -1701,7 +1662,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     kept
 - Ours:       `script::minigame::aborts`, `script::engine` (`Host::action`),
   `script::finish` (no fault)
-- Evidence:   `context/artifacts/i35/minigames.md` (§2.9); the probe
+- Evidence:   the probe
   `minigame tsl` `routines`
 
 ### Q-0258 — SWMG_AdjustFollowerHitPoints never reads its third argument
@@ -1717,7 +1678,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   the prototype)
 - Ours:       `script::minigame` (`AdjustFollowerHitPoints`),
   `minigame::Course::adjust_hp`
-- Evidence:   `context/artifacts/i35/minigames.md` (§2.8); the probe
+- Evidence:   the probe
   `minigame tsl` `hit_points`
 
 ### Q-0259 — SWMG_SetFollowerPosition puts the player at its start
@@ -1730,7 +1691,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the follower at the given position.
 - Status:     kept
 - Ours:       `minigame::Course::restart`
-- Evidence:   `context/artifacts/i35/minigames.md` (§3)
 
 ### Q-0260 — A bump pushes the swoop by the world's axes on its track's
 
@@ -1744,7 +1704,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   plane).
 - Status:     kept
 - Ours:       `minigame::Course::bump`
-- Evidence:   `context/artifacts/i35/minigames.md` (§2.6); the probe
+- Evidence:   the probe
   `minigame tsl` `bump`
 
 ### Q-0261 — A save forgets which encounter made a creature
@@ -1763,7 +1723,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     kept (the owner's call, 2026-10-19: follow the executables)
 - Ours:       `script::State::encounter_creatures` (not encoded),
   `spawner::Spawn::number_spawned` (encoded)
-- Evidence:   `context/artifacts/i35/encounters.md` (1.2); the probe
+- Evidence:   the probe
   `ute encounters` `save_keeps_the_list_not_the_links`.
 
 ### Q-0262 — TSL piles an encounter's creatures on its second spawn point
@@ -1782,7 +1742,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the creatures spread over the points.
 - Status:     kept (the owner's call, 2026-10-19)
 - Ours:       `world::spawners::point`, `spawner::Cursor`
-- Evidence:   `context/artifacts/i35/encounters.md` (2.5); the probe
+- Evidence:   the probe
   `ute encounters` `tsl_points_outnumber_the_list`.
 
 ### Q-0263 — An encounter's "out of the players' sight" test sees no player
@@ -1801,7 +1761,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   a clear line at 1.5 m over the floor).
 - Status:     kept in both games
 - Ours:       `spawner::Ground::out_of_sight`
-- Evidence:   `context/artifacts/i35/encounters.md` (2.5); K1's twin of
+- Evidence:   K1's twin of
   `ComputeNonVisibleLocation` and its count read 2026-10-19 (the call
   passes the area's id in both).
 
@@ -1817,7 +1777,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the run's points.
 - Status:     taken as passing (the owner's call, 2026-10-19)
 - Ours:       `spawner::k1_initial`
-- Evidence:   `context/artifacts/i35/encounters.md` (2.4).
 
 ### Q-0265 — K1's encounter budget grows with every list it builds
 
@@ -1833,7 +1792,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     kept
 - Ours:       `spawner::Spawn::pool`, `spawner::spawn_if_appropriate`,
   `world::spawners::reset`
-- Evidence:   `context/artifacts/i35/encounters.md` (2.4, 2.5).
 
 ### Q-0266 — Bao-Dur "cannot equip" a sonic grenade
 
@@ -1847,7 +1805,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the Jedi robes and the armour he cannot wear only.
 - Status:     kept
 - Ours:       `sim::cannot_equip::BASE_ITEMS`, `game::character::described`
-- Evidence:   `context/artifacts/i35/influence-party.md` (1.5); the range
+- Evidence:   the range
   test reads the item's base item (`CSWItem::GetBaseItem` reads the same
   field).
 
@@ -1870,8 +1828,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   touches, `world::met_as` and `Inside::hold_off`, held no nearer than
   their two `perspace`s, round the other's middle (the boxes' corners
   shut nooks K1's circles leave open)
-- Evidence:   `context/artifacts/2026-10-21-npc-collision/SURVEY.md` (K2,
-  K3).
 
 ### Q-0279 — a fountain's births follow the frame rate
 
@@ -1889,8 +1845,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   second, whatever the random birth rate, and the random birth rate moving
   the rate up or down by a whole number below it.
 - Ours:       `game::model_fx::Particles::fountain_births`
-- Evidence:   `context/artifacts/2026-10-21-taris-fixes/SURVEY.md`
-  (follow-up 2).
 
 ### Q-0280 — a saber's burn mark goes at once
 
@@ -1904,7 +1858,6 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the burn fading out over its last second, as the glow does.
 - Status:     reproduced
 - Ours:       `game::saber_marks::Marks::draw`
-- Evidence:   `context/artifacts/2026-10-22-saber-marks/NOTES.md`.
 
 ### Q-0305 — a room the VIS leaves out is not drawn, even in plain sight
 
@@ -1925,8 +1878,8 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   then draws only what is in view). The people and objects in it were
   never left out.
 - Ours:       `game::scene::Culling::room_visible`, `game::scene::cull_rooms`
-- Evidence:   `context/artifacts/2026-10-24-cf2-vis/README.md` (before and
-  after at the same poses, the walk gif, frame cost in six areas).
+- Evidence:   before and after at the same poses, a walk, and the frame
+  cost in six areas.
 
 ### Q-0323 — a line's speaker search keeps a plain distance as its bar
 
@@ -1944,7 +1897,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the nearest object with that tag.
 - Status:     reproduced
 - Ours:       `sim::script::dialogue::Step::speaker_for`
-- Evidence:   `context/artifacts/2026-10-25-interjections/SURVEY.md`; the
+- Evidence:   the
   probe `speaker_search_keeps_its_first_bar` (`kjk sim probes --only
   speakers`).
 
@@ -1990,8 +1943,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   follow. The host refuses a Close on any other door.
 - Ours:       `sim::world::uses::closable`, `sim::target::choices`,
   `game::target_view`
-- Evidence:   `context/artifacts/2026-10-30-door-use/SURVEY.md` (rules
-  12-21); the probes `target_close_offered` (approved test `use_actions`)
+- Evidence:   the probes `target_close_offered` (approved test `use_actions`)
   and `door_closed_by_choice` (`use_walk`).
 
 ### Q-0335 — out of combat a failed skill use floats "Skill Too Low", even one that sets the mine off
@@ -2008,8 +1960,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   the float telling what happened (the mine went off).
 - Status:     reproduced.
 - Ours:       `sim::locks::floats`
-- Evidence:   `context/artifacts/2026-10-30-mine-security/SURVEY.md`; the
-  probe `skill_floats` (`traps_lifecycle`).
+- Evidence:   the probe `skill_floats` (`traps_lifecycle`).
 
 ### Q-0336 — the float over a skill's user drops the skill's name past 20 characters
 
@@ -2023,4 +1974,3 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   float rides the scripts' feedback line, which carries one strref), so
   Security's in-combat failure reads `*failure*` [verify against K1].
 - Ours:       `game::floaty_view` (`STARRED`), `sim::locks::floats`
-- Evidence:   `context/artifacts/2026-10-30-mine-security/SURVEY.md`.

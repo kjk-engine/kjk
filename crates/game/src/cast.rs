@@ -1429,6 +1429,10 @@ struct Member {
     /// As its snapshots last had it while dead: a body the sim has taken
     /// away goes on playing its death from there (`playing_death`).
     gone: Option<Blended>,
+    /// The floor last found under it (`ground_lean::floor_under`), and from
+    /// where (its middle and soles): a body standing still finds the same
+    /// floor without tracing for it again.
+    floor: Option<((Vec3, Vec3), Option<Floor>)>,
 }
 
 impl Member {
@@ -1595,6 +1599,9 @@ pub struct Cast {
     player_rigs: Vec<Arc<BodyRig>>,
     /// By character; `None` for one with nothing to draw it.
     members: BTreeMap<SimId, Option<Member>>,
+    /// The doors' states the members' floors were found with: another
+    /// state, and they are found again.
+    floor_states: Option<Vec<u8>>,
     /// Who holds which weapon.
     holdings: Holdings,
     /// Each body model lined up once, by model name (and grip).
@@ -1665,6 +1672,7 @@ impl Cast {
             bodies,
             player_rigs,
             members: BTreeMap::new(),
+            floor_states: None,
             holdings: Holdings::default(),
             rigs: BTreeMap::new(),
             posed: 0,
@@ -1699,6 +1707,10 @@ impl Cast {
         if let Some(first) = first_body {
             self.bodies.first = first;
             self.bodies.dressed.clear();
+        }
+        // Another world's floors are found anew.
+        for member in self.members.values_mut().flatten() {
+            member.floor = None;
         }
         // The disguised go back to their own bodies (in the same scene,
         // the disguises' wait hidden for them to be cast again).
@@ -1806,6 +1818,7 @@ impl Cast {
                 own: None,
                 heard: Vec::new(),
                 gone: None,
+                floor: None,
             };
             self.members.insert(entity.id, Some(member));
         }
@@ -2661,6 +2674,12 @@ impl Cast {
         let looks = history
             .last()
             .map_or_else(Vec::new, |newest| looks(newest, level));
+        if self.floor_states != states {
+            for member in self.members.values_mut().flatten() {
+                member.floor = None;
+            }
+            self.floor_states.clone_from(&states);
+        }
         let mut dying = Vec::new();
         self.body_clips.clear();
         for (&id, member) in &mut self.members {
@@ -2678,7 +2697,8 @@ impl Cast {
                     None => continue,
                 },
             };
-            if at.alive {
+            let blasted = blasted(&at, ms);
+            if at.alive && blasted.is_none() {
                 self.ragdolls.rise(id);
             }
             let still = self.ragdolls.still(id);
@@ -2694,10 +2714,10 @@ impl Cast {
                 .get(&id)
                 .filter(|_| !self.rig.quirks)
                 .map_or(&[][..], Vec::as_slice);
-            // Only the dead fall as ragdolls: the downed must get up, and
-            // one dying in place lies as its clip leaves it.
+            // Only the dead and the blasted fall as ragdolls: the downed
+            // must get up, and one dying in place lies as its clip leaves it.
             let in_place = dying_in_place(&at);
-            let falls = at.dead && member.body.doll.is_some() && !in_place;
+            let falls = (at.dead || blasted.is_some()) && member.body.doll.is_some() && !in_place;
             let death_plays = member.playing_death(ms);
             // Holstered guns drawn or put away as the body readies them
             // (`draw_anim`): only a body that carries them.
@@ -2734,8 +2754,16 @@ impl Cast {
                 let leans = matches!(&member.body.look, Look::Clips(clips) if clips.lean.is_some());
                 let floor = (leans || at.state.ground.is_some())
                     .then(|| {
-                        let middle = Vec3::from_array(at.origin) * UNIT;
-                        ground_lean::floor_under(level, states.as_deref(), (middle, soles))
+                        let from = (Vec3::from_array(at.origin) * UNIT, soles);
+                        match member.floor {
+                            Some((found, floor)) if found == from => floor,
+                            _ => {
+                                let floor =
+                                    ground_lean::floor_under(level, states.as_deref(), from);
+                                member.floor = Some((from, floor));
+                                floor
+                            }
+                        }
                     })
                     .flatten();
                 let stands = if leans {
@@ -2770,7 +2798,8 @@ impl Cast {
             }
             if falls
                 && !still
-                && let Some(one) = as_drawn_dead(&self.rig, (id, member), at, moved, transforms)
+                && let Some(one) =
+                    as_drawn_dead(&self.rig, (id, member), (at, blasted), moved, transforms)
             {
                 dying.push(one);
             }
@@ -2979,7 +3008,7 @@ fn dying_in_place(at: &Blended) -> bool {
 fn as_drawn_dead(
     rig: &Rig,
     (id, member): (SimId, &Member),
-    at: Blended,
+    (at, blasted): (Blended, Option<u64>),
     moved: Option<(usize, Vec3)>,
     transforms: &Query<&mut Transform>,
 ) -> Option<Dying> {
@@ -3000,15 +3029,36 @@ fn as_drawn_dead(
         Look::Ja => return None,
     };
     let root = transforms.get(member.body.root).ok()?;
+    // A blasted body falls from the blast, limp at once: no clip of its own
+    // to hold to.
+    let (died_ms, length_ms) = match blasted {
+        Some(blasted) => (blasted, Some(BLASTED_MS)),
+        None => (member.figure.died()?, length_ms),
+    };
     Some(Dying {
         id,
         pose: ragdolls::drawn_pose(&doll.rest, &member.body.nodes, transforms, lengths),
         doll,
         root: ragdoll::Frame::new(root.translation, root.rotation),
         at,
-        died_ms: member.figure.died()? as f64,
+        died_ms: died_ms as f64,
         length_ms,
     })
+}
+
+/// How long (ms) a blasted body's muscles hold before it goes limp.
+const BLASTED_MS: f64 = 150.0;
+
+/// When the script's push (a blast, `Fighter::blasted_ms`) threw the body at
+/// `at`, while `ms` is within JA's knockdown from it: it falls as a ragdoll
+/// from then, the throw's velocity carried, not knocked down by JA's clip,
+/// and a death meanwhile (the scene's that follows its blast: TSL's Sith
+/// troopers on the Ravager, pushed from `wp_explosion` and killed 0.9 s on)
+/// lets it lie as it fell; alive past the knockdown, it rises.
+fn blasted(at: &Blended, ms: f64) -> Option<u64> {
+    let blasted = at.fighter.as_ref()?.blasted_ms;
+    let since = (ms as u64).checked_sub(blasted)?;
+    (blasted > 0 && since < sim::combat::force::ja::KNOCKDOWN_MS).then_some(blasted)
 }
 
 /// Shows or hides `root` (a body's), if it is not so already.
@@ -3043,14 +3093,13 @@ fn edit(
 /// once it stands again). Only a node that moved is written.
 pub(crate) fn at_rest((nodes, rest): (&[Entity], &Rest), transforms: &mut Query<&mut Transform>) {
     for (&entity, &(_, translation, rotation)) in nodes.iter().zip(rest) {
-        let moved = transforms
-            .get(entity)
-            .is_ok_and(|t| t.translation != translation || t.rotation != rotation);
-        if moved {
-            edit(transforms, entity, |t| {
-                t.translation = translation;
-                t.rotation = rotation;
-            });
+        // Looked up once: read through the handle, it is marked changed
+        // only when written.
+        if let Ok(mut t) = transforms.get_mut(entity)
+            && (t.translation != translation || t.rotation != rotation)
+        {
+            t.translation = translation;
+            t.rotation = rotation;
         }
     }
 }
@@ -3430,7 +3479,7 @@ fn place(
             let gripping = gripped[usize::from(hand_out)].as_ref().filter(|_| armed);
             let rig = gripping.unwrap_or(&*rig);
             let acting = acting::or_talk(acting, talk, (acted, figure.breath.wield), ms);
-            shows.follow(acting, (still, at.alive, world_held), ms);
+            shows.follow(acting, (still, moving, at.alive, world_held), ms);
             hear(heard, shows, (acted, figure.breath.wield), ms);
             throw.follow(at.fighter.as_ref());
             // A player's own body (its gait) keeps JA's; JA's own pain,
@@ -3700,7 +3749,7 @@ fn place(
             let acting = acting::or_talk(acting, talk, (&clips.acted, wield), ms);
             clips
                 .shows
-                .follow(acting, (still, at.alive, world_held), ms);
+                .follow(acting, (still, moving, at.alive, world_held), ms);
             clips.flinch.follow(at.fighter.as_ref(), false, true);
             clips.attack.follow(at.fighter.as_ref());
             // Its scripted clips show and sound as a retargeted body's do,

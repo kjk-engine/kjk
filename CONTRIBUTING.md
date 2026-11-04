@@ -67,7 +67,7 @@ opening a pull request you agree to license your change under it.
 - Never commit to `main`. Work on a branch named `<you>/<topic>`, ideally
   in its own git worktree (`docs/BUILD.md` on seeding its `target/`).
 - Open a pull request against `main`. CI runs two jobs: **tests**
-  (publish check, fmt, the approved tests) and **clippy** (both lints).
+  (publish check, licences, fmt, the approved tests) and **clippy** (both lints).
 - The maintainer reviews and squash-merges: the pull request's title and
   description become its one commit on `main`, so write them as that
   commit's message.
@@ -143,6 +143,7 @@ known. A useful report contains:
 * which game's data (KOTOR 1, KOTOR 2 or Jedi Academy; Steam, GOG or disc)
   and which module;
 * the steps, and what happened instead; the run folder under
-  `kjk-artifacts/runs/` if there is one.
+  `kjk-artifacts/runs/` if there is one (a release build keeps its runs in
+  `logs/` in the settings folder, `docs/RELEASE.md`).
 
 Do not attach your `.env`, a memory dump, or any game file.

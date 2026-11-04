@@ -288,6 +288,12 @@ const UNWEDGE_MS: u64 = 1000;
 const QUIET_MS: u64 = 2000;
 /// How long a fight goal waits for a first foe (ms).
 const QUIET_FIRST_MS: u64 = 6000;
+/// How long (milliseconds of play) a use fights the foes about before going
+/// to its target whatever still stands. Nothing refuses a use in a fight, as
+/// an exit is refused, and the foes may be what the use stops: the Star Forge's
+/// generators make droids until each is shut down, and the fight waiting for
+/// quiet never saw any with a gun in hand.
+const USE_FIGHT_MS: u64 = 120_000;
 
 /// How long a line plays before the player clicks past it (ms), as a
 /// player skips dialogue (`Pick::Skip`; `--listen` hears every line out).
@@ -675,19 +681,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     acts.push(Action::Solo(*on));
                 }
                 if let Goal::Leader(npc) = goal {
-                    // As the HUD's portrait click asks it: by the member's
-                    // body (a companion with no creature here, by number).
-                    let body = match *npc {
-                        u8::MAX => last.own(Seat(0)).map(|own| own.id),
-                        npc => world
-                            .script_state()
-                            .party
-                            .available
-                            .get(&npc)
-                            .and_then(|known| known.object)
-                            .map(sim::SimId),
-                    };
-                    acts.push(body.map_or(Action::SetLeader(*npc), Action::Lead));
+                    acts.push(lead_to(&world, &last, *npc));
                 }
                 if let Goal::Global(name, value) = goal {
                     let mut state = world.script_state().clone();
@@ -892,6 +886,11 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     };
                     scenes.note(level.name(), &world.script_report().talk, me.id, trigger_of, now);
                     let talked_with = talking.as_ref().and_then(owner_of);
+                    if let (Some(index), Some(talk)) = (talked_with, talks.under_way.as_ref())
+                        && last.entities.iter().any(|e| e.kind == sim::Kind::Object(ObjectKind::Creature, index))
+                    {
+                        scenes.talked(index, talk, now);
+                    }
                     let mut command = mind::looking(&player, player.view[0], player.view[1]);
                     let mut input = TickInput::default();
                     // Each offer is answered once its line has played.
@@ -965,16 +964,28 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     // What this step's use key is pressed for: the door, or
                     // the goal's own target (its press, below).
                     let mut pressed_for = door.filter(|_| pulse != 0).map(|(index, _)| index);
-                    // A body standing in the walk's way, gone round.
-                    if let Some(w) = walker.as_mut() {
-                        let bodies: Vec<[f32; 3]> = last
-                            .entities
-                            .iter()
-                            .filter(|e| e.id != me.id && e.fighter.is_some_and(|f| f.alive()))
-                            .filter(|e| !sim::bodies_pass(&level, true, sim::party_member(e)))
-                            .filter_map(|e| e.player.map(|ps| ps.origin))
-                            .collect();
-                        w.around(&level, &player, &bodies);
+                    // A body standing in the walk's way, gone round; one gone
+                    // round again where it stood, not hostile, planned round
+                    // from the next step (`TurnedBack::went_round`).
+                    let blockers: Vec<(sim::SimId, [f32; 3])> = last
+                        .entities
+                        .iter()
+                        .filter(|e| e.id != me.id && e.fighter.is_some_and(|f| f.alive()))
+                        .filter(|e| !sim::bodies_pass(&level, true, sim::party_member(e)))
+                        .filter_map(|e| e.player.map(|ps| (e.id, ps.origin)))
+                        .collect();
+                    let rounded = walker.as_mut().and_then(|w| {
+                        let bodies: Vec<[f32; 3]> = blockers.iter().map(|(_, at)| *at).collect();
+                        w.around(&level, &player, &bodies)
+                    });
+                    let hostile = |body: [f32; 3]| {
+                        blockers.iter().any(|(id, at)| {
+                            *at == body && world.relation(*id, me.id) == Some(sim::combat::Relation::Hostile)
+                        })
+                    };
+                    if rounded.is_some_and(|body| turned_back.went_round(body, hostile(body))) {
+                        turned_back.wall(&here);
+                        walker = None;
                     }
                     // The party in combat (`Snapshot::in_combat`): the nearest
                     // of those keeping it so (`keepers`, not plot) the player
@@ -1026,6 +1037,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     let shut_since = refused.len() > fought_out.unwrap_or(0);
                     let fight_first = (straggled.is_some()
                         || fights_first(goal, fought_out.is_some(), last.in_combat, shut_since))
+                        && !use_fight_over(goal, now - started_ms)
                         && module_of(&last) == module
                         && matches!(fight_out, Goal::Fight(r)
                             if !hostiles(&here, &world, me.position, r).is_empty());
@@ -1085,9 +1097,16 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         }
                         // Met once the party table has it (the next goal
                         // moves the body it gives).
+                        // Asked again while not yet led, as a player clicks
+                        // the portrait again: a member down when first asked
+                        // (Bao-Dur, knocked out in the military base's hall
+                        // fight) is passed over until he gets up.
                         Goal::Leader(npc) => {
                             met = world.script_state().party.leader
                                 == Some(*npc).filter(|npc| *npc != u8::MAX);
+                            if !met && pressed(now) {
+                                acts.push(lead_to(&world, &last, *npc));
+                            }
                         }
                         Goal::Solo(on) => met = world.script_state().party.solo == *on,
                         // Pressed once out of a conversation (as the HUD's
@@ -1375,12 +1394,20 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // as the beach's fight ended).
                                 met = true;
                             } else if matches!(goal, Goal::To(_))
-                                && let Some(scene) =
-                                    found.and_then(|(index, _)| scenes.take_before(index, started_ms))
+                                && let Some(scene) = found
+                                    .filter(|(index, _)| {
+                                        // A creature's, only for a `talk` after.
+                                        here.entity(*index).is_none_or(|e| {
+                                            !matches!(e.kind, sim::Kind::Object(ObjectKind::Creature, _))
+                                        }) || matches!(goals.get(next), Some((_, Goal::Talk)))
+                                    })
+                                    .and_then(|(index, _)| scenes.take_before(index, started_ms))
                             {
                                 // A trigger whose own scene the player set
-                                // off during a goal before (`Scenes`): the
-                                // `talk` after it takes that scene.
+                                // off during a goal before, or a creature
+                                // whose talk with the player began before
+                                // (`Scenes`): the `talk` after it takes that
+                                // scene.
                                 talks.ended.push_back(Talk {
                                     ended_ms: now,
                                     ..scene
@@ -1505,12 +1532,18 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // one of a tag fell, moved by the next of it
                                 // to fall: the sewers' two Gamorrean leaders):
                                 // planned again. (A walk's goal stands up to
-                                // 3.2 m short of its target, `approach`.)
+                                // 3.2 m short of its target, `approach`.) Its
+                                // stalls go on with it: a patrol moving every
+                                // few seconds planned the walk anew before
+                                // its stalls added up, and the player stood
+                                // wedged on Dantooine's sensor boxes, its
+                                // walk never stalling (`Walker::stalls`).
+                                let mut stalls = None;
                                 if walker
                                     .as_ref()
                                     .is_some_and(|w| flat(w.goal.map(|v| v * UNIT), at) > REPLAN_M)
                                 {
-                                    walker = None;
+                                    stalls = walker.take().map(|w| w.stalls);
                                 }
                                 // Pressed at from within reach but out of its
                                 // sight (a desk's side, a frame's edge between):
@@ -1556,10 +1589,14 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     }
                                     _ => here.approach(&player, at),
                                 });
+                                if let Some(stalls) = stalls {
+                                    walker.stalls = stalls;
+                                }
                                 // No way there (a locked door's doorway, a
                                 // body in the way) but near: straight at it.
                                 // Arrived short of it: the last stretch straight.
                                 let arrived = walker.arrived(&player);
+                                let goal_held = goal_taken(&last, (me.id, here.entity(index).map(|e| e.id)), walker.goal);
                                 let routed = !arrived && here.leads(player.origin, walker.goal);
                                 let round = routed && here.goes_round(player.origin, walker.goal);
                                 let mut walking = || Command {
@@ -1589,13 +1626,17 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // block walks up (`Walk::near`), or, the walk
                                 // come as near as it can (across a counter:
                                 // Greeta Holda answers from 3.4 m), within the
-                                // reach itself.
+                                // reach itself; or within the reach while
+                                // another body stands where the walk ends
+                                // (`goal_taken`: a wounded soldier following
+                                // the party into the citadel's TSF station
+                                // doorway held the Exile 0.9 m off for good).
                                 let near = choice.zip(data.as_ref()).map_or(d <= NEAR_M, |(choice, data)| {
                                     sim::target::Walk::near(
                                         &player,
                                         sim::target::Spot::plain(at, choice, data.kind),
                                     )
-                                        || arrived && d <= sim::target::reach(choice, data.kind)
+                                        || (arrived || goal_held) && d <= sim::target::reach(choice, data.kind)
                                 });
                                 let alive = |e: &sim::EntityState| e.fighter.is_some_and(|f| f.alive());
                                 // In its fight, or in a scene of its
@@ -1650,8 +1691,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                             matches!(e.kind, sim::Kind::Object(_, i) if i == index)
                                         })
                                     })
-                                });
-                                match goal {
+                                });                                match goal {
                                     // A trigger: inside its outline; one that
                                     // leads out, at it (inside is out: the
                                     // Dune Sea's way on, walked up to so the
@@ -1783,7 +1823,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     Goal::Use(_) if busy => command = facing(&player, at),
                                     Goal::Use(_) if !near || (stand_for_sight && !(arrived && usable)) => {
                                         command = walking();
-                                        met = opened || spoke;
+                                        met = use_met((opened, spoke), false);
                                     }
                                     // Security tried, again while it fails.
                                     Goal::Unlock(_, spike) => {
@@ -1973,12 +2013,14 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                                     })
                                                 })
                                             });
-                                            met = answered
-                                                || played_out
-                                                || barked
-                                                || one_line
-                                                || opened
-                                                || module_of(&last) != module;
+                                            met = use_met(
+                                                (opened, spoke),
+                                                answered
+                                                    || played_out
+                                                    || barked
+                                                    || one_line
+                                                    || module_of(&last) != module,
+                                            );
                                         }
                                     }
                                 }
@@ -2062,6 +2104,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         // its `OnClosed` runs as the screen's close makes it
                         // (TSL's sensor droid box starts its tutorial so).
                         acts.extend(input.actions().iter().map(|(_, action)| action.clone()));
+                        if (chase.armed_far || back.armed_far) && ranged(&me) {
+                            acts.extend(other_weapon(&world, &last, true));
+                        }
                         break;
                     }
                     // The goal's clock is held only by progress (up to

@@ -106,7 +106,7 @@ presented snapshot (`sim::snapshot::sound`):
   Reset on each install.
 
 
-## What plays when (I20)
+## What plays when
 
 The world's own sound (`game::ambience`), from the presented snapshot
 and the area's files (`asset_odyssey::sound`: the GIT's `AreaProperties`,

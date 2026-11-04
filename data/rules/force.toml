@@ -36,7 +36,7 @@ value = 20_000
 unit = "ms"
 range = [1000, 120_000]
 summary = "An empty pool of Force points refills in {force.pool.refill_ms:s}, whatever its size, 1 point at a time."
-source = "I22 C13 (JA's 20 s for a full pool)"
+source = "ours, after JA's 20 s for a full pool"
 see = "sim::combat::force::regen_every"
 applies = ["kind:force"]
 
@@ -59,7 +59,7 @@ value = 1500
 unit = "ms"
 range = [0, 10_000]
 summary = "A toggled power must be active for {force.casting.toggle_min_ms:s} before using it again deactivates it."
-source = "JA (I23 4.3)"
+source = "JA"
 see = "sim::world::powers::Cast::toggle"
 applies = ["kind:force"]
 
@@ -75,7 +75,7 @@ Affliction, Plague, Force Suppression, Force Breach or Fury, the Jedi's
 hand stays out for {force.casting.hand_ms:s}. No other power of the hand
 and no shot can be used meanwhile.
 """
-source = "JA (I23 4.3: mind trick 1000 ms)"
+source = "JA (mind trick 1000 ms)"
 see = "sim::world::powers::Cast::trick"
 applies = ["kind:force"]
 
@@ -102,7 +102,7 @@ value = 50
 unit = "ms"
 range = [10, 1000]
 summary = "Held lightning and drain strike every {force.channel.tick_ms:s}."
-source = "JA (I23 4.6.5, 4.6.6)"
+source = "JA"
 see = "sim::world::powers::Cast::run"
 applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_FORCE_STORM", "spell:FORCE_POWER_DRAIN_LIFE", "spell:FORCE_POWER_DEATH_FIELD", "spell:FORCE_POWER_DRAIN_FORCE", "spell:FORCE_POWER_IMPROVED_DRAIN_FORCE", "spell:FORCE_POWER_MASTER_DRAIN_FORCE"]
 
@@ -118,7 +118,7 @@ power, Choke included, pays its cost for the first
 {force.channel.run_ms:s}, then again every second it is held.
 """
 detail = "A Choke the target resisted ends after this time."
-source = "JA (I23 4.6.5); I22 C12"
+source = "JA"
 see = "sim::combat::force::channel_cost"
 applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_FORCE_STORM", "spell:FORCE_POWER_DRAIN_LIFE", "spell:FORCE_POWER_DEATH_FIELD", "spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH", "spell:FORCE_POWER_DRAIN_FORCE", "spell:FORCE_POWER_IMPROVED_DRAIN_FORCE", "spell:FORCE_POWER_MASTER_DRAIN_FORCE"]
 
@@ -134,7 +134,7 @@ After lightning or drain ends, it cannot be used again for
 {force.channel.delay_ms[0]:s} at rank 1 and {force.channel.delay_ms[1]:s}
 at ranks 2 and 3.
 """
-source = "JA (I23 4.6.5, 4.6.6)"
+source = "JA"
 see = "sim::world::powers::Cast::end"
 applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_FORCE_STORM", "spell:FORCE_POWER_DRAIN_LIFE", "spell:FORCE_POWER_DEATH_FIELD", "spell:FORCE_POWER_DRAIN_FORCE", "spell:FORCE_POWER_IMPROVED_DRAIN_FORCE", "spell:FORCE_POWER_MASTER_DRAIN_FORCE"]
 
@@ -144,7 +144,7 @@ value = 2048.0
 unit = "units"
 range = [256, 8192]
 summary = "Rank 1 and 2 lightning and drain reach {force.channel.line_range:m} in line of sight."
-source = "JA (I23 4.6.5)"
+source = "JA"
 see = "sim::world::powers::Cast::caught"
 applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_DRAIN_LIFE", "spell:FORCE_POWER_DRAIN_FORCE", "spell:FORCE_POWER_IMPROVED_DRAIN_FORCE"]
 
@@ -157,7 +157,7 @@ Rank 3 lightning and drain strike everyone in a cone before the Jedi.
 Cone width: {force.channel.cone_dot} (1 is a straight line, 0 is
 everything in front).
 """
-source = "JA (I23 4.6.5)"
+source = "JA"
 see = "sim::world::powers::Cast::caught"
 applies = ["spell:FORCE_POWER_FORCE_STORM", "spell:FORCE_POWER_DEATH_FIELD", "spell:FORCE_POWER_MASTER_DRAIN_FORCE"]
 
@@ -168,7 +168,7 @@ value = 1000
 unit = "ms"
 range = [50, 5000]
 summary = "When the power's script runs, held lightning and drain strike with it at once and then every {force.channel.impact_every_ms:s}."
-source = "ours (C10 with C12's pace)"
+source = "ours"
 see = "sim::world::powers::Cast::run"
 applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_FORCE_STORM", "spell:FORCE_POWER_DRAIN_LIFE", "spell:FORCE_POWER_DEATH_FIELD"]
 
@@ -197,7 +197,7 @@ value = 512.0
 unit = "units"
 range = [64, 4096]
 summary = "Force Push and Force Pull reach a target up to {force.push.aimed_reach:m} away in line of sight."
-source = "JA (I23 4.6.3)"
+source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH"]
 
@@ -211,7 +211,7 @@ Force Whirlwind, Force Wave and Force Repulsion reach
 {force.push.area_reach:m} around the Jedi. Force Push and Force Whirlwind
 choose their target within the same range.
 """
-source = "JA (I23 4.6.3)"
+source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 
@@ -226,7 +226,7 @@ Area throws reach targets up to {force.push.field[0]} (rank 2) or
 {force.push.field[1]} (rank 3) to either side of, above or below the
 Jedi's aim.
 """
-source = "JA (I23 4.6.3)"
+source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 
@@ -239,7 +239,7 @@ Area throws and area stun and fear powers affect only targets in front of
 the Jedi. Arc: {force.push.front_dot} (1 is a straight line, 0 is
 everything in front).
 """
-source = "JA (I23 4.6.3)"
+source = "JA"
 see = "sim::world::powers::Scene::around"
 applies = ["spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM"]
 
@@ -249,7 +249,7 @@ value = 256.0
 unit = "units/s"
 range = [0, 2048]
 summary = "Each rank of a throw pushes the target at {force.push.strength:m}, less the loss with distance."
-source = "JA (I23 4.6.3)"
+source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 
@@ -258,7 +258,7 @@ name = "Throw Falloff"
 value = 0.7
 range = [0, 4]
 summary = "A throw loses {force.push.falloff:bare} meters per second for every meter between the Jedi and the target."
-source = "JA (I23 4.6.3)"
+source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 
@@ -268,7 +268,7 @@ value = 16.0
 unit = "units/s"
 range = [0, 512]
 summary = "A throw that reaches a target pushes it at least {force.push.least_shove:m}, however far."
-source = "JA (I23 4.6.3)"
+source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 
@@ -278,7 +278,7 @@ value = 128.0
 unit = "units/s"
 range = [0, 1024]
 summary = "A thrown target leaves the ground, rising at {force.push.least_lift:m} or more."
-source = "JA (I23 4.6.3)"
+source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 
@@ -289,7 +289,7 @@ value = 1000
 unit = "ms"
 range = [0, 5000]
 summary = "The Jedi's hand stays out for {force.push.push_hand_ms:s} after a push, or after resisting one with a push."
-source = "JA (I23 4.3)"
+source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 
@@ -300,7 +300,7 @@ value = 400
 unit = "ms"
 range = [0, 5000]
 summary = "The Jedi's hand stays out for {force.push.pull_hand_ms:s} after a pull."
-source = "JA (I23 4.3)"
+source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH"]
 
@@ -311,7 +311,7 @@ value = 1100
 unit = "ms"
 range = [0, 10_000]
 summary = "After a push, the next push or pull cannot be used for {force.push.push_cooldown_ms:s}."
-source = "JA (I23 4.3)"
+source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 
@@ -322,7 +322,7 @@ value = 600
 unit = "ms"
 range = [0, 10_000]
 summary = "After a pull, the next push or pull cannot be used for {force.push.pull_cooldown_ms:s}."
-source = "JA (I23 4.3)"
+source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH"]
 
@@ -338,7 +338,7 @@ A target that resists a throw with Force Push of its own takes
 higher, {force.push.countered[1]:bare} times one rank lower and
 {force.push.countered[2]:bare} times two or more ranks lower.
 """
-source = "JA: countering a throw (I23 4.6.3)"
+source = "JA: countering a throw"
 see = "sim::world::powers::Cast::countered"
 applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 
@@ -349,7 +349,7 @@ value = 700
 unit = "ms"
 range = [0, 5000]
 summary = "A rank 3 throw knocks down a target of lower rank for {force.push.knockdown_ms:s}. The target gets up faster than from a blow."
-source = "JA (I23 5.2)"
+source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 
@@ -363,7 +363,7 @@ A rank 3 throw knocks down a target within {force.push.knockdown_reach:m}
 for each rank by which its own Force Push falls short of rank 2. A target
 with rank 2 or higher is never knocked down.
 """
-source = "JA (I23 4.6.3)"
+source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 
@@ -422,7 +422,7 @@ value = 300.0
 unit = "units"
 range = [64, 2048]
 summary = "Force Storm reaches {force.lightning.radius:m} around the Jedi, in its cone."
-source = "JA (I23 4.6.5)"
+source = "JA"
 see = "sim::world::powers::Cast::lightning"
 applies = ["spell:FORCE_POWER_FORCE_STORM"]
 
@@ -432,7 +432,7 @@ value = 1
 unit = "points"
 range = [0, 20]
 summary = "Each lightning strike deals {force.lightning.points:bare}% of the target's maximum vitality points."
-source = "JA (I23 4.6.5: a random 1 or 2)"
+source = "JA (a random 1 or 2)"
 see = "sim::world::powers::Cast::lightning"
 applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_FORCE_STORM"]
 
@@ -443,7 +443,7 @@ value = 1
 unit = "points"
 range = [0, 20]
 summary = "Each lightning strike may deal up to {force.lightning.extra:bare}% more of the target's maximum vitality points."
-source = "JA (I23 4.6.5: a random 1 or 2)"
+source = "JA (a random 1 or 2)"
 see = "sim::world::powers::Cast::lightning"
 applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_FORCE_STORM"]
 
@@ -469,7 +469,7 @@ value = 512.0
 unit = "units"
 range = [64, 2048]
 summary = "Death Field and Master Drain Force reach {force.drain.radius:m} around the Jedi, in its cone."
-source = "JA (I23 4.6.6)"
+source = "JA"
 see = "sim::world::powers::Cast::drain"
 applies = ["spell:FORCE_POWER_DEATH_FIELD", "spell:FORCE_POWER_MASTER_DRAIN_FORCE"]
 
@@ -485,7 +485,7 @@ Force points at rank 1, {force.drain.points[1]:bare}% at rank 2 and
 {force.drain.points[2]:bare}% at rank 3, and heals the Jedi by the same
 share of his or her maximum vitality points.
 """
-source = "JA (I23 4.6.6)"
+source = "JA"
 see = "sim::world::powers::Cast::drain"
 applies = ["spell:FORCE_POWER_DRAIN_LIFE", "spell:FORCE_POWER_DEATH_FIELD", "spell:FORCE_POWER_DRAIN_FORCE", "spell:FORCE_POWER_IMPROVED_DRAIN_FORCE", "spell:FORCE_POWER_MASTER_DRAIN_FORCE"]
 
@@ -496,7 +496,7 @@ value = 500
 unit = "ms"
 range = [0, 5000]
 summary = "Each drain strike stops the Jedi's own Force point regeneration for {force.drain.caster_wait_ms:s}."
-source = "JA (I23 4.4)"
+source = "JA"
 see = "sim::world::powers::Cast::drain"
 applies = ["spell:FORCE_POWER_DRAIN_LIFE", "spell:FORCE_POWER_DEATH_FIELD", "spell:FORCE_POWER_DRAIN_FORCE", "spell:FORCE_POWER_IMPROVED_DRAIN_FORCE", "spell:FORCE_POWER_MASTER_DRAIN_FORCE"]
 
@@ -507,7 +507,7 @@ value = 800
 unit = "ms"
 range = [0, 5000]
 summary = "Each strike that drains Force points stops the target's Force point regeneration for {force.drain.victim_wait_ms:s}."
-source = "JA (I23 4.4)"
+source = "JA"
 see = "sim::world::powers::Cast::drain"
 applies = ["spell:FORCE_POWER_DRAIN_LIFE", "spell:FORCE_POWER_DEATH_FIELD", "spell:FORCE_POWER_DRAIN_FORCE", "spell:FORCE_POWER_IMPROVED_DRAIN_FORCE", "spell:FORCE_POWER_MASTER_DRAIN_FORCE"]
 
@@ -538,7 +538,7 @@ value = 256.0
 unit = "units"
 range = [64, 2048]
 summary = "The grip seizes a target up to {force.grip.range:m} away in line of sight, and releases it beyond that range."
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -548,7 +548,7 @@ value = 2
 unit = "points"
 range = [0, 50]
 summary = "Each squeeze inflicts {force.grip.points:bare}% of the target's maximum vitality points."
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -559,7 +559,7 @@ value = 1000
 unit = "ms"
 range = [50, 5000]
 summary = "The grip squeezes at once and then every {force.grip.squeeze_every_ms:s}."
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -576,7 +576,7 @@ The grip lasts at most {force.grip.hold_ms[0]:s} at rank 1,
 3.
 """
 detail = "When the power's script runs, the grip lasts until the script's last damage."
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::start"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -587,7 +587,7 @@ value = 3000
 unit = "ms"
 range = [0, 30_000]
 summary = "At ranks 2 and 3, the grip crushes the target once, {force.grip.crush_ms:s} after it begins."
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -603,7 +603,7 @@ vitality points at rank 2 and {force.grip.crush[2]:bare}% at rank 3
 ({force.grip.crush[0]:bare}% at rank 1). The target chokes, and its own
 grip ends.
 """
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -614,7 +614,7 @@ value = 2000
 unit = "ms"
 range = [0, 10_000]
 summary = "After the crush, the target clutches its throat for {force.grip.crush_hand_ms:s} and cannot use its hands."
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -627,7 +627,7 @@ At ranks 1 and 2 the grip ends when the target leaves the Jedi's front.
 Arc: {force.grip.front_dot} (1 is a straight line, 0 is everything in
 front). Rank 3 has no arc.
 """
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE"]
 
@@ -638,7 +638,7 @@ value = 300
 unit = "ms"
 range = [50, 2000]
 summary = "A rank 2 grip lifts the target, and a rank 3 grip moves it, every {force.grip.lift_every_ms:s}."
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -648,7 +648,7 @@ value = 30.0
 unit = "units/s"
 range = [0, 512]
 summary = "Each lift raises the target of a rank 2 grip at {force.grip.lift:m}. The target floats, free of gravity."
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_CHOKE"]
 
@@ -658,7 +658,7 @@ value = 128.0
 unit = "units"
 range = [0, 512]
 summary = "A rank 3 grip carries its target to a point {force.grip.carry_ahead:m} before the Jedi."
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -668,7 +668,7 @@ value = 16.0
 unit = "units"
 range = [0, 256]
 summary = "The point a rank 3 grip carries its target to is {force.grip.carry_up:m} above the Jedi's center."
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -682,7 +682,7 @@ summary = """
 A carried target nearer the carry point than {force.grip.carry_within:m}
 moves at the slowest, slow, fast and faster carry speeds.
 """
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -693,7 +693,7 @@ unit = "units/s"
 labels = ["slowest", "slow", "fast", "faster"]
 range = [0, 2048]
 summary = "A carried target moves toward the carry point at {force.grip.carry_speeds:m}, by its distance."
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -703,7 +703,7 @@ value = 700.0
 unit = "units/s"
 range = [0, 2048]
 summary = "A carried target farther than every carry range moves toward the carry point at {force.grip.carry_beyond:m}."
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -714,7 +714,7 @@ value = 3000
 unit = "ms"
 range = [0, 20_000]
 summary = "After a grip ends, the next cannot be used for {force.grip.cooldown_ms:s}."
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::end"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -725,7 +725,7 @@ value = 1000
 unit = "ms"
 range = [0, 20_000]
 summary = "When the target breaks a grip with Force Push, the Jedi cannot grip again for {force.grip.broken_ms:s}."
-source = "JA (I23 4.6.3)"
+source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH", "spell:FORCE_POWER_FORCE_PUSH"]
 
@@ -735,7 +735,7 @@ value = 0.4
 unit = "×"
 range = [0, 2]
 summary = "The Jedi moves at {force.grip.gripping_scale:bare} times normal speed while holding a grip."
-source = "JA (I23 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::upkeep"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -749,7 +749,7 @@ summary = """
 A seized target moves at {force.grip.gripped_scale[0]:bare} times normal
 speed, or {force.grip.gripped_scale[1]:bare} times under a speed power.
 """
-source = "JA (I23 4.6.2, 4.6.4)"
+source = "JA"
 see = "sim::world::powers::Cast::upkeep"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -789,7 +789,7 @@ summary = """
 Burst of Speed lasts {force.speed.length_ms[0]:s}, Knight Speed
 {force.speed.length_ms[1]:s} and Master Speed {force.speed.length_ms[2]:s}.
 """
-source = "JA (I23 4.6.2)"
+source = "JA"
 see = "sim::world::powers::toggle_length"
 applies = ["spell:FORCE_POWER_SPEED_BURST", "spell:FORCE_POWER_KNIGHT_SPEED", "spell:FORCE_POWER_SPEED_MASTERY"]
 
@@ -819,7 +819,7 @@ Force Aura, Force Shield, Force Armor, Force Resistance and Force Immunity
 last {force.protect.length_ms:s}, as does any toggled power without a
 duration of its own.
 """
-source = "JA (I23 4.6.10, 4.6.13)"
+source = "JA"
 see = "sim::world::powers::toggle_length"
 applies = ["spell:FORCE_POWER_FORCE_AURA", "spell:FORCE_POWER_FORCE_SHIELD", "spell:FORCE_POWER_FORCE_ARMOR", "spell:FORCE_POWER_RESIST_FORCE", "spell:FORCE_POWER_FORCE_IMMUNITY"]
 
@@ -835,7 +835,7 @@ Force Aura prevents {force.protect.share[0]:pct} of the damage counted,
 Force Shield {force.protect.share[1]:pct} and Force Armor
 {force.protect.share[2]:pct}.
 """
-source = "JA (I23 4.6.10)"
+source = "JA"
 see = "sim::combat::force::protect"
 applies = ["spell:FORCE_POWER_FORCE_AURA", "spell:FORCE_POWER_FORCE_SHIELD", "spell:FORCE_POWER_FORCE_ARMOR"]
 
@@ -852,7 +852,7 @@ Each 1% of maximum vitality points counted costs the Jedi
 Aura, {force.protect.rate[1]:pct} under Force Shield and
 {force.protect.rate[2]:pct} under Force Armor.
 """
-source = "JA (I23 4.6.10)"
+source = "JA"
 see = "sim::combat::force::protect"
 applies = ["spell:FORCE_POWER_FORCE_AURA", "spell:FORCE_POWER_FORCE_SHIELD", "spell:FORCE_POWER_FORCE_ARMOR"]
 
@@ -868,7 +868,7 @@ Of a single hit, Force Aura counts at most {force.protect.cap[0]:bare}%
 of the Jedi's maximum vitality points, Force Shield
 {force.protect.cap[1]:bare}% and Force Armor {force.protect.cap[2]:bare}%.
 """
-source = "JA (I23 4.6.10)"
+source = "JA"
 see = "sim::combat::force::protect"
 applies = ["spell:FORCE_POWER_FORCE_AURA", "spell:FORCE_POWER_FORCE_SHIELD", "spell:FORCE_POWER_FORCE_ARMOR"]
 
@@ -888,7 +888,7 @@ value = 6
 unit = "points"
 range = [0, 50]
 summary = "The Jedi gains {force.absorb.throw_gain:bare}% of his or her maximum Force points from each push or pull, for each rank of the power."
-source = "JA (I23 4.5)"
+source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_RESIST_FORCE", "spell:FORCE_POWER_FORCE_IMMUNITY"]
 
@@ -898,7 +898,7 @@ value = 1
 unit = "points"
 range = [0, 20]
 summary = "The Jedi gains {force.absorb.tick_gain:bare}% of his or her maximum Force points from each lightning or drain strike."
-source = "JA (I23 4.5)"
+source = "JA"
 see = "sim::world::powers::Cast::lightning"
 applies = ["spell:FORCE_POWER_RESIST_FORCE", "spell:FORCE_POWER_FORCE_IMMUNITY"]
 
@@ -923,7 +923,7 @@ summary = """
 Cure reaches {force.heal.reach[0]:m}, Heal {force.heal.reach[1]:m} and
 Master Heal {force.heal.reach[2]:m} around the Jedi.
 """
-source = "JA (I23 4.6.8)"
+source = "JA"
 see = "sim::world::powers::Cast::heal"
 applies = ["spell:FORCE_POWER_CURE", "spell:FORCE_POWER_HEAL", "spell:FORCE_POWER_MASTER_HEAL"]
 
@@ -938,7 +938,7 @@ Each character healed regains {force.heal.points[0]:bare}% of maximum
 vitality points when one is healed, {force.heal.points[1]:bare}% when two
 are and {force.heal.points[2]:bare}% when three or more are.
 """
-source = "JA (I23 4.6.8)"
+source = "JA"
 see = "sim::world::powers::Cast::heal"
 applies = ["spell:FORCE_POWER_CURE", "spell:FORCE_POWER_HEAL", "spell:FORCE_POWER_MASTER_HEAL"]
 
@@ -964,7 +964,7 @@ value = 256.0
 unit = "units"
 range = [64, 2048]
 summary = "Rank 1 reaches a target up to {force.mind_trick.aimed_reach:m} away in line of sight."
-source = "JA (I23 4.6.11)"
+source = "JA"
 see = "sim::world::powers::Cast::trick"
 applies = ["spell:FORCE_POWER_AFFECT_MIND", "spell:FORCE_POWER_MIND_TRICK"]
 
@@ -974,7 +974,7 @@ value = 512.0
 unit = "units"
 range = [64, 4096]
 summary = "Rank 2 reaches {force.mind_trick.area_reach:m} around the Jedi."
-source = "JA (I23 4.6.11)"
+source = "JA"
 see = "sim::world::powers::Cast::trick"
 applies = ["spell:FORCE_POWER_DOMINATE", "spell:FORCE_POWER_CONFUSION"]
 
@@ -984,7 +984,7 @@ value = 90.0
 unit = "°"
 range = [0, 180]
 summary = "Rank 2 affects targets up to {force.mind_trick.area_field} to either side of, above or below the Jedi's aim."
-source = "JA (I23 4.6.11)"
+source = "JA"
 see = "sim::world::powers::Cast::trick"
 applies = ["spell:FORCE_POWER_DOMINATE", "spell:FORCE_POWER_CONFUSION"]
 
@@ -1001,7 +1001,7 @@ The power lasts, and affected players cannot see the Jedi, for
 {force.mind_trick.length_ms[1]:s} at rank 2 and
 {force.mind_trick.length_ms[2]:s} at rank 3.
 """
-source = "JA (I23 4.6.11)"
+source = "JA"
 see = "sim::world::powers::toggle_length"
 applies = ["spell:FORCE_POWER_AFFECT_MIND", "spell:FORCE_POWER_DOMINATE"]
 
@@ -1018,7 +1018,7 @@ for {force.mind_trick.confuse_ms[0]:s} at rank 1,
 {force.mind_trick.confuse_ms[1]:s} at rank 2 and
 {force.mind_trick.confuse_ms[2]:s} at rank 3.
 """
-source = "JA (I23 4.6.11)"
+source = "JA"
 see = "sim::world::powers::Cast::trick"
 applies = ["spell:FORCE_POWER_AFFECT_MIND", "spell:FORCE_POWER_DOMINATE"]
 
@@ -1064,7 +1064,7 @@ summary = """
 A stun, paralysis, fear, sleep or Force Whirlwind holds its target for at
 most {force.crowd.hold_ms:s}, whatever the power's duration.
 """
-source = "I22 C11"
+source = "ours"
 see = "sim::combat::force::ForceState::hold"
 applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_FORCE_WHIRLWIND"]
 
@@ -1075,7 +1075,7 @@ value = 1000
 unit = "ms"
 range = [0, 30_000]
 summary = "After a hold ends, the target cannot be held again for {force.crowd.immune_ms:s}."
-source = "I22 C11"
+source = "ours"
 see = "sim::combat::force::ForceState::hold"
 applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_FORCE_WHIRLWIND"]
 
@@ -1141,7 +1141,7 @@ summary = """
 Fury lasts {force.rage.length_ms[0]:s}, Improved Fury
 {force.rage.length_ms[1]:s} and Master Fury {force.rage.length_ms[2]:s}.
 """
-source = "JA (I23 4.6.9)"
+source = "JA"
 see = "sim::world::powers::toggle_length"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
 
@@ -1157,7 +1157,7 @@ Fury costs vitality every {force.rage.hp_every_ms[0]:s}, Improved Fury
 every {force.rage.hp_every_ms[1]:s} and Master Fury every
 {force.rage.hp_every_ms[2]:s}.
 """
-source = "JA (I23 4.6.9)"
+source = "JA"
 see = "sim::world::powers::Cast::rage"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
 
@@ -1167,7 +1167,7 @@ value = 2
 unit = "points"
 range = [0, 50]
 summary = "Each payment for Fury costs {force.rage.hp:bare}% of the character's maximum vitality points."
-source = "JA (I23 4.6.9)"
+source = "JA"
 see = "sim::world::powers::Cast::rage"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
 
@@ -1177,7 +1177,7 @@ value = 10
 unit = "points"
 range = [0, 100]
 summary = "Fury cannot be activated with less than {force.rage.least:bare}% of maximum vitality points."
-source = "JA (I23 4.6.9)"
+source = "JA"
 see = "sim::world::powers::Cast::toggle"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
 
@@ -1187,7 +1187,7 @@ value = 1
 unit = "HP"
 range = [1, 100]
 summary = "Fury's cost never reduces vitality below {force.rage.floor_hp:bare} point; Fury ends instead."
-source = "JA (I23 4.6.9)"
+source = "JA"
 see = "sim::world::powers::Cast::rage"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
 
@@ -1198,7 +1198,7 @@ value = 10_000
 unit = "ms"
 range = [0, 60_000]
 summary = "After Fury ends, the character recovers for {force.rage.recover_ms:s}."
-source = "JA (I23 4.6.9)"
+source = "JA"
 see = "sim::world::powers::Cast::rage"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
 
@@ -1208,7 +1208,7 @@ value = 1.3
 unit = "×"
 range = [0.5, 3]
 summary = "Under Fury the character moves {force.rage.speed:bare} times as fast."
-source = "JA (I23 4.6.9)"
+source = "JA"
 see = "sim::world::powers::Cast::upkeep"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
 
@@ -1218,7 +1218,7 @@ value = 0.75
 unit = "×"
 range = [0.1, 2]
 summary = "While recovering from Fury, the character moves at {force.rage.recover_speed:bare} times normal speed."
-source = "JA (I23 4.6.9)"
+source = "JA"
 see = "sim::world::powers::Cast::upkeep"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
 
@@ -1228,7 +1228,7 @@ value = 0.75
 unit = "×"
 range = [0.1, 2]
 summary = "Under Fury the character attacks and fires in {force.rage.refire:bare} times the normal time."
-source = "JA: weapon timing (I23 4.6.9)"
+source = "JA: weapon timing"
 see = "sim::combat::force::ForceState::refire"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
 
@@ -1238,7 +1238,7 @@ value = 1.5
 unit = "×"
 range = [0.5, 4]
 summary = "While recovering from Fury, the character attacks and fires in {force.rage.recover_refire:bare} times the normal time."
-source = "JA: weapon timing (I23 4.6.9)"
+source = "JA: weapon timing"
 see = "sim::combat::force::ForceState::refire"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
 
@@ -1263,7 +1263,7 @@ Force Sight lasts {force.sight.length_ms[0]:s} at rank 1,
 {force.sight.length_ms[1]:s} at rank 2 and {force.sight.length_ms[2]:s} at
 rank 3.
 """
-source = "JA (I23 4.6.12)"
+source = "JA"
 see = "sim::world::powers::toggle_length"
 applies = ["spell:FORCE_POWER_FORCE_SIGHT"]
 
@@ -1354,7 +1354,7 @@ Force Jump rises {force.jump.heights[1]:m} at rank 1,
 {force.jump.heights[2]:m} at rank 2 and {force.jump.heights[3]:m} at rank
 3.
 """
-source = "JA (I23 4.6.1)"
+source = "JA"
 see = "sim::motion::force_jump"
 applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
 
@@ -1368,7 +1368,7 @@ Force Jump lifts with a strength of {force.jump.strengths:bare} (rank 1,
 2 and 3). A tenth of it, scaled by the share of the height still to rise,
 is added to the jump's speed.
 """
-source = "JA (I23 4.6.1)"
+source = "JA"
 see = "sim::motion::force_jump"
 applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
 
@@ -1384,7 +1384,7 @@ An active Force Jump spends Force points every
 {force.jump.pay_every_ms[0]:s} at rank 1 and every
 {force.jump.pay_every_ms[1]:s} at ranks 2 and 3.
 """
-source = "JA (I23 4.6.1)"
+source = "JA"
 see = "sim::motion::force_jump"
 applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
 
@@ -1399,7 +1399,7 @@ Each Force Jump cost applies above a rising speed of
 {force.jump.cost_above:m}, from the fastest to the slowest. A falling
 character pays nothing.
 """
-source = "JA (I23 4.6.1)"
+source = "JA"
 see = "sim::motion::force_jump"
 applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
 
@@ -1413,7 +1413,7 @@ summary = """
 Each payment costs {force.jump.cost_points:bare}% of maximum Force points,
 from the fastest rise to the slowest, divided by the rank.
 """
-source = "JA (I23 4.6.1)"
+source = "JA"
 see = "sim::motion::force_jump"
 applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
 

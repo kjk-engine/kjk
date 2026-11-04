@@ -6,10 +6,33 @@ use super::*;
 /// Whether a way leads to a foe, asked every `REACH_EVERY_MS` rather than
 /// each step (a way's search is most of a fight's time): to the floor
 /// where it stands, and to where a walk to it ends (`Here::approach`).
+/// And where a foe out of sight and of every way is seen from
+/// (`sight_spot`), asked as seldom.
 #[derive(Default)]
-pub(super) struct Reach(pub(super) BTreeMap<sim::SimId, (u64, bool, bool)>);
+pub(super) struct Reach(
+    pub(super) BTreeMap<sim::SimId, (u64, bool, bool)>,
+    BTreeMap<sim::SimId, (u64, Option<[f32; 3]>)>,
+);
 
 impl Reach {
+    /// Where the player sees foe `id` at `at` from (`sight_spot`, units).
+    pub(super) fn spot(
+        &mut self,
+        here: &Here,
+        player: &sim::motion::MotionState,
+        (id, at): (sim::SimId, [f32; 3]),
+        now: u64,
+    ) -> Option<[f32; 3]> {
+        if let Some((asked, spot)) = self.1.get(&id)
+            && now < asked + REACH_EVERY_MS
+        {
+            return *spot;
+        }
+        let spot = sight_spot(here, player, (id, at));
+        self.1.insert(id, (now, spot));
+        spot
+    }
+
     /// (to its floor, to where a walk to it ends) for foe `id` at `at`.
     pub(super) fn ways(
         &mut self,
@@ -33,8 +56,11 @@ impl Reach {
     /// with no closed door between (a gun hits it; a blade closes on it
     /// straight, off the mesh as a scene may stand it), or one with a way
     /// to it, or to the floor before one in sight (one on a rock off the
-    /// mesh, a Sand Person by the herd); not one unseen behind what shuts
-    /// it off (a Sith teacher in the academy's doorway out to the valley).
+    /// mesh, a Sand Person by the herd), or one unseen with no way to it
+    /// but seen from a floor a way leads to (`Reach::spot`: Iziz's wall
+    /// turrets, firing at the player under them); not one unseen behind
+    /// what shuts it off (a Sith teacher in the academy's doorway out to
+    /// the valley).
     pub(super) fn gettable(
         &mut self,
         here: &Here,
@@ -53,8 +79,19 @@ impl Reach {
             return true;
         }
         let (floor, walk) = self.ways(here, player, foe, now);
-        (seen || floor) && walk
+        ((seen || floor) && walk) || (!seen && !floor && self.spot(here, player, foe, now).is_some())
     }
+}
+
+/// Whether a foe at `at` with no way to it (`out_of_way`) is shot from `from`
+/// (metres): one seen within a gun's range (on the flat) and past a blade's
+/// swing (in space: a turret on a wall above is out of it, Iziz's over the
+/// spaceport's ramp 1.8 m off and 3 m up). One at hand needs no way to it
+/// (Jorak Uln at 0.7 m, his floor off the mesh, drew a pistol that the
+/// player then carried to the Star Forge).
+pub(super) fn shot_far(out_of_way: bool, seen: bool, from: [f32; 3], at: [f32; 3]) -> bool {
+    let apart = (0..3).map(|k| (at[k] - from[k]).powi(2)).sum::<f32>().sqrt();
+    out_of_way && seen && apart > melee_m().1 && flat(at, from) <= GUN_M
 }
 
 /// A fight with one foe at a time by the fight goal's rules, for a `fight`
@@ -77,10 +114,40 @@ pub(super) struct Chase {
     pub(super) planned: Option<(sim::SimId, [f32; 3])>,
     /// A foe at hand the player has not hurt: its HP, and since when.
     pub(super) unhurt: Option<(sim::SimId, i32, u64)>,
-    /// A gun taken up for a foe out of every way's reach.
+    /// A gun taken up for a foe out of every way's reach, put down as its
+    /// goal ends.
     pub(super) armed_far: bool,
     /// The foe a walk stalled on and on to: shot from where the player is.
     pub(super) lost: Option<sim::SimId>,
+    /// The foe out of sight and of every way walked to where it is seen
+    /// from (`Reach::spot`): shot from there.
+    pub(super) sighted: Option<sim::SimId>,
+    /// The foe gone after, the nearest the player has come to it (metres)
+    /// and since when (`gaining`).
+    pub(super) gain: Option<(sim::SimId, f32, u64)>,
+}
+
+/// How long (ms) a chase gains no ground on its foe before it is lost
+/// (`gaining`), and by how much (metres) it must come nearer.
+const NO_GAIN_MS: u64 = 30_000;
+const GAIN_M: f32 = 0.5;
+
+/// The chase's ground on foe `id`, `d` metres off at `now`, after `gain`
+/// (`Chase::gain`): whether it is lost, gaining no ground for `NO_GAIN_MS`
+/// out of a blade's swing, as one whose walk stalled on and on. A walk
+/// wedged at a step, making for one corner then another, starts its stalls
+/// afresh at each (Telos's restoration zone: the mercenaries by the mined
+/// entrance, 23 m up the ramp, chased for 100 s from one spot).
+pub(super) fn gaining(
+    gain: Option<(sim::SimId, f32, u64)>,
+    (id, d): (sim::SimId, f32),
+    now: u64,
+) -> (Option<(sim::SimId, f32, u64)>, bool) {
+    let gain = match gain {
+        Some((foe, best, since)) if foe == id && d > melee_m().1 && d >= best - GAIN_M => (foe, best, since),
+        _ => (id, d, now),
+    };
+    (Some(gain), now >= gain.2 + NO_GAIN_MS)
 }
 
 impl Chase {
@@ -141,6 +208,9 @@ impl Chase {
         now: u64,
         acts: &mut Vec<Action>,
     ) -> (Command, bool) {
+        if self.foe != Some(id) {
+            self.sighted = None;
+        }
         self.foe = Some(id);
         let ranged = ranged(me);
         let d = flat(at, me.position);
@@ -149,11 +219,23 @@ impl Chase {
         // or one the walk to stalled on and on (Peragus's assassin droid
         // shooting from past the dormitories' wreckage, its way blocked):
         // shot from here, a gun taken up for it, as a player would.
-        let (_, routable) = reach.ways(here, player, (id, at), now);
-        if walker.as_ref().is_some_and(|w| w.stalls > LOST_STALLS) {
+        let (floor, routable) = reach.ways(here, player, (id, at), now);
+        let (gain, stuck) = gaining(self.gain, (id, d), now);
+        self.gain = gain;
+        if stuck || walker.as_ref().is_some_and(|w| w.stalls > LOST_STALLS) {
             self.lost = Some(id);
         }
-        let far_shot = (!routable || self.lost == Some(id)) && seen && d <= GUN_M;
+        // One unseen with no way to its floor: walked to where it is seen
+        // from, then shot (Iziz's wall turrets, hidden by the wall's top
+        // from the player under them, held the party in combat for good).
+        let spot = (!seen && !floor)
+            .then(|| reach.spot(here, player, (id, at), now))
+            .flatten();
+        if spot.is_some() {
+            self.sighted = Some(id);
+        }
+        let out_of_way = !routable || self.lost == Some(id) || self.sighted == Some(id);
+        let far_shot = shot_far(out_of_way, seen, me.position, at);
         if far_shot && !ranged && !self.armed_far {
             acts.extend(other_weapon(world, here.snapshot, false));
             self.armed_far = true;
@@ -234,6 +316,14 @@ impl Chase {
                 command.right = if turn { 127 } else { -127 };
             }
             return (command, false);
+        }
+        if let Some(spot) = spot {
+            if walker.as_ref().is_none_or(|w| w.goal != spot) {
+                *walker = Some(Walker::new(spot));
+                self.planned = Some((id, at));
+            }
+            let w = walker.as_mut().expect("planned above");
+            return (w.command_eager(here.level, player, now, &|index| here.to_try(index)), true);
         }
         // A walk stalling (no headway for half a stall's time, or getting
         // round a stall) keeps its plan while the same foe shifts about: a
@@ -402,6 +492,15 @@ impl Scenes {
             }
         }
         self.read = lines.len();
+    }
+
+    /// Creature `index`'s own conversation with the player (`talk`), begun
+    /// `now`: its scene as a trigger's is, for a `to` it with a `talk` after
+    /// (`take_before`). Nar Shaddaa's Serroco leader spoke up as the walk to
+    /// his thugs passed him; their `talk` took his with theirs, and the one
+    /// after `to SerrocoLeader` waited for good.
+    pub(super) fn talked(&mut self, index: u32, talk: &Talk, now: u64) {
+        self.played.entry(index).or_insert((now, talk.clone()));
     }
 
     /// The scene of trigger `index` set off before `since` (the `to`'s

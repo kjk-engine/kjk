@@ -118,7 +118,7 @@ The working method (walkthrough, nav checks, routes, reading blockers): `PLAYTES
 kjk playthrough k1 end_m01aa 'talk; use end_locker01; to end_door01'
 kjk playthrough k1 end_m01aa route.txt --arrive end_wp_flame01 --follow end_trask
 kjk playthrough k1 end_m01aa data/routes/k1/endar_spire.route \
-  --god --skill security=2     # the Endar Spire, the bunks to Taris (I29)
+  --god --skill security=2     # the Endar Spire, the bunks to Taris
 kjk playthrough k1 @taris_start data/routes/k1/taris_upper_city.route --god
 ```
 

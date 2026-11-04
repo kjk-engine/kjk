@@ -232,16 +232,20 @@ fn damaged(folder: &Path, meta: &Meta) -> bool {
     })
 }
 
-/// How many worlds were hashed (`whole`), for the probes.
 #[cfg(feature = "probes")]
-pub(crate) static HASHED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+thread_local! {
+    /// How many worlds were hashed (`whole`) on this thread, for the
+    /// probes: per thread, so saves read by tests running alongside them
+    /// are not counted.
+    pub(crate) static HASHED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// The world in `folder`, refused as damaged when it is not what `meta`'s
 /// hash says.
 fn whole(folder: &Path, meta: &Meta) -> Result<Vec<u8>, String> {
     let bytes = std::fs::read(folder.join(WORLD)).map_err(|error| error.to_string())?;
     #[cfg(feature = "probes")]
-    HASHED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    HASHED.with(|hashed| hashed.set(hashed.get() + 1));
     match &meta.blake3 {
         Some(hash) if *hash != blake3::hash(&bytes).to_hex().as_str() => {
             Err("the save is damaged: its world is not the one saved".into())

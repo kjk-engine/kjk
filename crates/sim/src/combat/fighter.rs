@@ -381,6 +381,10 @@ pub struct Fighter {
     pub pain_until: u64,
     /// The last to hurt it, and when (sim ms).
     pub last_attacker: Option<(SimId, u64)>,
+    /// When (sim ms) a script's push last threw it (`EffectForcePushed`,
+    /// `EffectForcePushTargeted`: a blast), 0 for never: the view throws
+    /// it as a ragdoll from then (`cast::blasted`).
+    pub blasted_ms: u64,
     /// A faction set at run time (`ChangeToStandardFaction`), else the
     /// sheet's.
     pub faction: Option<u8>,
@@ -550,6 +554,7 @@ impl Fighter {
             combat_until: 0,
             pain_until: 0,
             last_attacker: None,
+            blasted_ms: 0,
             faction: None,
             target: None,
             last_command: Command::default(),
@@ -751,6 +756,7 @@ impl Fighter {
         out.u64(self.fake_until);
         out.u64(self.flourish_ready);
         self.look.encode(out);
+        out.u64(self.blasted_ms);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Fighter, DecodeError> {
@@ -803,6 +809,12 @@ impl Fighter {
         let fake_until = input.u64()?;
         let flourish_ready = input.u64()?;
         let look = Look::decode(input)?;
+        // Older snapshots: never blasted.
+        let blasted_ms = if input.since(crate::since::snapshot::REEL_NOTES) {
+            input.u64()?
+        } else {
+            0
+        };
         Ok(Fighter {
             hp,
             fp,
@@ -812,6 +824,7 @@ impl Fighter {
             combat_until,
             pain_until,
             last_attacker,
+            blasted_ms,
             faction,
             target,
             last_command,

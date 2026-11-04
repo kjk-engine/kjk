@@ -223,6 +223,9 @@ pub fn bound(name: &str) -> bool {
 /// TSL's game key (`ModuleData::game`), for its executable's own rules.
 const TSL: &str = "tsl";
 
+/// K1's Yavin Station: its live content package (`LIVE_CONTENT_PKG1`).
+const LIVE_YAVIN: i32 = 1;
+
 /// The least range `ActionFollowOwner` follows at (metres).
 const FOLLOW_LEAST: f32 = rules::scripts::moves::FOLLOW_LEAST;
 
@@ -1487,10 +1490,20 @@ impl Engine<'_> {
         answer
     }
 
+    /// Where `id` stands: one made this step where it was made, as the
+    /// executables make an object at once (`tr_sion` makes Darth Sion and has
+    /// him start his talk from there, 18 m from the Exile).
     pub(super) fn position(&self, id: ObjectId) -> Option<[f32; 3]> {
         self.view
             .thing(id)
             .map(|thing| thing.position)
+            .or_else(|| {
+                self.out
+                    .made
+                    .iter()
+                    .find(|made| made.id == id)
+                    .map(|made| made.at)
+            })
             .or_else(|| self.lying(id).map(|lying| lying.at))
     }
 
@@ -2230,8 +2243,13 @@ impl Engine<'_> {
             }
             // The module's resref (`GetModuleName` is its title).
             GetModuleFileName => string(view.module.name.as_str()),
-            // No downloadable content here (KOTOR's Xbox Live check).
-            GetIsLiveContentAvailable => Value::Int(0),
+            // KOTOR's Xbox Live packages: K1's PC and Mac releases ship the
+            // first, Yavin Station (`liv_m99aa`, `planetary.2da` row 11),
+            // which `k_pebn_galaxy` puts on the galaxy map by this check;
+            // there are no others, and TSL ships none.
+            GetIsLiveContentAvailable => {
+                truth(int(args, 0) == LIVE_YAVIN && view.module.game != TSL)
+            }
             // The PC build (TSL's scripts pick their mouse-and-keyboard
             // lines by it), and no pad to rumble.
             GetIsXBox | PlayRumblePattern | StopRumblePattern => Value::Int(0),
@@ -4822,7 +4840,7 @@ impl Engine<'_> {
 }
 
 /// The distance between two points (metres).
-fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+pub(in crate::script) fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     let d: [f32; 3] = std::array::from_fn(|i| a[i] - b[i]);
     (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
 }
@@ -5302,6 +5320,7 @@ impl Engine<'_> {
         // The character switched to leads (the first seat plays it), until
         // a portrait click or `SetPartyLeader` lends the lead again.
         if npc == NPC_PLAYER {
+            self.leave_switched();
             self.state.party.switched = None;
             self.state.party.leader = None;
             return true;
@@ -5342,6 +5361,9 @@ impl Engine<'_> {
         let Some(body) = body else {
             return false;
         };
+        if self.state.party.switched != Some(npc) {
+            self.leave_switched();
+        }
         let party = &mut self.state.party;
         if let Some(slot) = party.available.get_mut(&npc) {
             slot.object = Some(body.0);
@@ -5349,6 +5371,36 @@ impl Engine<'_> {
         party.switched = Some(npc);
         party.leader = None;
         true
+    }
+
+    /// The companion played till now is left: as the exe's
+    /// `SwitchPlayerCharacter` (`SaveMember`, `KillNPCObject`), the table keeps
+    /// it as it stands and its creature goes, so a scene that makes its own
+    /// (`a_create_cut`'s Mira, TSL's arena) has the only one of that tag. One
+    /// in the party stays: the exe's left the party on being played, ours not.
+    fn leave_switched(&mut self) {
+        let Some(npc) = self.state.party.switched else {
+            return;
+        };
+        if self.state.party.has(npc) {
+            return;
+        }
+        super::keep_npc(self.view, self.state, self.out, npc);
+        let slot = self.state.party.available.get_mut(&npc);
+        if let Some(who) = slot.and_then(|slot| slot.object.take()).map(ObjectId) {
+            // What it carried stays the party's (T3-M4's shield, from TSL's
+            // prologue, as it joins later): the table keeps what it wears.
+            let carried: Vec<u32> = (self.state.items.held_by(who.0))
+                .filter(|(_, held)| held.slot.is_none())
+                .map(|(item, _)| item)
+                .collect();
+            for item in carried {
+                self.state
+                    .carry(self.out, ObjectId(item), crate::inventory::PARTY);
+            }
+            self.out.deleted.push(who);
+            self.out.changes.push(Change::destroy(who));
+        }
     }
 
     /// TSL's influence (`Party::influence`), as its exe's commands keep

@@ -40,7 +40,17 @@ impl Told {
         encode_told(out, &self.conversations, &self.barks, &self.tokens);
     }
 
+    /// As a snapshot carries it.
     pub(crate) fn decode(input: &mut Reader) -> Result<Told, DecodeError> {
+        Told::decode_since(input, crate::since::snapshot::REEL_NOTES)
+    }
+
+    /// As bytes carry it whose format gained `Conversation::clip_from_ms`
+    /// at `clip` (a snapshot's, or a save's scripts' state).
+    pub(crate) fn decode_since(
+        input: &mut Reader,
+        clip: crate::wire::Since,
+    ) -> Result<Told, DecodeError> {
         let mut told = Told::default();
         for _ in 0..input.u32()? {
             let id = input.u32()?;
@@ -93,6 +103,8 @@ impl Told {
             let listener_now = ObjectId(input.u32()?);
             let pair = (ObjectId(input.u32()?), ObjectId(input.u32()?));
             let (lock_turn, lock_head) = (bodies(input)?, bodies(input)?);
+            // Older bytes: no clip playing.
+            let clip_from_ms = if input.since(clip) { input.u64()? } else { 0 };
             told.conversations.push(Conversation {
                 id,
                 dialog,
@@ -127,6 +139,7 @@ impl Told {
                 pair,
                 lock_turn,
                 lock_head,
+                clip_from_ms,
             });
         }
         for _ in 0..input.u32()? {
@@ -220,6 +233,7 @@ pub(super) fn encode_told(
                 out.u32(body.0);
             }
         }
+        out.u64(c.clip_from_ms);
     }
     out.u32(barks.len() as u32);
     for bark in barks {

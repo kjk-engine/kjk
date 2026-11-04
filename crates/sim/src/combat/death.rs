@@ -28,9 +28,18 @@ use crate::rng::SimRng;
 pub const DIE: u16 = 10_080;
 
 /// Whether a death by `source` is one KOTOR stages (`scene`: the blow
-/// falls in a scene, `scene::Held::scene`).
-pub fn in_place(source: &Source, scene: bool) -> bool {
-    scene || matches!(source, Source::Script { staged: true, .. } | Source::Death)
+/// falls in a scene, `scene::Held::scene`). An explosion's is not, by the
+/// owner's choice after the cutscene reel, where the body may fall as a ragdoll:
+/// a grenade's blast, or a script's death of one it has just thrown
+/// (`thrown`, on the floor by its push: TSL's Ravager, `a_openingcs`'s
+/// `EffectForcePushTargeted` then `EffectDeath`).
+pub fn in_place(source: &Source, scene: bool, thrown: bool) -> bool {
+    match source {
+        Source::Blast { .. } => false,
+        Source::Death if thrown => false,
+        Source::Script { staged: true, .. } | Source::Death => true,
+        _ => scene,
+    }
 }
 
 /// The dying clip a death in place plays from `now` (ms): the views time

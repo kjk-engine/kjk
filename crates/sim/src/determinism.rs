@@ -140,7 +140,7 @@ const ORIGIN: [f32; 3] = [-452.25, 317.75, 12.5];
 /// along X or Y.
 pub(crate) const TURN_DEGREES: f32 = 34.0;
 /// The door's object index, which is also its entity in the collision.
-const DOOR: u32 = 0;
+pub const DOOR: u32 = 0;
 
 /// Local ground coordinates (x along the room, y across, z up, metres)
 /// into the level's.

@@ -28,7 +28,7 @@ value = 2000
 unit = "ms"
 range = [0, 60000]
 summary = "An unconscious party member stays down at least {downed.rising.down_min_ms:s} before it can get up."
-source = "ours (I30 P11)"
+source = "ours"
 see = "sim::world::falls::falls"
 applies = ["kind:player", "kind:companion"]
 
@@ -63,7 +63,7 @@ value = 3000
 unit = "ms"
 range = [0, 60000]
 summary = "A character with no ranks in Treat Injury revives an ally in {downed.revive.ms:s}."
-source = "I30 P11's \"a few seconds\" (ours)"
+source = "ours (\"a few seconds\")"
 see = "sim::world::falls::revive_ms"
 applies = ["kind:player", "kind:companion"]
 

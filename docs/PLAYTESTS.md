@@ -1,4 +1,4 @@
-# Playtests: a module played headless, end to end (I29)
+# Playtests: a module played headless, end to end
 
 `kjk playthrough` drives one player through modules goal by goal, with the
 games' own scripts running everything else. It answers one question: *does
@@ -11,8 +11,7 @@ method; the verb's flags and output are in `RUN.md`. Routes live in
 `k1/leviathan.route`, `k1/unknown_world*.route`, `k1/star_forge*.route`,
 `tsl/prologue.route` (the Ebon Hawk to Peragus, one marked stand-in),
 `tsl/planets.route` (each later planet's first module, cold: stand-ins
-throughout), and the branches, each from the checkpoint its header names); each run's
-journal keeps its blocker table.
+throughout), and the branches, each from the checkpoint its header names).
 
 ## Before the first run (minutes that save hours)
 
@@ -20,7 +19,7 @@ journal keeps its blocker table.
    which doors are optional, where the spikes are, which terminal opens
    what. Most dead ends come from guessing the route.
    - IGN's K1 walkthrough wiki (one page per area in play order; the
-     maintainer keeps an offline copy in `context/walkthroughs/`). Its author plays a male **Scout, default
+     maintainer keeps an offline copy). Its author plays a male **Scout, default
      build, Dark Side**: its picks, XP and rewards follow that path. The
      text is IGN's: read it, never copy it into routes or docs.
    - Cross-check another source for what IGN's path skips: GameBanshee's
@@ -224,7 +223,7 @@ The report says what held it. Sort it into one of these:
 | looks like | is | where to look |
 |---|---|---|
 | a conversation paused, a queue with work in it (`#219 … is on Move …`) | a scene waiting on someone | that creature's queue line: its mind, walker, route |
-| `no way there … on the straight way: Door … locked, DC 28` | a door the route did not open | the walkthrough; `unlock TAG [SPIKE]`, a terminal, a script |
+| `no way there … on the straight way: Door … locked, DC 28` | a door the route did not open | the walkthrough; `unlock TAG [SPIKE]`, `bash TAG`, a terminal, a script |
 | `stalled N times`, the player high off the floor | navigation: the mesh sends a body where collision stops it | `kjk collision trace` (below) |
 | `no object tagged …` after a module change | the route's goal is for the last module | the route |
 | gaps, faults, missing scripts in the summary | an engine routine not bound or failing | `SCRIPTS.md`, `kjk script coverage` |
@@ -259,7 +258,7 @@ Tools for the second look:
   module may lose.
 - Gate before committing: fmt, clippy, approved tests with `KJK_SIM_HASH`
   (`TESTS.md`). The sim hash moves only for a change on purpose.
-- Log every blocker and its fate in the run's journal table.
+- Log every blocker and its fate.
 
 ## Keeping the chain robust
 
@@ -308,6 +307,16 @@ from a rule that held for one timing and not the next:
 | Dxun's turret ramp, `fight 40` after `to tr_wave2` (2026-10-31) | a boma, wandering (random walk, never fighting), stood inside a drawn rock past a wall where the floor runs on under it; the nav mesh led there, the eye never saw it, and the fight walked at it for 98 s | a foe the walk to stalled on and on (`lost`) is given up while unseen, a `fight`'s and a fight back's, as a player leaves a beast hidden where they cannot get; seen again, it is fought (`Chase::given_up`); probe `chase_gives_up_a_hidden_lost_foe` (`harness chase`) |
 | Onderon's throne room, `to tr_kavar_enter` (2026-10-31) | the fight before it walked the player into the trigger: Kavar's entrance and both of Vaklu's conversations played within the fight; the `to` then walked back for the trigger across `tr_end_riiken`, which after the battle jumps the player back and has Riiken say "stay here" on every entry (TSL's own script, no once-guard: the keeper of the hall), 1051 times in 900 s. A rule timing a conversation against a step into a trigger met Telos's `to tr_czerka_escape` at once, the salvager's thanks begun by HIS entry | what a trigger's `OnEnter`, run for the body entering it, sets going (its deferred and assigned code, the conversations they start) carries that trigger and body (`script::Cue`), and a conversation begun so is reported with them (`Line::Cued`); a `to` a trigger whose own scene the player's body set off during a goal before is met, and the `talk` after it takes that scene (`Scenes`); probes `cue_names_trigger_and_comer` (`scene`), `to_a_trigger_whose_scene_played_is_met` (`harness chase`) |
 | Malachor's surface, `fight 40` after `to Console@1` (2026-10-31) | the fight kept the storm beast it had gone for, 17 m off, while another stood at 0.8 m clawing at the player; the walk stalled against the near one and never struck either for 116 s | a foe that fits within a blade's swing of the player is taken before one kept out of it, as a player turns on what claws at them; the one fought is still kept against others as near or nearer (`Chase::pick`); probes `pick_takes_one_at_hand_before_the_foe_fought`, `pick_keeps_the_foe_fought_at_hand` (`harness chase`) |
+| Nar Shaddaa's vent tunnels, `use HighSecurityDoorInterior` (2026-11-03, after party members came to put their blades away in talk) | the Exile, sheathing during Visquis's opening scene, reached the sealed door 0.3 s later; its own conversation (`305han2`, which hands the player to Mira in the pit) began with the player within reach and not yet pressed, where a talk before any press counted as another's. From farther off the same talk had answered the use | a use is answered by its target speaking, a creature or a sealed door, near or far, pressed or not (`use_met`); probe `use_met_by_its_target_speaking_unpressed` (`harness chase`) |
+| The Star Forge's dark way, `use k45_plc_mk2droid` (2026-11-02) | at Jorak Uln's fight on Korriban, a foe 0.7 m off with no way to its floor counted as a far shot; the player drew a pistol and kept it to the end of the game. With it the fight before the generators' use never saw quiet, as the generators make droids until each is shut down, and the goal blocked after 900 s | a far shot is only past a blade's swing (`shot_far`), a gun taken up for one is put down as its goal ends, and a use goes to its target after `USE_FIGHT_MS` of fighting, whatever still stands (an exit still waits: the party may not leave in a fight); probes `gun_only_past_a_blades_swing`, `use_stops_waiting_for_quiet` (`harness chase`) |
+| Telos's Ithorian compound, `use info_term` (2026-11-03) | after Chodo's thanks Moza stood where he had followed the player, in the gap between a wall and two planters the way out of Chodo's office runs through; the walk went round him, planned again from his side and back through him, round and round for 91 s, never stalled long enough to back off | a body a goal's walks go round twice standing where it stood has the navigation mesh's faces under it walled for the goal, so the way is planned past it, as KOTOR's planner tests each line for creatures on it (`PathPointDFSGenerateSuccessors` calls `NoCreaturesOnLine`); with no way round them the walls are not used (`TurnedBack::went_round`, `sim::walk::faces_under_body`); probe `walk_walls_a_body_gone_round_twice_where_it_stands` (`harness walls`) |
+| Malachor's surface as Bao-Dur's remote, `use Console@2` (2026-11-03, after the Telos row above) | a storm beast stood by the south buried ship on the remote's way; gone round twice, its floor was walled and the walk planned another way, along a drawn rock that wedged the remote 2 m short of a corner for 100 s | a body gone round twice is walled only when it is not hostile to the player, as KOTOR's walker runs a hostile blocker's scripts rather than plotting round it (`PlotPathAroundCreature`, rep <= 10; `TurnedBack::went_round`); probe `walk_walls_a_body_gone_round_twice_where_it_stands` (`harness walls`) |
+| Telos's citadel siege, `use d_tsfstation` (2026-11-03) | the wounded Onderon soldier the Exile patched up follows the party; he stood on the TSF station door's point, the use's walk never arrived, and the player stood 0.9 m off, within the door's reach, never pressing, for 99 s | a use within its reach is pressed while another living body, not its own target, stands where its walk ends (`goal_taken`), as a player clicks past one in a doorway (its target counted too, Dantooine's pazaak players were pressed from afar and began no match); probe `use_presses_past_a_body_where_its_walk_ends` (`harness chase`) |
+| Telos's restoration zone, `fight 40` after the mercenaries' talk (2026-11-03, after talents came to start a combat round) | the fight ended near the landing pad's ramp, with the two mercenaries by the mined entrance 23 m up it, unseen; the walk to them wedged at a step, making for one corner then another, and its stalls began afresh at each, never enough to give them up, for 100 s | a chase that gains no ground on its foe for 30 s, out of a blade's swing, is lost as one whose walk stalled on and on: given up while unseen, shot from where the player is when seen (`gaining`, `Chase::gain`); probe `chase_lost_gaining_no_ground` (`harness chase`) |
+| Telos's old military base, `leader 1` after the hall's `fight 30` (2026-11-03) | Bao-Dur had been knocked out in the fight; the switch to him, asked once as the goal began, was passed straight back (a downed leader passes the lead on), and the goal waited 90 s | a `leader` goal asks again on each press until the member leads, as a player clicks the portrait again once the member is up (`lead_to`); no probe: the goal loop's own asking |
+| Dantooine's Khoonda plains, `use g_merc_pat` after Bao-Dur's sensor talk (2026-11-03, after cinematic talks came to start from 10 m) | the walk to the mercenary patrol climbed the sensor boxes beside the player and wedged there; the patrol moved on every few seconds and each move planned the walk anew, its stall count from nothing, so it never stepped aside, for 90 s | a use's walk planned again for a target that moved keeps its stalls (`Walker::stalls`), so a wedged walk still steps aside and backs off; no probe: the goal loop's own replan |
+| Nar Shaddaa's refugee landing, `to SerrocoLeader` then `talk` (2026-11-03) | the walk to the Serroco thugs passed their leader, who spoke up then; the thugs' `talk` took his conversation with theirs, and the `talk` after `to SerrocoLeader` waited for good | a creature whose own conversation with the player began during an earlier goal of this module visit answers a `to` it that a `talk` follows, as a trigger's scene does (`Scenes::talked`); probe `to_a_creature_whose_talk_played_is_met` (`harness chase`) |
+| Onderon's Merchant Quarter, `exit To_501` in the escape (2026-11-03) | two Iziz wall turrets, 3 m up on the wall over the ramp, kept the party in combat while the player stood 1.8 m from the nearer, under the wall: the wall's top hid each from the other, no way led to their floor, so the fight never counted them and the exit waited for good after `fight 40` met with no foe | a foe unseen with no way to its floor, seen from a floor round the player that a way leads to within a gun's range, is gettable: the fight walks there and shoots it from there, as KOTOR's attack walks on until its line is clear (`AIActionPhysicalAttacks` asks `ClearLineOfSight`) (`sight_spot`, `Reach::spot`, `Chase::sighted`); probe `chase_sees_a_hidden_foe_from_a_spot` (`harness chase`). In the next chain the gun taken up for them was a rifle limited to two feats the Exile lacks, refused by the sim: a weapon whose use limits name feats is drawn only by one with one of them, as the sim weighs it (`feat_limits_met`); probe `draw_passes_over_a_gun_of_feats_not_trained` (`harness draw`) |
 
 So:
 
@@ -358,4 +367,4 @@ So:
 
 ## Not yet
 
-Drawing a module's recording; bashing locked doors.
+Drawing a module's recording.

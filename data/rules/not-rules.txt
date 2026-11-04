@@ -470,6 +470,7 @@ crates/sim/src/script/engine.rs HOSTILE  # a `last` kind id
 crates/sim/src/script/engine.rs INVENTORY  # iterator kind id
 crates/sim/src/script/engine.rs KILLER  # a `last` kind id
 crates/sim/src/script/engine.rs LIGHT_SIDE  # script constant: ALIGNMENT_*
+crates/sim/src/script/engine.rs LIVE_YAVIN  # script constant: LIVE_CONTENT_PKG1
 crates/sim/src/script/engine.rs LOCKED  # a `last` kind id
 crates/sim/src/script/engine.rs LOOPS_AT_ONCE  # script constant: the looping ANIMATION_* range
 crates/sim/src/script/engine.rs NEUTRAL  # script constant: ALIGNMENT_*
@@ -506,6 +507,7 @@ crates/sim/src/script/influence.rs TOP  # the alignment and influence scale's to
 crates/sim/src/script/locks.rs DOOR_ACTIONS  # DOOR_ACTION_* script constants' names
 crates/sim/src/script/mod.rs CRITERIA  # script constants: CREATURE_TYPE_* names
 crates/sim/src/script/mod.rs FIRST_CUT_CLIP  # DLG value range: camera clips
+crates/sim/src/script/mod.rs FIRST_CONTINUED_CLIP  # DLG value range: camera clips carried on
 crates/sim/src/script/mod.rs FIRST_DIALOG_ANIMATION  # DLG value range: dialoganimations.2da rows
 crates/sim/src/script/mod.rs FLOOR_SEARCH_M  # placement: a place's floor search
 crates/sim/src/script/mod.rs HEARD  # perception kind id
@@ -615,8 +617,10 @@ crates/sim/src/world/feats.rs START  # a probe's fixture
 crates/sim/src/world/feats.rs XP  # a probe's fixture
 crates/sim/src/world/galaxy.rs DANTOOINE  # the check's planets.2da row
 crates/sim/src/world/galaxy.rs ENDING  # the check's movie names (a_playgoodmovie's)
+crates/sim/src/world/galaxy.rs LIVE  # the check's live packages and their planetary.2da rows
 crates/sim/src/world/galaxy.rs STEPS  # the check's step count
 crates/sim/src/world/galaxy.rs TARIS  # the check's planets.2da row
+crates/sim/src/world/galaxy.rs YAVIN  # the check's planetary.2da row
 crates/sim/src/world/history.rs HISTORY  # a buffer size: the ticks of poses kept (bounds the rewind)
 crates/sim/src/world/interaction.rs FLOOR_SEARCH_M  # a trace's length looking for the floor
 crates/sim/src/world/locks.rs BLAST  # a talk table strref

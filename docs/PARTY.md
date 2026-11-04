@@ -18,7 +18,7 @@
 - `party::combat`, each step after the hurts; without a module only the
   duel case; false after an install. KOTOR's own rule and line [verify].
 
-## The break (P10)
+## The break
 - `Action::Break` (any seat) freezes the world for everyone, refused in
   combat (`Notice::InCombat`); one sent while a break holds is dropped.
   Its caller or seat 0 ends it (`Action::Resume`; anyone else:
@@ -29,7 +29,7 @@
   other actions held back for the step that ends the break. The network
   holds its players meanwhile (message 14 `Hold`, `COOP.md`).
 
-## The ready check (P16)
+## The ready check
 - A walk into an exit (a trigger, an open doorway, a door run into or
   used, from anywhere within reach) proposes the move (`ReadyCheck`). A
   seat is ready when it walked in or used it, is its tenant, stands within
@@ -39,7 +39,9 @@
   `Action::Force` after `FORCE_AFTER_MS` (5 s; else `Notice::CannotForce`).
 - The asker gone, the lowest seat still there asks; none: it lapses. In
   combat a walk in is refused, told once, asks again after; a fight holds
-  a proposal (forcing too). A script's `StartNewModule` skips it.
+  a proposal (forcing too). A script's `StartNewModule` skips it. A body
+  a conversation holding the world walks in is the exit's tenant and asks
+  nothing, then or after (the Trayus Academy's `a_903kreia`).
 - While more than one seat's body stands : a seat in a locked conversation, a pazaak match, or a party
   conversation it is not the unlocked listener of is kept unready
   (`party::kept`; its ready is refused and its bit cleared each step),
