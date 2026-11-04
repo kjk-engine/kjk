@@ -642,22 +642,16 @@ fn scenario_checks(ran: &Ran) -> crate::probe::Checks {
             check(
                 back == ["1", "", "0", "0"]
                     && body(&ran.returned) == Some(own)
-                    && released == Some((None, None)),
+                    && released.is_none(),
                 format!(
-                    "Switch(NPC_PLAYER), GetFirstPC's tag, GetIsPC(companion), Switch(unknown): {back:?}; seat 0's body {:?}; the companion's driver and leader {released:?}",
+                    "Switch(NPC_PLAYER), GetFirstPC's tag, GetIsPC(companion), Switch(unknown): {back:?}; seat 0's body {:?}; the companion's creature, gone as the exe's `KillNPCObject` takes it: {released:?}",
                     body(&ran.returned)
                 ),
             ),
         ),
         ("seat_walks_its_own_again", {
-            let (ran_m, stood_m) = (
-                moved(&ran.returned, &ran.walked_back, own),
-                moved(&ran.returned, &ran.walked_back, made),
-            );
-            check(
-                ran_m >= 0.4 && stood_m < 0.1,
-                format!("the player ran {ran_m:.2} m, the companion moved {stood_m:.2} m"),
-            )
+            let ran_m = moved(&ran.returned, &ran.walked_back, own);
+            check(ran_m >= 0.4, format!("the player ran {ran_m:.2} m"))
         }),
         ("kept_in_snapshots", restored(ran, made)),
         ("kept_in_saves", saved(ran)),

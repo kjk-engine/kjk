@@ -494,6 +494,10 @@ impl OdysseyMaterial {
     }
 }
 
+/// `depth_bias` of a blended opaque surface: farther than anything in view,
+/// keeping their order among themselves.
+const OPAQUE_FIRST: f32 = -1.0e5;
+
 /// What a material's pipeline depends on: its blend and whether it writes
 /// depth. Surfaces that agree on both (opaque and env-masked opaque; blend
 /// and vertex-alpha blend) share a pipeline rather than each compiling one.
@@ -587,6 +591,18 @@ impl Material for OdysseyMaterial {
             }
             Surface::Additive | Surface::AddOne | Surface::Lighten => AlphaMode::Add,
             _ => AlphaMode::Opaque,
+        }
+    }
+
+    /// Blended opaque surfaces come first in the sorted phase: as the opaque
+    /// pass they are, before everything blended, however near. Sorted among
+    /// the blended, one nearer than a cell's force field by its middle drew
+    /// over the field (TSL's Telos cells: the Exile's bare body, whose texture
+    /// has alpha, not Kreia's robe, which has none).
+    fn depth_bias(&self) -> f32 {
+        match self.surface {
+            Surface::OpaqueAlpha => OPAQUE_FIRST,
+            _ => 0.0,
         }
     }
 

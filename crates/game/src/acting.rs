@@ -24,7 +24,9 @@
 //!   executable picks them): the attacker's swing (`c3a2`, `g1a1`), its
 //!   target's answer (`c3d2`, `g2r1`), each its row's own clip
 //!   (`stance_of`). Such a clip plays to its end whatever the body does,
-//!   a fight included.
+//!   a fight included, until it crosses the floor (`kept_on`): a gunner a
+//!   script runs on draws its legs' run, not its last shot or flinch slid
+//!   along, nor the ready stance held between rounds.
 //! - Seats' bodies draw what the engine plays on them: KOTOR's animations
 //!   for disarming, recovering and setting a mine (`sim::traps::animations`)
 //!   and for Security on a door or a container (`sim::locks::animations`).
@@ -528,6 +530,55 @@ pub fn attack_probes() -> sim::probe::Checks {
     ]
 }
 
+/// What a body keeps drawing as it moves (`kjk sim probes --only "kept on"`,
+/// `kept_on`), 100 ms into each clip, alive: a round's flinch (2243, TSL's
+/// Mandalorians answering shots on the Ravager as their script runs them
+/// on) and swing (1239) stop as the body crosses the floor, in a held scene
+/// or out of one, and go on while it stands; a script's animation in a held
+/// scene goes on as it is walked; out of one it stops once settled (after
+/// 400 ms), not before; a dying clip always plays.
+#[cfg(feature = "probes")]
+pub fn kept_probes() -> sim::probe::Checks {
+    // Whether `animation` is kept `in_ms` after it began on a body walked or
+    // standing, in a held scene or not.
+    let at = |animation: u16, walked: bool, held: bool, in_ms: f64| {
+        let acting = Acting {
+            animation,
+            since: 1000,
+            ms: 1500,
+        };
+        kept_on(&acting, (!walked, walked, true, held), 1000.0 + in_ms)
+    };
+    let cases = [
+        ("flinch, walked, held", at(2243, true, true, 100.0), false),
+        ("flinch, walked", at(2243, true, false, 100.0), false),
+        ("flinch, standing", at(2243, false, false, 100.0), true),
+        ("swing, walked", at(1239, true, false, 100.0), false),
+        ("swing, standing, held", at(1239, false, true, 100.0), true),
+        ("script's, walked, held", at(115, true, true, 100.0), true),
+        (
+            "script's, walked, settling",
+            at(115, true, false, 100.0),
+            true,
+        ),
+        (
+            "script's, walked, settled",
+            at(115, true, false, 500.0),
+            false,
+        ),
+        ("dying, walked", at(DIE, true, false, 500.0), true),
+    ];
+    let wrong: Vec<&str> = cases
+        .iter()
+        .filter(|(_, got, want)| got != want)
+        .map(|(name, ..)| *name)
+        .collect();
+    vec![(
+        "a round's clip gives way to the body's walk, a held scene's script animation does not",
+        sim::probe::check(wrong.is_empty(), format!("wrong: {wrong:?}")),
+    )]
+}
+
 /// The flinch's probes (`kjk sim probes --only flinch`): a hit with no weapon
 /// flinches a body that stands, once, and a weapon's a creature model; a
 /// weapon's on a humanoid, a refused one, the first look, JA's own pain and a
@@ -745,22 +796,28 @@ pub struct Shows {
     /// When (sim ms) the body was first followed: a clip begun before it
     /// (a save loaded mid-clip) is heard from there on, not from its start.
     first: Option<f64>,
+    /// Whether it crossed the floor when last followed: it holds no ready
+    /// stance then (`shown`), its legs' run or walk shows.
+    moving: bool,
 }
 
 impl Shows {
     /// Follows the character at `ms`: what it plays now, and whether it
     /// stands still out of a fight, alive (else what plays breaks off; a
-    /// scene's melee blow is broken off only by its character dying,
-    /// `alive`, and so is anything while a conversation holds the world,
-    /// `held`, where the sim's queue ends it, S7). One that is replaced or
-    /// stopped fades out from then.
+    /// round's clip, a blow or its answer, is broken off only by its
+    /// character dying, `alive`, or crossing the floor, `moving`, so a
+    /// gunner a script runs on draws its run, not its last shot or flinch
+    /// slid over the floor; anything else, while a conversation holds the
+    /// world, `held`, only by dying, the sim's queue ending it, S7). One
+    /// that is replaced or stopped fades out from then.
     pub fn follow(
         &mut self,
         acting: Option<Acting>,
-        (still, alive, held): (bool, bool, bool),
+        (still, moving, alive, held): (bool, bool, bool, bool),
         ms: f64,
     ) {
         self.first.get_or_insert(ms);
+        self.moving = moving;
         if self.playing.map(|(was, _)| was) != acting {
             if let Some((was, broke)) = self.playing.take() {
                 self.fading = Some((was, broke.map_or(ms, |broke| broke.min(ms))));
@@ -772,13 +829,7 @@ impl Shows {
         // A body that arrives from a run as it begins (a walk to a mine
         // ends in its skill's use) settles first.
         if let Some((acting, broke @ None)) = &mut self.playing
-            && acting.animation != DIE
-            && !(if held || blows::of(acting.animation).is_some() {
-                alive
-            } else {
-                still
-            })
-            && (held || ms > acting.since as f64 + SETTLE_MS)
+            && !kept_on(acting, (still, moving, alive, held), ms)
         {
             *broke = Some(ms);
         }
@@ -815,7 +866,7 @@ impl Shows {
         ms: f64,
         (wield, combat): (u8, Option<u8>),
     ) -> impl Iterator<Item = (&'a Animator, f32, f32)> {
-        let ready = combat.and_then(|wield| {
+        let ready = combat.filter(|_| !self.moving).and_then(|wield| {
             let (acting, broke) = self
                 .playing
                 .or(self.last_round.map(|round| (round, None)))?;
@@ -829,6 +880,29 @@ impl Shows {
             .and_then(|(acting, broke)| shown(bound, (&acting, wield), ms, broke));
         ready.into_iter().chain(fading).chain(playing)
     }
+}
+
+/// Whether `acting`, playing on a body at `ms`, goes on being drawn
+/// (`Shows::follow`): a dying clip always; a round's clip, a blow or its
+/// answer, while its character lives and does not cross the floor
+/// (`moving`); anything else while a conversation holds the world (`held`)
+/// while it lives, out of one while it stands `still` or has not yet
+/// settled from the run that brought it there. `kjk playthrough`'s and
+/// `kjk dialogue check`'s motion checks judge slides by it.
+pub fn kept_on(
+    acting: &Acting,
+    (still, moving, alive, held): (bool, bool, bool, bool),
+    ms: f64,
+) -> bool {
+    let round = blows::of(acting.animation).is_some();
+    acting.animation == DIE
+        || if round {
+            alive && !moving
+        } else if held {
+            alive
+        } else {
+            still || ms <= acting.since as f64 + SETTLE_MS
+        }
 }
 
 /// Where (seconds in) the events of `acting`'s clip, now `at` in, are heard

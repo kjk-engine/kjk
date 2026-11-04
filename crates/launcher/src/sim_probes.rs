@@ -27,6 +27,7 @@ const GROUPS: &[Group] = &[
     ("item_keys", kjk_game::pick_view::probes),
     ("bindings", kjk_game::settings::binding_probes),
     ("flinch", kjk_game::acting::flinch_probes),
+    ("kept on", kjk_game::acting::kept_probes),
     ("creature_attack", kjk_game::acting::attack_probes),
     ("damage numbers", kjk_game::floaty_view::damage_probes),
     ("screen shake", kjk_game::script_fx::shake_probes),

@@ -142,6 +142,7 @@ impl<'a> Duel<'a> {
             others: &others,
             rng: &mut self.rng,
             enemy: None,
+            at_rest: false,
         };
         motion::move_body(
             &mut self.ps,

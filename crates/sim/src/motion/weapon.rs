@@ -50,6 +50,9 @@ pub struct Arms<'a> {
     pub rng: &'a mut SimRng,
     /// A creature's enemy's eye (units), where its swings from ready aim.
     pub enemy: Option<math::Vec3>,
+    /// A conversation has this party member and it fights no one: its blade
+    /// goes away and stays away, whatever its 8 s say.
+    pub at_rest: bool,
 }
 
 /// Another character, as a saber move's check meets it: its body's entity
@@ -540,8 +543,9 @@ impl Move<'_, '_> {
     /// and puts it away 8 s after the last blow (`COMBAT_MS`) unless it
     /// fights someone, here also 8 s after its own last attack at no one
     /// (`SaberState::out_until`); its player puts it away at once
-    /// (`Sheath::Holstered`), and a script may hold a saber lit
-    /// (`Sheath::Lit`). Not while it swings or is asked to, changes
+    /// (`Sheath::Holstered`), a script may hold a saber lit
+    /// (`Sheath::Lit`), and a conversation puts a party member's away
+    /// (`Arms::at_rest`). Not while it swings or is asked to, changes
     /// weapons, throws its saber, or is down. [verify] JA has no
     /// sheathing; the unlit state is the one a melee weapon starts in.
     fn sheathes(&self, arms: &Arms) -> bool {
@@ -552,7 +556,7 @@ impl Move<'_, '_> {
             && fighter.saber.change == Change::None
             && fighter.saber.thrown.is_none()
             && !swinging
-            && fighter.weapon_away(self.time_ms)
+            && (arms.at_rest || fighter.weapon_away(self.time_ms))
     }
 
     /// The blade in hand goes away (`sheathes`): a lightsaber out, the
@@ -578,7 +582,8 @@ impl Move<'_, '_> {
     /// or is gripped.
     fn draws(&self, arms: &Arms) -> bool {
         let fighter = &*arms.fighter;
-        !fighter.saber.on
+        !arms.at_rest
+            && !fighter.saber.on
             && fighter.sheath == Sheath::Fight
             && (fighter.target.is_some() || fighter.in_combat(self.time_ms))
             && fighter.saber.change == Change::None

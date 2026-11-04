@@ -125,7 +125,10 @@ pub fn probes() -> sim::probe::Checks {
         })
         .chain(replans(&chase_once))
         .chain(hovering(&world, &base))
-        .chain(gives_up(&base))
+        .chain(hidden_foes(&base))
+        .chain(goal_held(&base))
+        .chain(gains())
+        .chain(fights_end())
         .chain(scenes())
         .chain(loots())
         .chain(picks_remains())
@@ -175,19 +178,45 @@ pub(super) fn scenes() -> sim::probe::Checks {
         taken(PLAYER, "m", 0),
         taken(PLAYER, "n", 500),
     );
-    vec![(
-        "to_a_trigger_whose_scene_played_is_met",
-        sim::probe::check(
-            player == (Some(9), None)
-                && other == (None, None)
-                && after == (None, None)
-                && moved == (None, None),
-            format!(
-                "(taken, again): the player's {player:?}; another body's {other:?}; \
-                 the `to` begun before it {after:?}; another module since {moved:?}"
+    // A creature's own talk with the player (object 41, Nar Shaddaa's
+    // Serroco leader), begun at 0.2 s: taken by a `to` it begun at 0.5 s,
+    // once; not by one begun before it.
+    let talked = |since: u64| {
+        let mut scenes = Scenes::default();
+        scenes.note("m", &[], sim::SimId(PLAYER), trigger_of, 100);
+        let talk = Talk {
+            id: 11,
+            owner: Some(41),
+            ended_ms: u64::MAX,
+        };
+        scenes.talked(41, &talk, 200);
+        scenes.talked(41, &talk, 250);
+        let first = scenes.take_before(41, since).map(|talk| talk.id);
+        (first, scenes.take_before(41, since).map(|talk| talk.id))
+    };
+    let (creature, creature_after) = (talked(500), talked(0));
+    vec![
+        (
+            "to_a_trigger_whose_scene_played_is_met",
+            sim::probe::check(
+                player == (Some(9), None)
+                    && other == (None, None)
+                    && after == (None, None)
+                    && moved == (None, None),
+                format!(
+                    "(taken, again): the player's {player:?}; another body's {other:?}; \
+                     the `to` begun before it {after:?}; another module since {moved:?}"
+                ),
             ),
         ),
-    )]
+        (
+            "to_a_creature_whose_talk_played_is_met",
+            sim::probe::check(
+                creature == (Some(11), None) && creature_after == (None, None),
+                format!("(taken, again): begun before the `to` {creature:?}; after it {creature_after:?}"),
+            ),
+        ),
+    ]
 }
 
 /// A foe the walk to stalled on and on (`Chase::lost`) is given up while the
@@ -196,27 +225,35 @@ pub(super) fn scenes() -> sim::probe::Checks {
 /// same foe 2 m west of the player, seen, is not; nor a hidden one not lost.
 /// (Dxun's turret ramp: a boma wandered into a drawn rock past a wall, where
 /// the floor runs on under it, and the fight walked at it for 90 s.)
-pub(super) fn gives_up(base: &Snapshot) -> sim::probe::Checks {
+/// And the hidden foe is seen from a spot (`sight_spot`) only with the
+/// door open: from the doorway's floor, a way leading there, its chest in
+/// sight; with the door shut, from nowhere (Iziz's wall turrets, hidden by
+/// the wall's top from the player under them).
+pub(super) fn hidden_foes(base: &Snapshot) -> sim::probe::Checks {
+    const NAMES: [&str; 2] = ["chase_gives_up_a_hidden_lost_foe", "chase_sees_a_hidden_foe_from_a_spot"];
     let level = sim::determinism::proving_ground();
     let origin = |x: f32| {
         let [x, y, z] = sim::determinism::ground_point(x, 2.0, 0.0);
         [x / UNIT, y / UNIT, z / UNIT - sim::motion::SOLE_Z]
     };
+    let unready = |why: &str| NAMES.iter().map(|name| (*name, Err(why.to_string()))).collect();
     let Some(me) = base
         .entities
         .iter()
         .find(|e| e.kind == sim::Kind::Avatar(Seat(0)))
         .copied()
     else {
-        return vec![("chase_gives_up_a_hidden_lost_foe", Err("no player on the arena".into()))];
+        return unready("no player on the arena");
     };
     let Some(player) = me.player else {
-        return vec![("chase_gives_up_a_hidden_lost_foe", Err("the player has no body".into()))];
+        return unready("the player has no body");
     };
     let standing = |at: [f32; 3]| sim::motion::MotionState { origin: at, ..player };
     let player = standing(origin(-3.0));
     let foe_id = sim::SimId(u32::MAX - 1);
-    let given_up = |foe_x: f32, lost: bool| {
+    // The player and the foe at `foe_x` (metres east of the wall), the
+    // door open or shut.
+    let scene = |foe_x: f32, open: bool| {
         let at = origin(foe_x);
         let mut snapshot = base.clone();
         snapshot.entities.retain(|e| e.id != me.id);
@@ -232,7 +269,22 @@ pub(super) fn gives_up(base: &Snapshot) -> sim::probe::Checks {
             player: Some(standing(at)),
             ..me
         });
-        let refused = BTreeSet::new();
+        snapshot.entities.push(sim::EntityState {
+            id: sim::SimId(u32::MAX - 2),
+            kind: sim::Kind::Object(ObjectKind::Door, sim::determinism::DOOR),
+            player: None,
+            object: Some(sim::ObjectState {
+                state: u8::from(open),
+                ..sim::ObjectState::default()
+            }),
+            ..me
+        });
+        snapshot.entities.sort_by_key(|e| e.id);
+        (snapshot, at.map(|v| v * UNIT))
+    };
+    let refused = BTreeSet::new();
+    let given_up = |foe_x: f32, lost: bool| {
+        let (snapshot, _) = scene(foe_x, false);
         let here = Here::new(&level, &snapshot, &refused);
         let chase = Chase {
             lost: lost.then_some(foe_id),
@@ -241,13 +293,167 @@ pub(super) fn gives_up(base: &Snapshot) -> sim::probe::Checks {
         chase.given_up(&here, &player, foe_id)
     };
     let (hidden, seen, not_lost) = (given_up(3.0, true), given_up(-5.0, true), given_up(3.0, false));
+    // The ground's floor for walks (it has no navigation mesh of its own):
+    // its two halves, 0.2 m off the wall across, and the doorway between
+    // them when the door is open.
+    let floor = |open: bool| {
+        let cell = |x: f32, y: f32| {
+            let [a, b, c, d] = [[x, y], [x + 1.0, y], [x + 1.0, y + 1.0], [x, y + 1.0]]
+                .map(|[x, y]| sim::determinism::ground_point(x, y, 0.0));
+            [[a, b, c], [a, c, d]]
+        };
+        let halves = (-6..6).flat_map(|y| {
+            (0..8).flat_map(move |x| [cell(-8.2 + x as f32, y as f32), cell(0.2 + x as f32, y as f32)])
+        });
+        let doorway = (-1..1).filter(|_| open).map(|y| {
+            let [a, b, c, d] = [[-0.2, y as f32], [0.2, y as f32], [0.2, y as f32 + 1.0], [-0.2, y as f32 + 1.0]]
+                .map(|[x, y]| sim::determinism::ground_point(x, y, 0.0));
+            [[a, b, c], [a, c, d]]
+        });
+        let triangles: Vec<[[f32; 3]; 3]> = halves.chain(doorway).flatten().collect();
+        level
+            .clone()
+            .with_nav(collision::nav::NavMesh::build(&triangles, sim::walk::CLEARANCE * UNIT))
+    };
+    // The spot it is seen from, and whether that spot sees it and leads
+    // from where the player stands.
+    let spot = |open: bool| {
+        let (snapshot, at) = scene(3.0, open);
+        let level = floor(open);
+        let here = Here::new(&level, &snapshot, &refused);
+        let spot = sight_spot(&here, &player, (foe_id, at))?;
+        let eye = [spot[0], spot[1], spot[2] + player.eye_height];
+        let sees = here.chest(foe_id).is_some_and(|chest| level.sees(here.sight(), eye, chest));
+        Some((here.sees(&player, foe_id), sees && here.open_way(player.origin, spot)))
+    };
+    let (shut, open) = (spot(false), spot(true));
+    vec![
+        (
+            NAMES[0],
+            sim::probe::check(
+                hidden && !seen && !not_lost,
+                format!("lost behind the wall: given up {hidden}; lost in sight: {seen}; behind the wall, not lost: {not_lost}"),
+            ),
+        ),
+        (
+            NAMES[1],
+            sim::probe::check(
+                shut.is_none() && open == Some((false, true)),
+                format!("door shut: {shut:?}; open (seen from the player, the spot sees and leads): {open:?}"),
+            ),
+        ),
+    ]
+}
+
+/// A chase 23 m from its foe that gains no ground for 30 s is lost
+/// (`gaining`); not one that came 1 m nearer meanwhile, nor one whose foe
+/// is at hand (a long duel), nor one that turned to another foe.
+pub(super) fn gains() -> sim::probe::Checks {
+    let (foe, other) = (sim::SimId(1), sim::SimId(2));
+    let after = |d: f32, then: (sim::SimId, f32)| {
+        let (gain, _) = gaining(None, (foe, d), 0);
+        gaining(gain, then, 30_000).1
+    };
+    let cases = [
+        after(23.0, (foe, 23.0)),
+        after(23.0, (foe, 22.0)),
+        after(0.5, (foe, 0.5)),
+        after(23.0, (other, 23.0)),
+    ];
     vec![(
-        "chase_gives_up_a_hidden_lost_foe",
+        "chase_lost_gaining_no_ground",
         sim::probe::check(
-            hidden && !seen && !not_lost,
-            format!("lost behind the wall: given up {hidden}; lost in sight: {seen}; behind the wall, not lost: {not_lost}"),
+            cases == [true, false, false, false],
+            format!("no ground gained, 1 m gained, at hand, another foe: {cases:?}"),
         ),
     )]
+}
+
+/// A walk's end is taken (`goal_taken`) by another living body standing
+/// on it, not by one a metre off, nor by the player there, nor by the
+/// walk's own target: a use from within reach is pressed past a body in the
+/// doorway (the citadel's TSF station), not at once at a creature walked up
+/// to (Dantooine's pazaak players).
+pub(super) fn goal_held(base: &Snapshot) -> sim::probe::Checks {
+    let name = "use_presses_past_a_body_where_its_walk_ends";
+    let Some(me) = base
+        .entities
+        .iter()
+        .find(|e| e.kind == sim::Kind::Avatar(Seat(0)))
+        .copied()
+    else {
+        return vec![(name, Err("no player on the arena".into()))];
+    };
+    let goal = me.position.map(|v| v / UNIT);
+    // Whether the goal is taken with another body `off` metres from it,
+    // that body the walk's target or not.
+    let other = sim::SimId(u32::MAX - 1);
+    let held = |off: Option<f32>, target: bool| {
+        let mut snapshot = base.clone();
+        if let Some(off) = off {
+            snapshot.entities.push(sim::EntityState {
+                id: other,
+                kind: sim::Kind::Object(ObjectKind::Creature, 0),
+                position: [me.position[0] + off, me.position[1], me.position[2]],
+                ..me
+            });
+        }
+        goal_taken(&snapshot, (me.id, target.then_some(other)), goal)
+    };
+    let cases = [
+        held(Some(0.2), false),
+        held(Some(1.0), false),
+        held(None, false),
+        held(Some(0.2), true),
+    ];
+    vec![(
+        name,
+        sim::probe::check(
+            cases == [true, false, false, false],
+            format!("a body 0.2 m off, 1 m off, only the player, the target 0.2 m off: {cases:?}"),
+        ),
+    )]
+}
+
+/// A foe with no way to it is shot only past a blade's swing (in space: one
+/// just within it on the flat but 3 m up is past it) and within a gun's
+/// range, and seen; a use stops waiting for quiet at `USE_FIGHT_MS`, an exit
+/// or a walk never.
+pub(super) fn fights_end() -> sim::probe::Checks {
+    let swing = melee_m().1;
+    let at = |x: f32, z: f32| [x, 0.0, z];
+    let shot = |out_of_way: bool, seen: bool, foe: [f32; 3]| shot_far(out_of_way, seen, [0.0; 3], foe);
+    let shots = [
+        shot(true, true, at(swing, 0.0)),
+        shot(true, true, at(swing + 1.0, 0.0)),
+        shot(false, true, at(swing + 1.0, 0.0)),
+        shot(true, false, at(swing + 1.0, 0.0)),
+        shot(true, true, at(GUN_M + 1.0, 0.0)),
+        shot(true, true, at(swing - 0.1, 3.0)),
+    ];
+    let at = || Target::Place([0.0, 0.0]);
+    let over = [
+        use_fight_over(&Goal::Use(at()), USE_FIGHT_MS - 1),
+        use_fight_over(&Goal::Use(at()), USE_FIGHT_MS),
+        use_fight_over(&Goal::Exit(at()), USE_FIGHT_MS),
+        use_fight_over(&Goal::To(at()), USE_FIGHT_MS),
+    ];
+    vec![
+        (
+            "gun_only_past_a_blades_swing",
+            sim::probe::check(
+                shots == [false, true, false, false, false, true],
+                format!("at hand, past it, with a way, unseen, past a gun's range, 3 m up: {shots:?}"),
+            ),
+        ),
+        (
+            "use_stops_waiting_for_quiet",
+            sim::probe::check(
+                over == [false, true, false, false],
+                format!("a use before its time, at it; an exit, a walk at it: {over:?}"),
+            ),
+        ),
+    ]
 }
 
 /// A gun's chase at a body met where its model is drawn: TSL's sensor ball
@@ -493,7 +699,8 @@ pub(super) fn picks() -> sim::probe::Checks {
 /// passing (`closed_door_near`), but the goal's own is; a use or an exit
 /// whose way one shut
 /// fights the foes near first (`fights_first`); a walk, or a use with no
-/// door refused, does not.
+/// door refused, does not. A use is answered by its target speaking before
+/// any press, as by its door opening (`use_met`), but by no other talk.
 pub(super) fn shut_doors(base: &Snapshot, level: &sim::Level) -> sim::probe::Checks {
     let mut snapshot = base.clone();
     let Some(me) = snapshot
@@ -527,7 +734,22 @@ pub(super) fn shut_doors(base: &Snapshot, level: &sim::Level) -> sim::probe::Che
         fights_first(&Goal::Exit(at()), false, true, false),
         fights_first(&Goal::To(at()), false, true, true),
     ];
+    // Its target speaking, its door opening, the press answered; nothing.
+    let answers = [
+        use_met((false, true), false),
+        use_met((true, false), false),
+        use_met((false, false), true),
+        use_met((false, false), false),
+    ];
     vec![
+        (
+            "use_met_by_its_target_speaking_unpressed",
+            if answers == [true, true, true, false] {
+                Ok(format!("spoke, opened, pressed, nothing: {answers:?}"))
+            } else {
+                Err(format!("spoke, opened, pressed, nothing: {answers:?}"))
+            },
+        ),
         (
             "door_refused_not_pressed",
             if pressed == Some(0) && passed.is_none() {
@@ -565,8 +787,9 @@ pub(super) fn shut_doors(base: &Snapshot, level: &sim::Level) -> sim::probe::Che
 /// wide across the way from the player to a goal 16 m east. Turned back by
 /// it, the walk goes round it by its open end, no leg in it; with no open
 /// end, through it. A trigger the player stood in while talking and was
-/// jumped out of turned it back; one it walked out of did not. A walk
-/// approached off the mesh makes for the floor it would from the mesh
+/// jumped out of turned it back; one it walked out of did not. A body gone
+/// round twice where it stands is walled and the way keeps clear of it; one
+/// that moved between rounds is not. A walk approached off the mesh makes for the floor it would from the mesh
 /// (`Here::approach`).
 pub fn wall_probes() -> sim::probe::Checks {
     let mut world = match sim::SimWorld::new(sim::WorldConfig::one_seat(), sim::Level::arena()) {
@@ -743,9 +966,53 @@ pub fn wall_probes() -> sim::probe::Checks {
             },
         )
     };
+    // A body standing at (0, 0) on the way from `from` to `to`, gone round
+    // there twice (Moza in Chodo's office), and another gone round once at
+    // (0, 4) and then a metre on: the first's faces are walled and the way
+    // keeps a body's pass from it; the second, moved, is not; nor a hostile
+    // one gone round twice at (0, -4) (a storm beast on Malachor).
+    let walled_body = {
+        let mut turned = TurnedBack::default();
+        let (body, moving, foe) = (origin(0.0, 0.0), origin(0.0, 4.0), origin(0.0, -4.0));
+        let once = turned.went_round(body, false);
+        let moved = turned.went_round(moving, false) || turned.went_round(origin(1.0, 4.0), false);
+        let hostile = turned.went_round(foe, true) || turned.went_round(foe, true);
+        let twice = turned.went_round(body, false);
+        turned.wall(&Here::new(&level, &snapshot, &BTreeSet::new()));
+        let refused = BTreeSet::new();
+        let here = Here::new(&level, &snapshot, &refused).walled(&turned.walled);
+        let nearest = here.route(from, to, true).map(|corners| {
+            std::iter::once(from)
+                .chain(corners)
+                .collect::<Vec<_>>()
+                .windows(2)
+                .flat_map(|leg| {
+                    let (a, b) = (leg[0].map(|v| v * UNIT), leg[1].map(|v| v * UNIT));
+                    let steps = (flat(a, b) / 0.1).ceil().max(1.0) as usize;
+                    (0..=steps).map(move |k| {
+                        let t = k as f32 / steps as f32;
+                        flat([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, 0.0], [0.0; 3])
+                    })
+                })
+                .fold(f32::MAX, f32::min)
+        });
+        let pass = 2.0 * sim::motion::HALF_WIDTH * UNIT;
+        let detail = format!(
+            "walled after one round {once}, a moved body {moved}, a hostile one {hostile}, after two {twice}; the way's nearest to it {nearest:?} m"
+        );
+        (
+            "walk_walls_a_body_gone_round_twice_where_it_stands",
+            if !once && !moved && !hostile && twice && nearest.is_some_and(|m| m >= pass) {
+                Ok(detail)
+            } else {
+                Err(detail)
+            },
+        )
+    };
     vec![
         rounds,
         used,
+        walled_body,
         routed("walk_goes_round_a_trigger_that_turned_it_back", 5.0, true),
         routed("walk_goes_through_one_with_no_way_round", 10.0, false),
         left(
@@ -968,7 +1235,22 @@ pub fn draw_probes() -> sim::probe::Checks {
     let (scout_blade, scout_draw) = draws(Some(&scout));
     let (all_blade, _) = draws(Some(&all));
     let (sheetless_blade, _) = draws(None);
+    // A rifle limited to two feats (Iziz's escape: `w_brifle_18`), weighed
+    // for one with neither, one with the second, and one with Proficiency
+    // All.
+    let limited = {
+        use sim::inventory::properties::Limit;
+        let limits = [Limit::Feat(33), Limit::Feat(47), Limit::Class(1)];
+        [scout, trained(&[47]), all].map(|feats| super::gear::feat_limits_met(&feats, &limits))
+    };
     vec![
+        (
+            "draw_passes_over_a_gun_of_feats_not_trained",
+            sim::probe::check(
+                limited == [false, true, true],
+                format!("limited to feats 33 or 47: untrained, trained in 47, Proficiency All: {limited:?}"),
+            ),
+        ),
         (
             "draw_strongest_trained_blade",
             sim::probe::check(
