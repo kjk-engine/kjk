@@ -83,7 +83,11 @@ pub fn carry_old_name(folder: &Path) {
 /// `%APPDATA%` on Windows, else the XDG config folder. `None` without a
 /// home to tell it by. A folder under the old name is carried over.
 pub fn kjk_folder(var: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
-    let set = |name: &str| var(name).filter(|value| !value.is_empty()).map(PathBuf::from);
+    let set = |name: &str| {
+        var(name)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+    };
     let base = if cfg!(target_os = "macos") {
         set("HOME").map(|home| home.join("Library").join("Application Support"))
     } else if cfg!(windows) {

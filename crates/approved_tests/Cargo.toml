@@ -13,7 +13,6 @@ asset_odyssey.workspace = true
 bumps.workspace = true
 collision = { workspace = true, features = ["probes"] }
 collision_odyssey = { workspace = true, features = ["probes"] }
-edit = { workspace = true, features = ["probes"] }
 fmt_odyssey.workspace = true
 net = { workspace = true, features = ["probes"] }
 ragdoll = { workspace = true, features = ["probes"] }
@@ -30,9 +29,13 @@ vfs.workspace = true
 # (timeline_jolt_ceilings, weapon_holdings), never in CI.
 launcher = { path = "../launcher", optional = true }
 game = { workspace = true, optional = true }
+# The save editor's API: only with `--features editor` (save_edits), run by
+# editor.yml when the editor changes, never by the engine's own suite.
+edit = { workspace = true, features = ["probes"], optional = true }
 
 [features]
 rig = ["dep:launcher", "dep:game"]
+editor = ["dep:edit"]
 
 [lints]
 workspace = true

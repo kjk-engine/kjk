@@ -1681,10 +1681,10 @@ fn save_copy_round_trip() {
     probed("save story", &saves::story_probes(), 15);
 }
 
-/// The save editor's ground (`edit::probes::all`, proposed 2026-11-04,
-/// awaiting the owner): kjk's folder and the saves' found without the game;
-/// a save opened, or refused by its format version, cut short or missing;
-/// with installs, K1's and TSL's items and classes read without the game.
+/// The save editor's ground (`edit::probes::all`, approved 2026-11-04):
+/// what docs/TESTS.md's row lists. Only with `--features editor`
+/// (editor.yml), so the engine's own runs neither build nor run it.
+#[cfg(feature = "editor")]
 #[test]
 fn save_edits() {
     probed("save edits", &edit::probes::all(), 26);
