@@ -102,8 +102,8 @@ JA's format: polish, balance and design, not new generated content.
   with a relay where that fails). Releases carry no Steam; builds from
   source can join through Steam ([`docs/NET.md`](docs/NET.md)).
 - **The TSL campaign**, solo and co-op, past Peragus.
-- **Platforms**: Windows and Linux packages, the Steam Deck, a
-  gamepad scheme for play, autosave, GOG's registry.
+- **Platforms**: the Steam Deck, a gamepad scheme for play, autosave,
+  GOG's registry.
 
 ## Later, in any order
 

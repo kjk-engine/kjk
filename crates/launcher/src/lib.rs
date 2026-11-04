@@ -277,7 +277,7 @@ enum Command {
         #[arg(long)]
         headless: bool,
     },
-    /// A skeleton probe (I10): a JA saber combo on a KOTOR character.
+    /// A skeleton probe: a JA saber combo on a KOTOR character.
     /// `a` retargets JA's clips onto KOTOR's skeleton, `b` skins the KOTOR
     /// character onto JA's skeleton, `c` plays a KOTOR clip before `a`.
     Rig {
@@ -339,7 +339,7 @@ enum Command {
         #[arg(long)]
         out: Option<std::path::PathBuf>,
     },
-    /// Play (I13): a KOTOR character on a stage, moving as a JA player,
+    /// Play: a KOTOR character on a stage, moving as a JA player,
     /// with JA's third-person camera. Mouse to look, WASD to move, space to
     /// jump, C or Ctrl to crouch (while running: roll), Shift to walk, E to
     /// use (open a door), the left button to attack, the right one for the
@@ -378,7 +378,7 @@ enum Command {
         #[arg(long, default_value = "end_m01aa")]
         module: String,
     },
-    /// The games' movies (I20): Binks made ours by ffmpeg into the store
+    /// The games' movies: Binks made ours by ffmpeg into the store
     Movie {
         #[command(subcommand)]
         verb: MovieVerb,

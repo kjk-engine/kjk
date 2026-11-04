@@ -1,4 +1,4 @@
-# World state (I19)
+# World state
 
 What the game keeps about its world beyond what moves and fights: items and
 inventories, equipment, gold, the party table, stores, the journal, XP
@@ -117,8 +117,8 @@ on the authority; a save carries it.
   `ActionUseTalentOnObject`: the mind hands it to the scripts' step
   (`world::scripts::ItemTalents`), which uses the item (`State::
   item_talent`) once a round. Approved test `item_uses` (`droids`).
-- **Properties** (`inventory::properties`, `combat::gear`; journal
-  2026-10-05-item-properties, read from the executables): the session
+- **Properties** (`inventory::properties`, `combat::gear`;
+  read from the executables): the session
   reads every property in force (one without an `UpgradeType`, or with
   its row fitted) as a `Property`, its cost table resolved as the games
   read each (`session::items::read_property`), but those used when the
@@ -164,7 +164,7 @@ on the authority; a save carries it.
 - **On-hit** (`gear::on_hits`, `world::struck_by`): after a weapon's hit
   lands on a creature, each property in order: its chance, its save
   against its DC, its effect unless an immunity keeps it off (sleep, stun,
-  paralysis held as the Force's, C11; confusion; fear; Slow; an ability
+  paralysis held as the Force's, 3 s at most; confusion; fear; Slow; an ability
   drained a point for 30 s; a `poison.2da` row's poison; TSL's knockdown;
   death, which
   takes the hit points with the blow). A slay of a race takes the chance
@@ -322,7 +322,7 @@ on the authority; a save carries it.
   - A seat dresses only its body. The host also dresses a companion of
     the party table standing here that no seat drives (`items::may_dress`).
   - Any other ask is refused with `NotYours`, which names the seat
-    driving the member (I30 P14). So what a driven character wears comes
+    driving the member. So what a driven character wears comes
     off only by its player's hand.
   - A store buys what the party carries, never what anyone wears.
   - An item worn is one the party carried that fits the
@@ -637,8 +637,8 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   its creature in this module; who is in the party (KOTOR's three: the
   leader and two followers), the leader, AI styles, solo mode, the
   player's restrict mode, selectability. Kept in the scripts' state (a
-  save carries it, KJKV 10). Dialogue's action scripts change it mostly
-  (I18). TSL's executable keeps two of the screens' facts here, and so does
+  save carries it, KJKV 10). Dialogue's action scripts change it mostly.
+  TSL's executable keeps two of the screens' facts here, and so does
   ours (KJKV 50): the map jammed (`DisableMap`, `PT_DISABLEMAP`: the map
   page shows static, the HUD no minimap) and the tutorial windows shown
   (`ShowTutorialWindow`, `PT_TUT_WND_SHOWN`, a bit a row, cleared by a new
@@ -723,7 +723,7 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   chooser is told "<name> is busy." and the selection stays open, for
   the party screen to show again.
 - **Influence (TSL, `script::influence`).** As TSL's executable keeps it
-  (`CSWPartyTable`, `CSWSCreature::HandleAlignmentInfluence`, I35):
+  (`CSWPartyTable`, `CSWSCreature::HandleAlignmentInfluence`):
   - One per companion of 12 (`NPC_*` 0 to 11), -1 while unset, 0 for
     any other number. `SetInfluence` sets within 0 to 100. `ModifyInfluence`
     moves within 0 to 100, from 50 where unset. Neither checks
@@ -1042,8 +1042,8 @@ Stealth XP is not raised yet.
   it may go before the next) [verify], recommended feats and powers in
   order.
 - **When:** the party's XP (its pool) decides, and a level waits until it
-  is asked: a player's own, a guest's for the companion it drives (I30
-  P15), the host's for a companion no seat drives, one a guest dropped
+  is asked: a player's own, a guest's for the companion it drives,
+  the host's for a companion no seat drives, one a guest dropped
   included (`Action::LevelUpOn`, by `items::may_dress`). The level-up
   screen's picks as an action (`Action::LevelUp`, or `LevelUpOn`, into
   `State::levelling`), the feats and powers it leaves unpicked and the
@@ -1075,7 +1075,7 @@ kjk script stores k1 danm13 --opens k_pdan_pazaak     # a store that only sells
 kjk script stores tsl 203tel --opens a_m_chano        # every ware never runs out
 # Taking and wearing: Trask's locker emptied, the clothes and sword worn, his gate's GetItemInSlot
 kjk script equip k1
-# Co-op (I30 P14, P15): who dresses whom, a contested take, a driven companion's levels and its drop
+# Co-op: who dresses whom, a contested take, a driven companion's levels and its drop
 kjk sim probes
 # Larrim's own conversation opens his store (docs/UI.md: the screen), 1500 credits by hand
 kjk play --stage tar_m02aa --arrive wp_02_01 --gold 1500 --headless \
@@ -1217,7 +1217,7 @@ kjk play --stage end_m01aa --made scout:po_pfha2:Mira --run k_con_isfemale --hea
 - **Travel.** `ShowGalaxyMap(planet)` tells every player
   (`Screen::GalaxyMap`, with the planets available and selectable then);
   the host picks a planet available and selectable on the galaxy map
-  screen (`docs/UI.md`; `Action::Travel`, a guest's is not taken: I30 P6):
+  screen (`docs/UI.md`; `Action::Travel`, a guest's is not taken):
   `GetSelectedPlanet` answers it and the travel script runs for the player
   (K1's `k_sup_galaxymap`: the take-off, the next module). `kjk
   playthrough`'s `travel N` picks from the map shown, as its Accept would
@@ -1225,7 +1225,7 @@ kjk play --stage end_m01aa --made scout:po_pfha2:Mira --run k_con_isfemale --hea
 - **The game's end** (`EndGame`, `StartCreditSequence`): with its death
   screen (`TRUE`, also the default K1's argument-less calls take; nine of
   K1's calls, the turret's hull and the krayt dragon among them) the game
-  is lost: the party's loss (`Snapshot::lost`, the fall's box, I30 P13).
+  is lost: the party's loss (`Snapshot::lost`, the fall's box).
   Without it (`FALSE`: K1's ending; Manaan's life sentence; Taris destroyed
   after a fifth swoop race too slow, after its movie) every player goes to
   the main menu (`Screen::End`), once credits started by

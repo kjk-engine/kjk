@@ -83,11 +83,12 @@ kjk saves check --mute                                    # the whole corpus
 
 `.github/workflows/release.yml` runs on a `v…` tag, which only the owner
 pushes: it makes the packages, checks each holds the program, the
-readme and the three licence texts (and on macOS the plist and icon,
-and that `kjk --help` runs), then puts them on a **draft** Release with
+readme and the three licence texts (and on macOS the plist and icon)
+and that its `kjk --help` runs, then puts them on a **draft** Release with
 `SHA256SUMS`; the owner reviews it and publishes. Run by hand (Actions →
 release → Run workflow) it makes the packages as the run's artifacts and
-no Release. Only macOS on Apple silicon so far.
+no Release. Each package is built on its own runner: macOS on Apple
+silicon, Windows and Linux on x86-64 (Ubuntu 22.04's glibc).
 
 Publishing the draft announces it in the Discord server's #releases
 channel (`.github/workflows/discord-release.yml`, the message in
@@ -171,7 +172,8 @@ Nothing is written next to the program or into a game's folder.
 - **GOG.** Its two default Windows folders only: no registry (a custom
   folder), no Heroic or Lutris on Linux, no macOS. The setup's Locate covers
   the rest.
-- **Linux and the Steam Deck** have not run a build. The Deck's Game Mode
+- **Linux and the Steam Deck** have not been played on; CI builds the
+  Linux package and starts it. The Deck's Game Mode
   folder dialog depends on its desktop portal; Type path is the fallback.
 - **KOTOR II** is required for the menus' look; making it optional (KOTOR's
   own menus) would let more players in.

@@ -4,7 +4,7 @@ The world changes only through `sim::step(world, tick, input, msec, reason)
 -> Snapshot`, and between steps through `SimWorld::install` (a module's
 commit, `docs/LIFECYCLE.md`). Authority, prediction and replay call `step`;
 `StepReason::Predict` skips what only the authority runs (the placeholder
-spawner, module transitions, scripts from I16), `Replay` runs exactly what
+spawner, module transitions, scripts), `Replay` runs exactly what
 `Authority` does. Players move by JA's movement (`sim::motion`,
 `docs/MOVEMENT.md`), use doors and walk through doors and triggers
 (`interact`); wanderers are the placeholder world's.
@@ -23,12 +23,12 @@ spawner, module transitions, scripts from I16), `Replay` runs exactly what
 - Randomness: two PCG32 streams saved in the state: `shared` (every step)
   and `authority` (authority-only systems), so prediction stays in step.
 - Time: whole milliseconds. `TICK_HZ` in `rate.rs` is the one rate constant:
-  125 (8 ms, OpenJK's default movement step; Decision 3). A rate that does
+  125 (8 ms, OpenJK's default movement step; Decision 3, `ROADMAP.md`). A rate that does
   not divide 1000 gets uneven ticks (60 Hz: 16, 17, 17). `Accumulator` turns
   wall time into due ticks, at most `MAX_CATCH_UP` (8) per frame, and gives
   the blend `alpha`: frames run at the display's rate and draw between the
   last two snapshots, so smoothness does not depend on the tick.
-- `Snapshot`: plain values, one byte encoding (`KJKS` v65: characters
+- `Snapshot`: plain values, one byte encoding (`KJKS` v79: characters
   (players and creatures) carry their `MotionState` and `Fighter`, players
   their `Sheet`, bolts their flight (docs/COMBAT.md); the module (`place`,
   with the players it was planned for), its objects' changing state
@@ -45,7 +45,8 @@ spawner, module transitions, scripts from I16), `Replay` runs exactly what
   scripts gave it for good, the progress the feedback floating over
   objects, the tail the in-game screens as scripts leave them, from v63; a minigame's course its jump key, jump speed, held speed and
   destroyed obstacles, from v64; the screens whether TSL's Bao-Dur has been
-  met, from v65), BLAKE3 `hash()`.
+  met, from v65; the later steps are named in `sim::since`, the full list is
+  `snapshot.rs`'s), BLAKE3 `hash()`.
   The modules left
   (`Stash`) change only at an install: shared (a snapshot's copy is a
   pointer), encoded and hashed once then; the tail carries their digest,
@@ -55,7 +56,7 @@ spawner, module transitions, scripts from I16), `Replay` runs exactly what
   one fixed-length record per entity, tail and stash (`Parts`), what the
   network diffs; `Snapshot::join` decodes them back.
   `Presented` (last two snapshots, `alpha`) is what render, UI and audio get.
-- `Save` (`KJKV` v52: TSL's influence, puppets, `DisableHealthRegen`,
+- `Save` (`KJKV` v72: TSL's influence, puppets, `DisableHealthRegen`,
   `SetOrientOnClick`, mines set on doors, the workbench's components and
   chemicals, the companions' base alignments, the forfeit conditions, the
   second weapon set and a queued `ActionSwitchWeapons`, the components and
@@ -63,7 +64,8 @@ spawner, module transitions, scripts from I16), `Replay` runs exactly what
   state effects waiting, the Demolitions a mine was set with, the
   heartbeats `ForceHeartbeat` ran, the map jammed, the tutorial windows
   shown, the areas' transit, a queued bark, the UTE encounters as they run,
-  a puppet's queued follow of its owner): rate, the level it
+  a puppet's queued follow of its owner; the later steps are named in
+  `sim::since`, the full list is `save.rs`'s): rate, the level it
   was made in (`LevelId`: name,
   digest), snapshot, and the script VM's state (`script::State`: globals,
   queues, conversations, goods, party, journal, XP, the goals and
@@ -73,14 +75,14 @@ spawner, module transitions, scripts from I16), `Replay` runs exactly what
   The game keeps saves on disk with the `saves` crate
   (`UI.md`); a host's players keep a copy of each
   (`saves::copies`, `r0001`…).
-- `Recording` (`KJKR` v32): the level, start snapshot, each tick's msec and
+- `Recording` (`KJKR` v39): the level, start snapshot, each tick's msec and
   input, a hash every 100 ticks and at the end, the installs'
   announcements (`KJKA` v4, with their seats and players); `play(level)` /
   `play_with(level, levels)` refuse another level and name the first
   checkpoint (or install) off.
 
 ## Rules every system keeps
-The sim must be bit-identical on every platform (Decision 3): co-op and
+The sim must be bit-identical on every platform (Decision 3, `ROADMAP.md`): co-op and
 shared replays run between Windows, Linux and macOS machines.
 - One thread, a fixed `chain`; anything order-dependent (random draws above
   all) visits entities by `SimId` or seat, never in storage order, which a
@@ -137,7 +139,7 @@ network client rebuilt (`solo`, docs/NET.md); `sim_view` draws from that.
 ## Commands
 ```bash
 kjk sim determinism [--ticks 10000] [--hz N] [--seed N] [--pilot N] [--expect HASH]
-kjk sim probes [--only GROUP,CASE]   # groups: containers, drivers, switch, coop talk, coop items, scaling, encounter count, falls, party, save copies, save refusals, minigame, galaxy and end, pazaak, pazaak view, feats, destroys, sheath
+kjk sim probes [--only GROUP,CASE]   # groups: the list in crates/launcher/src/sim_probes.rs (containers, falls, party, dual pistols, …)
 kjk sim record run.kjkr [--ticks N]  ;  kjk sim replay run.kjkr
 kjk sim save s.kjkv --ticks 5000 --then 5000  ;  kjk sim load s.kjkv --then 5000
 kjk sim rates [--hz 20,40,60,125] [--entities 8,256,2048]   # use --release
