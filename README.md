@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/logo/kjk.svg" alt="kjk" width="160"></p>
+<p align="center"><img src="docs/logo/banner.png" alt="kjk: KOTOR 1, KOTOR 2, in co-op with Jedi Academy combat"></p>
 
 # kjk
 
