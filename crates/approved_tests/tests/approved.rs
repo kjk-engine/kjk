@@ -1623,7 +1623,8 @@ fn minigame_coop() {
 
 /// The galaxy map and the game's end: `sim::galaxy::probes`, on the
 /// proving ground with two seats and scripts written here: the map a script
-/// shows reaches both with the planets made available and selectable; the
+/// shows reaches both with the planets made available and selectable, K1's
+/// Yavin Station among them as its live content check makes it (TSL none); the
 /// guest's travel and the host's to a planet not selectable run nothing,
 /// the host's runs the travel script, which hears the planet;
 /// `EndGame(TRUE)` and K1's argument-less `EndGame()` lose the game,
@@ -1632,7 +1633,7 @@ fn minigame_coop() {
 /// the sim alone.
 #[test]
 fn galaxy_and_end() {
-    probed("galaxy and end", &sim::galaxy::probes(), 7);
+    probed("galaxy and end", &sim::galaxy::probes(), 8);
 }
 
 /// Pazaak (`docs/PAZAAK.md`): `sim::pazaak::probes`, on decks of our own:

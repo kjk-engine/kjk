@@ -223,6 +223,9 @@ pub fn bound(name: &str) -> bool {
 /// TSL's game key (`ModuleData::game`), for its executable's own rules.
 const TSL: &str = "tsl";
 
+/// K1's Yavin Station: its live content package (`LIVE_CONTENT_PKG1`).
+const LIVE_YAVIN: i32 = 1;
+
 /// The least range `ActionFollowOwner` follows at (metres).
 const FOLLOW_LEAST: f32 = rules::scripts::moves::FOLLOW_LEAST;
 
@@ -2230,8 +2233,13 @@ impl Engine<'_> {
             }
             // The module's resref (`GetModuleName` is its title).
             GetModuleFileName => string(view.module.name.as_str()),
-            // No downloadable content here (KOTOR's Xbox Live check).
-            GetIsLiveContentAvailable => Value::Int(0),
+            // KOTOR's Xbox Live packages: K1's PC and Mac releases ship the
+            // first, Yavin Station (`liv_m99aa`, `planetary.2da` row 11),
+            // which `k_pebn_galaxy` puts on the galaxy map by this check;
+            // there are no others, and TSL ships none.
+            GetIsLiveContentAvailable => {
+                truth(int(args, 0) == LIVE_YAVIN && view.module.game != TSL)
+            }
             // The PC build (TSL's scripts pick their mouse-and-keyboard
             // lines by it), and no pad to rumble.
             GetIsXBox | PlayRumblePattern | StopRumblePattern => Value::Int(0),

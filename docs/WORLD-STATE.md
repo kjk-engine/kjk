@@ -1214,6 +1214,9 @@ kjk play --stage end_m01aa --made scout:po_pfha2:Mira --run k_con_isfemale --hea
 - **Planets** by `planetary.2da` row: those scripts make available (shown)
   and selectable (travelled to) (`Set/GetPlanetAvailable`,
   `Set/GetPlanetSelectable`), kept in the scripts' state (KJKV 17).
+  `GetIsLiveContentAvailable` answers K1's package 1, Yavin Station
+  (`liv_m99aa`, row 11), which every PC and Mac release ships and K1's
+  `k_pebn_galaxy` adds to the map by it; no other package, and none in TSL.
 - **Travel.** `ShowGalaxyMap(planet)` tells every player
   (`Screen::GalaxyMap`, with the planets available and selectable then);
   the host picks a planet available and selectable on the galaxy map
