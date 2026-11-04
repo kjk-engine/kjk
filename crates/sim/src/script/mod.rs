@@ -3682,16 +3682,10 @@ fn make_npc(
         for item_id in state.items.ids_held_by(kept.from) {
             if let Some(mut item) = state.items.get_mut(&item_id) {
                 item.holder = id.0;
-                // Dressed as the table kept it, whatever the creature it
-                // left wore last (Dantooine's `k_pdan_cut01` strips Bastila
-                // for the sparring, on a creature then destroyed).
-                if let Some(worn) = &kept.worn {
-                    item.slot = worn
-                        .iter()
-                        .position(|kept| *kept == item_id)
-                        .map(|slot| slot as u8);
-                }
             }
+        }
+        if let Some(worn) = &kept.worn {
+            state.dress_as_kept(id.0, worn);
         }
         if let Some(career) = state.careers.remove(&kept.from) {
             state.careers.insert(id.0, career);

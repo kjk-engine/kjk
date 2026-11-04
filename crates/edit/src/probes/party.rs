@@ -106,7 +106,7 @@ int RemoveAvailableNPC(int nNPC);
 
 /// A K1 save as kjk makes one in `MODULE`: its world from the plan, one
 /// player (the dev soldier), stepped once.
-fn k1_save(discovery: &vfs::Discovery) -> Result<Save, String> {
+pub(super) fn k1_save(discovery: &vfs::Discovery) -> Result<(sim::Level, Save), String> {
     let level = crate::check::planned(discovery, vfs::Game::Kotor1, MODULE, (1, 1))?;
     let config = sim::WorldConfig {
         seed: 1,
@@ -127,16 +127,17 @@ fn k1_save(discovery: &vfs::Discovery) -> Result<Save, String> {
         rate.msec(1),
         sim::StepReason::Authority,
     );
-    Ok(Save {
+    let save = Save {
         hz: rate.hz(),
         level: level.id(),
         snapshot: world.snapshot(),
         script: world.script_state().clone(),
-    })
+    };
+    Ok((level, save))
 }
 
 /// K1's install, else why the check is skipped.
-fn k1() -> Result<vfs::Discovery, String> {
+pub(super) fn k1() -> Result<vfs::Discovery, String> {
     let discovery = super::discovery();
     match discovery.get(vfs::Game::Kotor1) {
         Some(_) => Ok(discovery),
@@ -153,7 +154,7 @@ pub(super) fn party_joins_k1() -> Result<String, String> {
         Err(skipped) => return Ok(skipped),
     };
     let catalog = Catalog::new([]);
-    let mut save = k1_save(&discovery)?;
+    let (_, mut save) = k1_save(&discovery)?;
     {
         let mut edit = Editor::new(&mut save, &catalog);
         edit.make_available(BASTILA, BASTILA_TEMPLATE)?;
@@ -202,7 +203,7 @@ pub(super) fn checked_k1() -> Result<String, String> {
     let source = crate::InstallSource::open(&discovery, vfs::Game::Kotor1)?;
     let saber = session::item_facts(&source, SABER).ok_or("no lightsaber in the install")?;
     let catalog = Catalog::new([saber]);
-    let mut save = k1_save(&discovery)?;
+    let (_, mut save) = k1_save(&discovery)?;
     let saber = {
         let mut edit = Editor::new(&mut save, &catalog);
         edit.set_credits(777)?;

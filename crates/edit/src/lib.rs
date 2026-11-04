@@ -9,17 +9,18 @@ mod characters;
 mod check;
 mod data;
 mod edits;
+mod keeping;
 mod open;
 mod party;
 mod sheets;
 mod warnings;
 
 pub use characters::{Character, Who, characters, unsheeted};
-pub use check::{Checked, load_and_step, round_trip};
+pub use check::{Checked, level_of, load_and_step, round_trip};
 pub use data::{Data, InstallSource};
 pub use edits::Editor;
 pub use open::{Opened, Refusal, open, open_bytes};
-pub use party::{PartyChange, pending_party};
+pub use party::{PartyChange, party_after, pending_party};
 pub use warnings::{feat_warning, power_warning};
 
 #[cfg(feature = "probes")]

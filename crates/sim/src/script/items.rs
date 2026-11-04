@@ -22,6 +22,15 @@ use crate::inventory::{
 };
 use crate::notice::Notice;
 
+/// Whether an equip holds to the wearer's proficiencies and the item's use
+/// limits (`State::equip_refusal`): play does; a tool outside play may
+/// warn of them instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Limits {
+    Kept,
+    Warned,
+}
+
 /// An item worn: its slot, template and upgrades fitted (K1's rows as
 /// bits, TSL's upgrade items by slot).
 pub(crate) type Worn = (u8, String, u32, Vec<String>);
@@ -850,7 +859,45 @@ impl State {
         (who, wearer): (u32, &Wearer),
         action: Action,
     ) -> Result<(), Notice> {
-        let feats = &wearer.feats;
+        self.wear_with(catalog, out, (who, wearer), action, Limits::Kept)
+    }
+
+    /// The items `holder` carries slotted as the party table keeps them
+    /// (`Kept::worn`), whatever the creature they left wore last
+    /// (Dantooine's `k_pdan_cut01` strips Bastila for the sparring, on a
+    /// creature then destroyed): as `make_npc` dresses one made from it.
+    pub fn dress_as_kept(&mut self, holder: u32, worn: &[u32; slots::COUNT as usize]) {
+        for item_id in self.items.ids_held_by(holder) {
+            if let Some(mut item) = self.items.get_mut(&item_id) {
+                item.slot = worn
+                    .iter()
+                    .position(|kept| *kept == item_id)
+                    .map(|slot| slot as u8);
+            }
+        }
+    }
+
+    /// Why `wearer` may not use `facts` (a proficiency it lacks, the
+    /// item's use limits), as `wear` refuses it; `None` when it may.
+    pub fn equip_refusal(facts: &ItemFacts, wearer: &Wearer) -> Option<Notice> {
+        if !passive::may_equip(&wearer.feats, &facts.needs) {
+            return Some(Notice::Line(passive::NOT_PROFICIENT));
+        }
+        properties::may_wear(&facts.limits, wearer)
+            .err()
+            .map(Notice::Line)
+    }
+
+    /// `wear`, the proficiencies and use limits held to (`Limits::Kept`)
+    /// or not.
+    fn wear_with(
+        &mut self,
+        catalog: &Catalog,
+        out: &mut Out,
+        (who, wearer): (u32, &Wearer),
+        action: Action,
+        limits: Limits,
+    ) -> Result<(), Notice> {
         match action {
             Action::Equip { item, slot } | Action::EquipOn { item, slot, .. } => {
                 let (stack, facts) = self
@@ -876,10 +923,10 @@ impl State {
                     // band nor stealth unit, nor the Exile a droid's device.
                     .filter(|(_, facts)| facts.fits(wearer.race))
                     .ok_or(Notice::CannotEquip)?;
-                if !passive::may_equip(feats, &facts.needs) {
-                    return Err(Notice::Line(passive::NOT_PROFICIENT));
+                if let (Limits::Kept, Some(refused)) = (limits, Self::equip_refusal(&facts, wearer))
+                {
+                    return Err(refused);
                 }
-                properties::may_wear(&facts.limits, wearer).map_err(Notice::Line)?;
                 // The hands pair (`inventory::pairs`): an off hand takes only
                 // what goes with its main hand's weapon; a main hand's new
                 // weapon sends an off hand that no longer goes with it back.
@@ -1017,19 +1064,21 @@ impl State {
 
     /// `action` (`Action::Equip` of an item the party carries, or
     /// `Action::Unequip`) done on `who` outside play, by the rules a
-    /// player's own goes through (`wear`): its `sheet` dressed anew as the
-    /// step's end dresses it. For a tool that changes a save (the save
-    /// editor); a refusal as its player is told it.
+    /// player's own goes through (`wear`), its proficiencies and use limits
+    /// held to or not (`limits`): its `sheet` dressed anew as the step's
+    /// end dresses it. For a tool that changes a save (the save editor,
+    /// which warns of those limits rather than holding to them); a refusal
+    /// as its player is told it.
     pub fn wear_outside(
         &mut self,
         catalog: &Catalog,
         (who, wearer): (u32, &Wearer),
         sheet: Sheet,
-        action: Action,
+        (action, limits): (Action, Limits),
     ) -> Result<Sheet, Notice> {
         let mut out = Out::default();
         let before = self.worn(who);
-        self.wear(catalog, &mut out, (who, wearer), action)?;
+        self.wear_with(catalog, &mut out, (who, wearer), action, limits)?;
         Ok(self.redress(catalog, sheet, &before, &self.worn(who)))
     }
 }

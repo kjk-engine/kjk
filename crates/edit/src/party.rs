@@ -5,6 +5,7 @@
 //! (`make_npc`: its sheet, items and career as the party table keeps
 //! them). Creature creation is the engine's, which a save alone cannot do.
 
+use std::collections::BTreeSet;
 use std::fmt;
 
 use sim::Save;
@@ -57,6 +58,15 @@ impl Editor<'_> {
     /// Companion `npc` (available by then) made beside the first player
     /// and joined to the party when the save loads.
     pub fn join(&mut self, npc: u8) -> Result<(), String> {
+        let (available, members) = party_after(self.save);
+        if members.contains(&npc) {
+            return Err(format!("companion {npc} is in the party already"));
+        }
+        if !available.contains(&npc) {
+            return Err(format!(
+                "companion {npc} is not available: make it available first"
+            ));
+        }
         let npc = i32::from(npc);
         self.queue(vec![
             Call::Routine("GetFirstPC", 0),
@@ -70,6 +80,9 @@ impl Editor<'_> {
 
     /// Companion `npc` out of the party when the save loads.
     pub fn leave(&mut self, npc: u8) -> Result<(), String> {
+        if !party_after(self.save).1.contains(&npc) {
+            return Err(format!("companion {npc} is not in the party"));
+        }
         self.queue(vec![
             int(i32::from(npc)),
             Call::Routine("RemovePartyMember", 1),
@@ -78,6 +91,9 @@ impl Editor<'_> {
 
     /// Companion `npc` no longer available when the save loads.
     pub fn remove_available(&mut self, npc: u8) -> Result<(), String> {
+        if !party_after(self.save).0.contains(&npc) {
+            return Err(format!("companion {npc} is not available"));
+        }
         self.queue(vec![
             int(i32::from(npc)),
             Call::Routine("RemoveAvailableNPC", 1),
@@ -100,6 +116,54 @@ pub fn pending_party(save: &Save) -> Vec<PartyChange> {
         .filter_map(|pending| calls::steps(&pending.script)?.ok())
         .filter_map(|steps| change(&steps))
         .collect()
+}
+
+impl PartyChange {
+    /// The companion it changes.
+    pub fn npc(&self) -> u8 {
+        match self {
+            PartyChange::MadeAvailable { npc, .. }
+            | PartyChange::Joins { npc }
+            | PartyChange::Leaves { npc }
+            | PartyChange::Forgotten { npc } => *npc,
+        }
+    }
+}
+
+/// The companions the party table holds and the party's members once
+/// `save`'s queued changes have run, each as its routine makes it.
+pub fn party_after(save: &Save) -> (BTreeSet<u8>, Vec<u8>) {
+    let party = &save.script.party;
+    let mut available: BTreeSet<u8> = party.available.keys().copied().collect();
+    let mut members = party.members.clone();
+    for change in pending_party(save) {
+        let npc = change.npc();
+        match change {
+            PartyChange::MadeAvailable { .. } => {
+                available.insert(npc);
+            }
+            PartyChange::Joins { .. } if !members.contains(&npc) => members.push(npc),
+            PartyChange::Joins { .. } => {}
+            PartyChange::Leaves { .. } => members.retain(|member| *member != npc),
+            PartyChange::Forgotten { .. } => {
+                available.remove(&npc);
+                members.retain(|member| *member != npc);
+            }
+        }
+    }
+    (available, members)
+}
+
+/// The last queued change of `save`'s that `party`, once it loaded and
+/// stepped, does not show made; `None` when every one was.
+pub(crate) fn unmade(save: &Save, party: &sim::script::party::Party) -> Option<PartyChange> {
+    let (available, members) = party_after(save);
+    let changes = pending_party(save);
+    changes.into_iter().rev().find(|change| {
+        let npc = change.npc();
+        party.available.contains_key(&npc) != available.contains(&npc)
+            || party.members.contains(&npc) != members.contains(&npc)
+    })
 }
 
 /// The change a queued run's steps make, if it is one of the party's.

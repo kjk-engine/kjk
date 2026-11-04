@@ -16,7 +16,7 @@ by, made `pub` where it lives:
 | Edit | The rule it goes through |
 |---|---|
 | add, remove, restack an item | `script::State::make_item` (stacks as scripts' items join) |
-| equip, unequip | `script::State::wear_outside`: the players' own `wear` (slot, droid or human, proficiency, use limits, hand pairing, splitting a stack), the sheet dressed as a step's end dresses it |
+| equip, unequip | `script::State::wear_outside`: the players' own `wear` (slot, droid or human, hand pairing, splitting a stack), the sheet dressed as a step's end dresses it; the proficiencies and use limits warned of (`Editor::equip_warning`, from `State::equip_refusal`), not held to |
 | grant, remove a feat | `combat::passive::learn` / `unlearn` (Toughness's HP for every level, Force Sensitive's FP) |
 | grant, remove a power | the level-up's insert into `Sheet::powers` |
 | set an ability | the score, a Constitution moving the most HP as effects move them (`combat::effects::constitution_moved`: the modifier's change a level) |
@@ -46,8 +46,15 @@ views as set, so the views agree before that step too.
 A character is a seat's player, a companion in the party (its body in the
 module), or one the party table keeps away from it (`Who::Away`: its
 `Kept` sheet, points and slots). Every per-character edit reaches all
-three. A member whose body has no sheet yet, and whose module's facts give
-none, is listed apart (`unsheeted`): load and save it in kjk once.
+three. An away companion whose creature stands in the module (made, not
+joined) is edited on that body too, since joining takes it as it stands.
+One with no creature is first slotted as the table keeps it
+(`State::dress_as_kept`), as the creature made of it will be.
+
+A creature its module placed holds no sheet in the snapshot until its
+equipment changes. Its sheet is its module's: give the editor the save's
+level (`edit::level_of`, `Editor::with_level`) to edit it, and to list it
+(`characters`, `unsheeted`).
 
 ## Party changes are queued
 
@@ -63,7 +70,10 @@ A queued run is a pending script whose name is `kjk:` and its calls
 written out (`sim::script::calls::queued`). No resref holds a `:`, so none
 is taken for a game's script. Its program is assembled from the level's
 own routine catalogue each time it runs (`calls::read`). `pending_party`
-lists the queued changes in order, for the editor's change list.
+lists the queued changes in order, for the editor's change list, and
+`party_after` the table they leave. A change that table would not take
+(joining twice, joining one not available, sending off one not in the
+party) is refused.
 
 ## Checks before a write
 
@@ -71,8 +81,9 @@ lists the queued changes in order, for the editor's change list.
 - `load_and_step`: with an install, the save's module planned as kjk plans
   it (`session::plan`; animation lengths stood in, as the launcher's own
   module checks plan them), the save made a world (`Save::world`:
-  re-stamped and reconciled), and stepped. Its queued party changes run.
-  A module the install lacks is refused by name.
+  re-stamped and reconciled), and stepped. Its queued party changes run,
+  and one the party then does not show made fails the check, named. A
+  module the install lacks is refused by name.
 
 A panic in either is an error naming what it was doing, never unwound
 into the editor. Writes go through `saves` (a temporary folder, then a

@@ -41,16 +41,19 @@ pub fn load_and_step(
     ticks: u64,
 ) -> Result<Checked, String> {
     round_trip(save)?;
-    stepped(save, discovery, ticks).map(|_| Checked::Stepped { ticks })
+    let world = stepped(save, discovery, ticks)?;
+    match crate::party::unmade(save, &world.script_state().party) {
+        Some(change) => Err(format!(
+            "the queued change \"{change}\" did not happen as the save loaded"
+        )),
+        None => Ok(Checked::Stepped { ticks }),
+    }
 }
 
-/// `save` loaded in its module and stepped `ticks` ticks: the world then.
-pub(crate) fn stepped(
-    save: &Save,
-    discovery: &vfs::Discovery,
-    ticks: u64,
-) -> Result<SimWorld, String> {
-    caught("loading and stepping it", || {
+/// The level `save` is in, planned as `discovery`'s install has it (for
+/// `Editor::with_level`, and the load `load_and_step` makes).
+pub fn level_of(save: &Save, discovery: &vfs::Discovery) -> Result<Level, String> {
+    caught("planning its level", || {
         let place = save
             .snapshot
             .place
@@ -60,7 +63,18 @@ pub(crate) fn stepped(
             .filter(|game| *game != vfs::Game::JediAcademy)
             .ok_or(format!("{}: not a KOTOR game", place.game))?;
         let seats = (save.snapshot.seats(), place.players);
-        let level = planned(discovery, game, &place.module, seats)?;
+        planned(discovery, game, &place.module, seats)
+    })
+}
+
+/// `save` loaded in its module and stepped `ticks` ticks: the world then.
+pub(crate) fn stepped(
+    save: &Save,
+    discovery: &vfs::Discovery,
+    ticks: u64,
+) -> Result<SimWorld, String> {
+    let level = level_of(save, discovery)?;
+    caught("loading and stepping it", || {
         let rate = TickRate::new(save.hz).ok_or(format!("the save's {} Hz", save.hz))?;
         let mut world = save.world(&level, 1, None)?;
         let (seats, from) = (save.seats_for(1), world.snapshot().tick);

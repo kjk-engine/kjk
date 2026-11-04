@@ -21,7 +21,7 @@ pub fn all() -> Vec<Probe> {
         ("unknown_item_refused", unknown_item_refused()),
         ("equip_and_unequip", equip_and_unequip()),
         ("equip_away", equip_away()),
-        ("equip_needs_its_feat", equip_needs_its_feat()),
+        ("equip_warned", companions::equip_warned()),
         ("learn_unlearn_identity", sheets::learn_unlearn_identity()),
         ("sheet_setters", sheets::sheet_setters()),
         ("pick_warnings_k1", sheets::pick_warnings(vfs::Game::Kotor1)),
@@ -29,9 +29,15 @@ pub fn all() -> Vec<Probe> {
         ("party_joins_k1", party::party_joins_k1()),
         ("checked_k1", party::checked_k1()),
         ("panic_told", party::panic_told()),
+        ("placed_member_k1", companions::placed_member_k1()),
+        ("away_standing", companions::away_standing()),
+        ("kept_slots_rule", companions::kept_slots_rule()),
+        ("party_held_to_table", companions::party_held_to_table()),
+        ("unmade_change_k1", companions::unmade_change_k1()),
     ]
 }
 
+mod companions;
 mod party;
 mod sheets;
 
@@ -144,18 +150,6 @@ fn kept_away(save: &mut sim::Save) -> Result<crate::Who, String> {
         worn: Some([0; sim::inventory::slots::COUNT as usize]),
     });
     Ok(crate::Who::Away { npc: 0 })
-}
-
-/// A blade that needs a feat the player lacks is refused, in words.
-fn equip_needs_its_feat() -> Result<String, String> {
-    let (_, mut save) = sim::fixtures::kitchen_sink();
-    let catalog = armory();
-    let mut edit = crate::Editor::new(&mut save, &catalog);
-    let blade = edit.add_item(sim::inventory::PARTY, MASTERS, 1)?;
-    match edit.equip(&crate::Who::Player(sim::Seat(0)), blade, RIGHT_WEAPON) {
-        Err(why) if why.contains("feat") => Ok(why),
-        other => Err(format!("{other:?}")),
-    }
 }
 
 const MEDPAC: &str = "g_i_medeqpmnt01";

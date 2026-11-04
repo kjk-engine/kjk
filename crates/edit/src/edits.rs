@@ -7,25 +7,40 @@
 
 use sim::action::Action;
 use sim::combat::passive;
-use sim::combat::sheet::Sheet;
+use sim::inventory::Catalog;
 use sim::inventory::properties::Wearer;
-use sim::inventory::{Catalog, slots};
 use sim::notice::Notice;
-use sim::script::party::Kept;
+use sim::script::items::Limits;
 use sim::script::set_global;
-use sim::{EntityState, Kind, Save, SimId};
+use sim::{Level, Save};
 
 use crate::Who;
 
-/// A save being changed, with the items an install holds.
+/// A save being changed, with the items an install holds, and the level
+/// its module makes when one is at hand (the sheets of creatures the save
+/// does not hold one for yet).
 pub struct Editor<'a> {
     pub(crate) save: &'a mut Save,
     pub(crate) catalog: &'a Catalog,
+    pub(crate) level: Option<&'a Level>,
 }
 
 impl<'a> Editor<'a> {
     pub fn new(save: &'a mut Save, catalog: &'a Catalog) -> Editor<'a> {
-        Editor { save, catalog }
+        Editor {
+            save,
+            catalog,
+            level: None,
+        }
+    }
+
+    /// The same, with the save's level (`edit::level_of`): a character
+    /// whose body holds no sheet of its own yet is edited from its module's.
+    pub fn with_level(self, level: &'a Level) -> Editor<'a> {
+        Editor {
+            level: Some(level),
+            ..self
+        }
     }
 
     /// The party's credits.
@@ -120,8 +135,9 @@ impl<'a> Editor<'a> {
 
 impl Editor<'_> {
     /// Item `item`, one the party carries, put on `who` in `slot`, by the
-    /// rules a player's own equip goes through; what was there back with
-    /// the party.
+    /// rules a player's own equip goes through but for the proficiencies
+    /// and use limits, which `equip_warning` tells instead (spec: warn,
+    /// don't block); what was there back with the party.
     pub fn equip(&mut self, who: &Who, item: u32, slot: u8) -> Result<(), String> {
         self.wear(who, Action::Equip { item, slot })
     }
@@ -131,78 +147,73 @@ impl Editor<'_> {
         self.wear(who, Action::Unequip(slot))
     }
 
+    /// Why play would not let `who` use item `item` (a proficiency it
+    /// lacks, naming the feats, or the item's use limits); `None` when it
+    /// would.
+    pub fn equip_warning(&self, who: &Who, item: u32) -> Result<Option<String>, String> {
+        let template = &self
+            .save
+            .script
+            .items
+            .get(&item)
+            .ok_or(no_item(item))?
+            .template;
+        let facts = self
+            .catalog
+            .get(template)
+            .ok_or(format!("no item {template:?} in the install"))?;
+        let keeping = self.keeping(who)?;
+        let wearer = self.wearer(keeping.holder, &keeping.sheet, keeping.player);
+        Ok(
+            sim::script::State::equip_refusal(facts, &wearer).map(|notice| {
+                let lacked: Vec<String> = facts
+                    .needs
+                    .iter()
+                    .filter(|feat| !wearer.feats.has(**feat))
+                    .map(u16::to_string)
+                    .collect();
+                match notice {
+                    Notice::Line(passive::NOT_PROFICIENT) => {
+                        format!("needs feat {} (a proficiency)", lacked.join(" or "))
+                    }
+                    other => refused(other),
+                }
+            }),
+        )
+    }
+
     /// `action` done on `who`, its sheet dressed anew where the save keeps
-    /// it: its body's, or the party table's for a companion away.
+    /// it (`keeping`). A companion the table keeps with no creature is
+    /// first slotted as the table keeps it, as the creature made of it
+    /// will be (`State::dress_as_kept`).
     fn wear(&mut self, who: &Who, action: Action) -> Result<(), String> {
-        let (holder, sheet, player) = self.dressed(who)?;
-        let wearer = self.wearer(holder, &sheet, player);
+        let keeping = self.keeping(who)?;
+        if keeping.body.is_none()
+            && let Some(worn) = keeping
+                .kept
+                .and_then(|npc| self.kept(npc))
+                .and_then(|kept| kept.worn)
+        {
+            self.save.script.dress_as_kept(keeping.holder, &worn);
+        }
+        let wearer = self.wearer(keeping.holder, &keeping.sheet, keeping.player);
         let sheet = self
             .save
             .script
-            .wear_outside(self.catalog, (holder, &wearer), sheet, action)
+            .wear_outside(
+                self.catalog,
+                (keeping.holder, &wearer),
+                keeping.sheet,
+                (action, Limits::Warned),
+            )
             .map_err(refused)?;
-        match *who {
-            Who::Away { npc } => {
-                let worn = self.worn_slots(holder);
-                let kept = self.kept_mut(npc)?;
-                kept.sheet = sheet;
-                kept.worn = Some(worn);
-            }
-            Who::Player(_) | Who::Companion { .. } => self.body_mut(holder)?.sheet = Some(sheet),
-        }
-        Ok(())
-    }
-
-    /// The body `holder` stands as in the save.
-    pub(crate) fn body_mut(&mut self, holder: u32) -> Result<&mut EntityState, String> {
-        let id = SimId(holder);
-        let body = self.save.snapshot.entities.iter_mut().find(|e| e.id == id);
-        body.ok_or(format!("no body {holder:#x} in the save"))
-    }
-
-    /// Who holds `who`'s items, its sheet, and whether it is a player.
-    pub(crate) fn dressed(&self, who: &Who) -> Result<(u32, Sheet, bool), String> {
-        let body = |id: SimId| {
-            self.save
-                .snapshot
-                .get(id)
-                .and_then(|entity| entity.sheet)
-                .ok_or(format!(
-                    "{id:?} has no sheet of its own yet: load and save it in kjk once"
-                ))
-        };
-        match *who {
-            Who::Player(seat) => {
-                let entity = self
-                    .save
-                    .snapshot
-                    .entities
-                    .iter()
-                    .find(|e| e.kind == Kind::Avatar(seat));
-                let id = entity.ok_or(format!("no player in seat {}", seat.0))?.id;
-                Ok((id.0, body(id)?, true))
-            }
-            Who::Companion { id, .. } => Ok((id.0, body(id)?, false)),
-            Who::Away { npc } => {
-                let kept = self
-                    .save
-                    .script
-                    .party
-                    .available
-                    .get(&npc)
-                    .and_then(|slot| slot.kept);
-                let kept = kept.ok_or(format!(
-                    "companion {npc} has never been in the party: its gear is its template's until it joins"
-                ))?;
-                Ok((kept.from, kept.sheet, false))
-            }
-        }
+        self.keep(&keeping, sheet, None, true)
     }
 
     /// `holder` as an item's use limits ask of it: its sheet's alignment,
     /// race, feats and scores, the classes its career gives, the game's
     /// rules.
-    fn wearer(&self, holder: u32, sheet: &Sheet, player: bool) -> Wearer {
+    fn wearer(&self, holder: u32, sheet: &sim::combat::sheet::Sheet, player: bool) -> Wearer {
         let mut classes = [u8::MAX; 2];
         if let Some(career) = self.save.script.careers.get(&holder) {
             for (into, (class, _)) in classes.iter_mut().zip(career) {
@@ -227,28 +238,6 @@ impl Editor<'_> {
             tag: String::new(),
             tsl: passive::Game::named(game) == passive::Game::Tsl,
         }
-    }
-
-    /// The item `holder` wears in each slot (0: none), as the party table
-    /// keeps them.
-    fn worn_slots(&self, holder: u32) -> [u32; slots::COUNT as usize] {
-        let mut worn = [0; slots::COUNT as usize];
-        for (id, item) in self.save.script.items.held_by(holder) {
-            if let Some(slot) = item.slot.filter(|slot| *slot < slots::COUNT) {
-                worn[usize::from(slot)] = id;
-            }
-        }
-        worn
-    }
-
-    pub(crate) fn kept_mut(&mut self, npc: u8) -> Result<&mut Kept, String> {
-        self.save
-            .script
-            .party
-            .available
-            .get_mut(&npc)
-            .and_then(|slot| slot.kept.as_mut())
-            .ok_or(format!("companion {npc} is not kept by the party table"))
     }
 }
 
@@ -275,6 +264,6 @@ fn named(name: &str) -> Result<&str, String> {
     }
 }
 
-fn no_item(id: u32) -> String {
+pub(crate) fn no_item(id: u32) -> String {
     format!("no item {id:#x} in the save")
 }

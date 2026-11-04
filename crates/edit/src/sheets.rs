@@ -4,12 +4,11 @@
 //! XP. Each is written where the save keeps the character: its body's
 //! sheet and fighter, or the party table's for a companion away.
 
-use sim::combat::Fighter;
 use sim::combat::effects::constitution_moved;
 use sim::combat::passive;
 use sim::combat::sheet::{Rows, Sheet};
 
-use crate::characters::points;
+use crate::keeping::Points;
 use crate::{Editor, Who};
 
 /// A sheet and its hit and Force points (hundredths), as an edit changes
@@ -139,7 +138,7 @@ impl Editor<'_> {
 
     /// `who`'s own XP (the party's is `set_party_xp`).
     pub fn set_xp(&mut self, who: &Who, xp: i32) -> Result<(), String> {
-        let (holder, _, _) = self.dressed(who)?;
+        let holder = self.keeping(who)?.holder;
         self.save.script.set_xp(holder, xp);
         Ok(())
     }
@@ -153,17 +152,13 @@ impl Editor<'_> {
         who: &Who,
         edit: impl FnOnce(&mut Body) -> Result<(), String>,
     ) -> Result<(), String> {
-        let (holder, sheet, _) = self.dressed(who)?;
-        let (hp, fp) = match *who {
-            Who::Away { npc } => {
-                let kept = self.kept_mut(npc)?;
-                (kept.hp, kept.fp)
-            }
-            Who::Player(_) | Who::Companion { .. } => {
-                points(self.body_mut(holder)?.fighter.as_ref(), &sheet)
-            }
+        let keeping = self.keeping(who)?;
+        let (hp, fp) = self.points_of(&keeping);
+        let mut body = Body {
+            sheet: keeping.sheet,
+            hp,
+            fp,
         };
-        let mut body = Body { sheet, hp, fp };
         edit(&mut body)?;
         let pointed = (body.hp, body.fp) != (hp, fp);
         let set_fp = body.fp != fp;
@@ -177,23 +172,12 @@ impl Editor<'_> {
         } else {
             fp
         };
-        match *who {
-            Who::Away { npc } => {
-                let kept = self.kept_mut(npc)?;
-                (kept.sheet, kept.hp, kept.fp) = (sheet, hp, fp);
-            }
-            Who::Player(_) | Who::Companion { .. } => {
-                let entity = self.body_mut(holder)?;
-                entity.sheet = Some(sheet);
-                // A body without a fighter stands at full whatever its
-                // sheet: one is made only when an edit sets its points.
-                if entity.fighter.is_some() || (pointed && points(None, &sheet) != (hp, fp)) {
-                    let fighter = entity.fighter.get_or_insert_with(|| Fighter::of(&sheet));
-                    (fighter.hp, fighter.fp) = (hp, fp);
-                }
-            }
-        }
-        Ok(())
+        let points = Points {
+            hp,
+            fp,
+            set: pointed,
+        };
+        self.keep(&keeping, sheet, Some(points), false)
     }
 }
 

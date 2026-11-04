@@ -80,11 +80,22 @@ pub fn characters(save: &Save, level: Option<&Level>) -> Vec<Character> {
         .iter()
         .filter(|(npc, _)| !party.members.contains(npc))
         .map(|(&npc, slot)| {
-            let (sheet, hp, fp) = match &slot.kept {
-                Some(kept) => (kept.sheet, kept.hp, kept.fp),
+            // Its creature standing in the module (made but not joined) is
+            // what joining takes: its body's, as an edit writes it.
+            let standing = slot
+                .object
+                .and_then(|id| save.snapshot.get(SimId(id)))
+                .and_then(|entity| {
+                    let sheet = entity.sheet.or_else(|| module_sheet(entity.kind, level))?;
+                    let (hp, fp) = points(entity.fighter.as_ref(), &sheet);
+                    Some((sheet, hp, fp))
+                });
+            let (sheet, hp, fp) = match (standing, &slot.kept) {
+                (Some(standing), _) => standing,
+                (None, Some(kept)) => (kept.sheet, kept.hp, kept.fp),
                 // As the world makes it: a template without a sheet of
                 // its own stands as a commoner (`sim::world::sheet_of`).
-                None => {
+                (None, None) => {
                     let sheet = slot
                         .template_facts()
                         .and_then(|facts| facts.sheet)
@@ -100,8 +111,10 @@ pub fn characters(save: &Save, level: Option<&Level>) -> Vec<Character> {
                 hp,
                 fp,
                 career: slot
-                    .kept
-                    .map(|kept| career(save, kept.from))
+                    .object
+                    .filter(|_| standing.is_some())
+                    .or(slot.kept.map(|kept| kept.from))
+                    .map(|holder| career(save, holder))
                     .unwrap_or_else(Career::new),
             }
         });
@@ -111,7 +124,9 @@ pub fn characters(save: &Save, level: Option<&Level>) -> Vec<Character> {
 }
 
 /// The members of `save`'s party whose sheet neither their body nor
-/// `level` gives: loaded and saved once in kjk, they have one.
+/// `level` gives (without the level, a creature placed by its module whose
+/// equipment never changed), or who have no body: listed only with the
+/// save's level (`edit::level_of`), if then.
 pub fn unsheeted(save: &Save, level: Option<&Level>) -> Vec<u8> {
     let listed = characters(save, level);
     save.script
@@ -137,7 +152,7 @@ fn career(save: &Save, holder: u32) -> Career {
 }
 
 /// A placed creature's sheet as its module's facts give it.
-fn module_sheet(kind: Kind, level: Option<&Level>) -> Option<Sheet> {
+pub(crate) fn module_sheet(kind: Kind, level: Option<&Level>) -> Option<Sheet> {
     let Kind::Object(_, index) = kind else {
         return None;
     };
