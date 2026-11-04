@@ -1471,10 +1471,20 @@ impl Engine<'_> {
         answer
     }
 
+    /// Where `id` stands: one made this step where it was made, as the
+    /// executables make an object at once (`tr_sion` makes Darth Sion and has
+    /// him start his talk from there, 18 m from the Exile).
     pub(super) fn position(&self, id: ObjectId) -> Option<[f32; 3]> {
         self.view
             .thing(id)
             .map(|thing| thing.position)
+            .or_else(|| {
+                self.out
+                    .made
+                    .iter()
+                    .find(|made| made.id == id)
+                    .map(|made| made.at)
+            })
             .or_else(|| self.lying(id).map(|lying| lying.at))
     }
 
@@ -1501,6 +1511,16 @@ impl Engine<'_> {
     /// over: a surrender's.
     fn stop(&mut self, who: ObjectId) {
         stop(self.state, self.out, self.view, who);
+    }
+
+    /// `ClearAllActions` on `who` (unless it is not commandable): its queue
+    /// cleared, and what it plays stops too, even a clip that outlasts its
+    /// queued time.
+    fn clear_all(&mut self, who: ObjectId) {
+        if !self.state.uncommandable.contains(&who.0) {
+            clear_queue(self.state, self.view, who);
+            self.out.changes.push(Change::Clear { who });
+        }
     }
 
     /// Whether `who`'s queue holds an animation of `LONG_ANIMATION_MS` or
@@ -2338,7 +2358,25 @@ impl Engine<'_> {
                 } else {
                     caller
                 };
+                // While a conversation holds the world a power used on an
+                // object is cast as the executables cast every one
+                // (`AddUseTalentOnObjectActions` hands a spell to
+                // `AddCastSpellActions`): turned to its target, its clips
+                // for their time, then its impact; the Star Forge's Malak
+                // throws his saber and lightning on cue
+                // (`k_psta_malaklght`). Out of one the mind fights with it.
+                let held =
+                    bound == ActionUseTalentOnObject && state.talk.holds_world(&view.seat_bodies());
                 match talent(args, 0) {
+                    Some(Use::Power(row)) if held && view.thing(target).is_some() => {
+                        let cast = Action::Cast {
+                            row,
+                            target: Target::Object(target),
+                            fake: false,
+                            cheat: false,
+                        };
+                        self.queue(caller, cast)
+                    }
                     Some(talent) if target != ObjectId::INVALID => {
                         self.queue(caller, Action::Talent { talent, target })
                     }
@@ -2808,9 +2846,13 @@ impl Engine<'_> {
                 }
                 Value::Int(0)
             }
+            // The executables' `CSWSCreature::CancelCombat` clears all its
+            // actions first: the Star Forge's Malak drops the saber throw
+            // still flying for the lightning that follows (`k_psta_malaklght`).
             CancelCombat => {
                 let who = object(args, 0);
                 if self.character(who).is_some() {
+                    self.clear_all(who);
                     self.out.changes.push(Change::CancelCombat { who });
                 }
                 Value::Int(0)
@@ -4344,12 +4386,7 @@ impl Engine<'_> {
                 Value::Int(0)
             }
             ClearAllActions => {
-                // What it plays stops too, even a clip that outlasts its
-                // queued time.
-                if !state.uncommandable.contains(&caller.0) {
-                    clear_queue(state, self.view, caller);
-                    self.out.changes.push(Change::Clear { who: caller });
-                }
+                self.clear_all(caller);
                 Value::Int(0)
             }
             GetCurrentAction => {
@@ -4771,7 +4808,7 @@ impl Engine<'_> {
 }
 
 /// The distance between two points (metres).
-fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+pub(in crate::script) fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     let d: [f32; 3] = std::array::from_fn(|i| a[i] - b[i]);
     (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
 }
@@ -5251,6 +5288,7 @@ impl Engine<'_> {
         // The character switched to leads (the first seat plays it), until
         // a portrait click or `SetPartyLeader` lends the lead again.
         if npc == NPC_PLAYER {
+            self.leave_switched();
             self.state.party.switched = None;
             self.state.party.leader = None;
             return true;
@@ -5288,6 +5326,9 @@ impl Engine<'_> {
         let Some(body) = body else {
             return false;
         };
+        if self.state.party.switched != Some(npc) {
+            self.leave_switched();
+        }
         let party = &mut self.state.party;
         if let Some(slot) = party.available.get_mut(&npc) {
             slot.object = Some(body.0);
@@ -5295,6 +5336,36 @@ impl Engine<'_> {
         party.switched = Some(npc);
         party.leader = None;
         true
+    }
+
+    /// The companion played till now is left: as the exe's
+    /// `SwitchPlayerCharacter` (`SaveMember`, `KillNPCObject`), the table keeps
+    /// it as it stands and its creature goes, so a scene that makes its own
+    /// (`a_create_cut`'s Mira, TSL's arena) has the only one of that tag. One
+    /// in the party stays: the exe's left the party on being played, ours not.
+    fn leave_switched(&mut self) {
+        let Some(npc) = self.state.party.switched else {
+            return;
+        };
+        if self.state.party.has(npc) {
+            return;
+        }
+        super::keep_npc(self.view, self.state, self.out, npc);
+        let slot = self.state.party.available.get_mut(&npc);
+        if let Some(who) = slot.and_then(|slot| slot.object.take()).map(ObjectId) {
+            // What it carried stays the party's (T3-M4's shield, from TSL's
+            // prologue, as it joins later): the table keeps what it wears.
+            let carried: Vec<u32> = (self.state.items.held_by(who.0))
+                .filter(|(_, held)| held.slot.is_none())
+                .map(|(item, _)| item)
+                .collect();
+            for item in carried {
+                self.state
+                    .carry(self.out, ObjectId(item), crate::inventory::PARTY);
+            }
+            self.out.deleted.push(who);
+            self.out.changes.push(Change::destroy(who));
+        }
     }
 
     /// TSL's influence (`Party::influence`), as its exe's commands keep

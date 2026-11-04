@@ -1060,16 +1060,21 @@ fn head_talk(
         .iter()
         .find(|view| view.object == object)?
         .body;
-    let head = crate::face::hung_head(&scene.models, body).unwrap_or(body);
-    let nodes = &models
-        .iter()
-        .find(|(_, model)| model.index == head)?
-        .1
-        .nodes;
-    let placed = &scene.models[head];
     let resolver = module_resolver(screen, swap)?;
-    let clip = mouth_clip(&mut screen.models, &resolver, screen.game, &placed.ir)?;
-    crate::scene::animator(placed, &clip, nodes)
+    // What is hung on its head need not be one (a hood, a mask): the mouth is
+    // the first of them with a `talk`, else the body's own (the Handmaiden's
+    // face is in `p_handmaidenbb`).
+    let hung = crate::face::hung(&scene.models, body);
+    hung.chain(std::iter::once(body)).find_map(|mouth| {
+        let nodes = &models
+            .iter()
+            .find(|(_, model)| model.index == mouth)?
+            .1
+            .nodes;
+        let placed = &scene.models[mouth];
+        let clip = mouth_clip(&mut screen.models, &resolver, screen.game, &placed.ir)?;
+        crate::scene::animator(placed, &clip, nodes)
+    })
 }
 
 /// The clip a speaker's mouth plays its line's shapes on.
@@ -1093,10 +1098,8 @@ pub(crate) fn mouth_clip(
 
 /// Why a voiced line's speaker would not move its lips (`kjk dialogue
 /// check`), its look's `head` (a model of its own) and `body` read, and
-/// whether reone would move them: `Some(true)` when the view's mouth
-/// (`mouth_clip`) binds no `talk` though the head or the body does (reone
-/// plays `talk` on both); `Some(false)` when neither has one (a helmet,
-/// a mask, a droid: nothing moves in reone either).
+/// `Some(false)` when neither binds a `talk` (a droid: nothing moves in reone
+/// either). The view's mouth (`head_talk`) is whichever of them binds one.
 #[cfg(feature = "probes")]
 pub fn lips_unmoved(
     cache: &mut BTreeMap<String, Option<ModelIr>>,
@@ -1105,10 +1108,7 @@ pub fn lips_unmoved(
     (head, body): (Option<&ModelIr>, &ModelIr),
 ) -> Option<bool> {
     let mut binds = |model: &ModelIr| mouth_clip(cache, resolver, game, model).is_some();
-    if binds(head.unwrap_or(body)) {
-        return None;
-    }
-    Some(head.is_some_and(&mut binds) || binds(body))
+    (!(head.is_some_and(&mut binds) || binds(body))).then_some(false)
 }
 
 /// How a line's voice falls off: unplaced, as reone and xoreos play a

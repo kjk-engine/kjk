@@ -7,7 +7,7 @@ use super::super::{Avatar, Fighting, Id, Player, SimWorld, Talking, strikes};
 use crate::action::{Action, Verb};
 use crate::combat::Sheet;
 use crate::combat::idle::Acting;
-use crate::combat::sheet::factions::{HOSTILE_1, PLAYER};
+use crate::combat::sheet::factions::{FRIENDLY_2, HOSTILE_1, HOSTILE_2, NEUTRAL, PLAYER};
 use crate::input::{Command, Seat, TickInput, buttons};
 use crate::module::{Body, ObjectData, ObjectKind, Placement, Repute};
 use crate::probe::check;
@@ -38,6 +38,7 @@ pub fn all() -> Vec<Case> {
 
 const PROBES: &[Probe] = &[
     ("bystander_holds_ground", bystander_holds_ground),
+    ("hostile_held_in_talk", hostile_held_in_talk),
     ("companion_stays", companion_stays),
     ("party_kept_apart", party_kept_apart),
     ("party_cannot_use", party_cannot_use),
@@ -60,6 +61,12 @@ const PROBES: &[Probe] = &[
     ("start_refused_held", start_refused_held),
     ("made_stand_apart", made_stand_apart),
     ("scripted_death_in_place", scripted_death_in_place),
+    ("explosion_deaths_fall_free", explosion_deaths_fall_free),
+    ("lit_saber_one_act", lit_saber_one_act),
+    ("party_sheathes_in_talk", party_sheathes_in_talk),
+    ("conversed_owns", conversed_owns),
+    ("script_talk_starts_in_place", script_talk_starts_in_place),
+    ("talk_end_clears_video", talk_end_clears_video),
     ("held_duel_spacing", held_duel_spacing),
     ("scene_attacks_at_once", scene_attacks_at_once),
     ("duel_closes_to_spacing", duel_closes_to_spacing),
@@ -96,10 +103,13 @@ const PROBES: &[Probe] = &[
     ("short_voice_text", short_voice_text),
     ("wait_voice_holds", wait_voice_holds),
     ("wait_fade_holds", wait_fade_holds),
+    ("next_node_clears_fade", next_node_clears_fade),
     ("wait_camera_clip_holds", wait_camera_clip_holds),
+    ("carried_camera_clip_holds", carried_camera_clip_holds),
     ("pause_is_immediate", pause_is_immediate),
     ("pause_behind_actions", pause_behind_actions),
     ("pause_cleared_with_its_queue", pause_cleared_with_its_queue),
+    ("pause_outlives_a_clear", pause_outlives_a_clear),
     (
         "resume_cleared_with_its_queue",
         resume_cleared_with_its_queue,
@@ -149,6 +159,7 @@ const PROBES: &[Probe] = &[
     ("free_play_walk", free_play_walk),
     ("ends_mid_walk", ends_mid_walk),
     ("walk_asks_no_exit", walk_asks_no_exit),
+    ("walked_into_exit_leaves_not", walked_into_exit_leaves_not),
     ("leaving_heard", leaving_heard),
     ("item_lost_heard", item_lost_heard),
     ("cue_names_trigger_and_comer", cue_names_trigger_and_comer),
@@ -266,7 +277,16 @@ int GetIsObjectValid(object oObject);
 void DelayCommand(float fSeconds, action aActionToDelay);
 // 27
 void AssignCommand(object oActionSubject, action aActionToAssign);
+// 28
+void CancelCombat(object oidCreature);
+// 29
+void EnableVideoEffect(int nEffectType);
+// 30
+effect EffectDeath(int nSpectacularDeath=FALSE, int nDisplayFeedback=TRUE, int nNoFadeAway=FALSE);
 "#;
+
+/// The `videoeffects.2da` row `probe_video` enables.
+const VIDEO_ROW: u16 = 1;
 
 /// The globals `probe_acquired` sets: whether its `GetEnteringObject` was
 /// the first PC (TSL's acquire scripts' test), and whether
@@ -327,12 +347,22 @@ fn tagged(tag: &str) -> [Op; 3] {
 /// - `probe_pause` pauses its caller's conversation, waits 3 s and resumes
 ///   it; `probe_pause_late` waits 2 s first, then pauses, waits 1 s more and
 ///   resumes; `probe_pause_cleared` pauses, queues the resume and clears
-///   its own queue; `probe_pause_long` pauses, waits 10 s and resumes;
-///   `probe_clear` clears its caller's queue (`ClearAllActions`);
+///   its own queue; `probe_pause_then_clear` pauses, clears its own queue,
+///   then waits 3 s and resumes; `probe_pause_long` pauses, waits 10 s and
+///   resumes;
+///   `probe_clear` clears its caller's queue (`ClearAllActions`) and
+///   `probe_cancel` ends its caller's fight (`CancelCombat`);
 /// - `probe_bow_fast` bows at speed 2 and `probe_victory` cheers
 ///   (`ActionPlayAnimation`, fire and forget), `probe_talk_3s` talks for
 ///   3 s, `probe_talk_on` waits 1 s and talks on and on (a duration of −1),
-///   and `probe_sleep_twice` sleeps for 40 s twice.
+///   and `probe_sleep_twice` sleeps for 40 s twice;
+/// - `probe_converse` starts a cinematic conversation with the first PC
+///   (`ActionStartConversation`), `probe_computer` a computer one (type 1),
+///   `probe_converse_here` a cinematic one where it stands (its start range
+///   ignored), `probe_converse_walker` and `probe_converse_talker` the same
+///   with the walker and the talker;
+/// - `probe_video` enables the video effect `VIDEO_ROW`, and
+///   `probe_death_dummy` kills the dummy (`EffectDeath`, applied at once).
 fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::script::Library {
     let call = |routine, args| Op::Action { routine, args };
     let begin = program(&[
@@ -386,6 +416,8 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
     let pause = program(&[&[call(9, 0)][..], &wait(3.0), &[call(11, 0)]].concat());
     let pause_late = program(&[&wait(2.0)[..], &[call(9, 0)], &wait(1.0), &[call(11, 0)]].concat());
     let pause_cleared = program(&[call(9, 0), call(11, 0), call(21, 0)]);
+    let pause_then_clear =
+        program(&[&[call(9, 0), call(21, 0)][..], &wait(3.0), &[call(11, 0)]].concat());
     let pause_long = program(&[&[call(9, 0)][..], &wait(10.0), &[call(11, 0)]].concat());
     let play = |animation: u16, speed, seconds| {
         [
@@ -396,14 +428,24 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
         ]
     };
     let sleep = play(SLEEP, 1.0, 40.0);
+    // `ActionStartConversation(target, dialog, FALSE, kind, ignore_range)`.
+    let converse_to = |target: &[Op], kind: i32, ignore_range: i32| {
+        let mut ops: Vec<Op> = (0..6)
+            .map(|_| Op::Const(Const::String(Vec::new())))
+            .collect();
+        ops.extend([ignore_range, kind, 0].map(|value| Op::Const(Const::Int(value))));
+        ops.push(Op::Const(Const::String(dialog.as_bytes().to_vec())));
+        ops.extend_from_slice(target);
+        ops.push(call(17, 11));
+        ops
+    };
+    let first_pc = [call(3, 0)];
     // `ActionStartConversation(GetFirstPC(), dialog)`, a door's locked line.
-    let mut converse: Vec<Op> = (0..6)
-        .map(|_| Op::Const(Const::String(Vec::new())))
-        .collect();
-    converse.extend((0..3).map(|_| Op::Const(Const::Int(0))));
-    converse.push(Op::Const(Const::String(dialog.as_bytes().to_vec())));
-    converse.push(call(3, 0));
-    converse.push(call(17, 11));
+    let converse = converse_to(&first_pc, 0, 0);
+    let mut death = vec![Op::Const(Const::Float(0.0))];
+    death.extend(tagged("dummy"));
+    death.extend([0, 1, 0].map(|value| Op::Const(Const::Int(value))));
+    death.extend([call(30, 3), Op::Const(Const::Int(0)), call(14, 4)]);
     // `DelayCommand(0.1, AssignCommand(GetObjectByTag("talker"),
     // ActionStartConversation(GetFirstPC(), dialog)))`, as TSL's
     // `tr_end_riiken` has its keeper speak to whoever comes in.
@@ -427,22 +469,42 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
         .op(Op::Retn);
     let cue = asm.build();
     let converse = program(&converse);
-    // Two `probe_twin`s made at `TWINS_AT` (`CreateObject`).
-    let [x, y, z] = floor_at(TWINS_AT);
-    let make = [
-        Op::Const(Const::Int(0)),
-        Op::Const(Const::Float(0.0)),
-        Op::Const(Const::Float(z)),
-        Op::Const(Const::Float(y)),
-        Op::Const(Const::Float(x)),
-        call(18, 3),
-        call(19, 2),
-        Op::Const(Const::String(b"probe_twin".to_vec())),
-        Op::Const(Const::Int(1)),
-        call(20, 4),
-        Op::MovSp(-4),
-    ];
+    // A `probe_twin` made at `at` (`CreateObject`), left on the stack.
+    let make_at = |at: [f32; 2]| {
+        let [x, y, z] = floor_at(at);
+        [
+            Op::Const(Const::Int(0)),
+            Op::Const(Const::Float(0.0)),
+            Op::Const(Const::Float(z)),
+            Op::Const(Const::Float(y)),
+            Op::Const(Const::Float(x)),
+            call(18, 3),
+            call(19, 2),
+            Op::Const(Const::String(b"probe_twin".to_vec())),
+            Op::Const(Const::Int(1)),
+            call(20, 4),
+        ]
+    };
+    // Two made at `TWINS_AT`.
+    let make = [make_at(TWINS_AT).as_slice(), &[Op::MovSp(-4)]].concat();
     let twins = program(&[make.clone(), make].concat());
+    // One made at `TALKER_FROM` and at once `AssignCommand(made,
+    // ActionStartConversation(GetFirstPC(), dialog))`, as TSL's `tr_sion`
+    // makes Darth Sion.
+    let mut asm = script_ncs::probes::Asm::default();
+    for op in make_at(TALKER_FROM) {
+        asm.op(op);
+    }
+    asm.op(Op::StoreState { bp: 0, sp: 0 })
+        .to(Op::Jmp, "assign");
+    for op in converse_to(&first_pc, 0, 0) {
+        asm.op(op);
+    }
+    asm.op(Op::Retn)
+        .label("assign")
+        .op(call(27, 2))
+        .op(Op::Retn);
+    let made_converse = asm.build();
     let dialogues: BTreeMap<String, Dlg> = [(dialog.to_string(), talk)].into();
     // K1's `creaturespeed.2da` rows `PLAYER` and `DEFAULT`.
     let rates = crate::script::MoveRates {
@@ -478,8 +540,27 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_module_leave", program(&[])),
             ("probe_leave", leave),
             ("probe_converse", converse),
+            ("probe_computer", program(&converse_to(&first_pc, 1, 0))),
+            (
+                "probe_converse_here",
+                program(&converse_to(&first_pc, 0, 1)),
+            ),
+            (
+                "probe_converse_walker",
+                program(&converse_to(&tagged("walker"), 0, 1)),
+            ),
+            (
+                "probe_converse_talker",
+                program(&converse_to(&tagged("talker"), 0, 1)),
+            ),
+            (
+                "probe_video",
+                program(&[Op::Const(Const::Int(i32::from(VIDEO_ROW))), call(29, 1)]),
+            ),
+            ("probe_death_dummy", program(&death)),
             ("probe_cue", cue),
             ("probe_twins", twins),
+            ("probe_converse_made", made_converse),
             ("probe_cutscene", cutscene(0, SCENE_DAMAGE)),
             ("probe_cutscene_shot", cutscene(SHOT_ROW, SCENE_DAMAGE)),
             ("probe_cutscene_kill", cutscene(SHOT_ROW, KILLING_DAMAGE)),
@@ -491,8 +572,13 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_pause", pause),
             ("probe_pause_late", pause_late),
             ("probe_pause_cleared", pause_cleared),
+            ("probe_pause_then_clear", pause_then_clear),
             ("probe_pause_long", pause_long),
             ("probe_clear", program(&[call(21, 0)])),
+            (
+                "probe_cancel",
+                program(&[Op::Const(Const::Object(0)), call(28, 1)]),
+            ),
             ("probe_bow_fast", program(&play(BOW, 2.0, 0.0))),
             ("probe_victory", program(&play(VICTORY, 1.0, 0.0))),
             ("probe_talk_3s", program(&play(TALK, 1.0, 3.0))),
@@ -522,6 +608,10 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
 fn floor_at([x, y]: [f32; 2]) -> [f32; 3] {
     crate::determinism::ground_point(x, y, 0.0)
 }
+
+/// Two factions at war with each other and neutral to everyone else,
+/// the players' among them (`Stage::feud`).
+const FEUD: [u8; 2] = [HOSTILE_2, FRIENDLY_2];
 
 /// Where the talker, the buddy, the foe and the dummy wait, a metre apart
 /// as the area's loader stands bodies (`install::settle`), and the walker.
@@ -601,6 +691,9 @@ struct Stage {
     leaving: bool,
     /// A trigger at `PAD_AT` whose `OnEnter` is `probe_cue`.
     pad: bool,
+    /// The brawler and the dummy feud (`FEUD`), neither hostile to the
+    /// players, the dummy armed as the companion is (`Brawler`).
+    feud: bool,
 }
 
 impl Default for Stage {
@@ -626,6 +719,7 @@ impl Default for Stage {
             jedi: false,
             leaving: false,
             pad: false,
+            feud: false,
         }
     }
 }
@@ -666,17 +760,39 @@ impl Ground {
         if data.placements.len() != TALKER as usize {
             return Err(format!("the ground has {} objects", data.placements.len()));
         }
+        let [brawler_side, dummy_side] = if stage.feud { FEUD } else { [HOSTILE_1; 2] };
         let brawler = if stage.jedi {
             Sheet {
-                faction: HOSTILE_1,
+                faction: brawler_side,
                 ..Sheet::dev_jedi()
             }
         } else {
             Sheet {
                 abilities: [16, 14, 14, 10, 10, 10],
-                faction: HOSTILE_1,
+                faction: brawler_side,
                 ..Sheet::commoner()
             }
+        };
+        let companion = sturdy(Sheet {
+            flags: if stage.assured {
+                crate::combat::sheet::flags::ASSURED_HIT
+            } else {
+                0
+            },
+            ..if stage.brawling {
+                Sheet::commoner()
+            } else if stage.two_pistols {
+                let mut pair = Sheet::dev_soldier();
+                pair.weapons[1] = pair.weapons[0];
+                pair
+            } else {
+                Sheet::dev_soldier()
+            }
+        });
+        let dummy = if stage.feud {
+            companion
+        } else {
+            sturdy(Sheet::commoner())
         };
         data.placements.extend(
             [
@@ -684,33 +800,14 @@ impl Ground {
                     body: (stage.arc > 0.0 || !stage.clips.is_empty()).then(|| body(stage.arc)),
                     ..creature("talker", Sheet::commoner(), stage.dialog)
                 },
-                creature(
-                    "buddy",
-                    sturdy(Sheet {
-                        flags: if stage.assured {
-                            crate::combat::sheet::flags::ASSURED_HIT
-                        } else {
-                            0
-                        },
-                        ..if stage.brawling {
-                            Sheet::commoner()
-                        } else if stage.two_pistols {
-                            let mut pair = Sheet::dev_soldier();
-                            pair.weapons[1] = pair.weapons[0];
-                            pair
-                        } else {
-                            Sheet::dev_soldier()
-                        }
-                    }),
-                    "",
-                ),
+                creature("buddy", companion, ""),
                 creature("foe", sturdy(brawler), ""),
                 creature(
                     "dummy",
-                    sturdy(Sheet {
-                        faction: HOSTILE_1,
-                        ..Sheet::commoner()
-                    }),
+                    Sheet {
+                        faction: dummy_side,
+                        ..dummy
+                    },
                     "",
                 ),
             ]
@@ -746,6 +843,9 @@ impl Ground {
             }));
         }
         data.repute = Repute::at_war([PLAYER, HOSTILE_1]);
+        let [a, b] = FEUD.map(usize::from);
+        data.repute.rows[a][b] = 0;
+        data.repute.rows[b][a] = 0;
         if stage.leaving {
             data.area_scripts = vec![("OnExit".into(), "probe_area_exit".into())];
             data.module_scripts = [
@@ -914,13 +1014,43 @@ impl Ground {
     /// Placement `caller` runs `script`, in the next step.
     fn run_script(&mut self, script: &str, caller: u32) -> Result<(), String> {
         let caller = self.object(caller)?;
+        self.run_by(script, caller);
+        Ok(())
+    }
+
+    /// `caller` (a seat's body too) runs `script`, in the next step.
+    fn run_by(&mut self, script: &str, caller: SimId) {
         let mut state = self.world.script_state().clone();
         state
             .pending
             .push(crate::script::Pending::new(script, ObjectId(caller.0)));
         self.world.set_script_state(state);
         self.step();
-        Ok(())
+    }
+
+    /// What `change` makes of `who`'s fighter, if it has one.
+    fn fighter<T>(
+        &mut self,
+        who: SimId,
+        change: impl FnOnce(&mut crate::combat::Fighter) -> T,
+    ) -> Option<T> {
+        let mut fighters = self.world.world.query::<(&Id, &mut Fighting)>();
+        fighters
+            .iter_mut(&mut self.world.world)
+            .find(|(id, _)| id.0 == who)
+            .map(|(_, mut fighting)| change(&mut fighting.0))
+    }
+
+    /// Placement `index` fights for the players' faction: no foe of theirs.
+    fn befriend(&mut self, index: u32) -> Result<SimId, String> {
+        self.side(index, PLAYER)
+    }
+
+    /// Placement `index` fights for `faction`.
+    fn side(&mut self, index: u32, faction: u8) -> Result<SimId, String> {
+        let who = self.object(index)?;
+        self.fighter(who, |fighter| fighter.faction = Some(faction));
+        Ok(who)
     }
 
     /// A script of the talker begins its party conversation.
@@ -1082,17 +1212,20 @@ impl Ground {
     /// it closed in, until it first came within its reach (`mind::REACH`),
     /// a mean over those steps (both m/s). The drift is what a wandering
     /// aim turns a run aside by; the slide along the body it then meets is
-    /// left out. A step first shows where the bodies were put.
+    /// left out. A step first shows where the bodies were put. With them
+    /// the most actions `who` had queued at a step's end.
     fn strafe(&mut self, who: SimId, to: SimId, ms: u64) -> Strafe {
         self.step();
         let before = between(self.at(who), self.at(to));
         let reach = crate::combat::mind::REACH * UNIT;
         let (mut keyed, mut drift, mut closing) = (0.0, 0.0, 0);
         let mut reached = false;
+        let mut queued = self.queued(who);
         for _ in 0..steps(ms) {
             let from = self.at(who);
             reached |= between(from, self.at(to)) <= reach;
             self.step();
+            queued = queued.max(self.queued(who));
             let Some(entity) = self.entity(who) else {
                 continue;
             };
@@ -1114,6 +1247,7 @@ impl Ground {
             keyed: keyed / window,
             drift: drift / (closing.max(1) as f32 * STEP_MS as f32 / 1000.0),
             closed: before - between(self.at(who), self.at(to)),
+            queued,
         }
     }
 }
@@ -1134,14 +1268,15 @@ struct Strafe {
     keyed: f32,
     drift: f32,
     closed: f32,
+    queued: usize,
 }
 
 impl std::fmt::Display for Strafe {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "strafe {:.3} m/s (drift {:.3} m/s, closed {:.2} m)",
-            self.keyed, self.drift, self.closed
+            "strafe {:.3} m/s (drift {:.3} m/s, closed {:.2} m, queued {} at most)",
+            self.keyed, self.drift, self.closed, self.queued
         )
     }
 }
@@ -1161,26 +1296,68 @@ const FOE_FROM: [f32; 2] = [-1.0, 2.0];
 const TALKER_AT: [f32; 2] = [-6.0, -4.0];
 
 /// The brawler attacking `target` (`probe_attack_…`) from 6 m once it is
-/// aware of it: its strafe over 2 s.
+/// aware of it: its strafe over 2 s, its queue counted from the order on.
 fn charge(ground: &mut Ground, script: &str, target: SimId) -> Result<Strafe, String> {
     ground.run_script(script, FOE)?;
-    ground.idle(AWARE_MS);
-    let foe = ground.place(FOE, FOE_FROM)?;
+    let foe = ground.object(FOE)?;
+    let mut queued = ground.queued(foe);
+    for _ in 0..steps(AWARE_MS) {
+        ground.step();
+        queued = queued.max(ground.queued(foe));
+    }
+    ground.place(FOE, FOE_FROM)?;
     ground.put(target, BUDDY_AT);
-    Ok(ground.strafe(foe, target, 2000))
+    let strafe = ground.strafe(foe, target, 2000);
+    Ok(Strafe {
+        queued: strafe.queued.max(queued),
+        ..strafe
+    })
 }
 
-/// S4: a party conversation up, a hostile brawler attacking the companion
-/// (not in it) closes in and holds its ground with no strafe, its aim not
-/// wandering its run aside; once it ends, the brawler bears off to the side
-/// as JA's do.
-fn bystander_holds_ground() -> Result<String, String> {
-    let mut ground = Ground::new(1)?;
+/// Whom the brawler of `fight_scene` fights, and as whom. One hostile to
+/// the player does nothing in its talk, its queue cleared each step as the
+/// exes clear it (`Step::hold_hostiles`): a held scene's fighter is of the
+/// party, or of a faction at peace with the player.
+#[derive(Clone, Copy, PartialEq)]
+enum Brawler {
+    /// Hostile to the players, at the companion.
+    Hostile,
+    /// At the companion, the companion's faction made the brawler's foe
+    /// in the feud (`Stage::feud`), the player's still at peace with it.
+    Rival,
+    /// At the dummy, the two feuding (`Stage::feud`).
+    Feuding,
+}
+
+/// The fight probes' scene on `stage`: the host and the talker placed, the
+/// brawler's target at `BUDDY_AT` as `brawler` has it, and a party
+/// conversation up. The target's id.
+fn fight_scene(stage: Stage, brawler: Brawler) -> Result<(Ground, SimId), String> {
+    let feud = brawler != Brawler::Hostile;
+    let mut ground = Ground::staged(1, Stage { feud, ..stage })?;
     let host = ground.body(0)?;
     ground.put(host, HOST_AT);
     ground.place(TALKER, TALKER_AT)?;
-    let buddy = ground.place(BUDDY, BUDDY_AT)?;
+    if brawler == Brawler::Rival {
+        ground.side(BUDDY, FEUD[1])?;
+    }
+    let target = match brawler {
+        Brawler::Hostile | Brawler::Rival => BUDDY,
+        Brawler::Feuding => DUMMY,
+    };
+    let target = ground.place(target, BUDDY_AT)?;
     ground.cutscene()?;
+    Ok((ground, target))
+}
+
+/// S4: a party conversation up, a brawler attacking the companion (neither
+/// in it) closes in and holds its ground with no strafe, its aim not
+/// wandering its run aside; once it ends, the brawler bears off to the side
+/// as JA's do. The brawler is the companion's rival, at peace with the
+/// player: one hostile to it would do nothing in its talk
+/// (`hostile_held_in_talk`).
+fn bystander_holds_ground() -> Found {
+    let (mut ground, buddy) = fight_scene(Stage::default(), Brawler::Rival)?;
     let held = charge(&mut ground, "probe_attack_buddy", buddy)?;
     ground.goodbye()?;
     let free = charge(&mut ground, "probe_attack_buddy", buddy)?;
@@ -1189,6 +1366,22 @@ fn bystander_holds_ground() -> Result<String, String> {
             && held.drift < DRIFT_MAX
             && held.closed > 2.0
             && free.keyed > STRAFE_MAX,
+        format!("held: {held}; after the end: {free}"),
+    )
+}
+
+/// S4, K1's and TSL's `ClearAllPlayerHostileActions`: during a party
+/// conversation a creature hostile to the player told to attack the
+/// companion (`ActionAttack`) does nothing, its queue empty at every
+/// step's end and the 6 m between them kept; once the conversation ends,
+/// the same order makes it close in.
+fn hostile_held_in_talk() -> Found {
+    let (mut ground, buddy) = fight_scene(Stage::default(), Brawler::Hostile)?;
+    let held = charge(&mut ground, "probe_attack_buddy", buddy)?;
+    ground.goodbye()?;
+    let free = charge(&mut ground, "probe_attack_buddy", buddy)?;
+    check(
+        held.queued == 0 && held.closed.abs() < 0.05 && free.closed > 2.0,
         format!("held: {held}; after the end: {free}"),
     )
 }
@@ -1874,14 +2067,16 @@ fn start_refused_held() -> Found {
         }
         ground.run_script("probe_converse", BUDDY)?;
         let state = ground.world.script_state();
-        Ok(state.actions.get(&buddy.0).is_some_and(|queue| {
-            queue.iter().any(|queued| {
-                matches!(
-                    queued.action,
-                    crate::script::actions::Action::Converse { .. }
-                )
-            })
-        }))
+        let begun = !held && !state.talk.conversations.is_empty();
+        Ok(begun
+            || state.actions.get(&buddy.0).is_some_and(|queue| {
+                queue.iter().any(|queued| {
+                    matches!(
+                        queued.action,
+                        crate::script::actions::Action::Converse { .. }
+                    )
+                })
+            }))
     };
     let (free, held) = (queued(false)?, queued(true)?);
     check(
@@ -1889,6 +2084,9 @@ fn start_refused_held() -> Found {
         format!("queued its conversation: free play {free}, held {held}"),
     )
 }
+
+/// Where `script_talk_starts_in_place`'s asker stands or is made.
+const TALKER_FROM: [f32; 2] = [-7.2, -4.0];
 
 /// Where `probe_twins` makes its two creatures (the ground's axes).
 const TWINS_AT: [f32; 2] = [-3.0, 0.0];
@@ -2152,18 +2350,384 @@ fn scripted_death_in_place() -> Found {
     )
 }
 
+/// Each row's label, what it came to and what it should: passed when every
+/// row came to it.
+fn rows<T: PartialEq + std::fmt::Debug>(rows: &[(&str, T, T)]) -> Found {
+    let seen: Vec<String> = rows
+        .iter()
+        .map(|(label, got, want)| match got == want {
+            true => format!("{label}: {got:?}"),
+            false => format!("{label}: {got:?}, not {want:?}"),
+        })
+        .collect();
+    check(
+        rows.iter().all(|(_, got, want)| got == want),
+        seen.join("; "),
+    )
+}
+
+/// How long the probes hold a fighter in combat (ms): past their watch.
+const COMBAT_HELD_MS: u64 = 60_000;
+
+/// The ground with the jedi brawler made the host's companion (the
+/// party's, led by seat 0) beside the dummy, a friend now: no one on it is
+/// another's foe. The companion's id.
+fn jedi_companion() -> Result<(Ground, SimId), String> {
+    let stage = Stage {
+        jedi: true,
+        ..Stage::default()
+    };
+    let mut ground = Ground::staged(1, stage)?;
+    let host = ground.body(0)?;
+    ground.put(host, [-6.0, -3.0]);
+    ground.place(TALKER, [-7.0, -3.0])?;
+    ground.place(DUMMY, DUMMY_AT)?;
+    ground.place(FOE, FOE_FROM)?;
+    ground.befriend(DUMMY)?;
+    let foe = ground.befriend(FOE)?;
+    ground.fighter(foe, |fighter| fighter.mind.leader = Some(Seat(0)));
+    ground.step();
+    Ok((ground, foe))
+}
+
+/// A script's lit saber (`Sheath::Lit`, `SetOverrideLightsaberState`) is
+/// one act: a party member's goes back to the game's rule (`Sheath::Fight`)
+/// once no conversation has it, and anyone's once it fights; a party member
+/// saying its own conversation keeps it till that ends, and a bystander in
+/// none keeps it. Lit 200 ms on, and again after the conversation ends.
+fn lit_saber_one_act() -> Found {
+    let lit = |member: bool, talks: bool, fights: bool| -> Result<(bool, bool), String> {
+        let (mut ground, companion) = jedi_companion()?;
+        let who = if member {
+            companion
+        } else {
+            ground.object(DUMMY)?
+        };
+        if talks {
+            ground.run_by("probe_begin", who);
+            let owner = ground.last.talk.conversations.first().map(|c| c.owner);
+            if owner != Some(ObjectId(who.0)) {
+                return Err(format!("its conversation is {owner:?}'s"));
+            }
+        }
+        let now = ground.last.time_ms;
+        ground.fighter(who, |fighter| {
+            fighter.sheath = crate::combat::Sheath::Lit;
+            fighter.saber.on = true;
+            if fights {
+                fighter.combat_until = now + COMBAT_HELD_MS;
+            }
+        });
+        let is_lit = |ground: &mut Ground| {
+            ground.fighter(who, |fighter| fighter.sheath) == Some(crate::combat::Sheath::Lit)
+        };
+        ground.idle(200);
+        let during = is_lit(&mut ground);
+        if talks {
+            ground.goodbye()?;
+            ground.idle(200);
+        }
+        Ok((during, is_lit(&mut ground)))
+    };
+    rows(&[
+        (
+            "a companion in no conversation",
+            lit(true, false, false)?,
+            (false, false),
+        ),
+        (
+            "a companion saying its own",
+            lit(true, true, false)?,
+            (true, false),
+        ),
+        (
+            "a companion saying its own, fighting",
+            lit(true, true, true)?,
+            (false, false),
+        ),
+        (
+            "a bystander in none",
+            lit(false, false, false)?,
+            (true, true),
+        ),
+    ])
+}
+
+/// In a conversation holding the world a party member with its blade out
+/// and no fight of its own puts it away and draws it no more while the talk
+/// lasts, though its combat would hold it out (`Arms::at_rest`); out of
+/// one the same blade stays out, and one with a scene's blow due as the
+/// talk begins (`CutsceneAttack`) keeps it till the blow lands. Over 3 s
+/// each.
+fn party_sheathes_in_talk() -> Found {
+    // Whether its blade was out each step, and the step the dummy was hit.
+    let blade = |talk: bool, strike: bool| -> Result<(Vec<bool>, Option<usize>), String> {
+        let (mut ground, companion) = jedi_companion()?;
+        let now = ground.last.time_ms;
+        ground.fighter(companion, |fighter| {
+            fighter.combat_until = now + COMBAT_HELD_MS;
+        });
+        let out = |ground: &mut Ground| ground.fighter(companion, |f| f.saber.on) == Some(true);
+        ground.idle(1000);
+        if !out(&mut ground) {
+            return Err("the companion in combat drew no blade".into());
+        }
+        let dummy = ground.object(DUMMY)?;
+        let full = ground.hp(dummy);
+        // Its blow is due as the talk begins.
+        if strike {
+            ground.run_script("probe_cutscene", FOE)?;
+        }
+        if talk {
+            ground.cutscene()?;
+        }
+        let (mut seen, mut struck) = (Vec::new(), None);
+        for step in 0..steps(3000) {
+            ground.step();
+            seen.push(out(&mut ground));
+            if struck.is_none() && ground.hp(dummy) < full {
+                struck = Some(step);
+            }
+        }
+        Ok((seen, struck))
+    };
+    let (free, _) = blade(false, false)?;
+    let (talk, _) = blade(true, false)?;
+    let (blow, struck) = blade(true, true)?;
+    let put_away = talk.iter().position(|out| !out);
+    let stayed_away = put_away.is_some_and(|at| talk[at..].iter().all(|out| !out));
+    let dropped = blow.iter().position(|out| !out);
+    let kept = struck.is_some_and(|at| dropped.is_none_or(|off| off >= at));
+    let ms = |step: Option<usize>| step.map(|step| (step as u64 + 1) * STEP_MS);
+    check(
+        free.iter().all(|out| *out)
+            && ms(put_away).is_some_and(|ms| ms <= 1000)
+            && stayed_away
+            && kept,
+        format!(
+            "free play: out throughout {}; in the talk: put away at {:?} ms, away since {stayed_away}; with a blow due: struck at {:?} ms, put away at {:?} ms",
+            free.iter().all(|out| *out),
+            ms(put_away),
+            ms(struck),
+            ms(dropped)
+        ),
+    )
+}
+
+/// Who owns the conversation `ActionStartConversation` begins: the one
+/// conversed with when neither is a player nor a companion (the exe's
+/// dialog event to it: a scene's `a_start_miraend` runs for Visquis naming
+/// Mira), the asker when it asks a player, the one asked when a player
+/// asks.
+fn conversed_owns() -> Found {
+    let owner = |caller: Option<u32>, script: &str| -> Result<&'static str, String> {
+        let stage = Stage {
+            walker: true,
+            ..Stage::default()
+        };
+        let mut ground = Ground::staged(1, stage)?;
+        let host = ground.body(0)?;
+        ground.put(host, [-6.0, -3.0]);
+        let talker = ground.place(TALKER, [-7.0, -3.0])?;
+        let walker = ground.place(WALKER, [-7.0, -2.0])?;
+        let by = match caller {
+            Some(index) => ground.object(index)?,
+            None => host,
+        };
+        ground.run_by(script, by);
+        for _ in 0..steps(1000) {
+            if let Some(c) = ground.last.talk.conversations.first() {
+                let named = [
+                    (host, "the host"),
+                    (talker, "the talker"),
+                    (walker, "the walker"),
+                ];
+                return Ok(named
+                    .iter()
+                    .find(|(id, _)| ObjectId(id.0) == c.owner)
+                    .map_or("another", |(_, name)| name));
+            }
+            ground.step();
+        }
+        Err(format!("{script} began no conversation"))
+    };
+    rows(&[
+        (
+            "the talker asks the walker",
+            owner(Some(TALKER), "probe_converse_walker")?,
+            "the walker",
+        ),
+        (
+            "the talker asks the host",
+            owner(Some(TALKER), "probe_converse_here")?,
+            "the talker",
+        ),
+        (
+            "the host asks the talker",
+            owner(None, "probe_converse_talker")?,
+            "the talker",
+        ),
+    ])
+}
+
+/// A script's `ActionStartConversation` begins where its asker stands,
+/// however far from the host: cinematic (type 0) or computer (type 1), from
+/// past `AIActionDialogObject`'s 10 m or within it, and an asker a script
+/// makes and has ask in one go (`tr_sion`'s Darth Sion, 18 m from the Exile:
+/// else he runs half the way, then walks to `wp_sion` along the slant and
+/// stands turned from the Exile). Both games' executables set the action's
+/// ignore-start-range flag whatever the script passes. How far apart the
+/// asker and the host stood, and stood as it began.
+fn script_talk_starts_in_place() -> Found {
+    let begun = |script: &str, host_at: [f32; 2]| -> Result<(f32, f32), String> {
+        let mut ground = Ground::new(1)?;
+        let host = ground.body(0)?;
+        ground.put(host, host_at);
+        let made = script == "probe_converse_made";
+        let placed = (!made)
+            .then(|| ground.place(TALKER, TALKER_FROM))
+            .transpose()?;
+        for foe in [FOE, DUMMY] {
+            ground.befriend(foe)?;
+        }
+        ground.step();
+        let before = between(ground.at(host), floor_at(TALKER_FROM));
+        let known: Vec<SimId> = ground.last.entities.iter().map(|e| e.id).collect();
+        ground.run_script(script, TALKER)?;
+        for _ in 0..steps(6000) {
+            if !ground.last.talk.conversations.is_empty() {
+                let talker = placed.or_else(|| {
+                    let mut new = ground.last.entities.iter().map(|e| e.id);
+                    new.find(|id| !known.contains(id))
+                });
+                let talker = talker.ok_or(format!("{script} made no asker"))?;
+                return Ok((before, between(ground.at(host), ground.at(talker))));
+            }
+            ground.step();
+        }
+        Err(format!("{script} began no conversation"))
+    };
+    let (far, near) = ([-0.8, 5.2], [-3.0, -1.0]);
+    let cases = [
+        ("cinematic, far", begun("probe_converse", far)?),
+        ("cinematic, near", begun("probe_converse", near)?),
+        ("computer, far", begun("probe_computer", far)?),
+        ("cinematic, made far", begun("probe_converse_made", far)?),
+    ];
+    let seen: Vec<String> = cases
+        .iter()
+        .map(|(label, (before, at))| format!("{label}: {before:.2} m apart, began at {at:.2}"))
+        .collect();
+    // The executables' walk would take a far asker within 10 m.
+    let far_enough = cases[0].1.0 > 10.0 && cases[1].1.0 < 10.0;
+    // Within a settle of two bodies near each other, nothing like a walk.
+    let right = cases
+        .iter()
+        .all(|(_, (before, at))| (before - at).abs() < 0.1);
+    check(far_enough && right, seen.join("; "))
+}
+
+/// A conversation ending turns the video effect off, whoever enabled it
+/// (TSL's `CloseDialog`): one a script enabled in a scene is gone once the
+/// scene ends.
+fn talk_end_clears_video() -> Found {
+    let mut ground = Ground::new(1)?;
+    let host = ground.body(0)?;
+    ground.put(host, [-6.0, -3.0]);
+    ground.place(TALKER, [-7.0, -3.0])?;
+    ground.cutscene()?;
+    ground.run_script("probe_video", TALKER)?;
+    let on = ground.last.video_effect;
+    ground.goodbye()?;
+    ground.step();
+    let after = ground.last.video_effect;
+    check(
+        on == Some(VIDEO_ROW) && after.is_none(),
+        format!("in the scene {on:?}, after its end {after:?}"),
+    )
+}
+
+/// An explosion's death is never staged in place (`death::in_place`): a
+/// grenade's blast, even in a scene, nor a script's `EffectDeath` of one a
+/// push has floored; `EffectDeath` of one standing and a staged blow are. On
+/// the ground, in a scene: the dummy dies by `EffectDeath` playing KOTOR's
+/// dying clip where it stands, and not once a script's push has thrown it.
+fn explosion_deaths_fall_free() -> Found {
+    use crate::combat::damage::Source;
+    use crate::combat::death::{DIE, in_place};
+    let script = |staged| Source::Script {
+        damage: 1,
+        damage_type: None,
+        cast: false,
+        shot: None,
+        staged,
+    };
+    let (staged, free) = (script(true), script(false));
+    // Whether the dummy's death played the dying clip in place.
+    let dies_in_place = |thrown: bool| -> Result<bool, String> {
+        let mut ground = Ground::new(1)?;
+        let host = ground.body(0)?;
+        ground.put(host, [-6.0, -3.0]);
+        ground.place(TALKER, [-5.0, 2.0])?;
+        let dummy = ground.place(DUMMY, [-4.0, 2.0])?;
+        ground.cutscene()?;
+        if thrown {
+            ground.run_script("probe_push_dummy", TALKER)?;
+            for _ in 0..steps(500) {
+                if ground.fighter(dummy, |f| f.saber.floored()) == Some(true) {
+                    break;
+                }
+                ground.step();
+            }
+        }
+        ground.run_script("probe_death_dummy", TALKER)?;
+        ground.idle(200);
+        if ground.hp(dummy) > 0 {
+            return Err(format!("the dummy lives (thrown {thrown})"));
+        }
+        let acting = ground.entity(dummy).and_then(|e| e.fighter?.acting);
+        Ok(acting.is_some_and(|acting| acting.animation == DIE))
+    };
+    rows(&[
+        (
+            "a blast in a scene",
+            in_place(&Source::Blast { row: 0 }, true, false),
+            false,
+        ),
+        (
+            "EffectDeath of one thrown, in a scene",
+            in_place(&Source::Death, true, true),
+            false,
+        ),
+        (
+            "EffectDeath of one standing",
+            in_place(&Source::Death, false, false),
+            true,
+        ),
+        (
+            "a staged blow on one thrown",
+            in_place(&staged, false, true),
+            true,
+        ),
+        ("a free blow in a scene", in_place(&free, true, false), true),
+        (
+            "a free blow out of one",
+            in_place(&free, false, false),
+            false,
+        ),
+        ("the dummy standing", dies_in_place(false)?, true),
+        ("the dummy thrown", dies_in_place(true)?, false),
+    ])
+}
+
 /// S4: in a held scene the brawler attacking the companion closes to the
 /// spacing KOTOR's round clips are made for and stands there: its centre
 /// `DUEL_SPACING_M` from its target's (`appearance.2da` `prefatckdist`,
 /// centre to centre; the paired `c2a`/`c2p` clips cross their blades with
-/// the bodies 1.25 to 1.3 m apart).
+/// the bodies 1.25 to 1.3 m apart). The brawler is the companion's rival,
+/// at peace with the player: one hostile to it would do nothing in its talk.
 fn held_duel_spacing() -> Found {
-    let mut ground = Ground::new(1)?;
-    let host = ground.body(0)?;
-    ground.put(host, HOST_AT);
-    ground.place(TALKER, TALKER_AT)?;
-    let buddy = ground.place(BUDDY, BUDDY_AT)?;
-    ground.cutscene()?;
+    let (mut ground, buddy) = fight_scene(Stage::default(), Brawler::Rival)?;
     charge(&mut ground, "probe_attack_buddy", buddy)?;
     let foe = ground.object(FOE)?;
     let mut nearest = f32::MAX;
@@ -2181,25 +2745,21 @@ fn held_duel_spacing() -> Found {
 /// S4: two of a scene's blade fighters running at each other (the duel of
 /// end_cut04: KOTOR rounds, `ActionAttack` between creatures) both stop at
 /// `DUEL_SPACING_M`, each letting go of its run as far before it as both
-/// slide.
+/// slide. The duellists are the brawler and the dummy, feuding, both at
+/// peace with the player: one hostile to it would do nothing in its talk.
 fn duel_closes_to_spacing() -> Found {
-    let mut ground = Ground::new(1)?;
-    let host = ground.body(0)?;
-    ground.put(host, HOST_AT);
-    ground.place(TALKER, TALKER_AT)?;
-    let buddy = ground.place(BUDDY, BUDDY_AT)?;
-    ground.cutscene()?;
-    ground.run_script("probe_attack_buddy", FOE)?;
-    ground.run_script("probe_attack_foe", BUDDY)?;
+    let (mut ground, dummy) = fight_scene(Stage::default(), Brawler::Feuding)?;
+    ground.run_script("probe_attack_dummy", FOE)?;
+    ground.run_script("probe_attack_foe", DUMMY)?;
     ground.idle(AWARE_MS);
     let foe = ground.place(FOE, FOE_FROM)?;
-    ground.put(buddy, BUDDY_AT);
+    ground.put(dummy, BUDDY_AT);
     let mut nearest = f32::MAX;
     for _ in 0..steps(3000) {
         ground.step();
-        nearest = nearest.min(between(ground.at(foe), ground.at(buddy)));
+        nearest = nearest.min(between(ground.at(foe), ground.at(dummy)));
     }
-    let apart = between(ground.at(foe), ground.at(buddy));
+    let apart = between(ground.at(foe), ground.at(dummy));
     check(
         (apart - DUEL_SPACING_M).abs() < 0.12 && nearest > DUEL_SPACING_M - 0.15,
         format!("{apart:.2} m apart after closing in, {nearest:.2} m at the nearest"),
@@ -2210,19 +2770,15 @@ fn duel_closes_to_spacing() -> Found {
 /// companion beside it (`ActionAttack`) swings at once, with no moment of
 /// awareness, and keeps swinging, never holding off to guard. Over 3 s:
 /// when (ms) it first pressed attack, and the share of the steps after
-/// that it held attack.
+/// that it held attack. The wielder is the companion's rival, at peace with
+/// the player: one hostile to it would do nothing in its talk.
 fn scene_attacks_at_once() -> Found {
     let stage = Stage {
         jedi: true,
         ..Stage::default()
     };
-    let mut ground = Ground::staged(1, stage)?;
-    let host = ground.body(0)?;
-    ground.put(host, HOST_AT);
-    ground.place(TALKER, TALKER_AT)?;
-    ground.place(BUDDY, BUDDY_AT)?;
+    let (mut ground, _) = fight_scene(stage, Brawler::Rival)?;
     let foe = ground.place(FOE, [BUDDY_AT[0] + 1.4, BUDDY_AT[1]])?;
-    ground.cutscene()?;
     ground.run_script("probe_attack_buddy", FOE)?;
     let (mut first, mut pressed, mut after) = (None, 0, 0);
     for step in 1..=steps(3000) {
@@ -3051,6 +3607,37 @@ fn wait_fade_holds() -> Found {
     )
 }
 
+/// S5: a silent reply's cover (`NodeFade::COVER`, Jolee's first
+/// `kas24_jolee_01` reply) lasts until the next entry, which plays clear; one
+/// with its own fade in plays from the colour.
+fn next_node_clears_fade() -> Found {
+    use fmt_odyssey::dlg::NodeFade;
+    let covered = |kind: u8| {
+        let mut talk = in_turn(&["", ""]);
+        let fade = |kind| NodeFade {
+            kind,
+            delay: 0.0,
+            length: 1.0,
+            colour: [0.0; 3],
+        };
+        talk.replies[0].fade = fade(NodeFade::COVER);
+        talk.entries[1].fade = fade(kind);
+        let mut ground = Ground::staged(
+            1,
+            Stage {
+                talk,
+                ..Stage::default()
+            },
+        )?;
+        ground.cutscene()?;
+        ground.until_entry(1)?;
+        let fade = ground.last.fade.ok_or("no fade")?;
+        Ok::<f32, String>(fade.alpha(fade.start_ms))
+    };
+    let got = [covered(0)?, covered(NodeFade::IN)?];
+    check(got == [0.0, 1.0], format!("covered {got:?}"))
+}
+
 /// S5: wait flag 1 holds a line for its camera model's clip, its own timer
 /// still counted, as the K1 and TSL executables end a line once its timer
 /// and every flagged wait are done: "Hi." (337 ms by its text) with a 2 s
@@ -3073,11 +3660,59 @@ fn wait_camera_clip_holds() -> Found {
     check(got == [2000, 4500, 337], format!("lines last {got:?} ms"))
 }
 
+/// S5: a line whose `CameraAnimation` is 1000 carries the camera clip the
+/// line before began on (TSL's `kreia_kr`: 1200, then three 1000s under
+/// Kreia's words as the camera pans round Korriban): it films from where
+/// the clip began, and waiting on it (flag 1) it lasts what is left of the
+/// clip, 3 s from the first line's start; a second 1200 begins the clip
+/// afresh, 3 s from its own.
+fn carried_camera_clip_holds() -> Found {
+    let second = |animation: u16| {
+        let mut talk = in_turn(&["", ""]);
+        talk.camera_model = "probe_cam".into();
+        talk.entries[0].camera_animation = 1200;
+        talk.entries[1].camera_animation = animation;
+        talk.entries[1].wait_flags = 1;
+        let mut ground = Ground::staged(
+            1,
+            Stage {
+                talk,
+                camera_clips: [(("probe_cam".to_string(), "cut001w".to_string()), 3000)].into(),
+                ..Stage::default()
+            },
+        )?;
+        ground.cutscene()?;
+        let first = (ground.last.talk.conversations.first())
+            .ok_or("no conversation under way")?
+            .shown_ms;
+        ground.until_entry(1)?;
+        let c = (ground.last.talk.conversations.first()).ok_or("the conversation ended")?;
+        Ok::<[u64; 3], String>([
+            c.shown_ms - first,
+            c.clip_from_ms - first,
+            c.until_ms - first,
+        ])
+    };
+    let (carried, afresh) = (second(1000)?, second(1200)?);
+    let shown = carried[0];
+    check(
+        shown > 0 && carried == [shown, 0, 3000] && afresh == [shown, shown, shown + 3000],
+        format!(
+            "second line [shown, clip from, until] after the first: carried {carried:?}, afresh {afresh:?}"
+        ),
+    )
+}
+
 /// The conversation's first line after `ms` of the talker's pause script
 /// `script` (`probe_pause`, …) running its line, a skip sent at 300 ms and
-/// the talker's queue cleared (`probe_clear`) at `clear` ms: whether the
-/// line has played (its replies up) and whether it is paused.
-fn after_pause(script: &str, clear: Option<u64>, ms: &[u64]) -> Result<Vec<(bool, bool)>, String> {
+/// the talker running `clear`'s script (`probe_clear`, `probe_cancel`) at
+/// its ms: whether the line has played (its replies up) and whether it is
+/// paused.
+fn after_pause(
+    script: &str,
+    clear: Option<(&str, u64)>,
+    ms: &[u64],
+) -> Result<Vec<(bool, bool)>, String> {
     let mut stage = line("Hello there.", None, 0, None);
     stage.talk.entries[0].script.script = script.into();
     let mut ground = Ground::staged(1, stage)?;
@@ -3085,9 +3720,9 @@ fn after_pause(script: &str, clear: Option<u64>, ms: &[u64]) -> Result<Vec<(bool
     ground.idle(300);
     ground.answer(Pick::Skip);
     let (mut seen, mut at) = (Vec::new(), 300);
-    if let Some(clear) = clear {
+    if let Some((clearing, clear)) = clear {
         ground.idle(clear.saturating_sub(at));
-        ground.run_script("probe_clear", TALKER)?;
+        ground.run_script(clearing, TALKER)?;
         at = clear + STEP_MS;
     }
     for &until in ms {
@@ -3187,12 +3822,10 @@ fn pause_behind_actions() -> Found {
     )
 }
 
-/// The pause keeps its place in the caller's queue: the talker's line
-/// pauses, queues its resume and clears its own queue before either ran
-/// (Citadel Station's Czerka men, `a_czerkaint`, clear theirs to walk in):
-/// the pause went with the queue, as the executables' queued pause would
-/// never have run, and the line (1350 ms, a skip sent at 300 ms) has played
-/// by 2 s, not held for good.
+/// The talker's line pauses, queues its resume and clears its own queue
+/// before either ran: the resume went with the queue, nothing is left to
+/// resume it, and the line (1350 ms, a skip sent at 300 ms) has played by
+/// 2 s, not held for good.
 fn pause_cleared_with_its_queue() -> Found {
     let seen = after_pause("probe_pause_cleared", None, &[2000])?;
     check(
@@ -3201,17 +3834,38 @@ fn pause_cleared_with_its_queue() -> Found {
     )
 }
 
+/// A clear leaves the pause on (the executables set it at once and
+/// `ClearAllActions` only empties the queue): the talker's line pauses,
+/// clears its own queue, then waits 3 s and resumes, as the Star Forge's
+/// `k_psta_malaklght` does, and the line is held the 3 s.
+fn pause_outlives_a_clear() -> Found {
+    let seen = after_pause("probe_pause_then_clear", None, &[2000, 3400])?;
+    check(
+        seen == [(false, true), (true, false)],
+        format!("(played, paused) at 2 s and 3.4 s: {seen:?}"),
+    )
+}
+
 /// A clear that drops the resume after the pause ran: the talker's line
 /// pauses, waits 10 s and resumes, and 1 s in its queue is cleared
 /// (`ClearAllActions`, as K1's `k_ai_master` clears one clicked in co-op by
 /// a player not in its conversation). Nothing is left to resume it, so the
 /// clear lets it go on: the line (1350 ms, a skip sent at 300 ms) has played
-/// by 2 s, not held for good.
+/// by 2 s, not held for good; and the same when the talker's fight is
+/// cancelled instead (`CancelCombat`, which clears all its actions first in
+/// the executables).
 fn resume_cleared_with_its_queue() -> Found {
-    let seen = after_pause("probe_pause_long", Some(1000), &[2000])?;
+    let mut seen = Vec::new();
+    for clearing in ["probe_clear", "probe_cancel"] {
+        seen.extend(after_pause(
+            "probe_pause_long",
+            Some((clearing, 1000)),
+            &[2000],
+        )?);
+    }
     check(
-        seen == [(true, false)],
-        format!("(played, paused) at 2 s: {seen:?}"),
+        seen == [(true, false); 2],
+        format!("(played, paused) at 2 s, cleared and cancelled: {seen:?}"),
     )
 }
 
@@ -3900,13 +4554,17 @@ fn side_fits_over_a_rising_corner() -> Found {
 /// Three bodies across the ground at y = 0 (the dummy, the companion and
 /// the brawler), every side a walker meeting the middle one could go round
 /// it by taken or off the mesh; each busy (a long wait queued), so none is
-/// pushed aside.
+/// pushed aside, and none hostile to the players, whose talk would clear
+/// its wait (`Step::hold_hostiles`).
 fn wall(ground: &mut Ground) -> Result<(), String> {
     for (index, at) in [
         (DUMMY, [-2.0, 0.0]),
         (BUDDY, [-3.8, 0.0]),
         (FOE, [-1.1, 0.0]),
     ] {
+        if index != BUDDY {
+            ground.side(index, NEUTRAL)?;
+        }
         let body = ground.place(index, at)?;
         ground.queue(body, Queue::Wait { ms: 60_000 });
     }
@@ -3915,7 +4573,9 @@ fn wall(ground: &mut Ground) -> Result<(), String> {
 }
 
 /// S3: walled in by three bodies, the walk gives up: its move ends within
-/// 2 s, short of the wall.
+/// 2 s, short of the wall. The wall's brawler and dummy stand neutral
+/// (`wall`): hostile to the player, their waits would be cleared in its
+/// talk and they pushed aside.
 fn gives_up_blocked() -> Found {
     let (mut ground, walker) = walking_ground([-2.0, -3.0], true)?;
     wall(&mut ground)?;
@@ -4782,6 +5442,43 @@ fn walk_asks_no_exit() -> Found {
     check(
         carried > 0 && off <= 0.1 && !asked,
         format!("carried {carried} steps, {off:.3} m off the end, asked to leave {asked}"),
+    )
+}
+
+/// S3: the host's body walked by a script into the open gate that leads
+/// out, standing in its doorway as the conversation ends, asks to leave
+/// neither then nor after: it is the doorway's tenant, not one who walked
+/// in (TSL's Trayus Academy: `a_903kreia` walks the Exile up to
+/// `d_entrance`, over the way back to the depths, and the scene's end left
+/// for 902MAL).
+fn walked_into_exit_leaves_not() -> Found {
+    let mut ground = Ground::staged(
+        1,
+        Stage {
+            way_out: true,
+            ..Stage::default()
+        },
+    )?;
+    let host = ground.body(0)?;
+    ground.put(host, [-3.0, 0.0]);
+    ground.place(TALKER, TALKER_AT)?;
+    ground.step();
+    ground.cutscene()?;
+    let mut asked = false;
+    ground.queue(host, move_to([0.0, 0.0], false, None));
+    for _ in 0..steps(3000) {
+        ground.step();
+        asked |= ground.last.ready.is_some() || ground.last.transition.is_some();
+    }
+    let off = between(ground.at(host), floor_at([0.0, 0.0]));
+    ground.goodbye()?;
+    for _ in 0..steps(1000) {
+        ground.step();
+        asked |= ground.last.ready.is_some() || ground.last.transition.is_some();
+    }
+    check(
+        off <= 0.3 && !asked,
+        format!("{off:.3} m off the doorway's middle, asked to leave {asked}"),
     )
 }
 

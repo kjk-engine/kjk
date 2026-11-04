@@ -398,6 +398,8 @@ pub struct DoorView {
     /// `busted`, played once blows break it, for a door whose
     /// `genericdoors` row names it (`Instance::busted`).
     pub busted: Option<Arc<AnimationIr>>,
+    /// What its clips key beyond places and turns: its meshes' alpha.
+    pub fx: Option<Arc<ModelFx>>,
 }
 
 /// A creature drawn in the scene: which object of the module it is (its
@@ -1144,6 +1146,8 @@ pub fn module_scene(
     let mut instance_models = BTreeMap::new();
     // Each placeable model's own clips and emitters, read once.
     let mut fx_of: BTreeMap<String, Option<OwnFx>> = BTreeMap::new();
+    // Each door model's clips' alpha (a force field fades as it opens).
+    let mut door_fx: BTreeMap<String, Arc<ModelFx>> = BTreeMap::new();
     for (object, instance) in area.instances.iter().enumerate() {
         let Some(name) = &instance.model else {
             continue;
@@ -1161,6 +1165,12 @@ pub fn module_scene(
                     (0, sim::look::DEFAULT),
                 );
                 fx_of.insert(name.clone(), own);
+            }
+            if instance.kind == Kind::Door
+                && let Some(parsed) = &parsed
+            {
+                let fx = fx_through_chain(resolver, parsed);
+                door_fx.insert(name.clone(), Arc::new(fx));
             }
             loaded.insert(name.clone(), ir);
         }
@@ -1188,6 +1198,7 @@ pub fn module_scene(
                     true => clip(loaded, resolver, game, &ir, "busted")?,
                     false => None,
                 },
+                fx: door_fx.get(name).cloned(),
             });
         }
         match &loaded[name] {

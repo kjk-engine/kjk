@@ -531,20 +531,21 @@ impl State {
     }
 
     /// `who`'s queue cleared (`host` the host's two bodies, `View::host`).
-    /// A conversation pause still in it, one that never reached the front,
-    /// is dropped with it: the executables queue the pause as they queue the
-    /// resume (reone's `PauseConversationAction`), so a clear before it ran
-    /// leaves the conversation going on. Citadel Station's Czerka men pause
-    /// their line, clear their own queues and walk in (`a_czerkaint`). A
-    /// resume dropped with it lets the conversation it would resume go on as
-    /// well: nothing else would ever resume it (K1's `k_ai_master` clears the
-    /// queue of one clicked by a player who is not in its conversation).
+    /// A pause in it stays: the executables' `ActionPauseConversation`
+    /// queues nothing, it sets the object's pause at once, and
+    /// `ClearAllActions` only empties the queue (TSL's
+    /// `ExecuteCommandActionPauseConversation`, `CSWSObject::ClearAllActions`);
+    /// the Star Forge's `k_psta_malaklght` pauses, clears and only then
+    /// queues its wait and resume. A resume dropped with it lets the
+    /// conversation it would resume go on: nothing else would ever resume it
+    /// (K1's `k_ai_master` clears the queue of one clicked by a player who
+    /// is not in its conversation).
     pub fn clear_queue(&mut self, who: ObjectId, host: [ObjectId; 2]) {
         let Some(queue) = self.actions.remove(&who.0) else {
             return;
         };
         for queued in queue {
-            if let Action::Pause { talk } | Action::Hold { talk } = queued.action
+            if let Action::Hold { talk } = queued.action
                 && let Some(at) = self.talk.held_by(who, talk, host)
             {
                 self.talk.conversations[at].paused = false;

@@ -430,14 +430,28 @@ const TALK_RINGS: [f32; 4] = [0.4, 0.55, 0.7, 0.8];
 /// dunes), not one it walked out of; and the faces of the navigation mesh
 /// under them (`sim::walk::faces_under`), which the goal's walks plan round
 /// where a way round them leads (`Here::walled`), as a player keeps off an
-/// edge once shown it. Of one level: another's are dropped.
+/// edge once shown it. And the bodies the goal's walks went round
+/// (`Walker::around`, where each stood, units, and how often), and the
+/// faces under those gone round `ROUNDS_TO_WALL` times standing where they
+/// stood (`sim::walk::faces_under_body`), walled too: KOTOR's planner keeps
+/// its lines off creatures, so a walk takes another way past one standing in
+/// a gap (Moza in Chodo's office, where the way out ran between him and a
+/// wall, gone round and planned back through him for good). Of one level:
+/// another's are dropped.
 pub(super) struct TurnedBack {
     pub(super) level: String,
     pub(super) stood_in: BTreeSet<u32>,
     pub(super) was_at: Option<[f32; 3]>,
     pub(super) triggers: BTreeSet<u32>,
+    pub(super) rounded: Vec<([f32; 3], u8)>,
     pub(super) walled: Arc<[bool]>,
 }
+
+/// How often a walk goes round a body standing at one spot before its
+/// faces are walled (`TurnedBack::rounded`), and how near (metres) that spot
+/// is the same.
+pub(super) const ROUNDS_TO_WALL: u8 = 2;
+pub(super) const SAME_SPOT_M: f32 = 0.3;
 
 impl Default for TurnedBack {
     fn default() -> Self {
@@ -446,6 +460,7 @@ impl Default for TurnedBack {
             stood_in: BTreeSet::new(),
             was_at: None,
             triggers: BTreeSet::new(),
+            rounded: Vec::new(),
             walled: Arc::new([]),
         }
     }
@@ -486,11 +501,45 @@ impl TurnedBack {
         self.triggers.len() > known
     }
 
-    /// The faces under the triggers that turned the player back, made anew.
+    /// A walk went round a body standing at `at` (its origin, units):
+    /// whether it is now walled (`ROUNDS_TO_WALL` times at that spot). Never
+    /// one `hostile` to the player: KOTOR's walker runs a hostile blocker's
+    /// scripts rather than plotting round it (`PlotPathAroundCreature`, rep
+    /// <= 10). A storm beast by Malachor's south ship, walled, sent Bao-Dur's
+    /// remote another way, where it wedged on a drawn rock.
+    pub(super) fn went_round(&mut self, at: [f32; 3], hostile: bool) -> bool {
+        if hostile {
+            return false;
+        }
+        let same = |was: [f32; 3]| flat(was.map(|v| v * UNIT), at.map(|v| v * UNIT)) <= SAME_SPOT_M;
+        let count = match self.rounded.iter_mut().find(|(was, _)| same(*was)) {
+            Some((_, count)) => {
+                *count = count.saturating_add(1);
+                *count
+            }
+            None => {
+                self.rounded.push((at, 1));
+                1
+            }
+        };
+        count == ROUNDS_TO_WALL
+    }
+
+    /// The faces under the triggers that turned the player back and the
+    /// bodies walled (`went_round`), made anew.
     pub(super) fn wall(&mut self, here: &Here) {
         let mut walled = Vec::new();
-        for trigger in self.triggers.iter().filter_map(|index| here.facts(*index)) {
-            let under = sim::walk::faces_under(here.level, &trigger);
+        let triggers = self
+            .triggers
+            .iter()
+            .filter_map(|index| here.facts(*index))
+            .map(|trigger| sim::walk::faces_under(here.level, &trigger));
+        let bodies = self
+            .rounded
+            .iter()
+            .filter(|(_, count)| *count >= ROUNDS_TO_WALL)
+            .map(|(at, _)| sim::walk::faces_under_body(here.level, *at));
+        for under in triggers.chain(bodies) {
             walled.resize(under.len(), false);
             for (walled, under) in walled.iter_mut().zip(under) {
                 *walled |= under;
@@ -766,6 +815,58 @@ pub(super) fn fights_first(goal: &Goal, fought: bool, in_combat: bool, shut_sinc
     }
 }
 
+/// Whether a use is answered: by its door opening or its target speaking
+/// (`opened`, `spoke`), whether the player stands near or far and pressed
+/// or not, else by what the press set going (`pressed`). Visquis's sealed
+/// door speaks as the player comes, its scene handing the player to Mira:
+/// from within reach, before the press, it answered as from afar.
+pub(super) fn use_met((opened, spoke): (bool, bool), pressed: bool) -> bool {
+    opened || spoke || pressed
+}
+
+/// Making party member `npc` the leader (`u8::MAX`: the player) as the
+/// HUD's portrait click asks it: by the member's body (a companion with no
+/// creature here, by number).
+pub(super) fn lead_to(world: &sim::SimWorld, snapshot: &Snapshot, npc: u8) -> Action {
+    let body = match npc {
+        u8::MAX => snapshot.own(Seat(0)).map(|own| own.id),
+        npc => world
+            .script_state()
+            .party
+            .available
+            .get(&npc)
+            .and_then(|known| known.object)
+            .map(sim::SimId),
+    };
+    body.map_or(Action::SetLeader(npc), Action::Lead)
+}
+
+/// Whether a living body other than the player (`me`) and the walk's own
+/// target (`target`: a creature walked up to, whose walk ends at it; a
+/// pazaak player on Dantooine, pressed from afar, began no match) stands
+/// where a walk ends (`goal`, units): within a body's width of it, on the
+/// flat.
+pub(super) fn goal_taken(
+    snapshot: &Snapshot,
+    (me, target): (sim::SimId, Option<sim::SimId>),
+    goal: [f32; 3],
+) -> bool {
+    let goal = goal.map(|v| v * UNIT);
+    snapshot.entities.iter().any(|e| {
+        e.id != me
+            && Some(e.id) != target
+            && e.fighter.is_some_and(|f| f.alive())
+            && e.player.is_some()
+            && flat(e.position, goal) <= 2.0 * sim::motion::HALF_WIDTH * UNIT
+    })
+}
+
+/// Whether a use `ms` into its goal goes to its target though foes still stand
+/// (`USE_FIGHT_MS`). An exit waits: the party may not leave in a fight.
+pub(super) fn use_fight_over(goal: &Goal, ms: u64) -> bool {
+    matches!(goal, Goal::Use(_)) && ms >= USE_FIGHT_MS
+}
+
 /// The nearest closed door of the module within `DOOR_NEAR_M` of `at`: its
 /// index, and where it stands.
 /// One that leads to another module only when `leaving` (a fight or a walk
@@ -977,6 +1078,36 @@ pub(super) fn sighted_stand(
         })
         .min_by(|a, b| flat(a.0, me).total_cmp(&flat(b.0, me)))
         .map(|(_, walker)| walker)
+}
+
+/// Where the player sees foe `id` from (units): the nearest floor round the
+/// player (the sim gunners' rings of sixteen, `minds::spot_for`) within
+/// `GUN_M` of the foe at `at` (metres, on the flat), from whose eye its chest
+/// is seen and which a way leads to, as KOTOR's attack walks on until its
+/// line is clear (`AIActionPhysicalAttacks` asks `ClearLineOfSight`). Iziz's
+/// wall turrets over the Merchant Quarter's ramp, 3 m up, are hidden by the
+/// wall's top from below them, and seen from 8 m off.
+pub(super) fn sight_spot(
+    here: &Here,
+    player: &sim::motion::MotionState,
+    (id, at): (sim::SimId, [f32; 3]),
+) -> Option<[f32; 3]> {
+    let chest = here.chest(id)?;
+    let from = sim::walk::back_on(here.level, player.origin).unwrap_or(player.origin);
+    rules::ai::gunners::spots::RINGS
+        .iter()
+        .flat_map(|&far| {
+            (0..16).map(move |k| {
+                let angle = k as f32 * std::f32::consts::TAU / 16.0;
+                [from[0] + far * angle.cos(), from[1] + far * angle.sin(), from[2]]
+            })
+        })
+        .map(|spot| sim::walk::on_floor(here.level, spot))
+        .filter(|spot| sim::walk::stands(here.level, *spot) && flat(spot.map(|v| v * UNIT), at) <= GUN_M)
+        .find(|spot| {
+            let eye = [spot[0], spot[1], spot[2] + player.eye_height];
+            here.level.sees(here.sight(), eye, chest) && here.open_way(from, *spot)
+        })
 }
 
 /// The command that looks at `at` (metres) from where `player` stands.

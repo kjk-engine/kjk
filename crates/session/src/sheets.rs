@@ -1183,6 +1183,15 @@ pub fn talents(source: &dyn Source) -> sim::script::Talents {
                     .map(|column| tables.int(name, row, column).unwrap_or(0).max(0))
                     .sum::<i64>()
                     .clamp(0, i64::from(u16::MAX)) as u16,
+                conjure_ms: tables
+                    .int(name, row, "conjtime")
+                    .unwrap_or(0)
+                    .clamp(0, i64::from(u16::MAX)) as u16,
+                cast_clips: tables.text(name, row, "castanim").map_or([0; 2], |word| {
+                    use asset_odyssey::creature::{LOOPED, ONCE, cast_rows};
+                    let (once, looped) = cast_rows(&word);
+                    [ONCE + once, looped.map_or(0, |row| LOOPED + row)]
+                }),
             })
             .collect()
     };

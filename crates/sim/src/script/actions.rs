@@ -38,7 +38,9 @@
 //!   or feat used on a target, to the end of the object's round as an
 //!   attack: its intent's `talent`, which the mind uses once within the
 //!   power's reach (a power pressed or held, a ranged feat's special, a
-//!   melee feat's saber style);
+//!   melee feat's saber style); begun on itself, it is in combat
+//!   (`Change::InCombat`), as the exes' cast starts a combat round, so its
+//!   end of round runs;
 //! - **random walk** (`ActionRandomWalk`): to random points within
 //!   `WANDER_M` of where the walker stood as the walk began, one after
 //!   another, until the queue is cleared;
@@ -48,8 +50,8 @@
 //!   is in goes on, and completes;
 //! - **pause** (`ActionPauseConversation`): the conversation is held at
 //!   once (`dialogue`), and this completes when it reaches the front; a
-//!   queue cleared before then drops the pause with it, as the
-//!   executables' queued pause never ran (reone queues both);
+//!   queue cleared before then leaves the pause on, as the executables set
+//!   it at once and queue nothing (reone queues both);
 //! - **switch weapons** (TSL's `ActionSwitchWeapons`): the object's whole
 //!   queue cleared (this one with it), its weapon sets exchanged at once
 //!   (`items::State::switch_weapons`), and, in combat with a target, an
@@ -161,7 +163,7 @@ pub enum Action {
     },
     /// `ActionPauseConversation`'s place in the queue (the pause itself held
     /// at once), and the conversation whose script queued it: cleared
-    /// before it reaches the front, the pause is dropped.
+    /// before it reaches the front, the pause stays on.
     Pause {
         talk: Option<u32>,
     },

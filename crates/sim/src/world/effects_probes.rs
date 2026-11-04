@@ -53,9 +53,10 @@ const OTHER: &str = "probe_other";
 const PLACES: [(&str, f32); 2] = [(TARGET, 3.5), (OTHER, -2.5)];
 
 /// The `spells.2da` rows the probes cast: one whose impact sets token 30, a
-/// cast taking `CAST_MS`.
+/// cast taking `CAST_MS`, its first `CONJURE_MS` conjuring.
 const CAST_ROW: u16 = 3;
 const CAST_MS: u16 = 1500;
+const CONJURE_MS: u16 = 500;
 
 const CATALOG: &str = r#"
 int EFFECT_TYPE_IMMUNITY = 15;
@@ -293,6 +294,7 @@ fn world(sheet: Sheet) -> Result<(SimWorld, SimId, SimId, SimId), String> {
     data.force_costs = vec![20; 8];
     let mut spells = vec![Talent::default(); 8];
     spells[usize::from(CAST_ROW)].cast_ms = CAST_MS;
+    spells[usize::from(CAST_ROW)].conjure_ms = CONJURE_MS;
     let mut impacts = vec![String::new(); 8];
     impacts[usize::from(CAST_ROW)] = "probe_impact".into();
     let library = crate::probe::library_with(
@@ -1044,8 +1046,9 @@ fn faction_modifier() -> Result<String, String> {
 }
 
 /// The target's casts at the player: a fake one holds the hand and costs
-/// nothing, its impact never run; a cheat's runs its impact after its cast
-/// time (not before); one it does not know does nothing.
+/// nothing, its impact never run; a cheat's runs its impact as its
+/// conjuring ends, before its cast is over (not before); one it does not
+/// know does nothing.
 fn casts() -> Result<String, String> {
     let (mut world, player, target, _) = world(soldier(&[]))?;
     let queue = |world: &mut SimWorld, fake: bool, cheat: bool| {
@@ -1075,21 +1078,21 @@ fn casts() -> Result<String, String> {
     queue(&mut world, false, false);
     let unknown = tokens(&wait(&mut world, 2000), 30..=30);
     queue(&mut world, false, true);
-    let early = tokens(&wait(&mut world, 1000), 30..=30);
-    let late = tokens(&wait(&mut world, 800), 30..=30);
+    let early = tokens(&wait(&mut world, 300), 30..=30);
+    let late = tokens(&wait(&mut world, 700), 30..=30);
     let want = (true, vec!["-".to_string()], vec!["-".to_string()], true);
     check(
         fake == want && unknown == ["-"] && early == ["-"] && late == ["1"],
         format!(
             "fake (hand, impact at 0.3 s, at 1.8 s, unpaid) {fake:?}; unknown {unknown:?}; \
-             cheat at 1 s {early:?}, at 1.8 s {late:?}"
+             cheat at 0.3 s {early:?}, at 1 s {late:?}"
         ),
     )
 }
 
 /// The player's casts from the power list (`action::Action::Cast`, as
 /// bytes and back): one it does not know does nothing; one it knows runs
-/// its impact after its cast time (not before) and is paid for.
+/// its impact as its conjuring ends (not before) and is paid for then.
 fn player_casts() -> Result<String, String> {
     let (mut world, player, ..) = world(soldier(&[]))?;
     let cast = crate::action::Action::Cast {
@@ -1117,15 +1120,15 @@ fn player_casts() -> Result<String, String> {
         }
     }
     press(&mut world);
-    let early = tokens(&wait(&mut world, 1000), 30..=30);
+    let early = tokens(&wait(&mut world, 300), 30..=30);
     let before = fighter(&mut world, player).map_or(0, |f| f.fp);
-    let late = tokens(&wait(&mut world, 800), 30..=30);
+    let late = tokens(&wait(&mut world, 700), 30..=30);
     // Its 20 FP paid as it lands (less the little regained meanwhile).
     let paid = before - fighter(&mut world, player).map_or(0, |f| f.fp);
     check(
         bytes && unknown == ["-"] && early == ["-"] && late == ["1"] && paid > 15 * 100,
         format!(
-            "bytes {bytes}; unknown {unknown:?}; known at 1 s {early:?}, at 1.8 s {late:?}; \
+            "bytes {bytes}; unknown {unknown:?}; known at 0.3 s {early:?}, at 1 s {late:?}; \
              paid {paid} hundredths of FP"
         ),
     )

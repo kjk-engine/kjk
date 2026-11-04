@@ -65,10 +65,15 @@ impl Tree<'_> {
             return;
         };
         let mut facts = Vec::new();
+        let call = |call: &fmt_odyssey::dlg::Call| match call.ints {
+            [0, 0, 0, 0, 0] => call.script.clone(),
+            ints => format!("{}{ints:?}", call.script),
+        };
+        let (script, script2) = (call(&node.script), call(&node.script2));
         for (label, value) in [
             ("speaker", &node.speaker),
-            ("script", &node.script.script),
-            ("script2", &node.script2.script),
+            ("script", &script),
+            ("script2", &script2),
             ("sound", &node.sound),
             ("vo", &node.vo),
             ("quest", &node.quest),

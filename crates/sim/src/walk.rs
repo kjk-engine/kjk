@@ -333,6 +333,33 @@ pub fn route_ways(level: &Level, from: Vec3, to: Vec3, ways: &dyn Ways) -> Optio
     .or_else(|| route(level, from, to, &|index| ways.door(index)))
 }
 
+/// The faces of the navigation mesh a body standing at `at` (its origin,
+/// units) keeps a walker off: those within `PASS` of it, seen from above, on
+/// its floor. KOTOR's planner tests each line of a way for creatures on it
+/// (`CSWSArea::PathPointDFSGenerateSuccessors` calls `NoCreaturesOnLine`),
+/// so a way is planned past one standing in a gap, not through it.
+pub fn faces_under_body(level: &Level, at: Vec3) -> Vec<bool> {
+    let Some(nav) = level.nav() else {
+        return Vec::new();
+    };
+    let [x, y, z] = soles(at);
+    let radius = PASS * UNIT;
+    let outline: Vec<[f32; 2]> = (0..8)
+        .map(|k| {
+            let (sin, cos) = math::sin_cos_deg(k as f32 * 45.0);
+            [x + radius * cos, y + radius * sin]
+        })
+        .collect();
+    let inside =
+        |_: usize, p: [f32; 2]| math::flat_distance([p[0], p[1], 0.0], [x, y, 0.0]) < radius;
+    faces_under_outlines(
+        nav,
+        &[outline],
+        &inside,
+        (z - FLOOR_BELOW_M, z + FLOOR_ABOVE_M),
+    )
+}
+
 /// `faces_under_made` on `nav`.
 pub fn made_faces(nav: &collision::nav::NavMesh, facts: &ObjectData, at: Vec3) -> Vec<bool> {
     let (sin, cos) = math::sin_cos_deg(facts.yaw);
@@ -988,16 +1015,15 @@ impl Walker {
     /// and plans on from there. Not one at the walk's
     /// goal (whom it follows or fights), nor again while it makes for a
     /// side of that body. The navigation mesh knows only the level; KOTOR's
-    /// walkers step round a creature in their way.
-    pub fn around(&mut self, level: &Level, player: &MotionState, bodies: &[Vec3]) {
-        let Some(corner) = self.waypoint.filter(|_| self.stalls > 0) else {
-            return;
-        };
+    /// walkers step round a creature in their way. The body gone round, if
+    /// any.
+    pub fn around(&mut self, level: &Level, player: &MotionState, bodies: &[Vec3]) -> Option<Vec3> {
+        let corner = self.waypoint.filter(|_| self.stalls > 0)?;
         let at = player.origin;
         let way = [corner[0] - at[0], corner[1] - at[1]];
         let length = (way[0] * way[0] + way[1] * way[1]).sqrt();
         if length < 1.0 {
-            return;
+            return None;
         }
         let dir = [way[0] / length, way[1] / length];
         // The nearest body ahead, within a pass of the way; or one it
@@ -1024,12 +1050,10 @@ impl Walker {
             })
             .min_by(|a, b| a.0.total_cmp(&b.0));
         // Not while already making for a side of one.
-        let Some((_, body)) = blocking.filter(|_| !self.rounding) else {
-            return;
-        };
-        if let Some(beside) = beside(level, at, corner, body, bodies) {
-            self.round(beside);
-        }
+        let (_, body) = blocking.filter(|_| !self.rounding)?;
+        let beside = beside(level, at, corner, body, bodies)?;
+        self.round(beside);
+        Some(body)
     }
 
     /// Making for `beside`, a side of a body in its way, and planning on

@@ -362,8 +362,8 @@ impl Assets {
 
     /// What the view draws on a moving `entity` at `ms` (`cast::place`): a
     /// hold's clip or a script's while it shows; a creature model's own walk
-    /// by its speed, a humanoid's by its legs. Out of a held scene a script's
-    /// animation breaks off as the body moves (`acting::Shows::follow`).
+    /// by its speed, a humanoid's by its legs. What breaks off as the body
+    /// moves is the view's own rule (`acting::kept_on`).
     fn drawn(
         &mut self,
         snapshot: &Snapshot,
@@ -379,7 +379,11 @@ impl Assets {
         let moving = x.hypot(y) >= kjk_game::cast::STILL_SPEED;
         let acting = kjk_game::cast::drawn_acting(fighter, moving, ms as f64)
             .filter(|acting| acting.animation != sim::combat::death::DIE)
-            .filter(|acting| snapshot.holds_world() || blows::of(acting.animation).is_some());
+            .filter(|acting| {
+                let alive = fighter.alive();
+                let shown = (!moving, moving, alive, snapshot.holds_world());
+                kjk_game::acting::kept_on(acting, shown, ms as f64)
+            });
         if let Some(acting) = acting
             && let Some((length, transition)) = kjk_game::acting::stance_of(acting.animation, 0)
                 .into_iter()
@@ -1568,8 +1572,7 @@ impl Checker<'_> {
         let who = self.name(entity.id.0);
         let detail = format!("{who} ({})", look.head.as_deref().unwrap_or(&look.body));
         match (unmoved, head) {
-            (Some(true), _) => self.fail(15, "lips: a talk clip the view's mouth does not play", at, detail),
-            (Some(false), _) => self.note(15, "no talk clip in its model chain (a mask, a droid: nothing moves in reone either)", at, detail),
+            (Some(_), _) => self.note(15, "no talk clip in its model chain (a mask, a droid: nothing moves in reone either)", at, detail),
             // Counted for the census: the lips moved on a body's own face.
             (None, None) => self.note(15, "lips on the body (its own face, no head)", at, detail),
             (None, Some(_)) => {}

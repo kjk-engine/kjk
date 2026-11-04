@@ -99,9 +99,16 @@ kjk dialogue show k1 end_m01aa end_trask01  # one tree, with its text
 ## The walk (`sim::script::dialogue`)
 From the survey of reone and xoreos (journal `2026-10-01-i18-dialogue`);
 where they part, the choice is ours and named.
-- **Start.** `ActionStartConversation` (its owner by reone's rule: the
-  other party when a player asks, else the asker; an empty resref the
-  owner's own DLG; an asker with none, a trigger starting a scene with an
+- **Start.** `ActionStartConversation` begins where its asker stands, however
+  far from whom it talks to: both games' executables set the action's
+  ignore-start-range flag whatever `bIgnoreStartRange` says, so
+  `AIActionDialogObject`'s walk (to the midpoint past
+  `MAX_OBJECT_START_CONVERSATION_DISTANCE`, 10 m) is never taken for a
+  script's ask. `ActionStartConversation` (its owner the other party when a
+  player asks, the asker when it asks a player, else the one conversed with:
+  TSL's `AIActionDialogObject` signals that one's dialog event, and a
+  companion in the party is not such a one; an empty resref the owner's own
+  DLG; an asker with none, a trigger starting a scene with an
   invisible placeable, gives it to the one conversed with, with its DLG
   [verify]), `BeginConversation` (owner the caller, the player the
   one named, else its last speaker), or a player's use: a creature or
@@ -387,6 +394,14 @@ restored when it ends.
   it; in co-op a guest's private one leaves the area to JA. A
   conversation's own rules (its lines' turns, timing, camera, gestures and
   hidden items) hold in every conversation.
+- **Hostiles** (K1's and TSL's `UpdateDialog`, which runs
+  `ClearAllPlayerHostileActions` every frame of a player's conversation):
+  while a conversation holds the world, each step every creature of the
+  area out of the party, commandable and hostile to the player has its
+  queue cleared (`Step::hold_hostiles`): told to attack or walk, it does
+  nothing until the talk ends, whether or not it takes part. A script's
+  `CutsceneAttack` is no action and plays; one not commandable keeps its
+  queue.
 - **Walks** (S3): a body walking a route moves on KOTOR's walker at its
   `creaturespeed.2da` rates (`MOVEMENT.md`, `NAV.md`).
 - **Spaces**: the party keeps its personal spaces, as KOTOR's creatures
@@ -904,16 +919,22 @@ conversation).
   films its lines from that model's `camerahook` (`play_view::animated_shot`):
   the model stands at the area's origin, as reone puts it, and plays the
   line's `CameraAnimation` clip (`cut%03dw` from 1200, `camera_clip_name`)
-  from when the line showed, held at its end; the camera looks down the
-  hook's −z; the line's `CamFieldOfView`, else 55 (Q-0141: reone keeps 55).
-  A line that waits on its clip (`WaitFlags` 1) lasts its own timer (its
-  voice or text, `Delay` and other waits) raised to the clip (the library's
-  `camera_clips`, read from the models' clip lengths), as the K1 and TSL
-  executables end a line once its timer and every flagged wait are done
-  (reone takes the clip alone). The camera keeps the hook's roll.
-  A line with no clip (no `CameraAnimation`, or one its model lacks) has
-  an ordinary shot, as KOTOR's does (reone keeps the camera where the
-  last clip left it), the placed camera or the dialog camera below.
+  from when the line showed, held at its end; a line of 1000 (1000 + n)
+  carries the clip playing (`cut%03dw` from 1000, `camera_cue`) on from
+  when the line that began it showed (`Conversation::clip_from_ms`; TSL
+  only: 33 lines in 11 DLGs, `kreia_kr`'s pan round Korriban, the
+  prologue's, `851medit`'s; K1 has none) [verify in the exe; reone names
+  it `cut-199w`, no clip, so its camera plays on too]. The camera looks
+  down the hook's −z; the line's `CamFieldOfView`, else 55 (Q-0141: reone
+  keeps 55). A line that waits on its clip (`WaitFlags` 1) lasts its own
+  timer (its voice or text, `Delay` and other waits) raised to what is
+  left of the clip (the library's `camera_clips`, read from the models'
+  clip lengths), as the K1 and TSL executables end a line once its timer
+  and every flagged wait are done (reone takes the clip alone). The camera
+  keeps the hook's roll. A line with no clip (no `CameraAnimation`, or one
+  its model lacks) has an ordinary shot, as KOTOR's does (reone keeps the
+  camera where the last clip left it), the placed camera or the dialog
+  camera below.
   Else a placed camera a script cut to
   (`SetDialogPlaceableCamera`, `Conversation::camera`, KJKS 38, KJKV 25:
   the conversation whose script runs it, else the one the caller is in,
@@ -965,7 +986,9 @@ conversation).
     pair and 0.3·L up. `CamHeightOffset` and `TarHeightOffset` raise the
     eye and the aim. 55 degrees. The shot, its side and its wall
     fall-back are fixed as the line starts; the heads are read every
-    frame, so the camera follows the pair. Each line cuts.
+    frame, so the camera follows the pair, as TSL's dialog camera re-aims
+    each frame: one a node's script jumps away is followed to where it
+    lands (`a_262imprison`'s cell, under its own fade). Each line cuts.
   - *Heads*: a body's `camerahook` as last drawn (its model's, else its
     head's, `Cast::fit`), else its soles raised by its model's height, the
     top of its meshes and its head's at rest (`Cast::model_height`;
