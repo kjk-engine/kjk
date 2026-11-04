@@ -1687,7 +1687,7 @@ fn save_copy_round_trip() {
 /// with installs, K1's and TSL's items and classes read without the game.
 #[test]
 fn save_edits() {
-    probed("save edits", &edit::probes::all(), 7);
+    probed("save edits", &edit::probes::all(), 9);
 }
 
 /// The saves' safety net (`saves::safety_probes`): the meta's new fields

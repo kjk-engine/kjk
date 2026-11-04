@@ -15,7 +15,63 @@ pub fn all() -> Vec<Probe> {
         ("open_from_folder", open_from_folder()),
         ("data_k1", data_of(vfs::Game::Kotor1)),
         ("data_tsl", data_of(vfs::Game::Kotor2)),
+        ("characters_listed", characters_listed()),
+        ("characters_unsheeted", characters_unsheeted()),
     ]
+}
+
+/// The kitchen sink's characters: its players by seat first, then the
+/// companion the table holds, away, as its template stands.
+fn characters_listed() -> Result<String, String> {
+    use crate::Who;
+    let (level, save) = sim::fixtures::kitchen_sink();
+    let listed = crate::characters(&save, Some(&level));
+    let players = save
+        .snapshot
+        .entities
+        .iter()
+        .filter(|entity| matches!(entity.kind, sim::Kind::Avatar(_)))
+        .count();
+    let want = players + save.script.party.available.len();
+    if listed.len() != want {
+        return Err(format!("{} listed, not {want}", listed.len()));
+    }
+    if !matches!(listed[0].who, Who::Player(sim::Seat(0))) {
+        return Err(format!("first {:?}", listed[0].who));
+    }
+    let away = listed
+        .iter()
+        .find(|character| character.who == Who::Away { npc: 0 })
+        .ok_or("the table's companion is not listed")?;
+    if away.template != "p_fixture" || away.hp != i32::from(away.sheet.max_hp) * 100 {
+        return Err(format!("away as {} at {} hp", away.template, away.hp));
+    }
+    Ok(format!("{players} players, {} away", listed.len() - players))
+}
+
+/// A member whose body has no sheet of its own and whose module has no
+/// facts for it is told apart, not listed as a commoner.
+fn characters_unsheeted() -> Result<String, String> {
+    let (level, mut save) = sim::fixtures::kitchen_sink();
+    let mut body = save.snapshot.entities[0];
+    body.id = sim::SimId(save.snapshot.entities.iter().map(|e| e.id.0).max().unwrap_or(0) + 1);
+    body.kind = sim::Kind::Object(sim::module::ObjectKind::Creature, 9_999);
+    body.sheet = None;
+    let id = body.id;
+    save.snapshot.entities.push(body);
+    let npc = save.script.party.available.get_mut(&0).ok_or("no companion")?;
+    npc.object = Some(id.0);
+    save.script.party.members = vec![0];
+    for level in [None, Some(&level)] {
+        let unsheeted = crate::unsheeted(&save, level);
+        if unsheeted != [0] {
+            return Err(format!("unsheeted {unsheeted:?} with a level: {}", level.is_some()));
+        }
+        if crate::characters(&save, level).iter().any(|c| matches!(c.who, crate::Who::Companion { npc: 0, .. })) {
+            return Err("the sheetless member is listed".into());
+        }
+    }
+    Ok("member 0 unsheeted, with and without its level".into())
 }
 
 /// The installs, as kjk finds them from the environment.
