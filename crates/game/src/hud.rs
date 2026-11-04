@@ -11,8 +11,10 @@
 //!   orange, healing green, shield cyan, stim yellow), a pip a use left (at
 //!   most eight).
 //!
-//! It is drawn by a camera of its own over the scene, as the loading screen
-//! is (`lifecycle_view`), so it needs no UI plugin and shows in headless
+//! It is drawn over the scene by the camera that composites the screens
+//! (`ui_view`), before them, so the frame pays for one overlay camera, not
+//! two; without screens, by a camera of its own, as the loading screen is
+//! (`lifecycle_view`), so it needs no UI plugin and shows in headless
 //! captures. Where KOTOR's own HUD is drawn (`ui_view::KotorHud`) this one
 //! stands down; it fills that one's view-model (`HudView`): the bars, the
 //! portrait made in creation, the selected power and the items as action
@@ -121,8 +123,10 @@ struct Pending(Option<BTreeMap<u8, TextureIr>>);
 /// The HUD's parts.
 #[derive(Resource)]
 struct Hud {
-    /// Its camera, drawing into what the scene's camera draws into.
+    /// Its camera, drawing into what the scene's camera draws into: the
+    /// screens' (`ui_view::UiCamera`), else its own (`own`).
     camera: Entity,
+    own: bool,
     hp: Part,
     bar: Part,
     shield: Part,
@@ -140,9 +144,38 @@ struct Part {
     material: AssetId<OdysseyMaterial>,
 }
 
+/// The view an overlay camera that draws the HUD looks through: KOTOR's
+/// 480 points high, from in front of its quads.
+pub(crate) fn overlay_view() -> impl Bundle {
+    (
+        Projection::Orthographic(OrthographicProjection {
+            scaling_mode: ScalingMode::FixedVertical {
+                viewport_height: 480.0,
+            },
+            ..OrthographicProjection::default_3d()
+        }),
+        Transform::from_xyz(0.0, 0.0, 100.0),
+    )
+}
+
+/// A camera of the HUD's own, for a run without screens.
+fn own_camera(commands: &mut Commands) -> Entity {
+    commands
+        .spawn((
+            Camera3d::default(),
+            crate::scene::over_world(11),
+            overlay_view(),
+            crate::scene::encoded_view(),
+            RenderLayers::layer(LAYER).with(PARTS),
+            crate::lifecycle_view::OverlayCamera,
+        ))
+        .id()
+}
+
 fn spawn(
     mut commands: Commands,
     mut pending: ResMut<Pending>,
+    screens: Query<Entity, With<crate::ui_view::UiCamera>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<OdysseyMaterial>>,
     mut images: ResMut<Assets<Image>>,
@@ -150,21 +183,10 @@ fn spawn(
     let Some(icons) = pending.0.take() else {
         return;
     };
-    let camera = commands.spawn((
-        Camera3d::default(),
-        crate::scene::over_world(11),
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::FixedVertical {
-                viewport_height: 480.0,
-            },
-            ..OrthographicProjection::default_3d()
-        }),
-        crate::scene::encoded_view(),
-        Transform::from_xyz(0.0, 0.0, 100.0),
-        RenderLayers::layer(LAYER).with(PARTS),
-        crate::lifecycle_view::OverlayCamera,
-    ));
-    let camera = camera.id();
+    let (camera, own) = match screens.iter().next() {
+        Some(screens) => (screens, false),
+        None => (own_camera(&mut commands), true),
+    };
     let quad = meshes.add(Rectangle::new(1.0, 1.0));
     let mut part = |rect: [f32; 4], depth: f32, tint: Vec4| {
         let material = materials.add(unlit(tint, None));
@@ -242,6 +264,7 @@ fn spawn(
         .id();
     commands.insert_resource(Hud {
         camera,
+        own,
         hp,
         bar,
         shield,
@@ -482,15 +505,27 @@ fn filled(rect: [f32; 4], done: f32) -> Transform {
     )
 }
 
-/// Keeps the HUD's camera drawing into the scene camera's target (an
-/// image when headless): copied from each scene camera once.
+/// Hands the HUD to the screens' camera once there is one; keeps a camera
+/// of its own drawing into the scene camera's target (an image when
+/// headless): copied from each scene camera once.
 fn follow(
     mut commands: Commands,
-    hud: Option<Res<Hud>>,
+    hud: Option<ResMut<Hud>>,
+    screens: Query<Entity, With<crate::ui_view::UiCamera>>,
     scene: Query<(Entity, Option<&bevy::camera::RenderTarget>), crate::lifecycle_view::SceneCamera>,
     mut copied: Local<Option<Entity>>,
 ) {
-    let (Some(hud), Some((camera, target))) = (hud, scene.iter().next()) else {
+    let Some(mut hud) = hud else {
+        return;
+    };
+    if hud.own
+        && let Some(screens) = screens.iter().next()
+    {
+        commands.entity(hud.camera).despawn();
+        hud.camera = screens;
+        hud.own = false;
+    }
+    let Some((camera, target)) = scene.iter().next().filter(|_| hud.own) else {
         return;
     };
     if *copied != Some(camera) {

@@ -1429,6 +1429,10 @@ struct Member {
     /// As its snapshots last had it while dead: a body the sim has taken
     /// away goes on playing its death from there (`playing_death`).
     gone: Option<Blended>,
+    /// The floor last found under it (`ground_lean::floor_under`), and from
+    /// where (its middle and soles): a body standing still finds the same
+    /// floor without tracing for it again.
+    floor: Option<((Vec3, Vec3), Option<Floor>)>,
 }
 
 impl Member {
@@ -1595,6 +1599,9 @@ pub struct Cast {
     player_rigs: Vec<Arc<BodyRig>>,
     /// By character; `None` for one with nothing to draw it.
     members: BTreeMap<SimId, Option<Member>>,
+    /// The doors' states the members' floors were found with: another
+    /// state, and they are found again.
+    floor_states: Option<Vec<u8>>,
     /// Who holds which weapon.
     holdings: Holdings,
     /// Each body model lined up once, by model name (and grip).
@@ -1665,6 +1672,7 @@ impl Cast {
             bodies,
             player_rigs,
             members: BTreeMap::new(),
+            floor_states: None,
             holdings: Holdings::default(),
             rigs: BTreeMap::new(),
             posed: 0,
@@ -1699,6 +1707,10 @@ impl Cast {
         if let Some(first) = first_body {
             self.bodies.first = first;
             self.bodies.dressed.clear();
+        }
+        // Another world's floors are found anew.
+        for member in self.members.values_mut().flatten() {
+            member.floor = None;
         }
         // The disguised go back to their own bodies (in the same scene,
         // the disguises' wait hidden for them to be cast again).
@@ -1806,6 +1818,7 @@ impl Cast {
                 own: None,
                 heard: Vec::new(),
                 gone: None,
+                floor: None,
             };
             self.members.insert(entity.id, Some(member));
         }
@@ -2661,6 +2674,12 @@ impl Cast {
         let looks = history
             .last()
             .map_or_else(Vec::new, |newest| looks(newest, level));
+        if self.floor_states != states {
+            for member in self.members.values_mut().flatten() {
+                member.floor = None;
+            }
+            self.floor_states.clone_from(&states);
+        }
         let mut dying = Vec::new();
         self.body_clips.clear();
         for (&id, member) in &mut self.members {
@@ -2735,8 +2754,16 @@ impl Cast {
                 let leans = matches!(&member.body.look, Look::Clips(clips) if clips.lean.is_some());
                 let floor = (leans || at.state.ground.is_some())
                     .then(|| {
-                        let middle = Vec3::from_array(at.origin) * UNIT;
-                        ground_lean::floor_under(level, states.as_deref(), (middle, soles))
+                        let from = (Vec3::from_array(at.origin) * UNIT, soles);
+                        match member.floor {
+                            Some((found, floor)) if found == from => floor,
+                            _ => {
+                                let floor =
+                                    ground_lean::floor_under(level, states.as_deref(), from);
+                                member.floor = Some((from, floor));
+                                floor
+                            }
+                        }
                     })
                     .flatten();
                 let stands = if leans {
@@ -3066,14 +3093,13 @@ fn edit(
 /// once it stands again). Only a node that moved is written.
 pub(crate) fn at_rest((nodes, rest): (&[Entity], &Rest), transforms: &mut Query<&mut Transform>) {
     for (&entity, &(_, translation, rotation)) in nodes.iter().zip(rest) {
-        let moved = transforms
-            .get(entity)
-            .is_ok_and(|t| t.translation != translation || t.rotation != rotation);
-        if moved {
-            edit(transforms, entity, |t| {
-                t.translation = translation;
-                t.rotation = rotation;
-            });
+        // Looked up once: read through the handle, it is marked changed
+        // only when written.
+        if let Ok(mut t) = transforms.get_mut(entity)
+            && (t.translation != translation || t.rotation != rotation)
+        {
+            t.translation = translation;
+            t.rotation = rotation;
         }
     }
 }

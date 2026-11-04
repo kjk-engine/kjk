@@ -42,7 +42,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use asset_odyssey::anim::AnimationIr;
+use bevy::camera::primitives::{Aabb, Frustum};
 use bevy::prelude::*;
+use bevy::tasks::ComputeTaskPool;
 use console::{AnimationTime, DumpDue, DumpFacts};
 use sim::module::ObjectKind;
 use sim::{Kind, look};
@@ -63,6 +65,9 @@ use crate::viewer::Plays;
 /// The most a frame steps the particles: a long frame (a module loading)
 /// does not throw them all at once.
 const STEP_MAX: f32 = 0.25;
+
+/// How far (metres) past its particles' box an emitter is still drawn.
+const CULL_MARGIN: f32 = 0.25;
 
 pub struct OwnFxPlugin;
 
@@ -99,6 +104,46 @@ impl Plugin for OwnFxPlugin {
                 PostUpdate,
                 ((bind, look, pose).chain().in_set(Posed), draw.in_set(Drawn)),
             );
+    }
+}
+
+/// An emitter keyed this frame, to be stepped and laid out: its model's
+/// effects, its node's place and the camera's axes there, whether a clip
+/// detonated it, where its model stands (none for a body, whose particles
+/// are always drawn) and whether the model is shown; then whether the
+/// camera sees its particles and the mesh they make.
+struct Stepping<'a> {
+    spray: &'a mut Spray,
+    own: &'a crate::viewer::OwnFx,
+    space: Mat4,
+    facing: (Vec3, Vec3),
+    detonated: bool,
+    placed_at: Option<bevy::math::Affine3A>,
+    shown: bool,
+    seen: bool,
+    laid: Option<model_fx::Laid>,
+}
+
+impl Stepping<'_> {
+    /// `dt` seconds on; laid out unless out of `frustum`: particles out of
+    /// the camera's view are neither laid out nor sent to the GPU, go on
+    /// living, and are drawn again once the view takes them in.
+    fn step(&mut self, dt: f32, frustum: Option<&Frustum>) {
+        let (fx, space) = (&self.own.fx, self.space);
+        self.spray
+            .step(fx, (dt, self.detonated), (space, None), true);
+        self.seen = match (frustum, self.placed_at, self.spray.bounds(fx, space)) {
+            (Some(frustum), Some(placed_at), Some((low, high))) => frustum.intersects_obb(
+                &Aabb::from_min_max(low - CULL_MARGIN, high + CULL_MARGIN),
+                &placed_at,
+                true,
+                true,
+            ),
+            _ => true,
+        };
+        if self.shown && self.seen {
+            self.laid = (self.spray).build((fx, &self.own.chunks), space, self.facing, true);
+        }
     }
 }
 
@@ -395,7 +440,10 @@ fn pose(
         Query<&Children>,
         Query<&mut MeshMaterial3d<OdysseyMaterial>>,
     ),
-    mut materials: ResMut<Assets<OdysseyMaterial>>,
+    (mut materials, mut animated): (
+        ResMut<Assets<OdysseyMaterial>>,
+        Option<ResMut<crate::material::Animated>>,
+    ),
 ) {
     let movers = &mut *movers;
     if movers.movers.is_empty() {
@@ -474,7 +522,7 @@ fn pose(
             for (clip, at, _) in &mover.moments {
                 lit.key((&own.fx, ir), &clip.name.to_ascii_lowercase(), *at);
             }
-            lit.show(&mut materials);
+            lit.show(&mut materials, animated.as_deref_mut());
         }
     }
 }
@@ -484,10 +532,10 @@ fn pose(
 fn draw(
     scene: Res<SceneContent>,
     mut movers: ResMut<Movers>,
-    transforms: Query<&Transform>,
-    cameras: Query<Entity, SceneCamera>,
-    visibility: Query<&Visibility>,
-    (mut meshes, mut body_lights): (ResMut<Assets<Mesh>>, ResMut<crate::scene::BodyLights>),
+    (transforms, globals): (Query<&Transform>, Query<&GlobalTransform>),
+    cameras: Query<(Entity, &Projection), SceneCamera>,
+    mut visibility: Query<&mut Visibility>,
+    (mut stores, mut body_lights): (model_fx::SprayStores, ResMut<crate::scene::BodyLights>),
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
 ) {
     let movers = &mut *movers;
@@ -499,12 +547,16 @@ fn draw(
     let (loaded, dt) = (&scene.0, movers.dt);
     // The camera's right and up, in the game's space, turned into each
     // model's (a room is only moved; a placeable turned by its bearing).
-    let turn = cameras
-        .iter()
-        .next()
-        .and_then(|camera| transforms.get(camera).ok())
-        .map_or(Quat::IDENTITY, |t| t.rotation);
+    let camera = (cameras.iter().next())
+        .and_then(|(camera, projection)| Some((transforms.get(camera).ok()?, projection)));
+    let turn = camera.map_or(Quat::IDENTITY, |(t, _)| t.rotation);
+    // What the camera sees this frame (it is placed already).
+    let frustum =
+        camera.map(|(t, projection)| projection.compute_frustum(&GlobalTransform::from(*t)));
     let local = |e: Entity| transforms.get(e).ok().map(|t| t.to_matrix());
+    // Each emitter's step and mesh, made side by side once its clips have
+    // keyed it (`Stepping`).
+    let mut stepping: Vec<Stepping> = Vec::new();
     for mover in &mut movers.movers {
         let own = &loaded.own_fx[mover.fx];
         let placed = &loaded.models[own.model];
@@ -570,16 +622,60 @@ fn draw(
             (ir, &mover.nodes, Mat4::IDENTITY),
             local,
         );
+        // Where the model is, for its particles' boxes: a room's or a
+        // placeable's stays put; a body's moves before it is drawn, so its
+        // particles are always drawn.
+        let placed_at = globals
+            .get(mover.root)
+            .ok()
+            .filter(|_| !body)
+            .map(GlobalTransform::affine);
         for (spray, space) in mover.sprays.iter_mut().zip(spaces) {
             let mut detonated = body_detonated;
             for ((clip, at, elapsed), name) in mover.moments.iter().zip(&names) {
                 spray.key(&own.fx, name, *at);
                 detonated |= !body && model_fx::detonates_over(clip, (*at, *elapsed), dt);
             }
-            spray.step(&own.fx, (dt, detonated), (space, None), true);
-            if shown {
-                spray.fill((&own.fx, &own.chunks), space, facing, true, &mut meshes);
-            }
+            stepping.push(Stepping {
+                spray,
+                own,
+                space,
+                facing,
+                detonated,
+                placed_at,
+                shown,
+                seen: true,
+                laid: None,
+            });
+        }
+    }
+    // Stepped and laid out across the compute threads, in about as many
+    // runs as there are threads; each touches its own spray alone.
+    let pool = ComputeTaskPool::get();
+    let run = stepping.len().div_ceil(pool.thread_num().max(1)).max(1);
+    pool.scope(|scope| {
+        for chunk in stepping.chunks_mut(run) {
+            let frustum = frustum.as_ref();
+            scope.spawn(async move {
+                for one in chunk {
+                    one.step(dt, frustum);
+                }
+            });
+        }
+    });
+    for one in stepping {
+        if let Some(laid) = one.laid {
+            one.spray.put(laid, stores.assets());
+        }
+        let drawn = if one.seen {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        if let Ok(mut visibility) = visibility.get_mut(one.spray.entity)
+            && *visibility != drawn
+        {
+            *visibility = drawn;
         }
     }
     body_lights.set_if_neq(crate::scene::BodyLights(carried));

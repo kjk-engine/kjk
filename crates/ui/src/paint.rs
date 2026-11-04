@@ -215,6 +215,9 @@ pub struct Painter<'a> {
     pub pulse: f32,
     /// A pulsing border's alpha, 1 to 0.4 and back (`Stack::pulsing`).
     pub pulsing: f32,
+    /// It painted a pulsing border: what it drew changes from frame to
+    /// frame however still what it shows is.
+    pub pulsed: bool,
     pub refusals: Vec<String>,
 }
 
@@ -276,6 +279,7 @@ impl<'a> Painter<'a> {
             source: Source::Campaign,
             pulse: 1.0,
             pulsing: 1.0,
+            pulsed: false,
             refusals: Vec::new(),
         }
     }
@@ -629,6 +633,7 @@ impl<'a> Painter<'a> {
                 .flatten()
                 .or(control.border.as_ref())
         };
+        self.pulsed |= state.pulsing;
         let alpha = if state.pulsing { self.pulsing } else { 1.0 };
         if let Some(border) = border {
             let tint = if state.disabled {

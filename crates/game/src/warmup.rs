@@ -40,7 +40,7 @@ use bevy::render::render_resource::{CachedPipelineState, PipelineCache, Pipeline
 use bevy::render::{Render, RenderApp, RenderSystems};
 
 use crate::grass::{GrassMaterial, GrassParams};
-use crate::material::{OdysseyMaterial, Surface};
+use crate::material::{self, OdysseyMaterial, Surface};
 use crate::scene_fx::RefractionMaterial;
 
 pub struct WarmupPlugin;
@@ -237,17 +237,27 @@ fn stand_ins<M: Material>(
     spawned
 }
 
-/// A material of each surface, culled and not: only a material's surface
-/// and culling reach its pipeline.
+/// A material of each surface, culled and not, and drawing particles (not
+/// culled): only a material's surface, culling and whether it reads a
+/// particles' list reach its pipeline.
 fn surface_materials(materials: &mut Assets<OdysseyMaterial>) -> Vec<Handle<OdysseyMaterial>> {
+    let plain = crate::lifecycle_view::unlit(Vec4::ZERO, None);
     Surface::ALL
         .iter()
-        .flat_map(|&surface| [false, true].map(|culled| (surface, culled)))
-        .map(|(surface, culled)| {
+        .flat_map(|&surface| {
+            [
+                (false, &material::NO_PARTICLES),
+                (true, &material::NO_PARTICLES),
+                (false, &material::STAND_IN_PARTICLES),
+            ]
+            .map(|(culled, particles)| (surface, culled, particles.clone()))
+        })
+        .map(|(surface, culled, particles)| {
             materials.add(OdysseyMaterial {
                 surface,
                 culled,
-                ..crate::lifecycle_view::unlit(Vec4::ZERO, None)
+                particles,
+                ..plain.clone()
             })
         })
         .collect()

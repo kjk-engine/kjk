@@ -1279,7 +1279,14 @@ fn draw(
         .iter()
         .take_while(|s| (s.time_ms as f64) < ms - crate::ragdolls::KEPT_MS)
         .count();
-    view.history.drain(..old);
+    // Freed beside the frame: the view often holds a snapshot's last
+    // handle, and a whole world's state takes a while to give back.
+    let gone: Vec<Arc<Snapshot>> = view.history.drain(..old).collect();
+    if !gone.is_empty() {
+        bevy::tasks::AsyncComputeTaskPool::get()
+            .spawn(async move { drop(gone) })
+            .detach();
+    }
     let own = view.own.at(view.me, ms);
     // Where the sim's blades are, for the hands that grip them to reach.
     let reach = view

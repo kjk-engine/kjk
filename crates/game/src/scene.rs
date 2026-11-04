@@ -211,7 +211,12 @@ impl Plugin for ScenePlugin {
             Update,
             // The warm-up reads the new meshes before their data goes
             // to the render world.
-            (spawn_scene, clear_to_fog, crate::warmup::start)
+            (
+                forget_animated,
+                spawn_scene,
+                clear_to_fog,
+                crate::warmup::start,
+            )
                 .chain()
                 .run_if(resource_exists_and_changed::<SceneContent>)
                 .before(apply_camera_request),
@@ -733,6 +738,8 @@ pub(crate) struct Stores<'a> {
     pub meshes: &'a mut Assets<Mesh>,
     pub materials: &'a mut Assets<OdysseyMaterial>,
     pub bindposes: &'a mut Assets<SkinnedMeshInverseBindposes>,
+    /// Emitters' particle lists (`model_fx::Spray`).
+    pub buffers: &'a mut Assets<ShaderBuffer>,
 }
 
 /// The asset stores as a system takes them.
@@ -742,6 +749,7 @@ pub(crate) struct ModelAssets<'w> {
     materials: ResMut<'w, Assets<OdysseyMaterial>>,
     images: ResMut<'w, Assets<Image>>,
     bindposes: ResMut<'w, Assets<SkinnedMeshInverseBindposes>>,
+    buffers: ResMut<'w, Assets<ShaderBuffer>>,
 }
 
 impl ModelAssets<'_> {
@@ -754,6 +762,7 @@ impl ModelAssets<'_> {
                 meshes: &mut self.meshes,
                 materials: &mut self.materials,
                 bindposes: &mut self.bindposes,
+                buffers: &mut self.buffers,
             },
         )
     }
@@ -1770,20 +1779,27 @@ fn scroll_uvs(
     time: Res<Time>,
     held: Res<AnimationTime>,
     scrolling: Res<ScrollingMaterials>,
-    mut materials: ResMut<Assets<OdysseyMaterial>>,
+    (mut materials, mut animated): (ResMut<Assets<OdysseyMaterial>>, ResMut<material::Animated>),
 ) {
     let seconds = animation_seconds(&time, &held);
     for (handle, dir) in &scrolling.0 {
         let offset = UV_ANIMATION_SPEED * *dir * seconds;
         let offset = offset - offset.floor();
-        if materials
-            .get(handle)
-            .is_some_and(|material| material.params.uv_offset != offset)
+        // Past the slots, the material itself.
+        if !animated.scroll(handle, offset, &mut materials)
+            && materials
+                .get(handle)
+                .is_some_and(|material| material.params.uv_offset != offset)
             && let Some(mut material) = materials.get_mut(handle)
         {
             material.params.uv_offset = offset;
         }
     }
+}
+
+/// A new scene's materials take their slots afresh (`material::Animated`).
+fn forget_animated(mut animated: ResMut<material::Animated>) {
+    animated.forget();
 }
 
 /// Diffuse flip-books. Neither reference animates a diffuse flip-book;
