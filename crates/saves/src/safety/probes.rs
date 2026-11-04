@@ -58,6 +58,7 @@ fn stamped(name: &str) -> Meta {
         formats: Some(Formats {
             save: 59,
             snapshot: 72,
+            story: 0,
         }),
         ..meta(name)
     }
@@ -87,7 +88,7 @@ fn old_fields() -> Result<String, String> {
 }
 
 fn damaged(root: &Path) -> Result<String, String> {
-    let id = write_encoded(root, None, b"KJKV world", &meta("damaged"))?;
+    let id = write_encoded(root, None, b"KJKV world", &meta("damaged"), None)?;
     let world = root.join(&id).join(crate::WORLD);
     let mut bytes = std::fs::read(&world).map_err(io)?;
     bytes[0] ^= 1;
@@ -101,7 +102,7 @@ fn damaged(root: &Path) -> Result<String, String> {
 }
 
 fn without_hash(root: &Path) -> Result<String, String> {
-    let id = write_encoded(root, None, b"KJKV world", &meta("unhashed"))?;
+    let id = write_encoded(root, None, b"KJKV world", &meta("unhashed"), None)?;
     let path = root.join(&id).join(crate::META);
     let text = std::fs::read_to_string(&path).map_err(io)?;
     let mut json: serde_json::Value =
@@ -121,6 +122,7 @@ fn autos(root: &Path) -> Result<String, String> {
             root,
             format!("world {n}").as_bytes(),
             &meta(&format!("auto {n}")),
+            None,
         )?;
     }
     let names: Vec<String> = AUTOS
@@ -137,14 +139,14 @@ fn failed_write(root: &Path) -> Result<String, String> {
     // A file where the saves' folder should be: nothing can be written in it.
     std::fs::create_dir_all(root.parent().unwrap_or(root)).map_err(io)?;
     std::fs::write(root, b"not a folder").map_err(io)?;
-    let written = write_encoded(root, Some("0001"), b"world", &meta("failed"));
+    let written = write_encoded(root, Some("0001"), b"world", &meta("failed"), None);
     let left = std::fs::metadata(root).is_ok_and(|meta| meta.is_file());
     let _ = std::fs::remove_file(root);
     check(written.is_err() && left, format!("{written:?}"))
 }
 
 fn names_build(root: &Path) -> Result<String, String> {
-    let id = write_encoded(root, None, b"KJKV not a world", &stamped("refused"))?;
+    let id = write_encoded(root, None, b"KJKV not a world", &stamped("refused"), None)?;
     let refused = read(root, &id).err().unwrap_or_else(String::new);
     check(
         refused.contains("made with v0.1.0 (ab12cd34)") && refused.contains(BACKUPS),
@@ -164,7 +166,7 @@ fn failed_backup(_at: &Path) -> Result<String, String> {
 #[cfg(unix)]
 fn failed_backup(at: &Path) -> Result<String, String> {
     let (root, kept) = (at.join("saves"), at.join("save-backups"));
-    write_encoded(&root, Some(crate::QUICK), b"world", &meta("kept"))?;
+    write_encoded(&root, Some(crate::QUICK), b"world", &meta("kept"), None)?;
     std::os::unix::fs::symlink(at.join("nowhere"), root.join("broken")).map_err(io)?;
     let made = backup_on_new_version(&root, &kept, "v0.2.0", "ab12cd34ef");
     let left: Vec<String> = std::fs::read_dir(&kept)
@@ -182,7 +184,7 @@ fn failed_backup(at: &Path) -> Result<String, String> {
 /// The second listing of an unchanged save hashes nothing; a changed world
 /// is hashed again and found damaged.
 fn hashes_once(root: &Path) -> Result<String, String> {
-    let id = write_encoded(root, None, b"KJKV world", &meta("hashed"))?;
+    let id = write_encoded(root, None, b"KJKV world", &meta("hashed"), None)?;
     let hashed = || crate::HASHED.load(std::sync::atomic::Ordering::Relaxed);
     let before = hashed();
     let (first, second) = (list(root), list(root));
@@ -220,7 +222,7 @@ fn backups(at: &Path) -> Checks {
         )
     });
     let same = backup("v0.1.0").map(|made| check(made.is_none(), format!("{made:?}")));
-    let new = write_encoded(&root, Some(crate::QUICK), b"world", &meta("kept"))
+    let new = write_encoded(&root, Some(crate::QUICK), b"world", &meta("kept"), None)
         .and_then(|_| backup("v0.2.0"))
         .map(|made| {
             let copied = made

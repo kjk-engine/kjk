@@ -19,6 +19,21 @@ pub(crate) fn library<N: Into<String>>(
     library_with(catalog, scripts, crate::script::Talents::default())
 }
 
+/// A library with no scripts holding the creature templates `creatures`
+/// and the item templates `items`.
+pub fn library_of(
+    creatures: impl IntoIterator<Item = crate::module::ObjectData>,
+    items: crate::inventory::Catalog,
+) -> crate::script::Library {
+    let creatures = creatures
+        .into_iter()
+        .map(|facts| (facts.template.clone(), std::sync::Arc::new(facts)))
+        .collect();
+    library("", std::iter::empty::<(String, fmt_odyssey::ncs::Ncs)>())
+        .with_creatures(creatures)
+        .with_items(items)
+}
+
 /// `library`, with `talents`.
 pub(crate) fn library_with<N: Into<String>>(
     catalog: &str,

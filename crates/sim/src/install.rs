@@ -130,10 +130,12 @@ pub struct Restamp {
 }
 
 impl Restamp {
-    /// Whether `stamped` is `here`, or is but for its digest.
+    /// Whether `stamped` is `here`, or is but for its digest (a module's
+    /// name in any case: a story restore keeps the modules left by their
+    /// lowercase names).
     pub fn matches(stamped: &Place, here: &Place) -> bool {
         stamped.game == here.game
-            && stamped.module == here.module
+            && stamped.module.eq_ignore_ascii_case(&here.module)
             && stamped.players == here.players
     }
 
@@ -173,7 +175,7 @@ impl SimWorld {
         let here = level.place()?;
         self.stash()
             .iter()
-            .find(|stashed| stashed.place.module == here.module)
+            .find(|stashed| stashed.place.module.eq_ignore_ascii_case(&here.module))
             .and_then(|stashed| Restamp::of(&stashed.place, &here))
     }
 
@@ -393,7 +395,7 @@ pub(crate) fn assemble(
                 ..*entity
             })
             .collect();
-        stash.retain(|stashed| stashed.place.module != current.module);
+        stash.retain(|stashed| !stashed.place.module.eq_ignore_ascii_case(&current.module));
         stash.push(Stashed {
             place: current.clone(),
             entities: objects,
@@ -405,7 +407,7 @@ pub(crate) fn assemble(
     // order).
     let mut stashed = stash
         .iter()
-        .position(|stashed| stashed.place.module == place.module)
+        .position(|stashed| stashed.place.module.eq_ignore_ascii_case(&place.module))
         .map(|at| stash.remove(at));
     // Left with other data than the level's: re-stamped when only the
     // digest moved (`Restamp`), as a save loads after an update.

@@ -103,6 +103,13 @@ enum Progress {
     Status(String),
     /// The character a save was made with.
     Made(ui::intent::CharacterDesc),
+    /// The save `id` cannot be loaded exactly (`why`) and has a story: the
+    /// menu asks `prompt` (`saves::restore_prompt`) when the load fails.
+    Offer {
+        id: String,
+        prompt: String,
+        why: String,
+    },
     Ready(Box<Result<play::Loaded, String>>),
 }
 
@@ -112,6 +119,12 @@ enum Progress {
 struct Flow {
     job: Option<Mutex<Receiver<Progress>>>,
     launch: bool,
+    /// The session being prepared restores a save's story
+    /// (`sim_host::FromStory` once it is in).
+    restoring: bool,
+    /// A save's story offered (`story_restore`), its question the
+    /// session's error until the box closes.
+    asking: bool,
 }
 
 /// A run's own session, loading while its window shows the loading screen
@@ -186,6 +199,7 @@ impl Plugin for SessionFlowPlugin {
             app.insert_resource(Flow {
                 job: Some(Mutex::new(receiver)),
                 launch: true,
+                ..Flow::default()
             })
             .insert_resource(console::Hold(true))
             .add_systems(Startup, move |mut ui: ResMut<Ui>| {
@@ -236,6 +250,8 @@ fn solo_options(stage: &'static str) -> Result<play::Options<'static>, String> {
         talk: None,
         party: &[],
         save: None,
+        inexact: None,
+        story: None,
         made: None,
     })
 }
@@ -271,23 +287,49 @@ fn prepare(intent: SessionIntent) -> Receiver<Progress> {
             }
             Ok(Some(save))
         };
+        // A save that does not decode, or whose world cannot be made
+        // exactly (`sim::Save::world`), offered its story when it has one.
+        let offer = |id: &str, why: &str| {
+            let root = crate::save_view::folder();
+            if let Some(prompt) = root.and_then(|root| saves::restore_prompt(&root, id)) {
+                let _ = sender.send(Progress::Offer {
+                    id: id.to_string(),
+                    prompt,
+                    why: why.to_string(),
+                });
+            }
+        };
         let result = match intent {
             SessionIntent::Solo {
                 save,
                 character,
                 campaign,
-            } => read(save).and_then(|save| {
-                let stage = new_game(campaign);
-                if save.is_none() {
-                    status(format!("Loading {stage}"));
-                }
-                let options = play::Options {
-                    save: save.as_ref(),
-                    made: character.as_ref().map(crate::persona::Made::Desc),
-                    ..solo_options(stage)?
-                };
-                play::load(&discovery, &options)
-            }),
+            } => {
+                let id = save.clone().unwrap_or_else(String::new);
+                let inexact = |why: &str| offer(&id, why);
+                read(save).inspect_err(|why| inexact(why)).and_then(|save| {
+                    let stage = new_game(campaign);
+                    if save.is_none() {
+                        status(format!("Loading {stage}"));
+                    }
+                    let options = play::Options {
+                        save: save.as_ref(),
+                        inexact: Some(&inexact),
+                        made: character.as_ref().map(crate::persona::Made::Desc),
+                        ..solo_options(stage)?
+                    };
+                    play::load(&discovery, &options)
+                })
+            }
+            SessionIntent::Restore { save: id } => {
+                restore(&id, &status, &sender).and_then(|story| {
+                    let options = play::Options {
+                        story: Some(&story),
+                        ..solo_options(new_game(None))?
+                    };
+                    play::load(&discovery, &options)
+                })
+            }
             SessionIntent::Host {
                 save,
                 seats,
@@ -347,6 +389,29 @@ fn prepare(intent: SessionIntent) -> Receiver<Progress> {
     receiver
 }
 
+/// The story of save `id` to restore, told as loading, the character the
+/// save was made with to the flow (`Progress::Made`).
+fn restore(
+    id: &str,
+    status: &dyn Fn(String),
+    sender: &Sender<Progress>,
+) -> Result<saves::Story, String> {
+    let root = crate::save_view::folder().ok_or("no folder for saves here")?;
+    let story = saves::read_story(&root, id).ok_or(format!("save {id} has no story"))?;
+    let meta = saves::list(&root)
+        .saves
+        .into_iter()
+        .find_map(|(of, meta)| (of == id).then_some(meta));
+    status(format!(
+        "Restoring {}",
+        meta.as_ref().map_or(id, |meta| meta.name.as_str())
+    ));
+    if let Some(made) = meta.and_then(|meta| meta.character) {
+        let _ = sender.send(Progress::Made(made));
+    }
+    Ok(story)
+}
+
 /// Takes the screens' session intents: one is prepared at a time.
 fn start(
     mut ui: ResMut<Ui>,
@@ -360,6 +425,12 @@ fn start(
     ),
     mut reload: ResMut<crate::sim_host::ReloadRequest>,
 ) {
+    // The story's question goes with its box: Cancel or Back leaves no
+    // stale error behind.
+    if flow.asking && !ui.stack.has("story_restore") {
+        flow.asking = false;
+        ui.vm.session.error = None;
+    }
     let mut rest = Vec::new();
     for intent in std::mem::take(&mut intents.0) {
         match intent {
@@ -403,6 +474,7 @@ fn start(
             }
             Intent::Session(session) if flow.job.is_none() => {
                 info!(target: "session", ?session, "starting");
+                flow.restoring = matches!(session, SessionIntent::Restore { .. });
                 // A guest keeps what the host gives: nothing made here.
                 made.0 = match &session {
                     SessionIntent::Solo { character, .. }
@@ -410,6 +482,10 @@ fn start(
                     _ => None,
                 };
                 let image = match &session {
+                    SessionIntent::Restore { save: id } => {
+                        let module = ui.vm.saves.iter().find(|save| save.id == *id);
+                        module.map(|save| format!("load_{}", save.module))
+                    }
                     SessionIntent::Solo { save, campaign, .. }
                     | SessionIntent::Host { save, campaign, .. } => {
                         let module = save.as_ref().and_then(|id| {
@@ -440,11 +516,13 @@ fn finish(world: &mut World) {
     let mut ready = None;
     let mut statuses = Vec::new();
     let mut character = None;
+    let mut offered = None;
     loop {
         let message = job.lock().expect("the session job's lock").try_recv();
         match message {
             Ok(Progress::Status(text)) => statuses.push(text),
             Ok(Progress::Made(made)) => character = Some(made),
+            Ok(Progress::Offer { id, prompt, why }) => offered = Some((id, prompt, why)),
             Ok(Progress::Ready(result)) => {
                 ready = Some(*result);
                 break;
@@ -466,9 +544,15 @@ fn finish(world: &mut World) {
         return;
     };
     let launch = std::mem::take(&mut world.resource_mut::<Flow>().launch);
+    let restoring = std::mem::take(&mut world.resource_mut::<Flow>().restoring);
     world.resource_mut::<Flow>().job = None;
     match result.and_then(|loaded| install(world, loaded)) {
-        Ok(()) => world.resource_mut::<console::Hold>().0 = false,
+        Ok(()) => {
+            world.resource_mut::<console::Hold>().0 = false;
+            if restoring {
+                world.insert_resource(crate::sim_host::FromStory);
+            }
+        }
         Err(why) if launch => {
             // The run was for this session: it ends, saying why, as when it
             // loaded before its window.
@@ -479,10 +563,23 @@ fn finish(world: &mut World) {
             warn!(target: "session", %why, "the session did not start");
             let mut ui = world.resource_mut::<Ui>();
             let ui = &mut *ui;
-            ui.vm.session.error = Some(why);
             ui.stack.clear();
             ui.stack.open("main_menu", &ui.vm);
-            ui.stack.open("message", &ui.vm);
+            let asking = match offered {
+                // The last rung (spec 4b): the save's story, offered.
+                Some((id, prompt, why)) => {
+                    warn!(target: "save-migrate", id, %why, "the save cannot be loaded exactly; its story offered");
+                    ui.vm.session.error = Some(prompt);
+                    ui.stack.open(&format!("story_restore:{id}"), &ui.vm);
+                    true
+                }
+                None => {
+                    ui.vm.session.error = Some(why);
+                    ui.stack.open("message", &ui.vm);
+                    false
+                }
+            };
+            world.resource_mut::<Flow>().asking = asking;
         }
     }
 }

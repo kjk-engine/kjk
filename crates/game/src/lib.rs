@@ -216,6 +216,8 @@ fn net_play_options<'a>(
         talk: None,
         party: &[],
         save: None,
+        inexact: None,
+        story: None,
         replay: None,
         seat: 0,
         made: None,
