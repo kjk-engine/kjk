@@ -17,7 +17,11 @@ use sim::probe::{Checks, check};
 /// - a backup that fails part way leaves no backup folder;
 /// - listing again does not hash an unchanged save's world again.
 pub fn probes() -> Checks {
-    let root = std::env::temp_dir().join(format!("kjk-save-safety-{}", std::process::id()));
+    // A folder per run, not just per process: two runs in one process
+    // (tests in parallel) must not share it.
+    static RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let run = RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!("kjk-save-safety-{}-{run}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let at = |name: &str| root.join(name);
     let mut checks = vec![
@@ -185,7 +189,7 @@ fn failed_backup(at: &Path) -> Result<String, String> {
 /// is hashed again and found damaged.
 fn hashes_once(root: &Path) -> Result<String, String> {
     let id = write_encoded(root, None, b"KJKV world", &meta("hashed"), None)?;
-    let hashed = || crate::HASHED.load(std::sync::atomic::Ordering::Relaxed);
+    let hashed = || crate::HASHED.with(std::cell::Cell::get);
     let before = hashed();
     let (first, second) = (list(root), list(root));
     let twice = hashed() - before;
