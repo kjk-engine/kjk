@@ -36,6 +36,15 @@ use ui::intent::CharacterDesc;
 /// The quick save's id.
 pub const QUICK: &str = "quick";
 
+/// Where the saves are, as `var` (the environment) gives it: `KJK_SAVES`,
+/// else `saves` in kjk's folder (`store::kjk_folder`).
+pub fn folder(var: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    var("KJK_SAVES")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| store::kjk_folder(&var).map(|folder| folder.join("saves")))
+}
+
 const WORLD: &str = "save.kjkv";
 const META: &str = "meta.json";
 /// The player's progress by the games' names (`story`).

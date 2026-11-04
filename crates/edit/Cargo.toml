@@ -1,0 +1,20 @@
+[package]
+name = "edit"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A saved game opened, changed by kjk's own rules and checked, for the save editor: no game, no window."
+
+[dependencies]
+saves.workspace = true
+sim.workspace = true
+store.workspace = true
+
+[features]
+# The probes (the approved test `save_edits`): checks, not the editor.
+probes = ["sim/probes", "saves/probes"]
+
+[lints]
+workspace = true

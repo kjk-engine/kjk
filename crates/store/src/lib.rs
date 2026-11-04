@@ -78,6 +78,23 @@ pub fn carry_old_name(folder: &Path) {
     }
 }
 
+/// kjk's folder for its settings and saves, the platform's own place as
+/// `var` (the environment) gives it: `Application Support` on macOS,
+/// `%APPDATA%` on Windows, else the XDG config folder. `None` without a
+/// home to tell it by. A folder under the old name is carried over.
+pub fn kjk_folder(var: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    let set = |name: &str| var(name).filter(|value| !value.is_empty()).map(PathBuf::from);
+    let base = if cfg!(target_os = "macos") {
+        set("HOME").map(|home| home.join("Library").join("Application Support"))
+    } else if cfg!(windows) {
+        set("APPDATA")
+    } else {
+        set("XDG_CONFIG_HOME").or_else(|| set("HOME").map(|home| home.join(".config")))
+    };
+    base.map(|base| base.join("kjk"))
+        .inspect(|folder| carry_old_name(folder))
+}
+
 impl Store {
     /// The machine's store: `KJK_STORE`, else the user's cache folder.
     /// `None` when neither can be told (no home folder).

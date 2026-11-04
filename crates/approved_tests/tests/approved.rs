@@ -1681,6 +1681,13 @@ fn save_copy_round_trip() {
     probed("save story", &saves::story_probes(), 15);
 }
 
+/// The save editor's ground (`edit::probes::all`, proposed 2026-11-04,
+/// awaiting the owner): kjk's folder and the saves' found without the game.
+#[test]
+fn save_edits() {
+    probed("save edits", &edit::probes::all(), 3);
+}
+
 /// The saves' safety net (`saves::safety_probes`): the meta's new fields
 /// and an older meta, a damaged save listed and refused, one without a hash
 /// trusted, autosaves rotating, the backup before a new release, a failed
