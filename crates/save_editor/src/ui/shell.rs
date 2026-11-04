@@ -24,7 +24,8 @@ impl App {
             .show(ui, |ui| self.saves_panel(ui));
         if self.open.is_some() {
             egui::Panel::right("details")
-                .default_size(220.0)
+                .default_size(260.0)
+                .min_size(220.0)
                 .resizable(true)
                 .show(ui, |ui| pages::details(self, ui));
         }

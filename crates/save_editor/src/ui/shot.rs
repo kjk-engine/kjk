@@ -13,6 +13,8 @@ pub struct Shot {
     to: Option<PathBuf>,
     frames: u32,
     asked: bool,
+    /// How long each settled frame took to draw.
+    times: Vec<std::time::Duration>,
 }
 
 impl Shot {
@@ -21,6 +23,13 @@ impl Shot {
         Shot {
             to: std::env::var_os("KJK_EDITOR_SHOT").map(PathBuf::from),
             ..Shot::default()
+        }
+    }
+
+    /// A frame drawn in `took`, counted once nothing is being read.
+    pub fn drawn(&mut self, took: std::time::Duration, busy: bool) {
+        if self.to.is_some() && !busy {
+            self.times.push(took);
         }
     }
 
@@ -37,6 +46,13 @@ impl Shot {
             return;
         }
         self.asked = true;
+        if let Some(most) = self.times.iter().max() {
+            let mean = self.times.iter().sum::<std::time::Duration>() / self.times.len() as u32;
+            eprintln!(
+                "drawn in {mean:?} on average, {most:?} at most ({} frames)",
+                self.times.len()
+            );
+        }
         let ctx2 = ctx.clone();
         ctx.request_screenshot(move |image: Arc<egui::ColorImage>| {
             let [w, h] = image.size;

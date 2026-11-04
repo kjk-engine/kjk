@@ -43,6 +43,11 @@ impl<'a> Editor<'a> {
         }
     }
 
+    /// The save as changed so far.
+    pub fn save(&self) -> &Save {
+        self.save
+    }
+
     /// The party's credits.
     pub fn set_credits(&mut self, credits: i32) -> Result<(), String> {
         if credits < 0 {

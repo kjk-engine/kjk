@@ -189,9 +189,13 @@ pub fn list(root: &Path) -> Vec<SaveRow> {
             folder.join("save.kjkv").is_file() || folder.join("meta.json").is_file()
         })
         .map(|id| {
-            let (meta, readable) = match edit::open(root, &id) {
-                Ok(opened) => (opened.meta, Ok(())),
-                Err(refusal) => (meta_of(&root.join(&id)), Err(refusal)),
+            let (meta, readable, game) = match edit::open(root, &id) {
+                Ok(opened) => (opened.meta.clone(), Ok(()), game_of(&opened)),
+                Err(refusal) => {
+                    let meta = meta_of(&root.join(&id));
+                    let game = meta.game.as_deref().and_then(Game::from_key);
+                    (meta, Err(refusal), game)
+                }
             };
             let row = SaveRow {
                 name: if meta.name.is_empty() {
@@ -201,7 +205,7 @@ pub fn list(root: &Path) -> Vec<SaveRow> {
                 },
                 module: meta.module.clone(),
                 saved: when(meta.saved),
-                game: meta.game.as_deref().and_then(Game::from_key),
+                game,
                 readable,
                 id,
             };
@@ -229,4 +233,21 @@ pub fn when(saved: u64) -> String {
         seconds / 3600,
         seconds / 60 % 60
     )
+}
+
+/// The game a save is of: its meta's, else its place's (older metas name
+/// none).
+pub fn game_of(opened: &edit::Opened) -> Option<Game> {
+    let place = opened
+        .save
+        .snapshot
+        .place
+        .as_ref()
+        .map(|place| place.game.as_str());
+    opened
+        .meta
+        .game
+        .as_deref()
+        .or(place)
+        .and_then(Game::from_key)
 }

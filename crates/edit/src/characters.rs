@@ -168,3 +168,24 @@ pub(crate) fn points(fighter: Option<&sim::combat::Fighter>, sheet: &Sheet) -> (
         None => (i32::from(sheet.max_hp) * 100, i32::from(sheet.pool()) * 100),
     }
 }
+
+/// Who holds `who`'s items in `save` (`Item::holder`): its body's id, or for
+/// a companion away with no creature standing, the creature the party
+/// table kept it from; none when the save does not keep it.
+pub fn holder_of(save: &Save, who: &Who) -> Option<u32> {
+    match *who {
+        Who::Player(seat) => save
+            .snapshot
+            .entities
+            .iter()
+            .find(|entity| entity.kind == Kind::Avatar(seat))
+            .map(|entity| entity.id.0),
+        Who::Companion { id, .. } => Some(id.0),
+        Who::Away { npc } => {
+            let slot = save.script.party.available.get(&npc)?;
+            slot.object
+                .filter(|id| save.snapshot.get(SimId(*id)).is_some())
+                .or(slot.kept.map(|kept| kept.from))
+        }
+    }
+}

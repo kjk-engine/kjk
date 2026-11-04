@@ -26,7 +26,7 @@ pub const fn rest(title: &'static str) -> Col {
 }
 
 /// One row: its key, icon and cells (the first beside the icon).
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Row {
     pub key: u64,
     pub icon: Option<String>,

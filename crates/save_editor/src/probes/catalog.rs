@@ -1,6 +1,6 @@
 //! The game's own names, icons and search (Task 3, Review Focus 4).
 
-use crate::model::catalog::{Catalog, Entry};
+use crate::model::catalog::{Catalog, Entry, Kind};
 use crate::model::locate;
 
 fn entry(key: u32, resref: &str, name: &str) -> Entry {
@@ -85,6 +85,19 @@ pub fn install(game: vfs::Game) -> Result<String, String> {
         "Force Lightning's icon {:?} does not decode",
         lightning.icon
     ))?;
+    let numbers = catalog
+        .globals
+        .iter()
+        .filter(|global| global.kind == Kind::Number)
+        .count();
+    let booleans = catalog
+        .globals
+        .iter()
+        .filter(|global| global.kind == Kind::Boolean)
+        .count();
+    if numbers == 0 || booleans == 0 {
+        return Err(format!("globals: {numbers} numbers, {booleans} booleans"));
+    }
     if catalog.quests.is_empty() || catalog.feats.is_empty() || catalog.skills.is_empty() {
         return Err(format!(
             "{} quests, {} feats, {} skills",

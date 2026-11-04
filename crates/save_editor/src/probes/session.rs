@@ -138,3 +138,70 @@ pub fn feat_warned_k1() -> Result<String, String> {
         None => Err(format!("{}: no warning", applied.words)),
     }
 }
+
+/// A saber given and put in the player's right hand is one change, told so,
+/// held by the player's body (`edit::holder_of`), and one undo takes both
+/// back.
+pub fn give_equipped() -> Result<String, String> {
+    use sim::inventory::slots::{RIGHT_WEAPON, rules};
+    let mut facts = sim::inventory::ItemFacts::plain(SABER);
+    facts.slots = 1 << rules(RIGHT_WEAPON);
+    facts.weapon = Some(sim::combat::sheet::Weapon::UNARMED);
+    let items = sim::inventory::Catalog::new([facts]);
+    let ground = Ground::items(&items);
+    let mut session = sink();
+    // Empty-handed first, as edit's own probe does: the sink's hands hold
+    // weapons no item gives.
+    for entity in &mut session.opened.save.snapshot.entities {
+        if let (sim::Kind::Avatar(sim::Seat(0)), Some(sheet)) = (entity.kind, entity.sheet.as_mut())
+        {
+            sheet.weapons = [None; 2];
+        }
+    }
+    session.edited = session.opened.save.clone();
+    let player = edit::Who::Player(sim::Seat(0));
+    let holder = edit::holder_of(&session.edited, &player).ok_or("the player holds nothing")?;
+    let avatar = session
+        .edited
+        .snapshot
+        .entities
+        .iter()
+        .find(|entity| entity.kind == sim::Kind::Avatar(sim::Seat(0)))
+        .map(|entity| entity.id.0);
+    if Some(holder) != avatar {
+        return Err(format!("holder {holder:#x}, the avatar {avatar:?}"));
+    }
+    session.apply(
+        Change::GiveEquipped {
+            who: player,
+            template: SABER.into(),
+            slot: RIGHT_WEAPON,
+        },
+        &ground,
+    )?;
+    let worn = session
+        .edited
+        .script
+        .items
+        .values()
+        .find(|item| item.template == SABER)
+        .map(|item| (item.holder, item.slot));
+    let words = session.changes.last().map(|applied| applied.words.clone());
+    if session.changes.len() != 1 || worn != Some((holder, Some(RIGHT_WEAPON))) {
+        return Err(format!(
+            "{} changes, the saber {worn:?}",
+            session.changes.len()
+        ));
+    }
+    if words.as_deref() != Some("player 1: + g_w_lghtsbr01 (equipped, right hand)") {
+        return Err(format!("told {words:?}"));
+    }
+    session.undo(&ground)?;
+    if session.edited != session.opened.save {
+        return Err("undo left the saber".into());
+    }
+    let away = edit::holder_of(&session.edited, &edit::Who::Away { npc: 0 });
+    Ok(format!(
+        "{words:?}; undone; the companion away held by {away:?}"
+    ))
+}

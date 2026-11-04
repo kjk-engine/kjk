@@ -25,6 +25,13 @@ pub enum Change {
         template: String,
         stack: u16,
     },
+    /// A new item of `template` given to `who` and put on in `slot`: one
+    /// change, one undo.
+    GiveEquipped {
+        who: Who,
+        template: String,
+        slot: u8,
+    },
     RemoveItem(u32),
     Stack(u32, u16),
     Equip(Who, u32, u8),
@@ -185,8 +192,8 @@ impl Session {
                     .map_err(|why| format!("replaying \"{}\": {why}", applied.words))?;
             }
             if let Some(change) = then {
-                warning = self.warning(&editor, change, ground);
                 make(&mut editor, change)?;
+                warning = self.warning(&editor, change, ground);
             }
         }
         Ok((save, warning))
@@ -197,10 +204,22 @@ impl Session {
         edit::characters(&self.edited, self.level.as_ref())
     }
 
-    /// The warning `change` earns before it is made, if any.
+    /// The warning `change` earns once `editor` made it, if any.
     fn warning(&self, editor: &edit::Editor, change: &Change, ground: &Ground) -> Option<String> {
-        if let Change::Equip(who, item, _) = change {
-            return editor.equip_warning(who, *item).ok().flatten();
+        let worn = |who: &Who, item: u32| editor.equip_warning(who, item).ok().flatten();
+        match change {
+            Change::Equip(who, item, _) => return worn(who, *item),
+            Change::GiveEquipped { who, slot, .. } => {
+                let holder = edit::holder_of(editor.save(), who)?;
+                let (item, _) = editor
+                    .save()
+                    .script
+                    .items
+                    .held_by(holder)
+                    .find(|(_, item)| item.slot == Some(*slot))?;
+                return worn(who, item);
+            }
+            _ => {}
         }
         let classes = &ground.catalog?.data.classes;
         // The listed changes made, as `edited` holds them.
@@ -255,6 +274,16 @@ impl Session {
                 "{}: + {} ×{stack}",
                 holder_words(*holder),
                 named_item(template, ground)
+            ),
+            Change::GiveEquipped {
+                who,
+                template,
+                slot,
+            } => format!(
+                "{}: + {} (equipped, {})",
+                who_words(who),
+                named_item(template, ground),
+                slot_name(*slot)
             ),
             Change::RemoveItem(id) => format!("− {}", item(id)),
             Change::Stack(id, stack) => format!("{}: stack of {stack}", item(id)),
@@ -354,6 +383,16 @@ fn make(editor: &mut edit::Editor, change: &Change) -> Result<(), String> {
             template,
             stack,
         } => editor.add_item(holder, &template, stack).map(|_| ()),
+        Change::GiveEquipped {
+            who,
+            template,
+            slot,
+        } => {
+            // Worn things come from what the party carries, as a player's
+            // own equip takes them.
+            let item = editor.add_item(sim::inventory::PARTY, &template, 1)?;
+            editor.equip(&who, item, slot)
+        }
         Change::RemoveItem(id) => editor.remove_item(id),
         Change::Stack(id, stack) => editor.set_stack(id, stack),
         Change::Equip(who, id, slot) => editor.equip(&who, id, slot),

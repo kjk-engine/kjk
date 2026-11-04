@@ -147,3 +147,24 @@ pub fn installs() -> Result<String, String> {
         listed.len()
     ))
 }
+
+/// A save's game is its meta's, else its place's (a meta without one): never
+/// another game's install for it.
+pub fn game_of_save() -> Result<String, String> {
+    let root = scratch("game-of");
+    let mut save = sim::fixtures::kitchen_sink().1;
+    let place = save
+        .snapshot
+        .place
+        .as_mut()
+        .ok_or("the sink has no place")?;
+    place.game = "tsl".into();
+    let id = saves::write(&root, None, &save, &saves::Meta::default())?;
+    let rows = locate::list(&root);
+    let _ = std::fs::remove_dir_all(&root);
+    let row = rows.iter().find(|row| row.id == id).ok_or("not listed")?;
+    match row.game {
+        Some(vfs::Game::Kotor2) => Ok("a meta without a game: TSL, from its place".into()),
+        other => Err(format!("a TSL save's game: {other:?}")),
+    }
+}

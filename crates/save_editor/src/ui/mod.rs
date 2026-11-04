@@ -136,13 +136,15 @@ impl App {
         for (game, _) in locate::installs(&app.discovery) {
             app.load_catalog(game);
         }
-        app.from_env();
+        app.apply_env();
         app
     }
 
     /// The state the environment asks for (for pictures of the window):
-    /// `KJK_EDITOR_OPEN` (a save id), `KJK_EDITOR_TAB`, `KJK_EDITOR_SEARCH`.
-    fn from_env(&mut self) {
+    /// `KJK_EDITOR_OPEN` (a save id), `KJK_EDITOR_TAB`, `KJK_EDITOR_SEARCH`,
+    /// `KJK_EDITOR_MEMBER` (the party strip's pick) and `KJK_EDITOR_SELECT` (a
+    /// row's key).
+    fn apply_env(&mut self) {
         if let Ok(id) = std::env::var("KJK_EDITOR_OPEN") {
             self.open_save(&id);
         }
@@ -154,6 +156,14 @@ impl App {
         }
         if let Ok(search) = std::env::var("KJK_EDITOR_SEARCH") {
             self.search = search;
+        }
+        let number = |name: &str| std::env::var(name).ok()?.parse::<u64>().ok();
+        if let Some(member) = number("KJK_EDITOR_MEMBER") {
+            self.member = member as usize;
+        }
+        if let Some(key) = number("KJK_EDITOR_SELECT") {
+            self.selected = Some(key);
+            self.pages.select(key);
         }
     }
 
@@ -203,16 +213,16 @@ impl App {
         }
     }
 
-    /// The game the open save is of, else the first install found.
+    /// The game the open save is of (none when it does not say: never
+    /// another game's install for it); with no save open, the first install
+    /// found.
     pub fn game(&self) -> Option<Game> {
-        self.open
-            .as_ref()
-            .and_then(|open| open.row.game)
-            .or_else(|| {
-                locate::installs(&self.discovery)
-                    .first()
-                    .map(|(game, _)| *game)
-            })
+        match &self.open {
+            Some(open) => open.row.game,
+            None => locate::installs(&self.discovery)
+                .first()
+                .map(|(game, _)| *game),
+        }
     }
 
     /// The names of the game in use, when read.
@@ -249,18 +259,14 @@ impl App {
         };
         match edit::open(&root, id) {
             Ok(opened) => {
-                let level = self
-                    .discovery
-                    .get(row.game.unwrap_or(Game::Kotor1))
-                    .map(|_| {
-                        let (send, receive) = channel();
-                        let (save, chosen) = (opened.save.clone(), self.chosen.clone());
-                        std::thread::spawn(move || {
-                            let _ =
-                                send.send(edit::level_of(&save, &locate::discovery_over(&chosen)));
-                        });
-                        receive
+                let level = row.game.and_then(|game| self.discovery.get(game)).map(|_| {
+                    let (send, receive) = channel();
+                    let (save, chosen) = (opened.save.clone(), self.chosen.clone());
+                    std::thread::spawn(move || {
+                        let _ = send.send(edit::level_of(&save, &locate::discovery_over(&chosen)));
                     });
+                    receive
+                });
                 self.open = Some(Open {
                     row,
                     session: Session::new(opened),
@@ -384,7 +390,9 @@ impl eframe::App for App {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(100));
         }
+        let start = std::time::Instant::now();
         self.draw(ui);
+        self.shot.drawn(start.elapsed(), busy);
         self.shot.frame(ui.ctx(), busy);
     }
 }

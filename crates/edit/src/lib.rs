@@ -15,7 +15,7 @@ mod party;
 mod sheets;
 mod warnings;
 
-pub use characters::{Character, Who, characters, unsheeted};
+pub use characters::{Character, Who, characters, holder_of, unsheeted};
 pub use check::{Checked, level_of, load_and_step, round_trip};
 pub use data::{Data, InstallSource};
 pub use edits::Editor;

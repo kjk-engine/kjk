@@ -51,6 +51,11 @@ impl Entry {
         }
     }
 
+    /// Whether its name or resref holds every one of `words` (lowercase).
+    pub fn matches(&self, words: &[String]) -> bool {
+        words.iter().all(|word| self.lower.contains(word.as_str()))
+    }
+
     /// Whether the game names it.
     pub fn named(&self) -> bool {
         !self.name.is_empty()
@@ -106,6 +111,8 @@ pub struct Catalog {
     pub classes: Vec<Entry>,
     pub skills: Vec<Entry>,
     pub quests: Vec<Quest>,
+    /// The story flags the game declares (`globalcat.2da`), by name.
+    pub globals: Vec<Global>,
     /// What edits need of it (`edit::Data`): its items as scripts know
     /// them, its classes, and its files.
     pub data: edit::Data,
@@ -197,6 +204,7 @@ impl Catalog {
                     .collect(),
             })
             .collect();
+        let globals = globals(source);
         Ok(Catalog {
             game,
             items,
@@ -205,6 +213,7 @@ impl Catalog {
             classes,
             skills,
             quests,
+            globals,
             data,
         })
     }
@@ -212,9 +221,8 @@ impl Catalog {
     /// The entries of `list` whose name or resref holds every word of
     /// `query`, any case, in list order.
     pub fn search<'a>(list: &'a [Entry], query: &str) -> impl Iterator<Item = &'a Entry> {
-        let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-        list.iter()
-            .filter(move |entry| words.iter().all(|word| entry.lower.contains(word.as_str())))
+        let words = words(query);
+        list.iter().filter(move |entry| entry.matches(&words))
     }
 
     /// The texture `name` decoded (TPC, else TGA), if the install has it.
@@ -344,4 +352,46 @@ fn creature_of(source: &dyn Source, utc: &Gff) -> Creature {
         .and_then(|row| usize::try_from(row).ok())
         .and_then(|row| table(source, "portraits")?.resref(row, "baseresref"));
     Creature { name, portrait }
+}
+
+/// A story flag's kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Number,
+    Boolean,
+    Text,
+}
+
+/// A story flag the game declares (`globalcat.2da`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Global {
+    /// Lowercase, as the save keys it.
+    pub name: String,
+    pub kind: Kind,
+}
+
+/// The flags `globalcat.2da` declares, by name.
+fn globals(source: &dyn Source) -> Vec<Global> {
+    let Some(table) = table(source, "globalcat") else {
+        return Vec::new();
+    };
+    let mut globals: Vec<Global> = (0..table.row_labels.len())
+        .filter_map(|row| {
+            let name = table.text(row, "name")?.to_lowercase();
+            let kind = match table.text(row, "type")?.to_lowercase().as_str() {
+                "number" => Kind::Number,
+                "boolean" => Kind::Boolean,
+                "string" => Kind::Text,
+                _ => return None,
+            };
+            Some(Global { name, kind })
+        })
+        .collect();
+    globals.sort_by(|a, b| a.name.cmp(&b.name));
+    globals
+}
+
+/// A search's words, lowercase.
+pub fn words(query: &str) -> Vec<String> {
+    query.split_whitespace().map(str::to_lowercase).collect()
 }
