@@ -288,6 +288,23 @@ pub fn write_encoded(
     Ok(id)
 }
 
+/// Save `id` written again as `world` (a save as `sim::Save::encode` makes
+/// it) with `meta` and `story`, keeping where it came from when it is a
+/// copy of another's game (`copies::Received`): for a tool that changes a
+/// save in place (the save editor).
+pub fn rewrite(
+    root: &Path,
+    id: &str,
+    world: &[u8],
+    meta: &Meta,
+    story: Option<&Story>,
+) -> Result<(), String> {
+    let received = read_meta_received(&checked(root, id)?)
+        .ok()
+        .and_then(|(_, received)| received);
+    write_files(root, id, world, meta, story, received.as_ref())
+}
+
 /// The story of save `id`; none where it has none or it does not read:
 /// a load never fails for it.
 pub fn read_story(root: &Path, id: &str) -> Option<Story> {

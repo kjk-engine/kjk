@@ -28,5 +28,11 @@ pub fn all() -> Vec<Probe> {
         ("write_saved_over", write::saved_over()),
         ("write_older_note", write::older_note()),
         ("write_loaded_k1", write::loaded_k1()),
+        ("write_own_folder_only", write::own_folder_only()),
+        (
+            "write_forced_backs_up_again",
+            write::forced_backs_up_again(),
+        ),
+        ("write_received_kept", write::received_kept()),
     ]
 }

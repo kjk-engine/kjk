@@ -130,6 +130,8 @@ pub struct Session {
     pub format: u32,
     /// Where this session backed the save up, once it has.
     pub backup: Option<std::path::PathBuf>,
+    /// The saves' folder it was opened from: the only one it is written to.
+    pub root: Option<std::path::PathBuf>,
 }
 
 impl Session {
@@ -142,6 +144,7 @@ impl Session {
             stamp: None,
             format: sim::SAVE_FORMAT,
             backup: None,
+            root: None,
         }
     }
 
@@ -150,6 +153,7 @@ impl Session {
     pub fn open(root: &std::path::Path, id: &str) -> Result<Session, edit::Refusal> {
         let opened = edit::open(root, id)?;
         let mut session = Session::new(opened);
+        session.root = Some(root.to_path_buf());
         let world = crate::model::write::world(root, id);
         session.stamp = world.as_deref().map(crate::model::write::stamp);
         session.format = world

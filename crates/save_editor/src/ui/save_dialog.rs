@@ -96,7 +96,11 @@ impl App {
 
     /// The open save written, the outcome kept for the screen.
     fn write(&mut self, force: bool) {
-        let (Some(root), Some(open)) = (self.root.clone(), self.open.as_mut()) else {
+        // Written only into the folder it was opened from.
+        let Some(open) = self.open.as_mut() else {
+            return;
+        };
+        let Some(root) = open.session.root.clone() else {
             return;
         };
         let result = write::save(&mut open.session, &root, Some(&self.discovery), force);

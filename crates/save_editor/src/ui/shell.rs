@@ -145,7 +145,13 @@ impl App {
                     .pick_folder()
             {
                 match locate::check_path(&folder) {
-                    Found::Saves { .. } => self.use_root(folder),
+                    Found::Saves { .. } if self.open.as_ref().is_some_and(|open| !open.session.changes.is_empty()) => {
+                        self.note = Some("this save has changes: save or undo them before choosing another folder".into());
+                    }
+                    Found::Saves { .. } => {
+                        self.open = None;
+                        self.use_root(folder);
+                    }
                     other => self.note = Some(format!("{}: {other}", folder.display())),
                 }
             }

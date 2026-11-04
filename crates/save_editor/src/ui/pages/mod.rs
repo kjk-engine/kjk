@@ -164,13 +164,21 @@ pub fn number(
     range: std::ops::RangeInclusive<i64>,
 ) -> Option<i64> {
     let mut shown = state.edits.get(key).copied().unwrap_or(value);
-    let response = ui.add(egui::DragValue::new(&mut shown).range(range).speed(0.2));
-    if response.dragged() || response.has_focus() {
+    // The value as the save has it, even outside `range` (a body below one
+    // hit point): only what the user changes is held to it.
+    let field = egui::DragValue::new(&mut shown)
+        .range(range)
+        .clamp_existing_to_range(false)
+        .speed(0.2);
+    let response = ui.add(field);
+    if response.changed() {
         state.edits.insert(key.to_string(), shown);
+    }
+    if response.dragged() || response.has_focus() {
         return None;
     }
-    state.edits.remove(key);
-    (shown != value).then_some(shown)
+    // Let go: what the user changed, once.
+    state.edits.remove(key).filter(|edited| *edited != value)
 }
 
 impl State {

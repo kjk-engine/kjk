@@ -153,3 +153,83 @@ pub fn loaded_k1() -> Result<String, String> {
         )),
     }
 }
+
+/// A save is written only into the folder it was opened from: given
+/// another, refused, that folder untouched (review I1).
+pub fn own_folder_only() -> Result<String, String> {
+    let (root, id, mut session) = edited("write-own")?;
+    let other = scratch("write-other");
+    let theirs = sink_save(&other, "another folder's")?;
+    let before = credits(&other, &theirs)?;
+    let result = write::save(&mut session, &other, None, true);
+    let left = (credits(&other, &theirs)?, credits(&root, &id)?);
+    let _ = (
+        std::fs::remove_dir_all(&root),
+        std::fs::remove_dir_all(&other),
+    );
+    match result {
+        Err(why) if left == (before, before) => Ok(format!("refused: {why}")),
+        other => Err(format!(
+            "{:?}; left {left:?}",
+            other.map(|saved| saved.backup)
+        )),
+    }
+}
+
+/// Forced over a save kjk wrote after this session's first write: the
+/// save kjk wrote is backed up too, not lost (review I2).
+pub fn forced_backs_up_again() -> Result<String, String> {
+    let (root, id, mut session) = edited("write-forced")?;
+    write::save(&mut session, &root, None, false)?;
+    let mut theirs = edit::open(&root, &id).map_err(|why| why.to_string())?;
+    theirs.save.script.gold = 31;
+    saves::write(&root, Some(&id), &theirs.save, &theirs.meta)?;
+    let items = sim::inventory::Catalog::new([]);
+    session.apply(Change::Credits(999), &Ground::items(&items))?;
+    let saved = write::save(&mut session, &root, None, true)?;
+    let kept = std::fs::read(saved.backup.join("save.kjkv"))
+        .map_err(|error| error.to_string())
+        .and_then(|bytes| edit::open_bytes(&bytes).map_err(|why| why.to_string()))
+        .map(|save| save.script.gold);
+    let count = backups(&root).len();
+    let _ = std::fs::remove_dir_all(&root);
+    if kept != Ok(31) || count != 2 {
+        return Err(format!(
+            "forced: its backup holds {kept:?}, {count} backups"
+        ));
+    }
+    Ok("kjk's save backed up before the forced write".into())
+}
+
+/// A copy received from another's game keeps where it came from once
+/// edited (review I5).
+pub fn received_kept() -> Result<String, String> {
+    let root = scratch("write-received");
+    let received = saves::copies::Received {
+        host: "h".into(),
+        from: "Revan".into(),
+        slot: "0003".into(),
+        build: "b".into(),
+    };
+    let meta = saves::Meta {
+        name: "theirs".into(),
+        game: Some("k1".into()),
+        ..saves::Meta::default()
+    };
+    let save = sim::fixtures::kitchen_sink().1;
+    let copy = saves::copies::pack(&meta, &save.encode(), &received);
+    let id = saves::copies::receive(&root, &copy, "b")?;
+    let mut session = Session::open(&root, &id).map_err(|why| why.to_string())?;
+    let items = sim::inventory::Catalog::new([]);
+    session.apply(Change::Credits(5), &Ground::items(&items))?;
+    write::save(&mut session, &root, None, false)?;
+    let origin = saves::copies::origin(&root, &id);
+    let gold = credits(&root, &id)?;
+    let _ = std::fs::remove_dir_all(&root);
+    match origin {
+        Some(origin) if origin == received && gold == 5 => {
+            Ok(format!("{id} still from {}", origin.from))
+        }
+        other => Err(format!("{id}: origin {other:?}, {gold} credits")),
+    }
+}

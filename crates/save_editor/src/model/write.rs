@@ -14,7 +14,8 @@ pub const TICKS: u64 = 60;
 /// What a write did.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Saved {
-    /// The save as it was before this session first wrote it.
+    /// The save as it was before this session first wrote it, or before
+    /// this write when it was forced over one kjk made since.
     pub backup: PathBuf,
     pub checked: edit::Checked,
 }
@@ -71,16 +72,25 @@ pub fn save_checked(
     check: impl FnOnce(&sim::Save) -> Result<edit::Checked, String>,
 ) -> Result<Saved, String> {
     let id = session.opened.id.clone();
+    if let Some(from) = session.root.as_deref().filter(|from| *from != root) {
+        return Err(format!(
+            "this save was opened from {}: it is written only there",
+            from.display()
+        ));
+    }
     let now = world(root, &id).map(|bytes| stamp(&bytes));
-    if !force && session.stamp.is_some() && now != session.stamp {
+    let saved_over = session.stamp.is_some() && now != session.stamp;
+    if saved_over && !force {
         return Err(
             "kjk saved over this save since it was opened: open it again, or save anyway".into(),
         );
     }
     let checked = check(&session.edited).map_err(|why| format!("not written: {why}"))?;
+    // The save as it was before the session's first write; and before a
+    // write forced over one kjk made since, that one too.
     let backup = match &session.backup {
-        Some(backup) => backup.clone(),
-        None => back_up(root, &id)?,
+        Some(backup) if !saved_over => backup.clone(),
+        _ => back_up(root, &id)?,
     };
     session.backup = Some(backup.clone());
     let story = match &session.level {
@@ -99,7 +109,7 @@ pub fn save_checked(
         ..session.opened.meta.clone()
     };
     let bytes = session.edited.encode();
-    saves::write_encoded(root, Some(&id), &bytes, &meta, story.as_ref())?;
+    saves::rewrite(root, &id, &bytes, &meta, story.as_ref())?;
     // What is on disk now is the session's new start.
     session.opened.save = session.edited.clone();
     session.opened.meta = meta;
