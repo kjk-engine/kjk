@@ -71,17 +71,6 @@ source = "reone (the longest distance a conversation starts at; navigateTo's fla
 see = "sim::script::CONVERSATION_RANGE"
 applies = ["kind:creature", "kind:companion"]
 
-[talk.start_distance]
-name = "Conversation Start Distance"
-type = "f32"
-value = 10.0
-unit = "m"
-range = [1.0, 50.0]
-summary = "A scene's speaker farther than {scripts.talk.start_distance:bare} meters from whom it talks to closes half the distance, again until it is within; nearer, the conversation begins where it stands."
-source = "TSL's exe (`CSWSArea::MAX_OBJECT_START_CONVERSATION_DISTANCE`, `CSWSObject::AIActionDialogObject`, a cinematic conversation) [verify in K1's exe]"
-see = "sim::script::dialogue"
-applies = ["kind:creature"]
-
 [talk.volume_reach]
 name = "Voice Range"
 type = "f32"

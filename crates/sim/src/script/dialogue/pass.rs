@@ -234,49 +234,14 @@ impl Engine<'_> {
             ActionStartConversation if self.state.talk.holds_world(&view.seat_bodies()) => {
                 Value::Int(0)
             }
+            // Begun where the asker stands, however far: both games'
+            // `ActionStartConversation` set the action's ignore-start-range
+            // flag whatever `bIgnoreStartRange` says (TSL's and K1's Mac
+            // executables), so `AIActionDialogObject` never walks a script's
+            // asker up. Darth Sion, made 18 m from the Exile, talks from
+            // where he was made and walks to `wp_sion` as he speaks.
             ActionStartConversation => {
                 let with = object(args, 0);
-                // Only a creature walks to whom it talks to: a door's or a
-                // placeable's walk fails at once and its conversation starts
-                // where it stands (a locked door's line as it is tried, not
-                // once the player happens by).
-                let walks = view.thing(caller).is_none_or(|thing| {
-                    !matches!(
-                        thing.kind,
-                        Some(
-                            crate::module::ObjectKind::Door | crate::module::ObjectKind::Placeable
-                        )
-                    )
-                });
-                // A cinematic one (type 0) starts from up to the start
-                // distance: TSL's `AIActionDialogObject` walks a farther one
-                // to the midpoint and asks again. Darth Sion, made 21 m from
-                // the Exile, stops about where his scene's `wp_sion` has him.
-                // A computer's walks up.
-                let range = match int(args, 3) {
-                    0 => self.position(caller).zip(self.position(with)).map_or(
-                        crate::script::engine::CONVERSATION_RANGE,
-                        |(from, to)| {
-                            let mut apart = crate::script::engine::distance(from, to);
-                            while apart > rules::scripts::talk::START_DISTANCE {
-                                apart /= 2.0;
-                            }
-                            apart
-                        },
-                    ),
-                    _ => crate::script::engine::CONVERSATION_RANGE,
-                };
-                if int(args, 4) == 0 && with != caller && walks {
-                    self.queue(
-                        caller,
-                        Action::Move {
-                            to: crate::script::actions::Target::Object(with),
-                            run: true,
-                            range,
-                            force_ms: None,
-                        },
-                    );
-                }
                 self.queue(
                     caller,
                     Action::Converse {

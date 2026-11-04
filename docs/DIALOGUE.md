@@ -99,10 +99,12 @@ kjk dialogue show k1 end_m01aa end_trask01  # one tree, with its text
 ## The walk (`sim::script::dialogue`)
 From the survey of reone and xoreos (journal `2026-10-01-i18-dialogue`);
 where they part, the choice is ours and named.
-- **Start.** A creature's `ActionStartConversation` of a cinematic type walks
-  it to the midpoint while it stands over `talk.start_distance` (10 m) from
-  whom it talks to, TSL's exe (`AIActionDialogObject`); `bIgnoreStartRange` not
-  at all. `ActionStartConversation` (its owner the other party when a
+- **Start.** `ActionStartConversation` begins where its asker stands, however
+  far from whom it talks to: both games' executables set the action's
+  ignore-start-range flag whatever `bIgnoreStartRange` says, so
+  `AIActionDialogObject`'s walk (to the midpoint past
+  `MAX_OBJECT_START_CONVERSATION_DISTANCE`, 10 m) is never taken for a
+  script's ask. `ActionStartConversation` (its owner the other party when a
   player asks, the asker when it asks a player, else the one conversed with:
   TSL's `AIActionDialogObject` signals that one's dialog event, and a
   companion in the party is not such a one; an empty resref the owner's own

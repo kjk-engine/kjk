@@ -65,7 +65,7 @@ const PROBES: &[Probe] = &[
     ("lit_saber_one_act", lit_saber_one_act),
     ("party_sheathes_in_talk", party_sheathes_in_talk),
     ("conversed_owns", conversed_owns),
-    ("cinematic_start_distance", cinematic_start_distance),
+    ("script_talk_starts_in_place", script_talk_starts_in_place),
     ("talk_end_clears_video", talk_end_clears_video),
     ("held_duel_spacing", held_duel_spacing),
     ("scene_attacks_at_once", scene_attacks_at_once),
@@ -2085,7 +2085,7 @@ fn start_refused_held() -> Found {
     )
 }
 
-/// Where `cinematic_start_distance`'s asker stands or is made.
+/// Where `script_talk_starts_in_place`'s asker stands or is made.
 const TALKER_FROM: [f32; 2] = [-7.2, -4.0];
 
 /// Where `probe_twins` makes its two creatures (the ground's axes).
@@ -2570,15 +2570,15 @@ fn conversed_owns() -> Found {
     ])
 }
 
-/// A cinematic conversation (type 0) asked from farther than the start
-/// distance walks its asker only to half the way, halved till within it
-/// (TSL's `AIActionDialogObject`); one asked from nearer begins where it
-/// stands; a computer one (type 1) walks up to the conversation range. How
-/// far apart the asker and the host stood, and stood as it began. An asker
-/// a script makes and has ask in one go is measured from where it was made
-/// (`tr_sion`'s Darth Sion, else run up to the Exile and walked back by his
-/// scene).
-fn cinematic_start_distance() -> Found {
+/// A script's `ActionStartConversation` begins where its asker stands,
+/// however far from the host: cinematic (type 0) or computer (type 1), from
+/// past `AIActionDialogObject`'s 10 m or within it, and an asker a script
+/// makes and has ask in one go (`tr_sion`'s Darth Sion, 18 m from the Exile:
+/// else he runs half the way, then walks to `wp_sion` along the slant and
+/// stands turned from the Exile). Both games' executables set the action's
+/// ignore-start-range flag whatever the script passes. How far apart the
+/// asker and the host stood, and stood as it began.
+fn script_talk_starts_in_place() -> Found {
     let begun = |script: &str, host_at: [f32; 2]| -> Result<(f32, f32), String> {
         let mut ground = Ground::new(1)?;
         let host = ground.body(0)?;
@@ -2607,37 +2607,25 @@ fn cinematic_start_distance() -> Found {
         }
         Err(format!("{script} began no conversation"))
     };
-    let start = rules::scripts::talk::START_DISTANCE;
     let (far, near) = ([-0.8, 5.2], [-3.0, -1.0]);
-    // Each case's share of the way apart it begins at, or none for the
-    // conversation range.
     let cases = [
-        ("cinematic, far", begun("probe_converse", far)?, Some(0.5)),
-        ("cinematic, near", begun("probe_converse", near)?, Some(1.0)),
-        ("computer, far", begun("probe_computer", far)?, None),
-        (
-            "cinematic, made far",
-            begun("probe_converse_made", far)?,
-            Some(0.5),
-        ),
+        ("cinematic, far", begun("probe_converse", far)?),
+        ("cinematic, near", begun("probe_converse", near)?),
+        ("computer, far", begun("probe_computer", far)?),
+        ("cinematic, made far", begun("probe_converse_made", far)?),
     ];
     let seen: Vec<String> = cases
         .iter()
-        .map(|(label, (before, at), _)| format!("{label}: {before:.2} m apart, began at {at:.2}"))
+        .map(|(label, (before, at))| format!("{label}: {before:.2} m apart, began at {at:.2}"))
         .collect();
-    // A walk stops once within its range, a step's run and its slide short.
-    let right = cases.iter().all(|(_, (before, at), share)| {
-        let want = share.map_or(crate::script::CONVERSATION_RANGE, |share| before * share);
-        (want - ARRIVED_M..=want + 0.01).contains(at)
-    });
-    check(
-        right && cases[0].1.0 > start && cases[1].1.0 < start,
-        format!("{} (start distance {start} m)", seen.join("; ")),
-    )
+    // The executables' walk would take a far asker within 10 m.
+    let far_enough = cases[0].1.0 > 10.0 && cases[1].1.0 < 10.0;
+    // Within a settle of two bodies near each other, nothing like a walk.
+    let right = cases
+        .iter()
+        .all(|(_, (before, at))| (before - at).abs() < 0.1);
+    check(far_enough && right, seen.join("; "))
 }
-
-/// How far short of a walk's range its walker may stop (m).
-const ARRIVED_M: f32 = 0.3;
 
 /// A conversation ending turns the video effect off, whoever enabled it
 /// (TSL's `CloseDialog`): one a script enabled in a scene is gone once the
