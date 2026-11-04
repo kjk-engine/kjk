@@ -5,6 +5,7 @@
 mod icons;
 mod list;
 mod pages;
+mod save_dialog;
 mod shell;
 mod shot;
 mod style;
@@ -104,6 +105,8 @@ pub struct App {
     note: Option<String>,
     icons: icons::Icons,
     pages: pages::State,
+    /// How the last write went, while the save screen shows it.
+    outcome: Option<save_dialog::Outcome>,
 }
 
 impl App {
@@ -128,6 +131,7 @@ impl App {
             note: None,
             icons: icons::Icons::default(),
             pages: pages::State::default(),
+            outcome: None,
         };
         match root {
             Some(root) => app.use_root(root),
@@ -257,11 +261,11 @@ impl App {
             self.refused = Some(format!("no save {id} in this folder"));
             return;
         };
-        match edit::open(&root, id) {
-            Ok(opened) => {
+        match Session::open(&root, id) {
+            Ok(session) => {
                 let level = row.game.and_then(|game| self.discovery.get(game)).map(|_| {
                     let (send, receive) = channel();
-                    let (save, chosen) = (opened.save.clone(), self.chosen.clone());
+                    let (save, chosen) = (session.opened.save.clone(), self.chosen.clone());
                     std::thread::spawn(move || {
                         let _ = send.send(edit::level_of(&save, &locate::discovery_over(&chosen)));
                     });
@@ -269,7 +273,7 @@ impl App {
                 });
                 self.open = Some(Open {
                     row,
-                    session: Session::new(opened),
+                    session,
                     members: Vec::new(),
                     level,
                 });
@@ -392,6 +396,7 @@ impl eframe::App for App {
         }
         let start = std::time::Instant::now();
         self.draw(ui);
+        self.save_dialog(ui.ctx());
         self.shot.drawn(start.elapsed(), busy);
         self.shot.frame(ui.ctx(), busy);
     }

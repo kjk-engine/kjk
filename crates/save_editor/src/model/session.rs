@@ -123,6 +123,13 @@ pub struct Session {
     /// The save's level as the install plans it, when there is one: what
     /// a member the module placed is edited from (`Editor::with_level`).
     pub level: Option<sim::Level>,
+    /// The world file as opened (blake3, hex): kjk saving over it since
+    /// shows as another (`write::save`). None for a save not from a file.
+    pub stamp: Option<String>,
+    /// The save format it was written in.
+    pub format: u32,
+    /// Where this session backed the save up, once it has.
+    pub backup: Option<std::path::PathBuf>,
 }
 
 impl Session {
@@ -132,7 +139,23 @@ impl Session {
             opened,
             changes: Vec::new(),
             level: None,
+            stamp: None,
+            format: sim::SAVE_FORMAT,
+            backup: None,
         }
+    }
+
+    /// Save `id` of the saves' folder `root` opened, its file stamped; why
+    /// not, as `edit::open` tells it.
+    pub fn open(root: &std::path::Path, id: &str) -> Result<Session, edit::Refusal> {
+        let opened = edit::open(root, id)?;
+        let mut session = Session::new(opened);
+        let world = crate::model::write::world(root, id);
+        session.stamp = world.as_deref().map(crate::model::write::stamp);
+        session.format = world
+            .and_then(|bytes| Some(u32::from_le_bytes(bytes.get(4..8)?.try_into().ok()?)))
+            .unwrap_or(sim::SAVE_FORMAT);
+        Ok(session)
     }
 
     /// The session with the save's level, for members the module placed.

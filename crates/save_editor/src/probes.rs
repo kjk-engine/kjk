@@ -4,6 +4,7 @@
 mod catalog;
 mod locate;
 mod session;
+mod write;
 
 type Probe = (&'static str, Result<String, String>);
 
@@ -22,5 +23,10 @@ pub fn all() -> Vec<Probe> {
         ("session_told_in_words", session::told_in_words()),
         ("session_feat_warned_k1", session::feat_warned_k1()),
         ("session_give_equipped", session::give_equipped()),
+        ("write_good", write::good()),
+        ("write_failed_check", write::failed_check()),
+        ("write_saved_over", write::saved_over()),
+        ("write_older_note", write::older_note()),
+        ("write_loaded_k1", write::loaded_k1()),
     ]
 }
