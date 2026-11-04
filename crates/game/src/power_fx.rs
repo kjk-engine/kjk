@@ -44,7 +44,7 @@ use bevy::prelude::*;
 use collision::{Contents, Extents};
 use sim::buttons;
 use sim::combat::force::{ForceState, Gesture, Power, of_row};
-use sim::combat::{Fighter, Missile, Outcome, grenades};
+use sim::combat::{Missile, Outcome, grenades};
 use sim::{EntityState, SimId, Snapshot};
 
 use crate::combat_fx::FightDrawn;
@@ -208,7 +208,7 @@ fn sound(
         let channels: BTreeMap<SimId, Power> = snapshot
             .entities
             .iter()
-            .filter_map(|e| Some((e.id, e.fighter?.force.channel?.power)))
+            .filter_map(|e| Some((e.id, e.fighter.as_ref()?.force.channel?.power)))
             .collect();
         for entity in &snapshot.entities {
             changes(powers, entity, snapshot, &channels, &mut cues.0);
@@ -227,13 +227,15 @@ fn sound(
             loops.0.push(Hold::at(FUSE_LOOP.to_string(), at));
         }
     }
+    // Borrowed, not copied: a fighter is large, and every entity is looked
+    // at each frame.
     for entity in &current.entities {
-        let Some(f) = entity.fighter.filter(Fighter::alive) else {
+        let Some(f) = entity.fighter.as_ref().filter(|f| f.alive()) else {
             continue;
         };
         let at = place(entity);
         let now = current.time_ms;
-        let force = f.force;
+        let force = &f.force;
         let running = [
             (force.speed_until, "speedloop.wav"),
             (force.protect_until, "protectloop.wav"),
@@ -301,7 +303,9 @@ fn changes(
     channels: &BTreeMap<SimId, Power>,
     cues: &mut Vec<Cue>,
 ) {
-    let Some(f) = entity.fighter else { return };
+    let Some(f) = entity.fighter.as_ref() else {
+        return;
+    };
     let now = snapshot.time_ms;
     let ms = now as f32;
     let force = f.force;
