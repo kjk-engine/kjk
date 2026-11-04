@@ -885,8 +885,16 @@ rig's `Aim` with `Stowed`). Who says what is out (`combat::Sheath`):
   though its 8 s still run, or as a swing under way ends; away even in a
   fight, until the player attacks (a click draws, held it swings or
   fires) or takes out a weapon. JA has a saber toggle, KOTOR none.
-- **Lit**: a script holds the saber lit (`SetLightsaberPowered` with its
-  override) until a script lets go; a scene's blows light it as a fight.
+- **Lit**: a script lit the saber (`SetLightsaberPowered` with its
+  override). The exe powers it once and holds nothing: it stays lit until a
+  script lets go, a fight takes over (`SetCombatState` decides again), its
+  module is left (the new area makes its bodies afresh), or, for the party,
+  no conversation has it any more. A scene's blows light it as a fight.
+
+In a conversation a party member with no fight of its own (no target, no fake
+combat, no script's blow to deal) puts its blade away as the talk begins and
+draws none (`Arms::at_rest`); its 8 s run on untouched. The exe has no such
+rule; the owner asked for it after the cutscene reel.
 
 `kjk sim probes`' `sheath` checks (the approved test `holster_weapon`).
 

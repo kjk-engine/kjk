@@ -288,6 +288,24 @@ pub fn camera_clip_name(animation: u16) -> Option<String> {
     Some(format!("cut{n:03}w"))
 }
 
+/// The clip a node's `CameraAnimation` has its conversation's camera model
+/// play, and whether it carries on the one already playing: 1200 on start
+/// `cut001w` and up (`camera_clip_name`); 1000 on carry on that clip from
+/// where it is (TSL: Kreia's lines on arriving at Korriban, `kreia_kr`'s
+/// 1000s after the pan's 1200; `miratch`'s 1001 after 1201) [verify in the
+/// exe]. reone names a 1000 `cut-199w`, a clip no model has, so its camera
+/// plays on as well.
+pub fn camera_cue(animation: u16) -> Option<(String, bool)> {
+    match animation.checked_sub(FIRST_CONTINUED_CLIP)? {
+        n @ 0..200 => Some((format!("cut{:03}w", n + 1), true)),
+        _ => Some((camera_clip_name(animation)?, false)),
+    }
+}
+
+/// The first `CameraAnimation` value carrying on a playing clip
+/// (`camera_cue`).
+const FIRST_CONTINUED_CLIP: u16 = 1000;
+
 /// The first `CameraAnimation` / `AnimList` value naming a clip
 /// (`camera_clip_name`), and the first naming a `dialoganimations.2da` row
 /// (`Library::dialog_animation`).
@@ -1025,9 +1043,10 @@ impl Library {
     }
 
     /// How long a conversation's camera model plays a node's
-    /// `CameraAnimation` (ms), if the model has that clip.
+    /// `CameraAnimation` (ms) from its start, if the model has that clip
+    /// (`camera_cue`).
     pub fn camera_clip(&self, model: &str, animation: u16) -> Option<u32> {
-        let clip = camera_clip_name(animation)?;
+        let (clip, _) = camera_cue(animation)?;
         self.camera_clips.get(&(key(model), clip)).copied()
     }
 
@@ -1928,8 +1947,9 @@ pub enum Change {
     /// `who` leaves combat: no one to fight, out of it from now
     /// (`CancelCombat`).
     CancelCombat { who: ObjectId },
-    /// `who` attacks a target in its reach with a blade or fists: in
-    /// combat from now, as after a blow (`script::actions`, attack).
+    /// `who` attacks a target in its reach with a blade or fists, or
+    /// begins using a talent on itself: in combat from now, as after a blow
+    /// (`script::actions`, attack and talent).
     InCombat { who: ObjectId },
     /// `who` in TSL's fake combat (`on`, unless it fights for real) or out
     /// of it (`SetFakeCombatState`, `combat::Fighter::fake_until`).
@@ -2874,8 +2894,20 @@ impl Step<'_> {
                         // come within the talent's reach).
                         let end = self.state.rounds.get(&id).copied();
                         let over = now >= end.unwrap_or(u64::MAX).min(started + ROUND_MS);
+                        // A cast on itself starts a combat round (the exes'
+                        // AIActionCastSpell calls StartCombatRound), so its
+                        // end-of-round script runs: the Star Forge freezer's
+                        // Resist Force on itself is what makes it engage and
+                        // unlock its door. One on another is in combat as
+                        // its blow lands; in combat from its start, the
+                        // feats and powers of Telos's mercenaries and
+                        // Korriban's Mandalorian vision kept fights going
+                        // that their scripts end.
                         if starting {
                             self.attacking(id, Some(*talent));
+                            if *target == who {
+                                self.out.changes.push(Change::InCombat { who });
+                            }
                         }
                         if !over {
                             let intent = Intent {

@@ -367,6 +367,9 @@ pub(super) fn hurt(
                         .or_else(|| find(&actors, by).map(|them| actors[them].4.0.origin));
                     if let (Some(at), Some(centre)) = (at, centre) {
                         let (.., player, fighting) = &mut actors[at];
+                        if fighting.0.alive() {
+                            fighting.0.blasted_ms = now;
+                        }
                         pushed(&mut player.0, &mut fighting.0, centre, now);
                     }
                 }
@@ -757,7 +760,7 @@ pub(super) fn hurt(
         // flinch (a scene's blow plays its own reaction, `blows::HURT`).
         let scene =
             scene_held.scene(&talking.0, hit.target) || scene_held.scene(&talking.0, hit.attacker);
-        let staged = death::in_place(&hit.source, scene);
+        let staged = death::in_place(&hit.source, scene, fighting.0.saber.floored());
         let in_place = resolved.died && !was_down && staged;
         if let Some((push, timer)) = resolved.push.filter(|_| !staged && !immobile) {
             ps.velocity = math::add(ps.velocity, push);

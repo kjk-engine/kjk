@@ -39,7 +39,9 @@
   `Action::Force` after `FORCE_AFTER_MS` (5 s; else `Notice::CannotForce`).
 - The asker gone, the lowest seat still there asks; none: it lapses. In
   combat a walk in is refused, told once, asks again after; a fight holds
-  a proposal (forcing too). A script's `StartNewModule` skips it.
+  a proposal (forcing too). A script's `StartNewModule` skips it. A body
+  a conversation holding the world walks in is the exit's tenant and asks
+  nothing, then or after (S3: the Trayus Academy's `a_903kreia`).
 - While more than one seat's body stands : a seat in a locked conversation, a pazaak match, or a party
   conversation it is not the unlocked listener of is kept unready
   (`party::kept`; its ready is refused and its bit cleared each step),

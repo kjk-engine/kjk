@@ -215,7 +215,7 @@ the games' own compiled scripts; nothing of them is in the repo.
   `SetLightsaberPowered(who, override, powered, transition)` lights the
   character's blade when both `override` and `powered` are set and puts it
   out otherwise (the game then decides again, and out of a fight that is
-  unlit [verify]); a lit blade shows the saber in hand outside a fight
+  unlit); one act, not a hold (`COMBAT.md`'s **Lit**); a lit blade shows the saber in hand outside a fight
   (`weapons::armed`), growing as any blade does (Darth Bandon, unarmed
   until `ActionEquipItem` takes the double-bladed saber from his pack,
   half a second later lit, in the Endar Spire's last stand).
@@ -272,6 +272,7 @@ the games' own compiled scripts; nothing of them is in the repo.
   gamma-encoded values does (`fade_view`).
 - Video effects: `EnableVideoEffect` (both games) keeps a
   `videoeffects.2da` row on everyone's screen until `DisableVideoEffect`
+  or a conversation's end (TSL's `CGuiInGame::CloseDialog` disables it)
   (`Snapshot::video_effect`, KJKS 59; kept across modules, as the
   routine's "apply indefinitely" reads [verify]). Neither reone nor xoreos
   implements them; the columns are read by name and by TSL's executable,
@@ -281,8 +282,8 @@ the games' own compiled scripts; nothing of them is in the repo.
   (TSL's `_pc` columns), K1's security camera and T3-M4's and HK-47's
   freelooks blue or red; `enablescannoise` adds the procedural film noise
   (`filmnoisetex.txi`: random channels scaled to 0.02). The launcher
-  grades the scene camera's frame in its stored values, before the fade
-  and the screens (`video_effect`); the noise's scale on the screen and
+  grades the last world camera's frame in its stored values, the fade's while
+  it draws, before the screens (`video_effect`); the noise's scale on the screen and
   its order after the grade are [verify]. TSL's Force views
   (`enableclairvoyance`, `enableforcesight`, `enableclairvoyancefull`,
   `enablefury`) are carried but not drawn. TSL's prologue (`001ebo`)

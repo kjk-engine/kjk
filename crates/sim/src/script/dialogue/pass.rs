@@ -167,8 +167,53 @@ pub(in crate::script) fn advance(step: &mut Step) {
     for id in waiting {
         step.waited(id);
     }
+    step.hold_hostiles();
     step.state.talk.barks.retain(|bark| bark.until_ms > now);
     step.leaving_module();
+}
+
+impl Step<'_> {
+    /// While a player talks, every creature of the area hostile to it does
+    /// nothing: each step its queue is cleared and its attacks with it, as
+    /// K1's and TSL's `UpdateDialog` clear every frame the actions of each
+    /// creature out of the party whose reputation with the player is
+    /// hostile (`ClearAllPlayerHostileActions`, `ClearAllActions(TRUE)`),
+    /// whatever the conversation and whoever is in it. One not commandable
+    /// keeps its own; a script's `CutsceneAttack` blows are no action. A
+    /// co-op guest's private conversation, holding no world, holds no one.
+    fn hold_hostiles(&mut self) {
+        let view = self.view;
+        if !view.held {
+            return;
+        }
+        let pcs = view.pcs(&self.state.party);
+        let Some(player) = (self.state.talk.conversations.iter())
+            .map(|c| c.pc)
+            .find(|pc| pcs.contains(pc))
+            .and_then(|pc| view.thing(pc)?.character)
+        else {
+            return;
+        };
+        let repute = view.module.repute.with(&self.state.reputation);
+        let party: Vec<u32> = self.state.party.creatures().collect();
+        let hostiles: Vec<ObjectId> = (view.things.iter())
+            .filter(|thing| !pcs.contains(&thing.id) && !party.contains(&thing.id.0))
+            .filter(|thing| !self.state.uncommandable.contains(&thing.id.0))
+            .filter(|thing| {
+                thing
+                    .character
+                    .is_some_and(|c| repute.hostile(c.faction, player.faction))
+            })
+            .map(|thing| thing.id)
+            .collect();
+        let host = view.host(&self.state.party);
+        for who in hostiles {
+            if self.state.actions.contains_key(&who.0) {
+                self.state.clear_queue(who, host);
+                self.out.changes.push(crate::script::Change::Clear { who });
+            }
+        }
+    }
 }
 
 impl Engine<'_> {
@@ -189,31 +234,14 @@ impl Engine<'_> {
             ActionStartConversation if self.state.talk.holds_world(&view.seat_bodies()) => {
                 Value::Int(0)
             }
+            // Begun where the asker stands, however far: both games'
+            // `ActionStartConversation` set the action's ignore-start-range
+            // flag whatever `bIgnoreStartRange` says (TSL's and K1's Mac
+            // executables), so `AIActionDialogObject` never walks a script's
+            // asker up. Darth Sion, made 18 m from the Exile, talks from
+            // where he was made and walks to `wp_sion` as he speaks.
             ActionStartConversation => {
                 let with = object(args, 0);
-                // Only a creature walks to whom it talks to: a door's or a
-                // placeable's walk fails at once and its conversation starts
-                // where it stands (a locked door's line as it is tried, not
-                // once the player happens by).
-                let walks = view.thing(caller).is_none_or(|thing| {
-                    !matches!(
-                        thing.kind,
-                        Some(
-                            crate::module::ObjectKind::Door | crate::module::ObjectKind::Placeable
-                        )
-                    )
-                });
-                if int(args, 4) == 0 && with != caller && walks {
-                    self.queue(
-                        caller,
-                        Action::Move {
-                            to: crate::script::actions::Target::Object(with),
-                            run: true,
-                            range: crate::script::engine::CONVERSATION_RANGE,
-                            force_ms: None,
-                        },
-                    );
-                }
                 self.queue(
                     caller,
                     Action::Converse {
@@ -406,8 +434,9 @@ impl Step<'_> {
     }
 
     /// `Action::Converse` at the front of `who`'s queue: ask to start a
-    /// conversation, its owner by reone's rule (the other party when a
-    /// player asks, else the asker), its DLG the one named or the owner's.
+    /// conversation, its owner the other party when a player asks, the asker
+    /// when it asks a player, else the one conversed with (the exe's dialog
+    /// event), its DLG the one named or the owner's.
     /// With none named, a non-player conversed with that has a DLG of its
     /// own owns it with that DLG, as nwscript.nss says starting one "will
     /// cause their OnDialog event to fire": the one conversed with speaks
@@ -433,14 +462,21 @@ impl Step<'_> {
         let mut pcs = view.pcs(&self.state.party);
         pcs.extend(self.host());
         pcs.extend(view.seats.iter().map(|&(_, body)| body));
+        let companion = self.state.party.creatures().any(|body| body == with.0);
         let (owner, pc) = if pcs.contains(&who) && with != ObjectId::INVALID {
             (with, who)
         } else if pcs.contains(&with) {
             (who, with)
+        } else if with != ObjectId::INVALID && !companion && view.thing(with).is_some() {
+            // TSL's `AIActionDialogObject` signals the dialog event to the
+            // one conversed with, the conversation's name with it, and its
+            // `OnDialog` begins it: the owner is that one, whoever asked (a
+            // scene's `a_start_miraend` runs for Visquis, naming Mira, who
+            // says the lines with no `Speaker`).
+            (with, view.first_pc(&self.state.party))
         } else {
             (who, view.first_pc(&self.state.party))
         };
-        let companion = self.state.party.creatures().any(|body| body == with.0);
         let through =
             (dialog.is_empty() && with != ObjectId::INVALID && !pcs.contains(&with) && !companion)
                 .then(|| view.conversation(with).map(str::to_string))
