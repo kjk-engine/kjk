@@ -105,7 +105,7 @@ folder or the `.app` itself.
 
 `ci.yml` runs on pushes to main and on pull requests (not when only `docs/`
 or `*.md` files change): Linux only, two jobs side by side (tests:
-publish-check, fmt, the approved tests; clippy: both lints), and on main,
+publish-check, licences (`cargo deny`), fmt, the approved tests; clippy: both lints), and on main,
 beside them, `kjk` built and started with `--help`. Only main saves the
 build caches.
 Windows/macOS builds and the screenshot runs are `manual.yml`: Actions →

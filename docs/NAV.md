@@ -1,4 +1,4 @@
-# Navigation (`collision::nav`, `sim::walk`; I27)
+# Navigation (`collision::nav`, `sim::walk`)
 
 **The mesh.** The session bakes one per planned module from the area's
 walkable walkmesh faces and doorways' floors, cut along placeables'
@@ -118,7 +118,7 @@ nowhere against a placeable it touched or the level's own solid on the way
 ahead (`walk::way_clear`; no body in it, nor a door) is a stall at once, not
 a second later.
 
-While a conversation holds the world (scene mode, S3) the walk is
+While a conversation holds the world (scene mode) the walk is
 KOTOR's (`walk::kotor_step`, `docs/MOVEMENT.md`): a walk KOTOR's walker
 carried on last step never steps aside, and keeps its headway as it gets
 nearer its corner (`Walker::keep_headway`), so it does not plan again
@@ -172,7 +172,7 @@ walker does: a creature opens it and walks on; one that will not open
 for it (locked, scenery, the held party's) gives the walk up. An open door is nobody's
 concern (one asked the Elders' gate on the Unknown World to take the
 player out mid-scene). A party member opens nothing while the world is
-held (S4), so its walks route round a closed door, or have no way and end.
+held (scene mode), so its walks route round a closed door, or have no way and end.
 
 ```bash
 kjk collision nav k1 end_m01aa     # the bake twice, 500 routes checked leg by leg

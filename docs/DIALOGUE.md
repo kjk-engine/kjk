@@ -1,4 +1,4 @@
-# Conversations (I18; `sim::script::dialogue`)
+# Conversations (`sim::script::dialogue`)
 
 A conversation is a walk through a DLG tree that the authority runs inside
 the scripts' step: it asks condition scripts which lines are open, runs
@@ -97,7 +97,7 @@ kjk dialogue show k1 end_m01aa end_trask01  # one tree, with its text
 ```
 
 ## The walk (`sim::script::dialogue`)
-From the survey of reone and xoreos (journal `2026-10-01-i18-dialogue`);
+From the survey of reone and xoreos;
 where they part, the choice is ours and named.
 - **Start.** `ActionStartConversation` begins where its asker stands, however
   far from whom it talks to: both games' executables set the action's
@@ -169,7 +169,7 @@ where they part, the choice is ours and named.
   a reply is taken (the player says it to its `Listener`, else the
   previous speaker; a silent one is no line). At each start, never in an
   `AnimatedCut` DLG, the listener turns to the speaker, then the speaker
-  to the listener, at once (exe; the design's S2), before the line's
+  to the listener, at once (exe), before the line's
   scripts [verify the order]: a body with a head arc (`appearance.2da`
   `head_arc_h`: a creature's template's `Body::head_arc_h`, a player's by
   its persona's appearance, `Library::head_arc`) turns only by the angle
@@ -180,7 +180,7 @@ where they part, the choice is ours and named.
   `SetFacing` holds until the next line. In every conversation, holding
   the world or not (a body turned short of its listener leaves the rest
   to its head), the pair's heads turn toward each other within their
-  arcs, view side (S7, `launcher::cast`'s `Head`): eased at 10 rad/s
+  arcs, view side (`game::cast`'s `Head`): eased at 10 rad/s
   [verify the exe's "10"], after the body's pose, back ahead once the
   line's pair changes; not on the head-follow lock list, nor in an
   animated cut or a staged conversation (its bodies on their stunt
@@ -398,7 +398,7 @@ because its rules are. While a conversation holds the world the area runs
 on those rules instead of JA's. Nothing is paused, and nothing is
 restored when it ends.
 
-- **When** (S1): a party conversation holds the world, and so does any
+- **When**: a party conversation holds the world, and so does any
   conversation while every seat's body stands in one
   (`Told::holds_world`, the sim's `world::scene::held`, answered once a
   step as the step begins, `scene::Held`, for every system and the
@@ -414,7 +414,7 @@ restored when it ends.
   nothing until the talk ends, whether or not it takes part. A script's
   `CutsceneAttack` is no action and plays; one not commandable keeps its
   queue.
-- **Walks** (S3): a body walking a route moves on KOTOR's walker at its
+- **Walks**: a body walking a route moves on KOTOR's walker at its
   `creaturespeed.2da` rates (`MOVEMENT.md`, `NAV.md`).
 - **Spaces**: the party keeps its personal spaces, as KOTOR's creatures
   always do. Its bodies pass through each other out of a scene (friendly
@@ -423,7 +423,7 @@ restored when it ends.
   before a seat's player) is pushed aside as KOTOR's walker pushes an idle
   creature it meets, out to their two `perspace`s and the push's margin
   (`world::movement::spaced`, `walk::pushed_aside`).
-- **Minds** (S4, `world::minds`): every creature fights as a scene's
+- **Minds** (`world::minds`): every creature fights as a scene's
   fighter (melee holds its ground, aiming squarely with no wander, gunners
   stand, no paced saber AI, no guard hold-off, a script's attack at once
   with no moment of awareness). Outside a held world, those taking part
@@ -436,16 +436,16 @@ restored when it ends.
   `Lock`, which end failed. It rolls no attack, power or throw but a
   `CutsceneAttack`'s (`scene::ROLLS`). Heartbeats, perception, combat
   rounds and every queue run on.
-- **Lines** (S2, S5, S6, S7): the turns at a line's start, its timing and
+- **Lines**: the turns at a line's start, its timing and
   pauses, its gestures and heads (above, "Lines", "Timing", "Gestures"),
   and its camera (the conversation screen, below).
-- **Items** (S8, view only): a DLG's `UnequipItems` hides every item model
+- **Items** (view only): a DLG's `UnequipItems` hides every item model
   of each line's speaker and listener until the conversation ends, its
   `UnequipHItem` only the held ones (`weapons::Hide`; a body in two such
   conversations takes the larger). Nothing is unequipped. A held weapon
   `UnequipHItem` hides is drawn nowhere, neither in the hand nor where it
   is carried; the body's other carried models stay.
-- **Start and end** (S9): only more than one seat gathers the party ("A
+- **Start and end**: only more than one seat gathers the party ("A
   party conversation", below). At the end the facings and places stay where
   the scene left them, hidden items show again and the camera cuts back.
 
@@ -593,7 +593,7 @@ The checks:
     slower pace than any walk of `creaturespeed.2da` but its `SLOW`
     row's, and a way round longer than the straight line outlasts it).
     In a talk run, a move whose way only a door shut now closes (no way
-    through the doors as they stand, none opening for the held party, S4,
+    through the doors as they stand, none opening for the held party,
     and one with every door open) is a note: the story opens it first
     (the Leviathan's cells before the party's escape, the bridge's door
     before Saul's scene). A talk run steps on while a body still walks a
@@ -664,7 +664,7 @@ A DLG with `ConversationType` 1 is a computer's (K1: 114 in its modules,
 8 of them Rakatan, `ComputerType` 1); it is walked as any other, with
 its owner (the terminal) and the player who used it, the player held,
 ended when a line leads nowhere. Everything about Computer Use is the
-games' own scripts' (journal `2026-10-02-computer-use`): a start
+games' own scripts': a start
 condition sets `<CUSTOM31>`… to each option's spike cost
 (`k_con_tokens`), an option's condition compares the spikes the first
 player carries (`GetItemPossessedBy` tag `K_COMPUTER_SPIKE`,
@@ -706,7 +706,7 @@ kjk play --stage end_m01ab --arrive end_explode04 --skill computer=8 \
   offered, when the line was shown and ends, whether it is paused; in
   co-op its listener, the bodies joined, whether it holds every seat and
   is locked, who asks the host in, whom its line waits on and the
-  player of the pazaak match its line dealt, R37; KJKS 56),
+  player of the pazaak match its line dealt; KJKS 56),
   the barks, the custom tokens. Views resolve text from the level's own
   DLGs. The authority's scripts write it; a module install keeps only the
   tokens.
@@ -728,7 +728,7 @@ kjk play --stage end_m01ab --arrive end_explode04 --skill computer=8 \
   start gives a held player's yaw (a guest sees its body turn then).
 - **Co-op**. Two players can be in two conversations at once,
   and a player can leave one until it has locked them into the story.
-  The scripts still see one PC, the host's character (I30 §0). One player
+  The scripts still see one PC, the host's character. One player
   plays exactly as before: every conversation the player starts is theirs
   and their AI companions come to it.
   - **A player's own conversation** (private): a use started it
@@ -764,7 +764,7 @@ kjk play --stage end_m01ab --arrive end_explode04 --skill computer=8 \
     guest walking in was taken to the host, out of the trigger, and set the
     call off again coming back), but not a seat's body
     standing in a player's own conversation; one player's party stays where
-    it stands, as in KOTOR (scene mode's S9). Starting
+    it stands, as in KOTOR (scene mode). Starting
     it cuts every conversation a seat's body stands in short ("a cutscene
     began"), locked or not; a start refused (already talking, nothing to
     say) cuts nothing. A bark holds nobody.
@@ -796,10 +796,10 @@ kjk play --stage end_m01ab --arrive end_explode04 --skill computer=8 \
     entry's it leads to, through replies taken by themselves, or the end
     script where it ends. XP alone and locals are anyone's, and a script
     that deals pazaak is the minigame's, not the story's. The survey it
-    rests on (`context/artifacts/2026-10-13-coop-dialogue/SURVEY.md`): K1
+    rests on: K1
     69 % of spoken replies anyone's, TSL 73 %. A guest's screen draws the
     story's replies faded.
-  - **Asking the host in** (R5): a guest's pick of a story reply in its
+  - **Asking the host in**: a guest's pick of a story reply in its
     own conversation, where no PC stands, marks it and asks
     (`Conversation::asking`, `Line::Asked`; one asker a conversation).
     The guest keeps answering free replies meanwhile, or leaves, the
@@ -817,7 +817,7 @@ kjk play --stage end_m01ab --arrive end_explode04 --skill computer=8 \
     card"). Several guests ask each in their own
     conversation; the host's screen lists them and its keys answer the
     first.
-  - **Locks and leaving** (R6). A conversation locks for good
+  - **Locks and leaving**. A conversation locks for good
     (`locked`): a party one the game started, and a clicked cutscene,
     from its first line; one whose `EndConverAbort` may move the story
     (`story_abort`; in both games it is the end script too) from its first
@@ -832,7 +832,7 @@ kjk play --stage end_m01ab --arrive end_explode04 --skill computer=8 \
     "locked"), and in a party conversation the host accepted that is
     still unlocked, from anyone but its listener ("the host's"); one
     paused or waiting takes no Leave.
-  - **Interjections** (R4): in a player's own or a party conversation, a
+  - **Interjections**: in a player's own or a party conversation, a
     line said by a seat's body that does not stand in it is said where
     that body stands, never walked or moved, and the body joins. Its own
     unlocked conversation is cut short first ("an interjection"); one it
@@ -840,7 +840,7 @@ kjk play --stage end_m01ab --arrive end_explode04 --skill computer=8 \
     one, the line waits (`waits_for`; the conversation on hold) until that
     one ends, for `INTERJECTION_WAIT_MS` (10 s) at most, then plays
     without it, its replies offered as they stand then.
-  - **Damage** (R7): while more than one seat plays a body
+  - **Damage**: while more than one seat plays a body
     (`View::together`), a listener hurt (the `Damaged` raise), a seat's
     body, has its own conversation cut short, locked or not ("its
     listener was hurt"; two others talking go on), unless
@@ -851,7 +851,7 @@ kjk play --stage end_m01ab --arrive end_explode04 --skill computer=8 \
     out; a party conversation goes on. One player alone talks on when hurt,
     as the originals do: Dantooine's ruins computer is answered under the
     droids' fire.
-  - **A seat letting its body go** (R12, `world::drivers`,
+  - **A seat letting its body go** (`world::drivers`,
     `dialogue::Release`): died, its own conversation is cut short, locked
     or not; its player dropped or it left the party, an unlocked one is cut
     short and a locked one goes to the host (a party conversation, the
@@ -967,7 +967,7 @@ conversation).
   [verify]; a script's cut to one it lacks leaves the line to the dialog
   camera [verify].
   Otherwise KOTOR's dialog camera (`play_view::talk_camera`,
-  read from the K1 executable; design S6):
+  read from the K1 executable):
   - *Which shot*: the line's `CameraAngle` as the sim resolved it
     (`Conversation::angle`): 1 the close-up of the speaker, 2 over the
     listener's shoulder, 3 the wide two-shot (3 after 3 keeps the shot
