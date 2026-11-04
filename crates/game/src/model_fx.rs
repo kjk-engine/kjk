@@ -1326,9 +1326,21 @@ impl Lit {
         }
     }
 
-    /// Its material made to show its alpha and self-illumination.
-    pub fn show(&self, materials: &mut Assets<OdysseyMaterial>) {
-        let glow = Vec4::new(self.illum[0], self.illum[1], self.illum[2], 1.0);
+    /// Its material made to show its alpha and self-illumination: through
+    /// its slot (`material::Animated`), else (no slot left, or no slots
+    /// where no material plugin runs) the material itself.
+    pub fn show(
+        &self,
+        materials: &mut Assets<OdysseyMaterial>,
+        animated: Option<&mut material::Animated>,
+    ) {
+        let illum = Vec3::from_array(self.illum);
+        if animated
+            .is_some_and(|animated| animated.light(&self.material, (self.alpha, illum), materials))
+        {
+            return;
+        }
+        let glow = illum.extend(1.0);
         if materials
             .get(&self.material)
             .is_some_and(|m| m.params.tint.w != self.alpha || m.params.self_illum != glow)

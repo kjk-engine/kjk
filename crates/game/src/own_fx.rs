@@ -440,7 +440,10 @@ fn pose(
         Query<&Children>,
         Query<&mut MeshMaterial3d<OdysseyMaterial>>,
     ),
-    mut materials: ResMut<Assets<OdysseyMaterial>>,
+    (mut materials, mut animated): (
+        ResMut<Assets<OdysseyMaterial>>,
+        Option<ResMut<crate::material::Animated>>,
+    ),
 ) {
     let movers = &mut *movers;
     if movers.movers.is_empty() {
@@ -519,7 +522,7 @@ fn pose(
             for (clip, at, _) in &mover.moments {
                 lit.key((&own.fx, ir), &clip.name.to_ascii_lowercase(), *at);
             }
-            lit.show(&mut materials);
+            lit.show(&mut materials, animated.as_deref_mut());
         }
     }
 }

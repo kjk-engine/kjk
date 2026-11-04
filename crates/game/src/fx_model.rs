@@ -495,6 +495,7 @@ pub struct Drawing<'w, 's> {
     children: Query<'w, 's, &'static Children>,
     mesh_materials: Query<'w, 's, &'static mut MeshMaterial3d<OdysseyMaterial>>,
     materials: ResMut<'w, Assets<OdysseyMaterial>>,
+    animated: Option<ResMut<'w, crate::material::Animated>>,
     meshes: ResMut<'w, Assets<Mesh>>,
     pub visibility: Query<'w, 's, &'static mut Visibility>,
 }
@@ -569,7 +570,7 @@ impl Drawing<'_, '_> {
             for playing in ended.iter().chain(&playing) {
                 lit.key(model, playing.name, playing.at);
             }
-            lit.show(&mut self.materials);
+            lit.show(&mut self.materials, self.animated.as_deref_mut());
         }
         let transforms = &self.transforms;
         let local = |e: Entity| transforms.get(e).ok().map(|t| t.to_matrix());

@@ -9,6 +9,13 @@
 //! `weather::light` for the lightning's flash, or a 3D view's stage), so a new set is one small upload and a material made later sees
 //! the lights of the moment.
 //!
+//! What changes every frame (a scrolling texture's offset, a clip's keyed
+//! alpha and self-illumination) is not the material's either: a material
+//! animated so takes a slot of a list held once on the GPU (`ANIMATED`,
+//! `Animated`), and the frame writes the list. A material written anew is
+//! prepared and bound anew; the list is one small upload into the same
+//! buffer.
+//!
 //! How a surface blends follows xoreos (blending always on):
 //! opaque surfaces draw first, alpha-blended when their textures carry
 //! alpha; transparent ones (a transparency hint above 1, or decal textures) draw
@@ -36,6 +43,14 @@ const LIGHTING: Handle<Shader> = uuid_handle!("c3a7e215-8d4b-4f6e-b0d2-5e91f7a4c
 
 /// The area's lights, which every material reads unless given others.
 pub const AREA_LIGHTS: Handle<ShaderBuffer> = uuid_handle!("b6e2a9d4-71c3-4f08-8e5a-3d9c0f6b2a17");
+
+/// The animated materials' slots (`Animated`), which every material reads.
+pub const ANIMATED: Handle<ShaderBuffer> = uuid_handle!("8f4b2c61-d93e-4a75-b018-6e2f9c3d7a54");
+
+/// How many materials can be animated through `ANIMATED` at once (slot 0
+/// is none); past that, a material is written itself. Our chosen cap (the
+/// shader's list is this long).
+pub const ANIMATED_SLOTS: usize = 1024;
 
 /// Shader flags (`OdysseyParams::flags`).
 const DISCARD_ZERO_ALPHA: u32 = 1;
@@ -103,6 +118,134 @@ impl LightList {
             list.count += 1;
         }
         list
+    }
+}
+
+/// A slot of `ANIMATED`, over its material's own values: its UV offset
+/// added, its alpha times the tint's, its self-illumination in place of
+/// the material's where a clip keys it.
+#[derive(Clone, Copy, Debug, PartialEq, ShaderType)]
+pub struct GpuAnimated {
+    /// rgb: the self-illumination keyed, a: multiplies the tint's alpha.
+    pub illum_alpha: Vec4,
+    /// xy: added to the UVs, z: 1 where the self-illumination is keyed.
+    pub uv: Vec4,
+}
+
+impl GpuAnimated {
+    /// Leaves its material as it is.
+    const NONE: GpuAnimated = GpuAnimated {
+        illum_alpha: Vec4::new(0.0, 0.0, 0.0, 1.0),
+        uv: Vec4::ZERO,
+    };
+}
+
+/// The materials animated every frame and their slots in `ANIMATED`,
+/// which `upload_animated` writes when they change. A material takes a
+/// slot as it is first animated (the one write of it); a copy of it keeps
+/// its slot, and so its offset and keys, until it is animated itself. A
+/// new scene's materials take them afresh (`forget`).
+#[derive(Resource)]
+pub struct Animated {
+    slots: Box<[GpuAnimated; ANIMATED_SLOTS]>,
+    by_material: bevy::platform::collections::HashMap<AssetId<OdysseyMaterial>, u32>,
+    changed: bool,
+}
+
+impl Default for Animated {
+    fn default() -> Animated {
+        Animated {
+            slots: Box::new([GpuAnimated::NONE; ANIMATED_SLOTS]),
+            by_material: default(),
+            changed: false,
+        }
+    }
+}
+
+impl Animated {
+    /// `material`'s slot, taken now if it has none (`first` made of the
+    /// material as it takes it); none when every slot is taken.
+    fn slot(
+        &mut self,
+        material: &Handle<OdysseyMaterial>,
+        materials: &mut Assets<OdysseyMaterial>,
+        first: impl FnOnce(&mut OdysseyMaterial),
+    ) -> Option<usize> {
+        if let Some(&slot) = self.by_material.get(&material.id()) {
+            return Some(slot as usize);
+        }
+        let slot = self.by_material.len() + 1;
+        if slot >= ANIMATED_SLOTS {
+            return None;
+        }
+        let mut written = materials.get_mut(material)?;
+        // A copy goes on from where its original's slot is.
+        self.slots[slot] = match written.params.slot as usize {
+            0 => GpuAnimated::NONE,
+            was => self.slots[was.min(ANIMATED_SLOTS - 1)],
+        };
+        written.params.slot = slot as u32;
+        first(&mut written);
+        self.by_material.insert(material.id(), slot as u32);
+        self.changed = true;
+        Some(slot)
+    }
+
+    /// `material`'s texture scrolled by `offset`; false when no slot was
+    /// left for it.
+    pub fn scroll(
+        &mut self,
+        material: &Handle<OdysseyMaterial>,
+        offset: Vec2,
+        materials: &mut Assets<OdysseyMaterial>,
+    ) -> bool {
+        let Some(slot) = self.slot(material, materials, |_| {}) else {
+            return false;
+        };
+        let uv = &mut self.slots[slot].uv;
+        if Vec2::new(uv.x, uv.y) != offset {
+            (uv.x, uv.y) = (offset.x, offset.y);
+            self.changed = true;
+        }
+        true
+    }
+
+    /// `material` shown at `alpha` and glowing `illum` (a clip's keys): its
+    /// own alpha set aside for them as it takes its slot; false when no
+    /// slot was left for it.
+    pub fn light(
+        &mut self,
+        material: &Handle<OdysseyMaterial>,
+        (alpha, illum): (f32, Vec3),
+        materials: &mut Assets<OdysseyMaterial>,
+    ) -> bool {
+        let Some(slot) = self.slot(material, materials, |m| m.params.tint.w = 1.0) else {
+            return false;
+        };
+        let slot = &mut self.slots[slot];
+        let now = GpuAnimated {
+            illum_alpha: illum.extend(alpha),
+            uv: Vec4::new(slot.uv.x, slot.uv.y, 1.0, 0.0),
+        };
+        if *slot != now {
+            *slot = now;
+            self.changed = true;
+        }
+        true
+    }
+
+    /// A new scene's: its materials take slots afresh.
+    pub fn forget(&mut self) {
+        self.by_material.clear();
+    }
+}
+
+/// Writes `ANIMATED` when a slot changed.
+pub fn upload_animated(mut animated: ResMut<Animated>, mut buffers: ResMut<Assets<ShaderBuffer>>) {
+    if std::mem::take(&mut animated.changed)
+        && let Some(mut buffer) = buffers.get_mut(&ANIMATED)
+    {
+        buffer.set_data(*animated.slots);
     }
 }
 
@@ -196,7 +339,16 @@ impl Plugin for OdysseyMaterialPlugin {
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
             .insert(&AREA_LIGHTS, ShaderBuffer::from(LightList::default()));
+        let _ = app
+            .world_mut()
+            .resource_mut::<Assets<ShaderBuffer>>()
+            .insert(
+                &ANIMATED,
+                ShaderBuffer::from([GpuAnimated::NONE; ANIMATED_SLOTS]),
+            );
         app.init_resource::<AreaLights>()
+            .init_resource::<Animated>()
+            .add_systems(Last, upload_animated)
             .add_plugins(MaterialPlugin::<OdysseyMaterial>::default());
     }
 }
@@ -325,6 +477,8 @@ pub struct OdysseyParams {
     /// Added to the diffuse UVs (`animateuv`).
     pub uv_offset: Vec2,
     pub flags: u32,
+    /// Its slot of `ANIMATED` (`Animated`); 0 for none.
+    pub slot: u32,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
@@ -349,6 +503,9 @@ pub struct OdysseyMaterial {
     /// The lights casting shadows now (`shadows::AREA_SHADOWS`).
     #[storage(8, read_only)]
     pub shadows: Handle<ShaderBuffer>,
+    /// The animated materials' slots (`ANIMATED`).
+    #[storage(9, read_only)]
+    pub animated: Handle<ShaderBuffer>,
     pub surface: Surface,
     /// Its back faces are not drawn (reone and xoreos cull a KOTOR mesh's
     /// back faces, a decal texture's excepted): a camera behind a wall or
@@ -460,12 +617,14 @@ impl OdysseyMaterial {
                 fog_range: fog.map_or(Vec4::ZERO, |fog| Vec4::new(fog.near, fog.far, 0.0, 0.0)),
                 uv_offset: Vec2::ZERO,
                 flags,
+                slot: 0,
             },
             base,
             lightmap,
             envmap,
             lights: AREA_LIGHTS,
             shadows: crate::shadows::AREA_SHADOWS,
+            animated: ANIMATED,
             surface,
             culled: false,
         }
@@ -478,6 +637,7 @@ impl OdysseyMaterial {
         self.params.tint = Vec4::ONE;
         self.params.self_illum = Vec4::new(0.0, 0.0, 0.0, 1.0);
         self.params.uv_offset = Vec2::ZERO;
+        self.params.slot = 0;
         self.params.flags &= STATIC | UNLIT | FOG | SHADOWED;
         self.base = None;
         self.lightmap = None;
