@@ -1083,7 +1083,7 @@ fn ui_loot() {
 /// ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 27);
+    probed("tsl", &sim::tsl_probes::probes(), 28);
 }
 
 /// The dead's remains (KOTOR's body bags; `sim::remains::probes`), owner
