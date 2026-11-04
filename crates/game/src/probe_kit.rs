@@ -23,6 +23,7 @@ pub(crate) fn scene_app() -> App {
         .init_resource::<Assets<Image>>()
         .init_resource::<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>()
         .init_resource::<Assets<crate::heat_haze::HeatHazeMaterial>>()
+        .init_resource::<Assets<bevy::render::storage::ShaderBuffer>>()
         .init_resource::<DumpFacts>()
         .insert_resource(DumpDue(false))
         .insert_resource(AnimationTime(Some(0.0)));

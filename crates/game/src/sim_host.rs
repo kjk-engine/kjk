@@ -55,6 +55,7 @@ use crate::pad::Actions;
 use crate::play::BodyScene;
 use crate::scene::{Headless, SceneContent};
 use crate::settings::{Action, MouseFeel};
+use crate::sim_worker::{Stepper, WorldSlot};
 use crate::solo::Solo;
 use net::session::LevelRequest;
 use sim::determinism::{Setup, pilot};
@@ -437,7 +438,12 @@ struct Installed {
 /// The authority. Private: nothing outside this module can read it.
 #[derive(Resource)]
 struct Authority {
-    world: SimWorld,
+    /// At home, or being stepped beside the frame (`sim_worker`).
+    world: WorldSlot,
+    stepper: Option<Stepper>,
+    /// A tick stepped beside the last frame, kept until the view is shown
+    /// it (`advance`).
+    landed: Option<Landed>,
     clock: Accumulator,
     source: Source,
     setup: Setup,
@@ -610,7 +616,9 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         app.init_resource::<Loading>();
         crate::report::game_started(app);
         app.insert_resource(Authority {
-            world,
+            world: WorldSlot::new(world),
+            stepper: None,
+            landed: None,
             clock: Accumulator::new(rate, last.tick),
             source,
             setup: Setup { rate, ..setup },
@@ -945,7 +953,39 @@ fn aimed(command: Command, last: &Snapshot, level: &Level, tag: &str) -> Command
     }
 }
 
+/// A tick the world was stepped to beside a frame: what the frame after
+/// it gives the session and shows.
+struct Landed {
+    input: TickInput,
+    snapshot: Arc<Snapshot>,
+    notices: Vec<(Seat, sim::notice::Notice)>,
+}
+
 impl Authority {
+    /// The world home, if it was being stepped: its tick recorded and made
+    /// the last, the rest kept for `advance` (`landed`).
+    fn settle(&mut self) {
+        let Some(stepped) = Stepper::land(&mut self.world, &mut self.stepper) else {
+            return;
+        };
+        if let Source::Live {
+            recorder: Some(recorder),
+        } = &mut self.source
+        {
+            recorder.record(stepped.msec, &stepped.input, &stepped.snapshot);
+        }
+        if let Some(flight) = &mut self.flight {
+            flight.tick(stepped.msec, &stepped.input, &stepped.snapshot);
+        }
+        let snapshot = Arc::new(stepped.snapshot);
+        self.last = snapshot.clone();
+        self.landed = Some(Landed {
+            input: stepped.input,
+            snapshot,
+            notices: stepped.notices,
+        });
+    }
+
     /// Starts planning `request` on a thread of its own, if the session
     /// installs modules and this transition did not fail before (a command
     /// or a replay asks regardless).
@@ -1065,6 +1105,7 @@ fn save_world(
 /// without one.
 pub(crate) fn current_save(world: &mut World) -> Option<Vec<u8>> {
     let mut authority = world.get_resource_mut::<Authority>()?;
+    authority.settle();
     let snapshot = authority.world.snapshot();
     let save = sim::Save {
         hz: authority.setup.rate.hz(),
@@ -1094,6 +1135,7 @@ fn store(
     movie: bool,
     seat: Seat,
 ) -> Result<(String, saves::Meta, Vec<u8>), String> {
+    authority.settle();
     let snapshot = authority.world.snapshot();
     let refused = if authority.job.is_some() {
         Some("You cannot save while an area loads.".to_string())
@@ -1263,6 +1305,7 @@ fn autosave(
         return;
     }
     due.tried = Some(now);
+    authority.settle();
     let area = authority
         .world
         .level()
@@ -1400,6 +1443,23 @@ fn advance(
 ) {
     let authority = &mut *authority;
     let rate = authority.setup.rate;
+    // The tick stepped beside the last frame: the session hears of it
+    // before this frame's commands, as it would have that frame.
+    authority.settle();
+    let landed = authority.landed.take();
+    if let Some(landed) = &landed {
+        for (seat, notice) in landed.notices.iter().cloned() {
+            match notice {
+                sim::notice::Notice::Show(screen) => authority.solo.screen(seat, screen),
+                sim::notice::Notice::Sound(sound) => authority.solo.sound(seat, sound),
+                notice => {
+                    let text = crate::loot::words(&notice, ui.as_deref_mut());
+                    authority.solo.notice(seat, &text);
+                }
+            }
+        }
+        authority.solo.stepped(&landed.input, &landed.snapshot);
+    }
     // The first frame keeps the starting snapshot for the views.
     if authority.frames > 0 {
         presented.1.clear();
@@ -1453,7 +1513,7 @@ fn advance(
                     let tick = authority.last.tick;
                     let (world, first) =
                         crate::play::from_save(&save, &prepared.plan.level, seats, Some(tick))?;
-                    authority.world = world;
+                    authority.world = WorldSlot::new(world);
                     info!(target: "saves", tick, "reloaded");
                     first
                 }
@@ -1723,6 +1783,39 @@ fn advance(
     // The snapshots this frame steps are pushed after the first `fresh`.
     let fresh = presented.1.len();
     let mut stepped = 0;
+    // The tick stepped beside the last frame is this frame's first; a
+    // transition or a break it asked for holds the world from it.
+    let mut held_up = false;
+    if let Some(landed) = landed {
+        stepped += 1;
+        let transition = landed.snapshot.transition.clone();
+        presented.1.push(landed.snapshot);
+        if let Some(transition) = transition
+            && let Some(lifecycle) = &authority.lifecycle
+        {
+            let request = lifecycle.installer.request_from(
+                &authority.last,
+                &transition.module,
+                Some(&transition.tag),
+            );
+            if authority.start(request, false, None, &mut loading) {
+                states.0.insert("loading".into(), true);
+                states.0.insert("world".into(), false);
+                held_up = true;
+            }
+        }
+        held_up |= authority.last.paused_by.is_some();
+        if held_up {
+            authority.clock = Accumulator::new(rate, authority.last.tick);
+        }
+    }
+    let due = if held_up { Vec::new() } else { due };
+    // A live frame's last tick is stepped beside the next frame's work
+    // (`sim_worker`); a held time's (a recording, `anim`) here, so the
+    // frame shows the moment it holds.
+    let beside = matches!(authority.source, Source::Live { .. }) && held_ms.is_none();
+    let last_due = due.last().map(|(tick, _)| *tick);
+    let module = authority.world.level().name().to_owned();
     for (tick, msec) in due {
         let start_ms = rate.time_ms(tick - 1);
         // The player's command for the tick, made on its client: the
@@ -1826,6 +1919,14 @@ fn advance(
                         input.insert(seat, *command);
                     }
                 }
+                if beside && last_due == Some(tick) {
+                    Stepper::send(
+                        &mut authority.world,
+                        &mut authority.stepper,
+                        (tick, input, msec),
+                    );
+                    break;
+                }
                 let snapshot = step(
                     &mut authority.world,
                     tick,
@@ -1919,7 +2020,7 @@ fn advance(
         }
     }
     // Where the play is, for a crash's report.
-    let (last, module) = (&authority.last, authority.world.level().name());
+    let last = &authority.last;
     crate::crash::note(|crumbs| {
         crumbs.tick = last.tick;
         if crumbs.module != module {
@@ -2003,7 +2104,10 @@ fn advance(
             "module": last.place.as_ref().map(|place| place.module.clone()),
             "census": { "live": census.live, "left_behind": census.stashed },
             // The games' scripts run so far, by script (for a dump).
-            "script_runs": dump_due.0.then(|| authority.world.script_report().runs.clone()),
+            "script_runs": dump_due.0.then(|| {
+                authority.settle();
+                authority.world.script_report().runs.clone()
+            }),
             "frames": authority.frames,
             "frames_without_tick": authority.idle_frames,
             "most_ticks_in_a_frame": authority.most,
@@ -2056,7 +2160,7 @@ fn write_transcript(
     folder: Res<RunFolder>,
     mut written: Local<usize>,
 ) {
-    let Some(authority) = authority else {
+    let Some(authority) = authority.filter(|authority| authority.world.home()) else {
         return;
     };
     let talk = &authority.world.script_report().talk;
@@ -2105,6 +2209,7 @@ fn write_session(
         return;
     }
     let authority = &mut *authority;
+    authority.settle();
     authority.solo.shutdown(&folder.0);
     // The flight recorder's last ticks, waited for on the disk.
     if let Some(mut flight) = authority.flight.take() {

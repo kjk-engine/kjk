@@ -777,7 +777,6 @@ fn want(
     ui: Option<Res<Ui>>,
     window: Query<&Camera, With<UiComposite>>,
     mut assets: ModelAssets,
-    mut buffers: ResMut<Assets<ShaderBuffer>>,
     (content, presented, body, own): InPlay,
 ) {
     let (Some(ui), Some(camera)) = (ui, window.iter().next()) else {
@@ -877,7 +876,7 @@ fn want(
             && let Some(read) = block_on(poll_once(task))
         {
             live.state = match read {
-                Ok(ready) => spawn(&mut commands, live, ready, (&mut assets, &mut buffers)),
+                Ok(ready) => spawn(&mut commands, live, ready, &mut assets),
                 Err(why) => {
                     warn!(target: "ui", ?view, %why, "a 3D view is not drawn");
                     State::Failed
@@ -889,12 +888,7 @@ fn want(
 
 /// `ready`'s models under a root of their own on `live`'s layer, and a
 /// camera drawing them into its image.
-fn spawn(
-    commands: &mut Commands,
-    live: &Live,
-    ready: Ready,
-    (assets, buffers): (&mut ModelAssets, &mut Assets<ShaderBuffer>),
-) -> State {
+fn spawn(commands: &mut Commands, live: &Live, ready: Ready, assets: &mut ModelAssets) -> State {
     let Ready {
         models,
         textures,
@@ -946,7 +940,9 @@ fn spawn(
             STAGE_WARM,
         );
         commands.entity(root).insert(emitters);
-        let lights = buffers.add(ShaderBuffer::from(LightList::of(stage.lights)));
+        let lights = stores
+            .buffers
+            .add(ShaderBuffer::from(LightList::of(stage.lights)));
         commands.entity(root).insert(ViewLights(lights));
         if backdrop { Color::BLACK } else { Color::NONE }
     } else {
