@@ -358,25 +358,78 @@ fn kotor_view(
     }
 }
 
-/// The `spells.2da` rows whose icons stand for a droid's kit: the ion
+/// The item templates whose icons stand for a droid's kit: the ion
 /// grenade (the shock bolt), the sonic grenade (the Sonic Blast) and a
 /// medpac (the stim dart).
-const REMOTE_ICONS: [usize; 3] = [95, 91, 64];
+const REMOTE_ICONS: [&str; 3] = ["g_w_iongren01", "g_w_sonicgren01", "g_i_medeqpmnt01"];
+/// Each button's name, over its slot as it fires; and what the stim dart
+/// says pressed with no one to treat (no one down or hurt in reach).
+const REMOTE_NAMES: [&[u8]; 3] = [b"Shock Bolt", b"Sonic Blast", b"Stim Dart"];
+const NO_ONE_HURT: &[u8] = b"No one hurt";
+/// How long after a dart is asked for the HUD waits to see it fire before
+/// it says no one was hurt (seconds): a round trip and more.
+const DART_WAIT: f32 = 0.5;
+
+/// What the droid's HUD last saw of its kit: the buttons' ready times, the
+/// slot it last named (its words, since when, seconds), and a stim dart
+/// asked for (since when, its ready time then).
+#[derive(Default)]
+struct Kit {
+    ready: Option<[u64; 3]>,
+    named: Option<(usize, &'static [u8], f32)>,
+    asked: Option<(f32, u64)>,
+}
+
+impl Kit {
+    /// Notes what `remote` did since the last frame at `now` (seconds,
+    /// the sim at `sim_ms`), the medpac key pressed or not; the label over
+    /// a slot, faded.
+    fn note(
+        &mut self,
+        remote: &sim::remote::Remote,
+        (now, sim_ms): (f32, u64),
+        asked: bool,
+    ) -> Option<(usize, Vec<u8>, f32)> {
+        use sim::remote::KIT_DART;
+        let before = self.ready.replace(remote.ready_ms);
+        for kit in 0..3 {
+            if before.is_some_and(|before| remote.ready_ms[kit] > before[kit]) {
+                self.named = Some((kit, REMOTE_NAMES[kit], now));
+            }
+        }
+        if asked && remote.ready_ms[KIT_DART] <= sim_ms {
+            self.asked = Some((now, remote.ready_ms[KIT_DART]));
+        }
+        if let Some((since, ready)) = self.asked {
+            if remote.ready_ms[KIT_DART] != ready {
+                self.asked = None;
+            } else if now - since > DART_WAIT {
+                self.asked = None;
+                self.named = Some((KIT_DART, NO_ONE_HURT, now));
+            }
+        }
+        let (kit, words, since) = self.named?;
+        let alpha = ((PICK_SHOWN - (now - since)) / PICK_FADE).clamp(0.0, 1.0);
+        (alpha > 0.0).then(|| (kit, words.to_vec(), alpha))
+    }
+}
 
 /// KOTOR's HUD for a seat flying a remote droid: its three buttons, each
-/// with the seconds left before it is ready (none when it is).
+/// with the seconds left before it is ready (none when it is), and the
+/// name of the one last fired over it (`Kit`).
 fn remote_view(
     ui: &mut crate::ui_view::Ui,
     remote: &sim::remote::Remote,
     now_ms: u64,
     prompts: &Prompts,
+    label: Option<(usize, Vec<u8>, f32)>,
 ) -> ui::vm::HudView {
     let actions = REMOTE_ICONS
         .iter()
         .zip(remote.ready_ms)
-        .map(|(&row, ready)| {
+        .map(|(&template, ready)| {
             let icon = (ui.assets.as_mut())
-                .and_then(|assets| assets.cell("spells", row, "iconresref"))
+                .and_then(|assets| assets.item_ref(template).map(|look| look.icon.clone()))
                 .unwrap_or(String::new());
             let left = ready.saturating_sub(now_ms);
             (icon, (left > 0).then(|| left.div_ceil(1000) as u32))
@@ -389,6 +442,7 @@ fn remote_view(
             prompts.label(Action::AltAttack),
             prompts.label(Action::Medpac),
         ],
+        action_label: label,
         ..ui::vm::HudView::default()
     }
 }
@@ -468,6 +522,7 @@ type KotorSide<'w, 's> = (
 struct Picked {
     power: Option<u8>,
     at: Option<f32>,
+    kit: Kit,
 }
 
 /// How long the carousel shows after a pick, and the fade at its end
@@ -531,10 +586,25 @@ fn show(
     else {
         // No body: a seat flying a droid has its kit's three buttons.
         if let Some(ui) = ui.as_deref_mut() {
+            let now = real.elapsed_secs();
+            let asked = prompts.pressed(Action::Medpac);
             ui.vm.hud = snapshot
                 .remote(own.0)
                 .filter(|remote| !remote.hidden)
-                .map(|remote| remote_view(ui, remote, snapshot.time_ms, &prompts));
+                .map(|remote| {
+                    let label = picked.kit.note(remote, (now, snapshot.time_ms), asked);
+                    remote_view(ui, remote, snapshot.time_ms, &prompts, label)
+                });
+            let kit = ui.vm.hud.as_ref().map(|hud| {
+                serde_json::json!({
+                    "icons": hud.actions.iter().map(|(icon, _)| icon).collect::<Vec<_>>(),
+                    "label": hud.action_label.as_ref()
+                        .map(|(at, words, _)| (at, String::from_utf8_lossy(words).into_owned())),
+                })
+            });
+            facts
+                .0
+                .insert("hud".into(), serde_json::json!({ "remote": kit }));
         }
         return;
     };

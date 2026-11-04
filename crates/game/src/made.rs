@@ -1461,6 +1461,9 @@ pub fn sprung(
             ms: now,
             scale: 1.0,
             until: None,
+            glow: 0.0,
+            lasts: None,
+            tint: Vec3::ONE,
         });
     }
 }

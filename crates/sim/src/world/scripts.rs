@@ -556,12 +556,14 @@ pub(super) fn scripts(
                 .as_ref()
                 .map_or(data.map_or(0, |data| data.gender), |persona| persona.gender),
             subrace: data.map_or(0, |data| data.subrace),
+            // As its level-up reads them (`script::levelling::career`).
             classes: std::array::from_fn(|at| {
-                let career = scripts.state.careers.get(&id.0.0);
-                career
-                    .or(data.map(|data| &data.classes))
-                    .and_then(|classes| classes.get(at).copied())
-                    .unwrap_or((u8::MAX, 0))
+                let template = data.map_or(&[][..], |data| &data.classes[..]);
+                match scripts.state.careers.get(&id.0.0) {
+                    Some(career) => career.get(at).copied(),
+                    None => crate::levels::untaken_class(template, sheet.level, at),
+                }
+                .unwrap_or((u8::MAX, 0))
             }),
             powers: sheet.powers,
             still: player.is_none_or(|player| crate::stealth::pace(player.0.velocity).0),
@@ -1900,15 +1902,7 @@ impl SimWorld {
                     .placements()
                     .filter_map(|(number, facts)| Some((*ids.get(&number)?, facts)))
                     .collect();
-                for (id, facts) in &placed {
-                    let creature = facts.kind == crate::module::ObjectKind::Creature;
-                    state.stock(library, *id, &facts.inventory, creature);
-                }
-                for (id, facts) in &placed {
-                    if let Some(script) = Hook::Spawn.of(facts) {
-                        state.pending.push(Pending::new(script, ObjectId(*id)));
-                    }
-                }
+                come_alive(state, library, &placed);
             }
             let mut players: Vec<(u8, ObjectId)> = self
                 .world
@@ -1964,6 +1958,64 @@ impl SimWorld {
             }
         }
         self.world.insert_resource(carried);
+    }
+
+    /// What reconciling the saved objects with the module's data did as
+    /// this world loaded or entered its module (`crate::reconcile`); none
+    /// when it did not run.
+    pub fn reconciled(&self) -> Option<&crate::reconcile::Report> {
+        self.world.resource::<super::Module>().reconciled.as_ref()
+    }
+
+    /// The module's saved objects reconciled with its data (`report`): its
+    /// new placements come alive, in their order, as on a first arrival.
+    pub(crate) fn reconciled_with(&mut self, report: crate::reconcile::Report) {
+        let level = self.level().clone();
+        if let Some(library) = level.scripts() {
+            let mut added: Vec<(u32, u32, std::sync::Arc<crate::module::ObjectData>)> = self
+                .world
+                .query::<(&Id, &Object)>()
+                .iter(&self.world)
+                .filter(|(id, _)| report.added.contains(&id.0))
+                .filter_map(|(id, object)| Some((object.index, id.0.0, object.facts.clone()?)))
+                .collect();
+            added.sort_by_key(|(number, _, _)| *number);
+            let placed: Vec<(u32, &crate::module::ObjectData)> = added
+                .iter()
+                .map(|(_, id, facts)| (*id, facts.as_ref()))
+                .collect();
+            let state = &mut self.world.resource_mut::<Scripts>().into_inner().state;
+            come_alive(state, library, &placed);
+        }
+        self.world.resource_mut::<super::Module>().reconciled = Some(report);
+    }
+
+    /// The saved continuations dropped as this world loaded or entered its
+    /// module, one `save-migrate` line each (`reconcile::drop_absent_code`).
+    pub fn dropped_code(&self) -> &[String] {
+        &self.world.resource::<super::Module>().dropped_code
+    }
+
+    pub(crate) fn dropped_code_with(&mut self, lines: Vec<String>) {
+        self.world.resource_mut::<super::Module>().dropped_code = lines;
+    }
+}
+
+/// Placements come alive (each its entity's id and facts): every one's
+/// starting items (I19), then the creatures' spawn scripts.
+fn come_alive(
+    state: &mut State,
+    library: &crate::script::Library,
+    placed: &[(u32, &crate::module::ObjectData)],
+) {
+    for (id, facts) in placed {
+        let creature = facts.kind == crate::module::ObjectKind::Creature;
+        state.stock(library, *id, &facts.inventory, creature);
+    }
+    for (id, facts) in placed {
+        if let Some(script) = Hook::Spawn.of(facts) {
+            state.pending.push(Pending::new(script, ObjectId(*id)));
+        }
     }
 }
 

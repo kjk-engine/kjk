@@ -326,7 +326,10 @@ the games' own compiled scripts; nothing of them is in the repo.
   `GetLockLockDC`, `GetLastUnlocked`, `GetLastLocked`, `ActionUnlockObject`,
   `ActionLockObject`, `GetIsDoorActionPossible` and `DoDoorAction` (open,
   unlock where the caller's Security reaches, and bash what blows may
-  break; knock not yet): `WORLD-STATE.md`, Locks.
+  break; knock not yet): `WORLD-STATE.md`, Locks. `SetLocked` holds at
+  once: the same step's scripts read the lock as they set it
+  (`Out::locked`; Taris's Sith base cell panels flip, then read back all
+  five).
 - The combat AI's (`k_ai_master`, `k_inc_generic`; the playtests' most
   reached gaps): `GetLastAttackAction` is `ACTION_ATTACKOBJECT` for a
   creature's last attack (a blow, a combat feat's too) and
@@ -343,8 +346,12 @@ the games' own compiled scripts; nothing of them is in the repo.
   its following distance of the leader (its mind follows on); others
   stay. `ActionEquipMostDamagingMelee`, `…Ranged` equip at once the
   weapon with the best average blow (dice and damage bonus) of that kind
-  the caller wears or carries, else of the other kind. `EffectAssuredHit`:
-  `EVENTS.md`. `kjk script fighting k1`: 9 checks. `PlaySound` is heard
+  the caller wears or carries, else of the other kind, of those it has
+  the feats to equip (`passive::may_equip`, as the equip screen): Brejik
+  carries Bastila's lightsaber on Taris and keeps his own blade.
+  `EffectAssuredHit`: `EVENTS.md`. `kjk script fighting k1`: 9 checks
+  (`unk_m42aa`: an elder passes over the dark Jedi's saber it is
+  untrained for). `PlaySound` is heard
   at the caller by every player (`SOUND.md`, "Scripts' sounds").
 - TSL's own (the 2026-10-17 sweep): `GetIsXBox` is false (the PC build:
   TSL's tutorials pick their mouse-and-keyboard lines by it), the rumble

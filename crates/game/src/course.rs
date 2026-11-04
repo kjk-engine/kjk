@@ -123,6 +123,7 @@ pub fn model(world: &BrushWorld) -> (ModelIr, Vec<(String, TextureIr)>) {
             ambient: [1.0; 3],
             diffuse: [1.0; 3],
             uv_scroll: None,
+            dangly: None,
             skin: None,
         })
         .collect();

@@ -422,6 +422,9 @@ pub fn alien_sound<'a>(
 pub struct Library {
     routines: Routines,
     programs: BTreeMap<String, Program>,
+    /// BLAKE3 of each program's compiled bytes, by script name: what a
+    /// saved continuation of it is checked against (`script_digest`).
+    digests: BTreeMap<String, [u8; 32]>,
     bound: Vec<Option<Bound>>,
     /// `OBJECT_TYPE_*` by kind, from the catalog.
     object_types: BTreeMap<ObjectKind, i32>,
@@ -540,9 +543,12 @@ impl Library {
         for routine in &catalog.routines {
             hasher.update(routine.to_string().as_bytes());
         }
+        let mut digests = BTreeMap::new();
         for (name, ncs) in &scripts {
+            let bytes = ncs.write();
             hasher.update(name.as_bytes());
-            hasher.update(&ncs.write());
+            hasher.update(&bytes);
+            digests.insert(name.clone(), *blake3::hash(&bytes).as_bytes());
         }
         let bound = catalog
             .routines
@@ -577,6 +583,7 @@ impl Library {
                 .into_iter()
                 .map(|(name, ncs)| (name, Program::new(ncs)))
                 .collect(),
+            digests,
             bound,
             object_types,
             criteria,
@@ -1288,6 +1295,12 @@ impl Library {
         self.programs.get(&key(name))
     }
 
+    /// The BLAKE3 of script `name`'s compiled bytes, taken once as the
+    /// library was built.
+    pub fn script_digest(&self, name: &str) -> Option<[u8; 32]> {
+        self.digests.get(&key(name)).copied()
+    }
+
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.programs.keys().map(String::as_str)
     }
@@ -1783,6 +1796,22 @@ impl Out {
         ))
     }
 
+    /// Whether door or placeable `id` is locked as this step's scripts
+    /// leave it so far (their `SetLocked` and finished lock actions over
+    /// the step's view); `None` for what is neither. KOTOR's `SetLocked`
+    /// sets the object's flag at once, so the same script reads it back:
+    /// the Taris Sith base's cell panels (`tar09_wall1`…`5`) flip
+    /// themselves and their neighbours, then free the Duros when all five
+    /// read locked.
+    pub(super) fn locked(&self, view: &View, id: ObjectId) -> Option<bool> {
+        let now = view.thing(id)?.locked?;
+        let set = self.changes.iter().rev().find_map(|change| match *change {
+            Change::Lock { door, locked } if door == id => Some(locked),
+            _ => None,
+        });
+        Some(set.unwrap_or(now))
+    }
+
     /// The module's fade in as this step's scripts leave it so far.
     pub(super) fn world_fade_in(&self, view: &View) -> crate::snapshot::WorldFadeIn {
         self.world_fade_in.unwrap_or(view.world_fade_in)
@@ -2248,7 +2277,10 @@ pub(super) struct Event {
     /// A conversation script's parameters (TSL's `GetScriptParameter`).
     pub params: Option<Arc<fmt_odyssey::dlg::Call>>,
     /// The creature whose own AI this run is (`engine::own_ai`), carried
-    /// into what it executes; deferred code is not followed.
+    /// into what it executes and the code it defers, assigns or queues for
+    /// itself (`Delayed::ai`, `Action::Code`): K1's `k_ai_master` attacks
+    /// through deferred code, which steered a guest's companion into the
+    /// fight while its seat played it.
     pub ai: Option<ObjectId>,
     /// The companion a guest drives whose own act raised the event
     /// (`Pending::leads`): this run, and what it executes, see it lead the
@@ -2528,9 +2560,18 @@ impl Step<'_> {
                     // Code ends the object's turn this step: KOTOR starts
                     // one action a frame, so code that queues itself again
                     // (an idle loop) runs once a step, not on and on.
-                    Action::Code { script, deferred } => {
+                    Action::Code {
+                        script,
+                        deferred,
+                        ai,
+                        ..
+                    } => {
                         pop(self.state);
-                        self.run(script, who, Event::default(), Some(deferred));
+                        let event = Event {
+                            ai: ai.then_some(who),
+                            ..Event::default()
+                        };
+                        self.run(script, who, event, Some(deferred));
                         *self.report.actions.entry("code").or_insert(0) += 1;
                         break;
                     }
@@ -3273,6 +3314,14 @@ impl Step<'_> {
             let kind = self.view.thing(pending.caller).and_then(|thing| thing.kind);
             let hooked =
                 |hook| self.view.hook(pending.caller, hook).as_deref() == Some(&pending.script);
+            if hooked(Hook::Dialogue) {
+                // Kept as the event runs, not as it is queued: a shout
+                // queued after a click must not give the click its number.
+                let bits = pending.number as u32;
+                self.state
+                    .last
+                    .insert((pending.caller.0, last::PATTERN), bits);
+            }
             let entered = hooked(Hook::Enter);
             let on_enter = kind == Some(ObjectKind::Trigger) && entered;
             let cue = pending.entering.filter(|_| on_enter).map(|entering| Cue {
@@ -3511,6 +3560,7 @@ pub fn run_due(
             talk: due.talk,
             cue: due.cue,
             run: due.run,
+            ai: due.ai.then_some(due.caller),
             ..Event::default()
         };
         step.run_as(

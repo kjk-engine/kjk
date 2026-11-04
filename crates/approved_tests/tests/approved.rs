@@ -329,6 +329,23 @@ fn grass_in_scenes() {
     probed("grass in scenes", &kjk::probes::grass(), 3);
 }
 
+/// A danglymesh's spring and the area's wind (`kjk::probes::dangly`), as
+/// the executables run them: a still area has no wind, a windy one's noise
+/// cells stay within 0 to 0.963 and its gusts turn it within its limits; a
+/// still mesh stays at rest and in a wind leans its tip downwind, its root
+/// pinned; a walk leaves its tip behind while its
+/// pinned root (constraint 0) stays, a turn swings the tip no further than
+/// its box (`displacement × (1 − constraint/255)` per axis), and a jump of
+/// more than 5 m snaps it back to rest. Needs `--features rig`.
+/// (proposed 2026-11-03)
+#[test]
+fn dangly_spring() {
+    #[cfg(not(feature = "rig"))]
+    println!("dangly_spring skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("dangly spring", &kjk::probes::dangly(), 7);
+}
+
 /// TSL's rain and snow held round the camera (`kjk::probes::weather`): the
 /// six copies stand on a hexagon of 4.5 m round the camera's ground point,
 /// one ahead, one behind and four at the sides 5 m higher, turning with the
@@ -722,6 +739,45 @@ fn coop_data_check() {
     assert_eq!(browsed.files, kotor.len(), "KOTOR's files covered");
 }
 
+/// The store's cap (`store::Store::cap`), which holds a game's area bakes
+/// to a size: the least recently used go first, one read again counting as
+/// new, down to the size; the most recent stays even alone over it; other
+/// kinds are untouched. No installs (proposed 2026-11-03).
+#[test]
+fn store_cap() {
+    let root = std::env::temp_dir().join(format!("kjk-store-cap-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let store = store::Store::at(&root);
+    let kind = "bake/k1/area-v1";
+    let keys = [b"x", b"y", b"z"].map(|input| store::Key::of("cap-v1", &[input]));
+    let now = std::time::SystemTime::now();
+    // Made three, two and one hours ago, ten bytes each.
+    for (hours, key) in (1..=3).rev().zip(&keys) {
+        let path = store.put(kind, key, &[0; 10]).expect("put");
+        std::fs::File::options()
+            .append(true)
+            .open(&path)
+            .and_then(|file| file.set_modified(now - std::time::Duration::from_secs(hours * 3600)))
+            .expect("aged");
+    }
+    let other = store
+        .put("bake/k1/library-v1", &keys[0], &[0; 10])
+        .expect("put");
+    assert!(store.get(kind, &keys[0]).is_some(), "the oldest read again");
+    // Looked at by path: a read would mark them used.
+    let kept = || keys.each_ref().map(|key| store.path(kind, key).exists());
+
+    let removed = store.cap(kind, 25).expect("capped");
+    assert_eq!((removed.files, removed.bytes), (1, 10));
+    assert_eq!(kept(), [true, false, true], "the least recently used went");
+
+    let removed = store.cap(kind, 0).expect("capped");
+    assert_eq!(removed.files, 1);
+    assert_eq!(kept(), [true, false, false], "the most recent stays");
+    assert!(other.exists(), "another kind untouched");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Areas' grass and weather from the ARE (`docs/GRASS-WEATHER.md`):
 /// a module made here reads its grass texture, density, size and variant
 /// chances, none without a texture, its weather chances and wind, and the
@@ -837,6 +893,16 @@ fn dialogue_formats() {
 #[test]
 fn dialogue_state() {
     passed("dialogue state", &sim::script::dialogue_probes::kept(), 4);
+}
+
+/// A save against a module whose placements changed: where each old number
+/// stands in the new list, the roster's encoding, and saves loaded and
+/// modules left entered again on the proving ground after a placement was
+/// inserted, removed or added (the save migrations design, 3c).
+#[test]
+fn reconcile_numbers() {
+    passed("reconcile", &sim::reconcile_probes::checks(), 11);
+    passed("reconcile at load", &sim::reconcile_probes::loads(), 17);
 }
 
 /// K1's Endar Spire, headless, answering through seat 0's command as
@@ -1242,14 +1308,16 @@ fn holster_weapon() {
 /// take turns, right then left, each from its own muzzle with its own
 /// two-weapon penalty; the hand keys take neither down; a trigger let go
 /// banks no shot; a pair broken mid-fight fires its one gun from the right;
-/// Rapid Shot fires main, off, main, Power Blast both guns for one cost,
-/// Sniper Shot the main gun alone; a hostile creature with a pair fires
+/// Rapid Shot alternates (right, left, right, left; Multi Shot a shot more),
+/// Power Blast and Sniper Shot fire both guns at once for one cost
+/// (owner's ask, 2026-11-02), and a gunner without the feats only fires plain
+/// shots with the alternate; a hostile creature with a pair fires
 /// both, oftener than with one; the pair's state comes back whole from a
 /// snapshot mid-burst; two runs end the same. The sim alone.
 /// (approved 2026-10-25)
 #[test]
 fn dual_pistols() {
-    probed("dual pistols", &sim::pair_probes::probes(), 11);
+    probed("dual pistols", &sim::pair_probes::probes(), 12);
 }
 
 /// A feat attack chosen with the next-feat key (`combat::picks`): a gun
@@ -1440,7 +1508,7 @@ fn guests_drive_companions() {
 /// cases and the whole scenario run twice ending alike; the sim alone.
 #[test]
 fn dialogue_coop() {
-    probed("coop talk", &sim::coop_talk::probes(), 138);
+    probed("coop talk", &sim::coop_talk::probes(), 141);
 }
 
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,
@@ -1516,12 +1584,12 @@ fn item_properties() {
 
 /// `SwitchPlayerCharacter` (K1's Leviathan, TSL's many): `sim::switch::probes`,
 /// a script switching the first seat to a companion made from its
-/// template, the seat walking it, scripts seeing it, a switch back, saves,
-/// snapshots and prediction, a standing creature taken, a guest giving way;
-/// the sim alone.
+/// template, or as the party table kept it, the seat walking it, scripts
+/// seeing it, a switch back, saves, snapshots and prediction, a standing
+/// creature taken, a guest giving way; the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 16);
+    probed("switch", &sim::switch::probes(), 17);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and
@@ -1605,21 +1673,26 @@ fn feats() {
 /// kept byte for byte, refused when foreign, replaced by a later copy, the
 /// player's own saves untouched, two hosts of one name apart, a host's
 /// copies capped, no number left refused, ids inside the folder) and
-/// `saves::refusal_probes` (what refuses a save); no install.
+/// `saves::refusal_probes` (what refuses a save) and `saves::story_probes` (a save's story by name, its roster module, a JSON round trip, a slot write with `story.json`, a missing one read as none, a companion who joined and left keeping her items in the story, one who never joined none, an item the module lacks restored from the install's lookup, else lost, the story restored and written again equal but for what each case names as lost, spec 4c, and placements alike told apart by the story's roster, here and in a module left, when a placement is inserted before them); no install.
 #[test]
 fn save_copy_round_trip() {
     probed("save copies", &saves::copies::probes(), 12);
     probed("save refusals", &saves::refusal_probes(), 14);
+    probed("save story", &saves::story_probes(), 15);
 }
 
 /// The saves' safety net (`saves::safety_probes`): the meta's new fields
 /// and an older meta, a damaged save listed and refused, one without a hash
 /// trusted, autosaves rotating, the backup before a new release, a failed
 /// write leaving nothing, a refusal naming the build that made the save;
-/// no install.
+/// and the release gate's corpus (`saves::corpus_probes`): a slot folder read
+/// back whole and a damaged one refused, the corpus's slots found by release,
+/// a current save passing, one older than a fake `breaking` entry expected
+/// (and failing without the entry or when its story restore lost something), the table printed, a slot written only under a plain name, a panicking save a FAIL row among the others; no install.
 #[test]
 fn save_safety() {
     probed("save safety", &saves::safety_probes(), 11);
+    probed("save corpus", &saves::corpus_probes(), 7);
 }
 
 /// The flight recorder's file (`sim::flight::probes`): the pinned run kept

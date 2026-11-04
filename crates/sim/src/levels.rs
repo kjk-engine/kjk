@@ -155,6 +155,32 @@ pub fn granted_powers(career: &Career) -> Vec<u16> {
 /// the order taken.
 pub type Career = Vec<(u8, u8)>;
 
+/// The career of a character with no levels taken here: its template's
+/// `classes`, the levels its sheet's `level` has past theirs in the last
+/// (a companion carried on at a higher level than its template's); with no
+/// template classes, `level` in `class`. The sim's level-up and the screen
+/// both read it, so the screen offers the level the sim takes.
+pub fn untaken(classes: &[(u8, u8)], level: u8, class: u8) -> Career {
+    if classes.is_empty() {
+        return vec![(class, level)];
+    }
+    (0..classes.len())
+        .filter_map(|at| untaken_class(classes, level, at))
+        .collect()
+}
+
+/// `untaken`'s class `at` of template `classes`.
+pub fn untaken_class(classes: &[(u8, u8)], level: u8, at: usize) -> Option<(u8, u8)> {
+    let &(class, levels) = classes.get(at)?;
+    if at + 1 < classes.len() {
+        return Some((class, levels));
+    }
+    let held = classes
+        .iter()
+        .fold(0u8, |sum, (_, levels)| sum.saturating_add(*levels));
+    Some((class, levels.saturating_add(level.saturating_sub(held))))
+}
+
 /// What a level taken picks: its class, the ability raised (every
 /// `levels::ABILITY_EVERY` levels), ranks added by skill, feats and powers.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -585,6 +611,39 @@ impl Classes {
         let defence = i16::from(grown.defence) + rise(&class.defence, now);
         grown.defence = defence.clamp(-128, 127) as i8;
         grown
+    }
+
+    /// `sheet`, of a character whose career was `from` (its template's
+    /// classes; none for a level-0 character), grown to career `to`: the
+    /// base attack bonus, saves and class defence of each class's levels in
+    /// `to` past `from`'s (`grown`, level by level), and the level `to`
+    /// totals. Hit and Force points, feats, powers, skills and abilities stay
+    /// as they are: a story restore sets them as they were.
+    pub fn grown_to(&self, sheet: &Sheet, from: &Career, to: &Career) -> Sheet {
+        let mut out = *sheet;
+        for &(class, levels) in to {
+            let Some(of) = self.classes.get(usize::from(class)) else {
+                continue;
+            };
+            let had = from
+                .iter()
+                .find(|(was, _)| *was == class)
+                .map_or(0, |(_, levels)| *levels);
+            for class_level in had.saturating_add(1)..=levels {
+                let offer = Offer {
+                    class_level,
+                    level: out.level.saturating_add(1),
+                    feats: 0,
+                    powers: 0,
+                    ability: false,
+                };
+                out = Self::grown(&out, of, offer);
+            }
+        }
+        out.level = to
+            .iter()
+            .fold(0u8, |sum, (_, levels)| sum.saturating_add(*levels));
+        out
     }
 
     /// `choices` taken by a character with `sheet`, `career` and `banked`

@@ -295,6 +295,22 @@ pub mod last {
     /// The item its inventory was last disturbed with
     /// (`GetInventoryDisturbItem`).
     pub const DISTURB_ITEM: u8 = 31;
+    /// The number of the listen pattern its last dialogue event matched
+    /// (`GetListenPatternNumber`, as an `i32`'s bits): −1 for a click.
+    pub const PATTERN: u8 = 32;
+}
+
+/// The listen pattern number `who`'s last dialogue event matched, kept on
+/// it (`last::PATTERN`) so its other scripts read it too: K1's
+/// `k_ai_master` hands a click on one whose spawn asked for it to its
+/// `OnUserDefined` (event 1004), which begins the conversation only for
+/// pattern −1 (Tatooine's Tanis Venn's droids, `k_ptat_tandrduse`). −1
+/// ("no string matched") before it has had one.
+fn listen_pattern(state: &State, who: ObjectId) -> i32 {
+    state
+        .last
+        .get(&(who.0, last::PATTERN))
+        .map_or(-1, |bits| *bits as i32)
 }
 
 /// The game's clock as `GetTimeHour` … `GetTimeMillisecond` read it, sim
@@ -1598,9 +1614,13 @@ impl Engine<'_> {
     /// The weapon `who` has (worn in `slot` or carried) for `slot` whose
     /// blow deals the most on average, of the kind asked for (ranged or
     /// melee), else of the other: what it wears first, then the first
-    /// carried; `None` when that is what it wears, or it has none.
+    /// carried; `None` when that is what it wears, or it has none. One it
+    /// lacks the feats for (`passive::may_equip`, as the equip screen) is
+    /// passed over: Brejik carries Bastila's lightsaber on Taris and
+    /// fights with his own blade.
     fn most_damaging(&self, who: ObjectId, ranged: bool, slot: u8) -> Option<ObjectId> {
         let catalog = self.library.items();
+        let feats = self.character(who).map(|c| c.feats);
         let worn = self.state.in_slot(who.0, slot);
         let carried = self.state.carried(items::holder(self.view, who));
         let weapons: Vec<(ObjectId, crate::combat::Weapon)> = worn
@@ -1609,7 +1629,9 @@ impl Engine<'_> {
             .filter_map(|id| {
                 let item = self.state.items.get(&id.0)?;
                 let facts = self.state.item_facts(catalog, &item.template)?;
-                (facts.slots & 1 << slot != 0).then_some((id, facts.weapon?))
+                let trained = feats
+                    .is_none_or(|feats| crate::combat::passive::may_equip(&feats, &facts.needs));
+                (facts.slots & 1 << slot != 0 && trained).then_some((id, facts.weapon?))
             })
             .collect();
         let kind = |wanted: bool| {
@@ -1948,11 +1970,7 @@ impl Engine<'_> {
                     .and_then(|thing| thing.open)
                     .is_some_and(|open| open != 0),
             ),
-            GetLocked => truth(
-                view.thing(object(args, 0))
-                    .and_then(|thing| thing.locked)
-                    .unwrap_or(false),
-            ),
+            GetLocked => truth(self.out.locked(view, object(args, 0)).unwrap_or(false)),
             SetLocked => {
                 self.out.changes.push(Change::Lock {
                     door: object(args, 0),
@@ -2664,7 +2682,7 @@ impl Engine<'_> {
                 patterns.push((pattern, int(args, 2)));
                 Value::Int(0)
             }
-            GetListenPatternNumber => Value::Int(self.event.number),
+            GetListenPatternNumber => Value::Int(listen_pattern(state, caller)),
             GetLastSpeaker => maybe(
                 state
                     .last
@@ -3988,12 +4006,14 @@ impl Engine<'_> {
                     let ms = u64::from(seconds_ms(float(args, 0)));
                     let talk = super::dialogue::running(&state.talk, &self.event);
                     let run = deferring_run(&self.event, caller);
+                    let ai = self.event.ai == Some(caller);
                     state.defer(
                         now + ms,
                         caller,
                         self.script,
                         code,
-                        (self.spell.cloned(), talk, self.event.cue, run),
+                        (self.spell.cloned(), talk, self.event.cue, run, ai),
+                        self.library.script_digest(self.script),
                     );
                 }
                 Value::Int(0)
@@ -4003,8 +4023,10 @@ impl Engine<'_> {
                 if let Some(code) = action(args, 1).filter(|_| target != ObjectId::INVALID) {
                     let talk = super::dialogue::running(&state.talk, &self.event);
                     let run = deferring_run(&self.event, caller);
-                    let carried = (self.spell.cloned(), talk, self.event.cue, run);
-                    state.defer(now, target, self.script, code, carried);
+                    let ai = self.event.ai == Some(target);
+                    let carried = (self.spell.cloned(), talk, self.event.cue, run, ai);
+                    let digest = self.library.script_digest(self.script);
+                    state.defer(now, target, self.script, code, carried, digest);
                 }
                 Value::Int(0)
             }
@@ -4046,6 +4068,8 @@ impl Engine<'_> {
                     Action::Code {
                         script: self.script.to_string(),
                         deferred,
+                        ai: self.event.ai == Some(caller),
+                        code: self.library.script_digest(self.script),
                     },
                 ),
                 None => Value::Int(0),
@@ -5320,8 +5344,11 @@ impl Engine<'_> {
                     (made.at, made.yaw)
                 }
             };
+            // As the table keeps it (its sheet, items and career), as the
+            // party selection screen makes it.
             let side = rules::scripts::moves::BESIDE_M;
-            self.make(&slot.template, super::beside(at, yaw, side), yaw)
+            let at = super::beside(at, yaw, side);
+            super::make_npc(self.library, self.view, self.state, self.out, npc, at, yaw)
         });
         let Some(body) = body else {
             return false;

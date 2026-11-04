@@ -176,14 +176,11 @@ pub fn chargen(assets: &mut GuiAssets) -> ChargenView {
                 .map_or(0, |since| since.as_nanos() as u64),
         })
     })();
-    let offer = ui::screens::chargen::offer_of(assets.game);
-    let rows = offer
-        .iter()
-        .map(|offer| usize::from(offer.row) + 1)
-        .max()
-        .unwrap_or(0);
+    // Every `classes.2da` row, not only those creation offers: levelling up
+    // shows a companion's own class (a Jedi in K1, a droid).
+    let rows = assets.rows("classes");
     ChargenView {
-        offer,
+        offer: ui::screens::chargen::offer_of(assets.game),
         classes: (0..rows).map(|row| class(assets, &classes, row)).collect(),
         genders: GENDERS.map(|strref| assets.text(Source::Campaign, strref).unwrap_or(Vec::new())),
         portraits,
@@ -542,6 +539,7 @@ struct Member {
     sheet: Sheet,
     fighter: sim::combat::Fighter,
     class_row: Option<u8>,
+    career: sim::levels::Career,
     view: MemberView,
 }
 
@@ -583,6 +581,12 @@ fn members(
             .and_then(|data| data.classes.first())
             .or(career.and_then(|career| career.first()))
             .map(|(row, _)| *row);
+        // As the sim's level-up reads it (`script::levelling::career`).
+        let career = career.cloned().unwrap_or_else(|| {
+            let template = data.map_or(&[][..], |data| &data.classes[..]);
+            let made = made.0.as_ref().map_or(0, |made| made.class);
+            sim::levels::untaken(template, sheet.level, made)
+        });
         let named_class = |assets: &mut GuiAssets, row: Option<u8>| {
             row.map_or(Vec::new(), |row| class_name(assets, usize::from(row)))
         };
@@ -625,6 +629,7 @@ fn members(
             sheet,
             fighter,
             class_row,
+            career,
             view: MemberView {
                 name,
                 class,
@@ -931,17 +936,10 @@ fn show(
             .get(viewed)
             .filter(|_| me.may_level)
             .and_then(|member| {
-                let career = progress
-                    .careers
-                    .get(&member.id)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        let first = member.class_row.or(made.0.as_ref().map(|made| made.class));
-                        vec![(first.unwrap_or(0), member.sheet.level)]
-                    });
+                let career = &member.career;
                 let &(class, _) = career.last()?;
-                let picks = classes.picks(&member.sheet, &career, class)?;
-                let auto = classes.auto(&member.sheet, &career, class, 0)?;
+                let picks = classes.picks(&member.sheet, career, class)?;
+                let auto = classes.auto(&member.sheet, career, class, 0)?;
                 Some((class, picks_view(assets, &picks), auto))
             });
         me.auto_level = next.as_ref().map(|(_, _, auto)| AutoLevelView {

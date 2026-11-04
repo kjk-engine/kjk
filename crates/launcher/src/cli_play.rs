@@ -275,6 +275,8 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         talk: talk.as_deref(),
         party: &party,
         save: None,
+        inexact: None,
+        story: None,
         made: made
             .as_ref()
             .map(|(class, portrait, name)| persona::Made::Quick {

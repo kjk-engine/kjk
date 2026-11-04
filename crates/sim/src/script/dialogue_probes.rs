@@ -417,8 +417,8 @@ fn state() -> Check {
         globals: Vec::new(),
         locals: Vec::new(),
     };
-    let carried = (None, Some(3), Some(cue), Some(1));
-    state.defer(500, ObjectId(1), "k_def_dialogue01", code, carried);
+    let carried = (None, Some(3), Some(cue), Some(1), true);
+    state.defer(500, ObjectId(1), "k_def_dialogue01", code, carried, None);
     let mut out = Writer::default();
     state.encode(&mut out);
     let read = State::decode(&mut Reader::new("state", &out.0));

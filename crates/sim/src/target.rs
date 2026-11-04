@@ -522,12 +522,19 @@ pub fn action_point(level: &Level, facts: &crate::module::ObjectData, from: Vec3
         let [x, y, z] = math::scale(at, 1.0 / UNIT);
         [x, y, z - crate::motion::SOLE_Z]
     };
-    let points = facts.action_points(from);
-    let point = points
+    // A point is on the floor by its x and y, as `walk::on_floor` stands it:
+    // a door's points keep its own height, under a ramp rising to it (Taris'
+    // Upper Sewers door before the rancor, 0.5 m under its floor).
+    let floored: Vec<Vec3> = facts
+        .action_points(from)
+        .into_iter()
+        .map(|point| crate::walk::on_floor(level, origin(point)))
+        .collect();
+    let point = floored
         .iter()
-        .find(|point| crate::walk::on_mesh(level, origin(**point)))
-        .or(points.first())?;
-    Some(feet_at(crate::walk::on_floor(level, origin(*point))))
+        .find(|point| crate::walk::on_mesh(level, **point))
+        .or(floored.first())?;
+    Some(feet_at(*point))
 }
 
 /// Where a walk to do a choice heads (feet, metres) and how near it must

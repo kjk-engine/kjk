@@ -289,7 +289,10 @@ pub(crate) fn play_watched(
         .map_err(|e| e.to_string())?;
     set_globals(&mut world, &run.globals);
     give_items(&mut world, &run.items)?;
-    if let Some(tag) = &run.talk {
+    // A companion talked to (`--party`) is there once it joins; any other
+    // is talked to first, as before.
+    let talk_later = !run.party.is_empty();
+    if let Some(tag) = run.talk.as_ref().filter(|_| !talk_later) {
         talk_to(&mut world, tag)?;
     }
     if let Ok(resolver) = installer.base_resolver() {
@@ -304,6 +307,9 @@ pub(crate) fn play_watched(
         crate::persona::start(&mut world, resolver, 1, made)?;
     }
     crate::by_hand::party(&mut world, &run.party, Some(installer))?;
+    if let Some(tag) = run.talk.as_ref().filter(|_| talk_later) {
+        talk_to(&mut world, tag)?;
+    }
     let rate = sim::TickRate::default();
     let mut picks = run.picks.iter();
     let mut answered = BTreeSet::new();

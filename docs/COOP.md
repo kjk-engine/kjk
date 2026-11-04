@@ -20,7 +20,11 @@ ready check: `PARTY.md`; the party's fall: `FALLING.md`.
   names the seat and the world derives `Avatar(seat)`, so moving, Use,
   containers, locks and exits are its seat's. A story's script or a
   conversation still moves it (`Mind::steered`, predicted as a creature);
-  its own AI hooks do not (`Engine::own_ai_on_driven`). One PC to scripts.
+  its own AI hooks do not (`Engine::own_ai_on_driven`), nor the code they
+  defer, assign or queue for it (`Delayed::ai`: K1's `k_ai_master` attacks
+  through it, which took a guest's companion off its player whenever
+  another party member was hit, probe `own_ai_skipped_when_driven`). One
+  PC to scripts.
 - What a guest's companion does itself is done by the character its
   player controls, KOTOR's party leader: a script its act raises (a door
   it opens or fails to open, a lock it picks, a thing it uses) sees it
@@ -86,9 +90,14 @@ numbers: `data/rules/remote.toml` (`kjk rules`).
   what the story does differently goes to `story-changes.txt` for a look:
   dice and timing (random lines, swoop times) and fights won sooner
   (Hendar saved at the Undercity gate) are expected.
-- The client: its model and press flashes (`remote_view`), the camera
-  follows it (`cast::remote_at`), KOTOR's HUD shows its three buttons with
-  the seconds left.
+- The client: its model turned to its seat's view, yaw and pitch, and its
+  kit drawn with KOTOR's own (`remote_view`: the ion blaster's bolt to
+  where the shock bolt stopped, `Remote::bolt_to`; the sonic grenade's
+  blast; the medpac's heal on the dart's patient). The camera follows the
+  own droid from its predictions (`cast::remote_in`, `play_view::OwnRemote`),
+  as it does the own body; KOTOR's HUD shows its three buttons with the
+  grenades' and medpac's icons, the seconds left, the name of the one last
+  fired, and "No one hurt" for a dart with no one to treat.
 
 ## Over the link
 - A module is planned for the players driving a body then (P21,

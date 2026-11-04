@@ -55,6 +55,9 @@ pub const READY: u16 = 4000;
 /// names it (by the creature's wield type):
 /// `g<wield>r1`, a creature model's `creadyr` (`stance_of`).
 pub const LOOPING_READY: u16 = 19;
+/// `ANIMATION_LOOPING_TALK_NORMAL` (`tlknorm`): what a conversation's
+/// speaker plays standing where nothing else plays on it (`cast::talking`).
+pub const LOOPING_TALK_NORMAL: u16 = 5;
 /// How long (ms) after an animation begins its body's motion does not
 /// break it off: the stop of a run that brought it there.
 const SETTLE_MS: f64 = 400.0;
@@ -112,6 +115,37 @@ pub fn shows_ms(acting: &Acting, length: f32, transition: f32) -> f64 {
         f64::from(acting.ms) + f64::from(transition) * 1000.0
     } else {
         f64::from(acting.ms)
+    }
+}
+
+/// What a body shows of `scripted` (what it plays as `cast::drawn_acting`
+/// has it) and of `talk` (its talk as a conversation's speaker,
+/// `cast::talking`): the talk where nothing plays, or where what plays is
+/// played once and has reached its clip's end (of those `bound`, by
+/// `wield`), as reone's speaker talks on once a line's gesture is done
+/// (`Creature::updateModelAnimation`); else what plays.
+pub fn or_talk(
+    scripted: Option<Acting>,
+    talk: Option<Acting>,
+    (bound, wield): (&Bound, u8),
+    ms: f64,
+) -> Option<Acting> {
+    let Some(talk) = talk else {
+        return scripted;
+    };
+    let done = |acting: &Acting| {
+        let clip = stance_of(acting.animation, wield)
+            .into_iter()
+            .flatten()
+            .find_map(|wanted| bound.iter().find(|(a, _)| *a == wanted));
+        plays_once(acting.animation)
+            && clip.is_some_and(|(_, animator)| {
+                ms >= acting.since as f64 + f64::from(animator.length()) * 1000.0
+            })
+    };
+    match scripted {
+        Some(acting) if acting.playing(ms as u64) && !done(&acting) => Some(acting),
+        _ => Some(talk),
     }
 }
 
@@ -350,36 +384,51 @@ impl Flinch {
     }
 }
 
-/// A creature model's attacks, as reone names them for one
-/// (`Creature::getAnimationName`, outside a scene's round): its own swing,
-/// bite or gore (`ATTACK` + 1 and + 2, `g0a1` and `g0a2`), and its gun's
-/// shot (`ATTACK` + 3, `b0a1`).
+/// The attacks of a body on its own clips, as reone names them
+/// (`Creature::getAnimationName`, outside a scene's round), at `ATTACK` +
+/// 10 × the wield number + 1 to + 3: a swing (+ 1 and + 2) and a gun's
+/// shot (+ 3). A creature model (types S and L) has its own set, wield 0:
+/// its swing, bite or gore `g0a1` and `g0a2`, its gun's shot `b0a1`. Any
+/// other body (type F: HK-47, T3-M4) plays its wield's, as a player body's
+/// are named: `g<wield>a1` and `g<wield>a2`, a gun's (`gun`) `b<wield>a1`.
 pub const ATTACK: u16 = 4300;
 
-/// The attacks (`ATTACK` + 1 to + 3).
-pub fn attack_names() -> impl Iterator<Item = (u16, String)> {
-    ["g0a1", "g0a2", "b0a1"]
-        .into_iter()
-        .zip(1..)
-        .map(|(name, n)| (ATTACK + n, name.to_string()))
+/// Whether wield number `wield` is a gun's (a pistol, two, a rifle, a heavy
+/// weapon), whose attack is a shot.
+fn gun(wield: u8) -> bool {
+    matches!(wield, 5 | 6 | 7 | 9)
 }
 
-/// The attack clips a creature model of wield number `wield` plays for its
-/// `count`th attack, the first bound one shown: a gun's shot, else its own
-/// two in turn [verify: reone always swings `g0a1`; the exe's choice
-/// between them], else the first.
-fn attack_of(wield: u8, count: u8) -> [u16; 2] {
-    match wield {
-        5 | 6 | 7 | 9 => [ATTACK + 3, ATTACK + 1],
-        _ => [
-            ATTACK + 1 + u16::from(count.wrapping_add(1) % 2),
-            ATTACK + 1,
-        ],
-    }
+/// The attacks a body binds: a creature model's own set (`creature`),
+/// else every wield's (`ATTACK`).
+pub fn attack_names(creature: bool) -> impl Iterator<Item = (u16, String)> {
+    let wields = if creature { 0..=0 } else { 1..=9 };
+    wields.flat_map(move |wield| {
+        let base = ATTACK + 10 * u16::from(wield);
+        [(1, 'g', 1), (2, 'g', 2), (3, 'b', 1)]
+            .into_iter()
+            .filter(move |&(_, set, _)| creature || (set == 'b') == gun(wield))
+            .map(move |(n, set, variant)| (base + n, format!("{set}{wield}a{variant}")))
+    })
 }
 
-/// A creature model's attack (droids, beasts: no JA swing draws it): a rise
-/// of its weapon timer (`Fighter::weapon_wait_ms`) is an attack the sim
+/// The attack clips a body of wield number `wield` plays for its `count`th
+/// attack, the first bound one shown: its wield's, else a creature
+/// model's; of each set a gun's shot, else its two swings in turn
+/// [verify: reone always swings the first; the exe's choice between them],
+/// else the first.
+fn attack_of(wield: u8, count: u8) -> [u16; 4] {
+    let set = |base: u16| match gun(wield) {
+        true => [base + 3, base + 1],
+        false => [base + 1 + u16::from(count.wrapping_add(1) % 2), base + 1],
+    };
+    let [own, own_first] = set(ATTACK + 10 * u16::from(wield));
+    let [creature, creature_first] = set(ATTACK);
+    [own, own_first, creature, creature_first]
+}
+
+/// An attack of a body on its own clips (droids, beasts: no JA swing or aim
+/// draws it): a rise of its weapon timer (`Fighter::weapon_wait_ms`) is an attack the sim
 /// began (a beast's strike, `sim::world::strikes`, a gun's shot, a blade's
 /// move), and plays its attack clip (`attack_of`) once over its pose; one
 /// begun while the last still plays waits for the next.
@@ -418,8 +467,10 @@ impl Attack {
 }
 
 /// The attack's probes (`kjk sim probes --only creature_attack`): a rise of the
-/// weapon timer begins one, the first look and a fall do not; a gun shoots
-/// `b0a1`, bare hands alternate `g0a1` and `g0a2`.
+/// weapon timer begins one, the first look and a fall do not; a creature
+/// model's gun shoots `b0a1`, its bare hands alternate `g0a1` and `g0a2`;
+/// another body's rifle shoots `b7a1` (HK-47's), its blade swings `g2a1`
+/// and `g2a2`, and a creature model's set is tried after its wield's.
 #[cfg(feature = "probes")]
 pub fn attack_probes() -> sim::probe::Checks {
     use sim::combat::Fighter;
@@ -433,7 +484,15 @@ pub fn attack_probes() -> sim::probe::Checks {
         std::mem::take(&mut attack.once.pending)
     };
     let looks = [look(1500), look(900), look(2400)];
-    let names: Vec<(u16, String)> = attack_names().collect();
+    let names: Vec<(u16, String)> = attack_names(true).collect();
+    let own: Vec<(u16, String)> = attack_names(false).collect();
+    let named = |at: u16| {
+        own.iter()
+            .find(|(n, _)| *n == at)
+            .map(|(_, name)| name.as_str())
+    };
+    let rifle = ATTACK + 70;
+    let blade = ATTACK + 20;
     vec![
         (
             "a rising weapon timer begins an attack, not the first look or a fall",
@@ -442,11 +501,30 @@ pub fn attack_probes() -> sim::probe::Checks {
         (
             "a creature model's attacks: g0a1 and g0a2 in turn, a gun's b0a1",
             check(
-                names[2] == (ATTACK + 3, "b0a1".to_string())
-                    && attack_of(8, 1) == [ATTACK + 1, ATTACK + 1]
-                    && attack_of(8, 2) == [ATTACK + 2, ATTACK + 1]
-                    && attack_of(7, 1) == [ATTACK + 3, ATTACK + 1],
+                names
+                    == [
+                        (ATTACK + 1, "g0a1".to_string()),
+                        (ATTACK + 2, "g0a2".to_string()),
+                        (ATTACK + 3, "b0a1".to_string()),
+                    ]
+                    && attack_of(8, 1)[2..] == [ATTACK + 1, ATTACK + 1]
+                    && attack_of(8, 2)[2..] == [ATTACK + 2, ATTACK + 1]
+                    && attack_of(7, 1)[2..] == [ATTACK + 3, ATTACK + 1],
                 format!("{names:?}"),
+            ),
+        ),
+        (
+            "another body's: its wield's shot b<w>a1 or swings g<w>a1 and g<w>a2, first",
+            check(
+                named(rifle + 3) == Some("b7a1")
+                    && named(rifle + 1).is_none()
+                    && named(blade + 1) == Some("g2a1")
+                    && named(blade + 2) == Some("g2a2")
+                    && named(blade + 3).is_none()
+                    && attack_of(7, 1)[0] == rifle + 3
+                    && attack_of(2, 1)[0] == blade + 1
+                    && attack_of(2, 2)[0] == blade + 2,
+                format!("{own:?}"),
             ),
         ),
     ]

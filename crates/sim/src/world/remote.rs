@@ -110,7 +110,8 @@ pub(super) fn launch(world: &mut World) {
 /// seat's body in one, or a party one: `scene::Held`), or a fade covers
 /// the screen (waiting, running or done). Hidden, their kit off; a guest
 /// who first speaks then gets none till it ends. A movie or a break holds
-/// the session itself: no step runs.
+/// the session itself: no step runs, and the movie shows on every held
+/// seat, a droid's too (`scripts::apply`).
 pub(super) fn holds(held: &super::scene::Held, fade: Option<&crate::snapshot::Fade>) -> bool {
     held.world || fade.is_some_and(|fade| fade.out)
 }

@@ -19,7 +19,6 @@ use collision_odyssey::Surfaces;
 use fmt_odyssey::ResType;
 use fmt_odyssey::bwm::Walkmesh;
 use fmt_odyssey::mdl::Model;
-use fmt_odyssey::texture::Texture;
 use fmt_odyssey::txi::Txi;
 use vfs::resolver::Resolver;
 use vfs::{Discovery, Game};
@@ -446,6 +445,9 @@ pub struct CreatureClips {
     /// The metres its walk and run cycles cover (`appearance.2da`): a
     /// humanoid's gait (`gait`), another's walk and run (`cast::Clips`).
     pub strides: [f32; 2],
+    /// A creature model (type S or L, `creature::creature_model`): its own
+    /// `c…` names, and no wield's ready stance in a fight.
+    pub creature: bool,
 }
 
 /// Effects the scene draws each frame, facing the camera: JA's FX
@@ -708,12 +710,7 @@ pub fn texture_facts(
         .find(name, ResType::TXI)
         .and_then(|found| found.location.read().ok())
         .map(|bytes| Txi::parse(&bytes));
-    let parsed = match resolver.find(name, ResType::TPC) {
-        Some(found) => Texture::parse_tpc(&found.location.read().ok()?).ok()?,
-        None => {
-            Texture::parse_tga(&resolver.find(name, ResType::TGA)?.location.read().ok()?).ok()?
-        }
-    };
+    let parsed = resolver.texture(name)?;
     let alpha = matches!(
         parsed.format,
         fmt_odyssey::texture::PixelFormat::Rgba8 | fmt_odyssey::texture::PixelFormat::Dxt5
@@ -727,19 +724,14 @@ pub fn texture_facts(
     Some((facts, cube, frames))
 }
 
-/// The texture the games would pick for a name: TPC first, then TGA.
+/// The texture the games would pick for a name: the highest layer's TPC or
+/// TGA, TPC first within a layer (`Resolver::find_any`).
 pub(crate) fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
     let loose = resolver
         .find(name, ResType::TXI)
         .and_then(|found| found.location.read().ok())
         .map(|bytes| Txi::parse(&bytes));
-    if let Some(found) = resolver.find(name, ResType::TPC) {
-        let bytes = found.location.read().ok()?;
-        return TextureIr::from_texture(&Texture::parse_tpc(&bytes).ok()?, loose.as_ref());
-    }
-    let found = resolver.find(name, ResType::TGA)?;
-    let bytes = found.location.read().ok()?;
-    TextureIr::from_texture(&Texture::parse_tga(&bytes).ok()?, loose.as_ref())
+    TextureIr::from_texture(&resolver.texture(name)?, loose.as_ref())
 }
 
 pub fn model(resolver: &Resolver, name: &str) -> Result<Option<ModelIr>, String> {
@@ -1524,6 +1516,7 @@ impl CreatureLoad {
                 run: named(loaded, "crun", "run")?,
                 acted,
                 strides,
+                creature: creature_type,
                 ..CreatureClips::default()
             }
         } else {
@@ -1536,6 +1529,7 @@ impl CreatureLoad {
                 getup: named(loaded, "cgetupdead", "getupdead")?,
                 acted,
                 strides,
+                creature: creature_type,
             }
         };
         let body_index = models.len();
@@ -1807,12 +1801,15 @@ pub fn scripted_clips(
             acted.push((animation, found));
         }
     }
+    // Attacks for a body on its own clips (a retargeted one swings and aims
+    // JA's way), and for a creature model on JA's skeleton.
+    let attacks = creature || !asset_ja::rig::is_humanoid(body);
     let engine = crate::acting::ready_names(creature)
         .chain(crate::acting::draw_names())
         .chain(crate::acting::flinch_names(creature))
         .chain(
-            creature
-                .then(crate::acting::attack_names)
+            attacks
+                .then(|| crate::acting::attack_names(creature))
                 .into_iter()
                 .flatten(),
         );

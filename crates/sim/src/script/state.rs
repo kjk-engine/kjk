@@ -36,6 +36,12 @@ pub struct Delayed {
     pub cue: Option<super::Cue>,
     /// The minigame run whose thing deferred it (`Event::run`).
     pub run: Option<u8>,
+    /// Deferred by a run of its caller's own AI (`Event::ai`): it runs as
+    /// that AI still.
+    pub ai: bool,
+    /// The digest of `script`'s bytes it was deferred from
+    /// (`Library::script_digest`); none for a save from before it was kept.
+    pub code: Option<[u8; 32]>,
 }
 
 /// A script to run from its start, for an event: its caller, the object
@@ -467,7 +473,14 @@ impl State {
         caller: ObjectId,
         script: &str,
         deferred: Deferred,
-        (spell, talk, cue, run): (Option<Cast>, Option<u32>, Option<super::Cue>, Option<u8>),
+        (spell, talk, cue, run, ai): (
+            Option<Cast>,
+            Option<u32>,
+            Option<super::Cue>,
+            Option<u8>,
+            bool,
+        ),
+        code: Option<[u8; 32]>,
     ) {
         self.delayed.push(Delayed {
             due_ms,
@@ -479,6 +492,8 @@ impl State {
             talk,
             cue,
             run,
+            ai,
+            code,
         });
         self.next += 1;
     }
@@ -1478,10 +1493,17 @@ fn decode_use(input: &mut Reader) -> Result<Option<Use>, DecodeError> {
 
 fn encode_action(out: &mut Writer, action: &Action) {
     match action {
-        Action::Code { script, deferred } => {
+        Action::Code {
+            script,
+            deferred,
+            ai,
+            code,
+        } => {
             out.u8(0);
             out.string(script);
             encode_deferred(out, deferred);
+            out.u8(u8::from(*ai));
+            encode_code(out, *code);
         }
         Action::Wait { ms } => {
             out.u8(1);
@@ -1611,6 +1633,8 @@ fn decode_action(input: &mut Reader) -> Result<Action, DecodeError> {
         0 => Action::Code {
             script: input.string()?,
             deferred: decode_deferred(input)?,
+            ai: input.since(crate::since::save::DRIVEN_AI_DEFERRED) && input.u8()? != 0,
+            code: decode_code(input)?,
         },
         1 => Action::Wait { ms: input.u32()? },
         9 => Action::Animate {
@@ -1799,7 +1823,26 @@ fn encode_delayeds(out: &mut Writer, delayeds: &[Delayed]) {
         out.u32(delayed.talk.unwrap_or(u32::MAX));
         encode_cue(out, delayed.cue);
         out.u8(delayed.run.unwrap_or(u8::MAX));
+        out.u8(u8::from(delayed.ai));
+        encode_code(out, delayed.code);
     }
+}
+
+/// The digest of the script deferred code stems from in a save: a flag,
+/// then the 32 bytes.
+fn encode_code(out: &mut Writer, code: Option<[u8; 32]>) {
+    out.u8(u8::from(code.is_some()));
+    if let Some(digest) = code {
+        out.bytes(&digest);
+    }
+}
+
+/// Deferred code's script digest from a save; none before it was kept.
+fn decode_code(input: &mut Reader) -> Result<Option<[u8; 32]>, DecodeError> {
+    if !input.since(crate::since::save::CLAUDE_SAVE_RECONCILE) || input.u8()? == 0 {
+        return Ok(None);
+    }
+    Ok(Some(input.array()?))
 }
 
 /// A `Cue` in a save: the trigger, then the body entering it; `u32::MAX`
@@ -1849,6 +1892,8 @@ fn decode_delayeds(input: &mut Reader) -> Result<Vec<Delayed>, DecodeError> {
                 } else {
                     None
                 },
+                ai: input.since(crate::since::save::DRIVEN_AI_DEFERRED) && input.u8()? != 0,
+                code: decode_code(input)?,
             })
         })
         .collect()

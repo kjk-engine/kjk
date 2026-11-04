@@ -56,6 +56,7 @@ use vfs::resolver::Resolver;
 use vfs::{Discovery, Game};
 
 use crate::lifecycle::Installer;
+use crate::made::Made;
 use crate::pad::{PadPresses, Prompts};
 use crate::scene::{Animator, SceneContent, SceneModel};
 use crate::settings::{Action as KeyAction, KeyMap};
@@ -207,6 +208,9 @@ pub(crate) struct Screen {
 /// A speaker's head and its `talk` clip bound to it.
 struct Face {
     speaker: SimId,
+    /// The body the speaker is drawn in (`drawn_body`), its head the one
+    /// `talk` poses: bound again when it changes (armour put on).
+    body: Option<usize>,
     /// Its head's talk clip; looked for again while there is none and the
     /// scene gains models (a creature made in play spawns frames after it
     /// came, `made`).
@@ -974,7 +978,7 @@ fn lips(
     screen: Option<ResMut<Screen>>,
     presented: Res<PresentedSnapshot>,
     (own, watching): (Option<Res<OwnSeat>>, Res<Watching>),
-    (scene, swap): (Option<Res<SceneContent>>, Res<SceneSwap>),
+    (scene, swap, made): (Option<Res<SceneContent>>, Res<SceneSwap>, Option<Res<Made>>),
     models: Query<(Entity, &SceneModel)>,
     mut transforms: Query<&mut Transform>,
     mut facts: ResMut<console::DumpFacts>,
@@ -991,7 +995,8 @@ fn lips(
     let screen = &mut *screen;
     let snapshot = presented.0.current();
     let speaker = shown(snapshot, own.0, watching.0).map(|talk| SimId(talk.speaker.0));
-    if screen.face.as_ref().map(|face| face.speaker) != speaker {
+    let body = speaker.and_then(|speaker| drawn_body(made.as_deref(), &scene.0, snapshot, speaker));
+    if screen.face.as_ref().map(|face| (face.speaker, face.body)) != speaker.map(|s| (s, body)) {
         if let Some(Face {
             talk: Some(talk), ..
         }) = screen.face.take()
@@ -1000,17 +1005,19 @@ fn lips(
         }
         screen.face = speaker.map(|speaker| Face {
             speaker,
+            body,
             talk: None,
             models: 0,
             posed: false,
         });
     }
     if let Some(face) = screen.face.as_ref()
+        && let Some(body) = face.body
         && face.talk.is_none()
         && face.models != scene.0.models.len()
     {
-        let (speaker, count) = (face.speaker, scene.0.models.len());
-        let talk = head_talk(screen, (&scene.0, &swap), &models, snapshot, speaker);
+        let count = scene.0.models.len();
+        let talk = head_talk(screen, (&scene.0, &swap), &models, body);
         if let Some(face) = screen.face.as_mut() {
             face.talk = talk;
             face.models = count;
@@ -1041,25 +1048,39 @@ fn lips(
     }
 }
 
-/// A creature's mouth (`mouth`: its hung head, else its body, whose own
-/// face it is) with its `talk` clip bound, if it has one, read through the
-/// module's resources.
-fn head_talk(
-    screen: &mut Screen,
-    (scene, swap): (&crate::viewer::LoadedScene, &SceneSwap),
-    models: &Query<(Entity, &SceneModel)>,
+/// The body creature `speaker` is drawn in (a scene model): the one its
+/// armour or a disguise dressed it in while it wears one (`made::guise`,
+/// its own body hidden meanwhile), else its own.
+fn drawn_body(
+    made: Option<&Made>,
+    scene: &crate::viewer::LoadedScene,
     snapshot: &Snapshot,
     speaker: SimId,
-) -> Option<Animator> {
+) -> Option<usize> {
+    if let Some(guise) = made.and_then(|made| made.disguise(speaker)) {
+        return Some(guise.body);
+    }
     let entity = snapshot.entities.iter().find(|e| e.id == speaker)?;
     let Kind::Object(sim::module::ObjectKind::Creature, object) = entity.kind else {
         return None;
     };
-    let body = scene
-        .creature_views
-        .iter()
-        .find(|view| view.object == object)?
-        .body;
+    Some(
+        scene
+            .creature_views
+            .iter()
+            .find(|view| view.object == object)?
+            .body,
+    )
+}
+
+/// The mouth of a creature drawn in `body` with its `talk` clip bound, if it
+/// has one, read through the module's resources.
+fn head_talk(
+    screen: &mut Screen,
+    (scene, swap): (&crate::viewer::LoadedScene, &SceneSwap),
+    models: &Query<(Entity, &SceneModel)>,
+    body: usize,
+) -> Option<Animator> {
     let resolver = module_resolver(screen, swap)?;
     // What is hung on its head need not be one (a hood, a mask): the mouth is
     // the first of them with a `talk`, else the body's own (the Handmaiden's

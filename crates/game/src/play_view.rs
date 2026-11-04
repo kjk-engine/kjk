@@ -62,6 +62,13 @@ const STEP_MS: f64 = 1000.0 / 60.0;
 const FOV_DEGREES: f32 = 64.94;
 const CAMERA_BOX: f32 = 4.0;
 const CAMERA_BACK_OFF: f32 = 80.0;
+/// The steepest the camera looks down or up at its target (degrees): the
+/// view's own pitch limit (`follow_camera`).
+const STEEPEST: f32 = 80.0;
+/// Under this far across (units) from its target the camera keeps its
+/// heading (`ThirdPerson::last_yaw`): straight over or under it, any is
+/// noise.
+const LEVEL_NEAR: f32 = 1.0;
 const AIM_ABOVE_EYE: f32 = sim::combat::mind::CROSSHAIR_ABOVE_EYE;
 const AIM_DAMP: f32 = 0.5;
 const PLACE_DAMP: f32 = 0.3;
@@ -143,6 +150,12 @@ pub struct Aim(pub Option<sim::target::Look>);
 /// The set the view's drawing runs in, for what reads `Aim` after it.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Drawn;
+
+/// This seat's remote droid as the view shows it this frame, from its own
+/// predictions (`cast::remote_in`), for its model (`remote_view`): the
+/// camera and the droid it follows move together.
+#[derive(Resource, Default)]
+pub struct OwnRemote(pub Option<sim::remote::Remote>);
 
 /// This player's body model in the scene's models, for the screens' 3D
 /// views (`gui_scene`).
@@ -361,6 +374,7 @@ impl Plugin for PlayViewPlugin {
             .init_resource::<crate::severing::Cuts>()
             .init_resource::<crate::severing::Smoulders>()
             .init_resource::<OwnBody>()
+            .init_resource::<OwnRemote>()
             .init_resource::<Aim>()
             .init_resource::<first_person::Eyes>()
             .add_systems(Update, own_body.run_if(resource_exists::<View>))
@@ -584,7 +598,7 @@ fn follow_camera(
     frame_ms: f32,
     trace: &dyn Fn([f32; 3], [f32; 3]) -> [f32; 3],
 ) {
-    let pitch = at.view[0].clamp(-80.0, 80.0);
+    let pitch = at.view[0].clamp(-STEEPEST, STEEPEST);
     let yaw = at.view[1];
     let (ahead, _, _) = sim::math::angle_vectors([pitch, yaw, at.view[2]]);
     let [x, y, z] = at.origin;
@@ -595,12 +609,19 @@ fn follow_camera(
     // From an aim point out to a place: straight, as JA traces it; or
     // level first and then up or down, so a ceiling stops the rise but not
     // the way back.
+    // Kept no steeper over or under the target than the view goes: where
+    // a wall stops the level leg short (a droid up a sloped side), the
+    // vertical one would put it straight over the target, its heading
+    // lost. Lowered back along that leg, it stays where it was traced.
     let put = |target: [f32; 3], location: [f32; 3]| {
         if quirks {
             trace(target, location)
         } else {
             let level = trace(target, [location[0], location[1], target[2]]);
-            trace(level, [level[0], level[1], location[2]])
+            let across = ((level[0] - target[0]).powi(2) + (level[1] - target[1]).powi(2)).sqrt();
+            let most = across * STEEPEST.to_radians().tan();
+            let rise = (location[2] - target[2]).clamp(-most, most);
+            trace(level, [level[0], level[1], target[2] + rise])
         }
     };
 
@@ -738,14 +759,29 @@ impl View {
         );
     }
 
+    /// The seat's remote droid at `ms`: from its own predictions while
+    /// they come (as its own body is), else from the host's snapshots.
+    fn own_remote(&self, ms: f64) -> Option<sim::remote::Remote> {
+        let seat = self.cast.seat;
+        let predicted = self
+            .own
+            .active
+            .then(|| cast::remote_in(&self.own.history, seat, ms + self.own.shift));
+        predicted
+            .flatten()
+            .or_else(|| cast::remote_in(&self.history, seat, ms))
+    }
+
     /// Whom the camera follows at `ms`: the seat's remote droid while it
     /// flies one (no party member to drive, the world not held), else the
     /// watched body.
     fn subject(&self, ms: f64, own: Option<&cast::Own<'_>>) -> Option<cast::Blended> {
-        cast::remote_at(&self.history, self.cast.seat, ms, 0.0).or_else(|| {
-            self.watched
-                .and_then(|id| cast::blended_for(&self.history, id, ms, own))
-        })
+        self.own_remote(ms)
+            .map(|remote| cast::remote_body(&remote))
+            .or_else(|| {
+                self.watched
+                    .and_then(|id| cast::blended_for(&self.history, id, ms, own))
+            })
     }
 
     /// One step of the view to `ms`, `frame_ms` after the last.
@@ -976,11 +1012,12 @@ fn draw(
     scene: Res<SceneContent>,
     (time, screen, kotor): Pace,
     mut view: ResMut<View>,
-    (mut hitboxes, mut guns, mut roots, mut eyes): (
+    (mut hitboxes, mut guns, mut roots, mut eyes, mut own_remote): (
         ResMut<Hitboxes>,
         ResMut<Guns>,
         ResMut<BodyRoots>,
         ResMut<first_person::Eyes>,
+        ResMut<OwnRemote>,
     ),
     scene_models: Query<(Entity, &SceneModel)>,
     root: Query<Entity, With<SceneRoot>>,
@@ -1215,6 +1252,7 @@ fn draw(
         view.render_ms = next;
         view.advance(next, frame);
     }
+    own_remote.0 = view.own_remote(view.render_ms);
     // Each figure's whooshes as its weapon sounds (`weapon_sounds`).
     if let Some(newest) = view.history.last() {
         let objects = Instances::in_snapshot(&view.level, newest);
@@ -1414,6 +1452,14 @@ fn draw(
         view.first.show(&mut visibility);
     }
     eyes.0 = view.me.filter(|_| first.is_some());
+    // The own gun's shots turn the view up a touch; as a shake does, not
+    // where it aims. Up is a smaller pitch.
+    let kicked = view
+        .me
+        .filter(|_| !watching && talk.is_none())
+        .and_then(|me| view.cast.figure(me))
+        .map_or(0.0, cast::Figure::camera_kick);
+    let shaken = [shaken[0] - kicked, shaken[1]];
     aim.0 = place_camera(
         view,
         (talk, first),
@@ -1459,6 +1505,8 @@ fn draw(
             "soles_m": soles.to_array(),
             "watching": view.watched != view.me,
             "follows": view.watched.map(|id| id.0),
+            "remote_predicted": view.own.active
+                && cast::remote_in(&view.own.history, view.cast.seat, ms + view.own.shift).is_some(),
             "own_rewrites": view.own.rewrites,
             "own_rewritten": view.own.rewritten,
         }),
@@ -2855,7 +2903,10 @@ fn place_camera(
             let (t, l) = (view.camera.target, view.camera.location);
             let mut look: [f32; 3] = std::array::from_fn(|i| t[i] - l[i]);
             let from = l.map(|x| x * UNIT);
-            let angles = angles::look_angles(look);
+            let mut angles = angles::look_angles(look);
+            if look[0].hypot(look[1]) < LEVEL_NEAR {
+                angles[1] = view.camera.last_yaw;
+            }
             if sim::math::normalize(&mut look) > 0.0 {
                 aim = Some(sim::target::Look {
                     from,

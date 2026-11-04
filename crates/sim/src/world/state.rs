@@ -148,6 +148,7 @@ impl SimWorld {
             world_fade_in: crate::snapshot::WorldFadeIn::Done,
             video_effect: None,
             spawned: Vec::new(),
+            roster: None,
             progress: crate::snapshot::Progress::default(),
             personas: Vec::new(),
             lost: None,
@@ -169,7 +170,7 @@ impl SimWorld {
             seats_held: config.seats,
         };
         let start = if level.module.is_some() {
-            crate::install::assemble(&start, &level, None, None, &[])?
+            crate::install::assemble(&start, &level, None, None, &[], &Default::default())?.0
         } else {
             start
         };
@@ -301,6 +302,9 @@ impl SimWorld {
             world_fade_in: snapshot.world_fade_in,
             video_effect: snapshot.video_effect,
             instances: instances.clone(),
+            roster: snapshot.roster.clone(),
+            reconciled: None,
+            dropped_code: Vec::new(),
             explored: snapshot.explored.clone(),
             visuals: snapshot.visuals.clone(),
         });
@@ -495,11 +499,12 @@ impl SimWorld {
             module.world_fade_in,
             module.video_effect,
         );
-        let (place, transition, stash, spawned, explored, visuals) = (
+        let (place, transition, stash, spawned, roster, explored, visuals) = (
             module.place.clone(),
             module.pending.clone(),
             module.stash.clone(),
             module.instances.made().to_vec(),
+            module.roster.clone(),
             module.explored.clone(),
             module.visuals.clone(),
         );
@@ -545,6 +550,7 @@ impl SimWorld {
             world_fade_in,
             video_effect,
             spawned,
+            roster,
             progress,
             personas,
             lost,

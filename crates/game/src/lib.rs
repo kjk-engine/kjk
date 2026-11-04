@@ -36,6 +36,7 @@ pub mod clip_events;
 mod combat_fx;
 pub mod course;
 pub mod crash;
+pub mod dangly;
 pub mod dialogue_view;
 mod display;
 mod dotenv;
@@ -162,6 +163,7 @@ mod weapon_set_view;
 mod weapon_sounds;
 pub mod weapons;
 pub mod weather;
+mod wind;
 mod window_icon;
 pub mod workbench_view;
 
@@ -214,6 +216,8 @@ fn net_play_options<'a>(
         talk: None,
         party: &[],
         save: None,
+        inexact: None,
+        story: None,
         replay: None,
         seat: 0,
         made: None,

@@ -48,6 +48,7 @@ const GROUPS: &[Group] = &[
     ("save copies", saves::copies::probes),
     ("save refusals", saves::refusal_probes),
     ("save safety", saves::safety_probes),
+    ("save story", saves::story_probes),
     ("flight", sim::flight::probes),
     ("crash", kjk_game::crash::probes),
     ("autosave", kjk_game::sim_host::autosave_probes),

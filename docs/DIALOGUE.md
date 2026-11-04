@@ -320,6 +320,18 @@ where they part, the choice is ours and named.
   range (1000+ `cut%03d`, 1200+ `cut%03dw`, 1400+ `cut%03dl`, 1600+
   `cut%03dwl`, 128 each, numbered from 1), so K1's 35, 40, 41, 44, 70 and
   2000 play nothing.
+- **Talking** (render only; outside animated cutscenes and staged
+  conversations): a conversation's speaker (`Conversation::speaker`, the
+  entry's; never the PC for its replies) loops its chain's `tlknorm`
+  standing, from its first of the lines it says running until another
+  speaks or the conversation ends, the replies offered between included,
+  as reone's speaker talks (`Creature::startTalking`) where its
+  `pause1` would play (`cast::talking`). A line's gesture plays over it,
+  and a gesture played once gives it back at its clip's end
+  (`acting::or_talk`). Walking, or a script's animation, breaks it off. A
+  listener plays only what its line's `AnimList` gives it (`Listen`, the
+  nods) [verify: K1's exe]. K1's humanoid chain has no nod clips
+  (`nodyes`, `nodno` are TSL's); its speakers' heads move in `tlknorm`.
 - **A script's animation numbers** (`ActionPlayAnimation`, `PlayAnimation`
   on a creature; `Library::script_animation`): not the dialog numbers
   above. Both executables turn a constant through their table of
@@ -746,7 +758,11 @@ kjk play --stage end_m01ab --arrive end_explode04 --skill computer=8 \
     every screen shows it (a watching seat the conversation holding the
     member it follows, else this one), and, while more than one seat plays
     (`View::together`), party members farther than 10 m [verify] come to
-    free places in sight (`Gathered::Everyone`), but not a seat's body
+    free places in sight (`Gathered::Everyone`) of its PC, or of the
+    seat's body whose coming into a trigger set it off (its `Cue`), which
+    so stays in the trigger (Tanis Venn's call on Tatooine, issue 111: a
+    guest walking in was taken to the host, out of the trigger, and set the
+    call off again coming back), but not a seat's body
     standing in a player's own conversation; one player's party stays where
     it stands, as in KOTOR (scene mode's S9). Starting
     it cuts every conversation a seat's body stands in short ("a cutscene

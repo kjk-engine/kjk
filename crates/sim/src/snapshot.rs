@@ -17,6 +17,7 @@ use crate::input::Seat;
 use crate::inventory::Goods;
 use crate::module::ObjectKind;
 use crate::motion::{Anim, Ground, MotionState, Part};
+use crate::reconcile::Origin;
 use crate::rng::SimRng;
 use crate::script::dialogue::{Conversation, Told};
 use crate::wire::{DecodeError, Reader, Stored, Versions, Writer, read_fixed, write_fixed};
@@ -188,7 +189,14 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// whether a pick dropped the grenade charge (`Picks::items`,
 /// `Pack::charge_off`). Old saves: old saves read no item picks and no dropped
 /// charge: each key uses what it did.
-pub const VERSION: u32 = 77 + crate::pending::SNAPSHOT;
+/// 78: a remote droid carries its view's pitch and where its last shock bolt
+/// stopped (`Remote::pitch`, `Remote::bolt_to`). Old saves: old saves read a
+/// level view and the last bolt stopped at the droid: a save holds no droid,
+/// the world makes them again each step.
+/// 79: the snapshot and each module left keep the placements' roster as
+/// installed (`Snapshot::roster`). Old saves: old saves read no roster: trusted
+/// as before.
+pub const VERSION: u32 = 79 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
@@ -794,6 +802,9 @@ pub struct Stashed {
     pub entities: Vec<EntityState>,
     /// The objects made in it in play (`Snapshot::spawned`).
     pub spawned: Vec<Spawned>,
+    /// Its placements as first installed (`Snapshot::roster`); none in a
+    /// save from before they were kept.
+    pub roster: Option<Vec<Origin>>,
 }
 
 /// The modules left, by name, shared: they change only at an install, so a
@@ -835,6 +846,7 @@ impl Stash {
             encode_place(Some(&stashed.place), &mut out);
             encode_entities(&stashed.entities, &mut out);
             encode_spawned(&stashed.spawned, &mut out);
+            crate::reconcile::encode(stashed.roster.as_deref(), &mut out);
         }
         let ids_end = modules
             .iter()
@@ -895,10 +907,16 @@ impl Stash {
             // Below the snapshot's next id, which `Snapshot::decode` checks.
             let entities = decode_entities(input, u32::MAX)?;
             let spawned = decode_spawned(input)?;
+            let roster = if input.since(crate::since::snapshot::CLAUDE_SAVE_RECONCILE) {
+                crate::reconcile::decode(input)?
+            } else {
+                None
+            };
             modules.push(Stashed {
                 place,
                 entities,
                 spawned,
+                roster,
             });
         }
         Ok(Stash::new(modules))
@@ -1151,6 +1169,10 @@ pub struct Snapshot {
     pub goods: Goods,
     /// The objects made in play in this module.
     pub spawned: Vec<Spawned>,
+    /// The module's placements as first installed, which a changed module
+    /// is matched against (`crate::reconcile`); none for a module whose
+    /// save did not keep them.
+    pub roster: Option<Vec<Origin>>,
     /// The journal and the party's XP.
     pub progress: Progress,
     /// Who each seat's player is, by seat (`persona`).
@@ -1263,6 +1285,15 @@ impl Snapshot {
         self.entities
             .iter()
             .chain(self.departing.iter().map(|going| &going.entity))
+    }
+
+    /// A new id, the next the world would give, taken: for what is put
+    /// into a snapshot by hand before a world is made of it (a story
+    /// restore's companions, and the holders of what companions away keep).
+    pub fn take_id(&mut self) -> SimId {
+        let id = SimId(self.next_id);
+        self.next_id += 1;
+        id
     }
 
     /// The body `seat`'s player moves: the creature it drives (a
@@ -1710,6 +1741,7 @@ impl Snapshot {
         }
         self.screens.encode(out);
         crate::remote::encode(&self.remotes, out);
+        crate::reconcile::encode(self.roster.as_deref(), out);
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -1841,6 +1873,11 @@ impl Snapshot {
         } else {
             Vec::new()
         };
+        let roster = if input.since(crate::since::snapshot::CLAUDE_SAVE_RECONCILE) {
+            crate::reconcile::decode(&mut input)?
+        } else {
+            None
+        };
         let stash = match stash {
             Some(stash) => stash.clone(),
             None => Stash::read(&mut input)?,
@@ -1868,6 +1905,7 @@ impl Snapshot {
             talk,
             goods,
             spawned,
+            roster,
             progress,
             personas,
             lost,

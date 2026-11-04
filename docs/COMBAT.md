@@ -664,10 +664,11 @@ gun (`combat::picks`: the next-feat key, a creature's script), until then
 the one the gun suits (else another known): **Power Blast** (pistols; JA's Bryar charge): hold up to
 1 s, one shot on release, +5/+8/+10 damage at −3, paced by its whole
 time; **Rapid/Multi Shot** (rifles and the rest; the E-11's fast fire): a
-press queues a burst of 2 (3) shots 150 ms apart, the gun back one refire
-short of them, −4/−2/−1 to hit and defence for 3 s; **Sniper Shot**
-(disruptors; the zoom): held, movement halved and no jumping, each aimed
-shot's threat range ×2/×3/×4 and defence −5 for 3 s. Without a special
+press queues a burst of 3 (4) shots 150 ms apart, the gun back a refire
+after the first or as the burst ends, −4/−2/−1 to hit and defence for 3 s;
+**Sniper Shot** (disruptors; the zoom): held, movement halved and no jumping,
+each aimed shot +4/+6/+8 to hit, its threat range ×2/×3/×4 and defence −5 for
+3 s. Without a special
 or the bar the alternate fires the primary. Creatures use theirs
 (`ai::choose_special`). Held, each gun shows KOTOR's own feat visual for as
 long as the button (`aim_fx`): a Power Blast's charge-up (`v_pb_p_gen`,
@@ -1053,7 +1054,7 @@ played (`bolt_hits_seen`, `blade_hits_seen`).
 | a melee attack begins (a scene's swing, or JA's saber or melee move entering an attack, `grunts::swung`); a landed blow on one still standing | its sound set's attack grunt (slots 9–11) / pain grunt (12–13) at random (`grunts`), the player's own always, others one time in five, voice slot [verify: two flags of the executable's attack that skip them are not read] | with it |
 | a hit with no weapon (a script's `EffectDamage`, a power's, a blast's) on one standing | the body's damage clip once over its pose, the wield's `g<wield>d1`, a creature model's `cdamages` (`acting::Flinch`), not where JA's pain plays nor on a player's own body; no blood, sound or grunt (the executable's come at a weapon attack's `Hit` event); its spasm for electrical and dark-side damage not drawn (the event carries no type) | — |
 | a hit dealt by the player's own character, or on it | its damage in whole hit points floated red over the struck for 1.5 s (`floaty_view::Damages`), as K1's Floating Numbers | — |
-| a visual effect with `ShakeType` 2 begins (`VFX_IMP_SCREEN_SHAKE`) | the player's camera shaken from `ShakeDelay` for `ShakeDuration` (`script_fx::Shake`), `20 (1 + cos(2π r / T)) sin(2π r / 30)` degrees on pitch and yaw, each turned back or not at random [verify the size on screen]; no other shake | — |
+| a visual effect with `ShakeType` 2 begins (`VFX_IMP_SCREEN_SHAKE`) | the player's camera shaken from `ShakeDelay` for `ShakeDuration` (`script_fx::Shake`), `20 (1 + cos(2π r / T)) sin(2π r / 30)` degrees on pitch and yaw, each turned back or not at random [verify the size on screen]; no other shake (a gun's own shots turn the camera up a touch, below) | — |
 | a creature dies | its sound set's death line (the UTC's `SoundSetFile`, `soundset.2da`, the SSF's 16th strref, the talk table's sound), voice slot | where it falls, going with it |
 | a grenade's charge starts; it is thrown | JA's `thermal/charge`; `thermal/fire` (KOTOR's `spells.2da` names none), weapon slot | the thrower |
 | a grenade lives (every frame); half a second before it bursts | JA's `thermal/thermloop`, held; `thermal/warning` | where it is |
@@ -1074,7 +1075,13 @@ muzzle straight to their way 256 units out, where the gun is aimed
 (QUIRKS.md Q-0085); where they hit is the sim's. A gun out is held up and
 aimed that way (`cast::gun_aim`): turned upright down the line, the other
 hand under the barrel at the foregrip read from the model, each shot
-kicking up and back by its blaster (`weapons::handling`); while it is put
+kicking up and back by its blaster (`weapons::handling`). A kick is a shove:
+before the eyes it moves the gun back along the barrel with little lift, and
+part of it lingers past the next shot (a kick rising from what the last
+left). It also turns the camera up a touch, in either camera, not where it
+aims, plays its flash tinted its bolt's colour, and bigger before the eyes,
+held at its brightest for two frames (`weapons::EyeFlash`). While a gun is
+put
 away the torso plays the legs' part. Drawing it blends the torso up in
 50 ms and eases the aim in (60 ms a step, so most of it within 180 ms),
 but a shot is aimed in full at once, always leaving along the barrel;

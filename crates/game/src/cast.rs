@@ -18,8 +18,11 @@
 //! - Any other creature (droids, beasts) plays its own KOTOR clips, picked
 //!   from its state: standing, walking or running (by its legs' animation
 //!   and speed), and once dead its dying clip to the end, then its dead
-//!   one, looped (reone's `die` and `dead`). A clip that takes over fades
-//!   in from where the last one stopped over its transition time.
+//!   one, looped (reone's `die` and `dead`). Standing in a fight, one that
+//!   is not a creature model (HK-47) holds its wield's ready stance
+//!   (`g<wield>r1`); each attack plays its clip over the pose
+//!   (`acting::Attack`). A clip that takes over fades in from where the
+//!   last one stopped over its transition time.
 //! - Each is placed between the snapshots around the moment and turned to
 //!   its legs' yaw.
 //! - Each holds its weapons and lights its blades as `weapons` says; a
@@ -68,6 +71,7 @@ use sim::combat::sheet::{Blaster, Sheet};
 use sim::combat::{Delivery, Fighter, Location, Weapon};
 use sim::module::ObjectKind;
 use sim::motion::{self, Anim, MotionState};
+use sim::remote::Remote;
 use sim::script::dialogue::Conversation;
 use sim::skeleton::{Blade, Hand};
 use sim::{EntityState, Instances, Kind, Seat, SimId, Snapshot};
@@ -99,8 +103,6 @@ const RUN_SPEED: f32 = 180.0;
 /// How quickly a gun comes up to its aim (ms, the time constant): about
 /// the blend JA's torso takes into its ready pose.
 const AIM_EASE_MS: f32 = 60.0;
-/// How long a shot's kick takes to peak (ms).
-const KICK_RISE_MS: f32 = 25.0;
 /// How long the torso blends as a gun comes out, the moment a fight starts
 /// (a first shot is fired as it does), and as it goes away (ms); the aim
 /// eases out over the latter.
@@ -393,11 +395,10 @@ pub fn blended(history: &[Arc<Snapshot>], id: SimId, ms: f64) -> Option<Blended>
     })
 }
 
-/// Seat `seat`'s remote droid at `ms` in `history`, as the camera follows
-/// it: a body standing at its place (units), looking along its yaw at
-/// `pitch`, its eyes at its middle. None while it waits out a hold
-/// (`Remote::hidden`) or has none.
-pub fn remote_at(history: &[Arc<Snapshot>], seat: Seat, ms: f64, pitch: f32) -> Option<Blended> {
+/// Seat `seat`'s remote droid at `ms` in `history`: its place, yaw and
+/// pitch blended between the snapshots either side. None while it waits
+/// out a hold (`Remote::hidden`) or has none.
+pub fn remote_in(history: &[Arc<Snapshot>], seat: Seat, ms: f64) -> Option<Remote> {
     let after = history.iter().position(|s| s.time_ms as f64 >= ms);
     let (a, b) = match after {
         Some(0) => (history.first()?, history.first()?),
@@ -412,19 +413,30 @@ pub fn remote_at(history: &[Arc<Snapshot>], seat: Seat, ms: f64, pitch: f32) -> 
     } else {
         1.0
     };
-    let origin = lerp(ra.at, rb.at, t).map(|metres| metres / UNIT);
-    let yaw = ra.yaw + angles::wrap_180(rb.yaw - ra.yaw) * t;
-    let mut state = MotionState::standing(origin, yaw);
+    let turned = |from: f32, to: f32| from + angles::wrap_180(to - from) * t;
+    Some(Remote {
+        at: lerp(ra.at, rb.at, t),
+        yaw: turned(ra.yaw, rb.yaw),
+        pitch: turned(ra.pitch, rb.pitch),
+        ..*rb
+    })
+}
+
+/// A remote droid as the camera follows it: a body standing at its place
+/// (units), looking along its view, its eyes at its middle.
+pub fn remote_body(remote: &Remote) -> Blended {
+    let origin = remote.at.map(|metres| metres / UNIT);
+    let mut state = MotionState::standing(origin, remote.yaw);
     state.eye_height = 0.0;
-    Some(Blended {
+    Blended {
         state,
         origin,
-        view: [pitch, yaw, 0.0],
+        view: [remote.pitch, remote.yaw, 0.0],
         alive: true,
         dead: false,
         fighter: None,
         thrown_at: None,
-    })
+    }
 }
 
 /// An entity of a snapshot by id (entities are ordered by id).
@@ -730,10 +742,13 @@ pub struct Figure {
     /// animation it was in.
     frames: [Option<(i32, Anim)>; 2],
     /// The torso as the snapshots last had it (animation, flip), and when
-    /// each hand's gun last fired (sim ms; right, left): its kick runs from
-    /// there.
+    /// each hand's gun last fired (sim ms; right, left) and fired before
+    /// that: its kick runs from there.
     shown_torso: Option<(Anim, bool)>,
     shot_ms: [Option<f64>; 2],
+    shot_before_ms: [Option<f64>; 2],
+    /// How far its last shot turns the camera up now (degrees, `gun_aim`).
+    camera_kick: f32,
     /// Its gun put away, the torso playing the legs' part (`follow`).
     away: bool,
     /// How far each hand's gun is held up and aimed (`gun_aim`), as of
@@ -808,6 +823,8 @@ impl Figure {
             frames: [None; 2],
             shown_torso: None,
             shot_ms: [None; 2],
+            shot_before_ms: [None; 2],
+            camera_kick: 0.0,
             away: false,
             aim: [0.0; 2],
             drawing: crate::draw_anim::Drawing::default(),
@@ -985,6 +1002,7 @@ impl Figure {
                 let hands = entity.fighter.map_or(1, |f| f.shooting.hands);
                 for (hand, shot) in self.shot_ms.iter_mut().enumerate() {
                     if hands & 1 << hand != 0 || (hand == 0 && hands & 3 == 0) {
+                        self.shot_before_ms[hand] = *shot;
                         *shot = Some(time_ms as f64);
                     }
                 }
@@ -1234,6 +1252,12 @@ impl Figure {
         self.blade
     }
 
+    /// How far its gun's last shot turns the camera up as last posed
+    /// (degrees).
+    pub fn camera_kick(&self) -> f32 {
+        self.camera_kick
+    }
+
     /// When its snapshots first said it was dead (sim ms).
     pub fn died(&self) -> Option<u64> {
         self.died
@@ -1296,9 +1320,11 @@ impl Figure {
 /// sim ms); its clips for scripts' animations and what it shows of them
 /// (`acting`); the metres its walk and run cycles cover and how far into
 /// each it is, as of when (sim ms); its nodes' parents and rest
-/// (`rest_of`); how it leans with the floor, if it does (`ground_lean`).
+/// (`rest_of`); how it leans with the floor, if it does (`ground_lean`);
+/// whether it is a creature model (`CreatureClips::creature`).
 struct Clips {
     clips: [Option<Animator>; 6],
+    creature: bool,
     shown: Option<(usize, f32)>,
     fading: Option<(usize, f32, f64)>,
     acted: acting::Bound,
@@ -1318,6 +1344,9 @@ const RUN: usize = 2;
 const DIE: usize = 3;
 const DEAD: usize = 4;
 const GETUP: usize = 5;
+/// Past the clips above, the ready stance of wield number `n` at `READY_AT`
+/// + `n` (`acting::READY` + `n` among its scripted clips).
+const READY_AT: usize = 6;
 
 /// How a body is posed.
 enum Look {
@@ -1590,6 +1619,9 @@ pub struct Cast {
     wields: stance::Wields,
     /// The bodies the conversations under way hide items of (S8).
     unequipped: Vec<Unequipped>,
+    /// Each conversation's speaker and since when (sim ms) it has spoken
+    /// its lines running (`note_talking`).
+    talking: Vec<Talking>,
     /// The KOTOR clips each body posed plays this frame and how far into
     /// each (seconds), by its model: what keys its emitters and lights
     /// (`own_fx::BodyClips`).
@@ -1604,6 +1636,14 @@ struct Unequipped {
     dialog: String,
     who: SimId,
     hide: Hide,
+}
+
+/// The speaker of a conversation's lines (`Conversation::speaker`, `id`'s)
+/// and since when (sim ms) it has said them one after another.
+struct Talking {
+    id: u32,
+    who: SimId,
+    since: u64,
 }
 
 /// The camera's player: the body `seat` plays (`Snapshot::body`: its own
@@ -1636,6 +1676,7 @@ impl Cast {
             eye: None,
             wields,
             unequipped: Vec::new(),
+            talking: Vec::new(),
             body_clips: BTreeMap::new(),
         }
     }
@@ -2102,9 +2143,11 @@ impl Cast {
                 getup,
                 acted,
                 strides,
+                creature,
             } = &view.clips;
             Look::Clips(Box::new(Clips {
                 clips: [pause, walk, run, die, dead, getup].map(bind),
+                creature: *creature,
                 shown: None,
                 fading: None,
                 acted: acting::bind(placed, acted, nodes),
@@ -2561,6 +2604,33 @@ impl Cast {
         }
     }
 
+    /// Notes each conversation's speaker in `snapshot` (but an animated
+    /// cut's or a staged one's, its bodies on their stunt clips): since its
+    /// first line of those it says running, so its talk loops on through
+    /// them; forgets those of a conversation that has ended.
+    fn note_talking(&mut self, snapshot: Option<&Snapshot>, level: &sim::Level) {
+        let talks = snapshot.map_or(&[][..], |snapshot| &snapshot.talk.conversations[..]);
+        let scripts = level.scripts();
+        let talking = talks.iter().filter_map(|talk| {
+            let dlg = scripts?.dialogue(&talk.dialog)?;
+            let who = SimId(talk.speaker.0);
+            if dlg.staged() || talk.speaker == ObjectId::INVALID {
+                return None;
+            }
+            let since = self
+                .talking
+                .iter()
+                .find(|kept| kept.id == talk.id && kept.who == who)
+                .map_or(talk.shown_ms, |kept| kept.since);
+            Some(Talking {
+                id: talk.id,
+                who,
+                since,
+            })
+        });
+        self.talking = talking.collect();
+    }
+
     /// Places every drawn character at `ms`, poses those in `posing` (a
     /// gripping hand reaching for its blade in `reach`, as the sim has it,
     /// unless `quirks`), and draws what they hold. A character's death is a
@@ -2587,6 +2657,7 @@ impl Cast {
         let held = newest.is_some_and(Snapshot::holds_world);
         let states = newest.and_then(|newest| level.states_in(newest));
         self.note_unequipped(newest, level);
+        self.note_talking(newest, level);
         let looks = history
             .last()
             .map_or_else(Vec::new, |newest| looks(newest, level));
@@ -2657,24 +2728,33 @@ impl Cast {
                             arc,
                         ))
                     });
-                // A body that leans with the floor finds it under its middle.
+                // A body that leans with the floor, or stands on it, finds
+                // it under its middle; one standing upright is drawn on a
+                // slope there (`ground_lean::on_slope`), the leaning one as
+                // its lean has it.
                 let leans = matches!(&member.body.look, Look::Clips(clips) if clips.lean.is_some());
-                let floor = leans
+                let floor = (leans || at.state.ground.is_some())
                     .then(|| {
                         let middle = Vec3::from_array(at.origin) * UNIT;
                         ground_lean::floor_under(level, states.as_deref(), (middle, soles))
                     })
                     .flatten();
+                let stands = if leans {
+                    soles
+                } else {
+                    ground_lean::on_slope(floor, soles)
+                };
                 let posed = place(
                     member,
                     &at,
-                    (soles, ms, eye, floor),
+                    (stands, ms, eye, floor),
                     (
                         posing.contains(&id) || falls || in_place || death_plays,
                         armed,
                         reach,
                     ),
                     (held, look, drawn),
+                    talking(&self.talking, id),
                     self.holdings.wielded(id),
                     transforms,
                 );
@@ -2818,6 +2898,20 @@ fn looks(snapshot: &Snapshot, level: &sim::Level) -> Vec<(SimId, SimId, f32)> {
         }
     }
     looks
+}
+
+/// What `who` plays as a conversation's speaker (`Cast::talking`): its
+/// `tlknorm` looped from its first line of those it says running, as
+/// reone's speaker talks (`Creature::startTalking`) until another speaks
+/// or the conversation ends, the replies offered between included. A
+/// listener plays only what its line's `AnimList` gives it [verify].
+fn talking(talking: &[Talking], who: SimId) -> Option<Acting> {
+    let talk = talking.iter().find(|talk| talk.who == who)?;
+    Some(Acting {
+        animation: acting::LOOPING_TALK_NORMAL,
+        since: talk.since,
+        ms: u32::MAX,
+    })
 }
 
 /// What the conversations under way hide of `who`'s item models.
@@ -3036,11 +3130,19 @@ fn gun_aim(
         (0.0, HOLSTER_BLEND_MS / 3.0)
     };
     // One gun's shots are the gun out's whichever hand the sim names.
-    let shots = if pair {
-        figure.shot_ms
+    let (shots, befores) = if pair {
+        (figure.shot_ms, figure.shot_before_ms)
     } else {
-        [figure.shot_ms.into_iter().flatten().reduce(f64::max), None]
+        let last = usize::from(
+            figure.shot_ms[1]
+                .is_some_and(|left| figure.shot_ms[0].is_none_or(|right| left > right)),
+        );
+        (
+            [figure.shot_ms[last], None],
+            [figure.shot_before_ms[last], None],
+        )
     };
+    figure.camera_kick = 0.0;
     let shooting = shots
         .iter()
         .flatten()
@@ -3077,17 +3179,11 @@ fn gun_aim(
             continue;
         }
         let handling = blaster.map_or(weapons::Handling::STILL, weapons::handling);
-        // Up over `KICK_RISE_MS`, then settling.
         let kick = shots[hand].map_or(0.0, |shot| {
-            let since = (ms - shot) as f32;
-            if since < 0.0 {
-                0.0
-            } else if since < KICK_RISE_MS {
-                since / KICK_RISE_MS
-            } else {
-                (-(since - KICK_RISE_MS) * 3.0 / handling.settle_ms).exp()
-            }
+            let gap = befores[hand].map(|before| (shot - before) as f32);
+            handling.kick((ms - shot) as f32, gap)
         });
+        figure.camera_kick = figure.camera_kick.max(handling.camera_degrees * kick);
         // The barrel aims at the shot's way `CONVERGE` units out, where the
         // bolt drawn from the muzzle meets it (`combat_fx::Path`); what
         // shoots nothing, along the view. A pair's left gun from its own
@@ -3286,7 +3382,9 @@ fn view_axes(at: &Blended) -> [Vec3; 3] {
 /// up and aimed (`gun_aim`). Looked through (`eye`, `Cast::eye`), its gun
 /// and its blade at rest are held up before its eyes. In a conversation a
 /// head looks at the one its line pairs it with (`look`: where that one
-/// stands, and the head's arc, `Head`) after the pose. A script's animation
+/// stands, and the head's arc, `Head`) after the pose; as a line's speaker
+/// it talks (`talking`) standing where no script's animation plays on it.
+/// A script's animation
 /// shows on every body, a droid's or a beast's as a humanoid's does, in a
 /// conversation or out of one, its clip's events heard (`hear`). While one
 /// holds the world (`world_held`) it plays out (`acting`), a droid's or a
@@ -3295,6 +3393,7 @@ fn view_axes(at: &Blended) -> [Vec3; 3] {
 /// conversation under way, it is drawn as it was before scene mode (S7).
 /// A droid or beast that leans with the floor stands on `floor`
 /// (`ground_lean`).
+#[allow(clippy::too_many_arguments)]
 fn place(
     Member {
         body,
@@ -3306,6 +3405,7 @@ fn place(
     (soles, ms, eye, floor): (Vec3, f64, Option<Vec3>, Option<Floor>),
     (pose, armed, reach): (bool, bool, &[(Blade, Hand)]),
     (world_held, look, drawn): (bool, Option<(Vec3, f32)>, Option<DrawPose>),
+    talking: Option<Acting>,
     wielded: Option<&Wielded>,
     transforms: &mut Query<&mut Transform>,
 ) -> Option<Posed> {
@@ -3325,6 +3425,8 @@ fn place(
         .fighter
         .as_ref()
         .and_then(|f| drawn_acting(f, moving, ms));
+    // A speaker talks standing (`acting::or_talk`); a character has none.
+    let talk = talking.filter(|_| !moving && at.alive && at.fighter.is_some());
     // One that hides the equipped items (Security, a mine's) puts the gun
     // away as it begins: the gun going does not break it off.
     let hiding = acting.is_some_and(|acting| acting::hides_items(&acting, ms));
@@ -3350,6 +3452,7 @@ fn place(
             let hand_out = at.fighter.map_or(0, |f| f.hand.min(1));
             let gripping = gripped[usize::from(hand_out)].as_ref().filter(|_| armed);
             let rig = gripping.unwrap_or(&*rig);
+            let acting = acting::or_talk(acting, talk, (acted, figure.breath.wield), ms);
             shows.follow(acting, (still, moving, at.alive, world_held), ms);
             hear(heard, shows, (acted, figure.breath.wield), ms);
             throw.follow(at.fighter.as_ref());
@@ -3616,6 +3719,8 @@ fn place(
             None
         }
         Look::Clips(clips) => {
+            let wield = figure.breath.wield;
+            let acting = acting::or_talk(acting, talk, (&clips.acted, wield), ms);
             clips
                 .shows
                 .follow(acting, (still, moving, at.alive, world_held), ms);
@@ -3644,7 +3749,14 @@ fn place(
                 at_rest((&body.nodes, &clips.rest), transforms);
                 let playing = body.playing.as_mut();
                 let face = body.face.as_ref();
-                clips.pose(figure, at, (ms, world_held), transforms, playing, face);
+                clips.pose(
+                    figure,
+                    at,
+                    (ms, world_held, armed),
+                    transforms,
+                    playing,
+                    face,
+                );
                 if let Some(node) = body.head {
                     let target = look.map(|look| look_toward(soles, faces, look));
                     let bound = (&body.nodes[..], &clips.rest[..]);
@@ -3688,15 +3800,15 @@ impl Clips {
         &mut self,
         figure: &Figure,
         at: &Blended,
-        (ms, held): (f64, bool),
+        (ms, held, armed): (f64, bool, bool),
         transforms: &mut Query<&mut Transform>,
         mut playing: Option<&mut Vec<(Arc<AnimationIr>, f32)>>,
         face: Option<&crate::face::Face>,
     ) {
-        self.pose_own(figure, at, (ms, held), transforms);
+        self.pose_own(figure, at, (ms, held, armed), transforms);
         let own = self
             .shown
-            .and_then(|(clip, at)| Some((self.clips[clip].as_ref()?, at)));
+            .and_then(|(clip, at)| Some((self.clip(clip)?, at)));
         if let Some(face) = face {
             face.stand((ms, at.alive), transforms);
             if let Some((own, at)) = own {
@@ -3738,31 +3850,44 @@ impl Clips {
         &mut self,
         figure: &Figure,
         at: &Blended,
-        (ms, held): (f64, bool),
+        (ms, held, armed): (f64, bool, bool),
         transforms: &mut Query<&mut Transform>,
     ) {
-        let Some((clip, seconds)) = self.at(figure, at, (ms, held)) else {
+        let Some((clip, seconds)) = self.at(figure, at, (ms, held, armed)) else {
             return;
         };
         if let Some((old, old_at)) = self.shown.filter(|&(old, _)| old != clip) {
             self.fading = Some((old, old_at, ms));
         }
         self.shown = Some((clip, seconds));
-        let Some(animator) = &self.clips[clip] else {
+        let Some(animator) = self.clip(clip) else {
             return;
         };
         let fade = self.fading.and_then(|(old, old_at, since)| {
             let toward = ((ms - since) as f32 / 1000.0) / animator.transition();
-            let from = self.clips[old].as_ref()?;
+            let from = self.clip(old)?;
             (toward < 1.0).then_some((from, old_at, toward.max(0.0)))
         });
         match fade {
             Some((from, from_at, toward)) => {
                 animator.pose_from(seconds, (from, from_at), toward, transforms);
             }
-            None => {
-                self.fading = None;
-                animator.pose(seconds, transforms);
+            None => animator.pose(seconds, transforms),
+        }
+        if fade.is_none() {
+            self.fading = None;
+        }
+    }
+
+    /// Its clip `index`: one of its own (`PAUSE` to `GETUP`), or a wield's
+    /// ready stance (`READY_AT`).
+    fn clip(&self, index: usize) -> Option<&Animator> {
+        match index.checked_sub(READY_AT) {
+            None => self.clips[index].as_ref(),
+            Some(wield) => {
+                let wanted = acting::READY + u16::try_from(wield).ok()?;
+                let (_, ready) = self.acted.iter().find(|(a, _)| *a == wanted)?;
+                Some(ready)
             }
         }
     }
@@ -3777,9 +3902,8 @@ impl Clips {
     /// scripted clip shows over them at `ms` (by its wield number `wield`),
     /// for dumps.
     fn facts(&self, ms: f64, wield: u8) -> serde_json::Value {
-        let name = |clip: Option<usize>| {
-            clip.and_then(|clip| Some(self.clips[clip].as_ref()?.name().to_string()))
-        };
+        let name =
+            |clip: Option<usize>| clip.and_then(|clip| Some(self.clip(clip)?.name().to_string()));
         let acted: Vec<_> = (self.shows.shown(&self.acted, ms, (wield, None)))
             .map(|(clip, _, weight)| (clip.clip().name.clone(), weight))
             .collect();
@@ -3797,12 +3921,13 @@ impl Clips {
     /// looped (or the dying clip held); alive, standing, walking or running,
     /// looped on the clock, but while the world is held (`held`, S7) walking
     /// and running by the distance covered, a cycle a stride
-    /// (`gait::by_stride`), as a humanoid's gait does.
+    /// (`gait::by_stride`), as a humanoid's gait does; standing with its
+    /// weapons readied (`armed`), its wield's ready stance where it has one.
     fn at(
         &mut self,
         figure: &Figure,
         at: &Blended,
-        (ms, held): (f64, bool),
+        (ms, held, armed): (f64, bool, bool),
     ) -> Option<(usize, f32)> {
         let seconds = (self.cycled_ms).map_or(0.0, |was| ((ms - was) / 1000.0).clamp(0.0, 0.25));
         self.cycled_ms = Some(ms);
@@ -3819,7 +3944,7 @@ impl Clips {
                 self.cycles[cycle] = (self.cycles[cycle] + by).rem_euclid(length.max(1e-3));
             }
         }
-        let length = |clip: usize| self.clips[clip].as_ref().map(Animator::length);
+        let length = |clip: usize| self.clip(clip).map(Animator::length);
         let looped = |clip: usize, since: f64| -> Option<(usize, f32)> {
             let seconds = ((ms - since) / 1000.0).max(0.0) as f32;
             Some((clip, seconds % length(clip)?))
@@ -3849,10 +3974,16 @@ impl Clips {
         let either = |first: usize, second: usize| {
             [first, second]
                 .into_iter()
-                .find(|&clip| self.clips[clip].is_some())
+                .find(|&clip| self.clip(clip).is_some())
         };
+        // Standing in a fight, a body that is not a creature model holds its
+        // wield's ready stance (reone's pause in combat, `g<wield>r1`).
+        let ready = READY_AT + usize::from(figure.breath.wield);
         let clip = if speed < STILL_SPEED {
-            either(PAUSE, PAUSE)
+            match armed && at.fighter.is_some() && !self.creature {
+                true => either(ready, PAUSE),
+                false => either(PAUSE, PAUSE),
+            }
         } else if walking {
             either(WALK, RUN)
         } else {

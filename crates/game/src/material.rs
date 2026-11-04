@@ -11,7 +11,7 @@
 //!
 //! How a surface blends follows xoreos (blending always on):
 //! opaque surfaces draw first, alpha-blended when their textures carry
-//! alpha; transparent ones (a transparency hint, or decal textures) draw
+//! alpha; transparent ones (a transparency hint above 1, or decal textures) draw
 //! after, far to near, without writing depth. An additive texture (TXI
 //! `blending additive`, with alpha or without) adds itself by its alpha to
 //! what is behind, as KOTOR's executable sets it (`GL_SRC_ALPHA, GL_ONE`
@@ -275,8 +275,11 @@ impl Surface {
 /// alpha only when every texture has it (and `alphamean` is not 1), decal
 /// only when every texture is one; additive when any texture says so, with
 /// alpha or without, as KOTOR's executable reads a texture's TXI (xoreos
-/// only without). KOTOR meshes always carry a hint, so a hint or a decal makes a
-/// mesh transparent. Deviation: an additive mesh without a hint is drawn in
+/// only without). KOTOR meshes always carry a hint, so a hint above 1 or a decal
+/// makes a mesh transparent. Hint 1 does not: TSL's heads carry it on the
+/// whole face (`head_geo`, its hair 2), which drawn without depth showed its
+/// mouth and eye sockets through it; as reone has it, the texture's alpha
+/// decides (`OpaqueAlpha`), the depth kept. Deviation: an additive mesh without a hint is drawn in
 /// the transparent pass too (xoreos draws it in the opaque pass, in object
 /// order); the coverage report counts them. A bump-mapped texture's alpha
 /// is its bump's mask, not coverage: opaque, as reone has it (xoreos ignores the bump map and
@@ -297,7 +300,7 @@ pub fn surface(hint: u32, mesh_alpha: f32, loaded: &[&TextureFacts]) -> Surface 
     let bumpmap = loaded.iter().any(|facts| facts.bumpmap.is_some());
     if additive {
         Surface::Additive
-    } else if hint != 0 || decal || mesh_alpha < 1.0 {
+    } else if hint > 1 || decal || mesh_alpha < 1.0 {
         Surface::Blend
     } else if alpha && envmap {
         Surface::OpaqueEnvMasked

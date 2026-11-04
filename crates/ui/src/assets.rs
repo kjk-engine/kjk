@@ -650,13 +650,7 @@ impl GuiAssets {
             .find(name, ResType::TXI)
             .and_then(|found| found.location.read().ok())
             .map(|bytes| Txi::parse(&bytes));
-        let texture = match resolver.find(name, ResType::TPC) {
-            Some(found) => Texture::parse_tpc(&found.location.read().ok()?).ok()?,
-            None => {
-                let found = resolver.find(name, ResType::TGA)?;
-                Texture::parse_tga(&found.location.read().ok()?).ok()?
-            }
-        };
+        let texture = resolver.texture(name)?;
         let txi = loose.unwrap_or_else(|| texture.txi.clone());
         Some((texture, txi))
     }

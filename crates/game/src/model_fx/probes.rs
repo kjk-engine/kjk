@@ -48,6 +48,7 @@ fn field_model() -> ModelIr {
             diffuse: [1.0; 3],
             uv_scroll: None,
             skin: None,
+            dangly: None,
         }],
         lights: Vec::new(),
         emitters: Vec::new(),
