@@ -42,6 +42,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use asset_odyssey::anim::AnimationIr;
+use bevy::camera::primitives::Aabb;
 use bevy::prelude::*;
 use console::{AnimationTime, DumpDue, DumpFacts};
 use sim::module::ObjectKind;
@@ -63,6 +64,9 @@ use crate::viewer::Plays;
 /// The most a frame steps the particles: a long frame (a module loading)
 /// does not throw them all at once.
 const STEP_MAX: f32 = 0.25;
+
+/// How far (metres) past its particles' box an emitter is still drawn.
+const CULL_MARGIN: f32 = 0.25;
 
 pub struct OwnFxPlugin;
 
@@ -484,9 +488,9 @@ fn pose(
 fn draw(
     scene: Res<SceneContent>,
     mut movers: ResMut<Movers>,
-    transforms: Query<&Transform>,
-    cameras: Query<Entity, SceneCamera>,
-    visibility: Query<&Visibility>,
+    (transforms, globals): (Query<&Transform>, Query<&GlobalTransform>),
+    cameras: Query<(Entity, &Projection), SceneCamera>,
+    mut visibility: Query<&mut Visibility>,
     (mut meshes, mut body_lights): (ResMut<Assets<Mesh>>, ResMut<crate::scene::BodyLights>),
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
 ) {
@@ -499,11 +503,12 @@ fn draw(
     let (loaded, dt) = (&scene.0, movers.dt);
     // The camera's right and up, in the game's space, turned into each
     // model's (a room is only moved; a placeable turned by its bearing).
-    let turn = cameras
-        .iter()
-        .next()
-        .and_then(|camera| transforms.get(camera).ok())
-        .map_or(Quat::IDENTITY, |t| t.rotation);
+    let camera = (cameras.iter().next())
+        .and_then(|(camera, projection)| Some((transforms.get(camera).ok()?, projection)));
+    let turn = camera.map_or(Quat::IDENTITY, |(t, _)| t.rotation);
+    // What the camera sees this frame (it is placed already).
+    let frustum =
+        camera.map(|(t, projection)| projection.compute_frustum(&GlobalTransform::from(*t)));
     let local = |e: Entity| transforms.get(e).ok().map(|t| t.to_matrix());
     for mover in &mut movers.movers {
         let own = &loaded.own_fx[mover.fx];
@@ -570,6 +575,14 @@ fn draw(
             (ir, &mover.nodes, Mat4::IDENTITY),
             local,
         );
+        // Where the model is, for its particles' boxes: a room's or a
+        // placeable's stays put; a body's moves before it is drawn, so its
+        // particles are always drawn.
+        let placed_at = globals
+            .get(mover.root)
+            .ok()
+            .filter(|_| !body)
+            .map(GlobalTransform::affine);
         for (spray, space) in mover.sprays.iter_mut().zip(spaces) {
             let mut detonated = body_detonated;
             for ((clip, at, elapsed), name) in mover.moments.iter().zip(&names) {
@@ -577,8 +590,30 @@ fn draw(
                 detonated |= !body && model_fx::detonates_over(clip, (*at, *elapsed), dt);
             }
             spray.step(&own.fx, (dt, detonated), (space, None), true);
-            if shown {
+            // Particles out of the camera's view are neither laid out nor
+            // sent to the GPU: they go on living, and are drawn again once
+            // the view takes them in.
+            let seen = match (frustum.as_ref(), placed_at, spray.bounds(&own.fx, space)) {
+                (Some(frustum), Some(placed_at), Some((low, high))) => frustum.intersects_obb(
+                    &Aabb::from_min_max(low - CULL_MARGIN, high + CULL_MARGIN),
+                    &placed_at,
+                    true,
+                    true,
+                ),
+                _ => true,
+            };
+            if shown && seen {
                 spray.fill((&own.fx, &own.chunks), space, facing, true, &mut meshes);
+            }
+            let drawn = if seen {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+            if let Ok(mut visibility) = visibility.get_mut(spray.entity)
+                && *visibility != drawn
+            {
+                *visibility = drawn;
             }
         }
     }

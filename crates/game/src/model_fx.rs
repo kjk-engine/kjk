@@ -1065,6 +1065,35 @@ impl Particles {
         if emitter.world { 1.0 } else { self.grown }
     }
 
+    /// The box (game space) its quads stay within, `space` its emitter's
+    /// transform: none for a bolt, a ribbon or none alive (drawn whatever
+    /// the view).
+    fn bounds(&self, emitter: &Emitter, values: &Values, space: Mat4) -> Option<(Vec3, Vec3)> {
+        if emitter.update == Update::Lightning || emitter.facing == Facing::Linked {
+            return None;
+        }
+        let size = [emit::SIZE_START, emit::SIZE_MID, emit::SIZE_END]
+            .map(|kind| values.or(kind, 0.0))
+            .into_iter()
+            .fold(0.0, f32::max);
+        // A quad's corner, however it turns; a streak's tail besides.
+        let reach = size * self.grown(emitter) / 2.0 * std::f32::consts::SQRT_2
+            + self.moving.length() * STREAK_S;
+        let place = |at: Vec3| match emitter.world {
+            true => at,
+            false => space.transform_point3(at),
+        };
+        let mut points = self.list.iter().flat_map(|particle| {
+            let trail = (emitter.facing == Facing::MotionBlur).then_some(particle.trail);
+            std::iter::once(particle.at).chain(trail).map(place)
+        });
+        let first = points.next()?;
+        let (low, high) = points.fold((first, first), |(low, high), at| {
+            (low.min(at), high.max(at))
+        });
+        Some((low - reach, high + reach))
+    }
+
     /// Each particle's place (game space), share of its life and colour.
     fn shown<'a>(
         &'a self,
@@ -1624,6 +1653,17 @@ impl Spray {
                 self.particles.hold(emitter, weather, dt);
             }
         }
+    }
+
+    /// The box (its parent's space) its mesh stays within, `space` its
+    /// emitter's transform; none where that is not known (a chunk's, a
+    /// bolt's, a ribbon's, or none alive).
+    pub fn bounds(&self, fx: &ModelFx, space: Mat4) -> Option<(Vec3, Vec3)> {
+        let emitter = &fx.emitters[self.emitter];
+        if emitter.chunk.is_some() {
+            return None;
+        }
+        self.particles.bounds(emitter, &self.values, space)
     }
 
     /// Its mesh made of its particles as they are (none unless `shown`),

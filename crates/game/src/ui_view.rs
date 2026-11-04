@@ -104,7 +104,7 @@ pub struct UiOpen(pub bool);
 /// The camera that composites the screens over the world, the window's
 /// size (what the screens are laid out in).
 #[derive(Component)]
-struct UiCamera;
+pub(crate) struct UiCamera;
 
 /// The camera that draws the screens into their image.
 #[derive(Component)]
@@ -193,7 +193,16 @@ struct Drawn {
     size: Vec2,
     /// The assets' `released` these copies were kept at.
     released: u32,
+    /// Frames left to draw the screens' image again after a change (their
+    /// meshes, textures and size reach the GPU over the next frames); none,
+    /// and it keeps what it shows, its camera resting.
+    fresh: u8,
+    /// A shown run shows a 3D view (`gui_scene`), which moves of itself.
+    live: bool,
 }
+
+/// How many frames the screens' image is drawn after a change.
+const REDRAWN: u8 = 3;
 
 pub struct UiViewPlugin {
     assets: std::sync::Mutex<Option<GuiAssets>>,
@@ -254,7 +263,7 @@ impl Plugin for UiViewPlugin {
         .init_resource::<Drawn>()
         .add_systems(
             Update,
-            (requests, step, draw)
+            (requests, step, draw, rest_screens)
                 .chain()
                 .in_set(Stepped)
                 .after(console::ConsoleQueue),
@@ -1073,6 +1082,25 @@ fn mipmaps(width: u32, height: u32, rgba: &[u8]) -> Vec<Vec<u8>> {
     levels
 }
 
+/// The screens' camera draws their image only while it changes (`fresh`)
+/// or shows a 3D view; the rest of the time the image keeps what it shows,
+/// and the frame pays for no camera to draw it again.
+fn rest_screens(
+    mut drawn: ResMut<Drawn>,
+    mut cameras: Query<&mut Camera, (With<ScreensCamera>, Without<UiCamera>)>,
+) {
+    let draws = drawn.fresh > 0 || drawn.live;
+    drawn.fresh = drawn.fresh.saturating_sub(1);
+    let Some((screens, _)) = drawn.screens else {
+        return;
+    };
+    if let Ok(mut camera) = cameras.get_mut(screens)
+        && camera.is_active != draws
+    {
+        camera.is_active = draws;
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw(
     mut commands: Commands,
@@ -1127,9 +1155,12 @@ fn draw(
                 ScreensCamera,
             ))
             .id();
+        // It draws the HUD too, under the screens (`hud`): the HUD's view,
+        // its layers given it while there is one.
         let mut camera = commands.spawn((
             Camera3d::default(),
             crate::scene::over_world(13),
+            crate::hud::overlay_view(),
             crate::scene::encoded_view(),
             RenderLayers::none(),
             OverlayCamera,
@@ -1141,6 +1172,7 @@ fn draw(
         }
         drawn.camera = Some(camera.id());
         drawn.screens = Some((screens, image));
+        drawn.fresh = REDRAWN;
         return;
     }
     let Some((size, pixels)) = own.iter().next().and_then(|camera| {
@@ -1161,6 +1193,7 @@ fn draw(
                 height: pixels.y.max(1),
                 depth_or_array_layers: 1,
             });
+            drawn.fresh = REDRAWN;
         }
         if let Ok(mut projection) = projections.get_mut(*screens)
             && let Projection::Orthographic(ortho) = &mut *projection
@@ -1185,10 +1218,12 @@ fn draw(
         };
         drawn.images.retain(|id, _| kept(id));
         drawn.materials.retain(|(id, _), _| kept(id));
+        drawn.fresh = REDRAWN;
     }
     if drawn.layers == ui.layers && drawn.size == size {
         return;
     }
+    drawn.fresh = REDRAWN;
     drawn.layers = ui.layers.clone();
     drawn.size = size;
     let Some(assets) = &ui.assets else {
@@ -1220,6 +1255,7 @@ fn draw(
         }
     }
     let count = runs.len();
+    drawn.live = runs.iter().any(|run| assets.scene_of(run.key.0).is_some());
     for (at, run) in runs.into_iter().enumerate() {
         let Run {
             key,
