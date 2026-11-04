@@ -176,14 +176,11 @@ pub fn chargen(assets: &mut GuiAssets) -> ChargenView {
                 .map_or(0, |since| since.as_nanos() as u64),
         })
     })();
-    let offer = ui::screens::chargen::offer_of(assets.game);
-    let rows = offer
-        .iter()
-        .map(|offer| usize::from(offer.row) + 1)
-        .max()
-        .unwrap_or(0);
+    // Every `classes.2da` row, not only those creation offers: levelling up
+    // shows a companion's own class (a Jedi in K1, a droid).
+    let rows = assets.rows("classes");
     ChargenView {
-        offer,
+        offer: ui::screens::chargen::offer_of(assets.game),
         classes: (0..rows).map(|row| class(assets, &classes, row)).collect(),
         genders: GENDERS.map(|strref| assets.text(Source::Campaign, strref).unwrap_or(Vec::new())),
         portraits,
