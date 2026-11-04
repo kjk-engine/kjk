@@ -10,7 +10,7 @@ pub mod ja;
 pub mod resolver;
 
 pub use dir_index::{CaseCollision, DirIndex};
-pub use discover::{Discovery, Install, Refusal, Source, Store, discover};
+pub use discover::{Discovery, Install, Refusal, Source, Store, discover, install_at};
 
 /// Whether a lowercased file name is the metadata a file browser leaves in
 /// any folder it shows (Finder's, Explorer's): never a game's data.
