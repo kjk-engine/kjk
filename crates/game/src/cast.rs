@@ -3060,14 +3060,13 @@ fn edit(
 /// once it stands again). Only a node that moved is written.
 pub(crate) fn at_rest((nodes, rest): (&[Entity], &Rest), transforms: &mut Query<&mut Transform>) {
     for (&entity, &(_, translation, rotation)) in nodes.iter().zip(rest) {
-        let moved = transforms
-            .get(entity)
-            .is_ok_and(|t| t.translation != translation || t.rotation != rotation);
-        if moved {
-            edit(transforms, entity, |t| {
-                t.translation = translation;
-                t.rotation = rotation;
-            });
+        // Looked up once: read through the handle, it is marked changed
+        // only when written.
+        if let Ok(mut t) = transforms.get_mut(entity)
+            && (t.translation != translation || t.rotation != rotation)
+        {
+            t.translation = translation;
+            t.rotation = rotation;
         }
     }
 }
