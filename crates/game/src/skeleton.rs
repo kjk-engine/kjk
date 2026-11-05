@@ -166,8 +166,8 @@ fn hand_tag(name: &str, surface: &Surface, bones: usize) -> Result<Tag, String> 
     })
 }
 
-/// A saber's blades: each `*blade<n>` tag's first three vertices, which
-/// must hang on the hilt's one bone, and the blade's length.
+/// A saber's blades: each blade tag's (`asset_ja::blade_tags`) first three
+/// vertices, which must hang on the hilt's one bone, and the blade's length.
 fn saber(files: &Files, name: &str) -> Result<Saber, String> {
     let (saber, hilt) = viewer_ja::saber_and_hilt(files, name)?;
     if !hilt.animation.eq_ignore_ascii_case("*default") {
@@ -176,12 +176,10 @@ fn saber(files: &Files, name: &str) -> Result<Saber, String> {
             saber.model, hilt.animation
         ));
     }
-    let blades = saber
-        .lengths
-        .iter()
-        .enumerate()
-        .map(|(i, &length)| {
-            let tag = format!("*blade{}", i + 1);
+    let blades = asset_ja::blade_tags(&hilt, saber.lengths.len())
+        .into_iter()
+        .zip(&saber.lengths)
+        .map(|(tag, &length)| {
             let surface = surface(&hilt, &tag)?;
             let on_root = |weights: &[(u8, f32)]| match weights {
                 [(reference, _)] => {

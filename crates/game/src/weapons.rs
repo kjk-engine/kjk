@@ -413,15 +413,16 @@ pub struct Sabers {
 impl Sabers {
     pub fn load(files: &Files) -> Result<Sabers, String> {
         let one = |name: &str| -> Result<JaSaber, String> {
-            let (saber, hilt) = viewer_ja::saber_and_hilt(files, name)?;
-            let ends = (1..=saber.lengths.len())
-                .map(|n| {
-                    let tag = format!("*blade{n}");
-                    asset_ja::bolt(&hilt, &tag)
+            let (mut saber, hilt) = viewer_ja::saber_and_hilt(files, name)?;
+            let ends: Vec<_> = asset_ja::blade_tags(&hilt, saber.lengths.len())
+                .iter()
+                .map(|tag| {
+                    asset_ja::bolt(&hilt, tag)
                         .map(|bolt| viewer_ja::blade_axis(&bolt))
-                        .ok_or(format!("{name}: no {tag}"))
+                        .ok_or(format!("{name}: {tag} has no bolt"))
                 })
                 .collect::<Result<_, _>>()?;
+            saber.lengths.truncate(ends.len());
             Ok(JaSaber {
                 lengths: saber.lengths,
                 radius: saber.radius,
