@@ -87,9 +87,11 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   (`charrec_light`, as reone's character menu does: at the root, facing the
   stage's `camerahook`), its body and head but no weapons, both playing its
   side's clip (`good`, `neutral`, `evil`: light from 70, dark to 30). The
-  camera is a perspective one at the hook (0.73 below the floor), through
-  a window on the figure from z −0.04 to 1.85, measured off KOTOR's own
-  sheet. The stage's lights, as the pose sets them, light the figure with
+  camera is K1's executable's: level at the stage's hook, raised by the
+  figure's own `camerahook` (a human's 1.63 m, so the view's middle is at
+  0.9 m), seeing 22.726° top to bottom; T3-M4, HK-47 and Zaalbar have hooks
+  of their own on the stage (`camerahookt`, `camerahookh`, `camerahookz`),
+  picked by tag. The stage's lights, as the pose sets them, light the figure with
   no ambient (the key light's 50× strength kept to full, its hue kept: an
   assumption). A 3D view's image is drawn texel for texel (`ui.wgsl`).
   Behind it the stage's

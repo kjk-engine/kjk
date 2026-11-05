@@ -93,9 +93,6 @@ const FRAME_MS: f32 = 1000.0 / 60.0;
 const SURFACE: f32 = 6.0;
 /// A shot's sound's gain.
 const FIRE_GAIN: f32 = 1.0;
-/// How far a muzzle flash plays past the gun hand (units) for a gun model
-/// without a muzzle: about a blaster's length (tuning).
-const GUN: f32 = 8.0;
 /// How far a bolt flies (units) before it is drawn on its own way rather
 /// than from the gun (`Path::launch`), and how far along its way the gun is
 /// aimed: about 6.5 m, the barrel then a few degrees off the view.
@@ -751,7 +748,7 @@ fn draw(
     place_flashes(
         drawn,
         (now, kotor),
-        (&hitboxes, &guns, eyes.0),
+        (&guns, eyes.0),
         &places,
         &mut blasters.flashes,
     );
@@ -1123,33 +1120,24 @@ fn flash(
 /// The muzzle flashes whose moment came, asked of `blaster_view` from this
 /// frame: the row's muzzle flash and the shot's feat's visual, on the
 /// shooter's gun's muzzle as drawn (where the executable hangs them, on
-/// its `bullethook`); for a gun not drawn, `GUN` units on from the gun hand
-/// along the shot; else at the sim's muzzle. A flash before the eyes the
+/// its `bullethook`); for a gun not drawn, at the sim's muzzle, where its
+/// bolt leaves. A flash before the eyes the
 /// camera looks through (`eyes`) plays as its gun has it (`weapons::EyeFlash`).
 fn place_flashes(
     drawn: &mut Drawn,
     (now, kotor): (f32, Option<&WeaponSounds>),
-    (hitboxes, guns, eyes): (&Hitboxes, &Guns, Option<SimId>),
+    (guns, eyes): (&Guns, Option<SimId>),
     places: &Query<&GlobalTransform>,
     out: &mut Vec<Flash>,
 ) {
-    let to_game = game_to_bevy().inverse();
     let due: Vec<(Shot, f32)> = drawn
         .flashing
         .extract_if(.., |(_, start)| *start <= now)
         .collect();
     for (shot, start) in due {
-        let hand = || {
-            hitboxes
-                .0
-                .get(&shot.by)
-                .and_then(|spots| spots[sim::combat::Location::HandRight as usize])
-                .and_then(|node| places.get(node).ok())
-                .map(|place| to_game * place.translation() / UNIT + shot.forward * GUN)
-        };
-        let at = gun_muzzle(guns, places, (shot.by, shot.hand))
-            .or_else(hand)
-            .unwrap_or(shot.muzzle);
+        // Where its bolt leaves (`launch`): a body with no gun drawn (a
+        // droid's built-in blaster) flashes at the sim's muzzle, as its bolt.
+        let at = gun_muzzle(guns, places, (shot.by, shot.hand)).unwrap_or(shot.muzzle);
         let handling = match sim::combat::Delivery::of_base_item(shot.base_item) {
             Some(sim::combat::Delivery::Blaster(blaster)) => crate::weapons::handling(blaster),
             _ => crate::weapons::Handling::STILL,
