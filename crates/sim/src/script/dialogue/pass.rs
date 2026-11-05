@@ -475,14 +475,16 @@ impl Step<'_> {
     ) {
         let view = self.view;
         // The players' side: their characters, and the body each seat acts
-        // through, the companion the host leads or a guest drives
+        // through, the companion the host leads (as the party table has it
+        // now, `View::host`) or a guest drives
         // (`GetPartyMemberByIndex(0)`: a console's `a_compdlg` talks to it
         // with the console's own dialog, TSL's 3C-FD at the Ebon Hawk's
         // security console; the Endar Spire's `k_pend_comp07` talks to
         // `GetLastUsedBy()`, whoever used it).
         let mut pcs = view.pcs(&self.state.party);
         pcs.extend(self.host());
-        pcs.extend(view.seats.iter().map(|&(_, body)| body));
+        let guests = (view.seats.iter()).filter(|(seat, _)| *seat != crate::world::LEADER_SEAT.0);
+        pcs.extend(guests.map(|&(_, body)| body));
         let companion = self.state.party.creatures().any(|body| body == with.0);
         let (owner, pc) = if pcs.contains(&who) && with != ObjectId::INVALID {
             (with, who)
