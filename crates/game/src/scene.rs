@@ -227,8 +227,7 @@ impl Plugin for ScenePlugin {
         .init_resource::<SceneLights>()
         .init_resource::<CarriedLights>()
         .init_resource::<crate::blaster_view::ShotLights>()
-        .init_resource::<ScrollingMaterials>()
-        .init_resource::<FlipBooks>()
+        .init_resource::<AnimatedMaterials>()
         .init_resource::<LiveBlades>()
         .init_resource::<DrawnBlades>()
         .init_resource::<RetiredBlades>()
@@ -692,13 +691,36 @@ type MaterialKey<'a> = (
     bool,
 );
 
-/// Flip-book materials: each frame's image, and frames per second.
+/// The scene's materials whose diffuse moves: the scene's own and those of
+/// every model made into it later (placeables, creatures).
 #[derive(Resource, Default)]
-struct FlipBooks(Vec<(Handle<OdysseyMaterial>, Vec<Handle<Image>>, f32)>);
+pub(crate) struct AnimatedMaterials {
+    /// Diffuse UVs that scroll, with their direction.
+    scrolling: Vec<(Handle<OdysseyMaterial>, Vec2)>,
+    /// Flip-books: each frame's image, and frames per second.
+    flipbooks: Vec<(Handle<OdysseyMaterial>, Vec<Handle<Image>>, f32)>,
+}
 
-/// Materials whose diffuse UVs scroll, with their direction.
-#[derive(Resource, Default)]
-pub(crate) struct ScrollingMaterials(pub Vec<(Handle<OdysseyMaterial>, Vec2)>);
+impl AnimatedMaterials {
+    /// Takes over the scrolling materials and flip-books `spawner` met.
+    pub fn adopt(&mut self, spawner: &mut Spawner) {
+        self.scrolling.append(&mut spawner.scrolling);
+        self.flipbooks.append(&mut spawner.flipbooks);
+    }
+
+    /// `copy` of material `from` (a model's own, its clips keying it:
+    /// `model_fx::own_materials`) scrolls and flips as `from` does.
+    pub fn copied(&mut self, from: &Handle<OdysseyMaterial>, copy: &Handle<OdysseyMaterial>) {
+        let scrolls = self.scrolling.iter().find(|(handle, _)| handle == from);
+        if let Some(&(_, dir)) = scrolls {
+            self.scrolling.push((copy.clone(), dir));
+        }
+        let flips = self.flipbooks.iter().find(|(handle, ..)| handle == from);
+        if let Some((_, frames, fps)) = flips.cloned() {
+            self.flipbooks.push((copy.clone(), frames, fps));
+        }
+    }
+}
 
 /// How fast an animated surface (water, screens) scrolls: its texture's
 /// direction scaled by this each second. Our chosen speed.
@@ -1544,8 +1566,9 @@ pub(crate) fn spawn_scene(
         &mut refractions,
         loaded.ambient,
     );
-    commands.insert_resource(ScrollingMaterials(spawner.scrolling));
-    commands.insert_resource(FlipBooks(spawner.flipbooks));
+    let mut animated = AnimatedMaterials::default();
+    animated.adopt(&mut spawner);
+    commands.insert_resource(animated);
     facts.0.insert(
         "effects".into(),
         serde_json::json!(loaded.effects.items.len()),
@@ -1778,11 +1801,11 @@ pub(crate) fn animation_seconds(time: &Time, held: &AnimationTime) -> f32 {
 fn scroll_uvs(
     time: Res<Time>,
     held: Res<AnimationTime>,
-    scrolling: Res<ScrollingMaterials>,
+    moving: Res<AnimatedMaterials>,
     (mut materials, mut animated): (ResMut<Assets<OdysseyMaterial>>, ResMut<material::Animated>),
 ) {
     let seconds = animation_seconds(&time, &held);
-    for (handle, dir) in &scrolling.0 {
+    for (handle, dir) in &moving.scrolling {
         let offset = UV_ANIMATION_SPEED * *dir * seconds;
         let offset = offset - offset.floor();
         // Past the slots, the material itself.
@@ -1809,10 +1832,10 @@ fn forget_animated(mut animated: ResMut<material::Animated>) {
 fn cycle_flipbooks(
     time: Res<Time>,
     held: Res<AnimationTime>,
-    flipbooks: Res<FlipBooks>,
+    moving: Res<AnimatedMaterials>,
     mut materials: ResMut<Assets<OdysseyMaterial>>,
 ) {
-    for (handle, frames, fps) in &flipbooks.0 {
+    for (handle, frames, fps) in &moving.flipbooks {
         let frame = flipbook_frame(frames.len(), *fps, animation_seconds(&time, &held));
         let wanted = &frames[frame];
         if materials
