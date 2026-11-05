@@ -2218,7 +2218,7 @@ impl Engine<'_> {
                     .thing(source)
                     .is_some_and(|thing| thing.character.is_some() && thing.dead());
                 if let (Some(target), Some(source), false) = (
-                    self.character(target).map(|c| c.faction),
+                    self.out.faction(view, target),
                     self.faction(source),
                     dead_source,
                 ) {

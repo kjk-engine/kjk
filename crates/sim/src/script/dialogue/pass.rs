@@ -196,19 +196,21 @@ impl Step<'_> {
         let Some(player) = (self.state.talk.conversations.iter())
             .map(|c| c.pc)
             .find(|pc| pcs.contains(pc))
-            .and_then(|pc| view.thing(pc)?.character)
+            .and_then(|pc| self.out.faction(view, pc))
         else {
             return;
         };
         let repute = view.module.repute.with(&self.state.reputation);
         let party: Vec<u32> = self.state.party.creatures().collect();
+        // A line that turns a creature hostile holds it in the same step
+        // (`Out::faction`), before its first blow.
         let hostiles: Vec<ObjectId> = (view.things.iter())
             .filter(|thing| !pcs.contains(&thing.id) && !party.contains(&thing.id.0))
             .filter(|thing| !self.state.uncommandable.contains(&thing.id.0))
             .filter(|thing| {
-                thing
-                    .character
-                    .is_some_and(|c| repute.hostile(c.faction, player.faction))
+                self.out
+                    .faction(view, thing.id)
+                    .is_some_and(|faction| repute.hostile(faction, player))
             })
             .map(|thing| thing.id)
             .collect();

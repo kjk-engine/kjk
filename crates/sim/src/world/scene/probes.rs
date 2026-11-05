@@ -40,6 +40,7 @@ const PROBES: &[Probe] = &[
     ("bystander_holds_ground", bystander_holds_ground),
     ("hostile_held_in_talk", hostile_held_in_talk),
     ("hostile_fighting_held", hostile_fighting_held),
+    ("turned_hostile_held", turned_hostile_held),
     ("companion_stays", companion_stays),
     ("party_kept_apart", party_kept_apart),
     ("party_cannot_use", party_cannot_use),
@@ -284,6 +285,8 @@ void CancelCombat(object oidCreature);
 void EnableVideoEffect(int nEffectType);
 // 30
 effect EffectDeath(int nSpectacularDeath=FALSE, int nDisplayFeedback=TRUE, int nNoFadeAway=FALSE);
+// 31
+void ChangeToStandardFaction(object oCreatureToChange, int nStandardFaction);
 "#;
 
 /// The `videoeffects.2da` row `probe_video` enables.
@@ -520,6 +523,20 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_attack_dummy", attack(&tagged("dummy"))),
             ("probe_attack_foe", attack(&tagged("foe"))),
             ("probe_attack_pc", attack(&[call(3, 0)])),
+            // `ChangeToStandardFaction(OBJECT_SELF, HOSTILE_1)`, then
+            // `ActionAttack(GetFirstPC())`: a line turning its speaker on
+            // the player (`turned_hostile_held`).
+            (
+                "probe_turn_on_pc",
+                program(&[
+                    Op::Const(Const::Int(i32::from(HOSTILE_1))),
+                    Op::Const(Const::Object(0)),
+                    call(31, 2),
+                    Op::Const(Const::Int(0)),
+                    call(3, 0),
+                    call(2, 2),
+                ]),
+            ),
             ("probe_open", program(&open)),
             ("probe_blocked", program(&[])),
             ("probe_area_exit", program(&[])),
@@ -1418,6 +1435,23 @@ fn hostile_fighting_held() -> Found {
         format!(
             "after the fight before it ({fought} hp) held: {held}, {hurt} hp lost; after the end: {free}"
         ),
+    )
+}
+
+/// S4, the hold in the step a line turns one hostile: the brawler, at
+/// peace with the player, turned on it and ordered at it by one script
+/// during a party conversation (`probe_turn_on_pc`), is held from that
+/// step on: its queue empty at every step's end and the 6 m kept. Once
+/// the conversation ends, the same order closes in.
+fn turned_hostile_held() -> Found {
+    let (mut ground, _) = fight_scene(Stage::default(), Brawler::Rival)?;
+    let host = ground.body(0)?;
+    let held = charge(&mut ground, "probe_turn_on_pc", host)?;
+    ground.goodbye()?;
+    let free = charge(&mut ground, "probe_attack_pc", host)?;
+    check(
+        held.queued == 0 && held.closed.abs() < 0.05 && free.closed > 2.0,
+        format!("held: {held}; after the end: {free}"),
     )
 }
 
