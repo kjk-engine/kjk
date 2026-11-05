@@ -780,7 +780,7 @@ either game) goes at any distance: 55° up, charged to land on the target
 (`grenades::lob_strength`), meeting nothing on the way and bursting as it
 lands, as KOTOR's projectile moves to its position on a timer. A mind out of
 a fight keeps a scripted throw's charge (end_m01aa's thrower is out of combat
-by `CancelCombat`). Any other grenade bounces and bursts on its fuse. `kjk combat grenades k1`: 16 checks.
+by `CancelCombat`). Any other grenade bounces and bursts on its fuse. `kjk combat grenades k1`: 17 checks.
 
 How `kjk play` shows a throw (from the snapshots alone; the survey is the
 journal's `grenade-visuals/SURVEY.md`):
