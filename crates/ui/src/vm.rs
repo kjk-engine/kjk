@@ -150,8 +150,8 @@ pub struct AutoLevelView {
 }
 
 /// An item in play: its object id, how it shows, the `INVENTORY_SLOT_*`
-/// bits it may be worn in, and whether the member shown may use it on
-/// itself (the inventory's Use Item); and, by weapon set, whether it may
+/// bits it may be worn in, whether the member shown may use it on itself
+/// (the inventory's Use Item) and may wear it; and, by weapon set, whether it may
 /// not go in that set's off hand beside what its main hand holds (the
 /// hands' pairing, `sim::inventory::pairs`).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -160,6 +160,14 @@ pub struct Owned {
     pub entry: Entry,
     pub slots: u32,
     pub usable: bool,
+    /// Not for the member shown's race (`baseitems.2da` `droidorhuman`):
+    /// the equip page leaves it out, as both games' do.
+    pub unfit: bool,
+    /// Why the member shown may not wear it (a feat it lacks, a use limit
+    /// it fails, `sim::script::State::equip_refusal`), as a line; `None`
+    /// when it may. The equip page lists it in red, as both games' do, and
+    /// tells the line in red over its description.
+    pub refused: Option<Vec<u8>>,
     pub unpaired: [bool; 2],
     /// The member's numbers were it put on, a slot each it may go in among
     /// the hands and the body (the equip page's preview).
