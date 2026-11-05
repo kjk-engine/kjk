@@ -244,15 +244,15 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
         &mut sim::SimRng::new(1, 7),
     );
     let mut shielded = Pack {
-        shield: Some(items::Shielded {
-            row: ITEM_ABILITY_ENERGY_SHIELD,
-            types: match items::use_of(ITEM_ABILITY_ENERGY_SHIELD) {
+        shield: Some(items::Shielded::item(
+            ITEM_ABILITY_ENERGY_SHIELD,
+            match items::use_of(ITEM_ABILITY_ENERGY_SHIELD) {
                 Some(items::Use::Shield { types, .. }) => types,
                 _ => 0,
             },
-            left: 20,
-            until: u64::MAX,
-        }),
+            20,
+            u64::MAX,
+        )),
         ..Pack::default()
     };
     let taken = items::absorb(
@@ -266,6 +266,33 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
             "an energy shield takes a lightning strike (electrical): {:.2} HP absorbed, 19 points left",
             f64::from(taken) / 100.0
         ),
+    );
+    // K1's plot shield (`forceshields.2da` row 16: 300 points of energy
+    // and ion, at most 300 of a hit, ion spending it twice) under T3's
+    // disruptor (20 ion a hit): broken by the 8th hit, all of which it
+    // takes; the 9th reaches hit points whole.
+    const ION: u16 = 11;
+    let mut plot = Pack {
+        shield: Some(items::Shielded {
+            id: 1,
+            vulnerable: 1 << ION,
+            resist: 300,
+            ..items::Shielded::item(0, 6208, 300, u64::MAX)
+        }),
+        ..Pack::default()
+    };
+    let mut through = Vec::new();
+    for _ in 0..9 {
+        let taken = items::absorb(&mut plot, Some(usize::from(ION)), 2000);
+        through.push(2000 - taken);
+        if plot.shield.is_some_and(|shield| shield.spent()) {
+            plot.shield = None;
+        }
+    }
+    let broke = through.iter().position(|&hp| hp > 0);
+    report.check(
+        broke == Some(8) && through[8] == 2000,
+        format!("K1's plot shield takes 8 disruptor hits whole, the 9th passes: {through:?}"),
     );
 
     outln!("  in the arena");

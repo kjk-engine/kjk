@@ -259,11 +259,47 @@ pub struct Talent {
 
 /// A `forceshields.2da` row (`EffectForceShield`: the energy shields' own
 /// numbers): the damage types it takes (`damageflags`, `DAMAGE_TYPE_*`
-/// bits) and how much of them in all (`amount`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// bits), how much of them in all (`amount`; 0 for no end), the types that
+/// spend it faster (`vulnerflags`), the most it takes of one hit
+/// (`resistance`), and how it looks: the visual (`visualeffects.2da` row)
+/// on a body of each appearance listed (`appearance_NN`,
+/// `visualeffect_NN`), else `visualeffectdef` (`u16::MAX` for none).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShieldRow {
     pub types: u16,
     pub points: u16,
+    pub vulnerable: u16,
+    pub resist: u16,
+    pub looks: [(u16, u16); 4],
+    pub visual: u16,
+}
+
+impl Default for ShieldRow {
+    fn default() -> ShieldRow {
+        ShieldRow {
+            types: 0,
+            points: 0,
+            vulnerable: 0,
+            resist: 0,
+            looks: [(u16::MAX, u16::MAX); 4],
+            visual: u16::MAX,
+        }
+    }
+}
+
+impl ShieldRow {
+    /// Its visual on a body of `appearance.2da` row `appearance`: the
+    /// executable's pick, the first listed appearance it matches, else the
+    /// row's default.
+    pub fn visual_on(&self, appearance: Option<u16>) -> Option<u16> {
+        let listed = appearance.and_then(|appearance| {
+            self.looks
+                .iter()
+                .find(|(of, _)| *of == appearance)
+                .map(|(_, visual)| *visual)
+        });
+        Some(listed.unwrap_or(self.visual)).filter(|row| *row != u16::MAX)
+    }
 }
 
 /// Every power's and feat's talent facts, by row, each power's impact

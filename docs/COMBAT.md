@@ -730,7 +730,16 @@ INT + 1/2/3 × Repair) and no medpac. An **antidote** comes first while
 poisoned or weakened; a **squad stim** heals the user's side within 20 m
 by its points (`items.squad_stim.points`). **Energy shields** (5) absorb
 their points of the damage types they name (the hit's type,
-`Assessed::damage_type`) for 200 s or until spent. **Stims** (4) for 120
+`Assessed::damage_type`) for 200 s or until spent. A shield a script puts
+up (`EffectForceShield`: the items' `k_sup_bands`, the plot droids' spawn
+scripts) is its `forceshields.2da` row's, as K1's executable has it: at
+most `resistance` of one hit, its points spent twice
+(`items.shields.vulnerable_drain`) by a type in `vulnerflags` (ion, for
+every row), none spent with `amount` 0; the hit that breaks it passes on
+what it had no points left for. It brings its look, a lasting visual of
+its effect's id: the row's `visualeffect_NN` for the body's appearance,
+else `visualeffectdef` (the shield droid's red sphere, a belt's blue
+glow), gone with it. **Stims** (4) for 120
 s: adrenals +4/+6 STR, DEX or CON, battle stims +1/+2/+3 to hit and damage
 and +8/+16/+25 vitality, a pool taken before hit points and gone at the
 end. One shield and one stim at a time, and one use at a time. A use runs
