@@ -105,7 +105,10 @@ where they part, the choice is ours and named.
   `AIActionDialogObject`'s walk (to the midpoint past
   `MAX_OBJECT_START_CONVERSATION_DISTANCE`, 10 m) is never taken for a
   script's ask. `ActionStartConversation` (its owner the other party when a
-  player asks, the asker when it asks a player, else the one conversed with:
+  player asks, the asker when it asks a player, else the one conversed with;
+  the player's side is the party table as it stands, so a companion its
+  script has just handed the lead back from (`SetPartyLeader(NPC_PLAYER)`,
+  K1's `k_trg_partyinit`) asks as itself and says its own lines:
   TSL's `AIActionDialogObject` signals that one's dialog event, and a
   companion in the party is not such a one; an empty resref the owner's own
   DLG; an asker with none, a trigger starting a scene with an

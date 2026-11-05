@@ -1191,14 +1191,21 @@ impl View<'_> {
     }
 
     /// The host's character (the scripts' first PC), and the body its seat
-    /// acts through (`seats`: the companion leading, while one does).
+    /// acts through: the companion leading, while one does (`world::lent`).
+    /// Both are read off the party table as it stands, as `pcs` reads a
+    /// switch, not off the step's `seats`: a script's `SetPartyLeader`
+    /// earlier in the step leaves those behind. A companion's own talk
+    /// trigger (K1's `k_trg_partyinit`) hands the lead back to the PC,
+    /// then has the companion start its conversation with `GetFirstPC()`:
+    /// the companion, still the seat's body, was taken for the player's
+    /// side and the PC made the owner, who then said the companion's lines
+    /// (#147, Bastila's on Taris).
     pub(crate) fn host(&self, table: &Party) -> [ObjectId; 2] {
         let pc = self.first_pc(table);
-        let acting = self
-            .seats
-            .iter()
-            .find(|(seat, _)| *seat == crate::world::LEADER_SEAT.0)
-            .map_or(pc, |(_, body)| *body);
+        let seated = (self.seats.iter()).any(|(seat, _)| *seat == crate::world::LEADER_SEAT.0);
+        let acting = crate::world::lent(table)
+            .filter(|_| seated)
+            .map_or(pc, |body| ObjectId(body.0));
         [pc, acting]
     }
 
