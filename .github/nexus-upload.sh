@@ -47,7 +47,19 @@ label() {
   esac
 }
 
+# Nexus takes .zip, .7z, .rar, .exe and .omod, so a .tar.gz is repacked as a
+# .zip; zip keeps the files' modes, and -y the app's symlinks.
+zipped() {
+  local stage
+  stage=$(mktemp -d)
+  tar -xzf "$1" -C "$stage"
+  (cd "$stage" && zip -qry - .) >"${1%.tar.gz}.zip"
+  rm -rf "$stage"
+  echo "${1%.tar.gz}.zip"
+}
+
 for package in "$@"; do
+  [[ $package == *.tar.gz ]] && package=$(zipped "$package")
   filename=$(basename "$package")
   platform=${filename#kjk-v"$version"-}
   platform=${platform%.tar.gz}
