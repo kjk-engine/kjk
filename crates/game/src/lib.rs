@@ -542,7 +542,7 @@ pub fn k1_resolver() -> Option<vfs::resolver::Resolver> {
 
 /// The installs this machine has. Variables come from the environment first,
 /// then the folders the player chose in the setup (`setup`, kept in the
-/// settings), then `.env` in the working directory.
+/// settings), then `.env` in the working directory, then `default_var`.
 pub fn discover() -> vfs::Discovery {
     let chosen = settings::chosen_installs();
     let env_file = dotenv::load(Path::new(".env"));
@@ -551,5 +551,15 @@ pub fn discover() -> vfs::Discovery {
             .ok()
             .or_else(|| chosen.get(name).cloned())
             .or_else(|| env_file.get(name).cloned())
+            .or_else(|| default_var(name))
     })
+}
+
+/// What a variable nothing sets is. The Steam Workshop items are the
+/// player's build's (`cargo xtask dist`, without `probes`): a build with the
+/// verbs that check plays the game folders alone, as the approved tests do,
+/// so a chain's or sweep's answer does not depend on what a machine is
+/// subscribed to. `KJK_WORKSHOP=on` gives such a build the items.
+fn default_var(name: &str) -> Option<String> {
+    (cfg!(feature = "probes") && name == vfs::WORKSHOP_VAR).then(|| "off".to_string())
 }

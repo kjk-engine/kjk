@@ -18,7 +18,8 @@ An install's folder is named by `KJK_KOTOR1`, `KJK_KOTOR2` or `KJK_JA`, in
 the environment or in `.env` in the folder `kjk` runs from (the repo root;
 `.env.example`); a variable wins over Steam's libraries and GOG's default
 folders, and one that names something else is refused, never replaced.
-`KJK_WORKSHOP=off` plays the game folder without its Steam Workshop items.
+`KJK_WORKSHOP` (`on`/`off`) plays TSL's Steam Workshop items or not; a build
+from source defaults to off and the player's build to on (below).
 
 ## KOTOR precedence (lowest first; highest holding a name wins)
 
@@ -80,8 +81,13 @@ indexes the installed ones in their load order, lowest first:
 Layers from an item are named after it: `kjk ls tsl --shadowed` shows
 `workshop/485537937/modules/001ebo.mod` or `workshop/485537937/override`
 winning. `kjk games`, the setup screen and the log list the items loaded.
-The approved tests play the game folders alone (they were approved on
-the games' own data) unless `KJK_WORKSHOP` is set in the environment.
+Only the player's build (`cargo xtask dist`, without the `probes`
+feature) reads the items by default. A build with the verbs (every `cargo
+build`, and so the chain, the sweeps and the probes) and the approved tests
+play the game folders alone unless `KJK_WORKSHOP` says otherwise, in the
+environment or `.env`: they were written and approved on the games' own
+data, and a run's answer should not depend on what a machine is subscribed
+to. `KJK_WORKSHOP=on` gives them the items.
 
 Stream folders (`streammusic`, `streamsounds`, `streamwaves`/`streamvoice`,
 `movies`) are separate namespaces, asked for by folder, never stacked. The

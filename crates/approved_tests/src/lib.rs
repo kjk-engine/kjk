@@ -46,14 +46,14 @@ fn dotenv() -> HashMap<String, String> {
 /// games' own data, so they play the game folders alone, without the
 /// Steam Workshop items a player subscribed to (TSLRCM's 907mal.mod has a
 /// script that is source text, which `script_vm` rightly refuses), unless
-/// `KJK_WORKSHOP` is set in the environment.
+/// `KJK_WORKSHOP` says otherwise, as in every build with the verbs.
 pub fn discovery() -> Discovery {
     let env_file = dotenv();
     vfs::discover(|name| {
-        let workshop = (name == vfs::WORKSHOP_VAR).then(|| "off".to_string());
         std::env::var(name)
             .ok()
-            .or_else(|| workshop.or_else(|| env_file.get(name).cloned()))
+            .or_else(|| env_file.get(name).cloned())
+            .or_else(|| (name == vfs::WORKSHOP_VAR).then(|| "off".to_string()))
     })
 }
 
