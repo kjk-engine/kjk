@@ -775,22 +775,43 @@ impl<'a> Player<'a> {
                 ((upper * upper + d * d - lower * lower) / (2.0 * upper * d)).clamp(-1.0, 1.0);
             let knee = hip + upper * (cos * u + (1.0 - cos * cos).sqrt() * v);
             let ankle = hip + u * d;
-            // Thigh: swung from its blended turn onto the knee.
-            let swing = |q: Quat, from: Vec3, to: Vec3| {
-                (Quat::from_rotation_arc(from.normalize_or_zero(), to.normalize_or_zero()) * q)
-                    .normalize()
+            // Thigh and shin: turned by the knee's bend plane, not by their
+            // blended turns, whose twist (half a turn on the medium combo's
+            // right thigh) would spin both about their own lines. Each keeps
+            // its roll off that plane, taken the short way from the
+            // captured pose's to the new one's.
+            let joints = |f: &[Local]| [limb.upper, limb.lower, limb.end].map(|bone| at(f, bone));
+            let parts = [(limb.upper, 0), (limb.lower, 1)];
+            let rolls = |f: &[Local]| {
+                let j = joints(f);
+                parts.map(|(bone, i)| {
+                    bend_frame(j, i, f[bone].0 * Vec3::X)
+                        .map(|frame| (frame.inverse() * f[bone].0).normalize())
+                })
             };
-            let thigh = swing(now[limb.upper].0, at(&now, limb.lower) - hip, knee - hip);
+            let (from, to) = (rolls(&was), rolls(&will));
+            let new = [hip, knee, ankle];
+            // Straight legs have no plane: the bone's own side, blended.
+            let fallback = |bone: usize| now[bone].0 * Vec3::X;
             let mut wanted = BTreeMap::new();
-            wanted.insert(limb.upper, (thigh, hip - thigh * base(limb.upper)));
-            let carried = self.refit(pose, &wanted);
-            // Shin: swung from where the thigh now carries it onto the ankle.
-            let shin = swing(
-                carried[limb.lower].0,
-                at(&carried, limb.end) - knee,
-                ankle - knee,
-            );
-            wanted.insert(limb.lower, (shin, knee - shin * base(limb.lower)));
+            for (k, &(bone, i)) in parts.iter().enumerate() {
+                let turn = match (from[k], to[k], bend_frame(new, i, fallback(bone))) {
+                    (Some(a), Some(b), Some(frame)) => {
+                        let b = if a.dot(b) < 0.0 { -b } else { b };
+                        (frame * a.slerp(b, t)).normalize()
+                    }
+                    _ => {
+                        let carried = self.refit(pose, &wanted);
+                        let (from, to) = (at(&carried, parts[k].0), new[i]);
+                        let next = [limb.lower, limb.end][i];
+                        Quat::from_rotation_arc(
+                            (at(&carried, next) - from).normalize_or_zero(),
+                            (new[i + 1] - to).normalize_or_zero(),
+                        ) * carried[bone].0
+                    }
+                };
+                wanted.insert(bone, (turn, new[i] - turn * base(bone)));
+            }
             // Foot: the short way between its captured and new turns.
             let (a, b) = (was[limb.end].0, will[limb.end].0);
             let b = if a.dot(b) < 0.0 { -b } else { b };
@@ -799,7 +820,29 @@ impl<'a> Player<'a> {
             self.refit(pose, &wanted);
         }
     }
+}
 
+/// The frame of a limb's bone `i` (0 the upper, 1 the lower) from its
+/// joints (hip, knee, ankle): along the bone, then the knee's bend axis
+/// square to it, then their cross product. A limb nearly straight has no
+/// bend axis: `side` (the bone's own, blended) stands in as it straightens,
+/// kept on the same side as the bend's. `None` for a bone with no length.
+fn bend_frame(joints: [Vec3; 3], i: usize, side: Vec3) -> Option<Quat> {
+    let along = (joints[i + 1] - joints[i]).try_normalize()?;
+    let (thigh, shin) = (joints[1] - joints[0], joints[2] - joints[1]);
+    let bend = thigh.cross(shin);
+    let square = |v: Vec3| v - along * v.dot(along);
+    let side = square(side).normalize_or_zero();
+    // How bent (the sine of the knee's angle): a plane from 0.1 on.
+    let sine = bend.length() / (thigh.length() * shin.length()).max(1e-9);
+    let w = ((sine - 0.02) / 0.08).clamp(0.0, 1.0);
+    let axis = square(bend).normalize_or_zero();
+    let side = if side.dot(axis) < 0.0 { -side } else { side };
+    let axis = (axis * w + side * (1.0 - w)).try_normalize()?;
+    Some(Quat::from_mat3(&Mat3::from_cols(along, axis, along.cross(axis))).normalize())
+}
+
+impl<'a> Player<'a> {
     /// `pose`'s locals changed so the bones in `wanted` have those finals,
     /// the others keeping their locals (riding on their parents): the
     /// finals after.
