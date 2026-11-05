@@ -7,6 +7,8 @@ mod dir_index;
 mod discover;
 pub mod fingerprint;
 pub mod ja;
+#[cfg(feature = "probes")]
+pub mod probes;
 pub mod resolver;
 
 pub use dir_index::{CaseCollision, DirIndex};
@@ -34,6 +36,15 @@ impl Game {
             Game::Kotor1 => "KJK_KOTOR1",
             Game::Kotor2 => "KJK_KOTOR2",
             Game::JediAcademy => "KJK_JA",
+        }
+    }
+
+    /// The game's Steam app id: the name of its Workshop content folder.
+    pub fn steam_app_id(self) -> u32 {
+        match self {
+            Game::Kotor1 => 32370,
+            Game::Kotor2 => 208580,
+            Game::JediAcademy => 6020,
         }
     }
 
