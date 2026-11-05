@@ -105,6 +105,7 @@ impl Setup {
         let mut names: Vec<String> = [&self.single, &self.staff]
             .into_iter()
             .flat_map(|saber| saber.0.iter().cloned())
+            .chain([asset_ja::SABER_SPIN.to_string()])
             .collect();
         let ranges = [
             ("saber/saberhup", 1..=8),

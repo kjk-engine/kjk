@@ -1138,6 +1138,11 @@ impl Animator<'_> {
         if roll_playing(ps, ps.legs.anim) && !roll_playing(ps, anim) {
             return;
         }
+        // Nor a special jump's legs still playing (a butterfly hopping in
+        // its middle is thrown off the ground, and keeps its legs).
+        if in_special_jump(ps.legs.anim) && ps.legs.timer > 0 && !in_special_jump(anim) {
+            return;
+        }
         ps.legs.timer = 0;
         ps.begin_legs(anim, self.sent_legs);
     }
@@ -1201,6 +1206,7 @@ struct Families {
     kata: AnimSet,
     flipping: AnimSet,
     special_jump: AnimSet,
+    in_special_jump: AnimSet,
     jumping: AnimSet,
     special_attack: AnimSet,
     spinning: AnimSet,
@@ -1263,6 +1269,52 @@ impl Families {
                 "BOTH_FORCELEAP2_T__B_",
                 "BOTH_FORCELONGLEAP_ATTACK",
             ])),
+            // JA's special jumps, the ones this sim plays: what a forced
+            // jump or landing never cuts while it runs.
+            in_special_jump: AnimSet::of(|a| {
+                const NAMED: &[&str] = &[
+                    "BOTH_WALL_RUN_RIGHT",
+                    "BOTH_WALL_RUN_RIGHT_STOP",
+                    "BOTH_WALL_RUN_RIGHT_FLIP",
+                    "BOTH_WALL_RUN_LEFT",
+                    "BOTH_WALL_RUN_LEFT_STOP",
+                    "BOTH_WALL_RUN_LEFT_FLIP",
+                    "BOTH_WALL_FLIP_RIGHT",
+                    "BOTH_WALL_FLIP_LEFT",
+                    "BOTH_FLIP_BACK1",
+                    "BOTH_FLIP_BACK2",
+                    "BOTH_FLIP_BACK3",
+                    "BOTH_WALL_FLIP_BACK1",
+                    "BOTH_BUTTERFLY_LEFT",
+                    "BOTH_BUTTERFLY_RIGHT",
+                    "BOTH_BUTTERFLY_FL1",
+                    "BOTH_BUTTERFLY_FR1",
+                    "BOTH_FJSS_TR_BL",
+                    "BOTH_FJSS_TL_BR",
+                    "BOTH_FORCELEAP2_T__B_",
+                    "BOTH_JUMPFLIPSLASHDOWN1",
+                    "BOTH_JUMPFLIPSTABDOWN",
+                    "BOTH_JUMPATTACK6",
+                    "BOTH_JUMPATTACK7",
+                    "BOTH_ARIAL_LEFT",
+                    "BOTH_ARIAL_RIGHT",
+                    "BOTH_ARIAL_F1",
+                    "BOTH_CARTWHEEL_LEFT",
+                    "BOTH_CARTWHEEL_RIGHT",
+                    "BOTH_FORCELONGLEAP_START",
+                    "BOTH_FORCELONGLEAP_ATTACK",
+                    "BOTH_FLIP_ATTACK7",
+                    "BOTH_FLIP_HOLD7",
+                    "BOTH_A7_SOULCAL",
+                ];
+                let name = a.name();
+                NAMED.contains(&name)
+                    || name == "BOTH_FLIP_LAND"
+                    || name.starts_with("BOTH_FORCEWALLRUNFLIP_")
+                    || name.starts_with("BOTH_FORCEWALLREBOUND_")
+                    || name.starts_with("BOTH_FORCEWALLHOLD_")
+                    || name.starts_with("BOTH_FORCEWALLRELEASE_")
+            }),
             flipping,
             jumping: AnimSet::named(&[
                 "BOTH_INAIR1",
@@ -1389,6 +1441,12 @@ pub(crate) fn is_kick(anim: Anim) -> bool {
 
 pub(crate) fn is_kata(anim: Anim) -> bool {
     FAMILIES.kata.has(anim)
+}
+
+/// One of JA's special jumps (flips, wall runs, butterflies, cartwheels, the
+/// leaping and flipping attacks, the wall rebounds).
+pub(crate) fn in_special_jump(anim: Anim) -> bool {
+    FAMILIES.in_special_jump.has(anim)
 }
 
 /// A flip, or one of the two leaping attacks.
