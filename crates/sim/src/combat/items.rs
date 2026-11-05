@@ -164,7 +164,7 @@ pub fn use_of(row: u16) -> Option<Use> {
     };
     let adrenal = |ability: Ability, amount| Use::Stim(Stim::Ability(ability as u8, amount));
     let battle = |bonus, vitality| Use::Stim(Stim::Battle { bonus, vitality });
-    if crate::combat::grenades::effect(row).is_some() {
+    if crate::combat::grenades::is_grenade(row) {
         return Some(Use::Grenade);
     }
     use crate::combat::spells::*;

@@ -152,7 +152,9 @@ pub(crate) fn encode_item(facts: &ItemFacts, out: &mut Writer) {
     encode_list(&facts.recolours, out, |template, out| out.string(template));
     encode_list(&facts.needs, out, |feat, out| out.u16(*feat));
     out.u8(facts.trap.unwrap_or(u8::MAX));
-    out.u8(u8::from(facts.stealth_unit) | u8::from(facts.shield) << 1);
+    out.u8(u8::from(facts.stealth_unit)
+        | u8::from(facts.shield) << 1
+        | u8::from(facts.launcher) << 2);
 }
 
 pub(crate) fn decode_item(input: &mut Reader) -> Result<ItemFacts, DecodeError> {
@@ -219,10 +221,12 @@ pub(crate) fn decode_item(input: &mut Reader) -> Result<ItemFacts, DecodeError> 
         trap: Some(input.u8()?).filter(|row| *row != u8::MAX),
         stealth_unit: false,
         shield: false,
+        launcher: false,
     };
     let kinds = input.u8()?;
     facts.stealth_unit = kinds & 1 != 0;
     facts.shield = kinds & 2 != 0;
+    facts.launcher = kinds & 4 != 0;
     Ok(facts.made())
 }
 

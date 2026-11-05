@@ -740,6 +740,8 @@ pub struct Figure {
     /// Its melee wield number (`Sheet::wield_number`): the ready stance it
     /// holds after a scene's round (`acting`).
     wield: u8,
+    /// Whether it wears TSL's wrist launcher (`acting::Throw`).
+    launcher: bool,
     /// The legs' and the torso's whole frame at the last step, and the
     /// animation it was in.
     frames: [Option<(i32, Anim)>; 2],
@@ -822,6 +824,7 @@ impl Figure {
             rising: None,
             ready,
             wield: 2,
+            launcher: false,
             frames: [None; 2],
             shown_torso: None,
             shot_ms: [None; 2],
@@ -1320,7 +1323,7 @@ impl Figure {
 /// `WALK`, `RUN`, `DIE`, `DEAD`, `GETUP`), the one it showed last and how
 /// far in, and the one it left, fading out (where it stopped, and when,
 /// sim ms); its clips for scripts' animations and what it shows of them
-/// (`acting`); the metres its walk and run cycles cover and how far into
+/// (`acting`) and of its grenade throws; the metres its walk and run cycles cover and how far into
 /// each it is, as of when (sim ms); its nodes' parents and rest
 /// (`rest_of`); how it leans with the floor, if it does (`ground_lean`);
 /// whether it is a creature model (`CreatureClips::creature`).
@@ -1333,6 +1336,7 @@ struct Clips {
     shows: acting::Shows,
     flinch: acting::Flinch,
     attack: acting::Attack,
+    throw: acting::Throw,
     strides: [f32; 2],
     cycles: [f32; 2],
     cycled_ms: Option<f64>,
@@ -2169,6 +2173,7 @@ impl Cast {
                 shows: acting::Shows::default(),
                 flinch: acting::Flinch::default(),
                 attack: acting::Attack::default(),
+                throw: acting::Throw::default(),
                 strides: *strides,
                 cycles: [0.0; 2],
                 cycled_ms: None,
@@ -2365,6 +2370,7 @@ impl Cast {
                 let (out, held) = (weapon(entity, &objects), sheet(entity, &objects));
                 member.figure.ready = ready_anim(out);
                 member.figure.wield = held.wield_number();
+                member.figure.launcher = held.gear.has(sim::combat::gear::traits::WRIST_LAUNCHER);
                 member.figure.breath.wield = stance::wield(out, &held, &self.wields);
                 member
                     .figure
@@ -3483,7 +3489,7 @@ fn place(
             let acting = acting::or_talk(acting, talk, (acted, figure.breath.wield), ms);
             shows.follow(acting, (still, moving, at.alive, world_held), ms);
             hear(heard, shows, (acted, figure.breath.wield), ms);
-            throw.follow(at.fighter.as_ref());
+            throw.follow(at.fighter.as_ref(), figure.launcher);
             // A player's own body (its gait) keeps JA's; JA's own pain,
             // drawn on the pose, is the flinch where the sim plays it.
             let pained = gait.is_some() || pained(&at.state);
@@ -3755,6 +3761,7 @@ fn place(
                 .follow(acting, (still, moving, at.alive, world_held), ms);
             clips.flinch.follow(at.fighter.as_ref(), false, true);
             clips.attack.follow(at.fighter.as_ref());
+            clips.throw.follow(at.fighter.as_ref(), figure.launcher);
             // Its scripted clips show and sound as a retargeted body's do,
             // whether or not a conversation holds the world.
             hear(
@@ -3856,11 +3863,13 @@ impl Clips {
             .flinch
             .shown(&self.acted, ms, wield)
             .filter(|_| at.alive);
+        let throw = self.throw.shown(&self.acted, ms);
         for (clip, seconds, weight) in self
             .shows
             .shown(&self.acted, ms, (wield, None))
             .chain(attack)
             .chain(flinch)
+            .chain(throw)
         {
             clip.pose_over(seconds, weight, transforms);
             if let Some(face) = face {

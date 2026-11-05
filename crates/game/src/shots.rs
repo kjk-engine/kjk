@@ -144,7 +144,7 @@ pub fn shots(
 pub fn threw(fighter: Option<&sim::combat::Fighter>, since_ms: u64) -> bool {
     fighter.is_some_and(|f| {
         let (row, at) = f.pack.last;
-        at > since_ms && sim::combat::grenades::effect(row).is_some()
+        at > since_ms && sim::combat::grenades::is_grenade(row)
     })
 }
 

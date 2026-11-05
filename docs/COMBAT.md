@@ -780,7 +780,17 @@ either game) goes at any distance: 55° up, charged to land on the target
 (`grenades::lob_strength`), meeting nothing on the way and bursting as it
 lands, as KOTOR's projectile moves to its position on a timer. A mind out of
 a fight keeps a scripted throw's charge (end_m01aa's thrower is out of combat
-by `CancelCombat`). Any other grenade bounces and bursts on its fuse. `kjk combat grenades k1`: 17 checks.
+by `CancelCombat`). Any other grenade bounces and bursts on its fuse.
+
+TSL's wrist launcher (`baseitems.2da` `itemtype` 48, Mira's `g_i_wristlaunch`), worn on a forearm,
+sets `gear::traits::WRIST_LAUNCHER`. The grenade button then fires instead of throwing: a grenade as its
+launched row (`grenades::launched`, the executable's `ConvertGrenadeSpellID`), and the rockets and darts
+(`spells.2da` 185, 190–199), which stay carried without one (`grenades::usable`). What it fires is
+`projtype` `homing` (`grenades::homing`): straight along the aim at the executable's speed for the
+distance (`grenades::homing_speed`, `rules::grenades::launched`), bursting on the first thing it meets;
+`k_sup_grenade` is cast there with the body it met as its target. The body plays TSL's `b11a3`
+(Wrist_Launch) where it has it, in place of `throwgren`; droids play their own `throwgren` (HK-47's on
+its upper body, T3-M4's whole). `kjk combat grenades k1`: 20 checks.
 
 How `kjk play` shows a throw (from the snapshots alone; the survey is the
 journal's `grenade-visuals/SURVEY.md`):
