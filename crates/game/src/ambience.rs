@@ -48,7 +48,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use asset_ja::fx::Rng;
-use asset_odyssey::sound::{AreaSound, Emitter, Moves, Tables, Voice};
+use asset_odyssey::sound::{AreaSound, Emitter, Group, Moves, Tables, Voice};
 use audio::{Bed, Bus, Clip, Falloff, Stream};
 use bevy::prelude::*;
 use sim::module::ObjectKind;
@@ -63,9 +63,10 @@ use crate::sound::{Added, Beds, Cue, Cues, Forget, Hold, Loops, Sounding};
 use collision::{Contents, Extents};
 
 const UNIT: f32 = asset_ja::UNIT;
-/// The beds' gains, before the mix's own (`s_volume`).
-const MUSIC: f32 = 0.6;
-const AMBIENT: f32 = 0.8;
+/// The music's gain with no area's tables read (the menu's, the credits'):
+/// `Streams_Music`'s volume over `Non_Player_Chat`'s in both games'
+/// `prioritygroups.2da` (64 and 90), as `group_bed` gives it.
+const MENU_MUSIC_GAIN: f32 = audio::spatial::EAR_SHARE * 64.0 / 90.0;
 /// A footstep's gain; how far down the floor is looked for under a
 /// character's box origin, and how far above its soles that is (units);
 /// the speed (units a second) below which nothing steps or rolls.
@@ -82,21 +83,28 @@ const BATTLE_FADE: f64 = 1500.0;
 /// The music played through, the battle music looped, the stinger at once.
 const SONG: Bed = Bed {
     bus: Bus::Music,
-    gain: MUSIC,
+    gain: MENU_MUSIC_GAIN,
     looping: false,
     fade: FADE,
 };
 const BATTLE: Bed = Bed {
     bus: Bus::Music,
-    gain: MUSIC,
+    gain: MENU_MUSIC_GAIN,
     looping: true,
     fade: BATTLE_FADE,
 };
 const STINGER: Bed = Bed {
     bus: Bus::Music,
-    gain: MUSIC,
+    gain: MENU_MUSIC_GAIN,
     looping: false,
     fade: 0.0,
+};
+/// The area's ambience, looped.
+const AMBIENT: Bed = Bed {
+    bus: Bus::Effects,
+    gain: 0.0,
+    looping: true,
+    fade: FADE,
 };
 
 pub struct AmbiencePlugin;
@@ -547,11 +555,19 @@ fn wanted<'a>(ambience: &mut Ambience, keep: Keep, files: impl IntoIterator<Item
     }
 }
 
-/// A KOTOR volume (0 to 127) as a gain on a curve that rises fast and
-/// levels off: 0 at 0, half at about 40 and 1 at 127, so an area's quiet
-/// ambience (a volume in the 20s or 30s) stays audible under the music.
-fn ambient_gain(volume: u8) -> f32 {
-    1.25 * (1.0 - 5f32.powf(-f32::from(volume.min(127)) / 127.0))
+/// `bed` at the executables' gain for a sound of `group` (its
+/// `prioritygroups.2da` volume) times `volume` (0 to 127), straight, as
+/// they set a streamed sound's, over a conversation's voice's group's: the
+/// voice plays at full (an unplaced cue, `EAR_SHARE` in each ear), so the
+/// music and the ambience keep the games' balance with it.
+fn group_bed(bed: Bed, tables: &Tables, group: Group, volume: u8) -> Bed {
+    let voice = tables.group_gain(Group::Conversation).max(f32::EPSILON);
+    Bed {
+        gain: audio::spatial::EAR_SHARE * tables.group_gain(group) / voice
+            * f32::from(volume.min(127))
+            / 127.0,
+        ..bed
+    }
 }
 
 /// The row a track plays: a script's day or night, else the area's.
@@ -795,6 +811,13 @@ fn tracks(
         0 => tracks.ambient_day_volume,
         volume => volume - 1,
     };
+    let [song, battle_bed, stinger_bed, ambient_bed] = [
+        (SONG, Group::Music, 127),
+        (BATTLE, Group::Music, 127),
+        (STINGER, Group::Stingers, 127),
+        (AMBIENT, Group::AreaAmbient, ambient_volume),
+    ]
+    .map(|(bed, group, volume)| group_bed(bed, tables, group, volume));
     let delay = f64::from(tracks.music_delay_ms);
     let wants: Vec<String> = [&music_file, &battle_file, &ambient_file]
         .into_iter()
@@ -821,7 +844,7 @@ fn tracks(
         }
     };
     if fight && let Some(file) = &battle_file {
-        hold(ambience, "battle", file, BATTLE);
+        hold(ambience, "battle", file, battle_bed);
         ambience.song = None;
     } else if let Some((stinger, heard)) = ambience.stinger.clone() {
         // The stinger plays through, then the music begins again.
@@ -830,7 +853,7 @@ fn tracks(
             ambience.stinger = None;
         } else {
             ambience.stinger = Some((stinger.clone(), heard || sounds));
-            hold(ambience, "stinger", &stinger, STINGER);
+            hold(ambience, "stinger", &stinger, stinger_bed);
         }
     } else if scripted.music.state != sound::STOPPED
         && let Some(file) = &music_file
@@ -840,7 +863,7 @@ fn tracks(
         match ambience.song.clone() {
             Some(Song::Playing(playing)) if playing == name => {
                 if sounding.0.contains(&name) {
-                    hold(ambience, "music", file, SONG);
+                    hold(ambience, "music", file, song);
                 } else {
                     ambience.song = Some(Song::Resting(now + delay));
                 }
@@ -848,7 +871,7 @@ fn tracks(
             Some(Song::Resting(until)) if until > now => {}
             _ => {
                 ambience.song = Some(Song::Playing(name));
-                hold(ambience, "music", file, SONG);
+                hold(ambience, "music", file, song);
             }
         }
     } else {
@@ -857,17 +880,7 @@ fn tracks(
     if scripted.ambient.state != sound::STOPPED
         && let Some(file) = &ambient_file
     {
-        hold(
-            ambience,
-            "ambient",
-            file,
-            Bed {
-                bus: Bus::Effects,
-                gain: AMBIENT * ambient_gain(ambient_volume),
-                looping: true,
-                fade: FADE,
-            },
-        );
+        hold(ambience, "ambient", file, ambient_bed);
     }
 }
 
