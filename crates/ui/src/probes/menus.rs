@@ -1790,10 +1790,10 @@ pub(super) fn equip_dresses_members() -> Vec<Check> {
 }
 
 /// A body slot's list as both games' equip screens fill it
-/// (`CSWGuiInGameEquip`): an item for another race (a droid's plating on
-/// Trask) left out, one he may not wear (armour without its proficiency)
-/// listed in red with why over its description, one he may wear as any
-/// row.
+/// (`CSWGuiInGameEquip`): "None" and what is worn, marked equipped, first;
+/// an item for another race (a droid's plating on Trask) left out, one he
+/// may not wear (armour without its proficiency) listed in red with why
+/// over its description, one he may wear as any row.
 pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
     use crate::vm::Owned;
     let body = 1 << 1;
@@ -1806,14 +1806,28 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
         refused: Some(b"Feat Required: Armor Proficiency: Heavy".to_vec()),
         ..trask_owns(33, b"Armour", body, false)
     };
-    let (mut assets, vm) = trask_page(
+    let (mut assets, mut vm) = trask_page(
         "equip",
         &["BTN_INV_BODY", "LB_DESC"],
         vec![armour, plating, robe],
         true,
     );
+    if let Some(me) = vm.character.as_mut() {
+        me.worn = vec![(1, trask_owns(30, b"Jacket", body, false))];
+    }
     let mut stack = opened("equip", &mut assets, &vm);
     press(&mut stack, &mut assets, &vm, "BTN_INV_BODY");
+    // Over to the list (on its first row), down to the armour's (after
+    // "None" and the jacket).
+    for _ in 0..4 {
+        if stack.focused() == Some("LB_ITEMS") {
+            break;
+        }
+        stack.step(&mut assets, &vm, &keys(&[Key::Down]));
+    }
+    for _ in 0..2 {
+        stack.step(&mut assets, &vm, &keys(&[Key::Down]));
+    }
     let rows: Vec<(String, bool)> = stack
         .state_of("LB_ITEMS", &vm)
         .and_then(|state| state.list)
@@ -1823,8 +1837,14 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
                 .map(|row| (String::from_utf8_lossy(&row.text).into_owned(), row.refused))
                 .collect()
         });
-    let wanted = [("Armour".to_string(), true), ("Robe".to_string(), false)];
-    // The first row is pointed at: the armour, its refusal first, in red.
+    let wanted = [
+        ("None", false),
+        ("Jacket\n(Equipped)", false),
+        ("Armour", true),
+        ("Robe", false),
+    ]
+    .map(|(name, red)| (name.to_string(), red));
+    // The armour's description: its refusal first, in red.
     let told = stack
         .state_of("LB_DESC", &vm)
         .and_then(|state| state.list)
@@ -1840,7 +1860,10 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
                     }),
                 )
             })
-            .map(|()| "another race's item left out, a refused one in red, why told".into())
+            .map(|()| {
+                "the worn item marked, another race's left out, a refused one in red, why told"
+                    .into()
+            })
     })]
 }
 
