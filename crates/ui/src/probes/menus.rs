@@ -1682,6 +1682,26 @@ fn on_trask(
     tags: &[&str],
     watched: &str,
 ) -> (Vec<Intent>, bool) {
+    let (mut assets, vm) = trask_page(page, buttons, vec![owned], dresses);
+    let mut stack = opened(page, &mut assets, &vm);
+    let pressed = tags
+        .iter()
+        .flat_map(|tag| press(&mut stack, &mut assets, &vm, tag))
+        .collect();
+    let greyed = stack
+        .state_of(watched, &vm)
+        .is_some_and(|state| state.disabled);
+    (pressed, greyed)
+}
+
+/// `on_trask`'s page and view: the layout (`buttons`, the list `LB_ITEMS`)
+/// and Trask, the second member, carrying `owned`.
+fn trask_page(
+    page: &'static str,
+    buttons: &[&str],
+    owned: Vec<crate::vm::Owned>,
+    dresses: bool,
+) -> (Fake, ViewModel) {
     use crate::vm::{CharacterView, MemberView};
     let mut assets = Fake::new();
     assets.layouts.insert("top", bar());
@@ -1699,7 +1719,7 @@ fn on_trask(
     let vm = ViewModel {
         character: Some(CharacterView {
             id: 7,
-            owned: vec![owned],
+            owned,
             ..CharacterView::default()
         }),
         party: vec![
@@ -1715,15 +1735,7 @@ fn on_trask(
         viewed: 1,
         ..ViewModel::default()
     };
-    let mut stack = opened(page, &mut assets, &vm);
-    let pressed = tags
-        .iter()
-        .flat_map(|tag| press(&mut stack, &mut assets, &vm, tag))
-        .collect();
-    let greyed = stack
-        .state_of(watched, &vm)
-        .is_some_and(|state| state.disabled);
-    (pressed, greyed)
+    (assets, vm)
 }
 
 /// An item Trask may carry: object `item`, worn in `slots`, usable on
@@ -1774,6 +1786,61 @@ pub(super) fn equip_dresses_members() -> Vec<Check> {
                 )
             })
             .map(|()| "the host equips a companion nobody plays, not one played".into())
+    })]
+}
+
+/// A body slot's list as both games' equip screens fill it
+/// (`CSWGuiInGameEquip`): an item for another race (a droid's plating on
+/// Trask) left out, one he may not wear (armour without its proficiency)
+/// listed in red with why over its description, one he may wear as any
+/// row.
+pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
+    use crate::vm::Owned;
+    let body = 1 << 1;
+    let robe = trask_owns(31, b"Robe", body, false);
+    let plating = Owned {
+        unfit: true,
+        ..trask_owns(32, b"Plating", body, false)
+    };
+    let armour = Owned {
+        refused: Some(b"Feat Required: Armor Proficiency: Heavy".to_vec()),
+        ..trask_owns(33, b"Armour", body, false)
+    };
+    let (mut assets, vm) = trask_page(
+        "equip",
+        &["BTN_INV_BODY", "LB_DESC"],
+        vec![armour, plating, robe],
+        true,
+    );
+    let mut stack = opened("equip", &mut assets, &vm);
+    press(&mut stack, &mut assets, &vm, "BTN_INV_BODY");
+    let rows: Vec<(String, bool)> = stack
+        .state_of("LB_ITEMS", &vm)
+        .and_then(|state| state.list)
+        .map_or(Vec::new(), |list| {
+            list.rows
+                .iter()
+                .map(|row| (String::from_utf8_lossy(&row.text).into_owned(), row.refused))
+                .collect()
+        });
+    let wanted = [("Armour".to_string(), true), ("Robe".to_string(), false)];
+    // The first row is pointed at: the armour, its refusal first, in red.
+    let told = stack
+        .state_of("LB_DESC", &vm)
+        .and_then(|state| state.list)
+        .and_then(|list| list.rows.first().cloned())
+        .map(|row| (String::from_utf8_lossy(&row.text).into_owned(), row.refused));
+    vec![check("equip_lists_as_kotor", {
+        expect(&format!("rows {rows:?}"), rows == wanted)
+            .and_then(|()| {
+                expect(
+                    &format!("description's first row {told:?}"),
+                    told.as_ref().is_some_and(|(text, red)| {
+                        *red && text.starts_with("Feat Required: Armor Proficiency: Heavy")
+                    }),
+                )
+            })
+            .map(|()| "another race's item left out, a refused one in red, why told".into())
     })]
 }
 

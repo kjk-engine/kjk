@@ -83,6 +83,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(menus::pages());
     checks.extend(menus::equip_dresses_members());
     checks.extend(menus::equip_swaps_sets());
+    checks.extend(menus::equip_lists_as_kotor());
     checks.extend(hud::swap_button());
     checks.extend(hud::effect_arrows_stack());
     checks.extend(menus::inventory_uses_items());
