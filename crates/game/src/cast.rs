@@ -254,7 +254,9 @@ impl BodyRig {
         let grips = (0..hands)
             .map(|hand| {
                 let bolt = rig.hands[hand].as_ref()?;
-                Grip::new(self.ir, rig.gla, bolt, blade, weapons::WEAPON_NODES[hand]).ok()
+                let grip = Grip::new(self.ir, rig.gla, bolt, blade, weapons::WEAPON_NODES[hand]);
+                grip.ok()
+                    .map(|grip| if double { grip.staff() } else { grip })
             })
             .collect::<Option<Vec<Grip>>>()?;
         // The retargeter borrows its grips for as long as the run lasts.
@@ -3677,13 +3679,14 @@ fn place(
                     edit(transforms, entity, |t| t.rotation = rotation);
                 }
             }
-            if let Some((node, offset)) = posed.root
-                && let (Some(&entity), Some(&(_, rest, _))) =
+            for &(node, offset) in posed.root.iter().chain(&posed.weapons) {
+                if let (Some(&entity), Some(&(_, rest, _))) =
                     (body.nodes.get(node), rig.rest.get(node))
-            {
-                edit(transforms, entity, |t| {
-                    t.translation = rest + rig.animation_scale * offset;
-                });
+                {
+                    edit(transforms, entity, |t| {
+                        t.translation = rest + rig.animation_scale * offset;
+                    });
+                }
             }
             // Standing in one of JA's held stances, it breathes (`stance`);
             // not looked through, where the eye hangs on its head and its
