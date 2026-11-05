@@ -57,7 +57,7 @@ fn galaxy_vm(host: bool) -> ViewModel {
                 planet(TARIS, "LBL_Planet_Taris", "Taris", false),
                 planet(DANTOOINE, "LBL_Planet_Dantooine", "Dantooine", true),
             ],
-            current: DANTOOINE,
+            current: Some(DANTOOINE),
             host,
         }),
         ..ViewModel::default()

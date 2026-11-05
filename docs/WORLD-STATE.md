@@ -1218,7 +1218,10 @@ kjk play --stage end_m01aa --made scout:po_pfha2:Mira --run k_con_isfemale --hea
   (`liv_m99aa`, row 11), which every PC and Mac release ships and K1's
   `k_pebn_galaxy` adds to the map by it; no other package, and none in TSL.
 - **Travel.** `ShowGalaxyMap(planet)` tells every player
-  (`Screen::GalaxyMap`, with the planets available and selectable then);
+  (`Screen::GalaxyMap`, with the planets available and selectable then;
+  a planet no row can be opens it on none, nothing chosen: K1's
+  `k_pebn_galaxy` asks for -1 when it knows no planet for
+  `K_CURRENT_PLANET`, Yavin Station's 55, so the map after Yavin);
   the host picks a planet available and selectable on the galaxy map
   screen (`docs/UI.md`; `Action::Travel`, a guest's is not taken):
   `GetSelectedPlanet` answers it and the travel script runs for the player

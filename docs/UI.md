@@ -710,7 +710,11 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   sight, else the nearest within 2.5 m in front and in sight of the
   player's eyes (what lies at the character's feet). It holds 0.2 s.
   Pick volumes are cylinders (a creature 0.4 m by 1.9, a placeable 0.5 by
-  1.5, a shut door 1 by 2.5; an open door none, its brushes only). Targetable: doors but static ones, useable placeables,
+  1.5, a shut door 1 by 2.5; an open door none, its brushes only). A
+  placeable hung over the floor the navigation mesh covers (a door's
+  panel, invisible before its console: Yavin Station's, 1.1 to 1.7 m up)
+  reaches down to that floor, one over no floor hangs about where it is
+  placed, so the console drawn below its position is picked. Targetable: doors but static ones, useable placeables,
   living creatures, and a downed party member (a seat's avatar, "Player
   N", or a companion, driven or not; lying, 0.8 m by 0.5). A living
   companion is a target whoever drives it, its AI or another player

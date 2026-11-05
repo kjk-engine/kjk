@@ -605,12 +605,13 @@ pub struct PlanetView {
 }
 
 /// The galaxy map a script showed (`ShowGalaxyMap`): the planets it shows,
-/// the one it opened on (where the party is), and whether this player
+/// the one it opened on (where the party is, if the script knew), and
+/// whether this player
 /// decides where it goes (the host, I30 P6).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GalaxyView {
     pub planets: Vec<PlanetView>,
-    pub current: u8,
+    pub current: Option<u8>,
     pub host: bool,
 }
 

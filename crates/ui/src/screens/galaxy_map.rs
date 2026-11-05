@@ -19,8 +19,8 @@ use crate::screens::tab::{disabled, hidden};
 use crate::vm::{GalaxyView, PlanetView, SceneView, ViewModel};
 
 pub struct GalaxyMap {
-    /// The planet chosen (`planetary.2da` row).
-    chosen: u8,
+    /// The planet chosen (`planetary.2da` row), if any yet.
+    chosen: Option<u8>,
     /// Where the focus starts: the planet the map opened on, when it may be
     /// chosen.
     focus: Option<String>,
@@ -47,7 +47,7 @@ impl GalaxyMap {
         let focus = galaxy
             .planets
             .iter()
-            .find(|planet| planet.row == galaxy.current && planet.selectable)
+            .find(|planet| Some(planet.row) == galaxy.current && planet.selectable)
             .map(|planet| planet.tag.clone());
         Some(GalaxyMap {
             chosen: galaxy.current,
@@ -59,7 +59,7 @@ impl GalaxyMap {
         galaxy
             .planets
             .iter()
-            .find(|planet| planet.row == self.chosen)
+            .find(|planet| Some(planet.row) == self.chosen)
     }
 
     /// The host may travel to the chosen planet.
@@ -102,7 +102,7 @@ impl Screen for GalaxyMap {
             tag if PLANETS.iter().any(|prefix| tag.starts_with(prefix)) => {
                 match planet(galaxy, tag) {
                     Some(planet) => ControlState {
-                        selected: planet.row == self.chosen,
+                        selected: Some(planet.row) == self.chosen,
                         disabled: !planet.selectable,
                         ..ControlState::default()
                     },
@@ -120,13 +120,15 @@ impl Screen for GalaxyMap {
         };
         match tag {
             ACCEPT if self.travels(galaxy) => {
-                out.push(Intent::Game(GameAction::Travel(self.chosen)));
+                if let Some(planet) = self.chosen {
+                    out.push(Intent::Game(GameAction::Travel(planet)));
+                }
                 out.push(Intent::Close);
             }
             BACK => out.push(Intent::Close),
             tag => {
                 if let Some(planet) = planet(galaxy, tag).filter(|planet| planet.selectable) {
-                    self.chosen = planet.row;
+                    self.chosen = Some(planet.row);
                 }
             }
         }
