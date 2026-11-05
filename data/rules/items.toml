@@ -248,6 +248,16 @@ summary = "Duration: {items.shields.ms:s}, unless spent."
 source = "the items' descriptions"
 see = "sim::combat::items::SHIELD_MS"
 
+[shields.vulnerable_drain]
+name = "Shield Weakness"
+type = "u16"
+value = 2
+unit = "×"
+range = [1, 10]
+summary = "Damage of a type a shield is weak to (ion, for every shield) spends its points {items.shields.vulnerable_drain} times as fast. A shield takes at most its row's resistance of one hit; the hit that breaks it passes on what the shield had no points left for."
+source = "K1's executable (the damage resistance `EffectForceShield` applies, `forceshields.2da` `vulnerflags`, `resistance`)"
+see = "sim::combat::items::absorb"
+
 [shields.energy]
 name = "Energy Shield"
 type = "u16"

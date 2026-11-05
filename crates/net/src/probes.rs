@@ -1037,6 +1037,22 @@ pub fn handshake() -> Probes {
             && produced.iter().all(|text| text.len() > 20),
         produced.join(" | "),
     );
+    let workshop = Refusal::GameData {
+        game: "tsl".into(),
+        groups: vec![
+            "override".into(),
+            "workshop/485537937".into(),
+            "workshop/later".into(),
+        ],
+    }
+    .to_string();
+    probes.check(
+        "handshake: a Workshop item in words",
+        "a refusal names the Steam Workshop item that differs, and the items past the groups a handshake carries",
+        workshop
+            == "your tsl override folder, Steam Workshop item 485537937 and later Steam Workshop items differ from the host's",
+        workshop.clone(),
+    );
 
     // The join password: with one, only a client that proves it joins.
     let mut open = |_: Peer, _: u64, _: &Credentials| Ok(());

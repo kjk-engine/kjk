@@ -1221,16 +1221,25 @@ pub fn talents(source: &dyn Source) -> sim::script::Talents {
         let rows = tables
             .table("forceshields")
             .map_or(0, |table| table.cells.len());
-        let mut bits = |row, column| {
+        // An empty cell (a row with fewer looks) is `u16::MAX`.
+        let mut cell = |row, column: &str, empty| {
             tables
                 .int("forceshields", row, column)
-                .unwrap_or(0)
-                .clamp(0, i64::from(u16::MAX)) as u16
+                .map_or(empty, |n| n.clamp(0, i64::from(u16::MAX)) as u16)
         };
         (0..rows)
             .map(|row| sim::script::ShieldRow {
-                types: bits(row, "damageflags"),
-                points: bits(row, "amount"),
+                types: cell(row, "damageflags", 0),
+                points: cell(row, "amount", 0),
+                vulnerable: cell(row, "vulnerflags", 0),
+                resist: cell(row, "resistance", 0),
+                looks: std::array::from_fn(|n| {
+                    (
+                        cell(row, &format!("appearance_{:02}", n + 1), u16::MAX),
+                        cell(row, &format!("visualeffect_{:02}", n + 1), u16::MAX),
+                    )
+                }),
+                visual: cell(row, "visualeffectdef", u16::MAX),
             })
             .collect()
     };

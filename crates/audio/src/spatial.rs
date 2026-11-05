@@ -16,8 +16,9 @@ const FADE: f32 = 0.0008;
 /// The same for a voice that fades quickly.
 const FADE_NEAR_VOICE: f32 = 0.004;
 /// Half of each ear's weight is the same on both sides; the other half
-/// follows which side the sound is on.
-const EAR_SHARE: f32 = 0.5;
+/// follows which side the sound is on. An unplaced sound is heard at this
+/// in each ear, so a bed heard as one is held at it too.
+pub const EAR_SHARE: f32 = 0.5;
 /// Both ears' volume for a sound made by the listener's own character.
 const OWN_SOUND: f32 = 0.75;
 /// Volumes come in whole steps of one in this many.

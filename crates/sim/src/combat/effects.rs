@@ -919,8 +919,9 @@ pub fn remove(fighter: &mut Fighter, id: Option<u32>, now: u64) {
         fighter.pack.poison = None;
     }
     // Its energy shield, an effect too (`ClearAllEffects`: Hrakert's
-    // sentry droid, its shield cut from the station's computer).
-    if id.is_none() {
+    // sentry droid, its shield cut from the station's computer; Taris's
+    // shield droid, from the base's).
+    if (fighter.pack.shield).is_some_and(|shield| id.is_none_or(|id| id == shield.id)) {
         fighter.pack.shield = None;
     }
     let id = match id {
@@ -969,7 +970,7 @@ pub fn strip(fighter: &mut Fighter, now: u64) {
     crate::combat::items::break_off(fighter, now);
     fighter.pack.queued = None;
     remove_poison(fighter);
-    fighter.pack.shield = None;
+    crate::combat::items::drop_shield(fighter, now);
     fighter.pack.stim = None;
     fighter.force.stop();
     let effects = &mut fighter.effects;

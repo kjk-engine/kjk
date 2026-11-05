@@ -83,7 +83,7 @@ pub fn brawls(discovery: &Discovery, game: &str, only: &[String], seconds: u64) 
         eprintln!("{game}: not found");
         return ExitCode::FAILURE;
     };
-    let index = match DirIndex::build(&install.data_root) {
+    let index = match DirIndex::of_install(install) {
         Ok(index) => index,
         Err(error) => {
             eprintln!("{error}");

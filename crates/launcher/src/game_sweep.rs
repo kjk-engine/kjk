@@ -551,7 +551,7 @@ fn sweep_game(
     let install = discovery
         .get(game)
         .ok_or(format!("not found (set {})", game.env_var()))?;
-    let index = DirIndex::build(&install.data_root).map_err(|error| error.to_string())?;
+    let index = DirIndex::of_install(install).map_err(|error| error.to_string())?;
     let modules: Vec<String> = Resolver::modules(&index)
         .into_iter()
         .filter(|module| {

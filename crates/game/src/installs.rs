@@ -83,7 +83,7 @@ fn opened(found: &vfs::Install) -> Result<Arc<Install>, String> {
         return Ok(install.clone());
     }
     let started = Instant::now();
-    let index = DirIndex::build(&found.data_root).map_err(|error| error.to_string())?;
+    let index = DirIndex::of_install(found).map_err(|error| error.to_string())?;
     let install = Arc::new(Install {
         game: found.game,
         index: Arc::new(index),

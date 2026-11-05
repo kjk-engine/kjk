@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `685f7c016dfef1f3`.
+Edition `e3bcac66272e8c4a`.
 
 ## Contents
 
@@ -1581,6 +1581,12 @@ also against cold and fire; Mandalorian shields against physical damage.
 Duration: 200 seconds, unless spent.
 
 <sub>Source: the items' descriptions. Code: `sim::combat::items::SHIELD_MS`.</sub>
+
+<a id="items-shields-vulnerable-drain"></a>**Shield Weakness** = **×2** · `items.shields.vulnerable_drain`
+
+Damage of a type a shield is weak to (ion, for every shield) spends its points ×2 times as fast. A shield takes at most its row's resistance of one hit; the hit that breaks it passes on what the shield had no points left for.
+
+<sub>Source: K1's executable (the damage resistance `EffectForceShield` applies, `forceshields.2da` `vulnerflags`, `resistance`). Code: `sim::combat::items::absorb`.</sub>
 
 <a id="items-shields-energy"></a>**Energy Shield** = **20 points** · `items.shields.energy`
 

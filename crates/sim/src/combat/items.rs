@@ -376,15 +376,48 @@ impl Poisoned {
     }
 }
 
-/// A shield up: its row (`spells.2da`, the item's: how it looks and
-/// sounds), the damage types it takes (`DAMAGE_TYPE_*` bits), the points it
-/// has left, and until when.
+/// A shield up: its row (`spells.2da`, the item's: how it sounds where it
+/// has no look of its own), the damage types it takes (`DAMAGE_TYPE_*`
+/// bits), the points it has left, until when; the script effect it is
+/// (`EffectForceShield`: its look a lasting visual of the same id;
+/// `NO_EFFECT` for an item's own use), the types that spend it faster
+/// (`vulnerflags`), the most it takes of one hit, and whether it has no
+/// end of points (`amount` 0).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Shielded {
     pub row: u16,
     pub types: u16,
     pub left: u16,
     pub until: u64,
+    pub id: u32,
+    pub vulnerable: u16,
+    pub resist: u16,
+    pub endless: bool,
+}
+
+/// The id of a shield that is no script effect.
+pub const NO_EFFECT: u32 = u32::MAX;
+
+impl Shielded {
+    /// An item's own shield (no impact script ran): `points` of `types`,
+    /// all of a hit taken, none faster.
+    pub fn item(row: u16, types: u16, points: u16, until: u64) -> Shielded {
+        Shielded {
+            row,
+            types,
+            left: points,
+            until,
+            id: NO_EFFECT,
+            vulnerable: 0,
+            resist: u16::MAX,
+            endless: false,
+        }
+    }
+
+    /// Whether it took its last points.
+    pub fn spent(&self) -> bool {
+        self.left == 0 && !self.endless
+    }
 }
 
 /// A stim running: its row, and until when.
@@ -575,17 +608,16 @@ impl Pack {
             out.u16(*row);
             out.u64(*until);
         });
-        let blank_shield = Shielded {
-            row: 0,
-            types: 0,
-            left: 0,
-            until: 0,
-        };
+        let blank_shield = Shielded::item(0, 0, 0, 0);
         write_fixed(out, self.shield.as_ref(), &blank_shield, |shield, out| {
             out.u16(shield.row);
             out.u16(shield.types);
             out.u16(shield.left);
             out.u64(shield.until);
+            out.u32(shield.id);
+            out.u16(shield.vulnerable);
+            out.u16(shield.resist);
+            out.u8(u8::from(shield.endless));
         });
         let blank_stim = Stimmed { row: 0, until: 0 };
         write_fixed(out, self.stim.as_ref(), &blank_stim, |stim, out| {
@@ -620,19 +652,19 @@ impl Pack {
             )?,
             shield: read_fixed(
                 input,
-                &Shielded {
-                    row: 0,
-                    types: 0,
-                    left: 0,
-                    until: 0,
-                },
+                &Shielded::item(0, 0, 0, 0),
                 |input| {
-                    Ok(Shielded {
-                        row: input.u16()?,
-                        types: input.u16()?,
-                        left: input.u16()?,
-                        until: input.u64()?,
-                    })
+                    let (row, types, left, until) =
+                        (input.u16()?, input.u16()?, input.u16()?, input.u64()?);
+                    // An old snapshot's shield reads as an item's own.
+                    let mut shield = Shielded::item(row, types, left, until);
+                    if input.since(crate::since::snapshot::SITH_BASE_FIXES) {
+                        shield.id = input.u32()?;
+                        shield.vulnerable = input.u16()?;
+                        shield.resist = input.u16()?;
+                        shield.endless = input.u8()? != 0;
+                    }
+                    Ok(shield)
                 },
                 "shield flag",
             )?,
@@ -868,12 +900,8 @@ fn land(
             ..Pressed::default()
         },
         Some(Use::Shield { points, types }) => {
-            fighter.pack.shield = Some(Shielded {
-                row,
-                types,
-                left: points,
-                until: now + SHIELD_MS,
-            });
+            drop_shield(fighter, now);
+            fighter.pack.shield = Some(Shielded::item(row, types, points, now + SHIELD_MS));
             Pressed::default()
         }
         Some(Use::Stim(stim)) => {
@@ -893,30 +921,51 @@ fn land(
 /// What runs out at `now` on a fighter: a shield and a stim end (a battle
 /// stim's vitality left with it).
 pub fn settle(fighter: &mut Fighter, now: u64) {
-    let pack = &mut fighter.pack;
-    if pack
-        .shield
-        .is_some_and(|shield| shield.until <= now || shield.left == 0)
-    {
-        pack.shield = None;
+    if (fighter.pack.shield).is_some_and(|shield| shield.until <= now || shield.spent()) {
+        drop_shield(fighter, now);
     }
+    let pack = &mut fighter.pack;
     if pack.stim.is_some_and(|stim| stim.until <= now) {
         pack.stim = None;
         pack.vitality = 0;
     }
 }
 
+/// The shield up on `fighter` taken down, and its look with it (the
+/// lasting visual of its effect's id).
+pub fn drop_shield(fighter: &mut Fighter, now: u64) {
+    if let Some(shield) = fighter.pack.shield.take()
+        && shield.id != NO_EFFECT
+    {
+        effects::remove(fighter, Some(shield.id), now);
+    }
+}
+
 /// What a shield up on `pack` takes of `damage` hundredths of damage type
-/// `row`: the part it absorbs, its points spent (whole points rounded up).
+/// `row` (K1's damage resistance): at most its `resist` of the hit and
+/// what it has left; its points spent by that (whole points rounded up),
+/// times `items.shields.vulnerable_drain` for a type it is vulnerable to,
+/// none for one with no end. The part it absorbs.
 pub fn absorb(pack: &mut Pack, row: Option<usize>, damage: i32) -> i32 {
     let Some(shield) = pack.shield.as_mut() else {
         return 0;
     };
-    let covers = row.is_some_and(|row| row < DAMAGE_TYPES && shield.types & (1 << row) != 0);
-    if !covers || damage <= 0 {
+    let has = |types: u16| row.is_some_and(|row| row < DAMAGE_TYPES && types & (1 << row) != 0);
+    if !has(shield.types) || damage <= 0 || shield.spent() {
         return 0;
     }
-    let absorbed = damage.min(i32::from(shield.left) * 100);
-    shield.left = shield.left.saturating_sub(((absorbed + 99) / 100) as u16);
+    let mut absorbed = damage.min(i32::from(shield.resist) * 100);
+    if !shield.endless {
+        absorbed = absorbed.min(i32::from(shield.left) * 100);
+        let rate = if has(shield.vulnerable) {
+            i32::from(rules::items::shields::VULNERABLE_DRAIN)
+        } else {
+            1
+        };
+        let spent = (absorbed.saturating_mul(rate) + 99) / 100;
+        shield.left = shield
+            .left
+            .saturating_sub(spent.min(i32::from(u16::MAX)) as u16);
+    }
     absorbed
 }
