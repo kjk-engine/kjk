@@ -31,7 +31,7 @@ mod playback;
 pub mod rig;
 mod rules;
 
-pub use bolt::{Bolt, bolt};
+pub use bolt::{Bolt, blade_tags, bolt};
 pub use playback::{chain, playback};
 pub use rules::{
     FLIPPING, Ignition, SPECIAL_TRAILS, blade_lengths, blend_ms, is_death, move_hold_ms,
