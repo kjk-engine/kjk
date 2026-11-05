@@ -155,11 +155,17 @@ pub enum Effect {
         cutscene: bool,
     },
     /// An energy shield for its time (`EffectForceShield`, a
-    /// `forceshields.2da` row's numbers): it takes up to `points` of the
-    /// damage types `types` (`DAMAGE_TYPE_*` bits) in all.
+    /// `forceshields.2da` row's numbers, `ShieldRow`): it takes up to
+    /// `points` of the damage types `types` (`DAMAGE_TYPE_*` bits) in all
+    /// (0: no end), at most `resist` of one hit, spent twice as fast by the
+    /// types `vulnerable`; `row` the shield's, for its look (`u16::MAX`
+    /// for none).
     Shield {
+        row: u16,
         types: u16,
         points: u16,
+        vulnerable: u16,
+        resist: u16,
     },
     /// A downed party member up again (`EffectResurrection`).
     Resurrection,
@@ -281,10 +287,19 @@ impl Effect {
                 out.u32(owner.0);
                 out.u32(*id);
             }
-            Effect::Shield { types, points } => {
+            Effect::Shield {
+                row,
+                types,
+                points,
+                vulnerable,
+                resist,
+            } => {
                 out.u8(11);
                 out.u16(*types);
                 out.u16(*points);
+                out.u16(*row);
+                out.u16(*vulnerable);
+                out.u16(*resist);
             }
             Effect::Resurrection => out.u8(12),
             Effect::Poison(course) => {
@@ -346,10 +361,23 @@ impl Effect {
                 owner: ObjectId(input.u32()?),
                 id: input.u32()?,
             },
-            11 => Effect::Shield {
-                types: input.u16()?,
-                points: input.u16()?,
-            },
+            11 => {
+                let (types, points) = (input.u16()?, input.u16()?);
+                // An old save's shield: no look, nothing faster, no cap.
+                let (row, vulnerable, resist) = if input.since(crate::since::save::SITH_BASE_FIXES)
+                {
+                    (input.u16()?, input.u16()?, input.u16()?)
+                } else {
+                    (u16::MAX, 0, u16::MAX)
+                };
+                Effect::Shield {
+                    row,
+                    types,
+                    points,
+                    vulnerable,
+                    resist,
+                }
+            }
             12 => Effect::Resurrection,
             13 => Effect::Poison(crate::combat::items::Course::decode(input)?),
             14 => Effect::State {

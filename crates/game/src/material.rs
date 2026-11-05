@@ -648,9 +648,20 @@ impl OdysseyMaterial {
             flags |= SHADOWED;
         }
         let colour = |rgb: [f32; 3]| Vec4::new(rgb[0], rgb[1], rgb[2], 1.0);
+        // An added surface is drawn unlit, but the games show it in its
+        // self-illumination's colour (the energy shields' spheres, red or
+        // blue on a grey texture; a mine's dome, `made::tint_mines`).
+        let glow = if matches!(surface, Surface::Additive | Surface::AddOne)
+            && !lighting.is_room
+            && lighting.self_illum != [0.0; 3]
+        {
+            colour(lighting.self_illum)
+        } else {
+            Vec4::ONE
+        };
         OdysseyMaterial {
             params: OdysseyParams {
-                tint: tint * Vec4::new(1.0, 1.0, 1.0, lighting.alpha),
+                tint: tint * glow * Vec4::new(1.0, 1.0, 1.0, lighting.alpha),
                 self_illum: colour(lighting.self_illum),
                 ambient: colour(lighting.ambient),
                 diffuse: colour(lighting.diffuse),

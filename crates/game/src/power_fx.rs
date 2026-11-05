@@ -22,9 +22,11 @@
 //!   its sound (a stun's `VFX_DUR_STUN`) are the script effects' view's
 //!   (`script_fx`), as the state it stands for shows it.
 //! - Items used: medpacs, antidotes and stims KOTOR's `gui_inject`, repair
-//!   kits `gui_upgrade` (`castsound`); a shield its visual effect's on
-//!   sound, its loop while it lasts, its off sound when it ends (red for
-//!   the Sith and Mandalorian shields, blue for the rest).
+//!   kits `gui_upgrade` (`castsound`). A shield its script applied
+//!   (`EffectForceShield`) sounds as its look (`script_fx`); one an item
+//!   put up with no script its visual effect's on sound, its loop while it
+//!   lasts, its off sound when it ends (red for the Sith and Mandalorian
+//!   shields, blue for the rest).
 //! - Grenades, thrown as JA's thermal detonator: JA's sounds for what JA's
 //!   physics does and KOTOR has none for (`spells.2da` names no cast or
 //!   projectile sound for them): the charge's start `charge` (the arming

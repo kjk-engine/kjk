@@ -205,6 +205,9 @@ kjk play --stage sta_m45ad --arrive sta_way_captive2 --run k_psta_cutdrain2 --he
   (following it): `duration` (else their own clip, the shields' `default`)
   round and round while it lasts, `SoundDuration` held, then `cessation`
   once, its end models (`Ces_*_Node`) and `SoundCessastion` as it ends.
+  An added mesh is drawn unlit, in its self-illumination's colour (the
+  shield spheres' grey `fx_tex_13` red or blue, as the games show them;
+  `material::OdysseyMaterial::new`).
 - A beam (`ProgFX_Duration` 608 to 621) draws the model the game's
   executable picks for it (`BEAMS`, read off the Mac build: lightning
   small and large, the droids' disable, destroy and stun, the death
