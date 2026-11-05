@@ -109,7 +109,8 @@ version of its own file on the page, the file named by the variable or
 secret `NEXUS_FILE_<PLATFORM>` (`NEXUS_FILE_MACOS_AARCH64`,
 `NEXUS_FILE_WINDOWS_X86_64`, `NEXUS_FILE_LINUX_X86_64`): the API's id for
 the file, or the `file_id` in a download link of any of its versions. The
-mod's version follows. A package with no such variable is added as a new file,
+mod's version follows. Nexus takes no `.tar.gz`, so the macOS and Linux
+packages go up repacked as `.zip` (modes and symlinks kept). A package with no such variable is added as a new file,
 and the run's notice names its id to save as the variable. Actions →
 nexus release → Run workflow with a tag uploads that Release again.
 
