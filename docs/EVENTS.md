@@ -175,6 +175,14 @@ travels in saves and recordings (`script::State`).
   action): held while its owner stands within the range, or it has none;
   farther, a run to where the owner stands and the follow again go behind
   what waits; until cleared.
+- `ActionForceFollowObject(object, distance)`: the same follow of any
+  object, at the distance asked (no less than a puppet's least), until
+  cleared; gone with the object.
+- `ActionPickUpItem(item)`, `ActionPutDownItem(item)`: a walk to within
+  1.1 m (3D) of an item on the floor, the reach-low animation for 1.5 s,
+  then the item is its holder's (the module's acquire runs as for any
+  item gained); put down, it lies at the feet after the same animation.
+  An item someone holds is not picked up, one not held not put down.
 - An unbound `Action…` routine still takes its place, completing at once.
 - Walks of objects: `GetFirst/NextObjectInArea`, `…InPersistentObject`
   (who stands in a trigger), `…InShape` (sphere, cube, cylinder, cone;

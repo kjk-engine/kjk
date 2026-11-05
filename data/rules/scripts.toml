@@ -219,6 +219,26 @@ source = "ours"
 see = "sim::script::engine::Engine::puppet_call"
 applies = ["kind:companion"]
 
+[moves.pick_up_reach]
+name = "Pick-Up Range"
+type = "f32"
+value = 1.1
+unit = "m"
+range = [0.5, 5.0]
+summary = "A character told to pick an item up or put one down does so from within {scripts.moves.pick_up_reach:bare} meters of it, measured in 3D."
+source = "TSL's executable (`AIActionPickUpItem`, `AIActionDropItem`: the distance squared against 1.21)"
+see = "sim::script::actions::PICK_UP_REACH"
+
+[moves.pick_up_ms]
+name = "Pick-Up Time"
+type = "u32"
+value = 1500
+unit = "ms"
+range = [0, 5000]
+summary = "Picking an item up or putting one down plays the reach-low animation for {scripts.moves.pick_up_ms:s} before the item changes hands."
+source = "TSL's executable (`AIActionPickUpItem`, `AIActionDropItem`: the animation queued for 1.5 s at speed 1)"
+see = "sim::script::actions::PICK_UP_MS"
+
 [moves.beside_m]
 name = "Party Member Placement"
 type = "f32"

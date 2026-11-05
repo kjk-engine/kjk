@@ -912,6 +912,7 @@ fn video_rows() -> Result<String, String> {
         by: 0,
         id: 1,
         at: 0,
+        third: 0,
     };
     let row = |parts: &[(Modifies, u16)]| {
         let mut on = effects::Effects::default();
@@ -948,6 +949,7 @@ fn force_body() -> Result<String, String> {
                 by: 0,
                 id: 1,
                 at: 0,
+                third: 0,
             },
             0,
         );
@@ -1245,6 +1247,7 @@ fn recast_after_end() -> Result<String, String> {
             by: target.0,
             id: 7,
             at: 0,
+            third: 0,
         });
         fighter.force.speed_until = now + 30_000;
         fighter.force.speed_level = 1;

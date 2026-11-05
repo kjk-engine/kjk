@@ -34,8 +34,12 @@
     the body (prediction, running no `falls`, may for a frame). The target
     block's bar shows `Revive::done(now)` to the reviver, anyone targeting
     the body and the downed (its reviver named).
-- **The loss**: every party member down is `Snapshot::lost` (sim ms),
-  final until the world is replaced. Every seat gets the lost box
+- **The loss**: every party member down since a step before is
+  `Snapshot::lost` (sim ms), final until the world is replaced. A player's
+  character falling runs the module's `Mod_OnPlrDeath` (its
+  `GetLastPlayerDied`) that step, as both executables raise it at 0 HP, so
+  a script raising the player in it (TSLRCM's sparring with Visas on the
+  Ebon Hawk, `k_ebo_plrdead`) keeps the game from being lost. Every seat gets the lost box
   (`ui::screens::lost`): the host's Load, a guest's "the host loads the
   last save". The host's Load (`ui reload`) loads its own latest save
   (never a copy) in place for every machine (`sim_host::ReloadRequest`,

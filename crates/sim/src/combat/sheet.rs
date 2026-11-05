@@ -753,9 +753,16 @@ impl Sheet {
     /// KOTOR's defence: `rules::combat::sheet::DEFENCE_BASE` + the DEX
     /// modifier (up to the armour's cap) + the rest + Dueling's.
     pub fn defence(&self) -> i32 {
+        rules::combat::sheet::DEFENCE_BASE
+            + self.dex_defence()
+            + i32::from(self.defence)
+            + passive::dueling(self)
+    }
+
+    /// What its DEX gives its Defense: the modifier, capped by its armour.
+    pub fn dex_defence(&self) -> i32 {
         let dex = self.modifier(Ability::Dexterity);
-        let dex = self.dex_cap.map_or(dex, |cap| dex.min(i32::from(cap)));
-        rules::combat::sheet::DEFENCE_BASE + dex + i32::from(self.defence) + passive::dueling(self)
+        self.dex_cap.map_or(dex, |cap| dex.min(i32::from(cap)))
     }
 
     /// A save's total before the d20 (`index` 0 Fortitude, 1 Reflex, 2

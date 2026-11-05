@@ -513,6 +513,8 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
         // Screens open and sounds play; they are not words
         // (`script_screens`, `ambience`).
         Notice::Show(screen) => format!("{screen:?}"),
+        // The host saves (`sim_host::autosave`).
+        Notice::AutoSave => String::new(),
         Notice::Sound(sound) => format!("[{}]", sound.resref()),
     }
 }
