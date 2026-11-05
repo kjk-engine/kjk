@@ -87,7 +87,9 @@ pub fn shots(
             }
             let earlier = cast::entity(before, entity.id)?;
             let was = earlier.player?.torso;
-            if was.anim == torso.anim && was.flip == torso.flip {
+            if was.anim == torso.anim && was.flip == torso.flip
+                || threw(entity.fighter.as_ref(), before.time_ms)
+            {
                 return None;
             }
             let shooting =
@@ -134,6 +136,16 @@ pub fn shots(
         })
         .flatten()
         .collect()
+}
+
+/// Whether `fighter` threw a grenade after `since_ms` (`Pack::last`): the
+/// sim turns a thrower's torso to its gun's shot (`BOTH_ATTACK3`) and
+/// restarts its gun's timer, but no shot leaves the gun.
+pub fn threw(fighter: Option<&sim::combat::Fighter>, since_ms: u64) -> bool {
+    fighter.is_some_and(|f| {
+        let (row, at) = f.pack.last;
+        at > since_ms && sim::combat::grenades::effect(row).is_some()
+    })
 }
 
 /// The bolts `me` fired in `now`'s tick (a prediction's: not advanced).
