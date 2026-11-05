@@ -547,7 +547,13 @@ pub(super) fn scripts(
             debilitated: fighter.force.stunned(now) || fighter.force.confused_until > now,
             fp: fighter.fp,
             feats: sheet.feats,
-            lasting: fighter.effects.lasting,
+            // Ended effects are gone, as the executable drops them: their
+            // slots wait to be reused, but a recast's `GetHasSpellEffect`
+            // or effect walk must not find them (issue 125).
+            lasting: fighter
+                .effects
+                .lasting
+                .map(|slot| slot.filter(|l| l.until > now)),
             sheet: crate::combat::effects::sheet_now(sheet, fighter, now),
             worn: sheet,
             hand: fighter.hand,
