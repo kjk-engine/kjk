@@ -45,6 +45,26 @@ fn described(entry: Option<&Entry>, lead: &[u8]) -> ControlState {
     }))
 }
 
+/// `described`, with `refused` (why the member may not wear it,
+/// `Owned::refused`) over it in red: a remaster's line, the games show
+/// only the red row.
+fn described_refused(entry: Option<&Entry>, lead: &[u8], refused: Option<&[u8]>) -> ControlState {
+    let mut state = described(entry, lead);
+    if let (Some(list), Some(refused)) = (state.list.as_mut(), refused) {
+        let mut line = refused.to_vec();
+        line.extend_from_slice(b"\n");
+        list.rows.insert(
+            0,
+            Row {
+                text: line,
+                refused: true,
+                ..Row::default()
+            },
+        );
+    }
+    state
+}
+
 /// What putting an item on changes, as the equip page's numbers show it
 /// (`Preview`): each that changes, "now -> then", a line each and a blank
 /// line after; nothing when none does.
@@ -149,17 +169,18 @@ fn under_desc_box(control: &Control) -> bool {
 impl Equip {
     /// The slot looked at's list: a "None" row first when it holds an item
     /// (it takes it off; a hand's weapon without an item, a dev sheet's,
-    /// cannot be), then what the party carries that fits it (an off hand:
-    /// what pairs with its main hand's weapon, `Owned::unpaired`).
+    /// cannot be), then what the party carries that goes in it and is for
+    /// the member's race (`Owned::unfit`), as both games' equip screens list
+    /// (`CSWGuiInGameEquip`): those it may not wear among them (`refused`).
     fn listed(&self, me: &CharacterView) -> Vec<Option<Owned>> {
         let Some((_, slot)) = self.slot else {
             return Vec::new();
         };
-        let off_hand = [5, 19].iter().position(|left| *left == slot);
         let wearing = me.worn.iter().any(|(at, _)| *at == slot);
-        let fitting = me.owned.iter().filter(|owned| {
-            owned.slots & 1 << rules(slot) != 0 && off_hand.is_none_or(|set| !owned.unpaired[set])
-        });
+        let fitting = me
+            .owned
+            .iter()
+            .filter(|owned| owned.slots & 1 << rules(slot) != 0 && !owned.unfit);
         wearing
             .then_some(None)
             .into_iter()
@@ -201,7 +222,8 @@ impl Page for Equip {
                         owned.previews.iter().find(|preview| preview.slot == slot)
                     })
                     .map_or(Vec::new(), |then| preview_lines(&me, then));
-                return described(item.as_ref().map(|owned| &owned.entry), &lead);
+                let refused = item.as_ref().and_then(|owned| owned.refused.as_deref());
+                return described_refused(item.as_ref().map(|owned| &owned.entry), &lead, refused);
             }
             if under_desc_box(control) {
                 return hidden();
@@ -240,12 +262,29 @@ impl Page for Equip {
                     name: b"None".to_vec(),
                     ..Entry::default()
                 };
-                let entries: Vec<Entry> = self
+                let slot = self.slot.map(|(_, slot)| slot);
+                let off_hand = [5, 19].iter().position(|left| Some(*left) == slot);
+                // In red, as both games' `CSWGuiInGameItemEntry::SetCanUse`
+                // draws one the member may not wear, or (K1's) an off hand's
+                // that does not go with its main hand's weapon.
+                let refused = |owned: &Owned| {
+                    owned.refused.is_some() || off_hand.is_some_and(|set| owned.unpaired[set])
+                };
+                let (entries, red): (Vec<Entry>, Vec<bool>) = self
                     .listed(&me)
                     .into_iter()
-                    .map(|row| row.map_or_else(|| none.clone(), |owned| owned.entry))
-                    .collect();
-                rows(&entries, self.chosen)
+                    .map(|row| match row {
+                        Some(owned) => (owned.entry.clone(), refused(&owned)),
+                        None => (none.clone(), false),
+                    })
+                    .unzip();
+                let mut state = rows(&entries, self.chosen);
+                if let Some(list) = state.list.as_mut() {
+                    for (row, red) in list.rows.iter_mut().zip(red) {
+                        row.refused = red;
+                    }
+                }
+                state
             }
             "LB_ITEMS" => {
                 let entries: Vec<Entry> =

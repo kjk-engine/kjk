@@ -25,6 +25,7 @@
 
 use bevy::prelude::*;
 use sim::combat::Sheet;
+use sim::inventory::properties::Wearer;
 use sim::inventory::{Catalog, Goods, Item, ItemFacts, PARTY, has_upgrade};
 use ui::assets::{GuiAssets, ItemLook};
 use ui::draw::Textures as _;
@@ -298,6 +299,8 @@ pub(crate) fn owned(assets: &mut GuiAssets, id: u32, item: &Item, bao_dur_met: b
         item: id,
         slots: look.as_ref().map_or(0, |look| look.slots),
         usable: false,
+        unfit: false,
+        refused: None,
         unpaired: [false; 2],
         previews: Vec::new(),
         entry: Entry {
@@ -311,6 +314,37 @@ pub(crate) fn owned(assets: &mut GuiAssets, id: u32, item: &Item, bao_dur_met: b
             description,
         },
     }
+}
+
+/// Both games' "Feat Required".
+const FEAT_REQUIRED: u32 = 1055;
+
+/// Why `wearer` may not wear `facts` (`State::equip_refusal`), as a line:
+/// "Feat Required: " and the feats it lacks, by name, when those are why;
+/// else the line the refusal shows (an alignment, class or race limit).
+fn refusal(assets: &mut GuiAssets, facts: &ItemFacts, wearer: &Wearer) -> Option<Vec<u8>> {
+    let notice = sim::script::State::equip_refusal(facts, wearer)?;
+    let line = |strref| assets.text(Source::Campaign, strref).unwrap_or(Vec::new());
+    let lacking: Vec<u16> = facts
+        .needs
+        .iter()
+        .copied()
+        .filter(|need| !sim::combat::passive::may_equip(&wearer.feats, &[*need]))
+        .collect();
+    if lacking.is_empty() {
+        return Some(match notice {
+            sim::notice::Notice::Line(strref) => line(strref),
+            _ => line(sim::combat::passive::NOT_PROFICIENT),
+        });
+    }
+    let mut words = line(FEAT_REQUIRED);
+    words.extend_from_slice(b": ");
+    let names: Vec<Vec<u8>> = lacking
+        .into_iter()
+        .filter_map(|feat| assets.cell_text("feat", usize::from(feat), "name"))
+        .collect();
+    words.extend(names.join(&b", "[..]));
+    Some(words)
 }
 
 /// Base item `row` as a weapon the hands pair (`sim::inventory::pairs`):
@@ -408,7 +442,7 @@ fn view(
     sheet: &Sheet,
     (hp, fp): (i32, i32),
     goods: &Goods,
-    (me, bao_dur_met, catalog): (u32, bool, Option<&Catalog>),
+    (me, bao_dur_met, catalog, wearer): (u32, bool, Option<&Catalog>, Option<&Wearer>),
 ) -> CharacterView {
     let saves = [0, 1, 2].map(|index| sheet.save(index));
     let weapon = |assets: &mut GuiAssets, hand: usize| {
@@ -455,7 +489,16 @@ fn view(
         .carried(PARTY)
         .map(|(id, item)| {
             let off = weapon_of(assets, item);
+            // As the sim weighs an equip (`State::wear_with`): the item's
+            // facts with its upgrades fitted.
+            let facts = catalog.and_then(|catalog| {
+                let facts = catalog.get(&item.template)?;
+                Some(facts.fitted(item.upgrades, &item.fitted, catalog))
+            });
+            let rules = facts.as_ref().zip(wearer);
             Owned {
+                unfit: rules.is_some_and(|(facts, wearer)| !facts.fits(wearer.race)),
+                refused: rules.and_then(|(facts, wearer)| refusal(assets, facts, wearer)),
                 previews: catalog.map_or(Vec::new(), |catalog| {
                     previews(sheet, goods, me, item, catalog)
                 }),
@@ -540,6 +583,9 @@ struct Member {
     fighter: sim::combat::Fighter,
     class_row: Option<u8>,
     career: sim::levels::Career,
+    /// As an equip's rules weigh it (`sim::script::items::wearer`, the
+    /// host's own).
+    wearer: Wearer,
     view: MemberView,
 }
 
@@ -555,6 +601,9 @@ fn members(
     made: &Made,
 ) -> Vec<Member> {
     let instances = level.map(|level| sim::Instances::in_snapshot(level, snapshot));
+    let tsl = level
+        .and_then(|level| level.module())
+        .is_some_and(|module| module.game == "tsl");
     let class_name = |assets: &mut GuiAssets, row: usize| {
         assets
             .cell_text("classes", row, "name")
@@ -624,12 +673,32 @@ fn members(
                 .body(*seat)
                 .is_some_and(|body| body.id == entity.id)
         });
+        let wearer = Wearer {
+            good_evil: sheet.good_evil,
+            classes: [0, 1].map(|at| {
+                data.map_or(&career[..], |data| &data.classes[..])
+                    .get(at)
+                    .map_or(u8::MAX, |(class, _)| *class)
+            }),
+            race: sheet.race,
+            subrace: data.map_or(0, |data| data.subrace),
+            feats: sheet.feats,
+            gender: data
+                .map(|data| data.gender)
+                .or(persona.map(|persona| persona.gender))
+                .unwrap_or(0),
+            abilities: sheet.abilities,
+            player: seat.is_some(),
+            tag: data.map_or_else(String::new, |data| data.tag.clone()),
+            tsl,
+        };
         party.push(Member {
             id: entity.id.0,
             sheet,
             fighter,
             class_row,
             career,
+            wearer,
             view: MemberView {
                 name,
                 class,
@@ -898,7 +967,7 @@ fn show(
             &sim::combat::effects::sheet_now(member.sheet, &member.fighter, snapshot.time_ms),
             (member.fighter.hp, member.fighter.fp),
             &snapshot.goods,
-            (member.id, bao_dur_met, catalog),
+            (member.id, bao_dur_met, catalog, Some(&member.wearer)),
         )
     });
     let library = swap.as_ref().and_then(|swap| swap.level.scripts().cloned());

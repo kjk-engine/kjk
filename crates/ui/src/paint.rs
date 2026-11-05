@@ -84,8 +84,10 @@ const FLOW_OUTLINE: f32 = 2.0;
 const FLOW_ARROW: f32 = 32.0;
 const FLOW_BACK: &str = "uibit_abi_back";
 const FLOW_ARROW_IMAGE: &str = "uibit_abi_arrow";
-/// The red of a feat that may not be taken (KOTOR 2's own).
-const FLOW_CLOSED: [f32; 3] = [0.74, 0.11, 0.0];
+/// Both games' red (`CGuiInGame::COLOR_RED`): a feat that may not be
+/// taken (KOTOR 2's feat flow), an item the member may not wear (the equip
+/// list's `CSWGuiInGameItemEntry::SetCanUse`).
+const RED: [f32; 3] = [0.74, 0.11, 0.0];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Palette {
@@ -122,6 +124,8 @@ pub struct Row {
     pub count: Option<u32>,
     /// Drawn faded (waiting on the host).
     pub dimmed: bool,
+    /// Drawn in red, chosen or not: an item the member may not wear.
+    pub refused: bool,
     /// A chain's feats, left to right (KOTOR's feat flow), in place of the
     /// rest.
     pub cells: Vec<Cell>,
@@ -204,6 +208,8 @@ pub struct ControlState {
     /// Its border, or the picture in its place, at the pulsing alpha
     /// (`Painter::pulsing`): KOTOR's pulsing borders.
     pub pulsing: bool,
+    /// Its text and border in red whether chosen or not (`Row::refused`).
+    pub refused: bool,
 }
 
 pub struct Painter<'a> {
@@ -608,7 +614,15 @@ impl<'a> Painter<'a> {
             } else {
                 1.0
             };
-            return rgba(self.palette.hilight, alpha);
+            let color = if state.refused {
+                self.color(Some(RED))
+            } else {
+                self.palette.hilight
+            };
+            return rgba(color, alpha);
+        }
+        if state.refused {
+            return rgba(self.color(Some(RED)), 1.0);
         }
         rgba(state.tint.unwrap_or_else(|| self.color(base)), 1.0)
     }
@@ -638,6 +652,8 @@ impl<'a> Painter<'a> {
         if let Some(border) = border {
             let tint = if state.disabled {
                 self.palette.disabled
+            } else if state.refused {
+                self.color(Some(RED))
             } else {
                 state.tint.unwrap_or_else(|| self.color(border.color))
             };
@@ -809,6 +825,7 @@ impl<'a> Painter<'a> {
                 selected: view.selected == Some(index),
                 disabled: state.disabled,
                 text: Some(row.text.clone()),
+                refused: row.refused,
                 ..ControlState::default()
             };
             let start = out.quads.len();
@@ -887,7 +904,9 @@ impl<'a> Painter<'a> {
             gap = ROW_GAP;
         }
         let lit = proto.hilight.as_ref().filter(|border| has_textures(border));
-        let tint = if state.focused || state.selected {
+        let tint = if state.refused {
+            self.color(Some(RED))
+        } else if state.focused || state.selected {
             lit.or(proto.border.as_ref())
                 .map_or(self.palette.hilight, |border| self.color(border.color))
         } else {
@@ -943,7 +962,7 @@ impl<'a> Painter<'a> {
                 CellLook::Known => skin::TSL_ENGINE.base,
                 CellLook::Picked => skin::TSL_ENGINE.hilight,
                 CellLook::Open => skin::TSL_ENGINE.disabled,
-                CellLook::Closed => FLOW_CLOSED,
+                CellLook::Closed => RED,
             };
             let alpha = if hover == Some(at) { self.pulse } else { 1.0 };
             let square = squares[at];
