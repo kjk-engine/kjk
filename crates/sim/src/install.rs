@@ -714,6 +714,8 @@ pub(crate) fn assemble(
         screens: before.screens,
         // The droids are made again by the party in the new area.
         remotes: Vec::new(),
+        // Standings are the whole game's, kept by the scripts.
+        standing: before.standing.clone(),
         // An arrival is never lost.
         lost: None,
         // A new area: no fight, no break, no proposal (`world::party`).

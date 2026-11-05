@@ -26,7 +26,7 @@ use std::collections::BTreeMap;
 
 use sim::combat::Relation;
 use sim::combat::fighter::{Life, Outcome};
-use sim::module::{Repute, Side, UNADJUSTED, relation};
+use sim::module::{Side, Standing, relation};
 use sim::{EntityState, Instances, Seat, Snapshot, sound};
 
 /// How long a blow stirs a body (ms): `excitedduration.2da`'s `Damage` and
@@ -191,16 +191,16 @@ pub fn bodies_and_blows(snapshot: &Snapshot, instances: &Instances) -> (Vec<Body
     (bodies, blows)
 }
 
-/// Whether `a` stands hostile to `b` by `repute` (`repute.2da`; none: no
-/// one is), as `sim::module::relation` has it.
-pub fn hostility(repute: Option<&Repute>) -> impl Fn(&Body, &Body) -> bool + '_ {
+/// Whether `a` stands hostile to `b` by `standing` (`repute.2da` as scripts
+/// changed it, `sim::Snapshot::standing`; none: no one is), as
+/// `sim::module::relation` has it.
+pub fn hostility(standing: Option<Standing<'_>>) -> impl Fn(&Body, &Body) -> bool + '_ {
     move |a, b| {
         let side = |body: &Body, faction| Side {
             id: body.id,
             faction,
             party: body.party,
         };
-        let standing = repute.map(|repute| repute.with(&UNADJUSTED));
         match (a.faction, b.faction) {
             (Some(fa), Some(fb)) => {
                 relation(standing, side(a, fa), side(b, fb)) == Relation::Hostile
