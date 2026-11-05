@@ -274,88 +274,98 @@ impl Marks {
     }
 }
 
+/// The stage with its target failing every save, of `faction` if given:
+/// as it is, and as a droid (for the droid powers).
+fn weak_targets(stage: &Stage, target: usize, faction: Option<u8>) -> [Option<Stage>; 2] {
+    use sim::combat::sheet::{flags, races};
+    let objects = sim::Instances::in_snapshot(&stage.level, &stage.start);
+    let theirs = crate::cast::sheet(&stage.start.entities[target], &objects);
+    let weak = Sheet {
+        saves: [-20; 3],
+        faction: faction.unwrap_or(theirs.faction),
+        ..theirs
+    };
+    let droid = Sheet {
+        race: races::DROID,
+        flags: weak.flags | flags::DROID,
+        ..weak
+    };
+    [weak, droid].map(|sheet| stage.with_creature_sheet(target, sheet))
+}
+
+/// K1 power `row` (none for the scene without it) cast alone at `stage`'s
+/// target, under Burst of Speed if `buffed`, by an immortal Jedi at 10 HP
+/// who knows only it, for 2.5 s: what it did, what it paid and whether
+/// the recording replayed.
+fn cast_alone(
+    stage: &Stage,
+    target: usize,
+    row: Option<u16>,
+    buffed: bool,
+) -> Option<(Marks, i32, bool)> {
+    use sim::combat::sheet::flags;
+    use sim::combat::spells::*;
+    let mut caster = Sheet::dev_jedi();
+    caster.powers = row
+        .into_iter()
+        .fold(sim::combat::sheet::Rows::default(), |known, row| known.with(row));
+    caster.flags |= flags::IMMORTAL;
+    let mut start = stage.scene(target, 160.0, caster)?;
+    let me = seat0(&start);
+    if let Some(mine) = start.entities[me].fighter.as_mut() {
+        mine.hp = 1000;
+    }
+    let time = start.time_ms;
+    let own = start.entities[target].id.0;
+    if buffed && let Some(theirs) = start.entities[target].fighter.as_mut() {
+        // Burst of Speed as its script leaves it, for either dispel to
+        // end (Supress Force ends the first two tiers only).
+        (theirs.force.speed_until, theirs.force.speed_level) = (time + 60_000, 1);
+        let lasting = effects::Lasting {
+            modifies: effects::Modifies::Defence,
+            amount: 4,
+            of: 0,
+            until: time + 60_000,
+            spell: FORCE_POWER_SPEED_BURST,
+            by: own,
+            id: 1,
+            at: time,
+        };
+        theirs.effects.add(lasting, time);
+    }
+    let throw = matches!(
+        row,
+        Some(FORCE_POWER_LIGHT_SABER_THROW | FORCE_POWER_LIGHT_SABER_THROW_ADVANCED)
+    );
+    let selected = row.and_then(|row| u8::try_from(row).ok()).unwrap_or(0);
+    // The first alternate lights the saber; held on past the draw, it
+    // throws.
+    let (button, for_ms) = if throw {
+        (buttons::ALT_ATTACK, 1500)
+    } else {
+        (buttons::FORCE_POWER, 1000)
+    };
+    let run = stage.run(&start, target, 2500, &mut |ms| {
+        let held = if row.is_some() && ms < for_ms { button } else { 0 };
+        (held, selected, 0)
+    });
+    let paid = start.entities[me].fighter.map_or(0, |f| f.fp)
+        - run.snapshots.iter().map(|s| fighter(s, me).fp).min().unwrap_or(0);
+    Some((Marks::of(&run, me, target), paid.max(0), run.replayed))
+}
+
 /// Every K1 power cast alone at the target (a droid for the droid powers,
 /// under Burst of Speed for the dispels; failing every save) by an
 /// immortal Jedi at 10 HP who knows only it: each must pay its cost and do
 /// something the same scene without it does not.
 fn every_power(stage: &Stage, target: usize, report: &mut Report) {
-    use sim::combat::sheet::{flags, races};
     use sim::combat::spells::*;
     outln!("  every K1 power alone, 2.5 s each, against a scene without it");
-    let objects = sim::Instances::in_snapshot(&stage.level, &stage.start);
-    let weak = Sheet {
-        saves: [-20; 3],
-        ..crate::cast::sheet(&stage.start.entities[target], &objects)
-    };
-    let stages = [
-        stage.with_creature_sheet(target, weak),
-        stage.with_creature_sheet(
-            target,
-            Sheet {
-                race: races::DROID,
-                flags: weak.flags | flags::DROID,
-                ..weak
-            },
-        ),
-    ];
-    let caster = |row: Option<u16>| {
-        let mut sheet = Sheet::dev_jedi();
-        sheet.powers = row
-            .into_iter()
-            .fold(sim::combat::sheet::Rows::default(), |known, row| known.with(row));
-        sheet.flags |= flags::IMMORTAL;
-        sheet
-    };
+    let stages = weak_targets(stage, target, None);
     // (target a droid, target buffed): the scene for `row`.
     let scene = |(droid, buffed): (bool, bool), row: Option<u16>| {
         let stage = stages[usize::from(droid)].as_ref()?;
-        let mut start = stage.scene(target, 160.0, caster(row))?;
-        let me = seat0(&start);
-        if let Some(mine) = start.entities[me].fighter.as_mut() {
-            mine.hp = 1000;
-        }
-        let time = start.time_ms;
-        let own = start.entities[target].id.0;
-        if buffed && let Some(theirs) = start.entities[target].fighter.as_mut() {
-            // Burst of Speed as its script leaves it, for either dispel to
-            // end (Supress Force ends the first two tiers only).
-            (theirs.force.speed_until, theirs.force.speed_level) = (time + 60_000, 1);
-            let lasting = effects::Lasting {
-                modifies: effects::Modifies::Defence,
-                amount: 4,
-                of: 0,
-                until: time + 60_000,
-                spell: FORCE_POWER_SPEED_BURST,
-                by: own,
-                id: 1,
-                at: time,
-            };
-            theirs.effects.add(lasting, time);
-        }
-        let throw = matches!(
-            row,
-            Some(FORCE_POWER_LIGHT_SABER_THROW | FORCE_POWER_LIGHT_SABER_THROW_ADVANCED)
-        );
-        let selected = row.and_then(|row| u8::try_from(row).ok()).unwrap_or(0);
-        // The first alternate lights the saber; held on past the draw, it
-        // throws.
-        let (button, for_ms) = if throw {
-            (buttons::ALT_ATTACK, 1500)
-        } else {
-            (buttons::FORCE_POWER, 1000)
-        };
-        let run = stage.run(&start, target, 2500, &mut |ms| {
-            let held = if row.is_some() && ms < for_ms { button } else { 0 };
-            (held, selected, 0)
-        });
-        let paid = start.entities[me].fighter.map_or(0, |f| f.fp)
-            - run.snapshots.iter().map(|s| fighter(s, me).fp).min().unwrap_or(0);
-        Some((
-            Marks::of(&run, me, target),
-            paid.max(0),
-            run.replayed,
-            stage,
-        ))
+        cast_alone(stage, target, row, buffed).map(|(marks, paid, replayed)| (marks, paid, replayed, stage))
     };
     let kinds = [(false, false), (true, false), (false, true)];
     let baselines = kinds.map(|kind| scene(kind, None).map(|(marks, ..)| marks));
@@ -402,6 +412,54 @@ fn every_power(stage: &Stage, target: usize, report: &mut Report) {
             all - failed.len()
         ),
     );
+}
+
+/// Every hostile K1 power (`spells.2da` `hostilesetting`) cast alone at the
+/// target turned neutral (a Dantooine Jedi), then friendly: none may touch
+/// it. KOTOR offers them on enemies alone, and `k_sp1_generic` trusts that
+/// (Shock, Drain Life, Choke, Whirlwind and Stasis never ask `GetIsEnemy`).
+fn spared_powers(stage: &Stage, target: usize, report: &mut Report) {
+    use sim::combat::sheet::factions;
+    use sim::combat::spells::K1_FORCE_POWERS;
+    let hostile = |row: u16| {
+        stage
+            .level
+            .scripts()
+            .is_some_and(|library| library.spell(row).hostile)
+    };
+    for (name, faction) in [("neutral", factions::NEUTRAL), ("friendly", factions::FRIENDLY_1)] {
+        outln!("  every K1 power alone at a {name} target");
+        let stages = weak_targets(stage, target, Some(faction));
+        let scene = |droid: bool, row: Option<u16>| {
+            let stage = stages[usize::from(droid)].as_ref()?;
+            cast_alone(stage, target, row, false).map(|(marks, ..)| marks)
+        };
+        let baselines = [false, true].map(|droid| scene(droid, None));
+        let mut touched = Vec::new();
+        let rows: Vec<u16> = K1_FORCE_POWERS.into_iter().filter(|&row| hostile(row)).collect();
+        for &row in &rows {
+            let droid = force::crowd::droids(row);
+            let seen: Vec<String> = match (&baselines[usize::from(droid)], scene(droid, Some(row))) {
+                (Some(baseline), Some(marks)) => marks
+                    .against(baseline)
+                    .into_iter()
+                    .filter(|what| what.starts_with("target"))
+                    .collect(),
+                _ => vec!["no scene".to_string()],
+            };
+            if !seen.is_empty() {
+                outln!("    BAD {row:>3} {:<40} {}", label(row), seen.join(", "));
+                touched.push(row);
+            }
+        }
+        report.check(
+            !rows.is_empty() && touched.is_empty(),
+            format!(
+                "none of {} hostile K1 powers touches a {name} target; touched: {touched:?}",
+                rows.len()
+            ),
+        );
+    }
 }
 
 /// A `spells.2da` row's label where `combat::spells` names it.
@@ -1176,6 +1234,7 @@ pub fn force(
     );
 
     every_power(&stage, target, &mut report);
+    spared_powers(&stage, target, &mut report);
 
     report.finish(serde_json::json!({
         "verb": "combat force", "game": game, "module": module,
