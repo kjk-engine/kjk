@@ -262,6 +262,39 @@ source = "the owner's balance, 2026-10-15"
 see = "sim::combat::saber::sweep::Contact::due_share"
 applies = ["kind:lightsaber", "kind:melee"]
 
+[sweep.pass_gap_ms]
+name = "Swing Gap"
+type = "u64"
+value = 150
+unit = "ms"
+range = [0, 1000]
+summary = "In a move of several swings (the katas, butterflies, spins and the two-bladed jump attacks), a blade back in the target within {sabers.sweep.pass_gap_ms:s} of leaving it is still the same pass."
+source = "ours; JA hits again 100 ms after a hit"
+see = "sim::combat::saber::sweep::Swing::pass_share"
+applies = ["kind:lightsaber", "kind:melee"]
+
+[sweep.pass_blows]
+name = "Swing Damage"
+type = "u32"
+value = 1500
+unit = "‰"
+range = [100, 5000]
+summary = "In a move of several swings, each pass of the blade through a target deals up to {sabers.sweep.pass_blows:pct} of an ordinary blow's damage, so every swing that lands pays."
+source = "the owner's balance, 2026-11-05 (JA: every hit of a kata is a whole hit)"
+see = "sim::combat::saber::sweep::Swing::pass_share"
+applies = ["kind:lightsaber", "kind:melee"]
+
+[sweep.several_budget]
+name = "Combo Damage"
+type = "u32"
+value = 1500
+unit = "‰"
+range = [1000, 5000]
+summary = "A move of several swings landed in full deals up to {sabers.sweep.several_budget:pct} of what ordinary blows would over its length: it commits its wielder for longer."
+source = "the owner's balance, 2026-11-05 (JA: katas hit harder and cost Force)"
+see = "sim::combat::saber::sweep::Swing::budget"
+applies = ["kind:lightsaber", "kind:melee"]
+
 [sweep.melee_box]
 name = "Blade Width"
 value = 2.0
