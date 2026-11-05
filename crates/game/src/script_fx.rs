@@ -178,8 +178,9 @@ const WIDE_DEGREES: f32 = 135.0;
 const WIDENING_MS: f64 = 750.0;
 const WIDE_MS: u64 = 4750;
 /// A screen shake's swing at its height (degrees), and the swing's period
-/// (ms), as the executable shakes the camera (`Shake::angles`).
-const SHAKE_DEGREES: f32 = 20.0;
+/// (ms), as the executable shakes the camera (`Shake::angles`): its 20
+/// turned to radians, then added to the camera's angles in degrees, so 20π/180.
+const SHAKE_DEGREES: f32 = 20.0 * std::f32::consts::PI / 180.0;
 const SHAKE_PERIOD_MS: f32 = 30.0;
 /// `visualeffects.2da`'s `ShakeType` of a camera's shake.
 const CAMERA_SHAKE: i32 = 2;
@@ -453,8 +454,8 @@ impl Shake {
 
     /// The camera's pitch and yaw turned at `now_ms` (degrees), `sides`
     /// each axis's roll (`true`: turned, else not), as the executable turns
-    /// it: with `r` its ms left, `20 (1 + cos(2π r / total)) sin(2π r / 30)`
-    /// degrees, each axis by that turned back or not at random.
+    /// it: with `r` its ms left, `20π/180 (1 + cos(2π r / total)) sin(2π r / 30)`
+    /// degrees (0.7° at most), each axis by that turned back or not at random.
     pub fn angles(&self, now_ms: f64, sides: [bool; 2]) -> [f32; 2] {
         let since = now_ms - self.from as f64;
         if since < 0.0 || since >= self.total as f64 {
@@ -723,7 +724,7 @@ pub fn shake_probes() -> sim::probe::Checks {
         (
             "a shake's swing, its envelope and its time",
             check(
-                (peak[0] + 40.0).abs() < 0.01
+                (peak[0] + 40f32.to_radians()).abs() < 0.001
                     && peak[1] == 0.0
                     && middle[0].abs() < 0.1
                     && waiting == [0.0; 2]
