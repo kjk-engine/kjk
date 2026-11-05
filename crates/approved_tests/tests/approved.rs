@@ -898,6 +898,16 @@ fn dialogue_formats() {
     );
 }
 
+/// The talk-table lines a level's digest holds: those its scripts may read,
+/// as they read them, so tables differing only in lines no script names
+/// (Aspyr's Mac K1 table and the Windows one: an options screen's text)
+/// make the same levels, and a named line changed moves the digest. No
+/// installs (approved 2026-11-05).
+#[test]
+fn talk_lines_digest() {
+    passed("talk lines", &sim::script::dialogue_probes::talk(), 1);
+}
+
 /// What conversations keep: answer bytes (a count that moves, so a repeated
 /// command answers once), and the scripts' state and the snapshot's view
 /// of conversations through their encodings.
