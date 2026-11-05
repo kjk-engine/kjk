@@ -22,7 +22,7 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
         eprintln!("{}: not found (set {})", game.key(), game.env_var());
         return ExitCode::FAILURE;
     };
-    let index = match DirIndex::build(&install.data_root) {
+    let index = match DirIndex::of_install(install) {
         Ok(index) => index,
         Err(error) => {
             eprintln!("{}: cannot index: {error}", install.data_root.display());

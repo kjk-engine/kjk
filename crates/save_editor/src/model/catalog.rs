@@ -302,7 +302,7 @@ fn items(data: &edit::Data) -> Vec<Entry> {
                 .source
                 .0
                 .find(&facts.template, ResType::UTI)
-                .is_some_and(|found| found.layer.name.eq_ignore_ascii_case("override"));
+                .is_some_and(|found| found.layer.rank == vfs::resolver::Rank::Directory);
             entry
         })
         .collect()

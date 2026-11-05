@@ -188,15 +188,14 @@ pub fn run(discovery: &Discovery, game: &str, resource: &str, module: Option<&st
         eprintln!("{resource:?}: expected resref.ext with a known extension");
         return ExitCode::from(2);
     };
-    let opened = DirIndex::build(&install.data_root)
+    let opened = DirIndex::of_install(install)
         .map_err(|error| error.to_string())
         .and_then(|index| {
-            let tlk = index
-                .get("dialog.tlk")
-                .and_then(|path| std::fs::read(path).ok())
-                .and_then(|bytes| Tlk::parse(&bytes).ok());
             Resolver::open(game, &index, module, TextureQuality::High)
-                .map(|resolver| (resolver, tlk))
+                .map(|resolver| {
+                    let tlk = resolver.talk.get();
+                    (resolver, tlk)
+                })
                 .map_err(|error| error.to_string())
         });
     let (resolver, tlk) = match opened {
@@ -313,7 +312,7 @@ pub fn run(discovery: &Discovery, game: &str, resource: &str, module: Option<&st
                     text(&gff.file_type).trim(),
                     gff.root.id as i32
                 );
-                tree(&gff.root, 1, tlk.as_ref());
+                tree(&gff.root, 1, tlk.as_deref());
                 ExitCode::SUCCESS
             }
             Err(error) => {

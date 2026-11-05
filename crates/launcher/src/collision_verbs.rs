@@ -139,7 +139,7 @@ fn build_all(discovery: &Discovery, game: &str, clip: ClipChoice) -> ExitCode {
         eprintln!("{}: not found (set {})", key.key(), key.env_var());
         return ExitCode::FAILURE;
     };
-    let names = match vfs::DirIndex::build(&install.data_root) {
+    let names = match vfs::DirIndex::of_install(install) {
         Ok(index) => crate::modules::module_names(&index),
         Err(error) => {
             eprintln!("{error}");

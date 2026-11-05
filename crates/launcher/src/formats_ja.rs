@@ -33,7 +33,7 @@ pub fn run(discovery: &Discovery) -> ExitCode {
         eprintln!("ja: not found (set KJK_JA)");
         return ExitCode::FAILURE;
     };
-    let stack = match DirIndex::build(&install.data_root) {
+    let stack = match DirIndex::of_install(install) {
         Ok(index) => JaStack::open(&index),
         Err(error) => {
             eprintln!("{error}");

@@ -932,15 +932,16 @@ impl fmt::Display for Refusal {
                 write!(f, "the host runs build {host}, this is build {here}")
             }
             Refusal::GameData { game, groups } => {
-                // A group is a folder, or a file at the data's root.
+                // A group is a folder, a file at the data's root, or a
+                // Steam Workshop item (`workshop/<id>`, the items past the
+                // groups a handshake carries in `workshop/later`).
                 let named: Vec<String> = groups
                     .iter()
-                    .map(|group| {
-                        if group.contains('.') {
-                            group.clone()
-                        } else {
-                            format!("{group} folder")
-                        }
+                    .map(|group| match group.strip_prefix("workshop/") {
+                        Some("later") => "later Steam Workshop items".to_string(),
+                        Some(id) => format!("Steam Workshop item {id}"),
+                        None if group.contains('.') => group.clone(),
+                        None => format!("{group} folder"),
                     })
                     .collect();
                 let Some((last, rest)) = named.split_last() else {
