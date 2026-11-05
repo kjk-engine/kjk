@@ -82,6 +82,27 @@ impl TextureQuality {
     }
 }
 
+/// Whether `rest`, a lowercase path inside `override/`, is a file the games
+/// read as a resource: within the depth `game` reads (TSL one subfolder
+/// down, K1 the top level), and named as a resource type other than TXT.
+/// A TXT there is a document (a mod's readme, Aspyr's controller settings,
+/// whose line endings differ by platform); kjk reads none.
+/// `fingerprint::covered` covers these alone, so co-op compares exactly
+/// what the resolver serves from `override/`.
+pub fn read_from_override(game: Game, rest: &str) -> bool {
+    let within = match game {
+        Game::Kotor2 => rest.matches('/').count() <= 1,
+        _ => !rest.contains('/'),
+    };
+    let name = rest.rsplit('/').next().unwrap_or(rest);
+    within
+        && !crate::system_file(name)
+        && name
+            .rsplit_once('.')
+            .and_then(|(_, extension)| ResType::from_extension(extension))
+            .is_some_and(|restype| restype != ResType::TXT)
+}
+
 /// How deep a folder layer reads (`Resolver::folder`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Depth {
@@ -488,6 +509,9 @@ impl Resolver {
                 );
                 continue;
             };
+            if relative == "override" && !read_from_override(self.game, rest) {
+                continue;
+            }
             let size = std::fs::metadata(path).map_or(0, |meta| meta.len());
             let key = (resref.to_string(), restype);
             if let Some(kept) = resources.get(&key) {

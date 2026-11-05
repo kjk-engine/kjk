@@ -632,11 +632,12 @@ fn blank_cells_name_nothing() {
 /// Which copy of a resource the games read (`vfs::probes`, journal
 /// 2026-11-05-override-precedence): `override/` over a module's own, a
 /// `.mod` standing for its RIMs and `_dlg.erf`, `patch.erf` over a module,
-/// TSL's override subfolders one level down. On installs written there; no
+/// TSL's override subfolders one level down, co-op's check covering just
+/// the override files read. On installs written there; no
 /// installs needed (approved 2026-11-05).
 #[test]
 fn mod_precedence() {
-    probed("precedence", &vfs::probes::probes(), 4);
+    probed("precedence", &vfs::probes::probes(), 5);
 }
 
 /// The games' data as co-op compares it (`vfs::fingerprint`): what a play

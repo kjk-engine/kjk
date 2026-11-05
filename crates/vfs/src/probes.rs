@@ -1,7 +1,8 @@
 //! The resolver's precedence on installs written here (journal
 //! 2026-11-05-override-precedence): `override/` over a module's archives, a
 //! `.mod` standing for its RIMs and `_dlg.erf`, `patch.erf` over a module,
-//! a module's `.rim` over its `_s.rim`, and TSL's override subfolders.
+//! a module's `.rim` over its `_s.rim`, TSL's override subfolders, and
+//! co-op's check covering just the override files the resolver reads.
 
 use std::path::{Path, PathBuf};
 
@@ -252,6 +253,55 @@ fn override_subfolders() -> Result<String, String> {
     Ok(format!("tsl: {tsl}; k1: {k1}"))
 }
 
+/// Co-op compares the override files the games read and no others: a TXT
+/// with other line endings (Aspyr's `gamepad.txt` on Windows), a readme
+/// and a file deeper than the game reads leave the world's data as it
+/// was; a script changed there, or in a TSL subfolder, does not.
+fn override_fingerprint() -> Result<String, String> {
+    let world = |name: &str, game: Game, files: &[(&str, Vec<u8>)]| -> Result<_, String> {
+        let root = install(name, files)?;
+        let index = DirIndex::build(&root).map_err(|error| error.to_string())?;
+        let world = crate::fingerprint::fingerprint(game, &index, None)
+            .map_err(|error| error.to_string())?
+            .world();
+        let _ = std::fs::remove_dir_all(&root);
+        Ok(world)
+    };
+    let mac = |script: &[u8], sub: &[u8]| {
+        vec![
+            ("modules/m01.rim", archive(b"RIM V1.0", &[])),
+            ("override/a.ncs", script.to_vec()),
+            ("override/gamepad.txt", b"a\nb\n".to_vec()),
+            ("override/mod/b.ncs", sub.to_vec()),
+        ]
+    };
+    let mut windows = mac(b"a", b"b");
+    windows[2].1 = b"a\r\nb\r\n".to_vec();
+    windows.push(("override/readme.rtf", b"{\\rtf1}".to_vec()));
+    windows.push(("override/mod/deep/c.ncs", b"c".to_vec()));
+    let mut told = Vec::new();
+    for game in [Game::Kotor1, Game::Kotor2] {
+        let key = game.key();
+        let same = world(&format!("fp-{key}-mac"), game, &mac(b"a", b"b"))?;
+        if world(&format!("fp-{key}-win"), game, &windows)? != same {
+            return Err(format!(
+                "{key}: line endings, a readme or a deep file differ"
+            ));
+        }
+        if world(&format!("fp-{key}-script"), game, &mac(b"A", b"b"))? == same {
+            return Err(format!(
+                "{key}: a changed override script is the same world"
+            ));
+        }
+        let sub = world(&format!("fp-{key}-sub"), game, &mac(b"a", b"B"))? != same;
+        if sub != (game == Game::Kotor2) {
+            return Err(format!("{key}: a changed subfolder script differs: {sub}"));
+        }
+        told.push(format!("{key}: subfolder counted {sub}"));
+    }
+    Ok(told.join("; "))
+}
+
 /// Every probe: its name and what it found, or why it failed.
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     vec![
@@ -259,5 +309,6 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ("mod_stands_for_rims", mod_stands_for_rims()),
         ("ranks_between_archives", ranks_between_archives()),
         ("override_subfolders", override_subfolders()),
+        ("override_fingerprint", override_fingerprint()),
     ]
 }

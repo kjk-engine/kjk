@@ -40,6 +40,9 @@ const KOTOR_FOLDERS: &[&str] = &[
 pub fn covered(game: Game, key: &str) -> bool {
     match game {
         Game::Kotor1 | Game::Kotor2 => {
+            if let Some(rest) = key.strip_prefix("override/") {
+                return crate::resolver::read_from_override(game, rest);
+            }
             let name = key.rsplit('/').next().unwrap_or(key);
             (KOTOR_FILES.contains(&key) || KOTOR_FOLDERS.iter().any(|dir| key.starts_with(dir)))
                 && !crate::system_file(name)

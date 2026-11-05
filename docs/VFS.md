@@ -40,9 +40,11 @@ added when; within one kind, the source added last wins.
    level alone.
 
 So a mod's file in `override/` beats a module's own DLG, NCS or UTC, as in
-the games. On the unmodded installs this order picks the same file as the
-order kjk used before for every name in every module (checked
-2026-11-05). Steam Workshop items are not read yet. `kjk games` names them,
+the games. A `.txt` there is a document (a mod's readme, Aspyr's controller
+settings) and is not read; the co-op fingerprint covers exactly the
+override files that are (`resolver::read_from_override`). On the
+unmodded installs this order picks the same file as the order kjk used
+before for every name in every module (checked 2026-11-05). Steam Workshop items are not read yet. `kjk games` names them,
 and the setup screen and the log say they are not loaded.
 
 Stream folders (`streammusic`, `streamsounds`, `streamwaves`/`streamvoice`,
