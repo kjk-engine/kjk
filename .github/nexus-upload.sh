@@ -67,6 +67,7 @@ for package in "$@"; do
     '{filename: $f, size_bytes: $s, md5: $m}')")
   upload_id=$(jq -r .data.id <<<"$upload")
   curl --silent --show-error --fail-with-body -X PUT --upload-file "$package" \
+    -H "Content-Type: application/octet-stream" \
     -H "Content-Disposition: attachment; filename=\"$filename\"" \
     -H "Content-MD5: $(openssl dgst -md5 -binary "$package" | base64)" \
     "$(jq -r .data.presigned_url <<<"$upload")"
