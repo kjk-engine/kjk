@@ -405,7 +405,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     // creation makes it (god mode holding on its sheet).
                     if let Some(build) = &build {
                         let made = crate::persona::Made::Desc(&build.made);
-                        crate::persona::start(&mut world, installer.base_resolver()?, 1, Some(made))?;
+                        crate::persona::start(&mut world, installer.base_resolver()?, 1, &[], Some(made))?;
                         world.add_player_flags(
                             options.sheet.flags
                                 & (sim::combat::sheet::flags::IMMORTAL

@@ -1274,9 +1274,7 @@ impl Wielded {
                 Hand::Left
             };
             let thrown = saber.thrown.filter(|_| slot == right);
-            let flying = thrown.is_some_and(|thrown| {
-                matches!(thrown.flight, Flight::Leaving | Flight::Out | Flight::Back)
-            });
+            let flying = thrown.is_some_and(|thrown| thrown.flight.flies());
             let place = thrown.zip(at.thrown_at);
             // Away from the hand: hung from the scene where the snapshots
             // have it; back in it, hung from the hand again.
@@ -1308,7 +1306,10 @@ impl Wielded {
                 let sim = lit.iter().position(|lit| {
                     lit.is_some_and(|lit| lit.id.hand == hand && lit.id.blade == n)
                 });
-                let on = at.alive && shown && (flying || sim.is_some());
+                // A staff thrown with its second blade off flies with the
+                // first alone (`cg_players.c`: the others drawn at length 0).
+                let flies_lit = flying && (n == 0 || !saber.second_off);
+                let on = at.alive && shown && (flies_lit || sim.is_some());
                 if let Some(sim) = sim.filter(|_| on && !flying) {
                     drawn.blades.push((sim, spec));
                 }

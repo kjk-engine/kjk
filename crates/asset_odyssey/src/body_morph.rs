@@ -55,15 +55,8 @@ pub fn chest(label: &str) -> Option<f32> {
 /// agrees on; none for a body rows disagree on (an armour body every
 /// woman of a size shares).
 pub fn chest_of_body(appearances: &TwoDa, body: &str) -> Option<f32> {
-    let columns: Vec<String> = ('a'..='j').map(|letter| format!("model{letter}")).collect();
     let mut amounts = (0..appearances.cells.len())
-        .filter(|&row| {
-            columns.iter().any(|column| {
-                appearances
-                    .resref(row, column)
-                    .is_some_and(|model| model.eq_ignore_ascii_case(body))
-            })
-        })
+        .filter(|&row| names_body(appearances, row, body))
         .map(|row| {
             appearances
                 .text(row, "label")
@@ -71,6 +64,16 @@ pub fn chest_of_body(appearances: &TwoDa, body: &str) -> Option<f32> {
         });
     let first = amounts.next()?;
     amounts.all(|amount| amount == first).then_some(first)?
+}
+
+/// Whether `appearance.2da` row `row` names `body` as a body (`modela` …
+/// `modelj`).
+pub fn names_body(appearances: &TwoDa, row: usize, body: &str) -> bool {
+    ('a'..='j').any(|letter| {
+        appearances
+            .resref(row, &format!("model{letter}"))
+            .is_some_and(|model| model.eq_ignore_ascii_case(body))
+    })
 }
 
 /// `ir`'s chest enlarged by `amount` (`chest`).

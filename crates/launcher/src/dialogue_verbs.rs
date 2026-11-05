@@ -304,7 +304,7 @@ pub(crate) fn play_watched(
                 portrait,
                 name,
             });
-        crate::persona::start(&mut world, resolver, 1, made)?;
+        crate::persona::start(&mut world, resolver, 1, &[], made)?;
     }
     crate::by_hand::party(&mut world, &run.party, Some(installer))?;
     if let Some(tag) = run.talk.as_ref().filter(|_| talk_later) {
