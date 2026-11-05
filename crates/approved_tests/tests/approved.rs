@@ -1685,13 +1685,14 @@ fn pazaak() {
 /// against grenades, the skill feats, Improved and Wookiee Toughness's
 /// damage reduction (K1's and TSL's), levels with Toughness (picked, its
 /// earlier levels), Wookiee Toughness, Force Sensitive and an ability
-/// minimum; and on the proving ground, a companion refused armour and an
+/// minimum; KOTOR's feat and power charts (Force Wave needing Push and
+/// Whirlwind); and on the proving ground, a companion refused armour and an
 /// implant with the game's line, granted feats by `GrantFeat` (Toughness
 /// for every level), then wearing the armour and taking a level whose
 /// class grants Master Toughness, twice alike; no install.
 #[test]
 fn feats() {
-    probed("feats", &sim::feats::probes(), 16);
+    probed("feats", &sim::feats::probes(), 17);
 }
 
 /// A host's save kept by a player (I31): `saves::copies::probes` (packed,

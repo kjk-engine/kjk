@@ -78,24 +78,27 @@ const POWER: [&str; 3] = ["name", "iconresref", "spelldesc"];
 
 /// What a level may pick, named as the pages name feats and powers.
 fn picks_view(assets: &mut GuiAssets, picks: &sim::levels::Picks) -> PicksView {
+    let mut name =
+        |table: &str, columns, row: u16| (row, entry(assets, table, usize::from(row), columns));
     let mut named = |table: &str, columns, rows: &[u16]| -> Vec<(u16, Entry)> {
+        rows.iter().map(|&row| name(table, columns, row)).collect()
+    };
+    let feats = named("feat", FEAT, &picks.feats);
+    let powers = named("spells", POWER, &picks.powers);
+    let mut chart = |table: &str, columns, rows: &[[Option<u16>; 3]]| {
         rows.iter()
-            .map(|&row| (row, entry(assets, table, usize::from(row), columns)))
+            .map(|row| row.map(|at| Some(name(table, columns, at?))))
             .collect()
     };
     PicksView {
-        feats: named("feat", FEAT, &picks.feats),
+        feats,
         feat_count: picks.feat_count,
-        powers: named("spells", POWER, &picks.powers),
+        powers,
         power_count: picks.power_count,
-        chart: picks
-            .chart
-            .iter()
-            .map(|row| {
-                row.map(|feat| Some((feat?, entry(assets, "feat", usize::from(feat?), FEAT))))
-            })
-            .collect(),
+        chart: chart("feat", FEAT, &picks.chart),
         known: picks.known.clone(),
+        power_chart: chart("spells", POWER, &picks.power_chart),
+        known_powers: picks.known_powers.clone(),
     }
 }
 

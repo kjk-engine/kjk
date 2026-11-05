@@ -986,7 +986,8 @@ Stealth XP is not raised yet.
   `mincharlevel`, `minattackbonus`, the ability minimums `minstr`,
   `mindex`, `minint`, `minwis`: blank in every row of both games, honoured
   for data that fills them, against the scores the level leaves, its
-  ability raised) and the power each power needs (`prerequisites`).
+  ability raised) and the powers each power needs (`prerequisites`, one
+  or two joined by `_`: Force Wave's `23_27` asks Push and Whirlwind).
 - **A level** of a class it has (`Classes::take`): most HP + hit die + CON
   modifier (at least 1) + Toughness's and Master Toughness's 1 each and
   Wookiee Toughness's 2 (TSL's II and III 3 and 4; `combat::passive`),
