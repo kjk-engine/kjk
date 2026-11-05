@@ -239,11 +239,16 @@ pub fn classes(source: &dyn Source) -> Classes {
     }
     if let Some(spells) = tables.table("spells") {
         for row in 0..spells.row_labels.len() {
-            if let Some(need) = spells
-                .int(row, "prerequisites")
-                .and_then(|value| value.try_into().ok())
-            {
-                classes.prerequisites.insert(row as u16, need);
+            // One power's row, or two joined (`23_27`).
+            let listed = spells
+                .text(row, "prerequisites")
+                .unwrap_or_else(String::new);
+            let mut needs = listed
+                .split('_')
+                .filter_map(|need| need.trim().parse().ok());
+            let needs = [needs.next(), needs.next()];
+            if needs[0].is_some() {
+                classes.prerequisites.insert(row as u16, needs);
             }
         }
     }

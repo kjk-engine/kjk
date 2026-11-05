@@ -2,8 +2,9 @@
 //! travels with the player, over the party table the host tells
 //! (`vm::PartySelectionView`): each available companion's portrait on its
 //! button (`LBL_CHARn`), the others not available (`LBL_NAn`), those
-//! picked framed in KOTOR's green; the one chosen named, Add or Remove
-//! for it, how many may still be picked. It opens with the party as it
+//! picked framed in KOTOR's green, the one chosen in its yellow and named,
+//! the others in the plain frame; Add or Remove for the chosen, how many
+//! may still be picked. It opens with the party as it
 //! stands and whom the script forces in, who stay.
 //!
 //! A click chooses a companion, a double click adds or removes it.
@@ -181,11 +182,10 @@ impl Screen for Party {
                         ..ControlState::default()
                     };
                 }
+                // Its frame is drawn over it (`quads`): the button's own
+                // highlight has none.
                 if let Some(npc) = slot(tag, &["BTN_NPC"]) {
-                    return ControlState {
-                        selected: self.chosen == Some(npc),
-                        ..enabled(companion(table, npc).is_some())
-                    };
+                    return enabled(companion(table, npc).is_some());
                 }
                 ControlState::default()
             }
@@ -240,22 +240,36 @@ impl Screen for Party {
         Some("BTN_DONE")
     }
 
-    /// Each companion picked framed in KOTOR's green: its button's frame
-    /// drawn again, tinted.
+    /// Each companion's frame: the one chosen in the highlight (KOTOR's
+    /// yellow), one picked in KOTOR's green, the others in the plain
+    /// colour; its button's frame drawn again, tinted.
     fn quads(&self, gui: &Gui, vm: &ViewModel, painter: &mut Painter) -> Vec<Quad> {
         let mut out = DrawList::default();
-        for npc in self.picks(vm) {
+        let picks = self.picks(vm);
+        let table = Party::table(vm);
+        let slots = table.map_or(0, |table| table.companions.len());
+        for npc in (0..slots).filter_map(|npc| u8::try_from(npc).ok()) {
+            if companion(table, npc).is_none() {
+                continue;
+            }
             let Some(button) = gui.find(&format!("BTN_NPC{npc}")) else {
                 continue;
             };
             let Some(border) = &button.border else {
                 continue;
             };
+            let color = if self.chosen == Some(npc) {
+                painter.palette.hilight
+            } else if picks.contains(&npc) {
+                PICKED
+            } else {
+                painter.palette.base
+            };
             let border = Border {
-                color: Some(PICKED),
+                color: Some(color),
                 ..border.clone()
             };
-            let [r, g, b] = PICKED;
+            let [r, g, b] = color;
             painter.border(&border, rect_of(button), [r, g, b, 1.0], &mut out);
         }
         out.quads
