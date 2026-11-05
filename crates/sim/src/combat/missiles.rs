@@ -89,7 +89,8 @@ impl Held {
 impl Missile {
     /// Where it is at sim time `ms` (units); held at its start before it,
     /// and while held for a grace. A grenade falls with JA's gravity from
-    /// its base, or rests there.
+    /// its base (a homing one flies straight: `grenades::homing`), or rests
+    /// there.
     pub fn at(&self, ms: u64) -> [f32; 3] {
         if self.held.is_some() {
             return self.base;
@@ -99,7 +100,10 @@ impl Missile {
             std::array::from_fn(|axis| self.base[axis] + self.velocity[axis] * seconds);
         match self.lob {
             Some(lob) if lob.resting => return self.base,
-            Some(_) => at[2] -= 0.5 * crate::motion::GRAVITY * seconds * seconds,
+            Some(lob) if !crate::combat::grenades::homing(lob.row) => {
+                at[2] -= 0.5 * crate::motion::GRAVITY * seconds * seconds;
+            }
+            Some(_) => {}
             None => {}
         }
         at
@@ -108,7 +112,10 @@ impl Missile {
     /// Its velocity at sim time `ms` (units/s): a grenade's falls.
     pub fn velocity_at(&self, ms: u64) -> [f32; 3] {
         let mut velocity = self.velocity;
-        if self.lob.is_some_and(|lob| !lob.resting) {
+        if self
+            .lob
+            .is_some_and(|lob| !lob.resting && !crate::combat::grenades::homing(lob.row))
+        {
             let seconds = ms.saturating_sub(self.from_ms) as f32 / 1000.0;
             velocity[2] -= crate::motion::GRAVITY * seconds;
         }

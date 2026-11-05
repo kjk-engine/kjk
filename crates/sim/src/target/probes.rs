@@ -9,7 +9,8 @@ use collision::UNIT;
 /// approved test `use_actions`: the crosshair on the door picks it, a
 /// creature before the door wins, soft aim picks what the ray misses, a
 /// wall hides from it, what is at the feet is picked looking up, past the
-/// range nothing is, a target holds and lets go, each kind's choices
+/// range nothing is, a target holds and lets go, each kind's choices, a
+/// placeable hung up a wall picked from the floor beneath it (`hung`)
 /// (`candidates` is checked
 /// with a world, `world::uses::probes`).
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
@@ -343,6 +344,59 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ground_point(0.15, 3.0, 1.0),
         10,
     );
+    // A panel hung 1.2 m up a wall (Yavin Station's door consoles) over a
+    // floor the navigation mesh covers, from the ground's middle to its
+    // far side, reaches down to that floor; one on the floor keeps its
+    // volume, one over no floor (the ground's near half) hangs about its
+    // middle; a level without a mesh keeps them as placed.
+    let corner = |x: f32, y: f32| ground_point(x, y, 0.0);
+    let nav = collision::nav::NavMesh::build(
+        &[
+            [corner(0.5, -5.5), corner(7.5, -5.5), corner(7.5, 5.5)],
+            [corner(0.5, -5.5), corner(7.5, 5.5), corner(0.5, 5.5)],
+        ],
+        crate::walk::CLEARANCE * UNIT,
+    );
+    let meshed = proving_ground().with_nav(nav);
+    let up = |x: f32, y: f32, z: f32| ground_point(x, y, z)[2];
+    let tall = PLACEABLE_HEIGHT;
+    let cases = [
+        (
+            &meshed,
+            ground_point(4.0, 0.0, 1.2),
+            (up(4.0, 0.0, 0.0), tall + 1.2),
+        ),
+        (
+            &meshed,
+            ground_point(4.0, 0.0, 0.0),
+            (up(4.0, 0.0, 0.0), tall),
+        ),
+        (
+            &meshed,
+            ground_point(-4.0, 0.0, 1.2),
+            (up(-4.0, 0.0, 1.2) - tall * 0.5, tall),
+        ),
+        (
+            &level,
+            ground_point(4.0, 0.0, 1.2),
+            (up(4.0, 0.0, 1.2), tall),
+        ),
+    ];
+    let hangs: Vec<(f32, f32)> = cases
+        .iter()
+        .map(|(level, at, _)| hung(level, *at, tall))
+        .collect();
+    let near = |a: (f32, f32), b: (f32, f32)| (a.0 - b.0).abs() < 1e-3 && (a.1 - b.1).abs() < 1e-3;
+    checks.push((
+        "target_hung_panel_reaches_the_floor",
+        check(
+            cases
+                .iter()
+                .zip(&hangs)
+                .all(|((.., wanted), got)| near(*wanted, *got)),
+            format!("{hangs:?}"),
+        ),
+    ));
     checks.push((
         "wall_hides_what_is_close_behind",
         check(

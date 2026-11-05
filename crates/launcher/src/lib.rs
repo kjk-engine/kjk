@@ -870,6 +870,9 @@ fn games() -> ExitCode {
         outln!("    store: {:?}", install.store);
         outln!("    data root: {}", install.data_root.display());
         outln!("    markers: {}", install.markers.join(" "));
+        if let Some(note) = install.workshop_note() {
+            outln!("    workshop: {note}");
+        }
         match DirIndex::build(&install.data_root) {
             Ok(index) => {
                 outln!("    files: {}", index.len());

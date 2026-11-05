@@ -2,27 +2,33 @@
 //! ordered stack of layers, lowest first, where the highest layer holding a
 //! name wins.
 //!
-//! The order follows the two references where they agree and is recorded in
-//! the I01 journal where they differ:
+//! The order is the executables' (`CExoResMan::GetKeyEntry`, read from
+//! TSL's Mac executable: journal 2026-11-05-override-precedence). A lookup
+//! searches the sources by kind (`Rank`), highest first, and among sources
+//! of one kind the one added last:
 //!
 //! 1. `chitin.key` BIFs
-//! 2. global RIMs in `rims/`, in the order below
-//! 3. `texturepacks/swpc_tex_gui.erf`
-//! 4. the texture pack for the chosen quality
-//! 5. `lips/global.mod`, `lips/localization.mod`
-//! 6. `patch.erf`
-//! 7. `override/`, top level only
-//! 8. the module: `.rim`, `_s.rim`, `.mod`, `lips/<module>_loc.mod`,
-//!    `_dlg.erf`, later ones winning
+//! 2. ERFs of priority 2: `texturepacks/swpc_tex_gui.erf`, the texture
+//!    pack for the chosen quality, `lips/global.mod`,
+//!    `lips/localization.mod`, then a module's `lips/<module>_loc.mod` and
+//!    its `.mod` (or, without one, its `_dlg.erf`)
+//! 3. RIMs: the global ones in `rims/`, in the order below, then a
+//!    module's `_s.rim` and its `.rim` (neither when it has a `.mod`)
+//! 4. ERFs of priority 1: `patch.erf`
+//! 5. `override/`: its top level, then (TSL only) its subfolders one level
+//!    down, in name order; the first file of a name wins
+//!
+//! So `override/` beats everything a module brings, which is how the games
+//! take a mod's DLG, NCS or UTC for a module's own.
 //!
 //! Stream folders (`streammusic/`, `streamsounds/`, `streamwaves/` or
 //! `streamvoice/`, `movies/`) are not in the stack. The games' executables
 //! build paths into each of them by name, so each is its own namespace,
 //! searched recursively, and asked for by folder.
 //!
-//! Layers 1 to 7 are the same for every module. `Resolver::base` opens them
-//! once; `with_module` stacks one module's archives on a base without
-//! reading the base's archives again (its layers are shared).
+//! The install's sources are the same for every module. `Resolver::base`
+//! opens them once; `with_module` ranks one module's archives among a
+//! base's without reading the base's archives again (its layers are shared).
 //!
 //! Over them all, the rulebook's layer (`RULEBOOK`): each table the
 //! rulebook changes (`rules::TABLE_CHANGES`, `data/rules/tables/`), as the
@@ -74,6 +80,36 @@ impl TextureQuality {
             TextureQuality::Low => "swpc_tex_tpc.erf",
         }
     }
+}
+
+/// Whether `rest`, a lowercase path inside `override/`, is a file the games
+/// read as a resource: within the depth `game` reads (TSL one subfolder
+/// down, K1 the top level), and named as a resource type other than TXT.
+/// A TXT there is a document (a mod's readme, Aspyr's controller settings,
+/// whose line endings differ by platform); kjk reads none.
+/// `fingerprint::covered` covers these alone, so co-op compares exactly
+/// what the resolver serves from `override/`.
+pub fn read_from_override(game: Game, rest: &str) -> bool {
+    let within = match game {
+        Game::Kotor2 => rest.matches('/').count() <= 1,
+        _ => !rest.contains('/'),
+    };
+    let name = rest.rsplit('/').next().unwrap_or(rest);
+    within
+        && !crate::system_file(name)
+        && name
+            .rsplit_once('.')
+            .and_then(|(_, extension)| ResType::from_extension(extension))
+            .is_some_and(|restype| restype != ResType::TXT)
+}
+
+/// How deep a folder layer reads (`Resolver::folder`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Depth {
+    Top,
+    /// The top level, then its subfolders' files (not theirs).
+    OneLevel,
+    All,
 }
 
 /// The rulebook's layer: the tables it changes (`stack_rulebook`).
@@ -129,7 +165,26 @@ pub type ResKey = (String, ResType);
 pub struct Layer {
     /// Relative path of the source, e.g. `chitin.key` or `modules/end_m01aa.rim`.
     pub name: String,
+    pub rank: Rank,
     pub resources: BTreeMap<ResKey, Location>,
+}
+
+/// The kinds of source a lookup searches, lowest first: a higher rank
+/// wins whatever was added when (`CExoResMan::GetKeyEntry`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Rank {
+    /// `chitin.key`'s BIFs.
+    Key,
+    /// Texture packs, lips, a module's `.mod` and `_dlg.erf`.
+    Erf2,
+    /// The global RIMs, a module's `.rim` and `_s.rim`.
+    Rim,
+    /// `patch.erf`.
+    Erf1,
+    /// `override/`.
+    Directory,
+    /// The rulebook's tables, made from what everything below resolves.
+    Rulebook,
 }
 
 /// A source that exists but could not be read, or a loose file whose
@@ -255,15 +310,16 @@ impl Resolver {
         for problem in &chitin.problems {
             resolver.problem("chitin.key", format!("{problem:?}"));
         }
-        resolver.layers.push(Arc::new(Layer {
+        resolver.push(Layer {
             name: "chitin.key".into(),
+            rank: Rank::Key,
             resources,
-        }));
+        });
 
         for rim in GLOBAL_RIMS {
-            resolver.archive(index, &format!("rims/{rim}"));
+            resolver.archive(index, &format!("rims/{rim}"), Rank::Rim);
         }
-        resolver.archive(index, "texturepacks/swpc_tex_gui.erf");
+        resolver.archive(index, "texturepacks/swpc_tex_gui.erf", Rank::Erf2);
         // Voice is `streamwaves` in K1's install and `streamvoice` in TSL's
         // (reone and xoreos name it by game); each install has only its
         // own, so whichever is there is mounted.
@@ -275,25 +331,37 @@ impl Resolver {
             "movies",
         ];
         for folder in streams {
-            if let Some(layer) = resolver.folder(index, folder, true) {
+            if let Some(layer) = resolver.folder(index, folder, Depth::All) {
                 resolver.streams.push(Arc::new(layer));
             }
         }
-        resolver.archive(index, &format!("texturepacks/{}", quality.pack()));
+        resolver.archive(
+            index,
+            &format!("texturepacks/{}", quality.pack()),
+            Rank::Erf2,
+        );
         for lips in GLOBAL_LIPS {
-            resolver.archive(index, &format!("lips/{lips}"));
+            resolver.archive(index, &format!("lips/{lips}"), Rank::Erf2);
         }
-        resolver.archive(index, "patch.erf");
-        if let Some(layer) = resolver.folder(index, "override", false) {
-            resolver.layers.push(Arc::new(layer));
+        resolver.archive(index, "patch.erf", Rank::Erf1);
+        // TSL reads `override/`'s subfolders one level down; K1 its top
+        // level alone (`AddDirectoryContents`).
+        let depth = if game == Game::Kotor2 {
+            Depth::OneLevel
+        } else {
+            Depth::Top
+        };
+        if let Some(layer) = resolver.folder(index, "override", depth) {
+            resolver.push(layer);
         }
         resolver.stack_rulebook();
         Ok(resolver)
     }
 
-    /// This resolver with `module`'s archives on top; its own layers are
-    /// shared, not read again. Meant for a `base`: stacked on another
-    /// module's resolver, both modules' archives are in the stack.
+    /// This resolver with `module`'s archives ranked among its layers (below
+    /// `override/` and `patch.erf`); its own layers are shared, not read
+    /// again. Meant for a `base`: on another module's resolver, both
+    /// modules' archives are in the stack.
     pub fn with_module(&self, index: &DirIndex, module: &str) -> Result<Resolver, ResolveError> {
         let module = module.to_ascii_lowercase();
         let rim = format!("modules/{module}.rim");
@@ -302,11 +370,16 @@ impl Resolver {
             return Err(ResolveError::NoSuchModule(module));
         }
         let mut resolver = self.clone();
-        resolver.archive(index, &rim);
-        resolver.archive(index, &format!("modules/{module}_s.rim"));
-        resolver.archive(index, &mod_file);
-        resolver.archive(index, &format!("lips/{module}_loc.mod"));
-        resolver.archive(index, &format!("modules/{module}_dlg.erf"));
+        resolver.archive(index, &format!("lips/{module}_loc.mod"), Rank::Erf2);
+        // A `.mod` is the whole module: the games then read none of its
+        // RIMs or its `_dlg.erf` (`CExoResMan::AsyncLoad`).
+        if index.get(&mod_file).is_some() {
+            resolver.archive(index, &mod_file, Rank::Erf2);
+        } else {
+            resolver.archive(index, &format!("modules/{module}_dlg.erf"), Rank::Erf2);
+            resolver.archive(index, &format!("modules/{module}_s.rim"), Rank::Rim);
+            resolver.archive(index, &rim, Rank::Rim);
+        }
         resolver.stack_rulebook();
         Ok(resolver)
     }
@@ -345,10 +418,11 @@ impl Resolver {
             resources.insert((table.to_string(), ResType::TWO_DA), location);
         }
         if !resources.is_empty() {
-            self.layers.push(Arc::new(Layer {
+            self.push(Layer {
                 name: RULEBOOK.into(),
+                rank: Rank::Rulebook,
                 resources,
-            }));
+            });
         }
     }
 
@@ -359,8 +433,19 @@ impl Resolver {
         });
     }
 
+    /// `layer` above every layer of its rank or lower, below every higher
+    /// one: of one kind, the source added last wins.
+    fn push(&mut self, layer: Layer) {
+        let at = self
+            .layers
+            .iter()
+            .position(|other| other.rank > layer.rank)
+            .unwrap_or(self.layers.len());
+        self.layers.insert(at, Arc::new(layer));
+    }
+
     /// Adds an archive layer if the file exists; a missing one is no layer.
-    fn archive(&mut self, index: &DirIndex, relative: &str) {
+    fn archive(&mut self, index: &DirIndex, relative: &str, rank: Rank) {
         let Some(path) = index.get(relative) else {
             return;
         };
@@ -376,24 +461,34 @@ impl Resolver {
                             u64::from(entry.size),
                         ));
                 }
-                self.layers.push(Arc::new(Layer {
+                self.push(Layer {
                     name: relative.to_string(),
+                    rank,
                     resources,
-                }));
+                });
             }
             Err(error) => self.problem(relative, error),
         }
     }
 
-    /// A folder of loose files as a layer, if it has any. Names are
-    /// `resref.ext`.
-    fn folder(&mut self, index: &DirIndex, relative: &str, recursive: bool) -> Option<Layer> {
+    /// A folder of loose files as a layer, if it has any, as deep as
+    /// `depth` reads. Names are `resref.ext`; of two files of one name the
+    /// first is kept: in path order, and for `Depth::OneLevel` the top
+    /// level's before its subfolders'.
+    fn folder(&mut self, index: &DirIndex, relative: &str, depth: Depth) -> Option<Layer> {
         let prefix = format!("{relative}/");
-        let files: Vec<(&str, &Path)> = index
+        let mut files: Vec<(&str, &Path)> = index
             .iter()
             .filter_map(|(key, path)| Some((key.strip_prefix(&prefix)?, path)))
-            .filter(|(rest, _)| recursive || !rest.contains('/'))
+            .filter(|(rest, _)| match depth {
+                Depth::Top => !rest.contains('/'),
+                Depth::OneLevel => rest.matches('/').count() <= 1,
+                Depth::All => true,
+            })
             .collect();
+        if depth == Depth::OneLevel {
+            files.sort_by_key(|(rest, _)| rest.contains('/'));
+        }
         if files.is_empty() {
             return None;
         }
@@ -414,16 +509,16 @@ impl Resolver {
                 );
                 continue;
             };
+            if relative == "override" && !read_from_override(self.game, rest) {
+                continue;
+            }
             let size = std::fs::metadata(path).map_or(0, |meta| meta.len());
             let key = (resref.to_string(), restype);
             if let Some(kept) = resources.get(&key) {
                 let kept: &Location = kept;
                 self.problem(
                     &format!("{prefix}{rest}"),
-                    format!(
-                        "same name as {}; the first in path order is kept",
-                        kept.path.display()
-                    ),
+                    format!("same name as {}, which is kept", kept.path.display()),
                 );
                 continue;
             }
@@ -431,6 +526,7 @@ impl Resolver {
         }
         Some(Layer {
             name: relative.to_string(),
+            rank: Rank::Directory,
             resources,
         })
     }

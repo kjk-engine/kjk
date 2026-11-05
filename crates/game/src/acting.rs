@@ -78,6 +78,7 @@ const ENGINE_CLIPS: &[(u16, &str)] = &[
     (sim::locks::animations::DOOR, "unlockdr"),
     (sim::locks::animations::PLACEABLE, "unlockcntr"),
     (THROW, "throwgren"),
+    (LAUNCH, "b11a3"),
     (DIE, "die"),
     (WHIRLWIND, "whirlwind"),
     (CHOKED, "choke"),
@@ -217,6 +218,13 @@ const THROW_ROOT: &str = "torsoupr_g";
 /// and the hand coming over the head, where the grenade leaves it.
 const THROW_HELD: f32 = 0.55;
 const THROW_RELEASE: f32 = 0.82;
+/// TSL's wrist launch (`animations.2da` row 536 `b11a3`, "Wrist_Launch":
+/// the executable's server animation 10417), played in place of the throw
+/// by one wearing a wrist launcher (only TSL's female bodies have it:
+/// `S_Female02`'s, Mira's through her supermodels); and the moment in it
+/// the shot leaves (s: the executable fires it 950 ms in).
+pub const LAUNCH: u16 = 10_536;
+const LAUNCH_FIRE: f32 = 0.95;
 /// How long the charge takes to draw the hand back, and the release to
 /// bring it over (ms; the clip's own pace is 550 and 270): the sim throws
 /// on the button's release, so the arm comes over as the grenade leaves.
@@ -690,22 +698,68 @@ pub fn hides_items(acting: &Acting, ms: f64) -> bool {
             .any(|(animation, name)| animation == acting.animation && HIDES_ITEMS.contains(&name))
 }
 
+/// How long after the grenade leaves its weapons stay hidden (ms): the
+/// rest of `throwgren` after its release (1.5 s from `THROW_RELEASE`), as
+/// long as the launch's after its shot.
+const THROW_HIDES_MS: u64 = 700;
+
+/// Whether `fighter`'s weapons are hidden at `ms` (sim ms): a clip that
+/// hides its equipped items plays (`hides_items`), or it charges or has just
+/// thrown a grenade, its hand on the grenade, not the weapon (`Throw`).
+pub fn hides_weapons(fighter: &sim::combat::Fighter, ms: f64) -> bool {
+    let (row, at) = fighter.pack.last;
+    let thrown = at > 0
+        && sim::combat::grenades::is_grenade(row)
+        && (at..at + THROW_HIDES_MS).contains(&(ms as u64));
+    fighter
+        .acting
+        .is_some_and(|acting| hides_items(&acting, ms))
+        || fighter.pack.charging_from.is_some()
+        || thrown
+}
+
 /// A body's scripted clips, bound to its nodes, by constant.
 pub type Bound = Vec<(u16, Animator)>;
 
+/// The node a body's throw is drawn under (`THROW_ROOT`): a model without
+/// it (a droid's: HK-47's `Fore_body`) the lowest node over both its hand
+/// hooks; one without hands (T3-M4) none, its whole `throwgren` drawn.
+fn throw_root(ir: &asset_odyssey::model::ModelIr) -> Option<String> {
+    let named = |name: &str| {
+        ir.nodes
+            .iter()
+            .position(|n| n.name.eq_ignore_ascii_case(name))
+    };
+    if named(THROW_ROOT).is_some() {
+        return Some(THROW_ROOT.to_string());
+    }
+    let over = |mut at: Option<usize>| {
+        std::iter::from_fn(move || {
+            let node = at?;
+            at = ir.nodes[node].parent;
+            Some(node)
+        })
+    };
+    let left: Vec<usize> = over(named("lhand")).collect();
+    over(named("rhand"))
+        .find(|node| left.contains(node))
+        .map(|node| ir.nodes[node].name.clone())
+}
+
 /// The loaded clips bound to a body's nodes (`scene::animator`); the throw
-/// to its upper body only.
+/// to its upper body only (`throw_root`).
 pub fn bind(
     placed: &crate::viewer::Placed,
     clips: &[(u16, Arc<AnimationIr>)],
     nodes: &[Entity],
 ) -> Bound {
+    let root = throw_root(&placed.ir);
     clips
         .iter()
         .filter_map(|(animation, clip)| {
-            let upper = (*animation == THROW).then(|| {
+            let upper = (matches!(*animation, THROW | LAUNCH) && root.is_some()).then(|| {
                 Arc::new(AnimationIr {
-                    root: Some(THROW_ROOT.to_string()),
+                    root: root.clone(),
                     ..(**clip).clone()
                 })
             });
@@ -719,6 +773,8 @@ pub fn bind(
 /// snapshots: the charge (`Pack::charging_from`) draws the hand back and
 /// holds it there; the throw (`Pack::last`, a grenade's row and when)
 /// brings it over the head as the grenade leaves, and the clip plays out.
+/// One wearing a wrist launcher raises its arm and fires (`LAUNCH`) where
+/// its body has the clip.
 #[derive(Default, Clone, Copy)]
 pub struct Throw {
     /// The charge last seen begin (sim ms), and whether it still runs.
@@ -726,32 +782,41 @@ pub struct Throw {
     charging: bool,
     /// The throw last seen (sim ms).
     thrown: Option<u64>,
+    /// Whether it wears a wrist launcher (`gear::traits::WRIST_LAUNCHER`).
+    launcher: bool,
 }
 
 impl Throw {
-    /// Follows `fighter` (as its later snapshot has it); a fallen one
-    /// throws nothing.
-    pub fn follow(&mut self, fighter: Option<&sim::combat::Fighter>) {
+    /// Follows `fighter` (as its later snapshot has it), wearing a wrist
+    /// `launcher` or not; a fallen one throws nothing.
+    pub fn follow(&mut self, fighter: Option<&sim::combat::Fighter>, launcher: bool) {
         let Some(fighter) = fighter.filter(|f| f.alive()) else {
             *self = Throw::default();
             return;
         };
+        self.launcher = launcher;
         let pack = &fighter.pack;
         self.charging = pack.charging_from.is_some();
         if pack.charging_from.is_some() {
             self.from = pack.charging_from;
         }
         let (row, at) = pack.last;
-        if at > 0 && sim::combat::grenades::effect(row).is_some() {
+        if at > 0 && sim::combat::grenades::is_grenade(row) {
             self.thrown = Some(at);
         }
     }
 
-    /// The throw's clip (`bound`'s `THROW`) at `ms` (sim ms): how far in and
-    /// how much over the pose.
+    /// The throw's clip (`bound`'s `THROW`, or its `LAUNCH` with a launcher)
+    /// at `ms` (sim ms): how far in and how much over the pose. A launch's
+    /// charge raises the arm to its shot, and the shot plays out from there.
     pub fn shown<'a>(&self, bound: &'a Bound, ms: f64) -> Option<(&'a Animator, f32, f32)> {
-        let (_, clip) = bound.iter().find(|(a, _)| *a == THROW)?;
-        let held = |charged: f64| THROW_HELD * (charged / WIND_UP_MS).clamp(0.0, 1.0) as f32;
+        let clip = |wanted: u16| bound.iter().find(|(a, _)| *a == wanted).map(|(_, c)| c);
+        let launch = clip(LAUNCH).filter(|_| self.launcher);
+        let (clip, held_at, release) = match launch {
+            Some(launch) => (launch, LAUNCH_FIRE, LAUNCH_FIRE),
+            None => (clip(THROW)?, THROW_HELD, THROW_RELEASE),
+        };
+        let held = |charged: f64| held_at * (charged / WIND_UP_MS).clamp(0.0, 1.0) as f32;
         let thrown = self
             .thrown
             .filter(|&at| self.from.is_none_or(|from| at >= from) && ms >= at as f64);
@@ -761,9 +826,9 @@ impl Throw {
                 let since = ms - at as f64;
                 let reached = held(at as f64 - from);
                 let at = if since < WHIP_MS {
-                    reached + (THROW_RELEASE - reached) * (since / WHIP_MS) as f32
+                    reached + (release - reached) * (since / WHIP_MS) as f32
                 } else {
-                    THROW_RELEASE + ((since - WHIP_MS) / 1000.0) as f32
+                    release + ((since - WHIP_MS) / 1000.0) as f32
                 };
                 (from, at)
             }

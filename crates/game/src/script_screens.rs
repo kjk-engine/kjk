@@ -102,7 +102,7 @@ pub fn parse(words: &[&str]) -> Option<Screen> {
                 _ => return None,
             };
             Screen::GalaxyMap {
-                planet,
+                planet: Some(planet),
                 available,
                 selectable,
             }
@@ -176,7 +176,7 @@ const PLANETARY: &str = "planetary";
 /// `selectable` or not (bit n: row n), opened on `current`.
 fn galaxy(
     assets: &mut GuiAssets,
-    current: u8,
+    current: Option<u8>,
     (available, selectable): (u32, u32),
     host: bool,
 ) -> GalaxyView {

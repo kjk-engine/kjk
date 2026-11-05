@@ -120,7 +120,7 @@ fn table(installer: &Installer, module: &str) -> BTreeMap<u16, String> {
     (0..spells.cells.len())
         .filter_map(|row| {
             let row16 = u16::try_from(row).ok()?;
-            grenades::effect(row16)?;
+            grenades::is_grenade(row16).then_some(())?;
             let model = spells.resref(row, "projmodel")?;
             Some((row16, model))
         })
@@ -297,12 +297,17 @@ fn draw(
             let f = (since / LAUNCH_MS).clamp(0.0, 1.0);
             at = hand.lerp(at, f * f * (3.0 - 2.0 * f));
         }
-        // Tumbling: rolled along its way as fast as it goes, at most `SPIN`.
+        // A wrist launcher's shot (`grenades::homing`) flies nose first (a
+        // KOTOR model's +Y) and has no fuse to glow; a thrown grenade
+        // tumbles, rolled along its way as fast as it goes, at most `SPIN`.
+        let homing = missile.lob.is_some_and(|lob| grenades::homing(lob.row));
         let dt = ((now - live.drawn_ms) / 1000.0).clamp(0.0, 0.1);
         live.drawn_ms = now;
-        let [vx, vy, _] = missile.velocity_at(ms);
-        let way = Vec3::new(vx, vy, 0.0) * UNIT;
-        if !resting && let Some(axis) = Vec3::Z.cross(way).try_normalize() {
+        let velocity = Vec3::from_array(missile.velocity_at(ms));
+        let way = Vec3::new(velocity.x, velocity.y, 0.0) * UNIT;
+        if homing && let Some(nose) = velocity.try_normalize() {
+            live.turn = Quat::from_rotation_arc(Vec3::Y, nose);
+        } else if !resting && let Some(axis) = Vec3::Z.cross(way).try_normalize() {
             let rate = (way.length() / RADIUS_M).min(SPIN * std::f32::consts::TAU);
             live.turn = (Quat::from_axis_angle(axis, rate * dt) * live.turn).normalize();
         }
@@ -322,19 +327,21 @@ fn draw(
         let bright = glow(since.max(0.0) as u64);
         let centre = at / UNIT;
         let toward = eye.map_or(Vec3::ZERO, |eye| (eye - centre).normalize_or_zero());
-        added.0.push(asset_ja::fx::Spawned {
-            rgb_start: Vec3::splat(bright),
-            rgb_end: Vec3::splat(bright),
-            ..sprite_particle(
-                centre + toward * GLOW_SIZE * 0.5,
-                (GLOW_SIZE, GLOW_SIZE),
-                (1.0, 1.0),
-                now,
-                0.0,
-                GLOW,
-                asset_ja::fx::Flags::NONE,
-            )
-        });
+        if !homing {
+            added.0.push(asset_ja::fx::Spawned {
+                rgb_start: Vec3::splat(bright),
+                rgb_end: Vec3::splat(bright),
+                ..sprite_particle(
+                    centre + toward * GLOW_SIZE * 0.5,
+                    (GLOW_SIZE, GLOW_SIZE),
+                    (1.0, 1.0),
+                    now,
+                    0.0,
+                    GLOW,
+                    asset_ja::fx::Flags::NONE,
+                )
+            });
+        }
         if !dump_due.0 {
             continue;
         }

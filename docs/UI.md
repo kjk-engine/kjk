@@ -87,9 +87,11 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   (`charrec_light`, as reone's character menu does: at the root, facing the
   stage's `camerahook`), its body and head but no weapons, both playing its
   side's clip (`good`, `neutral`, `evil`: light from 70, dark to 30). The
-  camera is a perspective one at the hook (0.73 below the floor), through
-  a window on the figure from z −0.04 to 1.85, measured off KOTOR's own
-  sheet. The stage's lights, as the pose sets them, light the figure with
+  camera is K1's executable's: level at the stage's hook, raised by the
+  figure's own `camerahook` (a human's 1.63 m, so the view's middle is at
+  0.9 m), seeing 22.726° top to bottom; T3-M4, HK-47 and Zaalbar have hooks
+  of their own on the stage (`camerahookt`, `camerahookh`, `camerahookz`),
+  picked by tag. The stage's lights, as the pose sets them, light the figure with
   no ambient (the key light's 50× strength kept to full, its hue kept: an
   assumption). A 3D view's image is drawn texel for texel (`ui.wgsl`).
   Behind it the stage's
@@ -710,7 +712,11 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   sight, else the nearest within 2.5 m in front and in sight of the
   player's eyes (what lies at the character's feet). It holds 0.2 s.
   Pick volumes are cylinders (a creature 0.4 m by 1.9, a placeable 0.5 by
-  1.5, a shut door 1 by 2.5; an open door none, its brushes only). Targetable: doors but static ones, useable placeables,
+  1.5, a shut door 1 by 2.5; an open door none, its brushes only). A
+  placeable hung over the floor the navigation mesh covers (a door's
+  panel, invisible before its console: Yavin Station's, 1.1 to 1.7 m up)
+  reaches down to that floor, one over no floor hangs about where it is
+  placed, so the console drawn below its position is picked. Targetable: doors but static ones, useable placeables,
   living creatures, and a downed party member (a seat's avatar, "Player
   N", or a companion, driven or not; lying, 0.8 m by 0.5). A living
   companion is a target whoever drives it, its AI or another player

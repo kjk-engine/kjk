@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `68fb2a599f2d1f99`.
+Edition `1cd4df58ac07d94f`.
 
 ## Contents
 
@@ -79,6 +79,7 @@ Edition `68fb2a599f2d1f99`.
   - [CryoBan Grenade](#grenades-cryoban)
   - [Plasma Grenade](#grenades-fire)
   - [Ion Grenade](#grenades-ion)
+  - [Wrist Launcher](#grenades-launched)
 - [Lightsabers and Melee Weapons](#sabers)
   - [Saber Frame](#sabers-ja)
   - [Blades](#sabers-blades)
@@ -2100,6 +2101,37 @@ Damage: Ion, 15pts against non-droids.
 Damage: Ion, 45pts against droids.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
+
+### <a id="grenades-launched"></a>Wrist Launcher
+
+TSL's wrist launcher, worn on a forearm: it alone fires rockets and darts,
+and fires grenades in place of throwing them (their launched rows, by the
+executable's `ConvertGrenadeSpellID`). What it fires flies straight at what
+it is aimed at, meets the first thing in its way and bursts there.
+
+<a id="grenades-launched-reach-m"></a>**Launcher Reach** = **28 m** · `grenades.launched.reach_m`
+
+A launched shot is aimed at what lies along the aim within 28 m, the rows' range `L` (`ranges.2da` `SpellRngLng`).
+
+<sub>Source: TSL's spells.2da range L, ranges.2da row 4. Code: `sim::combat::grenades::homing_speed`.</sub>
+
+<a id="grenades-launched-speed-per-log"></a>**Speed by Distance** = **3 m/s** · `grenades.launched.speed_per_log`
+
+A projectile's speed is 3 m/s for every natural log of the metres to its target, plus 2 m/s.
+
+<sub>Source: TSL's executable, CSWCObject::CalculateProjectileTimeToTarget. Code: `sim::combat::grenades::homing_speed`.</sub>
+
+<a id="grenades-launched-speed-base"></a>**Base Speed** = **2 m/s** · `grenades.launched.speed_base`
+
+A projectile flies 2 m/s more than its distance's share (Speed by Distance).
+
+<sub>Source: TSL's executable, CSWCObject::CalculateProjectileTimeToTarget. Code: `sim::combat::grenades::homing_speed`.</sub>
+
+<a id="grenades-launched-homing-times"></a>**Homing Speed** = **×2** · `grenades.launched.homing_times`
+
+A homing projectile (a launched grenade, a rocket, a dart) flies 2 times that speed.
+
+<sub>Source: TSL's executable, CSWCObject::CalculateProjectileTimeToTarget. Code: `sim::combat::grenades::homing_speed`.</sub>
 
 ## <a id="sabers"></a>Lightsabers and Melee Weapons
 

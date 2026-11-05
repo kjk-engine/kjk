@@ -18,6 +18,63 @@ pub struct Install {
     pub markers: Vec<&'static str>,
 }
 
+impl Install {
+    /// The Steam Workshop items installed for this game, each its folder
+    /// (`steamapps/workshop/content/<app id>/<item id>/`), in name order:
+    /// of the library the install is in, whether Steam found it or a
+    /// variable named a folder inside one. Not read as game data yet
+    /// (`workshop_note`).
+    pub fn workshop_items(&self) -> Vec<PathBuf> {
+        let library = match &self.source {
+            Source::SteamLibrary(library) => Some(library.clone()),
+            _ => self
+                .root
+                .parent()
+                .filter(|common| common.file_name().is_some_and(|name| name == "common"))
+                .and_then(Path::parent)
+                .filter(|apps| apps.file_name().is_some_and(|name| name == "steamapps"))
+                .and_then(Path::parent)
+                .map(Path::to_path_buf),
+        };
+        let Some(library) = library else {
+            return Vec::new();
+        };
+        let content = library
+            .join("steamapps/workshop/content")
+            .join(self.game.steam_app_id().to_string());
+        let mut items: Vec<PathBuf> = std::fs::read_dir(content)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| std::fs::read_dir(path).is_ok_and(|mut dir| dir.next().is_some()))
+            .collect();
+        items.sort();
+        items
+    }
+
+    /// What a player is told when Workshop items are installed for this
+    /// game: kjk plays the game folder alone, so they are not in its world.
+    pub fn workshop_note(&self) -> Option<String> {
+        let ids: Vec<String> = self
+            .workshop_items()
+            .iter()
+            .filter_map(|item| item.file_name())
+            .map(|id| id.to_string_lossy().into_owned())
+            .collect();
+        (!ids.is_empty()).then(|| {
+            format!(
+                "{} Steam Workshop item{} not loaded ({}): kjk reads the game's data folder \
+                 only; copy an item's folders (override, modules, …) into {} to play it",
+                ids.len(),
+                if ids.len() == 1 { "" } else { "s" },
+                ids.join(", "),
+                self.data_root.display()
+            )
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
     /// Named by an environment or `.env` variable.

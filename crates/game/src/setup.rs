@@ -275,7 +275,13 @@ fn status(discovery: &Discovery, game: Game) -> (String, Color) {
                 }
             }
         };
-        return (format!("{}  ({how})", install.root.display()), FOUND);
+        let workshop = install
+            .workshop_note()
+            .map_or_else(String::new, |note| format!("\n{note}"));
+        return (
+            format!("{}  ({how}){workshop}", install.root.display()),
+            FOUND,
+        );
     }
     match discovery
         .refusals

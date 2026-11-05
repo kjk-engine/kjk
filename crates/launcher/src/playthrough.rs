@@ -2689,7 +2689,8 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 selectable,
                             }) => {
                                 map_shown = Some(available & selectable);
-                                said.push(format!("{at} [the galaxy map, at planet {planet}]"));
+                                let at_planet = planet.map_or("no planet".into(), |planet| format!("planet {planet}"));
+                                said.push(format!("{at} [the galaxy map, at {at_planet}]"));
                             }
                             Notice::Show(Screen::PartySelection(_)) => {
                                 acts.push(Action::ChooseParty(chosen.take()));

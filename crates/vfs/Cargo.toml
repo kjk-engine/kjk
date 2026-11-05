@@ -12,5 +12,9 @@ fmt_ja.workspace = true
 fmt_odyssey.workspace = true
 rules.workspace = true
 
+[features]
+# The resolver's probes, on installs written to a temporary folder.
+probes = []
+
 [lints]
 workspace = true
