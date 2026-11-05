@@ -234,13 +234,14 @@ ones too.
 GitHub attachment limit) drops `flight-*` segments, oldest first, until it
 fits. `system.txt` then says what was dropped.
 
-**4f. The GitHub side.** `.github/ISSUE_TEMPLATE/bug.yml` asks:
-
-- what happened and what was expected;
-- the game (K1/TSL) and where it came from (Steam/GOG/disc);
-- the kjk version;
-- the zip (a required checkbox: "I attached the report zip, or could not
-  make one").
+**4f. The GitHub side.** `.github/ISSUE_TEMPLATE/bug.md` is one markdown
+box with comments saying what may go in (what happened and what was
+expected; anything else, such as the game, its source and mods, only if the
+player wants to say), the kjk version, where to drop the zip, and a checked
+"Report zip attached". It is markdown, not an issue form: a form's field
+takes a dropped file as its name only. F12 fills the box in (`body=`) and
+opens Explorer with the zip selected; GitHub takes no file in the address,
+so the player drags it on.
 
 `config.yml` turns off blank issues.
 
