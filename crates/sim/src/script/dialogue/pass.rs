@@ -178,9 +178,15 @@ impl Step<'_> {
     /// K1's and TSL's `UpdateDialog` clear every frame the actions of each
     /// creature out of the party whose reputation with the player is
     /// hostile (`ClearAllPlayerHostileActions`, `ClearAllActions(TRUE)`),
-    /// whatever the conversation and whoever is in it. One not commandable
-    /// keeps its own; a script's `CutsceneAttack` blows are no action. A
-    /// co-op guest's private conversation, holding no world, holds no one.
+    /// whatever the conversation and whoever is in it. Its combat state
+    /// goes too, queue or none: the attack this step's queue already began
+    /// (its intent, its blow not yet swung) and the fight its mind keeps
+    /// going on its own (`Change::Disengage`), so a turret already firing
+    /// as the talk begins, or a droid a line turns hostile, stands until
+    /// it ends (Taris's Sith base, `tar09_trap_dlg`). A bolt in flight
+    /// still lands. One not commandable keeps its own; a script's
+    /// `CutsceneAttack` blows are no action. A co-op guest's private
+    /// conversation, holding no world, holds no one.
     fn hold_hostiles(&mut self) {
         let view = self.view;
         if !view.held {
@@ -212,6 +218,19 @@ impl Step<'_> {
                 self.state.clear_queue(who, host);
                 self.out.changes.push(crate::script::Change::Clear { who });
             }
+            if self
+                .out
+                .intents
+                .get(&who.0)
+                .is_some_and(|intent| !intent.passive)
+            {
+                self.out.intents.remove(&who.0);
+            }
+            (self.state.strikes)
+                .retain(|strike| strike.by != who || strike.began || !strike.assured);
+            self.out
+                .changes
+                .push(crate::script::Change::Disengage { who });
         }
     }
 }

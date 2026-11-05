@@ -5029,9 +5029,13 @@ impl Engine<'_> {
                     // the destroy event over for one not destroyable
                     // (506OND's `a_end_game` destroys Tobin's body, then
                     // raises him for Kreia's scene) [verify in K1's exe].
+                    let ms = seconds_ms(float(args, 1));
+                    if ms == 0 {
+                        self.out.destroyed.push(item);
+                    }
                     self.out.changes.push(Change::Destroy {
                         who: item,
-                        ms: seconds_ms(float(args, 1)),
+                        ms,
                         going: destroy_going(thing.kind, int(args, 2) != 0, float(args, 3)),
                     });
                 }
