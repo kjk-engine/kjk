@@ -517,7 +517,7 @@ fn script_vm() {
             println!("{}: no install, skipped", game.key());
             continue;
         };
-        let index = vfs::DirIndex::build(&install.data_root).expect("the install indexes");
+        let index = vfs::DirIndex::of_install(install).expect("the install indexes");
         let base = vfs::resolver::Resolver::base(game, &index, vfs::resolver::TextureQuality::High)
             .expect("the install opens");
         let nss = fmt_odyssey::ResType::NSS;

@@ -12,6 +12,8 @@ impl ResType {
     pub const WAV: ResType = ResType(4);
     pub const PLT: ResType = ResType(6);
     pub const INI: ResType = ResType(7);
+    /// An MP3 (Bioware's `bmu`); TSL's stream folders hold it as `.mp3`
+    /// (`CExoStreamingSoundSourceInternal`, type 8).
     pub const BMU: ResType = ResType(8);
     pub const MPG: ResType = ResType(9);
     pub const TXT: ResType = ResType(10);
@@ -102,6 +104,7 @@ const TYPES: &[(ResType, &str)] = &[
     (ResType::PLT, "plt"),
     (ResType::INI, "ini"),
     (ResType::BMU, "bmu"),
+    (ResType::BMU, "mp3"),
     (ResType::MPG, "mpg"),
     (ResType::TXT, "txt"),
     (ResType::PLH, "plh"),

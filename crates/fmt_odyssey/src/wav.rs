@@ -2,7 +2,8 @@
 //! behind a RIFF header. KOTOR's voice files declare 8-bit PCM with an
 //! empty `data` chunk and carry an MP3 (ID3 tag, then frames) after it;
 //! some files have bytes before `RIFF` (its ambience a whole MP3 frame,
-//! `FF F3 60 C4`, with the RIFF at 0x1D6).
+//! `FF F3 60 C4`, with the RIFF at 0x1D6). A bare MP3 (a mod's `.mp3` in a
+//! stream folder, which TSL plays) is an MP3 stream as well.
 
 use crate::FormatError;
 use crate::reader::Reader;
@@ -28,7 +29,8 @@ pub enum Coding {
     },
 }
 
-/// A sound's coding and its coded bytes, and the file from its `RIFF` on.
+/// A sound's coding and its coded bytes, and the file from its `RIFF` on
+/// (a bare MP3's whole file).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Wav<'a> {
     pub coding: Coding,
@@ -41,11 +43,21 @@ impl<'a> Wav<'a> {
         let start = bytes
             .windows(4)
             .take(MOST_LEADING)
-            .position(|window| window == b"RIFF")
-            .ok_or(FormatError::Unsupported {
-                format: FORMAT,
-                what: "no RIFF header".into(),
-            })?;
+            .position(|window| window == b"RIFF");
+        let Some(start) = start else {
+            return if is_mp3(bytes) {
+                Ok(Wav {
+                    coding: Coding::Mp3,
+                    data: bytes,
+                    riff: bytes,
+                })
+            } else {
+                Err(FormatError::Unsupported {
+                    format: FORMAT,
+                    what: "no RIFF header".into(),
+                })
+            };
+        };
         let bytes = &bytes[start..];
         let reader = Reader::new(FORMAT, bytes);
         if reader.slice(8, 4)? != b"WAVE" {

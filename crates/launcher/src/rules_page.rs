@@ -51,7 +51,7 @@ pub fn run(discovery: &Discovery, game: &str, out: Option<PathBuf>) -> ExitCode 
         eprintln!("{}: not found (set {})", game.key(), game.env_var());
         return ExitCode::FAILURE;
     };
-    let opened = DirIndex::build(&install.data_root)
+    let opened = DirIndex::of_install(install)
         .map_err(|error| error.to_string())
         .and_then(|index| {
             Resolver::base(game, &index, TextureQuality::High)

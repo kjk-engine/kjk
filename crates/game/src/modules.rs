@@ -39,21 +39,9 @@ impl Source for ResolverSource<'_> {
 }
 
 /// Module names: each `modules/*.rim` that is not `_s.rim`, and each
-/// `modules/*.mod`.
+/// `modules/*.mod`, the Workshop items' too (`Resolver::modules`).
 pub fn module_names(index: &DirIndex) -> Vec<String> {
-    let mut names: Vec<String> = index
-        .files_in("modules")
-        .into_iter()
-        .filter_map(|(name, _)| {
-            let stem = name
-                .strip_suffix(".rim")
-                .or_else(|| name.strip_suffix(".mod"))?;
-            (!stem.ends_with("_s")).then(|| stem.to_string())
-        })
-        .collect();
-    names.sort();
-    names.dedup();
-    names
+    Resolver::modules(index)
 }
 
 fn mdl_type() -> ResType {
@@ -73,7 +61,7 @@ pub fn run(discovery: &Discovery, game: &str, only: Option<&str>) -> ExitCode {
         eprintln!("{}: not found (set {})", game.key(), game.env_var());
         return ExitCode::FAILURE;
     };
-    let index = match DirIndex::build(&install.data_root) {
+    let index = match DirIndex::of_install(install) {
         Ok(index) => index,
         Err(error) => {
             eprintln!("{error}");
@@ -84,11 +72,6 @@ pub fn run(discovery: &Discovery, game: &str, only: Option<&str>) -> ExitCode {
         Some(name) => vec![name.to_ascii_lowercase()],
         None => module_names(&index),
     };
-    let tlk = index
-        .get("dialog.tlk")
-        .and_then(|path| std::fs::read(path).ok())
-        .and_then(|bytes| Tlk::parse(&bytes).ok());
-
     // The install's shared layers, opened once; each module stacks on them.
     let base = match Resolver::base(game, &index, TextureQuality::High) {
         Ok(base) => base,
@@ -97,6 +80,7 @@ pub fn run(discovery: &Discovery, game: &str, only: Option<&str>) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let tlk = base.talk.get();
     let mut refused = Vec::new();
     let mut converted = 0;
     let mut totals: BTreeMap<String, usize> = BTreeMap::new();
@@ -118,7 +102,7 @@ pub fn run(discovery: &Discovery, game: &str, only: Option<&str>) -> ExitCode {
         };
         converted += 1;
         if only.is_some() {
-            dump(&module, tlk.as_ref());
+            dump(&module, tlk.as_deref());
         }
         let mut tables = asset_odyssey::tables::Tables::default();
         for area in &module.areas {

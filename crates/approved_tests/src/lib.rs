@@ -42,13 +42,18 @@ fn dotenv() -> HashMap<String, String> {
 }
 
 /// The game installs, found as kjk finds them: the environment first,
-/// then `.env`, then the usual places.
+/// then `.env`, then the usual places. The scenarios were approved on the
+/// games' own data, so they play the game folders alone, without the
+/// Steam Workshop items a player subscribed to (TSLRCM's 907mal.mod has a
+/// script that is source text, which `script_vm` rightly refuses), unless
+/// `KJK_WORKSHOP` is set in the environment.
 pub fn discovery() -> Discovery {
     let env_file = dotenv();
     vfs::discover(|name| {
+        let workshop = (name == vfs::WORKSHOP_VAR).then(|| "off".to_string());
         std::env::var(name)
             .ok()
-            .or_else(|| env_file.get(name).cloned())
+            .or_else(|| workshop.or_else(|| env_file.get(name).cloned()))
     })
 }
 
@@ -140,7 +145,7 @@ pub fn module_source(
         game.key(),
         game.env_var()
     ))?;
-    let index = DirIndex::build(&install.data_root).map_err(|error| error.to_string())?;
+    let index = DirIndex::of_install(install).map_err(|error| error.to_string())?;
     Resolver::open(game, &index, Some(module), TextureQuality::High)
         .map(ResolverSource)
         .map_err(|error| error.to_string())

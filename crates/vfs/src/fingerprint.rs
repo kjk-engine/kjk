@@ -2,8 +2,10 @@
 //! the same fingerprint read the same bytes for every resource; the per-group
 //! digests say where two installs differ.
 //!
-//! Covered: exactly the files the resolvers read (see `covered`). Player
-//! data, configs and executables are not game data here and are left out.
+//! Covered: exactly the files the resolvers read (see `covered`), the
+//! Steam Workshop items' with the game folder's (`covered_in_item`), and
+//! the items' load order. Player data, configs and executables are not game
+//! data here and are left out.
 //! Every covered file is hashed whole with BLAKE3. The per-file hash is
 //! cached by (path, size, modification time), so a second run reads only
 //! what changed.
@@ -51,12 +53,41 @@ pub fn covered(game: Game, key: &str) -> bool {
     }
 }
 
+/// Whether a lowercased path inside a Workshop item's folder is game data
+/// the game reads from it: its `override/` top level (as the resolver
+/// takes it), `dialog.tlk`, and its modules, lips, movies and stream
+/// folders (`GetOverridePath`'s callers).
+pub fn covered_in_item(key: &str) -> bool {
+    if let Some(rest) = key.strip_prefix("override/") {
+        return crate::resolver::read_from_item_override(rest);
+    }
+    let name = key.rsplit('/').next().unwrap_or(key);
+    (key == "dialog.tlk" || ITEM_FOLDERS.iter().any(|dir| key.starts_with(dir)))
+        && !crate::system_file(name)
+}
+
+const ITEM_FOLDERS: &[&str] = &[
+    "modules/",
+    "lips/",
+    "movies/",
+    "streammusic/",
+    "streamsounds/",
+    "streamvoice/",
+    "streamwaves/",
+];
+
 /// The most groups a world names (`WorldData::groups`), as many as a join
 /// handshake carries per game.
 pub const MAX_WORLD_GROUPS: usize = 8;
 
+/// The world group of the Workshop items past the ones that fit in
+/// `MAX_WORLD_GROUPS` with the game folder's groups.
+pub const LATER_WORKSHOP_ITEMS: &str = "workshop/later";
+
 /// The group a covered file is digested in: its first path component (the
-/// file name, for files at the root). JA's loaded PK3s are groups of their
+/// file name, for files at the root); a Workshop item's file, its first
+/// path component in the item, after the item's label
+/// (`workshop/485537937/override`). JA's loaded PK3s are groups of their
 /// own (`base/assets0.pk3`), the first `MAX_WORLD_GROUPS - 1` in name
 /// order, so a refusal names the archive that differs; the rest of `base/`
 /// is `base`.
@@ -64,7 +95,14 @@ fn group_of<'a>(game: Game, key: &'a str, own: &[&str]) -> &'a str {
     if game == Game::JediAcademy && own.contains(&key) {
         return key;
     }
-    key.split_once('/').map_or(key, |(first, _)| first)
+    let first = |key: &'a str| key.split_once('/').map_or(key, |(first, _)| first);
+    match key
+        .strip_prefix("workshop/")
+        .and_then(|rest| rest.split_once('/'))
+    {
+        Some((id, rest)) => &key[..("workshop/".len() + id.len() + 1 + first(rest).len())],
+        None => first(key),
+    }
 }
 
 /// The groups a game's worlds are built from (its tables, modules,
@@ -84,6 +122,8 @@ pub fn world_group(game: Game, group: &str) -> bool {
 #[derive(Debug)]
 pub struct Fingerprint {
     pub game: Game,
+    /// The Workshop items covered, in load order (`DirIndex::workshop`).
+    pub workshop: Vec<u64>,
     /// BLAKE3, hex.
     pub digest: String,
     pub files: usize,
@@ -104,17 +144,71 @@ pub struct WorldData {
 }
 
 impl Fingerprint {
-    /// The part of the data a shared world is built from.
+    /// The part of the data a shared world is built from: the game
+    /// folder's world groups, and each Workshop item's world groups as one
+    /// group named by the item (`workshop/485537937`), whose digest has
+    /// its place among the items with world data, so a refusal names an
+    /// item that differs or moved. Past `MAX_WORLD_GROUPS`, the later items
+    /// share one group (`LATER_WORKSHOP_ITEMS`).
     pub fn world(&self) -> WorldData {
-        let groups: Vec<(String, [u8; 32])> = self
+        let bytes =
+            |digest: &str| blake3::Hash::from_hex(digest).map_or([0; 32], |hash| *hash.as_bytes());
+        let mut groups: Vec<(String, [u8; 32])> = self
             .groups
             .iter()
-            .filter(|(group, _)| world_group(self.game, group))
-            .map(|(group, (digest, _))| {
-                let bytes = blake3::Hash::from_hex(digest).map_or([0; 32], |hash| *hash.as_bytes());
-                (group.clone(), bytes)
+            .filter(|(group, _)| !group.starts_with("workshop/") && world_group(self.game, group))
+            .map(|(group, (digest, _))| (group.clone(), bytes(digest)))
+            .collect();
+        // Each item with world data: its label, and a digest of its world
+        // groups and its place among those items.
+        let items: Vec<(String, [u8; 32])> = self
+            .workshop
+            .iter()
+            .filter_map(|id| {
+                let label = format!("workshop/{id}");
+                let prefix = format!("{label}/");
+                let parts: Vec<(&str, [u8; 32])> = self
+                    .groups
+                    .iter()
+                    .filter_map(|(group, (digest, _))| {
+                        let part = group.strip_prefix(&prefix)?;
+                        world_group(self.game, part).then(|| (part, bytes(digest)))
+                    })
+                    .collect();
+                (!parts.is_empty()).then_some((label, parts))
+            })
+            .enumerate()
+            .map(|(place, (label, parts))| {
+                let mut hasher = blake3::Hasher::new();
+                hasher.update(format!("{VERSION}\n{label} {place}\n").as_bytes());
+                for (part, digest) in parts {
+                    hasher.update(part.as_bytes());
+                    hasher.update(b"\n");
+                    hasher.update(&digest);
+                }
+                (label, *hasher.finalize().as_bytes())
             })
             .collect();
+        let room = MAX_WORLD_GROUPS.saturating_sub(groups.len());
+        let own = if items.len() > room {
+            room.saturating_sub(1)
+        } else {
+            items.len()
+        };
+        let mut later = blake3::Hasher::new();
+        for (place, (label, digest)) in items.iter().enumerate() {
+            if place < own {
+                groups.push((label.clone(), *digest));
+            } else {
+                later.update(digest);
+            }
+        }
+        if items.len() > own {
+            groups.push((
+                LATER_WORKSHOP_ITEMS.to_string(),
+                *later.finalize().as_bytes(),
+            ));
+        }
         let mut whole = blake3::Hasher::new();
         whole.update(format!("{VERSION}\nworld {}\n", self.game.key()).as_bytes());
         for (group, digest) in &groups {
@@ -211,7 +305,20 @@ fn compute(
     let mut new = BTreeMap::new();
     let (mut hashed, mut cached, mut bytes) = (0, 0, 0);
     let mut lines = Vec::new();
-    for (key, path) in index.iter().filter(|(key, _)| covered(game, key)) {
+    let items = index.workshop().iter().flat_map(|item| {
+        let label = item.label();
+        item.files
+            .iter()
+            .filter(|(key, _)| covered_in_item(key))
+            .map(move |(key, path)| (format!("{label}/{key}"), path))
+    });
+    let files = index
+        .iter()
+        .filter(|(key, _)| covered(game, key))
+        .map(|(key, path)| (key.to_string(), path))
+        .chain(items);
+    for (key, path) in files {
+        let key = key.as_str();
         let meta = std::fs::metadata(path)?;
         let modified = meta
             .modified()?
@@ -248,6 +355,12 @@ fn compute(
     let header = format!("{VERSION}\ngame {}\n", game.key());
     let mut whole = blake3::Hasher::new();
     whole.update(header.as_bytes());
+    // The items' order is the whole digest's; a group's is its files'.
+    let workshop: Vec<u64> = index.workshop().iter().map(|item| item.id).collect();
+    if !workshop.is_empty() {
+        let ids: Vec<String> = workshop.iter().map(u64::to_string).collect();
+        whole.update(format!("workshop {}\n", ids.join(" ")).as_bytes());
+    }
     let own: Vec<&str> = lines
         .iter()
         .map(|(key, _)| key.as_str())
@@ -268,6 +381,7 @@ fn compute(
     }
     Ok(Some(Fingerprint {
         game,
+        workshop,
         digest: whole.finalize().to_hex().to_string(),
         files: lines.len(),
         bytes,

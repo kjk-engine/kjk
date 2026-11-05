@@ -16,7 +16,8 @@
 //!    module's `_s.rim` and its `.rim` (neither when it has a `.mod`)
 //! 4. ERFs of priority 1: `patch.erf`
 //! 5. `override/`: its top level, then (TSL only) its subfolders one level
-//!    down, in name order; the first file of a name wins
+//!    down, in name order; the first file of a name wins. Over it, each
+//!    Steam Workshop item's `override/`, its top level alone
 //!
 //! So `override/` beats everything a module brings, which is how the games
 //! take a mod's DLG, NCS or UTC for a module's own.
@@ -25,6 +26,15 @@
 //! `streamvoice/`, `movies/`) are not in the stack. The games' executables
 //! build paths into each of them by name, so each is its own namespace,
 //! searched recursively, and asked for by folder.
+//!
+//! The Workshop items TSL loads (`DirIndex::workshop`) rank in their load
+//! order, the last one winning, as TSL's executable has them
+//! (`LoadSteamMods`, `GetOverridePath`): their `override/` over the game's;
+//! every copy of a module's `.mod`, lips and `_dlg.erf`, the game folder's
+//! lowest; its `.rim` the last item's, but its `_s.rim` the first item's
+//! (`CExoResMan::AsyncLoad` searches those from the first); and per file,
+//! `dialog.tlk`, movies and the stream folders' the last item's that has
+//! it, the game folder's when none has.
 //!
 //! The install's sources are the same for every module. `Resolver::base`
 //! opens them once; `with_module` ranks one module's archives among a
@@ -65,6 +75,9 @@ const GLOBAL_RIMS: &[&str] = &[
 
 const GLOBAL_LIPS: &[&str] = &["global.mod", "localization.mod"];
 
+/// The types a stream folder's sound is: a WAV, or an MP3 (`.mp3`).
+const SOUNDS: [ResType; 2] = [ResType::WAV, ResType::BMU];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextureQuality {
     High,
@@ -94,13 +107,33 @@ pub fn read_from_override(game: Game, rest: &str) -> bool {
         Game::Kotor2 => rest.matches('/').count() <= 1,
         _ => !rest.contains('/'),
     };
-    let name = rest.rsplit('/').next().unwrap_or(rest);
-    within
-        && !crate::system_file(name)
+    within && resource_file(rest.rsplit('/').next().unwrap_or(rest))
+}
+
+/// Whether `rest`, a lowercase path inside a Workshop item's `override/`,
+/// is a file the game reads: its top level alone (only a folder named
+/// `OVERRIDE:` reads subfolders, `AddDirectoryContents`), as
+/// `read_from_override` takes a file.
+pub fn read_from_item_override(rest: &str) -> bool {
+    !rest.contains('/') && resource_file(rest)
+}
+
+/// Whether a lowercase file name in an override folder is a resource the
+/// games read: not a file browser's, and of a resource type other than TXT.
+fn resource_file(name: &str) -> bool {
+    !crate::system_file(name)
         && name
             .rsplit_once('.')
             .and_then(|(_, extension)| ResType::from_extension(extension))
             .is_some_and(|restype| restype != ResType::TXT)
+}
+
+/// A layer's name without its Workshop item's label: `modules/m01.mod` for
+/// `workshop/485537937/modules/m01.mod`.
+pub fn in_folder(name: &str) -> &str {
+    name.strip_prefix("workshop/")
+        .and_then(|rest| rest.split_once('/'))
+        .map_or(name, |(_, rest)| rest)
 }
 
 /// How deep a folder layer reads (`Resolver::folder`).
@@ -217,6 +250,11 @@ pub struct TalkTable {
 }
 
 impl TalkTable {
+    /// The file it is read from.
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
     pub fn get(&self) -> Option<Arc<Tlk>> {
         self.read
             .get_or_init(|| {
@@ -286,7 +324,10 @@ impl Resolver {
             streams: Vec::new(),
             problems: Vec::new(),
             talk: TalkTable {
-                path: index.get("dialog.tlk").map(Path::to_path_buf),
+                path: index
+                    .copies("dialog.tlk")
+                    .last()
+                    .map(|copy| copy.path.to_path_buf()),
                 read: Arc::default(),
             },
         };
@@ -331,7 +372,29 @@ impl Resolver {
             "movies",
         ];
         for folder in streams {
-            if let Some(layer) = resolver.folder(index, folder, Depth::All) {
+            let mut copies = std::iter::once((String::new(), index))
+                .chain(
+                    index
+                        .workshop()
+                        .iter()
+                        .map(|item| (format!("{}/", item.label()), &item.files)),
+                )
+                .filter_map(|(label, files)| resolver.folder(files, &label, folder, Depth::All));
+            // Per file, the last item's copy, the game folder's lowest; a
+            // sound is a `.wav` or an `.mp3` of its name, either replacing
+            // the other below it.
+            if let Some(mut layer) = copies.next() {
+                for item in copies.collect::<Vec<_>>() {
+                    for (resref, restype) in item.resources.keys() {
+                        if SOUNDS.contains(restype) {
+                            for sound in SOUNDS {
+                                layer.resources.remove(&(resref.clone(), sound));
+                            }
+                        }
+                    }
+                    layer.resources.extend(item.resources);
+                }
+                layer.name = folder.to_string();
                 resolver.streams.push(Arc::new(layer));
             }
         }
@@ -351,8 +414,14 @@ impl Resolver {
         } else {
             Depth::Top
         };
-        if let Some(layer) = resolver.folder(index, "override", depth) {
+        if let Some(layer) = resolver.folder(index, "", "override", depth) {
             resolver.push(layer);
+        }
+        for item in index.workshop() {
+            let label = format!("{}/", item.label());
+            if let Some(layer) = resolver.folder(&item.files, &label, "override", Depth::Top) {
+                resolver.push(layer);
+            }
         }
         resolver.stack_rulebook();
         Ok(resolver)
@@ -364,21 +433,45 @@ impl Resolver {
     /// modules' archives are in the stack.
     pub fn with_module(&self, index: &DirIndex, module: &str) -> Result<Resolver, ResolveError> {
         let module = module.to_ascii_lowercase();
-        let rim = format!("modules/{module}.rim");
-        let mod_file = format!("modules/{module}.mod");
-        if index.get(&rim).is_none() && index.get(&mod_file).is_none() {
+        let rims = index.copies(&format!("modules/{module}.rim"));
+        let mods = index.copies(&format!("modules/{module}.mod"));
+        if rims.is_empty() && mods.is_empty() {
             return Err(ResolveError::NoSuchModule(module));
         }
         let mut resolver = self.clone();
-        resolver.archive(index, &format!("lips/{module}_loc.mod"), Rank::Erf2);
+        // The game folder's lips, then each item's, its module's and its
+        // `localization.mod` (`CSWSModule::AddModuleResources`).
+        let loc = format!("lips/{module}_loc.mod");
+        resolver.archive(index, &loc, Rank::Erf2);
+        for item in index.workshop() {
+            for lips in [loc.as_str(), "lips/localization.mod"] {
+                if let Some(path) = item.files.get(lips) {
+                    let name = format!("{}/{lips}", item.label());
+                    resolver.open_archive(name, path, Rank::Erf2);
+                }
+            }
+        }
         // A `.mod` is the whole module: the games then read none of its
         // RIMs or its `_dlg.erf` (`CExoResMan::AsyncLoad`).
-        if index.get(&mod_file).is_some() {
-            resolver.archive(index, &mod_file, Rank::Erf2);
+        if !mods.is_empty() {
+            for copy in mods {
+                resolver.open_archive(copy.name, copy.path, Rank::Erf2);
+            }
         } else {
-            resolver.archive(index, &format!("modules/{module}_dlg.erf"), Rank::Erf2);
-            resolver.archive(index, &format!("modules/{module}_s.rim"), Rank::Rim);
-            resolver.archive(index, &rim, Rank::Rim);
+            for copy in index.copies(&format!("modules/{module}_dlg.erf")) {
+                resolver.open_archive(copy.name, copy.path, Rank::Erf2);
+            }
+            // `AsyncLoad` searches the items from the first, then the game
+            // folder.
+            let s_rims = index.copies(&format!("modules/{module}_s.rim"));
+            let s_rim = s_rims.iter().find(|copy| copy.item.is_some());
+            if let Some(copy) = s_rim.or(s_rims.first()) {
+                resolver.open_archive(copy.name.clone(), copy.path, Rank::Rim);
+            }
+            // `CServerExoAppInternal::LoadModule` searches from the last item.
+            if let Some(copy) = rims.into_iter().last() {
+                resolver.open_archive(copy.name, copy.path, Rank::Rim);
+            }
         }
         resolver.stack_rulebook();
         Ok(resolver)
@@ -444,11 +537,16 @@ impl Resolver {
         self.layers.insert(at, Arc::new(layer));
     }
 
-    /// Adds an archive layer if the file exists; a missing one is no layer.
+    /// Adds the game folder's archive at `relative` as a layer if the file
+    /// exists; a missing one is no layer.
     fn archive(&mut self, index: &DirIndex, relative: &str, rank: Rank) {
-        let Some(path) = index.get(relative) else {
-            return;
-        };
+        if let Some(path) = index.get(relative) {
+            self.open_archive(relative.to_string(), path, rank);
+        }
+    }
+
+    /// Adds the archive at `path` as the layer `relative`.
+    fn open_archive(&mut self, relative: String, path: &Path, rank: Rank) {
         match Archive::open(path) {
             Ok(archive) => {
                 let mut resources = BTreeMap::new();
@@ -462,21 +560,30 @@ impl Resolver {
                         ));
                 }
                 self.push(Layer {
-                    name: relative.to_string(),
+                    name: relative,
                     rank,
                     resources,
                 });
             }
-            Err(error) => self.problem(relative, error),
+            Err(error) => self.problem(&relative, error),
         }
     }
 
     /// A folder of loose files as a layer, if it has any, as deep as
-    /// `depth` reads. Names are `resref.ext`; of two files of one name the
-    /// first is kept: in path order, and for `Depth::OneLevel` the top
-    /// level's before its subfolders'.
-    fn folder(&mut self, index: &DirIndex, relative: &str, depth: Depth) -> Option<Layer> {
+    /// `depth` reads, named `label` and `relative` (`label` names a
+    /// Workshop item, `workshop/<id>/`, or is empty). Names are
+    /// `resref.ext`; of two files of one name the first is kept: in path
+    /// order, and for `Depth::OneLevel` the top level's before its
+    /// subfolders'.
+    fn folder(
+        &mut self,
+        index: &DirIndex,
+        label: &str,
+        relative: &str,
+        depth: Depth,
+    ) -> Option<Layer> {
         let prefix = format!("{relative}/");
+        let shown = format!("{label}{prefix}");
         let mut files: Vec<(&str, &Path)> = index
             .iter()
             .filter_map(|(key, path)| Some((key.strip_prefix(&prefix)?, path)))
@@ -499,12 +606,12 @@ impl Resolver {
                 continue;
             }
             let Some((resref, extension)) = name.rsplit_once('.') else {
-                self.problem(&format!("{prefix}{rest}"), "no extension".into());
+                self.problem(&format!("{shown}{rest}"), "no extension".into());
                 continue;
             };
             let Some(restype) = ResType::from_extension(extension) else {
                 self.problem(
-                    &format!("{prefix}{rest}"),
+                    &format!("{shown}{rest}"),
                     format!("unknown type .{extension}"),
                 );
                 continue;
@@ -517,7 +624,7 @@ impl Resolver {
             if let Some(kept) = resources.get(&key) {
                 let kept: &Location = kept;
                 self.problem(
-                    &format!("{prefix}{rest}"),
+                    &format!("{shown}{rest}"),
                     format!("same name as {}, which is kept", kept.path.display()),
                 );
                 continue;
@@ -525,17 +632,19 @@ impl Resolver {
             resources.insert(key, Location::on_disk(path.to_path_buf(), 0, size));
         }
         Some(Layer {
-            name: relative.to_string(),
+            name: format!("{label}{relative}"),
             rank: Rank::Directory,
             resources,
         })
     }
 
     /// Every module of the install: each `.rim` or `.mod` under `modules/`
-    /// by its name (`end_m01aa`), the `_s.rim` halves folded in.
+    /// by its name (`end_m01aa`), the `_s.rim` halves folded in; the
+    /// Workshop items' with the game folder's.
     pub fn modules(index: &DirIndex) -> Vec<String> {
-        let mut names: Vec<String> = index
-            .iter()
+        let mut names: Vec<String> = std::iter::once(index)
+            .chain(index.workshop().iter().map(|item| &item.files))
+            .flat_map(DirIndex::iter)
             .filter_map(|(key, _)| {
                 let name = key.strip_prefix("modules/")?;
                 let stem = name
@@ -567,13 +676,20 @@ impl Resolver {
         layers
     }
 
-    /// A name in one stream folder, e.g. `("streammusic", "mus_main", wav)`.
+    /// A name in one stream folder, e.g. `("streammusic", "mus_main", wav)`;
+    /// a WAV asked for may be an `.mp3` (TSL streams either).
     pub fn stream(&self, folder: &str, resref: &str, restype: ResType) -> Option<&Location> {
-        self.streams
+        let resources = &self
+            .streams
             .iter()
             .find(|layer| layer.name.eq_ignore_ascii_case(folder))?
-            .resources
-            .get(&(resref.to_ascii_lowercase(), restype))
+            .resources;
+        let resref = resref.to_ascii_lowercase();
+        resources.get(&(resref.clone(), restype)).or_else(|| {
+            (restype == ResType::WAV)
+                .then(|| resources.get(&(resref, ResType::BMU)))
+                .flatten()
+        })
     }
 
     /// A voiced line's WAV: K1's `streamwaves`, TSL's `streamvoice`.
@@ -647,7 +763,8 @@ impl Resolver {
     /// layers), lowercase, once each.
     pub fn module_names(&self, restype: ResType) -> Vec<String> {
         self.names_in(restype, |layer| {
-            layer.name.starts_with("modules/") || layer.name.starts_with("lips/")
+            let name = in_folder(&layer.name);
+            name.starts_with("modules/") || name.starts_with("lips/")
         })
     }
 

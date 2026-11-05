@@ -148,7 +148,7 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
         eprintln!("{}: not found (set {})", game.key(), game.env_var());
         return ExitCode::FAILURE;
     };
-    let copies = match DirIndex::build(&install.data_root)
+    let copies = match DirIndex::of_install(install)
         .map_err(|error| error.to_string())
         .and_then(|index| inventory(&index))
     {

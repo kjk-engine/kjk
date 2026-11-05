@@ -59,7 +59,7 @@ impl InstallSource {
             game.key(),
             game.env_var()
         ))?;
-        let index = DirIndex::build(&install.data_root).map_err(|error| error.to_string())?;
+        let index = DirIndex::of_install(install).map_err(|error| error.to_string())?;
         Resolver::open(game, &index, module, TextureQuality::High)
             .map(InstallSource)
             .map_err(|error| match module {

@@ -1,15 +1,16 @@
 //! The resolver's precedence on installs written here (journal
 //! 2026-11-05-override-precedence): `override/` over a module's archives, a
 //! `.mod` standing for its RIMs and `_dlg.erf`, `patch.erf` over a module,
-//! a module's `.rim` over its `_s.rim`, TSL's override subfolders, and
-//! co-op's check covering just the override files the resolver reads.
+//! a module's `.rim` over its `_s.rim`, TSL's override subfolders,
+//! co-op's check covering just the override files the resolver reads, and
+//! the Steam Workshop items TSL loads, in its load order.
 
 use std::path::{Path, PathBuf};
 
 use fmt_odyssey::ResType;
 
 use crate::resolver::{Resolver, TextureQuality};
-use crate::{DirIndex, Game};
+use crate::{DirIndex, Game, WorkshopFolder};
 
 /// One resource of an archive written here: its name, type and bytes.
 type Entry<'a> = (&'a str, ResType, &'a [u8]);
@@ -65,11 +66,17 @@ fn empty_key() -> Vec<u8> {
     key
 }
 
-/// A fresh install folder for one probe, holding `files` (path, bytes).
-fn install(name: &str, files: &[(&str, Vec<u8>)]) -> Result<PathBuf, String> {
+/// Files to write: each its path and bytes.
+type Files<'a> = [(&'a str, Vec<u8>)];
+
+/// Workshop items to write: each its id and files, in load order.
+type Items<'a> = [(u64, Vec<(&'a str, Vec<u8>)>)];
+
+/// A fresh folder for one probe, holding `files`.
+fn folder(name: &str, files: &Files) -> Result<PathBuf, String> {
     let root = std::env::temp_dir().join(format!("kjk-vfs-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
-    for (path, bytes) in std::iter::once(&("chitin.key", empty_key())).chain(files) {
+    for (path, bytes) in files {
         let path = root.join(path);
         std::fs::create_dir_all(path.parent().expect("a file in a folder"))
             .map_err(|error| error.to_string())?;
@@ -78,15 +85,55 @@ fn install(name: &str, files: &[(&str, Vec<u8>)]) -> Result<PathBuf, String> {
     Ok(root)
 }
 
+/// A fresh install folder for one probe, holding `files` (path, bytes).
+fn install(name: &str, files: &Files) -> Result<PathBuf, String> {
+    let key = [("chitin.key", empty_key())];
+    folder(name, &[&key[..], files].concat())
+}
+
+/// An install written for one probe with `items` as its Workshop items,
+/// indexed: the folders written, to remove, and the index.
+fn workshop_install(
+    name: &str,
+    files: &Files,
+    items: &Items,
+) -> Result<(Vec<PathBuf>, DirIndex), String> {
+    let mut written = vec![install(name, files)?];
+    let mut folders = Vec::new();
+    for (id, files) in items {
+        let root = folder(&format!("{name}-ws{id}"), files)?;
+        let files = DirIndex::build(&root).map_err(|error| error.to_string())?;
+        folders.push(WorkshopFolder { id: *id, files });
+        written.push(root);
+    }
+    let index = DirIndex::build(&written[0]).map_err(|error| error.to_string())?;
+    Ok((written, index.with_workshop(folders)))
+}
+
+fn remove(written: &[PathBuf]) {
+    for root in written {
+        let _ = std::fs::remove_dir_all(root);
+    }
+}
+
 /// What `name` resolves to in `module` of the install at `root`: its
 /// layer and bytes, or `-` when nothing holds it.
 fn resolve(root: &Path, game: Game, module: &str, names: &[(&str, ResType)]) -> Vec<String> {
-    let resolver = DirIndex::build(root)
-        .map_err(|error| error.to_string())
-        .and_then(|index| {
-            Resolver::open(game, &index, Some(module), TextureQuality::High)
-                .map_err(|error| error.to_string())
-        });
+    match DirIndex::build(root) {
+        Ok(index) => resolve_in(&index, game, module, names),
+        Err(error) => vec![error.to_string()],
+    }
+}
+
+/// What `name` resolves to in `module` of `index`'s install.
+fn resolve_in(
+    index: &DirIndex,
+    game: Game,
+    module: &str,
+    names: &[(&str, ResType)],
+) -> Vec<String> {
+    let resolver = Resolver::open(game, index, Some(module), TextureQuality::High)
+        .map_err(|error| error.to_string());
     names
         .iter()
         .map(|(name, restype)| match &resolver {
@@ -302,6 +349,432 @@ fn override_fingerprint() -> Result<String, String> {
     Ok(told.join("; "))
 }
 
+/// Runs one case on an install with Workshop items: each name resolved
+/// in `m01`, compared with what TSL picks.
+fn workshop_case(
+    name: &str,
+    files: &Files,
+    items: &Items,
+    names: &[(&str, ResType)],
+    expected: &[&str],
+) -> Result<String, String> {
+    let (written, index) = workshop_install(name, files, items)?;
+    let got = resolve_in(&index, Game::Kotor2, "m01", names);
+    remove(&written);
+    if got == expected {
+        Ok(got.join(", "))
+    } else {
+        Err(format!("got {got:?}, TSL picks {expected:?}"))
+    }
+}
+
+/// The Workshop items' `override/` beat the game's, the last item's
+/// winning; an item's subfolders are not read; its `.mod` beats the game's
+/// module, and of two items' `.mod`s the last one's, every copy read.
+fn workshop_override_and_mods() -> Result<String, String> {
+    let files = [
+        (
+            "modules/m01.rim",
+            archive(
+                b"RIM V1.0",
+                &[("deep", NCS, b"rim"), ("only_rim", NCS, b"rim")],
+            ),
+        ),
+        ("override/both.ncs", b"game".to_vec()),
+        ("override/first.ncs", b"game".to_vec()),
+    ];
+    let items = [
+        (
+            7,
+            vec![
+                ("override/both.ncs", b"w7".to_vec()),
+                ("override/first.ncs", b"w7".to_vec()),
+                (
+                    "modules/m01.mod",
+                    archive(
+                        b"MOD V1.0",
+                        &[("talk", DLG, b"w7"), ("only_w7", DLG, b"w7")],
+                    ),
+                ),
+            ],
+        ),
+        (
+            3,
+            vec![
+                ("override/both.ncs", b"w3".to_vec()),
+                ("override/sub/deep.ncs", b"w3".to_vec()),
+                (
+                    "modules/m01.mod",
+                    archive(b"MOD V1.0", &[("talk", DLG, b"w3")]),
+                ),
+            ],
+        ),
+    ];
+    workshop_case(
+        "ws-over",
+        &files,
+        &items,
+        &[
+            ("both", NCS),
+            ("first", NCS),
+            ("deep", NCS),
+            ("talk", DLG),
+            ("only_w7", DLG),
+            ("only_rim", NCS),
+        ],
+        &[
+            "both=workshop/3/override:w3",
+            "first=workshop/7/override:w7",
+            "deep=-",
+            "talk=workshop/3/modules/m01.mod:w3",
+            "only_w7=workshop/7/modules/m01.mod:w7",
+            "only_rim=-",
+        ],
+    )
+}
+
+/// Without a `.mod`: the module's `.rim` is the last item's, its `_s.rim`
+/// the first item's (`AsyncLoad` searches those from the first), and every
+/// `_dlg.erf` is read, the last item's winning. A module only an item has
+/// is the install's.
+fn workshop_module_rims() -> Result<String, String> {
+    let rim = |tag: &[u8; 8], entries: &[Entry]| archive(tag, entries);
+    let files = [
+        (
+            "modules/m01.rim",
+            rim(
+                b"RIM V1.0",
+                &[("r", NCS, b"game"), ("only_r", NCS, b"game")],
+            ),
+        ),
+        (
+            "modules/m01_s.rim",
+            rim(
+                b"RIM V1.0",
+                &[("s", NCS, b"game"), ("only_s", NCS, b"game")],
+            ),
+        ),
+        (
+            "modules/m01_dlg.erf",
+            rim(
+                b"ERF V1.0",
+                &[("d", DLG, b"game"), ("only_d", DLG, b"game")],
+            ),
+        ),
+    ];
+    let items = [
+        (
+            1,
+            vec![
+                ("modules/m01_s.rim", rim(b"RIM V1.0", &[("s", NCS, b"w1")])),
+                (
+                    "modules/m01_dlg.erf",
+                    rim(b"ERF V1.0", &[("d", DLG, b"w1")]),
+                ),
+                ("modules/m02.mod", rim(b"MOD V1.0", &[])),
+            ],
+        ),
+        (
+            2,
+            vec![
+                ("modules/m01.rim", rim(b"RIM V1.0", &[("r", NCS, b"w2")])),
+                ("modules/m01_s.rim", rim(b"RIM V1.0", &[("s", NCS, b"w2")])),
+                (
+                    "modules/m01_dlg.erf",
+                    rim(b"ERF V1.0", &[("d", DLG, b"w2")]),
+                ),
+            ],
+        ),
+    ];
+    let picked = workshop_case(
+        "ws-rims",
+        &files,
+        &items,
+        &[
+            ("r", NCS),
+            ("only_r", NCS),
+            ("s", NCS),
+            ("only_s", NCS),
+            ("d", DLG),
+            ("only_d", DLG),
+        ],
+        &[
+            "r=workshop/2/modules/m01.rim:w2",
+            "only_r=-",
+            "s=workshop/1/modules/m01_s.rim:w1",
+            "only_s=-",
+            "d=workshop/2/modules/m01_dlg.erf:w2",
+            "only_d=modules/m01_dlg.erf:game",
+        ],
+    )?;
+    let (written, index) = workshop_install("ws-list", &files, &items)?;
+    let modules = Resolver::modules(&index);
+    remove(&written);
+    if modules != ["m01", "m02"] {
+        return Err(format!("modules {modules:?}, TSL has m01 and m02"));
+    }
+    Ok(format!("{picked}; modules {}", modules.join(" ")))
+}
+
+/// `dialog.tlk`, movies and each stream folder's files are the last
+/// item's that has them, the game folder's when none has; an item's `.mp3`
+/// is the sound of its name as a `.wav` is.
+fn workshop_talk_and_streams() -> Result<String, String> {
+    let files = [
+        ("dialog.tlk", b"game".to_vec()),
+        ("streammusic/a.wav", b"game".to_vec()),
+        ("streammusic/c.wav", b"game".to_vec()),
+        ("streammusic/d.wav", b"game".to_vec()),
+        ("movies/m.bik", b"game".to_vec()),
+    ];
+    let items = [
+        (
+            1,
+            vec![
+                ("dialog.tlk", b"w1".to_vec()),
+                ("streammusic/a.wav", b"w1".to_vec()),
+                ("streammusic/b.wav", b"w1".to_vec()),
+            ],
+        ),
+        (
+            2,
+            vec![
+                ("streammusic/b.wav", b"w2".to_vec()),
+                ("streammusic/c.mp3", b"w2".to_vec()),
+                ("movies/m.bik", b"w2".to_vec()),
+            ],
+        ),
+    ];
+    let (written, index) = workshop_install("ws-streams", &files, &items)?;
+    let base = Resolver::base(Game::Kotor2, &index, TextureQuality::High)
+        .map_err(|error| error.to_string());
+    let read =
+        |path: &Path| std::fs::read(path).map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+    let got: Result<Vec<String>, String> = base.and_then(|base| {
+        let talk = base
+            .talk
+            .path()
+            .map(read)
+            .transpose()
+            .map_err(|error| error.to_string())?;
+        let mut got = vec![format!("dialog.tlk={}", talk.unwrap_or_else(|| "-".into()))];
+        for (folder, name, restype) in [
+            ("streammusic", "a", ResType::WAV),
+            ("streammusic", "b", ResType::WAV),
+            ("streammusic", "c", ResType::WAV),
+            ("streammusic", "d", ResType::WAV),
+            ("movies", "m", ResType::BIK),
+        ] {
+            let bytes = base
+                .stream(folder, name, restype)
+                .map(|location| location.read());
+            let text = match bytes {
+                Some(Ok(bytes)) => String::from_utf8_lossy(&bytes).into_owned(),
+                Some(Err(error)) => error.to_string(),
+                None => "-".into(),
+            };
+            got.push(format!("{folder}/{name}={text}"));
+        }
+        Ok(got)
+    });
+    remove(&written);
+    let got = got?;
+    let expected = [
+        "dialog.tlk=w1",
+        "streammusic/a=w1",
+        "streammusic/b=w2",
+        "streammusic/c=w2",
+        "streammusic/d=game",
+        "movies/m=w2",
+    ];
+    if got == expected {
+        Ok(got.join(", "))
+    } else {
+        Err(format!("got {got:?}, TSL picks {expected:?}"))
+    }
+}
+
+/// Co-op compares the Workshop items too: the same items in the same
+/// order are the same world, items in another order or an item's changed
+/// script are not, and a refusal names the item; an item of movies alone
+/// leaves the world as without it. Past the groups a handshake carries,
+/// the later items share one group.
+fn workshop_fingerprint() -> Result<String, String> {
+    use crate::fingerprint::{LATER_WORKSHOP_ITEMS, MAX_WORLD_GROUPS, fingerprint};
+    let files = [("modules/m01.rim", archive(b"RIM V1.0", &[]))];
+    let item = |id: u64, script: &[u8]| (id, vec![("override/a.ncs", script.to_vec())]);
+    let world = |name: &str, items: &Items| -> Result<_, String> {
+        let (written, index) = workshop_install(name, &files, items)?;
+        let print = fingerprint(Game::Kotor2, &index, None).map_err(|error| error.to_string());
+        remove(&written);
+        Ok(print?.world())
+    };
+    let names = |world: &crate::fingerprint::WorldData| -> Vec<String> {
+        world.groups.iter().map(|(name, _)| name.clone()).collect()
+    };
+    let same = world("wsfp-a", &[item(1, b"a"), item(2, b"b")])?;
+    if world("wsfp-b", &[item(1, b"a"), item(2, b"b")])? != same {
+        return Err("the same items are another world".into());
+    }
+    let moved = world("wsfp-moved", &[item(2, b"b"), item(1, b"a")])?;
+    let changed = world("wsfp-changed", &[item(1, b"a"), item(2, b"B")])?;
+    for (what, other) in [
+        ("in another order", &moved),
+        ("with a changed script", &changed),
+    ] {
+        if other.digest == same.digest {
+            return Err(format!("items {what} are the same world"));
+        }
+    }
+    let differ: Vec<&str> = changed
+        .groups
+        .iter()
+        .filter(|group| !same.groups.contains(group))
+        .map(|(name, _)| name.as_str())
+        .collect();
+    if differ != ["workshop/2"] {
+        return Err(format!("a changed item's refusal names {differ:?}"));
+    }
+    let plain = world("wsfp-plain", &[])?;
+    let movies = world("wsfp-movies", &[(5, vec![("movies/m.bik", b"m".to_vec())])])?;
+    if movies != plain {
+        return Err("an item of movies alone changes the world".into());
+    }
+    let many: Vec<_> = (1..=MAX_WORLD_GROUPS as u64 + 2)
+        .map(|id| item(id, b"x"))
+        .collect();
+    let crowded = world("wsfp-many", &many)?;
+    let crowded_names = names(&crowded);
+    if crowded.groups.len() != MAX_WORLD_GROUPS
+        || crowded_names.last().map(String::as_str) != Some(LATER_WORKSHOP_ITEMS)
+    {
+        return Err(format!("{} items' groups: {crowded_names:?}", many.len()));
+    }
+    Ok(format!(
+        "a changed item names {}; {} items: {}",
+        differ.join(" "),
+        many.len(),
+        crowded_names.join(" ")
+    ))
+}
+
+/// A Steam library holding `game`'s install (`exe` its executable) and
+/// Workshop items 11, 22 and 33 under `app`, with `extra` files.
+fn steam_library(name: &str, exe: &str, app: u32, extra: &Files) -> Result<PathBuf, String> {
+    let install = "steamapps/common/game";
+    let content = format!("steamapps/workshop/content/{app}");
+    let mut files: Vec<(String, Vec<u8>)> = vec![
+        (format!("{install}/chitin.key"), empty_key()),
+        (format!("{install}/dialog.tlk"), Vec::new()),
+        (
+            format!("{install}/modules/m01.rim"),
+            archive(b"RIM V1.0", &[]),
+        ),
+        (format!("{install}/{exe}"), Vec::new()),
+    ];
+    for id in [11, 22, 33] {
+        files.push((format!("{content}/{id}/override/a.ncs"), Vec::new()));
+    }
+    files.extend(
+        extra
+            .iter()
+            .map(|(path, bytes)| (path.to_string(), bytes.clone())),
+    );
+    let files: Vec<(&str, Vec<u8>)> = files
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), bytes.clone()))
+        .collect();
+    folder(name, &files)
+}
+
+/// TSL's Workshop items in Steam's subscription order: the list of the
+/// account `appworkshop_208580.acf` names, by its numbering, without the
+/// items disabled locally or not installed; in id order without a list.
+/// K1 reads none, and `KJK_WORKSHOP=off` leaves them out.
+fn workshop_subscriptions() -> Result<String, String> {
+    let entry = |number: u32, id: u64, disabled: u8| {
+        format!(
+            "\t\"{number}\"\n\t{{\n\t\t\"publishedfileid\"\t\t\"{id}\"\n\t\t\"disabled_locally\"\t\t\"{disabled}\"\n\t}}\n"
+        )
+    };
+    let list = |entries: &[(u64, u8)]| {
+        let body: String = entries
+            .iter()
+            .enumerate()
+            .map(|(number, (id, disabled))| entry(number as u32, *id, *disabled))
+            .collect();
+        format!("\"subscribedfiles\"\n{{\n\t\"appid\"\t\t\"208580\"\n{body}}}\n").into_bytes()
+    };
+    let acf = b"\"AppWorkshop\"\n{\n\t\"WorkshopItemDetails\"\n\t{\n\t\t\"11\"\n\t\t{\n\t\t\t\"subscribedby\"\t\t\"2\"\n\t\t}\n\t}\n}\n";
+    let listed = [
+        ("steamapps/workshop/appworkshop_208580.acf", acf.to_vec()),
+        (
+            "userdata/2/ugc/208580_subscriptions.vdf",
+            list(&[(33, 0), (44, 0), (22, 1), (11, 0)]),
+        ),
+        ("userdata/9/ugc/208580_subscriptions.vdf", list(&[(22, 0)])),
+    ];
+    let unlisted = [("userdata/9/config/localconfig.vdf", Vec::new())];
+    let cases = [
+        (
+            "ws-steam-list",
+            "swkotor2.exe",
+            Game::Kotor2,
+            208580,
+            &listed[..],
+            true,
+        ),
+        (
+            "ws-steam-ids",
+            "swkotor2.exe",
+            Game::Kotor2,
+            208580,
+            &unlisted[..],
+            true,
+        ),
+        (
+            "ws-steam-off",
+            "swkotor2.exe",
+            Game::Kotor2,
+            208580,
+            &listed[..],
+            false,
+        ),
+        (
+            "ws-steam-k1",
+            "swkotor.exe",
+            Game::Kotor1,
+            32370,
+            &unlisted[..],
+            true,
+        ),
+    ];
+    let expected: [&[u64]; 4] = [&[33, 11], &[11, 22, 33], &[], &[]];
+    let mut told = Vec::new();
+    for ((name, exe, game, app, extra, on), expected) in cases.into_iter().zip(expected) {
+        let library = steam_library(name, exe, app, extra)?;
+        let found =
+            crate::install_at(game, &library.join("steamapps/common/game")).map(|mut install| {
+                install.workshop = on;
+                let items = install.workshop_items().items;
+                let ids: Vec<u64> = items.iter().map(|item| item.id).collect();
+                (
+                    ids,
+                    install.workshop_note().unwrap_or_else(|| "no note".into()),
+                )
+            });
+        let _ = std::fs::remove_dir_all(&library);
+        let (ids, note) = found?;
+        if ids != expected {
+            return Err(format!(
+                "{name}: items {ids:?}, the game loads {expected:?} ({note})"
+            ));
+        }
+        told.push(format!("{name}: {note}"));
+    }
+    Ok(told.join("; "))
+}
+
 /// Every probe: its name and what it found, or why it failed.
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     vec![
@@ -310,5 +783,10 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ("ranks_between_archives", ranks_between_archives()),
         ("override_subfolders", override_subfolders()),
         ("override_fingerprint", override_fingerprint()),
+        ("workshop_override_and_mods", workshop_override_and_mods()),
+        ("workshop_module_rims", workshop_module_rims()),
+        ("workshop_talk_and_streams", workshop_talk_and_streams()),
+        ("workshop_fingerprint", workshop_fingerprint()),
+        ("workshop_subscriptions", workshop_subscriptions()),
     ]
 }

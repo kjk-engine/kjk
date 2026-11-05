@@ -520,7 +520,7 @@ pub fn fingerprint_cache(game: Game) -> std::path::PathBuf {
 pub fn k1_index() -> Option<vfs::DirIndex> {
     discover()
         .get(vfs::Game::Kotor1)
-        .and_then(|install| vfs::DirIndex::build(&install.data_root).ok())
+        .and_then(|install| vfs::DirIndex::of_install(install).ok())
 }
 
 /// K1's resources in `index`, with `module`'s archives where one is named.
