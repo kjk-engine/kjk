@@ -4,10 +4,13 @@
 //! run's manifest, log, crash and flight recorder, the world now, the
 //! settings and the breadcrumbs. Every text in it is scrubbed of the home
 //! folder, the user's name and the machine's; `host.id` is left out, and
-//! none of the games' files go in. Nothing is sent by itself: the folder and
-//! GitHub's new-issue page are opened for the player to attach it, the form
-//! filled in with the note (scrubbed), the version and the zip's name, for
-//! the player to read before submitting.
+//! none of the games' files go in. Nothing is sent by itself: the folder (the
+//! zip selected) and GitHub's new-issue page are opened for the player to drag
+//! it on, the issue's one box filled in with the note (scrubbed) and the
+//! version, for the player to read before submitting. GitHub takes no file in
+//! a new-issue address, so the zip can only be dropped by the player; the box
+//! is a plain markdown one (`.github/ISSUE_TEMPLATE/bug.md`) because an issue
+//! form's fields take a dropped file as its name only.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -18,8 +21,8 @@ use ui::intent::Intent;
 use crate::settings::Action;
 use crate::ui_view::{Ui, UiIntents};
 
-/// Where a new issue is opened: the bug form (`issue_url` fills it in).
-const ISSUE: &str = "https://github.com/kjk-engine/kjk/issues/new?template=bug.yml";
+/// Where a new issue is opened: the bug template (`issue_url` fills it in).
+const ISSUE: &str = "https://github.com/kjk-engine/kjk/issues/new?template=bug.md";
 /// How long an issue's title may be, from the note's first line.
 const TITLE_KEPT: usize = 80;
 /// How much of the note goes in the address: browsers and GitHub refuse long ones.
@@ -411,13 +414,12 @@ fn make(world: &mut World) {
         Ok(path) => {
             info!(target: "report", path = %path.display(), bytes = zipped.len(), "report made");
             if player {
-                open_folder(&reports);
-                let name = path.file_name().and_then(|name| name.to_str());
+                show_file(&path);
                 let version = concat!(env!("KJK_VERSION"), " (", env!("KJK_GIT_SHA"), ")");
-                open_page(&issue_url(&note, version, name.unwrap_or(""), &me));
+                open_page(&issue_url(&note, version, &me));
             }
             format!(
-                "The report is saved as {}. Attach it to the issue opened in your browser.",
+                "The report is saved as {}. Drag it onto the issue's box opened in your browser.",
                 scrub(&path.display().to_string(), &me.home, &me.user, &me.host)
             )
         }
@@ -455,10 +457,10 @@ fn encoded(text: &str) -> String {
     })
 }
 
-/// The bug form filled in by its fields' ids (`.github/ISSUE_TEMPLATE/bug.yml`):
-/// the title the note's first line, what happened the note, both scrubbed of
-/// `me`; the version; the report's file name.
-pub fn issue_url(note: &str, version: &str, report: &str, me: &Identity) -> String {
+/// The bug template filled in: the title the note's first line, the box
+/// (`body`) the note and the version, the note scrubbed of `me`, with
+/// comments saying what else may go in and where the zip is dropped.
+pub fn issue_url(note: &str, version: &str, me: &Identity) -> String {
     let note = scrub(note.trim(), &me.home, &me.user, &me.host);
     let title: String = note
         .lines()
@@ -468,13 +470,23 @@ pub fn issue_url(note: &str, version: &str, report: &str, me: &Identity) -> Stri
         .take(TITLE_KEPT)
         .collect();
     let happened: String = note.chars().take(NOTE_KEPT).collect();
+    let body = [
+        "<!-- What happened, and what you expected instead. -->",
+        &happened,
+        "",
+        "<!-- Anything else: which game, where your copy is from, mods, how often it happens. -->",
+        "",
+        "",
+        &format!("**kjk version:** {version}"),
+        "",
+        "**Report:** <!-- drag the kjk-report-….zip from the folder that opened here -->",
+        "",
+        "",
+        "- [x] Report zip attached",
+    ]
+    .join("\n");
     let mut url = ISSUE.to_string();
-    for (field, value) in [
-        ("title", title.as_str()),
-        ("happened", happened.as_str()),
-        ("version", version),
-        ("report", report),
-    ] {
+    for (field, value) in [("title", title.as_str()), ("body", body.as_str())] {
         if !value.is_empty() {
             url.push_str(&format!("&{field}={}", encoded(value)));
         }
@@ -482,16 +494,26 @@ pub fn issue_url(note: &str, version: &str, report: &str, me: &Identity) -> Stri
     url
 }
 
-/// `folder` opened as the system opens one.
-fn open_folder(folder: &Path) {
-    let program = if cfg!(target_os = "macos") {
-        "open"
-    } else if cfg!(windows) {
-        "explorer"
-    } else {
-        "xdg-open"
-    };
-    spawn(program, &[folder.as_os_str()]);
+/// The folder holding `file` opened as the system opens one, `file` selected
+/// where the system can (Windows' Explorer, macOS' Finder).
+fn show_file(file: &Path) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // Explorer reads `/select,"path"` as one argument, not as Rust quotes it.
+        let mut select = std::ffi::OsString::from("/select,\"");
+        select.push(file.as_os_str());
+        select.push("\"");
+        if let Err(error) = std::process::Command::new("explorer").raw_arg(&select).spawn() {
+            warn!(target: "report", "explorer {select:?}: {error}");
+        }
+    }
+    #[cfg(target_os = "macos")]
+    spawn("open", &["-R".as_ref(), file.as_os_str()]);
+    #[cfg(not(any(windows, target_os = "macos")))]
+    if let Some(folder) = file.parent() {
+        spawn("xdg-open", &[folder.as_os_str()]);
+    }
 }
 
 /// The web page `url` opened in the default browser. Not by `explorer` on
