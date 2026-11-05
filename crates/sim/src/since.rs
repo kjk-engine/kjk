@@ -22,6 +22,7 @@ pub mod save {
     pub const CLAUDE_SAVE_RECONCILE: crate::Since = crate::Since(crate::Stored::Save, 72);
     pub const REEL_NOTES: crate::Since = crate::Since(crate::Stored::Save, 73);
     pub const REPUTATION_HELD: crate::Since = crate::Since(crate::Stored::Save, 74);
+    pub const SITH_BASE_FIXES: crate::Since = crate::Since(crate::Stored::Save, 75);
     #[allow(unused_imports)]
     pub use crate::pending::since::save::*;
 }
@@ -35,6 +36,8 @@ pub mod snapshot {
     pub const DROID_FEEL: crate::Since = crate::Since(crate::Stored::Snapshot, 78);
     pub const CLAUDE_SAVE_RECONCILE: crate::Since = crate::Since(crate::Stored::Snapshot, 79);
     pub const REEL_NOTES: crate::Since = crate::Since(crate::Stored::Snapshot, 80);
+    pub const TUSKEN_STANDING: crate::Since = crate::Since(crate::Stored::Snapshot, 81);
+    pub const SITH_BASE_FIXES: crate::Since = crate::Since(crate::Stored::Snapshot, 82);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }
@@ -42,6 +45,7 @@ pub mod snapshot {
 pub mod pack {
     pub const CLAUDE_TSL_FINALE: crate::Since = crate::Since(crate::Stored::Pack, 21);
     pub const CLAUDE_BODIES_COLLISION: crate::Since = crate::Since(crate::Stored::Pack, 22);
+    pub const COMPANION_THROWS: crate::Since = crate::Since(crate::Stored::Pack, 23);
     #[allow(unused_imports)]
     pub use crate::pending::since::pack::*;
 }
