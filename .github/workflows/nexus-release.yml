@@ -1,0 +1,49 @@
+# Puts a Release's packages on the Nexus Mods page
+# (nexusmods.com/kotor/mods/1911) when the owner publishes it, as
+# discord-release.yml announces it: release.yml only drafts. The owner's API
+# key is the repository secret NEXUS_API_KEY; without it (a fork) nothing is
+# uploaded. Which file on the page each OS's package updates is the variable
+# NEXUS_FILE_<PLATFORM>; .github/nexus-upload.sh says more. Run by hand with
+# a tag, it uploads that Release's packages again.
+name: nexus release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The Release's tag (v0.6.0)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexus-release
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+
+      - name: upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXUS_API_KEY: ${{ secrets.NEXUS_API_KEY }}
+          NEXUS_MOD_ID: "1005022349175"
+          VARS: ${{ toJSON(vars) }}
+        run: |
+          if [ -z "$NEXUS_API_KEY" ]; then
+            echo "::notice::no NEXUS_API_KEY secret; nothing uploaded"
+            exit 0
+          fi
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir packages \
+            --pattern 'kjk-*.tar.gz' --pattern 'kjk-*.zip'
+          bash .github/nexus-upload.sh "$TAG" packages/*
