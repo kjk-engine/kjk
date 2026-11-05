@@ -50,8 +50,9 @@ applies = ["kind:weapon"]
 [factions]
 title = "Factions"
 summary = """
-Each faction regards each other faction with a standing from 0 to 100,
-changed by scripts. A standing of {world.factions.hostile_at_most:bare} or
+Each faction regards each other faction with a standing from 0 to
+{world.factions.highest:bare}, changed by scripts and held to that range as
+each change is kept. A standing of {world.factions.hostile_at_most:bare} or
 less is hostile, {world.factions.friendly_at_least:bare} or more is
 friendly, and anything between is neutral. A faction missing from the table
 stands at {world.factions.unlisted_own:bare} to itself and
@@ -77,6 +78,16 @@ summary = "A faction with a standing of {world.factions.friendly_at_least:bare} 
 source = "K1's executable (repute.2da's rule)"
 see = "sim::module::Standing::friendly"
 applies = ["kind:creature", "kind:mine"]
+
+[factions.highest]
+name = "Highest Standing"
+type = "u8"
+value = 100
+range = [100, 100]
+summary = "A standing is at most {world.factions.highest:bare} and at least 0; a script's change past either end is kept at that end, so a later change starts from it."
+source = "K1's and TSL's executables (AdjustReputation)"
+see = "sim::module::adjust"
+applies = ["kind:creature"]
 
 [factions.unlisted_own]
 name = "Unlisted Faction to Itself"

@@ -1,0 +1,7 @@
+sim = "AdjustReputation as K1's and TSL's executables apply it: the target's faction comes to regard the source's as the source's regards the target's, moved and held to the scale as it is kept, so a change past an end is not remembered (Tatooine's Sand People made mad at 50 and robed again are at peace again). Each way between two of the table's factions is its own standing; the player's with a faction is one both ways. A dead character as the source, or a source of the player's faction or the target's, changes nothing."
+
+[formats]
+save = "the scripts' reputation changes are kept by the table's cell (how one faction stands to another, the player's both ways one), the standing held as it changed, not by unordered pair (`module::Adjustments`)."
+
+[migrations]
+save = "an old save's change of a pair becomes the same change in each of the pair's cells (`module::adjustment_cells`), so every standing reads as before; one held past an end in the old way reads at that end and the next change starts from there"

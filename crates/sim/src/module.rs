@@ -1239,18 +1239,58 @@ pub struct Repute {
     pub rows: Vec<Vec<u8>>,
 }
 
-/// What scripts changed of how factions stand (`AdjustReputation`), by the
-/// pair of `repute.2da` rows, the lower first: both ways, as a player's
-/// standing with a faction is that faction's with the player (Tatooine's
-/// Sand People, at peace with one in their robes, and the party with them).
+/// What scripts changed of how factions stand (`AdjustReputation`): by the
+/// table's cell (`cell`), the standing now less the table's. Between two
+/// of the table's factions each way is its own cell; the player's
+/// standing with a faction and that faction's with the player are one
+/// (the table has no column for the player), so Tatooine's Sand People at
+/// peace with one in their robes are so both ways.
 pub type Adjustments = BTreeMap<(u8, u8), i16>;
 
 /// No adjustments: the table as it is.
 pub static UNADJUSTED: Adjustments = BTreeMap::new();
 
-/// The key `a` and `b`'s adjustment is kept under.
-pub fn pair(a: u8, b: u8) -> (u8, u8) {
-    (a.min(b), a.max(b))
+/// The cell how `a` stands to `b` is kept in: row `a`'s for `b`, or the
+/// player's row's for `a` when `b` is the player.
+pub fn cell(a: u8, b: u8) -> (u8, u8) {
+    use crate::combat::sheet::factions::PLAYER;
+    if b == PLAYER { (PLAYER, a) } else { (a, b) }
+}
+
+/// `AdjustReputation` as K1's and TSL's executables apply it, its target
+/// of faction `target` and its source of faction `source`: the target's
+/// faction comes to regard the source's as the source's regards the
+/// target's, moved by `by` and held to 0..=`HIGHEST` as it is kept (a
+/// change past an end is not remembered). Only a source of one of the
+/// table's own factions (not the player's), of another faction than the
+/// target's, changes anything. Between two of the table's factions the
+/// read and the written are the two ways, as the executables have it
+/// (QUIRKS.md Q-0337); with the player they are its one cell.
+pub fn adjust(table: &Repute, adjusted: &mut Adjustments, target: u8, source: u8, by: i32) {
+    use crate::combat::sheet::factions::PLAYER;
+    use rules::world::factions::HIGHEST;
+    let listed = |faction: u8| usize::from(faction) < table.rows.len();
+    if source == PLAYER || source == target || !listed(source) || !listed(target) {
+        return;
+    }
+    let now = i32::from(table.with(adjusted).of(source, target));
+    let to = (now + by).clamp(0, i32::from(HIGHEST));
+    let key = cell(target, source);
+    let change = to - i32::from(table.row(key.0, key.1));
+    if change == 0 {
+        adjusted.remove(&key);
+    } else {
+        adjusted.insert(key, change as i16);
+    }
+}
+
+/// An adjustment kept before standings were held as they changed: one per
+/// pair of factions, the lower first, applied both ways; as cells.
+pub fn adjustment_cells(a: u8, b: u8, by: i16) -> impl Iterator<Item = ((u8, u8), i16)> {
+    let (low, high) = (a.min(b), a.max(b));
+    let one = cell(low, high);
+    let other = cell(high, low);
+    std::iter::once((one, by)).chain((other != one).then_some((other, by)))
 }
 
 impl Repute {
@@ -1317,10 +1357,11 @@ pub struct Standing<'a> {
 }
 
 impl Standing<'_> {
-    /// How `a` stands to `b`, 0 to 100.
+    /// How `a` stands to `b`, 0 to `HIGHEST`.
     pub fn of(&self, a: u8, b: u8) -> u8 {
-        let by = self.adjusted.get(&pair(a, b)).copied().unwrap_or(0);
-        (i16::from(self.table.row(a, b)) + by).clamp(0, 100) as u8
+        let by = self.adjusted.get(&cell(a, b)).copied().unwrap_or(0);
+        let highest = i16::from(rules::world::factions::HIGHEST);
+        (i16::from(self.table.row(a, b)) + by).clamp(0, highest) as u8
     }
 
     pub fn hostile(&self, a: u8, b: u8) -> bool {

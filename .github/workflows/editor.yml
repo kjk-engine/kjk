@@ -37,6 +37,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The order the pending bump files reached main numbers them.
+          fetch-depth: 0
 
       - name: Toolchain
         run: rustup toolchain install
