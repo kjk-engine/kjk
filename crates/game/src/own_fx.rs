@@ -427,6 +427,13 @@ fn look(
     }
 }
 
+/// The materials `pose` keys, their slots and what scrolls and flips.
+type PoseMaterials<'w> = (
+    ResMut<'w, Assets<OdysseyMaterial>>,
+    Option<ResMut<'w, crate::material::Animated>>,
+    Option<ResMut<'w, crate::scene::AnimatedMaterials>>,
+);
+
 /// Poses each model by the clips it plays this frame and keys its meshes'
 /// alpha and self-illumination.
 #[allow(clippy::too_many_arguments)]
@@ -440,10 +447,7 @@ fn pose(
         Query<&Children>,
         Query<&mut MeshMaterial3d<OdysseyMaterial>>,
     ),
-    (mut materials, mut animated): (
-        ResMut<Assets<OdysseyMaterial>>,
-        Option<ResMut<crate::material::Animated>>,
-    ),
+    (mut materials, mut animated, mut moving): PoseMaterials,
 ) {
     let movers = &mut *movers;
     if movers.movers.is_empty() {
@@ -514,8 +518,7 @@ fn pose(
                 (&own.fx, ir, &mover.nodes),
                 &model_fx::glows(ir, &loaded.textures),
                 &children,
-                &mut mesh_materials,
-                &mut materials,
+                (&mut mesh_materials, &mut materials, moving.as_deref_mut()),
             );
         }
         for lit in mover.lit.iter_mut().flatten() {

@@ -84,12 +84,11 @@ impl Row {
 }
 
 /// The effect a conversation's lines' cameras show, line by line, as the
-/// K1 executable sets it from each line's `CamVidEffect`: a row (0 on)
-/// shows that row; -1 on a placed camera's line (`CameraAngle` 6) shows
-/// none; -1 on any other line and -2 keep what the line before showed. A
-/// conversation begins and ends with none. [verify: the executable's -1 on
-/// a placed camera read as none, as the Endar Spire's security-camera
-/// lines (row 0) and Carth's at the pod (-1) have it.]
+/// K1 executable sets it when it puts a line's camera up: a placed
+/// camera's line (`CameraAngle` 6) shows its `CamVidEffect` row (0 on) and
+/// keeps what the line before showed on -1 or -2; an animated camera's
+/// line (5) keeps it too; any other camera's line shows none. A
+/// conversation begins and ends with none.
 #[derive(Default)]
 struct LineEffect {
     /// The conversation and line last followed, and what it showed.
@@ -102,6 +101,8 @@ type Line = (u32, u32, u64);
 
 /// A line's `CameraAngle` of a placed camera.
 const PLACED_CAMERA: u32 = 6;
+/// A line's `CameraAngle` of an animated camera.
+const ANIMATED_CAMERA: u32 = 5;
 
 impl LineEffect {
     /// Follows the line `(conversation id, entry, shown ms)` with its
@@ -117,10 +118,10 @@ impl LineEffect {
         }
         if self.line != Some(key) {
             self.line = Some(key);
-            self.shown = match effect {
-                row if row >= 0 => u16::try_from(row).ok(),
-                -1 if angle == PLACED_CAMERA => None,
-                _ => self.shown,
+            self.shown = match angle {
+                PLACED_CAMERA => u16::try_from(effect).ok().or(self.shown),
+                ANIMATED_CAMERA => self.shown,
+                _ => None,
             };
         }
         self.shown
@@ -128,54 +129,68 @@ impl LineEffect {
 }
 
 /// The lines' video effects' probes (`kjk sim probes --only "line video
-/// effect"`): the rule on the Endar Spire's Carth (`end_carth001`, K1's
-/// data where this machine has the install), his security-camera lines
-/// noised, his line at the pod clear, and the keeps.
+/// effect"`): the rule, and on K1's data where this machine has the
+/// install, the Endar Spire's Carth (`end_carth001`: his security-camera
+/// lines noised, his line at the pod clear) and his call to Trask
+/// (`end_trask01`: noised, Trask's answer clear).
 #[cfg(feature = "probes")]
 pub fn line_probes() -> sim::probe::Checks {
     use sim::probe::check;
     let lines = [
-        (3, 0),
-        (-1, 0),
-        (-2, PLACED_CAMERA),
+        (3, PLACED_CAMERA),
         (-1, PLACED_CAMERA),
-        (-2, 0),
+        (-2, ANIMATED_CAMERA),
+        (3, 1),
+        (-1, 0),
+        (1, PLACED_CAMERA),
     ];
     let mut effect = LineEffect::default();
     let shown: Vec<Option<u16>> = (0..)
         .zip(&lines)
         .map(|(entry, node)| effect.follow(Some(((7, entry, u64::from(entry)), *node))))
         .collect();
-    let again = effect.follow(Some(((8, 0, 9), lines[4])));
+    let again = effect.follow(Some(((8, 0, 9), lines[1])));
     let mut checks = vec![(
-        "a row shows, -1 keeps it but on a placed camera, -2 keeps it",
+        "a placed camera's row shows, -1 and an animated camera keep it, \
+         another camera takes it off",
         check(
-            shown == [Some(3), Some(3), Some(3), None, None] && again.is_none(),
+            shown == [Some(3), Some(3), Some(3), None, None, Some(1)] && again.is_none(),
             format!("{shown:?}; a new conversation's keep: {again:?}"),
         ),
     )];
-    let read = crate::k1_index().and_then(|index| {
-        let resolver = crate::k1_open(&index, Some("end_m01ab")).ok()?;
-        let bytes = resolver.read("end_carth001", fmt_odyssey::ResType::DLG)?;
-        fmt_odyssey::dlg::Dlg::parse(&bytes).ok()
-    });
-    if let Some(dlg) = read {
+    let Some(index) = crate::k1_index() else {
+        return checks;
+    };
+    // What `dlg` of `module` shows on its `entries` in turn.
+    let followed = |module: &str, dlg: &str, entries: &[u32]| {
+        let resolver = crate::k1_open(&index, Some(module)).ok()?;
+        let bytes = resolver.read(dlg, fmt_odyssey::ResType::DLG)?;
+        let dlg = fmt_odyssey::dlg::Dlg::parse(&bytes).ok()?;
         let mut effect = LineEffect::default();
-        let shown: Vec<Option<u16>> = (0..)
-            .zip(&dlg.entries)
-            .map(|(entry, node)| {
-                effect.follow(Some((
+        entries
+            .iter()
+            .map(|&entry| {
+                let node = dlg.entries.get(entry as usize)?;
+                Some(effect.follow(Some((
                     (1, entry, u64::from(entry)),
                     (node.cam_vid_effect, node.camera_angle),
-                )))
+                ))))
             })
-            .collect();
+            .collect::<Option<Vec<Option<u16>>>>()
+    };
+    if let Some(shown) = followed("end_m01ab", "end_carth001", &Vec::from_iter(0..12)) {
         checks.push((
             "the Endar Spire's Carth: the security camera's lines noised",
             check(
-                shown[..2] == [None, None] && shown[3..12].iter().all(|row| *row == Some(0)),
+                shown[..3] == [None, None, None] && shown[3..].iter().all(|row| *row == Some(0)),
                 format!("{shown:?}"),
             ),
+        ));
+    }
+    if let Some(shown) = followed("end_m01aa", "end_trask01", &[32, 33, 34, 35]) {
+        checks.push((
+            "Carth's call to Trask noised, Trask's lines after it clear",
+            check(shown == [Some(0), None, None, None], format!("{shown:?}")),
         ));
     }
     checks

@@ -497,6 +497,7 @@ pub struct Drawing<'w, 's> {
     mesh_materials: Query<'w, 's, &'static mut MeshMaterial3d<OdysseyMaterial>>,
     materials: ResMut<'w, Assets<OdysseyMaterial>>,
     animated: Option<ResMut<'w, crate::material::Animated>>,
+    moving: Option<ResMut<'w, crate::scene::AnimatedMaterials>>,
     meshes: ResMut<'w, Assets<Mesh>>,
     buffers: ResMut<'w, Assets<ShaderBuffer>>,
     pub visibility: Query<'w, 's, &'static mut Visibility>,
@@ -563,8 +564,11 @@ impl Drawing<'_, '_> {
                 (&model.fx, &model.placed.ir, &spawned.nodes),
                 &spawned.glows,
                 &self.children,
-                &mut self.mesh_materials,
-                &mut self.materials,
+                (
+                    &mut self.mesh_materials,
+                    &mut self.materials,
+                    self.moving.as_deref_mut(),
+                ),
             );
         }
         let model = (&*spawned.model.fx, &spawned.model.placed.ir);

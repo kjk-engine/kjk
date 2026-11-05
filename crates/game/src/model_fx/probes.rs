@@ -114,8 +114,7 @@ fn door_clip_alpha() -> Result<String, String> {
                     (&fx, &ir, &[node]),
                     &[],
                     &children,
-                    &mut meshes,
-                    &mut materials,
+                    (&mut meshes, &mut materials, None),
                 )?;
                 let [field] = &mut lit[..] else {
                     return None;

@@ -375,10 +375,13 @@ where they part, the choice is ours and named.
   the heads' faces come from the voice's LIP alone, "Lips" below), and
   `PostProcNode`/`PostProcOwner` (no code names either field: no voice
   filter is put on a droid's or a comm's line by them).
-- **Video effects** (`CamVidEffect`, `game::video_effect`): a line's row (0
-  on) shows that `videoeffects.2da` row while it shows; -1 on a placed
-  camera's line shows none; -1 elsewhere and -2 keep the line before's; a
-  conversation begins and ends with none [verify -1 on a placed camera].
+- **Video effects** (`CamVidEffect`, `game::video_effect`): as K1's
+  executable sets it when it puts a line's camera up (read from the Mac
+  executable, 2026-11-05): a placed camera's line (`CameraAngle` 6) shows
+  its `videoeffects.2da` row (0 on) and keeps the line before's on -1 or
+  -2; an animated camera's line (5) keeps it; any other camera's line shows
+  none, so the Endar Spire's Trask is clear again after Carth's call
+  (`end_trask01` 32 to 33). A conversation begins and ends with none.
 - **Fades:** a node's own (`FadeType`, `FadeDelay`, `FadeLength`,
   `FadeColor`; `dlg::NodeFade`) starts as the node plays (an entry shown,
   a reply taken), before its scripts, whose own fades then win: 3 fades
