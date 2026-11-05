@@ -125,7 +125,8 @@ fn templates_of(base: &Resolver) -> Vec<u8> {
 
 /// Every voiced line's length (ms), by lowercase name, encoded.
 fn voices_of(base: &Resolver) -> Vec<u8> {
-    let wav = fmt_odyssey::ResType::WAV;
+    // A voiced line is a WAV, or a mod's MP3 (`Resolver::stream`).
+    let sounds = [fmt_odyssey::ResType::WAV, fmt_odyssey::ResType::BMU];
     let mut voices = BTreeMap::new();
     let folders = base
         .streams
@@ -133,7 +134,7 @@ fn voices_of(base: &Resolver) -> Vec<u8> {
         .filter(|layer| VOICE_FOLDERS.contains(&layer.name.to_ascii_lowercase().as_str()));
     for layer in folders {
         for ((name, restype), location) in &layer.resources {
-            if *restype != wav {
+            if !sounds.contains(restype) {
                 continue;
             }
             let length = location

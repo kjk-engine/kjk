@@ -18,6 +18,8 @@ An install's folder is named by `KJK_KOTOR1`, `KJK_KOTOR2` or `KJK_JA`, in
 the environment or in `.env` in the folder `kjk` runs from (the repo root;
 `.env.example`); a variable wins over Steam's libraries and GOG's default
 folders, and one that names something else is refused, never replaced.
+`KJK_WORKSHOP` (`on`/`off`) plays TSL's Steam Workshop items or not; a build
+from source defaults to off and the player's build to on (below).
 
 ## KOTOR precedence (lowest first; highest holding a name wins)
 
@@ -37,15 +39,55 @@ added when; within one kind, the source added last wins.
 4. `patch.erf`.
 5. `override/`: its top level, then (TSL only) its subfolders one level
    down, in name order. The first file of a name wins. K1 reads the top
-   level alone.
+   level alone. Over it, each Steam Workshop item's `override/` (below).
 
 So a mod's file in `override/` beats a module's own DLG, NCS or UTC, as in
 the games. A `.txt` there is a document (a mod's readme, Aspyr's controller
 settings) and is not read; the co-op fingerprint covers exactly the
 override files that are (`resolver::read_from_override`). On the
 unmodded installs this order picks the same file as the order kjk used
-before for every name in every module (checked 2026-11-05). Steam Workshop items are not read yet. `kjk games` names them,
-and the setup screen and the log say they are not loaded.
+before for every name in every module (checked 2026-11-05).
+
+## Steam Workshop items (TSL)
+
+TSL's executable loads the Workshop items its player is subscribed to
+(`LoadSteamMods`, `GetOverridePath`); K1's has no Workshop code. Each item
+is a folder `steamapps/workshop/content/208580/<id>/` laid out like the
+game's data folder (TSLRCM is item 485537937). `DirIndex::of_install`
+indexes the installed ones in their load order, lowest first:
+
+- **The order** is Steam's subscribed-items list, which the game asks
+  for (`GetSubscribedItems`, at most 30). Steam keeps it in
+  `userdata/<account>/ugc/208580_subscriptions.vdf`, numbered from 0, the
+  newest subscription first; kjk takes it in that numbering, leaving out
+  items disabled locally and items not installed. Which order Steam hands
+  the game is not in its documentation; the list's numbering is the
+  assumption. Without a list, the items are taken in id order.
+- **`override/`**: every item's beats the game's, the last item's winning.
+  Only its top level is read (only the folder named `OVERRIDE:` reads
+  subfolders).
+- **A module**: every copy of its `.mod` is read, the game folder's lowest
+  and the last item's highest, and then none of its RIMs or `_dlg.erf`.
+  Without one: every `_dlg.erf` the same way; the `.rim` is the last
+  item's that has one (`LoadModule` searches from the last item); the
+  `_s.rim` the *first* item's (`AsyncLoad` searches it from the first);
+  the game folder's when no item has it. A module only an item has (nine
+  of TSLRCM's) is a module of the install.
+- **Lips**: the game folder's `<m>_loc.mod`, then each item's
+  `<m>_loc.mod` and `localization.mod` (`AddModuleResources`).
+- **`dialog.tlk`, movies and the stream folders**, file by file: the last
+  item's that has it, the game folder's when none has.
+
+Layers from an item are named after it: `kjk ls tsl --shadowed` shows
+`workshop/485537937/modules/001ebo.mod` or `workshop/485537937/override`
+winning. `kjk games`, the setup screen and the log list the items loaded.
+Only the player's build (`cargo xtask dist`, without the `probes`
+feature) reads the items by default. A build with the verbs (every `cargo
+build`, and so the chain, the sweeps and the probes) and the approved tests
+play the game folders alone unless `KJK_WORKSHOP` says otherwise, in the
+environment or `.env`: they were written and approved on the games' own
+data, and a run's answer should not depend on what a machine is subscribed
+to. `KJK_WORKSHOP=on` gives them the items.
 
 Stream folders (`streammusic`, `streamsounds`, `streamwaves`/`streamvoice`,
 `movies`) are separate namespaces, asked for by folder, never stacked. The
@@ -68,8 +110,17 @@ inflates to at most its directory size.
 ## Fingerprint
 
 BLAKE3 over every file the resolvers read (not saves, configs or exes), with
-one digest per top-level folder so a mismatch names what differs. Per-file
+one digest per top-level folder so a mismatch names what differs. Workshop
+items' files are covered under `workshop/<id>/` (`covered_in_item`), with
+the items' order; co-op compares each item's world files as one group
+(`workshop/<id>`, its place among the items in its digest), so a refusal
+names the item that differs or moved, and the items past the eight groups
+a handshake carries share `workshop/later`. An item of movies, voices or
+music alone leaves the world as without it. Per-file
 hashes are cached in the store's `cache/fingerprint/<game>.tsv` (`IMPORT.md`;
 `kjk-artifacts/cache/fingerprint/` when the store cannot be opened) by path,
 size and modification time; `--no-cache` rehashes everything. Changing what is
-covered means bumping `fingerprint::VERSION`.
+covered means bumping `fingerprint::VERSION`. The Workshop items did not:
+their files are new names that no older fingerprint has, so an install
+with items already differs from an older build's print of it, and one
+without has the same print as before.

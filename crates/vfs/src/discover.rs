@@ -16,16 +16,98 @@ pub struct Install {
     /// Files and folders that tell builds apart, as found in `root` or
     /// `data_root` (lowercase).
     pub markers: Vec<&'static str>,
+    /// Whether the Steam Workshop items the game loads are played
+    /// (`workshop_items`); `KJK_WORKSHOP=off` plays the game folder alone.
+    pub workshop: bool,
+}
+
+/// The variable that turns the Workshop items off (`off`, `0`, `no` or
+/// `false`).
+pub const WORKSHOP_VAR: &str = "KJK_WORKSHOP";
+
+/// The most subscribed items the game asks Steam for (`LoadSteamMods`).
+pub const MAX_WORKSHOP_ITEMS: usize = 30;
+
+/// A Steam Workshop item the game loads: its id and its folder, laid out
+/// like the game's data folder (`override/`, `modules/`, `dialog.tlk`, …).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkshopItem {
+    pub id: u64,
+    pub folder: PathBuf,
+}
+
+/// The Workshop items found for an install, and where their order came
+/// from.
+#[derive(Debug, Clone, Default)]
+pub struct WorkshopItems {
+    /// In load order, lowest first: the last one wins (`DirIndex::workshop`).
+    pub items: Vec<WorkshopItem>,
+    /// Steam's subscription list the order is read from, or `None` when
+    /// none was found (the items are then in id order).
+    pub order_from: Option<PathBuf>,
 }
 
 impl Install {
-    /// The Steam Workshop items installed for this game, each its folder
-    /// (`steamapps/workshop/content/<app id>/<item id>/`), in name order:
-    /// of the library the install is in, whether Steam found it or a
-    /// variable named a folder inside one. Not read as game data yet
-    /// (`workshop_note`).
-    pub fn workshop_items(&self) -> Vec<PathBuf> {
-        let library = match &self.source {
+    /// The Steam Workshop items the game loads, in its load order: TSL's
+    /// (K1's executable reads no Workshop items), unless `workshop` is off.
+    pub fn workshop_items(&self) -> WorkshopItems {
+        if !self.workshop || !self.game.reads_workshop() {
+            return WorkshopItems::default();
+        }
+        self.workshop_installed()
+    }
+
+    /// The Workshop items installed for this game in the library the
+    /// install is in (`steamapps/workshop/content/<app id>/<item id>/`),
+    /// whether Steam found it or a variable named a folder inside one.
+    ///
+    /// TSL asks Steam for the subscribed items (`GetSubscribedItems`, at
+    /// most 30) and loads each installed one in that order
+    /// (`LoadSteamMods`). Steam keeps that list in
+    /// `userdata/<account>/ugc/<app id>_subscriptions.vdf`, numbered from
+    /// 0 (the newest subscription first); kjk takes it in that numbering,
+    /// leaving out items disabled locally. Without the list, the
+    /// installed items are taken in id order.
+    fn workshop_installed(&self) -> WorkshopItems {
+        let Some(library) = self.steam_library() else {
+            return WorkshopItems::default();
+        };
+        let app = self.game.steam_app_id();
+        let content = library
+            .join("steamapps/workshop/content")
+            .join(app.to_string());
+        let installed = |id: u64| {
+            let folder = content.join(id.to_string());
+            std::fs::read_dir(&folder)
+                .is_ok_and(|mut dir| dir.next().is_some())
+                .then_some(WorkshopItem { id, folder })
+        };
+        let (ids, order_from) = match subscriptions(&library, app) {
+            Some((list, subscribed)) => (subscribed, Some(list)),
+            None => {
+                let mut ids: Vec<u64> = std::fs::read_dir(&content)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .filter_map(|entry| entry.file_name().to_str()?.parse().ok())
+                    .collect();
+                ids.sort();
+                (ids, None)
+            }
+        };
+        WorkshopItems {
+            items: ids
+                .into_iter()
+                .take(MAX_WORKSHOP_ITEMS)
+                .filter_map(installed)
+                .collect(),
+            order_from,
+        }
+    }
+
+    /// The Steam library the install is in.
+    fn steam_library(&self) -> Option<PathBuf> {
+        match &self.source {
             Source::SteamLibrary(library) => Some(library.clone()),
             _ => self
                 .root
@@ -35,44 +117,166 @@ impl Install {
                 .filter(|apps| apps.file_name().is_some_and(|name| name == "steamapps"))
                 .and_then(Path::parent)
                 .map(Path::to_path_buf),
-        };
-        let Some(library) = library else {
-            return Vec::new();
-        };
-        let content = library
-            .join("steamapps/workshop/content")
-            .join(self.game.steam_app_id().to_string());
-        let mut items: Vec<PathBuf> = std::fs::read_dir(content)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| std::fs::read_dir(path).is_ok_and(|mut dir| dir.next().is_some()))
-            .collect();
-        items.sort();
-        items
+        }
     }
 
     /// What a player is told when Workshop items are installed for this
-    /// game: kjk plays the game folder alone, so they are not in its world.
+    /// game: the items played, in load order (the last one wins), or why
+    /// they are not.
     pub fn workshop_note(&self) -> Option<String> {
-        let ids: Vec<String> = self
-            .workshop_items()
+        let installed = self.workshop_installed();
+        let ids: Vec<String> = installed
+            .items
             .iter()
-            .filter_map(|item| item.file_name())
-            .map(|id| id.to_string_lossy().into_owned())
+            .map(|item| item.id.to_string())
             .collect();
-        (!ids.is_empty()).then(|| {
+        if ids.is_empty() {
+            return None;
+        }
+        let items = format!(
+            "{} Steam Workshop item{}",
+            ids.len(),
+            if ids.len() == 1 { "" } else { "s" }
+        );
+        let ids = ids.join(", ");
+        Some(if !self.game.reads_workshop() {
             format!(
-                "{} Steam Workshop item{} not loaded ({}): kjk reads the game's data folder \
-                 only; copy an item's folders (override, modules, …) into {} to play it",
-                ids.len(),
-                if ids.len() == 1 { "" } else { "s" },
-                ids.join(", "),
-                self.data_root.display()
+                "{items} not loaded ({ids}): {} reads no Workshop items",
+                self.game.key()
             )
+        } else if !self.workshop {
+            format!("{items} not loaded ({ids}): {WORKSHOP_VAR} is off")
+        } else {
+            let order = match installed.order_from {
+                Some(_) => "in Steam's subscription order",
+                None => "in id order (no Steam subscription list found)",
+            };
+            format!("{items} loaded, the last winning, {order}: {ids}")
         })
     }
+}
+
+/// The subscribed items of `app` in Steam's numbering, without the ones
+/// disabled locally, and the list they were read from: the account's that
+/// `appworkshop_<app>.acf` says subscribed them, else the newest list.
+/// Steam keeps the lists in its own folder (`userdata/`): the library
+/// itself when it has one, else one of this OS's Steam folders (the
+/// library is a second one).
+fn subscriptions(library: &Path, app: u32) -> Option<(PathBuf, Vec<u64>)> {
+    let acf = library.join(format!("steamapps/workshop/appworkshop_{app}.acf"));
+    let subscriber = std::fs::read_to_string(acf).ok().and_then(|text| {
+        let tree = keyvalues(&text);
+        let workshop = get(&tree, "appworkshop")?.block()?;
+        let (_, item) = get(workshop, "workshopitemdetails")?.block()?.first()?;
+        Some(get(item.block()?, "subscribedby")?.text()?.to_string())
+    });
+    let roots = if library.join("userdata").is_dir() {
+        vec![library.to_path_buf()]
+    } else {
+        steam_roots()
+    };
+    let mut lists: Vec<(PathBuf, String)> = roots
+        .iter()
+        .flat_map(|root| {
+            std::fs::read_dir(root.join("userdata"))
+                .into_iter()
+                .flatten()
+        })
+        .flatten()
+        .map(|account| {
+            let list = account.path().join(format!("ugc/{app}_subscriptions.vdf"));
+            (list, account.file_name().to_string_lossy().into_owned())
+        })
+        .filter(|(list, _)| list.is_file())
+        .collect();
+    lists.sort_by_key(|(list, account)| {
+        let modified = std::fs::metadata(list)
+            .and_then(|meta| meta.modified())
+            .ok();
+        (Some(account) == subscriber.as_ref(), modified)
+    });
+    let (list, _) = lists.pop()?;
+    let tree = keyvalues(&std::fs::read_to_string(&list).ok()?);
+    let mut numbered: Vec<(u64, u64)> = get(&tree, "subscribedfiles")?
+        .block()?
+        .iter()
+        .filter_map(|(number, entry)| {
+            let entry = entry.block()?;
+            let field = |name: &str| get(entry, name).and_then(Value::text);
+            let id = field("publishedfileid")?.parse().ok()?;
+            (field("disabled_locally") != Some("1")).then_some((number.parse().ok()?, id))
+        })
+        .collect();
+    numbered.sort();
+    Some((list, numbered.into_iter().map(|(_, id)| id).collect()))
+}
+
+/// A Valve KeyValues value: a quoted text, or a block of named values.
+#[derive(Debug)]
+enum Value {
+    Text(String),
+    Block(Vec<(String, Value)>),
+}
+
+impl Value {
+    fn text(&self) -> Option<&str> {
+        match self {
+            Value::Text(text) => Some(text),
+            Value::Block(_) => None,
+        }
+    }
+
+    fn block(&self) -> Option<&[(String, Value)]> {
+        match self {
+            Value::Block(entries) => Some(entries),
+            Value::Text(_) => None,
+        }
+    }
+}
+
+/// The first value named `key` (in any case) in `block`.
+fn get<'a>(block: &'a [(String, Value)], key: &str) -> Option<&'a Value> {
+    block
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(key))
+        .map(|(_, value)| value)
+}
+
+/// Reads a text KeyValues file (`.vdf`, `.acf`): quoted names and texts,
+/// `\\`-escaped, and `{ … }` blocks. What does not parse ends the block.
+fn keyvalues(text: &str) -> Vec<(String, Value)> {
+    let mut tokens = Vec::new();
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '{' | '}' => tokens.push(c.to_string()),
+            '"' => {
+                let mut token = String::from('"');
+                while let Some(c) = chars.next() {
+                    match c {
+                        '"' => break,
+                        '\\' => token.extend(chars.next()),
+                        c => token.push(c),
+                    }
+                }
+                tokens.push(token);
+            }
+            _ => {}
+        }
+    }
+    fn block(tokens: &mut std::slice::Iter<String>) -> Vec<(String, Value)> {
+        let mut entries = Vec::new();
+        while let Some(name) = tokens.next().and_then(|token| token.strip_prefix('"')) {
+            let value = match tokens.next().map(String::as_str) {
+                Some("{") => Value::Block(block(tokens)),
+                Some(text) if text.starts_with('"') => Value::Text(text[1..].to_string()),
+                _ => break,
+            };
+            entries.push((name.to_string(), value));
+        }
+        entries
+    }
+    block(&mut tokens.iter())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,6 +321,7 @@ impl Discovery {
 /// that names something other than that game is a refusal, with no fallback,
 /// so a wrong path is never silently replaced by another install. Without a
 /// variable, Steam libraries are searched, then GOG's default folders.
+/// `KJK_WORKSHOP=off` leaves the installs' Workshop items out.
 pub fn discover(var: impl Fn(&str) -> Option<String>) -> Discovery {
     let mut discovery = Discovery::default();
     let steam_libraries = steam_libraries();
@@ -163,6 +368,15 @@ pub fn discover(var: impl Fn(&str) -> Option<String>) -> Discovery {
                 }),
             }
         }
+    }
+    let workshop = var(WORKSHOP_VAR).is_none_or(|value| {
+        !matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "off" | "0" | "no" | "false"
+        )
+    });
+    for install in &mut discovery.installs {
+        install.workshop = workshop;
     }
     discovery
 }
@@ -310,6 +524,7 @@ fn probe(game: Game, root: &Path, source: Source) -> Result<Install, String> {
         source,
         store,
         markers,
+        workshop: true,
     })
 }
 
@@ -354,9 +569,8 @@ fn gog_defaults(game: Game) -> Vec<PathBuf> {
     }
 }
 
-/// Steam roots for this OS, then every library listed in their
-/// `steamapps/libraryfolders.vdf`.
-fn steam_libraries() -> Vec<PathBuf> {
+/// This OS's Steam folders that exist.
+fn steam_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if cfg!(windows) {
         roots.push(PathBuf::from(r"C:\Program Files (x86)\Steam"));
@@ -370,9 +584,15 @@ fn steam_libraries() -> Vec<PathBuf> {
             roots.push(home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam"));
         }
     }
+    roots.retain(|root| root.is_dir());
+    roots
+}
 
+/// Steam roots for this OS, then every library listed in their
+/// `steamapps/libraryfolders.vdf`.
+fn steam_libraries() -> Vec<PathBuf> {
     let mut libraries: Vec<PathBuf> = Vec::new();
-    for root in roots.into_iter().filter(|root| root.is_dir()) {
+    for root in steam_roots() {
         let vdf = root.join("steamapps").join("libraryfolders.vdf");
         let listed = std::fs::read_to_string(vdf)
             .map(|text| library_paths(&text))
@@ -386,14 +606,16 @@ fn steam_libraries() -> Vec<PathBuf> {
     libraries
 }
 
-/// The `"path" "…"` values of a `libraryfolders.vdf`, unescaped.
+/// The libraries' `"path"` values of a `libraryfolders.vdf`.
 fn library_paths(vdf: &str) -> Vec<PathBuf> {
-    vdf.lines()
-        .filter_map(|line| {
-            let mut quoted = line.split('"').skip(1).step_by(2);
-            (quoted.next()? == "path").then(|| quoted.next())?
-        })
-        .map(|path| PathBuf::from(path.replace(r"\\", r"\")))
+    let tree = keyvalues(vdf);
+    let Some(Value::Block(libraries)) = get(&tree, "libraryfolders") else {
+        return Vec::new();
+    };
+    libraries
+        .iter()
+        .filter_map(|(_, library)| get(library.block()?, "path")?.text())
+        .map(PathBuf::from)
         .collect()
 }
 

@@ -36,7 +36,7 @@ pub(crate) fn open(
         game.key(),
         game.env_var()
     ))?;
-    let index = DirIndex::build(&install.data_root).map_err(|error| error.to_string())?;
+    let index = DirIndex::of_install(install).map_err(|error| error.to_string())?;
     let resolver =
         Resolver::base(game, &index, TextureQuality::High).map_err(|error| error.to_string())?;
     Ok((game, index, resolver))

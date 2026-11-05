@@ -104,7 +104,7 @@ fn camera(discovery: &Discovery, stop: &Stop) -> Result<String, String> {
             let install = discovery
                 .get(game)
                 .ok_or(format!("{}: not found", game.key()))?;
-            let index = DirIndex::build(&install.data_root).map_err(|error| error.to_string())?;
+            let index = DirIndex::of_install(install).map_err(|error| error.to_string())?;
             let resolver = Resolver::open(game, &index, Some(&stop.module), TextureQuality::High)
                 .map_err(|error| error.to_string())?;
             let module = ModuleIr::build(&stop.module, &ResolverSource(&resolver))

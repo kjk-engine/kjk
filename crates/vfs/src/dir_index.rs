@@ -2,13 +2,45 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::Install;
+
 /// Every file under a root, keyed by its lowercased `/`-separated relative
 /// path. Linux and macOS installs mix `Override/` and `override/`; lookups
 /// through the index behave the same on every OS.
+///
+/// An install's index (`of_install`) also holds the Steam Workshop items
+/// the game loads, each indexed the same way (`workshop`); the lookups here
+/// are the game folder's alone, and the resolver ranks the items' files.
 #[derive(Debug, Default)]
 pub struct DirIndex {
     files: BTreeMap<String, PathBuf>,
     collisions: Vec<CaseCollision>,
+    workshop: Vec<WorkshopFolder>,
+}
+
+/// A Steam Workshop item's folder, indexed.
+#[derive(Debug)]
+pub struct WorkshopFolder {
+    pub id: u64,
+    pub files: DirIndex,
+}
+
+/// One copy of a file (`DirIndex::copies`): its name (after the item's
+/// label, for a Workshop item's), where it is, and whose it is.
+#[derive(Debug, Clone)]
+pub struct FileCopy<'a> {
+    pub name: String,
+    pub path: &'a Path,
+    /// The Workshop item's id; `None` for the game folder's.
+    pub item: Option<u64>,
+}
+
+impl WorkshopFolder {
+    /// What the item's files are named by, before their path in it
+    /// (`workshop/485537937`): its layers' names, its fingerprint group's.
+    pub fn label(&self) -> String {
+        format!("workshop/{}", self.id)
+    }
 }
 
 /// Two files whose paths differ only in case. The first one found is kept;
@@ -22,6 +54,47 @@ pub struct CaseCollision {
 }
 
 impl DirIndex {
+    /// The install's data folder and the Workshop items its game loads
+    /// (`Install::workshop_items`), in their load order.
+    pub fn of_install(install: &Install) -> io::Result<DirIndex> {
+        let mut index = DirIndex::build(&install.data_root)?;
+        for item in install.workshop_items().items {
+            let files = DirIndex::build(&item.folder)?;
+            index.workshop.push(WorkshopFolder { id: item.id, files });
+        }
+        Ok(index)
+    }
+
+    /// This index with `items` as its Workshop items, in load order.
+    pub fn with_workshop(mut self, items: Vec<WorkshopFolder>) -> DirIndex {
+        self.workshop = items;
+        self
+    }
+
+    /// The Workshop items, lowest first: of two holding a file, the last
+    /// one's wins (`LoadSteamMods`, journal 2026-11-05-override-precedence).
+    pub fn workshop(&self) -> &[WorkshopFolder] {
+        &self.workshop
+    }
+
+    /// The game folder's file at `relative` (lowercase) and each Workshop
+    /// item's, the game folder's first, then the items' in load order.
+    pub fn copies(&self, relative: &str) -> Vec<FileCopy<'_>> {
+        let game = self.get(relative).map(|path| FileCopy {
+            name: relative.to_string(),
+            path,
+            item: None,
+        });
+        let items = self.workshop.iter().filter_map(|item| {
+            Some(FileCopy {
+                name: format!("{}/{relative}", item.label()),
+                path: item.files.get(relative)?,
+                item: Some(item.id),
+            })
+        });
+        game.into_iter().chain(items).collect()
+    }
+
     pub fn build(root: &Path) -> io::Result<DirIndex> {
         let mut index = DirIndex::default();
         let mut pending = vec![root.to_path_buf()];
