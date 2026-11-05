@@ -328,6 +328,44 @@ pub fn grenades(discovery: &Discovery, game: &str, module: &str, target_tag: &st
         report.replayed(name, run.replayed);
     }
 
+    outln!("  TSL's wrist launcher, fired at {target_tag}");
+    // The thrower with one kind of `row`, wearing a launcher or not; what it
+    // fired (row, whether it fell) and how many it used.
+    let fire = |row: u16, launcher: bool| {
+        let mut start = scene(row, true);
+        if launcher && let Some(sheet) = start.entities[me].sheet.as_mut() {
+            sheet.gear.traits |= sim::combat::gear::traits::WRIST_LAUNCHER;
+        }
+        let run = stage.run(&start, target, 4000, &mut |ms| at_them(ms));
+        let flown: Vec<sim::combat::Missile> =
+            run.snapshots.iter().flat_map(lobs).map(|(_, missile)| missile).collect();
+        let fell = flown
+            .iter()
+            .any(|missile| missile.velocity_at(missile.from_ms + 500) != missile.velocity);
+        let rows: Vec<u16> = flown.iter().filter_map(|m| m.lob.map(|lob| lob.row)).collect();
+        let used = run.snapshots.last().map_or(0, |end| fighter(end, me).pack.used[0]);
+        let hurt = fighter(run.snapshots.last().expect("stepped"), target).hp < fighter(&start, target).hp;
+        (rows.first().copied(), fell, used, hurt, run.replayed)
+    };
+    let (row, fell, used, hurt, replayed) = fire(ITEM_ABILITY_GRENADE_FRAGMENTATION, true);
+    report.replayed("launcher", replayed);
+    report.check(
+        row == Some(ITEM_ABILITY_GRENADE_LAUNCHED_FRAGMENTATION) && !fell && used == 1 && hurt,
+        format!("a frag grenade is fired as row {row:?}, straight (fell: {fell}), bursting on the target (hurt: {hurt})"),
+    );
+    let (row, _, used, _, replayed) = fire(ITEM_ABILITY_ROCKET_EXPLOSIVE, false);
+    report.replayed("launcher", replayed);
+    report.check(
+        row.is_none() && used == 0,
+        format!("a rocket without a launcher stays carried (used {used}, fired {row:?})"),
+    );
+    let (row, fell, used, _, replayed) = fire(ITEM_ABILITY_ROCKET_EXPLOSIVE, true);
+    report.replayed("launcher", replayed);
+    report.check(
+        row == Some(ITEM_ABILITY_ROCKET_EXPLOSIVE) && !fell && used == 1,
+        format!("with one, it fires straight (row {row:?}, fell: {fell}, used {used})"),
+    );
+
     outln!("  a frag grenade at the thrower's own feet");
     let start = scene(ITEM_ABILITY_GRENADE_FRAGMENTATION, true);
     let own = stage.drive(&start, 4500, &mut |last, since| {

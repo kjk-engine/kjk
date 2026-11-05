@@ -438,7 +438,10 @@ fn changes(
     }
     // Items.
     if seen.last_use != before.last_use && seen.last_use.1 != 0 {
-        if grenades::effect(seen.last_use.0).is_some() {
+        // A wrist launcher's shot makes no sound of its own (TSL's: the
+        // projectile's model and its burst are heard).
+        let row = seen.last_use.0;
+        if grenades::is_grenade(row) && !grenades::homing(row) {
             cues.push(on(entity, THROW.to_string(), Channel::Weapon, ms));
         }
         match item_sound(seen.last_use.0) {

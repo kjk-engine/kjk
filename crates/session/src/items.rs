@@ -250,6 +250,8 @@ fn read_facts(tables: &mut Tables, name: &str) -> Option<ItemFacts> {
             stealth_unit: item_type == Some(44),
             // `itemtype` 20: an energy shield (base item 46, forearm bands).
             shield: item_type == Some(20),
+            // `itemtype` 48: TSL's wrist launcher (base item 91).
+            launcher: item_type == Some(48),
         }
         .made(),
     )
