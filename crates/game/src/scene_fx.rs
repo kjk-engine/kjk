@@ -58,11 +58,11 @@ impl Plugin for EffectsPlugin {
     }
 }
 
-/// An empty refraction batch kept for good: Bevy copies the scene behind
-/// (the view transmission texture) only while its transmissive phase has
-/// an item, and the surfaces that bend it from the transparent phase
-/// (`glow_shell`'s distortion, `heat_haze`, `speed_blur`) put none there,
-/// so without JA's refraction (`force_view`) they would show black.
+/// An empty refraction batch kept for good: Bevy makes the view
+/// transmission texture, and `heat_haze` copies the scene into it, only
+/// while the transmissive phase has an item, and `speed_blur`, which reads
+/// it from the transparent phase, puts none there: without a distortion
+/// on screen it would show black.
 fn keep_transmission(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
