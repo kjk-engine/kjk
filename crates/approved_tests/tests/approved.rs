@@ -1508,7 +1508,7 @@ fn guests_drive_companions() {
 /// cases and the whole scenario run twice ending alike; the sim alone.
 #[test]
 fn dialogue_coop() {
-    probed("coop talk", &sim::coop_talk::probes(), 141);
+    probed("coop talk", &sim::coop_talk::probes(), 142);
 }
 
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,
@@ -1517,7 +1517,7 @@ fn dialogue_coop() {
 /// alone. Approved by the owner 2026-10-17 (do what you think is best).
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 70);
+    probed("scene", &sim::scene_probes::all(), 71);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,

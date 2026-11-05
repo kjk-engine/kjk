@@ -640,6 +640,14 @@ pub(in crate::world) fn apply(
                     fighter.saber.out_until = fighter.saber.out_until.min(clock.time_ms);
                 }
             }
+            Change::Disengage { who } => {
+                if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
+                {
+                    let fighter = &mut fighting.0;
+                    fighter.target = None;
+                    fighter.combat_until = fighter.combat_until.min(clock.time_ms);
+                }
+            }
             Change::InCombat { who } => {
                 if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
                 {

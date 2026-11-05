@@ -171,6 +171,11 @@ const USER_DIALOGUE: i32 = 1004;
 /// Half the side of the square trigger round the one who talks that calls
 /// the host's character to it (`probe_call`; metres).
 const CALL_HALF_M: f32 = 1.5;
+/// Where the trigger that destroys itself on a PC's first enter stands
+/// (`probe_once`; metres from the entry), and the global it counts its
+/// runs in.
+const ONCE_AT: [f32; 2] = [-3.0, -3.0];
+const ONCE_GLOBAL: &str = "probe_once";
 
 /// The co-op conversation probes (`kjk sim probes`): every phase's cases,
 /// one seat alone, and the whole scenario run twice ending in the same
@@ -196,6 +201,10 @@ pub fn probes() -> Vec<Case> {
             .unwrap_or_else(|why| vec![("trigger_call_gathers_there", Err(why))]),
     );
     cases.push(("click_pattern_kept", click_pattern_kept()));
+    cases.push((
+        "trigger_destroyed_hears_once",
+        trigger_destroyed_hears_once(),
+    ));
     cases.push((
         "same_every_run",
         check(
@@ -742,6 +751,19 @@ impl Run {
         Ok(())
     }
 
+    /// The ground's object `index` made commandable or not, between steps.
+    fn commandable(&mut self, index: u32, on: bool) -> Result<(), String> {
+        let who = object(&self.last, index)?;
+        let mut state = self.world.script_state().clone();
+        if on {
+            state.uncommandable.remove(&who.0);
+        } else {
+            state.uncommandable.insert(who.0);
+        }
+        self.world.set_script_state(state);
+        Ok(())
+    }
+
     /// The sim's time now (ms).
     fn now(&self) -> u64 {
         self.world.world.resource::<Clock>().time_ms
@@ -1225,6 +1247,8 @@ void SignalEvent(object oObject, event evToRun);
 event EventUserDefined(int nUserDefinedEventNumber);
 // 25
 int GetListenPatternNumber();
+// 26
+void DestroyObject(object oDestroy, float fDelay=0.0f, int bNoFade = FALSE, float fDelayUntilFade = 0.0f);
 "#;
     let call = |routine, args| Op::Action { routine, args };
     let who = program(&[
@@ -1390,6 +1414,27 @@ int GetListenPatternNumber();
         .label("done")
         .op(Op::Retn);
     let call_out = asm.build();
+    // `if (GetIsPC(GetEnteringObject())) { SetGlobalNumber("probe_once",
+    // GetGlobalNumber("probe_once") + 1); DestroyObject(OBJECT_SELF); }`,
+    // as Anchorhead's `k_ptat_gandatalk` makes Ganda once.
+    let mut asm = script_ncs::probes::Asm::default();
+    asm.op(call(22, 0))
+        .op(call(5, 1))
+        .to(Op::Jz, "done")
+        .op(Op::Const(Const::String(ONCE_GLOBAL.as_bytes().to_vec())))
+        .op(call(14, 1))
+        .op(Op::Const(Const::Int(1)))
+        .op(Op::Add(Pair::IntInt))
+        .op(Op::Const(Const::String(ONCE_GLOBAL.as_bytes().to_vec())))
+        .op(call(12, 2))
+        .op(Op::Const(Const::Float(0.0)))
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::Float(0.0)))
+        .op(Op::Const(Const::Object(0)))
+        .op(call(26, 4))
+        .label("done")
+        .op(Op::Retn);
+    let once = asm.build();
     // `SignalEvent(OBJECT_SELF, EventUserDefined(1004))`, as K1's
     // `k_ai_master` answers a click on one whose spawn asked for it.
     let ask = program(&[
@@ -1475,6 +1520,7 @@ int GetListenPatternNumber();
             ("probe_k1_dialog", k1_dialog),
             ("probe_hold", hold),
             ("probe_call", call_out),
+            ("probe_once", once),
             ("probe_ask", ask),
             ("probe_pattern", pattern),
         ],
@@ -4421,6 +4467,9 @@ fn one_seat_as_before() -> Result<Vec<Case>, String> {
     // trading: its ready leaves neither (R11 is for players together).
     let own = run.start(0, TALKER, "probe_talk")?;
     run.fight(true)?;
+    // A conversation ends a commandable hostile's fight (`hold_hostiles`):
+    // this one, not commandable, keeps it standing.
+    run.commandable(BARKER, false)?;
     run.propose()?;
     let (via, since_ms) = (object(&run.last, WAY_OUT)?, run.last.time_ms);
     run.rebuilt(|snapshot| {
@@ -4441,6 +4490,7 @@ fn one_seat_as_before() -> Result<Vec<Case>, String> {
     run.step(&[]);
     let banner = run.last.kept_from_exit(Seat(0));
     run.fight(false)?;
+    run.commandable(BARKER, true)?;
     Ok(vec![
         (
             "one_seat_ready_leaves_nothing",
@@ -4645,6 +4695,39 @@ fn trigger_call_gathers_there() -> Result<Vec<Case>, String> {
             ),
         ),
     ])
+}
+
+/// Anchorhead's Ganda (issue 126): a trigger that destroys itself on a PC's
+/// first enter (`probe_once`, as `k_ptat_gandatalk`) is entered in one step
+/// by the host and the guest's companion, both PCs to it. The first enter
+/// destroys it, so the second is never heard: it runs once.
+fn trigger_destroyed_hears_once() -> Result<String, String> {
+    let mut run = Run::on_ground(SEATS, Some(Seat(1)), |data| {
+        let entry = data.entry.position;
+        let corner = |sx: f32, sy: f32| [sx * CALL_HALF_M, sy * CALL_HALF_M, 0.0];
+        data.placements.push(Placement::Own(ObjectData {
+            kind: ObjectKind::Trigger,
+            tag: ONCE_GLOBAL.into(),
+            geometry: vec![
+                corner(-1.0, -1.0),
+                corner(1.0, -1.0),
+                corner(1.0, 1.0),
+                corner(-1.0, 1.0),
+            ],
+            scripts: vec![("ScriptOnEnter".into(), ONCE_GLOBAL.into())],
+            ..ObjectData::unknown(
+                "",
+                [entry[0] + ONCE_AT[0], entry[1] + ONCE_AT[1], entry[2]],
+                0.0,
+            )
+        }));
+    })?;
+    let (host, buddy) = (run.body(0)?, run.body(1)?);
+    run.put(host, ONCE_AT);
+    run.put(buddy, [ONCE_AT[0] + 0.8, ONCE_AT[1]]);
+    run.idle(steps(1000));
+    let runs = (run.world.script_state().numbers.get(ONCE_GLOBAL).copied()).unwrap_or(0);
+    check(runs == 1, format!("its enter ran {runs} times"))
 }
 
 /// K1's `k_ai_master` hands a click on one whose spawn asked for it to its

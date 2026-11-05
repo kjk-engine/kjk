@@ -1762,6 +1762,11 @@ pub struct Out {
     /// deletes the companion's creature then and there). Their
     /// `Change::Destroy` takes them out of the world.
     pub deleted: Vec<ObjectId>,
+    /// Objects a script's `DestroyObject` took away this step with no
+    /// delay: they hear no more of the step's events (`Step::gone`). The
+    /// engine's own take-aways (a sprung trap, a body's remains) are not
+    /// here: a sprung trap's own script runs as it goes.
+    pub destroyed: Vec<ObjectId>,
     /// The minigame as this step's scripts left it, once one changed it
     /// (`script::minigame`): what they read from then on.
     pub minigame: Option<crate::minigame::Course>,
@@ -1948,6 +1953,10 @@ pub enum Change {
     /// `who` leaves combat: no one to fight, out of it from now
     /// (`CancelCombat`).
     CancelCombat { who: ObjectId },
+    /// `who`, a hostile held by a conversation (`dialogue::pass`), fights
+    /// no one: no target kept and out of combat from now, its blade as it
+    /// was (a conversation puts out no saber).
+    Disengage { who: ObjectId },
     /// `who` attacks a target in its reach with a blade or fists, or
     /// begins using a talent on itself: in combat from now, as after a blow
     /// (`script::actions`, attack and talent).
@@ -2347,11 +2356,20 @@ impl Step<'_> {
     /// KOTOR (Korriban's academy, its students destroyed with their AI's
     /// commands still due). The module, the area, a minigame's things (ids
     /// from `MODULE` on), items and one made this step are no such object.
+    /// One a script of this step destroyed at once (`Out::destroyed`,
+    /// `Out::deleted`) is gone already, for the rest of the step: KOTOR's
+    /// `DestroyObject` takes it out before the next event is dispatched, so
+    /// a trigger that destroys itself on its first enter hears no second
+    /// one, however many bodies stepped in together (Anchorhead's
+    /// `k_ptat_gandatalk` in co-op, issue 126) [verify the exe's order of a
+    /// pending destroy against queued enters].
     fn gone(&self, who: ObjectId) -> bool {
         who.0 < MODULE.0
-            && self.view.thing(who).is_none()
-            && !self.state.items.contains_key(&who.0)
-            && !self.out.made.iter().any(|made| made.id == who)
+            && (self.out.destroyed.contains(&who)
+                || self.out.deleted.contains(&who)
+                || self.view.thing(who).is_none()
+                    && !self.state.items.contains_key(&who.0)
+                    && !self.out.made.iter().any(|made| made.id == who))
     }
 
     /// A player closed the party selection screen (`View::chosen`): the

@@ -39,6 +39,7 @@ pub fn all() -> Vec<Case> {
 const PROBES: &[Probe] = &[
     ("bystander_holds_ground", bystander_holds_ground),
     ("hostile_held_in_talk", hostile_held_in_talk),
+    ("hostile_fighting_held", hostile_fighting_held),
     ("companion_stays", companion_stays),
     ("party_kept_apart", party_kept_apart),
     ("party_cannot_use", party_cannot_use),
@@ -1333,6 +1334,13 @@ enum Brawler {
 /// brawler's target at `BUDDY_AT` as `brawler` has it, and a party
 /// conversation up. The target's id.
 fn fight_scene(stage: Stage, brawler: Brawler) -> Result<(Ground, SimId), String> {
+    let (mut ground, target) = fight_ground(stage, brawler)?;
+    ground.cutscene()?;
+    Ok((ground, target))
+}
+
+/// `fight_scene`'s ground, no conversation up yet.
+fn fight_ground(stage: Stage, brawler: Brawler) -> Result<(Ground, SimId), String> {
     let feud = brawler != Brawler::Hostile;
     let mut ground = Ground::staged(1, Stage { feud, ..stage })?;
     let host = ground.body(0)?;
@@ -1346,7 +1354,6 @@ fn fight_scene(stage: Stage, brawler: Brawler) -> Result<(Ground, SimId), String
         Brawler::Feuding => DUMMY,
     };
     let target = ground.place(target, BUDDY_AT)?;
-    ground.cutscene()?;
     Ok((ground, target))
 }
 
@@ -1385,6 +1392,38 @@ fn hostile_held_in_talk() -> Found {
         format!("held: {held}; after the end: {free}"),
     )
 }
+
+/// S4, the same rule for one already fighting (Taris's Sith base: its
+/// turrets firing, its droid charging, as `tar09_trap_dlg` began): a
+/// creature hostile to the player, fighting the companion when a party
+/// conversation begins, fights on no more, by its mind's own choice no
+/// more than by its queue: put 6 m off again, it closes in on no one and
+/// hurts no one until the end, and the same order closes in after.
+fn hostile_fighting_held() -> Found {
+    let (mut ground, buddy) = fight_ground(Stage::default(), Brawler::Hostile)?;
+    let foe = ground.object(FOE)?;
+    ground.run_script("probe_attack_buddy", FOE)?;
+    ground.idle(AWARE_MS + FIGHT_FIRST_MS);
+    let fought = ground.hp(buddy);
+    ground.place(FOE, FOE_FROM)?;
+    ground.put(buddy, BUDDY_AT);
+    ground.cutscene()?;
+    let hp = ground.hp(buddy);
+    let held = ground.strafe(foe, buddy, 2000);
+    let hurt = hp - ground.hp(buddy);
+    ground.goodbye()?;
+    let free = charge(&mut ground, "probe_attack_buddy", buddy)?;
+    check(
+        held.closed.abs() < 0.05 && hurt == 0 && free.closed > 2.0,
+        format!(
+            "after the fight before it ({fought} hp) held: {held}, {hurt} hp lost; after the end: {free}"
+        ),
+    )
+}
+
+/// How long `hostile_fighting_held`'s brawler fights before the
+/// conversation begins (ms, from its awareness).
+const FIGHT_FIRST_MS: u64 = 3000;
 
 /// S4: the companion 8 m from its leader stays put through a party
 /// conversation and follows once it ends.
