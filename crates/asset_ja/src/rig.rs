@@ -664,7 +664,78 @@ pub struct Retargeter<'a> {
     arm_bones: Vec<usize>,
     /// KOTOR's hip joints (`lthigh_g`, `rthigh_g`): the pelvis's pivot.
     hips: Option<[usize; 2]>,
+    /// A woman's body moves as K1's women do (`Woman`).
+    woman: Option<Woman>,
 }
+
+/// The nodes K1's women's style moves (`Retargeter::cocked`,
+/// `Retargeter::tucked`). K1 has no female attacks, only a female ready
+/// stance, but its women's own clips (`g2r1`, `walk`, `pause1`) against its
+/// men's stand with the feet 8 to 10 cm nearer together, the elbows 3 to
+/// 5 cm nearer the body, the hips cocked about 8° over the leg that bears
+/// the weight, and swinging 16° in the walk (a man's 5°). JA's moves on the
+/// female skeleton keep a man's width but for 1 to 2 cm, so a woman's body
+/// takes these on top of them, view only.
+#[derive(Debug, Clone, Copy)]
+struct Woman {
+    pelvis: usize,
+    /// Left, right: thigh, shin, foot.
+    legs: [[usize; 3]; 2],
+    /// The spine's line, low to high (`torso_g`, `torsoupr_g`).
+    spine: [usize; 2],
+}
+
+impl Woman {
+    /// K1's female skeleton (its collars start off the spine, `off_spine`).
+    fn of(k: &Kotor) -> Option<Woman> {
+        let collar = k.node("lcollar_g")?;
+        if !off_spine(k.rest[collar].position) {
+            return None;
+        }
+        let leg = |s: &str| {
+            let [thigh, shin, foot] =
+                ["thigh_g", "shin_g", "foot_g"].map(|part| k.node(&format!("{s}{part}")));
+            Some([thigh?, shin?, foot?])
+        };
+        Some(Woman {
+            pelvis: k.node("pelvis_g")?,
+            legs: [leg("l")?, leg("r")?],
+            spine: [k.node("torso_g")?, k.node("torsoupr_g")?],
+        })
+    }
+}
+
+/// `Retargeter::cocked`'s pose: the travel moving the hips' middle back
+/// where it was, the pelvis's turn (global), and each leg's ankle's place.
+struct Cock {
+    travel: Vec3,
+    pelvis: (usize, Quat),
+    ankles: [([usize; 3], Vec3); 2],
+}
+
+/// The hips' cock over the leg bearing the weight (radians).
+const HIP_COCK: f32 = 8.0 * std::f32::consts::PI / 180.0;
+/// The most the hips roll with the cock added (radians); JA's own roll past
+/// it stays.
+const HIP_MOST: f32 = 12.0 * std::f32::consts::PI / 180.0;
+/// How much nearer under the hips (metres) one foot is than the other for
+/// the cock to be about three quarters over it.
+const WEIGHT_SPREAD: f32 = 0.06;
+/// A lifted foot bears less: its height (metres) counts this many times
+/// as distance out from under the hips.
+const LIFT_WEIGHS: f32 = 3.0;
+/// The cock fades out as the lower foot leaves the ground (metres): whole
+/// up to the first, none from the second.
+const GROUNDED: (f32, f32) = (0.05, 0.15);
+/// How far each foot comes in (metres), and at most what share of its
+/// distance out from under the hips.
+const NARROW: (f32, f32) = (0.035, 0.25);
+/// How far each elbow comes in toward the spine (metres), never nearer it
+/// than the second.
+const ELBOW_IN: (f32, f32) = (0.035, 0.13);
+/// The most the arm turns about its shoulder-wrist line to tuck the elbow
+/// (radians): past it the forearm's roll against the hand shows.
+const ELBOW_TURN_MOST: f32 = 0.35;
 
 impl<'a> Retargeter<'a> {
     /// `options.ground` is not used: `pose` takes the travel.
@@ -694,7 +765,9 @@ impl<'a> Retargeter<'a> {
             .node("lthigh_g")
             .zip(k.node("rthigh_g"))
             .map(<[usize; 2]>::from);
+        let woman = Woman::of(&k);
         Retargeter {
+            woman,
             hips,
             arms,
             arm_bones,
@@ -743,6 +816,91 @@ impl<'a> Retargeter<'a> {
         let wanted = globals[arms.right[2]].position + (at(left) - at(right));
         bend(globals, [upper, fore], wrist, wrist.lerp(wanted, near))
             .map_or_else(BTreeMap::new, BTreeMap::from)
+    }
+
+    /// A woman's hips cocked over the leg that bears the weight (`HIP_COCK`)
+    /// about their middle, and where each leg then bends its ankle: where
+    /// it was but nearer the other (`NARROW`). The weight is on the foot
+    /// nearer under the hips and lower; standing it cocks the hips, walking
+    /// it swings them as the weight changes feet.
+    fn cocked(&self, globals: &[Frame], travel: Vec3, ground: Vec3) -> Option<Cock> {
+        let woman = self.woman?;
+        let [left, right] = woman.legs;
+        let hip = |leg: [usize; 3]| globals[leg[0]].position;
+        let ankle = |leg: [usize; 3]| globals[leg[2]].position;
+        let middle = (hip(left) + hip(right)) / 2.0;
+        let across = hip(right) - hip(left);
+        let side = across.with_z(0.0).try_normalize()?;
+        let out = |leg: [usize; 3], way: f32| way * (ankle(leg) - middle).dot(side);
+        let lift =
+            |leg: [usize; 3]| (ankle(leg).z - self.k.rest[leg[2]].position.z - ground.z).max(0.0);
+        let bears = |leg: [usize; 3], way: f32| out(leg, way).max(0.0) + LIFT_WEIGHS * lift(leg);
+        // Above 0: the right foot bears the weight, its hip goes up.
+        let weight = ((bears(left, -1.0) - bears(right, 1.0)) / WEIGHT_SPREAD).tanh();
+        let grounded = smooth(GROUNDED.1, GROUNDED.0, lift(left).min(lift(right)));
+        let roll = (across.z / across.length().max(f32::EPSILON))
+            .clamp(-1.0, 1.0)
+            .asin();
+        let most = HIP_MOST.max(roll.abs());
+        let added = (roll + HIP_COCK * weight * grounded).clamp(-most, most) - roll;
+        let turn = Quat::from_axis_angle(side.cross(Vec3::Z), added);
+        let pelvis = globals[woman.pelvis].position;
+        let moved = travel + middle + turn * (pelvis - middle) - pelvis;
+        let ankles = [(left, -1.0), (right, 1.0)].map(|(leg, way)| {
+            let narrow = (out(leg, way) * NARROW.1).clamp(0.0, NARROW.0);
+            (leg, ankle(leg) - side * way * narrow)
+        });
+        Some(Cock {
+            travel: moved,
+            pelvis: (
+                woman.pelvis,
+                (turn * globals[woman.pelvis].rotation).normalize(),
+            ),
+            ankles,
+        })
+    }
+
+    /// A woman's elbows turned in toward the spine (`ELBOW_IN`) about each
+    /// arm's shoulder-wrist line, so the wrist and the hand stay: the arms'
+    /// turns (globals).
+    fn tucked(&self, globals: &[Frame]) -> Vec<(usize, Quat)> {
+        let (Some(woman), Some(arms)) = (self.woman, self.arms) else {
+            return Vec::new();
+        };
+        let [low, high] = woman.spine.map(|n| globals[n].position);
+        let Some(spine) = (high - low).try_normalize() else {
+            return Vec::new();
+        };
+        [Some(arms.right), arms.left.map(|(left, _)| left)]
+            .into_iter()
+            .flatten()
+            .filter_map(|[upper, fore, hand]| {
+                let (shoulder, elbow) = (globals[upper].position, globals[fore].position);
+                let line = (globals[hand].position - shoulder).try_normalize()?;
+                let square = |v: Vec3| v - line * v.dot(line);
+                let bent = square(elbow - shoulder);
+                let inward = low + spine * (elbow - low).dot(spine) - elbow;
+                let toward = square(inward);
+                let (reach, along) = (bent.length(), toward.length());
+                if reach < 1e-3 || along < 1e-3 {
+                    return None;
+                }
+                let cos = bent.dot(toward) / (reach * along);
+                let apart = line.dot(bent.cross(toward)).atan2(bent.dot(toward));
+                // Faded as the arm straightens (no elbow to tuck) and as the
+                // elbow points away from the spine (which way is in flips).
+                let wanted = (inward.length() - ELBOW_IN.1).clamp(0.0, ELBOW_IN.0)
+                    * smooth(0.01, 0.05, reach)
+                    * smooth(-0.9, -0.3, cos);
+                let step = (wanted / reach).min(apart.abs()).min(ELBOW_TURN_MOST);
+                let turn = Quat::from_axis_angle(line, step * apart.signum());
+                Some([
+                    (upper, (turn * globals[upper].rotation).normalize()),
+                    (fore, (turn * globals[fore].rotation).normalize()),
+                ])
+            })
+            .flatten()
+            .collect()
     }
 
     /// The KOTOR model's node names, in its order.
@@ -824,10 +982,31 @@ impl<'a> Retargeter<'a> {
                 globals = k.globals(ja, finals, root, travel, grips, hold, &none);
             }
         }
+        // A woman's hips cock over the leg bearing the weight, the feet a
+        // little nearer together.
+        let mut turned = BTreeMap::new();
+        if let Some(Cock {
+            travel: moved,
+            pelvis,
+            ankles,
+        }) = self.cocked(&globals, travel, ground)
+        {
+            travel = moved;
+            turned.insert(pelvis.0, pelvis.1);
+            globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
+            for ([thigh, shin, foot], wanted) in ankles {
+                turned.extend(
+                    bend(&globals, [thigh, shin], globals[foot].position, wanted)
+                        .into_iter()
+                        .flatten(),
+                );
+            }
+            globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
+        }
         // With JA's hands together (a two-handed hold), the left wrist keeps
         // JA's own spacing from the right one, not the spacing KOTOR's longer
         // arms or a woman's collars give it.
-        let mut turned = self.spaced(finals, &globals);
+        turned.extend(self.spaced(finals, &globals));
         if !turned.is_empty() {
             globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
         }
@@ -891,6 +1070,12 @@ impl<'a> Retargeter<'a> {
                 turned.extend(support_turns(&globals, arms, left, (aim, support)));
                 globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
             }
+        }
+        // A woman's elbows nearer her body, the wrists where they were.
+        let tucks = self.tucked(&globals);
+        if !tucks.is_empty() {
+            turned.extend(tucks);
+            globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
         }
         let parent_of = |node: usize| {
             kotor.nodes[node]
