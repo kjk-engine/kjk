@@ -1237,6 +1237,25 @@ impl Engine<'_> {
                 }
                 Effect::Visual { row: None, .. } => {}
                 Effect::Visual { .. } => carried.push(leaf.clone()),
+                // A shield brings its look (the executable's
+                // `EffectForceShield` apply: the row's visual for the body's
+                // appearance), sharing its id and time.
+                Effect::Shield { row, .. } => {
+                    let look = (self.library.shield(usize::from(*row)))
+                        .and_then(|shield| shield.visual_on(self.view.appearance(target)))
+                        .map(|row| Effect::Visual {
+                            row: Some(row),
+                            from: None,
+                            part: 0,
+                        });
+                    let into = if until.is_some() {
+                        &mut carried
+                    } else {
+                        &mut kept
+                    };
+                    into.push(leaf.clone());
+                    into.extend(look);
+                }
                 _ if at_once || (lasting && until.is_some()) => carried.push(leaf.clone()),
                 _ if lasting => kept.push(leaf.clone()),
                 _ => {
@@ -3193,10 +3212,13 @@ impl Engine<'_> {
             // An energy shield: its `forceshields.2da` row's numbers.
             EffectForceShield => {
                 let row = usize::try_from(int(args, 0)).ok();
-                match row.and_then(|row| self.library.shield(row)) {
-                    Some(shield) => self.effect_value(Effect::Shield {
+                match row.and_then(|row| Some((row, self.library.shield(row)?))) {
+                    Some((row, shield)) => self.effect_value(Effect::Shield {
+                        row: row as u16,
                         types: shield.types,
                         points: shield.points,
+                        vulnerable: shield.vulnerable,
+                        resist: shield.resist,
                     }),
                     None => self.effect_value(Effect::Other("EffectForceShield".into())),
                 }

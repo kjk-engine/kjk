@@ -333,16 +333,27 @@ pub(super) fn hurt(
                         ));
                     }
                 }
-                // An energy shield up for its time, one at a time (the
-                // item's row for how it looks).
-                ScriptEffect::Shield { types, points } => {
+                // An energy shield up for its time, one at a time: an older
+                // one taken down with its look (this one's comes linked).
+                ScriptEffect::Shield {
+                    types,
+                    points,
+                    vulnerable,
+                    resist,
+                    ..
+                } => {
                     if let (Some(at), Some(until)) = (at, until) {
-                        let pack = &mut actors[at].5.0.pack;
-                        pack.shield = Some(crate::combat::items::Shielded {
+                        let fighter = &mut actors[at].5.0;
+                        crate::combat::items::drop_shield(fighter, now);
+                        fighter.pack.shield = Some(crate::combat::items::Shielded {
                             row: applied.spell,
                             types: *types,
                             left: *points,
                             until,
+                            id: applied.id,
+                            vulnerable: *vulnerable,
+                            resist: *resist,
+                            endless: *points == 0,
                         });
                     }
                 }

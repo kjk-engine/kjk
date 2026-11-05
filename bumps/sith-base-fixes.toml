@@ -1,0 +1,9 @@
+sim = "An energy shield (EffectForceShield) brings its forceshields.2da look for the body's appearance and drains as K1's: at most its resistance of one hit, twice as fast for a type it is vulnerable to (ion), none for a row with no amount."
+
+[formats]
+save = "a script's shield effect carries its forceshields.2da row, vulnerable types and resistance (`Effect::Shield`)."
+snapshot = "a shield up carries its effect's id, vulnerable types, resistance and whether it has no end (`Shielded`)."
+
+[migrations]
+save = "an old save's shield effect reads with no look, no vulnerable types and no cap on a hit."
+snapshot = "an old snapshot's shield reads as an item's own (no effect id, no vulnerable types, no cap on a hit), as it drained before."
