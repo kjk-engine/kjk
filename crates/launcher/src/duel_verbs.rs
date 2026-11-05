@@ -9,6 +9,9 @@
 //!   location, the share of its swing's budget each contact delivered and
 //!   the damage it came to, checked to the hundredth against the C5 budget
 //!   (a fixed roll, so the pipeline's arithmetic is visible);
+//! - **multi swings**: the specials of several swings (katas, butterflies,
+//!   spins, jump attacks) at the dummy: every pass of the blade cuts, the
+//!   move's budget spread over its swings;
 //! - **feat attacks**: each style's KOTOR feat line (C8) shaping the
 //!   saber a swing carries, at each tier;
 //! - **blocks**: the same swings at defence 0 to 3 from the front and from
@@ -94,6 +97,10 @@ impl Keys {
 
     pub(crate) fn turned(self, turn: f32) -> Keys {
         Keys { turn, ..self }
+    }
+
+    pub(crate) fn up(self, up: i8) -> Keys {
+        Keys { up, ..self }
     }
 }
 
@@ -395,7 +402,7 @@ fn cuts(level: &Level, report: &mut Report) -> serde_json::Value {
                             .contacts
                             .iter()
                             .flatten()
-                            .filter_map(|c| c.due_share())
+                            .filter_map(|c| before.due_share(c))
                             .map(|s| (s, before.cadence_ms)),
                     );
                 }
@@ -413,7 +420,7 @@ fn cuts(level: &Level, report: &mut Report) -> serde_json::Value {
                     if contact.delivered > was {
                         deliveries.push((contact.delivered - was, swing.cadence_ms));
                     }
-                    if contact.delivered > 1000 {
+                    if contact.delivered > swing.budget() {
                         over_budget += 1;
                     }
                 }
@@ -467,11 +474,135 @@ fn cuts(level: &Level, report: &mut Report) -> serde_json::Value {
         format!("{} of {}", exact.0, exact.1),
     );
     report.check(
-        "no body is owed more than one budget a swing",
+        "no body is owed more than its swing's budget",
         over_budget == 0,
         format!("{over_budget} over"),
     );
     serde_json::json!({ "styles": rows, "locations": locations, "exact": exact })
+}
+
+/// One special played at the dummy (`multi_swings`).
+#[derive(Default)]
+struct SwingRun {
+    /// The special that played, and the passes its blade made through the
+    /// dummy (back in it more than the pass gap after leaving).
+    special: Option<Move>,
+    passes: u32,
+    /// Its cadence (ms), a pass's share, its budget and the most delivered (‰).
+    cadence: u32,
+    share: u16,
+    budget: u16,
+    delivered: u16,
+    /// Each cut: when (ms from the start) and its damage (hundredths).
+    cuts: Vec<(u64, i32)>,
+}
+
+/// `keys` held 150 ms by a `style` swordsman (crouched first when
+/// `crouch`) facing `turn` from a dummy `distance` away, over 4 s.
+fn swing_run(level: &Level, style: Style, crouch: bool, keys: Keys, distance: f32, turn: f32) -> SwingRun {
+    let gap = sim::combat::saber::sweep::PASS_GAP_MS;
+    let mut bout = Bout::new(level, [swordsman(style), dummy([None, None])], distance, 1);
+    bout.light();
+    bout.take_style(0, style);
+    if crouch {
+        let until = bout.now() + 200;
+        while bout.now() < until {
+            bout.step([Keys::default().up(-127), Keys::default()]);
+        }
+    }
+    let start = bout.now();
+    let mut run = SwingRun::default();
+    let mut touched = None::<u64>;
+    while bout.now() < start + 4000 {
+        let held = if bout.now() < start + 150 { keys } else { Keys::default() };
+        bout.step([held.turned(turn), Keys::default()]);
+        let swing = bout.fighter(0).swing;
+        let now = bout.now();
+        if run.special.is_none() && swing.saber_move.special() {
+            run.special = Some(swing.saber_move);
+        }
+        if run.special == Some(swing.saber_move) {
+            (run.cadence, run.share, run.budget) = (swing.cadence_ms, swing.pass_share(), swing.budget());
+            for contact in swing.contacts.iter().flatten() {
+                run.delivered = run.delivered.max(contact.delivered);
+                if contact.touched_ms == now && touched != Some(now) {
+                    if touched.is_none_or(|then| now - then > gap) {
+                        run.passes += 1;
+                    }
+                    touched = Some(now);
+                }
+            }
+        }
+        for (seat, event) in bout.events() {
+            if seat == 1 && event.by.is_some() && event.result == Outcome::Hit {
+                run.cuts.push((now - start, event.damage));
+            }
+        }
+    }
+    run
+}
+
+/// Specials of several swings at a dummy that cannot block, each started
+/// once (crouched first for the spins) from where its blade passes through
+/// the dummy most (four distances, three facings): its passes, the cuts
+/// they land and the share of its budget they come to.
+fn multi_swings(level: &Level, report: &mut Report) -> serde_json::Value {
+    outln!("multi-swing specials at a dummy that cannot block (fixed roll 10, AB 20)");
+    let attack = Keys::press(ATTACK);
+    let (kata, jump, spin) = (
+        Keys::press(ATTACK | ALT),
+        attack.up(127),
+        attack.with(127, 0).up(-127),
+    );
+    let [fast, medium, strong, dual, staff] = STYLES;
+    let tries: [(&str, Style, bool, Keys); 11] = [
+        ("kata", fast, false, kata),
+        ("kata", medium, false, kata),
+        ("kata", strong, false, kata),
+        ("kata", dual, false, kata),
+        ("kata", staff, false, kata),
+        ("butterfly right", staff, false, jump.with(0, 127)),
+        ("butterfly left", staff, false, jump.with(0, -127)),
+        ("spin", staff, true, spin),
+        ("spin", dual, true, spin),
+        ("jump attack", dual, false, jump.with(127, 0)),
+        ("jump attack", staff, false, jump.with(127, 0)),
+    ];
+    let mut rows = Vec::new();
+    for (name, style, crouch, keys) in tries {
+        let (distance, run) = [24.0, 40.0, 64.0, 96.0]
+            .into_iter()
+            .flat_map(|d| [0.0, 90.0, -90.0].map(move |t| (d, t)))
+            .map(|(d, t)| (d, swing_run(level, style, crouch, keys, d, t)))
+            .reduce(|best, next| if next.1.passes > best.1.passes { next } else { best })
+            .expect("a distance");
+        let SwingRun { special, passes, cadence, share, budget, delivered, cuts } = run;
+        let label = format!("{} {name}", style.name());
+        let damage: i32 = cuts.iter().map(|(_, d)| d).sum();
+        outln!(
+            "  {label:<24} {:<22} at {distance:>2}, paced {cadence} ms, {passes} passes, a pass {share}‰, {} cuts {:?} (ms, hundredths), {delivered}‰, {:.2} HP",
+            special.map_or("not started", |m| m.name()),
+            cuts.len(),
+            cuts,
+            f64::from(damage) / 100.0
+        );
+        report.check(
+            format!("{label}: a blade passing again cuts again"),
+            special.is_some() && (passes < 2 || cuts.len() > 1),
+            format!("{} cuts of {passes} passes", cuts.len()),
+        );
+        report.check(
+            format!("{label}: owes no body more than its budget"),
+            delivered <= budget,
+            format!("{delivered}‰ of {budget}‰"),
+        );
+        rows.push(serde_json::json!({
+            "special": label, "move": special.map(|m| m.name()), "passes": passes,
+            "pass_share": share, "cuts": cuts, "delivered": delivered,
+            "cadence_ms": cadence, "damage_hp": f64::from(damage) / 100.0,
+        }));
+    }
+    serde_json::json!(rows)
 }
 
 /// Feat attacks (C8): a saber swung in each style at each tier of its
@@ -1998,8 +2129,9 @@ pub fn duel(discovery: &Discovery, only: &[String]) -> ExitCode {
     let mut report = Report::default();
     let mut bouts = Bouts::new();
     type Section<'a> = Box<dyn Fn(&mut Report, &mut Bouts) -> serde_json::Value + 'a>;
-    let sections: [(&str, Section); 16] = [
+    let sections: [(&str, Section); 17] = [
         ("cuts", Box::new(|r, _| cuts(&level, r))),
+        ("multi_swings", Box::new(|r, _| multi_swings(&level, r))),
         ("feat_attacks", Box::new(|r, _| feat_attacks(r))),
         ("feat_worth", Box::new(|r, _| feat_worth(&level, r))),
         ("gun_worth", Box::new(|r, _| gun_worth(&level, r))),
