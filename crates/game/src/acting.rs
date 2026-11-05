@@ -698,6 +698,26 @@ pub fn hides_items(acting: &Acting, ms: f64) -> bool {
             .any(|(animation, name)| animation == acting.animation && HIDES_ITEMS.contains(&name))
 }
 
+/// How long after the grenade leaves its weapons stay hidden (ms): the
+/// rest of `throwgren` after its release (1.5 s from `THROW_RELEASE`), as
+/// long as the launch's after its shot.
+const THROW_HIDES_MS: u64 = 700;
+
+/// Whether `fighter`'s weapons are hidden at `ms` (sim ms): a clip that
+/// hides its equipped items plays (`hides_items`), or it charges or has just
+/// thrown a grenade, its hand on the grenade, not the weapon (`Throw`).
+pub fn hides_weapons(fighter: &sim::combat::Fighter, ms: f64) -> bool {
+    let (row, at) = fighter.pack.last;
+    let thrown = at > 0
+        && sim::combat::grenades::is_grenade(row)
+        && (at..at + THROW_HIDES_MS).contains(&(ms as u64));
+    fighter
+        .acting
+        .is_some_and(|acting| hides_items(&acting, ms))
+        || fighter.pack.charging_from.is_some()
+        || thrown
+}
+
 /// A body's scripted clips, bound to its nodes, by constant.
 pub type Bound = Vec<(u16, Animator)>;
 

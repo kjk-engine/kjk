@@ -288,10 +288,9 @@ fn sound(
             continue;
         };
         let f = entity.fighter.expect("held_saber checks");
-        // Put away while its user works a lock or a mine (`weapons::armed`).
-        let hidden = f
-            .acting
-            .is_some_and(|acting| crate::acting::hides_items(&acting, current.time_ms as f64));
+        // Put away while its user works a lock or a mine, or throws a
+        // grenade (`weapons::armed`).
+        let hidden = crate::acting::hides_weapons(&f, current.time_ms as f64);
         // A thrown saber sounds where it flies (`at` is in units already):
         // out, its spin (JA's `saberSpinSound` as the thrown saber's
         // `loopSound`); coming back, its own hum (`soundLoop`).

@@ -966,7 +966,7 @@ pub fn in_hand(armed: bool, lowering: bool, (carries, hiding): (bool, bool)) -> 
 /// attack), 8 s after its own
 /// last attack (`SaberState::out_until`), fighting someone, or someone
 /// fighting it (`targeted`); not while it plays an animation that
-/// hides its equipped items (`acting::hides_items`: Security, a mine's),
+/// hides its equipped items or a grenade's throw (`acting::hides_weapons`),
 /// and once its player put them away (`Sheath::Holstered`) only while its
 /// saber is still lit or away (a swing finishing) or its put-away plays.
 /// The dead keep what they fell with.
@@ -974,10 +974,7 @@ pub fn armed(fighter: &Fighter, ms: f64, targeted: bool) -> bool {
     if !fighter.alive() {
         return true;
     }
-    if fighter
-        .acting
-        .is_some_and(|acting| crate::acting::hides_items(&acting, ms))
-    {
+    if crate::acting::hides_weapons(fighter, ms) {
         return false;
     }
     // A put-away flourish holds the hilt until it is done.
@@ -1226,7 +1223,7 @@ impl Wielded {
         for (slot, wield) in self.slots.iter_mut().enumerate() {
             let Some(wield) = wield else { continue };
             let lowering = at.torso == "TORSO_DROPWEAP1";
-            let hiding = (fighter.acting).is_some_and(|a| crate::acting::hides_items(&a, at.ms));
+            let hiding = crate::acting::hides_weapons(fighter, at.ms);
             let held = match (at.guns_in_hand, wield.holster) {
                 (Some(drawn), Some(_)) => drawn && !hiding,
                 _ => in_hand(at.armed, lowering, (self.carries, hiding)),
