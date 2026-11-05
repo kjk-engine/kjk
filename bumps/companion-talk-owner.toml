@@ -1,0 +1,2 @@
+# The sim's hash moves on purpose: why.
+sim = "the companion leading is read off the party table as it stands (`View::host`): a companion whose talk trigger hands the lead back (`k_trg_partyinit`) owns and says its own conversation, not the PC (#147)"

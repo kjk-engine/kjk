@@ -188,6 +188,7 @@ pub fn probes() -> Vec<Case> {
     };
     cases.extend(one_seat_as_before().unwrap_or_else(|why| vec![("one_seat_as_before", Err(why))]));
     cases.extend(one_seat_leading().unwrap_or_else(|why| vec![("one_seat_leading", Err(why))]));
+    cases.extend(led_back_to_talk().unwrap_or_else(|why| vec![("led_back_to_talk", Err(why))]));
     cases.extend(
         one_seat_no_watchers().unwrap_or_else(|why| vec![("one_seat_no_watchers", Err(why))]),
     );
@@ -1249,6 +1250,8 @@ event EventUserDefined(int nUserDefinedEventNumber);
 int GetListenPatternNumber();
 // 26
 void DestroyObject(object oDestroy, float fDelay=0.0f, int bNoFade = FALSE, float fDelayUntilFade = 0.0f);
+// 27
+int SetPartyLeader(int nNPC);
 "#;
     let call = |routine, args| Op::Action { routine, args };
     let who = program(&[
@@ -1317,6 +1320,20 @@ void DestroyObject(object oDestroy, float fDelay=0.0f, int bNoFade = FALSE, floa
         call(10, 5),
     ];
     let console = program(&start_ops);
+    // `SetPartyLeader(NPC_PLAYER)`, then `ActionStartConversation(
+    // GetFirstPC())`, no DLG named: a companion's talk trigger as K1's
+    // `k_trg_partyinit` has the companion start its own.
+    let lead_back = program(&[
+        Op::Const(Const::Int(-1)),
+        call(27, 1),
+        Op::MovSp(-4),
+        Op::Const(Const::Int(0)),
+        Op::Const(Const::Int(0)),
+        Op::Const(Const::Int(0)),
+        Op::Const(Const::String(Vec::new())),
+        call(9, 0),
+        call(10, 5),
+    ]);
     // `ActionStartConversation(GetLastUsedBy())`, no DLG named: the
     // terminal's own, as the Endar Spire's `k_pend_comp07` does.
     let terminal = program(&[
@@ -1508,6 +1525,7 @@ void DestroyObject(object oDestroy, float fDelay=0.0f, int bNoFade = FALSE, floa
             ("probe_deal", deal),
             ("probe_aborted", aborted),
             ("probe_console", console),
+            ("probe_lead_back", lead_back),
             ("probe_lever", lever),
             ("probe_terminal", terminal),
             ("probe_global", global),
@@ -4811,6 +4829,48 @@ fn one_seat_leading() -> Result<Vec<Case>, String> {
                 && kept,
             format!(
                 "{lent:?}; GetIsInConversation(GetFirstPC()) {busy:?}, in the minds' scene {in_scene:?}; a script's refused {refused}, the player's kept {kept}"
+            ),
+        ),
+    )])
+}
+
+/// A companion's own talk, as K1's `k_trg_partyinit` starts it (#147):
+/// while the companion leads, its script hands the lead back to the PC
+/// (`SetPartyLeader(NPC_PLAYER)`) and has the companion start its own
+/// conversation with `GetFirstPC()`, in one step. The companion owns it
+/// and says its lines, its PC the host's character: the seat's body the
+/// step began with (the companion) is not the player's side any more.
+fn led_back_to_talk() -> Result<Vec<Case>, String> {
+    let mut run = Run::on_ground(1, None, |data| {
+        for placement in &mut data.placements {
+            if let Placement::Own(object) = placement
+                && object.tag == "buddy"
+            {
+                object.conversation = "probe_talk".into();
+            }
+        }
+    })?;
+    let buddy = object(&run.last, BUDDY)?;
+    run.lead(Some(BUDDY))?;
+    let pc = run.last.own(Seat(0)).map(|own| own.id).ok_or("no PC")?;
+    let mut state = run.world.script_state().clone();
+    state.pending.push(crate::script::Pending::new(
+        "probe_lead_back",
+        ObjectId(buddy.0),
+    ));
+    run.world.set_script_state(state);
+    run.idle(4);
+    let talk = run
+        .talk()
+        .map(|c| (c.dialog.clone(), c.owner.0, c.speaker.0, c.pc.0));
+    let want = ("probe_talk".to_string(), buddy.0, buddy.0, pc.0);
+    Ok(vec![(
+        "led_back_companion_says_its_own",
+        check(
+            talk.as_ref() == Some(&want),
+            format!(
+                "(dialog, owner, speaker, PC) {talk:?}, the companion #{}, the PC #{}",
+                buddy.0, pc.0
             ),
         ),
     )])
