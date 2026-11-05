@@ -283,11 +283,15 @@ pub fn usable(items: &[Option<Carried>; KINDS], launcher: bool) -> [Option<Carri
 /// A homing shot's speed to a target `distance` units away (units/s): the
 /// executable's `3 ln d + 2` m/s, doubled for homing.
 pub fn homing_speed(distance: f32) -> f32 {
-    use rules::grenades::launched as rule;
     let metres = (distance * collision::UNIT).max(1.0);
-    (rule::SPEED_PER_LOG * collision::trig::ln(metres) + rule::SPEED_BASE) * rule::HOMING_TIMES
-        / collision::UNIT
+    (HOMING_PER_LOG * collision::trig::ln(metres) + HOMING_BASE) * HOMING_TIMES / collision::UNIT
 }
+
+/// The speed rule's parts: m/s for each natural log of the metres, m/s
+/// more, and how many times that a homing shot flies.
+const HOMING_PER_LOG: f32 = rules::grenades::launched::SPEED_PER_LOG;
+const HOMING_BASE: f32 = rules::grenades::launched::SPEED_BASE;
+const HOMING_TIMES: f32 = rules::grenades::launched::HOMING_TIMES;
 
 /// How far a launched shot is aimed (units).
 pub const LAUNCH_REACH: f32 = rules::grenades::launched::REACH_M / collision::UNIT;

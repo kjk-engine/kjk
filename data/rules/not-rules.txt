@@ -139,6 +139,7 @@ crates/sim/src/combat/gear.rs STUN  # iprp_onhit.2da row; nwscript IMMUNITY_TYPE
 crates/sim/src/combat/gear.rs TRUE_SEEING  # a bit flag
 crates/sim/src/combat/gear.rs VERSUS  # a snapshot array's size
 crates/sim/src/combat/gear.rs WALK_ONLY  # a bit flag
+crates/sim/src/combat/gear.rs WRIST_LAUNCHER  # a bit flag
 crates/sim/src/combat/gear.rs WILL  # a save's index
 crates/sim/src/combat/idle.rs FIRE_AND_FORGET  # the first fire-and-forget ANIMATION_* constant
 crates/sim/src/combat/idle.rs IDLES  # a list of JA animations
