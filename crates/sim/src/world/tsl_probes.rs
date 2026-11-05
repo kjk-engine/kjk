@@ -151,8 +151,13 @@ int GetLocalNumber(object oObject, int nIdx);
 void ChangeToStandardFaction(object oCreatureToChange, int nStandardFaction);
 // 38
 int GetStandardFaction(object oObject);
+// 39
+int GetIsEnemy(object oTarget, object oSource = OBJECT_SELF);
 int OBJECT_TYPE_CREATURE = 1;
 "#;
+
+/// `STANDARD_FACTION_HOSTILE_1`.
+const HOSTILE_1: i32 = 1;
 
 /// The global the player's alignment is kept in.
 const PC_ALIGN: &str = crate::script::influence::PC_ALIGNMENT;
@@ -326,6 +331,22 @@ fn library() -> crate::script::Library {
     let mut pc_faction_read = Asm::default();
     token(&mut pc_faction_read, 110, &[call(13, 0), call(38, 1)]);
     pc_faction_read.op(Op::Retn);
+    // Atton moved to Hostile 1, read back by the same script: token 111
+    // his standard faction, 112 whether he takes the player for an enemy.
+    let atton = || [int(0), text("atton"), call(21, 2)];
+    let mut turned = Asm::default();
+    turned.op(int(HOSTILE_1));
+    for op in atton() {
+        turned.op(op);
+    }
+    turned.op(call(37, 2));
+    let mut faction = atton().to_vec();
+    faction.push(call(38, 1));
+    token(&mut turned, 111, &faction);
+    let mut enemy = atton().to_vec();
+    enemy.extend([call(13, 0), call(39, 2)]);
+    token(&mut turned, 112, &enemy);
+    turned.op(Op::Retn);
     crate::probe::library(
         CATALOG,
         [
@@ -354,6 +375,7 @@ fn library() -> crate::script::Library {
             ("probe_pc_faction", pc_faction.build()),
             ("probe_local_booleans", booleans.build()),
             ("probe_pc_faction_read", pc_faction_read.build()),
+            ("probe_faction_reads_back", turned.build()),
             ("probe_selectability", selectability()),
         ],
     )
@@ -678,6 +700,7 @@ pub fn probes() -> Checks {
     for (name, game, wanted) in [("pc_faction_k1", "k1", "0"), ("pc_faction_tsl", "tsl", "0")] {
         checks.push((name, pc_faction(game, wanted)));
     }
+    checks.push(("faction_reads_back_as_set", faction_reads_back()));
     for (name, game, wanted) in [
         ("local_numbers_k1", "k1", ["255", "0", "127", "5", "0", "0"]),
         (
@@ -763,6 +786,30 @@ fn pc_faction(game: &str, wanted: &str) -> Result<String, String> {
     check(
         read == [wanted],
         format!("{game}: the player's faction after the change {read:?}"),
+    )
+}
+
+/// Atton made beside the player, then moved to Hostile 1 by a script that
+/// reads it back at once: both executables change a creature's faction
+/// there and then, so the same script sees him hostile and the player his
+/// enemy (K1's `k_ptat_grifenemy` turns Griff, then its
+/// `DetermineCombatRound` looks for the nearest enemy).
+fn faction_reads_back() -> Result<String, String> {
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    // The player's faction (0) and Hostile 1 at war.
+    data.repute = crate::module::Repute::at_war([0, HOSTILE_1 as u8]);
+    let level = ground.with_module(data).with_scripts(library());
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    step(&mut world);
+    run(&mut world, "probe_atton_beside");
+    step(&mut world);
+    run(&mut world, "probe_faction_reads_back");
+    let read = tokens(&step(&mut world), 111..=112);
+    check(
+        read == [HOSTILE_1.to_string().as_str(), "1"],
+        format!("Atton's faction and his regard of the player as the script read them: {read:?}"),
     )
 }
 

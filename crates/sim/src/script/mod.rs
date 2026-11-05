@@ -1855,6 +1855,21 @@ impl Out {
         Some(set.unwrap_or(now))
     }
 
+    /// Character `id`'s standard faction as this step's scripts leave it so
+    /// far (their `ChangeToStandardFaction` and by-faction moves over the
+    /// step's view); `None` for what is not a character. KOTOR changes a
+    /// creature's faction at once, so the same script's combat round reads
+    /// it back: K1's `k_ptat_grifenemy` turns Griff hostile, then
+    /// `DetermineCombatRound`'s `GetNearestCreature` looks for an enemy.
+    pub(super) fn faction(&self, view: &View, id: ObjectId) -> Option<u8> {
+        let now = view.thing(id)?.character?.faction;
+        let set = self.changes.iter().rev().find_map(|change| match *change {
+            Change::Faction { who, faction } if who == id => Some(faction),
+            _ => None,
+        });
+        Some(set.unwrap_or(now))
+    }
+
     /// The module's fade in as this step's scripts leave it so far.
     pub(super) fn world_fade_in(&self, view: &View) -> crate::snapshot::WorldFadeIn {
         self.world_fade_in.unwrap_or(view.world_fade_in)
