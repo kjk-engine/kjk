@@ -36,6 +36,7 @@ use audio::Channel;
 use bevy::prelude::*;
 use collision::{Contents, Extents};
 use sim::combat::Outcome;
+use sim::combat::saber::throw::Flight;
 use sim::combat::saber::{Kit, Move, blades};
 use sim::{EntityState, Instances, Level, Seat, SimId, Snapshot, motion};
 
@@ -105,7 +106,7 @@ impl Setup {
         let mut names: Vec<String> = [&self.single, &self.staff]
             .into_iter()
             .flat_map(|saber| saber.0.iter().cloned())
-            .chain([asset_ja::SABER_SPIN.to_string()])
+            .chain([asset_ja::SABER_SPIN, asset_ja::SABER_CATCH].map(String::from))
             .collect();
         let ranges = [
             ("saber/saberhup", 1..=8),
@@ -146,6 +147,8 @@ struct Seen {
     /// A staff's second blade or a pair's second saber put out (the style
     /// button).
     second_off: bool,
+    /// Its thrown saber coming back to the hand.
+    coming_back: bool,
     saber_move: Move,
     next_event: u16,
 }
@@ -289,17 +292,20 @@ fn sound(
         let hidden = f
             .acting
             .is_some_and(|acting| crate::acting::hides_items(&acting, current.time_ms as f64));
-        // A thrown saber spins with its own loop where it flies (JA's
-        // `saberSpinSound` as the thrown saber's `loopSound`).
+        // A thrown saber sounds where it flies (`at` is in units already):
+        // out, its spin (JA's `saberSpinSound` as the thrown saber's
+        // `loopSound`); coming back, its own hum (`soundLoop`).
         if let Some(thrown) = f
             .saber
             .thrown
             .filter(|thrown| f.saber.on && thrown.flight.flies())
         {
-            loops.0.push(Hold::at(
-                asset_ja::SABER_SPIN.to_string(),
-                Vec3::from_array(thrown.at) / UNIT,
-            ));
+            let name = if thrown.flight == Flight::Back {
+                blades.setup.of(saber).0[1].clone()
+            } else {
+                asset_ja::SABER_SPIN.to_string()
+            };
+            loops.0.push(Hold::at(name, Vec3::from_array(thrown.at)));
         }
         if !f.saber.on || !f.alive() || f.saber.thrown.is_some() || hidden {
             continue;
@@ -396,6 +402,10 @@ fn changes(
     let now = Seen {
         lit: f.saber.on,
         second_off: f.saber.second_off,
+        coming_back: f
+            .saber
+            .thrown
+            .is_some_and(|thrown| thrown.flight == Flight::Back),
         saber_move: f.saber.current_move,
         next_event: f.next_event,
     };
@@ -431,6 +441,13 @@ fn changes(
     } else {
         None
     };
+    // Coming back and now in the hand: caught.
+    if before.coming_back && f.saber.thrown.is_none() && f.alive() {
+        cues.push(Cue {
+            entity: Some(entity.id),
+            ..Cue::at(asset_ja::SABER_CATCH.to_string(), at, ms)
+        });
+    }
     if let Some(double) = saber
         && let Some(on) = lighting
     {
