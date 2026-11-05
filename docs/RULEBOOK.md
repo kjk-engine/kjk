@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `e3bcac66272e8c4a`.
+Edition `ebad17330e060fc4`.
 
 ## Contents
 
@@ -1657,6 +1657,18 @@ Level 1 **20 points** · Level 2 **30 points** · Level 3 **50 points**
 Droid environment shields absorb 20, 30 or 50 points, by level.
 
 <sub>Source: `forceshields.2da` `amount`. Code: `sim::combat::items::use_of`.</sub>
+
+<a id="items-shields-heat"></a>**Heat Shield** = **20 points** · `items.shields.heat`
+
+A heat shield (TSL's Telos mining shield) absorbs 20 points of energy, ion and fire damage: Peragus' hot steam.
+
+<sub>Source: TSL's `forceshields.2da` `amount` (`SHIELD_HEAT`). Code: `sim::combat::items::use_of`.</sub>
+
+<a id="items-shields-drexl"></a>**Drexl Shield** = **90 points** · `items.shields.drexl`
+
+Drexl's shield (TSL) absorbs 90 points of every damage type.
+
+<sub>Source: TSL's `forceshields.2da` `amount` (`SHIELD_DREXL`). Code: `sim::combat::items::use_of`.</sub>
 
 ### <a id="items-properties"></a>Item Properties
 
@@ -8718,6 +8730,12 @@ A target stays selected for 0.2 seconds after the crosshair leaves it.
 An object at the character's feet must be in sight of eyes 1.6 meters above the floor.
 
 <sub>Source: ours. Code: `sim::target::pick`.</sub>
+
+<a id="targeting-pick-sight-slack"></a>**Sight Slack** = **0.05 m** · `targeting.pick.sight_slack`
+
+An object is in sight when the line to its middle or its top gets within 0.05 meters of it: a console's own body, or the bench it stands on, does not hide it.
+
+<sub>Source: ours (under the 0.15 m a wall must hide what stands behind it). Code: `sim::target::seen`.</sub>
 
 ### <a id="targeting-volumes"></a>Target Size
 

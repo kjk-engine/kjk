@@ -133,6 +133,9 @@ rows! {
     ITEM_ABILITY_DROID_REPAIR_KIT_ADV = 127,
     ITEM_ABILITY_DROID_CONSTRUCTION_KIT = 128,
     ITEM_ABILITY_RECOVERY_STIM = 129,
+    // TSL's other forearm bands (`k_sup_bands`): the heat shield (the
+    // Telos mining shield), and Drexl's below.
+    ITEM_ABILITY_HEAT_SHIELD = 132,
     // TSL's stronger sonic grenades and its launchers' rows: the rockets
     // and darts a wrist launcher alone fires, and the grenades it fires.
     ITEM_ABILITY_ROCKET_EXPLOSIVE = 185,
@@ -159,4 +162,5 @@ rows! {
     ITEM_ABILITY_GRENADE_LAUNCHED_ION = 254,
     ITEM_ABILITY_GRENADE_LAUNCHED_SONIC_2 = 255,
     ITEM_ABILITY_GRENADE_LAUNCHED_SONIC_3 = 256,
+    ITEM_ABILITY_DREXL_SHIELD = 257,
 }

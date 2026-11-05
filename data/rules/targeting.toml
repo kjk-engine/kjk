@@ -60,6 +60,15 @@ summary = "An object at the character's feet must be in sight of eyes {targeting
 source = "ours"
 see = "sim::target::pick"
 
+[pick.sight_slack]
+name = "Sight Slack"
+value = 0.05
+unit = "m"
+range = [0.0, 0.14]
+summary = "An object is in sight when the line to its middle or its top gets within {targeting.pick.sight_slack:bare} meters of it: a console's own body, or the bench it stands on, does not hide it."
+source = "ours (under the 0.15 m a wall must hide what stands behind it)"
+see = "sim::target::seen"
+
 [volumes]
 title = "Target Size"
 summary = """

@@ -1193,11 +1193,12 @@ fn destroy_fades() {
 /// leading out or one broken open; a companion, led or driven by a player,
 /// is a target, picked only clear ahead of the player, and never the target
 /// of the player it is the body of; a placeable hung up a wall (Yavin
-/// Station's door panels) is picked from the floor beneath it; two runs
+/// Station's door panels) is picked from the floor beneath it; a console
+/// on a bench, or in its own solid body, is picked (Peragus); two runs
 /// end the same. The sim alone.
 #[test]
 fn use_actions() {
-    probed("use", &sim::uses::probes(), 43);
+    probed("use", &sim::uses::probes(), 44);
 }
 
 /// Bashing (`docs/COMBAT.md`): on the proving ground
