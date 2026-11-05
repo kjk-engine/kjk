@@ -411,9 +411,14 @@ restored when it ends.
   while a conversation holds the world, each step every creature of the
   area out of the party, commandable and hostile to the player has its
   queue cleared (`Step::hold_hostiles`): told to attack or walk, it does
-  nothing until the talk ends, whether or not it takes part. A script's
-  `CutsceneAttack` is no action and plays; one not commandable keeps its
-  queue.
+  nothing until the talk ends, whether or not it takes part. Its fight
+  goes with its queue, queue or none: the attack its queue began that
+  step, its blows not yet swung, and the target its mind keeps while in
+  combat (`Change::Disengage`; its blade left as it was), so one already
+  fighting as the talk begins, or turned hostile by a line, stands too
+  (Taris's Sith base turrets and assault droid, `tar09_trap_dlg`). A bolt
+  in flight still lands. A script's `CutsceneAttack` is no action and
+  plays; one not commandable keeps its queue and its fight.
 - **Walks**: a body walking a route moves on KOTOR's walker at its
   `creaturespeed.2da` rates (`MOVEMENT.md`, `NAV.md`).
 - **Spaces**: the party keeps its personal spaces, as KOTOR's creatures
