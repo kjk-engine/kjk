@@ -67,12 +67,15 @@ fn group_of<'a>(game: Game, key: &'a str, own: &[&str]) -> &'a str {
 /// The groups a game's worlds are built from (its tables, modules,
 /// overrides; JA's `base/` with the animations): two machines that differ
 /// there may build different worlds. Sounds, voices, movies and texture
-/// packs are not among them.
+/// packs are not among them, nor `dialog.tlk`: its lines are what a player
+/// reads, the host's scripts decide what they do, and the lines a level
+/// reads are in its digest (`sim::script::Library::with_talk`). Aspyr's
+/// Mac table differs from the Windows one in lines no level reads.
 pub fn world_group(game: Game, group: &str) -> bool {
     match game {
         Game::Kotor1 | Game::Kotor2 => matches!(
             group,
-            "chitin.key" | "data" | "dialog.tlk" | "modules" | "override" | "patch.erf" | "rims"
+            "chitin.key" | "data" | "modules" | "override" | "patch.erf" | "rims"
         ),
         Game::JediAcademy => group == "base" || group.starts_with("base/"),
     }

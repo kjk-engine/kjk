@@ -217,8 +217,8 @@ pub fn routines(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             }
             Ok(
                 sim::script::Library::new(routines, scripts, sim::script::Talents::default())
-                    .with_talk(talk.clone())
-                    .with_items(items),
+                    .with_items(items)
+                    .with_talk(talk.clone()),
             )
         })?;
         let (tag, nth, facts) = chosen.ok_or("no creature chosen")?;
