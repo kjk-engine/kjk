@@ -242,6 +242,12 @@ pub fn probes() -> Checks {
     let nudge_wanted = ((i32::from(UNEVEN.1) + NUDGE) as u8, UNEVEN.1);
     let state = world.script_state().clone();
     let kept = saved(&state).map(|loaded| loaded.reputation == state.reputation);
+    // The view's: what the HUD and the battle music read hostility by, on a
+    // guest as on the host, through the snapshot's encoding.
+    let presented = world.snapshot().standing;
+    let presented_sent = crate::Snapshot::decode(&world.snapshot().encode())
+        .map(|decoded| decoded.standing)
+        .map_err(|error| error.to_string());
     let old: Adjustments = [(PLAYER, HOSTILE_1, -50), (FRIENDLY_1, HOSTILE_2, 10)]
         .into_iter()
         .flat_map(|(a, b, by)| crate::module::adjustment_cells(a, b, by))
@@ -290,6 +296,18 @@ pub fn probes() -> Checks {
             check(
                 kept == Ok(true),
                 format!("{kept:?}: {:?}", state.reputation),
+            ),
+        ),
+        (
+            "reputation_presented_in_the_snapshot",
+            check(
+                !state.reputation.is_empty()
+                    && presented == state.reputation
+                    && presented_sent.as_ref() == Ok(&state.reputation),
+                format!(
+                    "scripts {:?}; snapshot {presented:?}, sent {presented_sent:?}",
+                    state.reputation
+                ),
             ),
         ),
         (

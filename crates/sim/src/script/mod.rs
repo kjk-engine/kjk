@@ -1107,20 +1107,57 @@ impl Library {
         }
     }
 
-    /// This library with the install's talk table, in the digest.
+    /// This library with the install's talk table, and in the digest the
+    /// lines it may read (`talk_used`) as it reads them. Lines nothing here
+    /// reads are left out, so two installs whose tables differ only there
+    /// make the same levels: Aspyr's Mac K1 `dialog.tlk` and the Windows
+    /// one differ in an options screen's text and in blank lines, which only
+    /// the Endar Spire's opening cut reads (spaces on Windows, no text on
+    /// the Mac, timed by their length as the games time them). Called after
+    /// `with_items`, whose names it reads.
     pub fn with_talk(self, talk: Arc<Tlk>) -> Library {
         let mut hasher = blake3::Hasher::new();
         hasher.update(&self.digest);
-        hasher.update(b"talk");
-        for entry in &talk.entries {
-            hasher.update(&(entry.text.len() as u32).to_le_bytes());
-            hasher.update(&entry.text);
+        hasher.update(b"talk used");
+        for strref in self.talk_used() {
+            let text = talk.text(strref);
+            hasher.update(&strref.to_le_bytes());
+            hasher.update(
+                &text
+                    .map_or(u32::MAX, |text| text.len() as u32)
+                    .to_le_bytes(),
+            );
+            hasher.update(text.unwrap_or(&[]));
         }
         Library {
             talk: Some(talk),
             digest: *hasher.finalize().as_bytes(),
             ..self
         }
+    }
+
+    /// The talk-table lines this library's levels may read, in order: its
+    /// conversations' lines, its items' names (`GetName`), and every integer
+    /// its scripts hold, any of which `GetStringByStrRef` may be given (a
+    /// line asked for by a computed number is not among them).
+    fn talk_used(&self) -> std::collections::BTreeSet<u32> {
+        let lines = self
+            .dialogues
+            .values()
+            .flat_map(|dlg| dlg.entries.iter().chain(&dlg.replies))
+            .map(|node| node.text.strref);
+        let names = self.items.iter().map(|facts| facts.name);
+        let numbers = self
+            .programs
+            .values()
+            .flat_map(|program| &program.ncs.code)
+            .filter_map(|instruction| match &instruction.op {
+                fmt_odyssey::ncs::Op::Const(fmt_odyssey::ncs::Const::Int(value)) => {
+                    u32::try_from(*value).ok()
+                }
+                _ => None,
+            });
+        lines.chain(names).chain(numbers).collect()
     }
 
     /// A talk-table line, in the game's code page (one character a byte).
@@ -1849,6 +1886,21 @@ impl Out {
         let now = view.thing(id)?.locked?;
         let set = self.changes.iter().rev().find_map(|change| match *change {
             Change::Lock { door, locked } if door == id => Some(locked),
+            _ => None,
+        });
+        Some(set.unwrap_or(now))
+    }
+
+    /// Character `id`'s standard faction as this step's scripts leave it so
+    /// far (their `ChangeToStandardFaction` and by-faction moves over the
+    /// step's view); `None` for what is not a character. KOTOR changes a
+    /// creature's faction at once, so the same script's combat round reads
+    /// it back: K1's `k_ptat_grifenemy` turns Griff hostile, then
+    /// `DetermineCombatRound`'s `GetNearestCreature` looks for an enemy.
+    pub(super) fn faction(&self, view: &View, id: ObjectId) -> Option<u8> {
+        let now = view.thing(id)?.character?.faction;
+        let set = self.changes.iter().rev().find_map(|change| match *change {
+            Change::Faction { who, faction } if who == id => Some(faction),
             _ => None,
         });
         Some(set.unwrap_or(now))

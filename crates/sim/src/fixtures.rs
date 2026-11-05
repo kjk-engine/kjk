@@ -152,6 +152,7 @@ fn fill(save: &mut Save, ground: &Level) {
     snapshot.progress.xp = 1_500;
     snapshot.goods.gold = 250;
     snapshot.screens.map_disabled = true;
+    snapshot.standing.insert((0, 7), 50);
 
     let script = &mut save.script;
     script.numbers.insert("K_FIXTURE_NUMBER".into(), 7);
@@ -352,6 +353,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         departing: _,
         screens: _,
         remotes: _,
+        standing: _,
         shared: _,
         authority: _,
         next_id: _,
@@ -360,8 +362,8 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         tick, time_ms, place, entities, transition, stash, area_sound, fade,
         world_fade_in, video_effect, talk, goods, spawned, roster, progress, personas,
         seats_held, lost, in_combat, paused_by, ready, kept, leading, minigame,
-        pazaak, explored, visuals, departing, screens, remotes, shared, authority,
-        next_id,
+        pazaak, explored, visuals, departing, screens, remotes, standing, shared,
+        authority, next_id,
     );
     let State {
         numbers: _,

@@ -32,8 +32,8 @@ use ui::draw::Textures as _;
 use ui::intent::CharacterDesc;
 use ui::skin::Source;
 use ui::vm::{
-    AutoLevelView, CharacterView, ChargenView, ClassView, Entry, ItemKind, MemberView, NameTables,
-    Owned, PicksView, PortraitView, Preview, UpgradeChoice, UpgradeItem, UpgradeSlot,
+    AutoLevelView, CharacterView, ChargenView, ClassView, EffectIcon, Entry, ItemKind, MemberView,
+    NameTables, Owned, PicksView, PortraitView, Preview, UpgradeChoice, UpgradeItem, UpgradeSlot,
 };
 
 use crate::rulebook_text;
@@ -78,24 +78,27 @@ const POWER: [&str; 3] = ["name", "iconresref", "spelldesc"];
 
 /// What a level may pick, named as the pages name feats and powers.
 fn picks_view(assets: &mut GuiAssets, picks: &sim::levels::Picks) -> PicksView {
+    let mut name =
+        |table: &str, columns, row: u16| (row, entry(assets, table, usize::from(row), columns));
     let mut named = |table: &str, columns, rows: &[u16]| -> Vec<(u16, Entry)> {
+        rows.iter().map(|&row| name(table, columns, row)).collect()
+    };
+    let feats = named("feat", FEAT, &picks.feats);
+    let powers = named("spells", POWER, &picks.powers);
+    let mut chart = |table: &str, columns, rows: &[[Option<u16>; 3]]| {
         rows.iter()
-            .map(|&row| (row, entry(assets, table, usize::from(row), columns)))
+            .map(|row| row.map(|at| Some(name(table, columns, at?))))
             .collect()
     };
     PicksView {
-        feats: named("feat", FEAT, &picks.feats),
+        feats,
         feat_count: picks.feat_count,
-        powers: named("spells", POWER, &picks.powers),
+        powers,
         power_count: picks.power_count,
-        chart: picks
-            .chart
-            .iter()
-            .map(|row| {
-                row.map(|feat| Some((feat?, entry(assets, "feat", usize::from(feat?), FEAT))))
-            })
-            .collect(),
+        chart: chart("feat", FEAT, &picks.chart),
         known: picks.known.clone(),
+        power_chart: chart("spells", POWER, &picks.power_chart),
+        known_powers: picks.known_powers.clone(),
     }
 }
 
@@ -718,24 +721,25 @@ fn members(
     party
 }
 
-/// The good and the bad among `fighter`'s running effect icons, as KOTOR
-/// counts them on its portrait (`CSWSEffectListHandler::OnApplyEffectIcon`):
-/// by their `effecticon.2da` row's `good`, an icon whose row has none (the
-/// alignment's full marks) counting as neither.
-fn effect_icons(assets: &mut GuiAssets, fighter: &sim::combat::Fighter, now: u64) -> (u8, u8) {
+/// `fighter`'s running effect icons as KOTOR counts them on its portrait
+/// (`CSWSEffectListHandler::OnApplyEffectIcon`): each its `effecticon.2da`
+/// row's picture, good or bad by the row's `good`; an icon whose row has
+/// no `good` (the alignment's full marks) or no picture left out.
+fn effect_icons(
+    assets: &mut GuiAssets,
+    fighter: &sim::combat::Fighter,
+    now: u64,
+) -> Vec<EffectIcon> {
     fighter
         .effects
         .icons(now)
-        .fold((0u8, 0u8), |(good, bad), row| {
-            match assets
-                .cell("effecticon", usize::from(row), "good")
-                .as_deref()
-            {
-                Some("0") => (good, bad.saturating_add(1)),
-                Some(_) => (good.saturating_add(1), bad),
-                None => (good, bad),
-            }
+        .filter_map(|row| {
+            let row = usize::from(row);
+            let good = assets.cell("effecticon", row, "good")? != "0";
+            let icon = assets.cell("effecticon", row, "iconresref")?;
+            Some(EffectIcon { icon, good })
         })
+        .collect()
 }
 
 /// What an upgrade bench lists: what the party carries and what its

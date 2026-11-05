@@ -1314,8 +1314,8 @@ fn track_mines(
             // faction.
             let laid = sim::traps::laid_row(&facts.template).is_some();
             let hostile = !laid
-                && module
-                    .repute
+                && snapshot
+                    .standings(module)
                     .hostile(facts.faction, sim::combat::sheet::factions::PLAYER);
             let at = sim::traps::centre(&facts.geometry, entity.position);
             Some((index, (row.model.clone(), at, !hostile)))

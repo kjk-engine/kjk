@@ -22,9 +22,10 @@
 //! reviver named).
 //! In co-op each player's portrait carries an icon for what it is in
 //! (R10: talking, trading, pazaak, asking the host in; `busy`).
-//! Each portrait shows its effects as KOTOR's do (`effect_arrows`): an
-//! arrow up for each good one, down for each bad, stacked; a debilitated
-//! member's portrait its overlay instead (`LBL_DEBILATATED<n>`).
+//! Each portrait shows its effects' icons where KOTOR stacks its arrows
+//! (`effect_icons`): the good ones down its left, the bad up its right,
+//! each overlapping the one before; a debilitated member's portrait its
+//! overlay instead (`LBL_DEBILATATED<n>`).
 //! The stealth toggle shows, lit, while the character is in stealth mode.
 //! The minimap shows the area's picture where it has one, the player's
 //! place at its middle, the arrow turned the player's way. The combat
@@ -592,41 +593,53 @@ pub fn watch_at(gui: &Gui, vm: &ViewModel, [x, y]: [f32; 2]) -> Option<u32> {
 }
 
 /// The effect arrows' labels but their party slot: the good's (KOTOR's
-/// `LBL_CMBTEFCTINC<n>`, an arrow up) and the bad's (`…RED<n>`, down).
+/// `LBL_CMBTEFCTINC<n>`, an arrow up) and the bad's (`…RED<n>`, down), the
+/// places their icons stack.
 const GOOD_ARROW: &str = "LBL_CMBTEFCTINC";
 const BAD_ARROW: &str = "LBL_CMBTEFCTRED";
 /// A member's debilitated overlay but its party slot.
 const DEBILITATED: &str = "LBL_DEBILATATED";
 
-/// How far apart a portrait's arrows stack (layout pixels), from
-/// `CSWGuiMainInterfaceChar::DrawStack`: up to 4, 10 on the leader's
-/// portrait and 5 on a companion's; past that the leader's close up (10,
-/// 8, 7, 6, 5 for 5 to 9) and a companion's stay 5.
-const STEP_FEW: [f32; 2] = [5.0, 10.0];
-const STEP_MANY: [f32; 5] = [10.0, 8.0, 7.0, 6.0, 5.0];
-/// The most arrows a companion's portrait and the leader's show.
-const MOST: [u8; 2] = [5, 9];
+/// The most icons a companion's portrait and the leader's show (KOTOR's
+/// most arrows, `CSWGuiMainInterfaceChar::DrawStack`).
+const MOST: [usize; 2] = [5, 9];
+/// An icon's side, in its arrow label's widths: small and compact, about
+/// KOTOR's arrow (a remaster liberty: KOTOR draws arrows; its icons are on
+/// the character sheet).
+const ICON_SIDE: f32 = 0.8;
+/// How much of each icon the next one leaves showing, in icon sides, while
+/// the stack fits the portrait; a longer stack closes up to fit.
+const ICON_REVEAL: f32 = 0.65;
+/// The solid black square each icon sits on, its edge beyond the icon
+/// (layout pixels): every icon a square however much of its picture is
+/// clear (an item's, such as an energy shield's), each parted from the one
+/// beneath.
+const ICON_EDGE: f32 = 1.0;
+const ICON_BACKING: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
-/// One arrow where `DrawStack` puts it: its label's art, at its label's
-/// size, and the portrait it is clipped to.
+/// One running effect's icon where it stacks: its picture, its place, and
+/// the portrait it is clipped to.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Arrow {
-    pub fill: String,
+pub struct StackedIcon {
+    pub icon: String,
     pub rect: [f32; 4],
     pub clip: [f32; 4],
 }
 
-/// Every portrait's effect arrows (`MemberView::effects`), as KOTOR's
-/// `CSWGuiMainInterface::UpdatePortraits` and `DrawEffects` draw them: none
-/// on a debilitated member; else as many as its good effects in its
-/// `LBL_CMBTEFCTINC<n>` (capped, `MOST`), centred on the label's place and
-/// `STEP_*` apart, each drawn from the top down, and its bad ones in
-/// `LBL_CMBTEFCTRED<n>`, drawn from the bottom up; all within the portrait.
-pub fn effect_arrows(gui: &Gui, vm: &ViewModel) -> Vec<Arrow> {
+/// Every portrait's effect icons (`MemberView::effects`), stacked where
+/// KOTOR's `CSWGuiMainInterface::UpdatePortraits` and `DrawEffects` stack
+/// its arrows: none on a debilitated member; else its good ones (capped,
+/// `MOST`) about its `LBL_CMBTEFCTINC<n>`, each the next one down, and its
+/// bad ones about `LBL_CMBTEFCTRED<n>`, each the next one up; the good
+/// flush with their label's left, the bad with its right. Each shows
+/// `ICON_REVEAL` of the one before, less when that would leave the
+/// portrait, and the stack stays within it. The latest to take hold lies
+/// on top.
+pub fn effect_icons(gui: &Gui, vm: &ViewModel) -> Vec<StackedIcon> {
     if vm.hud.is_none() {
         return Vec::new();
     }
-    let mut arrows = Vec::new();
+    let mut icons = Vec::new();
     for (place, member) in vm.party.iter().enumerate().take(3) {
         if member.debilitated {
             continue;
@@ -637,52 +650,69 @@ pub fn effect_arrows(gui: &Gui, vm: &ViewModel) -> Vec<Arrow> {
             continue;
         };
         let clip = rect_of(portrait);
-        for (prefix, count, down) in [
-            (GOOD_ARROW, member.effects.0, true),
-            (BAD_ARROW, member.effects.1, false),
-        ] {
+        for (prefix, good) in [(GOOD_ARROW, true), (BAD_ARROW, false)] {
             let Some(label) = gui.find(&format!("{prefix}{slot}")) else {
                 continue;
             };
-            let Some(fill) = label.border.as_ref().map(|border| border.fill.clone()) else {
+            let kind: Vec<&str> = member
+                .effects
+                .iter()
+                .filter(|effect| effect.good == good)
+                .map(|effect| effect.icon.as_str())
+                .take(MOST[leader])
+                .collect();
+            let Some(last) = kind.len().checked_sub(1) else {
                 continue;
-            };
-            let count = count.min(MOST[leader]);
-            if count == 0 {
-                continue;
-            }
-            let step = if count <= 4 || leader == 0 {
-                STEP_FEW[leader]
-            } else {
-                STEP_MANY[usize::from(count - 5)]
             };
             let [left, top, width, height] = rect_of(label);
-            let half = (step / 2.0).floor() * f32::from(count - 1);
-            let (first, by) = if down {
-                (top - half, step)
+            let side = (width * ICON_SIDE).round();
+            let left = if good { left } else { left + width - side };
+            let room = (clip[3] - side).max(0.0);
+            let step = if last == 0 {
+                0.0
             } else {
-                (top + half, -step)
+                (side * ICON_REVEAL).min(room / last as f32).floor()
             };
-            arrows.extend((0..count).map(|nth| Arrow {
-                fill: fill.clone(),
-                rect: [left, first + by * f32::from(nth), width, height],
+            let span = step * last as f32;
+            let highest = top + (height - side - span) / 2.0;
+            let highest = highest.clamp(clip[1], clip[1] + room - span);
+            let (first, by) = if good {
+                (highest, step)
+            } else {
+                (highest + span, -step)
+            };
+            icons.extend(kind.into_iter().enumerate().map(|(nth, icon)| StackedIcon {
+                icon: icon.to_owned(),
+                rect: [left, first + by * nth as f32, side, side],
                 clip,
             }));
         }
     }
-    arrows
+    icons
 }
 
-/// The effect arrows drawn (`effect_arrows`).
+/// The effect icons drawn (`effect_icons`), each on its black square.
 pub fn effects(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut DrawList) {
-    for arrow in effect_arrows(gui, vm) {
-        if let Some(id) = painter.textures.texture(painter.source, &arrow.fill) {
-            out.quads.push(Quad {
-                additive: painter.textures.additive(id),
-                clip: Some(arrow.clip),
-                ..Quad::image(arrow.rect, id, [1.0; 4])
-            });
-        }
+    for stacked in effect_icons(gui, vm) {
+        let Some(id) = painter.textures.texture(painter.source, &stacked.icon) else {
+            continue;
+        };
+        let [left, top, width, height] = stacked.rect;
+        let backing = [
+            left - ICON_EDGE,
+            top - ICON_EDGE,
+            width + 2.0 * ICON_EDGE,
+            height + 2.0 * ICON_EDGE,
+        ];
+        out.quads.push(Quad {
+            clip: Some(stacked.clip),
+            ..Quad::solid(backing, ICON_BACKING)
+        });
+        out.quads.push(Quad {
+            additive: painter.textures.additive(id),
+            clip: Some(stacked.clip),
+            ..Quad::image(stacked.rect, id, [1.0; 4])
+        });
     }
 }
 
@@ -865,7 +895,7 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
         let on = vm.hud.is_some() && vm.party.get(place).is_some_and(|member| member.may_level);
         return if arrow { level_up_mark(on) } else { shown(on) };
     }
-    // The arrows are drawn by `effects`, the labels only their places.
+    // The icons are drawn by `effects`, the labels only their places.
     if tag.starts_with(GOOD_ARROW) || tag.starts_with(BAD_ARROW) {
         return hidden;
     }

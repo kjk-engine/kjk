@@ -140,8 +140,8 @@ the view's:
   through, then the music begins again (unless a script stopped it, as
   the games' `k_act_cmusic_on` does).
 - **Ambience**: `ambientsound.2da` row `AmbientSndDay` (or night), looped,
-  at its volume (`AmbientSndDayVol`, `AmbientSndNitVol`, 0 to 127) by
-  xoreos's curve `1.25·(1 − 5^(−v/127))`.
+  at its volume (`AmbientSndDayVol`, `AmbientSndNitVol`, 0 to 127),
+  straight, as the executables set a streamed sound's (below, "Gains").
 - **Scripts** (`snapshot::AreaSound`) win over the area: a track stopped
   or started, its row changed (`MusicBackgroundChangeDay`, …), the
   ambience's volume.
@@ -212,8 +212,20 @@ the view's:
   (a script's clip, a cutscene's stunt: `ambience::ClipSteps`), the K1
   executable's only source of footsteps; one moving is stepped by its walk
   alone, so no step is heard twice.
-- **Gains**, a first mix to judge by ear: music 0.6, ambience 0.8 × its
-  curve, objects their volume, footsteps 0.6.
+- **Gains** (`prioritygroups.2da`; TSL's Mac executable's
+  `CExoStreamingSoundSourceInternal::SetVolume`): the executables play a
+  streamed sound (music, ambience, a conversation's voice) at its volume
+  over 127 × its priority group's `volume` (TSL `volume_pc`) over 127 ×
+  its slider, straight into OpenAL's gain; the four sliders start alike
+  (85 of 127). Here a conversation's voice is the reference, at full (an
+  unplaced cue, 0.5 in each ear), and each bed is held at
+  `0.5 × group / Non_Player_Chat × volume/127`: K1's music (`Streams_Music`
+  64, stingers `Music_Stingers` 64) at 0.36, its ambience
+  (`Looping_AreaWide_Ambients` 95) at 0.53 × its volume over 127; TSL's
+  ambience 112. The menu's and credits' music, with no area's tables, as
+  K1's. Not yet the groups' other rows: objects play their volume,
+  footsteps 0.6 (K1's `Player_Footsteps` 65), and the executables' 3D
+  samples (`Set3D`) take `(volume × group × slider)^0.6`.
 - **The menu** (before a game): K1's main menu plays `mus_theme_cult`,
   character creation `mus_theme_rep` (reone's and xoreos's), looped.
 - Nothing plays while a movie is up; the music begins again after it.

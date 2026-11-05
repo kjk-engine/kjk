@@ -193,7 +193,14 @@ the games' own compiled scripts; nothing of them is in the repo.
   scripts compare it); `GetName` an object's (a creature's first and last
   names, another's `LocName` or `LocalizedName`), the area's `Name`, an
   item's; a player's character has none yet. `GetStringByStrRef` reads
-  the talk table (in the library's digest).
+  the talk table. The library's digest holds the lines its levels may
+  read: its conversations' lines, its items' names, and every integer its
+  scripts hold. Aspyr's Mac K1 table and the Windows one differ only in
+  lines nearly no level reads: an options screen's text, and blank lines
+  (spaces on Windows, no text on the Mac) that only the Endar Spire's
+  opening cut times. Co-op compares no `dialog.tlk` file
+  (`vfs::fingerprint::world_group`): the host's scripts decide, and a
+  player reads its own lines.
 - TSL's number globals hold a signed byte: `IncrementGlobalNumber` and
   `DecrementGlobalNumber` past −128 or 127 leave the global as it was
   (the game warns). `RemoveHeartbeat` takes an object's heartbeat away

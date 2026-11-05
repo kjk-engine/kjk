@@ -898,6 +898,16 @@ fn dialogue_formats() {
     );
 }
 
+/// The talk-table lines a level's digest holds: those its scripts may read,
+/// as they read them, so tables differing only in lines no script names
+/// (Aspyr's Mac K1 table and the Windows one: an options screen's text)
+/// make the same levels, and a named line changed moves the digest. No
+/// installs (approved 2026-11-05).
+#[test]
+fn talk_lines_digest() {
+    passed("talk lines", &sim::script::dialogue_probes::talk(), 1);
+}
+
 /// What conversations keep: answer bytes (a count that moves, so a repeated
 /// command answers once), and the scripts' state and the snapshot's view
 /// of conversations through their encodings.
@@ -1094,7 +1104,7 @@ fn ui_loot() {
 /// ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 27);
+    probed("tsl", &sim::tsl_probes::probes(), 28);
 }
 
 /// The dead's remains (KOTOR's body bags; `sim::remains::probes`), owner
@@ -1521,7 +1531,7 @@ fn guests_drive_companions() {
 /// cases and the whole scenario run twice ending alike; the sim alone.
 #[test]
 fn dialogue_coop() {
-    probed("coop talk", &sim::coop_talk::probes(), 142);
+    probed("coop talk", &sim::coop_talk::probes(), 143);
 }
 
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,
@@ -1530,7 +1540,7 @@ fn dialogue_coop() {
 /// alone. Approved by the owner 2026-10-17 (do what you think is best).
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 71);
+    probed("scene", &sim::scene_probes::all(), 72);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
@@ -1675,13 +1685,14 @@ fn pazaak() {
 /// against grenades, the skill feats, Improved and Wookiee Toughness's
 /// damage reduction (K1's and TSL's), levels with Toughness (picked, its
 /// earlier levels), Wookiee Toughness, Force Sensitive and an ability
-/// minimum; and on the proving ground, a companion refused armour and an
+/// minimum; KOTOR's feat and power charts (Force Wave needing Push and
+/// Whirlwind); and on the proving ground, a companion refused armour and an
 /// implant with the game's line, granted feats by `GrantFeat` (Toughness
 /// for every level), then wearing the armour and taking a level whose
 /// class grants Master Toughness, twice alike; no install.
 #[test]
 fn feats() {
-    probed("feats", &sim::feats::probes(), 16);
+    probed("feats", &sim::feats::probes(), 17);
 }
 
 /// A host's save kept by a player (I31): `saves::copies::probes` (packed,

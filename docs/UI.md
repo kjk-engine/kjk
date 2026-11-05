@@ -122,12 +122,17 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   over, the keys move along a row and between rows; the chosen one pulses
   and is named over its description (`LBL_NAME`). Add picks or drops the
   chosen feat (one the level offers), Recommended takes the first it may.
-  Powers are a list, recommended first, a picked one framed (`lbl_hex_3`,
-  the others `lbl_hex`), the rest faded once none are left. What is left
-  unpicked is the game's (the host completes it). A level that offers none
-  skips its step. Not yet: KOTOR's open feats counting this level's picks
-  (Improved Flurry after Flurry picked at the same level), its separate
-  bonus-feat pass, powers as a chart.
+  Powers are KOTOR's chart drawn the same way (`pwrlvlup`,
+  `Classes::power_chart`): a row a chain over the powers the class may
+  ever pick and those known, a power needing none, the power needing only
+  it and the one needing it and that one (`spells.2da` `prerequisites`,
+  `23_27`: Push, Whirlwind, Wave); a power needing one with no row of its
+  own (TSL's Crush Opposition IV) begins a row. The chosen one is named
+  (`LBL_POWER`) over its description; Select picks or drops it. What is
+  left unpicked is the game's (the host completes it). A level that offers
+  none skips its step. Not yet: KOTOR's open feats counting this level's
+  picks (Improved Flurry after Flurry picked at the same level), its
+  separate bonus-feat pass.
 - A stack's count is drawn on its item's square as both games do
   (`fnt_d16x16`, the square's bottom right). The container lists alike
   stackable items as one stack (as KOTOR's containers merge them, up to

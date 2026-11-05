@@ -218,6 +218,14 @@ pub enum SceneView {
     },
 }
 
+/// One running effect's icon on a portrait: its `effecticon.2da` row's
+/// `iconresref` and whether the row is a good one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EffectIcon {
+    pub icon: String,
+    pub good: bool,
+}
+
 /// A party member as the menu bar and the HUD show it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct MemberView {
@@ -237,12 +245,13 @@ pub struct MemberView {
     pub may_level: bool,
     /// What the player playing it is in, its portrait's icon (R10).
     pub busy: Option<Busy>,
-    /// Its running effects' icons as KOTOR's portrait counts them
-    /// (`effecticon.2da`'s `good`, an icon without one not counted): the
-    /// good and the bad, its arrows (`hud::effect_arrows`).
-    pub effects: (u8, u8),
+    /// Its running effects' icons, in the order they took hold, as
+    /// KOTOR's portrait counts them (`effecticon.2da`'s `good`, an icon
+    /// without one not counted): stacked on its portraits
+    /// (`hud::effect_icons`).
+    pub effects: Vec<EffectIcon>,
     /// Down, held or under a state (`sim::Fighter::debilitated`): its
-    /// portrait's overlay, in its arrows' place.
+    /// portrait's overlay, in its icons' place.
     pub debilitated: bool,
     /// Its body (`sim::SimId`): what a click on its portrait or its icon
     /// names.
@@ -485,6 +494,11 @@ pub struct PicksView {
     pub chart: Vec<[Option<(u16, Entry)>; 3]>,
     /// The chart's feats the character has (or the level grants).
     pub known: Vec<u16>,
+    /// The power chart, drawn as the feat chart
+    /// (`sim::levels::Classes::power_chart`).
+    pub power_chart: Vec<[Option<(u16, Entry)>; 3]>,
+    /// The powers the character has.
+    pub known_powers: Vec<u16>,
 }
 
 /// A binding as a prompt shows it: its words (`F`, `Mouse 4`), and while a

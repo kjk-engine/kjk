@@ -1,7 +1,9 @@
 //! Conversations' probes: the formats they read (DLG, LIP, KOTOR's voice
 //! WAVs) from bytes made here, and what they keep (answers, the scripts'
-//! state and the snapshot's view) through their encodings. The approved
-//! tests `dialogue_formats` and `dialogue_state` need every one to pass.
+//! state and the snapshot's view) through their encodings, and the
+//! talk-table lines a level's digest holds. The approved tests
+//! `dialogue_formats`, `dialogue_state` and `talk_lines_digest` need every
+//! one to pass.
 
 use std::collections::BTreeMap;
 
@@ -511,4 +513,81 @@ pub fn kept() -> Vec<Check> {
         joined_limit(),
         holds_world(),
     ]
+}
+
+/// A talk table of `lines` (`None`: no text, its flag clear).
+fn table(lines: &[Option<&[u8]>]) -> std::sync::Arc<fmt_odyssey::tlk::Tlk> {
+    let entries = lines
+        .iter()
+        .map(|line| fmt_odyssey::tlk::TlkEntry {
+            flags: u32::from(line.is_some()),
+            sound: String::new(),
+            volume_variance: 0,
+            pitch_variance: 0,
+            text: line.unwrap_or(&[]).to_vec(),
+            sound_length: 0,
+        })
+        .collect();
+    std::sync::Arc::new(fmt_odyssey::tlk::Tlk {
+        language: 0,
+        entries,
+    })
+}
+
+/// A level's digest holds the talk-table lines its scripts may read, as
+/// they read them: two tables differing only in lines no script names
+/// (Aspyr's Mac K1 table and the Windows one: an options screen's text)
+/// make the same digest; a line a script names, changed (a blank kept as
+/// spaces or as no text among them), moves it, and reads as stored.
+fn used_lines() -> Check {
+    use fmt_odyssey::ncs::{Const, Instruction, Ncs, Op};
+    let script = Ncs {
+        code: [2, 3]
+            .into_iter()
+            .enumerate()
+            .map(|(i, strref)| Instruction {
+                offset: 13 + 6 * i as u32,
+                op: Op::Const(Const::Int(strref)),
+            })
+            .chain(std::iter::once(Instruction {
+                offset: 25,
+                op: Op::Retn,
+            }))
+            .collect(),
+    };
+    let digest = |lines: &[Option<&[u8]>]| {
+        let library =
+            crate::probe::library("", [("reads", script.clone())]).with_talk(table(lines));
+        (library.digest(), library.text(2))
+    };
+    let windows = digest(&[
+        Some(b"menu, 8 samples"),
+        Some(b"x"),
+        Some(b"  "),
+        Some(b"Trask"),
+    ]);
+    let mac = digest(&[Some(b"menu, 6 samples"), None, Some(b"  "), Some(b"Trask")]);
+    let blank = digest(&[Some(b"menu, 8 samples"), Some(b"x"), None, Some(b"Trask")]);
+    let renamed = digest(&[
+        Some(b"menu, 8 samples"),
+        Some(b"x"),
+        Some(b"  "),
+        Some(b"Carth"),
+    ]);
+    let moved = blank.0 != windows.0 && renamed.0 != windows.0;
+    check(
+        "talk_lines",
+        windows == mac && moved && windows.1.as_deref() == Some("  "),
+        format!(
+            "unused lines alike: {}; a named line, blank or renamed, moves it: {moved}; \
+             read as {:?}",
+            windows == mac,
+            windows.1
+        ),
+    )
+}
+
+/// The talk-table lines a level's digest holds (`talk_lines_digest`).
+pub fn talk() -> Vec<Check> {
+    vec![used_lines()]
 }
