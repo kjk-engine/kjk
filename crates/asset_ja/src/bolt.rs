@@ -69,3 +69,25 @@ pub fn bolt(glm: &Glm, name: &str) -> Option<Bolt> {
         rigid,
     })
 }
+
+/// The tag each of a saber's `count` blades leaves its hilt from, as JA
+/// bolts them (`cg_players.c`, `g_client.c`): `*blade1`, `*blade2`… while
+/// the hilt has them. A hilt without `*blade1` is an old one-bladed saber
+/// on `*flash`; past the first other missing tag no blade is bolted.
+pub fn blade_tags(glm: &Glm, count: usize) -> Vec<String> {
+    let has = |tag: &str| {
+        glm.surfaces
+            .iter()
+            .any(|s| s.name.eq_ignore_ascii_case(tag))
+    };
+    if count > 0 && !has("*blade1") {
+        return has("*flash")
+            .then(|| "*flash".to_string())
+            .into_iter()
+            .collect();
+    }
+    (1..=count)
+        .map(|n| format!("*blade{n}"))
+        .take_while(|tag| has(tag))
+        .collect()
+}

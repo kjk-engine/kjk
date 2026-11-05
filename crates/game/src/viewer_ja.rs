@@ -747,9 +747,10 @@ pub(crate) fn blade_axis(bolt: &asset_ja::Bolt) -> ([f32; 3], [f32; 3]) {
 
 /// A saber from its `.sab` block: the hilt model and its blade from the
 /// hilt's `*blade1` bolt (`blade_axis`), blue (the engine's default
-/// colour). A saber with more blades has a `*bladeN` bolt for each; one
-/// whose tag is missing is left out (and said so in the note). The blades'
-/// `model` is left 0 for the caller to set.
+/// colour). A saber with more blades has a `*bladeN` bolt for each; those
+/// from the first missing tag on are left out, as JA leaves them
+/// (`asset_ja::blade_tags`, said so in the note). The blades' `model` is
+/// left 0 for the caller to set.
 pub(crate) fn hilt(files: &Files, name: &str) -> Result<(ModelIr, Vec<BladeSpec>, String), String> {
     let (saber, hilt) = saber_and_hilt(files, name)?;
     let hilt_gla = if hilt.animation.eq_ignore_ascii_case("*default") {
@@ -759,24 +760,25 @@ pub(crate) fn hilt(files: &Files, name: &str) -> Result<(ModelIr, Vec<BladeSpec>
         Gla::parse(&files.read(&path).ok_or(format!("{path}: not found"))?)
             .map_err(|error| format!("{path}: {error:?}"))?
     };
-    let mut blades = Vec::new();
-    let mut untagged = Vec::new();
-    for (i, &length) in saber.lengths.iter().enumerate() {
-        let tag = format!("*blade{}", i + 1);
-        let Some(bolt) = asset_ja::bolt(&hilt, &tag) else {
-            // No tag, no blade: the hilt is still held.
-            untagged.push(tag);
-            continue;
-        };
-        let (origin, dir) = blade_axis(&bolt);
-        blades.push(BladeSpec::new(
-            origin,
-            dir,
-            length,
-            saber.radius,
-            SaberColor::Blue,
-        ));
-    }
+    let tags = asset_ja::blade_tags(&hilt, saber.lengths.len());
+    let blades: Vec<BladeSpec> = tags
+        .iter()
+        .zip(&saber.lengths)
+        .filter_map(|(tag, &length)| {
+            let (origin, dir) = blade_axis(&asset_ja::bolt(&hilt, tag)?);
+            Some(BladeSpec::new(
+                origin,
+                dir,
+                length,
+                saber.radius,
+                SaberColor::Blue,
+            ))
+        })
+        .collect();
+    // No tag, no blade: the hilt is still held.
+    let untagged: Vec<String> = (tags.len() + 1..=saber.lengths.len())
+        .map(|n| format!("*blade{n}"))
+        .collect();
     let mut note = format!(
         "saber {}: hilt {}, blades {:?}, radius {}, blade axes {:?}",
         saber.name,
