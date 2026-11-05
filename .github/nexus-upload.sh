@@ -17,10 +17,15 @@ api=https://api.nexusmods.com/v3
 version=${1#v}
 shift
 
-call() { # method path [json]
-  curl --silent --show-error --fail-with-body -X "$1" "$api$2" \
+call() { # method path [json]; on failure Nexus's answer goes to stderr
+  local out
+  if ! out=$(curl --silent --show-error --fail-with-body -X "$1" "$api$2" \
     -H "apikey: $NEXUS_API_KEY" -H "Content-Type: application/json" \
-    ${3:+--data "$3"}
+    ${3:+--data "$3"}); then
+    echo "$1 $2 failed: $out" >&2
+    return 1
+  fi
+  printf '%s\n' "$out"
 }
 
 # The API's id for a file, given that id or a version's game-scoped id.
