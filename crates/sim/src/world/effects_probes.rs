@@ -110,6 +110,10 @@ void ActionUseSkill(int nSkill, object oTarget, int nSubSkill = 0, object oItemU
 effect EffectAssuredHit();
 // 21
 effect SetEffectIcon(effect eEffect, int nIcon);
+// 22
+int GetHasSpellEffect(int nSpell, object oObject = OBJECT_SELF);
+// 23
+void RemoveEffect(object oCreature, effect eEffect);
 "#;
 
 fn call(routine: u16, args: u8) -> Op {
@@ -249,6 +253,28 @@ fn stealth() -> Ncs {
     asm.build()
 }
 
+/// `probe_recast`, as `k_sp1_generic` recasting a buff: token 40
+/// `GetHasSpellEffect` of Burst of Speed on the target, then the target's
+/// first effect taken off.
+fn recasts() -> Ncs {
+    let mut asm = Asm::default();
+    let mut has = target().to_vec();
+    has.extend([
+        int(i32::from(crate::combat::spells::FORCE_POWER_SPEED_BURST)),
+        call(22, 2),
+    ]);
+    token(&mut asm, 40, &has);
+    for op in target() {
+        asm.op(op);
+    }
+    asm.op(call(5, 1));
+    for op in target() {
+        asm.op(op);
+    }
+    asm.op(call(23, 2)).op(Op::Retn);
+    asm.build()
+}
+
 /// `probe_impact` (`CAST_ROW`'s impact) and `probe_end_round` (the
 /// target's end-of-round script): tokens 30 and 31 set to 1.
 fn marks(n: i32) -> Ncs {
@@ -305,6 +331,7 @@ fn world(sheet: Sheet) -> Result<(SimWorld, SimId, SimId, SimId), String> {
             ("probe_stealth", stealth()),
             ("probe_assure_now", assures_now()),
             ("probe_icon", icons()),
+            ("probe_recast", recasts()),
             ("probe_impact", marks(30)),
             ("probe_end_round", marks(31)),
         ],
@@ -470,6 +497,7 @@ pub fn probes() -> Checks {
         ("use_skill_stealth", use_skill_stealth()),
         ("lasting_at_once_stays", lasting_at_once_stays()),
         ("effect_icon", effect_icon()),
+        ("recast_after_end", recast_after_end()),
     ]
 }
 
@@ -1196,5 +1224,44 @@ fn lasting_at_once_stays() -> Result<String, String> {
     check(
         !before && at_once && later && gaps.is_empty(),
         format!("assured before {before}, after {at_once}, 60 s on {later}; gaps {gaps:?}"),
+    )
+}
+
+/// A buff cast again after its effects ran out (issue 125): its script asks
+/// `GetHasSpellEffect` and walks the effects, as `k_sp1_generic` does
+/// before applying. An ended effect is gone, as in the executable: the
+/// spell reads as not on, and the speed toggle started for the new cast
+/// keeps running.
+fn recast_after_end() -> Result<String, String> {
+    let (mut world, _, target, _) = world(soldier(&[]))?;
+    let now = world.snapshot().time_ms;
+    alter(&mut world, target, |fighter| {
+        fighter.effects.lasting[0] = Some(Lasting {
+            modifies: Modifies::Attacks,
+            amount: 1,
+            of: 0,
+            until: now,
+            spell: crate::combat::spells::FORCE_POWER_SPEED_BURST,
+            by: target.0,
+            id: 7,
+            at: 0,
+        });
+        fighter.force.speed_until = now + 30_000;
+        fighter.force.speed_level = 1;
+    });
+    script(&mut world, |state| {
+        state
+            .pending
+            .push(Pending::new("probe_recast", crate::script::MODULE));
+    });
+    let read = wait(&mut world, 300);
+    let has = tokens(&read, 40..=40);
+    let speed_until = fighter(&mut world, target).map_or(0, |f| f.force.speed_until);
+    check(
+        has == ["0"] && speed_until > read.time_ms,
+        format!(
+            "GetHasSpellEffect {has:?} (want [\"0\"]); speed until {speed_until} (now {})",
+            read.time_ms
+        ),
     )
 }
