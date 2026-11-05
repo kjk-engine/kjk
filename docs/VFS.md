@@ -21,14 +21,29 @@ folders, and one that names something else is refused, never replaced.
 
 ## KOTOR precedence (lowest first; highest holding a name wins)
 
-1. `chitin.key` BIFs
-2. `rims/`: mainmenu, mainmenudx, legal, legaldx, global, subglobaldx,
-   miniglobaldx, globaldx, chargen, chargendx
-3. `texturepacks/swpc_tex_gui.erf`, then the quality pack (`tpa` for now)
-4. `lips/global.mod`, `lips/localization.mod`
-5. `patch.erf`
-6. `override/`, top level only
-7. the module: `.rim`, `_s.rim`, `.mod`, `lips/<m>_loc.mod`, `_dlg.erf`
+This is the executables' order (`CExoResMan::GetKeyEntry`, read from TSL's
+Mac executable; journal `context/artifacts/2026-11-05-override-precedence`).
+Each source has a kind (`resolver::Rank`). A higher kind wins whatever was
+added when; within one kind, the source added last wins.
+
+1. `chitin.key` BIFs.
+2. ERFs: `texturepacks/swpc_tex_gui.erf`, then the quality pack (`tpa`
+   for now), `lips/global.mod`, `lips/localization.mod`, then the module's
+   `lips/<m>_loc.mod`, and its `.mod` (or, without one, its `_dlg.erf`).
+3. RIMs: `rims/` (mainmenu, mainmenudx, legal, legaldx, global,
+   subglobaldx, miniglobaldx, globaldx, chargen, chargendx), then the
+   module's `_s.rim` and `.rim`. A module with a `.mod` has neither: the
+   `.mod` is the whole module.
+4. `patch.erf`.
+5. `override/`: its top level, then (TSL only) its subfolders one level
+   down, in name order. The first file of a name wins. K1 reads the top
+   level alone.
+
+So a mod's file in `override/` beats a module's own DLG, NCS or UTC, as in
+the games. On the unmodded installs this order picks the same file as the
+order kjk used before for every name in every module (checked
+2026-11-05). Steam Workshop items are not read yet. `kjk games` names them,
+and the setup screen and the log say they are not loaded.
 
 Stream folders (`streammusic`, `streamsounds`, `streamwaves`/`streamvoice`,
 `movies`) are separate namespaces, asked for by folder, never stacked. The
