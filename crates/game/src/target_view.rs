@@ -415,13 +415,17 @@ fn target(
         let facts = instances.of_entity(entity)?;
         let sheet = entity.sheet.or(facts.sheet);
         let fighter = entity.fighter.as_ref();
-        let hostile = fighter.zip(sheet).is_some_and(|(fighter, sheet)| {
-            let faction = fighter.faction.unwrap_or(sheet.faction);
+        // By the standings as scripts left them: Tatooine's Sand People at
+        // peace with the party are talked to, not fought.
+        let hostile_to_player = |faction: u8| {
             level.module().is_some_and(|module| {
-                module
-                    .repute
+                snapshot
+                    .standings(module)
                     .hostile(faction, sim::combat::sheet::factions::PLAYER)
             })
+        };
+        let hostile = fighter.zip(sheet).is_some_and(|(fighter, sheet)| {
+            hostile_to_player(fighter.faction.unwrap_or(sheet.faction))
         });
         // A door's or container's once blows have told on it (bashing,
         // `sim::objects`), over what it was placed with: KOTOR's doors are
@@ -441,13 +445,7 @@ fn target(
             .trap
             .as_ref()
             .and_then(|trap| level.module()?.traps.get(usize::from(trap.row)).cloned());
-        let hostile = hostile
-            || (row.is_some()
-                && level.module().is_some_and(|module| {
-                    module
-                        .repute
-                        .hostile(facts.faction, sim::combat::sheet::factions::PLAYER)
-                }));
+        let hostile = hostile || (row.is_some() && hostile_to_player(facts.faction));
         let choices = sim::target::choices(
             facts.kind,
             facts,

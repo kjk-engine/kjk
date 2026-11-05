@@ -164,6 +164,7 @@ impl SimWorld {
             departing: Vec::new(),
             screens: Default::default(),
             remotes: Vec::new(),
+            standing: Default::default(),
             shared: SimRng::new(config.seed, 0),
             authority,
             next_id,
@@ -518,6 +519,7 @@ impl SimWorld {
         let kept = self.world.resource::<drivers::Kept>().0.clone();
         let script_state = &self.world.resource::<scripts::Scripts>().state;
         let leading = lent(&script_state.party);
+        let standing = script_state.reputation.clone();
         let screens = script_state.screens(
             self.world
                 .resource::<Static>()
@@ -566,6 +568,7 @@ impl SimWorld {
             departing: self.world.resource::<Leaving>().0.clone(),
             screens,
             remotes: self.world.resource::<remote::Remotes>().0.clone(),
+            standing,
             shared,
             authority,
             next_id,
