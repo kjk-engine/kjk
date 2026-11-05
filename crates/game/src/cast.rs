@@ -57,7 +57,7 @@ use std::sync::Arc;
 use asset_ja::angles;
 use asset_ja::events::{Events, Keyed, Passage};
 use asset_ja::g2::{Bones, Local, Part, PartSet, Player as G2};
-use asset_ja::rig::{Aim, Grip, OffHand, Posed, Reach, Retargeter, Side, Stowed};
+use asset_ja::rig::{Aim, Eased, Grip, Posed, Reach, Retargeter, Side, Stowed};
 use asset_odyssey::anim::AnimationIr;
 use asset_odyssey::hooks;
 use asset_odyssey::model::ModelIr;
@@ -768,7 +768,7 @@ pub struct Figure {
     cuts: bool,
     breath: stance::Breath,
     /// Its left hand on a lone hilt (`Retargeter::pose`).
-    off_hand: OffHand,
+    off_hand: Eased,
     /// How much its gripping hands reach for the sim's blades
     /// (`reach_share`), as of when (sim ms).
     reach: (f32, Option<f64>),
@@ -834,7 +834,7 @@ impl Figure {
             holding: false,
             cuts: false,
             breath: stance::Breath::default(),
-            off_hand: OffHand::default(),
+            off_hand: Eased::default(),
             reach: (1.0, None),
             held: 0.0,
             held_ms: None,

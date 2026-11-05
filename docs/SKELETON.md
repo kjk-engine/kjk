@@ -80,6 +80,22 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   (`STAFF_HANDS`) the left hand takes K1's beside the right fist, short of
   the far blade (`staff_hold`, `STAFF_SPAN`). `rig::rebind` is probe (b),
   kept.
+- Blades out of the head (`Retargeter::head_depths`): K1's head is bigger than
+  JA's and sits elsewhere, so a blade JA swings past its own head, or a
+  staff it rolls over its shoulders, runs through K1's. The head is a
+  capsule up the skull from its hook (`HEAD`, turned as JA's `cranium`), the
+  neck one down to the chest (`NECK`); each grip's blade line (a staff's
+  both ways) moves out by as far as it is in, at most `CLEAR_MOST`. The
+  move eases (`Eased::clear`): a critically damped spring (`CLEAR_RATE`,
+  solved exactly) aiming ahead by the target's own change over the spring's
+  lag, so a blade sweeping deeper is met, not followed; pushing the wrist
+  at once jolted the hand past the timelines' ceilings. A hilt JA's tag
+  bone has carried off the hand moves itself as far as it has gone (the
+  arms are too stretched to carry a staff rolled over the shoulders), the
+  wrist the rest, keeping the hand's turn. `Eased` (once the off hand's
+  share alone) is kept per body across frames by `game::cast`. A swing
+  through the head in one or two frames is mostly still seen: nothing
+  knows the next pose live.
 - `rig::Reach` (`kjk play`): the gripping hand turns onto the sim's blade
   and the upper arm and forearm carry the wrist up to `REACH` (0.3 m)
   toward it (`game::cast`'s share). One solver (`rig::bend`): the arm's own
@@ -244,4 +260,6 @@ following the ground track and look at every frame; hilt close-ups; re-read
 the measures; try Bastila and `pmbam`/`pmha01`, `pfbam`/`pfha01`: every
 change on a man's body and a woman's, the two skeletons K1 has. `--trace`
 carries the hips and spine (`pelvis_g`, `torso_g`, the thighs) for foot
-slide and hands in the body.
+slide and hands in the body. The notes (`dump facts`, `creature_notes`)
+give blades in the head as `head (s in, deepest cm at s): before …; after
+…`, before the wrists move them out and after (`rig::retarget_measured`).
