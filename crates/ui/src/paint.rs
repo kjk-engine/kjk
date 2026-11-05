@@ -1142,8 +1142,9 @@ fn intersect(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
 }
 
 /// How tall a list's row is: its prototype's height, and in a fitted list
-/// at least its words wrapped to the prototype's width (as drawn and as the
-/// pointer finds rows).
+/// at least its words wrapped within the prototype's border, as they are
+/// drawn (`inner`), and that border (as drawn and as the pointer finds
+/// rows).
 pub fn row_height(
     textures: &mut dyn Textures,
     source: Source,
@@ -1159,8 +1160,14 @@ pub fn row_height(
     else {
         return height;
     };
-    let lines = wrap(&font, text, proto.extent.width as f32).len();
-    height.max((lines as f32 * font.line_height()).ceil() as i32)
+    let rect = rect_of(proto);
+    let [_, _, width, inner_height] = proto
+        .border
+        .as_ref()
+        .map_or(rect, |border| inner(rect, border));
+    let lines = wrap(&font, text, width).len();
+    let frame = rect[3] - inner_height;
+    height.max((lines as f32 * font.line_height() + frame).ceil() as i32)
 }
 
 /// `bytes` broken into lines no wider than `width`: on new lines, on
