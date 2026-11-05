@@ -109,9 +109,11 @@ impl Material for GlowMaterial {
         self.distorts()
     }
 
+    /// A distortion in the transmissive phase, drawn over the whole scene
+    /// (`heat_haze::draw_after_transparent`); `specialize` sets its blend.
     fn alpha_mode(&self) -> AlphaMode {
         if self.distorts() {
-            AlphaMode::Blend
+            AlphaMode::Opaque
         } else {
             AlphaMode::Add
         }
