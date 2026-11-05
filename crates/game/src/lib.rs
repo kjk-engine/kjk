@@ -128,7 +128,7 @@ mod severing;
 mod shadows;
 mod shell;
 mod shot_fx;
-mod shots;
+pub mod shots;
 mod sim_blades;
 pub mod sim_host;
 mod sim_view;

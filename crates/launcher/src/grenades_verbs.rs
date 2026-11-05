@@ -206,6 +206,18 @@ pub fn grenades(discovery: &Discovery, game: &str, module: &str, target_tag: &st
             thrown.last()
         ),
     );
+    // The thrower's blaster pistol in hand: a throw turns its torso as a
+    // shot does, but the view draws no shot (no flash, no shot sound).
+    let mut shown = Vec::new();
+    let mut last = &start;
+    for snapshot in &run.snapshots {
+        shown.extend(kjk_game::shots::shots(last, snapshot, &arena.level, None));
+        last = snapshot;
+    }
+    report.check(
+        shown.is_empty(),
+        format!("a blaster in hand fires nothing as the grenades leave ({} shots drawn)", shown.len()),
+    );
     report.replayed("arena throw", run.replayed);
 
     outln!("  each kind thrown at {target_tag}, bursting on its body");

@@ -26,7 +26,7 @@ use std::collections::BTreeMap;
 use bevy::prelude::*;
 use collision::{Contents, Extents};
 use sim::combat::sheet::Blaster;
-use sim::combat::{Delivery, Missile, Outcome, mind, weapons};
+use sim::combat::{Delivery, Missile, Outcome, grenades, mind, weapons};
 use sim::motion::Anim;
 use sim::{EntityState, Instances, Kind, Level, SimId, Snapshot};
 
@@ -34,6 +34,7 @@ use crate::blaster_view::{BlasterShots, Tracer};
 use crate::cast;
 use crate::combat_fx::FightDrawn;
 use crate::script_fx::{HookVisual, HookVisuals, Place};
+use crate::shots;
 use crate::sim_host::{PresentedSnapshot, SceneSwap};
 use crate::sound::{Cue, Cues};
 use crate::weapon_sounds::WeaponSounds;
@@ -305,7 +306,10 @@ fn disruptor(
     };
     let before = shots.timers.insert(entity.id, f.weapon_wait_ms);
     let weapon = cast::weapon(entity, &Instances::in_snapshot(level, snapshot));
+    // A throw's timer runs `REFIRE_MS` before the gun can fire again.
+    let since = snapshot.time_ms.saturating_sub(grenades::REFIRE_MS as u64);
     let shot = before.is_some_and(|before| f.weapon_wait_ms > before)
+        && !shots::threw(Some(&f), since)
         && matches!(p.torso.anim, Anim::BOTH_ATTACK2 | Anim::BOTH_ATTACK3)
         && weapon.delivery == Delivery::Blaster(Blaster::Disruptor);
     if !shot {
