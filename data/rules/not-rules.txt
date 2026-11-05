@@ -351,6 +351,7 @@ crates/sim/src/inventory/workshop.rs REPAIR  # skills.2da row
 crates/sim/src/inventory/workshop.rs TREAT_INJURY  # skills.2da row
 crates/sim/src/inventory/workshop.rs UNMADE  # chemicalcreate.2da's group
 crates/sim/src/levels.rs BASE_FORMS  # spells.2da rows: TSL's executable's table of Forms by base class
+crates/sim/src/levels.rs CLASS_SKILL_FEATS  # feat.2da rows: TSL's executable's table of Class Skill feats by skill
 crates/sim/src/levels.rs PRESTIGE_POWERS  # classes.2da and spells.2da rows: TSL's executable's table of prestige grants
 crates/sim/src/levels.rs SKILLS  # skills.2da's row count
 crates/sim/src/minigame/course.rs ANIMS_KEPT  # a buffer's size: the animations a thing keeps playing

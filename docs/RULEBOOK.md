@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `ebad17330e060fc4`.
+Edition `2f8857a7e391bb4a`.
 
 ## Contents
 
@@ -7432,7 +7432,8 @@ A level gives the class's skill points + Intelligence modifier
 1; a character's first level
 gives 4 times as many. A rank
 costs 1 point in a class skill and
-2 in a cross-class skill. A class
+2 in a cross-class skill; TSL's
+Class Skill feats make their skill a class skill whatever the class. A class
 skill may have at most the character's level +
 3 ranks, a cross-class skill that
 maximum ÷ 2.

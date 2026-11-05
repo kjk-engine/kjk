@@ -393,12 +393,21 @@ impl Chargen {
         if self.levelling() { 1 } else { cost(score) }
     }
 
+    /// The class chosen; levelling, its class skills with those the
+    /// character's Class Skill feats add.
     fn class(&self, vm: &ViewModel) -> ClassView {
-        vm.chargen
+        let mut class = vm
+            .chargen
             .as_ref()
             .and_then(|chargen| chargen.classes.get(usize::from(self.class)))
             .cloned()
-            .unwrap_or(ClassView::default())
+            .unwrap_or(ClassView::default());
+        if let Some(up) = vm.levelup.as_ref().filter(|_| self.levelling()) {
+            for (own, feat) in class.class_skills.iter_mut().zip(up.feat_class_skills) {
+                *own |= feat;
+            }
+        }
+        class
     }
 
     fn path(&self) -> &'static [Step] {

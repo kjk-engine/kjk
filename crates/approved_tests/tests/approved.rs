@@ -2000,7 +2000,7 @@ fn hold_and_resume() {
 /// `sim::player_probes`, no install.
 #[test]
 fn player_creation() {
-    probed("creation", &sim::player_probes::creation(), 10);
+    probed("creation", &sim::player_probes::creation(), 11);
 }
 
 /// TSL's player's level as the scripts read it (`G_PC_LEVEL`, set by the

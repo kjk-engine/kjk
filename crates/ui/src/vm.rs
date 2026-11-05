@@ -117,6 +117,9 @@ pub struct CharacterView {
     pub skills: Vec<Entry>,
     pub powers: Vec<Entry>,
     pub feats: Vec<Entry>,
+    /// The skills its Class Skill feats make class skills, whatever its
+    /// class (`sim::levels::class_skill`).
+    pub feat_class_skills: [bool; 8],
     /// The party's XP, what the next level asks, and whether it may take
     /// it.
     pub xp: i32,
@@ -477,6 +480,9 @@ pub struct LevelUpView {
     pub level: u8,
     /// Skill ranks now.
     pub skills: [u8; 8],
+    /// The skills its Class Skill feats make class skills
+    /// (`CharacterView::feat_class_skills`).
+    pub feat_class_skills: [bool; 8],
     /// The feats and powers it may pick.
     pub picks: PicksView,
 }

@@ -377,19 +377,19 @@ impl Classes {
     /// The most ranks a skill may have at `level`: `levels::RANK_CAP_OVER`
     /// more than the level for a class skill, that over
     /// `levels::CROSS_CLASS_CAP_DIVISOR` for another.
-    fn most(class: &Class, skill: usize, level: u8) -> u8 {
+    fn most(class: &Class, feats: &[u16], skill: usize, level: u8) -> u8 {
         let most = level.saturating_add(levels::RANK_CAP_OVER);
-        if class.class_skills[skill] {
+        if class_skill(class, feats, skill) {
             most
         } else {
             most / levels::CROSS_CLASS_CAP_DIVISOR
         }
     }
 
-    /// What a rank of `skill` costs `class` in skill points.
-    fn rank_cost(class: &Class, skill: usize) -> u8 {
+    /// What a rank of `skill` costs `class` knowing `feats` in skill points.
+    fn rank_cost(class: &Class, feats: &[u16], skill: usize) -> u8 {
         let [own, other] = levels::SKILL_COST;
-        if class.class_skills[skill] {
+        if class_skill(class, feats, skill) {
             own
         } else {
             other
@@ -627,17 +627,17 @@ impl Classes {
         } else {
             &of.skill_order[..]
         };
+        let mut feats = known_feats(sheet, of, offer.class_level);
         for &skill in plan.skills.iter().chain(class_order) {
             let skill = usize::from(skill);
-            let cost = Self::rank_cost(of, skill);
-            let most = Self::most(of, skill, offer.level);
+            let cost = Self::rank_cost(of, &feats, skill);
+            let most = Self::most(of, &feats, skill, offer.level);
             while points >= cost && sheet.skills[skill] + skills[skill] < most {
                 skills[skill] += 1;
                 points -= cost;
             }
         }
         let grown = Self::raised(Self::grown(sheet, of, offer), ability);
-        let mut feats = known_feats(sheet, of, offer.class_level);
         let mut picked = Vec::new();
         for &feat in plan.feats.iter().chain(&of.feats) {
             if picked.len() < usize::from(offer.feats) && self.may_feat(of, feat, &feats, &grown) {
@@ -768,15 +768,17 @@ impl Classes {
         {
             return None;
         }
+        let mut feats = known_feats(sheet, of, offer.class_level);
         let mut spent = 0u32;
         for (skill, &ranks) in choices.skills.iter().enumerate() {
-            let cost = u32::from(Self::rank_cost(of, skill));
+            let cost = u32::from(Self::rank_cost(of, &feats, skill));
             spent += u32::from(ranks) * cost;
             // Only ranks added are held to the cap: a skill already past it
             // (a playtest's `skill` goal, standing in for a build) refuses
             // no level.
             if ranks > 0
-                && sheet.skills[skill].saturating_add(ranks) > Self::most(of, skill, offer.level)
+                && sheet.skills[skill].saturating_add(ranks)
+                    > Self::most(of, &feats, skill, offer.level)
             {
                 return None;
             }
@@ -784,7 +786,6 @@ impl Classes {
         let points = u32::from(banked) + u32::from(self.skill_points(of, sheet, choices.ability));
         let left = points.checked_sub(spent)?;
         let mut grown = Self::raised(Self::grown(sheet, of, offer), choices.ability);
-        let mut feats = known_feats(sheet, of, offer.class_level);
         for &feat in &choices.feats {
             if !self.may_feat(of, feat, &feats, &grown) {
                 return None;
@@ -924,6 +925,28 @@ fn chain(
 }
 
 /// The feats a sheet knows, with those the class grants at `class_level`.
+/// TSL's "Class Skill" feats by the skill (`skills.2da` row) each makes a
+/// class skill of whatever the class, as the executable's
+/// `CSWCCreatureStats::HasClassSkillFeat` holds them (`feat.2da`'s
+/// `CLASS_SKILL_*` rows; Persuade has none). K1's table has no such rows.
+pub const CLASS_SKILL_FEATS: [Option<u16>; SKILLS] = [
+    Some(184),
+    Some(185),
+    Some(188),
+    Some(183),
+    None,
+    Some(186),
+    Some(187),
+    Some(189),
+];
+
+/// Whether `skill` is a class skill to `class` for a character knowing
+/// `feats`: the class's own, or one its Class Skill feat makes one
+/// (`CSWGuiSkillsCharGen::IsClassSkill` asks the feat first).
+pub fn class_skill(class: &Class, feats: &[u16], skill: usize) -> bool {
+    class.class_skills[skill] || CLASS_SKILL_FEATS[skill].is_some_and(|feat| feats.contains(&feat))
+}
+
 fn known_feats(sheet: &Sheet, class: &Class, class_level: u8) -> Vec<u16> {
     let mut feats: Vec<u16> = (0..Rows::<4>::ROWS)
         .filter(|feat| sheet.feats.has(*feat))

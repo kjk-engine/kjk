@@ -539,6 +539,9 @@ fn view(
         skills,
         powers,
         feats,
+        feat_class_skills: std::array::from_fn(|skill| {
+            sim::levels::CLASS_SKILL_FEATS[skill].is_some_and(|feat| sheet.feats.has(feat))
+        }),
         owned: carried,
         worn,
         credits: goods.gold,

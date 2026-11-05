@@ -49,7 +49,8 @@ A level gives the class's skill points + Intelligence modifier
 {progression.levels.least_skill_points:bare}; a character's first level
 gives {progression.levels.first_level_times:bare} times as many. A rank
 costs {progression.levels.skill_cost[0]:bare} point in a class skill and
-{progression.levels.skill_cost[1]:bare} in a cross-class skill. A class
+{progression.levels.skill_cost[1]:bare} in a cross-class skill; TSL's
+Class Skill feats make their skill a class skill whatever the class. A class
 skill may have at most the character's level +
 {progression.levels.rank_cap_over:bare} ranks, a cross-class skill that
 maximum ÷ {progression.levels.cross_class_cap_divisor:bare}.

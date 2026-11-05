@@ -8,10 +8,12 @@
 
 use fmt_odyssey::gui::{Control, Gui};
 
+use crate::draw::Textures;
 use crate::intent::Intent;
 use crate::paint::ControlState;
 use crate::screen::{Screen, ScreenId};
-use crate::screens::pages::description;
+use crate::screens::message::Message;
+use crate::skin::Source;
 use crate::strings;
 use crate::vm::ViewModel;
 
@@ -23,12 +25,14 @@ const CHOICES: [(&str, vfs::Game, &str); 2] = [
 
 pub struct Campaign {
     then: String,
+    asked: Message,
 }
 
 impl Campaign {
     pub fn new(then: &str) -> Campaign {
         Campaign {
             then: then.to_string(),
+            asked: Message::new(strings::CAMPAIGN),
         }
     }
 }
@@ -51,7 +55,7 @@ impl Screen for Campaign {
         "confirm"
     }
 
-    fn state(&self, control: &Control, _: &ViewModel) -> ControlState {
+    fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         let tag = control.tag.as_str();
         if let Some((_, _, words)) = CHOICES.iter().find(|(button, ..)| *button == tag) {
             return ControlState {
@@ -60,7 +64,7 @@ impl Screen for Campaign {
             };
         }
         match tag {
-            "LB_MESSAGE" => description(&strings::bytes(strings::CAMPAIGN)),
+            "LB_MESSAGE" => self.asked.state(control, vm),
             _ => ControlState::default(),
         }
     }
@@ -76,10 +80,10 @@ impl Screen for Campaign {
         Some("BTN_OK")
     }
 
-    /// The box grown for its question, its buttons as wide as the question
+    /// The box grown to its question, its buttons as wide as the question
     /// for the campaigns' names.
-    fn shape(&self, gui: &mut Gui) {
-        super::message::grow(gui);
+    fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
+        self.asked.fit(gui, textures, source);
         let Some(across) = gui
             .find("LB_MESSAGE")
             .map(|list| (list.extent.left, list.extent.width))

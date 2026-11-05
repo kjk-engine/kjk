@@ -10,11 +10,14 @@
 
 use fmt_odyssey::gui::{Control, Gui};
 
+use crate::draw::Textures;
 use crate::edit::EditBox;
 use crate::intent::{Intent, SessionIntent};
 use crate::paint::{ControlState, ListView, Row};
 use crate::screen::{Screen, ScreenId};
-use crate::screens::tab::{enabled, hidden, image, text, told};
+use crate::screens::message::Message;
+use crate::screens::tab::{enabled, hidden, image, text};
+use crate::skin::Source;
 use crate::strings;
 use crate::vm::{SaveView, ViewModel};
 
@@ -220,12 +223,14 @@ const LIST: &str = "LB_GAMES";
 /// an old one: OK goes on to its name (`SaveName`), Cancel back to the list.
 pub struct Overwrite {
     asked: String,
+    question: Message,
 }
 
 impl Overwrite {
     pub fn new(asked: &str) -> Overwrite {
         Overwrite {
             asked: asked.to_string(),
+            question: Message::strref(OVERWRITE, Vec::new()),
         }
     }
 }
@@ -239,9 +244,9 @@ impl Screen for Overwrite {
         "confirm"
     }
 
-    fn state(&self, control: &Control, _: &ViewModel) -> ControlState {
+    fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         match control.tag.as_str() {
-            "LB_MESSAGE" => told(Some(OVERWRITE)),
+            "LB_MESSAGE" => self.question.state(control, vm),
             "BTN_OK" => text(strings::OK),
             "BTN_CANCEL" => text(strings::CANCEL),
             _ => ControlState::default(),
@@ -263,8 +268,8 @@ impl Screen for Overwrite {
         Some("BTN_OK")
     }
 
-    fn shape(&self, gui: &mut Gui) {
-        super::message::grow(gui);
+    fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
+        self.question.fit(gui, textures, source);
     }
 }
 

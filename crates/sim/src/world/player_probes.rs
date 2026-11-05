@@ -204,6 +204,7 @@ pub fn creation() -> Checks {
     ));
     checks.push(planned(&classes));
     checks.push(banked(&classes));
+    checks.push(class_skill_feat(&classes));
 
     let mut world = world(Vec::new(), "", Catalog::default());
     let made_world = world.create(&made(vec![PICKED]));
@@ -316,6 +317,43 @@ fn banked(classes: &Classes) -> (&'static str, Result<String, String>) {
                 spent(kept),
                 spent(0)
             ),
+        ),
+    )
+}
+
+/// TSL's Class Skill feats: Security (skill 6, not the class's own) costs
+/// a point a rank to a character with Class Skill: Security, so the second
+/// level's 2 points buy 2 ranks; without the feat they buy none.
+fn class_skill_feat(classes: &Classes) -> (&'static str, Result<String, String>) {
+    const SECURITY: usize = 6;
+    let made = creation::sheet(classes, &made(vec![PICKED]), 2);
+    let Ok((sheet, career, _)) = made else {
+        return ("a Class Skill feat", Err(format!("{made:?}")));
+    };
+    let feat = crate::levels::CLASS_SKILL_FEATS[SECURITY].expect("Security's feat");
+    let featured = crate::combat::Sheet {
+        feats: sheet.feats.with(feat),
+        ..sheet
+    };
+    let mut choices = Choices {
+        class: 0,
+        ability: None,
+        skills: [0; SKILLS],
+        feats: Vec::new(),
+        powers: Vec::new(),
+    };
+    choices.skills[SECURITY] = 2;
+    let left = |sheet: &crate::combat::Sheet| {
+        classes
+            .take(sheet, &career, &choices, 0)
+            .map(|(after, _, left)| (after.skills[SECURITY], left))
+    };
+    let (with, without) = (left(&featured), left(&sheet));
+    (
+        "Class Skill: Security makes Security a class skill: a point a rank",
+        check(
+            with == Some((2, 0)) && without.is_none(),
+            format!("with the feat {with:?}, without {without:?}"),
         ),
     )
 }

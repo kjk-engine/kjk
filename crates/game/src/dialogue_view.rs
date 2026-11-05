@@ -291,6 +291,12 @@ pub(crate) fn player_token(token: &str, pc: &sim::persona::Persona) -> Option<St
 /// (`fmt_odyssey::tlk::unbraced`), `<CUSTOMn>` and the player's tokens
 /// (`player_token`) filled in, trimmed.
 pub(crate) fn said(raw: &[u8], fill: Fill) -> Vec<u8> {
+    said_with(raw, fill, &|_| None)
+}
+
+/// `said`, the tokens neither fills filled by `other` (the controls' in a
+/// tutorial's words, `pad::Prompts::token`).
+pub(crate) fn said_with(raw: &[u8], fill: Fill, other: &dyn Fn(&str) -> Option<String>) -> Vec<u8> {
     let raw = fmt_odyssey::tlk::unbraced(raw);
     let mut out = Vec::with_capacity(raw.len());
     let mut at = 0;
@@ -305,7 +311,10 @@ pub(crate) fn said(raw: &[u8], fill: Fill) -> Vec<u8> {
                         .parse::<i32>()
                         .ok()
                         .and_then(|n| fill.told.tokens.get(&n).cloned()),
-                    None => fill.pc.and_then(|pc| player_token(token, pc)),
+                    None => fill
+                        .pc
+                        .and_then(|pc| player_token(token, pc))
+                        .or_else(|| other(token)),
                 };
                 match value {
                     Some(value) => out.extend(value.chars().map(|c| c as u32 as u8)),

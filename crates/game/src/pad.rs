@@ -523,6 +523,21 @@ impl Prompts<'_> {
         }
     }
 
+    /// A control's token in the games' text (`<abutton>`, `<ActionUp>`;
+    /// `stringtokens.2da`, action codes 24 and 25) as this player's
+    /// binding of what it asks for: the executable's `GetTokenValue` writes
+    /// the key `keymap.2da` binds to the row's action (25), and for the
+    /// Xbox's buttons (24) the font's glyph of the button, so each is the
+    /// binding of the action the button does there (A uses, Y switches
+    /// weapons, Black changes the leader). The rest stay as written.
+    pub(crate) fn token(&self, token: &str) -> Option<String> {
+        let action = CONTROL_TOKENS
+            .iter()
+            .find(|(name, _)| *name == token)
+            .map(|(_, action)| *action)?;
+        Some(self.shown(action).into_iter().map(char::from).collect())
+    }
+
     /// Whether `action` was pressed this frame.
     pub(crate) fn pressed(&self, action: Action) -> bool {
         self.actions
@@ -554,6 +569,31 @@ impl Prompts<'_> {
         ui::vm::KeyLabel { words, badge }
     }
 }
+
+/// The controls' tokens of `stringtokens.2da` the games' text uses, each
+/// with the action it asks for here (`Prompts::token`).
+const CONTROL_TOKENS: [(&str, Action); 20] = [
+    ("abutton", Action::Use),
+    ("ybutton", Action::SwitchWeapons),
+    ("blbutton", Action::Leader),
+    ("ActionUp", Action::Forward),
+    ("ActionDown", Action::Backward),
+    ("ActionLeft", Action::Left),
+    ("ActionRight", Action::Right),
+    ("MGActionLeft", Action::Left),
+    ("MGActionRight", Action::Right),
+    ("ChangeChar", Action::Leader),
+    ("Equip", Action::Inventory),
+    ("Inventory", Action::Inventory),
+    ("Map", Action::Map),
+    ("Quests", Action::Journal),
+    ("Quicksave", Action::QuickSave),
+    ("QUICKLOAD", Action::QuickLoad),
+    ("STEALTH", Action::Stealth),
+    ("PersonalPowerAct", Action::Power),
+    ("PersonalMedicalAct", Action::Medpac),
+    ("PersonalMinesAct", Action::LayMine),
+];
 
 /// A mouse button's number, as players count them (the side buttons 4 and
 /// 5).
