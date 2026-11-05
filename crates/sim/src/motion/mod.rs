@@ -924,7 +924,11 @@ impl Move<'_, '_> {
         }
 
         let rolling = roll_playing(self.ps, self.ps.legs.anim);
-        if !rolling && self.ps.in_air_anim {
+        // A special jump's legs still playing land in their own clip (JA
+        // sets the landing's timer only on legs that can be cut).
+        let legs = self.ps.legs;
+        let held = anim::in_special_jump(legs.anim) && legs.timer > 0;
+        if !rolling && !held && self.ps.in_air_anim {
             let anim = if self.ps.flags & motion_flags::JUMPED_BACK != 0 {
                 Anim::BOTH_LANDBACK1
             } else {

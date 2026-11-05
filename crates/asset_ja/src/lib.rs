@@ -221,6 +221,12 @@ pub const SABER_SOUNDS: [&str; 3] = [
     "sound/weapons/saber/enemy_saber_off.wav",
 ];
 
+/// A thrown saber's loop as it flies (`saberSpinSound`, `w_saber.c`).
+pub const SABER_SPIN: &str = "sound/weapons/saber/saberspin.wav";
+
+/// A thrown saber caught back in the hand (`w_saber.c`).
+pub const SABER_CATCH: &str = "sound/weapons/saber/saber_catch.wav";
+
 pub fn saber(bytes: &[u8], name: &str) -> Option<Saber> {
     let root = fmt_ja::script::parse(bytes).ok()?;
     let block = root
