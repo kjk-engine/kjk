@@ -629,6 +629,46 @@ fn blank_cells_name_nothing() {
     assert_eq!(models, [Some("plc_chair"), None], "the placeables' models");
 }
 
+/// A 2DA's stored cell-data size is not read, as in the games and reone:
+/// a mod's table storing 0 there (High Quality Blasters' baseitems.2da) or
+/// any other wrong size reads as written. No installs (approved
+/// 2026-11-05).
+#[test]
+fn mod_2da_size_ignored() {
+    use fmt_odyssey::twoda::TwoDa;
+
+    let row = |cells: [&str; 2]| cells.map(|cell| cell.as_bytes().to_vec()).to_vec();
+    let table = TwoDa {
+        columns: vec![b"label".to_vec(), b"defaultmodel".to_vec()],
+        row_labels: vec![b"0".to_vec(), b"1".to_vec()],
+        cells: vec![
+            row(["Blaster_Pistol", "w_BlstrPstl_001"]),
+            row(["Bowcaster", "w_BowCstr_001"]),
+        ],
+        column_separator: b'\t',
+        row_separator: b'\t',
+    };
+    let written = table.write();
+    let data_len = table
+        .cells
+        .iter()
+        .flatten()
+        .map(|cell| cell.len() + 1)
+        .sum::<usize>();
+    let size_at = written.len() - data_len - 2;
+    for stored in [0u16, 1, u16::MAX] {
+        let mut bytes = written.clone();
+        bytes[size_at..size_at + 2].copy_from_slice(&stored.to_le_bytes());
+        let read = TwoDa::parse(&bytes).unwrap_or_else(|e| panic!("size {stored}: {e}"));
+        assert_eq!(read, table, "size {stored}");
+    }
+    let past_end = written.len() - 1;
+    assert!(
+        TwoDa::parse(&written[..past_end]).is_err(),
+        "a cell cut short"
+    );
+}
+
 /// Which copy of a resource the games read (`vfs::probes`, journal
 /// 2026-11-05-override-precedence): `override/` over a module's own, a
 /// `.mod` standing for its RIMs and `_dlg.erf`, `patch.erf` over a module,
