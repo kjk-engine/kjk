@@ -8,6 +8,9 @@
 //!   available as `GetIsLiveContentAvailable` answers for their packages,
 //!   as K1's `k_pebn_galaxy` does: K1 shows Yavin Station (package 1, row
 //!   11) and no other, TSL neither;
+//! - shown on -1, as `k_pebn_galaxy` asks where it knows no planet for
+//!   `K_CURRENT_PLANET` (Yavin Station's 55, a player's party leaving
+//!   it), the map still shows, on no planet, and its bytes say so;
 //! - the guest's travel to Dantooine is the host's to make (I30 P6), and
 //!   the host's to Taris is refused (not selectable): neither runs the
 //!   travel script; the host's to Dantooine runs it, which hears the
@@ -81,8 +84,13 @@ fn planets(asm: &mut script_ncs::probes::Asm, calls: &[(u16, u8)]) {
     }
 }
 
-/// The map's spawn script.
+/// The map's spawn script, the map shown on Dantooine.
 fn map() -> Ncs {
+    map_on(i32::from(DANTOOINE))
+}
+
+/// The map's spawn script, the map shown on `planet`.
+fn map_on(planet: i32) -> Ncs {
     let mut asm = script_ncs::probes::Asm::default();
     planets(&mut asm, &[(4, TARIS), (4, DANTOOINE), (5, DANTOOINE)]);
     // `SetPlanetAvailable(row, GetIsLiveContentAvailable(package))`.
@@ -96,7 +104,7 @@ fn map() -> Ncs {
             args: 2,
         });
     }
-    int(&mut asm, DANTOOINE).op(Op::Action {
+    asm.op(Op::Const(Const::Int(planet))).op(Op::Action {
         routine: 6,
         args: 1,
     });
@@ -237,8 +245,13 @@ fn told(notices: &[Vec<(Seat, Notice)>], wanted: impl Fn(&Notice) -> bool) -> Ve
 /// The map shown on Dantooine: Taris and Dantooine available, the `live`
 /// planets too, Dantooine selectable.
 fn map_shown(live: u32) -> Notice {
+    map_shown_on(Some(DANTOOINE), live)
+}
+
+/// The same map shown on `planet`.
+fn map_shown_on(planet: Option<u8>, live: u32) -> Notice {
     Notice::Show(Screen::GalaxyMap {
-        planet: DANTOOINE,
+        planet,
         available: 1 << TARIS | 1 << DANTOOINE | live,
         selectable: 1 << DANTOOINE,
     })
@@ -262,8 +275,21 @@ fn galaxy() -> Checks {
         let shown = told(&notices, |notice| *notice == map_shown(0));
         check(shown.len() == 2, format!("shown {shown:?}"))
     });
+    let unknown = run("k1", map_on(-1), &vec![Vec::new(); 4]).and_then(|(_, notices)| {
+        let wanted = map_shown_on(None, 1 << YAVIN);
+        let shown = told(&notices, |notice| *notice == wanted);
+        let Notice::Show(screen) = wanted else {
+            unreachable!()
+        };
+        let sent = Screen::from_bytes(&screen.to_bytes());
+        check(
+            shown.len() == 2 && sent.as_ref() == Ok(&screen),
+            format!("shown {shown:?}, sent as {sent:?}"),
+        )
+    });
     vec![
         ("galaxy_no_live_planet_in_tsl", tsl_live),
+        ("galaxy_shown_on_no_planet", unknown),
         (
             "galaxy_shown_to_both",
             check(

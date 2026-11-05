@@ -443,8 +443,9 @@ impl Galaxy {
         self.available.contains(&planet) && self.selectable.contains(&planet)
     }
 
-    /// The map `ShowGalaxyMap` opens on `planet`, as the screen shows it.
-    pub fn shown(&self, planet: u8) -> crate::notice::Screen {
+    /// The map `ShowGalaxyMap` opens on `planet` (or none), as the screen
+    /// shows it.
+    pub fn shown(&self, planet: Option<u8>) -> crate::notice::Screen {
         let bits = |planets: &BTreeSet<u8>| {
             planets
                 .iter()
