@@ -32,8 +32,8 @@ use ui::draw::Textures as _;
 use ui::intent::CharacterDesc;
 use ui::skin::Source;
 use ui::vm::{
-    AutoLevelView, CharacterView, ChargenView, ClassView, Entry, ItemKind, MemberView, NameTables,
-    Owned, PicksView, PortraitView, Preview, UpgradeChoice, UpgradeItem, UpgradeSlot,
+    AutoLevelView, CharacterView, ChargenView, ClassView, EffectIcon, Entry, ItemKind, MemberView,
+    NameTables, Owned, PicksView, PortraitView, Preview, UpgradeChoice, UpgradeItem, UpgradeSlot,
 };
 
 use crate::rulebook_text;
@@ -718,24 +718,25 @@ fn members(
     party
 }
 
-/// The good and the bad among `fighter`'s running effect icons, as KOTOR
-/// counts them on its portrait (`CSWSEffectListHandler::OnApplyEffectIcon`):
-/// by their `effecticon.2da` row's `good`, an icon whose row has none (the
-/// alignment's full marks) counting as neither.
-fn effect_icons(assets: &mut GuiAssets, fighter: &sim::combat::Fighter, now: u64) -> (u8, u8) {
+/// `fighter`'s running effect icons as KOTOR counts them on its portrait
+/// (`CSWSEffectListHandler::OnApplyEffectIcon`): each its `effecticon.2da`
+/// row's picture, good or bad by the row's `good`; an icon whose row has
+/// no `good` (the alignment's full marks) or no picture left out.
+fn effect_icons(
+    assets: &mut GuiAssets,
+    fighter: &sim::combat::Fighter,
+    now: u64,
+) -> Vec<EffectIcon> {
     fighter
         .effects
         .icons(now)
-        .fold((0u8, 0u8), |(good, bad), row| {
-            match assets
-                .cell("effecticon", usize::from(row), "good")
-                .as_deref()
-            {
-                Some("0") => (good, bad.saturating_add(1)),
-                Some(_) => (good.saturating_add(1), bad),
-                None => (good, bad),
-            }
+        .filter_map(|row| {
+            let row = usize::from(row);
+            let good = assets.cell("effecticon", row, "good")? != "0";
+            let icon = assets.cell("effecticon", row, "iconresref")?;
+            Some(EffectIcon { icon, good })
         })
+        .collect()
 }
 
 /// What an upgrade bench lists: what the party carries and what its
