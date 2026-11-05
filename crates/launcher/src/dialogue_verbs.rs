@@ -94,6 +94,9 @@ impl Tree<'_> {
         if node.camera_id != 0 {
             facts.push(format!("camera {}", node.camera_id));
         }
+        if node.wait_flags != 0 {
+            facts.push(format!("wait {}", node.wait_flags));
+        }
         if !entry && !node.is_silent() && sim::script::dialogue::story(self.library, self.dlg, index) {
             facts.push("host".into());
         }

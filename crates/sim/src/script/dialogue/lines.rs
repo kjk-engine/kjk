@@ -159,7 +159,7 @@ impl Step<'_> {
             library,
             node,
             (voice.as_ref().map(|(_, ms)| *ms), voiced),
-            dlg.animated_cut,
+            (dlg.animated_cut, clip.is_some()),
         );
         let length = timed
             .max(clip.unwrap_or(0))

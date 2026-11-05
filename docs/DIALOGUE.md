@@ -216,7 +216,13 @@ where they part, the choice is ours and named.
   with neither has flag 2, as the games' loader gives it). Flag 1 holds it
   for its camera model's clip (the clip's length alone; the executables
   hold it to the longest of every flagged wait and its own timer [the
-  clip's line is not yet raised to its timer]). Flag 8 holds it for its
+  clip's line is not yet raised to its timer]). In an `AnimatedCut` a line
+  its clip holds has no timer of its own, its voice and text not counted:
+  the clip and its other flagged waits time it, so a voice cut into
+  several shots (one voiced line, voiceless lines under it: Zhar's
+  training speech, `k_player_dialog`; Karath's report to Malak,
+  `stunt_06`) plays on through them instead of freezing its first shot
+  until it ends (playtest, 2026-11-05). Flag 8 holds it for its
   own fade (`FadeType`, never a script's): its `FadeDelay` and
   `FadeLength` from 0.1 s in, a cover or uncover at once (1, 2) its delay
   alone, a node with no fade nothing (K1's and TSL's executables alike).
@@ -929,7 +935,9 @@ conversation).
   unwrapped, `fmt_odyssey::wav`), read when first needed and cued from the
   speaker at the moment the line was shown, in its voice slot; a line cut
   short (a reply picked early, a skip, the end) silences it
-  (`sound::Hush`, `audio::Mixer::stop`).
+  (`sound::Hush`, `audio::Mixer::stop`), as does the next line, but for a
+  voiceless line of an `AnimatedCut`: a shot under the voice before it,
+  which plays on with its lips.
 - **Lips**: the speaker's mouth, its head (the model hooked to its body)
   or, with none, its body made with its face (`dialogue_view::mouth_clip`),
   plays its `talk` clip as sixteen mouth shapes evenly spaced over the clip; the
