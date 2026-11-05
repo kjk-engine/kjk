@@ -196,7 +196,12 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 79: the snapshot and each module left keep the placements' roster as
 /// installed (`Snapshot::roster`). Old saves: old saves read no roster: trusted
 /// as before.
-pub const VERSION: u32 = 79 + crate::pending::SNAPSHOT;
+/// 80: a conversation carries when its camera clip began
+/// (`Conversation::clip_from_ms`), and a fighter when a script's push last
+/// threw it (`Fighter::blasted_ms`). Old saves: old snapshots read
+/// `clip_from_ms = 0` and `blasted_ms = 0`: no camera clip playing, no body
+/// blasted.
+pub const VERSION: u32 = 80 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
