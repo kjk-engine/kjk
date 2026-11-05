@@ -633,10 +633,6 @@ fn show(
     screen.showing = Some(key);
     // The line's voice and lips.
     let speaker = SimId(talk.speaker.0);
-    if let Some(was) = screen.speaking.take() {
-        hush.0.push((was, Channel::Voice));
-    }
-    screen.lip = None;
     let voice = swap.level.scripts().and_then(|library| {
         let dlg = library.dialogue(&talk.dialog)?;
         let node = dlg.entries.get(talk.entry as usize)?;
@@ -646,6 +642,21 @@ fn show(
             .find(|n| *n != name && !n.is_empty());
         Some((name.into_owned(), other.map(str::to_string)))
     });
+    // A voiceless line of an animated cut is a shot under the voice before
+    // it (Zhar's training speech runs over several): that voice and its
+    // lips play on. Any other line stops them.
+    let carried = voice.is_none()
+        && swap
+            .level
+            .scripts()
+            .and_then(|library| library.dialogue(&talk.dialog))
+            .is_some_and(|dlg| dlg.animated_cut);
+    if !carried {
+        if let Some(was) = screen.speaking.take() {
+            hush.0.push((was, Channel::Voice));
+        }
+        screen.lip = None;
+    }
     if let (Some((name, other)), Some(resolver)) = (voice, module_resolver(&mut screen, &swap)) {
         if let Some(cue) = screen.voice_cue(&swap, &name, &mut added, &mut forget) {
             // Unplaced, as reone and xoreos play a conversation's voice (a

@@ -293,7 +293,12 @@ fn holds_world(conversations: &[Conversation], seat_bodies: &[ObjectId]) -> bool
 /// where its wait flags hold it for the voice, to its fade's end where they
 /// hold it for its fade (`fade_ms`), and to `LEAST_LINE_MS`. A line with no
 /// wait flags in an animated cut lasts nothing: the cut's animation times
-/// it. As the games' loader has it, a `Delay` counts as a wait flag and a
+/// it, and one held by its camera clip (`clip_held`) has no timer of its
+/// own: the clip and its other flagged waits time it, so a voice running
+/// over several shots (Zhar's training speech, `k_player_dialog`: one
+/// voiced line, then voiceless ones under it) plays on through the next
+/// shots instead of freezing the first until it ends (reone times such a
+/// line by its clip alone). As the games' loader has it, a `Delay` counts as a wait flag and a
 /// voiced line (`voiced`: naming a voice of its own or alien speech) with
 /// neither waits for its voice. TSL's `SetDialogDelay` reads a delayed
 /// line's text or voice time only for a conversation no player is in (its
@@ -306,11 +311,11 @@ fn line_ms(
     library: &super::Library,
     node: &Node,
     (voice, voiced): (Option<u32>, bool),
-    animated_cut: bool,
+    (animated_cut, clip_held): (bool, bool),
 ) -> u64 {
     let voice = u64::from(voice.unwrap_or(0));
     let chars = shown_text(library, node).chars().count() as u64;
-    let base = if node.delay.is_some() {
+    let base = if node.delay.is_some() || animated_cut && clip_held {
         0
     } else if voice >= MIN_VOICE_MS {
         voice
