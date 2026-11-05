@@ -243,32 +243,40 @@ pub(crate) struct Fill<'a> {
 }
 
 impl<'a> Fill<'a> {
-    /// For the player whose character is `pc` in `snapshot`, or who drives
-    /// it: a companion the first seat was switched to or leads with
-    /// (`Snapshot::leading`) speaks with that player's tokens, as TSL's
-    /// `CSWTlkTable::GetTokenValue` fills `<FirstName>` from the party
-    /// table's player name whoever the player controls (Visas Marr asked
-    /// "What happened with <FirstName>?" on Dxun).
+    /// For the player whose character is `pc` in `snapshot`, or whose seat
+    /// drives it, else the first seat's: the executable fills the player's
+    /// tokens from the party table's player whoever the line is said to and
+    /// whoever the player controls (T3-M4 in TSL's prologue, "<FullName>'s
+    /// fate"; Visas Marr asking "What happened with <FirstName>?" on Dxun
+    /// while she leads).
     pub fn to(snapshot: &'a sim::Snapshot, pc: script_ncs::vm::ObjectId) -> Fill<'a> {
-        let driven = snapshot.leading == Some(sim::SimId(pc.0));
+        let seat = snapshot
+            .get(sim::SimId(pc.0))
+            .and_then(|entity| match entity.kind {
+                sim::Kind::Avatar(seat) => Some(seat),
+                _ => entity.fighter?.mind.driver,
+            })
+            .unwrap_or(sim::Seat(0));
         Fill {
             told: &snapshot.talk,
-            pc: crate::persona::of_character(snapshot, pc.0).or_else(|| {
-                driven
-                    .then(|| sim::persona::of(&snapshot.personas, sim::Seat(0)))
-                    .flatten()
-            }),
+            pc: sim::persona::of(&snapshot.personas, seat),
         }
     }
 }
 
-/// The game's own tokens of the player a line is said to: `<FullName>` and
-/// `<FirstName>` its name (a player has a first name only), a pair such as
+/// The game's own tokens of the player a line is said to, as its
+/// `stringtokens.2da` names them (case and all): `<FullName>`,
+/// `<FirstName>` and `<PlayerName>` its name, `<LastName>` nothing (a
+/// player has a first name only), the highlight marks (`<StartAction>`,
+/// `<StartCheck>`, `<StartHighlight>`, `</Start>`) nothing, a pair such as
 /// `<man/woman>` or `<sir/madam>` the first for a man, the second for a
 /// woman.
 pub(crate) fn player_token(token: &str, pc: &sim::persona::Persona) -> Option<String> {
     match token {
-        "FullName" | "FirstName" => Some(pc.name.clone()),
+        "FullName" | "FirstName" | "PlayerName" => Some(pc.name.clone()),
+        "LastName" | "StartAction" | "StartCheck" | "StartHighlight" | "/Start" => {
+            Some(String::new())
+        }
         _ => {
             let (man, woman) = token.split_once('/')?;
             let pair = [man, woman];

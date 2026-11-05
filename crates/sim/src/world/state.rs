@@ -228,6 +228,7 @@ impl SimWorld {
         }
         let instances = Instances::in_snapshot(&level, snapshot);
         let mut world = World::new();
+        world.register_disabling_component::<Benched>();
         world.insert_resource(Clock {
             tick: snapshot.tick,
             time_ms: snapshot.time_ms,
@@ -477,7 +478,7 @@ impl SimWorld {
             )
                 .chain(),
         );
-        let rows = world.query::<EntityRow>();
+        let rows = world.query_filtered::<EntityRow, bevy_ecs::query::Allow<Benched>>();
         Ok(SimWorld {
             world,
             schedule,

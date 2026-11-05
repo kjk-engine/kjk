@@ -426,16 +426,19 @@ pub(super) fn scripts(
     mut streams: ResMut<Streams>,
     mut scripts: ResMut<Scripts>,
     doors: Query<&Object>,
-    things: Query<(
-        &Id,
-        Option<&Avatar>,
-        Option<&Object>,
-        Option<&Player>,
-        Option<&Placed>,
-        Option<&Fighting>,
-        Option<&PlayerSheet>,
-        Option<&Benched>,
-    )>,
+    things: Query<
+        (
+            &Id,
+            Option<&Avatar>,
+            Option<&Object>,
+            Option<&Player>,
+            Option<&Placed>,
+            Option<&Fighting>,
+            Option<&PlayerSheet>,
+            Option<&Benched>,
+        ),
+        bevy_ecs::query::Allow<Benched>,
+    >,
 ) {
     let level = &level.0;
     let (Some(library), Some(module)) = (level.scripts(), level.module()) else {
@@ -452,7 +455,8 @@ pub(super) fn scripts(
     let mut characters = Vec::new();
     for (id, avatar, object, player, placed, fighting, sheet, benched) in &things {
         let data = object.and_then(|object| object.facts.as_deref());
-        if let Some(player) = player {
+        // Out of the area while its seat plays another: none perceives it.
+        if let Some(player) = player.filter(|_| benched.is_none()) {
             let ps = &player.0;
             let worn = sheet_of(sheet, object);
             let now_sheet = fighting.map_or(worn, |fighting| {

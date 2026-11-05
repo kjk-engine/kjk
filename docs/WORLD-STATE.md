@@ -674,10 +674,16 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   companion (`world::switch`: its `Mind::driver` the first seat, which
   the snapshot carries, so `Snapshot::body` and a client's prediction
   follow it), its mind stood down, in the party and the player's faction
-  meanwhile; the player's own stays where it is, benched (its mind's,
-  out of the party, still the snapshot's `Kind::Avatar`). Switching
-  back, the companion's mind takes over (in the party, or on its own if
-  not a member). A companion with no creature here is made from its
+  meanwhile; the player's own leaves the area, benched, as TSL's
+  `CSWPartyTable::SwitchPlayerCharacter` saves and deletes it: a
+  disabling component, so no system moves, meets, sees or hits it, the
+  scripts' view leaves it out and the view does not draw it
+  (`Snapshot::all_drawn`); out of the party, still the snapshot's
+  `Kind::Avatar`. Scenes that show the player meanwhile place their own
+  stand-in (TSL's prologue lays `c_medbaypc` on the medbay bed).
+  Switching back, the companion's mind takes over (in the party, or on
+  its own if not a member) and the player's own comes back where the
+  companion stands, facing its way. A companion with no creature here is made from its
   template a step to the PC's left, on its soles; one a guest drives is
   taken from it. False for a companion not available (or another negative
   number). Conversations held with the PC go on with the new one (the
@@ -1176,10 +1182,14 @@ actions and its damage.
   row and a name. The scripts read it of a player's own character
   (`GetGender`, `GetName`, `GetAppearanceType`), never of a companion it
   drives; the view draws the body from it (below), the screens show its
-  portrait and name, and a line's `<FullName>`, `<FirstName>` and gendered
-  pairs (`<man/woman>`, `<sir/madam>`: the first for a man) are its
-  (`dialogue_view::Fill`, the conversation's player; a bark's the first
-  seat's).
+  portrait and name, and a line's `<FullName>`, `<FirstName>`,
+  `<PlayerName>` and gendered pairs (`<man/woman>`, `<sir/madam>`: the
+  first for a man) are its, `<LastName>` and the highlight marks
+  (`<StartAction>` … `</Start>`) nothing (`dialogue_view::Fill`: the
+  player whose seat plays the listener, its own character or a creature
+  it drives, as T3-M4 in TSL's prologue; else the first seat's, as the
+  executable reads the party table's player whoever is addressed; a
+  bark's the first seat's).
 - **Character creation** (`Creation`, `SimWorld::create`, at a new game's
   start for the first seat): a player portrait gives the appearance by the
   class's build (`portraits.2da`: a soldier `appearance_l`, a scout
