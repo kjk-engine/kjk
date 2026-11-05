@@ -8,7 +8,9 @@
 //! picks it, so it does not flicker at an edge.
 //!
 //! Targetable: doors but static ones (a door leading out is one too),
-//! useable placeables, living creatures, a trap the party detected, and a
+//! useable placeables (one hung up a wall, as a door's panel, picked where
+//! its console is drawn: `hung`), living creatures, a trap the party
+//! detected, and a
 //! downed party member (a seat's avatar or a companion, I30 P11), which a
 //! standing one may revive (`Choice::Revive`, `Reviving`). A living
 //! companion is one whoever drives it, a player or its AI, as KOTOR's party
@@ -185,13 +187,16 @@ pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<
             // A creature JA does not pose is picked where its model is
             // drawn (`world::body`): as far across as it reaches, from its
             // lowest to its highest (a probe droid floats).
-            let (radius, height) = match crate::world::bulk_of(Some(facts)) {
+            let (radius, mut height) = match crate::world::bulk_of(Some(facts)) {
                 Some(bulk) if kind == ObjectKind::Creature => {
                     feet[2] += bulk.min[2];
                     (bulk.reach(), bulk.max[2] - bulk.min[2])
                 }
                 _ => (radius, height),
             };
+            if kind == ObjectKind::Placeable {
+                (feet[2], height) = hung(level, feet, height);
+            }
             Some(Candidate {
                 index,
                 kind,
@@ -202,6 +207,23 @@ pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<
             })
         })
         .collect()
+}
+
+/// Where a placeable standing at `at` (metres) with a volume `height` tall
+/// is picked from, and how tall: from its own height on the floor; one
+/// hung over the floor (Yavin Station's door panels, invisible before
+/// their consoles, 1.1 to 1.7 m up) from the floor up past it; one over
+/// no floor (in a wall's alcove) about where it hangs. Its height and
+/// the volume's as they are with no navigation mesh to tell.
+fn hung(level: &Level, at: Vec3, height: f32) -> (f32, f32) {
+    let Some(nav) = level.nav() else {
+        return (at[2], height);
+    };
+    match nav.height(at, height, height) {
+        Some(floor) if floor < at[2] => (floor, height + at[2] - floor),
+        Some(_) => (at[2], height),
+        None => (at[2] - height * 0.5, height),
+    }
 }
 
 /// Whether `entity` is a trap the party detected that still springs.

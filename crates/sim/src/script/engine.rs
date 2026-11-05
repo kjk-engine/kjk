@@ -4572,14 +4572,13 @@ impl Engine<'_> {
             }
             ShowLevelUpGUI => self.tell(None, Notice::Show(Screen::LevelUp)),
             // The galaxy map (`script::state::Galaxy`): the planets scripts
-            // offer, and the one a player picked to travel to.
-            ShowGalaxyMap => match u8::try_from(int(args, 0)) {
-                Ok(planet) => {
-                    let shown = self.state.galaxy.shown(planet);
-                    self.tell(None, Notice::Show(shown))
-                }
-                Err(_) => Value::Int(0),
-            },
+            // offer, and the one a player picked to travel to. A planet no
+            // row can be still opens it, on none (`Screen::GalaxyMap`).
+            ShowGalaxyMap => {
+                let planet = u8::try_from(int(args, 0)).ok();
+                let shown = self.state.galaxy.shown(planet);
+                self.tell(None, Notice::Show(shown))
+            }
             SetPlanetSelectable | SetPlanetAvailable => {
                 if let Ok(planet) = u8::try_from(int(args, 0)) {
                     let galaxy = &mut self.state.galaxy;
