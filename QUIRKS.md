@@ -1974,3 +1974,22 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   float rides the scripts' feedback line, which carries one strref), so
   Security's in-combat failure reads `*failure*` [verify against K1].
 - Ours:       `game::floaty_view` (`STARRED`), `sim::locks::floats`
+
+### Q-0337 — AdjustReputation between two NPC factions reads one way and writes the other
+
+- Reference:  K1 and TSL (both executables alike; TSL's Mac build names it
+  `CSWSCreature::AdjustReputation`)
+- Behaviour:  the change reads how the source's faction regards the
+  target's, adds the change, holds it to the scale, and writes it as how
+  the target's faction regards the source's. With the player the two are
+  one standing (the table has no player column), so every K1 script's
+  call (Tatooine's Sand People, Kashyyyk's Xor) behaves as written; only
+  between two of the table's factions, where the ways can differ, does it
+  show: the written way takes the read way's value, moved.
+- Expected:   one way read and written (NWScript's "how the source's
+  faction feels about the target").
+- Status:     kept.
+- Ours:       `sim::module::adjust`
+- Evidence:   the probe `reputation_target_regards_source` (`kjk sim probes
+  --only reputation`): 80 one way, 20 the other, a change of 5 leaves 25
+  and 20.

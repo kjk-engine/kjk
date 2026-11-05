@@ -2204,20 +2204,28 @@ impl Engine<'_> {
                     i32::from(repute.of(source.faction, target.faction))
                 }))
             }
-            // How the source's faction and the target's stand changed, both
-            // ways (`module::Adjustments`): Tatooine's Sand People made
-            // peaceable by one in their robes, hostile again without.
+            // How the target's faction comes to regard the source's
+            // (`module::adjust`, held to the scale as it is kept): Tatooine's
+            // Sand People made peaceable by one in their robes, hostile
+            // again without. The target is a character; a dead character
+            // as the source changes nothing.
             AdjustReputation => {
-                if let (Some(target), Some(source)) =
-                    (self.faction(object(args, 0)), self.faction(object(args, 1)))
-                {
-                    let by = int(args, 2).clamp(-100, 100) as i16;
-                    let pair = crate::module::pair(source, target);
-                    let now = self.state.reputation.entry(pair).or_insert(0);
-                    *now = (*now + by).clamp(-100, 100);
-                    if *now == 0 {
-                        self.state.reputation.remove(&pair);
-                    }
+                let (target, source) = (object(args, 0), object(args, 1));
+                let dead_source = view
+                    .thing(source)
+                    .is_some_and(|thing| thing.character.is_some() && thing.dead());
+                if let (Some(target), Some(source), false) = (
+                    self.character(target).map(|c| c.faction),
+                    self.faction(source),
+                    dead_source,
+                ) {
+                    crate::module::adjust(
+                        &view.module.repute,
+                        &mut self.state.reputation,
+                        target,
+                        source,
+                        int(args, 2),
+                    );
                 }
                 Value::Int(0)
             }

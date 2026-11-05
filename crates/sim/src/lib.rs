@@ -143,6 +143,8 @@ pub use world::remains;
 #[cfg(feature = "probes")]
 pub use world::remote::probes as remote_probes;
 #[cfg(feature = "probes")]
+pub use world::reputation_probes;
+#[cfg(feature = "probes")]
 pub use world::scene_probes;
 #[cfg(feature = "probes")]
 pub use world::spawner_probes;

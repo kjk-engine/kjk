@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `8e69dbcea623aec0`.
+Edition `68fb2a599f2d1f99`.
 
 ## Contents
 
@@ -7598,8 +7598,9 @@ In TSL, a creature may flourish its weapon again 1 second after the last.
 
 ### <a id="world-factions"></a>Factions
 
-Each faction regards each other faction with a standing from 0 to 100,
-changed by scripts. A standing of 10 or
+Each faction regards each other faction with a standing from 0 to
+100, changed by scripts and held to that range as
+each change is kept. A standing of 10 or
 less is hostile, 90 or more is
 friendly, and anything between is neutral. A faction missing from the table
 stands at 100 to itself and
@@ -7616,6 +7617,12 @@ A faction with a standing of 10 or less toward another is hostile to it.
 A faction with a standing of 90 or more toward another is friendly to it.
 
 <sub>Source: K1's executable (repute.2da's rule). Code: `sim::module::Standing::friendly`.</sub>
+
+<a id="world-factions-highest"></a>**Highest Standing** = **100** · `world.factions.highest`
+
+A standing is at most 100 and at least 0; a script's change past either end is kept at that end, so a later change starts from it.
+
+<sub>Source: K1's and TSL's executables (AdjustReputation). Code: `sim::module::adjust`.</sub>
 
 <a id="world-factions-unlisted-own"></a>**Unlisted Faction to Itself** = **100** · `world.factions.unlisted_own`
 

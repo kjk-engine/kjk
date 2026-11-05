@@ -63,6 +63,7 @@ const GROUPS: &[Group] = &[
     ("feats", sim::feats::probes),
     ("destroys", sim::destroys::probes),
     ("floor items", sim::floor_probes::probes),
+    ("reputation", sim::reputation_probes::probes),
     ("tsl", sim::tsl_probes::probes),
     ("regeneration", sim::regen_probes::probes),
     ("weapon sets", sim::weapon_set_probes::probes),

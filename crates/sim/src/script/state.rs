@@ -1177,9 +1177,16 @@ impl State {
             state.intents.insert(id, intent);
         }
         state.watch = Watch::decode(input)?;
+        let by_cell = input.since(crate::since::save::REPUTATION_HELD);
         for _ in 0..input.u32()? {
-            let pair = (input.u8()?, input.u8()?);
-            state.reputation.insert(pair, input.u16()? as i16);
+            let (a, b, by) = (input.u8()?, input.u8()?, input.u16()? as i16);
+            if by_cell {
+                state.reputation.insert((a, b), by);
+            } else {
+                state
+                    .reputation
+                    .extend(crate::module::adjustment_cells(a, b, by));
+            }
         }
         for _ in 0..input.u32()? {
             let id = input.u32()?;
