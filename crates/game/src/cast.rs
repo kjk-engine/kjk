@@ -1406,8 +1406,8 @@ struct Body {
     height: Option<f32>,
     /// Its model's index among the scene's models.
     model: usize,
-    /// The node its head turns by in a conversation (`head_node`).
-    head: Option<usize>,
+    /// The bone its head turns by in a conversation (`head_bone`).
+    head: Option<HeadBone>,
     /// Its hung head's face, posed by its clips (`face`).
     face: Option<crate::face::Face>,
     /// For a body whose emitters or lights its clips key (`own_fx`), the
@@ -2215,6 +2215,12 @@ impl Cast {
             models,
             commands,
         );
+        let hung = crate::face::hung_head(&scene.models, model).and_then(|head| {
+            let (_, head_nodes) = models.get(head)?.as_ref()?;
+            let placed = scene.models.get(head)?;
+            Some((&placed.ir, &head_nodes[..], placed.hook?.1))
+        });
+        let head = head_bone((&placed.ir, &nodes), hung);
         if let Look::Retargeted { gait: bound, .. } = &mut look {
             *bound = gait.map(|clips| crate::gait::Gait::bound(placed, &clips, &nodes));
         }
@@ -2250,7 +2256,7 @@ impl Cast {
             camera: None,
             height: None,
             model,
-            head: head_node(&placed.ir),
+            head,
             face,
             playing: (scene.own_fx.iter())
                 .any(|own| own.model == model && matches!(own.plays, crate::viewer::Plays::Body))
@@ -3269,17 +3275,61 @@ const WHOLE: f32 = 0.999;
 /// not read [verify].
 const HEAD_TURN_RAD_S: f32 = 10.0;
 
-/// The node a body's head turns by (S7): the `headhook` its head model
-/// hangs on, else its own head (`head_g`), else a creature model's `head`
-/// (HK-47's, T3-M4's `Head`).
-fn head_node(ir: &ModelIr) -> Option<usize> {
-    [hooks::HEAD_HOOK, hooks::HEAD, "head"]
+/// The bone a creature turns its head by when it looks at someone, where
+/// its `appearance.2da` row names none (`headbone`, blank in every row of
+/// both games): the neck's top, so the neck stays on the torso.
+const HEAD_TURN_BONE: &str = "hturn_g";
+
+/// The node a body's head turns by (S7) and the nodes above it, from the
+/// body model's root down (across the head model hung on it).
+struct HeadBone {
+    node: Entity,
+    above: Vec<Entity>,
+}
+
+/// `body`'s head bone (S7): `HEAD_TURN_BONE` in the head model hung on it
+/// (`hung`, at body node `hook`), else in its own model; without one, its
+/// head (`head_g`), else a creature model's `head` (HK-47's, T3-M4's
+/// `Head`).
+fn head_bone(
+    body: (&ModelIr, &[Entity]),
+    hung: Option<(&ModelIr, &[Entity], usize)>,
+) -> Option<HeadBone> {
+    let find = |ir: &ModelIr, name: &str| {
+        (ir.nodes.iter()).position(|node| node.name.eq_ignore_ascii_case(name))
+    };
+    [HEAD_TURN_BONE, hooks::HEAD, "head"]
         .iter()
         .find_map(|name| {
-            ir.nodes
-                .iter()
-                .position(|node| node.name.eq_ignore_ascii_case(name))
+            if let Some((ir, nodes, hook)) = hung
+                && let Some(index) = find(ir, name)
+            {
+                let mut above = ancestors(body, hook);
+                above.extend(body.1.get(hook));
+                above.extend(ancestors((ir, nodes), index));
+                return Some(HeadBone {
+                    node: *nodes.get(index)?,
+                    above,
+                });
+            }
+            let index = find(body.0, name)?;
+            Some(HeadBone {
+                node: *body.1.get(index)?,
+                above: ancestors(body, index),
+            })
         })
+}
+
+/// The entities of `node`'s ancestors in `ir`, from its root down.
+fn ancestors((ir, nodes): (&ModelIr, &[Entity]), node: usize) -> Vec<Entity> {
+    let mut above = Vec::new();
+    let mut parent = ir.nodes.get(node).and_then(|n| n.parent);
+    while let Some(index) = parent {
+        above.extend(nodes.get(index));
+        parent = ir.nodes[index].parent;
+    }
+    above.reverse();
+    above
 }
 
 /// A head turned toward whom its body looks at in a conversation's line
@@ -3295,15 +3345,13 @@ struct Head {
 
 impl Head {
     /// At `ms`, eases toward `target` (degrees from the body; none: ahead)
-    /// at `HEAD_TURN_RAD_S` and turns node `node` (of `nodes`, its parents
-    /// `rest`'s) so far about the model's up after the body's pose
-    /// (`turn_in_model`). A node no pose moved since it was turned turns
-    /// from where it stood before.
+    /// at `HEAD_TURN_RAD_S` and turns `bone` so far about the model's up
+    /// after the body's pose (`turn_under`). A node no pose moved since it
+    /// was turned turns from where it stood before.
     fn turn(
         &mut self,
         (target, ms): (Option<f32>, f64),
-        (nodes, rest): (&[Entity], &Rest),
-        node: usize,
+        bone: &HeadBone,
         transforms: &mut Query<&mut Transform>,
     ) {
         let seconds = self
@@ -3315,9 +3363,7 @@ impl Head {
         if self.yaw.abs() < 0.01 && self.turned.is_none() {
             return;
         }
-        let Some(&entity) = nodes.get(node) else {
-            return;
-        };
+        let entity = bone.node;
         let Ok(now) = transforms.get(entity).map(|t| t.rotation) else {
             return;
         };
@@ -3331,7 +3377,7 @@ impl Head {
             return;
         }
         let turn = Quat::from_rotation_z(self.yaw.to_radians());
-        turn_in_model(transforms, (nodes, rest), node, turn);
+        turn_under(transforms, &bone.above, entity, turn);
         self.turned = transforms.get(entity).ok().map(|t| (t.rotation, from));
     }
 }
@@ -3353,19 +3399,32 @@ fn turn_in_model(
     node: usize,
     turn: Quat,
 ) {
-    let mut above = Quat::IDENTITY;
+    let mut above = Vec::new();
     let mut parent = rest.get(node).and_then(|r| r.0);
     while let Some(index) = parent {
-        if let Some(t) = nodes.get(index).and_then(|&e| transforms.get(e).ok()) {
-            above = t.rotation * above;
-        }
+        above.extend(nodes.get(index));
         parent = rest.get(index).and_then(|r| r.0);
     }
+    above.reverse();
     if let Some(&entity) = nodes.get(node) {
-        edit(transforms, entity, |t| {
-            t.rotation = (above.inverse() * turn * above * t.rotation).normalize();
-        });
+        turn_under(transforms, &above, entity, turn);
     }
+}
+
+/// Turns `entity` by `turn` in the space of the first of `above` (its
+/// ancestors, from there down), those posed as they stand.
+fn turn_under(
+    transforms: &mut Query<&mut Transform>,
+    above: &[Entity],
+    entity: Entity,
+    turn: Quat,
+) {
+    let above = (above.iter())
+        .filter_map(|&e| transforms.get(e).ok().map(|t| t.rotation))
+        .fold(Quat::IDENTITY, |above, rotation| above * rotation);
+    edit(transforms, entity, |t| {
+        t.rotation = (above.inverse() * turn * above * t.rotation).normalize();
+    });
 }
 
 /// The held blade's flick across the bolt `at`'s holder turned last (see
@@ -3652,11 +3711,9 @@ fn place(
             let gun = wielded.filter(|_| gripping.is_none());
             let aims = gun_aim(figure, at, (gun, armed, drawn), ms, (to_model, soles, eye));
             let head = |figure: &mut Figure, transforms: &mut Query<&mut Transform>| {
-                if let Some(node) = body.head {
+                if let Some(bone) = &body.head {
                     let target = look.map(|look| look_toward(soles, faces, look));
-                    figure
-                        .head
-                        .turn((target, ms), (&body.nodes, &rig.rest), node, transforms);
+                    figure.head.turn((target, ms), bone, transforms);
                 }
             };
             // While the world is held, a body wholly on KOTOR's clips (the
@@ -3793,10 +3850,9 @@ fn place(
                     playing,
                     face,
                 );
-                if let Some(node) = body.head {
+                if let Some(bone) = &body.head {
                     let target = look.map(|look| look_toward(soles, faces, look));
-                    let bound = (&body.nodes[..], &clips.rest[..]);
-                    figure.head.turn((target, ms), bound, node, transforms);
+                    figure.head.turn((target, ms), bone, transforms);
                 }
             }
             None
