@@ -157,7 +157,10 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// (`module::adjustment_cells`), so every standing reads as before; one held
 /// past an end in the old way reads at that end and the next change starts from
 /// there.
-pub const VERSION: u32 = 74 + crate::pending::SAVE;
+/// 75: a script's shield effect carries its forceshields.2da row, vulnerable
+/// types and resistance (`Effect::Shield`). Old saves: an old save's shield
+/// effect reads with no look, no vulnerable types and no cap on a hit..
+pub const VERSION: u32 = 75 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

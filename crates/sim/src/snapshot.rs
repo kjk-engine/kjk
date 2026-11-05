@@ -201,7 +201,15 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// threw it (`Fighter::blasted_ms`). Old saves: old snapshots read
 /// `clip_from_ms = 0` and `blasted_ms = 0`: no camera clip playing, no body
 /// blasted.
-pub const VERSION: u32 = 80 + crate::pending::SNAPSHOT;
+/// 81: a snapshot carries the scripts' standing changes (`Snapshot::standing`),
+/// which the view reads hostility by. Old saves: old snapshots read no standing
+/// changes; the next step makes them again from the scripts' state, which the
+/// save holds.
+/// 82: a shield up carries its effect's id, vulnerable types, resistance and
+/// whether it has no end (`Shielded`). Old saves: an old snapshot's shield
+/// reads as an item's own (no effect id, no vulnerable types, no cap on a hit),
+/// as it drained before..
+pub const VERSION: u32 = 82 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

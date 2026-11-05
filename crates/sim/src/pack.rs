@@ -40,7 +40,12 @@ const MAGIC: &[u8; 4] = b"KJKT";
 /// 22: a creature template's body carries where its model is drawn
 /// (`module::Body::bulk`). Old saves: old saves read no bulk: a companion
 /// template kept in a save is met by JA's box, as every body was.
-pub const VERSION: u32 = 22 + crate::pending::PACK;
+/// 23: an item's kinds byte carries a wrist launcher (bit 4,
+/// `ItemFacts::launcher`: `baseitems.2da` `itemtype` 48). Old saves: an old
+/// pack's kinds byte reads as before, its items no launchers (bit 4 clear);
+/// packs are built again from the install once the version moves, so Mira's
+/// launcher is read then..
+pub const VERSION: u32 = 23 + crate::pending::PACK;
 
 /// The oldest version read in a save's companions' templates: v0.1.0's
 /// (`crate::since::pack`, `bumps/README.md`).
