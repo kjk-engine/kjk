@@ -673,8 +673,8 @@ fn play(
             blows: &blows,
             scripted: current.area_sound.battle.state,
         };
-        let repute = swap.level.module().map(|module| &module.repute);
-        let hostile = crate::battle_music::hostility(repute);
+        let standing = swap.level.module().map(|module| current.standings(module));
+        let hostile = crate::battle_music::hostility(standing);
         let battle = ambience.fight.step(&moment, hostile);
         tracks(
             ambience,
