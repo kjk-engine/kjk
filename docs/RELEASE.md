@@ -105,10 +105,11 @@ nexusmods.com/kotor/mods/1911 (`.github/workflows/nexus-release.yml`,
 the calls in `.github/nexus-upload.sh`): the repository secret
 `NEXUS_API_KEY` holds the owner's key (nexusmods.com/settings/api-keys);
 without it nothing is uploaded. Each OS's package becomes a new main
-version of its own file on the page, the file whose id is the variable
-`NEXUS_FILE_<PLATFORM>` (`NEXUS_FILE_MACOS_AARCH64`,
-`NEXUS_FILE_WINDOWS_X86_64`, `NEXUS_FILE_LINUX_X86_64`), and the mod's
-version follows. A package with no such variable is added as a new file,
+version of its own file on the page, the file named by the variable or
+secret `NEXUS_FILE_<PLATFORM>` (`NEXUS_FILE_MACOS_AARCH64`,
+`NEXUS_FILE_WINDOWS_X86_64`, `NEXUS_FILE_LINUX_X86_64`): the API's id for
+the file, or the `file_id` in a download link of any of its versions. The
+mod's version follows. A package with no such variable is added as a new file,
 and the run's notice names its id to save as the variable. Actions →
 nexus release → Run workflow with a tag uploads that Release again.
 
