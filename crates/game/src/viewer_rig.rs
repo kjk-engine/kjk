@@ -265,6 +265,10 @@ fn load_with(
                 .map(|h| {
                     let dir = h.ja_blades.first().map_or([0.0, 0.0, 1.0], |b| b.dir);
                     asset_ja::rig::Grip::new(&body, &gla, &h.bolt, dir, h.hand.weapon)
+                        .map(|grip| match style {
+                            rig_timeline::Style::Staff => grip.staff(),
+                            _ => grip,
+                        })
                         .map_err(|error| format!("{}: {error}", h.hand.bolt))
                 })
                 .collect::<Result<_, _>>()?;

@@ -1624,6 +1624,11 @@ pub fn measure(
         "rbicep_g",
         "lforearm_g",
         "rforearm_g",
+        // The hips and spine: foot slide about the hips, hands in the body.
+        "pelvis_g",
+        "torso_g",
+        "lthigh_g",
+        "rthigh_g",
     ]
     .into_iter()
     .filter(|name| body.nodes.iter().any(|n| n.name.eq_ignore_ascii_case(name)))
