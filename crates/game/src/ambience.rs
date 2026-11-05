@@ -450,6 +450,8 @@ struct Ambience {
     /// Sounds made, for `dump`: footsteps, doors' and containers' by file.
     steps: u64,
     moves: BTreeMap<String, u32>,
+    /// The rolling droids' and hovers' sounds held, by file.
+    rolled: BTreeSet<String>,
     rng: Option<Rng>,
     /// What plays, for `dump`, and what played last frame (each change is
     /// logged, so a run's log and trace show the tracks).
@@ -704,7 +706,7 @@ fn play(
         );
         footsteps(
             ambience,
-            &swap.level,
+            (&swap.level, &instances),
             current,
             asked,
             (&mut loops, &mut cues),
@@ -746,6 +748,7 @@ fn play(
             "scripted": ambience.scripted,
             "steps": ambience.steps,
             "moves": ambience.moves,
+            "rolled": ambience.rolled,
         }),
     );
 }
@@ -1230,7 +1233,7 @@ fn emit(
 /// executable's footsteps come from its walk and run clips' events alone.
 fn footsteps(
     ambience: &mut Ambience,
-    level: &sim::Level,
+    (level, instances): (&sim::Level, &Instances),
     current: &Snapshot,
     clip_steps: Vec<(sim::SimId, Vec3)>,
     (loops, cues): (&mut Loops, &mut Cues),
@@ -1238,18 +1241,30 @@ fn footsteps(
     let Some((area, tables)) = &ambience.area else {
         return;
     };
-    let rng = ambience.rng.get_or_insert(Rng(1));
-    let steps_of = |entity: &sim::EntityState| {
-        let row = match entity.kind {
-            Kind::Avatar(_) => PLAYER_STEPS,
-            Kind::Object(ObjectKind::Creature, index) => match area.objects.get(index as usize) {
-                Some(Voice::Steps(row)) => *row,
-                _ => PLAYER_STEPS,
-            },
-            _ => return None,
-        };
-        tables.steps(row)
+    let rows: BTreeMap<u32, u8> = current
+        .entities
+        .iter()
+        .filter_map(|entity| {
+            Some((
+                entity.id.0,
+                step_row(entity, current, instances, area, tables)?,
+            ))
+        })
+        .collect();
+    // A body the area's GIT does not hold (a companion, a script's
+    // creature) may walk with a row it did not read.
+    let files: Vec<String> = rows
+        .values()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .flat_map(|row| tables.step_files(*row).map(String::from))
+        .collect();
+    wanted(ambience, Keep::Clip, files.iter().map(String::as_str));
+    let Some((_, tables)) = &ambience.area else {
+        return;
     };
+    let rng = ambience.rng.get_or_insert(Rng(1));
+    let steps_of = |entity: &sim::EntityState| tables.steps(*rows.get(&entity.id.0)?);
     let moving = |player: &sim::motion::MotionState| {
         let [vx, vy, _] = player.velocity;
         (vx * vx + vy * vy).sqrt() >= STILL
@@ -1269,6 +1284,7 @@ fn footsteps(
         if let Some(rolling) = &steps.rolling {
             if moving && ambience.clips.contains_key(rolling) {
                 loops.0.push(Hold::at(named(rolling), origin));
+                ambience.rolled.insert(rolling.clone());
             }
             continue;
         }
@@ -1320,5 +1336,40 @@ fn footsteps(
             )
         });
         ambience.steps += 1;
+    }
+}
+
+/// The `footstepsounds.2da` row `entity` walks with: its body's appearance's
+/// (`footsteptype`), as the executable reads it for every creature, players
+/// and companions too; else, a creature of the GIT's, its placement's, and
+/// the players' soft steps.
+fn step_row(
+    entity: &sim::EntityState,
+    current: &Snapshot,
+    instances: &Instances,
+    area: &AreaSound,
+    tables: &Tables,
+) -> Option<u8> {
+    let changed = entity
+        .fighter
+        .as_ref()
+        .and_then(|fighter| fighter.look.appearance);
+    let appearance = changed.or_else(|| match entity.kind {
+        Kind::Avatar(seat) => sim::persona::dressed(current, seat).map(|(row, _)| row),
+        Kind::Object(ObjectKind::Creature, _) => {
+            Some(instances.of_entity(entity)?.body?.appearance)
+        }
+        _ => None,
+    });
+    if let Some(row) = appearance.and_then(|appearance| tables.walk(appearance)) {
+        return Some(row);
+    }
+    match entity.kind {
+        Kind::Avatar(_) => Some(PLAYER_STEPS),
+        Kind::Object(ObjectKind::Creature, index) => match area.objects.get(index as usize) {
+            Some(Voice::Steps(row)) => Some(*row),
+            _ => Some(PLAYER_STEPS),
+        },
+        _ => None,
     }
 }
