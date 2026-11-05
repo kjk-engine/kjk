@@ -375,16 +375,30 @@ pub const CAST_CLIPS: &[(u16, &str)] = &[
 ];
 
 /// What scripts and conversations play on a body that it may have a clip
-/// for, and the clip's name: the constants (`SCRIPTED_CLIPS`) and the
-/// conversations' own clips (`DIALOG_CLIPS`). The views draw and the sim
-/// times them by this one table.
+/// for, and the clip's name: the constants (`SCRIPTED_CLIPS`), the
+/// conversations' own clips (`DIALOG_CLIPS`) and their cutscene clips
+/// (`dlg::cut_clips`). The views draw and the sim times them by this one
+/// table.
 pub fn scripted_clips() -> impl Iterator<Item = (u16, &'static str)> {
+    static CUTS: std::sync::LazyLock<Vec<(u16, String)>> =
+        std::sync::LazyLock::new(|| fmt_odyssey::dlg::cut_clips().collect());
     let dialog = DIALOG_CLIPS.iter().map(|&(_, code, clip)| (code, clip));
+    let cuts = CUTS.iter().map(|(code, clip)| (*code, clip.as_str()));
     SCRIPTED_CLIPS
         .iter()
         .map(|&(constant, _, clip)| (constant, clip))
         .chain(dialog)
+        .chain(cuts)
 }
+
+/// The cutscene clips are numbered as the rest are: played once below
+/// `LOOPED`, past every row numbered from `ONCE`; looped from past every
+/// row numbered from `LOOPED`.
+const _: () = assert!(
+    fmt_odyssey::dlg::CUT_ONCE >= ONCE + 1000
+        && fmt_odyssey::dlg::CUT_ONCE + 400 <= LOOPED
+        && fmt_odyssey::dlg::CUT_LOOPED >= LOOPED + 1000
+);
 
 /// Whether a body of `appearance.2da` `modeltype` `model_type` is a creature
 /// model (S or L), whose clips may carry a `c` before their names: KOTOR

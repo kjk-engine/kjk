@@ -80,7 +80,7 @@ impl Step<'_> {
         let speaker = self.speaker(&node.speaker, start.owner);
         let one_liner = replies.len() == 1 && {
             let reply = &dlg.replies[replies[0] as usize];
-            reply.is_silent() && reply.links.is_empty()
+            says_nothing(library, reply) && reply.links.is_empty()
         };
         if start.bark || one_liner {
             self.progress(node);

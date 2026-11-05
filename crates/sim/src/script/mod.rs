@@ -319,10 +319,11 @@ pub struct Talents {
 }
 
 /// The clip a camera model plays for a node's `CameraAnimation` (and a
-/// stunt model for an `AnimList` entry): `cut001w` for 1200, counting up.
+/// stunt model for a line with no `AnimList` entry for it): from 1200
+/// (`cut001w`) the one the number names (`fmt_odyssey::dlg::cut_clip`).
 pub fn camera_clip_name(animation: u16) -> Option<String> {
-    let n = animation.checked_sub(FIRST_CUT_CLIP)? + 1;
-    Some(format!("cut{n:03}w"))
+    let named = (animation >= FIRST_CUT_CLIP).then(|| fmt_odyssey::dlg::cut_clip(animation));
+    named.flatten().map(|(name, _)| name)
 }
 
 /// The clip a node's `CameraAnimation` has its conversation's camera model
@@ -343,20 +344,14 @@ pub fn camera_cue(animation: u16) -> Option<(String, bool)> {
 /// (`camera_cue`).
 const FIRST_CONTINUED_CLIP: u16 = 1000;
 
-/// The first `CameraAnimation` / `AnimList` value naming a clip
-/// (`camera_clip_name`), and the first naming a `dialoganimations.2da` row
+/// The first `CameraAnimation` value naming a clip (`camera_clip_name`),
+/// and the first `AnimList` value naming a `dialoganimations.2da` row
 /// (`Library::dialog_animation`).
 const FIRST_CUT_CLIP: u16 = 1200;
 const FIRST_DIALOG_ANIMATION: u16 = 10000;
 /// Where TSL's scripts number `animations.2da`'s rows from
 /// (`Library::script_animation`).
 const SCRIPT_ROWS: i32 = 10_000;
-
-/// Whether an `AnimList` entry names a stunt model's clip
-/// (`camera_clip_name`) rather than a `dialoganimations.2da` row.
-pub fn names_clip(animation: u16) -> bool {
-    (FIRST_CUT_CLIP..FIRST_DIALOG_ANIMATION).contains(&animation)
-}
 
 /// The walk and run rates (m/s) of two `creaturespeed.2da` rows, by their
 /// `2DAName`: `PLAYER`, a player's body's, and `DEFAULT`, row 7's
@@ -1072,11 +1067,19 @@ impl Library {
             .unwrap_or(0.0)
     }
 
-    /// The `ANIMATION_…` constant an `AnimList` entry (a `dialoganimations.2da`
-    /// row + 10000) plays, if the row names one.
+    /// What an `AnimList` entry plays on a body: a `dialoganimations.2da`
+    /// row + 10000 its row's `ANIMATION_…` constant, if the row names one;
+    /// below, the cutscene clip the number names
+    /// (`fmt_odyssey::dlg::cut_animation`).
     pub fn dialog_animation(&self, value: u16) -> Option<u16> {
-        let row = usize::from(value.checked_sub(FIRST_DIALOG_ANIMATION)?);
-        self.dialog_animations.get(row).copied().flatten()
+        match value.checked_sub(FIRST_DIALOG_ANIMATION) {
+            Some(row) => self
+                .dialog_animations
+                .get(usize::from(row))
+                .copied()
+                .flatten(),
+            None => fmt_odyssey::dlg::cut_animation(value),
+        }
     }
 
     /// How long a conversation's camera model plays a node's

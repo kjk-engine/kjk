@@ -62,6 +62,68 @@ impl Dlg {
     }
 }
 
+/// Where the animations naming cutscene clips begin (`cut_clip`), the clips
+/// in each of its runs, and how far apart the runs are.
+const FIRST_CUT: u16 = 1000;
+const CUT_CLIPS: u16 = 128;
+const CUT_RUN: u16 = 200;
+/// The runs' endings (`cut001`, `cut001w`, `cut001l`, `cut001wl`), the last
+/// two looped.
+const CUT_ENDINGS: [&str; 4] = ["", "w", "l", "wl"];
+
+/// The clip an animation from 1000 to 1799 names on a body or a stunt
+/// model, as both executables' animation tables name it: four runs of 200
+/// numbers, the first 128 of each a clip, `cut001` up from 1000 played
+/// once, `cut001w` from 1200 once, `cut001l` from 1400 looped, `cut001wl`
+/// from 1600 looped. Its name (lowercase) and whether it loops. Both tables
+/// name each run's 29th clip as its 39th (`cut039`, `cut039l`; neither
+/// executable holds a `cut029`).
+pub fn cut_clip(animation: u16) -> Option<(String, bool)> {
+    let from = animation.checked_sub(FIRST_CUT)?;
+    let (run, n) = (usize::from(from / CUT_RUN), from % CUT_RUN);
+    let ending = CUT_ENDINGS.get(run)?;
+    let number = match n + 1 {
+        29 => 39,
+        n if n <= CUT_CLIPS => n,
+        _ => return None,
+    };
+    Some((format!("cut{number:03}{ending}"), run >= 2))
+}
+
+/// Where the views and the sim number a body's cutscene clips (`cut_clip`)
+/// among its animations: the played-once ones from `CUT_ONCE`, the looped
+/// ones from `CUT_LOOPED` (`cut_animation`).
+pub const CUT_ONCE: u16 = 15_000;
+pub const CUT_LOOPED: u16 = 25_000;
+
+/// The number a body plays `animation`'s cutscene clip by (`cut_clip`),
+/// counted from `CUT_ONCE` or `CUT_LOOPED`.
+pub fn cut_animation(animation: u16) -> Option<u16> {
+    let (_, looped) = cut_clip(animation)?;
+    let first_looped = FIRST_CUT + 2 * CUT_RUN;
+    Some(match looped {
+        true => CUT_LOOPED + (animation - first_looped),
+        false => CUT_ONCE + (animation - FIRST_CUT),
+    })
+}
+
+/// Every cutscene clip a body may play (`cut_clip`): its number
+/// (`cut_animation`) and name.
+pub fn cut_clips() -> impl Iterator<Item = (u16, String)> {
+    (FIRST_CUT..FIRST_CUT + CUT_ENDINGS.len() as u16 * CUT_RUN)
+        .filter_map(|animation| Some((cut_animation(animation)?, cut_clip(animation)?.0)))
+}
+
+/// Whether two participant tags of a DLG (`AnimList`, `StuntList`) name the
+/// same one: case aside, an empty tag is the owner's, as a line's empty
+/// `Speaker` is (TSL's `101kreia` stunts its owner so).
+pub fn same_participant(a: &str, b: &str) -> bool {
+    fn owner(tag: &str) -> &str {
+        if tag.is_empty() { "owner" } else { tag }
+    }
+    owner(a).eq_ignore_ascii_case(owner(b))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Cinematic,
@@ -98,7 +160,8 @@ pub struct Node {
     pub quest_entry: u32,
     pub plot_index: i32,
     pub plot_xp: f32,
-    /// `AnimList`: (participant tag, `dialoganimations.2da` row + 10000).
+    /// `AnimList`: (participant tag, its animation: a `dialoganimations.2da`
+    /// row + 10000, or a cutscene clip, `cut_clip`).
     pub anims: Vec<(String, u16)>,
     /// TSL's `NodeUnskippable`: a skip is refused while it shows.
     pub unskippable: bool,
