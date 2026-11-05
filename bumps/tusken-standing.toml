@@ -1,5 +1,0 @@
-[formats]
-snapshot = "a snapshot carries the scripts' standing changes (`Snapshot::standing`), which the view reads hostility by."
-
-[migrations]
-snapshot = "old snapshots read no standing changes; the next step makes them again from the scripts' state, which the save holds"
