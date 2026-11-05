@@ -92,9 +92,11 @@ fn keys(keys: &[Key]) -> UiInput {
 }
 
 /// A screen over `scroll` whose list `LIST` has `SCROLLED` rows, five
-/// shown; the row its cursor goes to is kept in `pointed`.
+/// shown; the row its cursor goes to is kept in `pointed`. Fitted (`fit`),
+/// each row is as tall as its word (a computer's replies).
 struct Scrolled {
     pointed: Arc<AtomicUsize>,
+    fit: bool,
 }
 
 const SCROLLED: usize = 20;
@@ -109,7 +111,15 @@ impl Screen for Scrolled {
     fn state(&self, control: &Control, _: &ViewModel) -> ControlState {
         ControlState {
             list: (control.tag == "LIST").then(|| ListView {
-                rows: vec![Row::default(); SCROLLED],
+                rows: vec![
+                    Row {
+                        text: b"x".to_vec(),
+                        ..Row::default()
+                    };
+                    SCROLLED
+                ],
+                fit: self.fit,
+                pick: self.fit,
                 ..ListView::default()
             }),
             ..ControlState::default()
@@ -124,6 +134,11 @@ impl Screen for Scrolled {
 /// A list of 20-pixel rows in 100 (five shown) with a scrollbar beside it:
 /// its thumb's track from 12 to 88, the thumb 19 long.
 fn scroll_layout() -> Gui {
+    scroll_layout_of(20)
+}
+
+/// The scroll layout with prototype rows `row` pixels tall.
+fn scroll_layout_of(row: i32) -> Gui {
     let bar = Control {
         kind: Kind::ScrollBar,
         thumb: Some(Image::default()),
@@ -131,7 +146,7 @@ fn scroll_layout() -> Gui {
     };
     root(vec![Control {
         kind: Kind::ListBox,
-        proto: Some(Box::new(button("PROTOITEM", [0, 0, 100, 20], b""))),
+        proto: Some(Box::new(button("PROTOITEM", [0, 0, 100, row], b""))),
         scrollbar: Some(Box::new(bar)),
         ..button("LIST", [0, 0, 100, 100], b"")
     }])
@@ -145,6 +160,7 @@ fn dragged(moves: &[f32]) -> Vec<usize> {
     let mut stack = Stack::new(no_screens);
     stack.push(Box::new(Scrolled {
         pointed: pointed.clone(),
+        fit: false,
     }));
     let mut assets = Fake::new();
     assets.layouts = BTreeMap::from([("scroll", scroll_layout())]);
@@ -170,6 +186,115 @@ fn dragged(moves: &[f32]) -> Vec<usize> {
         .map(|y| {
             stack.step(&mut assets, &vm, &at(14.0 + y));
             pointed.load(Ordering::Relaxed)
+        })
+        .collect()
+}
+
+/// A fitted list whose prototype is 4 pixels tall, so its rows by the
+/// prototype would all fit, wheeled far down under the pointer: the row
+/// the cursor is kept on (the first shown), and the first of the last
+/// rows whole in the list, by the rows' own heights.
+fn wheeled_fitted() -> (usize, usize) {
+    let pointed = Arc::new(AtomicUsize::new(0));
+    let mut stack = Stack::new(no_screens);
+    stack.push(Box::new(Scrolled {
+        pointed: pointed.clone(),
+        fit: true,
+    }));
+    let mut assets = Fake::new();
+    let layout = scroll_layout_of(4);
+    let proto = layout.controls[0].proto.clone().expect("a prototype");
+    let height = crate::paint::row_height(
+        &mut assets,
+        crate::skin::Source::Campaign,
+        &proto,
+        true,
+        b"x",
+    );
+    let last = SCROLLED - (100 / height.max(1)) as usize;
+    assets.layouts = BTreeMap::from([("scroll", layout)]);
+    let vm = ViewModel::default();
+    let over = UiInput {
+        window: (1280.0, 720.0),
+        pointer: Some([320.0 + 50.0, 120.0 + 50.0]),
+        ..keys(&[])
+    };
+    stack.step(&mut assets, &vm, &over);
+    stack.step(
+        &mut assets,
+        &vm,
+        &UiInput {
+            wheel: -50.0,
+            ..over.clone()
+        },
+    );
+    stack.step(&mut assets, &vm, &over);
+    (pointed.load(Ordering::Relaxed), last)
+}
+
+/// A screen over `scroll` whose list `LIST` reads one description of
+/// `DESCRIBED` lines, taller than the list.
+struct Described;
+
+const DESCRIBED: usize = 60;
+
+impl Screen for Described {
+    fn id(&self) -> ScreenId {
+        ScreenId("described")
+    }
+    fn layout(&self) -> &str {
+        "scroll"
+    }
+    fn state(&self, control: &Control, _: &ViewModel) -> ControlState {
+        if control.tag == "LIST" {
+            crate::screens::pages::description(&b"a\n".repeat(DESCRIBED))
+        } else {
+            ControlState::default()
+        }
+    }
+    fn press(&mut self, _: &str, _: &ViewModel, _: &mut Vec<Intent>) {}
+}
+
+/// Where the scrollbar's thumb is (its top and foot, layout pixels) for a
+/// description taller than its list: as it opens, a notch of the wheel
+/// down, then wheeled far down. None where no thumb is drawn.
+fn wheeled_description() -> Vec<Option<(f32, f32)>> {
+    let mut stack = Stack::new(no_screens);
+    stack.push(Box::new(Described));
+    let mut assets = Fake::new();
+    // A thumb with an image, to be drawn.
+    let mut layout = scroll_layout_of(4);
+    if let Some(thumb) = (layout.controls[0].scrollbar.as_mut()).and_then(|bar| bar.thumb.as_mut())
+    {
+        thumb.image = "thumb".into();
+    }
+    assets.layouts = BTreeMap::from([("scroll", layout)]);
+    let vm = ViewModel::default();
+    let over = UiInput {
+        window: (1280.0, 720.0),
+        pointer: Some([320.0 + 50.0, 120.0 + 50.0]),
+        ..keys(&[])
+    };
+    // The bar's thumb: the quad 2 in from the bar's left (`paint::scrollbar`).
+    let thumb = |frame: crate::screen::Frame| {
+        frame
+            .layers
+            .iter()
+            .flat_map(|layer| &layer.quads)
+            .find(|quad| quad.rect[0] == 102.0 && quad.rect[2] == 6.0)
+            .map(|quad| (quad.rect[1], quad.rect[1] + quad.rect[3]))
+    };
+    [0.0, -1.0, -500.0]
+        .into_iter()
+        .map(|wheel| {
+            thumb(stack.step(
+                &mut assets,
+                &vm,
+                &UiInput {
+                    wheel,
+                    ..over.clone()
+                },
+            ))
         })
         .collect()
 }
@@ -243,6 +368,8 @@ pub(super) fn all() -> Vec<Check> {
     let (small, _) = hit((480.0, 270.0), [60.0 + 225.0 * 0.5625, 10.0 * 0.5625]);
     // Half the track down, all of it, back to the top.
     let rows = dragged(&[28.5, 57.0, 0.0]);
+    let (wheeled, last) = wheeled_fitted();
+    let thumbs = wheeled_description();
 
     let mut edit = stack_on("edit");
     edit.step(&mut assets, &vm, &keys(&[]));
@@ -357,6 +484,29 @@ pub(super) fn all() -> Vec<Check> {
                 rows == [8, 15, 4],
             )
             .map(|()| "the thumb follows the pointer".into())
+        }),
+        check("fitted_list_wheels", {
+            expect(
+                &format!("wheeled to its last rows, from row {last}: {wheeled}"),
+                last > 0 && wheeled == last,
+            )
+            .map(|()| "a fitted list scrolls by its rows' heights".into())
+        }),
+        check("description_wheels", {
+            let shown = |at: usize| thumbs.get(at).copied().flatten();
+            let moved = match (shown(0), shown(1), shown(2)) {
+                (Some(top), Some(notch), Some(end)) => {
+                    near(top.0, 12.0) && notch.0 > top.0 && notch.1 < 88.0 && near(end.1, 88.0)
+                }
+                _ => false,
+            };
+            expect(
+                &format!(
+                    "the thumb at the track's top, down a notch, then at its foot: {thumbs:?}"
+                ),
+                moved,
+            )
+            .map(|()| "a description taller than its list scrolls by lines".into())
         }),
         check("edit_box_types", {
             expect(

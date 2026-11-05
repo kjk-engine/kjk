@@ -195,6 +195,27 @@ struct Cursor {
     risen: f32,
     /// The player scrolled it: a list that follows its end stays put.
     pinned: bool,
+    /// How far into row `first` a list scrolled by lines is (layout
+    /// pixels; `Reach::lines`).
+    offset: i32,
+    /// The words a list scrolled by lines last showed: other words (another
+    /// item's description) start again from their top.
+    words: u64,
+}
+
+/// How far a list scrolls, and where it is: by rows; or, a fitted list
+/// that is read rather than chosen (an item's description, a message,
+/// often one row taller than the list), by its text's lines, in layout
+/// pixels (`lines`, each row's height and the gap after it).
+struct Reach {
+    count: usize,
+    shown: usize,
+    /// The furthest it goes.
+    last: usize,
+    at: usize,
+    /// One step of the wheel or a scroll key.
+    step: usize,
+    lines: Option<Vec<i32>>,
 }
 
 struct Entry {
@@ -831,6 +852,7 @@ impl Entry {
         presses: &[String],
         out: &mut Vec<Intent>,
     ) {
+        self.forget_scrolled(gui, vm);
         let targets = self.focusables(gui, vm);
         let valid = |tag: &str| targets.iter().any(|control| control.tag == tag);
         if !self.focus.as_deref().is_some_and(valid) {
@@ -922,8 +944,8 @@ impl Entry {
                 }
                 Key::ScrollUp | Key::ScrollDown => {
                     let by = if *key == Key::ScrollUp { -1 } else { 1 };
-                    let read = self.read_list(gui, vm);
-                    self.scroll(gui, vm, read.as_deref(), by);
+                    let read = self.read_list(gui, textures, vm);
+                    self.scroll(gui, textures, vm, read.as_deref(), by);
                 }
                 Key::Backspace => {
                     if let Some(tag) = self.typing_tag()
@@ -953,7 +975,7 @@ impl Entry {
                 .last()
         });
         if let Some(list) = wheeled {
-            self.scroll(gui, vm, Some(list.tag.as_str()), -notches as i32);
+            self.scroll(gui, textures, vm, Some(list.tag.as_str()), -notches as i32);
         }
         // A press on a scrollbar's track takes its thumb (where it was hit,
         // else by its middle), which follows the pointer while held.
@@ -963,10 +985,10 @@ impl Entry {
         if input.click
             && let Some(at) = pointed
         {
-            self.dragged = self.grab_thumb(gui, vm, at);
+            self.dragged = self.grab_thumb(gui, textures, vm, at);
         }
         if let (Some((tag, grab)), Some(at)) = (self.dragged.clone(), pointed) {
-            self.drag_thumb(gui, vm, &tag, at[1] - grab);
+            self.drag_thumb(gui, textures, vm, &tag, at[1] - grab);
         }
         let click = input.click && self.dragged.is_none();
         if click
@@ -1223,13 +1245,25 @@ impl Entry {
 
     /// The list whose scrollbar's track is at `at` (layout pixels), with
     /// where its thumb is held: where the press is on it, else its middle.
-    fn grab_thumb(&self, gui: &Gui, vm: &ViewModel, at: [f32; 2]) -> Option<(String, f32)> {
+    fn grab_thumb(
+        &self,
+        gui: &Gui,
+        textures: &mut dyn Textures,
+        vm: &ViewModel,
+        at: [f32; 2],
+    ) -> Option<(String, f32)> {
         gui.walk()
             .filter(|control| control.kind == Kind::ListBox && !self.state(control, vm).hidden)
             .find_map(|list| {
                 let bar = list.scrollbar.as_deref()?;
-                let (count, shown) = self.rows(gui, vm, &list.tag)?;
-                if count <= shown {
+                let Reach {
+                    count,
+                    shown,
+                    last,
+                    at: first,
+                    ..
+                } = self.reach(gui, textures, vm, &list.tag)?;
+                if last == 0 {
                     return None;
                 }
                 let (top, track, size) = crate::paint::thumb_track(bar, count, shown);
@@ -1238,8 +1272,7 @@ impl Entry {
                 if !across || !(top..top + track).contains(&at[1]) {
                     return None;
                 }
-                let first = self.lists.get(&list.tag).map_or(0, |cursor| cursor.first);
-                let thumb = top + (track - size) * first as f32 / (count - shown) as f32;
+                let thumb = top + (track - size) * first as f32 / last as f32;
                 let on = (thumb..thumb + size).contains(&at[1]);
                 Some((
                     list.tag.clone(),
@@ -1249,35 +1282,177 @@ impl Entry {
     }
 
     /// The list `tag` scrolled so its thumb's top is at `y` (layout pixels).
-    fn drag_thumb(&mut self, gui: &Gui, vm: &ViewModel, tag: &str, y: f32) {
+    fn drag_thumb(
+        &mut self,
+        gui: &Gui,
+        textures: &mut dyn Textures,
+        vm: &ViewModel,
+        tag: &str,
+        y: f32,
+    ) {
         let Some(bar) = gui.find(tag).and_then(|list| list.scrollbar.clone()) else {
             return;
         };
-        let Some((count, shown)) = self
-            .rows(gui, vm, tag)
-            .filter(|(count, shown)| count > shown)
+        let Some(reach) = self
+            .reach(gui, textures, vm, tag)
+            .filter(|reach| reach.last > 0)
         else {
             return;
         };
-        let (top, track, size) = crate::paint::thumb_track(&bar, count, shown);
+        let (top, track, size) = crate::paint::thumb_track(&bar, reach.count, reach.shown);
         let along = ((y - top) / (track - size).max(1.0)).clamp(0.0, 1.0);
-        let first = (along * (count - shown) as f32).round() as i32;
-        let by = first - self.lists.get(tag).map_or(0, |cursor| cursor.first as i32);
-        if by != 0 {
-            self.scroll(gui, vm, Some(tag), by);
+        let to = (along * reach.last as f32).round() as usize;
+        if to != reach.at {
+            self.place(gui, textures, vm, tag, &reach, to);
         }
+    }
+
+    /// How far list `tag` scrolls, and where it is (`Reach`).
+    fn reach(
+        &self,
+        gui: &Gui,
+        textures: &mut dyn Textures,
+        vm: &ViewModel,
+        tag: &str,
+    ) -> Option<Reach> {
+        let cursor = self.lists.get(tag).copied().unwrap_or(Cursor::default());
+        let list = gui.find(tag)?;
+        let view = self.state(list, vm).list;
+        let by_lines = view
+            .as_ref()
+            .is_some_and(|view| view.fit && !view.pick && view.roll.is_none());
+        if by_lines && let Some((heights, room)) = self.fitted(gui, textures, vm, tag) {
+            let total = (heights.iter().sum::<i32>() - list.padding).max(0);
+            let above: i32 = heights.iter().take(cursor.first).sum();
+            let line = list
+                .proto
+                .as_deref()
+                .and_then(|proto| proto.text.as_ref())
+                .and_then(|words| textures.font(self.source, &words.font))
+                .map_or(1, |(_, font)| font.line_height().ceil() as i32);
+            let last = (total - room).max(0) as usize;
+            return Some(Reach {
+                count: total as usize,
+                shown: room.max(0) as usize,
+                last,
+                at: ((above + cursor.offset).max(0) as usize).min(last),
+                step: line.max(1) as usize,
+                lines: Some(heights),
+            });
+        }
+        let (count, shown, last) = self.span(gui, textures, vm, tag, cursor.first)?;
+        Some(Reach {
+            count,
+            shown,
+            last,
+            at: cursor.first.min(last),
+            step: 1,
+            lines: None,
+        })
+    }
+
+    /// List `tag` scrolled to `to` (`Reach::at`'s units), its cursor kept
+    /// in view.
+    fn place(
+        &mut self,
+        gui: &Gui,
+        textures: &mut dyn Textures,
+        vm: &ViewModel,
+        tag: &str,
+        reach: &Reach,
+        to: usize,
+    ) {
+        let to = to.min(reach.last);
+        let cursor = self.lists.entry(tag.to_string()).or_default();
+        if let Some(heights) = &reach.lines {
+            // The row the line is in, and how far into it.
+            let mut left = to as i32;
+            let mut first = 0;
+            while first + 1 < heights.len() && left >= heights[first] {
+                left -= heights[first];
+                first += 1;
+            }
+            cursor.first = first;
+            cursor.offset = left;
+            return;
+        }
+        cursor.first = to;
+        let shown = self
+            .span(gui, textures, vm, tag, to)
+            .map_or(1, |(_, shown, _)| shown);
+        let cursor = self.lists.entry(tag.to_string()).or_default();
+        cursor.row = cursor.row.clamp(to, to + shown - 1);
+    }
+
+    /// A list scrolled by lines starts again from its top when it shows
+    /// other words (the next item's description), unless it follows its
+    /// end (a log, which keeps where the player scrolled it).
+    fn forget_scrolled(&mut self, gui: &Gui, vm: &ViewModel) {
+        use std::hash::{Hash, Hasher};
+        for control in gui.walk().filter(|control| control.kind == Kind::ListBox) {
+            let Some(view) = self.state(control, vm).list else {
+                continue;
+            };
+            if !view.fit || view.pick || view.follow || view.roll.is_some() {
+                continue;
+            }
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            for row in &view.rows {
+                row.text.hash(&mut hasher);
+            }
+            let words = hasher.finish();
+            let cursor = self.lists.entry(control.tag.clone()).or_default();
+            if cursor.words != words {
+                cursor.words = words;
+                cursor.first = 0;
+                cursor.offset = 0;
+            }
+        }
+    }
+
+    /// A list's row count, how many rows show from row `first`, and the
+    /// furthest it scrolls (the first row of its last rows shown whole). A
+    /// fitted list's rows are as tall as their words, as the painter draws
+    /// them; any other's are its prototype's.
+    fn span(
+        &self,
+        gui: &Gui,
+        textures: &mut dyn Textures,
+        vm: &ViewModel,
+        tag: &str,
+        first: usize,
+    ) -> Option<(usize, usize, usize)> {
+        let (count, shown) = self.rows(gui, vm, tag)?;
+        let Some((heights, room)) = self.fitted(gui, textures, vm, tag) else {
+            return Some((count, shown, count.saturating_sub(shown)));
+        };
+        let padding = gui.find(tag).map_or(0, |list| list.padding);
+        // How many of these rows, in turn, are whole in the list (at
+        // least one).
+        let whole = |rows: &mut dyn Iterator<Item = &i32>| {
+            let mut used = 0;
+            rows.take_while(|height| {
+                used += **height;
+                used - padding <= room
+            })
+            .count()
+            .max(1)
+        };
+        let last = count.saturating_sub(whole(&mut heights.iter().rev()));
+        let from = first.min(last);
+        Some((count, whole(&mut heights[from..].iter()), last))
     }
 
     /// The list the scroll keys move when the focus is on none that
     /// overflows: the first shown text read rather than chosen (an item's
     /// description, a message, `read`) that does, which the focus never
     /// rests on. None scrolls the focused list.
-    fn read_list(&self, gui: &Gui, vm: &ViewModel) -> Option<String> {
-        let overflows = |tag: &str| {
-            self.rows(gui, vm, tag)
-                .is_some_and(|(count, shown)| count > shown)
+    fn read_list(&self, gui: &Gui, textures: &mut dyn Textures, vm: &ViewModel) -> Option<String> {
+        let mut overflows = |tag: &str| {
+            self.reach(gui, textures, vm, tag)
+                .is_some_and(|reach| reach.last > 0)
         };
-        if self.focus.as_deref().is_some_and(overflows) {
+        if self.focus.as_deref().is_some_and(&mut overflows) {
             return None;
         }
         gui.walk()
@@ -1421,26 +1596,34 @@ impl Entry {
         hints
     }
 
-    fn scroll(&mut self, gui: &Gui, vm: &ViewModel, tag: Option<&str>, by: i32) {
+    fn scroll(
+        &mut self,
+        gui: &Gui,
+        textures: &mut dyn Textures,
+        vm: &ViewModel,
+        tag: Option<&str>,
+        by: i32,
+    ) {
         let Some(tag) = tag.map(str::to_string).or_else(|| self.focus.clone()) else {
             return;
         };
-        let Some((count, shown)) = self.rows(gui, vm, &tag) else {
+        let Some(reach) = self.reach(gui, textures, vm, &tag) else {
             return;
         };
         let follows = self
             .view(gui, vm, &tag)
             .and_then(|(_, view)| view)
             .is_some_and(|view| view.follow);
-        let cursor = self.lists.entry(tag).or_default();
-        let last = count.saturating_sub(shown) as i32;
-        if follows && !cursor.pinned {
-            // Scrolling a list that followed its end starts from there.
-            cursor.first = last.max(0) as usize;
+        let cursor = self.lists.entry(tag.clone()).or_default();
+        // Scrolling a list that followed its end starts from there.
+        let from = if follows && !cursor.pinned {
             cursor.pinned = true;
-        }
-        cursor.first = (cursor.first as i32 + by).clamp(0, last.max(0)) as usize;
-        cursor.row = cursor.row.clamp(cursor.first, cursor.first + shown - 1);
+            reach.last
+        } else {
+            reach.at
+        };
+        let to = (from as i64 + i64::from(by) * reach.step as i64).clamp(0, reach.last as i64);
+        self.place(gui, textures, vm, &tag, &reach, to as usize);
     }
 
     fn point_row(
@@ -1604,6 +1787,8 @@ impl Entry {
                 list.focused = focused.then_some(cursor.row);
                 if list.roll.is_some() {
                     list.offset = cursor.risen as i32 - control.extent.height;
+                } else if list.fit && !list.pick && !list.follow {
+                    list.offset = cursor.offset;
                 }
             }
             let typing = top && self.typing_tag().as_deref() == Some(control.tag.as_str());
