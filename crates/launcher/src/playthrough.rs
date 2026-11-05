@@ -405,7 +405,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     // creation makes it (god mode holding on its sheet).
                     if let Some(build) = &build {
                         let made = crate::persona::Made::Desc(&build.made);
-                        crate::persona::start(&mut world, installer.base_resolver()?, 1, Some(made))?;
+                        crate::persona::start(&mut world, installer.base_resolver()?, 1, &[], Some(made))?;
                         world.add_player_flags(
                             options.sheet.flags
                                 & (sim::combat::sheet::flags::IMMORTAL
@@ -2689,7 +2689,8 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 selectable,
                             }) => {
                                 map_shown = Some(available & selectable);
-                                said.push(format!("{at} [the galaxy map, at planet {planet}]"));
+                                let at_planet = planet.map_or("no planet".into(), |planet| format!("planet {planet}"));
+                                said.push(format!("{at} [the galaxy map, at {at_planet}]"));
                             }
                             Notice::Show(Screen::PartySelection(_)) => {
                                 acts.push(Action::ChooseParty(chosen.take()));

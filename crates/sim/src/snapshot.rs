@@ -196,7 +196,20 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 79: the snapshot and each module left keep the placements' roster as
 /// installed (`Snapshot::roster`). Old saves: old saves read no roster: trusted
 /// as before.
-pub const VERSION: u32 = 79 + crate::pending::SNAPSHOT;
+/// 80: a conversation carries when its camera clip began
+/// (`Conversation::clip_from_ms`), and a fighter when a script's push last
+/// threw it (`Fighter::blasted_ms`). Old saves: old snapshots read
+/// `clip_from_ms = 0` and `blasted_ms = 0`: no camera clip playing, no body
+/// blasted.
+/// 81: a snapshot carries the scripts' standing changes (`Snapshot::standing`),
+/// which the view reads hostility by. Old saves: old snapshots read no standing
+/// changes; the next step makes them again from the scripts' state, which the
+/// save holds.
+/// 82: a shield up carries its effect's id, vulnerable types, resistance and
+/// whether it has no end (`Shielded`). Old saves: an old snapshot's shield
+/// reads as an item's own (no effect id, no vulnerable types, no cap on a hit),
+/// as it drained before..
+pub const VERSION: u32 = 82 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
@@ -1216,6 +1229,12 @@ pub struct Snapshot {
     /// The seats' remote droids, by seat (`crate::remote`): made again each
     /// step, never saved.
     pub remotes: Vec<crate::remote::Remote>,
+    /// How scripts changed the factions' standings (`AdjustReputation`,
+    /// `script::State::reputation`), as the step left them: what the view
+    /// reads a creature's hostility by (`standings`), on a host and a guest
+    /// alike. The scripts' state is the save's truth; this is made again
+    /// each step.
+    pub standing: crate::module::Adjustments,
     pub(crate) shared: SimRng,
     pub(crate) authority: SimRng,
     pub(crate) next_id: u32,
@@ -1742,6 +1761,12 @@ impl Snapshot {
         self.screens.encode(out);
         crate::remote::encode(&self.remotes, out);
         crate::reconcile::encode(self.roster.as_deref(), out);
+        out.u32(u32::try_from(self.standing.len()).expect("fewer than 2^32 standings"));
+        for (&(a, b), &by) in &self.standing {
+            out.u8(a);
+            out.u8(b);
+            out.u16(by as u16);
+        }
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -1878,6 +1903,22 @@ impl Snapshot {
         } else {
             None
         };
+        // Older snapshots carried none: the next step makes it again from
+        // the scripts' state.
+        let mut standing = crate::module::Adjustments::new();
+        if input.since(crate::since::snapshot::TUSKEN_STANDING) {
+            for _ in 0..input.u32()? {
+                let at = input.at();
+                let (a, b, by) = (input.u8()?, input.u8()?, input.u16()? as i16);
+                if standing
+                    .last_key_value()
+                    .is_some_and(|(last, _)| *last >= (a, b))
+                {
+                    return Err(input.invalid("standing order", at));
+                }
+                standing.insert((a, b), by);
+            }
+        }
         let stash = match stash {
             Some(stash) => stash.clone(),
             None => Stash::read(&mut input)?,
@@ -1921,11 +1962,21 @@ impl Snapshot {
             departing,
             screens,
             remotes,
+            standing,
             shared,
             authority,
             next_id,
             seats_held,
         })
+    }
+
+    /// How factions stand in `module` as scripts left them: what decides
+    /// whether a creature is shown and offered as hostile.
+    pub fn standings<'a>(
+        &'a self,
+        module: &'a crate::module::ModuleData,
+    ) -> crate::module::Standing<'a> {
+        module.repute.with(&self.standing)
     }
 
     /// `seat`'s remote droid, if it flies one.

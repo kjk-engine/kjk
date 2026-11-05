@@ -34,9 +34,13 @@ Every number below is the rulebook's ([`RULEBOOK.md`](RULEBOOK.md),
   has no player column, so it is taken from the player's row); row `a`,
   column `b` is how `a` regards `b`, 10 or less hostile. `kjk combat
   roster k1 end_m01aa` lists what was read. Scripts' `AdjustReputation`
-  moves a pair both ways for the rest of the game (`module::Adjustments`
-  in the scripts' state, saved; `Repute::with` gives the standing every
-  check reads): Tatooine's Sand People at peace with one in their robes.
+  changes a standing for the rest of the game, held to the scale as it is
+  kept (`module::adjust`; the changes by cell in `module::Adjustments` in
+  the scripts' state, saved; `Repute::with` gives the standing every
+  check reads): Tatooine's Sand People at peace with one in their robes,
+  made mad, robed again at peace. The player's standing with a faction is
+  one both ways; between two of the table's factions each way is its own.
+  `kjk sim probes --only reputation` checks it.
 - Bodies block (`collision::Bodies`: level first, then bodies by id, the
   nearest hit wins), but with friendly fire off (the default; a level's
   `with_friendly_fire` sets a session's) party members pass through each
@@ -726,7 +730,16 @@ INT + 1/2/3 × Repair) and no medpac. An **antidote** comes first while
 poisoned or weakened; a **squad stim** heals the user's side within 20 m
 by its points (`items.squad_stim.points`). **Energy shields** (5) absorb
 their points of the damage types they name (the hit's type,
-`Assessed::damage_type`) for 200 s or until spent. **Stims** (4) for 120
+`Assessed::damage_type`) for 200 s or until spent. A shield a script puts
+up (`EffectForceShield`: the items' `k_sup_bands`, the plot droids' spawn
+scripts) is its `forceshields.2da` row's, as K1's executable has it: at
+most `resistance` of one hit, its points spent twice
+(`items.shields.vulnerable_drain`) by a type in `vulnerflags` (ion, for
+every row), none spent with `amount` 0; the hit that breaks it passes on
+what it had no points left for. It brings its look, a lasting visual of
+its effect's id: the row's `visualeffect_NN` for the body's appearance,
+else `visualeffectdef` (the shield droid's red sphere, a belt's blue
+glow), gone with it. **Stims** (4) for 120
 s: adrenals +4/+6 STR, DEX or CON, battle stims +1/+2/+3 to hit and damage
 and +8/+16/+25 vitality, a pool taken before hit points and gone at the
 end. One shield and one stim at a time, and one use at a time. A use runs
@@ -776,7 +789,17 @@ either game) goes at any distance: 55° up, charged to land on the target
 (`grenades::lob_strength`), meeting nothing on the way and bursting as it
 lands, as KOTOR's projectile moves to its position on a timer. A mind out of
 a fight keeps a scripted throw's charge (end_m01aa's thrower is out of combat
-by `CancelCombat`). Any other grenade bounces and bursts on its fuse. `kjk combat grenades k1`: 16 checks.
+by `CancelCombat`). Any other grenade bounces and bursts on its fuse.
+
+TSL's wrist launcher (`baseitems.2da` `itemtype` 48, Mira's `g_i_wristlaunch`), worn on a forearm,
+sets `gear::traits::WRIST_LAUNCHER`. The grenade button then fires instead of throwing: a grenade as its
+launched row (`grenades::launched`, the executable's `ConvertGrenadeSpellID`), and the rockets and darts
+(`spells.2da` 185, 190–199), which stay carried without one (`grenades::usable`). What it fires is
+`projtype` `homing` (`grenades::homing`): straight along the aim at the executable's speed for the
+distance (`grenades::homing_speed`, `rules::grenades::launched`), bursting on the first thing it meets;
+`k_sup_grenade` is cast there with the body it met as its target. The body plays TSL's `b11a3`
+(Wrist_Launch) where it has it, in place of `throwgren`; droids play their own `throwgren` (HK-47's on
+its upper body, T3-M4's whole). `kjk combat grenades k1`: 20 checks.
 
 How `kjk play` shows a throw (from the snapshots alone; the survey is the
 journal's `grenade-visuals/SURVEY.md`):
@@ -919,7 +942,13 @@ is instant.
   bodies its holder may harm (a player's as it saw them); each body
   it cuts is owed one roll of the weapon at most per move, the share its
   sweep is of `NOMINAL` (160 units) and half at least (`LEAST_SHARE`: a
-  graze still tells), delivered as one hit when the blade leaves it. Its
+  graze still tells), delivered as one hit when the blade leaves it. A
+  move of several swings (the katas, butterflies, spins and two-bladed
+  jump attacks, `sweep::several_swings`) pays each pass at most 1.5
+  blows' worth (`PASS_BLOWS` of 750 ms of its cadence) and 1.5 rolls in
+  all (`SEVERAL_BUDGET`: landed in full it beats plain swinging, for the
+  commitment), so every swing that lands pays; a blade back within
+  150 ms is the same pass. Its
   cadence is the time since its holder's last attack began, its
   move's hold at least and 750 ms at most (a first attack's; KOTOR's round
   over P): a chain's swings are a third of a second, the return and
@@ -1052,7 +1081,7 @@ played (`bolt_hits_seen`, `blade_hits_seen`).
 | a melee attack begins (a scene's swing, or JA's saber or melee move entering an attack, `grunts::swung`); a landed blow on one still standing | its sound set's attack grunt (slots 9–11) / pain grunt (12–13) at random (`grunts`), the player's own always, others one time in five, voice slot [verify: two flags of the executable's attack that skip them are not read] | with it |
 | a hit with no weapon (a script's `EffectDamage`, a power's, a blast's) on one standing | the body's damage clip once over its pose, the wield's `g<wield>d1`, a creature model's `cdamages` (`acting::Flinch`), not where JA's pain plays nor on a player's own body; no blood, sound or grunt (the executable's come at a weapon attack's `Hit` event); its spasm for electrical and dark-side damage not drawn (the event carries no type) | — |
 | a hit dealt by the player's own character, or on it | its damage in whole hit points floated red over the struck for 1.5 s (`floaty_view::Damages`), as K1's Floating Numbers | — |
-| a visual effect with `ShakeType` 2 begins (`VFX_IMP_SCREEN_SHAKE`) | the player's camera shaken from `ShakeDelay` for `ShakeDuration` (`script_fx::Shake`), `20 (1 + cos(2π r / T)) sin(2π r / 30)` degrees on pitch and yaw, each turned back or not at random [verify the size on screen]; no other shake (a gun's own shots turn the camera up a touch, below) | — |
+| a visual effect with `ShakeType` 2 begins (`VFX_IMP_SCREEN_SHAKE`) | the player's camera shaken from `ShakeDelay` for `ShakeDuration` (`script_fx::Shake`), `20π/180 (1 + cos(2π r / T)) sin(2π r / 30)` degrees on pitch and yaw (0.7° at most: the executable turns its 20 to radians, then adds it to the camera's angles in degrees), each turned back or not at random; no other shake (a gun's own shots turn the camera up a touch, below) | — |
 | a creature dies | its sound set's death line (the UTC's `SoundSetFile`, `soundset.2da`, the SSF's 16th strref, the talk table's sound), voice slot | where it falls, going with it |
 | a grenade's charge starts; it is thrown | JA's `thermal/charge`; `thermal/fire` (KOTOR's `spells.2da` names none), weapon slot | the thrower |
 | a grenade lives (every frame); half a second before it bursts | JA's `thermal/thermloop`, held; `thermal/warning` | where it is |

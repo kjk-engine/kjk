@@ -193,7 +193,14 @@ the games' own compiled scripts; nothing of them is in the repo.
   scripts compare it); `GetName` an object's (a creature's first and last
   names, another's `LocName` or `LocalizedName`), the area's `Name`, an
   item's; a player's character has none yet. `GetStringByStrRef` reads
-  the talk table (in the library's digest).
+  the talk table. The library's digest holds the lines its levels may
+  read: its conversations' lines, its items' names, and every integer its
+  scripts hold. Aspyr's Mac K1 table and the Windows one differ only in
+  lines nearly no level reads: an options screen's text, and blank lines
+  (spaces on Windows, no text on the Mac) that only the Endar Spire's
+  opening cut times. Co-op compares no `dialog.tlk` file
+  (`vfs::fingerprint::world_group`): the host's scripts decide, and a
+  player reads its own lines.
 - TSL's number globals hold a signed byte: `IncrementGlobalNumber` and
   `DecrementGlobalNumber` past −128 or 127 leave the global as it was
   (the game warns). `RemoveHeartbeat` takes an object's heartbeat away
@@ -205,9 +212,12 @@ the games' own compiled scripts; nothing of them is in the repo.
 - `ChangeToStandardFaction` sets the fighter's faction;
   `ChangeFactionByFaction` moves every non-party character of one
   faction to another (Korriban's academy turning on a spy);
-  `AdjustReputation` changes how two factions stand, both ways (a door's
-  or placeable's own `Faction` counts: Tatooine's "Sandperson Faction"
-  placeable); `GetIsDead` of no object is TRUE, as Aurora's; `CancelCombat`
+  `AdjustReputation` makes the target's faction regard the source's as
+  the source's regards the target's, moved and held to the scale as it is
+  kept (`world.factions.highest`), as both executables do (`module::adjust`; with the player it is
+  one standing both ways; a dead source, or one of the player's faction
+  or the target's, changes nothing; a door's or placeable's own `Faction`
+  counts as the source: Tatooine's "Sandperson Faction" placeable); `GetIsDead` of no object is TRUE, as Aurora's; `CancelCombat`
   leaves it with no one to fight and out of combat; `SurrenderToEnemies`
   makes the caller neutral and cancels its combat (Calo Nord's surrender
   before his detonator scene); `SetMinOneHP` sets the

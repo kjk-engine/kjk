@@ -23,7 +23,7 @@ session.workspace = true
 store.workspace = true
 sim = { workspace = true, features = ["probes"] }
 ui = { workspace = true, features = ["probes"] }
-vfs.workspace = true
+vfs = { workspace = true, features = ["probes"] }
 # The rig's timelines live in kjk's library and the weapon holdings in the
 # game's, both of which build Bevy: only with `--features rig`
 # (timeline_jolt_ceilings, weapon_holdings), never in CI.

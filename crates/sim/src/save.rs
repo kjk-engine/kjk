@@ -147,7 +147,20 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// false`: code deferred before ran as a story script's, as it did.
 /// 72: deferred code keeps its script's digest (`Delayed::code`). Old saves:
 /// old saves read `code = None`: trusted as before.
-pub const VERSION: u32 = 72 + crate::pending::SAVE;
+/// 73: a conversation carries when its camera clip began
+/// (`Conversation::clip_from_ms`). Old saves: old saves read `clip_from_ms =
+/// 0`: no camera clip playing.
+/// 74: the scripts' reputation changes are kept by the table's cell (how one
+/// faction stands to another, the player's both ways one), the standing held as
+/// it changed, not by unordered pair (`module::Adjustments`). Old saves: an old
+/// save's change of a pair becomes the same change in each of the pair's cells
+/// (`module::adjustment_cells`), so every standing reads as before; one held
+/// past an end in the old way reads at that end and the next change starts from
+/// there.
+/// 75: a script's shield effect carries its forceshields.2da row, vulnerable
+/// types and resistance (`Effect::Shield`). Old saves: an old save's shield
+/// effect reads with no look, no vulnerable types and no cap on a hit..
+pub const VERSION: u32 = 75 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

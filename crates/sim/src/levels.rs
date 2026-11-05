@@ -99,14 +99,16 @@ pub enum Unpickable {
 }
 
 /// Classes (by `classes.2da` row), what levels cost, what feats need and
-/// which power each power needs (`spells.2da` `prerequisites`).
+/// which powers each power needs (`spells.2da` `prerequisites`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Classes {
     pub classes: Vec<Class>,
     /// The XP to be level `n + 1` at `n` (`exptable.2da`).
     pub levels: Vec<i32>,
     pub needs: BTreeMap<u16, Needs>,
-    pub prerequisites: BTreeMap<u16, u16>,
+    /// The powers each power needs, one or two (`23_27`: Force Wave needs
+    /// Force Push and Force Whirlwind).
+    pub prerequisites: BTreeMap<u16, [Option<u16>; 2]>,
     /// A level's skill points are the class's and the INT modifier whole
     /// (TSL's level-up stats); else their sum over
     /// `levels::K1_POINTS_DIVISOR` (K1's, whose tables give more points).
@@ -285,6 +287,10 @@ pub struct Picks {
     pub chart: Vec<[Option<u16>; 3]>,
     /// The chart's feats the character has, with those the level grants.
     pub known: Vec<u16>,
+    /// The power chart (`Classes::power_chart`), by `spells.2da` row.
+    pub power_chart: Vec<[Option<u16>; 3]>,
+    /// The powers the character has.
+    pub known_powers: Vec<u16>,
 }
 
 /// Row `level` (from 1) of a by-level table, its last past its end; 0
@@ -470,7 +476,10 @@ impl Classes {
         }
         self.prerequisites
             .get(&power)
-            .filter(|need| !known.contains(need))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .find(|need| !known.contains(need))
             .map(|need| Unpickable::Needs(*need))
     }
 
@@ -484,6 +493,7 @@ impl Classes {
         let feats = known_feats(sheet, of, offer.class_level);
         let powers = known_powers(sheet);
         let chart = self.chart(of, &feats);
+        let power_chart = self.power_chart(of, &powers);
         let known = chart
             .iter()
             .flatten()
@@ -508,6 +518,8 @@ impl Classes {
             power_count: offer.powers,
             chart,
             known,
+            power_chart,
+            known_powers: powers,
         })
     }
 
@@ -542,16 +554,37 @@ impl Classes {
             .filter(|&&feat| {
                 class.feats.contains(&feat) || (granted(feat) && known.contains(&feat))
             })
-            .map(|&first| {
-                let after = |two: bool| {
-                    feats.iter().copied().filter(move |&feat| {
-                        let [one, other] = needs(feat);
-                        one == Some(first) && other.is_some() == two && open(feat)
-                    })
-                };
-                [Some(first), after(false).next_back(), after(true).next()]
-            })
+            .map(|&first| chain(first, &feats, needs, open))
             .collect()
+    }
+
+    /// KOTOR's power chart (`pwrlvlup`, drawn as the feat chart): `chart`'s
+    /// chains over `spells.2da`'s powers the class may ever pick and those
+    /// the character knows. A power needing one the chart has no row for
+    /// (TSL's Crush Opposition IV, after III) begins a row of its own, so
+    /// each power open to it shows.
+    pub fn power_chart(&self, class: &Class, known: &[u16]) -> Vec<[Option<u16>; 3]> {
+        let mut powers: Vec<u16> = class
+            .powers
+            .iter()
+            .map(|(_, power)| *power)
+            .chain(known.iter().copied())
+            .collect();
+        powers.sort_unstable();
+        powers.dedup();
+        let needs = |power: u16| self.prerequisites.get(&power).copied().unwrap_or([None; 2]);
+        let open = |power: u16| powers.contains(&power);
+        let mut rows: Vec<[Option<u16>; 3]> = Vec::new();
+        for pass in [true, false] {
+            for &first in &powers {
+                let placed = rows.iter().flatten().any(|cell| *cell == Some(first));
+                if placed || (pass && needs(first)[0].is_some()) {
+                    continue;
+                }
+                rows.push(chain(first, &powers, needs, open));
+            }
+        }
+        rows
     }
 
     /// The game's picks for a level of `class` (KOTOR's automatic level
@@ -856,9 +889,11 @@ impl Classes {
             out.bytes(&needs.abilities);
         }
         out.u32(self.prerequisites.len() as u32);
-        for (power, need) in &self.prerequisites {
+        for (power, needs) in &self.prerequisites {
             out.u16(*power);
-            out.u16(*need);
+            for need in needs {
+                out.u16(need.unwrap_or(u16::MAX));
+            }
         }
         // Only TSL's rules list them, so K1's classes keep their digest.
         if self.whole_skill_points {
@@ -868,6 +903,24 @@ impl Classes {
             out.string("granted powers");
         }
     }
+}
+
+/// A chart's row from `first`: after it the last of `rows` needing only it,
+/// then the first needing it and another, each `open`.
+fn chain(
+    first: u16,
+    rows: &[u16],
+    needs: impl Fn(u16) -> [Option<u16>; 2],
+    open: impl Fn(u16) -> bool,
+) -> [Option<u16>; 3] {
+    let (needs, open) = (&needs, &open);
+    let after = |two: bool| {
+        rows.iter().copied().filter(move |&row| {
+            let [one, other] = needs(row);
+            one == Some(first) && other.is_some() == two && open(row)
+        })
+    };
+    [Some(first), after(false).next_back(), after(true).next()]
 }
 
 /// The feats a sheet knows, with those the class grants at `class_level`.

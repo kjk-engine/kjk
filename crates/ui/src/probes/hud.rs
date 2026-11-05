@@ -9,10 +9,12 @@ use super::{Check, check, expect};
 use crate::draw::DrawList;
 use crate::paint::{Painter, Palette};
 use crate::screens::hud::{
-    BusyMark, SWAP, anchor, backed, busy, busy_marks, crosshair, effect_arrows, portrait_at, state,
+    BusyMark, SWAP, anchor, backed, busy, busy_marks, crosshair, effect_icons, portrait_at, state,
     swap_at, watch_at,
 };
-use crate::vm::{Busy, HudView, MemberView, RequestsView, TargetAction, TargetView, ViewModel};
+use crate::vm::{
+    Busy, EffectIcon, HudView, MemberView, RequestsView, TargetAction, TargetView, ViewModel,
+};
 
 fn at(gui: &Gui, tag: &str) -> Option<(i32, i32)> {
     gui.find(tag)
@@ -45,32 +47,40 @@ pub(super) fn swap_button() -> Vec<Check> {
     )]
 }
 
-/// KOTOR 2's effect arrows on the portraits (`effect_arrows`): stacked about
-/// their labels, the leader's 10 apart, a companion's 5 and at most 5; none
-/// on a debilitated member, whose overlay shows instead.
-pub(super) fn effect_arrows_stack() -> Vec<Check> {
-    let arrow = |tag: &str, rect: [i32; 4], fill: &str| Control {
-        border: Some(Border {
-            fill: fill.into(),
-            ..Border::default()
-        }),
-        ..button(tag, rect, b"")
-    };
+/// The effect icons on the portraits (`effect_icons`): stacked about KOTOR
+/// 2's arrow labels, two thirds of an icon apart while that fits (a companion's
+/// closing up to stay in its portrait), at most 5 on a companion, the good
+/// flush left and the bad flush right; none on a debilitated member, whose
+/// overlay shows instead.
+pub(super) fn effect_icons_stack() -> Vec<Check> {
     let gui = root(
         800,
         600,
-        vec![
-            button("LBL_CHAR1", [707, 523, 72, 72], b""),
-            arrow("LBL_CMBTEFCTINC1", [712, 550, 18, 18], "lbl_micomeff02"),
-            arrow("LBL_CMBTEFCTRED1", [756, 550, 18, 18], "lbl_micomeff01"),
-            button("LBL_CHAR2", [752, 484, 32, 32], b""),
-            arrow("LBL_CMBTEFCTINC2", [753, 495, 10, 10], "lbl_micomeff02"),
-            button("LBL_CHAR3", [752, 445, 32, 32], b""),
-            arrow("LBL_CMBTEFCTINC3", [753, 456, 10, 10], "lbl_micomeff02"),
-        ],
+        [
+            ("LBL_CHAR1", [707, 523, 72, 72]),
+            ("LBL_CMBTEFCTINC1", [712, 550, 18, 18]),
+            ("LBL_CMBTEFCTRED1", [756, 550, 18, 18]),
+            ("LBL_CHAR2", [752, 484, 32, 32]),
+            ("LBL_CMBTEFCTINC2", [753, 495, 10, 10]),
+            ("LBL_CHAR3", [752, 445, 32, 32]),
+            ("LBL_CMBTEFCTINC3", [753, 456, 10, 10]),
+        ]
+        .map(|(tag, rect)| button(tag, rect, b""))
+        .into(),
     );
-    let member = |effects: (u8, u8), debilitated: bool| MemberView {
-        effects,
+    let member = |(good, bad): (usize, usize), debilitated: bool| MemberView {
+        effects: [(good, "ip_mind", true), (bad, "ip_slow", false)]
+            .into_iter()
+            .flat_map(|(count, icon, good)| {
+                std::iter::repeat_n(
+                    EffectIcon {
+                        icon: icon.into(),
+                        good,
+                    },
+                    count,
+                )
+            })
+            .collect(),
         debilitated,
         ..MemberView::default()
     };
@@ -83,30 +93,30 @@ pub(super) fn effect_arrows_stack() -> Vec<Check> {
         ],
         ..ViewModel::default()
     };
-    let tops = |fill: &str, left: f32| {
-        effect_arrows(&gui, &vm)
+    let tops = |icon: &str, left: f32| {
+        effect_icons(&gui, &vm)
             .into_iter()
-            .filter(|arrow| arrow.fill == fill && arrow.rect[0] == left)
-            .map(|arrow| arrow.rect[1] as i32)
+            .filter(|stacked| stacked.icon == icon && stacked.rect[0] == left)
+            .map(|stacked| stacked.rect[1] as i32)
             .collect::<Vec<_>>()
     };
     let stacks = (
-        tops("lbl_micomeff02", 712.0),
-        tops("lbl_micomeff01", 756.0),
-        tops("lbl_micomeff02", 753.0),
+        tops("ip_mind", 712.0),
+        tops("ip_slow", 760.0),
+        tops("ip_mind", 753.0),
     );
     let overlay = ["LBL_DEBILATATED1", "LBL_DEBILATATED3"]
         .map(|tag| !state(&button(tag, [0, 0, 1, 1], b""), &vm).hidden);
     let labels_hidden = state(&button("LBL_CMBTEFCTINC1", [0, 0, 1, 1], b""), &vm).hidden;
     vec![check(
-        "hud_effect_arrows",
+        "hud_effect_icons",
         expect(
             &format!("stacks {stacks:?}, overlays {overlay:?}"),
             stacks
                 == (
-                    vec![540, 550, 560],
-                    vec![550],
-                    vec![487, 492, 497, 502, 507],
+                    vec![543, 552, 561],
+                    vec![552],
+                    vec![486, 491, 496, 501, 506],
                 )
                 && overlay == [false, true]
                 && labels_hidden,

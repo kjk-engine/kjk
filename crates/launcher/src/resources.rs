@@ -20,7 +20,7 @@ fn open(
             game.env_var()
         ))?
         .clone();
-    let index = DirIndex::build(&install.data_root).map_err(|error| error.to_string())?;
+    let index = DirIndex::of_install(&install).map_err(|error| error.to_string())?;
     let resolver = Resolver::open(game, &index, module, TextureQuality::High)
         .map_err(|error| error.to_string())?;
     Ok((install, resolver))
@@ -31,7 +31,7 @@ fn ja_stack(discovery: &Discovery) -> Result<(Install, vfs::ja::JaStack), String
         .get(Game::JediAcademy)
         .ok_or("ja: not found (set KJK_JA)")?
         .clone();
-    let index = DirIndex::build(&install.data_root).map_err(|error| error.to_string())?;
+    let index = DirIndex::of_install(&install).map_err(|error| error.to_string())?;
     Ok((install, vfs::ja::JaStack::open(&index)))
 }
 

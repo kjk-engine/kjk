@@ -48,7 +48,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use asset_ja::fx::Rng;
-use asset_odyssey::sound::{AreaSound, Emitter, Moves, Tables, Voice};
+use asset_odyssey::sound::{AreaSound, Emitter, Group, Moves, Tables, Voice};
 use audio::{Bed, Bus, Clip, Falloff, Stream};
 use bevy::prelude::*;
 use sim::module::ObjectKind;
@@ -63,9 +63,10 @@ use crate::sound::{Added, Beds, Cue, Cues, Forget, Hold, Loops, Sounding};
 use collision::{Contents, Extents};
 
 const UNIT: f32 = asset_ja::UNIT;
-/// The beds' gains, before the mix's own (`s_volume`).
-const MUSIC: f32 = 0.6;
-const AMBIENT: f32 = 0.8;
+/// The music's gain with no area's tables read (the menu's, the credits'):
+/// `Streams_Music`'s volume over `Non_Player_Chat`'s in both games'
+/// `prioritygroups.2da` (64 and 90), as `group_bed` gives it.
+const MENU_MUSIC_GAIN: f32 = audio::spatial::EAR_SHARE * 64.0 / 90.0;
 /// A footstep's gain; how far down the floor is looked for under a
 /// character's box origin, and how far above its soles that is (units);
 /// the speed (units a second) below which nothing steps or rolls.
@@ -82,21 +83,28 @@ const BATTLE_FADE: f64 = 1500.0;
 /// The music played through, the battle music looped, the stinger at once.
 const SONG: Bed = Bed {
     bus: Bus::Music,
-    gain: MUSIC,
+    gain: MENU_MUSIC_GAIN,
     looping: false,
     fade: FADE,
 };
 const BATTLE: Bed = Bed {
     bus: Bus::Music,
-    gain: MUSIC,
+    gain: MENU_MUSIC_GAIN,
     looping: true,
     fade: BATTLE_FADE,
 };
 const STINGER: Bed = Bed {
     bus: Bus::Music,
-    gain: MUSIC,
+    gain: MENU_MUSIC_GAIN,
     looping: false,
     fade: 0.0,
+};
+/// The area's ambience, looped.
+const AMBIENT: Bed = Bed {
+    bus: Bus::Effects,
+    gain: 0.0,
+    looping: true,
+    fade: FADE,
 };
 
 pub struct AmbiencePlugin;
@@ -450,6 +458,8 @@ struct Ambience {
     /// Sounds made, for `dump`: footsteps, doors' and containers' by file.
     steps: u64,
     moves: BTreeMap<String, u32>,
+    /// The rolling droids' and hovers' sounds held, by file.
+    rolled: BTreeSet<String>,
     rng: Option<Rng>,
     /// What plays, for `dump`, and what played last frame (each change is
     /// logged, so a run's log and trace show the tracks).
@@ -545,11 +555,19 @@ fn wanted<'a>(ambience: &mut Ambience, keep: Keep, files: impl IntoIterator<Item
     }
 }
 
-/// A KOTOR volume (0 to 127) as a gain on a curve that rises fast and
-/// levels off: 0 at 0, half at about 40 and 1 at 127, so an area's quiet
-/// ambience (a volume in the 20s or 30s) stays audible under the music.
-fn ambient_gain(volume: u8) -> f32 {
-    1.25 * (1.0 - 5f32.powf(-f32::from(volume.min(127)) / 127.0))
+/// `bed` at the executables' gain for a sound of `group` (its
+/// `prioritygroups.2da` volume) times `volume` (0 to 127), straight, as
+/// they set a streamed sound's, over a conversation's voice's group's: the
+/// voice plays at full (an unplaced cue, `EAR_SHARE` in each ear), so the
+/// music and the ambience keep the games' balance with it.
+fn group_bed(bed: Bed, tables: &Tables, group: Group, volume: u8) -> Bed {
+    let voice = tables.group_gain(Group::Conversation).max(f32::EPSILON);
+    Bed {
+        gain: audio::spatial::EAR_SHARE * tables.group_gain(group) / voice
+            * f32::from(volume.min(127))
+            / 127.0,
+        ..bed
+    }
 }
 
 /// The row a track plays: a script's day or night, else the area's.
@@ -671,8 +689,8 @@ fn play(
             blows: &blows,
             scripted: current.area_sound.battle.state,
         };
-        let repute = swap.level.module().map(|module| &module.repute);
-        let hostile = crate::battle_music::hostility(repute);
+        let standing = swap.level.module().map(|module| current.standings(module));
+        let hostile = crate::battle_music::hostility(standing);
         let battle = ambience.fight.step(&moment, hostile);
         tracks(
             ambience,
@@ -704,7 +722,7 @@ fn play(
         );
         footsteps(
             ambience,
-            &swap.level,
+            (&swap.level, &instances),
             current,
             asked,
             (&mut loops, &mut cues),
@@ -746,6 +764,7 @@ fn play(
             "scripted": ambience.scripted,
             "steps": ambience.steps,
             "moves": ambience.moves,
+            "rolled": ambience.rolled,
         }),
     );
 }
@@ -792,6 +811,13 @@ fn tracks(
         0 => tracks.ambient_day_volume,
         volume => volume - 1,
     };
+    let [song, battle_bed, stinger_bed, ambient_bed] = [
+        (SONG, Group::Music, 127),
+        (BATTLE, Group::Music, 127),
+        (STINGER, Group::Stingers, 127),
+        (AMBIENT, Group::AreaAmbient, ambient_volume),
+    ]
+    .map(|(bed, group, volume)| group_bed(bed, tables, group, volume));
     let delay = f64::from(tracks.music_delay_ms);
     let wants: Vec<String> = [&music_file, &battle_file, &ambient_file]
         .into_iter()
@@ -818,7 +844,7 @@ fn tracks(
         }
     };
     if fight && let Some(file) = &battle_file {
-        hold(ambience, "battle", file, BATTLE);
+        hold(ambience, "battle", file, battle_bed);
         ambience.song = None;
     } else if let Some((stinger, heard)) = ambience.stinger.clone() {
         // The stinger plays through, then the music begins again.
@@ -827,7 +853,7 @@ fn tracks(
             ambience.stinger = None;
         } else {
             ambience.stinger = Some((stinger.clone(), heard || sounds));
-            hold(ambience, "stinger", &stinger, STINGER);
+            hold(ambience, "stinger", &stinger, stinger_bed);
         }
     } else if scripted.music.state != sound::STOPPED
         && let Some(file) = &music_file
@@ -837,7 +863,7 @@ fn tracks(
         match ambience.song.clone() {
             Some(Song::Playing(playing)) if playing == name => {
                 if sounding.0.contains(&name) {
-                    hold(ambience, "music", file, SONG);
+                    hold(ambience, "music", file, song);
                 } else {
                     ambience.song = Some(Song::Resting(now + delay));
                 }
@@ -845,7 +871,7 @@ fn tracks(
             Some(Song::Resting(until)) if until > now => {}
             _ => {
                 ambience.song = Some(Song::Playing(name));
-                hold(ambience, "music", file, SONG);
+                hold(ambience, "music", file, song);
             }
         }
     } else {
@@ -854,17 +880,7 @@ fn tracks(
     if scripted.ambient.state != sound::STOPPED
         && let Some(file) = &ambient_file
     {
-        hold(
-            ambience,
-            "ambient",
-            file,
-            Bed {
-                bus: Bus::Effects,
-                gain: AMBIENT * ambient_gain(ambient_volume),
-                looping: true,
-                fade: FADE,
-            },
-        );
+        hold(ambience, "ambient", file, ambient_bed);
     }
 }
 
@@ -1230,7 +1246,7 @@ fn emit(
 /// executable's footsteps come from its walk and run clips' events alone.
 fn footsteps(
     ambience: &mut Ambience,
-    level: &sim::Level,
+    (level, instances): (&sim::Level, &Instances),
     current: &Snapshot,
     clip_steps: Vec<(sim::SimId, Vec3)>,
     (loops, cues): (&mut Loops, &mut Cues),
@@ -1238,18 +1254,30 @@ fn footsteps(
     let Some((area, tables)) = &ambience.area else {
         return;
     };
-    let rng = ambience.rng.get_or_insert(Rng(1));
-    let steps_of = |entity: &sim::EntityState| {
-        let row = match entity.kind {
-            Kind::Avatar(_) => PLAYER_STEPS,
-            Kind::Object(ObjectKind::Creature, index) => match area.objects.get(index as usize) {
-                Some(Voice::Steps(row)) => *row,
-                _ => PLAYER_STEPS,
-            },
-            _ => return None,
-        };
-        tables.steps(row)
+    let rows: BTreeMap<u32, u8> = current
+        .entities
+        .iter()
+        .filter_map(|entity| {
+            Some((
+                entity.id.0,
+                step_row(entity, current, instances, area, tables)?,
+            ))
+        })
+        .collect();
+    // A body the area's GIT does not hold (a companion, a script's
+    // creature) may walk with a row it did not read.
+    let files: Vec<String> = rows
+        .values()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .flat_map(|row| tables.step_files(*row).map(String::from))
+        .collect();
+    wanted(ambience, Keep::Clip, files.iter().map(String::as_str));
+    let Some((_, tables)) = &ambience.area else {
+        return;
     };
+    let rng = ambience.rng.get_or_insert(Rng(1));
+    let steps_of = |entity: &sim::EntityState| tables.steps(*rows.get(&entity.id.0)?);
     let moving = |player: &sim::motion::MotionState| {
         let [vx, vy, _] = player.velocity;
         (vx * vx + vy * vy).sqrt() >= STILL
@@ -1269,6 +1297,7 @@ fn footsteps(
         if let Some(rolling) = &steps.rolling {
             if moving && ambience.clips.contains_key(rolling) {
                 loops.0.push(Hold::at(named(rolling), origin));
+                ambience.rolled.insert(rolling.clone());
             }
             continue;
         }
@@ -1320,5 +1349,40 @@ fn footsteps(
             )
         });
         ambience.steps += 1;
+    }
+}
+
+/// The `footstepsounds.2da` row `entity` walks with: its body's appearance's
+/// (`footsteptype`), as the executable reads it for every creature, players
+/// and companions too; else, a creature of the GIT's, its placement's, and
+/// the players' soft steps.
+fn step_row(
+    entity: &sim::EntityState,
+    current: &Snapshot,
+    instances: &Instances,
+    area: &AreaSound,
+    tables: &Tables,
+) -> Option<u8> {
+    let changed = entity
+        .fighter
+        .as_ref()
+        .and_then(|fighter| fighter.look.appearance);
+    let appearance = changed.or_else(|| match entity.kind {
+        Kind::Avatar(seat) => sim::persona::dressed(current, seat).map(|(row, _)| row),
+        Kind::Object(ObjectKind::Creature, _) => {
+            Some(instances.of_entity(entity)?.body?.appearance)
+        }
+        _ => None,
+    });
+    if let Some(row) = appearance.and_then(|appearance| tables.walk(appearance)) {
+        return Some(row);
+    }
+    match entity.kind {
+        Kind::Avatar(_) => Some(PLAYER_STEPS),
+        Kind::Object(ObjectKind::Creature, index) => match area.objects.get(index as usize) {
+            Some(Voice::Steps(row)) => Some(*row),
+            _ => Some(PLAYER_STEPS),
+        },
+        _ => None,
     }
 }

@@ -2,6 +2,7 @@
 
 use super::*;
 use sim::combat::sheet::factions::{HOSTILE_1, NEUTRAL, PLAYER};
+use sim::module::Repute;
 use sim::probe::check;
 
 const ME: u32 = 1;
@@ -25,6 +26,8 @@ fn body(id: u32, x: f32, faction: u8) -> Body {
 struct Scene {
     fight: Fight,
     repute: Repute,
+    /// How scripts changed the standings (`sim::Snapshot::standing`).
+    adjusted: sim::module::Adjustments,
     bodies: Vec<Body>,
 }
 
@@ -33,6 +36,7 @@ impl Scene {
         Scene {
             fight: Fight::default(),
             repute: Repute::at_war([HOSTILE_1, PLAYER]),
+            adjusted: sim::module::Adjustments::new(),
             bodies,
         }
     }
@@ -48,7 +52,8 @@ impl Scene {
             blows: &blows,
             scripted,
         };
-        self.fight.step(&moment, hostility(Some(&self.repute)))
+        self.fight
+            .step(&moment, hostility(Some(self.repute.with(&self.adjusted))))
     }
 
     /// The flag at each of `ticks`, the blows given at their ticks.
@@ -118,6 +123,21 @@ pub(super) fn checks() -> sim::probe::Checks {
         "a bystander struck with a foe 25 m off: on",
         Scene::new(party(25.0)).run(&[3], &[(2, BYSTANDER, ME)], &[]),
         &[true],
+    );
+    // A foe's faction a script made peaceable (Tatooine's Sand People with
+    // the party in their robes): its nearness starts nothing.
+    let mut at_peace = Scene::new(party(25.0));
+    sim::module::adjust(
+        &at_peace.repute,
+        &mut at_peace.adjusted,
+        PLAYER,
+        HOSTILE_1,
+        50,
+    );
+    case(
+        "a bystander struck with a foe made peaceable 25 m off: none",
+        at_peace.run(&[3], &[(2, BYSTANDER, ME)], &[]),
+        &[false],
     );
     // A foe strikes Carth 3 m from the player: the party's blow stirs it.
     case(

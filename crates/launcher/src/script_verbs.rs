@@ -36,7 +36,7 @@ pub(crate) fn open(
         game.key(),
         game.env_var()
     ))?;
-    let index = DirIndex::build(&install.data_root).map_err(|error| error.to_string())?;
+    let index = DirIndex::of_install(install).map_err(|error| error.to_string())?;
     let resolver =
         Resolver::base(game, &index, TextureQuality::High).map_err(|error| error.to_string())?;
     Ok((game, index, resolver))
@@ -736,6 +736,13 @@ pub fn coverage(discovery: &Discovery, game: &str, module: &str, options: &Cover
             library.bound(),
             library.routines().catalog().routines.len()
         );
+        // What a save stamps and another machine's must equal (its parts
+        // say which data differs).
+        let digest: String = level.digest()[..8]
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        outln!("  level {digest}: {}", level.digest_parts());
         let ticks = seconds * u64::from(sim::TICK_HZ);
         let report = world.script_report();
         let state = world.script_state();

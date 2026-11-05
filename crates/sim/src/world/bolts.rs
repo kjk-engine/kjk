@@ -100,7 +100,7 @@ pub(super) fn fly(
                 now,
                 clock.msec,
             );
-            if let Some(at) = burst {
+            if let Some((at, struck)) = burst {
                 // A grenade whose row has an impact script (`k_sup_grenade`)
                 // is cast where it bursts, its script deciding whom it
                 // catches and what it does to them; else the native blast.
@@ -124,7 +124,14 @@ pub(super) fn fly(
                         casts.0.push(crate::script::Cast {
                             caster: script_ncs::vm::ObjectId(bolt.owner.0),
                             row,
-                            target: script_ncs::vm::ObjectId::INVALID,
+                            // A launched shot's target is the body it met
+                            // (`k_sup_grenade`'s rockets and darts strike
+                            // it); a thrown grenade's, none.
+                            target: struck
+                                .filter(|_| grenades::homing(row))
+                                .map_or(script_ncs::vm::ObjectId::INVALID, |id| {
+                                    script_ncs::vm::ObjectId(id.0)
+                                }),
                             at: scale(at, UNIT),
                             caught: caught_by_blast(&level.0, states, &chests, at)
                                 .into_iter()
@@ -381,8 +388,9 @@ pub(super) fn bolt_source(bolt: &Missile) -> Source {
 
 /// A grenade's step (`combat::grenades`): traced from where it was to
 /// where it is against the level and the bodies its owner's shots meet; a
-/// body bursts it there, a surface bounces it (or it comes to rest), and
-/// its fuse's end bursts it where it is. Where it bursts, if it does.
+/// body bursts it there, a surface bounces it (or it comes to rest; a
+/// homing one, `grenades::homing`, bursts there too), and its fuse's end
+/// bursts it where it is. Where it bursts, if it does, and the body it met.
 pub(super) fn lob(
     level: &Level,
     states: Option<&[u8]>,
@@ -390,7 +398,7 @@ pub(super) fn lob(
     bodies: &[Body],
     now: u64,
     msec: u32,
-) -> Option<[f32; 3]> {
+) -> Option<([f32; 3], Option<SimId>)> {
     let resting = bolt.lob.is_some_and(|lob| lob.resting);
     // A scene's flies to where it was thrown, as KOTOR's projectile moves to
     // its position on a timer (`CSWCProjectile::MoveProjectileToPosition`
@@ -408,8 +416,12 @@ pub(super) fn lob(
                 .trace(scale(from, UNIT), scale(to, UNIT), &extents, SHOT)
         });
         let at = scale(met.end, 1.0 / UNIT);
-        if met.entity.is_some_and(|entity| entity & BODY != 0) {
-            return Some(at);
+        if let Some(entity) = met.entity.filter(|entity| entity & BODY != 0) {
+            return Some((at, Some(SimId(entity & !BODY))));
+        }
+        let homing = bolt.lob.is_some_and(|lob| grenades::homing(lob.row));
+        if met.hit() && homing {
+            return Some((at, None));
         }
         if met.hit() {
             // Off the surface a little, so the next trace starts clear.
@@ -423,7 +435,7 @@ pub(super) fn lob(
             }
         }
     }
-    (now >= bolt.until_ms).then(|| bolt.at(now))
+    (now >= bolt.until_ms).then(|| (bolt.at(now), None))
 }
 
 /// A grenade's blast at `at`: a hit on every living character whose chest

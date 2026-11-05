@@ -24,7 +24,7 @@ pub fn stack(discovery: &Discovery) -> Result<JaStack, String> {
         "ja: not found (set {})",
         Game::JediAcademy.env_var()
     ))?;
-    let index = DirIndex::build(&install.data_root).map_err(|error| error.to_string())?;
+    let index = DirIndex::of_install(install).map_err(|error| error.to_string())?;
     Ok(JaStack::open(&index))
 }
 

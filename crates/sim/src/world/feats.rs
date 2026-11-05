@@ -26,7 +26,7 @@ use crate::combat::sheet::{Ability, Rows, Sheet, Weapon, damage_types, feats, sk
 use crate::combat::{Location, grenades};
 use crate::input::Seat;
 use crate::inventory::{Catalog, ItemFacts, PARTY, slots};
-use crate::levels::{Career, Choices, Class, Classes, Needs, SKILLS};
+use crate::levels::{Career, Choices, Class, Classes, Needs, SKILLS, Unpickable};
 use crate::module::{ObjectKind, Placement};
 use crate::notice::Notice;
 use crate::probe::{Checks, check};
@@ -535,6 +535,7 @@ fn rules() -> Checks {
         reduction(),
         levels(),
         chart(),
+        power_chart(),
     ]
 }
 
@@ -637,6 +638,49 @@ fn chart() -> (&'static str, Result<String, String>) {
         check(
             made == expected && known == Some(vec![5, 28]),
             format!("{made:?}, known {known:?}"),
+        ),
+    )
+}
+
+/// KOTOR's power chart (`Classes::power_chart`) on `spells.2da`'s rows:
+/// Push, Whirlwind (needing Push) and Wave (needing both) a row, Wound,
+/// Choke and Kill another; TSL's Crush Opposition I-III a row and IV-VI,
+/// whose IV needs III, one of their own. Wave asks for Whirlwind as well
+/// as Push (`why_not_power`).
+fn power_chart() -> (&'static str, Result<String, String>) {
+    let mut classes = classes(vec![class(&[], &[])]);
+    let chains = [
+        (27, [23, 0]),
+        (26, [23, 27]),
+        (9, [50, 0]),
+        (32, [50, 9]),
+        (145, [144, 0]),
+        (146, [144, 145]),
+        (147, [146, 0]),
+        (148, [147, 0]),
+        (149, [147, 148]),
+    ];
+    for (power, needs) in chains {
+        let needs = needs.map(|need| (need != 0).then_some(need));
+        classes.prerequisites.insert(power, needs);
+    }
+    let powers = [23, 27, 26, 50, 9, 32, 144, 145, 146, 147, 148, 149];
+    classes.classes[0].powers = powers.iter().map(|power| (1, *power)).collect();
+    let class = &classes.classes[0];
+    let made = classes.power_chart(class, &[]);
+    let row = |powers: [u16; 3]| powers.map(Some);
+    let expected = vec![
+        row([23, 27, 26]),
+        row([50, 9, 32]),
+        row([144, 145, 146]),
+        row([147, 148, 149]),
+    ];
+    let wave = classes.why_not_power(class, 26, &[23], 1);
+    (
+        "power_chart",
+        check(
+            made == expected && wave == Some(Unpickable::Needs(27)),
+            format!("{made:?}, Wave after Push alone: {wave:?}"),
         ),
     )
 }

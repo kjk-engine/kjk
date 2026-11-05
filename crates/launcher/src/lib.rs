@@ -822,7 +822,7 @@ fn fingerprint(discovery: &vfs::Discovery, game: Option<&str>, no_cache: bool) -
         };
         let started = std::time::Instant::now();
         let cache = fingerprint_cache(game);
-        let result = DirIndex::build(&install.data_root).and_then(|index| {
+        let result = DirIndex::of_install(install).and_then(|index| {
             vfs::fingerprint::fingerprint(game, &index, (!no_cache).then_some(cache.as_path()))
         });
         match result {
@@ -870,9 +870,15 @@ fn games() -> ExitCode {
         outln!("    store: {:?}", install.store);
         outln!("    data root: {}", install.data_root.display());
         outln!("    markers: {}", install.markers.join(" "));
-        match DirIndex::build(&install.data_root) {
+        if let Some(note) = install.workshop_note() {
+            outln!("    workshop: {note}");
+        }
+        match DirIndex::of_install(install) {
             Ok(index) => {
                 outln!("    files: {}", index.len());
+                for item in index.workshop() {
+                    outln!("    {}: {} files", item.label(), item.files.len());
+                }
                 for collision in index.collisions() {
                     outln!(
                         "    case collision: {} (kept {}, ignored {})",

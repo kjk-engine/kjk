@@ -83,7 +83,7 @@ fn opened(found: &vfs::Install) -> Result<Arc<Install>, String> {
         return Ok(install.clone());
     }
     let started = Instant::now();
-    let index = DirIndex::build(&found.data_root).map_err(|error| error.to_string())?;
+    let index = DirIndex::of_install(found).map_err(|error| error.to_string())?;
     let install = Arc::new(Install {
         game: found.game,
         index: Arc::new(index),
@@ -100,6 +100,9 @@ fn opened(found: &vfs::Install) -> Result<Arc<Install>, String> {
 /// resolver (the game played), ready when first asked for.
 pub fn warm(discovery: &Discovery) {
     for found in &discovery.installs {
+        if let Some(note) = found.workshop_note() {
+            bevy::log::warn!(target: "installs", game = found.game.key(), "{note}");
+        }
         let found = found.clone();
         std::thread::spawn(move || {
             if let Ok(install) = opened(&found) {

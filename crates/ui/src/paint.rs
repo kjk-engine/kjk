@@ -796,6 +796,21 @@ impl<'a> Painter<'a> {
         let shown = match (view.fit, view.roll) {
             // Rising rows are cut where they leave the list.
             (true, Some(_)) => view.rows.len(),
+            // Read words, scrolled by lines (`offset` into the first): from
+            // the first, every row that starts inside the list, cut at its
+            // foot.
+            (true, None) if !view.pick => {
+                let mut above = -view.offset;
+                let starting = view.rows[first.min(view.rows.len())..]
+                    .iter()
+                    .take_while(|row| {
+                        let starts = above < room;
+                        above += each(row) + list.padding;
+                        starts
+                    })
+                    .count();
+                starting.max(1)
+            }
             // From the first, the rows whole in the list (at least that one).
             (true, None) => {
                 let mut used = 0;
@@ -847,7 +862,29 @@ impl<'a> Painter<'a> {
             }
         }
         if let Some(bar) = list.scrollbar.as_deref() {
-            self.scrollbar(bar, view.rows.len(), shown, view.first, out);
+            if view.fit && !view.pick && view.roll.is_none() {
+                // Read words: the bar measures them in layout pixels.
+                let heights: Vec<i32> = view
+                    .rows
+                    .iter()
+                    .map(|row| {
+                        row_height(&mut *self.textures, self.source, proto, true, &row.text)
+                            + list.padding
+                    })
+                    .collect();
+                let total = (heights.iter().sum::<i32>() - list.padding).max(0);
+                let above: i32 = heights.iter().take(first).sum::<i32>() + view.offset;
+                let last = (total - room).max(0);
+                self.scrollbar(
+                    bar,
+                    total as usize,
+                    room.max(0) as usize,
+                    above.clamp(0, last) as usize,
+                    out,
+                );
+            } else {
+                self.scrollbar(bar, view.rows.len(), shown, view.first, out);
+            }
         }
     }
 
@@ -1142,8 +1179,9 @@ fn intersect(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
 }
 
 /// How tall a list's row is: its prototype's height, and in a fitted list
-/// at least its words wrapped to the prototype's width (as drawn and as the
-/// pointer finds rows).
+/// at least its words wrapped within the prototype's border, as they are
+/// drawn (`inner`), and that border (as drawn and as the pointer finds
+/// rows).
 pub fn row_height(
     textures: &mut dyn Textures,
     source: Source,
@@ -1159,8 +1197,14 @@ pub fn row_height(
     else {
         return height;
     };
-    let lines = wrap(&font, text, proto.extent.width as f32).len();
-    height.max((lines as f32 * font.line_height()).ceil() as i32)
+    let rect = rect_of(proto);
+    let [_, _, width, inner_height] = proto
+        .border
+        .as_ref()
+        .map_or(rect, |border| inner(rect, border));
+    let lines = wrap(&font, text, width).len();
+    let frame = rect[3] - inner_height;
+    height.max((lines as f32 * font.line_height() + frame).ceil() as i32)
 }
 
 /// `bytes` broken into lines no wider than `width`: on new lines, on

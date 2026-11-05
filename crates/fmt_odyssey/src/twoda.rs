@@ -105,18 +105,11 @@ impl TwoDa {
         let table = bytes
             .get(at..offsets_end + 2)
             .ok_or(truncated(offsets_end + 2, bytes.len()))?;
-        let data_size =
-            u16::from_le_bytes([table[cell_count * 2], table[cell_count * 2 + 1]]) as usize;
-        let data_at = offsets_end + 2;
-        let data = bytes
-            .get(data_at..data_at + data_size)
-            .ok_or(truncated(data_at + data_size, bytes.len()))?;
-        if data_at + data_size != bytes.len() {
-            return Err(unsupported(format!(
-                "{} bytes after the cell data",
-                bytes.len() - data_at - data_size
-            )));
-        }
+        // The stored size of the cell data is not read: the games and reone
+        // take each cell by its offset, and mod tools write 0 there (High
+        // Quality Blasters' baseitems.2da). The cells run to the file's end.
+        let data = &bytes[offsets_end + 2..];
+        let data_size = data.len();
         let mut cells = Vec::with_capacity(rows);
         for row in 0..rows {
             let mut values = Vec::with_capacity(columns.len());

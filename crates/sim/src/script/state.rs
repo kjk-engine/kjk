@@ -443,8 +443,9 @@ impl Galaxy {
         self.available.contains(&planet) && self.selectable.contains(&planet)
     }
 
-    /// The map `ShowGalaxyMap` opens on `planet`, as the screen shows it.
-    pub fn shown(&self, planet: u8) -> crate::notice::Screen {
+    /// The map `ShowGalaxyMap` opens on `planet` (or none), as the screen
+    /// shows it.
+    pub fn shown(&self, planet: Option<u8>) -> crate::notice::Screen {
         let bits = |planets: &BTreeSet<u8>| {
             planets
                 .iter()
@@ -1177,9 +1178,16 @@ impl State {
             state.intents.insert(id, intent);
         }
         state.watch = Watch::decode(input)?;
+        let by_cell = input.since(crate::since::save::REPUTATION_HELD);
         for _ in 0..input.u32()? {
-            let pair = (input.u8()?, input.u8()?);
-            state.reputation.insert(pair, input.u16()? as i16);
+            let (a, b, by) = (input.u8()?, input.u8()?, input.u16()? as i16);
+            if by_cell {
+                state.reputation.insert((a, b), by);
+            } else {
+                state
+                    .reputation
+                    .extend(crate::module::adjustment_cells(a, b, by));
+            }
         }
         for _ in 0..input.u32()? {
             let id = input.u32()?;

@@ -934,7 +934,7 @@ fn swing(m: &mut Maker, r: &mut Record) {
         }
         r.i(&key("now"), now);
         for c in swing.contacts.iter().flatten() {
-            r.d(&format!("{k}.share{}", c.victim.0), &c.due_share());
+            r.d(&format!("{k}.share{}", c.victim.0), &swing.due_share(c));
         }
     }
     r.d("swing", &swing);

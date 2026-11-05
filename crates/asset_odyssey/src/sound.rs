@@ -64,8 +64,19 @@ pub struct Steps {
     pub pitch: f32,
 }
 
+/// A `prioritygroups.2da` row: the executables' kinds of sound, each
+/// played at its row's volume (out of 127) on top of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Group {
+    Stingers = 1,
+    Music = 2,
+    AreaAmbient = 4,
+    Conversation = 9,
+}
+
 /// The rows of `ambientmusic.2da` and `ambientsound.2da`: each one's file
-/// (and the battle music's stingers); the footsteps' tables.
+/// (and the battle music's stingers); the footsteps' tables; the priority
+/// groups' volumes.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Tables {
     music: Vec<(Option<String>, Vec<String>)>,
@@ -74,6 +85,10 @@ pub struct Tables {
     /// (a `FLOORS` index).
     steps: Vec<Steps>,
     floors: Vec<Option<usize>>,
+    /// Each `appearance.2da` row's footstep row (`footsteptype`).
+    walks: Vec<Option<u8>>,
+    /// `prioritygroups.2da`'s `volume_pc` (TSL) or `volume` (K1) by row.
+    groups: Vec<Option<u8>>,
 }
 
 impl Tables {
@@ -141,17 +156,48 @@ impl Tables {
                 })
                 .collect()
         });
+        let walks = table("appearance").map_or_else(Vec::new, |table| {
+            (0..table.cells.len())
+                .map(|row| {
+                    let walk = table.int(row, "footsteptype")?;
+                    u8::try_from(walk).ok()
+                })
+                .collect()
+        });
+        let groups = table("prioritygroups").map_or_else(Vec::new, |table| {
+            let column = ["volume_pc", "volume"]
+                .into_iter()
+                .find(|column| table.column(column).is_some());
+            (0..table.cells.len())
+                .map(|row| u8::try_from(table.int(row, column?)?).ok())
+                .collect()
+        });
         Tables {
             music,
             ambient,
             steps,
             floors,
+            walks,
+            groups,
         }
+    }
+
+    /// The executables' gain for a sound of `group`: its row's volume over
+    /// 127 (full where the table has none).
+    pub fn group_gain(&self, group: Group) -> f32 {
+        let volume = self.groups.get(group as usize).copied().flatten();
+        f32::from(volume.unwrap_or(127).min(127)) / 127.0
     }
 
     /// Footstep row `row`.
     pub fn steps(&self, row: u8) -> Option<&Steps> {
         self.steps.get(usize::from(row))
+    }
+
+    /// The footstep row a body of `appearance.2da` row `appearance` walks
+    /// with.
+    pub fn walk(&self, appearance: u16) -> Option<u8> {
+        self.walks.get(usize::from(appearance)).copied().flatten()
     }
 
     /// A step's three sounds on a floor of `surfacemat.2da` row `material`

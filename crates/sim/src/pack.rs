@@ -40,7 +40,12 @@ const MAGIC: &[u8; 4] = b"KJKT";
 /// 22: a creature template's body carries where its model is drawn
 /// (`module::Body::bulk`). Old saves: old saves read no bulk: a companion
 /// template kept in a save is met by JA's box, as every body was.
-pub const VERSION: u32 = 22 + crate::pending::PACK;
+/// 23: an item's kinds byte carries a wrist launcher (bit 4,
+/// `ItemFacts::launcher`: `baseitems.2da` `itemtype` 48). Old saves: an old
+/// pack's kinds byte reads as before, its items no launchers (bit 4 clear);
+/// packs are built again from the install once the version moves, so Mira's
+/// launcher is read then..
+pub const VERSION: u32 = 23 + crate::pending::PACK;
 
 /// The oldest version read in a save's companions' templates: v0.1.0's
 /// (`crate::since::pack`, `bumps/README.md`).
@@ -152,7 +157,9 @@ pub(crate) fn encode_item(facts: &ItemFacts, out: &mut Writer) {
     encode_list(&facts.recolours, out, |template, out| out.string(template));
     encode_list(&facts.needs, out, |feat, out| out.u16(*feat));
     out.u8(facts.trap.unwrap_or(u8::MAX));
-    out.u8(u8::from(facts.stealth_unit) | u8::from(facts.shield) << 1);
+    out.u8(u8::from(facts.stealth_unit)
+        | u8::from(facts.shield) << 1
+        | u8::from(facts.launcher) << 2);
 }
 
 pub(crate) fn decode_item(input: &mut Reader) -> Result<ItemFacts, DecodeError> {
@@ -219,10 +226,12 @@ pub(crate) fn decode_item(input: &mut Reader) -> Result<ItemFacts, DecodeError> 
         trap: Some(input.u8()?).filter(|row| *row != u8::MAX),
         stealth_unit: false,
         shield: false,
+        launcher: false,
     };
     let kinds = input.u8()?;
     facts.stealth_unit = kinds & 1 != 0;
     facts.shield = kinds & 2 != 0;
+    facts.launcher = kinds & 4 != 0;
     Ok(facts.made())
 }
 

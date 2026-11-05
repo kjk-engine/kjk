@@ -25,7 +25,7 @@ pub fn run(
         eprintln!("{}: not found (set {})", game.key(), game.env_var());
         return ExitCode::FAILURE;
     };
-    let resolver = match DirIndex::build(&install.data_root)
+    let resolver = match DirIndex::of_install(install)
         .map_err(|error| error.to_string())
         .and_then(|index| {
             Resolver::open(game, &index, module, TextureQuality::High).map_err(|e| e.to_string())

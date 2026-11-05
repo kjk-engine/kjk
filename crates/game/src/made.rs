@@ -35,11 +35,10 @@
 //! laid, is drawn the same way: its `traps.2da` row's model at the trap's
 //! middle, posed as its `detect` clip ends (`viewer::held`: the dome over
 //! its trigger raised and lit, the model's own red for a trap hostile to
-//! the party, green for the party's own). The dome is additive, which the
-//! Odyssey material draws unlit, its self-illumination unused; the games
-//! key that colour on it (red detected, blue disarmed), so a mine's meshes
-//! are tinted by their own self-illumination once they stand
-//! (`tint_mines`). The stealth field's
+//! the party, green for the party's own). The games key that colour on its
+//! self-illumination (red detected, blue disarmed); an added mesh takes it
+//! as its colour (`material::OdysseyMaterial::new`), and every self-lit
+//! mesh of a mine is tinted by it once it stands (`tint_mines`). The stealth field's
 //! texture (`VFX_DUR_STEALTH_FIELD`'s glow, `script_fx::lasting_glow`) is
 //! read here once for the stealth shell (`stealth_view`).
 //!
@@ -1315,8 +1314,8 @@ fn track_mines(
             // faction.
             let laid = sim::traps::laid_row(&facts.template).is_some();
             let hostile = !laid
-                && module
-                    .repute
+                && snapshot
+                    .standings(module)
                     .hostile(facts.faction, sim::combat::sheet::factions::PLAYER);
             let at = sim::traps::centre(&facts.geometry, entity.position);
             Some((index, (row.model.clone(), at, !hostile)))

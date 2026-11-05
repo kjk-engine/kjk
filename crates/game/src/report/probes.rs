@@ -42,21 +42,23 @@ fn filled_in() -> Result<String, String> {
         host: "box".into(),
     };
     let note = format!("Sword shows as a pistol & more\nsaved in {home}/saves");
-    let url = issue_url(&note, "0.1.0 (abc)", "kjk-report-1.zip", &me);
+    let url = issue_url(&note, "0.1.0 (abc)", &me);
     let wanted = [
-        "template=bug.yml",
+        "template=bug.md",
         "&title=Sword%20shows%20as%20a%20pistol%20%26%20more&",
-        "&version=0.1.0%20%28abc%29&",
-        "&report=kjk-report-1.zip",
+        "%2A%2Akjk%20version%3A%2A%2A%200.1.0%20%28abc%29",
+        "-%20%5Bx%5D%20Report%20zip%20attached",
     ];
-    let long = issue_url(&"é".repeat(9000), "v", "r", &me);
+    let long = issue_url(&"é".repeat(9000), "v", &me);
+    let empty = issue_url("", "v", &me);
     check(
         wanted.iter().all(|part| url.contains(part))
-            && url.contains("&happened=")
+            && url.contains("&body=")
+            && url.contains("Sword%20shows")
             && !url.contains("%C3%85sa")
             && long.len() < 8000
-            && issue_url("", "v", "r", &me).contains("&version=v&report=r")
-            && !issue_url("", "v", "r", &me).contains("title="),
+            && empty.contains("&body=")
+            && !empty.contains("title="),
         format!("{url} ({} bytes for a long note)", long.len()),
     )
 }

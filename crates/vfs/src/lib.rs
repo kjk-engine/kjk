@@ -7,10 +7,15 @@ mod dir_index;
 mod discover;
 pub mod fingerprint;
 pub mod ja;
+#[cfg(feature = "probes")]
+pub mod probes;
 pub mod resolver;
 
-pub use dir_index::{CaseCollision, DirIndex};
-pub use discover::{Discovery, Install, Refusal, Source, Store, discover, install_at};
+pub use dir_index::{CaseCollision, DirIndex, FileCopy, WorkshopFolder};
+pub use discover::{
+    Discovery, Install, MAX_WORKSHOP_ITEMS, Refusal, Source, Store, WORKSHOP_VAR, WorkshopItem,
+    WorkshopItems, discover, install_at,
+};
 
 /// Whether a lowercased file name is the metadata a file browser leaves in
 /// any folder it shows (Finder's, Explorer's): never a game's data.
@@ -35,6 +40,21 @@ impl Game {
             Game::Kotor2 => "KJK_KOTOR2",
             Game::JediAcademy => "KJK_JA",
         }
+    }
+
+    /// The game's Steam app id: the name of its Workshop content folder.
+    pub fn steam_app_id(self) -> u32 {
+        match self {
+            Game::Kotor1 => 32370,
+            Game::Kotor2 => 208580,
+            Game::JediAcademy => 6020,
+        }
+    }
+
+    /// Whether the game's executable loads the Steam Workshop items it is
+    /// subscribed to: TSL's does (`LoadSteamMods`); K1's has no Workshop.
+    pub fn reads_workshop(self) -> bool {
+        self == Game::Kotor2
     }
 
     /// Short name used on the command line.

@@ -1010,12 +1010,13 @@ impl Engine<'_> {
         self.view.thing(id)?.character
     }
 
-    /// `id`'s standard faction: a character's; a laid mine's, its layer's
+    /// `id`'s standard faction: a character's, as this step's scripts leave
+    /// it (`Out::faction`); a laid mine's, its layer's
     /// (`TrapState::faction`); else a door's, placeable's or trap's as its
     /// data sets it (Tatooine's "Sandperson Faction" placeable).
     fn faction(&self, id: ObjectId) -> Option<u8> {
-        self.character(id)
-            .map(|c| c.faction)
+        self.out
+            .faction(self.view, id)
             .or_else(|| self.state.traps.get(&id.0).and_then(|kept| kept.faction))
             .or_else(|| {
                 self.instance(id)
@@ -1257,6 +1258,25 @@ impl Engine<'_> {
                 }
                 Effect::Visual { row: None, .. } => {}
                 Effect::Visual { .. } => carried.push(leaf.clone()),
+                // A shield brings its look (the executable's
+                // `EffectForceShield` apply: the row's visual for the body's
+                // appearance), sharing its id and time.
+                Effect::Shield { row, .. } => {
+                    let look = (self.library.shield(usize::from(*row)))
+                        .and_then(|shield| shield.visual_on(self.view.appearance(target)))
+                        .map(|row| Effect::Visual {
+                            row: Some(row),
+                            from: None,
+                            part: 0,
+                        });
+                    let into = if until.is_some() {
+                        &mut carried
+                    } else {
+                        &mut kept
+                    };
+                    into.push(leaf.clone());
+                    into.extend(look);
+                }
                 _ if at_once || (lasting && until.is_some()) => carried.push(leaf.clone()),
                 _ if lasting => kept.push(leaf.clone()),
                 _ => {
@@ -2257,28 +2277,38 @@ impl Engine<'_> {
             // −1 unless both are characters (only they have factions here).
             GetReputation => {
                 let (source, target) = (
-                    self.character(object(args, 0)),
-                    self.character(object(args, 1)),
+                    self.out.faction(view, object(args, 0)),
+                    self.out.faction(view, object(args, 1)),
                 );
                 let repute = view.module.repute.with(&self.state.reputation);
-                Value::Int(source.zip(target).map_or(-1, |(source, target)| {
-                    i32::from(repute.of(source.faction, target.faction))
-                }))
+                Value::Int(
+                    source
+                        .zip(target)
+                        .map_or(-1, |(source, target)| i32::from(repute.of(source, target))),
+                )
             }
-            // How the source's faction and the target's stand changed, both
-            // ways (`module::Adjustments`): Tatooine's Sand People made
-            // peaceable by one in their robes, hostile again without.
+            // How the target's faction comes to regard the source's
+            // (`module::adjust`, held to the scale as it is kept): Tatooine's
+            // Sand People made peaceable by one in their robes, hostile
+            // again without. The target is a character; a dead character
+            // as the source changes nothing.
             AdjustReputation => {
-                if let (Some(target), Some(source)) =
-                    (self.faction(object(args, 0)), self.faction(object(args, 1)))
-                {
-                    let by = int(args, 2).clamp(-100, 100) as i16;
-                    let pair = crate::module::pair(source, target);
-                    let now = self.state.reputation.entry(pair).or_insert(0);
-                    *now = (*now + by).clamp(-100, 100);
-                    if *now == 0 {
-                        self.state.reputation.remove(&pair);
-                    }
+                let (target, source) = (object(args, 0), object(args, 1));
+                let dead_source = view
+                    .thing(source)
+                    .is_some_and(|thing| thing.character.is_some() && thing.dead());
+                if let (Some(target), Some(source), false) = (
+                    self.out.faction(view, target),
+                    self.faction(source),
+                    dead_source,
+                ) {
+                    crate::module::adjust(
+                        &view.module.repute,
+                        &mut self.state.reputation,
+                        target,
+                        source,
+                        int(args, 2),
+                    );
                 }
                 Value::Int(0)
             }
@@ -3044,9 +3074,8 @@ impl Engine<'_> {
                     (u8::try_from(int(args, 0)), u8::try_from(int(args, 1)))
                 {
                     for thing in view.things {
-                        if thing
-                            .character
-                            .is_some_and(|c| !c.party && c.faction == from)
+                        if thing.character.is_some_and(|c| !c.party)
+                            && self.out.faction(view, thing.id) == Some(from)
                         {
                             self.out.changes.push(Change::Faction {
                                 who: thing.id,
@@ -3368,10 +3397,13 @@ impl Engine<'_> {
             // An energy shield: its `forceshields.2da` row's numbers.
             EffectForceShield => {
                 let row = usize::try_from(int(args, 0)).ok();
-                match row.and_then(|row| self.library.shield(row)) {
-                    Some(shield) => self.effect_value(Effect::Shield {
+                match row.and_then(|row| Some((row, self.library.shield(row)?))) {
+                    Some((row, shield)) => self.effect_value(Effect::Shield {
+                        row: row as u16,
                         types: shield.types,
                         points: shield.points,
+                        vulnerable: shield.vulnerable,
+                        resist: shield.resist,
                     }),
                     None => self.effect_value(Effect::Other("EffectForceShield".into())),
                 }
@@ -4660,10 +4692,8 @@ impl Engine<'_> {
                     (u8::try_from(int(args, 0)), u8::try_from(int(args, 1)))
                 {
                     for thing in view.things {
-                        if thing
-                            .character
-                            .as_ref()
-                            .is_some_and(|c| !c.party && c.faction == from)
+                        if thing.character.as_ref().is_some_and(|c| !c.party)
+                            && self.out.faction(view, thing.id) == Some(from)
                         {
                             self.out.changes.push(Change::Faction {
                                 who: thing.id,
@@ -4846,14 +4876,13 @@ impl Engine<'_> {
             }
             ShowLevelUpGUI => self.tell(None, Notice::Show(Screen::LevelUp)),
             // The galaxy map (`script::state::Galaxy`): the planets scripts
-            // offer, and the one a player picked to travel to.
-            ShowGalaxyMap => match u8::try_from(int(args, 0)) {
-                Ok(planet) => {
-                    let shown = self.state.galaxy.shown(planet);
-                    self.tell(None, Notice::Show(shown))
-                }
-                Err(_) => Value::Int(0),
-            },
+            // offer, and the one a player picked to travel to. A planet no
+            // row can be still opens it, on none (`Screen::GalaxyMap`).
+            ShowGalaxyMap => {
+                let planet = u8::try_from(int(args, 0)).ok();
+                let shown = self.state.galaxy.shown(planet);
+                self.tell(None, Notice::Show(shown))
+            }
             SetPlanetSelectable | SetPlanetAvailable => {
                 if let Ok(planet) = u8::try_from(int(args, 0)) {
                     let galaxy = &mut self.state.galaxy;
@@ -5391,9 +5420,13 @@ impl Engine<'_> {
                     // the destroy event over for one not destroyable
                     // (506OND's `a_end_game` destroys Tobin's body, then
                     // raises him for Kreia's scene) [verify in K1's exe].
+                    let ms = seconds_ms(float(args, 1));
+                    if ms == 0 {
+                        self.out.destroyed.push(item);
+                    }
                     self.out.changes.push(Change::Destroy {
                         who: item,
-                        ms: seconds_ms(float(args, 1)),
+                        ms,
                         going: destroy_going(thing.kind, int(args, 2) != 0, float(args, 3)),
                     });
                 }

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f1d7366c4e07cfeb`.
+Edition `b72f5a5be1ca8e7d`.
 
 ## Contents
 
@@ -79,6 +79,7 @@ Edition `f1d7366c4e07cfeb`.
   - [CryoBan Grenade](#grenades-cryoban)
   - [Plasma Grenade](#grenades-fire)
   - [Ion Grenade](#grenades-ion)
+  - [Wrist Launcher](#grenades-launched)
 - [Lightsabers and Melee Weapons](#sabers)
   - [Saber Frame](#sabers-ja)
   - [Blades](#sabers-blades)
@@ -1583,6 +1584,12 @@ Duration: 200 seconds, unless spent.
 
 <sub>Source: the items' descriptions. Code: `sim::combat::items::SHIELD_MS`.</sub>
 
+<a id="items-shields-vulnerable-drain"></a>**Shield Weakness** = **×2** · `items.shields.vulnerable_drain`
+
+Damage of a type a shield is weak to (ion, for every shield) spends its points ×2 times as fast. A shield takes at most its row's resistance of one hit; the hit that breaks it passes on what the shield had no points left for.
+
+<sub>Source: K1's executable (the damage resistance `EffectForceShield` applies, `forceshields.2da` `vulnerflags`, `resistance`). Code: `sim::combat::items::absorb`.</sub>
+
 <a id="items-shields-energy"></a>**Energy Shield** = **20 points** · `items.shields.energy`
 
 An energy shield absorbs 20 points.
@@ -2103,6 +2110,37 @@ Damage: Ion, 45pts against droids.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
+### <a id="grenades-launched"></a>Wrist Launcher
+
+TSL's wrist launcher, worn on a forearm: it alone fires rockets and darts,
+and fires grenades in place of throwing them (their launched rows, by the
+executable's `ConvertGrenadeSpellID`). What it fires flies straight at what
+it is aimed at, meets the first thing in its way and bursts there.
+
+<a id="grenades-launched-reach-m"></a>**Launcher Reach** = **28 m** · `grenades.launched.reach_m`
+
+A launched shot is aimed at what lies along the aim within 28 m, the rows' range `L` (`ranges.2da` `SpellRngLng`).
+
+<sub>Source: TSL's spells.2da range L, ranges.2da row 4. Code: `sim::combat::grenades::homing_speed`.</sub>
+
+<a id="grenades-launched-speed-per-log"></a>**Speed by Distance** = **3 m/s** · `grenades.launched.speed_per_log`
+
+A projectile's speed is 3 m/s for every natural log of the metres to its target, plus 2 m/s.
+
+<sub>Source: TSL's executable, CSWCObject::CalculateProjectileTimeToTarget. Code: `sim::combat::grenades::homing_speed`.</sub>
+
+<a id="grenades-launched-speed-base"></a>**Base Speed** = **2 m/s** · `grenades.launched.speed_base`
+
+A projectile flies 2 m/s more than its distance's share (Speed by Distance).
+
+<sub>Source: TSL's executable, CSWCObject::CalculateProjectileTimeToTarget. Code: `sim::combat::grenades::homing_speed`.</sub>
+
+<a id="grenades-launched-homing-times"></a>**Homing Speed** = **×2** · `grenades.launched.homing_times`
+
+A homing projectile (a launched grenade, a rocket, a dart) flies 2 times that speed.
+
+<sub>Source: TSL's executable, CSWCObject::CalculateProjectileTimeToTarget. Code: `sim::combat::grenades::homing_speed`.</sub>
+
 ## <a id="sabers"></a>Lightsabers and Melee Weapons
 
 A lightsaber, sword, vibroblade or staff deals damage with its blade: a
@@ -2286,6 +2324,24 @@ A blade must pass through 4.1 meters of a body in one attack to deal its full da
 A blade's first cut on a target deals at least 50% of the damage roll. Further cuts in the same attack add the rest, up to the full roll.
 
 <sub>Source: the owner's balance, 2026-10-15. Code: `sim::combat::saber::sweep::Contact::due_share`.</sub>
+
+<a id="sabers-sweep-pass-gap-ms"></a>**Swing Gap** = **0.15 seconds** (`150 ms`) · `sabers.sweep.pass_gap_ms`
+
+In a move of several swings (the katas, butterflies, spins and the two-bladed jump attacks), a blade back in the target within 0.15 seconds of leaving it is still the same pass.
+
+<sub>Source: ours; JA hits again 100 ms after a hit. Code: `sim::combat::saber::sweep::Swing::pass_share`.</sub>
+
+<a id="sabers-sweep-pass-blows"></a>**Swing Damage** = **150%** (`1500 ‰`) · `sabers.sweep.pass_blows`
+
+In a move of several swings, each pass of the blade through a target deals up to 150% of an ordinary blow's damage, so every swing that lands pays.
+
+<sub>Source: the owner's balance, 2026-11-05 (JA: every hit of a kata is a whole hit). Code: `sim::combat::saber::sweep::Swing::pass_share`.</sub>
+
+<a id="sabers-sweep-several-budget"></a>**Combo Damage** = **150%** (`1500 ‰`) · `sabers.sweep.several_budget`
+
+A move of several swings landed in full deals up to 150% of what ordinary blows would over its length: it commits its wielder for longer.
+
+<sub>Source: the owner's balance, 2026-11-05 (JA: katas hit harder and cost Force). Code: `sim::combat::saber::sweep::Swing::budget`.</sub>
 
 <a id="sabers-sweep-melee-box"></a>**Blade Width** = **0.051 meters** (`2 units`) · `sabers.sweep.melee_box`
 
@@ -7631,8 +7687,9 @@ In TSL, a creature may flourish its weapon again 1 second after the last.
 
 ### <a id="world-factions"></a>Factions
 
-Each faction regards each other faction with a standing from 0 to 100,
-changed by scripts. A standing of 10 or
+Each faction regards each other faction with a standing from 0 to
+100, changed by scripts and held to that range as
+each change is kept. A standing of 10 or
 less is hostile, 90 or more is
 friendly, and anything between is neutral. A faction missing from the table
 stands at 100 to itself and
@@ -7649,6 +7706,12 @@ A faction with a standing of 10 or less toward another is hostile to it.
 A faction with a standing of 90 or more toward another is friendly to it.
 
 <sub>Source: K1's executable (repute.2da's rule). Code: `sim::module::Standing::friendly`.</sub>
+
+<a id="world-factions-highest"></a>**Highest Standing** = **100** · `world.factions.highest`
+
+A standing is at most 100 and at least 0; a script's change past either end is kept at that end, so a later change starts from it.
+
+<sub>Source: K1's and TSL's executables (AdjustReputation). Code: `sim::module::adjust`.</sub>
 
 <a id="world-factions-unlisted-own"></a>**Unlisted Faction to Itself** = **100** · `world.factions.unlisted_own`
 

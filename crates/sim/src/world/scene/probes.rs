@@ -39,6 +39,8 @@ pub fn all() -> Vec<Case> {
 const PROBES: &[Probe] = &[
     ("bystander_holds_ground", bystander_holds_ground),
     ("hostile_held_in_talk", hostile_held_in_talk),
+    ("hostile_fighting_held", hostile_fighting_held),
+    ("turned_hostile_held", turned_hostile_held),
     ("companion_stays", companion_stays),
     ("party_kept_apart", party_kept_apart),
     ("party_cannot_use", party_cannot_use),
@@ -105,6 +107,7 @@ const PROBES: &[Probe] = &[
     ("wait_fade_holds", wait_fade_holds),
     ("next_node_clears_fade", next_node_clears_fade),
     ("wait_camera_clip_holds", wait_camera_clip_holds),
+    ("cut_clip_outlasts_voice", cut_clip_outlasts_voice),
     ("carried_camera_clip_holds", carried_camera_clip_holds),
     ("pause_is_immediate", pause_is_immediate),
     ("pause_behind_actions", pause_behind_actions),
@@ -283,6 +286,8 @@ void CancelCombat(object oidCreature);
 void EnableVideoEffect(int nEffectType);
 // 30
 effect EffectDeath(int nSpectacularDeath=FALSE, int nDisplayFeedback=TRUE, int nNoFadeAway=FALSE);
+// 31
+void ChangeToStandardFaction(object oCreatureToChange, int nStandardFaction);
 "#;
 
 /// The `videoeffects.2da` row `probe_video` enables.
@@ -519,6 +524,20 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_attack_dummy", attack(&tagged("dummy"))),
             ("probe_attack_foe", attack(&tagged("foe"))),
             ("probe_attack_pc", attack(&[call(3, 0)])),
+            // `ChangeToStandardFaction(OBJECT_SELF, HOSTILE_1)`, then
+            // `ActionAttack(GetFirstPC())`: a line turning its speaker on
+            // the player (`turned_hostile_held`).
+            (
+                "probe_turn_on_pc",
+                program(&[
+                    Op::Const(Const::Int(i32::from(HOSTILE_1))),
+                    Op::Const(Const::Object(0)),
+                    call(31, 2),
+                    Op::Const(Const::Int(0)),
+                    call(3, 0),
+                    call(2, 2),
+                ]),
+            ),
             ("probe_open", program(&open)),
             ("probe_blocked", program(&[])),
             ("probe_area_exit", program(&[])),
@@ -1333,6 +1352,13 @@ enum Brawler {
 /// brawler's target at `BUDDY_AT` as `brawler` has it, and a party
 /// conversation up. The target's id.
 fn fight_scene(stage: Stage, brawler: Brawler) -> Result<(Ground, SimId), String> {
+    let (mut ground, target) = fight_ground(stage, brawler)?;
+    ground.cutscene()?;
+    Ok((ground, target))
+}
+
+/// `fight_scene`'s ground, no conversation up yet.
+fn fight_ground(stage: Stage, brawler: Brawler) -> Result<(Ground, SimId), String> {
     let feud = brawler != Brawler::Hostile;
     let mut ground = Ground::staged(1, Stage { feud, ..stage })?;
     let host = ground.body(0)?;
@@ -1346,7 +1372,6 @@ fn fight_scene(stage: Stage, brawler: Brawler) -> Result<(Ground, SimId), String
         Brawler::Feuding => DUMMY,
     };
     let target = ground.place(target, BUDDY_AT)?;
-    ground.cutscene()?;
     Ok((ground, target))
 }
 
@@ -1385,6 +1410,55 @@ fn hostile_held_in_talk() -> Found {
         format!("held: {held}; after the end: {free}"),
     )
 }
+
+/// S4, the same rule for one already fighting (Taris's Sith base: its
+/// turrets firing, its droid charging, as `tar09_trap_dlg` began): a
+/// creature hostile to the player, fighting the companion when a party
+/// conversation begins, fights on no more, by its mind's own choice no
+/// more than by its queue: put 6 m off again, it closes in on no one and
+/// hurts no one until the end, and the same order closes in after.
+fn hostile_fighting_held() -> Found {
+    let (mut ground, buddy) = fight_ground(Stage::default(), Brawler::Hostile)?;
+    let foe = ground.object(FOE)?;
+    ground.run_script("probe_attack_buddy", FOE)?;
+    ground.idle(AWARE_MS + FIGHT_FIRST_MS);
+    let fought = ground.hp(buddy);
+    ground.place(FOE, FOE_FROM)?;
+    ground.put(buddy, BUDDY_AT);
+    ground.cutscene()?;
+    let hp = ground.hp(buddy);
+    let held = ground.strafe(foe, buddy, 2000);
+    let hurt = hp - ground.hp(buddy);
+    ground.goodbye()?;
+    let free = charge(&mut ground, "probe_attack_buddy", buddy)?;
+    check(
+        held.closed.abs() < 0.05 && hurt == 0 && free.closed > 2.0,
+        format!(
+            "after the fight before it ({fought} hp) held: {held}, {hurt} hp lost; after the end: {free}"
+        ),
+    )
+}
+
+/// S4, the hold in the step a line turns one hostile: the brawler, at
+/// peace with the player, turned on it and ordered at it by one script
+/// during a party conversation (`probe_turn_on_pc`), is held from that
+/// step on: its queue empty at every step's end and the 6 m kept. Once
+/// the conversation ends, the same order closes in.
+fn turned_hostile_held() -> Found {
+    let (mut ground, _) = fight_scene(Stage::default(), Brawler::Rival)?;
+    let host = ground.body(0)?;
+    let held = charge(&mut ground, "probe_turn_on_pc", host)?;
+    ground.goodbye()?;
+    let free = charge(&mut ground, "probe_attack_pc", host)?;
+    check(
+        held.queued == 0 && held.closed.abs() < 0.05 && free.closed > 2.0,
+        format!("held: {held}; after the end: {free}"),
+    )
+}
+
+/// How long `hostile_fighting_held`'s brawler fights before the
+/// conversation begins (ms, from its awareness).
+const FIGHT_FIRST_MS: u64 = 3000;
 
 /// S4: the companion 8 m from its leader stays put through a party
 /// conversation and follows once it ends.
@@ -3658,6 +3732,24 @@ fn wait_camera_clip_holds() -> Found {
         filmed("Hi.", 1201)?,
     ];
     check(got == [2000, 4500, 337], format!("lines last {got:?} ms"))
+}
+
+/// S5: in an animated cut a voiced line held by its camera clip (flag 1)
+/// lasts the clip, not its voice (Zhar's training speech, `k_player_dialog`
+/// E8: an 8 s voice over a short shot, voiceless shots after it): a 2 s
+/// clip under an 8 s voice lasts 2 s; with flag 2 too, the voice's 8 s;
+/// with no clip of that name, the voice's 8 s.
+fn cut_clip_outlasts_voice() -> Found {
+    let filmed = |flags: u32, animation: u16| {
+        let mut stage = line(&"x".repeat(40), None, flags, Some(8000));
+        stage.talk.animated_cut = true;
+        stage.talk.camera_model = "probe_cam".into();
+        stage.talk.entries[0].camera_animation = animation;
+        stage.camera_clips = [(("probe_cam".to_string(), "cut001w".to_string()), 2000)].into();
+        length(stage)
+    };
+    let got = [filmed(1, 1200)?, filmed(3, 1200)?, filmed(1, 1201)?];
+    check(got == [2000, 8000, 8000], format!("lines last {got:?} ms"))
 }
 
 /// S5: a line whose `CameraAnimation` is 1000 carries the camera clip the

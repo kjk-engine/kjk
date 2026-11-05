@@ -986,7 +986,8 @@ Stealth XP is not raised yet.
   `mincharlevel`, `minattackbonus`, the ability minimums `minstr`,
   `mindex`, `minint`, `minwis`: blank in every row of both games, honoured
   for data that fills them, against the scores the level leaves, its
-  ability raised) and the power each power needs (`prerequisites`).
+  ability raised) and the powers each power needs (`prerequisites`, one
+  or two joined by `_`: Force Wave's `23_27` asks Push and Whirlwind).
 - **A level** of a class it has (`Classes::take`): most HP + hit die + CON
   modifier (at least 1) + Toughness's and Master Toughness's 1 each and
   Wookiee Toughness's 2 (TSL's II and III 3 and 4; `combat::passive`),
@@ -1218,7 +1219,10 @@ kjk play --stage end_m01aa --made scout:po_pfha2:Mira --run k_con_isfemale --hea
   (`liv_m99aa`, row 11), which every PC and Mac release ships and K1's
   `k_pebn_galaxy` adds to the map by it; no other package, and none in TSL.
 - **Travel.** `ShowGalaxyMap(planet)` tells every player
-  (`Screen::GalaxyMap`, with the planets available and selectable then);
+  (`Screen::GalaxyMap`, with the planets available and selectable then;
+  a planet no row can be opens it on none, nothing chosen: K1's
+  `k_pebn_galaxy` asks for -1 when it knows no planet for
+  `K_CURRENT_PLANET`, Yavin Station's 55, so the map after Yavin);
   the host picks a planet available and selectable on the galaxy map
   screen (`docs/UI.md`; `Action::Travel`, a guest's is not taken):
   `GetSelectedPlanet` answers it and the travel script runs for the player

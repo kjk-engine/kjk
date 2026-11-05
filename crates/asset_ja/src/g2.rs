@@ -294,7 +294,26 @@ pub struct Player<'a> {
     /// The pose shown when a blend began mid-blend, by the bone that
     /// drives it.
     shown: BTreeMap<usize, Vec<Local>>,
+    /// The legs a blend carries by position (`Player::limbs_blended`).
+    limbs: Vec<Limb>,
 }
+
+/// A two-bone limb: the bone at its root joint (the hip), the one at its
+/// middle joint (the knee), the one at its end (the ankle), and the root
+/// bone's parent, whose frame the limb's reach is measured in.
+#[derive(Debug, Clone, Copy)]
+struct Limb {
+    upper: usize,
+    lower: usize,
+    end: usize,
+    parent: usize,
+}
+
+/// The legs JA's skeleton blends by position: thigh, shin, foot.
+const LIMBS: [[&str; 3]; 2] = [
+    ["rfemurYZ", "rtibia", "rtalus"],
+    ["lfemurYZ", "ltibia", "ltalus"],
+];
 
 impl<'a> Player<'a> {
     pub fn new(gla: &'a Gla) -> Player<'a> {
@@ -315,12 +334,30 @@ impl<'a> Player<'a> {
                 break;
             }
         }
+        let bone = |name: &str| {
+            gla.bones
+                .iter()
+                .position(|bone| bone.name.eq_ignore_ascii_case(name))
+        };
+        let limbs = LIMBS
+            .iter()
+            .filter_map(|&[upper, lower, end]| {
+                let upper = bone(upper)?;
+                Some(Limb {
+                    upper,
+                    lower: bone(lower)?,
+                    end: bone(end)?,
+                    parent: usize::try_from(gla.bones[upper].parent).ok()?,
+                })
+            })
+            .collect();
         Player {
             gla,
             order,
             anims: BTreeMap::new(),
             quirks: false,
             shown: BTreeMap::new(),
+            limbs,
         }
     }
 
@@ -613,6 +650,8 @@ impl<'a> Player<'a> {
         let count = self.gla.bones.len();
         let mut pose = vec![(Quat::IDENTITY, Vec3::ZERO); count];
         let mut states: Vec<Option<BoneState>> = vec![None; count];
+        // Each blending bone's captured pose, new pose and share.
+        let mut mixed: Vec<Option<(Local, Local, f32)>> = vec![None; count];
         for &bone in &self.order {
             let state = match self.anims.get(&bone) {
                 Some(anim) => {
@@ -662,11 +701,174 @@ impl<'a> Player<'a> {
                     _ => captured,
                 };
                 let reference = show(self.anims[&driver].timing(blend.start_ms)).0;
+                mixed[bone] = Some((captured, local, amount));
                 local = mix_blend(captured, local, reference, amount, pivot);
             }
             pose[bone] = local;
         }
+        self.limbs_blended(&mut pose, &mixed);
         pose
+    }
+
+    /// Legs mid-blend carried by position: each joint goes straight from
+    /// where the captured pose had it to where the new animation has it,
+    /// measured from the hip in the pelvis's frame, the thigh and shin
+    /// swung (no more) from their blended turns to reach them, the foot
+    /// turned the short way between its two turns. Bone by bone, a bone
+    /// half a turn of twist from its old pose (the medium style's
+    /// `BOTH_A2_TL_BR` into `BOTH_T2_BR_TR`: the right thigh) carries a bent
+    /// knee round with it, the foot looping 40 cm out and 30 cm up in 100
+    /// ms; Ghoul2's lerped matrices fold the shin through the middle
+    /// instead, the foot going straight. At either end of the blend this is
+    /// the captured or the new pose.
+    fn limbs_blended(&self, pose: &mut [Local], mixed: &[Option<(Local, Local, f32)>]) {
+        let blending = |limb: &Limb| {
+            [limb.upper, limb.lower, limb.end]
+                .iter()
+                .all(|&bone| mixed[bone].is_some_and(|(_, _, t)| t > 0.0 && t < 1.0))
+        };
+        if !self.limbs.iter().any(blending) {
+            return;
+        }
+        let side = |pick: fn(&(Local, Local, f32)) -> Local| -> Vec<Local> {
+            pose.iter()
+                .zip(mixed)
+                .map(|(&shown, m)| m.as_ref().map_or(shown, pick))
+                .collect()
+        };
+        let (was, will) = (self.finals(&side(|m| m.0)), self.finals(&side(|m| m.1)));
+        for limb in self.limbs.iter().filter(|limb| blending(limb)) {
+            let Some((_, _, t)) = mixed[limb.upper] else {
+                continue;
+            };
+            let now = self.finals(pose);
+            let at = |f: &[Local], bone: usize| f[bone].1 + f[bone].0 * self.base(bone).1;
+            // A joint's place from the hip, in the parent's frame.
+            let from_hip = |f: &[Local], bone: usize| {
+                f[limb.parent].0.inverse() * (at(f, bone) - at(f, limb.upper))
+            };
+            let hip = at(&now, limb.upper);
+            let toward = |bone: usize| {
+                hip + now[limb.parent].0 * from_hip(&was, bone).lerp(from_hip(&will, bone), t)
+            };
+            let (knee_hint, ankle) = (toward(limb.lower), toward(limb.end));
+            let base = |bone: usize| self.base(bone).1;
+            let (upper, lower) = (
+                base(limb.lower).distance(base(limb.upper)),
+                base(limb.end).distance(base(limb.lower)),
+            );
+            let to = ankle - hip;
+            let Some(u) = to.try_normalize() else {
+                continue;
+            };
+            let d = to
+                .length()
+                .clamp((upper - lower).abs() + 1e-4, upper + lower - 1e-4);
+            let square = |v: Vec3| v - u * v.dot(u);
+            let Some(v) = square(knee_hint - hip)
+                .try_normalize()
+                .or_else(|| square(at(&now, limb.lower) - hip).try_normalize())
+            else {
+                continue;
+            };
+            let cos =
+                ((upper * upper + d * d - lower * lower) / (2.0 * upper * d)).clamp(-1.0, 1.0);
+            let knee = hip + upper * (cos * u + (1.0 - cos * cos).sqrt() * v);
+            let ankle = hip + u * d;
+            // Thigh and shin: turned by the knee's bend plane, not by their
+            // blended turns, whose twist (half a turn on the medium combo's
+            // right thigh) would spin both about their own lines. Each keeps
+            // its roll off that plane, taken the short way from the
+            // captured pose's to the new one's.
+            let joints = |f: &[Local]| [limb.upper, limb.lower, limb.end].map(|bone| at(f, bone));
+            let parts = [(limb.upper, 0), (limb.lower, 1)];
+            let rolls = |f: &[Local]| {
+                let j = joints(f);
+                parts.map(|(bone, i)| {
+                    bend_frame(j, i, f[bone].0 * Vec3::X)
+                        .map(|frame| (frame.inverse() * f[bone].0).normalize())
+                })
+            };
+            let (from, to) = (rolls(&was), rolls(&will));
+            let new = [hip, knee, ankle];
+            // Straight legs have no plane: the bone's own side, blended.
+            let fallback = |bone: usize| now[bone].0 * Vec3::X;
+            let mut wanted = BTreeMap::new();
+            for (k, &(bone, i)) in parts.iter().enumerate() {
+                let turn = match (from[k], to[k], bend_frame(new, i, fallback(bone))) {
+                    (Some(a), Some(b), Some(frame)) => {
+                        let b = if a.dot(b) < 0.0 { -b } else { b };
+                        (frame * a.slerp(b, t)).normalize()
+                    }
+                    _ => {
+                        let carried = self.refit(pose, &wanted);
+                        let (from, to) = (at(&carried, parts[k].0), new[i]);
+                        let next = [limb.lower, limb.end][i];
+                        Quat::from_rotation_arc(
+                            (at(&carried, next) - from).normalize_or_zero(),
+                            (new[i + 1] - to).normalize_or_zero(),
+                        ) * carried[bone].0
+                    }
+                };
+                wanted.insert(bone, (turn, new[i] - turn * base(bone)));
+            }
+            // Foot: the short way between its captured and new turns.
+            let (a, b) = (was[limb.end].0, will[limb.end].0);
+            let b = if a.dot(b) < 0.0 { -b } else { b };
+            let foot = a.slerp(b, t).normalize();
+            wanted.insert(limb.end, (foot, ankle - foot * base(limb.end)));
+            self.refit(pose, &wanted);
+        }
+    }
+}
+
+/// The frame of a limb's bone `i` (0 the upper, 1 the lower) from its
+/// joints (hip, knee, ankle): along the bone, then the knee's bend axis
+/// square to it, then their cross product. A limb nearly straight has no
+/// bend axis: `side` (the bone's own, blended) stands in as it straightens,
+/// kept on the same side as the bend's. `None` for a bone with no length.
+fn bend_frame(joints: [Vec3; 3], i: usize, side: Vec3) -> Option<Quat> {
+    let along = (joints[i + 1] - joints[i]).try_normalize()?;
+    let (thigh, shin) = (joints[1] - joints[0], joints[2] - joints[1]);
+    let bend = thigh.cross(shin);
+    let square = |v: Vec3| v - along * v.dot(along);
+    let side = square(side).normalize_or_zero();
+    // How bent (the sine of the knee's angle): a plane from 0.1 on.
+    let sine = bend.length() / (thigh.length() * shin.length()).max(1e-9);
+    let w = ((sine - 0.02) / 0.08).clamp(0.0, 1.0);
+    let axis = square(bend).normalize_or_zero();
+    let side = if side.dot(axis) < 0.0 { -side } else { side };
+    let axis = (axis * w + side * (1.0 - w)).try_normalize()?;
+    Some(Quat::from_mat3(&Mat3::from_cols(along, axis, along.cross(axis))).normalize())
+}
+
+impl<'a> Player<'a> {
+    /// `pose`'s locals changed so the bones in `wanted` have those finals,
+    /// the others keeping their locals (riding on their parents): the
+    /// finals after.
+    fn refit(&self, pose: &mut [Local], wanted: &BTreeMap<usize, Local>) -> Vec<Local> {
+        let mut finals = vec![(Quat::IDENTITY, Vec3::ZERO); pose.len()];
+        for &bone in &self.order {
+            let parent = usize::try_from(self.gla.bones[bone].parent)
+                .ok()
+                .filter(|&parent| parent < finals.len())
+                .map(|parent| finals[parent]);
+            if let Some(&(q, t)) = wanted.get(&bone) {
+                pose[bone] = match parent {
+                    Some((pq, pt)) => {
+                        let inv = pq.inverse();
+                        ((inv * q).normalize(), inv * (t - pt))
+                    }
+                    None => (q, t),
+                };
+            }
+            let (q, t) = pose[bone];
+            finals[bone] = match parent {
+                Some((pq, pt)) => (pq * q, pt + pq * t),
+                None => (q, t),
+            };
+        }
+        finals
     }
 
     /// Every bone's final (model-space) transform for a pose.

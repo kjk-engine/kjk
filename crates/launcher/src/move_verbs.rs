@@ -483,7 +483,9 @@ pub fn measure(anims: (AnimTable, String)) -> ExitCode {
 }
 
 /// `kjk move trig`: the sim's sine and cosine against `f64` over all
-/// 65 536 command angles, and a million other angles.
+/// 65 536 command angles, and a million other angles; its logarithm
+/// (`collision::trig::ln`, a launched shot's speed) from 0.01 to 1000.
+/// Fails past two f32 steps.
 pub fn trig() -> ExitCode {
     let error = |degrees: f32| {
         let (s, c) = sim::math::sin_cos_deg(degrees);
@@ -506,14 +508,34 @@ pub fn trig() -> ExitCode {
         worst.0,
         worst.1
     );
+    // Relative to the log's size (absolute near 1, where it is near 0).
+    #[allow(clippy::disallowed_methods)] // the platform's log is the reference
+    let ln_error = |x: f32| {
+        let truth = f64::from(x).ln();
+        ((f64::from(collision::trig::ln(x)) - truth).abs() / truth.abs().max(1.0), x)
+    };
+    let logs = most(&mut (1..=100_000u32).map(|i| ln_error(i as f32 * 0.01)));
+    let within = logs.0 < 4e-7;
+    outln!(
+        "trig: ln within {:.2e} of f64 from 0.01 to 1000 (worst at {}){}",
+        logs.0,
+        logs.1,
+        if within { "" } else { ": FAILED, past two f32 steps" }
+    );
     write_facts(serde_json::json!({
         "verb": "move trig",
+        "ln_max_error": logs.0,
+        "ln_worst_at": logs.1,
         "command_angles_max_error": shorts.0,
         "command_angles_worst_degrees": shorts.1,
         "wide_max_error": worst.0,
         "wide_worst_degrees": worst.1,
     }));
-    ExitCode::SUCCESS
+    if within {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }
 
 /// Writes `facts` to `facts.json` in a new run folder, and says where.

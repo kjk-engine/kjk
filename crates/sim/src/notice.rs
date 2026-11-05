@@ -51,11 +51,13 @@ pub enum Screen {
     /// TSL's `DisplayDatapad`: the item (its template) whose
     /// `DescIdentified` shows in the message box.
     Datapad { template: String },
-    /// `ShowGalaxyMap`: the planet it opens on (`planetary.2da` row), and
+    /// `ShowGalaxyMap`: the planet it opens on (`planetary.2da` row; none
+    /// for one no row can be, as K1's `k_pebn_galaxy` asks with -1 where
+    /// it knows no planet for `K_CURRENT_PLANET`: Yavin Station's 55), and
     /// the planets the scripts made available and selectable then (bit n:
     /// row n); the host travels with `Action::Travel`.
     GalaxyMap {
-        planet: u8,
+        planet: Option<u8>,
         available: u32,
         selectable: u32,
     },
@@ -120,6 +122,9 @@ const DEATH: u8 = 5;
 const MESSAGE_BOX: u8 = 6;
 const MOVIE: u8 = 7;
 const GALAXY_MAP: u8 = 8;
+/// A galaxy map's planet byte when it opens on none (no `planetary.2da`
+/// has that many rows).
+const NO_PLANET: u8 = u8::MAX;
 const END: u8 = 9;
 const CREDITS: u8 = 10;
 const PAZAAK: u8 = 11;
@@ -355,7 +360,7 @@ impl Screen {
                 selectable,
             } => {
                 out.u8(GALAXY_MAP);
-                out.u8(planet);
+                out.u8(planet.unwrap_or(NO_PLANET));
                 out.u32(available);
                 out.u32(selectable);
             }
@@ -415,7 +420,7 @@ impl Screen {
             PAZAAK => Screen::Pazaak,
             WORKBENCH => Screen::Workbench(Bench::decode(&mut input)?),
             GALAXY_MAP => Screen::GalaxyMap {
-                planet: input.u8()?,
+                planet: Some(input.u8()?).filter(|planet| *planet != NO_PLANET),
                 available: input.u32()?,
                 selectable: input.u32()?,
             },

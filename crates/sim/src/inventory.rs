@@ -187,6 +187,10 @@ pub struct ItemFacts {
     /// `Forearm_Bands`, the shields' row): the one item TSL's duels may
     /// allow (`FORFEIT_NO_ITEM_BUT_SHIELD`, `script::party::forfeit::using`).
     pub shield: bool,
+    /// TSL's wrist launcher (`baseitems.2da` `itemtype` 48: base item 91
+    /// `Wrist_Launcher`): worn, grenades are fired and rockets and darts
+    /// usable (`gear::traits::WRIST_LAUNCHER`).
+    pub launcher: bool,
 }
 
 impl ItemFacts {
@@ -280,6 +284,9 @@ impl ItemFacts {
         }
         if self.shield {
             out.string("shield");
+        }
+        if self.launcher {
+            out.string("launcher");
         }
         if !self.cased_tag.is_empty() {
             out.string("cased");
@@ -465,6 +472,7 @@ impl ItemFacts {
             trap: None,
             stealth_unit: false,
             shield: false,
+            launcher: false,
         }
     }
 }
@@ -1004,6 +1012,9 @@ pub fn rewear(mut sheet: Sheet, before: &[(u8, &ItemFacts)], after: &[(u8, &Item
     sheet.gear = after
         .iter()
         .fold(Gear::default(), |gear, (_, facts)| gear.with(&facts.gear));
+    if after.iter().any(|(_, facts)| facts.launcher) {
+        sheet.gear.traits |= crate::combat::gear::traits::WRIST_LAUNCHER;
+    }
     let unit = crate::combat::sheet::flags::STEALTH_UNIT;
     if after.iter().any(|(_, facts)| facts.stealth_unit) {
         sheet.flags |= unit;

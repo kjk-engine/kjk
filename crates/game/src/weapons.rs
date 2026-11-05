@@ -966,7 +966,7 @@ pub fn in_hand(armed: bool, lowering: bool, (carries, hiding): (bool, bool)) -> 
 /// attack), 8 s after its own
 /// last attack (`SaberState::out_until`), fighting someone, or someone
 /// fighting it (`targeted`); not while it plays an animation that
-/// hides its equipped items (`acting::hides_items`: Security, a mine's),
+/// hides its equipped items or a grenade's throw (`acting::hides_weapons`),
 /// and once its player put them away (`Sheath::Holstered`) only while its
 /// saber is still lit or away (a swing finishing) or its put-away plays.
 /// The dead keep what they fell with.
@@ -974,10 +974,7 @@ pub fn armed(fighter: &Fighter, ms: f64, targeted: bool) -> bool {
     if !fighter.alive() {
         return true;
     }
-    if fighter
-        .acting
-        .is_some_and(|acting| crate::acting::hides_items(&acting, ms))
-    {
+    if crate::acting::hides_weapons(fighter, ms) {
         return false;
     }
     // A put-away flourish holds the hilt until it is done.
@@ -1226,7 +1223,7 @@ impl Wielded {
         for (slot, wield) in self.slots.iter_mut().enumerate() {
             let Some(wield) = wield else { continue };
             let lowering = at.torso == "TORSO_DROPWEAP1";
-            let hiding = (fighter.acting).is_some_and(|a| crate::acting::hides_items(&a, at.ms));
+            let hiding = crate::acting::hides_weapons(fighter, at.ms);
             let held = match (at.guns_in_hand, wield.holster) {
                 (Some(drawn), Some(_)) => drawn && !hiding,
                 _ => in_hand(at.armed, lowering, (self.carries, hiding)),
@@ -1275,9 +1272,7 @@ impl Wielded {
                 Hand::Left
             };
             let thrown = saber.thrown.filter(|_| slot == right);
-            let flying = thrown.is_some_and(|thrown| {
-                matches!(thrown.flight, Flight::Leaving | Flight::Out | Flight::Back)
-            });
+            let flying = thrown.is_some_and(|thrown| thrown.flight.flies());
             let place = thrown.zip(at.thrown_at);
             // Away from the hand: hung from the scene where the snapshots
             // have it; back in it, hung from the hand again.
@@ -1309,7 +1304,10 @@ impl Wielded {
                 let sim = lit.iter().position(|lit| {
                     lit.is_some_and(|lit| lit.id.hand == hand && lit.id.blade == n)
                 });
-                let on = at.alive && shown && (flying || sim.is_some());
+                // A staff thrown with its second blade off flies with the
+                // first alone (`cg_players.c`: the others drawn at length 0).
+                let flies_lit = flying && (n == 0 || !saber.second_off);
+                let on = at.alive && shown && (flies_lit || sim.is_some());
                 if let Some(sim) = sim.filter(|_| on && !flying) {
                     drawn.blades.push((sim, spec));
                 }

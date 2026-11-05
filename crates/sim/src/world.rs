@@ -108,6 +108,8 @@ pub mod presentation_probes;
 pub mod regen_probes;
 pub mod remains;
 #[cfg(feature = "probes")]
+pub mod reputation_probes;
+#[cfg(feature = "probes")]
 pub mod routine_probes;
 mod sabers;
 mod scene;

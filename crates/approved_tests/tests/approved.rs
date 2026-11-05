@@ -517,7 +517,7 @@ fn script_vm() {
             println!("{}: no install, skipped", game.key());
             continue;
         };
-        let index = vfs::DirIndex::build(&install.data_root).expect("the install indexes");
+        let index = vfs::DirIndex::of_install(install).expect("the install indexes");
         let base = vfs::resolver::Resolver::base(game, &index, vfs::resolver::TextureQuality::High)
             .expect("the install opens");
         let nss = fmt_odyssey::ResType::NSS;
@@ -627,6 +627,57 @@ fn blank_cells_name_nothing() {
         .map(|instance| instance.model.as_deref())
         .collect();
     assert_eq!(models, [Some("plc_chair"), None], "the placeables' models");
+}
+
+/// A 2DA's stored cell-data size is not read, as in the games and reone:
+/// a mod's table storing 0 there (High Quality Blasters' baseitems.2da) or
+/// any other wrong size reads as written. No installs (approved
+/// 2026-11-05).
+#[test]
+fn mod_2da_size_ignored() {
+    use fmt_odyssey::twoda::TwoDa;
+
+    let row = |cells: [&str; 2]| cells.map(|cell| cell.as_bytes().to_vec()).to_vec();
+    let table = TwoDa {
+        columns: vec![b"label".to_vec(), b"defaultmodel".to_vec()],
+        row_labels: vec![b"0".to_vec(), b"1".to_vec()],
+        cells: vec![
+            row(["Blaster_Pistol", "w_BlstrPstl_001"]),
+            row(["Bowcaster", "w_BowCstr_001"]),
+        ],
+        column_separator: b'\t',
+        row_separator: b'\t',
+    };
+    let written = table.write();
+    let data_len = table
+        .cells
+        .iter()
+        .flatten()
+        .map(|cell| cell.len() + 1)
+        .sum::<usize>();
+    let size_at = written.len() - data_len - 2;
+    for stored in [0u16, 1, u16::MAX] {
+        let mut bytes = written.clone();
+        bytes[size_at..size_at + 2].copy_from_slice(&stored.to_le_bytes());
+        let read = TwoDa::parse(&bytes).unwrap_or_else(|e| panic!("size {stored}: {e}"));
+        assert_eq!(read, table, "size {stored}");
+    }
+    let past_end = written.len() - 1;
+    assert!(
+        TwoDa::parse(&written[..past_end]).is_err(),
+        "a cell cut short"
+    );
+}
+
+/// Which copy of a resource the games read (`vfs::probes`, journal
+/// 2026-11-05-override-precedence): `override/` over a module's own, a
+/// `.mod` standing for its RIMs and `_dlg.erf`, `patch.erf` over a module,
+/// TSL's override subfolders one level down, co-op's check covering just
+/// the override files read. On installs written there; no
+/// installs needed (approved 2026-11-05).
+#[test]
+fn mod_precedence() {
+    probed("precedence", &vfs::probes::probes(), 5);
 }
 
 /// The games' data as co-op compares it (`vfs::fingerprint`): what a play
@@ -887,6 +938,16 @@ fn dialogue_formats() {
     );
 }
 
+/// The talk-table lines a level's digest holds: those its scripts may read,
+/// as they read them, so tables differing only in lines no script names
+/// (Aspyr's Mac K1 table and the Windows one: an options screen's text)
+/// make the same levels, and a named line changed moves the digest. No
+/// installs (approved 2026-11-05).
+#[test]
+fn talk_lines_digest() {
+    passed("talk lines", &sim::script::dialogue_probes::talk(), 1);
+}
+
 /// What conversations keep: answer bytes (a count that moves, so a repeated
 /// command answers once), and the scripts' state and the snapshot's view
 /// of conversations through their encodings.
@@ -1083,7 +1144,7 @@ fn ui_loot() {
 /// ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 27);
+    probed("tsl", &sim::tsl_probes::probes(), 28);
 }
 
 /// The routines override mods call that the games' own scripts rarely do
@@ -1143,10 +1204,12 @@ fn destroy_fades() {
 /// could open again (QUIRKS.md Q-0330), not on one only scripts open, one
 /// leading out or one broken open; a companion, led or driven by a player,
 /// is a target, picked only clear ahead of the player, and never the target
-/// of the player it is the body of; two runs end the same. The sim alone.
+/// of the player it is the body of; a placeable hung up a wall (Yavin
+/// Station's door panels) is picked from the floor beneath it; two runs
+/// end the same. The sim alone.
 #[test]
 fn use_actions() {
-    probed("use", &sim::uses::probes(), 42);
+    probed("use", &sim::uses::probes(), 43);
 }
 
 /// Bashing (`docs/COMBAT.md`): on the proving ground
@@ -1520,7 +1583,7 @@ fn guests_drive_companions() {
 /// cases and the whole scenario run twice ending alike; the sim alone.
 #[test]
 fn dialogue_coop() {
-    probed("coop talk", &sim::coop_talk::probes(), 141);
+    probed("coop talk", &sim::coop_talk::probes(), 143);
 }
 
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,
@@ -1529,7 +1592,7 @@ fn dialogue_coop() {
 /// alone. Approved by the owner 2026-10-17 (do what you think is best).
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 70);
+    probed("scene", &sim::scene_probes::all(), 72);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
@@ -1636,7 +1699,8 @@ fn minigame_coop() {
 /// The galaxy map and the game's end: `sim::galaxy::probes`, on the
 /// proving ground with two seats and scripts written here: the map a script
 /// shows reaches both with the planets made available and selectable, K1's
-/// Yavin Station among them as its live content check makes it (TSL none); the
+/// Yavin Station among them as its live content check makes it (TSL none),
+/// and on no planet where the script asks for -1 (leaving Yavin); the
 /// guest's travel and the host's to a planet not selectable run nothing,
 /// the host's runs the travel script, which hears the planet;
 /// `EndGame(TRUE)` and K1's argument-less `EndGame()` lose the game,
@@ -1645,7 +1709,7 @@ fn minigame_coop() {
 /// the sim alone.
 #[test]
 fn galaxy_and_end() {
-    probed("galaxy and end", &sim::galaxy::probes(), 8);
+    probed("galaxy and end", &sim::galaxy::probes(), 9);
 }
 
 /// Pazaak (`docs/PAZAAK.md`): `sim::pazaak::probes`, on decks of our own:
@@ -1673,13 +1737,14 @@ fn pazaak() {
 /// against grenades, the skill feats, Improved and Wookiee Toughness's
 /// damage reduction (K1's and TSL's), levels with Toughness (picked, its
 /// earlier levels), Wookiee Toughness, Force Sensitive and an ability
-/// minimum; and on the proving ground, a companion refused armour and an
+/// minimum; KOTOR's feat and power charts (Force Wave needing Push and
+/// Whirlwind); and on the proving ground, a companion refused armour and an
 /// implant with the game's line, granted feats by `GrantFeat` (Toughness
 /// for every level), then wearing the armour and taking a level whose
 /// class grants Master Toughness, twice alike; no install.
 #[test]
 fn feats() {
-    probed("feats", &sim::feats::probes(), 16);
+    probed("feats", &sim::feats::probes(), 17);
 }
 
 /// A host's save kept by a player (I31): `saves::copies::probes` (packed,
