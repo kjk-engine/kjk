@@ -631,8 +631,8 @@ fn blank_cells_name_nothing() {
 
 /// A 2DA's stored cell-data size is not read, as in the games and reone:
 /// a mod's table storing 0 there (High Quality Blasters' baseitems.2da) or
-/// any other wrong size reads as written. No installs (proposed
-/// 2026-11-05, awaiting the owner).
+/// any other wrong size reads as written. No installs (approved
+/// 2026-11-05).
 #[test]
 fn mod_2da_size_ignored() {
     use fmt_odyssey::twoda::TwoDa;
