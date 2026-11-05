@@ -67,6 +67,23 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
     a woman (`kjk rig` timelines).
   - With JA's hands together (`TWO_HANDED`), the left wrist keeps JA's own
     spacing from the right (`Retargeter::spaced`) before any reach.
+  - A woman moves as K1's women do (`Woman`, the skeleton with off-spine
+    collars). K1 has no female attacks, but its women's own clips against
+    its men's (`g2r1`, `walk`, `pause1`) stand the feet 8 to 10 cm nearer
+    together, the elbows 3 to 5 cm nearer the body, cock the hips about 8°
+    standing and swing them 16° walking (a man's 5°); JA's moves on her
+    skeleton kept a man's width but for 1 to 2 cm. So:
+    - The hips cock `HIP_COCK` (8°) over the foot that bears the weight
+      (the one nearer under the hips and lower), about their middle, and
+      fade out off the ground (`Retargeter::cocked`). Standing it is the
+      cock; walking it swings the hips as the weight changes feet (19°).
+    - Each leg bends its ankle back where it was, `NARROW` (3.5 cm, at
+      most a quarter of its distance out) nearer the other: the feet stand
+      5 to 7 cm nearer together.
+    - Each elbow turns in toward the spine about the shoulder-wrist line
+      (`Retargeter::tucked`, `ELBOW_IN`), so the hands and blades stay
+      where JA puts them: 1.5 to 2.5 cm in, about K1's gap to a man's.
+    - Feet slide and jolts are as before (`kjk rig a --body pfbam`).
 - `rig::Grip`: the hilt hangs at KOTOR's `rhand` as K1 hangs weapons (blade
   +Z) and the hand turns so the blade points as JA's; fingers take KOTOR's
   `g2r1` pose (`Options::hold`). Where JA's tag bone carries the hilt off
