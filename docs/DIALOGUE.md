@@ -337,7 +337,7 @@ where they part, the choice is ours and named.
   runs looped for the line, the others once): TSL's player afloat, sinking,
   lying and getting up in `101awake` (no stunt models), Atton's and
   Kreia's lines elsewhere. Both executables' tables name each run's 29th
-  clip as its 39th (`cut039`; neither holds a `cut029`), as played here.
+  clip as its 39th (`cut039`; neither holds a `cut029`), as played here (QUIRKS Q-0360).
 - **Talking** (render only; outside animated cutscenes and staged
   conversations): a conversation's speaker (`Conversation::speaker`, the
   entry's; never the PC for its replies) loops its chain's `tlknorm`

@@ -77,7 +77,7 @@ const CUT_ENDINGS: [&str; 4] = ["", "w", "l", "wl"];
 /// once, `cut001w` from 1200 once, `cut001l` from 1400 looped, `cut001wl`
 /// from 1600 looped. Its name (lowercase) and whether it loops. Both tables
 /// name each run's 29th clip as its 39th (`cut039`, `cut039l`; neither
-/// executable holds a `cut029`).
+/// executable holds a `cut029`; QUIRKS Q-0360).
 pub fn cut_clip(animation: u16) -> Option<(String, bool)> {
     let from = animation.checked_sub(FIRST_CUT)?;
     let (run, n) = (usize::from(from / CUT_RUN), from % CUT_RUN);
