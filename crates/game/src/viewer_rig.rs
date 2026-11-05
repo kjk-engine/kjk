@@ -289,7 +289,7 @@ fn load_with(
                 hold.len()
             ));
             let offset = |t: f32| ground.offset(t);
-            let retargeted = asset_ja::rig::retarget_with(
+            let (retargeted, in_head) = asset_ja::rig::retarget_measured(
                 &body,
                 &gla,
                 &combo,
@@ -300,6 +300,7 @@ fn load_with(
                     ja_sole: sole_height(&glm),
                 },
             );
+            notes.push(head_note(&in_head));
             let (clip, ja_from) = if options.probe == "c" {
                 // Several comma-separated clips play whole, one after another,
                 // before the JA clip; a single one plays its first seconds.
@@ -973,6 +974,31 @@ fn floor() -> (ModelIr, asset_odyssey::texture::TextureIr) {
         frame_mips: Vec::new(),
     };
     (ir, texture)
+}
+
+/// A blade more than this deep (metres) in the head or neck counts as in it,
+/// for `head_note`: past a glow's graze.
+const IN_HEAD: f32 = 0.01;
+
+/// How long blades are in the head or neck, and how deep at worst, before
+/// the wrists move them out and after (`retarget_measured`'s keys):
+/// `head (s in, deepest cm at s): before 1.20, 9.3 at 32.300; after …`.
+fn head_note(in_head: &[(f32, [f32; 2])]) -> String {
+    let side = |n: usize| {
+        let spans = in_head.windows(2).filter(|w| w[0].1[n] > IN_HEAD);
+        let seconds: f32 = spans.map(|w| w[1].0 - w[0].0).sum();
+        let (at, deepest) = in_head
+            .iter()
+            .map(|&(t, depths)| (t, depths[n]))
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .unwrap_or((0.0, 0.0));
+        format!("{seconds:.2}, {:.1} at {at:.3}", deepest * 100.0)
+    };
+    format!(
+        "head (s in, deepest cm at s): before {}; after {}",
+        side(0),
+        side(1)
+    )
 }
 
 /// The lowest vertex of a GLM in its base pose (metres): where its soles

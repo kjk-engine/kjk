@@ -393,7 +393,8 @@ impl<'a> Kotor<'a> {
     }
 
     /// Globals for a pose: mapped nodes turned as their JA bone's final,
-    /// the rest under their parents. Nodes are listed parents first.
+    /// the rest under their parents, then nodes `turned` (global turns) and
+    /// `shifted` (moved, model space). Nodes are listed parents first.
     #[allow(clippy::too_many_arguments)]
     fn globals(
         &self,
@@ -403,7 +404,7 @@ impl<'a> Kotor<'a> {
         root_offset: Vec3,
         grips: &[&Grip],
         hold: &BTreeMap<usize, Quat>,
-        turned: &BTreeMap<usize, Quat>,
+        (turned, shifted): (&BTreeMap<usize, Quat>, &BTreeMap<usize, Vec3>),
     ) -> Vec<Frame> {
         let mut globals: Vec<Frame> = Vec::with_capacity(self.rest.len());
         for (index, node) in self.ir.nodes.iter().enumerate() {
@@ -461,6 +462,9 @@ impl<'a> Kotor<'a> {
             }
             if let Some(&rotation) = turned.get(&index) {
                 global.rotation = rotation;
+            }
+            if let Some(&shift) = shifted.get(&index) {
+                global.position += shift;
             }
             if Some(index) == root {
                 global.position += root_offset;
@@ -576,6 +580,18 @@ pub fn retarget_with(
     clip: &AnimationIr,
     options: &Options,
 ) -> AnimationIr {
+    retarget_measured(kotor, gla, clip, options).0
+}
+
+/// `retarget_with`, and at each key (seconds) how deep the deepest blade is
+/// in the head or neck before the wrists move it out and after (metres,
+/// `Posed::in_head`).
+pub fn retarget_measured(
+    kotor: &ModelIr,
+    gla: &Gla,
+    clip: &AnimationIr,
+    options: &Options,
+) -> (AnimationIr, Vec<(f32, [f32; 2])>) {
     let retargeter = Retargeter::new(kotor, gla, options);
     let ja = &retargeter.ja;
     let times: Vec<f32> = clip
@@ -584,11 +600,13 @@ pub fn retarget_with(
         .map(|track| track.orientations.iter().map(|key| key.0).collect())
         .unwrap_or_else(Vec::new);
     let mut tracks: BTreeMap<usize, NodeTrack> = BTreeMap::new();
-    let mut off = OffHand::default();
+    let mut eased = Eased::default();
+    let mut in_head = Vec::with_capacity(times.len());
     for (key, &time) in times.iter().enumerate() {
         let finals = ja.finals(clip, key);
         let ground = options.ground.map_or(Vec3::ZERO, |ground| ground(time));
-        let posed = retargeter.frame(&finals, ground, (&[], &[]), (&mut off, time * 1000.0));
+        let posed = retargeter.frame(&finals, ground, (&[], &[]), (&mut eased, time * 1000.0));
+        in_head.push((time, posed.in_head));
         for (node, q) in posed.rotations {
             tracks
                 .entry(node)
@@ -611,7 +629,7 @@ pub fn retarget_with(
                 .push((time, offset.to_array()));
         }
     }
-    AnimationIr {
+    let clip = AnimationIr {
         name: clip.name.clone(),
         length: clip.length,
         transition: 0.0,
@@ -619,7 +637,8 @@ pub fn retarget_with(
         tracks: tracks.into_values().collect(),
         settings: Vec::new(),
         events: Vec::new(),
-    }
+    };
+    (clip, in_head)
 }
 
 /// One retargeted moment: each posed node's local rotation, and the root
@@ -635,6 +654,9 @@ pub struct Posed {
     /// JA's own joints in `JA_ARMS` order (KOTOR model space, metres, JA's
     /// floor on the model's), for traces beside the drawn arms.
     pub ja_arms: Vec<Vec3>,
+    /// How deep (metres) the deepest blade is in the head or neck, before
+    /// the wrists move it out and after (`Retargeter::head_depths`).
+    pub in_head: [f32; 2],
 }
 
 /// JA's arm joints a `Posed` carries: each side's shoulder, elbow and wrist.
@@ -664,6 +686,12 @@ pub struct Retargeter<'a> {
     arm_bones: Vec<usize>,
     /// KOTOR's hip joints (`lthigh_g`, `rthigh_g`): the pelvis's pivot.
     hips: Option<[usize; 2]>,
+    /// KOTOR's chest and the head's hook (`torsoupr_g`; `neck_g`, or
+    /// `headhook` where the head is a model of its own, as on the player
+    /// bodies): where the neck and head are, for blades kept out of them.
+    neck: Option<[usize; 2]>,
+    /// JA's skull bone, which turns the head.
+    skull: Option<usize>,
 }
 
 impl<'a> Retargeter<'a> {
@@ -694,7 +722,14 @@ impl<'a> Retargeter<'a> {
             .node("lthigh_g")
             .zip(k.node("rthigh_g"))
             .map(<[usize; 2]>::from);
+        let neck = k
+            .node("torsoupr_g")
+            .zip(k.node("neck_g").or_else(|| k.node("headhook")))
+            .map(<[usize; 2]>::from);
+        let skull = ja.bone("cranium");
         Retargeter {
+            neck,
+            skull,
             hips,
             arms,
             arm_bones,
@@ -745,6 +780,65 @@ impl<'a> Retargeter<'a> {
             .map_or_else(BTreeMap::new, BTreeMap::from)
     }
 
+    /// How deep (metres) each grip's blade and hilt are in the head or the
+    /// neck in `globals`, and the way out (a unit vector, model space):
+    /// none for one clear of both. The head is a capsule up from its hook
+    /// as JA's skull turns it (`HEAD`), the neck one from the chest to the
+    /// hook (`NECK`); a blade runs up its weapon node's +Z, a staff's down
+    /// −Z too, a single hilt's butt `BUTT` below. Out: away from the part's
+    /// line the way the blade lies from it, or, through the line itself,
+    /// the way the hilt does.
+    fn head_depths(&self, finals: &[Frame], globals: &[Frame]) -> Vec<Option<(f32, Vec3)>> {
+        let none = vec![None; self.grips.len()];
+        let Some([chest, hook]) = self.neck else {
+            return none;
+        };
+        let base = globals[hook].position;
+        let chest = globals[chest].position;
+        let Some(up) = self
+            .skull
+            .map(|b| TURN * finals[b].rotation * TURN.inverse() * Vec3::Z)
+            .or_else(|| (base - chest).try_normalize())
+        else {
+            return none;
+        };
+        let parts = [
+            ((base + up * HEAD.0, base + up * HEAD.1), HEAD.2),
+            ((chest, base), NECK),
+        ];
+        self.grips
+            .iter()
+            .map(|grip| {
+                let weapon = globals[grip.weapon];
+                let back = if grip.staff { BLADE } else { BUTT };
+                let blade = (weapon.point(-Vec3::Z * back), weapon.point(Vec3::Z * BLADE));
+                parts
+                    .iter()
+                    .filter_map(|&(line, radius)| {
+                        let (on_blade, on_line) = closest(blade, line);
+                        let depth = radius + BLADE_ROUND - on_blade.distance(on_line);
+                        let axis = (line.1 - line.0).normalize_or_zero();
+                        let square = |v: Vec3| v - axis * v.dot(axis);
+                        let out = square(on_blade - on_line)
+                            .try_normalize()
+                            .or_else(|| square(weapon.position - on_line).try_normalize())?;
+                        (depth > 0.0).then_some((depth, out))
+                    })
+                    .max_by(|a, b| a.0.total_cmp(&b.0))
+            })
+            .collect()
+    }
+
+    /// The deepest any blade is in the head or neck (metres, 0 when none
+    /// is; `head_depths`).
+    fn deepest_in_head(&self, finals: &[Frame], globals: &[Frame]) -> f32 {
+        self.head_depths(finals, globals)
+            .into_iter()
+            .flatten()
+            .map(|(depth, _)| depth)
+            .fold(0.0, f32::max)
+    }
+
     /// The KOTOR model's node names, in its order.
     pub fn node_names(&self) -> Vec<&str> {
         self.kotor.nodes.iter().map(|n| n.name.as_str()).collect()
@@ -754,16 +848,16 @@ impl<'a> Retargeter<'a> {
     /// model moved by `ground` (KOTOR model space, metres), each gripping
     /// hand in `reach` reaching for its blade (`Reach`), each gun held by
     /// its arm's aim in `aims` (`Aim`), and the left hand on a lone hilt as
-    /// `off` has it, eased on at `ms` (`OffHand`).
+    /// `eased` has it at `ms`, and each blade kept out of the head (`Eased`).
     pub fn pose(
         &self,
         locals: &[(Quat, Vec3)],
         ground: Vec3,
         (reach, aim): (&[Reach], &[Aim]),
-        off: (&mut OffHand, f32),
+        eased: (&mut Eased, f32),
     ) -> Posed {
         let finals = self.ja.finals_of(locals);
-        self.frame(&finals, ground, (reach, aim), off)
+        self.frame(&finals, ground, (reach, aim), eased)
     }
 
     fn frame(
@@ -771,8 +865,9 @@ impl<'a> Retargeter<'a> {
         finals: &[Frame],
         ground: Vec3,
         (reach, aims): (&[Reach], &[Aim]),
-        (off, ms): (&mut OffHand, f32),
+        (eased, ms): (&mut Eased, f32),
     ) -> Posed {
+        let since = eased.tick(ms);
         let (ja, k, kotor) = (&self.ja, &self.k, self.kotor);
         let (scale, root, hold, grips) = (self.scale, self.root, &self.hold, &self.grips);
         // Clips stand the model on a floor `ORIGIN_HEIGHT` below its origin;
@@ -782,7 +877,9 @@ impl<'a> Retargeter<'a> {
             TURN * (finals[b].point(ja.base(b)) + floor - ja.base(b)) * scale
         }) + ground;
         let none = BTreeMap::new();
-        let mut globals = k.globals(ja, finals, root, travel, grips, hold, &none);
+        // Hilts JA's tag bone has carried off the hand, moved out of the head.
+        let mut shifted: BTreeMap<usize, Vec3> = BTreeMap::new();
+        let mut globals = k.globals(ja, finals, root, travel, grips, hold, (&none, &shifted));
         // JA's pelvis turns about the hip joints; KOTOR's `pelvis_g` sits 13
         // (a woman's) to 19 cm (a man's) above them, so the same tilt swings
         // KOTOR's hips, and the feet, sideways. The root moves across so the
@@ -792,7 +889,7 @@ impl<'a> Retargeter<'a> {
             let now = (globals[left].position + globals[right].position) / 2.0;
             let off = rest + travel - now;
             travel += Vec3::new(off.x, off.y, 0.0);
-            globals = k.globals(ja, finals, root, travel, grips, hold, &none);
+            globals = k.globals(ja, finals, root, travel, grips, hold, (&none, &shifted));
         }
         // Keep the supporting foot at KOTOR's ankle height plus JA's lift
         // of it, scaled: the legs' proportions differ, so scaled pelvis travel
@@ -821,7 +918,7 @@ impl<'a> Retargeter<'a> {
             let dz = feet.iter().zip(&weights).map(|(f, w)| f.1 * w).sum::<f32>() / total;
             if dz.abs() > 1e-5 {
                 travel.z += dz;
-                globals = k.globals(ja, finals, root, travel, grips, hold, &none);
+                globals = k.globals(ja, finals, root, travel, grips, hold, (&none, &shifted));
             }
         }
         // With JA's hands together (a two-handed hold), the left wrist keeps
@@ -829,7 +926,7 @@ impl<'a> Retargeter<'a> {
         // arms or a woman's collars give it.
         let mut turned = self.spaced(finals, &globals);
         if !turned.is_empty() {
-            globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
+            globals = k.globals(ja, finals, root, travel, grips, hold, (&turned, &shifted));
         }
         let as_ja = globals.clone();
         turned.extend(
@@ -839,7 +936,44 @@ impl<'a> Retargeter<'a> {
                 .flat_map(|(grip, reach)| reach_turns(&globals, grip, reach)),
         );
         if !turned.is_empty() {
-            globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
+            globals = k.globals(ja, finals, root, travel, grips, hold, (&turned, &shifted));
+        }
+        // KOTOR's head is bigger than JA's and sits elsewhere: a blade JA
+        // swings past its own head, or a staff it rests behind it, runs
+        // through KOTOR's. Each blade moves out by as far as it is in
+        // (`head_depths`), eased (`Eased::clear`) so nothing jerks: a hilt JA's
+        // tag bone has carried off the hand as far as it has gone
+        // (`Grip::gone`; a staff rolled over the shoulders, where the arms
+        // are too stretched to carry it), the wrist the rest, keeping the
+        // hand's turn so the blade moves without turning.
+        let head_before = self.deepest_in_head(finals, &globals);
+        let into = self.head_depths(finals, &globals);
+        let mut cleared = false;
+        for (n, (grip, into)) in grips.iter().zip(into).enumerate() {
+            let wanted = into.map_or(Vec3::ZERO, |(depth, out)| out * depth.min(CLEAR_MOST));
+            let push = eased.clear(n, wanted, since);
+            if push.length() < 1e-4 {
+                continue;
+            }
+            let gone = grip.gone(finals);
+            if gone > 0.0 {
+                shifted.insert(grip.weapon, push * gone);
+                cleared = true;
+            }
+            let wrist = globals[grip.hand].position;
+            let carried = push * (1.0 - gone);
+            if let Some(turns) = grip
+                .arm
+                .filter(|_| carried.length() > 1e-4)
+                .and_then(|arm| bend(&globals, arm, wrist, wrist + carried))
+            {
+                turned.extend(turns);
+                turned.insert(grip.hand, globals[grip.hand].rotation);
+                cleared = true;
+            }
+        }
+        if cleared {
+            globals = k.globals(ja, finals, root, travel, grips, hold, (&turned, &shifted));
         }
         // One hilt in the right hand: the left hand holds it too where JA's
         // does, letting go as the hilt goes where the KOTOR body puts it
@@ -860,12 +994,12 @@ impl<'a> Retargeter<'a> {
         };
         let free = reach.iter().map(|reach| reach.free).fold(0.0, f32::max);
         let wanted = held.map_or(0.0, |(wanted, _)| wanted) * (1.0 - free.clamp(0.0, 1.0));
-        let share = off.ease(wanted, ms);
+        let share = eased.hold(wanted, since);
         if let (Some((_, hold_at)), Some((arm, _))) = (held.filter(|_| share > 0.0), left)
             && let Some(turns) = hold_turns(&globals, arm, hold_at, share)
         {
             turned.extend(turns);
-            globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
+            globals = k.globals(ja, finals, root, travel, grips, hold, (&turned, &shifted));
         }
         // Each arm its own gun; the left hand under a lone right one. JA
         // holds no gun up in the left hand: a left gun beside a right one is
@@ -881,7 +1015,7 @@ impl<'a> Retargeter<'a> {
             }
             let aim = &aim;
             turned.extend(aim_turns(&globals, arms, aim));
-            globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
+            globals = k.globals(ja, finals, root, travel, grips, hold, (&turned, &shifted));
             if aim.side == Side::Right {
                 right_muzzle = Some(globals[arms.weapon].point(aim.muzzle));
             }
@@ -889,7 +1023,7 @@ impl<'a> Retargeter<'a> {
                 (lone, aim.side, aim.support, arms.left)
             {
                 turned.extend(support_turns(&globals, arms, left, (aim, support)));
-                globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
+                globals = k.globals(ja, finals, root, travel, grips, hold, (&turned, &shifted));
             }
         }
         let parent_of = |node: usize| {
@@ -929,6 +1063,7 @@ impl<'a> Retargeter<'a> {
             root,
             weapons,
             ja_arms,
+            in_head: [head_before, self.deepest_in_head(finals, &globals)],
         }
     }
 }
@@ -1309,6 +1444,51 @@ const DEPART: (f32, f32) = (0.12, 0.35);
 /// Seconds the left hand takes to take a hilt or let it go.
 const OFF_HAND_S: f32 = 0.15;
 
+/// The head a blade keeps out of (metres): a capsule up the skull from
+/// `HEAD.0` to `HEAD.1` over the head's hook, `HEAD.2` round. K1's heads
+/// (`pmhc01`, `pfhc01`) run from the hook to 25 to 26 cm over it, 17 cm
+/// across and 23 cm front to back.
+const HEAD: (f32, f32, f32) = (0.1, 0.17, 0.1);
+/// The neck's radius, from the chest to the head's hook (metres).
+const NECK: f32 = 0.07;
+/// How far round a blade's line its glow, and a hilt, reach (metres): K1's
+/// blades glow 2 to 3 cm round, its hilts are 3 to 4 cm thick.
+const BLADE_ROUND: f32 = 0.03;
+/// A blade's length and a hilt's butt behind the grip (metres; K1's blades
+/// run about a metre, a staff's both ways).
+const BLADE: f32 = 1.0;
+const BUTT: f32 = 0.12;
+/// How far (metres) clearance moves a wrist at most.
+const CLEAR_MOST: f32 = 0.25;
+/// How fast (per second) a wrist eases out of the head and back
+/// (`Eased::clear`): settled in about a sixth of a second.
+const CLEAR_RATE: f32 = 60.0;
+
+/// The closest points of two segments (each as its ends): on the first,
+/// then on the second.
+fn closest((p, q): (Vec3, Vec3), (r, t): (Vec3, Vec3)) -> (Vec3, Vec3) {
+    let (d1, d2, w) = (q - p, t - r, p - r);
+    let (a, e, f) = (d1.dot(d1), d2.dot(d2), d2.dot(w));
+    let (b, c) = (d1.dot(d2), d1.dot(w));
+    let along = |num: f32, den: f32| {
+        if den > 1e-9 {
+            (num / den).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    };
+    let mut s = along(b * f - c * e, a * e - b * b);
+    let mut u = if e > 1e-9 { (b * s + f) / e } else { 0.0 };
+    if u < 0.0 {
+        u = 0.0;
+        s = along(-c, a);
+    } else if u > 1.0 {
+        u = 1.0;
+        s = along(b - c, a);
+    }
+    (p + d1 * s, r + d2 * u)
+}
+
 /// 0 at `from`, 1 at `to`, eased between (either way round).
 fn smooth(from: f32, to: f32, x: f32) -> f32 {
     let t = ((x - from) / (to - from)).clamp(0.0, 1.0);
@@ -1409,29 +1589,66 @@ fn hold_turns(
     Some(turns)
 }
 
-/// A body's left hand on a lone hilt over time (`Retargeter::pose`): how
-/// much it holds, as of when (ms). It eases toward what each pose wants at
-/// most a whole hold in `OFF_HAND_S`, so a hand never jumps onto the hilt
-/// or off it as JA's pose changes from frame to frame.
+/// What a body's pose eases over time (`Retargeter::pose`), as of when
+/// (ms): the left hand on a lone hilt, and each gripping hand's way out of
+/// the head (`Clear`). Neither jumps as JA's pose changes from frame to
+/// frame.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct OffHand {
+pub struct Eased {
+    /// How much the left hand holds a lone hilt: toward what each pose
+    /// wants at most a whole hold in `OFF_HAND_S`.
     share: f32,
+    /// Each grip's wrist moved out of the head (model space, metres), how
+    /// fast it moves (metres a second), and the last way out it was asked.
+    clear: [(Vec3, Vec3, Vec3); 2],
     ms: Option<f32>,
 }
 
-impl OffHand {
-    /// Eased toward `wanted` at `ms`: the share held now.
-    fn ease(&mut self, wanted: f32, ms: f32) -> f32 {
-        let step = self
-            .ms
-            .map_or(1.0, |was| (ms - was).max(0.0) / 1000.0 / OFF_HAND_S);
+impl Eased {
+    /// The seconds since the last pose (none for the first), now at `ms`.
+    fn tick(&mut self, ms: f32) -> Option<f32> {
+        let since = self.ms.map(|was| (ms - was).max(0.0) / 1000.0);
         self.ms = Some(ms);
+        since
+    }
+
+    /// The left hand's share eased `since` seconds toward `wanted`.
+    fn hold(&mut self, wanted: f32, since: Option<f32>) -> f32 {
+        let step = since.map_or(1.0, |s| s / OFF_HAND_S);
         self.share = if self.share < wanted {
             (self.share + step).min(wanted)
         } else {
             (self.share - step).max(wanted)
         };
         self.share
+    }
+
+    /// Grip `n`'s way out of the head eased `since` seconds toward
+    /// `wanted`: a critically damped spring of rate `CLEAR_RATE`, solved
+    /// exactly so any step is stable, settling in about `4 / CLEAR_RATE`
+    /// seconds without overshoot. It aims ahead by as far as `wanted` moves
+    /// in the `2 / CLEAR_RATE` seconds such a spring trails a steady change
+    /// by, so a blade sweeping deeper is met, not followed. The first pose
+    /// takes `wanted` at once.
+    fn clear(&mut self, n: usize, wanted: Vec3, since: Option<f32>) -> Vec3 {
+        let Some((at, speed, asked)) = self.clear.get_mut(n) else {
+            return wanted;
+        };
+        let was = std::mem::replace(asked, wanted);
+        match since {
+            None => (*at, *speed) = (wanted, Vec3::ZERO),
+            Some(t) if t <= 0.0 => {}
+            Some(t) => {
+                let w = CLEAR_RATE;
+                let ahead = (wanted + (wanted - was) / t * (2.0 / w)).clamp_length_max(CLEAR_MOST);
+                let off = *at - ahead;
+                let lead = *speed + w * off;
+                let decay = (-w * t).exp();
+                *at = ahead + (off + lead * t) * decay;
+                *speed = (*speed - w * lead * t) * decay;
+            }
+        }
+        *at
     }
 }
 
