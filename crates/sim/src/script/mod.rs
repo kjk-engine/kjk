@@ -36,6 +36,18 @@ pub mod items;
 pub mod journal;
 pub mod levelling;
 mod locks;
+mod maths;
+/// The string and maths routines' workings, for their probes
+/// (`world::routine_probes`).
+#[cfg(feature = "probes")]
+pub(crate) mod mod_routines {
+    pub(crate) use super::engine::{inserted, leading_float};
+
+    /// What maths routine `name` gives for `x` (and `y`); `None`: no such.
+    pub(crate) fn maths(name: &str, x: f32, y: f32) -> Option<f32> {
+        super::maths::Maths::named(name).map(|maths| maths.of(x, y))
+    }
+}
 mod minigame;
 mod pazaak;
 pub(crate) use minigame::commit as commit_race;

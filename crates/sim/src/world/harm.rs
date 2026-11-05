@@ -373,6 +373,21 @@ pub(super) fn hurt(
                         pushed(&mut player.0, &mut fighting.0, centre, now);
                     }
                 }
+                // Thrown down for the effect's time and a little more
+                // (`OnApplyKnockdown`), unless immune to knockdown.
+                ScriptEffect::Knockdown => {
+                    if let Some(at) = at {
+                        let fighter = &mut actors[at].5.0;
+                        let immune = fighter
+                            .effects
+                            .immune_effect(effects::state::KNOCKDOWN, now);
+                        if fighter.alive() && !immune && !fighter.saber.floored() {
+                            let held = until.map_or(0, |until| until.saturating_sub(now));
+                            let ms = held.saturating_add(rules::force_effects::knockdown::EXTRA_MS);
+                            fighter.saber.knock_down(now, ms);
+                        }
+                    }
+                }
                 // A downed party member up again (I30 P11's rise); one dead
                 // gets up too, as KOTOR's resurrection raises the dead
                 // (TSL's academy: Bao-Dur spawned in his cell, killed where
