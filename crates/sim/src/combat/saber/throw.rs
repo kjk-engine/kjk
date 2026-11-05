@@ -51,6 +51,14 @@ pub enum Flight {
     Lying,
 }
 
+impl Flight {
+    /// Whether it is in the air on its own way: leaving the hand, out or
+    /// coming back (not knocked down).
+    pub fn flies(self) -> bool {
+        matches!(self, Flight::Leaving | Flight::Out | Flight::Back)
+    }
+}
+
 const FLIGHTS: [Flight; 5] = [
     Flight::Leaving,
     Flight::Out,

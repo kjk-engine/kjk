@@ -585,7 +585,7 @@ pub fn load_for(
                 world.set_script_state(state);
             }
             crate::by_hand::give_items(&mut world, options.items)?;
-            // The arena's player carries every hand weapon K1 has, the
+            // The arena's player carries every hand weapon and armour K1 has, the
             // saber in hand unless its sheet holds a blaster (`--class
             // soldier@ROW`).
             let blaster = options.sheet.weapons[0]
@@ -593,7 +593,7 @@ pub fn load_for(
             if let Some(library) = world.level().scripts().cloned()
                 && world.level().arena_rules().is_some()
             {
-                crate::by_hand::give_items(&mut world, &crate::arena::weapons(&library))?;
+                crate::by_hand::give_items(&mut world, &crate::arena::gear(&library))?;
                 // The guns `--class soldier@ROW,ROW` names, drawn in hand as
                 // the first of K1's weapons of that row by template (`g_w_`).
                 let slots = [
@@ -643,6 +643,7 @@ pub fn load_for(
                     &mut world,
                     resolver,
                     seats,
+                    &options.bodies,
                     options.made,
                 )?);
             }

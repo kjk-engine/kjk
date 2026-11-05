@@ -142,6 +142,9 @@ pub fn install(app: &mut World, setup: Setup) {
 #[derive(Clone, Copy)]
 struct Seen {
     lit: bool,
+    /// A staff's second blade or a pair's second saber put out (the style
+    /// button).
+    second_off: bool,
     saber_move: Move,
     next_event: u16,
 }
@@ -285,6 +288,18 @@ fn sound(
         let hidden = f
             .acting
             .is_some_and(|acting| crate::acting::hides_items(&acting, current.time_ms as f64));
+        // A thrown saber spins with its own loop where it flies (JA's
+        // `saberSpinSound` as the thrown saber's `loopSound`).
+        if let Some(thrown) = f
+            .saber
+            .thrown
+            .filter(|thrown| f.saber.on && thrown.flight.flies())
+        {
+            loops.0.push(Hold::at(
+                asset_ja::SABER_SPIN.to_string(),
+                Vec3::from_array(thrown.at) / UNIT,
+            ));
+        }
         if !f.saber.on || !f.alive() || f.saber.thrown.is_some() || hidden {
             continue;
         }
@@ -379,6 +394,7 @@ fn changes(
     let Some(f) = entity.fighter else { return };
     let now = Seen {
         lit: f.saber.on,
+        second_off: f.saber.second_off,
         saber_move: f.saber.current_move,
         next_event: f.next_event,
     };
@@ -404,15 +420,24 @@ fn changes(
             ..Cue::at(name, at, ms)
         });
     }
+    // Lit or out, and a lit saber's second blade (or a pair's second
+    // saber) lit or put out by the style button (`Cmd_SaberAttackCycle_f`'s
+    // `soundOn` / `soundOff`).
+    let lighting = if now.lit != before.lit && (now.lit || f.alive()) {
+        Some(now.lit)
+    } else if now.lit && before.lit && now.second_off != before.second_off {
+        Some(!now.second_off)
+    } else {
+        None
+    };
     if let Some(double) = saber
-        && now.lit != before.lit
-        && (now.lit || f.alive())
+        && let Some(on) = lighting
     {
         let sounds = &blades.setup.of(double).0;
         cues.push(Cue {
             entity: Some(entity.id),
-            follows: now.lit,
-            ..Cue::at(sounds[if now.lit { 0 } else { 2 }].clone(), at, ms)
+            follows: on,
+            ..Cue::at(sounds[if on { 0 } else { 2 }].clone(), at, ms)
         });
     }
     let attack =

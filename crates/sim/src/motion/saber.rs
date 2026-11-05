@@ -406,10 +406,10 @@ impl Move<'_, '_> {
         }
     }
 
-    /// The style must suit the hands: a staff with its second blade off
-    /// and a single blade fight a single style, a staff or a pair with
-    /// both blades on their own. Anything else takes the hand's style
-    /// afresh.
+    /// The style must suit the hands: a staff with its second blade off, a
+    /// pair with its second saber off and a single blade fight a single
+    /// style, a staff or a pair with both blades on their own. Anything else
+    /// takes the hand's style afresh.
     fn fit_style(&mut self, arms: &mut Arms, forced: Option<Style>) {
         let saber = &mut arms.fighter.saber;
         let single = matches!(
@@ -417,7 +417,7 @@ impl Move<'_, '_> {
             Some(Style::Fast | Style::Medium | Style::Strong)
         );
         let fits = match (forced, saber.second_off) {
-            (Some(Style::Staff), true) => single,
+            (Some(Style::Staff | Style::Dual), true) => single,
             (Some(style), false) => saber.style == Some(style),
             (None, false) => single,
             _ => false,
@@ -429,9 +429,10 @@ impl Move<'_, '_> {
         }
     }
 
-    /// The style button, on a press: a staff switches its second blade, a
-    /// single blade cycles its styles (queued while the weapon timer runs);
-    /// a pair always fights as one.
+    /// The style button, on a press (`Cmd_SaberAttackCycle_f`): a staff
+    /// switches its second blade (not back on while the saber flies), a
+    /// pair its second saber (fighting Fast with one, as JA's `SS_FAST`), a
+    /// single blade cycles its styles (queued while the weapon timer runs).
     fn style_button(&mut self, arms: &mut Arms, forced: Option<Style>) {
         let hand = arms.fighter.hand;
         let ready = arms.fighter.weapon_wait_ms <= 0;
@@ -440,13 +441,14 @@ impl Move<'_, '_> {
         let saber = &mut arms.fighter.saber;
         if held && !saber.cycle_held {
             match forced {
-                Some(Style::Dual) => {}
-                Some(Style::Staff) => {
+                Some(Style::Staff) if saber.second_off && saber.thrown.is_some() => {}
+                Some(both @ (Style::Staff | Style::Dual)) => {
                     saber.second_off = !saber.second_off;
+                    let single = (both == Style::Dual).then_some(Style::Fast);
                     saber.style = if saber.second_off {
-                        kit.single_for(hand, None)
+                        kit.single_for(hand, single)
                     } else {
-                        Some(Style::Staff)
+                        Some(both)
                     };
                     saber.queued = None;
                 }
@@ -512,11 +514,7 @@ impl Move<'_, '_> {
         if arms.fighter.saber.flying() {
             let fighting_on = pair
                 && !saber.second_off
-                && (self.attack_held()
-                    || !matches!(
-                        self.ps.torso.anim,
-                        BOTH_SABERDUAL_STANCE | BOTH_SABERPULL | BOTH_STAND1
-                    ));
+                && (self.attack_held() || !guiding_torso(self.ps.torso.anim));
             if !fighting_on {
                 self.animator.play(
                     self.ps,
@@ -1370,6 +1368,48 @@ impl Move<'_, '_> {
             arms.fighter.saber.blocked = Blocked::None;
         }
     }
+}
+
+/// A torso that is not attacking while its saber flies, so it guides the
+/// saber with `BOTH_SABERPULL` (`bg_saber.c`): the pair's stance, the pull
+/// itself, standing, or a run, walk or jump (JA's lists of those, the
+/// ones this sim plays).
+fn guiding_torso(anim: Anim) -> bool {
+    matches!(
+        anim,
+        BOTH_SABERDUAL_STANCE
+            | BOTH_SABERPULL
+            | BOTH_STAND1
+            | BOTH_RUN1
+            | BOTH_RUN2
+            | BOTH_RUN_STAFF
+            | BOTH_RUN_DUAL
+            | BOTH_RUNBACK1
+            | BOTH_RUNBACK2
+            | BOTH_WALK1
+            | BOTH_WALK2
+            | BOTH_WALK_STAFF
+            | BOTH_WALK_DUAL
+            | BOTH_WALKBACK1
+            | BOTH_WALKBACK2
+            | BOTH_WALKBACK_STAFF
+            | BOTH_WALKBACK_DUAL
+            | BOTH_JUMP1
+            | BOTH_INAIR1
+            | BOTH_LAND1
+            | BOTH_JUMPBACK1
+            | BOTH_LANDBACK1
+            | BOTH_JUMPLEFT1
+            | BOTH_JUMPRIGHT1
+            | BOTH_FORCEJUMP1
+            | BOTH_FORCELAND1
+            | BOTH_FORCEJUMPBACK1
+            | BOTH_FORCELANDBACK1
+            | BOTH_FORCEJUMPLEFT1
+            | BOTH_FORCELANDLEFT1
+            | BOTH_FORCEJUMPRIGHT1
+            | BOTH_FORCELANDRIGHT1
+    )
 }
 
 /// A forward walk or run (any name starting `BOTH_WALK` or `BOTH_RUN`

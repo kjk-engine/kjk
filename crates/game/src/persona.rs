@@ -81,10 +81,10 @@ impl Portraits {
         })
     }
 
-    /// A seat's default: male and female in turn, each sex's portraits in
-    /// order, a soldier's body.
-    pub fn default(&self, seat: Seat) -> Option<Persona> {
-        let female = seat.0 % 2 == 1;
+    /// A seat's default: of the sex given, else male and female in turn,
+    /// each sex's portraits in order, a soldier's body.
+    pub fn default(&self, seat: Seat, female: Option<bool>) -> Option<Persona> {
+        let female = female.unwrap_or(seat.0 % 2 == 1);
         let of_sex: Vec<&String> = self
             .0
             .iter()
@@ -93,6 +93,21 @@ impl Portraits {
             .collect();
         let texture = of_sex.get(usize::from(seat.0 / 2) % of_sex.len().max(1))?;
         self.persona(seat, texture, DEFAULT_CLASS, "")
+    }
+
+    /// Whether body model `body` is a woman's: the sex of every player
+    /// portrait whose `appearance.2da` rows name it (`modela` … `modelj`),
+    /// when they agree; none for a body no player portrait wears.
+    pub fn female_body(&self, appearances: &TwoDa, body: &str) -> Option<bool> {
+        let wears =
+            |row: u16| asset_odyssey::body_morph::names_body(appearances, usize::from(row), body);
+        let mut sexes = self
+            .0
+            .iter()
+            .filter(|(.., bodies)| bodies.iter().flatten().any(|&row| wears(row)))
+            .map(|&(_, _, female, _)| female);
+        let first = sexes.next()?;
+        sexes.all(|female| female == first).then_some(first)
     }
 
     /// The body the first portrait of a sex gives `class`.
@@ -170,18 +185,26 @@ fn quick(
     })
 }
 
-/// Every seat of `world` given its persona (the defaults), and seat 0 the
-/// character `made`, when one was: what was done, a line each.
+/// Every seat of `world` given its persona (the defaults; a seat drawn as a
+/// body of `bodies`, the seats' in turn, a portrait of that body's sex, so
+/// its portrait and voice match), and seat 0 the character `made`, when one
+/// was: what was done, a line each.
 pub fn start(
     world: &mut SimWorld,
     resolver: &Resolver,
     seats: u8,
+    bodies: &[(String, String)],
     made: Option<Made>,
 ) -> Result<Vec<String>, String> {
     let portraits = Portraits::read(resolver).ok_or("portraits.2da: not read")?;
+    let appearances = resolver.two_da("appearance");
     let mut notes = Vec::new();
     for seat in (0..seats.max(1)).map(Seat) {
-        if let Some(persona) = portraits.default(seat) {
+        let female = bodies
+            .get(usize::from(seat.0))
+            .zip(appearances.as_ref())
+            .and_then(|((body, _), table)| portraits.female_body(table, body));
+        if let Some(persona) = portraits.default(seat, female) {
             notes.push(format!(
                 "seat {}: appearance {}",
                 seat.0, persona.appearance
