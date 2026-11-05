@@ -373,10 +373,13 @@ struct Id(SimId);
 struct Avatar(Seat);
 
 /// A seat's own character while the seat plays another (`switch`: the
-/// creature `SwitchPlayerCharacter` named): it stays where it is as a
-/// character nobody plays, and the snapshot still has it as the seat's
-/// avatar (`Kind::Avatar`). A world restored from a snapshot benches an
-/// avatar whose seat drives a creature.
+/// creature `SwitchPlayerCharacter` named): out of the area, as KOTOR's
+/// executables take the player's creature out of it then. It is a
+/// disabling component (`SimWorld::from_snapshot`): no query finds it but
+/// one that names it, so nothing moves, meets, sees or hits it; the
+/// snapshot still has it as the seat's avatar (`Kind::Avatar`), which the
+/// view does not draw (`Snapshot::all_drawn`). A world restored from a
+/// snapshot benches an avatar whose seat drives a creature.
 #[derive(Component)]
 struct Benched(Seat);
 
@@ -731,7 +734,7 @@ fn made_footprint(id: SimId, object: &Object, at: [f32; 3], placed: usize) -> Op
 pub struct SimWorld {
     world: World,
     schedule: Schedule,
-    rows: QueryState<EntityRow>,
+    rows: QueryState<EntityRow, bevy_ecs::query::Allow<Benched>>,
 }
 
 impl SimWorld {

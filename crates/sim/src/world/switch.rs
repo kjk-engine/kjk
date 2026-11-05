@@ -1,9 +1,12 @@
 //! The first seat playing another character (`SwitchPlayerCharacter`, K1
 //! and TSL): the companion the party table names (`Party::switched`)
 //! becomes the scripts' PC and the body the first seat moves, and the
-//! seat's own character stays where it was, a character nobody plays,
-//! until `NPC_PLAYER` switches back (K1's Leviathan escape: the cell's
-//! prisoner stays behind while the one chosen escapes).
+//! seat's own character leaves the area until `NPC_PLAYER` switches back,
+//! when it comes back where the creature played stands, facing its way:
+//! TSL's `CSWPartyTable::SwitchPlayerCharacter` saves the player's
+//! creature and deletes it, and makes it again from that save on the way
+//! back. The scenes make their own stand-ins where one is seen (TSL's
+//! prologue lays a disguised `c_medbaypc` on the Ebon Hawk's medbay bed).
 //!
 //! The table is the truth; `sync`, first in `drivers::assign`, makes the
 //! world follow it, so a switch a script makes moves the seat from the next
@@ -14,14 +17,15 @@
 //!   scripts give it, `Mind::steered`), and what is keyed by seat (use,
 //!   containers, locks, touches, exits) works through it. It follows the
 //!   party's first seat and fights in the player's faction meanwhile;
-//! - the seat's own character is `Benched`: no `Avatar`, so its mind keeps
-//!   it, out of the party, still the snapshot's `Kind::Avatar` (a world
-//!   made from a snapshot benches the avatar of a seat that drives a
-//!   creature, so clients and saves need no more than the driver);
+//! - the seat's own character is `Benched`, a disabling component: no
+//!   system moves, meets, sees or hits it and the view does not draw it,
+//!   out of the party, still the snapshot's `Kind::Avatar` (a world made
+//!   from a snapshot benches the avatar of a seat that drives a creature,
+//!   so clients and saves need no more than the driver);
 //! - switching back, or the creature gone, the creature's mind takes over
 //!   again (in the party, or on its own if it is not a member) and the
-//!   seat's own character is its body again; the table forgets a creature
-//!   gone.
+//!   seat's own character is its body again, where the creature given
+//!   back stands; the table forgets a creature gone.
 //!
 //! Scripts see the switch at once, in the step that made it: `GetFirstPC`,
 //! `GetIsPC`, `GetPCSpeaker` and the party's index 0 answer the creature
@@ -33,6 +37,8 @@
 //! switch`).
 
 use bevy_ecs::prelude::*;
+
+use bevy_ecs::query::Allow;
 
 use super::{Avatar, Benched, Fighting, Id, Inputs, LEADER_SEAT, Object, Player};
 use crate::combat::sheet::factions;
@@ -82,6 +88,13 @@ pub(super) fn sync(world: &mut World) {
         .0
         .get(LEADER_SEAT)
         .map(|command| command.angles);
+    // Where the creature given back stands: the seat's own character comes
+    // back there.
+    let given_back = riding
+        .iter()
+        .filter(|(entity, _)| Some(*entity) != body)
+        .find_map(|(entity, _)| world.get::<Player>(*entity))
+        .map(|player| (player.0.origin, player.0.view));
     // Given back: its mind again, in the party or on its own.
     for (entity, id) in riding {
         if Some(entity) == body {
@@ -127,7 +140,7 @@ pub(super) fn sync(world: &mut World) {
     }
     // The seat's own character benched while it plays another, its body
     // again after.
-    let mut own = world.query_filtered::<(Entity, Option<&Avatar>, Option<&Benched>), (Without<Object>, With<Player>)>();
+    let mut own = world.query_filtered::<(Entity, Option<&Avatar>, Option<&Benched>), (Without<Object>, With<Player>, Allow<Benched>)>();
     let seats: Vec<(Entity, bool)> = own
         .iter(world)
         .filter_map(|(entity, avatar, benched)| match (avatar, benched) {
@@ -151,6 +164,14 @@ pub(super) fn sync(world: &mut World) {
             (false, true) => {
                 character.remove::<Benched>();
                 character.insert(Avatar(LEADER_SEAT));
+                if let (Some((origin, view)), Some(mut player)) =
+                    (given_back, character.get_mut::<Player>())
+                {
+                    let ps = &mut player.0;
+                    ps.origin = origin;
+                    ps.velocity = [0.0; 3];
+                    ps.view = view;
+                }
                 look_on(&mut character, angles);
             }
             _ => {}
