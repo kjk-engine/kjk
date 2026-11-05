@@ -34,9 +34,13 @@ Every number below is the rulebook's ([`RULEBOOK.md`](RULEBOOK.md),
   has no player column, so it is taken from the player's row); row `a`,
   column `b` is how `a` regards `b`, 10 or less hostile. `kjk combat
   roster k1 end_m01aa` lists what was read. Scripts' `AdjustReputation`
-  moves a pair both ways for the rest of the game (`module::Adjustments`
-  in the scripts' state, saved; `Repute::with` gives the standing every
-  check reads): Tatooine's Sand People at peace with one in their robes.
+  changes a standing for the rest of the game, held to the scale as it is
+  kept (`module::adjust`; the changes by cell in `module::Adjustments` in
+  the scripts' state, saved; `Repute::with` gives the standing every
+  check reads): Tatooine's Sand People at peace with one in their robes,
+  made mad, robed again at peace. The player's standing with a faction is
+  one both ways; between two of the table's factions each way is its own.
+  `kjk sim probes --only reputation` checks it.
 - Bodies block (`collision::Bodies`: level first, then bodies by id, the
   nearest hit wins), but with friendly fire off (the default; a level's
   `with_friendly_fire` sets a session's) party members pass through each

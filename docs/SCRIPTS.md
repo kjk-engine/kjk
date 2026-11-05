@@ -205,9 +205,12 @@ the games' own compiled scripts; nothing of them is in the repo.
 - `ChangeToStandardFaction` sets the fighter's faction;
   `ChangeFactionByFaction` moves every non-party character of one
   faction to another (Korriban's academy turning on a spy);
-  `AdjustReputation` changes how two factions stand, both ways (a door's
-  or placeable's own `Faction` counts: Tatooine's "Sandperson Faction"
-  placeable); `GetIsDead` of no object is TRUE, as Aurora's; `CancelCombat`
+  `AdjustReputation` makes the target's faction regard the source's as
+  the source's regards the target's, moved and held to the scale as it is
+  kept (`world.factions.highest`), as both executables do (`module::adjust`; with the player it is
+  one standing both ways; a dead source, or one of the player's faction
+  or the target's, changes nothing; a door's or placeable's own `Faction`
+  counts as the source: Tatooine's "Sandperson Faction" placeable); `GetIsDead` of no object is TRUE, as Aurora's; `CancelCombat`
   leaves it with no one to fight and out of combat; `SurrenderToEnemies`
   makes the caller neutral and cancels its combat (Calo Nord's surrender
   before his detonator scene); `SetMinOneHP` sets the

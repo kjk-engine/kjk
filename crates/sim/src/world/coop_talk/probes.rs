@@ -727,7 +727,7 @@ impl Run {
         use crate::combat::sheet::factions::{HOSTILE_1, PLAYER};
         let barker = object(&self.last, BARKER)?;
         let mut state = self.world.script_state().clone();
-        let war = crate::module::pair(HOSTILE_1, PLAYER);
+        let war = crate::module::cell(HOSTILE_1, PLAYER);
         if on {
             state.reputation.insert(war, -50);
         } else {

@@ -55,9 +55,13 @@ pub struct Story {
     /// The entry each quest has reached, the latest updated last.
     pub journal: Vec<(String, i32)>,
     pub galaxy: StoryGalaxy,
-    /// What scripts changed of how factions stand: (faction, faction,
-    /// adjustment).
+    /// What scripts changed of how factions stand, as stories before
+    /// `standings` kept it: (faction, faction, adjustment) both ways. Read,
+    /// never written.
     pub reputation: Vec<(u8, u8, i16)>,
+    /// What scripts changed of how factions stand, by the table's cell
+    /// (`sim::module::Adjustments`): (faction, faction it regards, change).
+    pub standings: Vec<(u8, u8, i16)>,
     /// The modules `SetAreaUnescapable` marked.
     pub unescapable: Vec<String>,
     /// Whether each area's `DisableTransit` a script set, by module name.
@@ -275,7 +279,7 @@ impl Story {
                 selectable: script.galaxy.selectable.iter().copied().collect(),
                 selected: script.galaxy.selected,
             },
-            reputation: script
+            standings: script
                 .reputation
                 .iter()
                 .map(|(&(a, b), &adjustment)| (a, b, adjustment))
@@ -295,6 +299,18 @@ impl Story {
             .filter_map(|character| character.seat)
             .max()
             .map_or(1, |seat| seat.saturating_add(1))
+    }
+
+    /// What scripts changed of how factions stand, by cell: `standings`,
+    /// and an older story's `reputation` as the same change in each of its
+    /// pair's cells.
+    pub fn adjustments(&self) -> sim::module::Adjustments {
+        let old = self
+            .reputation
+            .iter()
+            .flat_map(|&(a, b, by)| sim::module::adjustment_cells(a, b, by));
+        let cells = self.standings.iter().map(|&(a, b, by)| ((a, b), by));
+        old.chain(cells).collect()
     }
 
     /// How `other`, a story written again after a restore of `self`, differs
@@ -338,7 +354,7 @@ impl Story {
             ),
             ("journal", a.journal == b.journal),
             ("galaxy", a.galaxy == b.galaxy),
-            ("reputation", a.reputation == b.reputation),
+            ("reputation", a.adjustments() == b.adjustments()),
             ("unescapable", a.unescapable == b.unescapable),
             ("transit", a.transit == b.transit),
             ("visited", a.visited == b.visited),
