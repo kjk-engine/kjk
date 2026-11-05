@@ -502,8 +502,10 @@ Running and checking:
   difficulty, auto level-up, autosave and the minigames' axis. `dump`'s
   `display` shows the window.
 
-The equip page: a slot chosen lists what the party carries that fits it;
-Equip wears the chosen one on the member the bar's portraits bring up
+The equip page: a slot chosen lists what the party carries that fits it,
+after "None" and, on a line of its own, what the slot holds marked
+"(Equipped)" (choosing that row changes nothing; the list's rows grow to
+their text, `ListView::fit` with `pick`); Equip wears the chosen one on the member the bar's portraits bring up
 (`GameAction::Equip { who, .. }` → `Action::EquipOn`) when the bar marks
 it dressed (`MemberView::dresses`): the seat's own body, and for the host
 the companions nobody plays. A guest's party starts with its body

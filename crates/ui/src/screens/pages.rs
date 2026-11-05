@@ -166,32 +166,50 @@ fn under_desc_box(control: &Control) -> bool {
     (left..left + width).contains(&x) && (top..top + height).contains(&y)
 }
 
+/// A row of a slot's list (`Equip::listed`).
+#[derive(Clone, PartialEq)]
+enum Listed {
+    /// "None": takes off what the slot holds.
+    Off,
+    /// What the slot holds, "(Equipped)": choosing it changes nothing.
+    Worn(Owned),
+    /// What the party carries that may go in the slot.
+    Carried(Owned),
+}
+
+/// What a worn row's name ends with.
+const EQUIPPED: &[u8] = b"\n(Equipped)";
+
 impl Equip {
-    /// The slot looked at's list: a "None" row first when it holds an item
-    /// (it takes it off; a hand's weapon without an item, a dev sheet's,
-    /// cannot be), then what the party carries that goes in it and is for
-    /// the member's race (`Owned::unfit`), as both games' equip screens list
-    /// (`CSWGuiInGameEquip`): those it may not wear among them (`refused`).
-    fn listed(&self, me: &CharacterView) -> Vec<Option<Owned>> {
+    /// The slot looked at's list: when it holds an item, a "None" row (it
+    /// takes it off; a hand's weapon without an item, a dev sheet's, cannot
+    /// be) and that item marked equipped; then what the party carries that
+    /// goes in it and is for the member's race (`Owned::unfit`), as both
+    /// games' equip screens list (`CSWGuiInGameEquip`): those it may not
+    /// wear among them (`refused`).
+    fn listed(&self, me: &CharacterView) -> Vec<Listed> {
         let Some((_, slot)) = self.slot else {
             return Vec::new();
         };
-        let wearing = me.worn.iter().any(|(at, _)| *at == slot);
+        let worn = me.worn.iter().find(|(at, _)| *at == slot);
         let fitting = me
             .owned
             .iter()
             .filter(|owned| owned.slots & 1 << rules(slot) != 0 && !owned.unfit);
-        wearing
-            .then_some(None)
-            .into_iter()
-            .chain(fitting.cloned().map(Some))
+        worn.into_iter()
+            .flat_map(|(_, owned)| [Listed::Off, Listed::Worn(owned.clone())])
+            .chain(fitting.cloned().map(Listed::Carried))
             .collect()
     }
 
-    /// The chosen row: `None` for nothing, `Some(None)` for the "None" row,
-    /// else the item.
+    /// The chosen row, when choosing it changes something: `Some(None)` for
+    /// the "None" row, else the item to wear.
     fn choice(&self, me: &CharacterView) -> Option<Option<Owned>> {
-        self.listed(me).get(self.chosen?).cloned()
+        match self.listed(me).get(self.chosen?)? {
+            Listed::Off => Some(None),
+            Listed::Worn(_) => None,
+            Listed::Carried(owned) => Some(Some(owned.clone())),
+        }
     }
 }
 
@@ -207,16 +225,19 @@ impl Page for Equip {
                 // The "None" row tells what it would take off.
                 let row = self.chosen.unwrap_or(self.pointed);
                 let worn = |slot| me.worn.iter().find(|(at, _)| *at == slot);
-                let item = match self.listed(&me).into_iter().nth(row) {
-                    Some(Some(owned)) => Some(owned),
-                    Some(None) => self
+                let listed = self.listed(&me).into_iter().nth(row);
+                let item = match &listed {
+                    Some(Listed::Carried(owned) | Listed::Worn(owned)) => Some(owned.clone()),
+                    Some(Listed::Off) => self
                         .slot
                         .and_then(|(_, slot)| worn(slot))
                         .map(|(_, owned)| owned.clone()),
                     None => None,
                 };
+                // What it would change: none for what is worn already.
                 let lead = item
                     .as_ref()
+                    .filter(|_| !matches!(listed, Some(Listed::Worn(_))))
                     .zip(self.slot)
                     .and_then(|(owned, (_, slot))| {
                         owned.previews.iter().find(|preview| preview.slot == slot)
@@ -274,12 +295,21 @@ impl Page for Equip {
                     .listed(&me)
                     .into_iter()
                     .map(|row| match row {
-                        Some(owned) => (owned.entry.clone(), refused(&owned)),
-                        None => (none.clone(), false),
+                        Listed::Carried(owned) => (owned.entry.clone(), refused(&owned)),
+                        Listed::Worn(owned) => {
+                            let mut entry = owned.entry.clone();
+                            entry.name.extend_from_slice(EQUIPPED);
+                            (entry, false)
+                        }
+                        Listed::Off => (none.clone(), false),
                     })
                     .unzip();
                 let mut state = rows(&entries, self.chosen);
                 if let Some(list) = state.list.as_mut() {
+                    // The worn row's mark goes on a line of its own; the
+                    // rows are still chosen.
+                    list.fit = true;
+                    list.pick = true;
                     for (row, red) in list.rows.iter_mut().zip(red) {
                         row.refused = red;
                     }
@@ -359,7 +389,7 @@ impl Page for Equip {
     fn double(&mut self, tag: &str, vm: &ViewModel, out: &mut Vec<Intent>) {
         let me = character(vm);
         if SLOTS.iter().any(|(_, button, ..)| *button == tag)
-            && self.listed(&me).first() == Some(&None)
+            && self.listed(&me).first() == Some(&Listed::Off)
         {
             self.chosen = Some(0);
             self.press("BTN_EQUIP", vm, out);
