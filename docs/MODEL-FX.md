@@ -121,7 +121,9 @@ lightning and how to see them).
 - Every `animloop…` clip loops at once from the scene's start, on the
   animations' clock (`anim` holds it), each over the rest pose; a node two
   key shows the later one's [verify: reone's order is a hash map's]. Only
-  nodes under the model's animation root move (reone).
+  nodes under the model's animation root move (reone); a clip whose root
+  names no node of the model moves all of them (`AnimationIr::bind`:
+  TSL's `p_kreiastunt` names its clips' root `p_kreiastunt01`).
 - A room's `scriptloopNN` clip a script plays on it (`PlayRoomAnimation`:
   the snapshot's `AreaSound::room`, the room by `sim::room_key` of its
   name, one at a time) loops from when it began, on the sim's clock, after

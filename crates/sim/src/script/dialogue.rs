@@ -362,6 +362,16 @@ fn shown_text(library: &super::Library, node: &Node) -> String {
     }
 }
 
+/// Whether a node says nothing: no text (`Node::is_silent`), or only
+/// developer notes (`tlk::unbraced`), as TSL's lone replies of `101awake`
+/// and `003disci` (`{camera 33}`) are. Such a reply is taken, not offered.
+pub(super) fn says_nothing(library: &super::Library, node: &Node) -> bool {
+    node.is_silent()
+        || fmt_odyssey::tlk::unbraced(shown_text(library, node).as_bytes())
+            .trim_ascii()
+            .is_empty()
+}
+
 /// Conversations and what they keep (`State::talk`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Talk {
@@ -1098,15 +1108,16 @@ fn party_pc(pcs: &[ObjectId], lent: Option<ObjectId>, id: ObjectId) -> bool {
 }
 
 /// Who a DLG names by `tag` (a line's `AnimList`, an animated cutscene's
-/// stunts): `owner` the conversation's owner, `player` its player, any
-/// other tag the first object `tagged` finds by it.
+/// stunts): `owner` (or no tag, `dlg::same_participant`) the conversation's
+/// owner, `player` its player, any other tag the first object `tagged`
+/// finds by it.
 pub fn participant<T>(
     tag: &str,
     (owner, player): (T, T),
     tagged: impl FnOnce(&str) -> Option<T>,
 ) -> Option<T> {
     match tag.to_ascii_lowercase().as_str() {
-        "owner" => Some(owner),
+        "owner" | "" => Some(owner),
         "player" => Some(player),
         _ => tagged(tag),
     }

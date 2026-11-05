@@ -1,0 +1,5 @@
+# The sim's hash moves on purpose: conversations play a line's cutscene
+# clips (`AnimList` 1000 to 1799) on bodies, staged conversations included
+# but for their stunts, and a lone reply saying only developer notes is
+# taken, not offered.
+sim = "AnimList cutscene clips play on bodies in every conversation; a reply of developer notes alone is silent"

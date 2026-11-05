@@ -1993,3 +1993,15 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Evidence:   the probe `reputation_target_regards_source` (`kjk sim probes
   --only reputation`): 80 one way, 20 the other, a change of 5 leaves 25
   and 20.
+
+### Q-0360 — the 29th cutscene clip of each run is the 39th
+
+- Reference:  K1 and TSL (both executables' tables of animation numbers to
+  clip names)
+- Behaviour:  1028, 1228, 1428 and 1628 name `cut039`, `cut039w`,
+  `cut039l` and `cut039wl`, the clips 1038, 1238, 1438 and 1638 name;
+  neither executable holds a `cut029` string. TSL's lines that ask for
+  1428 (`attonend`, `atrend2`) play `cut039l`.
+- Expected:   `cut029` and its endings.
+- Status:     reproduced.
+- Ours:       `fmt_odyssey::dlg::cut_clip`

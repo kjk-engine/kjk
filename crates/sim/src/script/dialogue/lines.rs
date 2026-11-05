@@ -140,13 +140,10 @@ impl Step<'_> {
             .then(|| library.camera_clip(&dlg.camera_model, node.camera_animation))
             .flatten()
             .map(|ms| (clip_from + u64::from(ms)).saturating_sub(now));
-        let gestures = match dlg.animated_cut {
-            true => Vec::new(),
-            false => self.gestures(node, (owner, player)),
-        };
+        let gestures = self.gestures(dlg, node, (owner, player));
         // One waiting on its gestures lasts the longest of their clips,
         // played once (none where the model has no length for its clip
-        // [verify]); an animated cut's stunt clips are not measured.
+        // [verify]); stunt clips are not measured.
         let gestured = (node.wait_flags & WAIT_ANIMS != 0)
             .then(|| {
                 let played = |&(who, animation): &(ObjectId, u16)| {
@@ -221,7 +218,7 @@ impl Step<'_> {
             return;
         };
         let replies = self.offer(dlg, id, entry, owner, pc);
-        let auto = replies.len() == 1 && dlg.replies[replies[0] as usize].is_silent();
+        let auto = replies.len() == 1 && says_nothing(library, &dlg.replies[replies[0] as usize]);
         let Some(at) = self.state.talk.index(id) else {
             return;
         };
@@ -241,19 +238,28 @@ impl Step<'_> {
         }
     }
 
-    /// A line's `AnimList` (outside animated cutscenes, which stage their
-    /// own): each participant (`owner`, `player` as `Step::player` has it,
-    /// else by tag; one not found is left out, as reone does) and its
-    /// `dialoganimations.2da` row's animation, which it plays for the line's
-    /// length, as `PlayAnimation` would.
+    /// A line's `AnimList`, but for `dlg`'s stunt participants, whose
+    /// stunt models the views pose: each participant (`owner`, `player` as
+    /// `Step::player` has it, else by tag; one not found is left out, as
+    /// reone does) and its animation (`Library::dialog_animation`: a
+    /// `dialoganimations.2da` row's, or a cutscene clip on its own body:
+    /// TSL's player afloat in `101awake`'s kolto tank), which it plays for
+    /// the line's length, as `PlayAnimation` would.
     pub(super) fn gestures(
         &self,
+        dlg: &Dlg,
         node: &Node,
         (owner, player): (ObjectId, ObjectId),
     ) -> Vec<(ObjectId, u16)> {
         let library = self.library;
+        let stunt = |tag: &str| {
+            dlg.stunts
+                .iter()
+                .any(|(of, _)| fmt_odyssey::dlg::same_participant(of, tag))
+        };
         node.anims
             .iter()
+            .filter(|(tag, _)| !stunt(tag))
             .filter_map(|(tag, value)| {
                 let animation = library.dialog_animation(*value)?;
                 let who = participant(tag, (owner, player), |tag| self.first_tagged(tag))?;
