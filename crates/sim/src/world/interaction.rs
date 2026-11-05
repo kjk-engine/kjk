@@ -570,15 +570,33 @@ pub(super) fn watchable(
 /// it met nothing, a usable placeable that speaks or has a use script (a
 /// terminal; the Vulkars' accelerator on the floor) within reach in height
 /// too: the nearest in front of the user.
+///
+/// The look runs first along the crosshair line (`mind::crosshair`), the
+/// middle of the screen, where shots go: a line from the eye, under it,
+/// meets the counter a trader stands behind while the crosshair is on her
+/// (Greeta Holda's in Anchorhead's Czerka office). Meeting nothing, it runs
+/// from the eye, which a level look at someone the user's height meets
+/// where the crosshair passes over their head.
 pub(super) fn key_use(
     level: &Level,
     objects: &[&Object],
     user: &MotionState,
     talkers: &[Body],
 ) -> Option<KeyUse> {
+    use crate::combat::mind;
+    let from = |eye| key_use_from(level, objects, user, talkers, eye);
+    from(mind::crosshair(user)).or_else(|| from(mind::eye(user)))
+}
+
+/// `key_use` with the look running from `eye` (units) along `user`'s view.
+fn key_use_from(
+    level: &Level,
+    objects: &[&Object],
+    user: &MotionState,
+    talkers: &[Body],
+    eye: [f32; 3],
+) -> Option<KeyUse> {
     let states = level.states(objects.iter().map(|object| (object.index, &object.state)));
-    let mut eye = user.origin;
-    eye[2] += user.eye_height;
     let (forward, _, _) = math::angle_vectors(user.view);
     let reach = math::mad(eye, TALK_DISTANCE, forward);
     let mut trace = level.with(states.as_deref(), |world| {
