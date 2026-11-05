@@ -2,14 +2,15 @@
 # Puts one Release's packages on the Nexus Mods page (docs/RELEASE.md):
 #   .github/nexus-upload.sh <version> <package>...
 # Each package (kjk-v0.6.0-linux-x86_64.tar.gz) becomes a new version of its
-# OS's file on the page, the file whose id is the repository variable
-# NEXUS_FILE_<PLATFORM> (NEXUS_FILE_LINUX_X86_64). With no such variable the
-# package is added as a new main file and its id is printed, to be saved as
-# that variable so the next release updates it.
+# OS's file on the page, the file named by the environment variable
+# NEXUS_FILE_<PLATFORM> (NEXUS_FILE_LINUX_X86_64): the API's id for the file,
+# or the file_id in one of its versions' download links on the site. With no
+# such variable the package is added as a new main file and its id is
+# printed, to be saved so the next release updates it.
 #
 # NEXUS_API_KEY is the owner's key (nexusmods.com/settings/api-keys),
-# NEXUS_MOD_ID the mod's id (not the 1911 in its URL), VARS the repository
-# variables as JSON. The API: https://api-docs.nexusmods.com/
+# NEXUS_MOD_ID the mod's id (not the 1911 in its URL), NEXUS_GAME the game's
+# name in the site's URLs. The API: https://api-docs.nexusmods.com/
 set -euo pipefail
 
 api=https://api.nexusmods.com/v3
@@ -20,6 +21,15 @@ call() { # method path [json]
   curl --silent --show-error --fail-with-body -X "$1" "$api$2" \
     -H "apikey: $NEXUS_API_KEY" -H "Content-Type: application/json" \
     ${3:+--data "$3"}
+}
+
+# The API's id for a file, given that id or a version's game-scoped id.
+file_of() {
+  if call GET "/mod-files/$1" >/dev/null 2>&1; then
+    echo "$1"
+  else
+    call GET "/games/$NEXUS_GAME/mod-file-versions/$1" | jq -er .data.file.id
+  fi
 }
 
 label() {
@@ -38,7 +48,13 @@ for package in "$@"; do
   platform=${platform%.tar.gz}
   platform=${platform%.zip}
   variable=NEXUS_FILE_$(tr 'a-z-' 'A-Z_' <<<"$platform")
-  file_id=$(jq -r --arg v "$variable" '.[$v] // empty' <<<"${VARS:-null}")
+  file_id=${!variable:-}
+  if [ -n "$file_id" ]; then
+    file_id=$(file_of "$file_id") || {
+      echo "::error::$variable names no file or file version on Nexus"
+      exit 1
+    }
+  fi
   size=$(stat -c %s "$package")
   if (( size > 100 * 1024 * 1024 )); then
     echo "::error::$filename is over 100 MiB, which needs Nexus's multipart upload (not written yet)"
