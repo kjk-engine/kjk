@@ -100,6 +100,18 @@ channel (`.github/workflows/discord-release.yml`, the message in
 `context/discord-progress-webhook`; larger files are shrunk to Discord's
 20 MB, `--dry-run` sends nothing).
 
+Publishing it also puts the packages on the Nexus Mods page,
+nexusmods.com/kotor/mods/1911 (`.github/workflows/nexus-release.yml`,
+the calls in `.github/nexus-upload.sh`): the repository secret
+`NEXUS_API_KEY` holds the owner's key (nexusmods.com/settings/api-keys);
+without it nothing is uploaded. Each OS's package becomes a new main
+version of its own file on the page, the file whose id is the variable
+`NEXUS_FILE_<PLATFORM>` (`NEXUS_FILE_MACOS_AARCH64`,
+`NEXUS_FILE_WINDOWS_X86_64`, `NEXUS_FILE_LINUX_X86_64`), and the mod's
+version follows. A package with no such variable is added as a new file,
+and the run's notice names its id to save as the variable. Actions →
+nexus release → Run workflow with a tag uploads that Release again.
+
 The macOS app is **not signed or notarised** (the owner's decision,
 2026-10-25: no Apple developer account). `dist` seals it with an ad-hoc
 signature (`codesign --sign -`): left as the linker signs it, the plist
