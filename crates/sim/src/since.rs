@@ -20,6 +20,8 @@ pub mod save {
     pub const COMPANION_KEPT_ITEMS: crate::Since = crate::Since(crate::Stored::Save, 70);
     pub const DRIVEN_AI_DEFERRED: crate::Since = crate::Since(crate::Stored::Save, 71);
     pub const CLAUDE_SAVE_RECONCILE: crate::Since = crate::Since(crate::Stored::Save, 72);
+    pub const REEL_NOTES: crate::Since = crate::Since(crate::Stored::Save, 73);
+    pub const REPUTATION_HELD: crate::Since = crate::Since(crate::Stored::Save, 74);
     #[allow(unused_imports)]
     pub use crate::pending::since::save::*;
 }
@@ -32,6 +34,7 @@ pub mod snapshot {
     pub const ITEM_CYCLE: crate::Since = crate::Since(crate::Stored::Snapshot, 77);
     pub const DROID_FEEL: crate::Since = crate::Since(crate::Stored::Snapshot, 78);
     pub const CLAUDE_SAVE_RECONCILE: crate::Since = crate::Since(crate::Stored::Snapshot, 79);
+    pub const REEL_NOTES: crate::Since = crate::Since(crate::Stored::Snapshot, 80);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }
