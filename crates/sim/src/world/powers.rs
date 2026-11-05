@@ -529,6 +529,25 @@ impl Cast<'_, '_> {
             .is_some_and(|library| library.impact(self.row).is_some())
     }
 
+    /// Whether KOTOR keeps the power `at` uses now (`row`) off `them`. One
+    /// `spells.2da` marks hostile (`hostilesetting`) is offered on enemies
+    /// alone, and its impact script trusts that: Shock, Drain Life, Choke,
+    /// Whirlwind and Stasis never ask `GetIsEnemy`. So it takes a hostile,
+    /// one of its own side only where friendly fire lets it (a duel), and
+    /// never a neutral outsider. JA's powers (no `spells.2da`) answer to
+    /// friendly fire alone.
+    fn spared(&self, at: usize, them: usize) -> bool {
+        let hostile = self
+            .library
+            .is_some_and(|library| library.spell(self.row).hostile);
+        hostile
+            && match self.scene.relation(at, them) {
+                Relation::Hostile => false,
+                Relation::Outsider { .. } => true,
+                side => self.scene.level.friendly_fire().spares(side),
+            }
+    }
+
     /// `at`'s cast of the power it uses now, at `target` (the one aimed
     /// at, if any) catching `caught`, for its impact script (authority
     /// only).
@@ -720,6 +739,7 @@ impl Cast<'_, '_> {
                 || them.force.gripped_by.is_some()
                 || them.force.absorbing(self.now) > 0
                 || !self.scene.harms(at, victim)
+                || self.spared(at, victim)
             {
                 return false;
             }
@@ -929,10 +949,10 @@ impl Cast<'_, '_> {
 
     /// Who a line or level-3 cone power reaches this tick, with where: both
     /// from the eye, where the caster aims (JA's from the origin, QUIRKS.md
-    /// Q-0032, fixed).
+    /// Q-0032, fixed); none KOTOR spares (`spared`).
     fn caught(&self, at: usize, level: u8, radius: f32) -> Vec<(usize, Vec3)> {
         let eye = self.person(at).eye();
-        if level < 3 {
+        let caught: Vec<(usize, Vec3)> = if level < 3 {
             self.scene
                 .aimed(at, eye, ja::LINE_RANGE)
                 .into_iter()
@@ -944,7 +964,11 @@ impl Cast<'_, '_> {
                 .filter(|&them| self.scene.harms(at, them))
                 .map(|them| (them, self.person(them).centre()))
                 .collect()
-        }
+        };
+        caught
+            .into_iter()
+            .filter(|&(them, _)| !self.spared(at, them))
+            .collect()
     }
 
     /// A lightning tick (I23 4.6.5): `ja::LIGHTNING_POINTS` and up to
@@ -1207,10 +1231,10 @@ impl Cast<'_, '_> {
             self.scene
                 .around(at, ja::TRICK_AREA, Some(ja::TRICK_FIELD), -1.0)
         };
-        for them in caught
-            .into_iter()
-            .filter(|&them| !self.scene.side(at, them))
-        {
+        for them in caught {
+            if self.scene.side(at, them) || self.spared(at, them) {
+                continue;
+            }
             self.reached(at, them, true);
             match self.person(them).seat {
                 Some(seat) => self.fighters[at].force.tricked |= super::party::bit(seat),
@@ -1263,6 +1287,7 @@ impl Cast<'_, '_> {
         let mut shoved = Vec::new();
         for them in caught {
             if self.scene.side(at, them)
+                || self.spared(at, them)
                 || !self.fighters[them].alive()
                 || self.fighters[them].saber.floored()
             {
@@ -1474,7 +1499,9 @@ impl Cast<'_, '_> {
         }
         let alive: Vec<usize> = caught
             .into_iter()
-            .filter(|&them| !self.scene.side(at, them) && self.fighters[them].alive())
+            .filter(|&them| {
+                !self.scene.side(at, them) && !self.spared(at, them) && self.fighters[them].alive()
+            })
             .filter(|&them| !crowd::droids(row) || droid(self, them))
             .collect();
         if self.scripted() {
@@ -1601,7 +1628,8 @@ impl Cast<'_, '_> {
         force.tricked = 0;
         let eye = self.person(at).eye();
         let (them, _) = self.scene.aimed(at, eye, ja::STUN_RANGE)?;
-        let reached = !self.scene.side(at, them) && self.fighters[them].alive();
+        let reached =
+            !self.scene.side(at, them) && !self.spared(at, them) && self.fighters[them].alive();
         if reached {
             self.reached(at, them, true);
         }
