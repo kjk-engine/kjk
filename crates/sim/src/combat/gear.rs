@@ -237,6 +237,9 @@ pub mod traits {
     pub const RAPID_SHOT: u8 = 16;
     /// Special Walk (52): its walk, and no running.
     pub const WALK_ONLY: u8 = 32;
+    /// TSL's wrist launcher worn (`inventory::ItemFacts::launcher`): grenades
+    /// fired, not thrown, and rockets and darts usable (`combat::grenades`).
+    pub const WRIST_LAUNCHER: u8 = 64;
 }
 
 /// The light an item property gives (`visualeffects.2da`: VFX_ARD_LIGHT_

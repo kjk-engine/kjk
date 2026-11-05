@@ -183,6 +183,115 @@ pub fn effect(row: u16) -> Option<Effect> {
     })
 }
 
+/// TSL's grenades and the rows a wrist launcher fires them as, by the
+/// executable's `ConvertGrenadeSpellID`.
+const LAUNCHED: [(u16, u16); 11] = {
+    use crate::combat::spells::*;
+    [
+        (
+            ITEM_ABILITY_GRENADE_FRAGMENTATION,
+            ITEM_ABILITY_GRENADE_LAUNCHED_FRAGMENTATION,
+        ),
+        (
+            ITEM_ABILITY_GRENADE_STUN,
+            ITEM_ABILITY_GRENADE_LAUNCHED_STUN,
+        ),
+        (
+            ITEM_ABILITY_GRENADE_THERMAL_DETONATOR,
+            ITEM_ABILITY_GRENADE_LAUNCHED_THERMAL_DETONATOR,
+        ),
+        (
+            ITEM_ABILITY_GRENADE_POISON,
+            ITEM_ABILITY_GRENADE_LAUNCHED_POISON,
+        ),
+        (
+            ITEM_ABILITY_GRENADE_SONIC,
+            ITEM_ABILITY_GRENADE_LAUNCHED_SONIC,
+        ),
+        (
+            ITEM_ABILITY_GRENADE_ADHESIVE,
+            ITEM_ABILITY_GRENADE_LAUNCHED_ADHESIVE,
+        ),
+        (
+            ITEM_ABILITY_GRENADE_CRYOBAN,
+            ITEM_ABILITY_GRENADE_LAUNCHED_CRYOBAN,
+        ),
+        (
+            ITEM_ABILITY_GRENADE_FIRE,
+            ITEM_ABILITY_GRENADE_LAUNCHED_FIRE,
+        ),
+        (ITEM_ABILITY_GRENADE_ION, ITEM_ABILITY_GRENADE_LAUNCHED_ION),
+        (
+            ITEM_ABILITY_GRENADE_SONIC_2,
+            ITEM_ABILITY_GRENADE_LAUNCHED_SONIC_2,
+        ),
+        (
+            ITEM_ABILITY_GRENADE_SONIC_3,
+            ITEM_ABILITY_GRENADE_LAUNCHED_SONIC_3,
+        ),
+    ]
+};
+
+/// The row a character wearing a wrist launcher fires for a grenade of row
+/// `row`: its launched row (`LAUNCHED`); any other row as it is.
+pub fn launched(row: u16) -> u16 {
+    LAUNCHED
+        .iter()
+        .find(|(thrown, _)| *thrown == row)
+        .map_or(row, |&(_, launched)| launched)
+}
+
+/// Whether row `row` is TSL's rocket or dart, which only a wrist launcher
+/// fires (the executable's `IsHostileUsableItem`).
+pub fn needs_launcher(row: u16) -> bool {
+    use crate::combat::spells::*;
+    matches!(
+        row,
+        ITEM_ABILITY_ROCKET_EXPLOSIVE
+            | ITEM_ABILITY_ROCKET_PIERCING
+            | ITEM_ABILITY_ROCKET_POISON
+            | ITEM_ABILITY_ROCKET_ION
+            | ITEM_ABILITY_ROCKET_PLASMA
+            | ITEM_ABILITY_ROCKET_CONCUSSION
+            | ITEM_ABILITY_DART_POISON
+            | ITEM_ABILITY_DART_KYBER
+            | ITEM_ABILITY_DART_PARALYSIS
+            | ITEM_ABILITY_DART_TRANQUILIZER
+            | ITEM_ABILITY_DART_LAWN
+    )
+}
+
+/// Whether row `row` is thrown or fired by the grenade button: a grenade
+/// (`effect`), a rocket or a dart.
+pub fn is_grenade(row: u16) -> bool {
+    effect(row).is_some() || needs_launcher(row)
+}
+
+/// Whether row `row` flies as `spells.2da`'s `projtype` `homing` (the
+/// launched rows, the rockets, the darts): straight at what it was aimed
+/// at, bursting on the first thing it meets; not JA's bouncing lob.
+pub fn homing(row: u16) -> bool {
+    needs_launcher(row) || LAUNCHED.iter().any(|&(_, launched)| launched == row)
+}
+
+/// The kinds among `items` the grenade button may take: rockets and darts
+/// only with a wrist `launcher` worn (else they stay carried, unused).
+pub fn usable(items: &[Option<Carried>; KINDS], launcher: bool) -> [Option<Carried>; KINDS] {
+    items.map(|carried| carried.filter(|carried| launcher || !needs_launcher(carried.row)))
+}
+
+/// A homing shot's speed to a target `distance` units away (units/s): the
+/// executable's `3 ln d + 2` m/s, doubled for homing.
+pub fn homing_speed(distance: f32) -> f32 {
+    use rules::grenades::launched as rule;
+    let metres = (distance * collision::UNIT).max(1.0);
+    (rule::SPEED_PER_LOG * collision::trig::ln(metres) + rule::SPEED_BASE) * rule::HOMING_TIMES
+        / collision::UNIT
+}
+
+/// How far a launched shot is aimed (units).
+pub const LAUNCH_REACH: f32 = rules::grenades::launched::REACH_M / collision::UNIT;
+
 /// How strong a throw held `held_ms` is (JA's thermal).
 pub fn strength(held_ms: u64) -> f32 {
     (held_ms.min(CHARGE_MS) as f32 / CHARGE_MS as f32).max(MIN_STRENGTH)

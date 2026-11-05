@@ -101,3 +101,28 @@ pub fn atan2_deg(y: f32, x: f32) -> f32 {
     }
     degrees as f32
 }
+
+/// The natural logarithm of `x` (a positive, finite number; else 0), as
+/// portable as the rest: `x` split into its power of two `e` and a mantissa
+/// `m` in [√½, √2) by its bits, then `e ln 2 + 2 atanh((m − 1) / (m + 1))`,
+/// the series to its 9th power (|s| ≤ 0.172: the first dropped term is
+/// below 1e-9; `kjk move trig` measures it).
+pub fn ln(x: f32) -> f32 {
+    if !(x.is_finite() && x > 0.0) {
+        return 0.0;
+    }
+    // An f32's 23 mantissa bits, and the exponent field of 1.0.
+    const FRACTION: u32 = (1 << 23) - 1;
+    let one = 1.0f32.to_bits();
+    let bits = x.to_bits();
+    let mut exponent = (bits >> 23) as i32 - (one >> 23) as i32;
+    let mut mantissa = f32::from_bits((bits & FRACTION) | one);
+    if mantissa > std::f32::consts::SQRT_2 {
+        mantissa *= 0.5;
+        exponent += 1;
+    }
+    let s = (mantissa - 1.0) / (mantissa + 1.0);
+    let s2 = s * s;
+    let series = s * (1.0 + s2 * (1.0 / 3.0 + s2 * (1.0 / 5.0 + s2 * (1.0 / 7.0 + s2 / 9.0))));
+    exponent as f32 * std::f32::consts::LN_2 + 2.0 * series
+}

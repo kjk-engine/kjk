@@ -375,3 +375,48 @@ range = [0, 1000]
 summary = "Damage: Ion, {grenades.ion.droid_points:bare}pts against droids."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
+
+[launched]
+title = "Wrist Launcher"
+summary = """
+TSL's wrist launcher, worn on a forearm: it alone fires rockets and darts,
+and fires grenades in place of throwing them (their launched rows, by the
+executable's `ConvertGrenadeSpellID`). What it fires flies straight at what
+it is aimed at, meets the first thing in its way and bursts there.
+"""
+
+[launched.reach_m]
+name = "Launcher Reach"
+value = 28.0
+unit = "m"
+range = [0.0, 200.0]
+summary = "A launched shot is aimed at what lies along the aim within {grenades.launched.reach_m:bare} m, the rows' range `L` (`ranges.2da` `SpellRngLng`)."
+source = "TSL's spells.2da range L, ranges.2da row 4"
+see = "sim::combat::grenades::homing_speed"
+
+[launched.speed_per_log]
+name = "Speed by Distance"
+value = 3.0
+unit = "m/s"
+range = [0.0, 100.0]
+summary = "A projectile's speed is {grenades.launched.speed_per_log:bare} m/s for every natural log of the metres to its target, plus {grenades.launched.speed_base:bare} m/s."
+source = "TSL's executable, CSWCObject::CalculateProjectileTimeToTarget"
+see = "sim::combat::grenades::homing_speed"
+
+[launched.speed_base]
+name = "Base Speed"
+value = 2.0
+unit = "m/s"
+range = [0.0, 100.0]
+summary = "A projectile flies {grenades.launched.speed_base:bare} m/s more than its distance's share (Speed by Distance)."
+source = "TSL's executable, CSWCObject::CalculateProjectileTimeToTarget"
+see = "sim::combat::grenades::homing_speed"
+
+[launched.homing_times]
+name = "Homing Speed"
+value = 2.0
+unit = "×"
+range = [0.0, 10.0]
+summary = "A homing projectile (a launched grenade, a rocket, a dart) flies {grenades.launched.homing_times:bare} times that speed."
+source = "TSL's executable, CSWCObject::CalculateProjectileTimeToTarget"
+see = "sim::combat::grenades::homing_speed"

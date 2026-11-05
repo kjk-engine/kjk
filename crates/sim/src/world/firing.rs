@@ -186,9 +186,13 @@ pub(super) fn fire(
         // conversation holds the world is a scene's. A fight's, `k_ai_master`'s
         // talents too, is any grenade.
         let scene_throw = scene.world && fighter.pack.queued.is_some();
+        // A wrist launcher worn fires grenades, rockets and darts; without
+        // one, rockets and darts stay carried.
+        let launcher = sheet.gear.has(gear::traits::WRIST_LAUNCHER);
+        let usable = grenades::usable(&sheet.items, launcher);
         if let Some((carried, strength)) = grenades::pull(
             &mut fighter.pack,
-            (&sheet.items, sheet.picks.item(items::Shelf::Grenade)),
+            (&usable, sheet.picks.item(items::Shelf::Grenade)),
             fighter.weapon_wait_ms,
             throwing,
             clock.time_ms,
@@ -207,17 +211,44 @@ pub(super) fn fire(
             );
             let ps = &player.0;
             let (forward, ..) = math::angle_vectors(ps.view);
-            let mut velocity = scale(forward, grenades::SPEED * strength);
-            velocity[2] += grenades::LIFT;
             let base = muzzle(ps, grenades::MUZZLE);
-            // A scene's lob bursts as it lands (`Missile::scripted`); any other
-            // on its fuse.
-            let fuse_ms = if scene_throw {
-                let drop = base[2] - (ps.origin[2] + motion::SOLE_Z) - grenades::HALF_SIZE;
-                let flight = grenades::lob_seconds(velocity[2], drop);
-                ((flight * 1000.0) as u64).min(grenades::FUSE_MS)
+            let row = if launcher {
+                grenades::launched(carried.row)
             } else {
-                grenades::FUSE_MS
+                carried.row
+            };
+            // A launched shot (`grenades::homing`) flies straight at what lies
+            // along the aim, at the speed for its distance, bursting on what
+            // it meets or where its reach ends. A scene's lob bursts as it
+            // lands (`Missile::scripted`); any other on its fuse.
+            // The row fired is the one its use shows (`Pack::last`).
+            fighter.pack.last.0 = row;
+            let homing = grenades::homing(row);
+            let (velocity, fuse_ms) = if homing {
+                let end = math::mad(base, grenades::LAUNCH_REACH, forward);
+                let bodies = shots.met(id.0, targets.met_by(id.0));
+                let met = level.0.with(states.as_deref(), |world| {
+                    Bodies::new(world, &bodies).skipping(id.0.0 | BODY).trace(
+                        scale(base, UNIT),
+                        scale(end, UNIT),
+                        &Extents::POINT,
+                        SHOT,
+                    )
+                });
+                let speed = grenades::homing_speed(grenades::LAUNCH_REACH * met.fraction);
+                let reach_ms = (grenades::LAUNCH_REACH / speed * 1000.0) as u64;
+                (scale(forward, speed), reach_ms)
+            } else {
+                let mut velocity = scale(forward, grenades::SPEED * strength);
+                velocity[2] += grenades::LIFT;
+                let fuse_ms = if scene_throw {
+                    let drop = base[2] - (ps.origin[2] + motion::SOLE_Z) - grenades::HALF_SIZE;
+                    let flight = grenades::lob_seconds(velocity[2], drop);
+                    ((flight * 1000.0) as u64).min(grenades::FUSE_MS)
+                } else {
+                    grenades::FUSE_MS
+                };
+                (velocity, fuse_ms)
             };
             commands.spawn((
                 Id(SimId(next_id.0)),
@@ -233,11 +264,11 @@ pub(super) fn fire(
                     blockable: false,
                     until_ms: clock.time_ms + fuse_ms,
                     lob: Some(grenades::Lob {
-                        row: carried.row,
+                        row,
                         resting: false,
                     }),
                     held: None,
-                    scripted: scene_throw,
+                    scripted: scene_throw && !homing,
                 }),
             ));
             next_id.0 += 1;
@@ -250,7 +281,7 @@ pub(super) fn fire(
             && !fighter.pack.charge_off
             && fighter
                 .pack
-                .next(&sheet.items, |u| u == items::Use::Grenade)
+                .next(&usable, |u| u == items::Use::Grenade)
                 .is_some();
         if readying || fighter.pack.charging_from.is_some() {
             if weapon.delivery.ranged() {
