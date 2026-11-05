@@ -891,7 +891,7 @@ fn dialogue_formats() {
 /// as they read them, so tables differing only in lines no script names
 /// (Aspyr's Mac K1 table and the Windows one: an options screen's text)
 /// make the same levels, and a named line changed moves the digest. No
-/// installs (awaiting the owner's approval).
+/// installs (approved 2026-11-05).
 #[test]
 fn talk_lines_digest() {
     passed("talk lines", &sim::script::dialogue_probes::talk(), 1);
