@@ -81,7 +81,10 @@ impl Engine<'_> {
         };
         let creator = object(args, 4);
         let (faction, demolitions) = match self.character(creator) {
-            Some(c) => (c.faction, self.skill_rank(&c, skills::DEMOLITIONS)),
+            Some(c) => (
+                self.out.faction(self.view, creator).unwrap_or(c.faction),
+                self.skill_rank(&c, skills::DEMOLITIONS),
+            ),
             None => {
                 let placeable = self
                     .view
