@@ -69,11 +69,20 @@ const FIRST_LAYER: usize = 16;
 const MENU_SCALE: f32 = 1.4;
 /// The character sheet's stage.
 const STAGE: &str = "charrec_light";
-/// What the sheet shows of the figure: z from −0.04 to 1.85 on the plane of
-/// its root, seen in perspective from the stage's `camerahook` (0.73 below
-/// the floor, so from low down). Measured off KOTOR's own sheet with a
-/// 1.6 m scoundrel (reone's orthographic 2 m, lifted 1.7, showed more).
-const STAGE_WINDOW: (f32, f32) = (-0.04, 1.85);
+/// The sheet's camera, as K1's executable has it: level at the stage's hook
+/// raised by the figure's own `camerahook` (a human's 1.63 m puts the view's
+/// middle at 0.9 m), seeing 22.726° from top to bottom.
+const STAGE_FOV: f32 = 22.726;
+/// How far a figure without a `camerahook` raises the camera: a human's.
+const STAGE_RAISE: f32 = 1.634;
+/// The members the sheet sees from a hook of their own, by tag (K1's
+/// executable: T3-M4 lower down, HK-47 and Zaalbar from further off), the
+/// lens the same; the others, and a stage without the hook, `camerahook`.
+const STAGE_HOOKS: [(&str, &str); 3] = [
+    ("t3m4", "camerahookt"),
+    ("hk47", "camerahookh"),
+    ("zaalbar", "camerahookz"),
+];
 /// Seconds the stage's emitters run before it shows.
 const STAGE_WARM: f32 = 4.0;
 
@@ -549,11 +558,13 @@ fn stance(alignment: u8) -> &'static str {
 /// `ready` on the character sheet's stage in `alignment`'s pose, read on
 /// the task pool: the body and the head both play the side's clip (`stance`;
 /// else the body stands in the clip the scene gave it, or `pause1`); seen
-/// from the stage's hook through `STAGE_WINDOW`; lit by the stage's lights.
+/// from the stage's hook (`own_hook`, the member's own where the stage has
+/// it) raised to the figure's `camerahook` (`STAGE_FOV`); lit by the stage's
+/// lights.
 fn staged(
     resolver: Resolver,
     game: Game,
-    mut ready: Ready,
+    (mut ready, own_hook): (Ready, &'static str),
     alignment: u8,
 ) -> Task<Result<Ready, String>> {
     AsyncComputeTaskPool::get().spawn(async move {
@@ -570,18 +581,21 @@ fn staged(
         }
         let stage = viewer::model(&resolver, STAGE)?.ok_or(format!("{STAGE}.mdl: not found"))?;
         let hook = stage
-            .node(hooks::CAMERA_HOOK)
+            .node(own_hook)
+            .or_else(|| stage.node(hooks::CAMERA_HOOK))
             .ok_or(format!("{STAGE}.mdl: no camerahook"))?;
-        let eye = to_mat4(&hook.world);
-        let seen = |z: f32| eye.inverse().transform_point3(Vec3::new(0.0, 0.0, z));
-        let (bottom, top) = (seen(STAGE_WINDOW.0), seen(STAGE_WINDOW.1));
+        let at = |world: &Matrix| to_mat4(world).transform_point3(Vec3::ZERO);
+        let raised = (ready.models.first())
+            .and_then(|body| body.ir.node(hooks::CAMERA_HOOK))
+            .map_or(STAGE_RAISE, |own| at(&own.world).z);
+        let reach = (STAGE_FOV.to_radians() / 2.0).tan();
         ready.frame = Frame {
-            eye,
+            eye: Mat4::from_translation(Vec3::Z * raised) * to_mat4(&hook.world),
             half: 1.0,
             lens: Some(Lens {
-                distance: -bottom.z,
-                bottom: bottom.y,
-                top: top.y,
+                distance: 1.0,
+                bottom: -reach,
+                top: reach,
             }),
         };
         let pose = pose(alignment);
@@ -743,6 +757,14 @@ fn member(
     })
 }
 
+/// The sheet's hook for the member tagged `tag` (`STAGE_HOOKS`).
+fn stage_hook(tag: &str) -> Option<&'static str> {
+    STAGE_HOOKS
+        .iter()
+        .find(|(member, _)| tag.eq_ignore_ascii_case(member))
+        .map(|(_, hook)| *hook)
+}
+
 /// Each view the screens draw this frame, and its size in window pixels.
 fn drawn(ui: &Ui, window: Vec2, scale: f32) -> BTreeMap<u32, UVec2> {
     let mut sizes = BTreeMap::new();
@@ -762,12 +784,13 @@ fn drawn(ui: &Ui, window: Vec2, scale: f32) -> BTreeMap<u32, UVec2> {
 }
 
 /// What a party member's view is made from in play: the scene, the
-/// presented snapshot, this player's body model and seat.
+/// presented snapshot, this player's body model and seat, the level.
 type InPlay<'w> = (
     Option<Res<'w, SceneContent>>,
     Option<Res<'w, PresentedSnapshot>>,
     Option<Res<'w, crate::play_view::OwnBody>>,
     Option<Res<'w, OwnSeat>>,
+    Option<Res<'w, crate::sim_host::SceneSwap>>,
 );
 
 /// The views the screens draw: sized, read, spawned; the others put away.
@@ -777,7 +800,7 @@ fn want(
     ui: Option<Res<Ui>>,
     window: Query<&Camera, With<UiComposite>>,
     mut assets: ModelAssets,
-    (content, presented, body, own): InPlay,
+    (content, presented, body, own, swap): InPlay,
 ) {
     let (Some(ui), Some(camera)) = (ui, window.iter().next()) else {
         return;
@@ -860,11 +883,21 @@ fn want(
                             (own.as_ref()?.0, body),
                         )
                     })();
+                    let hook = (|| {
+                        let snapshot = presented.as_ref()?.0.current();
+                        let party = crate::cast::party_of(snapshot, own.as_ref()?.0);
+                        let sim::Kind::Object(_, index) = party.get(*nth)?.kind else {
+                            return None;
+                        };
+                        let instances =
+                            sim::Instances::in_snapshot(&swap.as_ref()?.level, snapshot);
+                        stage_hook(instances.tag(index)?)
+                    })();
                     match ready {
                         Some(ready) => State::Loading(staged(
                             gui.resolver().clone(),
                             gui.game,
-                            ready,
+                            (ready, hook.unwrap_or(hooks::CAMERA_HOOK)),
                             *alignment,
                         )),
                         None => State::Failed,
