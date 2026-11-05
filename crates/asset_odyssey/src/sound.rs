@@ -74,6 +74,8 @@ pub struct Tables {
     /// (a `FLOORS` index).
     steps: Vec<Steps>,
     floors: Vec<Option<usize>>,
+    /// Each `appearance.2da` row's footstep row (`footsteptype`).
+    walks: Vec<Option<u8>>,
 }
 
 impl Tables {
@@ -141,17 +143,32 @@ impl Tables {
                 })
                 .collect()
         });
+        let walks = table("appearance").map_or_else(Vec::new, |table| {
+            (0..table.cells.len())
+                .map(|row| {
+                    let walk = table.int(row, "footsteptype")?;
+                    u8::try_from(walk).ok()
+                })
+                .collect()
+        });
         Tables {
             music,
             ambient,
             steps,
             floors,
+            walks,
         }
     }
 
     /// Footstep row `row`.
     pub fn steps(&self, row: u8) -> Option<&Steps> {
         self.steps.get(usize::from(row))
+    }
+
+    /// The footstep row a body of `appearance.2da` row `appearance` walks
+    /// with.
+    pub fn walk(&self, appearance: u16) -> Option<u8> {
+        self.walks.get(usize::from(appearance)).copied().flatten()
     }
 
     /// A step's three sounds on a floor of `surfacemat.2da` row `material`
