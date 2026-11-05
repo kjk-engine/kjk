@@ -504,7 +504,10 @@ fn show_file(file: &Path) {
         let mut select = std::ffi::OsString::from("/select,\"");
         select.push(file.as_os_str());
         select.push("\"");
-        if let Err(error) = std::process::Command::new("explorer").raw_arg(&select).spawn() {
+        if let Err(error) = std::process::Command::new("explorer")
+            .raw_arg(&select)
+            .spawn()
+        {
             warn!(target: "report", "explorer {select:?}: {error}");
         }
     }
