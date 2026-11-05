@@ -942,7 +942,13 @@ is instant.
   bodies its holder may harm (a player's as it saw them); each body
   it cuts is owed one roll of the weapon at most per move, the share its
   sweep is of `NOMINAL` (160 units) and half at least (`LEAST_SHARE`: a
-  graze still tells), delivered as one hit when the blade leaves it. Its
+  graze still tells), delivered as one hit when the blade leaves it. A
+  move of several swings (the katas, butterflies, spins and two-bladed
+  jump attacks, `sweep::several_swings`) pays each pass at most 1.5
+  blows' worth (`PASS_BLOWS` of 750 ms of its cadence) and 1.5 rolls in
+  all (`SEVERAL_BUDGET`: landed in full it beats plain swinging, for the
+  commitment), so every swing that lands pays; a blade back within
+  150 ms is the same pass. Its
   cadence is the time since its holder's last attack began, its
   move's hold at least and 750 ms at most (a first attack's; KOTOR's round
   over P): a chain's swings are a third of a second, the return and

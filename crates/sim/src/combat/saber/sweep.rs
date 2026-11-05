@@ -16,6 +16,10 @@
 //! leaves a body (or the attack ends), the body is owed its share of a
 //! budget by how much of `NOMINAL` it was swept through, at least
 //! `LEAST_SHARE` the first time and never past one budget (`Delivery`).
+//! A long move's swings share a larger budget (`Swing::budget`): each pass
+//! through a body delivers at most `PASS_BLOWS` of a blow's worth
+//! (`Swing::pass_share`), so every swing landed
+//! pays.
 
 use collision::{Bodies, Body, BoxWorld, CollisionWorld, Contents, Extents, UNIT};
 
@@ -234,20 +238,75 @@ pub struct Contact {
 }
 
 impl Contact {
-    /// The share of a budget its pending sweep comes to now (thousandths:
-    /// at least `LEAST_SHARE` the first time, one after, no more than what
-    /// is left of one budget), if any.
-    pub fn due_share(&self) -> Option<u16> {
+    /// The share of a roll its pending sweep comes to now, under `pay`
+    /// (`Swing::pay`): `NOMINAL` swept is a whole pass, at least
+    /// `LEAST_SHARE` of a pass the first time (every pass of a move of
+    /// several swings), one after, no more than a pass nor what is left of
+    /// the budget; if any.
+    pub fn due_share(&self, pay: Pay) -> Option<u16> {
         if self.pending <= 0.0 {
             return None;
         }
-        let least = if self.delivered == 0 { LEAST_SHARE } else { 1 };
-        let share = ((self.pending / NOMINAL * 1000.0) as u32)
-            .clamp(least, 1000)
-            .min(u32::from(1000 - self.delivered)) as u16;
+        let pass = u32::from(pay.pass);
+        let least = if self.delivered == 0 || pay.several {
+            (LEAST_SHARE * pass / 1000).max(1)
+        } else {
+            1
+        };
+        let share = ((self.pending / NOMINAL * pass as f32) as u32)
+            .clamp(least, pass)
+            .min(u32::from(pay.budget.saturating_sub(self.delivered))) as u16;
         (share > 0).then_some(share)
     }
 }
+
+/// What a swing pays a body (thousandths of a roll): `pass` at most each
+/// pass through it, `budget` at most in all; `several` in a move of several
+/// swings (`several_swings`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Pay {
+    pub pass: u16,
+    pub budget: u16,
+    pub several: bool,
+}
+
+impl Pay {
+    /// A single swing's: one roll, all of it at once.
+    pub const ONE: Pay = Pay {
+        pass: 1000,
+        budget: 1000,
+        several: false,
+    };
+}
+
+/// The moves whose blade passes through a body in front of it more than
+/// once (`kjk combat duel --only multi_swings`): the katas, the butterflies,
+/// the spins and the two-bladed jump attacks.
+fn several_swings(saber_move: Move) -> bool {
+    saber_move.kata()
+        || matches!(
+            saber_move,
+            Move::BUTTERFLY_LEFT
+                | Move::BUTTERFLY_RIGHT
+                | Move::SPINATTACK
+                | Move::SPINATTACK_DUAL
+                | Move::JUMPATTACK_DUAL
+                | Move::JUMPATTACK_STAFF_LEFT
+                | Move::JUMPATTACK_STAFF_RIGHT
+        )
+}
+
+/// A blade back in a body within this long of leaving it is the same pass
+/// (ms), in a move of several (`Swing::pass_share`).
+pub const PASS_GAP_MS: u64 = rules::sabers::sweep::PASS_GAP_MS;
+
+/// One pass of a move of several swings is worth up to this many blows
+/// (thousandths; `Swing::pass_share`).
+pub const PASS_BLOWS: u32 = rules::sabers::sweep::PASS_BLOWS;
+
+/// A move of several swings pays up to this many rolls in all
+/// (thousandths; `Swing::budget`).
+pub const SEVERAL_BUDGET: u32 = rules::sabers::sweep::SEVERAL_BUDGET;
 
 /// Most bodies one attack keeps count of (JA: 15 a frame; four in one
 /// swing is plenty for the sim's crowds).
@@ -303,6 +362,45 @@ impl Swing {
             struck_ms,
             contacts: [None; CONTACTS],
         }
+    }
+
+    /// What one pass of the blade through a body may deliver (thousandths
+    /// of a roll): `PASS_BLOWS` of a whole roll's pace (`WHOLE_CADENCE_MS`)
+    /// of its cadence in a move of several swings (`several_swings`), so
+    /// each swing that lands pays as a blow; all of it in any other.
+    pub fn pass_share(&self) -> u16 {
+        if !several_swings(self.saber_move) {
+            return 1000;
+        }
+        let whole = u64::from(damage::WHOLE_CADENCE_MS) * u64::from(PASS_BLOWS);
+        (whole / u64::from(self.cadence_ms.max(1))).min(1000) as u16
+    }
+
+    /// What it may deliver a body in all (thousandths of a roll):
+    /// `SEVERAL_BUDGET` in a move of several swings, one roll in any other.
+    pub fn budget(&self) -> u16 {
+        if several_swings(self.saber_move) {
+            SEVERAL_BUDGET as u16
+        } else {
+            1000
+        }
+    }
+
+    /// What it pays a body (`Pay`).
+    pub fn pay(&self) -> Pay {
+        if !several_swings(self.saber_move) {
+            return Pay::ONE;
+        }
+        Pay {
+            pass: self.pass_share(),
+            budget: self.budget(),
+            several: true,
+        }
+    }
+
+    /// `contact`'s share due now (`Contact::due_share`).
+    pub fn due_share(&self, contact: &Contact) -> Option<u16> {
+        contact.due_share(self.pay())
     }
 
     /// Whether this is the swing of `saber_move` begun with the torso's
@@ -391,13 +489,14 @@ impl Swing {
     /// of them when `ending`), at the share its sweep is of `NOMINAL`, up to
     /// what is left of one budget.
     pub fn due(&mut self, now: u64, ending: bool) -> Vec<Delivery> {
-        let cadence_ms = self.cadence_ms;
+        let (cadence_ms, pay) = (self.cadence_ms, self.pay());
+        let gap_ms = if pay.several { PASS_GAP_MS } else { 0 };
         let mut out = Vec::new();
         for contact in self.contacts.iter_mut().flatten() {
-            if !ending && contact.touched_ms >= now {
+            if !ending && contact.touched_ms + gap_ms >= now {
                 continue;
             }
-            let due = contact.due_share();
+            let due = contact.due_share(pay);
             contact.pending = 0.0;
             let Some(share) = due else {
                 continue;

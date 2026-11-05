@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f70bc910fa535bba`.
+Edition `e3bcac66272e8c4a`.
 
 ## Contents
 
@@ -2322,6 +2322,24 @@ A blade must pass through 4.1 meters of a body in one attack to deal its full da
 A blade's first cut on a target deals at least 50% of the damage roll. Further cuts in the same attack add the rest, up to the full roll.
 
 <sub>Source: the owner's balance, 2026-10-15. Code: `sim::combat::saber::sweep::Contact::due_share`.</sub>
+
+<a id="sabers-sweep-pass-gap-ms"></a>**Swing Gap** = **0.15 seconds** (`150 ms`) · `sabers.sweep.pass_gap_ms`
+
+In a move of several swings (the katas, butterflies, spins and the two-bladed jump attacks), a blade back in the target within 0.15 seconds of leaving it is still the same pass.
+
+<sub>Source: ours; JA hits again 100 ms after a hit. Code: `sim::combat::saber::sweep::Swing::pass_share`.</sub>
+
+<a id="sabers-sweep-pass-blows"></a>**Swing Damage** = **150%** (`1500 ‰`) · `sabers.sweep.pass_blows`
+
+In a move of several swings, each pass of the blade through a target deals up to 150% of an ordinary blow's damage, so every swing that lands pays.
+
+<sub>Source: the owner's balance, 2026-11-05 (JA: every hit of a kata is a whole hit). Code: `sim::combat::saber::sweep::Swing::pass_share`.</sub>
+
+<a id="sabers-sweep-several-budget"></a>**Combo Damage** = **150%** (`1500 ‰`) · `sabers.sweep.several_budget`
+
+A move of several swings landed in full deals up to 150% of what ordinary blows would over its length: it commits its wielder for longer.
+
+<sub>Source: the owner's balance, 2026-11-05 (JA: katas hit harder and cost Force). Code: `sim::combat::saber::sweep::Swing::budget`.</sub>
 
 <a id="sabers-sweep-melee-box"></a>**Blade Width** = **0.051 meters** (`2 units`) · `sabers.sweep.melee_box`
 
