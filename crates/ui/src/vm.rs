@@ -494,6 +494,11 @@ pub struct PicksView {
     pub chart: Vec<[Option<(u16, Entry)>; 3]>,
     /// The chart's feats the character has (or the level grants).
     pub known: Vec<u16>,
+    /// The power chart, drawn as the feat chart
+    /// (`sim::levels::Classes::power_chart`).
+    pub power_chart: Vec<[Option<(u16, Entry)>; 3]>,
+    /// The powers the character has.
+    pub known_powers: Vec<u16>,
 }
 
 /// A binding as a prompt shows it: its words (`F`, `Mouse 4`), and while a

@@ -137,9 +137,6 @@ const STEP_BUTTONS: [&str; 6] = [
     "BTN_STEPNAME5",
     "BTN_STEPNAME6",
 ];
-/// The frames of a power picked, and of one offered.
-const PICKED: &str = "lbl_hex_3";
-const OFFERED: &str = "lbl_hex";
 /// An offer: what may be picked, how many, those picked.
 type PickList<'a> = (&'a [(u16, Entry)], u8, &'a [u16]);
 const POINTS: u8 = 30;
@@ -462,47 +459,63 @@ impl Chargen {
         }
     }
 
-    /// Whether the level offers `feat`.
-    fn offered(picks: &PicksView, feat: u16) -> bool {
-        picks.feats.iter().any(|(row, _)| *row == feat)
+    /// The feat chart, or the power chart drawn as it (KOTOR's `pwrlvlup`):
+    /// a chain a row.
+    fn chart(picks: &PicksView, powers: bool) -> &[[Option<(u16, Entry)>; 3]] {
+        if powers {
+            &picks.power_chart
+        } else {
+            &picks.chart
+        }
     }
 
-    /// The feat chosen in the chart.
-    fn chosen_feat(&self, picks: &PicksView) -> Option<(u16, Entry)> {
+    /// Whether the level offers the feat or power `row`.
+    fn offered(picks: &PicksView, row: u16, powers: bool) -> bool {
+        let offered = if powers { &picks.powers } else { &picks.feats };
+        offered.iter().any(|(at, _)| *at == row)
+    }
+
+    /// The feat or power chosen in the chart.
+    fn chosen_pick(&self, picks: &PicksView, powers: bool) -> Option<(u16, Entry)> {
         let (row, cell) = self.chosen?;
-        picks.chart.get(row)?.get(cell)?.clone()
+        Chargen::chart(picks, powers).get(row)?.get(cell)?.clone()
     }
 
-    /// The feat read: under the pointer, else the chosen one.
-    fn read_feat(&self, picks: &PicksView) -> Option<(u16, Entry)> {
+    /// The feat or power read: under the pointer, else the chosen one.
+    fn read_pick(&self, picks: &PicksView, powers: bool) -> Option<(u16, Entry)> {
         let (row, cell) = self.row.map(|row| (row, self.cell)).or(self.chosen)?;
-        picks.chart.get(row)?.get(cell)?.clone()
+        Chargen::chart(picks, powers).get(row)?.get(cell)?.clone()
     }
 
-    /// The feat chart: a chain a row, each feat as it stands.
-    fn feat_rows(&self, vm: &ViewModel) -> ControlState {
+    /// The chart: a chain a row, each feat or power as it stands.
+    fn chart_rows(&self, vm: &ViewModel, powers: bool) -> ControlState {
         let picks = self.picks(vm);
-        let look = |feat: u16| {
-            if picks.known.contains(&feat) {
+        let (_, _, picked) = self.offer(&picks, powers);
+        let known = if powers {
+            &picks.known_powers
+        } else {
+            &picks.known
+        };
+        let look = |row: u16| {
+            if known.contains(&row) {
                 CellLook::Known
-            } else if self.choices.feats.contains(&feat) {
+            } else if picked.contains(&row) {
                 CellLook::Picked
-            } else if Chargen::offered(&picks, feat) {
+            } else if Chargen::offered(&picks, row, powers) {
                 CellLook::Open
             } else {
                 CellLook::Closed
             }
         };
-        let rows = picks
-            .chart
+        let rows = Chargen::chart(&picks, powers)
             .iter()
             .map(|chain| crate::paint::Row {
                 cells: chain
                     .iter()
                     .flatten()
-                    .map(|(feat, entry)| Cell {
+                    .map(|(row, entry)| Cell {
                         icon: entry.icon.clone(),
-                        look: look(*feat),
+                        look: look(*row),
                     })
                     .collect(),
                 ..crate::paint::Row::default()
@@ -520,46 +533,33 @@ impl Chargen {
         }
     }
 
-    /// Add on the chosen feat: dropped if picked, else picked when the
-    /// level offers it and picks are left.
-    fn toggle_feat(&mut self, vm: &ViewModel) {
+    /// Whether Add may act on the chosen feat or power: it is picked (and
+    /// may be dropped), or the level offers it.
+    fn may_toggle(&self, vm: &ViewModel, powers: bool) -> bool {
         let picks = self.picks(vm);
-        let Some((feat, _)) = self.chosen_feat(&picks) else {
-            return;
-        };
-        let most = match Chargen::offered(&picks, feat) {
-            true => usize::from(picks.feat_count),
-            false => 0,
-        };
-        flip(&mut self.choices.feats, feat, most);
+        let (_, _, picked) = self.offer(&picks, powers);
+        self.chosen_pick(&picks, powers)
+            .is_some_and(|(row, _)| picked.contains(&row) || Chargen::offered(&picks, row, powers))
     }
 
-    /// The powers' list: picked ones framed, the others faded once none
-    /// are left to pick.
-    fn power_rows(&self, vm: &ViewModel) -> ControlState {
+    /// Add on the chosen feat or power: dropped if picked, else picked when
+    /// the level offers it and picks are left.
+    fn toggle(&mut self, vm: &ViewModel, powers: bool) {
         let picks = self.picks(vm);
-        let (offered, count, picked) = self.offer(&picks, true);
-        let left = usize::from(count).saturating_sub(picked.len());
-        ControlState {
-            list: Some(crate::paint::ListView {
-                rows: offered
-                    .iter()
-                    .map(|(row, entry)| {
-                        let taken = picked.contains(row);
-                        crate::paint::Row {
-                            text: entry.name.clone(),
-                            icon: entry.icon.clone(),
-                            frame: Some(if taken { PICKED } else { OFFERED }.to_string()),
-                            dimmed: !taken && left == 0,
-                            ..crate::paint::Row::default()
-                        }
-                    })
-                    .collect(),
-                selected: self.chosen.map(|(row, _)| row),
-                ..crate::paint::ListView::default()
-            }),
-            ..ControlState::default()
-        }
+        let Some((row, _)) = self.chosen_pick(&picks, powers) else {
+            return;
+        };
+        let (_, count, _) = self.offer(&picks, powers);
+        let most = match Chargen::offered(&picks, row, powers) {
+            true => usize::from(count),
+            false => 0,
+        };
+        let picked = if powers {
+            &mut self.choices.powers
+        } else {
+            &mut self.choices.feats
+        };
+        flip(picked, row, most);
     }
 
     /// Picks left to make.
@@ -569,33 +569,23 @@ impl Chargen {
         usize::from(count).saturating_sub(picked.len())
     }
 
-    /// The chosen feat's or power's description.
+    /// The feat's or power's read name.
+    fn pick_name(&self, vm: &ViewModel, powers: bool) -> ControlState {
+        self.read_pick(&self.picks(vm), powers)
+            .map_or(ControlState::default(), |(_, entry)| ControlState {
+                text: Some(entry.name),
+                ..ControlState::default()
+            })
+    }
+
+    /// The feat's or power's read description.
     fn pick_text(&self, vm: &ViewModel, powers: bool) -> ControlState {
-        let picks = self.picks(vm);
-        let (offered, ..) = self.offer(&picks, powers);
-        let entry = match powers {
-            true => self
-                .row
-                .or(self.chosen.map(|(row, _)| row))
-                .and_then(|row| offered.get(row))
-                .cloned(),
-            false => self.read_feat(&picks),
-        };
+        let entry = self.read_pick(&self.picks(vm), powers);
         crate::screens::pages::description(
             entry
                 .as_ref()
                 .map_or(&[][..], |(_, entry)| &entry.description),
         )
-    }
-
-    /// Add: the chosen power picked, or dropped if it was.
-    fn toggle_power(&mut self, vm: &ViewModel) {
-        let picks = self.picks(vm);
-        let (offered, count, _) = self.offer(&picks, true);
-        let Some(&(row, _)) = self.chosen.and_then(|(at, _)| offered.get(at)) else {
-            return;
-        };
-        flip(&mut self.choices.powers, row, usize::from(count));
     }
 
     /// Recommended: the first it may pick, as many as it may.
@@ -750,8 +740,8 @@ impl Chargen {
         }
         self.kept = self.choices.clone();
         self.described = None;
-        // The chart opens on its first feat, as KOTOR's.
-        self.row = (step == Step::Feats).then_some(0);
+        // A chart opens on its first feat or power, as KOTOR's.
+        self.row = matches!(step, Step::Feats | Step::Powers).then_some(0);
         self.cell = 0;
         self.chosen = None;
         self.step = step;
@@ -1113,29 +1103,19 @@ impl Screen for Chargen {
             Step::Abilities => self.abilities_state(tag, vm),
             Step::Skills => self.skills_state(tag, vm),
             Step::Feats => match tag {
-                "LB_FEATS" => self.feat_rows(vm),
+                "LB_FEATS" => self.chart_rows(vm, false),
                 "LB_DESC" => self.pick_text(vm, false),
-                "LBL_NAME" => {
-                    self.read_feat(&self.picks(vm))
-                        .map_or(ControlState::default(), |(_, entry)| ControlState {
-                            text: Some(entry.name),
-                            ..ControlState::default()
-                        })
-                }
+                "LBL_NAME" => self.pick_name(vm, false),
                 "STD_REMAINING_SELECTIONS_LBL" => text(self.picks_left(vm, false)),
-                "BTN_SELECT" => {
-                    let picks = self.picks(vm);
-                    enabled(self.chosen_feat(&picks).is_some_and(|(feat, _)| {
-                        self.choices.feats.contains(&feat) || Chargen::offered(&picks, feat)
-                    }))
-                }
+                "BTN_SELECT" => enabled(self.may_toggle(vm, false)),
                 _ => ControlState::default(),
             },
             Step::Powers => match tag {
-                "LB_POWERS" => self.power_rows(vm),
+                "LB_POWERS" => self.chart_rows(vm, true),
                 "LB_DESC" => self.pick_text(vm, true),
+                "LBL_POWER" => self.pick_name(vm, true),
                 "REMAINING_SELECTIONS_LBL" => text(self.picks_left(vm, true)),
-                "SELECT_BTN" => enabled(self.chosen.is_some()),
+                "SELECT_BTN" => enabled(self.may_toggle(vm, true)),
                 _ => ControlState::default(),
             },
             Step::Name => match tag {
@@ -1198,13 +1178,13 @@ impl Screen for Chargen {
             Step::Abilities => self.press_abilities(tag, vm),
             Step::Skills => self.press_skills(tag, vm),
             Step::Feats => match tag {
-                "BTN_SELECT" => self.toggle_feat(vm),
+                "BTN_SELECT" => self.toggle(vm, false),
                 "BTN_RECOMMENDED" => self.recommend_picks(vm, false),
                 "BTN_ACCEPT" => self.accept(),
                 _ => {}
             },
             Step::Powers => match tag {
-                "SELECT_BTN" => self.toggle_power(vm),
+                "SELECT_BTN" => self.toggle(vm, true),
                 "RECOMMENDED_BTN" => self.recommend_picks(vm, true),
                 "ACCEPT_BTN" => self.accept(),
                 "BACK_BTN" => self.back_out(out),
@@ -1221,16 +1201,15 @@ impl Screen for Chargen {
     fn row(&mut self, list: &str, index: usize, _: &ViewModel, _: &mut Vec<Intent>) {
         if matches!(list, "LB_FEATS" | "LB_POWERS") {
             self.row = Some(index);
-            let cell = if list == "LB_FEATS" { self.cell } else { 0 };
-            self.chosen = Some((index, cell));
+            self.chosen = Some((index, self.cell));
         }
     }
 
     /// A double click on a feat or a power is Add on it.
     fn double(&mut self, tag: &str, vm: &ViewModel, _: &mut Vec<Intent>) {
         match tag {
-            "LB_FEATS" => self.toggle_feat(vm),
-            "LB_POWERS" => self.toggle_power(vm),
+            "LB_FEATS" => self.toggle(vm, false),
+            "LB_POWERS" => self.toggle(vm, true),
             _ => {}
         }
     }
@@ -1251,7 +1230,7 @@ impl Screen for Chargen {
     }
 
     fn cell(&mut self, list: &str, index: usize, cell: usize, _: &ViewModel) {
-        if list == "LB_FEATS" {
+        if matches!(list, "LB_FEATS" | "LB_POWERS") {
             self.row = Some(index);
             self.cell = cell;
         }
