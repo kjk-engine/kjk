@@ -1160,7 +1160,8 @@ fn tsl_party_rules() {
 /// (inventories and their disturbance, item costs changed, damage by type,
 /// a visual at a place, a party slot's creature, the music's volume, the
 /// in-game page's script), and every minigame routine answered counted bound
-/// (`kjk script check`). The sim alone, on the proving ground.
+/// (`kjk script check`). The sim alone, on the proving ground. At least 26
+/// checks (raised from 18, approved by the owner 2026-11-06).
 #[test]
 fn mod_routines() {
     probed("mod routines", &sim::routine_probes::probes(), 26);
