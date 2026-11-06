@@ -116,8 +116,8 @@ pub enum Modifies {
     /// TSL's `EffectBlind`: it neither sees nor hears others while it
     /// lasts.
     Blind,
-    /// `EffectTrueSeeing`: kept and walked, nothing more (no invisibility
-    /// or darkness here to see through; no shipped script applies one).
+    /// `EffectTrueSeeing`: its bearer sees the invisible
+    /// (`Effects::sees_invisible`).
     TrueSeeing,
     /// TSL's `EffectFury`: each kill its bearer makes adds a point to its
     /// weapons' damage, up to `FURY_MOST` (`Effects::fury`); the controlled
@@ -162,14 +162,31 @@ pub enum Modifies {
     /// `EffectSpellImmunity`: its amount the `spells.2da` row (-1 every
     /// power) whose `ResistForce` it answers with 2, immune.
     SpellImmunity,
+    /// `EffectInvisibility`: its amount the `INVISIBILITY_TYPE_…`. Others
+    /// do not see its bearer without true seeing; one it attacks, not seeing
+    /// it, loses its DEX bonus to Defense; a normal one ends as its bearer
+    /// attacks.
+    Invisibility,
+    /// `EffectDamageReduction`: its amount the points taken off a weapon's
+    /// physical hit whose enhancement is below its `of`, the
+    /// `DAMAGE_POWER_…`; its `third` the damage it absorbs before it ends
+    /// (0: no end). The highest amount alone holds.
+    DamageReduction,
+    /// `EffectDamageShield`: its amount the points it does to each melee
+    /// attacker hitting its bearer, more by its `of`, a `DAMAGE_BONUS_…`,
+    /// of its `third`, a `DAMAGE_TYPE_…`.
+    DamageShield,
 }
+
+/// `INVISIBILITY_TYPE_NORMAL`: the invisibility its bearer's attacks end.
+pub const INVISIBLE_NORMAL: i16 = 1;
 
 /// The id a character's poison goes by among its effects (`GetFirstEffect`,
 /// `RemoveEffect`): it is its pack's, not in a lasting slot.
 pub const POISON_ID: u32 = u32::MAX - 1;
 
 impl Modifies {
-    const ALL: [Modifies; 34] = [
+    const ALL: [Modifies; 37] = [
         Modifies::Ability,
         Modifies::Defence,
         Modifies::Save,
@@ -204,6 +221,9 @@ impl Modifies {
         Modifies::Haste,
         Modifies::Concealment,
         Modifies::SpellImmunity,
+        Modifies::Invisibility,
+        Modifies::DamageReduction,
+        Modifies::DamageShield,
     ];
 
     pub fn index(self) -> u8 {
@@ -235,6 +255,10 @@ pub struct Lasting {
     pub by: u32,
     pub id: u32,
     pub at: u64,
+    /// Its third integer, as the executables' effects keep three: what is
+    /// left of a damage reduction's limit (0: none), a damage shield's
+    /// `DAMAGE_TYPE_…`.
+    pub third: u32,
 }
 
 impl Lasting {
@@ -247,6 +271,7 @@ impl Lasting {
         by: 0,
         id: 0,
         at: 0,
+        third: 0,
     };
 
     fn encode(&self, out: &mut Writer) {
@@ -258,6 +283,7 @@ impl Lasting {
         out.u32(self.by);
         out.u32(self.id);
         out.u64(self.at);
+        out.u32(self.third);
     }
 
     fn decode(input: &mut Reader) -> Result<Lasting, DecodeError> {
@@ -273,6 +299,11 @@ impl Lasting {
             by: input.u32()?,
             id: input.u32()?,
             at: input.u64()?,
+            third: if input.since(crate::since::snapshot::MOD_ROUTINES_2) {
+                input.u32()?
+            } else {
+                0
+            },
         })
     }
 }
@@ -613,6 +644,44 @@ impl Effects {
     /// Whether it is blind (`Modifies::Blind`): it neither sees nor hears.
     pub fn blind(&self, now: u64) -> bool {
         self.has(Modifies::Blind, now)
+    }
+
+    /// Whether an invisibility runs on it, and whether a normal one
+    /// (`INVISIBILITY_TYPE_NORMAL`), which its attacks end.
+    pub fn invisible(&self, now: u64) -> (bool, bool) {
+        let kinds: Vec<i16> = self
+            .running(now)
+            .filter(|l| l.modifies == Modifies::Invisibility)
+            .map(|l| l.amount)
+            .collect();
+        (!kinds.is_empty(), kinds.contains(&INVISIBLE_NORMAL))
+    }
+
+    /// Whether it sees the invisible: true seeing, its effect's or its
+    /// items'.
+    pub fn sees_invisible(&self, now: u64) -> bool {
+        self.worn_traits & super::gear::traits::TRUE_SEEING != 0
+            || self.has(Modifies::TrueSeeing, now)
+    }
+
+    /// The slot of the damage reduction that holds: the highest amount, the
+    /// first of equals (TSL's `DoDamageReduction`).
+    pub fn reduction(&self, now: u64) -> Option<usize> {
+        let mut best: Option<(usize, i16)> = None;
+        for (at, l) in self.lasting.iter().enumerate() {
+            if let Some(l) = l.filter(|l| l.until > now && l.modifies == Modifies::DamageReduction)
+                && best.is_none_or(|(_, amount)| l.amount > amount)
+            {
+                best = Some((at, l.amount));
+            }
+        }
+        best.map(|(at, _)| at)
+    }
+
+    /// The damage shields running on it.
+    pub fn shields(&self, now: u64) -> impl Iterator<Item = &Lasting> {
+        self.running(now)
+            .filter(|l| l.modifies == Modifies::DamageShield)
     }
 
     /// How many times its natural healing doubles: once for each running
@@ -1141,7 +1210,10 @@ pub fn sheet_now(sheet: Sheet, fighter: &Fighter, now: u64) -> Sheet {
             | Modifies::Icon
             | Modifies::Haste
             | Modifies::Concealment
-            | Modifies::SpellImmunity => {}
+            | Modifies::SpellImmunity
+            | Modifies::Invisibility
+            | Modifies::DamageReduction
+            | Modifies::DamageShield => {}
         }
     }
     sheet.defence = sheet.defence.saturating_add(defence);

@@ -41,7 +41,7 @@ mod maths;
 /// (`world::routine_probes`).
 #[cfg(feature = "probes")]
 pub(crate) mod mod_routines {
-    pub(crate) use super::engine::{inserted, leading_float};
+    pub(crate) use super::engine::{distance, inserted, leading_float};
 
     /// What maths routine `name` gives for `x` (and `y`); `None`: no such.
     pub(crate) fn maths(name: &str, x: f32, y: f32) -> Option<f32> {
@@ -3084,20 +3084,29 @@ impl Step<'_> {
                             .map(|owner| owner.position)
                             .filter(|at| flat(thing.position, *at) >= range)
                         {
-                            let run = Action::Move {
-                                to: Target::Point(owner, 0.0),
-                                run: true,
-                                range,
-                                force_ms: None,
-                            };
-                            pop(self.state);
-                            self.state.queue(who, run);
-                            self.state.queue(who, action.clone());
-                            *self.report.actions.entry(action.kind()).or_insert(0) += 1;
+                            self.run_then(who, (Target::Point(owner, 0.0), range), &action);
                             break;
                         } else {
                             false
                         }
+                    }
+                    Action::Follow { .. } if player => true,
+                    // Held while its object is near; farther, a run to it and
+                    // the follow again behind what waits (`actions`).
+                    &Action::Follow { object, range } => {
+                        let alive = thing.hp.is_none_or(|(hp, _)| hp > 0);
+                        match self.view.place(Target::Object(object)) {
+                            Some((at, _)) if alive && flat(thing.position, at) >= range => {
+                                self.run_then(who, (Target::Object(object), range), &action);
+                                break;
+                            }
+                            Some(_) if alive => false,
+                            _ => true,
+                        }
+                    }
+                    &Action::PickUp { item, played } | &Action::PutDown { item, played } => {
+                        let pick = matches!(action, Action::PickUp { .. });
+                        self.handle_item(&thing, (player, started), (item, played), pick)
                     }
                     Action::Instant { .. } => true,
                     Action::Surrender => {
@@ -3125,6 +3134,99 @@ impl Step<'_> {
                 self.state.actions.remove(&id);
             }
         }
+    }
+
+    /// A follow's step out of range (`Action::FollowOwner`, `Follow`): it
+    /// leaves the front of `who`'s queue, and a run `to` within `range`
+    /// and the follow again go behind what waits.
+    fn run_then(&mut self, who: ObjectId, (to, range): (Target, f32), follow: &Action) {
+        if let Some(queue) = self.state.actions.get_mut(&who.0) {
+            queue.remove(0);
+        }
+        let run = Action::Move {
+            to,
+            run: true,
+            range,
+            force_ms: None,
+        };
+        self.state.queue(who, run);
+        self.state.queue(who, follow.clone());
+        *self.report.actions.entry(follow.kind()).or_insert(0) += 1;
+    }
+
+    /// A pick-up's or put-down's step (`Action::PickUp`, `PutDown`) for
+    /// `thing`: done when it fails or the item has changed hands. Out of
+    /// reach of an item on the floor, a walk to it (a player's legs stay its
+    /// seat's: it fails), given up when the walk can come no nearer; in
+    /// reach, first the reach-low animation in front of it, then the item
+    /// taken into its holder's carried items, or laid at its feet.
+    fn handle_item(
+        &mut self,
+        thing: &Thing,
+        (player, started): (bool, u64),
+        (item, played): (ObjectId, bool),
+        pick: bool,
+    ) -> bool {
+        let who = thing.id;
+        let module = self.view.module.name.clone();
+        let holder = items::holder(self.view, who);
+        let held = self.state.items.get(&item.0).map(|held| held.holder);
+        if pick {
+            let Some(lying) = self.state.lying(&module, item) else {
+                return true;
+            };
+            if engine::distance(thing.position, lying.at) > actions::PICK_UP_REACH {
+                let stuck = thing.character.as_ref().is_none_or(|c| c.stuck)
+                    && self.view.now_ms >= started + MOVE_GRACE_MS;
+                if player || stuck {
+                    return true;
+                }
+                self.goal(who.0, lying.at, actions::PICK_UP_REACH, false);
+                return false;
+            }
+        } else if held != Some(holder) && held != Some(who.0) {
+            return true;
+        }
+        if !played {
+            self.played_first(who, item, pick);
+            return false;
+        }
+        if pick {
+            self.state.carry(self.out, item, holder);
+            self.state.floor.remove(&item.0);
+        } else {
+            self.state.carry(self.out, item, AREA.0);
+            let lying = crate::inventory::Lying {
+                at: thing.position,
+                yaw: thing.yaw,
+            };
+            self.state.floor.insert(item.0, (module, lying));
+        }
+        true
+    }
+
+    /// The reach-low animation queued in front of `who`'s pick-up or
+    /// put-down of `item`, which then goes on to change hands.
+    fn played_first(&mut self, who: ObjectId, item: ObjectId, pick: bool) {
+        let Some(queue) = self.state.actions.get_mut(&who.0) else {
+            return;
+        };
+        let after = if pick {
+            Action::PickUp { item, played: true }
+        } else {
+            Action::PutDown { item, played: true }
+        };
+        if let Some(front) = queue.first_mut() {
+            front.action = after;
+        }
+        let animation = actions::Queued {
+            action: Action::Animate {
+                animation: actions::GET_LOW,
+                ms: actions::PICK_UP_MS,
+            },
+            started_ms: None,
+        };
+        queue.insert(0, animation);
     }
 
     /// A cast action's step (`Action::Cast`), `thing` casting `row` at

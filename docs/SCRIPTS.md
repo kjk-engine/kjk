@@ -127,8 +127,16 @@ the games' own compiled scripts; nothing of them is in the repo.
   here it starts at 0.
 - TSL's other effects: `EffectBlind` (it neither sees nor hears: its
   perception skipped; the 50 % miss chance and visual 5002 not kept
-  [verify: who rolls it]), `EffectTrueSeeing` and `EffectPsychicStatic`
-  (kept only: nothing to see through; inert in the executable),
+  [verify: who rolls it]), `EffectTrueSeeing` (sees through invisibility)
+  and `EffectPsychicStatic` (kept only: inert in the executable),
+  `EffectInvisibility` (normal, darkness or improved, else no effect: its
+  bearer unseen but by true seeing; one it attacks unseen loses its DEX
+  bonus to Defense; a normal one ends as its bearer attacks),
+  `EffectDamageReduction` (the highest amount off a weapon's physical hit
+  below its power; a limit drained by each whole blow, the last taking off
+  only what was left, `harm::reduced`), `EffectDamageShield` (each one
+  strikes back at a melee attacker whose blow landed: its points and bonus,
+  1 to 5 flat or 1d4 to 2d6, of its type; no `EFFECT_TYPE_…` names it),
   `EffectFury` (its bearer's weapon kills counted from 0, each +1 damage
   up to 6, `Effects::fury`), `EffectForceSight` and Fury's video rows on
   the controlled player's view (4; 7 to 9 by spell row,

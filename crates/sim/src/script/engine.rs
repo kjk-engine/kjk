@@ -225,6 +225,10 @@ bound! {
     // Effects, as the executables build them.
     EffectHaste, EffectConcealment, EffectMissChance, EffectSpellImmunity, EffectKnockdown,
     EffectForceDrain,
+    // TSLRCM's, and the actions on items lying about.
+    ActionForceFollowObject, DoSinglePlayerAutoSave, GetLastPlayerDied, ShowSwoopUpgradeScreen,
+    ActionPickUpItem, ActionPutDownItem, EffectInvisibility, EffectDamageReduction,
+    EffectDamageShield,
 }
 
 /// Whether the routine `name` (`nwscript.nss`) is bound; every other one
@@ -241,6 +245,21 @@ const LIVE_YAVIN: i32 = 1;
 
 /// The least range `ActionFollowOwner` follows at (metres).
 const FOLLOW_LEAST: f32 = rules::scripts::moves::FOLLOW_LEAST;
+
+/// `EffectInvisibility`'s types (`INVISIBILITY_TYPE_…`).
+const INVISIBILITY_TYPES: [&str; 3] = [
+    "INVISIBILITY_TYPE_NORMAL",
+    "INVISIBILITY_TYPE_DARKNESS",
+    "INVISIBILITY_TYPE_IMPROVED",
+];
+
+/// `EffectDamageShield`'s most points, its last bonus (`DAMAGE_BONUS_2d6`:
+/// those below `FLAT_BELOW` and a pair of dice each after), and the last
+/// damage type it takes as it is.
+const SHIELD_MOST: i32 = rules::force_effects::damage_shield::MOST_POINTS;
+const SHIELD_BONUS_MOST: i32 = rules::force_effects::damage_shield::FLAT_BELOW as i32 - 1
+    + rules::force_effects::damage_shield::BONUS_DICE.len() as i32 / 2;
+const SHIELD_LAST_FLAG: i32 = rules::force_effects::damage_shield::LAST_TYPE;
 
 /// The Remote's tag (TSL's puppet 0, `RebuildPartyTable`).
 const REMOTE: &str = "remote";
@@ -314,6 +333,9 @@ pub mod last {
     /// The number of the listen pattern its last dialogue event matched
     /// (`GetListenPatternNumber`, as an `i32`'s bits): −1 for a click.
     pub const PATTERN: u8 = 32;
+    /// The module's: the player whose death ran its `Mod_OnPlrDeath`
+    /// (`GetLastPlayerDied`).
+    pub const PLAYER_DIED: u8 = 33;
 }
 
 /// The listen pattern number `who`'s last dialogue event matched, kept on
@@ -660,6 +682,10 @@ fn effect_type(modifies: Modifies, amount: i16) -> &'static str {
         Modifies::Haste => "EFFECT_TYPE_HASTE",
         Modifies::Concealment => "EFFECT_TYPE_CONCEALMENT",
         Modifies::SpellImmunity => "EFFECT_TYPE_SPELL_IMMUNITY",
+        Modifies::Invisibility => "EFFECT_TYPE_INVISIBILITY",
+        Modifies::DamageReduction => "EFFECT_TYPE_DAMAGE_REDUCTION",
+        // No `EFFECT_TYPE_…` names one in either game's nwscript.nss.
+        Modifies::DamageShield => "EFFECT_TYPE_INVALIDEFFECT",
         Modifies::Skill if up => "EFFECT_TYPE_SKILL_INCREASE",
         Modifies::Skill => "EFFECT_TYPE_SKILL_DECREASE",
         Modifies::AssuredHit => "EFFECT_TYPE_ASSUREDHIT",
@@ -1247,6 +1273,7 @@ impl Engine<'_> {
             let lasting = matches!(
                 leaf,
                 Effect::Modifier { .. }
+                    | Effect::Ints { .. }
                     | Effect::Hold(_)
                     | Effect::State { .. }
                     | Effect::Shield { .. }
@@ -1391,6 +1418,7 @@ impl Engine<'_> {
                     by: by.0,
                     id,
                     at: 0,
+                    third: 0,
                 };
                 (owner, poison)
             });
@@ -3493,6 +3521,59 @@ impl Engine<'_> {
                 _ => Value::empty(script_ncs::Type::Effect),
             },
             EffectKnockdown => self.effect_value(Effect::Knockdown),
+            // A normal, darkness or improved one; any other type no effect.
+            EffectInvisibility => {
+                let kind = int(args, 0);
+                let known = INVISIBILITY_TYPES
+                    .iter()
+                    .any(|name| self.library.constant(name) == Some(kind));
+                if known {
+                    self.modifier(Modifies::Invisibility, kind, 0)
+                } else {
+                    Value::empty(script_ncs::Type::Effect)
+                }
+            }
+            // No less than 0 points and limit; a power past energy's, or
+            // below none, is none's (`DAMAGE_POWER_NORMAL`).
+            EffectDamageReduction => {
+                let power = int(args, 1);
+                let energy = self.library.constant("DAMAGE_POWER_ENERGY");
+                let power = if (0..=energy.unwrap_or(0)).contains(&power) {
+                    power
+                } else {
+                    self.library.constant("DAMAGE_POWER_NORMAL").unwrap_or(0)
+                };
+                self.effect_value(Effect::Ints {
+                    modifies: Modifies::DamageReduction,
+                    amount: int(args, 0).clamp(0, i32::from(i16::MAX)) as i16,
+                    of: power.clamp(0, 255) as u8,
+                    third: int(args, 2).max(0) as u32,
+                })
+            }
+            // Points past the most (or below 0) are 1; a bonus outside
+            // `DAMAGE_BONUS_1` to `DAMAGE_BONUS_2d6` none; a type past the
+            // executable's last damage flag (or below 0) universal.
+            EffectDamageShield => {
+                let amount = match int(args, 0) {
+                    points @ 0..=SHIELD_MOST => points,
+                    _ => 1,
+                };
+                let bonus = match int(args, 1) {
+                    bonus @ 1..=SHIELD_BONUS_MOST => bonus,
+                    _ => 0,
+                };
+                let universal = self.library.constant("DAMAGE_TYPE_UNIVERSAL").unwrap_or(0);
+                let kind = match int(args, 2) {
+                    kind @ 0..=SHIELD_LAST_FLAG => kind,
+                    _ => universal,
+                };
+                self.effect_value(Effect::Ints {
+                    modifies: Modifies::DamageShield,
+                    amount: amount as i16,
+                    of: bonus as u8,
+                    third: kind as u32,
+                })
+            }
             // `OnApplyForceDrain` takes the Force points as
             // `EffectDamageForcePoints` does; none to drain, no effect.
             EffectForceDrain => match u16::try_from(int(args, 0)) {
@@ -4432,6 +4513,28 @@ impl Engine<'_> {
                     _ => Value::Int(0),
                 }
             }
+            // The executable's follow pair, queued at the end: kept up with
+            // the object at the distance asked (no less than a puppet's
+            // least), until a clear.
+            ActionForceFollowObject => match object(args, 0) {
+                ObjectId::INVALID => Value::Int(0),
+                followed => self.queue(
+                    caller,
+                    Action::Follow {
+                        object: followed,
+                        range: float(args, 1).max(FOLLOW_LEAST),
+                    },
+                ),
+            },
+            ActionPickUpItem | ActionPutDownItem => {
+                let (item, played) = (object(args, 0), false);
+                let action = if bound == ActionPickUpItem {
+                    Action::PickUp { item, played }
+                } else {
+                    Action::PutDown { item, played }
+                };
+                self.queue(caller, action)
+            }
             ActionEquipMostDamagingMelee | ActionEquipMostDamagingRanged => {
                 use crate::inventory::slots;
                 let ranged = bound == ActionEquipMostDamagingRanged;
@@ -4955,6 +5058,18 @@ impl Engine<'_> {
                 }
             }
             GetLastPazaakResult => Value::Int(i32::from(self.state.pazaak_won)),
+            // `SetAutoSavePending`: the game saves to its autosave, alone
+            // ("only if we are in a single player game").
+            DoSinglePlayerAutoSave if view.together() => Value::Int(0),
+            DoSinglePlayerAutoSave => self.tell(None, Notice::AutoSave),
+            ShowSwoopUpgradeScreen => self.tell(None, Notice::Show(Screen::SwoopUpgrade)),
+            // The module's own, kept when its `Mod_OnPlrDeath` was raised.
+            GetLastPlayerDied => Value::Object(
+                self.state
+                    .last
+                    .get(&(MODULE.0, last::PLAYER_DIED))
+                    .map_or(ObjectId::INVALID, |id| ObjectId(*id)),
+            ),
             PopUpDeathGUIPanel => self.tell(Some(object(args, 0)), Notice::Show(Screen::Death)),
             DisplayMessageBox => self.tell(
                 None,
@@ -5151,7 +5266,7 @@ impl Engine<'_> {
 }
 
 /// The distance between two points (metres).
-pub(in crate::script) fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+pub(crate) fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     let d: [f32; 3] = std::array::from_fn(|i| a[i] - b[i]);
     (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
 }

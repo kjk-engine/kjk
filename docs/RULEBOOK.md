@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b72f5a5be1ca8e7d`.
+Edition `76e98f0053986ca5`.
 
 ## Contents
 
@@ -143,6 +143,7 @@ Edition `b72f5a5be1ca8e7d`.
   - [Lasting Effects](#force-effects-lasting)
   - [Haste](#force-effects-haste)
   - [Knockdown](#force-effects-knockdown)
+  - [Damage Shield](#force-effects-damage-shield)
 - [Lightsaber Forms and Force Forms](#forms)
   - [Form I: Shii-Cho](#forms-shii-cho)
   - [Form II: Makashi](#forms-makashi)
@@ -5215,6 +5216,39 @@ A knockdown lasts 1500 ms past its effect's duration.
 
 <sub>Source: TSL's executable (`OnApplyKnockdown`: the hold lasts the duration plus 1.5 s). Code: `sim::world::harm`.</sub>
 
+### <a id="force-effects-damage-shield"></a>Damage Shield
+
+A script's damage shield (`EffectDamageShield`) strikes back at each melee
+attacker that hits its bearer: its points, more by its damage bonus, of its
+damage type. A bonus of 1 to 5 adds that many points; one of 6 to 10 rolls
+dice, 1 / 4 / 1 / 6 / 1 / 8 / 1 / 10 / 2 / 6 by the bonus.
+
+<a id="force-effects-damage-shield-bonus-dice"></a>**Shield Bonus Dice** = **1 / 4 / 1 / 6 / 1 / 8 / 1 / 10 / 2 / 6** · `force_effects.damage_shield.bonus_dice`
+
+1d4: dice **1** · die **4** · 1d6: dice **1** · die **6** · 1d8: dice **1** · die **8** · 1d10: dice **1** · die **10** · 2d6: dice **2** · die **6**
+
+A damage shield's bonus of 6 to 10 (`DAMAGE_BONUS_1d4` to `DAMAGE_BONUS_2d6`) rolls these dice and dies, in pairs: 1 / 4 / 1 / 6 / 1 / 8 / 1 / 10 / 2 / 6.
+
+<sub>Source: TSL's executable (`ResolveDamageShields`: a bonus of 6 or more reads its row's NumDice and Die from the damage cost table), as nwscript.nss names the rows [verify the table's cells]. Code: `sim::world::harm`.</sub>
+
+<a id="force-effects-damage-shield-flat-below"></a>**Shield Bonus Points** = **6** · `force_effects.damage_shield.flat_below`
+
+A damage shield's bonus below 6 adds itself in points.
+
+<sub>Source: TSL's executable (`ResolveDamageShields`: a bonus under 6 is added as it is). Code: `sim::world::harm`.</sub>
+
+<a id="force-effects-damage-shield-most-points"></a>**Shield Most Points** = **10000** · `force_effects.damage_shield.most_points`
+
+A damage shield asked for more than 10000 points, or fewer than none, does 1.
+
+<sub>Source: TSL's executable (`EffectDamageShield`: the points against 10001, unsigned). Code: `sim::script::engine::Engine::call`.</sub>
+
+<a id="force-effects-damage-shield-last-type"></a>**Shield Last Type** = **8192** · `force_effects.damage_shield.last_type`
+
+A damage shield's damage type past 8192, or below 0, is universal.
+
+<sub>Source: TSL's executable (`EffectDamageShield`: the type against its poison damage flag). Code: `sim::script::engine::Engine::call`.</sub>
+
 ## <a id="forms"></a>Lightsaber Forms and Force Forms
 
 A Jedi learns lightsaber Forms and Force Forms from his or her class at
@@ -9536,6 +9570,18 @@ A character opens, closes, uses, locks or unlocks a door or object from within 2
 In TSL, a puppet follows its owner at no less than 0.5 meters.
 
 <sub>Source: ours. Code: `sim::script::engine::Engine::puppet_call`.</sub>
+
+<a id="scripts-moves-pick-up-reach"></a>**Pick-Up Range** = **1.1 m** · `scripts.moves.pick_up_reach`
+
+A character told to pick an item up or put one down does so from within 1.1 meters of it, measured in 3D.
+
+<sub>Source: TSL's executable (`AIActionPickUpItem`, `AIActionDropItem`: the distance squared against 1.21). Code: `sim::script::actions::PICK_UP_REACH`.</sub>
+
+<a id="scripts-moves-pick-up-ms"></a>**Pick-Up Time** = **1.5 seconds** (`1500 ms`) · `scripts.moves.pick_up_ms`
+
+Picking an item up or putting one down plays the reach-low animation for 1.5 seconds before the item changes hands.
+
+<sub>Source: TSL's executable (`AIActionPickUpItem`, `AIActionDropItem`: the animation queued for 1.5 s at speed 1). Code: `sim::script::actions::PICK_UP_MS`.</sub>
 
 <a id="scripts-moves-beside-m"></a>**Party Member Placement** = **1 m** · `scripts.moves.beside_m`
 

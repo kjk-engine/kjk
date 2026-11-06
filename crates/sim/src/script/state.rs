@@ -1625,6 +1625,20 @@ fn encode_action(out: &mut Writer, action: &Action) {
             out.u8(FOLLOW_OWNER);
             out.f32(*range);
         }
+        Action::Follow { object, range } => {
+            out.u8(FOLLOW);
+            out.u32(object.0);
+            out.f32(*range);
+        }
+        Action::PickUp { item, played } | Action::PutDown { item, played } => {
+            out.u8(if matches!(action, Action::PickUp { .. }) {
+                PICK_UP
+            } else {
+                PUT_DOWN
+            });
+            out.u32(item.0);
+            out.u8(u8::from(*played));
+        }
     }
 }
 
@@ -1634,6 +1648,11 @@ const BARK: u8 = 43;
 const FOLLOW_OWNER: u8 = 57;
 /// A queued pause's code in a save.
 const PAUSE: u8 = 58;
+/// `ActionForceFollowObject`'s, `ActionPickUpItem`'s and
+/// `ActionPutDownItem`'s codes in a save.
+const FOLLOW: u8 = 59;
+const PICK_UP: u8 = 60;
+const PUT_DOWN: u8 = 61;
 
 fn decode_action(input: &mut Reader) -> Result<Action, DecodeError> {
     let at = input.at();
@@ -1727,6 +1746,18 @@ fn decode_action(input: &mut Reader) -> Result<Action, DecodeError> {
         },
         FOLLOW_OWNER => Action::FollowOwner {
             range: input.f32()?,
+        },
+        FOLLOW => Action::Follow {
+            object: ObjectId(input.u32()?),
+            range: input.f32()?,
+        },
+        PICK_UP => Action::PickUp {
+            item: ObjectId(input.u32()?),
+            played: input.u8()? != 0,
+        },
+        PUT_DOWN => Action::PutDown {
+            item: ObjectId(input.u32()?),
+            played: input.u8()? != 0,
         },
         _ => return Err(input.invalid("action", at)),
     })
