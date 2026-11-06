@@ -48,6 +48,40 @@ const FOLLOW_MS: f32 = 200.0;
 /// How long a lightning efx's primitives may live, at most (ms): how far
 /// back its copies are played.
 const LIGHTNING_BACK_MS: f32 = 250.0;
+/// Lightning lights what is near in its own colour (its primitives' times
+/// their shader's texture's, `glow_colour`), a fight's light that rooms take
+/// too: at the hand and where its bolts end, this far (metres), this strong
+/// with this many bolts alive, less with fewer. Ours: JA lights the caster.
+const LIGHTNING_RADIUS: f32 = 4.5;
+const LIGHTNING_STRENGTH: f32 = 1.2;
+const LIGHTNING_FULL: f32 = 6.0;
+
+/// The powers' lights as of this frame (lightning's), in Bevy's space:
+/// candidates beside the scene's (`scene::pick_lights`).
+#[derive(Resource, Default, PartialEq)]
+pub(crate) struct ForceLights(pub Vec<crate::material::GpuLight>);
+
+/// What an added texture lights with: its colour where it shows, each
+/// texel weighted by how much it adds (its luma times its alpha), from its
+/// smallest level; white for none.
+fn glow_colour(texture: &TextureIr) -> Vec3 {
+    let decoded = texture.decoded();
+    let Some(level) = decoded.mips.last() else {
+        return Vec3::ONE;
+    };
+    let (mut sum, mut weight) = (Vec3::ZERO, 0.0);
+    for [r, g, b, a] in level.as_chunks::<4>().0.iter().copied() {
+        let rgb = Vec3::new(r.into(), g.into(), b.into()) / 255.0;
+        let w = rgb.dot(Vec3::new(0.299, 0.587, 0.114)) * f32::from(a) / 255.0;
+        sum += rgb * w;
+        weight += w;
+    }
+    if weight > f32::EPSILON {
+        sum / weight
+    } else {
+        Vec3::ONE
+    }
+}
 
 /// The effects' files, read from JA's.
 pub struct Setup {
@@ -114,11 +148,14 @@ struct Drawn {
     held: BTreeMap<SimId, (f32, Vec3)>,
     /// Client frames drawn with lightning, grip and a distortion.
     frames: [usize; 3],
+    /// Each shader's light colour (`glow_colour`), by lowercase name.
+    glows: BTreeMap<String, Vec3>,
 }
 
 impl Plugin for ForceViewPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PreUpdate, spawn.run_if(resource_exists::<Pending>))
+        app.init_resource::<ForceLights>()
+            .add_systems(PreUpdate, spawn.run_if(resource_exists::<Pending>))
             .add_systems(
                 PostUpdate,
                 // After the bodies are placed (the hands), before the
@@ -160,14 +197,53 @@ fn spawn(
         ));
         (model, mesh)
     });
+    let glows = (setup.textures.iter())
+        .map(|(shader, texture)| (shader.to_ascii_lowercase(), glow_colour(texture)))
+        .collect();
     commands.insert_resource(Drawn {
         lightning: setup.lightning,
         shaders,
         refraction,
         held: BTreeMap::new(),
         frames: [0; 3],
+        glows,
     });
     commands.remove_resource::<Pending>();
+}
+
+/// A caster's lightning bolts alive this frame: where they end (units)
+/// and their colours, summed.
+#[derive(Default)]
+struct Bolts {
+    ends: Vec3,
+    colour: Vec3,
+    count: f32,
+}
+
+impl Bolts {
+    fn add(&mut self, end: Vec3, colour: Vec3) {
+        self.ends += end;
+        self.colour += colour;
+        self.count += 1.0;
+    }
+
+    /// Their lights (`LIGHTNING_*`): at `hand` and where they end on
+    /// average (units), in their colour on average; none with none.
+    fn lights(&self, hand: Vec3, to_bevy: impl Fn(Vec3) -> Vec3) -> Vec<crate::material::GpuLight> {
+        use crate::material::{GpuLight, LIGHT_COMBAT, LIGHT_DYNAMIC_ALL};
+        if self.count < 1.0 {
+            return Vec::new();
+        }
+        let colour = self.colour / self.count;
+        let strength = LIGHTNING_STRENGTH * (self.count / LIGHTNING_FULL).min(1.0);
+        [hand, self.ends / self.count]
+            .map(|at| GpuLight {
+                position_radius: to_bevy(at).extend(LIGHTNING_RADIUS),
+                color_multiplier: colour.extend(strength),
+                kind: UVec4::new(0, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
+            })
+            .to_vec()
+    }
 }
 
 /// The client frames' times from `from` to `to` (ms).
@@ -256,10 +332,11 @@ fn draw(
     drawn: Option<ResMut<Drawn>>,
     places: Query<&GlobalTransform>,
     cameras: Query<(&GlobalTransform, &Projection, &Camera), SceneCamera>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, mut lights): (ResMut<Assets<Mesh>>, ResMut<ForceLights>),
     mut facts: ResMut<DumpFacts>,
 ) {
     let Some(mut drawn) = drawn else { return };
+    let mut lit = Vec::new();
     let drawn = &mut *drawn;
     let Ok((camera, projection, info)) = cameras.single() else {
         return;
@@ -321,6 +398,7 @@ fn draw(
         match force.channel.map(|c| (c.power, c.level, c.from as f32)) {
             Some((Power::Lightning, level, from)) => {
                 let effect = &drawn.lightning[usize::from(level > 2)];
+                let mut bolts = Bolts::default();
                 for start in frames(from.max(t - LIGHTNING_BACK_MS), t) {
                     let mut rng = Rng((entity.id.0 as i32) ^ (start / FRAME_MS) as i32);
                     for spawned in fx::play(effect, hand, axis, start, &mut rng, &ends) {
@@ -328,6 +406,10 @@ fn draw(
                             continue;
                         }
                         let shader = spawned.shader.to_ascii_lowercase();
+                        if spawned.kind == fx::Kind::Electricity {
+                            let glow = drawn.glows.get(&shader).copied().unwrap_or(Vec3::ONE);
+                            bolts.add(spawned.origin2, spawned.rgb_start * glow);
+                        }
                         if let Some(look) = drawn.shaders.look(&shader) {
                             let batch = batches.entry(shader).or_default();
                             let mut rng = Rng(spawned.seed ^ (t / FRAME_MS) as i32);
@@ -343,6 +425,7 @@ fn draw(
                         }
                     }
                 }
+                lit.extend(bolts.lights(hand, to_bevy));
                 drawn.frames[0] += 1;
             }
             Some((Power::Grip, _, from)) => {
@@ -381,6 +464,7 @@ fn draw(
         }
     }
     drawn.held = held;
+    lights.set_if_neq(ForceLights(lit));
     drawn.shaders.fill(batches, &mut meshes);
     if let Some((_, mesh)) = &drawn.refraction
         && let Some(mut handle) = meshes.get_mut(mesh)
@@ -394,6 +478,10 @@ fn draw(
             "lightning_frames": drawn.frames[0],
             "grip_frames": drawn.frames[1],
             "distortion_frames": drawn.frames[2],
+            "lights": lights.0.iter().map(|light| {
+                let [r, g, b, m] = light.color_multiplier.to_array();
+                [r, g, b, m].map(|x| (x * 100.0).round() / 100.0)
+            }).collect::<Vec<_>>(),
         }),
     );
 }

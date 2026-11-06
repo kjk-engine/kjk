@@ -1050,6 +1050,35 @@ and of them `contacts_confirmed` by a hit and `contacts_unconfirmed`, by
 a block or by none), and the hits
 played (`bolt_hits_seen`, `blade_hits_seen`).
 
+**A fight's lights** (ours, after JA mods' lit duels; KOTOR lights a fight's
+bodies only). A bolt's own light (its model's; a plain white one, as K1's
+ion, sonic, bowcaster and disruptor bolts carry, takes its gun's bolt
+colour, `weapons::Handling::flash_tint`), a muzzle flash's (its flash's
+tint, 90 ms, `MUZZLE_GLOW` when not before the eyes), each lit blade's
+(`scene::BladeLights`: two points along it in its colour eased toward
+white, 4.5 m) and a deflection's flare (`combat_fx::DEFLECT_*`: warm
+white at the blade, 5 m, gone as (1 − t)² in 160 ms) are the fight's
+lights (`material::LIGHT_COMBAT`). So are the powers': every script
+visual's glowing particles (its `Lighten` emitters', `model_fx::Glow`:
+their colours weighted by alpha) light 4 m in their own colour from where
+the visual is drawn (a beam's halfway to its target), as strong as how
+many show (`script_fx::GLOW_*`; K1's power models carry no lights), and
+lightning lights at the hand and where
+its bolts end, in its primitives' colour times its shader's texture's
+(`force_view::LIGHTNING_*`). They are picked before the area's own,
+light bodies as any light does, and are the only lights rooms take on top
+of their lightmaps (`odyssey.wgsl` `combat_lights`): measured from each
+fragment, (1 − (d/r)²)² to the radius, a surface turned away keeping 30%,
+and scaled by the headroom the baked light leaves (1 − its luma), so a
+bolt leaves a red pool on a dark corridor's floor while a lit hall only
+warms. Dumps: `lighting.combat`, `blaster_view.light_values`,
+`force_fx.lights`. Test beds
+(`kjk play --stage arena@MODULE`: the arena's Jedi and keys on a real area,
+its event scripts off; `arena clear` takes its creatures): dark
+`arena@lev_m40ac`, lit `arena@end_m01ab`, e.g. `--headless --aim
+g_sithtroop01 --cmds 'wait world; arena clear; arena god; anim 0.3; arena
+spawn g_sithtroop01; arena spawn g_sithtroop01; record f 0.5 8 20; quit'`.
+
 **Sounds** (`sound`; how they are heard: `SOUND.md`). What plays when:
 
 | when | sound | where |
