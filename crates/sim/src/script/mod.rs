@@ -58,7 +58,7 @@ pub use engine::{last, local};
 pub use hooks::{Holder, Hook};
 pub use presentation::ENGINE_SCRIPTS;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use fmt_odyssey::dlg::Dlg;
@@ -2453,7 +2453,8 @@ impl Step<'_> {
     /// a trigger that destroys itself on its first enter hears no second
     /// one, however many bodies stepped in together (Anchorhead's
     /// `k_ptat_gandatalk` in co-op, issue 126) [verify the exe's order of a
-    /// pending destroy against queued enters].
+    /// pending destroy against queued enters]. Its delayed code already due
+    /// then runs still (`step`'s loop over the due).
     fn gone(&self, who: ObjectId) -> bool {
         who.0 < MODULE.0
             && (self.out.destroyed.contains(&who)
@@ -3669,11 +3670,25 @@ pub fn run_due(
         step.impact(cast);
     }
     step.run_pending();
+    // Code already due when its object is destroyed still runs: KOTOR's
+    // `DestroyObject` posts its event behind those due before it, so
+    // TSL's `a_atrissis`, which defers Atris' own destruction, her
+    // handmaidens' and the next module all for one moment as Atris,
+    // reaches the next module.
+    let due_already: BTreeSet<u64> = (step.state.delayed.iter())
+        .filter(|delayed| delayed.due_ms <= view.now_ms)
+        .map(|delayed| delayed.order)
+        .collect();
+    let destroyed_before = step.out.destroyed.len();
     while step.runs < RUNS_PER_STEP {
         let Some(due) = step.state.next_due(view.now_ms) else {
             break;
         };
-        if step.gone(due.caller) {
+        let due_before_destroyed = || {
+            due_already.contains(&due.order)
+                && step.out.destroyed[destroyed_before..].contains(&due.caller)
+        };
+        if step.gone(due.caller) && !due_before_destroyed() {
             continue;
         }
         let event = Event {

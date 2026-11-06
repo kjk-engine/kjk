@@ -459,9 +459,13 @@ pub(in crate::world) fn apply(
                 if (object.state.state != 0) == open {
                     continue;
                 }
-                // A door does not close on someone standing in its doorway
-                // (KOTOR's stays open): it would shut them in its panels
-                // (Manaan's Sith base, its wing door behind an apprentice).
+                // A door closes on no one standing in its doorway: it would
+                // shut them in its panels (Manaan's Sith base, its wing door
+                // behind an apprentice). KOTOR's executable closes it at once
+                // (`CSWSObject::AIActionCloseDoor` looks for no one in the
+                // way), so it closes once the doorway is clear: its own queue
+                // asks again (Citadel Station's Exchange door, shut and locked
+                // behind Slusk as he walks through it to his desk).
                 let index = object.index;
                 let standing_in = players.iter().any(|(id, player)| {
                     let alive = fighters
@@ -479,7 +483,20 @@ pub(in crate::world) fn apply(
                 // Nor does one broken open (`world::objects`).
                 let broken =
                     (object.facts.as_deref()).is_some_and(|facts| object.state.broken(facts));
-                if !open && (standing_in || broken) {
+                if !open && broken {
+                    continue;
+                }
+                if !open && standing_in {
+                    let again = script::actions::Queued {
+                        action: script::actions::Action::Door { door, open },
+                        started_ms: None,
+                    };
+                    scripts
+                        .state
+                        .actions
+                        .entry(door.0)
+                        .or_default()
+                        .insert(0, again);
                     continue;
                 }
                 let from = players
