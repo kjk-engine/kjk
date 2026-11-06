@@ -725,12 +725,16 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let eye_normal = normalize((view.view_from_world * vec4<f32>(in.world_normal, 0.0)).xyz);
         let mirrored = reflect(normalize(eye_position), eye_normal);
         let shine = textureSample(envmap_texture, envmap_sampler, mirrored).rgb;
-        colour = min(colour + shine * (1.0 - base.a), vec3<f32>(1.0));
+        colour = min(colour + shine * (1.0 - texel.a), vec3<f32>(1.0));
     }
     if (params.flags & FOG) != 0u {
         colour = fog(colour, in.world_position.xyz, params.fog_range, params.fog_color.rgb);
     }
-    var alpha = select(base.a, 1.0, (params.flags & OPAQUE_ALPHA) != 0u);
+    // An env-mapped texture's alpha is the shine's mask, not coverage: a
+    // see-through mesh takes only its own alpha (reone's OIT model does the
+    // same), so Dantooine's crystals (alpha 0.9, DXT5 masks) stay solid.
+    let coverage = select(base.a, tint.a, (params.flags & ENVMAP) != 0u);
+    var alpha = select(coverage, 1.0, (params.flags & OPAQUE_ALPHA) != 0u);
 #ifdef VERTEX_COLORS
     // Effect primitives carry a colour and fading alpha per vertex (the
     // saber trail); on additive surfaces the alpha scales what is added,
