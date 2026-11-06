@@ -191,3 +191,81 @@ pub fn fill(
         facts.hit_points = Some((most_hp(d), most_hp(d)));
     }
 }
+
+/// Where a power reaches props.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Shape {
+    /// Every prop within `radius_m` of the caster, in its sight.
+    Around { radius_m: f32 },
+    /// The first prop along the aim within `range_m`.
+    Line { range_m: f32 },
+}
+
+/// What a power does to props: where it reaches and the damage (whole
+/// points) of a damage-type row it deals each.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PowerReach {
+    pub shape: Shape,
+    pub damage: i32,
+    pub damage_type: u8,
+}
+
+/// What the power of `spells.2da` row `spell` (either game's) does to props,
+/// if it reaches them.
+pub fn power_reach(spell: u16) -> Option<PowerReach> {
+    use crate::combat::spells as row;
+    let (around, reach_m, damage, damage_type) = match spell {
+        row::FORCE_POWER_FORCE_PUSH | row::FORCE_POWER_FORCE_WHIRLWIND => (
+            rules::destruction::powers::push::AROUND,
+            rules::destruction::powers::push::REACH_M,
+            rules::destruction::powers::push::DAMAGE,
+            rules::destruction::powers::push::DAMAGE_TYPE,
+        ),
+        row::FORCE_POWER_FORCE_WAVE => (
+            rules::destruction::powers::wave::AROUND,
+            rules::destruction::powers::wave::REACH_M,
+            rules::destruction::powers::wave::DAMAGE,
+            rules::destruction::powers::wave::DAMAGE_TYPE,
+        ),
+        row::FORCE_POWER_LIGHTNING => (
+            rules::destruction::powers::lightning::AROUND,
+            rules::destruction::powers::lightning::REACH_M,
+            rules::destruction::powers::lightning::DAMAGE,
+            rules::destruction::powers::lightning::DAMAGE_TYPE,
+        ),
+        row::FORCE_POWER_FORCE_STORM => (
+            rules::destruction::powers::storm::AROUND,
+            rules::destruction::powers::storm::REACH_M,
+            rules::destruction::powers::storm::DAMAGE,
+            rules::destruction::powers::storm::DAMAGE_TYPE,
+        ),
+        row::FORCE_POWER_LIGHT_SABER_THROW | row::FORCE_POWER_LIGHT_SABER_THROW_ADVANCED => (
+            rules::destruction::powers::throw::AROUND,
+            rules::destruction::powers::throw::REACH_M,
+            rules::destruction::powers::throw::DAMAGE,
+            rules::destruction::powers::throw::DAMAGE_TYPE,
+        ),
+        row::FORCE_POWER_KILL => (
+            rules::destruction::powers::kill::AROUND,
+            rules::destruction::powers::kill::REACH_M,
+            rules::destruction::powers::kill::DAMAGE,
+            rules::destruction::powers::kill::DAMAGE_TYPE,
+        ),
+        row::FORCE_POWER_DROID_DESTROY => (
+            rules::destruction::powers::destroy_droid::AROUND,
+            rules::destruction::powers::destroy_droid::REACH_M,
+            rules::destruction::powers::destroy_droid::DAMAGE,
+            rules::destruction::powers::destroy_droid::DAMAGE_TYPE,
+        ),
+        _ => return None,
+    };
+    let shape = match around {
+        true => Shape::Around { radius_m: reach_m },
+        false => Shape::Line { range_m: reach_m },
+    };
+    Some(PowerReach {
+        shape,
+        damage,
+        damage_type,
+    })
+}
