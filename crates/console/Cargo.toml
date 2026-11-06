@@ -6,12 +6,18 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# The queue in a Bevy app; without it, the command language and the camera
+# moves alone.
+default = ["runtime"]
+runtime = ["dep:bevy", "dep:serde_json", "dep:libc"]
+
 [dependencies]
-bevy.workspace = true
-serde_json.workspace = true
+bevy = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-libc.workspace = true
+libc = { workspace = true, optional = true }
 
 [lints]
 workspace = true
