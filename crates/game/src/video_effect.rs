@@ -45,6 +45,7 @@ use crate::fade_view::{FadeCamera, FadeSet};
 use crate::lifecycle::Installer;
 use crate::lifecycle_view::SceneCamera;
 use crate::sim_host::{PresentedSnapshot, SceneSwap};
+use sim::combat::passive::Game;
 
 const SHADER: Handle<Shader> = uuid_handle!("3c9e1f57-8b42-4d6a-a0f3-5e7b2c19d846");
 
@@ -83,12 +84,14 @@ impl Row {
     }
 }
 
-/// The effect a conversation's lines' cameras show, line by line, as the
-/// K1 executable sets it when it puts a line's camera up: a placed
-/// camera's line (`CameraAngle` 6) shows its `CamVidEffect` row (0 on) and
-/// keeps what the line before showed on -1 or -2; an animated camera's
-/// line (5) keeps it too; any other camera's line shows none. A
-/// conversation begins and ends with none.
+/// The effect a conversation's lines' cameras show, line by line, as each
+/// executable sets it when it puts a line's camera up
+/// (`rules::dialogue::cameras::EVERY_CAMERA_EFFECT`): an animated camera's
+/// line (`CameraAngle` 5) keeps what showed; in K1 a placed camera's line
+/// (6) shows its `CamVidEffect` row (0 on) and keeps what showed on -1 or
+/// -2, any other camera's line none; in TSL every other camera's line shows
+/// its row, none on -1 or -2 (a script's effect then shows, as TSL's keeps
+/// it). A conversation begins and ends with none.
 #[derive(Default)]
 struct LineEffect {
     /// The conversation and line last followed, and what it showed.
@@ -106,9 +109,9 @@ const ANIMATED_CAMERA: u32 = 5;
 
 impl LineEffect {
     /// Follows the line `(conversation id, entry, shown ms)` with its
-    /// `CamVidEffect` and `CameraAngle` (none: no conversation shown); what
-    /// it shows now.
-    fn follow(&mut self, line: Option<(Line, (i32, u32))>) -> Option<u16> {
+    /// `CamVidEffect` and `CameraAngle` (none: no conversation shown) in
+    /// `game`; what it shows now.
+    fn follow(&mut self, line: Option<(Line, (i32, u32))>, game: Game) -> Option<u16> {
         let Some((key, (effect, angle))) = line else {
             *self = LineEffect::default();
             return None;
@@ -118,9 +121,13 @@ impl LineEffect {
         }
         if self.line != Some(key) {
             self.line = Some(key);
+            let row = u16::try_from(effect).ok();
+            let every =
+                rules::dialogue::cameras::EVERY_CAMERA_EFFECT[usize::from(game == Game::Tsl)];
             self.shown = match angle {
-                PLACED_CAMERA => u16::try_from(effect).ok().or(self.shown),
                 ANIMATED_CAMERA => self.shown,
+                _ if every => row,
+                PLACED_CAMERA => row.or(self.shown),
                 _ => None,
             };
         }
@@ -147,9 +154,9 @@ pub fn line_probes() -> sim::probe::Checks {
     let mut effect = LineEffect::default();
     let shown: Vec<Option<u16>> = (0..)
         .zip(&lines)
-        .map(|(entry, node)| effect.follow(Some(((7, entry, u64::from(entry)), *node))))
+        .map(|(entry, node)| effect.follow(Some(((7, entry, u64::from(entry)), *node)), Game::K1))
         .collect();
-    let again = effect.follow(Some(((8, 0, 9), lines[1])));
+    let again = effect.follow(Some(((8, 0, 9), lines[1])), Game::K1);
     let mut checks = vec![(
         "a placed camera's row shows, -1 and an animated camera keep it, \
          another camera takes it off",
@@ -158,6 +165,25 @@ pub fn line_probes() -> sim::probe::Checks {
             format!("{shown:?}; a new conversation's keep: {again:?}"),
         ),
     )];
+    let tsl_lines = [
+        (3, 1),
+        (-1, PLACED_CAMERA),
+        (2, PLACED_CAMERA),
+        (-2, ANIMATED_CAMERA),
+        (-1, 1),
+    ];
+    let mut effect = LineEffect::default();
+    let tsl: Vec<Option<u16>> = (0..)
+        .zip(&tsl_lines)
+        .map(|(entry, node)| effect.follow(Some(((7, entry, u64::from(entry)), *node)), Game::Tsl))
+        .collect();
+    checks.push((
+        "TSL: every camera's row shows but an animated one's, -1 and -2 take it off",
+        check(
+            tsl == [Some(3), None, Some(2), Some(2), None],
+            format!("{tsl:?}"),
+        ),
+    ));
     let Some(index) = crate::k1_index() else {
         return checks;
     };
@@ -171,10 +197,13 @@ pub fn line_probes() -> sim::probe::Checks {
             .iter()
             .map(|&entry| {
                 let node = dlg.entries.get(entry as usize)?;
-                Some(effect.follow(Some((
-                    (1, entry, u64::from(entry)),
-                    (node.cam_vid_effect, node.camera_angle),
-                ))))
+                Some(effect.follow(
+                    Some((
+                        (1, entry, u64::from(entry)),
+                        (node.cam_vid_effect, node.camera_angle),
+                    )),
+                    Game::K1,
+                ))
             })
             .collect::<Option<Vec<Option<u16>>>>()
     };
@@ -272,8 +301,11 @@ fn grade(
             (node.cam_vid_effect, node.camera_angle),
         ))
     });
+    let game = swap
+        .as_ref()
+        .map_or_else(Game::default, |swap| swap.level.game());
     let current = lines
-        .follow(line)
+        .follow(line, game)
         .or_else(|| snapshot.video_effect_for(seat));
     facts
         .0
