@@ -1,8 +1,9 @@
 //! The probes of KOTOR's pace out of a fight (`kjk sim probes pace`;
 //! `world::move_actors`, `walk::paced`), on the proving ground with K1's
 //! `creaturespeed.2da` rows `PLAYER` (3.20 m/s walk, 5.40 run) and
-//! `DEFAULT`, no install. The player runs at 5.40 m/s out of a fight and
-//! walks at 3.20; in one (its weapon out) it runs at JA's 6.35, and leaving
+//! `DEFAULT`, and its persona's `appearance.2da` row walking at 1.813
+//! (`driveanimwalk`, K1's men), no install. The player runs at 5.40 m/s out
+//! of a fight and walks at 1.813, its body's walk as KOTOR drives it; in one (its weapon out) it runs at JA's 6.35, and leaving
 //! it eases back to 5.40 over about half a second; a companion following
 //! it runs at its own body's run, 5.40. A body with HUGE's rates walks
 //! at 5.00 playing the walk and runs at 10.00. Two companions put on one
@@ -49,16 +50,26 @@ struct Run {
 impl Run {
     /// The ground with `player` as the `PLAYER` row's walk and run (m/s).
     fn new(player: (f32, f32)) -> Result<Run, String> {
-        Run::with(player, 1)
+        Run::driven(player, MAN_WALK)
+    }
+
+    /// `new`'s, its persona's body walking at `drive` (m/s).
+    fn driven(player: (f32, f32), drive: f32) -> Result<Run, String> {
+        Run::with_body(player, (1, drive), body())
     }
 
     /// `new`'s with `count` companions, all on the one spot.
     fn with(player: (f32, f32), count: usize) -> Result<Run, String> {
-        Run::with_body(player, count, body())
+        Run::with_body(player, (count, MAN_WALK), body())
     }
 
-    /// `with`'s, the companions' bodies `made`.
-    fn with_body(player: (f32, f32), count: usize, made: Body) -> Result<Run, String> {
+    /// `with`'s (with the persona's body's walk, `drive`), the companions'
+    /// bodies `made`.
+    fn with_body(
+        player: (f32, f32),
+        (count, drive): (usize, f32),
+        made: Body,
+    ) -> Result<Run, String> {
         let ground = crate::determinism::proving_ground();
         let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
         // 3 m behind the player, who arrives at (-4, 0) in the room's
@@ -75,7 +86,13 @@ impl Run {
             player: Some(player),
             default: Some((1.7, 5.4)),
         };
-        let library = crate::probe::library("", Vec::<(String, _)>::new()).with_move_rates(rates);
+        let library = crate::probe::library("", Vec::<(String, _)>::new())
+            .with_move_rates(rates)
+            .with_drive_walks(
+                (0..=PLAYER_APPEARANCE)
+                    .map(|row| if row == PLAYER_APPEARANCE { drive } else { 0.0 })
+                    .collect(),
+            );
         // The navigation mesh over the half the player arrives in.
         let [a, b, c, d] = [[-7.5, -5.5], [-0.5, -5.5], [-0.5, 5.5], [-7.5, 5.5]]
             .map(|[x, y]| crate::determinism::ground_point(x, y, 0.0));
@@ -89,6 +106,13 @@ impl Run {
         let level = ground.with_module(data).with_scripts(library).with_nav(nav);
         let mut world =
             SimWorld::new(WorldConfig::one_seat(), level.clone()).map_err(|e| e.to_string())?;
+        world.set_persona(crate::persona::Persona {
+            seat: Seat(0),
+            appearance: PLAYER_APPEARANCE,
+            gender: crate::persona::MALE,
+            portrait: 0,
+            name: String::new(),
+        });
         let mut start = world.snapshot();
         let host = start.body(Seat(0)).ok_or("no host")?.id;
         let buddies: Vec<SimId> = start
@@ -177,6 +201,11 @@ impl Run {
     }
 }
 
+/// The player's persona's `appearance.2da` row, its `driveanimwalk` set,
+/// the rows before it blank; K1's men's walk (m/s).
+const PLAYER_APPEARANCE: u16 = 2;
+const MAN_WALK: f32 = 1.813;
+
 /// Facing `yaw`, the keys at `forward`, walking or not.
 fn keys(yaw: f32, forward: i8, walk: bool) -> Command {
     Command {
@@ -208,7 +237,7 @@ pub fn probes() -> Checks {
         run_mps: 0.0,
         ..body()
     };
-    match Run::with_body((3.2, 5.4), 1, immobile) {
+    match Run::with_body((3.2, 5.4), (1, MAN_WALK), immobile) {
         Ok(mut still) => {
             let from = still.origin(still.buddy);
             still.hold(keys(90.0, 127, false), 704);
@@ -264,8 +293,8 @@ pub fn probes() -> Checks {
     let walk = run.speed(run.host);
     put(
         "player_walks_at_kotor_pace_out_of_a_fight",
-        near(walk, 3.2),
-        format!("{walk:.2} m/s, KOTOR's PLAYER walk 3.20"),
+        near(walk, MAN_WALK),
+        format!("{walk:.2} m/s, its body's driveanimwalk 1.813, not the PLAYER row's 3.20"),
     );
     if let Err(error) = run.fight_for(60_000) {
         put("pace_fight", false, error);
@@ -290,9 +319,9 @@ pub fn probes() -> Checks {
         format!("{easing:.2} m/s 0.1 s after, {eased:.2} m/s 0.55 s after"),
     );
     // A body as fast as `creaturespeed.2da`'s HUGE row (5.00 walk, 10.00
-    // run): its walk plays the walk however long its keys, and its run is
-    // not held to JA's.
-    let mut huge = match Run::new((5.0, 10.0)) {
+    // run), its own walk as fast: its walk plays the walk however long its
+    // keys, and its run is not held to JA's.
+    let mut huge = match Run::driven((5.0, 10.0), 5.0) {
         Ok(run) => run,
         Err(error) => return vec![("pace_huge_ground", Err(error))],
     };

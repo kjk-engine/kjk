@@ -1517,17 +1517,22 @@ pub fn opening_none(state: ObjectState) -> ObjectState {
 }
 
 /// A body's walk and run rates (m/s) on KOTOR's walker: a player's the
-/// table's `PLAYER` row (it has no template), a creature's its own row
-/// (`module::Body`); one read as nothing (a row the table lacks) that is
-/// not `NOMOVE` the `DEFAULT` row's, as no creature is left frozen by
-/// missing data. `None` where none is known: the body steps through move_body.
+/// table's `PLAYER` row (it has no template), its walk its appearance's
+/// `driveanimwalk` (`drive_walk`, where known) as KOTOR walks the body its
+/// player drives, a creature's its own row (`module::Body`); one read as
+/// nothing (a row the table lacks) that is not `NOMOVE` the `DEFAULT`
+/// row's, as no creature is left frozen by missing data. `None` where none
+/// is known: the body steps through move_body.
 pub fn rates(
     body: Option<&crate::module::Body>,
     player: bool,
+    drive_walk: Option<f32>,
     table: MoveRates,
 ) -> Option<(f32, f32)> {
     match body {
-        _ if player => table.player,
+        _ if player => table
+            .player
+            .map(|(walk, run)| (drive_walk.unwrap_or(walk), run)),
         Some(body) if body.walk_mps > 0.0 || body.run_mps > 0.0 || body.immobile() => {
             Some((body.walk_mps, body.run_mps))
         }

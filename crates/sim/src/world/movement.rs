@@ -105,13 +105,14 @@ pub(super) fn move_actors(
     inputs: Res<Inputs>,
     level: Res<Static>,
     (mut touched, mut bumped, mut sent): (ResMut<Touched>, ResMut<Bumped>, ResMut<TorsoSent>),
-    (driven, scripts, held, talking, fight, made_faces): (
+    (driven, scripts, held, talking, fight, made_faces, personas): (
         Res<Driven>,
         Res<scripts::Scripts>,
         Res<scene::Held>,
         Res<Talking>,
         Res<InCombat>,
         Res<MadeFaces>,
+        Res<Personas>,
     ),
     (objects, made): (
         Query<&Object>,
@@ -355,13 +356,20 @@ pub(super) fn move_actors(
                 || leads.is_some()
                 || (avatar.is_some() && object.is_none()));
         // Its `creaturespeed.2da` rates (`walk::rates`): a seat's body's the
-        // table's `PLAYER` row.
+        // table's `PLAYER` row, walking at its appearance's `driveanimwalk`
+        // (a companion's by its template, a player's by its persona).
         let seat_body = seat_bodies.contains(&script_ncs::vm::ObjectId(id.0.0));
         let rates = || {
             let body = object
                 .and_then(|object| object.facts.as_ref())
                 .and_then(|facts| facts.body.as_ref());
-            walk::rates(body, seat_body || object.is_none(), table)
+            let appearance = body.map(|body| body.appearance).or_else(|| {
+                avatar
+                    .and_then(|avatar| crate::persona::of(&personas.0, avatar.0))
+                    .map(|persona| persona.appearance)
+            });
+            let drive_walk = appearance.and_then(|appearance| drive_walk(&level.0, appearance));
+            walk::rates(body, seat_body || object.is_none(), drive_walk, table)
         };
         let ps = &player.0;
         // A script's move of a body no seat drives, out of a fight, goes on

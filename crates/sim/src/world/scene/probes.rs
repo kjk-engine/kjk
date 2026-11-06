@@ -5321,8 +5321,8 @@ fn routes_round_made_placeable() -> Found {
     )
 }
 
-/// S3: the walker's rates: a player's the `PLAYER` row; a creature's its
-/// own, the `DEFAULT` row where its own reads as nothing, none where `NOMOVE`
+/// S3: the walker's rates: a player's the `PLAYER` row, walking at its
+/// appearance's `driveanimwalk` where known; a creature's its own, the `DEFAULT` row where its own reads as nothing, none where `NOMOVE`
 /// (and then no speed); KOTOR's speed with the multiplier clamped to
 /// 0.125–1.5, a walk under 0.1 m/s none, a run at least 1 m/s.
 fn walker_rates() -> Found {
@@ -5342,13 +5342,15 @@ fn walker_rates() -> Found {
         ..unread
     };
     let found = [
-        rates(None, true, table),
-        rates(Some(&own), false, table),
-        rates(Some(&unread), false, table),
-        rates(None, false, table),
-        rates(Some(&immobile), false, table),
-        rates(Some(&own), false, crate::script::MoveRates::default()),
-        rates(None, true, crate::script::MoveRates::default()),
+        rates(None, true, None, table),
+        rates(Some(&own), false, None, table),
+        rates(Some(&unread), false, None, table),
+        rates(None, false, None, table),
+        rates(Some(&immobile), false, None, table),
+        rates(Some(&own), false, None, crate::script::MoveRates::default()),
+        rates(None, true, None, crate::script::MoveRates::default()),
+        rates(None, true, Some(1.813), table),
+        rates(Some(&own), false, Some(1.813), table),
     ];
     let speeds = [
         kotor_speed((1.7, 5.4), 2.0, false),
@@ -5365,6 +5367,8 @@ fn walker_rates() -> Found {
         Some((0.0, 0.0)),
         Some((1.7, 5.4)),
         None,
+        Some((1.813, 5.4)),
+        Some((1.7, 5.4)),
     ];
     let want_speeds = [1.7 * 1.5, 1.7 * 0.125, 0.0, 1.0, 0.0];
     check(
