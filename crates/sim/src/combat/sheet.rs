@@ -73,6 +73,8 @@ pub mod feats {
     pub const POWER_BLAST: [u16; 3] = [29, 18, 82];
     pub const RAPID_SHOT: [u16; 3] = [30, 92, 26];
     pub const SNIPER_SHOT: [u16; 3] = [31, 20, 77];
+    /// TSL's HK droids' Shield Breaker.
+    pub const SHIELD_BREAKER: u16 = 220;
     pub const JEDI_DEFENSE: [u16; 3] = [55, 1, 24];
     pub const DUELING: [u16; 3] = [113, 114, 115];
     pub const FORCE_JUMP: [u16; 3] = [101, 102, 103];

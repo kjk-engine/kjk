@@ -379,3 +379,50 @@ range = [100, 1000]
 summary = "Movement speed effects cannot raise a character above {force_effects.lasting.speed_most} of normal speed."
 source = "ours"
 see = "sim::world::powers::Cast::upkeep"
+
+[haste]
+title = "Haste"
+summary = """
+A script's haste (`EffectHaste`) makes its bearer move
+{force_effects.haste.speed:bare}% faster and gives it
++{force_effects.haste.defence:bare} Defense while it lasts. It gives no
+extra attacks.
+"""
+applies = ["kind:force"]
+
+[haste.speed]
+name = "Haste Movement Bonus"
+value = 50
+unit = "%"
+range = [0, 200]
+summary = "Haste raises movement speed by {force_effects.haste.speed}."
+source = "TSL's executable (`OnApplyHasteInternal`: a movement speed of 150 %)"
+see = "sim::script::engine::Engine::call"
+
+[haste.defence]
+name = "Haste Defense Bonus"
+type = "i8"
+value = 4
+range = [0, 20]
+summary = "Haste gives +{force_effects.haste.defence:bare} Defense (a dodge bonus)."
+source = "TSL's executable (`OnApplyHasteInternal`: an AC increase of 4, dodge)"
+see = "sim::script::engine::Engine::call"
+
+[knockdown]
+title = "Knockdown"
+summary = """
+A script's knockdown (`EffectKnockdown`) throws its bearer down for the
+effect's duration and {force_effects.knockdown.extra_ms:bare} ms more, unless
+it is immune to knockdown.
+"""
+applies = ["kind:force"]
+
+[knockdown.extra_ms]
+name = "Knockdown Extra Time"
+type = "u64"
+value = 1500
+unit = "ms"
+range = [0, 10000]
+summary = "A knockdown lasts {force_effects.knockdown.extra_ms:bare} ms past its effect's duration."
+source = "TSL's executable (`OnApplyKnockdown`: the hold lasts the duration plus 1.5 s)"
+see = "sim::world::harm"
