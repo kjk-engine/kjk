@@ -27,6 +27,10 @@ use crate::viewer_ja::Files;
 /// `_humanoid` model shares them).
 pub const JA_BODY: &str = "models/players/kyle/model.glm";
 
+/// How far below its arrival a body on an area played as the arena
+/// (`Stage::module_arena`) has fallen when it dies (metres).
+const ARENA_PIT_BELOW: f32 = 100.0;
+
 /// A level to move in.
 pub struct Stage {
     pub name: String,
@@ -201,6 +205,42 @@ impl Stage {
         })
     }
 
+    /// The arena's rules and Jedi on a real area (`arena@MODULE`): the
+    /// module's rooms, lightmaps and lights as they are, its event scripts
+    /// gone, so fights and their lights can be tried in a lit or a dark
+    /// place. Its own creatures stay until `arena clear` (F6) takes them; a
+    /// body falling far below the arrival dies there.
+    pub fn module_arena(
+        discovery: &Discovery,
+        module: &str,
+        arrival: Option<&str>,
+        anims: Arc<AnimTable>,
+        scene: bool,
+        seats: u8,
+    ) -> Result<Stage, String> {
+        let mut stage = Stage::module(discovery, module, arrival, anims, scene, seats, 1)?;
+        let mut data = stage
+            .level
+            .module()
+            .ok_or("the module has no data")?
+            .as_ref()
+            .clone();
+        data.module_scripts.clear();
+        data.area_scripts.clear();
+        let rules = sim::arena::Rules {
+            respawn: stage.spawn,
+            yaw: stage.yaw,
+            pit: stage.spawn[2] - ARENA_PIT_BELOW,
+            respawn_ms: crate::arena::RESPAWN_MS,
+        };
+        stage.level = stage.level.clone().with_module(data).with_arena(rules);
+        if let Some(plan) = &mut stage.plan {
+            plan.level = stage.level.clone();
+        }
+        stage.sheet = crate::arena::sheet();
+        Ok(stage)
+    }
+
     /// `course`, `duel`, or a KOTOR 1 module (e.g. `end_m01aa`), for
     /// `seats` players; a module's encounters are planned for `players`
     /// (the stages without a module have none).
@@ -220,6 +260,9 @@ impl Stage {
             "arena" => Stage::arena(discovery, crate::arena::BASE_MODULE, anims, seats),
             _ if let Some(base) = name.strip_prefix("arena:") => {
                 Stage::arena(discovery, base, anims, seats)
+            }
+            _ if let Some(module) = name.strip_prefix("arena@") => {
+                Stage::module_arena(discovery, module, arrival, anims, scene, seats)
             }
             module => Stage::module(discovery, module, arrival, anims, scene, seats, players),
         }
