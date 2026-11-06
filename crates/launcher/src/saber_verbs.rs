@@ -411,7 +411,18 @@ fn rig_level(style: Style) -> u32 {
 
 /// A character of `style` with a lit saber, ready.
 fn duelist<'a>(style: Style, world: &'a dyn CollisionWorld, anims: &'a AnimTable) -> Duel<'a> {
-    let sheet = jedi(weapons_for(style), 100);
+    duelist_with(style, 100, world, anims)
+}
+
+/// A character of `style` with `max_fp` (0: no Force, a stamina bar) and a
+/// lit saber, ready.
+fn duelist_with<'a>(
+    style: Style,
+    max_fp: u16,
+    world: &'a dyn CollisionWorld,
+    anims: &'a AnimTable,
+) -> Duel<'a> {
+    let sheet = jedi(weapons_for(style), max_fp);
     let mut duel = Duel::new(&sheet, world, anims);
     duel.light();
     duel.take_style(style);
@@ -1077,6 +1088,76 @@ fn refusals(world: &dyn CollisionWorld, anims: &AnimTable, report: &mut Report) 
     }
 }
 
+/// Walking through a special (JA single player, QUIRKS.md Q-0361): the
+/// fast kata and the pair's and the staff's spins let the legs walk on
+/// while the arms play; the pair's kata holds the body where it stands.
+fn walking_specials(world: &dyn CollisionWorld, anims: &AnimTable, report: &mut Report) {
+    /// A special started by `keys` after `setup`, then forward held: whether
+    /// the body `walks` on while it plays.
+    struct Walk {
+        name: &'static str,
+        style: Style,
+        setup: fn(&mut Duel),
+        keys: Keys,
+        mv: Move,
+        walks: bool,
+    }
+    let kata = Keys::press(ATTACK | ALT);
+    let spin = Keys::press(ATTACK).with(127, 0).up(-127);
+    let walk = |name, style, setup: fn(&mut Duel), keys, mv, walks| Walk {
+        name,
+        style,
+        setup,
+        keys,
+        mv,
+        walks,
+    };
+    let cases = [
+        walk("fast kata", Style::Fast, nothing, kata, Move::A1_SPECIAL, true),
+        walk("dual spin", Style::Dual, crouched, spin, Move::SPINATTACK_DUAL, true),
+        walk("staff spin", Style::Staff, crouched, spin, Move::SPINATTACK, true),
+        walk("dual kata", Style::Dual, nothing, kata, Move::DUAL_SPIN_PROTECT, false),
+    ];
+    for Walk {
+        name,
+        style,
+        setup,
+        keys,
+        mv,
+        walks,
+    } in cases
+    {
+        let mut duel = duelist(style, world, anims);
+        setup(&mut duel);
+        let started = duel.until(1000, keys, |duel| duel.fighter.saber.current_move == mv);
+        let from = duel.ps.origin;
+        duel.hold(300, Keys::default().with(127, 0));
+        let playing = duel.fighter.saber.current_move == mv;
+        let moved = sim::math::flat_distance(from, duel.ps.origin);
+        let pass = started && playing && if walks { moved > 30.0 } else { moved < 1.0 };
+        report.check(
+            format!("{name}: {}", if walks { "walks on" } else { "stands" }),
+            pass,
+            format!(
+                "started {started}, still playing {playing}, {moved:.0} units in 300 ms, legs {}",
+                duel.ps.legs.anim.name()
+            ),
+        );
+    }
+    // The pair's kata sends the blades about the body: the Force's alone.
+    let starts = |max_fp| {
+        let mut duel = duelist_with(Style::Dual, max_fp, world, anims);
+        duel.hold(400, kata);
+        duel.starts.iter().any(|start| start.mv == Move::DUAL_SPIN_PROTECT)
+    };
+    let (jedi, plain) = (starts(100), starts(0));
+    report.check(
+        "the pair's kata is the Force's alone",
+        jedi && !plain,
+        format!("with the Force {jedi}, without {plain}"),
+    );
+}
+
 /// When the legs first play `anim` after `from` (ms), if they do.
 fn legs_play(duel: &mut Duel, anim: Anim, keys: Keys, within: u64) -> Option<u64> {
     duel.until(within, keys, |duel| duel.ps.legs.anim == anim)
@@ -1401,6 +1482,7 @@ pub fn saber_moves(discovery: &Discovery) -> ExitCode {
     outln!("specials");
     let specials = try_specials(world, &anims, rig.as_ref(), &mut report);
     refusals(world, &anims, &mut report);
+    walking_specials(world, &anims, &mut report);
     outln!("knockdowns");
     knockdowns(world, &anims, &mut report);
     outln!("weapons and styles");
