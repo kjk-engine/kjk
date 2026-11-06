@@ -692,33 +692,50 @@ type MaterialKey<'a> = (
 );
 
 /// The scene's materials whose diffuse moves: the scene's own and those of
-/// every model made into it later (placeables, creatures).
+/// every model made into it later (placeables, creatures, effects). Held by
+/// id, not owned: a material goes when the meshes drawing it do, and its
+/// entry with it (`prune`).
 #[derive(Resource, Default)]
 pub(crate) struct AnimatedMaterials {
     /// Diffuse UVs that scroll, with their direction.
-    scrolling: Vec<(Handle<OdysseyMaterial>, Vec2)>,
+    scrolling: Vec<(AssetId<OdysseyMaterial>, Vec2)>,
     /// Flip-books: each frame's image, and frames per second.
-    flipbooks: Vec<(Handle<OdysseyMaterial>, Vec<Handle<Image>>, f32)>,
+    flipbooks: Vec<(AssetId<OdysseyMaterial>, Vec<Handle<Image>>, f32)>,
 }
 
 impl AnimatedMaterials {
     /// Takes over the scrolling materials and flip-books `spawner` met.
     pub fn adopt(&mut self, spawner: &mut Spawner) {
-        self.scrolling.append(&mut spawner.scrolling);
-        self.flipbooks.append(&mut spawner.flipbooks);
+        let scrolling = spawner.scrolling.drain(..);
+        self.scrolling
+            .extend(scrolling.map(|(handle, dir)| (handle.id(), dir)));
+        let flipbooks = spawner.flipbooks.drain(..);
+        self.flipbooks
+            .extend(flipbooks.map(|(handle, frames, fps)| (handle.id(), frames, fps)));
     }
 
     /// `copy` of material `from` (a model's own, its clips keying it:
     /// `model_fx::own_materials`) scrolls and flips as `from` does.
     pub fn copied(&mut self, from: &Handle<OdysseyMaterial>, copy: &Handle<OdysseyMaterial>) {
-        let scrolls = self.scrolling.iter().find(|(handle, _)| handle == from);
+        let scrolls = self.scrolling.iter().find(|(id, _)| *id == from.id());
         if let Some(&(_, dir)) = scrolls {
-            self.scrolling.push((copy.clone(), dir));
+            self.scrolling.push((copy.id(), dir));
         }
-        let flips = self.flipbooks.iter().find(|(handle, ..)| handle == from);
+        let flips = self.flipbooks.iter().find(|(id, ..)| *id == from.id());
         if let Some((_, frames, fps)) = flips.cloned() {
-            self.flipbooks.push((copy.clone(), frames, fps));
+            self.flipbooks.push((copy.id(), frames, fps));
         }
+    }
+
+    /// Drops the entries of materials that are gone.
+    fn prune(&mut self, materials: &Assets<OdysseyMaterial>) {
+        self.scrolling.retain(|(id, _)| materials.contains(*id));
+        self.flipbooks.retain(|(id, ..)| materials.contains(*id));
+    }
+
+    /// How many materials scroll and flip (`facts`).
+    pub fn counts(&self) -> (usize, usize) {
+        (self.scrolling.len(), self.flipbooks.len())
     }
 }
 
@@ -1805,12 +1822,14 @@ pub(crate) fn animation_seconds(time: &Time, held: &AnimationTime) -> f32 {
 fn scroll_uvs(
     time: Res<Time>,
     held: Res<AnimationTime>,
-    moving: Res<AnimatedMaterials>,
+    mut moving: ResMut<AnimatedMaterials>,
     (mut materials, mut animated): (ResMut<Assets<OdysseyMaterial>>, ResMut<material::Animated>),
 ) {
+    moving.prune(&materials);
+    animated.prune(&materials);
     let seconds = animation_seconds(&time, &held);
-    for (handle, dir) in &moving.scrolling {
-        let offset = UV_ANIMATION_SPEED * *dir * seconds;
+    for &(handle, dir) in &moving.scrolling {
+        let offset = UV_ANIMATION_SPEED * dir * seconds;
         let offset = offset - offset.floor();
         // Past the slots, the material itself.
         if !animated.scroll(handle, offset, &mut materials)
@@ -1838,9 +1857,17 @@ fn cycle_flipbooks(
     held: Res<AnimationTime>,
     moving: Res<AnimatedMaterials>,
     mut materials: ResMut<Assets<OdysseyMaterial>>,
+    (mut facts, dump_due): (ResMut<console::DumpFacts>, Res<console::DumpDue>),
 ) {
-    for (handle, frames, fps) in &moving.flipbooks {
-        let frame = flipbook_frame(frames.len(), *fps, animation_seconds(&time, &held));
+    if dump_due.0 {
+        let (scrolling, flipbooks) = moving.counts();
+        facts.0.insert(
+            "animated_materials".into(),
+            serde_json::json!({ "scrolling": scrolling, "flipbooks": flipbooks }),
+        );
+    }
+    for &(handle, ref frames, fps) in &moving.flipbooks {
+        let frame = flipbook_frame(frames.len(), fps, animation_seconds(&time, &held));
         let wanted = &frames[frame];
         if materials
             .get(handle)

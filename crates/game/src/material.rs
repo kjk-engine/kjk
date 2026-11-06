@@ -168,11 +168,14 @@ pub const PARTICLE_BYTES: usize = 36;
 /// which `upload_animated` writes when they change. A material takes a
 /// slot as it is first animated (the one write of it); a copy of it keeps
 /// its slot, and so its offset and keys, until it is animated itself. A
-/// new scene's materials take them afresh (`forget`).
+/// material that is gone gives its slot back (`prune`); a new scene's
+/// materials take them afresh (`forget`).
 #[derive(Resource)]
 pub struct Animated {
     slots: Box<[GpuAnimated; ANIMATED_SLOTS]>,
     by_material: bevy::platform::collections::HashMap<AssetId<OdysseyMaterial>, u32>,
+    /// Slots given back, taken before fresh ones.
+    free: Vec<u32>,
     changed: bool,
 }
 
@@ -181,6 +184,7 @@ impl Default for Animated {
         Animated {
             slots: Box::new([GpuAnimated::NONE; ANIMATED_SLOTS]),
             by_material: default(),
+            free: Vec::new(),
             changed: false,
         }
     }
@@ -191,18 +195,22 @@ impl Animated {
     /// material as it takes it); none when every slot is taken.
     fn slot(
         &mut self,
-        material: &Handle<OdysseyMaterial>,
+        material: AssetId<OdysseyMaterial>,
         materials: &mut Assets<OdysseyMaterial>,
         first: impl FnOnce(&mut OdysseyMaterial),
     ) -> Option<usize> {
-        if let Some(&slot) = self.by_material.get(&material.id()) {
+        if let Some(&slot) = self.by_material.get(&material) {
             return Some(slot as usize);
         }
-        let slot = self.by_material.len() + 1;
+        let fresh = self.by_material.len() + self.free.len() + 1;
+        let slot = self.free.last().map_or(fresh, |&slot| slot as usize);
         if slot >= ANIMATED_SLOTS {
             return None;
         }
         let mut written = materials.get_mut(material)?;
+        if self.free.last() == Some(&(slot as u32)) {
+            self.free.pop();
+        }
         // A copy goes on from where its original's slot is.
         self.slots[slot] = match written.params.slot as usize {
             0 => GpuAnimated::NONE,
@@ -210,7 +218,7 @@ impl Animated {
         };
         written.params.slot = slot as u32;
         first(&mut written);
-        self.by_material.insert(material.id(), slot as u32);
+        self.by_material.insert(material, slot as u32);
         self.changed = true;
         Some(slot)
     }
@@ -219,7 +227,7 @@ impl Animated {
     /// left for it.
     pub fn scroll(
         &mut self,
-        material: &Handle<OdysseyMaterial>,
+        material: AssetId<OdysseyMaterial>,
         offset: Vec2,
         materials: &mut Assets<OdysseyMaterial>,
     ) -> bool {
@@ -239,7 +247,7 @@ impl Animated {
     /// slot was left for it.
     pub fn light(
         &mut self,
-        material: &Handle<OdysseyMaterial>,
+        material: AssetId<OdysseyMaterial>,
         (alpha, illum): (f32, Vec3),
         materials: &mut Assets<OdysseyMaterial>,
     ) -> bool {
@@ -258,9 +266,23 @@ impl Animated {
         true
     }
 
+    /// The slots of materials that are gone (their models despawned) are
+    /// free again.
+    pub fn prune(&mut self, materials: &Assets<OdysseyMaterial>) {
+        let free = &mut self.free;
+        self.by_material.retain(|&material, &mut slot| {
+            let kept = materials.contains(material);
+            if !kept {
+                free.push(slot);
+            }
+            kept
+        });
+    }
+
     /// A new scene's: its materials take slots afresh.
     pub fn forget(&mut self) {
         self.by_material.clear();
+        self.free.clear();
     }
 }
 
