@@ -351,6 +351,115 @@ fn made_chair() -> Result<String, String> {
     )
 }
 
+/// The arena's made props of `props` (row, where on the ground), laid out:
+/// the world and each one's id and number, in order.
+fn arena_props(props: &[(u16, [f32; 2])]) -> Result<(SimWorld, Vec<(SimId, u32)>), String> {
+    let laid: Vec<super::arena::Prop> = props
+        .iter()
+        .map(|&(row, [x, y])| super::arena::Prop {
+            appearance: row,
+            name: format!("prop {row}"),
+            at: crate::determinism::ground_point(x, y, 0.0),
+            yaw: 270.0,
+            footprint: vec![[-0.4, -0.4, 0.0], [0.4, 0.4, 1.0]],
+            destructible: destruction::catalogue("k1", row),
+        })
+        .collect();
+    let mut world = super::arena_probes::arena_with(laid.clone())?.0;
+    for _ in 0..4 {
+        let tick = world.tick() + 1;
+        crate::step(
+            &mut world,
+            tick,
+            &TickInput::default(),
+            8,
+            StepReason::Authority,
+        );
+    }
+    let mut query = world.world.query::<(&Id, &Object)>();
+    let made: Vec<(SimId, u32, [f32; 3])> = query
+        .iter(&world.world)
+        .filter_map(|(id, object)| {
+            let facts = object.facts.as_ref()?;
+            (object.kind == ObjectKind::Placeable).then_some((id.0, object.index, facts.position))
+        })
+        .collect();
+    let ids = laid
+        .iter()
+        .map(|prop| {
+            made.iter()
+                .find(|(.., at)| (at[0] - prop.at[0]).hypot(at[1] - prop.at[1]) < 0.01)
+                .map(|&(id, index, _)| (id, index))
+                .ok_or(format!("{} was not laid out", prop.name))
+        })
+        .collect::<Result<_, _>>()?;
+    Ok((world, ids))
+}
+
+/// One step with `row`'s power cast by seat 0's player from `from` toward
+/// `toward` (both on the ground, metres).
+fn power(world: &mut SimWorld, row: u16, from: [f32; 2], toward: [f32; 2]) {
+    let caster = {
+        let mut query = world.world.query::<(&Id, &super::Avatar)>();
+        query.iter(&world.world).next().map(|(id, _)| id.0)
+    };
+    let point = |[x, y]: [f32; 2]| crate::determinism::ground_point(x, y, 1.0);
+    if let Some(caster) = caster {
+        world
+            .world
+            .resource_mut::<Battering>()
+            .power(caster, row, point(from), point(toward));
+    }
+    let tick = world.tick() + 1;
+    crate::step(
+        world,
+        tick,
+        &TickInput::default(),
+        50,
+        StepReason::Authority,
+    );
+}
+
+fn powers() -> Result<String, String> {
+    use crate::combat::spells;
+    const FROM: [f32; 2] = [-7.0, -3.0];
+    let chairs = [[-4.0, -3.0], [-2.0, -3.0], [2.0, -3.0]];
+    let lay: Vec<(u16, [f32; 2])> = chairs.iter().map(|&at| (CHAIR, at)).collect();
+    let state = |world: &mut SimWorld, index| object_of(world, index).map(|(state, _)| state);
+    let broken = |world: &mut SimWorld, ids: &[(SimId, u32)]| {
+        ids.iter()
+            .map(|&(_, index)| {
+                object_of(world, index).is_some_and(|(state, facts)| state.broken(&facts))
+            })
+            .collect::<Vec<_>>()
+    };
+    // Force Wave round the caster: the chairs 3 and 5 m off, not 9.
+    let (mut world, ids) = arena_props(&lay)?;
+    power(&mut world, spells::FORCE_POWER_FORCE_WAVE, FROM, chairs[0]);
+    let waved = broken(&mut world, &ids);
+    // Force Push at the nearest: it alone.
+    let (mut world, ids) = arena_props(&lay)?;
+    power(&mut world, spells::FORCE_POWER_FORCE_PUSH, FROM, chairs[0]);
+    let pushed = broken(&mut world, &ids);
+    // Force Lightning at a panel 2 m off: wrecked within three casts.
+    let panel_at = [-7.0, -1.0];
+    let (mut world, ids) = arena_props(&[(PANEL, panel_at)])?;
+    for _ in 0..3 {
+        power(&mut world, spells::FORCE_POWER_LIGHTNING, FROM, panel_at);
+    }
+    let panel_kind = kind(PANEL)?;
+    let panel =
+        state(&mut world, ids[0].1).map(|state| destruction::stage(panel_kind, state.damage));
+    check(
+        waved == [true, true, false] && pushed == [true, false, false] && panel == Some(2),
+        format!(
+            "Force Wave broke {waved:?} (want [true, true, false]); Force Push {pushed:?} \
+             (want [true, false, false]); three Force Lightnings left the panel at stage \
+             {panel:?} (want 2)"
+        ),
+    )
+}
+
 /// The probes.
 pub fn probes() -> crate::probe::Checks {
     vec![
@@ -358,5 +467,6 @@ pub fn probes() -> crate::probe::Checks {
         ("destruction_blows", blows()),
         ("destruction_made_chair", made_chair()),
         ("destruction_blast_on_brushes", blast_on_brushes()),
+        ("destruction_powers", powers()),
     ]
 }

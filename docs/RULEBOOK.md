@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `0cf478bf1a1d5013`.
+Edition `c262221fde59142c`.
 
 ## Contents
 
@@ -87,6 +87,7 @@ Edition `0cf478bf1a1d5013`.
   - [Damage types](#destruction-multipliers)
   - [Area blows](#destruction-area)
   - [Damage stages](#destruction-stages)
+  - [Force powers](#destruction-powers)
 - [Lightsabers and Melee Weapons](#sabers)
   - [Saber Frame](#sabers-ja)
   - [Blades](#sabers-blades)
@@ -2316,6 +2317,208 @@ damaged **33.3%** · wrecked **66.7%**
 A prop is damaged once it has lost 333 ‰ of its hit points, and wrecked at 667 ‰; a prop that breaks goes when it has lost them all.
 
 <sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::stage`.</sub>
+
+### <a id="destruction-powers"></a>Force powers
+
+Force powers that strike or throw reach the props in their way: the ones that strike one thing hit the first prop along their aim, the ones that fill an area every prop around the caster in sight.
+
+Each power's ranks share its line's reach and damage. A damage type is a damage-type row; the Force's own damage is universal (row 3), which no material resists more than another.
+
+#### <a id="destruction-powers-push"></a>Force Push and Whirlwind
+
+Push and Whirlwind strike the first prop along their aim within 10 m: 30 HP of the Force's own damage, enough to break a chair.
+
+<a id="destruction-powers-push-around"></a>**Force Push and Whirlwind: Around the Caster** = **false** · `destruction.powers.push.around`
+
+Whether Force Push and Whirlwind reaches every prop around its caster (else the first along its aim): false.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-push-reach-m"></a>**Force Push and Whirlwind: Reach** = **10 m** · `destruction.powers.push.reach_m`
+
+How far Force Push and Whirlwind reaches props: 10 m.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-push-damage"></a>**Force Push and Whirlwind: Damage to Props** = **30 HP** · `destruction.powers.push.damage`
+
+Force Push and Whirlwind deals 30 HP to each prop it reaches, before the prop's hardness.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-push-damage-type"></a>**Force Push and Whirlwind: Damage Type** = **3** · `destruction.powers.push.damage_type`
+
+The damage-type row of Force Push and Whirlwind's damage to props: 3.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+#### <a id="destruction-powers-wave"></a>Force Wave
+
+Wave strikes every prop within 7 m of the caster in sight: 10 HP of the Force's own damage, an area's, enough to clear a room.
+
+<a id="destruction-powers-wave-around"></a>**Force Wave: Around the Caster** = **true** · `destruction.powers.wave.around`
+
+Whether Force Wave reaches every prop around its caster (else the first along its aim): true.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-wave-reach-m"></a>**Force Wave: Reach** = **7 m** · `destruction.powers.wave.reach_m`
+
+How far Force Wave reaches props: 7 m.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-wave-damage"></a>**Force Wave: Damage to Props** = **10 HP** · `destruction.powers.wave.damage`
+
+Force Wave deals 10 HP to each prop it reaches, before the prop's hardness.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-wave-damage-type"></a>**Force Wave: Damage Type** = **3** · `destruction.powers.wave.damage_type`
+
+The damage-type row of Force Wave's damage to props: 3.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+#### <a id="destruction-powers-lightning"></a>Force Lightning
+
+Lightning strikes the first prop along its aim within 10 m: 10 HP electrical, which wrecks electronics fast and burns plants and cloth.
+
+<a id="destruction-powers-lightning-around"></a>**Force Lightning: Around the Caster** = **false** · `destruction.powers.lightning.around`
+
+Whether Force Lightning reaches every prop around its caster (else the first along its aim): false.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-lightning-reach-m"></a>**Force Lightning: Reach** = **10 m** · `destruction.powers.lightning.reach_m`
+
+How far Force Lightning reaches props: 10 m.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-lightning-damage"></a>**Force Lightning: Damage to Props** = **10 HP** · `destruction.powers.lightning.damage`
+
+Force Lightning deals 10 HP to each prop it reaches, before the prop's hardness.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-lightning-damage-type"></a>**Force Lightning: Damage Type** = **7** · `destruction.powers.lightning.damage_type`
+
+The damage-type row of Force Lightning's damage to props: 7.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+#### <a id="destruction-powers-storm"></a>Force Storm
+
+Storm strikes every prop within 7 m of the caster in sight: 20 HP electrical, an area's.
+
+<a id="destruction-powers-storm-around"></a>**Force Storm: Around the Caster** = **true** · `destruction.powers.storm.around`
+
+Whether Force Storm reaches every prop around its caster (else the first along its aim): true.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-storm-reach-m"></a>**Force Storm: Reach** = **7 m** · `destruction.powers.storm.reach_m`
+
+How far Force Storm reaches props: 7 m.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-storm-damage"></a>**Force Storm: Damage to Props** = **20 HP** · `destruction.powers.storm.damage`
+
+Force Storm deals 20 HP to each prop it reaches, before the prop's hardness.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-storm-damage-type"></a>**Force Storm: Damage Type** = **7** · `destruction.powers.storm.damage_type`
+
+The damage-type row of Force Storm's damage to props: 7.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+#### <a id="destruction-powers-throw"></a>Lightsaber Throw
+
+A thrown lightsaber strikes the first prop along its aim within 15 m: 20 HP energy.
+
+<a id="destruction-powers-throw-around"></a>**Lightsaber Throw: Around the Caster** = **false** · `destruction.powers.throw.around`
+
+Whether Lightsaber Throw reaches every prop around its caster (else the first along its aim): false.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-throw-reach-m"></a>**Lightsaber Throw: Reach** = **15 m** · `destruction.powers.throw.reach_m`
+
+How far Lightsaber Throw reaches props: 15 m.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-throw-damage"></a>**Lightsaber Throw: Damage to Props** = **20 HP** · `destruction.powers.throw.damage`
+
+Lightsaber Throw deals 20 HP to each prop it reaches, before the prop's hardness.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-throw-damage-type"></a>**Lightsaber Throw: Damage Type** = **12** · `destruction.powers.throw.damage_type`
+
+The damage-type row of Lightsaber Throw's damage to props: 12.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+#### <a id="destruction-powers-kill"></a>Force Kill
+
+Kill strikes the first prop along its aim within 10 m: 20 HP dark side damage.
+
+<a id="destruction-powers-kill-around"></a>**Force Kill: Around the Caster** = **false** · `destruction.powers.kill.around`
+
+Whether Force Kill reaches every prop around its caster (else the first along its aim): false.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-kill-reach-m"></a>**Force Kill: Reach** = **10 m** · `destruction.powers.kill.reach_m`
+
+How far Force Kill reaches props: 10 m.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-kill-damage"></a>**Force Kill: Damage to Props** = **20 HP** · `destruction.powers.kill.damage`
+
+Force Kill deals 20 HP to each prop it reaches, before the prop's hardness.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-kill-damage-type"></a>**Force Kill: Damage Type** = **9** · `destruction.powers.kill.damage_type`
+
+The damage-type row of Force Kill's damage to props: 9.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+#### <a id="destruction-powers-destroy-droid"></a>Destroy Droid
+
+Destroy Droid strikes every prop within 5 m of the caster in sight: 20 HP ion, an area's, which wrecks electronics.
+
+<a id="destruction-powers-destroy-droid-around"></a>**Destroy Droid: Around the Caster** = **true** · `destruction.powers.destroy_droid.around`
+
+Whether Destroy Droid reaches every prop around its caster (else the first along its aim): true.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-destroy-droid-reach-m"></a>**Destroy Droid: Reach** = **5 m** · `destruction.powers.destroy_droid.reach_m`
+
+How far Destroy Droid reaches props: 5 m.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-destroy-droid-damage"></a>**Destroy Droid: Damage to Props** = **20 HP** · `destruction.powers.destroy_droid.damage`
+
+Destroy Droid deals 20 HP to each prop it reaches, before the prop's hardness.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-destroy-droid-damage-type"></a>**Destroy Droid: Damage Type** = **11** · `destruction.powers.destroy_droid.damage_type`
+
+The damage-type row of Destroy Droid's damage to props: 11.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
 
 ## <a id="sabers"></a>Lightsabers and Melee Weapons
 

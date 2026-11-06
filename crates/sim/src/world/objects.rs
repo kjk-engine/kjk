@@ -78,9 +78,20 @@ pub(super) struct Bash {
     source: Option<Source>,
 }
 
-/// The step's blows on objects; empty between steps.
+/// A power cast that may reach destruction's props: its caster, its
+/// `spells.2da` row, from where and toward where (metres).
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Reach {
+    caster: SimId,
+    row: u16,
+    from: [f32; 3],
+    toward: [f32; 3],
+}
+
+/// The step's blows on objects, and the casts that may reach props; empty
+/// between steps.
 #[derive(Resource, Default)]
-pub(super) struct Battering(Vec<Bash>);
+pub(super) struct Battering(Vec<Bash>, Vec<Reach>);
 
 impl Battering {
     /// A hit that found no character.
@@ -89,6 +100,18 @@ impl Battering {
             struck: Struck::Id(hit.target),
             attacker: hit.attacker,
             source: Some(hit.source),
+        });
+    }
+
+    /// `caster`'s cast of power `row` (a `spells.2da` row) from `from` toward
+    /// `toward` (metres): what of destruction's props it reaches.
+    #[cfg(feature = "probes")]
+    pub(super) fn power(&mut self, caster: SimId, row: u16, from: [f32; 3], toward: [f32; 3]) {
+        self.1.push(Reach {
+            caster,
+            row,
+            from,
+            toward,
         });
     }
 
@@ -211,6 +234,82 @@ pub(super) fn blast_reach<'a>(
     super::bolts::caught_by_blast(level, states, &bashed, at, own)
 }
 
+/// The blows `reach`'s power lands on the destructible props among
+/// `objects` (`destruction::power_reach`): every one around its caster in
+/// sight, or the first along its aim; none for a power that reaches none.
+fn reached<'a>(
+    level: &super::level::Level,
+    states: Option<&[u8]>,
+    objects: impl Iterator<Item = (&'a Id, &'a Object)>,
+    reach: &Reach,
+) -> Vec<Bash> {
+    let Some(power) = crate::destruction::power_reach(reach.row) else {
+        return Vec::new();
+    };
+    let objects: Vec<(&Id, &Object)> = objects.collect();
+    let index_of = |target: SimId| {
+        objects
+            .iter()
+            .find(|(id, _)| id.0 == target)
+            .map(|(_, object)| object.index)
+    };
+    let units = |at: [f32; 3]| math::scale(at, 1.0 / collision::UNIT);
+    let mut aim = math::sub(reach.toward, reach.from);
+    math::normalize(&mut aim);
+    // Each prop in sight: its id and middle (metres), how far along the aim.
+    let seen = destructible_bodies(objects.iter().copied())
+        .iter()
+        .filter_map(|body| {
+            let id = SimId(body.entity & !BODY);
+            let at = math::scale(middle(body), collision::UNIT);
+            let off = math::sub(at, reach.from);
+            let along = math::dot(off, aim);
+            let reaches = match power.shape {
+                crate::destruction::Shape::Around { radius_m } => math::length(off) <= radius_m,
+                crate::destruction::Shape::Line { range_m } => {
+                    let aside = math::sub(off, math::scale(aim, along));
+                    along > 0.0
+                        && along <= range_m
+                        && math::length(aside) <= crate::target::PLACEABLE_RADIUS
+                }
+            };
+            let clear = reaches
+                && super::bolts::clear_to(
+                    level,
+                    states,
+                    units(reach.from),
+                    units(at),
+                    index_of(id),
+                );
+            clear.then_some((id, along))
+        })
+        .collect::<Vec<_>>();
+    let caught: Vec<SimId> = match power.shape {
+        crate::destruction::Shape::Around { .. } => seen.iter().map(|(id, _)| *id).collect(),
+        crate::destruction::Shape::Line { .. } => seen
+            .iter()
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(id, _)| *id)
+            .into_iter()
+            .collect(),
+    };
+    let area = matches!(power.shape, crate::destruction::Shape::Around { .. });
+    caught
+        .into_iter()
+        .map(|target| Bash {
+            struck: Struck::Id(target),
+            attacker: reach.caster,
+            source: Some(Source::Script {
+                damage: u16::try_from(power.damage).unwrap_or(u16::MAX),
+                damage_type: Some(power.damage_type),
+                cast: area,
+                shot: None,
+                staged: false,
+            }),
+        })
+        .collect()
+}
+
 /// Where a body is in the middle (units, as characters' places are).
 pub(super) fn middle(body: &Body) -> [f32; 3] {
     std::array::from_fn(|i| (body.min[i] + body.max[i]) * 0.5 / collision::UNIT)
@@ -323,6 +422,7 @@ pub(super) fn objects(
     mut battering: ResMut<Battering>,
     mut battered: ResMut<Battered>,
     mut scripts: ResMut<super::scripts::Scripts>,
+    casts: Res<super::scripts::Casts>,
     mut actors: Query<(
         &Id,
         Option<&Avatar>,
@@ -335,6 +435,7 @@ pub(super) fn objects(
 ) {
     battered.0.clear();
     let mut blows = std::mem::take(&mut battering.0);
+    let mut reaches = std::mem::take(&mut battering.1);
     // Prediction shows no damage (I22 C20).
     if clock.reason == StepReason::Predict {
         return;
@@ -350,6 +451,32 @@ pub(super) fn objects(
                 source: None,
             }),
     );
+    // The step's casts of powers (`world::powers`), from where each caster
+    // stands toward what it aimed at, or the way it faces.
+    reaches.extend(casts.0.iter().filter_map(|cast| {
+        let caster = SimId(cast.caster.0);
+        let (.., player, _) = actors.iter().find(|(id, ..)| id.0 == caster)?;
+        let from = math::scale(player.0.origin, collision::UNIT);
+        let (sin, cos) = math::sin_cos_deg(player.0.view[1]);
+        let ahead = [from[0] + cos, from[1] + sin, from[2]];
+        let aimed = math::length(math::sub(cast.at, from)) > crate::target::PLACEABLE_RADIUS;
+        Some(Reach {
+            caster,
+            row: cast.row,
+            from,
+            toward: if aimed { cast.at } else { ahead },
+        })
+    }));
+    if !reaches.is_empty() {
+        let states = level.0.states(
+            objects
+                .iter()
+                .map(|(_, object)| (object.index, &object.state)),
+        );
+        for reach in &reaches {
+            blows.extend(reached(&level.0, states.as_deref(), objects.iter(), reach));
+        }
+    }
     if blows.is_empty() {
         return;
     }

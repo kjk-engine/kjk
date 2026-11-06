@@ -439,12 +439,30 @@ pub(super) fn lob(
     (now >= bolt.until_ms).then(|| (bolt.at(now), None))
 }
 
-/// A grenade's blast at `at`: a hit on every living character whose chest
-/// is within the radius with nothing solid between (the thrower too: the
-/// friendly-fire rule decides), pushing away from it.
+/// Whether nothing solid stands between `from` and `to` (units) but the
+/// brushes of the level's entity `own`.
+pub(super) fn clear_to(
+    level: &Level,
+    states: Option<&[u8]>,
+    from: [f32; 3],
+    to: [f32; 3],
+    own: Option<u32>,
+) -> bool {
+    level.with(states, |world| {
+        let met = world.trace(
+            scale(from, UNIT),
+            scale(to, UNIT),
+            &Extents::POINT,
+            Contents::SOLID,
+        );
+        met.fraction >= 1.0 || met.entity.is_some() && met.entity == own
+    })
+}
+
 /// Whom a grenade bursting at `at` (units) reaches: each living chest in
-/// `chests` within its radius with nothing solid between, and the way from
-/// the burst to it.
+/// `chests` within its radius with nothing solid between (the thrower too:
+/// the friendly-fire rule decides) but its own brushes (`own`'s entity, a
+/// placeable's), and the way from the burst to it.
 pub(super) fn caught_by_blast(
     level: &Level,
     states: Option<&[u8]>,
@@ -461,16 +479,7 @@ pub(super) fn caught_by_blast(
             if math::length(away) > grenades::RADIUS {
                 return None;
             }
-            // Clear to it, or stopped on its own brushes (a placeable's).
-            let clear = level.with(states, |world| {
-                let met = world.trace(
-                    scale(centre, UNIT),
-                    scale(chest, UNIT),
-                    &Extents::POINT,
-                    Contents::SOLID,
-                );
-                met.fraction >= 1.0 || met.entity.is_some() && met.entity == own(target)
-            });
+            let clear = clear_to(level, states, centre, chest, own(target));
             math::normalize(&mut away);
             clear.then_some((target, away))
         })
