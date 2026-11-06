@@ -293,6 +293,86 @@ pub(super) fn aborts(name: &str) -> bool {
 /// The host's error a script stops on at a routine that `aborts`: no fault.
 pub(super) const ABORTED: &str = "the executable stops the script here";
 
+/// The routines `call` and `read_only` answer, their `SWMG_` left off: on a
+/// course each is bound; off one it is a gap, as any routine is that has no
+/// course to read.
+const ANSWERED: [&str; 62] = [
+    // `call`'s.
+    "SetPlayerSpeed",
+    "SetPlayerMinSpeed",
+    "SetPlayerMaxSpeed",
+    "SetPlayerAccelerationPerSecond",
+    "SetPlayerTunnelPos",
+    "SetPlayerTunnelNeg",
+    "SetPlayerOffset",
+    "StartInvulnerability",
+    "SetLateralAccelerationPerSecond",
+    "SetJumpSpeed",
+    "PlayerApplyForce",
+    "DestroyMiniGameObject",
+    "SetFollowerPosition",
+    "SetSpeedBlurEffect",
+    "SetCameraClip",
+    "PlayAnimation",
+    "RemoveAnimation",
+    "SetFollowerHitPoints",
+    "AdjustFollowerHitPoints",
+    "SetMaxHitPoints",
+    "SetSphereRadius",
+    "SetNumLoops",
+    "OnDamage",
+    "OnBulletHit",
+    "OnDeath",
+    "OnObstacleHit",
+    // `read_only`'s.
+    "GetPlayer",
+    "GetEnemyCount",
+    "GetEnemy",
+    "GetObstacleCount",
+    "GetObstacle",
+    "GetPosition",
+    "GetPlayerOffset",
+    "GetPlayerSpeed",
+    "GetPlayerMinSpeed",
+    "GetPlayerMaxSpeed",
+    "GetPlayerAccelerationPerSecond",
+    "GetPlayerTunnelPos",
+    "GetPlayerTunnelNeg",
+    "GetPlayerOrigin",
+    "GetIsInvulnerable",
+    "GetLateralAccelerationPerSecond",
+    "GetCameraNearClip",
+    "GetCameraFarClip",
+    "GetHitPoints",
+    "GetMaxHitPoints",
+    "GetSphereRadius",
+    "GetNumLoops",
+    "GetLastFollowerHit",
+    "GetLastObstacleHit",
+    "GetLastBulletHitDamage",
+    "GetLastBulletHitTarget",
+    "GetLastBulletHitShooter",
+    "GetLastHPChange",
+    "GetObjectName",
+    "GetTrackPosition",
+    "GetSwoopUpgrade",
+    "IsPlayer",
+    "IsEnemy",
+    "IsFollower",
+    "IsTrigger",
+    "IsObstacle",
+];
+
+/// Whether routine `name` is the minigames' to answer: one `call` or
+/// `read_only` answers, or one where the executables stop the script
+/// (`aborts`). `script::bound` counts these as bound.
+pub(super) fn handles(name: &str) -> bool {
+    aborts(name)
+        || name
+            .strip_prefix("SWMG_")
+            .is_some_and(|rest| ANSWERED.contains(&rest))
+}
+
 /// The routines that only read the course.
 fn read_only(
     engine: &Engine,
@@ -535,4 +615,41 @@ pub(crate) fn commit(state: &mut super::State, overlay: &Overlay) {
     for (name, value) in &overlay.strings {
         set_global(&mut state.strings, name, value.clone());
     }
+}
+
+/// The routines `call` and `read_only` match on that `ANSWERED` leaves out,
+/// and those it lists that they do not: read off this file's own match arms
+/// (`kjk sim probes --only "mod routines"`). Both empty when in step.
+#[cfg(feature = "probes")]
+pub(crate) fn answered_drift() -> (Vec<String>, Vec<String>) {
+    use std::collections::BTreeSet;
+    let source = include_str!("minigame.rs");
+    let (Some(start), Some(end)) = (
+        source.find("pub(super) fn call("),
+        source.find("fn name_of("),
+    ) else {
+        return (vec!["(no match arms found)".into()], Vec::new());
+    };
+    let body = &source[start..end];
+    let mut arms = BTreeSet::new();
+    for (at, _) in body.match_indices('"') {
+        let rest = &body[at + 1..];
+        let Some(close) = rest.find('"') else { break };
+        let name = &rest[..close];
+        let after = rest[close + 1..].trim_start();
+        let arm = after.starts_with("=>") || after.starts_with('|') || after.starts_with("if ");
+        if arm && !name.starts_with("SWMG_") && name.chars().all(char::is_alphanumeric) {
+            arms.insert(name);
+        }
+    }
+    let listed: BTreeSet<&str> = ANSWERED.iter().copied().collect();
+    (
+        arms.difference(&listed)
+            .map(|name| name.to_string())
+            .collect(),
+        listed
+            .difference(&arms)
+            .map(|name| name.to_string())
+            .collect(),
+    )
 }

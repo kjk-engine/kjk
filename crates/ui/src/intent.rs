@@ -146,6 +146,9 @@ pub enum GameAction {
     /// An in-game screen opened (the menu's pages, the party screen): the
     /// host runs the game's screen script (`k_sup_guiopen`).
     ScreenOpened,
+    /// The in-game page shown now (`SUBSCREEN_ID_*`, 0 as they close): the
+    /// host runs the game's screen-change script (`k_pend_screenchg`).
+    SubScreen(u8),
     /// The galaxy map's Accept: travel to a planet (`planetary.2da` row).
     Travel(u8),
     /// Call a break (P10).

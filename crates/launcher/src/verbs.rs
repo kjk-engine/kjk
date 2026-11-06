@@ -602,7 +602,9 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 script,
                 module,
             } => script_verbs::dis(&discover(), &game, &script, module.as_deref()),
-            ScriptVerb::Check { game } => script_verbs::check(&discover(), &game),
+            ScriptVerb::Check { game, unbound } => {
+                script_verbs::check(&discover(), &game, unbound)
+            }
             ScriptVerb::Probes => script_verbs::probes(),
             ScriptVerb::Effects { game, module } => {
                 effects_verbs::effects(&discover(), &game, &module)
@@ -1450,6 +1452,10 @@ pub(crate) enum ScriptVerb {
     Check {
         /// k1 or tsl
         game: String,
+        /// Also list every routine of the catalog left unbound, called or
+        /// not (docs/SCRIPTS.md's list)
+        #[arg(long)]
+        unbound: bool,
     },
     /// A module installed headless for one player and stepped, its scripts
     /// running: what ran, the routines called (bound and gaps), faults, the

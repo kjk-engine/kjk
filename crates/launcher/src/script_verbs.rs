@@ -166,7 +166,9 @@ impl Tally {
     }
 }
 
-pub fn check(discovery: &Discovery, game: &str) -> ExitCode {
+/// `unbound`: list every routine the catalog has that the sim leaves
+/// unbound too, called or not.
+pub fn check(discovery: &Discovery, game: &str, unbound: bool) -> ExitCode {
     let (game, index, base) = match open(discovery, game) {
         Ok(opened) => opened,
         Err(error) => {
@@ -261,6 +263,32 @@ pub fn check(discovery: &Discovery, game: &str) -> ExitCode {
     for (id, name, calls, scripts) in &gaps {
         outln!("    {name:<36} {id:>4} {scripts:>5} {calls:>6}");
     }
+    // Every routine the catalog has that the sim leaves unbound, called or
+    // not, by number.
+    let not_bound: Vec<(u16, &str)> = catalog.as_ref().map_or_else(
+        |_| Vec::new(),
+        |catalog| {
+            catalog
+                .routines
+                .iter()
+                .filter(|routine| !sim::script::bound(&routine.name))
+                .map(|routine| (routine.id, routine.name.as_str()))
+                .collect()
+        },
+    );
+    if let Ok(catalog) = &catalog {
+        outln!(
+            "  bound: {} of {} routines",
+            catalog.routines.len() - not_bound.len(),
+            catalog.routines.len()
+        );
+    }
+    if unbound {
+        outln!("  not bound: {} routines (number, name):", not_bound.len());
+        for (id, name) in &not_bound {
+            outln!("    {id:>4} {name}");
+        }
+    }
     let mut opcodes: Vec<(&String, &usize)> = tally.opcodes.iter().collect();
     opcodes.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
     outln!(
@@ -294,6 +322,10 @@ pub fn check(discovery: &Discovery, game: &str) -> ExitCode {
             .map(|(id, name, calls, scripts)| {
                 json!({ "routine": name, "number": id, "calls": calls, "scripts": scripts })
             })
+            .collect::<Vec<_>>(),
+        "not_bound": not_bound
+            .iter()
+            .map(|(id, name)| json!({ "routine": name, "number": id }))
             .collect::<Vec<_>>(),
         "argument_mismatches": tally.argument_mismatches,
         "callers": tally
