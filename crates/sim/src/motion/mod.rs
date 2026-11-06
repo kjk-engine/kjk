@@ -1330,7 +1330,7 @@ impl Move<'_, '_> {
         let v = self.ps.velocity;
         let flat_speed = f64::from(v[0] * v[0] + v[1] * v[1]).sqrt() as f32;
 
-        if self.spinning_attack() {
+        if self.spinning_attack() && !keyed {
             self.animator.legs_next(self.ps, self.ps.torso.anim);
             self.advance_footsteps(CYCLE[0]);
             return;

@@ -79,13 +79,17 @@ pub fn shrugs_off_pain(ps: &super::MotionState) -> bool {
 }
 
 /// Whether the gait sets its walk or stand over what the legs play: a
-/// saber move that does not spin, a stance, a landing, or (running) a pain
-/// (QUIRKS.md Q-0038).
+/// saber move that does not spin, the pair's and the staff's spin attacks
+/// and the fast kata (only the arms spin), a stance, a landing, or
+/// (running) a pain (QUIRKS.md Q-0038, Q-0361).
 pub(super) fn gait_overrides(legs: Anim, running: bool) -> bool {
     (legs.between(BOTH_A1_T__B_, BOTH_H1_S1_BR) && !is_spin(legs))
         || matches!(
             legs,
-            BOTH_SABERFAST_STANCE
+            BOTH_SPINATTACK6
+                | BOTH_SPINATTACK7
+                | BOTH_A1_SPECIAL
+                | BOTH_SABERFAST_STANCE
                 | BOTH_SABERSLOW_STANCE
                 | BOTH_STAND1
                 | BOTH_STAND1TO2
@@ -225,8 +229,12 @@ impl Move<'_, '_> {
     }
 
     /// A kata's keys: its steps forward (and the staff's roll and hop),
-    /// nothing else.
+    /// nothing else; the fast kata's alone are left be, its legs walking
+    /// while the arms play on (JA single player; QUIRKS.md Q-0361).
     fn kata_keys(&mut self, current: SaberMove) {
+        if current == A1_SPECIAL {
+            return;
+        }
         let t = self.ps.legs.timer;
         let inside = |(low, high): (i32, i32)| low < t && t < high;
         match self.ps.legs.anim {
@@ -346,10 +354,8 @@ impl Move<'_, '_> {
                 self.still();
                 false
             }
-            SPINATTACK | SPINATTACK_DUAL => {
-                self.still();
-                true
-            }
+            // The spins leave the keys be: the legs walk under the spinning
+            // arms (JA single player; QUIRKS.md Q-0361).
             _ => false,
         }
     }

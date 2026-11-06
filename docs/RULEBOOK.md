@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f517dbe10505c85a`.
+Edition `f8e6bdf19e2e59e9`.
 
 ## Contents
 
@@ -342,14 +342,15 @@ Without enough of the bar, a normal swing is made instead.
 
 [Attack] + [Alt attack], standing on the ground with no movement key held,
 from ready or the start of a swing. Each style has its own kata. Two
-weapons spin to protect the character; a double-bladed lightsaber makes
-the Soulcal. Cost: 50%.
+weapons spin to protect the character, a Force user's alone; a
+double-bladed lightsaber makes the Soulcal. The fast style's kata can be
+walked through; the others move the body themselves. Cost: 50%.
 
 #### <a id="controls-specials-lunge"></a>Lunge and Spin Attacks
 
 [Crouch] + [Forward] + [Attack] on the ground, blade ready: the fast
 style's lunge, or the spin attack of a double-bladed lightsaber or two
-weapons. Cost: 25%.
+weapons, which can be walked through. Cost: 25%.
 
 #### <a id="controls-specials-flip"></a>Flip Slash and Death from Above
 
