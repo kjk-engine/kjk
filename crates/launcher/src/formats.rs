@@ -354,6 +354,11 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
                             note(format!("rest orientation not unit ({norm:.3})"));
                         }
                         for controller in &node.controllers {
+                            if controller.kind == mdl::CONTROLLER_SCALE
+                                && controller.values.first().is_some_and(|s| (s - 1.0).abs() > 0.001)
+                            {
+                                note("node with a rest scale other than 1".into());
+                            }
                             if controller.times.windows(2).any(|t| t[1] < t[0]) {
                                 note(format!("controller {} times go backwards", controller.kind));
                             }
