@@ -508,8 +508,6 @@ crates/sim/src/script/influence.rs SITH_LORD  # classes.2da row
 crates/sim/src/script/influence.rs TOP  # the alignment and influence scale's top (0 to 100)
 crates/sim/src/script/locks.rs DOOR_ACTIONS  # DOOR_ACTION_* script constants' names
 crates/sim/src/script/mod.rs CRITERIA  # script constants: CREATURE_TYPE_* names
-crates/sim/src/script/mod.rs FIRST_CUT_CLIP  # DLG value range: camera clips
-crates/sim/src/script/mod.rs FIRST_CONTINUED_CLIP  # DLG value range: camera clips carried on
 crates/sim/src/script/mod.rs FIRST_DIALOG_ANIMATION  # DLG value range: dialoganimations.2da rows
 crates/sim/src/script/mod.rs FLOOR_SEARCH_M  # placement: a place's floor search
 crates/sim/src/script/mod.rs HEARD  # perception kind id

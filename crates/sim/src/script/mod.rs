@@ -328,26 +328,27 @@ pub fn camera_clip_name(animation: u16) -> Option<String> {
 
 /// The clip a node's `CameraAnimation` has its conversation's camera model
 /// play, and whether it carries on the one already playing: 1200 on start
-/// `cut001w` and up (`camera_clip_name`); 1000 on carry on that clip from
-/// where it is (TSL: Kreia's lines on arriving at Korriban, `kreia_kr`'s
-/// 1000s after the pan's 1200; `miratch`'s 1001 after 1201) [verify in the
-/// exe]. reone names a 1000 `cut-199w`, a clip no model has, so its camera
-/// plays on as well.
+/// `cut001w` and up (`camera_clip_name`); 1000 on carry on the clip the
+/// number a run above names, from where it is (TSL: Kreia's lines on
+/// arriving at Korriban, `kreia_kr`'s 1000s after the pan's 1200;
+/// `miratch`'s 1001 after 1201) [verify in the exe]. reone names a 1000
+/// `cut-199w`, a clip no model has, so its camera plays on as well.
 pub fn camera_cue(animation: u16) -> Option<(String, bool)> {
-    match animation.checked_sub(FIRST_CONTINUED_CLIP)? {
-        n @ 0..200 => Some((format!("cut{:03}w", n + 1), true)),
-        _ => Some((camera_clip_name(animation)?, false)),
-    }
+    let carried = animation.checked_sub(fmt_odyssey::dlg::FIRST_CUT)? < CUT_RUN;
+    let started = if carried {
+        animation + CUT_RUN
+    } else {
+        animation
+    };
+    Some((camera_clip_name(started)?, carried))
 }
 
-/// The first `CameraAnimation` value carrying on a playing clip
-/// (`camera_cue`).
-const FIRST_CONTINUED_CLIP: u16 = 1000;
-
-/// The first `CameraAnimation` value naming a clip (`camera_clip_name`),
-/// and the first `AnimList` value naming a `dialoganimations.2da` row
-/// (`Library::dialog_animation`).
-const FIRST_CUT_CLIP: u16 = 1200;
+/// How far a camera's started clips are numbered from those it carries on
+/// (`camera_cue`); the first `CameraAnimation` value naming a clip
+/// (`camera_clip_name`), and the first `AnimList` value naming a
+/// `dialoganimations.2da` row (`Library::dialog_animation`).
+const CUT_RUN: u16 = fmt_odyssey::dlg::CUT_RUN;
+const FIRST_CUT_CLIP: u16 = fmt_odyssey::dlg::FIRST_CUT + CUT_RUN;
 const FIRST_DIALOG_ANIMATION: u16 = 10000;
 /// Where TSL's scripts number `animations.2da`'s rows from
 /// (`Library::script_animation`).
