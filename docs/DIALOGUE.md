@@ -393,7 +393,7 @@ where they part, the choice is ours and named.
   -2; any other camera's line shows none, so the Endar Spire's Trask is
   clear again after Carth's call (`end_trask01` 32 to 33). TSL: every other
   camera's line shows its row and none on -1 or -2, where a script's
-  `EnableVideoEffect` (`CGuiInGame` + 0x11ec) shows on. TSL's DLGs give 98
+  `EnableVideoEffect` shows on. TSL's DLGs give 98
   rows to lines on cameras 0, 1 and 4 (the prologue's T3 views, `intro`
   row 1 on camera 4; Kreia's visions, rows 3 and 0); 446 lines in all carry
   one. A conversation begins and ends with none.
