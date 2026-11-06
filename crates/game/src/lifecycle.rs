@@ -232,16 +232,10 @@ impl<'a> ItemSearch<'a> {
             return Some(found);
         }
         let owners = self.owners.get_or_init(|| {
-            let mut owners = std::collections::BTreeMap::new();
-            for module in Resolver::modules(&self.installer.install.index) {
-                let Ok(resolver) = self.installer.resolver(&module) else {
-                    continue;
-                };
-                for item in resolver.module_names(fmt_odyssey::ResType::UTI) {
-                    owners.entry(item).or_insert_with(|| module.clone());
-                }
-            }
-            owners
+            self.installer.base_resolver().map_or_else(
+                |_| Default::default(),
+                |base| base.module_owners(&self.installer.install.index, fmt_odyssey::ResType::UTI),
+            )
         });
         let resolver = self.installer.resolver(owners.get(&name)?).ok()?;
         session::item_facts(&ResolverSource(&resolver), &name)
