@@ -58,7 +58,9 @@ gone boma_young_qu
 to 36.5,130.5        # east of his ridge's foot, the party gathered (Bao-Dur's
 gather               # word wants him within 10 m of the Exile, who is jumped
 say He's just a veteran, like us. # to WP_KUMUSFREE_3: +INF)
-use kumus            # let down, thanked, gone to camp (missingm)
+use fake_kumus       # let down, thanked, gone to camp (missingm): the ridge
+                     # hides Kumus from the floor, and a player clicks the
+                     # stand-in at its foot, whose k_fake_kumus has him talk
 talk
 say Press button.    # the cache's detonator (deton2), not Kumus's own
 use p_detonator_2
