@@ -408,7 +408,8 @@ impl Made {
         let bag = level
             .module()
             .and_then(|module| sim::remains::bag_of(module, &template))
-            .map(|row| row.placeable());
+            .map(|row| row.placeable())
+            .or_else(|| sim::arena::prop_row(&template));
         AsyncComputeTaskPool::get().spawn(async move {
             let installer = installer.ok_or("no install to make placeables from")?;
             let module = module_with(&installer, &modules, &names, |_, resolver| {
