@@ -7,7 +7,6 @@ use std::sync::Arc;
 use script_ncs::probes::Check;
 
 use crate::determinism::ground_point;
-use crate::install::InstallError;
 use crate::math::{Vec3, scale};
 use crate::module::{ObjectData, ObjectKind, Placement};
 use crate::reconcile::{Renumber, Report, decode, encode, onto_ground, renumber, roster};
@@ -786,10 +785,10 @@ fn code_dropped(world: &SimWorld) -> bool {
     !queued && !waiting && lines.len() == 1 && lines[0].contains(CODE_SCRIPT)
 }
 
-/// Saved continuations of scripts that changed refuse the load, naming the
-/// script; those of the same bytes, and those saved before digests were
-/// kept, load; those of a script the level lacks load without them, each
-/// logged. A module left is found whatever the case of its name.
+/// Saved continuations of a script that changed (#181) or that the level
+/// lacks load without them, each logged; those of the same bytes, and those
+/// saved before digests were kept, load with them. A module left is found
+/// whatever the case of its name.
 fn deferred_code() -> Vec<Check> {
     let rows = [
         (
@@ -839,16 +838,11 @@ fn deferred_code() -> Vec<Check> {
         ),
         ("a module left, its script gone", Waits::Left, Saved::Absent),
     ];
-    let refusal = InstallError::CodeChanged {
-        scripts: vec![CODE_SCRIPT.into()],
-    }
-    .to_string();
     rows.into_iter()
         .map(|(name, waits, saved)| {
             let outcome = load_with_code(waits, saved);
             let ok = match (&outcome, saved) {
-                (Err(error), Saved::Changed) => *error == refusal,
-                (Ok(world), Saved::Absent) => code_dropped(world),
+                (Ok(world), Saved::Changed | Saved::Absent) => code_dropped(world),
                 (Ok(world), _) => world.dropped_code().is_empty(),
                 (Err(_), _) => false,
             };

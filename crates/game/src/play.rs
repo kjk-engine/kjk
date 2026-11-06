@@ -845,14 +845,6 @@ pub(crate) fn from_save(
     if let Some(restamp) = save.restamp(level)? {
         bevy::log::warn!(target: "save-migrate", "{restamp}");
     }
-    let changed = save.stale_code(level);
-    if !changed.is_empty() {
-        bevy::log::warn!(
-            target: "save-migrate",
-            scripts = %changed.join(", "),
-            "refused: deferred code of scripts that changed"
-        );
-    }
     let mut world = save.world(level, seats, tick)?;
     if let Some(report) = world.reconciled() {
         bevy::log::warn!(target: "save-migrate", "{report}");

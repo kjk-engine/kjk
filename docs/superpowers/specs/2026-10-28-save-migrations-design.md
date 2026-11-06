@@ -317,9 +317,11 @@ bumps.
 keys in `Snapshot::roster` and `Stashed::roster`, not on each entity), the
 renumbering of objects onto changed placements, the keep rules for what is
 the party's, the snap of bodies the collision no longer holds up, and the
-script digests on deferred code, with a load refused when a continuation
-points into a script that changed (one whose script the module lacks,
-carried from another module, is dropped and logged). Decisions: the origin
+script digests on deferred code: a continuation pointing into a script
+that changed, or one the module lacks, is dropped and logged. *2026-11-06
+(#181):* a changed script refused the load at first, which left every save
+holding `k_ai_master`'s code unloadable once a mod or kjk's file order
+changed that script; the continuation is dropped instead. Decisions: the origin
 keys live in a roster, not on each entity; there are no separate component
 digests, and reconcile runs every check
 whenever the combined digest moved; a save without a roster is trusted as
