@@ -166,3 +166,288 @@ range = [0, 1000]
 summary = "A prop is damaged once it has lost {destruction.stages.at[0]} of its hit points, and wrecked at {destruction.stages.at[1]}; a prop that breaks goes when it has lost them all."
 source = "ours (destruction design 2026-11-06)"
 see = "sim::destruction::stage"
+
+[powers]
+title = "Force powers"
+summary = "Force powers that strike or throw reach the props in their way: the ones that strike one thing hit the first prop along their aim, the ones that fill an area every prop around the caster in sight."
+detail = "Each power's ranks share its line's reach and damage. A damage type is a damage-type row; the Force's own damage is universal (row 3), which no material resists more than another."
+
+[powers.push]
+title = "Force Push and Whirlwind"
+summary = "Push and Whirlwind strike the first prop along their aim within {destruction.powers.push.reach_m}: {destruction.powers.push.damage} of the Force's own damage, enough to break a chair."
+
+[powers.push.around]
+name = "Force Push and Whirlwind: Around the Caster"
+value = false
+summary = "Whether Force Push and Whirlwind reaches every prop around its caster (else the first along its aim): {destruction.powers.push.around}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.push.reach_m]
+name = "Force Push and Whirlwind: Reach"
+type = "f32"
+value = 10.0
+unit = "m"
+range = [0.0, 50.0]
+summary = "How far Force Push and Whirlwind reaches props: {destruction.powers.push.reach_m}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.push.damage]
+name = "Force Push and Whirlwind: Damage to Props"
+type = "i32"
+value = 30
+unit = "HP"
+range = [0, 500]
+summary = "Force Push and Whirlwind deals {destruction.powers.push.damage} to each prop it reaches, before the prop's hardness."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.push.damage_type]
+name = "Force Push and Whirlwind: Damage Type"
+type = "u8"
+value = 3
+range = [0, 12]
+summary = "The damage-type row of Force Push and Whirlwind's damage to props: {destruction.powers.push.damage_type}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.wave]
+title = "Force Wave"
+summary = "Wave strikes every prop within {destruction.powers.wave.reach_m} of the caster in sight: {destruction.powers.wave.damage} of the Force's own damage, an area's, enough to clear a room."
+
+[powers.wave.around]
+name = "Force Wave: Around the Caster"
+value = true
+summary = "Whether Force Wave reaches every prop around its caster (else the first along its aim): {destruction.powers.wave.around}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.wave.reach_m]
+name = "Force Wave: Reach"
+type = "f32"
+value = 7.0
+unit = "m"
+range = [0.0, 50.0]
+summary = "How far Force Wave reaches props: {destruction.powers.wave.reach_m}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.wave.damage]
+name = "Force Wave: Damage to Props"
+type = "i32"
+value = 10
+unit = "HP"
+range = [0, 500]
+summary = "Force Wave deals {destruction.powers.wave.damage} to each prop it reaches, before the prop's hardness."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.wave.damage_type]
+name = "Force Wave: Damage Type"
+type = "u8"
+value = 3
+range = [0, 12]
+summary = "The damage-type row of Force Wave's damage to props: {destruction.powers.wave.damage_type}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.lightning]
+title = "Force Lightning"
+summary = "Lightning strikes the first prop along its aim within {destruction.powers.lightning.reach_m}: {destruction.powers.lightning.damage} electrical, which wrecks electronics fast and burns plants and cloth."
+
+[powers.lightning.around]
+name = "Force Lightning: Around the Caster"
+value = false
+summary = "Whether Force Lightning reaches every prop around its caster (else the first along its aim): {destruction.powers.lightning.around}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.lightning.reach_m]
+name = "Force Lightning: Reach"
+type = "f32"
+value = 10.0
+unit = "m"
+range = [0.0, 50.0]
+summary = "How far Force Lightning reaches props: {destruction.powers.lightning.reach_m}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.lightning.damage]
+name = "Force Lightning: Damage to Props"
+type = "i32"
+value = 10
+unit = "HP"
+range = [0, 500]
+summary = "Force Lightning deals {destruction.powers.lightning.damage} to each prop it reaches, before the prop's hardness."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.lightning.damage_type]
+name = "Force Lightning: Damage Type"
+type = "u8"
+value = 7
+range = [0, 12]
+summary = "The damage-type row of Force Lightning's damage to props: {destruction.powers.lightning.damage_type}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.storm]
+title = "Force Storm"
+summary = "Storm strikes every prop within {destruction.powers.storm.reach_m} of the caster in sight: {destruction.powers.storm.damage} electrical, an area's."
+
+[powers.storm.around]
+name = "Force Storm: Around the Caster"
+value = true
+summary = "Whether Force Storm reaches every prop around its caster (else the first along its aim): {destruction.powers.storm.around}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.storm.reach_m]
+name = "Force Storm: Reach"
+type = "f32"
+value = 7.0
+unit = "m"
+range = [0.0, 50.0]
+summary = "How far Force Storm reaches props: {destruction.powers.storm.reach_m}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.storm.damage]
+name = "Force Storm: Damage to Props"
+type = "i32"
+value = 20
+unit = "HP"
+range = [0, 500]
+summary = "Force Storm deals {destruction.powers.storm.damage} to each prop it reaches, before the prop's hardness."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.storm.damage_type]
+name = "Force Storm: Damage Type"
+type = "u8"
+value = 7
+range = [0, 12]
+summary = "The damage-type row of Force Storm's damage to props: {destruction.powers.storm.damage_type}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.throw]
+title = "Lightsaber Throw"
+summary = "A thrown lightsaber strikes the first prop along its aim within {destruction.powers.throw.reach_m}: {destruction.powers.throw.damage} energy."
+
+[powers.throw.around]
+name = "Lightsaber Throw: Around the Caster"
+value = false
+summary = "Whether Lightsaber Throw reaches every prop around its caster (else the first along its aim): {destruction.powers.throw.around}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.throw.reach_m]
+name = "Lightsaber Throw: Reach"
+type = "f32"
+value = 15.0
+unit = "m"
+range = [0.0, 50.0]
+summary = "How far Lightsaber Throw reaches props: {destruction.powers.throw.reach_m}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.throw.damage]
+name = "Lightsaber Throw: Damage to Props"
+type = "i32"
+value = 20
+unit = "HP"
+range = [0, 500]
+summary = "Lightsaber Throw deals {destruction.powers.throw.damage} to each prop it reaches, before the prop's hardness."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.throw.damage_type]
+name = "Lightsaber Throw: Damage Type"
+type = "u8"
+value = 12
+range = [0, 12]
+summary = "The damage-type row of Lightsaber Throw's damage to props: {destruction.powers.throw.damage_type}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.kill]
+title = "Force Kill"
+summary = "Kill strikes the first prop along its aim within {destruction.powers.kill.reach_m}: {destruction.powers.kill.damage} dark side damage."
+
+[powers.kill.around]
+name = "Force Kill: Around the Caster"
+value = false
+summary = "Whether Force Kill reaches every prop around its caster (else the first along its aim): {destruction.powers.kill.around}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.kill.reach_m]
+name = "Force Kill: Reach"
+type = "f32"
+value = 10.0
+unit = "m"
+range = [0.0, 50.0]
+summary = "How far Force Kill reaches props: {destruction.powers.kill.reach_m}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.kill.damage]
+name = "Force Kill: Damage to Props"
+type = "i32"
+value = 20
+unit = "HP"
+range = [0, 500]
+summary = "Force Kill deals {destruction.powers.kill.damage} to each prop it reaches, before the prop's hardness."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.kill.damage_type]
+name = "Force Kill: Damage Type"
+type = "u8"
+value = 9
+range = [0, 12]
+summary = "The damage-type row of Force Kill's damage to props: {destruction.powers.kill.damage_type}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.destroy_droid]
+title = "Destroy Droid"
+summary = "Destroy Droid strikes every prop within {destruction.powers.destroy_droid.reach_m} of the caster in sight: {destruction.powers.destroy_droid.damage} ion, an area's, which wrecks electronics."
+
+[powers.destroy_droid.around]
+name = "Destroy Droid: Around the Caster"
+value = true
+summary = "Whether Destroy Droid reaches every prop around its caster (else the first along its aim): {destruction.powers.destroy_droid.around}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.destroy_droid.reach_m]
+name = "Destroy Droid: Reach"
+type = "f32"
+value = 5.0
+unit = "m"
+range = [0.0, 50.0]
+summary = "How far Destroy Droid reaches props: {destruction.powers.destroy_droid.reach_m}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.destroy_droid.damage]
+name = "Destroy Droid: Damage to Props"
+type = "i32"
+value = 20
+unit = "HP"
+range = [0, 500]
+summary = "Destroy Droid deals {destruction.powers.destroy_droid.damage} to each prop it reaches, before the prop's hardness."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
+
+[powers.destroy_droid.damage_type]
+name = "Destroy Droid: Damage Type"
+type = "u8"
+value = 11
+range = [0, 12]
+summary = "The damage-type row of Destroy Droid's damage to props: {destruction.powers.destroy_droid.damage_type}."
+source = "ours (destruction design 2026-11-06)"
+see = "sim::destruction::power_reach"
