@@ -517,3 +517,23 @@ range = [0, 10]
 summary = "A character in its second stance plays its second idle animation {combat.idle.second_idle} times in 10."
 source = "JA: idling"
 see = "sim::combat::idle::check"
+
+[severing]
+title = "Dismemberment"
+summary = """
+A lightsaber's or an edged blade's killing blow can cut a limb off: the head,
+the body in half, an arm, the hand or a leg, by where the blade landed.
+"""
+detail = "Drawn by each player's own view from the killing hit, the same on every machine; the game's rules never see it. KOTOR cuts nothing; JA's sabers do."
+applies = ["kind:lightsaber", "kind:melee"]
+
+[severing.chance]
+name = "Dismemberment Chance"
+type = "u64"
+value = 33
+unit = "%"
+range = [0, 100]
+summary = "A blade's killing blow cuts a limb off {combat.severing.chance} of the time."
+detail = "Which kills cut is a number of the character and its killing hit, not a draw. Filming makes every one cut (`sever every`)."
+source = "the owner's choice"
+see = "game::severing::limb"

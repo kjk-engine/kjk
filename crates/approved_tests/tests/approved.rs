@@ -2498,6 +2498,8 @@ fn filming_commands() {
     for text in [
         "clean on",
         "clean off",
+        "sever every",
+        "sever rule",
         "campath trailer/push.path",
         "campath push.path at 4.39",
         "camera follow player 0.5 -1 1.6 height 1.3 orbit 0",
@@ -2510,6 +2512,7 @@ fn filming_commands() {
     for text in [
         "clean",
         "clean maybe",
+        "sever sometimes",
         "campath",
         "campath a.path at",
         "camera follow player 1 2",
