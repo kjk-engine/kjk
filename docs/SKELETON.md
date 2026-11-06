@@ -52,6 +52,18 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   pose stands 3.1 units up: `Options::ja_sole`) plus the jump's height,
   soft-minimum over both feet; JA clips put the floor 24 units under the
   origin (`ORIGIN_HEIGHT`).
+- The spine follows JA's by height (`rig::spans`, `Curve::turn`). K1's
+  `torso_g` starts about where JA's `lower_lumbar` does (0.30 of the way
+  from the hips to the neck on Carth, JA's 0.27) and `torsoupr_g` where
+  `upper_lumbar` does (0.50, JA's 0.51); taking the turns of the bones
+  named alike (`upper_lumbar`, `thoracic`) bent each stretch a joint too
+  high, on a longer lever, and hunched every body: the hips-to-head line
+  of JA's crouch (`BOTH_CROUCH1IDLE`) 41° forward on Carth where JA's is
+  29°, the medium ready stance 29° to JA's 20°. Each node now takes the
+  JA bones' turns over the heights it spans, weighed by overlap, swung so
+  it points where JA's spine curve does over them: 32° and 23° on Carth,
+  27° and 18° on `pfbam` (36° and 23° before). Without the thighs, both
+  spine nodes or `neck_g`, the old pairing stands. View only, as the rest.
 - K1 has two humanoid skeletons, a man's (every male body, Carth's) and a
   woman's (every female body, Bastila's); three rules fit JA's motion to
   both:
@@ -222,7 +234,8 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
 - `--moves` a timeline (`showcase`, `acrobatics`, `specials`, `defense`,
   `force`, `staff`, `dual`, `reactions`, `melee`, `styles`, `gestures`,
   `look`; `game::rig_timeline`)
-  or comma-separated sequences (`NAME:blend_ms`); `--body/--head` (default
+  or comma-separated sequences (`NAME:blend_ms`; `--saber none` holds
+  nothing, as unarmed); `--body/--head` (default
   Carth), `--hilt kotor|ja`, `--color red,green` (the K1 hilt model per
   hand: K1 makes one per colour; the blades take JA's shaders and trail
   colour for it), `--trace out.csv`. A timeline's style picks
