@@ -90,6 +90,17 @@ release → Run workflow) it makes the packages as the run's artifacts and
 no Release. Each package is built on its own runner: macOS on Apple
 silicon, Windows and Linux on x86-64 (Ubuntu 22.04's glibc).
 
+The draft is made with the packages that built: GitHub's macOS arm64
+runners are at times not given at all (the job is cancelled after about 15
+minutes, "not acquired by Runner of type hosted even after multiple
+attempts"), and one OS missing does not hold back the others. The draft's
+notes name the missing build. To add it later, re-run the failed job
+(Actions → the run → Re-run failed jobs) and upload its artifact, or build
+it on a Mac at the tag (`cargo xtask dist`), then `gh release upload <tag>
+target/packages/kjk-<tag>-macos-aarch64.tar.gz` and add its line to
+`SHA256SUMS`. A package added after publishing reaches Nexus with
+nexus release → Run workflow and the tag.
+
 Publishing the draft announces it in the Discord server's #releases
 channel (`.github/workflows/discord-release.yml`, the message in
 `.github/discord-release.jq`): the repository secret
