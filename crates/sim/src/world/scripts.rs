@@ -945,14 +945,14 @@ pub(super) fn scripts(
         &mut scripts.notices,
         &mut out,
     );
-    if level.arena_rules().is_some() {
+    if let Some(rules) = level.arena_rules() {
         let body = |seat: crate::input::Seat| {
             seats
                 .iter()
                 .find(|(of, _)| *of == seat)
                 .map(|(_, player)| acting(&view, seat.0, *player))
         };
-        super::arena::orders(library, &view, state, &inputs.0, body, &mut out);
+        super::arena::orders(rules, library, &view, state, &inputs.0, body, &mut out);
     }
     // The feat lines the minds' talents chose.
     for &(user, hand, row) in &feat_talents.0 {

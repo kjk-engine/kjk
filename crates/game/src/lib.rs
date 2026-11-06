@@ -100,6 +100,7 @@ mod power_fx;
 #[cfg(feature = "probes")]
 mod probe_kit;
 mod progress;
+mod prop_hall;
 mod ragdolls;
 pub mod report;
 mod rulebook_text;
