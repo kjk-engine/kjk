@@ -63,6 +63,10 @@ pub(crate) struct HostArgs {
     /// Commands to run, e.g. 'wait 10s; quit'
     #[arg(long)]
     cmds: Option<String>,
+    /// Frames without the screens over the world (no HUD, subtitles or
+    /// conversation box), for filming: the script starts with `clean on`
+    #[arg(long)]
+    clean: bool,
     #[arg(long)]
     headless: bool,
     /// Draw the sim's blades (green) beside the drawn ones, and the
@@ -201,7 +205,7 @@ pub(crate) fn run(args: HostArgs, size: (u32, u32)) -> ExitCode {
         steam: args.steam,
     };
     launch(
-        args.cmds.as_deref().unwrap_or(""),
+        &crate::script(args.cmds.as_deref(), args.clean),
         args.headless,
         size,
         Some(stage),

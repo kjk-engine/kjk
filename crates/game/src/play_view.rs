@@ -34,7 +34,7 @@ use asset_odyssey::model::ModelIr;
 use asset_odyssey::module::Camera as PlacedCamera;
 use bevy::prelude::*;
 use collision::{Contents, Extents, UNIT};
-use console::{CameraRequest, DumpDue, DumpFacts};
+use console::{CameraMotion, CameraRequest, DumpDue, DumpFacts, Move};
 use sim::combat::damage::FriendlyFire;
 use sim::module::ObjectKind;
 use sim::motion;
@@ -396,6 +396,7 @@ impl Plugin for PlayViewPlugin {
                     follow_keys,
                     view_keys,
                     draw.in_set(Drawn),
+                    film,
                     crate::severing::apply,
                 )
                     .chain()
@@ -1001,6 +1002,82 @@ type Pace<'w> = (
     Option<Res<'w, OwnScreen>>,
     Option<Res<'w, WeaponSounds>>,
 );
+
+impl View {
+    /// The character a filming move names: `player` (seat 0's), else the
+    /// creature with that tag, the living first.
+    fn tagged(&self, tag: &str) -> Option<SimId> {
+        if tag == "player" {
+            return self.me;
+        }
+        let last = self.history.last()?;
+        let objects = Instances::in_snapshot(&self.level, last);
+        last.entities
+            .iter()
+            .filter(|entity| cast::is_tagged(entity, &objects, tag))
+            .min_by_key(|entity| !entity.fighter.is_some_and(|fighter| fighter.alive()))
+            .map(|entity| entity.id)
+    }
+}
+
+/// A filming move (`campath`, `camera follow`): the camera put where the
+/// move has it at the moment shown (`anim`'s time, so slow motion keeps
+/// it), once the characters stand where this frame draws them. A follow
+/// whose creature is not there leaves the camera where it was.
+#[allow(clippy::type_complexity)]
+fn film(
+    mut motion: ResMut<CameraMotion>,
+    mut view: ResMut<View>,
+    (presented, waited): (Res<PresentedSnapshot>, Option<Res<crate::sim_host::Waited>>),
+    mut cameras: Query<(
+        &mut Transform,
+        &mut crate::scene::FlyCamera,
+        &mut Projection,
+    )>,
+    mut found: Local<BTreeMap<(u32, String), SimId>>,
+) {
+    if motion.moving.is_none() {
+        return;
+    }
+    let now = crate::sim_host::shown_ms(&presented.0, waited.as_deref());
+    let start = *motion.start_ms.get_or_insert(now);
+    let seconds = ((now - start) / 1000.0) as f32;
+    let pose = match &motion.moving {
+        Some(Move::Path(path)) => path.pose(seconds),
+        Some(Move::Follow(follow)) => {
+            let mut at = |tag: &str| {
+                let key = (view.generation, tag.to_string());
+                let id = match found.get(&key) {
+                    Some(id) => *id,
+                    None => {
+                        let id = view.tagged(tag)?;
+                        found.insert(key, id);
+                        id
+                    }
+                };
+                cast::blended(&view.history, id, view.render_ms)
+            };
+            let Some(subject) = at(&follow.tag) else {
+                return;
+            };
+            let looked = match &follow.look {
+                Some(tag) => at(tag),
+                None => Some(subject),
+            };
+            let Some(looked) = looked else { return };
+            let target = cast::soles(looked.origin) + Vec3::Z * follow.height;
+            follow.pose(
+                cast::soles(subject.origin).to_array(),
+                subject.view[1],
+                target.to_array(),
+                seconds,
+            )
+        }
+        None => return,
+    };
+    view.fixed = true;
+    crate::scene::put_cameras(&pose, &mut cameras);
+}
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn draw(

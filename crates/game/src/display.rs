@@ -324,11 +324,18 @@ fn samples(
     }
 }
 
-/// The composite's gamma (the brightness slider).
-fn brightness(display: Res<Display>, mut composites: Query<&mut UiComposite>) {
+/// The composite's gamma (the brightness slider), and whether it leaves
+/// the screens out (`clean on`).
+fn brightness(
+    display: Res<Display>,
+    clean: Option<Res<console::CleanFrames>>,
+    mut composites: Query<&mut UiComposite>,
+) {
+    let clean = clean.is_some_and(|clean| clean.0);
     for mut composite in &mut composites {
-        if composite.gamma != display.gamma {
+        if composite.gamma != display.gamma || composite.clean != clean {
             composite.gamma = display.gamma;
+            composite.clean = clean;
         }
     }
 }

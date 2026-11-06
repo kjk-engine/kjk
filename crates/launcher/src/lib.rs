@@ -758,6 +758,16 @@ pub fn run() -> ExitCode {
 /// `module`, when known) while `load` makes the session on a thread
 /// (`session_flow::launch`): the script starts once it is in, and a session
 /// that does not load ends the run with why.
+/// A run's script, `clean on` first when it films clean frames (`--clean`).
+fn script(cmds: Option<&str>, clean: bool) -> String {
+    let cmds = cmds.unwrap_or("");
+    if clean {
+        format!("clean on; {cmds}")
+    } else {
+        cmds.to_string()
+    }
+}
+
 fn launch(
     script: &str,
     headless: bool,

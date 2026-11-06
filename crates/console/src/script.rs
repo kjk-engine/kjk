@@ -4,6 +4,8 @@
 use std::fmt;
 use std::time::Duration;
 
+use crate::motion::{CHEST_M, Follow};
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     /// Waits for a duration of wall time or a number of rendered frames.
@@ -21,6 +23,15 @@ pub enum Command {
     /// (degrees about Z from +X) and pitch (degrees, up positive), with an
     /// optional vertical field of view (degrees).
     Camera(CameraPose),
+    /// Moves the camera along a path of keyframes read from a file
+    /// (`motion::Path`), on the game's time from `at` seconds (the time
+    /// `anim` holds) or from when it runs.
+    CamPath { file: String, at: Option<f32> },
+    /// Holds the camera relative to a creature (`camera follow TAG …`).
+    Follow(Follow),
+    /// Frames drawn without the screens (`clean on`): no HUD, subtitles or
+    /// conversation box over the world.
+    Clean(bool),
     /// Freezes animation time (scrolling textures, flip-books) at a number
     /// of seconds, or lets it run again (`anim run`), so shots repeat.
     Anim(Option<f32>),
@@ -88,6 +99,9 @@ const CLIP_USAGE: &str = "clip takes a name, seconds of game time and fps";
 const CLIP_FPS: u32 = 12;
 
 const CAMERA_USAGE: &str = "camera takes five or six numbers: x y z yaw pitch [fov]";
+const FOLLOW_USAGE: &str = "camera follow takes a tag, right forward up (metres), then any of \
+     look TAG, height M, orbit DEG_PER_S, fov DEG, world";
+const CAMPATH_USAGE: &str = "campath takes a file, then `at SECONDS`";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CameraPose {
@@ -125,6 +139,29 @@ impl fmt::Display for Command {
                     None => Ok(()),
                 }
             }
+            Command::CamPath { file, at } => {
+                write!(f, "campath {file}")?;
+                match at {
+                    Some(at) => write!(f, " at {at}"),
+                    None => Ok(()),
+                }
+            }
+            Command::Follow(follow) => {
+                let [right, forward, up] = follow.offset;
+                write!(f, "camera follow {} {right} {forward} {up}", follow.tag)?;
+                if let Some(look) = &follow.look {
+                    write!(f, " look {look}")?;
+                }
+                write!(f, " height {} orbit {}", follow.height, follow.orbit)?;
+                if let Some(fov) = follow.fov {
+                    write!(f, " fov {fov}")?;
+                }
+                if follow.world {
+                    f.write_str(" world")?;
+                }
+                Ok(())
+            }
+            Command::Clean(on) => write!(f, "clean {}", if *on { "on" } else { "off" }),
             Command::Anim(Some(seconds)) => write!(f, "anim {seconds}"),
             Command::Anim(None) => f.write_str("anim run"),
             Command::Until(state) => write!(f, "wait {state}"),
@@ -278,6 +315,26 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
             ("arena", _) => {
                 return Err(error("arena takes spawn TEMPLATE, clear, god or down N"));
             }
+            ("camera", ["follow", tag, rest @ ..]) => {
+                Command::Follow(follow(tag, rest).ok_or_else(|| error(FOLLOW_USAGE))?)
+            }
+            ("campath", [file, rest @ ..]) => Command::CamPath {
+                file: file.to_string(),
+                at: match rest {
+                    [] => None,
+                    ["at", seconds] => Some(
+                        seconds
+                            .parse::<f32>()
+                            .ok()
+                            .filter(|s| s.is_finite() && *s >= 0.0)
+                            .ok_or_else(|| error(CAMPATH_USAGE))?,
+                    ),
+                    _ => return Err(error(CAMPATH_USAGE)),
+                },
+            },
+            ("campath", _) => return Err(error(CAMPATH_USAGE)),
+            ("clean", [on @ ("on" | "off")]) => Command::Clean(*on == "on"),
+            ("clean", _) => return Err(error("clean takes on or off")),
             ("camera", words) if words.len() == 5 || words.len() == 6 => {
                 let numbers: Vec<f32> = words.iter().filter_map(|word| word.parse().ok()).collect();
                 if numbers.len() != words.len() || numbers.iter().any(|n: &f32| !n.is_finite()) {
@@ -399,6 +456,50 @@ fn clip(name: String, seconds: f32, fps: u32) -> Vec<Command> {
         frames: Frames::Clipped(Vec::new()),
     }));
     commands
+}
+
+/// `camera follow`'s words after the tag: the offset, then options.
+fn follow(tag: &str, words: &[&str]) -> Option<Follow> {
+    let number = |word: &str| word.parse::<f32>().ok().filter(|n| n.is_finite());
+    let (offset, mut rest) = match words {
+        [a, b, c, rest @ ..] => ([number(a)?, number(b)?, number(c)?], rest),
+        _ => return None,
+    };
+    let mut follow = Follow {
+        tag: tag.to_ascii_lowercase(),
+        offset,
+        world: false,
+        look: None,
+        height: CHEST_M,
+        orbit: 0.0,
+        fov: None,
+    };
+    while let Some((word, after)) = rest.split_first() {
+        rest = match (*word, after) {
+            ("world", after) => {
+                follow.world = true;
+                after
+            }
+            ("look", [tag, after @ ..]) => {
+                follow.look = Some(tag.to_ascii_lowercase());
+                after
+            }
+            ("height", [n, after @ ..]) => {
+                follow.height = number(n)?;
+                after
+            }
+            ("orbit", [n, after @ ..]) => {
+                follow.orbit = number(n)?;
+                after
+            }
+            ("fov", [n, after @ ..]) => {
+                follow.fov = Some(number(n).filter(|fov| (1.0..=170.0).contains(fov))?);
+                after
+            }
+            _ => return None,
+        };
+    }
+    Some(follow)
 }
 
 fn wait_for(amount: &str) -> Option<WaitFor> {

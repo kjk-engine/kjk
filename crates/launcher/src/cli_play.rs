@@ -75,6 +75,10 @@ pub(crate) struct PlayArgs {
     /// Commands to run, e.g. 'anim 2.5; screenshot run; quit'
     #[arg(long)]
     cmds: Option<String>,
+    /// Frames without the screens over the world (no HUD, subtitles or
+    /// conversation box), for filming: the script starts with `clean on`
+    #[arg(long)]
+    clean: bool,
     #[arg(long)]
     headless: bool,
     /// Draw the sim's blades (green) beside the drawn ones, and the
@@ -193,6 +197,7 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         ally,
         class,
         cmds,
+        clean,
         headless,
         sim_blades,
         replay,
@@ -292,7 +297,7 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
     };
     runtime::open_screens(installs::game_of_module(&discover(), options.stage));
     launch(
-        cmds.as_deref().unwrap_or(""),
+        &crate::script(cmds.as_deref(), clean),
         headless,
         size,
         Some(options.stage),

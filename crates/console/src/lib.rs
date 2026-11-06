@@ -9,6 +9,7 @@
 //! compile: shaders compile in the background, and a frame captured before
 //! they finish shows nothing of the scene.
 
+mod motion;
 mod script;
 mod video;
 mod vitals;
@@ -25,6 +26,7 @@ use bevy::render::render_resource::{CachedPipelineState, PipelineCache};
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::render::{Render, RenderApp, RenderSystems};
 
+pub use motion::{CameraMotion, Follow, Move, Path};
 pub use script::{CameraPose, Command, Frames, ParseError, Video, WaitFor, parse};
 pub use video::AUDIO;
 
@@ -74,6 +76,10 @@ pub struct GameClock(pub Option<f64>);
 /// A camera placement the scene applies on its next frame, then clears.
 #[derive(Resource, Default, Debug)]
 pub struct CameraRequest(pub Option<CameraPose>);
+
+/// Frames drawn without the screens over the world (`clean on`).
+#[derive(Resource, Default, Debug)]
+pub struct CleanFrames(pub bool);
 
 /// States other plugins publish for `wait <state>` (`world`, `loading`).
 #[derive(Resource, Default, Debug)]
@@ -138,6 +144,8 @@ impl Plugin for ConsolePlugin {
         .insert_resource(pipelines.clone())
         .init_resource::<DumpFacts>()
         .init_resource::<CameraRequest>()
+        .init_resource::<CameraMotion>()
+        .init_resource::<CleanFrames>()
         .init_resource::<AnimationTime>()
         .init_resource::<GameClock>()
         .init_resource::<States>()
@@ -284,7 +292,11 @@ fn run_queue(
     folder: Res<RunFolder>,
     target: Option<Res<CaptureTarget>>,
     mut facts: ResMut<DumpFacts>,
-    mut camera: ResMut<CameraRequest>,
+    (mut camera, mut motion, mut clean): (
+        ResMut<CameraRequest>,
+        ResMut<CameraMotion>,
+        ResMut<CleanFrames>,
+    ),
     mut animation: ResMut<AnimationTime>,
     (pipelines, states): (Res<Pipelines>, Res<States>),
     (mut module, mut screens, mut visuals, mut arena): (
@@ -349,7 +361,34 @@ fn run_queue(
                 return;
             }
             Command::Crash => panic!("crash requested"),
-            Command::Camera(pose) => camera.0 = Some(*pose),
+            Command::Camera(pose) => {
+                *motion = CameraMotion::default();
+                camera.0 = Some(*pose);
+            }
+            Command::CamPath { file, at } => {
+                let path = std::fs::read_to_string(file)
+                    .map_err(|error| error.to_string())
+                    .and_then(|text| Path::parse(&text));
+                match path {
+                    Ok(path) => {
+                        *motion = CameraMotion {
+                            moving: Some(Move::Path(path)),
+                            start_ms: at.map(|seconds| f64::from(seconds) * 1000.0),
+                        };
+                    }
+                    Err(why) => {
+                        fail(&mut exit, &command, &format!("{file}: {why}"));
+                        return;
+                    }
+                }
+            }
+            Command::Follow(follow) => {
+                *motion = CameraMotion {
+                    moving: Some(Move::Follow(follow.clone())),
+                    start_ms: None,
+                };
+            }
+            Command::Clean(on) => clean.0 = *on,
             Command::Ui(words) => screens.0.push(words.clone()),
             Command::Vfx(words) => visuals.0.push(words.clone()),
             Command::Arena(words) => arena.0.push(words.clone()),
@@ -450,6 +489,9 @@ fn run_queue(
             }
         },
         Command::Dump(_)
+        | Command::CamPath { .. }
+        | Command::Follow(_)
+        | Command::Clean(_)
         | Command::Anim(_)
         | Command::Clip
         | Command::Ui(_)

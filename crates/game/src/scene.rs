@@ -502,16 +502,24 @@ fn apply_camera_request(
     mut cameras: Query<(&mut Transform, &mut FlyCamera, &mut Projection)>,
 ) {
     let Some(pose) = request.0 else { return };
-    for (mut transform, mut fly, mut projection) in &mut cameras {
-        *transform = camera_transform(&pose);
+    put_cameras(&pose, &mut cameras);
+    if !cameras.is_empty() {
+        request.0 = None;
+    }
+}
+
+/// The scene's cameras put at a pose (game space), its fov if it names one.
+pub(crate) fn put_cameras(
+    pose: &CameraPose,
+    cameras: &mut Query<(&mut Transform, &mut FlyCamera, &mut Projection)>,
+) {
+    for (mut transform, mut fly, mut projection) in cameras {
+        *transform = camera_transform(pose);
         fly.yaw = pose.yaw;
         fly.pitch = pose.pitch;
         if let (Some(fov), Projection::Perspective(perspective)) = (pose.fov, &mut *projection) {
             perspective.fov = fov.to_radians();
         }
-    }
-    if !cameras.is_empty() {
-        request.0 = None;
     }
 }
 
