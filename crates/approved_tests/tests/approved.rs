@@ -2488,3 +2488,75 @@ fn bump_files_numbered_as_they_reached_main() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The filming commands (`clean`, `campath`, `camera follow`) parse and
+/// print back as they were, refuse what they cannot read, and their camera
+/// moves place the camera as `docs/RUN.md` says.
+#[test]
+fn filming_commands() {
+    use console::{CHEST_M, Follow, Path, parse};
+    for text in [
+        "clean on",
+        "clean off",
+        "campath trailer/push.path",
+        "campath push.path at 4.39",
+        "camera follow player 0.5 -1 1.6 height 1.3 orbit 0",
+        "camera follow end_trask 0 2 1.7 look player height 1.6 orbit 30 fov 40 world",
+    ] {
+        let commands = parse(text).unwrap();
+        assert_eq!(commands.len(), 1, "{text}");
+        assert_eq!(parse(&commands[0].to_string()).unwrap(), commands, "{text}");
+    }
+    for text in [
+        "clean",
+        "clean maybe",
+        "campath",
+        "campath a.path at",
+        "camera follow player 1 2",
+        "camera follow player 1 2 3 orbit",
+        "camera follow player 1 2 3 fov 500",
+        "camera follow player 1 2 3 sideways",
+    ] {
+        assert!(parse(text).is_err(), "{text}");
+    }
+
+    let close = |a: f32, b: f32| (a - b).abs() < 1e-3;
+    // A path goes through its keys, still at both ends, held past them; a
+    // key without a fov keeps the last.
+    let path = Path::parse("# push in\n0 0 0 1 90 0 60\n1 1 0 1 90 0\n2 2 0 1 90 0 40").unwrap();
+    for (seconds, x) in [(-1.0, 0.0), (0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0)] {
+        assert!(close(path.pose(seconds).position[0], x), "{seconds}");
+    }
+    assert!(path.pose(0.05).position[0] < 0.01);
+    assert!(close(path.pose(1.0).fov.unwrap(), 60.0));
+    assert!(close(path.pose(2.0).fov.unwrap(), 40.0));
+    // Yaw turns the short way round.
+    let turn = Path::parse("0 0 0 0 170 0\n1 0 0 0 -170 0").unwrap();
+    assert!(close(turn.pose(0.5).yaw, 180.0));
+    for text in ["", "0 1 2", "1 0 0 0 0 0\n0 0 0 0 0 0", "0 a 0 0 0 0"] {
+        assert!(Path::parse(text).is_err(), "{text:?}");
+    }
+
+    // A follow sits right, forward and up of the facing, looking at the target.
+    let follow = Follow {
+        tag: "player".into(),
+        offset: [1.0, 2.0, 1.5],
+        world: false,
+        look: None,
+        height: CHEST_M,
+        orbit: 0.0,
+        fov: None,
+    };
+    // Facing +y: right is +x, forward +y.
+    let pose = follow.pose([10.0, 0.0, 0.0], 90.0, [10.0, 0.0, 1.5], 0.0);
+    let [x, y, z] = pose.position;
+    assert!(close(x, 11.0) && close(y, 2.0) && close(z, 1.5));
+    assert!(close(pose.pitch, 0.0) && close(pose.yaw, -116.565));
+    // A second of 90°/s orbit turns the offset a quarter round.
+    let orbit = Follow {
+        orbit: 90.0,
+        ..follow
+    };
+    let [x, y, _] = orbit.pose([0.0; 3], 90.0, [0.0; 3], 1.0).position;
+    assert!(close(x, -2.0) && close(y, 1.0));
+}

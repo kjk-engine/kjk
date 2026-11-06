@@ -3,8 +3,6 @@
 //! follow TAG …`). Both read the moment the view shows, the time `anim`
 //! and `record` hold, so a move plays the same in slow motion as live.
 
-use bevy::prelude::Resource;
-
 use crate::script::CameraPose;
 
 /// A path's keyframes: seconds from the path's start, each a pose.
@@ -34,7 +32,8 @@ pub const CHEST_M: f32 = 1.3;
 
 /// The move under way, and the moment (ms, the view's) it started at:
 /// set by `campath … at S`, else the first frame the view sees it.
-#[derive(Resource, Default, Debug)]
+#[derive(Default, Debug)]
+#[cfg_attr(feature = "runtime", derive(bevy::prelude::Resource))]
 pub struct CameraMotion {
     pub moving: Option<Move>,
     pub start_ms: Option<f64>,
