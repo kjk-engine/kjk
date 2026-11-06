@@ -674,16 +674,19 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   companion (`world::switch`: its `Mind::driver` the first seat, which
   the snapshot carries, so `Snapshot::body` and a client's prediction
   follow it), its mind stood down, in the party and the player's faction
-  meanwhile; the player's own leaves the area, benched, as TSL's
-  `CSWPartyTable::SwitchPlayerCharacter` saves and deletes it: a
+  meanwhile; the player's own is benched, out of the party, still the
+  snapshot's `Kind::Avatar`. Where it waits is the game's
+  (`rules::party::switch`, `world::switch::leaves_area`): in K1 where it
+  stood, a character nobody plays (the Leviathan's torture cage, which the
+  one who escapes opens); in TSL out of the area, as TSL's
+  `CSWPartyTable::SwitchPlayerCharacter` saves and deletes it: `Away`, a
   disabling component, so no system moves, meets, sees or hits it, the
   scripts' view leaves it out and the view does not draw it
-  (`Snapshot::all_drawn`); out of the party, still the snapshot's
-  `Kind::Avatar`. Scenes that show the player meanwhile place their own
-  stand-in (TSL's prologue lays `c_medbaypc` on the medbay bed).
+  (`Snapshot::away`). TSL's scenes that show the player meanwhile place
+  their own stand-in (the prologue lays `c_medbaypc` on the medbay bed).
   Switching back, the companion's mind takes over (in the party, or on
-  its own if not a member) and the player's own comes back where the
-  companion stands, facing its way. A companion with no creature here is made from its
+  its own if not a member) and the player's own is its body again; in TSL
+  it comes back where the companion stands, facing its way. A companion with no creature here is made from its
   template a step to the PC's left, on its soles; one a guest drives is
   taken from it. False for a companion not available (or another negative
   number). Conversations held with the PC go on with the new one (the

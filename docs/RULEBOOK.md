@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `2f8857a7e391bb4a`.
+Edition `1452ca3225ec9fba`.
 
 ## Contents
 
@@ -171,6 +171,7 @@ Edition `2f8857a7e391bb4a`.
 - [Co-op Party](#party)
   - [Party Members by Player](#party-seats)
   - [Leaving an Area](#party-exits)
+  - [Playing Another Character](#party-switch)
 - [Stealth and Awareness](#stealth)
   - [Stealth Mode](#stealth-mode)
   - [Standing, Walking and Running](#stealth-pace)
@@ -6683,6 +6684,25 @@ party cannot leave during combat.
 The host may force the party to leave 5 seconds after a player asks to leave.
 
 <sub>Source: ours. Code: `sim::world::party::ready`.</sub>
+
+### <a id="party-switch"></a>Playing Another Character
+
+When a scene has the player play a party member in their place, the
+player's own character waits. In K1 it stays where it is, standing in the
+area as a character nobody plays; in TSL it leaves the area and comes back
+where the character played stands when the scene switches back.
+
+<a id="party-switch-leaves-area-k1"></a>**Player Leaves the Area (K1)** = **false** · `party.switch.leaves_area_k1`
+
+Whether, in K1, the player's own character leaves the area while the player plays another: false.
+
+<sub>Source: K1's Leviathan scenes: the player waits in the torture room's cage the one who escapes opens (`k_plev_freeparty`) [verify in K1's executable]. Code: `sim::world::switch::leaves_area`.</sub>
+
+<a id="party-switch-leaves-area-tsl"></a>**Player Leaves the Area (TSL)** = **true** · `party.switch.leaves_area_tsl`
+
+Whether, in TSL, the player's own character leaves the area while the player plays another: true.
+
+<sub>Source: TSL's executable (`CSWPartyTable::SwitchPlayerCharacter` saves the player's creature and deletes it, and makes it again on the way back). Code: `sim::world::switch::leaves_area`.</sub>
 
 ## <a id="stealth"></a>Stealth and Awareness
 

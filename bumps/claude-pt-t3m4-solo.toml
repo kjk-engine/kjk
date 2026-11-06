@@ -1,2 +1,2 @@
 # The sim's hash moves on purpose: why.
-sim = "a seat's own character leaves the area while the seat plays another (SwitchPlayerCharacter): no system moves, meets, sees or hits it, and it comes back where the creature given back stands"
+sim = "in TSL a seat's own character leaves the area while the seat plays another (SwitchPlayerCharacter): no system moves, meets, sees or hits it, and it comes back where the creature given back stands; in K1 it stays where it stood, as before (rules::party::switch)"

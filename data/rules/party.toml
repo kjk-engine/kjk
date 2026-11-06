@@ -48,3 +48,26 @@ range = [0, 600000]
 summary = "The host may force the party to leave {party.exits.force_after_ms:s} after a player asks to leave."
 source = "ours"
 see = "sim::world::party::ready"
+
+[switch]
+title = "Playing Another Character"
+summary = """
+When a scene has the player play a party member in their place, the
+player's own character waits. In K1 it stays where it is, standing in the
+area as a character nobody plays; in TSL it leaves the area and comes back
+where the character played stands when the scene switches back.
+"""
+
+[switch.leaves_area_k1]
+name = "Player Leaves the Area (K1)"
+value = false
+summary = "Whether, in K1, the player's own character leaves the area while the player plays another: {party.switch.leaves_area_k1}."
+source = "K1's Leviathan scenes: the player waits in the torture room's cage the one who escapes opens (`k_plev_freeparty`) [verify in K1's executable]"
+see = "sim::world::switch::leaves_area"
+
+[switch.leaves_area_tsl]
+name = "Player Leaves the Area (TSL)"
+value = true
+summary = "Whether, in TSL, the player's own character leaves the area while the player plays another: {party.switch.leaves_area_tsl}."
+source = "TSL's executable (`CSWPartyTable::SwitchPlayerCharacter` saves the player's creature and deletes it, and makes it again on the way back)"
+see = "sim::world::switch::leaves_area"

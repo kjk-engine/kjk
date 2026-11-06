@@ -228,7 +228,7 @@ impl SimWorld {
         }
         let instances = Instances::in_snapshot(&level, snapshot);
         let mut world = World::new();
-        world.register_disabling_component::<Benched>();
+        world.register_disabling_component::<Away>();
         world.insert_resource(Clock {
             tick: snapshot.tick,
             time_ms: snapshot.time_ms,
@@ -327,7 +327,9 @@ impl SimWorld {
             .filter(|entity| matches!(entity.kind, Kind::Object(..)))
             .filter_map(|entity| entity.fighter?.mind.driver)
             .collect();
-        let tsl = world.resource::<Static>().0.game() == crate::combat::passive::Game::Tsl;
+        let game = world.resource::<Static>().0.game();
+        let tsl = game == crate::combat::passive::Game::Tsl;
+        let away = switch::leaves_area(game);
         for entity in &snapshot.entities {
             let mut spawned = world.spawn(Id(entity.id));
             match entity.kind {
@@ -348,6 +350,9 @@ impl SimWorld {
                     spawned.insert((Player(player), Fighting(fighter), PlayerSheet(sheet)));
                     if driving.contains(&seat) {
                         spawned.insert(Benched(seat));
+                        if away {
+                            spawned.insert(Away);
+                        }
                     } else {
                         spawned.insert(Avatar(seat));
                     }
@@ -478,7 +483,7 @@ impl SimWorld {
             )
                 .chain(),
         );
-        let rows = world.query_filtered::<EntityRow, bevy_ecs::query::Allow<Benched>>();
+        let rows = world.query_filtered::<EntityRow, bevy_ecs::query::Allow<Away>>();
         Ok(SimWorld {
             world,
             schedule,

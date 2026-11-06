@@ -335,7 +335,7 @@ fn bodies_as_drawn(
     shown
         .entities
         .iter()
-        .filter(|e| e.id != is.id && e.fighter.is_some() && !shown.benched(e))
+        .filter(|e| e.id != is.id && e.fighter.is_some() && !shown.away(e))
         .filter(|e| !(spares && shown.in_party(e)))
         .filter_map(|e| cast::blended(history, e.id, ms).map(|at| (e, at)))
         .filter(|(_, at)| at.alive && near(at.origin))

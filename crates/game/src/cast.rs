@@ -1847,9 +1847,7 @@ impl Cast {
             else {
                 continue;
             };
-            let has = snapshot
-                .own(seat)
-                .filter(|entity| !snapshot.benched(entity));
+            let has = snapshot.own(seat).filter(|entity| !snapshot.away(entity));
             // A disguised seat is drawn in the disguise's body.
             let own = has.is_some_and(|entity| !self.disguised(entity.id));
             shown += u8::from(own);
