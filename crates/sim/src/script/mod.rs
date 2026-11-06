@@ -49,6 +49,8 @@ pub(crate) mod mod_routines {
     }
 }
 mod minigame;
+#[cfg(feature = "probes")]
+pub(crate) use minigame::answered_drift;
 mod pazaak;
 pub(crate) use minigame::commit as commit_race;
 #[cfg(feature = "probes")]
@@ -56,6 +58,7 @@ pub(crate) use pazaak::deal as deal_pazaak;
 pub(crate) use pazaak::{WatchRule, Watcher};
 pub mod party;
 pub mod presentation;
+mod rare;
 mod state;
 mod stores;
 mod traps;
@@ -1472,9 +1475,15 @@ impl Library {
         int_constant(self.routines.catalog(), name)
     }
 
-    /// How many routines have a binding here.
+    /// How many of the catalog's routines have a binding here (`bound`):
+    /// the table's, and the minigames' answered on a course.
     pub fn bound(&self) -> usize {
-        self.bound.iter().flatten().count()
+        let routines = &self.routines.catalog().routines;
+        self.bound
+            .iter()
+            .zip(routines)
+            .filter(|(table, routine)| table.is_some() || minigame::handles(&routine.name))
+            .count()
     }
 }
 
@@ -3258,6 +3267,13 @@ impl Step<'_> {
                 thing.character.is_some() && (cheat || engine::can_cast(self.view, thing, row));
             if !fake && (!able || self.state.uncommandable.contains(&who.0)) {
                 return true;
+            }
+            // Its metamagic, for `GetMetaMagicFeat`: both executables'
+            // `AIActionCastSpell` keep the cast's own; KOTOR has no
+            // metamagic, and a cast here carries none, as a script's
+            // `nMetaMagic` defaults to 0 [verify: a script passing another].
+            if !fake {
+                self.state.last.insert((who.0, last::METAMAGIC), 0);
             }
             if let Some((at, _)) = self
                 .view

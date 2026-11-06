@@ -308,6 +308,9 @@ pub const LEFT_AT_START: &[&str] = &[
     "script.keep_stealth",
     "script.summary_owed",
     "script.encounter_creatures",
+    "script.cost_multipliers",
+    "script.button_mash",
+    "script.subscreen",
 ];
 
 /// Which of `save`'s fields are still at their start. Every field is named
@@ -440,6 +443,9 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         encounters: _,
         encounter_creatures: _,
         floor: _,
+        cost_multipliers: _,
+        button_mash: _,
+        subscreen: _,
     } = &save.script;
     check!("script", save.script, blank;
         numbers, booleans, strings, places, unescapable, left, locals, pending,
@@ -452,6 +458,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         perception, stealth_xp, stealth_loss, pazaak, pazaak_won, components,
         chemicals, hoards, beats, transit, movies, movie_runs, no_clicks_until,
         keep_stealth, summary_owed, return_button, encounters, encounter_creatures, floor,
+        cost_multipliers, button_mash, subscreen,
     );
     out
 }

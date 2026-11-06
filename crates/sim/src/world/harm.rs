@@ -795,6 +795,21 @@ pub(super) fn hurt(
             }
         }
         fighting.0.combat_until = clock.time_ms + COMBAT_MS;
+        // The damage's types and what it took (`GetDamageDealtByType`):
+        // both executables' `OnApplyDamage` keep, for each damage type, the
+        // total the damage took after resistances if it was of that type,
+        // until the next damage. The story's death is no damage effect.
+        if !death {
+            let last = &mut scripts.state.last;
+            let types = assessed.damage_type.map_or(0, |row| 1u32 << row);
+            let whole =
+                (resolved.damage + crate::script::HUNDREDTHS / 2) / crate::script::HUNDREDTHS;
+            last.insert((hit.target.0, crate::script::last::DAMAGE_TYPES), types);
+            last.insert(
+                (hit.target.0, crate::script::last::DAMAGE_DEALT),
+                whole.max(0) as u32,
+            );
+        }
         // How the attacker's blow came out, for its AI (`GetLastAttackResult`).
         if matches!(hit.source, Source::Weapon { .. }) {
             let key = (hit.attacker.0, crate::script::last::ATTACK_RESULT);

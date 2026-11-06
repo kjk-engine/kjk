@@ -887,13 +887,24 @@ pub(super) fn scripts(
     let mut out = Out::default();
     // Components and chemicals taken are the party's counts, told to all.
     let mut acquired = Vec::new();
+    // How each container's inventory was disturbed, for its disturbed
+    // event's script (`GetInventoryDisturbType`): both executables'
+    // `CSWSItem::SetPossessor` tell a placeable an item went out
+    // (`INVENTORY_DISTURB_TYPE_REMOVED`) or came in (`ADDED`).
+    let disturbed = |state: &mut script::State, container: u32, removed: bool| {
+        let kind = (container, script::last::DISTURB_TYPE);
+        state.last.insert(kind, u32::from(removed));
+    };
     for (container, item) in &containers.taken {
         acquired.push(state.take_item(library, container.0, *item));
+        disturbed(state, container.0, true);
     }
     for &(container, who) in &containers.took_all {
         let (any, gained) = state.take_rest(library, container.0);
         acquired.push(gained);
-        if !any {
+        if any {
+            disturbed(state, container.0, true);
+        } else {
             scripts
                 .notices
                 .push((Some(ObjectId(who.0)), crate::notice::Notice::Empty));
@@ -905,6 +916,7 @@ pub(super) fn scripts(
     scripts.notices.extend(told.map(|notice| (None, notice)));
     for (container, item) in &containers.put {
         state.put_in(*item, container.0);
+        disturbed(state, container.0, false);
         // What its disturbed event's script reads (`GetInventoryDisturbItem`;
         // an item taken out is not kept).
         state

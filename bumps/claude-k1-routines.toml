@@ -1,0 +1,13 @@
+# The sim's hash moves on purpose: the routines K1's own scripts called
+# unbound are bound as the executables work them (inventory disturbances,
+# damage by type, item costs, the screen-change script and the rest).
+sim = "K1's last 16 unbound routines bound; a container's disturbance keeps its type, a creature's damage its types, a cast its metamagic; k_pend_screenchg runs as an in-game page shows"
+
+[formats]
+snapshot = "the goods carry ChangeItemCost's multipliers by base item (`Goods::costs`), and a lasting effect may be a blaster deflection change (`Modifies::BlasterDeflection`)."
+save = "a pending effect's lasting part may be a blaster deflection change (`Modifies::BlasterDeflection`)."
+replay = "a seat may tell the in-game page it shows (`Action::SubScreen`, a new action code, 59)."
+
+[migrations]
+snapshot = "old snapshots read no cost multipliers (every value as its template's), and hold none of the new kind, a new index after the old"
+save = "old saves read as they are: the new kind is a new index after the old, which no old save holds"

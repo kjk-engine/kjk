@@ -273,7 +273,7 @@ fn open(
         ResMut<crate::workbench_view::OpenBench>,
         Option<Res<crate::settings::Settings>>,
     ),
-    (mut party_was_open, mut in_game_was): (Local<bool>, Local<bool>),
+    (mut party_was_open, mut in_game_was, mut page_was): (Local<bool>, Local<bool>, Local<u8>),
 ) {
     let ui = &mut *ui;
     let party_shown = shown
@@ -430,7 +430,34 @@ fn open(
         ));
     }
     *in_game_was = in_game;
+    // The page shown, as it shows, turns or closes: the host runs the
+    // game's screen-change script on it (`GetSubScreenID`).
+    let page = PAGES
+        .iter()
+        .find(|(screen, _)| ui.stack.has(screen))
+        .map_or(0, |(_, page)| *page);
+    if page != *page_was {
+        intents
+            .0
+            .push(ui::intent::Intent::Game(ui::intent::GameAction::SubScreen(
+                page,
+            )));
+    }
+    *page_was = page;
 }
+
+/// The in-game GUI's pages by their `SUBSCREEN_ID_*` (both games'
+/// `nwscript.nss`: `CGuiInGame`'s page plus one).
+const PAGES: [(&str, u8); 8] = [
+    ("equip", 1),
+    ("inventory", 2),
+    ("character", 3),
+    ("abilities", 4),
+    ("map", 5),
+    ("journal", 6),
+    ("options_in_game", 7),
+    ("messages", 8),
+];
 
 /// The in-game screens (KOTOR's in-game GUI): the menu's pages and the
 /// party screen.

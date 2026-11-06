@@ -146,6 +146,7 @@ pub(crate) fn action(game: GameAction) -> Option<Action> {
         GameAction::ChooseParty(picks) => Action::ChooseParty(picks),
         GameAction::ShowParty => Action::ShowParty,
         GameAction::ScreenOpened => Action::ScreenOpened,
+        GameAction::SubScreen(page) => Action::SubScreen(page),
         GameAction::Travel(planet) => Action::Travel(planet),
         GameAction::Break => Action::Break,
         GameAction::Resume => Action::Resume,
@@ -514,7 +515,7 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
         // (`script_screens`, `ambience`).
         Notice::Show(screen) => format!("{screen:?}"),
         // The host saves (`sim_host::autosave`).
-        Notice::AutoSave => String::new(),
+        Notice::AutoSave | Notice::MusicVolume(_) => String::new(),
         Notice::Sound(sound) => format!("[{}]", sound.resref()),
     }
 }
