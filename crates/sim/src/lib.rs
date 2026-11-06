@@ -21,6 +21,7 @@
 pub mod action;
 pub mod combat;
 pub mod creation;
+pub mod destruction;
 pub mod determinism;
 pub mod fixtures;
 pub mod fog;

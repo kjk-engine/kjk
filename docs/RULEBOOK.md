@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f517dbe10505c85a`.
+Edition `0cf478bf1a1d5013`.
 
 ## Contents
 
@@ -80,6 +80,12 @@ Edition `f517dbe10505c85a`.
   - [Plasma Grenade](#grenades-fire)
   - [Ion Grenade](#grenades-ion)
   - [Wrist Launcher](#grenades-launched)
+- [Destruction](#destruction)
+  - [Hardness](#destruction-hardness)
+  - [Hit points](#destruction-hit-points)
+  - [Damage types](#destruction-multipliers)
+  - [Area blows](#destruction-area)
+  - [Damage stages](#destruction-stages)
 - [Lightsabers and Melee Weapons](#sabers)
   - [Saber Frame](#sabers-ja)
   - [Blades](#sabers-blades)
@@ -2154,6 +2160,135 @@ A projectile flies 2 m/s more than its distance's share (Speed by Distance).
 A homing projectile (a launched grenade, a rocket, a dart) flies 2 times that speed.
 
 <sub>Source: TSL's executable, CSWCObject::CalculateProjectileTimeToTarget. Code: `sim::combat::grenades::homing_speed`.</sub>
+
+## <a id="destruction"></a>Destruction
+
+Weapons, grenades and Force powers break the props a room is furnished
+with: jars, chairs, crates, plants. Consoles, machinery, statues and banners
+only show damage. Anything the story needs (plot items, containers, things
+you use or talk to, anything a script names) never breaks.
+
+Which kinds of prop break, show damage or stay intact, and what each is made
+of and how big it is, is `data/destruction/props.csv`. A blow counts only
+for its damage above the prop's hardness; the damage's type and an area
+blow change how much that is. Everyone's blows count, the enemies' too.
+Breaking a prop gives no experience and makes nobody hostile.
+
+### <a id="destruction-hardness"></a>Hardness
+
+A blow counts only for the damage above what the prop is made of shrugs off.
+
+<a id="destruction-hardness-by-material"></a>**Hardness by Material** = **0 HP / 0 HP / 1 HP / 1 HP / 1 HP / 1 HP / 5 HP / 0 HP / 2 HP** (`0 / 0 / 1 / 1 / 1 / 1 / 5 / 0 / 2 HP`) · `destruction.hardness.by_material`
+
+ceramic **0 HP** · organic **0 HP** · wood **1 HP** · plastic **1 HP** · metal **1 HP** · electronic **1 HP** · stone **5 HP** · cloth **0 HP** · debris **2 HP**
+
+Each blow on a prop loses 0 HP / 0 HP / 1 HP / 1 HP / 1 HP / 1 HP / 5 HP / 0 HP / 2 HP hit points, by what it is made of, before it counts.
+
+So a pistol only marks stone, and fists never break metal.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::hardness`.</sub>
+
+### <a id="destruction-hit-points"></a>Hit points
+
+How much a prop takes before it breaks, by its size; the file's own hit points are not used.
+
+<a id="destruction-hit-points-by-size"></a>**Hit Points by Size** = **5 HP / 20 HP / 75 HP** (`5 / 20 / 75 HP`) · `destruction.hit_points.by_size`
+
+small **5 HP** · medium **20 HP** · large **75 HP**
+
+A prop breaks after 5 HP / 20 HP / 75 HP hit points of damage, by its size.
+
+The toolset gave nearly every placeable the same 15 HP, so size decides instead.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::most_hp`.</sub>
+
+<a id="destruction-hit-points-damage-times"></a>**Damage-Only Toughness** = **×4** · `destruction.hit_points.damage_times`
+
+Consoles, machinery, stone and cloth, which only show damage, take ×4 times as much to wreck.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::most_hp`.</sub>
+
+### <a id="destruction-multipliers"></a>Damage types
+
+A blow's damage type counts for more or less on some materials; any other type counts as it is.
+
+<a id="destruction-multipliers-bludgeoning"></a>**Bludgeoning on Materials** = **150% / 100% / 150% / 100% / 25% / 100% / 25% / 100% / 100%** (`1500 / 1000 / 1500 / 1000 / 250 / 1000 / 250 / 1000 / 1000 ‰`) · `destruction.multipliers.bludgeoning`
+
+ceramic **150%** · organic **100%** · wood **150%** · plastic **100%** · metal **25%** · electronic **100%** · stone **25%** · cloth **100%** · debris **100%**
+
+Bludgeoning (fists, Push, Wave) counts 1500 ‰ / 1000 ‰ / 1500 ‰ / 1000 ‰ / 250 ‰ / 1000 ‰ / 250 ‰ / 1000 ‰ / 1000 ‰ on each material: it shatters ceramic and wood.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-slashing"></a>**Slashing on Materials** = **100% / 100% / 120% / 100% / 100% / 100% / 100% / 120% / 100%** (`1000 / 1000 / 1200 / 1000 / 1000 / 1000 / 1000 / 1200 / 1000 ‰`) · `destruction.multipliers.slashing`
+
+ceramic **100%** · organic **100%** · wood **120%** · plastic **100%** · metal **100%** · electronic **100%** · stone **100%** · cloth **120%** · debris **100%**
+
+Slashing counts 1000 ‰ / 1000 ‰ / 1200 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1200 ‰ / 1000 ‰ on each material: blades cut wood and cloth.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-electrical"></a>**Electrical on Materials** = **100% / 150% / 100% / 100% / 100% / 200% / 100% / 150% / 100%** (`1000 / 1500 / 1000 / 1000 / 1000 / 2000 / 1000 / 1500 / 1000 ‰`) · `destruction.multipliers.electrical`
+
+ceramic **100%** · organic **150%** · wood **100%** · plastic **100%** · metal **100%** · electronic **200%** · stone **100%** · cloth **150%** · debris **100%**
+
+Electrical damage (Force Lightning) counts 1000 ‰ / 1500 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 2000 ‰ / 1000 ‰ / 1500 ‰ / 1000 ‰ on each material: it wrecks electronics and burns plants and cloth.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-fire"></a>**Fire on Materials** = **200% / 200% / 100% / 100% / 100% / 100% / 100% / 200% / 100%** (`2000 / 2000 / 1000 / 1000 / 1000 / 1000 / 1000 / 2000 / 1000 ‰`) · `destruction.multipliers.fire`
+
+ceramic **200%** · organic **200%** · wood **100%** · plastic **100%** · metal **100%** · electronic **100%** · stone **100%** · cloth **200%** · debris **100%**
+
+Fire counts 2000 ‰ / 2000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 2000 ‰ / 1000 ‰ on each material: it cracks ceramic and burns plants and cloth.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-sonic"></a>**Sonic on Materials** = **200% / 200% / 100% / 100% / 100% / 100% / 100% / 200% / 100%** (`2000 / 2000 / 1000 / 1000 / 1000 / 1000 / 1000 / 2000 / 1000 ‰`) · `destruction.multipliers.sonic`
+
+ceramic **200%** · organic **200%** · wood **100%** · plastic **100%** · metal **100%** · electronic **100%** · stone **100%** · cloth **200%** · debris **100%**
+
+Sonic damage counts 2000 ‰ / 2000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 2000 ‰ / 1000 ‰ on each material: it shatters ceramic and tears plants and cloth.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-ion"></a>**Ion on Materials** = **100% / 100% / 100% / 100% / 100% / 300% / 20% / 100% / 100%** (`1000 / 1000 / 1000 / 1000 / 1000 / 3000 / 200 / 1000 / 1000 ‰`) · `destruction.multipliers.ion`
+
+ceramic **100%** · organic **100%** · wood **100%** · plastic **100%** · metal **100%** · electronic **300%** · stone **20%** · cloth **100%** · debris **100%**
+
+Ion damage counts 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 3000 ‰ / 200 ‰ / 1000 ‰ / 1000 ‰ on each material: it wrecks electronics and barely touches stone.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-energy"></a>**Energy on Materials** = **100% / 100% / 120% / 120% / 120% / 100% / 100% / 100% / 100%** (`1000 / 1000 / 1200 / 1200 / 1200 / 1000 / 1000 / 1000 / 1000 ‰`) · `destruction.multipliers.energy`
+
+ceramic **100%** · organic **100%** · wood **120%** · plastic **120%** · metal **120%** · electronic **100%** · stone **100%** · cloth **100%** · debris **100%**
+
+Energy (blaster bolts, lightsabers) counts 1000 ‰ / 1000 ‰ / 1200 ‰ / 1200 ‰ / 1200 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ on each material: it cuts wood, plastic and metal.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+### <a id="destruction-area"></a>Area blows
+
+Grenades and area powers wreck a room; single shots chip.
+
+<a id="destruction-area-times"></a>**Area Blow Strength** = **×3** · `destruction.area.times`
+
+A grenade's or an area power's damage counts ×3 times over on props.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::worth`.</sub>
+
+### <a id="destruction-stages"></a>Damage stages
+
+A prop shows its damage in stages, by the share of its hit points it has lost.
+
+<a id="destruction-stages-at"></a>**Stage Thresholds** = **33.3% / 66.7%** (`333 / 667 ‰`) · `destruction.stages.at`
+
+damaged **33.3%** · wrecked **66.7%**
+
+A prop is damaged once it has lost 333 ‰ of its hit points, and wrecked at 667 ‰; a prop that breaks goes when it has lost them all.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::stage`.</sub>
 
 ## <a id="sabers"></a>Lightsabers and Melee Weapons
 
