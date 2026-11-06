@@ -310,6 +310,9 @@ impl Level {
             ObjectKind::Placeable if remains::bag_row(template).is_some() => {
                 remains::bag_facts(self.module()?, template).map(Arc::new)
             }
+            ObjectKind::Placeable if arena::prop_row(template).is_some() => {
+                self.arena.as_ref()?.prop_facts(template).map(Arc::new)
+            }
             ObjectKind::Placeable => self.scripts()?.placeable(template).cloned(),
             ObjectKind::Trigger => crate::traps::laid_facts(self.module()?, template).map(Arc::new),
             _ => None,

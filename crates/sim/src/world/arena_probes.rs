@@ -1,12 +1,13 @@
 //! The probes of `arena` (`kjk sim probes`): on the proving ground as an
 //! arena, a foe called in stands ahead hostile and is taken away by a
-//! clear, god mode turns on and off, and a player in the pit goes down and
-//! comes back whole at the respawn point.
+//! clear, god mode turns on and off, a player in the pit goes down and
+//! comes back whole at the respawn point, and the arena's props stand where
+//! its rules put them, once.
 
 use std::sync::Arc;
 
 use super::SimWorld;
-use super::arena::{Rules, SPAWN_AHEAD};
+use super::arena::{Prop, Rules, SPAWN_AHEAD, prop_template};
 use crate::action::{Action, ArenaOrder};
 use crate::combat::Sheet;
 use crate::combat::sheet::{factions, flags};
@@ -21,9 +22,9 @@ const FOE: &str = "probe_foe";
 /// How long a downed player lies in the probes' arena (ms).
 const RESPAWN_MS: u64 = 500;
 
-/// The proving ground as an arena, the foe's template in its library; the
-/// world and its rules.
-fn arena() -> Result<(SimWorld, Rules), String> {
+/// The proving ground as an arena laying out `props`, the foe's template in
+/// its library; the world and its rules.
+fn arena_with(props: Vec<Prop>) -> Result<(SimWorld, Rules), String> {
     let ground = crate::determinism::proving_ground();
     let entry = ground.module().ok_or("the ground has no module")?.entry;
     let rules = Rules {
@@ -31,6 +32,7 @@ fn arena() -> Result<(SimWorld, Rules), String> {
         yaw: entry.yaw,
         pit: -3.0,
         respawn_ms: RESPAWN_MS,
+        props: props.into(),
     };
     let mut foe = ObjectData::creature(FOE, FOE, [0.0; 3], Sheet::dev_soldier());
     if let Some(sheet) = foe.sheet.as_mut() {
@@ -39,9 +41,14 @@ fn arena() -> Result<(SimWorld, Rules), String> {
     }
     let library = crate::probe::library("", std::iter::empty::<(String, _)>())
         .with_creatures([(FOE.to_string(), Arc::new(foe))].into());
-    let level = ground.with_scripts(library).with_arena(rules);
+    let level = ground.with_scripts(library).with_arena(rules.clone());
     let world = SimWorld::new(WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
     Ok((world, rules))
+}
+
+/// The proving ground as an arena with no props.
+fn arena() -> Result<(SimWorld, Rules), String> {
+    arena_with(Vec::new())
 }
 
 /// `steps` steps of seat 0 standing, `orders` given on the first.
@@ -77,7 +84,65 @@ pub fn probes() -> crate::probe::Checks {
         ("arena_god", god()),
         ("arena_pit_and_respawn", pit_and_respawn()),
         ("arena_down_gets_up_by_its_side", down_gets_up()),
+        ("arena_props_laid_out_once", props_laid_out()),
     ]
+}
+
+/// The placeables standing in `snapshot`: where, and their template.
+fn placeables(world: &SimWorld, snapshot: &Snapshot) -> Vec<([f32; 3], String)> {
+    let instances = crate::instance::Instances::of(world.level(), &snapshot.spawned);
+    snapshot
+        .entities
+        .iter()
+        .filter_map(|entity| {
+            let Kind::Object(ObjectKind::Placeable, index) = entity.kind else {
+                return None;
+            };
+            let template = instances.made_from(index)?.template.clone();
+            Some((entity.position, template))
+        })
+        .collect()
+}
+
+/// Two props in the rules stand where they say, made from their rows'
+/// templates, whose facts the level knows (a joiner rebuilds them so), and
+/// are not laid out again while they stand.
+fn props_laid_out() -> Result<String, String> {
+    let props: Vec<Prop> = [(39, [3.0, 4.0, 0.0]), (179, [-3.0, 4.0, 0.0])]
+        .into_iter()
+        .map(|(appearance, at)| Prop {
+            appearance,
+            name: format!("prop {appearance}"),
+            at,
+            yaw: 270.0,
+            footprint: vec![[-0.5, -0.5, 0.0], [0.5, 0.5, 1.0]],
+        })
+        .collect();
+    let (mut world, rules) = arena_with(props.clone())?;
+    let first = run(&mut world, &[], 4);
+    let later = run(&mut world, &[], 30);
+    let standing = placeables(&world, &later);
+    let placed = props.iter().all(|prop| {
+        standing.iter().any(|(at, template)| {
+            *template == prop_template(prop.appearance)
+                && (at[0] - prop.at[0]).hypot(at[1] - prop.at[1]) < 0.01
+        })
+    });
+    let known = props.iter().all(|prop| {
+        world
+            .level()
+            .template(ObjectKind::Placeable, &prop_template(prop.appearance))
+            .is_some_and(|facts| facts.geometry == prop.footprint)
+    });
+    check(
+        placeables(&world, &first).len() == 2 && standing.len() == 2 && placed && known,
+        format!(
+            "{} standing after 4 steps, {} after 34, where the rules put them: {placed}; facts known: {known} ({} props in the rules)",
+            placeables(&world, &first).len(),
+            standing.len(),
+            rules.props.len()
+        ),
+    )
 }
 
 /// `down N` for a death that leaves the body on its back (1) and one on its

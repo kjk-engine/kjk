@@ -187,7 +187,9 @@ impl Stage {
         let game = crate::installs::game_of_module(discovery, module);
         let installer = Arc::new(Installer::new(discovery, game, anims.clone())?);
         let prepared = installer.prepare(&installer.request(module, None, seats), false)?;
-        let level = arena::level(&prepared.plan.level, anims)?;
+        let resolver = installer.resolver(module)?;
+        let props = crate::prop_hall::props(&resolver, installer.key())?;
+        let level = arena::level(&prepared.plan.level, anims, props)?;
         let world = arena::collision();
         Ok(Stage {
             name: "arena".into(),
@@ -229,6 +231,7 @@ impl Stage {
             floor_arena::NAME,
             world,
             floor_arena::nav(),
+            Vec::new(),
         )?;
         Ok(Stage {
             name: floor_arena::NAME.into(),
@@ -273,6 +276,7 @@ impl Stage {
             yaw: stage.yaw,
             pit: stage.spawn[2] - ARENA_PIT_BELOW,
             respawn_ms: crate::arena::RESPAWN_MS,
+            props: Vec::new().into(),
         };
         stage.level = stage.level.clone().with_module(data).with_arena(rules);
         if let Some(plan) = &mut stage.plan {
