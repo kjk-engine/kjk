@@ -1074,12 +1074,21 @@ pub(super) fn scripts(
         state.last.insert((object.0, script::last::UNLOCKED), by.0);
         raise_by(&view, state, object, Hook::Unlock, None, by);
     }
-    // Doors and placeables struck: attacked in melee (its striker's weapon
-    // kept), damaged where the blow told, and dying when they broke.
-    for &(object, by, lost, broke) in &battered.0 {
-        state.last.insert((object.0, script::last::ATTACKER), by.0);
-        struck_with(state, by.0);
-        raise(&view, state, ObjectId(object.0), Hook::Attacked, None);
+    // Doors and placeables struck: attacked by a weapon (its striker's
+    // weapon kept), damaged where the blow told, and dying when they broke.
+    for &super::objects::BlowTaken {
+        object,
+        by,
+        attacked,
+        lost,
+        broke,
+    } in &battered.0
+    {
+        if attacked {
+            state.last.insert((object.0, script::last::ATTACKER), by.0);
+            struck_with(state, by.0);
+            raise(&view, state, ObjectId(object.0), Hook::Attacked, None);
+        }
         if lost == 0 {
             continue;
         }

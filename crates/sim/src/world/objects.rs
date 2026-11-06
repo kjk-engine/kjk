@@ -176,11 +176,25 @@ pub(super) fn middle(body: &Body) -> [f32; 3] {
     std::array::from_fn(|i| (body.min[i] + body.max[i]) * 0.5 / collision::UNIT)
 }
 
-/// What blows did to doors and placeables this step, for the scripts: the
-/// object, who struck it, the whole hit points it lost (none for a
-/// weapon's blow its hardness turned), and whether it broke.
+/// What blows did to doors and placeables this step, for the scripts.
 #[derive(Resource, Default)]
-pub(crate) struct Battered(pub Vec<(SimId, SimId, u16, bool)>);
+pub(crate) struct Battered(pub Vec<BlowTaken>);
+
+/// A blow a door or placeable took.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BlowTaken {
+    pub object: SimId,
+    pub by: SimId,
+    /// A weapon's attack (`OnMeleeAttacked`): a script's or a blast's
+    /// damage only damages, as the executables raise the attacked event
+    /// from an attack's resolution and never from a damage effect (TSL's
+    /// 103per airlock blows only when attacked, not when a floating mine
+    /// goes off beside it).
+    pub attacked: bool,
+    /// Whole hit points lost (none for a weapon's blow its hardness turned).
+    pub lost: u16,
+    pub broke: bool,
+}
 
 /// How a blow on an object is resolved: a body of defence
 /// `bashing::OBJECT_DEFENCE` over the base, `hardness` resisted of every
@@ -378,7 +392,13 @@ pub(super) fn objects(
                 attacker.map(|(.., player, _)| math::scale(player.0.origin, collision::UNIT));
             break_open(&facts, &mut object.state, from);
         }
-        battered.0.push((target, by, lost, broke));
+        battered.0.push(BlowTaken {
+            object: target,
+            by,
+            attacked: matches!(source, Source::Weapon { .. }),
+            lost,
+            broke,
+        });
     }
     for (by, delivery) in swings {
         if let Some((.., mut player, _)) = actors.iter_mut().find(|(id, ..)| id.0 == by) {

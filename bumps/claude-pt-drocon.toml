@@ -1,0 +1,2 @@
+# The sim's hash moves on purpose: why.
+sim = "a door's or placeable's OnMeleeAttacked runs for a weapon's attack only, not for a script's or a blast's damage (TSL's 103per airlock no longer blows when a floating mine goes off beside it)"
