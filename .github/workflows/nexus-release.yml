@@ -3,7 +3,8 @@
 # discord-release.yml announces it: release.yml only drafts. The owner's API
 # key is the repository secret NEXUS_API_KEY; without it (a fork) nothing is
 # uploaded. Which file on the page each OS's package updates is the variable
-# NEXUS_FILE_<PLATFORM>; .github/nexus-upload.sh says more. Run by hand with
+# (or secret) NEXUS_FILE_<PLATFORM>; .github/nexus-upload.sh says more. A
+# new platform's package needs its line below. Run by hand with
 # a tag, it uploads that Release's packages again.
 name: nexus release
 
@@ -38,7 +39,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NEXUS_API_KEY: ${{ secrets.NEXUS_API_KEY }}
           NEXUS_MOD_ID: "1005022349175"
-          VARS: ${{ toJSON(vars) }}
+          NEXUS_GAME: kotor
+          NEXUS_FILE_MACOS_AARCH64: ${{ vars.NEXUS_FILE_MACOS_AARCH64 || secrets.NEXUS_FILE_MACOS_AARCH64 }}
+          NEXUS_FILE_WINDOWS_X86_64: ${{ vars.NEXUS_FILE_WINDOWS_X86_64 || secrets.NEXUS_FILE_WINDOWS_X86_64 }}
+          NEXUS_FILE_LINUX_X86_64: ${{ vars.NEXUS_FILE_LINUX_X86_64 || secrets.NEXUS_FILE_LINUX_X86_64 }}
         run: |
           if [ -z "$NEXUS_API_KEY" ]; then
             echo "::notice::no NEXUS_API_KEY secret; nothing uploaded"

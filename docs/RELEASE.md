@@ -90,6 +90,17 @@ release → Run workflow) it makes the packages as the run's artifacts and
 no Release. Each package is built on its own runner: macOS on Apple
 silicon, Windows and Linux on x86-64 (Ubuntu 22.04's glibc).
 
+The draft is made with the packages that built: GitHub's macOS arm64
+runners are at times not given at all (the job is cancelled after about 15
+minutes, "not acquired by Runner of type hosted even after multiple
+attempts"), and one OS missing does not hold back the others. The draft's
+notes name the missing build. To add it later, re-run the failed job
+(Actions → the run → Re-run failed jobs) and upload its artifact, or build
+it on a Mac at the tag (`cargo xtask dist`), then `gh release upload <tag>
+target/packages/kjk-<tag>-macos-aarch64.tar.gz` and add its line to
+`SHA256SUMS`. A package added after publishing reaches Nexus with
+nexus release → Run workflow and the tag.
+
 Publishing the draft announces it in the Discord server's #releases
 channel (`.github/workflows/discord-release.yml`, the message in
 `.github/discord-release.jq`): the repository secret
@@ -105,10 +116,12 @@ nexusmods.com/kotor/mods/1911 (`.github/workflows/nexus-release.yml`,
 the calls in `.github/nexus-upload.sh`): the repository secret
 `NEXUS_API_KEY` holds the owner's key (nexusmods.com/settings/api-keys);
 without it nothing is uploaded. Each OS's package becomes a new main
-version of its own file on the page, the file whose id is the variable
-`NEXUS_FILE_<PLATFORM>` (`NEXUS_FILE_MACOS_AARCH64`,
-`NEXUS_FILE_WINDOWS_X86_64`, `NEXUS_FILE_LINUX_X86_64`), and the mod's
-version follows. A package with no such variable is added as a new file,
+version of its own file on the page, the file named by the variable or
+secret `NEXUS_FILE_<PLATFORM>` (`NEXUS_FILE_MACOS_AARCH64`,
+`NEXUS_FILE_WINDOWS_X86_64`, `NEXUS_FILE_LINUX_X86_64`): the API's id for
+the file, or the `file_id` in a download link of any of its versions. The
+mod's version follows. Nexus takes no `.tar.gz`, so the macOS and Linux
+packages go up repacked as `.zip` (modes and symlinks kept). A package with no such variable is added as a new file,
 and the run's notice names its id to save as the variable. Actions →
 nexus release → Run workflow with a tag uploads that Release again.
 
