@@ -21,7 +21,10 @@
 //! where `align` is the shortest rotation taking the KOTOR bone's direction
 //! (towards the nodes named as its aim) onto the JA bone's base-pose
 //! direction, and identity for nodes without an aim (the spine, neck, head
-//! and feet, which both skeletons hold upright or flat). Unmapped nodes keep
+//! and feet, which both skeletons hold upright or flat). KOTOR's two spine
+//! nodes above the pelvis take their turn from JA's spine by height instead
+//! (`spans`, `Curve::turn`): its joints sit a joint lower than JA's bones
+//! named alike. Unmapped nodes keep
 //! their rest rotation under their parent. A node's key is
 //! `parent_global⁻¹ · global`. Only the root travels: JA's pelvis movement,
 //! scaled by the ratio of pelvis heights.
@@ -273,6 +276,125 @@ const FEET: &[(&str, &str)] = &[("ltalus", "lfoot_g"), ("rtalus", "rfoot_g")];
 
 const HINGED: &[(&str, &str)] = &[("rthigh_g", "rtibia"), ("lthigh_g", "ltibia")];
 
+/// JA's spine from the hips up: each joint (the hips' middle, then the
+/// lumbar and thoracic joints to the neck) and the bone carrying the stretch
+/// above it. KOTOR's spine follows it by height (`Span`).
+const JA_SPINE: &[(&[&str], &str)] = &[
+    (&["rfemurYZ", "lfemurYZ"], "pelvis"),
+    (&["lower_lumbar"], "lower_lumbar"),
+    (&["upper_lumbar"], "upper_lumbar"),
+    (&["thoracic"], "thoracic"),
+    (&["cervical"], "cervical"),
+];
+
+/// KOTOR's spine nodes above the pelvis, bottom up, and the node that ends
+/// the last one.
+const KOTOR_SPINE: (&[&str], &str) = (&["torso_g", "torsoupr_g"], "neck_g");
+
+/// JA's spine as the KOTOR spine follows it: per joint its bones (averaged)
+/// and its height along the spine in the base pose (0 at the hips, 1 at the
+/// neck), and per stretch between two joints the bone that carries it.
+struct Curve {
+    joints: Vec<(Vec<usize>, f32)>,
+    bones: Vec<usize>,
+}
+
+impl Curve {
+    fn new(ja: &Ja) -> Option<Curve> {
+        let mut joints = Vec::with_capacity(JA_SPINE.len());
+        let mut bones = Vec::with_capacity(JA_SPINE.len());
+        for &(names, bone) in JA_SPINE {
+            let at: Option<Vec<usize>> = names.iter().map(|name| ja.bone(name)).collect();
+            let at = at?;
+            let z = ja.base_mean(names)?.z;
+            joints.push((at, z));
+            bones.push(ja.bone(bone)?);
+        }
+        let (low, high) = (joints.first()?.1, joints.last()?.1);
+        if high - low < 0.1 {
+            return None;
+        }
+        for joint in &mut joints {
+            joint.1 = (joint.1 - low) / (high - low);
+        }
+        bones.pop();
+        Some(Curve { joints, bones })
+    }
+
+    /// Each joint's place (KOTOR model space) in a pose.
+    fn points(&self, ja: &Ja, finals: &[Frame]) -> Vec<Vec3> {
+        self.joints
+            .iter()
+            .map(|(bones, _)| {
+                bones
+                    .iter()
+                    .map(|&b| TURN * finals[b].point(ja.base(b)))
+                    .sum::<Vec3>()
+                    / bones.len() as f32
+            })
+            .collect()
+    }
+
+    /// The place `t` of the way up the spine, between the joints around it.
+    fn at(&self, points: &[Vec3], t: f32) -> Vec3 {
+        let last = self.joints.len() - 1;
+        let i = (1..last)
+            .take_while(|&i| self.joints[i].1 <= t)
+            .last()
+            .unwrap_or(0);
+        let (a, b) = (self.joints[i].1, self.joints[i + 1].1);
+        let share = ((t - a) / (b - a).max(f32::EPSILON)).clamp(0.0, 1.0);
+        points[i].lerp(points[i + 1], share)
+    }
+
+    /// How a stretch of the spine has turned from the base pose: the turns
+    /// of the JA bones it overlaps, weighed by the overlap, then swung so
+    /// the stretch points where JA's curve does over the same heights.
+    fn turn(&self, ja: &Ja, finals: &[Frame], span: &Span) -> Quat {
+        let mut mixed = Mix::default();
+        for (i, &bone) in self.bones.iter().enumerate() {
+            let (a, b) = (self.joints[i].1, self.joints[i + 1].1);
+            let overlap = span.to.min(b) - span.from.max(a);
+            if overlap > 0.0 {
+                mixed.add(TURN * finals[bone].rotation * TURN.inverse(), overlap);
+            }
+        }
+        let twist = mixed.quat();
+        let points = self.points(ja, finals);
+        match (self.at(&points, span.to) - self.at(&points, span.from)).try_normalize() {
+            Some(pose) => Quat::from_rotation_arc(twist * span.base, pose) * twist,
+            None => twist,
+        }
+    }
+}
+
+/// A weighted mean of turns (each kept on the first one's side).
+#[derive(Default)]
+struct Mix(Option<Quat>, glam::Vec4);
+
+impl Mix {
+    fn add(&mut self, q: Quat, weight: f32) {
+        let first = *self.0.get_or_insert(q);
+        let q = if first.dot(q) < 0.0 { -q } else { q };
+        self.1 += glam::Vec4::from(q) * weight;
+    }
+
+    fn quat(&self) -> Quat {
+        match self.1.length() > f32::EPSILON {
+            true => Quat::from_vec4(self.1.normalize()),
+            false => Quat::IDENTITY,
+        }
+    }
+}
+
+/// The heights (0 at the hips, 1 at the neck) a KOTOR spine node spans, and
+/// JA's curve's direction over them in the base pose.
+struct Span {
+    from: f32,
+    to: f32,
+    base: Vec3,
+}
+
 /// How a hinged node is posed: the JA bones it aims at, the JA bone that
 /// carries its hinge, and its aim and hinge in JA's base pose (KOTOR space).
 struct Hinge {
@@ -297,6 +419,8 @@ struct Kotor<'a> {
     /// Node → (JA bone, align).
     mapped: BTreeMap<usize, (usize, Quat)>,
     hinged: BTreeMap<usize, Hinge>,
+    /// JA's spine curve and the KOTOR spine nodes that follow it by height.
+    spine: Option<(Curve, BTreeMap<usize, Span>)>,
     /// JA's lengths to KOTOR's (`pelvis_scale`).
     scale: f32,
 }
@@ -373,12 +497,17 @@ impl<'a> Kotor<'a> {
                 },
             );
         }
+        let spine = Curve::new(ja).and_then(|curve| {
+            let spans = spans(&rest, &node, ja, &curve)?;
+            Some((curve, spans))
+        });
         let mut kotor = Kotor {
             ir,
             rest,
             local,
             mapped,
             hinged,
+            spine,
             scale: 1.0,
         };
         kotor.scale = pelvis_scale(ja, &kotor);
@@ -442,7 +571,14 @@ impl<'a> Kotor<'a> {
                             None => TURN * finals[bone].rotation * TURN.inverse(),
                         }
                     }
-                    None => TURN * finals[bone].rotation * TURN.inverse(),
+                    None => match self
+                        .spine
+                        .as_ref()
+                        .and_then(|(c, s)| Some((c, s.get(&index)?)))
+                    {
+                        Some((curve, span)) => curve.turn(ja, finals, span),
+                        None => TURN * finals[bone].rotation * TURN.inverse(),
+                    },
                 };
                 global.rotation = (turn * align * self.rest[index].rotation).normalize();
             }
@@ -477,6 +613,40 @@ impl<'a> Kotor<'a> {
         let (&node, _) = self.mapped.iter().find(|(_, (bone, _))| *bone == pelvis)?;
         self.ir.nodes[node].parent
     }
+}
+
+/// Where each KOTOR spine node sits along its spine (0 at the hips' middle,
+/// 1 at the neck), so it follows JA's spine over the same heights: K1's
+/// `torso_g` starts where JA's `lower_lumbar` does and `torsoupr_g` where
+/// `upper_lumbar` does, so taking the turns of the bones named alike
+/// (`upper_lumbar`, `thoracic`) bent each a joint too high and hunched the
+/// body. None without the thighs, every spine node or the neck.
+fn spans(
+    rest: &[Frame],
+    node: &dyn Fn(&str) -> Option<usize>,
+    ja: &Ja,
+    curve: &Curve,
+) -> Option<BTreeMap<usize, Span>> {
+    let (nodes, end) = KOTOR_SPINE;
+    let hips = (rest[node("rthigh_g")?].position.z + rest[node("lthigh_g")?].position.z) / 2.0;
+    let neck = rest[node(end)?].position.z;
+    if neck - hips < 0.1 {
+        return None;
+    }
+    let height = |z: f32| ((z - hips) / (neck - hips)).clamp(0.0, 1.0);
+    let base = curve.points(ja, &vec![Frame::IDENTITY; ja.gla.bones.len()]);
+    let mut spans = BTreeMap::new();
+    for (i, name) in nodes.iter().enumerate() {
+        let n = node(name)?;
+        let next = match nodes.get(i + 1) {
+            Some(next) => rest[node(next)?].position.z,
+            None => neck,
+        };
+        let (from, to) = (height(rest[n].position.z), height(next));
+        let base = (curve.at(&base, to) - curve.at(&base, from)).try_normalize()?;
+        spans.insert(n, Span { from, to, base });
+    }
+    Some(spans)
 }
 
 /// How far from the body's middle (metres, across) a collar may start and

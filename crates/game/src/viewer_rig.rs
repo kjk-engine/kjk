@@ -192,8 +192,10 @@ fn load_with(
             ground: crate::rig_ground::Ground::default(),
             saber: Vec::new(),
             // Named sequences of the pair's (style 6) or the staff's (7)
-            // hold their sabers.
-            style: if options.moves.contains("6_") || options.moves.contains("DUAL") {
+            // hold their sabers; `--saber none` holds nothing.
+            style: if options.saber == "none" {
+                rig_timeline::Style::Melee
+            } else if options.moves.contains("6_") || options.moves.contains("DUAL") {
                 rig_timeline::Style::Dual
             } else if options.moves.contains("7_") || options.moves.contains("STAFF") {
                 rig_timeline::Style::Staff
