@@ -79,6 +79,10 @@ pub(crate) struct PlayArgs {
     /// conversation box), for filming: the script starts with `clean on`
     #[arg(long)]
     clean: bool,
+    /// The player's blows count ten times over, as `playthrough`'s: a test
+    /// aid, and fights that end within a filmed shot
+    #[arg(long)]
+    mighty: bool,
     #[arg(long)]
     headless: bool,
     /// Draw the sim's blades (green) beside the drawn ones, and the
@@ -198,6 +202,7 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         class,
         cmds,
         clean,
+        mighty,
         headless,
         sim_blades,
         replay,
@@ -266,6 +271,12 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         } {
             Ok(sheet) => sim::combat::Sheet {
                 good_evil: alignment.unwrap_or(sheet.good_evil),
+                flags: sheet.flags
+                    | if mighty {
+                        sim::combat::sheet::flags::MIGHTY
+                    } else {
+                        0
+                    },
                 ..by_hand::with_skills(sheet, &skills)
             },
             Err(error) => {
