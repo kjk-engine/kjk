@@ -216,7 +216,10 @@ the view's:
   (`collision::Ground`, from the texture drawn on it: Tatooine's and
   Korriban's dirt is sand, Telos's polar carpet snow, Anchorhead's deck
   plates metal; `collision_odyssey::ground`), walking or running (from 180
-  units a second), one of four. A soft landing is a step too.
+  units a second), one of four. A soft landing is a step too. To hear
+  them all: `kjk play --stage floors` lays a patch of each game's floors
+  per ground, the line at the top naming the one underfoot
+  (`floor_arena`).
 - **Landings and rolls** (`landing_fx`, as JA sounds a landing):
   a roll starting sounds `roll1` in the body slot; a landing over force 7
   (falling speed squared over 10,000, a crouched one twice, a roll out of it

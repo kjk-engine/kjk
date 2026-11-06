@@ -48,6 +48,7 @@ mod feat_view;
 mod first_person;
 pub mod flight_writer;
 pub mod floaty_view;
+mod floor_arena;
 mod force_fx;
 mod force_view;
 mod form_view;
