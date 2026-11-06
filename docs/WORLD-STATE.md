@@ -684,9 +684,16 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   scripts' view leaves it out and the view does not draw it
   (`Snapshot::away`). TSL's scenes that show the player meanwhile place
   their own stand-in (the prologue lays `c_medbaypc` on the medbay bed).
-  Switching back, the companion's mind takes over (in the party, or on
-  its own if not a member) and the player's own is its body again; in TSL
-  it comes back where the companion stands, facing its way. A companion with no creature here is made from its
+  Switching back, the table keeps the companion as it stands and its
+  creature goes (the exe's `SaveMember`, `KillNPCObject`), or, a party
+  member, its mind takes over; the player's own is its body again. In TSL
+  it comes back where the companion stands, facing its way, as the exe
+  makes it from its save at the played creature's place: Nar Shaddaa's
+  Exile is let out of the vent tunnels at Mira's place by their door
+  (`pcenter`) and walks to Visquis's ring, whose door starts his
+  conversation. TSL's exe also takes every party member out of the party
+  and its creature away at either switch; ours keeps them [verify]. A
+  companion with no creature here is made from its
   template a step to the PC's left, on its soles; one a guest drives is
   taken from it. False for a companion not available (or another negative
   number). Conversations held with the PC go on with the new one (the
