@@ -1,0 +1,13 @@
+# The sim's hash moves on purpose: override mods' routines bound (maths,
+# strings, factions, sheet getters, floating text, ActionUseFeat,
+# ActionEquipMostEffectiveArmor, six effects), and `EffectModifyAttacks`
+# reports no effect type, as the executables' table has none for it.
+sim = "routines override mods call bound as the executables work them; EffectModifyAttacks reports EFFECT_TYPE_INVALIDEFFECT"
+
+[formats]
+snapshot = "a lasting effect may be haste's own part, a concealment or a spell immunity (`Modifies::Haste`, `Concealment`, `SpellImmunity`)."
+save = "a pending effect may be a knockdown (`Effect::Knockdown`), and its lasting parts the three new `Modifies`."
+
+[migrations]
+snapshot = "old snapshots read as they are: the new kinds are new indices after the old, which no old snapshot holds"
+save = "old saves read as they are: the knockdown's tag and the new kinds are new, which no old save holds"

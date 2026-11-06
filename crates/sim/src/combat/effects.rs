@@ -152,6 +152,16 @@ pub enum Modifies {
     /// the good and the bad on each portrait (KOTOR's
     /// `CSWSEffectListHandler::OnApplyEffectIcon`, `effects::icons`).
     Icon,
+    /// `EffectHaste`'s own part (the executables' `EFFECT_TYPE_HASTE`):
+    /// kept and walked; its speed and Defense are the parts linked with it.
+    Haste,
+    /// `EffectConcealment`, `EffectMissChance` (both executables build the
+    /// one effect for both): its amount the percent. Kept and walked: no
+    /// attack in the executables reads it.
+    Concealment,
+    /// `EffectSpellImmunity`: its amount the `spells.2da` row (-1 every
+    /// power) whose `ResistForce` it answers with 2, immune.
+    SpellImmunity,
 }
 
 /// The id a character's poison goes by among its effects (`GetFirstEffect`,
@@ -159,7 +169,7 @@ pub enum Modifies {
 pub const POISON_ID: u32 = u32::MAX - 1;
 
 impl Modifies {
-    const ALL: [Modifies; 31] = [
+    const ALL: [Modifies; 34] = [
         Modifies::Ability,
         Modifies::Defence,
         Modifies::Save,
@@ -191,6 +201,9 @@ impl Modifies {
         Modifies::FpRegen,
         Modifies::Regenerate,
         Modifies::Icon,
+        Modifies::Haste,
+        Modifies::Concealment,
+        Modifies::SpellImmunity,
     ];
 
     pub fn index(self) -> u8 {
@@ -290,7 +303,7 @@ pub mod state {
 
     /// `IMMUNITY_TYPE_*`s these states' checks name beyond `immunity`'s.
     const DAZED: u8 = 18;
-    const KNOCKDOWN: u8 = 28;
+    pub(crate) const KNOCKDOWN: u8 = 28;
     const DROID_CONFUSION: u8 = 33;
     /// TSL's Mandalorian Courage (`feat.2da` 200): fear does not take.
     const MANDALORIAN_COURAGE: u16 = 200;
@@ -1125,7 +1138,10 @@ pub fn sheet_now(sheet: Sheet, fighter: &Fighter, now: u64) -> Sheet {
             | Modifies::VpRegen
             | Modifies::FpRegen
             | Modifies::Regenerate
-            | Modifies::Icon => {}
+            | Modifies::Icon
+            | Modifies::Haste
+            | Modifies::Concealment
+            | Modifies::SpellImmunity => {}
         }
     }
     sheet.defence = sheet.defence.saturating_add(defence);

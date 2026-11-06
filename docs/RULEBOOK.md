@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `e3bcac66272e8c4a`.
+Edition `b72f5a5be1ca8e7d`.
 
 ## Contents
 
@@ -141,6 +141,8 @@ Edition `e3bcac66272e8c4a`.
   - [Force Body](#force-effects-force-body)
   - [Stun, Paralysis and Mind Trick](#force-effects-states)
   - [Lasting Effects](#force-effects-lasting)
+  - [Haste](#force-effects-haste)
+  - [Knockdown](#force-effects-knockdown)
 - [Lightsaber Forms and Force Forms](#forms)
   - [Form I: Shii-Cho](#forms-shii-cho)
   - [Form II: Makashi](#forms-makashi)
@@ -5181,6 +5183,37 @@ Movement speed effects cannot slow a character below 10% of normal speed.
 Movement speed effects cannot raise a character above 300% of normal speed.
 
 <sub>Source: ours. Code: `sim::world::powers::Cast::upkeep`.</sub>
+
+### <a id="force-effects-haste"></a>Haste
+
+A script's haste (`EffectHaste`) makes its bearer move
+50% faster and gives it
++4 Defense while it lasts. It gives no
+extra attacks.
+
+<a id="force-effects-haste-speed"></a>**Haste Movement Bonus** = **50%** · `force_effects.haste.speed`
+
+Haste raises movement speed by 50%.
+
+<sub>Source: TSL's executable (`OnApplyHasteInternal`: a movement speed of 150 %). Code: `sim::script::engine::Engine::call`.</sub>
+
+<a id="force-effects-haste-defence"></a>**Haste Defense Bonus** = **4** · `force_effects.haste.defence`
+
+Haste gives +4 Defense (a dodge bonus).
+
+<sub>Source: TSL's executable (`OnApplyHasteInternal`: an AC increase of 4, dodge). Code: `sim::script::engine::Engine::call`.</sub>
+
+### <a id="force-effects-knockdown"></a>Knockdown
+
+A script's knockdown (`EffectKnockdown`) throws its bearer down for the
+effect's duration and 1500 ms more, unless
+it is immune to knockdown.
+
+<a id="force-effects-knockdown-extra-ms"></a>**Knockdown Extra Time** = **1.5 seconds** (`1500 ms`) · `force_effects.knockdown.extra_ms`
+
+A knockdown lasts 1500 ms past its effect's duration.
+
+<sub>Source: TSL's executable (`OnApplyKnockdown`: the hold lasts the duration plus 1.5 s). Code: `sim::world::harm`.</sub>
 
 ## <a id="forms"></a>Lightsaber Forms and Force Forms
 
