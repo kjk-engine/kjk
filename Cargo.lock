@@ -251,6 +251,7 @@ dependencies = [
  "bumps",
  "collision",
  "collision_odyssey",
+ "console",
  "edit",
  "fmt_odyssey",
  "game",

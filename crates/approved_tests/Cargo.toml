@@ -12,6 +12,8 @@ description = "The owner-approved test scenarios, and nothing else (docs/TESTS.m
 asset_odyssey.workspace = true
 bumps.workspace = true
 collision = { workspace = true, features = ["probes"] }
+# The command language and the camera moves, without the Bevy runtime.
+console = { path = "../console", default-features = false }
 collision_odyssey = { workspace = true, features = ["probes"] }
 fmt_odyssey.workspace = true
 net = { workspace = true, features = ["probes"] }
