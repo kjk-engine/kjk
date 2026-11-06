@@ -379,6 +379,14 @@ pub fn build(discovery: &Discovery, game: &str, module: &str, clip: ClipChoice) 
             count.steep
         );
     }
+    outln!("  floor textures by material, and the ground they make:");
+    for ((material, texture), count) in &stats.floor_textures {
+        outln!(
+            "    {material:>2} {:<14} {texture:<20} {count:>6} {:?}",
+            loaded.surfaces.label(*material),
+            collision_odyssey::ground::of(*material, texture)
+        );
+    }
     outln!(
         "  doors {} ({} walkmeshes, {} open ones left out as placeholders), placeables {} ({} walkmeshes)",
         stats.doors,

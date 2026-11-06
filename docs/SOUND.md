@@ -211,7 +211,19 @@ the view's:
   standing still steps where its KOTOR clip passes an `snd_Footstep` event
   (a script's clip, a cutscene's stunt: `ambience::ClipSteps`), the K1
   executable's only source of footsteps; one moving is stepped by its walk
-  alone, so no step is heard twice.
+  alone, so no step is heard twice. A humanoid (rows `Soft` and `Hard`)
+  steps JA's footsteps instead (`ja_footsteps`): the floor's ground
+  (`collision::Ground`, from the texture drawn on it: Tatooine's and
+  Korriban's dirt is sand, Telos's polar carpet snow, Anchorhead's deck
+  plates metal; `collision_odyssey::ground`), walking or running (from 180
+  units a second), one of four. A soft landing is a step too.
+- **Landings and rolls** (`landing_fx`, as JA sounds a landing):
+  a roll starting sounds `roll1` in the body slot; a landing over force 7
+  (falling speed squared over 10,000, a crouched one twice, a roll out of it
+  two thirds) `land1`, over 44 `fallsplat`, a jump coming down at or above
+  its start counting 8 at most. Any landing at over 300 units a second on
+  dirt, sand, snow, mud or gravel plays JA's `materials/<ground>_large`
+  effect where it touched: its dust and its sound (`sand_land`, …).
 - **Gains** (`prioritygroups.2da`; TSL's Mac executable's
   `CExoStreamingSoundSourceInternal::SetVolume`): the executables play a
   streamed sound (music, ambience, a conversation's voice) at its volume

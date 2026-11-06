@@ -968,6 +968,7 @@ fn load_ja(
         .iter()
         .copied()
         .chain(crate::severing::EFFECTS)
+        .chain(crate::landing_fx::EFFECTS)
         .collect();
     let shaders: Vec<&str> = crate::blade_fx::SHADERS
         .iter()
@@ -985,6 +986,8 @@ fn load_ja(
     let names: Vec<String> = crate::combat_fx::sounds()
         .chain(effects.sounds().map(String::from))
         .chain(crate::power_fx::sounds())
+        .chain(crate::landing_fx::sounds())
+        .chain(crate::ja_footsteps::sounds())
         .chain(blades.sounds())
         .chain(keyframed.flat_map(asset_ja::events::Keyed::names))
         .collect();

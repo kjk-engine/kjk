@@ -66,6 +66,8 @@ mod holster_view;
 mod hud;
 pub mod import_verbs;
 pub mod installs;
+mod ja_footsteps;
+mod landing_fx;
 pub mod launch_times;
 mod leader_view;
 pub mod lifecycle;

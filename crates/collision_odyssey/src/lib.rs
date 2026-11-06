@@ -8,7 +8,10 @@
 //!   sides, and every face of the room's walkmesh (`.wok`, already in world
 //!   space). A drawn triangle takes the material of the walkmesh face it
 //!   lies on, if any, so a trace reports the floor's material; walls and
-//!   ceilings the walkmesh does not cover have material 0.
+//!   ceilings the walkmesh does not cover have material 0. A floor's
+//!   ground (sand, snow, metal, …: sounds only) comes from its texture and
+//!   material ([`ground`]), and a walkmesh face takes the ground of the
+//!   floor drawn on it.
 //! - Doors: the three door walkmeshes (`<model>0/1/2.dwk`: closed, open one
 //!   way, open the other) as brushes owned by the door, solid in state 0,
 //!   1 and 2 respectively; an open one that is only a placeholder sheet is
@@ -42,6 +45,7 @@ use fmt_odyssey::twoda::TwoDa;
 
 pub mod edges;
 pub mod footprints;
+pub mod ground;
 mod modules;
 pub mod overrides;
 #[cfg(feature = "probes")]
@@ -199,6 +203,9 @@ pub struct BuildStats {
     pub render: Count,
     /// Drawn triangles that took a walkmesh face's material.
     pub render_classified: usize,
+    /// Those triangles by the material they took and their texture: what
+    /// each material's floors look like.
+    pub floor_textures: BTreeMap<(u32, String), usize>,
     /// Drawn triangles left out, by why.
     pub render_skipped: BTreeMap<String, usize>,
     pub doors: usize,
@@ -425,11 +432,39 @@ pub fn build_area(
         }
     }
     let walk_level = walk_builder.build();
+    // The rooms' drawn triangles, each with the walkmesh material it lies
+    // on and the ground its texture shows there.
+    let drawn: Vec<([[f32; 3]; 3], Option<u32>, collision::Ground)> =
+        drawn_triangles(loader, area, &mut stats)
+            .into_iter()
+            .map(|(corners, texture)| {
+                let material = classify(&walk_level, &corners);
+                let ground = material.map_or(collision::Ground::Unknown, |material| {
+                    stats.render_classified += 1;
+                    let ground = ground::of(material, &texture);
+                    *stats.floor_textures.entry((material, texture)).or_insert(0) += 1;
+                    ground
+                });
+                (corners, material, ground)
+            })
+            .collect();
+    // The floors drawn, by their ground: what each walkmesh face looks like.
+    let mut look_builder = LevelBuilder::new();
+    for &(corners, material, ground) in &drawn {
+        if let Some(material) = material {
+            look_builder.triangle(corners, Tag::level(Contents::SOLID, material as u16).on(ground));
+        }
+    }
+    let look_level = look_builder.build();
     for &(corners, material) in &walk_faces {
         if surfaces.walkable(material) {
             walkable.push((corners, material));
         }
-        let tag = Tag::level(surfaces.contents(material), material as u16);
+        let ground = lies_on(&look_level, &corners)
+            .map(|surface| surface.ground)
+            .filter(|&ground| ground != collision::Ground::Unknown)
+            .unwrap_or_else(|| ground::of(material, ""));
+        let tag = Tag::level(surfaces.contents(material), material as u16).on(ground);
         if builder.triangle(corners, tag) {
             triangles.push(SourceTriangle {
                 corners,
@@ -440,75 +475,18 @@ pub fn build_area(
             stats.degenerate += 1;
         }
     }
-
-    let mut additive: BTreeMap<String, bool> = BTreeMap::new();
-    for room in &area.rooms {
-        let Some(model) = loader.model(&room.model) else {
-            stats.rooms_without_model.push(room.model.clone());
-            continue;
-        };
-        for mesh in &model.meshes {
-            let world = &model.nodes[mesh.node].world;
-            let place = |p: [f32; 3]| -> [f32; 3] {
-                std::array::from_fn(|r| {
-                    world[r][0] * p[0]
-                        + world[r][1] * p[1]
-                        + world[r][2] * p[2]
-                        + world[r][3]
-                        + room.position[r]
-                })
-            };
-            let positions: Vec<[f32; 3]> = mesh.positions.iter().map(|&p| place(p)).collect();
-            // A see-through mesh is drawn, never met (a light beam's,
-            // a hologram's: the Sith academy's beam over Uthar boxed him
-            // in, out of every player's reach); KOTOR meets walkmeshes
-            // only, and the walkmesh's edges keep bodies in. One drawn
-            // translucent by its alpha is see-through too (Khoonda's hall:
-            // the skylights' light shafts, `danfx_clouds` at alpha 0.6,
-            // stood the player in a box at the battle's start).
-            // So is one whose texture adds its light to what lies behind
-            // (TXI `blending additive`): Korriban's secret tomb hangs a
-            // cloud of light (`beam21`, `korfx_clouds`) along the minefield
-            // in Dxun's vision, which stood the player off every mine.
-            let additive = mesh.texture.as_deref().is_some_and(|texture| {
-                *additive
-                    .entry(texture.to_string())
-                    .or_insert_with(|| loader.additive(texture))
+    for (corners, material, ground) in drawn {
+        let material = material.unwrap_or(0);
+        let tag = Tag::level(surfaces.contents(material), material as u16).on(ground);
+        if builder.triangle(corners, tag) {
+            stats.render.add(&corners);
+            triangles.push(SourceTriangle {
+                corners,
+                origin: Origin::RoomMesh,
+                material,
             });
-            if mesh.transparency_hint != 0 || mesh.alpha < 1.0 || additive {
-                *stats
-                    .render_skipped
-                    .entry("see-through".into())
-                    .or_insert(0) += mesh.indices.len() / 3;
-                continue;
-            }
-            for index in mesh.indices.as_chunks::<3>().0 {
-                let corner = |k: usize| positions.get(index[k] as usize).copied();
-                let (Some(a), Some(b), Some(c)) = (corner(0), corner(1), corner(2)) else {
-                    *stats
-                        .render_skipped
-                        .entry("index out of range".into())
-                        .or_insert(0) += 1;
-                    continue;
-                };
-                let corners = [a, b, c];
-                let material = classify(&walk_level, &corners);
-                if material.is_some() {
-                    stats.render_classified += 1;
-                }
-                let material = material.unwrap_or(0);
-                let tag = Tag::level(surfaces.contents(material), material as u16);
-                if builder.triangle(corners, tag) {
-                    stats.render.add(&corners);
-                    triangles.push(SourceTriangle {
-                        corners,
-                        origin: Origin::RoomMesh,
-                        material,
-                    });
-                } else {
-                    stats.degenerate += 1;
-                }
-            }
+        } else {
+            stats.degenerate += 1;
         }
     }
 
@@ -586,6 +564,7 @@ pub fn build_area(
                     contents: surfaces.contents(face.material),
                     surface: collision::Surface {
                         material: face.material as u16,
+                        ground: ground::of(face.material, ""),
                     },
                     entity: Some(entity),
                     states: 1 << state,
@@ -608,7 +587,7 @@ pub fn build_area(
         {
             let tag = Tag {
                 contents: Contents::WALK_CLIP,
-                surface: collision::Surface { material: 0 },
+                surface: collision::Surface { material: 0, ..Default::default() },
                 entity: Some(entity),
                 states: 1,
             };
@@ -709,18 +688,88 @@ pub fn placeholder(walkmesh: &Walkmesh) -> bool {
     (0..2).any(|i| max[i] - min[i] < 0.01)
 }
 
-/// The material of the walkmesh face a drawn triangle lies on: a point
-/// trace along the triangle's normal through its centroid, within
-/// [`SAME_SURFACE`], that meets a face turned the same way.
+/// Every drawn triangle of the area's rooms (world space) with its
+/// texture (lowercase; "" for none), in the rooms' and meshes' order. A
+/// see-through mesh is drawn, never met (a light beam's, a hologram's: the
+/// Sith academy's beam over Uthar boxed him in, out of every player's
+/// reach); KOTOR meets walkmeshes only, and the walkmesh's edges keep
+/// bodies in. One drawn translucent by its alpha is see-through too
+/// (Khoonda's hall: the skylights' light shafts, `danfx_clouds` at alpha
+/// 0.6, stood the player in a box at the battle's start). So is one whose
+/// texture adds its light to what lies behind (TXI `blending additive`):
+/// Korriban's secret tomb hangs a cloud of light (`beam21`, `korfx_clouds`)
+/// along the minefield in Dxun's vision, which stood the player off every
+/// mine.
+fn drawn_triangles(
+    loader: &Loader,
+    area: &AreaIr,
+    stats: &mut BuildStats,
+) -> Vec<([[f32; 3]; 3], String)> {
+    let mut drawn = Vec::new();
+    let mut additive: BTreeMap<String, bool> = BTreeMap::new();
+    for room in &area.rooms {
+        let Some(model) = loader.model(&room.model) else {
+            stats.rooms_without_model.push(room.model.clone());
+            continue;
+        };
+        for mesh in &model.meshes {
+            let world = &model.nodes[mesh.node].world;
+            let place = |p: [f32; 3]| -> [f32; 3] {
+                std::array::from_fn(|r| {
+                    world[r][0] * p[0]
+                        + world[r][1] * p[1]
+                        + world[r][2] * p[2]
+                        + world[r][3]
+                        + room.position[r]
+                })
+            };
+            let positions: Vec<[f32; 3]> = mesh.positions.iter().map(|&p| place(p)).collect();
+            let additive = mesh.texture.as_deref().is_some_and(|texture| {
+                *additive
+                    .entry(texture.to_string())
+                    .or_insert_with(|| loader.additive(texture))
+            });
+            if mesh.transparency_hint != 0 || mesh.alpha < 1.0 || additive {
+                *stats
+                    .render_skipped
+                    .entry("see-through".into())
+                    .or_insert(0) += mesh.indices.len() / 3;
+                continue;
+            }
+            let texture = mesh.texture.as_deref().unwrap_or("").to_ascii_lowercase();
+            for index in mesh.indices.as_chunks::<3>().0 {
+                let corner = |k: usize| positions.get(index[k] as usize).copied();
+                let (Some(a), Some(b), Some(c)) = (corner(0), corner(1), corner(2)) else {
+                    *stats
+                        .render_skipped
+                        .entry("index out of range".into())
+                        .or_insert(0) += 1;
+                    continue;
+                };
+                drawn.push(([a, b, c], texture.clone()));
+            }
+        }
+    }
+    drawn
+}
+
+/// The material of the walkmesh face a drawn triangle lies on.
 fn classify(walkmesh: &Level, corners: &[[f32; 3]; 3]) -> Option<u32> {
+    lies_on(walkmesh, corners).map(|surface| u32::from(surface.material))
+}
+
+/// The surface of `level` a triangle lies on: a point trace along its
+/// normal through its centroid, within [`SAME_SURFACE`], that meets a face
+/// turned the same way.
+fn lies_on(level: &Level, corners: &[[f32; 3]; 3]) -> Option<collision::Surface> {
     use collision::CollisionWorld;
     let n = normal(corners)?;
     let c: [f32; 3] =
         std::array::from_fn(|i| (corners[0][i] + corners[1][i] + corners[2][i]) / 3.0);
     let from: [f32; 3] = std::array::from_fn(|i| c[i] + n[i] * SAME_SURFACE);
     let to: [f32; 3] = std::array::from_fn(|i| c[i] - n[i] * SAME_SURFACE);
-    let trace = walkmesh.trace(from, to, &Extents::POINT, Contents::SOLID);
+    let trace = level.trace(from, to, &Extents::POINT, Contents::SOLID);
     let facing = trace.plane.normal;
     let same = (facing[0] * n[0] + facing[1] * n[1] + facing[2] * n[2]).abs() > 0.9;
-    (trace.fraction < 1.0 && same).then_some(u32::from(trace.surface.material))
+    (trace.fraction < 1.0 && same).then_some(trace.surface)
 }

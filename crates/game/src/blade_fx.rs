@@ -25,8 +25,6 @@
 //!   dragged (`saber_marks`). A client frame is a sixtieth of a second of
 //!   the view's time (QUIRKS.md Q-0005): a drawn frame that ends none does
 //!   nothing here, one that ends several does it once for all of them.
-//! - Rolls: a character starting a roll (move_body's `ROLL`) sounds KOTOR's
-//!   body whoosh in its body slot (`weapon_sounds`).
 
 use std::collections::BTreeMap;
 
@@ -38,7 +36,7 @@ use collision::{Contents, Extents};
 use sim::combat::Outcome;
 use sim::combat::saber::throw::Flight;
 use sim::combat::saber::{Kit, Move, blades};
-use sim::{EntityState, Instances, Level, Seat, SimId, Snapshot, motion};
+use sim::{EntityState, Instances, Level, Seat, SimId, Snapshot};
 
 use crate::cast;
 use crate::combat_fx::{Added, Burst, Bursts, FightDrawn};
@@ -417,19 +415,6 @@ fn changes(
     let saber = held_saber(entity, objects);
     // KOTOR's row for what is not a lightsaber (`weapon_sounds`).
     let row = |of: &EntityState| kotor.and_then(|k| Some((k, k.row(of, snapshot, objects)?)));
-    if entity
-        .player
-        .is_some_and(|player| player.events & motion::events::ROLL != 0)
-        && let Some(kotor) = kotor
-        && let Some(name) = kotor.swing(0, Swing::Short, &mut rng)
-    {
-        cues.push(Cue {
-            entity: Some(entity.id),
-            channel: Channel::Body,
-            follows: true,
-            ..Cue::at(name, at, ms)
-        });
-    }
     // Lit or out, and a lit saber's second blade (or a pair's second
     // saber) lit or put out by the style button (`Cmd_SaberAttackCycle_f`'s
     // `soundOn` / `soundOff`).

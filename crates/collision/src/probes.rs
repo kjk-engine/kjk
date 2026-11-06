@@ -453,7 +453,7 @@ pub fn synthetic() -> Probes {
         [1.0, 0.2, 3.0],
         Tag {
             contents: Contents::SOLID,
-            surface: crate::Surface { material: 7 },
+            surface: crate::Surface { material: 7, ..Default::default() },
             entity: Some(42),
             states: 1,
         },
@@ -494,7 +494,7 @@ pub fn synthetic() -> Probes {
         [1.0, 0.2, 3.0],
         Tag {
             contents: Contents::SOLID,
-            surface: crate::Surface { material: 7 },
+            surface: crate::Surface { material: 7, ..Default::default() },
             entity: Some(42),
             states: 1,
         },

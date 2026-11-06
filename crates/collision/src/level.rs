@@ -44,9 +44,23 @@ impl Tag {
     pub fn level(contents: Contents, material: u16) -> Tag {
         Tag {
             contents,
-            surface: Surface { material },
+            surface: Surface {
+                material,
+                ground: crate::Ground::Unknown,
+            },
             entity: None,
             states: ALWAYS,
+        }
+    }
+
+    /// The same, looking like `ground`.
+    pub fn on(self, ground: crate::Ground) -> Tag {
+        Tag {
+            surface: Surface {
+                ground,
+                ..self.surface
+            },
+            ..self
         }
     }
 }
@@ -523,6 +537,7 @@ impl Level {
             out.vec3(brush.max);
             out.u32(brush.tag.contents.0);
             out.u16(brush.tag.surface.material);
+            out.u8(brush.tag.surface.ground as u8);
             out.u32(brush.tag.entity.unwrap_or(u32::MAX));
             out.u8(brush.tag.states);
             out.u32(brush.slot);
@@ -553,14 +568,14 @@ impl Level {
         out.0
     }
 
-    /// Bump when `encode`'s bytes change.
-    const FORMAT: u32 = 1;
+    /// Bump when `encode`'s bytes change. 2: a brush's ground.
+    const FORMAT: u32 = 2;
 
     /// A level `encode` wrote.
     pub fn decode(bytes: &[u8]) -> Result<Level, crate::pack::Bad> {
         let mut input = crate::pack::In(bytes);
         input.magic(b"KJKC", Level::FORMAT)?;
-        let mut brushes = Vec::with_capacity(input.len(47)?);
+        let mut brushes = Vec::with_capacity(input.len(48)?);
         for _ in 0..brushes.capacity() {
             brushes.push(Brush {
                 first: input.u32()?,
@@ -571,6 +586,7 @@ impl Level {
                     contents: Contents(input.u32()?),
                     surface: Surface {
                         material: input.u16()?,
+                        ground: crate::Ground::from_u8(input.u8()?),
                     },
                     entity: Some(input.u32()?).filter(|entity| *entity != u32::MAX),
                     states: input.u8()?,
