@@ -7,7 +7,8 @@
 //! (`scene::encoded_view`): `screens + (1 - alpha) · world`. Blended in
 //! linear light instead, a translucent dark panel reads lighter than the
 //! games'. The same pass lifts or lowers the whole frame by the
-//! brightness's gamma (`display`): `value^(1 / gamma)`.
+//! brightness's gamma (`display`): `value^(1 / gamma)`. A run filming
+//! clean frames (`clean on`) leaves the screens out: the world alone.
 
 use std::collections::HashMap;
 
@@ -31,12 +32,13 @@ use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
 
 const SHADER: Handle<Shader> = uuid_handle!("8e0b6a41-27c3-4f5d-9a1e-6c4d2b7f3e90");
 
-/// On the camera that composites: the screens' image, and the frame's
-/// gamma (1 as drawn).
+/// On the camera that composites: the screens' image, the frame's gamma
+/// (1 as drawn), and whether the screens are left out.
 #[derive(Component, ExtractComponent, Clone)]
 pub struct UiComposite {
     pub screens: Handle<Image>,
     pub gamma: f32,
+    pub clean: bool,
 }
 
 impl UiComposite {
@@ -44,6 +46,7 @@ impl UiComposite {
         UiComposite {
             screens,
             gamma: 1.0,
+            clean: false,
         }
     }
 }
@@ -143,7 +146,7 @@ fn composite(
     mut ctx: RenderContext,
 ) {
     let (target, screens, id) = view.into_inner();
-    let gamma = screens.gamma;
+    let (gamma, clean) = (screens.gamma, if screens.clean { 1.0 } else { 0.0 });
     let (Some(render), Some(screens)) = (
         cache.get_render_pipeline(id.0),
         images.get(&screens.screens),
@@ -153,7 +156,7 @@ fn composite(
     let post = target.post_process_write();
     let settings = device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("ui_composite"),
-        contents: &[gamma, 0.0, 0.0, 0.0]
+        contents: &[gamma, clean, 0.0, 0.0]
             .iter()
             .flat_map(|value: &f32| value.to_le_bytes())
             .collect::<Vec<u8>>(),
