@@ -394,6 +394,7 @@ fn decode_creature(input: &mut Reader) -> Result<ObjectData, DecodeError> {
         lock: None,
         hit_points: None,
         toughness: crate::module::Toughness::default(),
+        destructible: None,
         faction: 0,
         trap: None,
         conversation: input.string()?,

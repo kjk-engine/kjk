@@ -42,8 +42,9 @@ pub struct Rules {
 /// A prop an arena lays out: a placeable drawn as `placeables.2da` row
 /// `appearance`, named `name`, standing at `at` (metres) facing `yaw`
 /// (degrees) and colliding as `footprint` (`ObjectData::geometry`: least and
-/// greatest corners in pairs, in its own frame). It holds nothing, is not
-/// used, and has no hit points of its own.
+/// greatest corners in pairs, in its own frame). It holds nothing and is not
+/// used; blows break it or show on it as `destructible` says, with the
+/// catalogue's hit points.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Prop {
     pub appearance: u16,
@@ -51,15 +52,19 @@ pub struct Prop {
     pub at: [f32; 3],
     pub yaw: f32,
     pub footprint: Vec<[f32; 3]>,
+    pub destructible: Option<crate::destruction::Destructible>,
 }
 
 impl Prop {
     /// Its facts, as made.
     fn facts(&self) -> ObjectData {
+        let most = self.destructible.map(crate::destruction::most_hp);
         ObjectData {
             kind: ObjectKind::Placeable,
             name: self.name.clone(),
             geometry: self.footprint.clone(),
+            destructible: self.destructible,
+            hit_points: most.map(|most| (most, most)),
             ..ObjectData::unknown(&prop_template(self.appearance), self.at, self.yaw)
         }
     }
@@ -91,6 +96,9 @@ impl Rules {
             let corners = prop.footprint.iter().flatten();
             for value in prop.at.iter().chain([&prop.yaw]).chain(corners) {
                 hasher.update(&value.to_le_bytes());
+            }
+            if let Some(d) = prop.destructible {
+                hasher.update(&[d.class as u8, d.material as u8, d.size as u8]);
             }
         }
     }

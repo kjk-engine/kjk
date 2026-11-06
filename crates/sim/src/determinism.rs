@@ -309,6 +309,7 @@ pub(crate) fn proving_ground_named(name: &str) -> Level {
         lock: None,
         hit_points: None,
         toughness: crate::module::Toughness::default(),
+        destructible: None,
         faction: 0,
         body: None,
         map_note: None,

@@ -1,6 +1,7 @@
 //! Destruction's catalogue and maths (`kjk sim probes --only destruction`).
 
-use super::{Class, Destructible, Material, Size, catalogue, most_hp, stage, worth};
+use super::{Class, Destructible, Material, Size, catalogue, guarded, most_hp, stage, worth};
+use crate::module::{ObjectData, ObjectKind, Opens};
 use crate::probe::{Checks, check};
 
 /// The catalogue's rows of `game` that break or show damage.
@@ -64,10 +65,57 @@ fn worth_probe() -> Result<String, String> {
     )
 }
 
+/// A bare placeable of K1's row 39 (a footlocker), tagged `chest`.
+pub(crate) fn bare_prop() -> ObjectData {
+    ObjectData {
+        kind: ObjectKind::Placeable,
+        tag: "chest".into(),
+        destructible: catalogue("k1", 39),
+        ..ObjectData::unknown("chest_tpl", [0.0; 3], 0.0)
+    }
+}
+
+fn guards_probe() -> Result<String, String> {
+    type Guard = (&'static str, fn(&mut ObjectData));
+    const GUARDS: [Guard; 8] = [
+        ("plot", |facts| facts.toughness.plot = true),
+        ("container", |facts| facts.container = true),
+        ("useable", |facts| facts.useable = true),
+        ("conversation", |facts| facts.conversation = "x".into()),
+        ("script", |facts| {
+            facts.scripts = vec![("OnHeartbeat".into(), "x".into())]
+        }),
+        ("min1hp", |facts| facts.toughness.min_one_hp = true),
+        ("locked", |facts| facts.opens = Opens::Locked),
+        ("tag named", |facts| facts.tag = "named".into()),
+    ];
+    let named = |text: &str| text == "named";
+    let bare = bare_prop();
+    let bare_guarded = guarded(&bare, named);
+    let missed: Vec<&str> = GUARDS
+        .iter()
+        .filter(|(_, guard)| {
+            let mut facts = bare_prop();
+            guard(&mut facts);
+            !guarded(&facts, named)
+        })
+        .map(|(name, _)| *name)
+        .collect();
+    let template_named = guarded(&bare, |text| text == "chest_tpl");
+    check(
+        bare.destructible.is_some() && !bare_guarded && missed.is_empty() && template_named,
+        format!(
+            "a bare footlocker guarded {bare_guarded} (want false); guards that missed: \
+             {missed:?}; template named guards it {template_named}"
+        ),
+    )
+}
+
 /// The probes.
 pub fn probes() -> Checks {
     vec![
         ("destruction_catalogue", catalogue_probe()),
         ("destruction_worth", worth_probe()),
+        ("destruction_guards", guards_probe()),
     ]
 }
