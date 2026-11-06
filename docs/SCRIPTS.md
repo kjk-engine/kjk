@@ -119,12 +119,20 @@ the games' own compiled scripts; nothing of them is in the repo.
   `acting::blended_in`): from its start, each node moved each frame by a
   weight toward the clip, the weight growing by the frame's share of the
   clip's transition time, so the pose before is mostly gone within about a
-  quarter of a second. A clip played once holds its end while it fades, in
-  half its transition time. reone's rule (`kTransitionLength`, skipping to
-  a quarter second before the transition time) is not the executables'.
-  [verify] the frame rate the blend is reckoned at (60 here), and a looping
-  clip's start: the executable carries over the phase of the clip before,
-  here it starts at 0.
+  quarter of a second. The pose before is the clip it replaces, which stays
+  whole under the new one until that one has blended in (`Shows::shown`), so
+  the body under the clips (JA's stance) never shows between two of them.
+  A loop is whole for its time and fades over its transition time after
+  it; the same loop played again as its time runs out (a conversation's
+  lines, TSL's `101awake` afloat line after line) carries on rather than
+  beginning anew (`Shows::follow`, `CARRIED_MS`). A clip played once holds
+  its last frame while its action lasts (the Exile's sink lies at the
+  tank's floor for the rest of its line), then fades in half its
+  transition time. reone's rule (`kTransitionLength`, skipping to a quarter
+  second before the transition time) is not the executables'. [verify] the
+  frame rate the blend is reckoned at (60 here), and a looping clip's
+  start: the executable carries over the phase of the clip before, here it
+  starts at 0.
 - TSL's other effects: `EffectBlind` (it neither sees nor hears: its
   perception skipped; the 50 % miss chance and visual 5002 not kept
   [verify: who rolls it]), `EffectTrueSeeing` (sees through invisibility)
