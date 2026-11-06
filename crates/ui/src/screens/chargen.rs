@@ -393,8 +393,8 @@ impl Chargen {
         if self.levelling() { 1 } else { cost(score) }
     }
 
-    /// The class chosen; levelling, its class skills with those the
-    /// character's Class Skill feats add.
+    /// The class chosen; levelling, its class skills those of the level's
+    /// picks (with the character's Class Skill feats).
     fn class(&self, vm: &ViewModel) -> ClassView {
         let mut class = vm
             .chargen
@@ -403,8 +403,8 @@ impl Chargen {
             .cloned()
             .unwrap_or(ClassView::default());
         if let Some(up) = vm.levelup.as_ref().filter(|_| self.levelling()) {
-            for (own, feat) in class.class_skills.iter_mut().zip(up.feat_class_skills) {
-                *own |= feat;
+            for (own, picked) in class.class_skills.iter_mut().zip(up.picks.class_skills) {
+                *own |= picked;
             }
         }
         class

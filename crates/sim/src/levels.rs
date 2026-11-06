@@ -291,6 +291,8 @@ pub struct Picks {
     pub power_chart: Vec<[Option<u16>; 3]>,
     /// The powers the character has.
     pub known_powers: Vec<u16>,
+    /// The level's class skills (`class_skills`), as `take` prices them.
+    pub class_skills: [bool; SKILLS],
 }
 
 /// Row `level` (from 1) of a by-level table, its last past its end; 0
@@ -519,6 +521,7 @@ impl Classes {
             chart,
             known,
             power_chart,
+            class_skills: class_skills(of, &feats),
             known_powers: powers,
         })
     }
@@ -945,6 +948,11 @@ pub const CLASS_SKILL_FEATS: [Option<u16>; SKILLS] = [
 /// (`CSWGuiSkillsCharGen::IsClassSkill` asks the feat first).
 pub fn class_skill(class: &Class, feats: &[u16], skill: usize) -> bool {
     class.class_skills[skill] || CLASS_SKILL_FEATS[skill].is_some_and(|feat| feats.contains(&feat))
+}
+
+/// Each skill's `class_skill` for `class` and `feats`.
+pub fn class_skills(class: &Class, feats: &[u16]) -> [bool; SKILLS] {
+    std::array::from_fn(|skill| class_skill(class, feats, skill))
 }
 
 fn known_feats(sheet: &Sheet, class: &Class, class_level: u8) -> Vec<u16> {
