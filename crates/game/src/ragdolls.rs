@@ -213,6 +213,8 @@ pub struct Ragdolls {
     /// Parts cut off since the scene last took them (`severing`): whose,
     /// and the cut.
     pub severed: Vec<(SimId, severing::Sever)>,
+    /// Every blade's killing blow cuts (`sever every`, for filming).
+    pub every_kill_cuts: bool,
 }
 
 /// Each node of a body in model space, parents first: `local` gives a
@@ -594,7 +596,7 @@ impl Ragdolls {
         let Some(edge) = severing::edge(hit, sheet.as_ref()) else {
             return;
         };
-        let Some(limb) = severing::limb(template, hit, d.id) else {
+        let Some(limb) = severing::limb(template, hit, d.id, self.every_kill_cuts) else {
             return;
         };
         let pass = hit

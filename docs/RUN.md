@@ -31,10 +31,13 @@ ends the run with exit code 1; a script that does not parse exits with 2.
 | `camera follow player 1 2 1.5 [look TAG] [height 1.3] [orbit 30] [fov 40] [world]` | at once: from then on, each frame, the camera that far right, forward and up of the creature with that tag (`player`: seat 0's) as it faces (`world`: along x, y, z), looking at a point `height` metres over its soles (or `look`'s creature's), turning round it `orbit` degrees a second of game time; a `camera` pose or another move ends it |
 | `campath push.path [at 4.5]` | at once: from then on, the camera along the file's keys, `t x y z yaw pitch [fov]` a line (`#` comments; a key without a fov keeps the last), `t` seconds of game time from `at` (the time `anim` and `record` hold) or from now: a cubic through the keys, easing in and out, yaw the short way round; held at the last key |
 | `clean on`, `clean off` | at once: frames without the screens over the world (no HUD, subtitles, conversation box or letterbox), for filming; `--clean` on `play`, `host` and `join` starts the script with it |
+| `sever every`, `sever rule` | at once: every blade's killing blow cuts a limb off, for filming; or as often as the rulebook says again (`combat.severing.chance`) |
+
+`kjk play --mighty` makes the player's blows count ten times over, as `playthrough`'s: with `--aim TAG`, `sever every` and an arena's foes called in while time is held (`anim`), a fight that repeats exactly, for filming (`trailer/shots/`).
 | `ui open inventory`, `ui press BTN_OK`, … | at once: the request handed to the game's screens (`UI.md` lists them) |
 | `vfx 2007 end_trask [9] [source]` | at once: a `visualeffects.2da` row played on the creature with that tag, as a script's would be, for that many seconds, a beam from the source's tag |
 | `anim 2.5`, `anim run` | at once: animation and game time are held at that second (`kjk play` steps the sim up to it), or run with the clock again |
-| `record name 1.5 5.5 [30]` | game time is held at each frame's moment from 1.5 s to 5.5 s in turn (30 a second), each screenshotted (`name-0000.png`, …), then `name.mp4` is made of them with the run's `audio.wav` by `ffmpeg` (none: the frames stay, with a warning) |
+| `record name 1.5 5.5 [30]` | game time is held at each frame's moment from 1.5 s to 5.5 s in turn (30 a second, up to 240 for slow motion), each screenshotted (`name-0000.png`, …), then `name.mp4` is made of them with the run's `audio.wav` by `ffmpeg` (none: the frames stay, with a warning) |
 | `clip name 9 [12]` | the game, running on, screenshotted 12 times a second of its time for 9 s (later when capturing falls behind), each frame stamped with the game's time it shows, then `name.mp4` of them with the sound (`SOUND.md`) |
 | `quit` | always; the run ends with success |
 

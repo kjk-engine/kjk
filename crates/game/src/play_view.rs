@@ -34,7 +34,7 @@ use asset_odyssey::model::ModelIr;
 use asset_odyssey::module::Camera as PlacedCamera;
 use bevy::prelude::*;
 use collision::{Contents, Extents, UNIT};
-use console::{CameraMotion, CameraRequest, DumpDue, DumpFacts, Move};
+use console::{CameraMotion, CameraRequest, DumpDue, DumpFacts, EveryKillCuts, Move};
 use sim::combat::damage::FriendlyFire;
 use sim::module::ObjectKind;
 use sim::motion;
@@ -395,6 +395,7 @@ impl Plugin for PlayViewPlugin {
                     crate::wardrobe::dress,
                     follow_keys,
                     view_keys,
+                    every_kill_cuts,
                     draw.in_set(Drawn),
                     film,
                     crate::severing::apply,
@@ -1017,6 +1018,13 @@ impl View {
             .filter(|entity| cast::is_tagged(entity, &objects, tag))
             .min_by_key(|entity| !entity.fighter.is_some_and(|fighter| fighter.alive()))
             .map(|entity| entity.id)
+    }
+}
+
+/// `sever every`: the ragdolls cut a limb off at every blade's killing blow.
+fn every_kill_cuts(every: Res<EveryKillCuts>, mut view: ResMut<View>) {
+    if view.cast.ragdolls.every_kill_cuts != every.0 {
+        view.cast.ragdolls.every_kill_cuts = every.0;
     }
 }
 

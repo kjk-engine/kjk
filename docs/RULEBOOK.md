@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b72f5a5be1ca8e7d`.
+Edition `9a52f786efda3e71`.
 
 ## Contents
 
@@ -30,6 +30,7 @@ Edition `b72f5a5be1ca8e7d`.
   - [Flinching](#combat-flinch)
   - [Character Sheet](#combat-sheet)
   - [Idle Animations](#combat-idle)
+  - [Dismemberment](#combat-severing)
 - [Weapons](#weapons)
   - [Blaster Bolts](#weapons-bolt)
   - [Blaster Pistols](#weapons-pistol)
@@ -794,6 +795,21 @@ The view may turn up to 10 degrees and still count as at rest.
 A character in its second stance plays its second idle animation 5 times in 10.
 
 <sub>Source: JA: idling. Code: `sim::combat::idle::check`.</sub>
+
+### <a id="combat-severing"></a>Dismemberment
+
+A lightsaber's or an edged blade's killing blow can cut a limb off: the head,
+the body in half, an arm, the hand or a leg, by where the blade landed.
+
+Drawn by each player's own view from the killing hit, the same on every machine; the game's rules never see it. KOTOR cuts nothing; JA's sabers do.
+
+<a id="combat-severing-chance"></a>**Dismemberment Chance** = **33%** · `combat.severing.chance`
+
+A blade's killing blow cuts a limb off 33% of the time.
+
+Which kills cut is a number of the character and its killing hit, not a draw. Filming makes every one cut (`sever every`).
+
+<sub>Source: the owner's choice. Code: `game::severing::limb`.</sub>
 
 ## <a id="weapons"></a>Weapons
 
