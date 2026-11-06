@@ -52,7 +52,10 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   a screen's (the bar) is read from where the screen's came from.
 - A layout's own textures, fonts and words come from KOTOR 2; what a
   screen puts in (portraits, icons, item names, its words) from the
-  campaign's.
+  campaign's. An item template only a module's own archives hold (a story
+  item, Tatooine's star map datapad) is read from that module wherever
+  the item is carried, as KOTOR's save keeps the item whole
+  (`GuiAssets::item`; issue 165).
 - KOTOR 2's full screens are opaque 800 × 600 frames, black round them in
   a larger window. The in-game bar shows the party member the pages show:
   portrait, vitality and force, name, class and level; the other two

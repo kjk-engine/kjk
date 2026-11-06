@@ -109,6 +109,9 @@ pub struct GuiAssets {
     module: Option<String>,
     /// Items looked up so far, by template.
     items: BTreeMap<String, Option<ItemLook>>,
+    /// The module whose own archives hold each item template the shared
+    /// data lacks (`Resolver::module_owners`), listed at the first ask.
+    item_owners: Option<BTreeMap<String, String>>,
     /// Templates' names looked up so far, by resref and type.
     template_names: BTreeMap<(String, ResType), Option<Vec<u8>>>,
     /// Creatures' portraits looked up so far, by template.
@@ -160,6 +163,7 @@ impl GuiAssets {
             index,
             module: None,
             items: BTreeMap::new(),
+            item_owners: None,
             template_names: BTreeMap::new(),
             portraits: BTreeMap::new(),
             scenes: Vec::new(),
@@ -200,6 +204,7 @@ impl GuiAssets {
         self.base = base;
         self.module = None;
         self.items.clear();
+        self.item_owners = None;
         self.template_names.clear();
         self.portraits.clear();
         self.tables = asset_odyssey::tables::Tables::default();
@@ -450,9 +455,30 @@ impl GuiAssets {
         self.localized(gff.root.get("LocName").or(gff.root.get("Name")))
     }
 
+    /// Item template `resref`'s UTI: the module entered's or the shared
+    /// data's, else the one of the module whose own archives hold it. KOTOR
+    /// keeps a carried item whole in its save, so a story item made in one
+    /// module (Tatooine's star map datapad) shows as itself in every other.
+    fn uti(&mut self, resref: &str) -> Option<fmt_odyssey::gff::Gff> {
+        if let Some(uti) = self.gff(resref, ResType::UTI) {
+            return Some(uti);
+        }
+        let (base, index) = (&self.base, &self.index);
+        let owners = self
+            .item_owners
+            .get_or_insert_with(|| base.module_owners(index, ResType::UTI));
+        let module = owners.get(&resref.to_ascii_lowercase())?;
+        let bytes = self
+            .base
+            .with_module(index, module)
+            .ok()?
+            .read(resref, ResType::UTI)?;
+        fmt_odyssey::gff::Gff::parse(&bytes).ok()
+    }
+
     fn look(&mut self, resref: &str) -> Option<ItemLook> {
         use asset_odyssey::item::{self, item_type, property};
-        let uti = self.gff(resref, ResType::UTI)?;
+        let uti = self.uti(resref)?;
         let root = &uti.root;
         // TSL's item names carry sort keys in braces its screens leave out.
         let name = self

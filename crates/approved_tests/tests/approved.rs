@@ -1110,6 +1110,57 @@ fn gui_layouts() {
     }
 }
 
+/// Issue 165: an item whose template only a module's own archives hold
+/// (Tatooine's star map datapad, the Sand People's chieftain's gift, Brejik's
+/// prizes) shows its name and description in every other module, as KOTOR's
+/// save keeps it whole; it had shown its resref. Read on the Ebon Hawk
+/// (`ui::assets::GuiAssets::item`, its template found in its module's own
+/// archives).
+#[test]
+fn carried_story_items_named() {
+    const CARRIED: [&str; 16] = [
+        "tat_starpad",
+        "tat17_racebond",
+        "tat20aa_westmap",
+        "tat20_gaffichief",
+        "tat17_huntpermit",
+        "tat17_wraidplate",
+        "tat17_datapad",
+        "tat18_wraidplate",
+        "dan_starpad",
+        "dan16_key001",
+        "g_mandat1",
+        "dan_map1",
+        "dan_map2",
+        "tar03_brejikband",
+        "tar03_brejikglov",
+        "tar03_brejikbelt",
+    ];
+    let discovery = discovery();
+    if discovery.get(vfs::Game::Kotor1).is_none() {
+        println!("k1: no install, skipped");
+        return;
+    }
+    let mut assets =
+        ui::assets::GuiAssets::open(&discovery, vfs::Game::Kotor1).expect("the install opens");
+    assets.enter_module("ebo_m12aa");
+    let unnamed: Vec<&str> = CARRIED
+        .into_iter()
+        .filter(|template| {
+            assets.item(template).is_none_or(|look| {
+                println!("{template}: {}", String::from_utf8_lossy(&look.name));
+                // The hunter's licence has no description in K1's data.
+                look.name == template.as_bytes()
+                    || (look.description.is_empty() && *template != "tat17_huntpermit")
+            })
+        })
+        .collect();
+    assert!(
+        unnamed.is_empty(),
+        "shown by resref or undescribed: {unnamed:?}"
+    );
+}
+
 /// Containers (I21's loot): two seats at one container and one out of
 /// reach (`sim::containers::probes`): the contested first item goes to
 /// the lower seat and the other is told it is gone, taking everything left
