@@ -142,17 +142,20 @@ impl AnimationIr {
     /// The track posing each of `model`'s nodes (by the model's node
     /// index): a track names its node without case, and takes it only where
     /// the model marks the node animated and it is at or under the clip's
-    /// root.
+    /// root. A root the model has no node by is the model itself: TSL's
+    /// `p_kreiastunt` names its clips' root `p_kreiastunt01`, and Kreia
+    /// gets up from the morgue's slab on them (`101kreia`).
     pub fn bind(&self, model: &ModelIr) -> Vec<Option<usize>> {
         let mut bound = vec![None; model.nodes.len()];
+        let root = self
+            .root
+            .as_deref()
+            .filter(|root| model.node_index(root).is_some());
         for (track, keys) in self.tracks.iter().enumerate() {
             let Some(node) = model.node_index(&keys.node) else {
                 continue;
             };
-            let under_root = self
-                .root
-                .as_deref()
-                .is_none_or(|root| model.under(node, root));
+            let under_root = root.is_none_or(|root| model.under(node, root));
             if model.nodes[node].animated && under_root {
                 bound[node] = Some(track);
             }

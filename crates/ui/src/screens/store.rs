@@ -14,13 +14,16 @@
 
 use fmt_odyssey::gui::{Control, Gui};
 
+use crate::draw::Textures;
 use crate::input::Key;
 use crate::intent::{GameAction, GuiSound, Intent};
 use crate::paint::ControlState;
 use crate::screen::{Screen, ScreenId};
 use crate::screens::filter::{self, Filter};
+use crate::screens::message::Message;
 use crate::screens::pages::description;
 use crate::screens::tab::{hidden, rows, text};
+use crate::skin::Source;
 use crate::strings;
 use crate::vm::{Entry, StoreView, ViewModel, Ware};
 
@@ -306,12 +309,19 @@ impl std::str::FromStr for Deal {
 /// goes back to the store.
 pub struct Confirm {
     deal: Deal,
+    asked: Message,
 }
 
 impl Confirm {
     pub fn new(said: &str) -> Option<Confirm> {
+        let deal: Deal = said.parse().ok()?;
+        let question = if deal.selling { WORTH_MORE } else { COSTS_MORE };
         Some(Confirm {
-            deal: said.parse().ok()?,
+            asked: Message::strref(
+                question,
+                vec![("CUSTOM0", deal.asked.to_string().into_bytes())],
+            ),
+            deal,
         })
     }
 }
@@ -325,17 +335,9 @@ impl Screen for Confirm {
         "confirm"
     }
 
-    fn state(&self, control: &Control, _: &ViewModel) -> ControlState {
+    fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         match control.tag.as_str() {
-            "LB_MESSAGE" => ControlState {
-                strref: Some(if self.deal.selling {
-                    WORTH_MORE
-                } else {
-                    COSTS_MORE
-                }),
-                tokens: vec![("CUSTOM0", self.deal.asked.to_string().into_bytes())],
-                ..ControlState::default()
-            },
+            "LB_MESSAGE" => self.asked.state(control, vm),
             "BTN_OK" => text(strings::OK),
             "BTN_CANCEL" => text(strings::CANCEL),
             _ => ControlState::default(),
@@ -363,7 +365,7 @@ impl Screen for Confirm {
         Some("BTN_OK")
     }
 
-    fn shape(&self, gui: &mut Gui) {
-        super::message::grow(gui);
+    fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
+        self.asked.fit(gui, textures, source);
     }
 }

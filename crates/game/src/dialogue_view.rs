@@ -243,32 +243,41 @@ pub(crate) struct Fill<'a> {
 }
 
 impl<'a> Fill<'a> {
-    /// For the player whose character is `pc` in `snapshot`, or who drives
-    /// it: a companion the first seat was switched to or leads with
-    /// (`Snapshot::leading`) speaks with that player's tokens, as TSL's
-    /// `CSWTlkTable::GetTokenValue` fills `<FirstName>` from the party
-    /// table's player name whoever the player controls (Visas Marr asked
-    /// "What happened with <FirstName>?" on Dxun).
+    /// For the player whose character is `pc` in `snapshot`, or whose seat
+    /// drives it, else (no such seat, or one with no persona: a remote
+    /// droid's) the first seat's: the executable fills the player's
+    /// tokens from the party table's player whoever the line is said to and
+    /// whoever the player controls (T3-M4 in TSL's prologue, "<FullName>'s
+    /// fate"; Visas Marr asking "What happened with <FirstName>?" on Dxun
+    /// while she leads).
     pub fn to(snapshot: &'a sim::Snapshot, pc: script_ncs::vm::ObjectId) -> Fill<'a> {
-        let driven = snapshot.leading == Some(sim::SimId(pc.0));
+        let seat = snapshot
+            .get(sim::SimId(pc.0))
+            .and_then(|entity| match entity.kind {
+                sim::Kind::Avatar(seat) => Some(seat),
+                _ => entity.fighter?.mind.driver,
+            });
+        let persona = |seat| sim::persona::of(&snapshot.personas, seat);
         Fill {
             told: &snapshot.talk,
-            pc: crate::persona::of_character(snapshot, pc.0).or_else(|| {
-                driven
-                    .then(|| sim::persona::of(&snapshot.personas, sim::Seat(0)))
-                    .flatten()
-            }),
+            pc: seat.and_then(persona).or_else(|| persona(sim::Seat(0))),
         }
     }
 }
 
-/// The game's own tokens of the player a line is said to: `<FullName>` and
-/// `<FirstName>` its name (a player has a first name only), a pair such as
+/// The game's own tokens of the player a line is said to, as its
+/// `stringtokens.2da` names them (case and all): `<FullName>`,
+/// `<FirstName>` and `<PlayerName>` its name, `<LastName>` nothing (a
+/// player has a first name only), the highlight marks (`<StartAction>`,
+/// `<StartCheck>`, `<StartHighlight>`, `</Start>`) nothing, a pair such as
 /// `<man/woman>` or `<sir/madam>` the first for a man, the second for a
 /// woman.
 pub(crate) fn player_token(token: &str, pc: &sim::persona::Persona) -> Option<String> {
     match token {
-        "FullName" | "FirstName" => Some(pc.name.clone()),
+        "FullName" | "FirstName" | "PlayerName" => Some(pc.name.clone()),
+        "LastName" | "StartAction" | "StartCheck" | "StartHighlight" | "/Start" => {
+            Some(String::new())
+        }
         _ => {
             let (man, woman) = token.split_once('/')?;
             let pair = [man, woman];
@@ -283,6 +292,12 @@ pub(crate) fn player_token(token: &str, pc: &sim::persona::Persona) -> Option<St
 /// (`fmt_odyssey::tlk::unbraced`), `<CUSTOMn>` and the player's tokens
 /// (`player_token`) filled in, trimmed.
 pub(crate) fn said(raw: &[u8], fill: Fill) -> Vec<u8> {
+    said_with(raw, fill, &|_| None)
+}
+
+/// `said`, the tokens neither fills filled by `other` (the controls' in a
+/// tutorial's words, `pad::Prompts::token`).
+pub(crate) fn said_with(raw: &[u8], fill: Fill, other: &dyn Fn(&str) -> Option<String>) -> Vec<u8> {
     let raw = fmt_odyssey::tlk::unbraced(raw);
     let mut out = Vec::with_capacity(raw.len());
     let mut at = 0;
@@ -297,7 +312,10 @@ pub(crate) fn said(raw: &[u8], fill: Fill) -> Vec<u8> {
                         .parse::<i32>()
                         .ok()
                         .and_then(|n| fill.told.tokens.get(&n).cloned()),
-                    None => fill.pc.and_then(|pc| player_token(token, pc)),
+                    None => fill
+                        .pc
+                        .and_then(|pc| player_token(token, pc))
+                        .or_else(|| other(token)),
                 };
                 match value {
                     Some(value) => out.extend(value.chars().map(|c| c as u32 as u8)),

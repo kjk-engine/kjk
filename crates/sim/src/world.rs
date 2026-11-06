@@ -375,12 +375,19 @@ struct Id(SimId);
 struct Avatar(Seat);
 
 /// A seat's own character while the seat plays another (`switch`: the
-/// creature `SwitchPlayerCharacter` named): it stays where it is as a
-/// character nobody plays, and the snapshot still has it as the seat's
-/// avatar (`Kind::Avatar`). A world restored from a snapshot benches an
-/// avatar whose seat drives a creature.
+/// creature `SwitchPlayerCharacter` named): no `Avatar`, out of the party,
+/// still the snapshot's avatar (`Kind::Avatar`). A world restored from a
+/// snapshot benches an avatar whose seat drives a creature.
 #[derive(Component)]
 struct Benched(Seat);
+
+/// A benched character out of the area too, where its game takes it out
+/// (`switch::leaves_area`: TSL's executable deletes the player's creature
+/// then). A disabling component (`SimWorld::from_snapshot`): no query finds
+/// it but one that names it, so nothing moves, meets, sees or hits it, and
+/// the view does not draw it (`Snapshot::away`).
+#[derive(Component)]
+struct Away;
 
 #[derive(Component)]
 struct Player(MotionState);
@@ -733,7 +740,7 @@ fn made_footprint(id: SimId, object: &Object, at: [f32; 3], placed: usize) -> Op
 pub struct SimWorld {
     world: World,
     schedule: Schedule,
-    rows: QueryState<EntityRow>,
+    rows: QueryState<EntityRow, bevy_ecs::query::Allow<Away>>,
 }
 
 impl SimWorld {

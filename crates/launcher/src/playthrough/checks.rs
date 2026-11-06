@@ -790,7 +790,9 @@ pub(super) fn shut_doors(base: &Snapshot, level: &sim::Level) -> sim::probe::Che
 /// jumped out of turned it back; one it walked out of did not. A body gone
 /// round twice where it stands is walled and the way keeps clear of it; one
 /// that moved between rounds is not. A walk approached off the mesh makes for the floor it would from the mesh
-/// (`Here::approach`).
+/// (`Here::approach`). A walk to a way out keeps off one leading elsewhere
+/// (`TurnedBack::keep_off_exits`), and a body sliding into that one, driven
+/// another way, is held back (`exit_ahead`).
 pub fn wall_probes() -> sim::probe::Checks {
     let mut world = match sim::SimWorld::new(sim::WorldConfig::one_seat(), sim::Level::arena()) {
         Ok(world) => world,
@@ -1009,10 +1011,85 @@ pub fn wall_probes() -> sim::probe::Checks {
             },
         )
     };
+    // Ways out of a module: the band to y 5 m leading elsewhere, the goal's
+    // own way out at the goal, and another of its tag and way at (-4, -6).
+    let exits = sim::determinism::proving_ground().module().map(|module| {
+        let out = |tag: &str, to: &str, at: [f32; 3], geometry: Vec<[f32; 3]>| ObjectData {
+            kind: ObjectKind::Trigger,
+            tag: tag.into(),
+            link: Some(sim::module::Link {
+                module: to.into(),
+                tag: String::new(),
+                destination: None,
+            }),
+            geometry,
+            ..ObjectData::unknown(tag, at, 0.0)
+        };
+        let square = vec![[-0.5, -0.5, 0.0], [0.5, -0.5, 0.0], [0.5, 0.5, 0.0], [-0.5, 0.5, 0.0]];
+        let placements = [
+            out("other", "elsewhere", [0.0; 3], band(5.0).geometry),
+            out("own", "there", [8.0, 0.0, 0.0], square.clone()),
+            out("own", "there", [-4.0, -6.0, 0.0], square),
+        ];
+        level.clone().with_module(sim::module::ModuleData {
+            placements: placements.into_iter().map(sim::module::Placement::Own).collect(),
+            ..(**module).clone()
+        })
+    });
+    let check = |name: &'static str, ok: bool, detail: String| (name, if ok { Ok(detail) } else { Err(detail) });
+    // The walk to the goal's own way out keeps off the other way out, by its
+    // open end, and off no way out of its own.
+    let kept_off = exits.as_ref().map_or_else(
+        || ("walk_keeps_off_the_ways_out_it_is_not_to_take", Err("the proving ground has no module".into())),
+        |level| {
+            let refused = BTreeSet::new();
+            let mut turned = TurnedBack::default();
+            let walled = turned.keep_off_exits(&Here::new(level, &snapshot, &refused), Some(1));
+            let here = Here::new(level, &snapshot, &refused).walled(&turned.walled);
+            let kept: Vec<u32> = turned.exits.iter().flat_map(|(_, exits)| exits).copied().collect();
+            let enters = here.route(from, to, true).is_some_and(|corners| {
+                std::iter::once(from).chain(corners).any(|corner| {
+                    let [x, y, _] = corner.map(|v| v * UNIT);
+                    x.abs() < 1.0 && y < 5.0
+                })
+            });
+            let round = here.goes_round(from, to);
+            check(
+                "walk_keeps_off_the_ways_out_it_is_not_to_take",
+                walled && kept == [0] && round && !enters,
+                format!("walled {walled}, kept off {kept:?}, round {round}, a corner in the other {enters}"),
+            )
+        },
+    );
+    // A body half its slide west of the other way out, driven north but
+    // sliding east (a backing off), is held back; sliding north it is not.
+    let guarded = exits.as_ref().map_or_else(
+        || ("exit_guard_holds_a_slide_across_a_way_out", Err("the proving ground has no module".into())),
+        |level| {
+            let refused = BTreeSet::new();
+            let here = Here::new(level, &snapshot, &refused);
+            let speed = 199.0;
+            let slide = speed / sim::motion::FRICTION * UNIT;
+            let at = origin(-1.0 - slide / 2.0, 0.0).map(|v| v * UNIT);
+            let north = Command {
+                forward: 127,
+                ..Command::default()
+            };
+            let ahead = |velocity: [f32; 3]| exit_ahead(&here, at, velocity, 90.0, &north, Some(1));
+            let (east, up) = (ahead([speed, 0.0, 0.0]), ahead([0.0, speed, 0.0]));
+            check(
+                "exit_guard_holds_a_slide_across_a_way_out",
+                east == Some(Ahead::Slides) && up.is_none(),
+                format!("sliding east {east:?}, north {up:?}"),
+            )
+        },
+    );
     vec![
         rounds,
         used,
         walled_body,
+        kept_off,
+        guarded,
         routed("walk_goes_round_a_trigger_that_turned_it_back", 5.0, true),
         routed("walk_goes_through_one_with_no_way_round", 10.0, false),
         left(

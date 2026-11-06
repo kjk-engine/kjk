@@ -60,6 +60,12 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
     if let Some(strref) = name.strip_prefix("message_box:") {
         return Some(Box::new(message::Message::told(strref)?));
     }
+    if let Some(at) = (name == "pages")
+        .then_some("0")
+        .or(name.strip_prefix("pages:"))
+    {
+        return Some(Box::new(message::Pages::new(at, vm)?));
+    }
     if let Some(item) = name.strip_prefix("upgrade:") {
         return Some(Box::new(upgrade::Upgrade::new(item)?));
     }
@@ -99,8 +105,7 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
         "chemical" => Box::new(workbench::Workbench::new(true)),
         "levelup" => Box::new(chargen::Chargen::level_up(vm)?),
         "death" => Box::new(message::Message::new(crate::strings::FALLEN)),
-        "pages" => Box::new(message::Pages::default()),
-        "lost" => Box::new(lost::Lost),
+        "lost" => Box::new(lost::Lost::new(vm)),
         "party" => Box::new(party::Party::default()),
         "galaxymap" => Box::new(galaxy_map::GalaxyMap::new(vm)?),
         "credits" => Box::new(credits::Credits::default()),

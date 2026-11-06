@@ -1289,21 +1289,44 @@ impl Snapshot {
             .map(|at| &self.entities[at])
     }
 
-    /// Entity `id` as drawn: in the world, or departing (`departing`).
+    /// Entity `id` as drawn: in the world, or departing (`departing`); a
+    /// seat's own character out of the area (`away`) is not.
     pub fn drawn(&self, id: SimId) -> Option<&EntityState> {
-        self.get(id).or_else(|| {
-            self.departing
-                .binary_search_by_key(&id, |going| going.entity.id)
-                .ok()
-                .map(|at| &self.departing[at].entity)
-        })
+        self.get(id)
+            .filter(|entity| !self.away(entity))
+            .or_else(|| {
+                self.departing
+                    .binary_search_by_key(&id, |going| going.entity.id)
+                    .ok()
+                    .map(|at| &self.departing[at].entity)
+            })
     }
 
-    /// Every entity drawn: those in the world, then those departing.
+    /// Every entity drawn: those in the world but a seat's own character
+    /// out of the area (`away`), then those departing.
     pub fn all_drawn(&self) -> impl Iterator<Item = &EntityState> {
         self.entities
             .iter()
+            .filter(|entity| !self.away(entity))
             .chain(self.departing.iter().map(|going| &going.entity))
+    }
+
+    /// Whether `entity` is a seat's own character while the seat plays
+    /// another (`world::switch`).
+    pub fn benched(&self, entity: &EntityState) -> bool {
+        match entity.kind {
+            Kind::Avatar(seat) => self.driven(seat).is_some(),
+            _ => false,
+        }
+    }
+
+    /// Whether `entity` is benched out of the area, as its game has it
+    /// (`world::switch::leaves_area`: TSL's, not K1's).
+    pub fn away(&self, entity: &EntityState) -> bool {
+        let game = self.place.as_ref().map_or_else(Default::default, |place| {
+            crate::combat::passive::Game::named(&place.game)
+        });
+        self.benched(entity) && crate::world::switch::leaves_area(game)
     }
 
     /// A new id, the next the world would give, taken: for what is put
@@ -1359,11 +1382,7 @@ impl Snapshot {
     /// seat plays another (`world::switch`) is not; one standing while a
     /// companion leads is.
     pub fn in_party(&self, entity: &EntityState) -> bool {
-        let benched = match entity.kind {
-            Kind::Avatar(seat) => self.driven(seat).is_some(),
-            _ => false,
-        };
-        crate::world::party_member(entity) && !benched
+        crate::world::party_member(entity) && !self.benched(entity)
     }
 
     /// The template of what character `holder` wears in `slot`

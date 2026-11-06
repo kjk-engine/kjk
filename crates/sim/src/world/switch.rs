@@ -1,9 +1,15 @@
 //! The first seat playing another character (`SwitchPlayerCharacter`, K1
 //! and TSL): the companion the party table names (`Party::switched`)
 //! becomes the scripts' PC and the body the first seat moves, and the
-//! seat's own character stays where it was, a character nobody plays,
-//! until `NPC_PLAYER` switches back (K1's Leviathan escape: the cell's
-//! prisoner stays behind while the one chosen escapes).
+//! seat's own character waits until `NPC_PLAYER` switches back. Where it
+//! waits is the game's (`leaves_area`): in K1 where it stood, a character
+//! nobody plays (the Leviathan's torture cage the one who escapes opens);
+//! in TSL out of the area, coming back where the creature played stands,
+//! facing its way, as TSL's executable, switching, saves
+//! the player's creature and deletes it, and makes it again from that save
+//! on the way back (the scenes make their own stand-ins where one is seen:
+//! TSL's prologue lays a disguised `c_medbaypc` on the Ebon Hawk's medbay
+//! bed).
 //!
 //! The table is the truth; `sync`, first in `drivers::assign`, makes the
 //! world follow it, so a switch a script makes moves the seat from the next
@@ -17,11 +23,13 @@
 //! - the seat's own character is `Benched`: no `Avatar`, so its mind keeps
 //!   it, out of the party, still the snapshot's `Kind::Avatar` (a world
 //!   made from a snapshot benches the avatar of a seat that drives a
-//!   creature, so clients and saves need no more than the driver);
+//!   creature, so clients and saves need no more than the driver); where
+//!   its game takes it out of the area, `Away` too, a disabling component:
+//!   no system moves, meets, sees or hits it and the view does not draw it;
 //! - switching back, or the creature gone, the creature's mind takes over
 //!   again (in the party, or on its own if it is not a member) and the
-//!   seat's own character is its body again; the table forgets a creature
-//!   gone.
+//!   seat's own character is its body again (one that was away where the
+//!   creature given back stands); the table forgets a creature gone.
 //!
 //! Scripts see the switch at once, in the step that made it: `GetFirstPC`,
 //! `GetIsPC`, `GetPCSpeaker` and the party's index 0 answer the creature
@@ -34,9 +42,21 @@
 
 use bevy_ecs::prelude::*;
 
-use super::{Avatar, Benched, Fighting, Id, Inputs, LEADER_SEAT, Object, Player};
+use bevy_ecs::query::Allow;
+
+use super::{Avatar, Away, Benched, Fighting, Id, Inputs, LEADER_SEAT, Object, Player};
+use crate::combat::passive::Game;
 use crate::combat::sheet::factions;
 use crate::snapshot::SimId;
+
+/// Whether `game` takes the seat's own character out of the area while the
+/// seat plays another (`rules::party::switch`).
+pub fn leaves_area(game: Game) -> bool {
+    match game {
+        Game::K1 => rules::party::switch::LEAVES_AREA_K1,
+        Game::Tsl => rules::party::switch::LEAVES_AREA_TSL,
+    }
+}
 
 /// Whether a body carrying `avatar` is a scripts' PC: a seat's own
 /// character, or the creature the first seat is switched to (no guest
@@ -82,6 +102,13 @@ pub(super) fn sync(world: &mut World) {
         .0
         .get(LEADER_SEAT)
         .map(|command| command.angles);
+    // Where the creature given back stands: the seat's own character comes
+    // back there.
+    let given_back = riding
+        .iter()
+        .filter(|(entity, _)| Some(*entity) != body)
+        .find_map(|(entity, _)| world.get::<Player>(*entity))
+        .map(|player| (player.0.origin, player.0.view));
     // Given back: its mind again, in the party or on its own.
     for (entity, id) in riding {
         if Some(entity) == body {
@@ -125,9 +152,10 @@ pub(super) fn sync(world: &mut World) {
             kept.0.retain(|kept| Some(kept.npc) != npc);
         }
     }
-    // The seat's own character benched while it plays another, its body
-    // again after.
-    let mut own = world.query_filtered::<(Entity, Option<&Avatar>, Option<&Benched>), (Without<Object>, With<Player>)>();
+    // The seat's own character benched while it plays another (away, where
+    // its game takes it out of the area), its body again after.
+    let away = leaves_area(world.resource::<super::Static>().0.game());
+    let mut own = world.query_filtered::<(Entity, Option<&Avatar>, Option<&Benched>), (Without<Object>, With<Player>, Allow<Away>)>();
     let seats: Vec<(Entity, bool)> = own
         .iter(world)
         .filter_map(|(entity, avatar, benched)| match (avatar, benched) {
@@ -142,6 +170,9 @@ pub(super) fn sync(world: &mut World) {
             (true, false) => {
                 character.remove::<Avatar>();
                 character.insert(Benched(LEADER_SEAT));
+                if away {
+                    character.insert(Away);
+                }
                 // It stays on the player's side, though nobody plays it.
                 if let Some(mut fighting) = character.get_mut::<Fighting>() {
                     let faction = &mut fighting.0.faction;
@@ -149,8 +180,16 @@ pub(super) fn sync(world: &mut World) {
                 }
             }
             (false, true) => {
-                character.remove::<Benched>();
+                character.remove::<(Benched, Away)>();
                 character.insert(Avatar(LEADER_SEAT));
+                if let (true, Some((origin, view)), Some(mut player)) =
+                    (away, given_back, character.get_mut::<Player>())
+                {
+                    let ps = &mut player.0;
+                    ps.origin = origin;
+                    ps.velocity = [0.0; 3];
+                    ps.view = view;
+                }
                 look_on(&mut character, angles);
             }
             _ => {}

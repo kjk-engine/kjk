@@ -5,14 +5,30 @@
 
 use fmt_odyssey::gui::{Control, Gui};
 
+use crate::draw::Textures;
 use crate::intent::Intent;
 use crate::paint::ControlState;
 use crate::screen::{Screen, ScreenId};
-use crate::screens::pages::description;
+use crate::screens::message::Message;
+use crate::skin::Source;
 use crate::strings;
 use crate::vm::ViewModel;
 
-pub struct Lost;
+pub struct Lost {
+    asked: Message,
+}
+
+impl Lost {
+    pub fn new(vm: &ViewModel) -> Lost {
+        Lost {
+            asked: Message::new(if hosting(vm) {
+                strings::PARTY_FALLEN
+            } else {
+                strings::WAIT_FOR_HOST
+            }),
+        }
+    }
+}
 
 fn hosting(vm: &ViewModel) -> bool {
     vm.lost.is_some_and(|lost| lost.host)
@@ -30,11 +46,7 @@ impl Screen for Lost {
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         let host = hosting(vm);
         match control.tag.as_str() {
-            "LB_MESSAGE" => description(&strings::bytes(if host {
-                strings::PARTY_FALLEN
-            } else {
-                strings::WAIT_FOR_HOST
-            })),
+            "LB_MESSAGE" => self.asked.state(control, vm),
             "BTN_OK" if host => ControlState {
                 text: Some(strings::bytes(strings::LOAD)),
                 ..ControlState::default()
@@ -57,7 +69,7 @@ impl Screen for Lost {
         Some("BTN_OK")
     }
 
-    fn shape(&self, gui: &mut Gui) {
-        super::message::grow(gui);
+    fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
+        self.asked.fit(gui, textures, source);
     }
 }

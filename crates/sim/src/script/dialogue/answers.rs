@@ -30,7 +30,7 @@ impl Step<'_> {
         let node = &dlg.replies[reply as usize];
         // A reply said is a line of the player's (S2); a silent one, taken
         // as an entry's line ends, is none.
-        if !node.is_silent() {
+        if !says_nothing(library, node) {
             let c = &mut self.state.talk.conversations[at];
             c.angle = c.reply_angle(dlg, reply);
             let c = &self.state.talk.conversations[at];

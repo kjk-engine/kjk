@@ -56,8 +56,8 @@ use bevy_ecs::prelude::*;
 use script_ncs::vm::ObjectId;
 
 use super::{
-    Avatar, Benched, COMBAT_MS, Clock, Fighting, Id, Level, Object, Placed, Player, PlayerSheet,
-    SimWorld, Static, Streams, door_states, faction_of, in_party, sheet_of,
+    Avatar, Away, Benched, COMBAT_MS, Clock, Fighting, Id, Level, Object, Placed, Player,
+    PlayerSheet, SimWorld, Static, Streams, door_states, faction_of, in_party, sheet_of,
 };
 use crate::action::Action;
 use crate::combat::Sheath;
@@ -431,16 +431,20 @@ pub(super) fn scripts(
     mut streams: ResMut<Streams>,
     mut scripts: ResMut<Scripts>,
     doors: Query<&Object>,
-    things: Query<(
-        &Id,
-        Option<&Avatar>,
-        Option<&Object>,
-        Option<&Player>,
-        Option<&Placed>,
-        Option<&Fighting>,
-        Option<&PlayerSheet>,
-        Option<&Benched>,
-    )>,
+    things: Query<
+        (
+            &Id,
+            Option<&Avatar>,
+            Option<&Object>,
+            Option<&Player>,
+            Option<&Placed>,
+            Option<&Fighting>,
+            Option<&PlayerSheet>,
+            Option<&Benched>,
+            Has<Away>,
+        ),
+        bevy_ecs::query::Allow<Away>,
+    >,
 ) {
     let level = &level.0;
     let (Some(library), Some(module)) = (level.scripts(), level.module()) else {
@@ -455,9 +459,10 @@ pub(super) fn scripts(
     let mut lives = Vec::new();
     let mut bodies = Vec::new();
     let mut characters = Vec::new();
-    for (id, avatar, object, player, placed, fighting, sheet, benched) in &things {
+    for (id, avatar, object, player, placed, fighting, sheet, benched, away) in &things {
         let data = object.and_then(|object| object.facts.as_deref());
-        if let Some(player) = player {
+        // Out of the area while its seat plays another: none perceives it.
+        if let Some(player) = player.filter(|_| !away) {
             let ps = &player.0;
             let worn = sheet_of(sheet, object);
             let now_sheet = fighting.map_or(worn, |fighting| {
@@ -710,7 +715,7 @@ pub(super) fn scripts(
     }
     let fighters: BTreeMap<u32, &crate::combat::Fighter> = things
         .iter()
-        .filter_map(|(id, .., fighting, _, _)| Some((id.0.0, &fighting?.0)))
+        .filter_map(|(id, .., fighting, _, _, _)| Some((id.0.0, &fighting?.0)))
         .collect();
     if let Some(next) = passes_on(&scripts.state.party, leader_own, &fighters) {
         scripts.state.party.lead(next, leader_own);
@@ -1079,12 +1084,21 @@ pub(super) fn scripts(
         state.last.insert((object.0, script::last::UNLOCKED), by.0);
         raise_by(&view, state, object, Hook::Unlock, None, by);
     }
-    // Doors and placeables struck: attacked in melee (its striker's weapon
-    // kept), damaged where the blow told, and dying when they broke.
-    for &(object, by, lost, broke) in &battered.0 {
-        state.last.insert((object.0, script::last::ATTACKER), by.0);
-        struck_with(state, by.0);
-        raise(&view, state, ObjectId(object.0), Hook::Attacked, None);
+    // Doors and placeables struck: attacked by a weapon (its striker's
+    // weapon kept), damaged where the blow told, and dying when they broke.
+    for &super::objects::BlowTaken {
+        object,
+        by,
+        attacked,
+        lost,
+        broke,
+    } in &battered.0
+    {
+        if attacked {
+            state.last.insert((object.0, script::last::ATTACKER), by.0);
+            struck_with(state, by.0);
+            raise(&view, state, ObjectId(object.0), Hook::Attacked, None);
+        }
         if lost == 0 {
             continue;
         }

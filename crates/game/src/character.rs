@@ -99,6 +99,7 @@ fn picks_view(assets: &mut GuiAssets, picks: &sim::levels::Picks) -> PicksView {
         known: picks.known.clone(),
         power_chart: chart("spells", POWER, &picks.power_chart),
         known_powers: picks.known_powers.clone(),
+        class_skills: picks.class_skills,
     }
 }
 

@@ -38,6 +38,8 @@ pub const HOLD_MS: u64 = rules::targeting::pick::HOLD_MS;
 /// How high a standing player's eyes are above its feet (metres), for the
 /// near rule's sight.
 const EYES: f32 = rules::targeting::pick::EYES;
+/// How near the point it looks at a line of sight may stop (metres; `seen`).
+const SIGHT_SLACK: f32 = rules::targeting::pick::SIGHT_SLACK;
 /// A creature's pick volume: a standing cylinder (metres).
 const CREATURE_RADIUS: f32 = rules::targeting::volumes::CREATURE_RADIUS;
 const CREATURE_HEIGHT: f32 = rules::targeting::volumes::CREATURE_HEIGHT;
@@ -111,7 +113,16 @@ pub struct Candidate {
 
 impl Candidate {
     fn middle(&self) -> Vec3 {
-        [self.feet[0], self.feet[1], self.feet[2] + self.height * 0.5]
+        self.up(0.5)
+    }
+
+    /// The point of its axis `share` of the way up its volume.
+    fn up(&self, share: f32) -> Vec3 {
+        [
+            self.feet[0],
+            self.feet[1],
+            self.feet[2] + self.height * share,
+        ]
     }
 }
 
@@ -242,6 +253,21 @@ pub fn in_sight(level: &Level, states: Option<&[u8]>, from: Vec3, to: Vec3, inde
     crate::world::unobstructed(&trace) || trace.entity == Some(index)
 }
 
+/// Whether `candidate` is in sight of `from` (metres) for the crosshair: the
+/// line to its middle or its top gets within `SIGHT_SLACK` of it, so that
+/// a point on or just inside the object's own body, or on the bench it
+/// stands on, does not hide it (Peragus' consoles), while a wall in front
+/// still does.
+fn seen(level: &Level, states: Option<&[u8]>, from: Vec3, candidate: &Candidate) -> bool {
+    [0.5, 1.0].into_iter().any(|share| {
+        let to = candidate.up(share);
+        let trace = level.line(states, from, to);
+        crate::world::unobstructed(&trace)
+            || trace.entity == Some(candidate.index)
+            || (!trace.start_solid && math::length(math::sub(to, trace.end)) <= SIGHT_SLACK)
+    })
+}
+
 /// Where along `look` (metres from its start) it enters `candidate`'s
 /// cylinder, if it does.
 fn enters(look: &Look, candidate: &Candidate) -> Option<f32> {
@@ -310,16 +336,8 @@ pub fn pick(
                 solid
             } else {
                 // A volume poking through a wall is not hit through it.
-                enters(look, candidate).filter(|t| {
-                    *t <= solid
-                        && in_sight(
-                            level,
-                            states,
-                            look.from,
-                            candidate.middle(),
-                            candidate.index,
-                        )
-                })?
+                enters(look, candidate)
+                    .filter(|t| *t <= solid && seen(level, states, look.from, candidate))?
             };
             Some((at, candidate.index))
         })
@@ -335,15 +353,8 @@ pub fn pick(
         .filter_map(|candidate| {
             let to = math::sub(candidate.middle(), look.from);
             let cos = math::dot(to, look.forward) / math::length(to).max(1e-6);
-            (cos >= cone
-                && in_sight(
-                    level,
-                    states,
-                    look.from,
-                    candidate.middle(),
-                    candidate.index,
-                ))
-            .then_some((cos, candidate.index))
+            (cos >= cone && seen(level, states, look.from, candidate))
+                .then_some((cos, candidate.index))
         })
         .max_by(|a, b| a.0.total_cmp(&b.0));
     if let Some((_, index)) = soft {
@@ -355,7 +366,7 @@ pub fn pick(
     candidates
         .iter()
         .filter(clear)
-        .filter(|candidate| in_sight(level, states, eyes, candidate.middle(), candidate.index))
+        .filter(|candidate| seen(level, states, eyes, candidate))
         .filter_map(|candidate| {
             crate::containers::ahead(looker.feet, looker.facing, candidate.feet)
                 .map(|distance| (distance, candidate.index))

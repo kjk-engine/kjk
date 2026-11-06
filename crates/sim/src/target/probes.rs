@@ -10,7 +10,8 @@ use collision::UNIT;
 /// creature before the door wins, soft aim picks what the ray misses, a
 /// wall hides from it, what is at the feet is picked looking up, past the
 /// range nothing is, a target holds and lets go, each kind's choices, a
-/// placeable hung up a wall picked from the floor beneath it (`hung`)
+/// placeable hung up a wall picked from the floor beneath it (`hung`), a
+/// console on a bench or in its own solid body picked (`seen`)
 /// (`candidates` is checked
 /// with a world, `world::uses::probes`).
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
@@ -395,6 +396,46 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                 .zip(&hangs)
                 .all(|((.., wanted), got)| near(*wanted, *got)),
             format!("{hangs:?}"),
+        ),
+    ));
+    // A console standing on a bench (the 17° ramp's high end), its volume
+    // hanging over no floor, so that its middle lies 1 cm inside the
+    // bench (Peragus' administration console); and one in the 56° wedge,
+    // its middle deep inside and its top 1 cm under the surface, seen from
+    // above (the central core's round console, whose own body is solid).
+    // Each is picked aimed at: the first by the ray, the second (the look
+    // steeper than its volume is wide) by soft aim.
+    let on = |x: f32, y: f32, top: f32, share: f32| Candidate {
+        feet: ground_point(x, y, top - 0.01 - tall * share),
+        ..thing(11, ObjectKind::Placeable, x, y, PLACEABLE_RADIUS, tall)
+    };
+    let benches = [
+        (
+            on(-3.3, -4.5, 1.2 * 3.7 / 4.0, 0.5),
+            ground_point(-1.0, -4.5, 2.2),
+        ),
+        (
+            on(-6.3, 4.0, 2.2 * 1.2 / 1.5, 1.0),
+            ground_point(-5.5, 4.0, 5.0),
+        ),
+    ];
+    let picks: Vec<Option<u32>> = benches
+        .iter()
+        .map(|(console, from)| {
+            let mut forward = math::sub(console.middle(), *from);
+            math::normalize(&mut forward);
+            let who = Looker {
+                feet: [from[0], from[1], console.feet[2]],
+                facing: [forward[0], forward[1]],
+            };
+            pick_at(*from, forward, who, &[*console])
+        })
+        .collect();
+    checks.push((
+        "target_console_on_a_bench",
+        check(
+            picks.iter().all(|picked| *picked == Some(11)),
+            format!("{picks:?}"),
         ),
     ));
     checks.push((
