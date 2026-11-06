@@ -25,7 +25,20 @@ const RESPAWN_MS: u64 = 500;
 /// The proving ground as an arena laying out `props`, the foe's template in
 /// its library; the world and its rules.
 pub(super) fn arena_with(props: Vec<Prop>) -> Result<(SimWorld, Rules), String> {
+    arena_playing(props, WorldConfig::one_seat(), |_| {})
+}
+
+/// `arena_with` with its seat set up by `config` and its module changed by
+/// `edit`.
+pub(super) fn arena_playing(
+    props: Vec<Prop>,
+    config: WorldConfig,
+    edit: impl FnOnce(&mut crate::module::ModuleData),
+) -> Result<(SimWorld, Rules), String> {
     let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    edit(&mut data);
+    let ground = ground.with_module(data);
     let entry = ground.module().ok_or("the ground has no module")?.entry;
     let rules = Rules {
         respawn: entry.position,
@@ -42,7 +55,7 @@ pub(super) fn arena_with(props: Vec<Prop>) -> Result<(SimWorld, Rules), String> 
     let library = crate::probe::library("", std::iter::empty::<(String, _)>())
         .with_creatures([(FOE.to_string(), Arc::new(foe))].into());
     let level = ground.with_scripts(library).with_arena(rules.clone());
-    let world = SimWorld::new(WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    let world = SimWorld::new(config, level).map_err(|error| error.to_string())?;
     Ok((world, rules))
 }
 

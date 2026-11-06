@@ -351,21 +351,36 @@ fn made_chair() -> Result<String, String> {
     )
 }
 
-/// The arena's made props of `props` (row, where on the ground), laid out:
+/// The arena's made props of `props` (row, where on the ground's own axes),
+/// laid out:
 /// the world and each one's id and number, in order.
 fn arena_props(props: &[(u16, [f32; 2])]) -> Result<(SimWorld, Vec<(SimId, u32)>), String> {
+    let placed: Vec<(u16, [f32; 3])> = props
+        .iter()
+        .map(|&(row, [x, y])| (row, crate::determinism::ground_point(x, y, 0.0)))
+        .collect();
+    arena_props_playing(&placed, WorldConfig::one_seat(), |_| {})
+}
+
+/// `arena_props` with the props where `props` says (metres, the world's
+/// axes), its seat set up by `config`.
+fn arena_props_playing(
+    props: &[(u16, [f32; 3])],
+    config: WorldConfig,
+    edit: impl FnOnce(&mut crate::module::ModuleData),
+) -> Result<(SimWorld, Vec<(SimId, u32)>), String> {
     let laid: Vec<super::arena::Prop> = props
         .iter()
-        .map(|&(row, [x, y])| super::arena::Prop {
+        .map(|&(row, at)| super::arena::Prop {
             appearance: row,
             name: format!("prop {row}"),
-            at: crate::determinism::ground_point(x, y, 0.0),
+            at,
             yaw: 270.0,
             footprint: vec![[-0.4, -0.4, 0.0], [0.4, 0.4, 1.0]],
             destructible: destruction::catalogue("k1", row),
         })
         .collect();
-    let mut world = super::arena_probes::arena_with(laid.clone())?.0;
+    let mut world = super::arena_probes::arena_playing(laid.clone(), config, edit)?.0;
     for _ in 0..4 {
         let tick = world.tick() + 1;
         crate::step(
@@ -460,6 +475,58 @@ fn powers() -> Result<String, String> {
     )
 }
 
+/// Where seat 0's player stands (metres), its world set up by `config`.
+fn standing(config: WorldConfig) -> Result<[f32; 3], String> {
+    let (mut world, _) = arena_props_playing(&[], config, |_| {})?;
+    let mut query = world.world.query::<(&super::Avatar, &super::Player)>();
+    let (_, player) = query.iter(&world.world).next().ok_or("no player")?;
+    Ok(crate::math::scale(player.0.origin, collision::UNIT))
+}
+
+/// A Jedi's Force Wave, cast by the player's own button with nobody about,
+/// breaks the chairs within its reach.
+fn wave_by_hand() -> Result<String, String> {
+    let config = || WorldConfig {
+        sheet: crate::combat::Sheet::dev_jedi(),
+        ..WorldConfig::one_seat()
+    };
+    let [x, y, _] = standing(config())?;
+    let floor = crate::determinism::ground_point(0.0, 0.0, 0.0)[2];
+    let lay = [(CHAIR, [x + 2.0, y, floor]), (CHAIR, [x, y + 2.5, floor])];
+    // Every power costs a point, as a module's table would have it.
+    let costs = |data: &mut crate::module::ModuleData| data.force_costs = vec![1; 256];
+    let (mut world, ids) = arena_props_playing(&lay, config(), costs)?;
+    for step in 0..40 {
+        let mut input = TickInput::default();
+        // Pressed and let go in turn: it goes out once the hand is free.
+        let pressed = step % 2 == 0;
+        input.insert(
+            crate::input::Seat(0),
+            crate::Command {
+                buttons: if pressed {
+                    crate::buttons::FORCE_POWER
+                } else {
+                    0
+                },
+                force: crate::combat::spells::FORCE_POWER_FORCE_WAVE as u8,
+                ..crate::Command::default()
+            },
+        );
+        let tick = world.tick() + 1;
+        crate::step(&mut world, tick, &input, 50, StepReason::Authority);
+    }
+    let broken: Vec<bool> = ids
+        .iter()
+        .map(|&(_, index)| {
+            object_of(&mut world, index).is_some_and(|(state, facts)| state.broken(&facts))
+        })
+        .collect();
+    check(
+        broken == [true, true],
+        format!("the player's Force Wave with nobody about broke {broken:?} (want [true, true])"),
+    )
+}
+
 /// The probes.
 pub fn probes() -> crate::probe::Checks {
     vec![
@@ -468,5 +535,6 @@ pub fn probes() -> crate::probe::Checks {
         ("destruction_made_chair", made_chair()),
         ("destruction_blast_on_brushes", blast_on_brushes()),
         ("destruction_powers", powers()),
+        ("destruction_wave_by_hand", wave_by_hand()),
     ]
 }

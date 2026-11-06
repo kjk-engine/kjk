@@ -105,7 +105,6 @@ impl Battering {
 
     /// `caster`'s cast of power `row` (a `spells.2da` row) from `from` toward
     /// `toward` (metres): what of destruction's props it reaches.
-    #[cfg(feature = "probes")]
     pub(super) fn power(&mut self, caster: SimId, row: u16, from: [f32; 3], toward: [f32; 3]) {
         self.1.push(Reach {
             caster,
@@ -422,7 +421,6 @@ pub(super) fn objects(
     mut battering: ResMut<Battering>,
     mut battered: ResMut<Battered>,
     mut scripts: ResMut<super::scripts::Scripts>,
-    casts: Res<super::scripts::Casts>,
     mut actors: Query<(
         &Id,
         Option<&Avatar>,
@@ -435,7 +433,7 @@ pub(super) fn objects(
 ) {
     battered.0.clear();
     let mut blows = std::mem::take(&mut battering.0);
-    let mut reaches = std::mem::take(&mut battering.1);
+    let reaches = std::mem::take(&mut battering.1);
     // Prediction shows no damage (I22 C20).
     if clock.reason == StepReason::Predict {
         return;
@@ -451,22 +449,6 @@ pub(super) fn objects(
                 source: None,
             }),
     );
-    // The step's casts of powers (`world::powers`), from where each caster
-    // stands toward what it aimed at, or the way it faces.
-    reaches.extend(casts.0.iter().filter_map(|cast| {
-        let caster = SimId(cast.caster.0);
-        let (.., player, _) = actors.iter().find(|(id, ..)| id.0 == caster)?;
-        let from = math::scale(player.0.origin, collision::UNIT);
-        let (sin, cos) = math::sin_cos_deg(player.0.view[1]);
-        let ahead = [from[0] + cos, from[1] + sin, from[2]];
-        let aimed = math::length(math::sub(cast.at, from)) > crate::target::PLACEABLE_RADIUS;
-        Some(Reach {
-            caster,
-            row: cast.row,
-            from,
-            toward: if aimed { cast.at } else { ahead },
-        })
-    }));
     if !reaches.is_empty() {
         let states = level.0.states(
             objects
