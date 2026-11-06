@@ -376,6 +376,11 @@ struct Body {
     size: u8,
     /// Blind (`Modifies::Blind`): it neither sees nor hears others.
     blind: bool,
+    /// Invisible (`Modifies::Invisibility`): not seen but by those that see
+    /// the invisible (`sees_invisible`: true seeing, its items' or an
+    /// effect's).
+    invisible: bool,
+    sees_invisible: bool,
 }
 
 /// The step's scripts (see the module documentation).
@@ -490,6 +495,10 @@ pub(super) fn scripts(
                 size: data.and_then(|data| data.body).map_or(3, |body| body.size),
                 traits: now_sheet.gear.traits,
                 blind: fighting.is_some_and(|fighting| fighting.0.effects.blind(now)),
+                invisible: fighting.is_some_and(|fighting| fighting.0.effects.invisible(now).0),
+                sees_invisible: now_sheet.gear.traits & crate::combat::gear::traits::TRUE_SEEING
+                    != 0
+                    || fighting.is_some_and(|fighting| fighting.0.effects.sees_invisible(now)),
             });
         }
         let (position, yaw) = match (player, placed) {
@@ -1205,6 +1214,17 @@ pub(super) fn scripts(
         .filter(|life| life.dead)
         .map(|life| life.id)
         .collect();
+    // The characters players control: their own bodies, and those a seat
+    // drives.
+    let players: Vec<ObjectId> = lives
+        .iter()
+        .map(|life| life.id)
+        .filter(|id| {
+            view.thing(*id).is_some_and(|thing| {
+                thing.kind.is_none() || thing.character.as_ref().is_some_and(|c| c.driver.is_some())
+            })
+        })
+        .collect();
     for life in lives {
         let Life {
             id,
@@ -1276,6 +1296,18 @@ pub(super) fn scripts(
             if view.together() {
                 handled |= state.end_trade(id.0);
             }
+        }
+        // A player's character falling (downed or dead) runs the module's
+        // `Mod_OnPlrDeath`, the player its `GetLastPlayerDied`: both
+        // executables raise it as a player-controlled creature's hit points
+        // reach 0 (`OnApplyDeath`). TSLRCM's Ebon Hawk ends Visas's sparring
+        // so, raising the Exile (`k_ebo_plrdead`); the loss waits a step
+        // for it (`falls`).
+        if was.alive && !alive && players.contains(&id) {
+            state
+                .last
+                .insert((script::MODULE.0, script::last::PLAYER_DIED), id.0);
+            raise(&view, state, script::MODULE, Hook::PlayerDeath, None);
         }
         // A death, not a fall: a downed party member (I30 P11) raises
         // nothing until it dies.

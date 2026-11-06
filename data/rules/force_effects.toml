@@ -379,3 +379,97 @@ range = [100, 1000]
 summary = "Movement speed effects cannot raise a character above {force_effects.lasting.speed_most} of normal speed."
 source = "ours"
 see = "sim::world::powers::Cast::upkeep"
+
+[haste]
+title = "Haste"
+summary = """
+A script's haste (`EffectHaste`) makes its bearer move
+{force_effects.haste.speed:bare}% faster and gives it
++{force_effects.haste.defence:bare} Defense while it lasts. It gives no
+extra attacks.
+"""
+applies = ["kind:force"]
+
+[haste.speed]
+name = "Haste Movement Bonus"
+value = 50
+unit = "%"
+range = [0, 200]
+summary = "Haste raises movement speed by {force_effects.haste.speed}."
+source = "TSL's executable (`OnApplyHasteInternal`: a movement speed of 150 %)"
+see = "sim::script::engine::Engine::call"
+
+[haste.defence]
+name = "Haste Defense Bonus"
+type = "i8"
+value = 4
+range = [0, 20]
+summary = "Haste gives +{force_effects.haste.defence:bare} Defense (a dodge bonus)."
+source = "TSL's executable (`OnApplyHasteInternal`: an AC increase of 4, dodge)"
+see = "sim::script::engine::Engine::call"
+
+[knockdown]
+title = "Knockdown"
+summary = """
+A script's knockdown (`EffectKnockdown`) throws its bearer down for the
+effect's duration and {force_effects.knockdown.extra_ms:bare} ms more, unless
+it is immune to knockdown.
+"""
+applies = ["kind:force"]
+
+[knockdown.extra_ms]
+name = "Knockdown Extra Time"
+type = "u64"
+value = 1500
+unit = "ms"
+range = [0, 10000]
+summary = "A knockdown lasts {force_effects.knockdown.extra_ms:bare} ms past its effect's duration."
+source = "TSL's executable (`OnApplyKnockdown`: the hold lasts the duration plus 1.5 s)"
+see = "sim::world::harm"
+
+[damage_shield]
+title = "Damage Shield"
+summary = """
+A script's damage shield (`EffectDamageShield`) strikes back at each melee
+attacker that hits its bearer: its points, more by its damage bonus, of its
+damage type. A bonus of 1 to 5 adds that many points; one of 6 to 10 rolls
+dice, {force_effects.damage_shield.bonus_dice} by the bonus.
+"""
+applies = ["kind:force"]
+
+[damage_shield.bonus_dice]
+name = "Shield Bonus Dice"
+type = "u8"
+value = [1, 4, 1, 6, 1, 8, 1, 10, 2, 6]
+labels = ["1d4: dice", "die", "1d6: dice", "die", "1d8: dice", "die", "1d10: dice", "die", "2d6: dice", "die"]
+range = [1, 20]
+summary = "A damage shield's bonus of 6 to 10 (`DAMAGE_BONUS_1d4` to `DAMAGE_BONUS_2d6`) rolls these dice and dies, in pairs: {force_effects.damage_shield.bonus_dice}."
+source = "TSL's executable (`ResolveDamageShields`: a bonus of 6 or more reads its row's NumDice and Die from the damage cost table), as nwscript.nss names the rows [verify the table's cells]"
+see = "sim::world::harm"
+
+[damage_shield.flat_below]
+name = "Shield Bonus Points"
+type = "u8"
+value = 6
+range = [1, 11]
+summary = "A damage shield's bonus below {force_effects.damage_shield.flat_below:bare} adds itself in points."
+source = "TSL's executable (`ResolveDamageShields`: a bonus under 6 is added as it is)"
+see = "sim::world::harm"
+
+[damage_shield.most_points]
+name = "Shield Most Points"
+type = "i32"
+value = 10000
+range = [1, 100000]
+summary = "A damage shield asked for more than {force_effects.damage_shield.most_points:bare} points, or fewer than none, does 1."
+source = "TSL's executable (`EffectDamageShield`: the points against 10001, unsigned)"
+see = "sim::script::engine::Engine::call"
+
+[damage_shield.last_type]
+name = "Shield Last Type"
+type = "i32"
+value = 8192
+range = [1, 65536]
+summary = "A damage shield's damage type past {force_effects.damage_shield.last_type:bare}, or below 0, is universal."
+source = "TSL's executable (`EffectDamageShield`: the type against its poison damage flag)"
+see = "sim::script::engine::Engine::call"

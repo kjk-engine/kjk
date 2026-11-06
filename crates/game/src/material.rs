@@ -79,6 +79,9 @@ const OPAQUE_TEXTURE: u32 = 256;
 const ADD_FADE: u32 = 512;
 /// Shadows fall on it (`shadows`): an opaque surface of a lit scene.
 const SHADOWED: u32 = 1024;
+/// An opaque surface of a room: its light is baked, and only the combat
+/// lights (`LIGHT_COMBAT`) add to it, measured from each fragment.
+const ROOM: u32 = 2048;
 
 /// Most lights a surface is lit by at once: the nearest to the camera win.
 /// Our chosen cap (the shader's light list is this long).
@@ -89,9 +92,17 @@ pub const MAX_LIGHTS: usize = 32;
 pub struct GpuLight {
     pub position_radius: Vec4,
     pub color_multiplier: Vec4,
-    /// x: ambient only (0/1), y: dynamic type.
+    /// x: ambient only (0/1), y: dynamic type, z: `LIGHT_COMBAT` for a
+    /// fight's short light (a bolt, a flash, a blade), which rooms take too.
     pub kind: UVec4,
 }
+
+/// `GpuLight::kind.z` of a fight's light: it lights the rooms' baked
+/// surfaces as well as what moves.
+pub const LIGHT_COMBAT: u32 = 1;
+/// `GpuLight::kind.y` of a light that reaches everything, static meshes too
+/// (`odyssey.wgsl`).
+pub const LIGHT_DYNAMIC_ALL: u32 = 1;
 
 /// The lights a material is lit by, as the shader reads them: the
 /// lightning's flash, and the first `count` of `lights`.
@@ -665,13 +676,15 @@ impl OdysseyMaterial {
         if fog.is_some() {
             flags |= FOG;
         }
-        if area.shadowed
-            && matches!(
-                surface,
-                Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
-            )
-        {
+        let opaque = matches!(
+            surface,
+            Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
+        );
+        if area.shadowed && opaque {
             flags |= SHADOWED;
+        }
+        if lighting.is_room && opaque {
+            flags |= ROOM;
         }
         let colour = |rgb: [f32; 3]| Vec4::new(rgb[0], rgb[1], rgb[2], 1.0);
         // An added surface is drawn unlit, but the games show it in its

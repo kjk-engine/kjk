@@ -39,6 +39,7 @@ mod brushes;
 pub mod clip_file;
 mod digester;
 mod level;
+pub mod libm;
 pub mod nav;
 pub mod pack;
 #[cfg(feature = "probes")]

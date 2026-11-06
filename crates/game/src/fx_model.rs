@@ -132,9 +132,26 @@ pub struct Spawned {
     /// The nodes whose mesh's texture its TXI makes additive (`blending
     /// additive`), alpha or not.
     pub glows: Vec<usize>,
+    /// What its sprays' glowing particles lit as last drawn
+    /// (`model_fx::Spray::glow`, `Drawing::effects`).
+    pub glowing: Vec<model_fx::Glow>,
 }
 
 impl Spawned {
+    /// What its glowing particles light, all its sprays' as one: their
+    /// colour on average, weighted by how much of each there is, and how much
+    /// there is; none with none. (Where is its drawer's to say: its sprays'
+    /// places are each in its own emitter's space.)
+    pub fn glow(&self) -> Option<(Vec3, f32)> {
+        let weight: f32 = self.glowing.iter().map(|glow| glow.weight).sum();
+        let colour: Vec3 = self
+            .glowing
+            .iter()
+            .map(|glow| glow.colour * glow.weight)
+            .sum();
+        (weight > f32::EPSILON).then(|| (colour / weight, weight))
+    }
+
     /// Made new for another use: no clip's ends, pose, surfaces or
     /// particles carried over from the last.
     pub fn reset(&mut self) {
@@ -143,6 +160,7 @@ impl Spawned {
         self.kept.clear();
         self.bank = 0.0;
         self.engine.clear();
+        self.glowing.clear();
         let ir = &self.model.placed.ir;
         for lit in self.lit.iter_mut().flatten() {
             lit.reset(ir);
@@ -236,6 +254,7 @@ impl Spawning<'_, '_, '_> {
             anims: Vec::new(),
             engine: Vec::new(),
             glows,
+            glowing: Vec::new(),
         }
     }
 }
@@ -598,6 +617,7 @@ impl Drawing<'_, '_> {
             local,
         );
         let (fx, chunks) = (&*spawned.model.fx, &*spawned.model.chunks);
+        spawned.glowing.clear();
         for (spray, space) in spawned.sprays.iter_mut().zip(spaces) {
             let mut detonated = false;
             for playing in &ended {
@@ -619,6 +639,9 @@ impl Drawing<'_, '_> {
                 shown || lingering,
                 (&mut self.meshes, &mut self.buffers, &mut self.materials),
             );
+            if shown || lingering {
+                spawned.glowing.extend(spray.glow(fx));
+            }
             if let Ok(mut visible) = self.visibility.get_mut(spray.entity) {
                 *visible = if shown || lingering {
                     Visibility::Inherited

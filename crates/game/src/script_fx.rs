@@ -192,6 +192,15 @@ const CAMERA_SHAKE: i32 = 2;
 /// white over the screen.
 const HIDDEN_FRAMES: u32 = 2;
 
+/// A visual's glowing particles light what is near in their own colour
+/// (`fx_model::Spawned::glow`, a fight's light: rooms take it too): this
+/// far (metres), this strong once this much of them shows (their alphas
+/// summed), less with less. Ours: KOTOR lights a power's effects with
+/// nothing; its models carry no lights.
+const GLOW_RADIUS: f32 = 4.0;
+const GLOW_STRENGTH: f32 = 0.5;
+const GLOW_FULL: f32 = 10.0;
+
 pub struct ScriptFxPlugin;
 
 impl Plugin for ScriptFxPlugin {
@@ -1566,6 +1575,8 @@ fn draw(
                         Anchor::At(at) => Some(at.to_array()),
                     },
                     "stands": live.stands,
+                    // What its glowing particles light: where, colour, how much.
+                    "glow": live.spawned.glow().map(|(colour, weight)| (colour.to_array(), weight)),
                     // Each emitter: node, its texture, blend and facing,
                     // reference node, its target, particles.
                     "sprays": live.spawned.sprays.iter().map(|spray| {
@@ -1700,6 +1711,25 @@ fn draw(
                     }
                 })
             })
+            .chain(
+                view.live
+                    .iter()
+                    .filter(|live| live.frames >= HIDDEN_FRAMES)
+                    // Where it is drawn (Bevy's space); a beam halfway to
+                    // where it ends, on its target.
+                    .filter_map(|live| {
+                        let (colour, weight) = live.spawned.glow()?;
+                        let drawn = globals.get(live.spawned.root).ok()?.translation();
+                        let at = match (live.source, base(live.anchor)) {
+                            (Some(_), Some(target)) => {
+                                let target = target + Vec3::Z * live.aims;
+                                (drawn + crate::scene::game_to_bevy() * target) / 2.0
+                            }
+                            _ => drawn,
+                        };
+                        Some(glow_light(at, colour, weight))
+                    }),
+            )
             .collect()
     };
     carried.set_if_neq(crate::scene::CarriedLights(lit));
@@ -1823,6 +1853,18 @@ fn body_node(
             let node = ir.node_index(&name(ir)?)?;
             Some((*model.nodes.get(node)?, ir.nodes[node].world[2][3]))
         })
+}
+
+/// A visual's glow (`fx_model::Spawned::glow`: its colour and how much of
+/// it there is) at `at` (Bevy's space) as a fight's light (`GLOW_*`).
+fn glow_light(at: Vec3, colour: Vec3, weight: f32) -> crate::material::GpuLight {
+    use crate::material::{GpuLight, LIGHT_COMBAT, LIGHT_DYNAMIC_ALL};
+    let share = (weight / GLOW_FULL).min(1.0);
+    GpuLight {
+        position_radius: at.extend(GLOW_RADIUS),
+        color_multiplier: colour.extend(GLOW_STRENGTH * share),
+        kind: UVec4::new(0, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
+    }
 }
 
 /// A beam's ends on its target: every lightning and point-to-point

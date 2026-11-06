@@ -1147,6 +1147,21 @@ fn tsl_party_rules() {
     probed("tsl", &sim::tsl_probes::probes(), 28);
 }
 
+/// The routines override mods call that the games' own scripts rarely do
+/// (`sim::routine_probes`): the maths routines' bits as both executables'
+/// handler gives them (degrees, `f32` steps, zeros out of a domain), the
+/// string routines as `CExoString` and `atof` work them, and in a world of
+/// three creatures the faction walk, leader and change, the sheet getters,
+/// an item's worth, floating text, six effects, `ActionUseFeat` and
+/// `ActionEquipMostEffectiveArmor`; TSLRCM's last ones (a forced follow,
+/// the module's player death and `GetLastPlayerDied`, the autosave and
+/// swoop screen asked), a pick-up and a put-down, and invisibility, damage
+/// reduction and damage shields. The sim alone, on the proving ground.
+#[test]
+fn mod_routines() {
+    probed("mod routines", &sim::routine_probes::probes(), 18);
+}
+
 /// The dead's remains (KOTOR's body bags; `sim::remains::probes`), owner
 /// 2026-10-05: on the proving ground a creature holding droppable items and
 /// gold is killed, its body taken away after its appearance's delay and

@@ -478,9 +478,10 @@ fn get_up() -> Result<String, String> {
     }
 }
 
-/// The whole party down, one by one with the foe standing, is the loss; a
-/// guest's use then revives nobody, and the snapshot says it through its
-/// bytes.
+/// The whole party down, one by one with the foe standing, is the loss, the
+/// step after the last falls (the module's `Mod_OnPlrDeath` runs in the
+/// step of the fall: not lost yet); a guest's use then revives nobody, and
+/// the snapshot says it through its bytes.
 fn whole_party_down() -> Result<String, String> {
     let mut run = Run::new(2, false)?;
     run.step(&[]);
@@ -488,7 +489,9 @@ fn whole_party_down() -> Result<String, String> {
     for who in [Who::Ally, Who::Guest, Who::Host] {
         run.hit(who, 999);
         run.step(&[]);
-        lost_after.push(run.last.lost.is_some());
+        let falling = run.last.lost.is_some();
+        run.step(&[]);
+        lost_after.push((falling, run.last.lost.is_some()));
     }
     let using = Command {
         buttons: crate::moves::USE,
@@ -499,7 +502,7 @@ fn whole_party_down() -> Result<String, String> {
     let decoded = Snapshot::decode(&run.last.encode())
         .ok()
         .map(|again| again.lost);
-    if lost_after != [false, false, true]
+    if lost_after != [(false, false), (false, false), (false, true)]
         || standing.contains(&true)
         || decoded != Some(run.last.lost)
     {
@@ -507,7 +510,10 @@ fn whole_party_down() -> Result<String, String> {
             "lost after each fall {lost_after:?}, standing {standing:?}, decoded {decoded:?}"
         ));
     }
-    Ok("lost only when the last stands no more; nobody gets up after; `lost` read back".into())
+    Ok(
+        "lost the step after the last stands no more; nobody gets up after; `lost` read back"
+            .into(),
+    )
 }
 
 /// The party down in the step the foe dies: lost, and nobody gets up.

@@ -194,6 +194,19 @@ pub enum Effect {
     },
     /// `EffectLinkEffects`: its parts, in order.
     Linked(Vec<Effect>),
+    /// A lasting effect of the executable's three integers
+    /// (`EffectDamageReduction`, `EffectDamageShield`): `Modifier`'s, with
+    /// its `Lasting::third`.
+    Ints {
+        modifies: Modifies,
+        amount: i16,
+        of: u8,
+        third: u32,
+    },
+    /// `EffectKnockdown`: thrown down for its duration and
+    /// `rules::force_effects::knockdown::EXTRA_MS` more, unless immune to
+    /// knockdown.
+    Knockdown,
     /// A kind the sim does not carry out yet: its routine's name.
     Other(String),
 }
@@ -226,6 +239,8 @@ impl Effect {
             Effect::Pushed { from: None } => "EffectForcePushed".into(),
             Effect::Visual { .. } => "EffectVisualEffect".into(),
             Effect::Slot { .. } => "an effect on a character".into(),
+            Effect::Knockdown => "EffectKnockdown".into(),
+            Effect::Ints { modifies, .. } => format!("Effect{modifies:?}"),
             Effect::Other(name) => name.clone(),
         }
     }
@@ -302,6 +317,19 @@ impl Effect {
                 out.u16(*resist);
             }
             Effect::Resurrection => out.u8(12),
+            Effect::Knockdown => out.u8(17),
+            Effect::Ints {
+                modifies,
+                amount,
+                of,
+                third,
+            } => {
+                out.u8(18);
+                out.u8(modifies.index());
+                out.u16(*amount as u16);
+                out.u8(*of);
+                out.u32(*third);
+            }
             Effect::Poison(course) => {
                 out.u8(13);
                 course.encode(out);
@@ -379,6 +407,14 @@ impl Effect {
                 }
             }
             12 => Effect::Resurrection,
+            17 => Effect::Knockdown,
+            18 => Effect::Ints {
+                modifies: Modifies::of_index(input.u8()?)
+                    .ok_or_else(|| input.invalid("effect kind", at))?,
+                amount: input.u16()? as i16,
+                of: input.u8()?,
+                third: input.u32()?,
+            },
             13 => Effect::Poison(crate::combat::items::Course::decode(input)?),
             14 => Effect::State {
                 state: input.u8()?,

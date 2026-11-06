@@ -227,6 +227,7 @@ impl Plugin for ScenePlugin {
         .init_resource::<SceneLights>()
         .init_resource::<CarriedLights>()
         .init_resource::<crate::blaster_view::ShotLights>()
+        .init_resource::<BladeLights>()
         .init_resource::<AnimatedMaterials>()
         .init_resource::<LiveBlades>()
         .init_resource::<DrawnBlades>()
@@ -762,6 +763,20 @@ pub(crate) struct CarriedLights(pub Vec<GpuLight>);
 /// candidates beside the scene's.
 #[derive(Resource, Default, PartialEq)]
 pub(crate) struct BodyLights(pub Vec<GpuLight>);
+
+/// The lit blades' lights (`draw_blades`), in Bevy world space, as of the
+/// last frame drawn: a fight's lights (`LIGHT_COMBAT`), so a saber tints
+/// the walls and floor about it in its colour.
+#[derive(Resource, Default, PartialEq)]
+pub(crate) struct BladeLights(pub Vec<GpuLight>);
+
+/// A lit blade's light: points along it (fractions of its length from the
+/// hilt), each this far (metres) and this strong; its colour the blade's,
+/// this much of the way to white (a blade's core is white).
+const BLADE_LIGHT_AT: [f32; 2] = [0.3, 0.8];
+const BLADE_LIGHT_RADIUS: f32 = 4.5;
+const BLADE_LIGHT_STRENGTH: f32 = 0.5;
+const BLADE_LIGHT_WHITE: f32 = 0.25;
 
 /// Extra reach added to every light's radius: a light is a candidate while
 /// the camera is within its radius plus this, so it eases in before the
@@ -1749,23 +1764,36 @@ fn cull_rooms(
     );
 }
 
+/// The lights that come and go beside the scene's own, as `pick_lights`
+/// takes them: carried, bodies', shots', blades' and the powers'.
+type MovingLights<'w> = (
+    Res<'w, CarriedLights>,
+    Res<'w, BodyLights>,
+    Res<'w, crate::blaster_view::ShotLights>,
+    Res<'w, BladeLights>,
+    Option<Res<'w, crate::force_view::ForceLights>>,
+);
+
 /// Chooses the lights as reone does: up to `MAX_LIGHTS` lights nearest
-/// the camera, each within its radius plus `LIGHT_RADIUS_BIAS`. When the
+/// the camera, each within its radius plus `LIGHT_RADIUS_BIAS`, a fight's
+/// (`LIGHT_COMBAT`) before the rest. When the
 /// set changes the materials' shared list (`AREA_LIGHTS`) is written anew.
 fn pick_lights(
     cameras: Query<Ref<Transform>, With<FlyCamera>>,
     lights: Option<ResMut<SceneLights>>,
-    (carried, bodies, shots): (
-        Res<CarriedLights>,
-        Res<BodyLights>,
-        Res<crate::blaster_view::ShotLights>,
-    ),
+    (carried, bodies, shots, blades, powers): MovingLights,
     (mut buffers, mut area): (ResMut<Assets<ShaderBuffer>>, ResMut<material::AreaLights>),
     mut facts: ResMut<DumpFacts>,
 ) {
     let Some(mut lights) = lights else { return };
     let Ok(camera) = cameras.single() else { return };
-    let moved = carried.is_changed() || bodies.is_changed() || shots.is_changed();
+    let powers_changed = powers.as_ref().is_some_and(|powers| powers.is_changed());
+    let powers = powers.as_deref().map_or(&[][..], |powers| &powers.0[..]);
+    let moved = carried.is_changed()
+        || bodies.is_changed()
+        || shots.is_changed()
+        || blades.is_changed()
+        || powers_changed;
     if !camera.is_changed() && !moved && lights.active.is_some() {
         return;
     }
@@ -1775,6 +1803,8 @@ fn pick_lights(
         .chain(&carried.0)
         .chain(&bodies.0)
         .chain(&shots.0)
+        .chain(&blades.0)
+        .chain(powers)
         .copied()
         .collect();
     let mut near: Vec<(usize, f32)> = all
@@ -1786,7 +1816,10 @@ fn pick_lights(
             (distance2 < reach * reach).then_some((index, distance2))
         })
         .collect();
-    near.sort_by(|a, b| a.1.total_cmp(&b.1));
+    // A fight's lights first: they come and go in a moment, and a lit
+    // area's own would crowd them out.
+    let combat = |index: usize| all[index].kind.z == material::LIGHT_COMBAT;
+    near.sort_by(|a, b| (!combat(a.0)).cmp(&!combat(b.0)).then(a.1.total_cmp(&b.1)));
     let active: Vec<usize> = near
         .iter()
         .take(MAX_LIGHTS)
@@ -1805,7 +1838,17 @@ fn pick_lights(
         serde_json::json!({
             "candidates": near.len(),
             "active": active.len(),
-            "carried": carried.0.len() + bodies.0.len() + shots.0.len(),
+            "carried": carried.0.len() + bodies.0.len() + shots.0.len() + blades.0.len() + powers.len(),
+            "combat": active.iter().filter(|index| combat(**index)).count(),
+            // Each fight's light: where (game space), its strength, and
+            // whether it was picked.
+            "combat_lights": (0..all.len()).filter(|index| combat(*index)).map(|index| {
+                let light = all[index];
+                let at = game_to_bevy().inverse() * light.position_radius.truncate();
+                let [x, y, z, m] = [at.x, at.y, at.z, light.color_multiplier.w]
+                    .map(|x| (x * 100.0).round() / 100.0);
+                serde_json::json!([x, y, z, m, active.contains(&index)])
+            }).collect::<Vec<_>>(),
         }),
     );
     lights.active = Some(active);
@@ -2360,12 +2403,13 @@ fn draw_blades(
     mut drawn: ResMut<DrawnBlades>,
     transforms: Query<&GlobalTransform>,
     cameras: Query<&GlobalTransform, With<FlyCamera>>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, mut lights): (ResMut<Assets<Mesh>>, ResMut<BladeLights>),
     mut facts: ResMut<DumpFacts>,
 ) {
     let Ok(camera) = cameras.single() else {
         return;
     };
+    let mut lit = Vec::new();
     drawn.0.clear();
     drawn.0.resize(lives.0.len(), None);
     let seconds = animation_seconds(&time, &held);
@@ -2488,6 +2532,7 @@ fn draw_blades(
 
         let start = origin + dir * length;
         let end = origin - dir * unit;
+        lit.extend(blade_lights(origin, dir * length, blade.trail_color));
         ends.push(serde_json::json!({ "hilt": rounded(origin), "tip": rounded(start) }));
         if blade.live.is_some()
             && let Some(slot) = drawn.0.get_mut(blade.spec)
@@ -2512,4 +2557,16 @@ fn draw_blades(
     facts
         .0
         .insert("blade_ends".into(), serde_json::Value::Array(ends));
+    lights.set_if_neq(BladeLights(lit));
+}
+
+/// A lit blade's lights (`BLADE_LIGHT_AT`): from `origin` along `blade`
+/// (Bevy space), in its `colour` eased toward white.
+fn blade_lights(origin: Vec3, blade: Vec3, colour: [f32; 3]) -> impl Iterator<Item = GpuLight> {
+    let colour = Vec3::from_array(colour).lerp(Vec3::ONE, BLADE_LIGHT_WHITE);
+    BLADE_LIGHT_AT.into_iter().map(move |along| GpuLight {
+        position_radius: (origin + blade * along).extend(BLADE_LIGHT_RADIUS),
+        color_multiplier: colour.extend(BLADE_LIGHT_STRENGTH),
+        kind: UVec4::new(0, material::LIGHT_DYNAMIC_ALL, material::LIGHT_COMBAT, 0),
+    })
 }

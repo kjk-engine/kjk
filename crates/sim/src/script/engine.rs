@@ -11,6 +11,7 @@ use script_ncs::vm::{self, Deferred, Handle, Host, ObjectId, Value};
 use super::actions::{Action, Target, Use};
 use super::effects::{self, Applied, Effect, Hold};
 use super::items;
+use super::maths::Maths;
 use super::party;
 use super::state::{SPELL_EVENT, global, set_global};
 use super::{
@@ -39,6 +40,8 @@ macro_rules! bound {
             Fabs,
             /// `PrintString`, `AurPostString`: traced.
             Print,
+            /// `cos`, `sin`, `pow` and the rest (`script::maths`).
+            Maths(Maths),
         }
 
         impl Bound {
@@ -57,7 +60,7 @@ macro_rules! bound {
                     "abs" => Bound::Abs,
                     "fabs" => Bound::Fabs,
                     "PrintString" | "AurPostString" => Bound::Print,
-                    _ => return None,
+                    _ => return Maths::named(name).map(Bound::Maths),
                 })
             }
         }
@@ -212,6 +215,20 @@ bound! {
     GetEncounterActive, SetEncounterActive, GetEncounterSpawnsMax, SetEncounterSpawnsMax,
     GetEncounterSpawnsCurrent, SetEncounterSpawnsCurrent, SetEncounterDifficulty,
     GetEncounterDifficulty, CancelPostDialogCharacterSwitch,
+    // Strings, as the executables' `CExoString` works them.
+    GetStringUpperCase, GetStringLowerCase, InsertString, StringToFloat, IntToHexString,
+    // Factions and the sheet, as override mods ask them.
+    GetFirstFactionMember, GetNextFactionMember, ChangeFaction, GetFactionLeader, GetAC,
+    GetFortitudeSavingThrow, GetReflexSavingThrow, GetWillSavingThrow, GetChallengeRating,
+    GetGoldPieceValue, FloatingTextStrRefOnCreature, FloatingTextStringOnCreature,
+    ActionUseFeat, ActionEquipMostEffectiveArmor,
+    // Effects, as the executables build them.
+    EffectHaste, EffectConcealment, EffectMissChance, EffectSpellImmunity, EffectKnockdown,
+    EffectForceDrain,
+    // TSLRCM's, and the actions on items lying about.
+    ActionForceFollowObject, DoSinglePlayerAutoSave, GetLastPlayerDied, ShowSwoopUpgradeScreen,
+    ActionPickUpItem, ActionPutDownItem, EffectInvisibility, EffectDamageReduction,
+    EffectDamageShield,
 }
 
 /// Whether the routine `name` (`nwscript.nss`) is bound; every other one
@@ -228,6 +245,21 @@ const LIVE_YAVIN: i32 = 1;
 
 /// The least range `ActionFollowOwner` follows at (metres).
 const FOLLOW_LEAST: f32 = rules::scripts::moves::FOLLOW_LEAST;
+
+/// `EffectInvisibility`'s types (`INVISIBILITY_TYPE_…`).
+const INVISIBILITY_TYPES: [&str; 3] = [
+    "INVISIBILITY_TYPE_NORMAL",
+    "INVISIBILITY_TYPE_DARKNESS",
+    "INVISIBILITY_TYPE_IMPROVED",
+];
+
+/// `EffectDamageShield`'s most points, its last bonus (`DAMAGE_BONUS_2d6`:
+/// those below `FLAT_BELOW` and a pair of dice each after), and the last
+/// damage type it takes as it is.
+const SHIELD_MOST: i32 = rules::force_effects::damage_shield::MOST_POINTS;
+const SHIELD_BONUS_MOST: i32 = rules::force_effects::damage_shield::FLAT_BELOW as i32 - 1
+    + rules::force_effects::damage_shield::BONUS_DICE.len() as i32 / 2;
+const SHIELD_LAST_FLAG: i32 = rules::force_effects::damage_shield::LAST_TYPE;
 
 /// The Remote's tag (TSL's puppet 0, `RebuildPartyTable`).
 const REMOTE: &str = "remote";
@@ -301,6 +333,9 @@ pub mod last {
     /// The number of the listen pattern its last dialogue event matched
     /// (`GetListenPatternNumber`, as an `i32`'s bits): −1 for a click.
     pub const PATTERN: u8 = 32;
+    /// The module's: the player whose death ran its `Mod_OnPlrDeath`
+    /// (`GetLastPlayerDied`).
+    pub const PLAYER_DIED: u8 = 33;
 }
 
 /// The listen pattern number `who`'s last dialogue event matched, kept on
@@ -617,6 +652,8 @@ mod walk {
     pub const EFFECTS: u8 = 3;
     pub const INVENTORY: u8 = 4;
     pub const PCS: u8 = 5;
+    /// Keyed by the faction (`GetFirstFactionMember`), not the caller.
+    pub const FACTION: u8 = 6;
 }
 
 /// `GetEffectType`'s `EFFECT_TYPE_*` name for a lasting effect.
@@ -639,7 +676,16 @@ fn effect_type(modifies: Modifies, amount: i16) -> &'static str {
         Modifies::Immunity => "EFFECT_TYPE_IMMUNITY",
         Modifies::Speed if up => "EFFECT_TYPE_MOVEMENT_SPEED_INCREASE",
         Modifies::Speed => "EFFECT_TYPE_MOVEMENT_SPEED_DECREASE",
-        Modifies::Attacks => "EFFECT_TYPE_HASTE",
+        // The executables' table names no type for its attacks; haste is
+        // its own.
+        Modifies::Attacks => "EFFECT_TYPE_INVALIDEFFECT",
+        Modifies::Haste => "EFFECT_TYPE_HASTE",
+        Modifies::Concealment => "EFFECT_TYPE_CONCEALMENT",
+        Modifies::SpellImmunity => "EFFECT_TYPE_SPELL_IMMUNITY",
+        Modifies::Invisibility => "EFFECT_TYPE_INVISIBILITY",
+        Modifies::DamageReduction => "EFFECT_TYPE_DAMAGE_REDUCTION",
+        // No `EFFECT_TYPE_…` names one in either game's nwscript.nss.
+        Modifies::DamageShield => "EFFECT_TYPE_INVALIDEFFECT",
         Modifies::Skill if up => "EFFECT_TYPE_SKILL_INCREASE",
         Modifies::Skill => "EFFECT_TYPE_SKILL_DECREASE",
         Modifies::AssuredHit => "EFFECT_TYPE_ASSUREDHIT",
@@ -1222,10 +1268,12 @@ impl Engine<'_> {
                     | Effect::Resurrection
                     | Effect::Poison { .. }
                     | Effect::Pushed { .. }
+                    | Effect::Knockdown
             );
             let lasting = matches!(
                 leaf,
                 Effect::Modifier { .. }
+                    | Effect::Ints { .. }
                     | Effect::Hold(_)
                     | Effect::State { .. }
                     | Effect::Shield { .. }
@@ -1370,6 +1418,7 @@ impl Engine<'_> {
                     by: by.0,
                     id,
                     at: 0,
+                    third: 0,
                 };
                 (owner, poison)
             });
@@ -1668,6 +1717,46 @@ impl Engine<'_> {
         };
         let best = kind(ranged).or_else(|| kind(!ranged))?.0;
         (Some(best) != worn).then_some(best)
+    }
+
+    /// The armour `who` carries that `ActionEquipMostEffectiveArmor` puts
+    /// on: of the most armour class (its base item's and its properties'
+    /// in force), strictly more than the worn armour's (none worn: 0), the
+    /// first of equals; one it may wear in the body slot.
+    fn most_effective_armour(&self, who: ObjectId) -> Option<ObjectId> {
+        use crate::inventory::slots;
+        let catalog = self.library.items();
+        let feats = self.character(who).map(|c| c.feats);
+        let class = |id: ObjectId| {
+            let item = self.state.items.get(&id.0)?;
+            let facts = self.state.item_facts(catalog, &item.template)?;
+            let armour = facts.armour?;
+            Some((
+                facts,
+                i32::from(armour.defence) + i32::from(facts.gear.defence),
+            ))
+        };
+        let worn = self.state.in_slot(who.0, slots::BODY);
+        let bar = worn.and_then(&class).map_or(0, |(_, class)| class);
+        self.state
+            .carried(items::holder(self.view, who))
+            .into_iter()
+            .filter_map(|id| {
+                let (facts, class) = class(id)?;
+                let wearable = facts.slots & 1 << slots::BODY != 0
+                    && feats.is_none_or(|feats| {
+                        crate::combat::passive::may_equip(&feats, &facts.needs)
+                    });
+                wearable.then_some((id, class))
+            })
+            .fold((bar, None), |(best, pick), (id, class)| {
+                if class > best {
+                    (class, Some(id))
+                } else {
+                    (best, pick)
+                }
+            })
+            .1
     }
 
     fn call(&mut self, bound: Bound, caller: ObjectId, args: &[Value]) -> Value {
@@ -2271,6 +2360,112 @@ impl Engine<'_> {
                         .map_or(-1, |(source, target)| i32::from(repute.of(source, target))),
                 )
             }
+            // The characters of the object's faction whose being a player's
+            // own character equals `bPCOnly` (TRUE: the players alone; FALSE:
+            // everyone else; any other value: no one), the dead too, as
+            // `CSWSFaction::GetFactionMember` walks them; one walk a faction,
+            // whoever calls (the executables keep the place on the faction).
+            GetFirstFactionMember => {
+                let Some(faction) = self.character(object(args, 0)).map(|c| c.faction) else {
+                    return maybe(None);
+                };
+                let pcs_only = args.get(1).map_or(1, |_| int(args, 1));
+                let members = view
+                    .things
+                    .iter()
+                    .filter(|thing| thing.character.is_some_and(|c| c.faction == faction))
+                    .filter(|thing| i32::from(thing.kind.is_none()) == pcs_only)
+                    .map(|thing| thing.id)
+                    .collect();
+                self.first(ObjectId(u32::from(faction)), walk::FACTION, members)
+            }
+            GetNextFactionMember => match self.character(object(args, 0)) {
+                Some(c) => self.next(ObjectId(u32::from(c.faction)), walk::FACTION),
+                None => maybe(None),
+            },
+            // The first creature joins the second's faction; neither may be
+            // a player's own character (`ChangeFaction` sets nothing then).
+            ChangeFaction => {
+                let (who, to) = (object(args, 0), object(args, 1));
+                let own = |id| view.thing(id).is_some_and(|thing| thing.kind.is_none());
+                if let (Some(_), Some(to), false, false) =
+                    (self.character(who), self.character(to), own(who), own(to))
+                {
+                    self.out.changes.push(Change::Faction {
+                        who,
+                        faction: to.faction,
+                    });
+                }
+                Value::Int(0)
+            }
+            // `CSWSFaction::GetLeader`: of a creature's faction among the
+            // table's others, the member of the highest challenge rating
+            // (above 0, the first of equals); of the player's (row 0), the
+            // member a player controls.
+            GetFactionLeader => {
+                let Some(faction) = self.character(object(args, 0)).map(|c| c.faction) else {
+                    return maybe(None);
+                };
+                let mut members = view
+                    .things
+                    .iter()
+                    .filter(|thing| thing.character.is_some_and(|c| c.faction == faction));
+                let npcs = faction > 0 && usize::from(faction) < view.module.repute.rows.len();
+                let leader = if npcs {
+                    members
+                        .filter_map(|thing| Some((self.instance(thing.id)?.challenge, thing.id)))
+                        .fold((0.0, None), |(best, leader), (rating, id)| {
+                            if rating > best {
+                                (rating, Some(id))
+                            } else {
+                                (best, leader)
+                            }
+                        })
+                        .1
+                } else {
+                    members
+                        .find(|thing| thing.character.is_some_and(|c| c.driver.is_some()))
+                        .map(|thing| thing.id)
+                };
+                maybe(leader)
+            }
+            // A creature's armour class as its sheet stands (effects and
+            // items in: `Sheet::defence`); an item, placeable or door has 0;
+            // anything else -1.
+            GetAC => {
+                let who = object(args, 0);
+                Value::Int(match (self.character(who), view.thing(who)) {
+                    (Some(c), _) => c.sheet.defence(),
+                    (None, Some(thing))
+                        if matches!(thing.kind, Some(ObjectKind::Door | ObjectKind::Placeable)) =>
+                    {
+                        0
+                    }
+                    (None, None) if self.state.items.contains_key(&who.0) => 0,
+                    _ => -1,
+                })
+            }
+            // A creature's whole save (not its base, whatever nwscript.nss
+            // says): its sheet's, effects in. [A door's and a placeable's own
+            // Fort, Ref and Will are not kept: 0, as for anything else.]
+            GetFortitudeSavingThrow | GetReflexSavingThrow | GetWillSavingThrow => {
+                let index = match bound {
+                    GetFortitudeSavingThrow => 0,
+                    GetReflexSavingThrow => 1,
+                    _ => 2,
+                };
+                Value::Int(
+                    self.character(object(args, 0))
+                        .map_or(0, |c| c.sheet.save(index)),
+                )
+            }
+            // A creature's `ChallengeRating` as its template gives it; 0 for
+            // anything else.
+            GetChallengeRating => Value::Float(
+                self.character(object(args, 0))
+                    .and_then(|_| self.instance(object(args, 0)))
+                    .map_or(0.0, |facts| facts.challenge),
+            ),
             // The module's resref (`GetModuleName` is its title).
             GetModuleFileName => string(view.module.name.as_str()),
             // KOTOR's Xbox Live packages: K1's PC and Mac releases ship the
@@ -2439,6 +2634,24 @@ impl Engine<'_> {
                     _ => Value::Int(0),
                 }
             }
+            // `CSWSCreature::UseFeat`: an attack feat it has (`attack_feat`)
+            // used on the target as `ActionUseTalentOnObject` uses one (its
+            // best rank, as the mind picks it); a feat it lacks, or any other
+            // (the guard stances have nothing here), does nothing.
+            ActionUseFeat => match u16::try_from(int(args, 0)) {
+                Ok(feat)
+                    if attack_feat(feat, view.module.game == TSL)
+                        && self.has_talent(caller, Use::Feat(feat))
+                        && view.thing(object(args, 1)).is_some() =>
+                {
+                    let action = Action::Talent {
+                        talent: Use::Feat(feat),
+                        target: object(args, 1),
+                    };
+                    self.queue(caller, action)
+                }
+                _ => Value::Int(0),
+            },
             GetLastHostileTarget => maybe(self.character(object(args, 0)).and_then(|c| c.target)),
             GetIsDebilitated => truth(
                 self.character(object(args, 0))
@@ -3272,6 +3485,102 @@ impl Engine<'_> {
                 self.modifier(Modifies::Speed, sign * int(args, 0), 0)
             }
             EffectModifyAttacks => self.modifier(Modifies::Attacks, int(args, 0), 0),
+            // `OnApplyHasteInternal`'s speed and dodge Defense with haste's
+            // own part; no attack more.
+            EffectHaste => {
+                let parts = vec![
+                    Effect::Modifier {
+                        modifies: Modifies::Haste,
+                        amount: 0,
+                        of: 0,
+                    },
+                    Effect::Modifier {
+                        modifies: Modifies::Speed,
+                        amount: rules::force_effects::haste::SPEED as i16,
+                        of: 0,
+                    },
+                    Effect::Modifier {
+                        modifies: Modifies::Defence,
+                        amount: i16::from(rules::force_effects::haste::DEFENCE),
+                        of: 0,
+                    },
+                ];
+                self.effect_value(Effect::Linked(parts))
+            }
+            // A percent of 1 to 100, else no effect; `EffectMissChance`
+            // builds a concealment too, as both executables do.
+            EffectConcealment | EffectMissChance => match int(args, 0) {
+                percent @ 1..=100 => self.modifier(Modifies::Concealment, percent, 0),
+                _ => Value::empty(script_ncs::Type::Effect),
+            },
+            // A power's row (-1: every power), no row past `spells.2da`'s.
+            EffectSpellImmunity => match int(args, 0) {
+                row if (-1..=self.library.talents.spells.len() as i32).contains(&row) => {
+                    self.modifier(Modifies::SpellImmunity, row, 0)
+                }
+                _ => Value::empty(script_ncs::Type::Effect),
+            },
+            EffectKnockdown => self.effect_value(Effect::Knockdown),
+            // A normal, darkness or improved one; any other type no effect.
+            EffectInvisibility => {
+                let kind = int(args, 0);
+                let known = INVISIBILITY_TYPES
+                    .iter()
+                    .any(|name| self.library.constant(name) == Some(kind));
+                if known {
+                    self.modifier(Modifies::Invisibility, kind, 0)
+                } else {
+                    Value::empty(script_ncs::Type::Effect)
+                }
+            }
+            // No less than 0 points and limit; a power past energy's, or
+            // below none, is none's (`DAMAGE_POWER_NORMAL`).
+            EffectDamageReduction => {
+                let power = int(args, 1);
+                let energy = self.library.constant("DAMAGE_POWER_ENERGY");
+                let power = if (0..=energy.unwrap_or(0)).contains(&power) {
+                    power
+                } else {
+                    self.library.constant("DAMAGE_POWER_NORMAL").unwrap_or(0)
+                };
+                self.effect_value(Effect::Ints {
+                    modifies: Modifies::DamageReduction,
+                    amount: int(args, 0).clamp(0, i32::from(i16::MAX)) as i16,
+                    of: power.clamp(0, 255) as u8,
+                    third: int(args, 2).max(0) as u32,
+                })
+            }
+            // Points past the most (or below 0) are 1; a bonus outside
+            // `DAMAGE_BONUS_1` to `DAMAGE_BONUS_2d6` none; a type past the
+            // executable's last damage flag (or below 0) universal.
+            EffectDamageShield => {
+                let amount = match int(args, 0) {
+                    points @ 0..=SHIELD_MOST => points,
+                    _ => 1,
+                };
+                let bonus = match int(args, 1) {
+                    bonus @ 1..=SHIELD_BONUS_MOST => bonus,
+                    _ => 0,
+                };
+                let universal = self.library.constant("DAMAGE_TYPE_UNIVERSAL").unwrap_or(0);
+                let kind = match int(args, 2) {
+                    kind @ 0..=SHIELD_LAST_FLAG => kind,
+                    _ => universal,
+                };
+                self.effect_value(Effect::Ints {
+                    modifies: Modifies::DamageShield,
+                    amount: amount as i16,
+                    of: bonus as u8,
+                    third: kind as u32,
+                })
+            }
+            // `OnApplyForceDrain` takes the Force points as
+            // `EffectDamageForcePoints` does; none to drain, no effect.
+            EffectForceDrain => match u16::try_from(int(args, 0)) {
+                Ok(points) if points > 0 => self.effect_value(Effect::DamageForcePoints(points)),
+                _ => Value::empty(script_ncs::Type::Effect),
+            },
+
             EffectSkillIncrease | EffectSkillDecrease => {
                 let sign = if bound == EffectSkillIncrease { 1 } else { -1 };
                 self.modifier(
@@ -3555,6 +3864,15 @@ impl Engine<'_> {
                 let Some((source, target)) = source.zip(target) else {
                     return Value::Int(0);
                 };
+                // Immune to the power being cast (`DoSpellImmunity`): 2.
+                let casting = self.spell.map_or(-1, |cast| i32::from(cast.row));
+                if target.lasting.iter().flatten().any(|l| {
+                    l.until > now
+                        && l.modifies == Modifies::SpellImmunity
+                        && (l.amount == -1 || i32::from(l.amount) == casting)
+                }) {
+                    return Value::Int(2);
+                }
                 let granted: i32 = target
                     .lasting
                     .iter()
@@ -3818,7 +4136,8 @@ impl Engine<'_> {
             | SetPlotFlag
             | GetIdentified
             | SetIdentified
-            | SetItemNonEquippable => self.item_call(bound, caller, args),
+            | SetItemNonEquippable
+            | GetGoldPieceValue => self.item_call(bound, caller, args),
             AddAvailableNPCByObject
             | AddAvailableNPCByTemplate
             | RemoveAvailableNPC
@@ -4194,6 +4513,28 @@ impl Engine<'_> {
                     _ => Value::Int(0),
                 }
             }
+            // The executable's follow pair, queued at the end: kept up with
+            // the object at the distance asked (no less than a puppet's
+            // least), until a clear.
+            ActionForceFollowObject => match object(args, 0) {
+                ObjectId::INVALID => Value::Int(0),
+                followed => self.queue(
+                    caller,
+                    Action::Follow {
+                        object: followed,
+                        range: float(args, 1).max(FOLLOW_LEAST),
+                    },
+                ),
+            },
+            ActionPickUpItem | ActionPutDownItem => {
+                let (item, played) = (object(args, 0), false);
+                let action = if bound == ActionPickUpItem {
+                    Action::PickUp { item, played }
+                } else {
+                    Action::PutDown { item, played }
+                };
+                self.queue(caller, action)
+            }
             ActionEquipMostDamagingMelee | ActionEquipMostDamagingRanged => {
                 use crate::inventory::slots;
                 let ranged = bound == ActionEquipMostDamagingRanged;
@@ -4210,6 +4551,26 @@ impl Engine<'_> {
                     let back = items::holder(view, caller);
                     self.state.equip(self.out, best, caller.0, slot, back);
                     super::forfeit_equip(self.library, view, self.state, caller, (best.0, slot));
+                }
+                Value::Int(0)
+            }
+            // `CSWSCreature::EquipMostEffectiveArmor`: of the armour it
+            // carries and may wear, the one of the most armour class (its
+            // base's and its properties'), worn if better than what it wears.
+            ActionEquipMostEffectiveArmor => {
+                use crate::inventory::slots;
+                if let Some(best) = self.most_effective_armour(caller) {
+                    let best = self.state.one_of(best);
+                    let back = items::holder(view, caller);
+                    self.state
+                        .equip(self.out, best, caller.0, slots::BODY, back);
+                    super::forfeit_equip(
+                        self.library,
+                        view,
+                        self.state,
+                        caller,
+                        (best.0, slots::BODY),
+                    );
                 }
                 Value::Int(0)
             }
@@ -4549,10 +4910,34 @@ impl Engine<'_> {
             }
             Abs => Value::Int(int(args, 0).wrapping_abs()),
             Fabs => Value::Float(float(args, 0).abs()),
+            Maths(maths) => Value::Float(maths.of(float(args, 0), float(args, 1))),
+            // A–Z and a–z alone, byte by byte (`CExoString::UpperCase`,
+            // `LowerCase`).
+            GetStringUpperCase => string(text(args, 0).to_ascii_uppercase()),
+            GetStringLowerCase => string(text(args, 0).to_ascii_lowercase()),
+            InsertString => string(inserted(text(args, 0), text(args, 1), int(args, 2))),
+            StringToFloat => Value::Float(leading_float(text(args, 0))),
+            IntToHexString => string(format!("0x{:08x}", int(args, 0) as u32)),
             SendMessageToPC => {
                 let said = text(args, 1).to_string();
                 self.trace(&format!("  tells {}: {said:?}", name(object(args, 0))));
                 self.tell(Some(object(args, 0)), Notice::Said(said))
+            }
+            // To the message log of the player whose character it is, and
+            // only when not "broadcast": the executables' `bBroadcastToFaction`
+            // (TRUE when left out) sends nothing at all; not a player's
+            // character, nothing either. No line floats over it.
+            FloatingTextStrRefOnCreature | FloatingTextStringOnCreature => {
+                let over = object(args, 1);
+                let alone = args.get(2).is_some_and(|_| int(args, 2) == 0);
+                if !(alone && self.character(over).is_some() && self.is_pc(over)) {
+                    return Value::Int(0);
+                }
+                let notice = match bound {
+                    FloatingTextStrRefOnCreature => Notice::Line(int(args, 0) as u32),
+                    _ => Notice::Said(text(args, 0).to_string()),
+                };
+                self.tell(Some(over), notice)
             }
             OpenStore => self.open_store(
                 object(args, 0),
@@ -4673,6 +5058,18 @@ impl Engine<'_> {
                 }
             }
             GetLastPazaakResult => Value::Int(i32::from(self.state.pazaak_won)),
+            // `SetAutoSavePending`: the game saves to its autosave, alone
+            // ("only if we are in a single player game").
+            DoSinglePlayerAutoSave if view.together() => Value::Int(0),
+            DoSinglePlayerAutoSave => self.tell(None, Notice::AutoSave),
+            ShowSwoopUpgradeScreen => self.tell(None, Notice::Show(Screen::SwoopUpgrade)),
+            // The module's own, kept when its `Mod_OnPlrDeath` was raised.
+            GetLastPlayerDied => Value::Object(
+                self.state
+                    .last
+                    .get(&(MODULE.0, last::PLAYER_DIED))
+                    .map_or(ObjectId::INVALID, |id| ObjectId(*id)),
+            ),
             PopUpDeathGUIPanel => self.tell(Some(object(args, 0)), Notice::Show(Screen::Death)),
             DisplayMessageBox => self.tell(
                 None,
@@ -4869,12 +5266,100 @@ impl Engine<'_> {
 }
 
 /// The distance between two points (metres).
-pub(in crate::script) fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+pub(crate) fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     let d: [f32; 3] = std::array::from_fn(|i| a[i] - b[i]);
     (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
 }
 
 /// `StringToInt`: an optional sign and the digits that lead, else 0.
+/// `sString` put into `sDestination` before its character `nPosition`, as
+/// `CExoString::Insert` does it: the destination unchanged when either is
+/// empty or the position is below 0 or not inside it (at its end too: the
+/// executables append nothing there).
+/// The feats `ActionUseFeat` uses (the executables' `UseFeat` attacks):
+/// every rank of Critical Strike, Flurry, Power Attack, Power Blast, Rapid
+/// Shot and Sniper Shot, and Master Flurry; TSL's Shield Breaker too.
+fn attack_feat(feat: u16, tsl: bool) -> bool {
+    use crate::combat::sheet::feats;
+    [
+        &feats::CRITICAL_STRIKE[..],
+        &feats::FLURRY,
+        &feats::POWER_ATTACK,
+        &feats::POWER_BLAST,
+        &feats::RAPID_SHOT,
+        &feats::SNIPER_SHOT,
+        &[feats::MASTER_FLURRY],
+    ]
+    .concat()
+    .contains(&feat)
+        || (tsl && feat == feats::SHIELD_BREAKER)
+}
+
+pub(crate) fn inserted(destination: &str, string: &str, position: i32) -> String {
+    let chars: Vec<char> = destination.chars().collect();
+    match usize::try_from(position) {
+        Ok(at) if at < chars.len() && !string.is_empty() => {
+            let (before, after) = chars.split_at(at);
+            before
+                .iter()
+                .copied()
+                .chain(string.chars())
+                .chain(after.iter().copied())
+                .collect()
+        }
+        _ => destination.to_string(),
+    }
+}
+
+/// What C's `atof` reads from the start of `text`, rounded to an `f32` (as
+/// `StringToFloat` pushes it): blanks skipped, a sign, digits with a point
+/// and an exponent, or `inf`/`infinity`/`nan` (any case); 0 when nothing
+/// reads. [Hexadecimal floats, which `atof` reads too, read as their
+/// leading 0.]
+pub(crate) fn leading_float(text: &str) -> f32 {
+    let text = text.trim_start_matches([' ', '\t', '\n', '\r', '\x0b', '\x0c']);
+    let (negative, body) = match text.as_bytes().first() {
+        Some(b'-') => (true, &text[1..]),
+        Some(b'+') => (false, &text[1..]),
+        _ => (false, text),
+    };
+    let lower = body.to_ascii_lowercase();
+    let value = if lower.starts_with("inf") {
+        f64::INFINITY
+    } else if lower.starts_with("nan") {
+        f64::NAN
+    } else {
+        let bytes = body.as_bytes();
+        let digits = |from: usize| {
+            bytes[from..]
+                .iter()
+                .take_while(|byte| byte.is_ascii_digit())
+                .count()
+        };
+        let whole = digits(0);
+        let mut end = whole;
+        let mut any = whole > 0;
+        if bytes.get(end) == Some(&b'.') {
+            let fraction = digits(end + 1);
+            any |= fraction > 0;
+            end += 1 + fraction;
+        }
+        if !any {
+            return 0.0;
+        }
+        if matches!(bytes.get(end), Some(b'e' | b'E')) {
+            let sign = usize::from(matches!(bytes.get(end + 1), Some(b'+' | b'-')));
+            let power = digits(end + 1 + sign);
+            if power > 0 {
+                end += 1 + sign + power;
+            }
+        }
+        body[..end].parse::<f64>().unwrap_or(0.0)
+    };
+    let value = value as f32;
+    if negative { -value } else { value }
+}
+
 fn leading_int(text: &str) -> i32 {
     let text = text.trim_start();
     let (sign, digits) = match text.strip_prefix('-') {
@@ -5134,6 +5619,17 @@ impl Engine<'_> {
             }
             // An item's flag, or a character's (its sheet's `PLOT`: no
             // damage at all; a scene's creature made mortal when it acts).
+            // `CSWSItem::GetCost`: a plot item 0, any other its cost, at
+            // least 1 (stack, identification and properties no part).
+            // [The executables read the cost from the UTI's `AddCost`; kjk's
+            // catalogue keeps `Cost`, as its stores price by: verify.]
+            GetGoldPieceValue => Value::Int(match self.state.items.get(&item.0) {
+                Some(held) if held.plot => 0,
+                Some(_) => facts(self.state, catalog, item).map_or(1, |facts| {
+                    i32::try_from(facts.cost).unwrap_or(i32::MAX).max(1)
+                }),
+                None => 0,
+            }),
             GetPlotFlag => truth(match self.state.items.get(&item.0) {
                 Some(held) => held.plot,
                 None => self

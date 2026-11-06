@@ -247,6 +247,7 @@ crates/sim/src/combat/sheet.rs RAPID_SHOT  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs REPAIR  # skills.2da row
 crates/sim/src/combat/sheet.rs ROWS  # a row set's size
 crates/sim/src/combat/sheet.rs SECURITY  # skills.2da row
+crates/sim/src/combat/sheet.rs SHIELD_BREAKER  # feat.2da row
 crates/sim/src/combat/sheet.rs SLASHING  # a damageflags bit; iprp_damagetype.2da row
 crates/sim/src/combat/sheet.rs SMALL  # a bit flag
 crates/sim/src/combat/sheet.rs SNEAK_ATTACK  # feat.2da row(s)
@@ -464,6 +465,7 @@ crates/sim/src/script/engine.rs DISARMED  # a `last` kind id
 crates/sim/src/script/engine.rs DISTURBED  # a `last` kind id
 crates/sim/src/script/engine.rs DISTURB_ITEM  # a `last` kind id
 crates/sim/src/script/engine.rs EFFECTS  # iterator kind id
+crates/sim/src/script/engine.rs FACTION  # iterator kind id
 crates/sim/src/script/engine.rs FEAT_TALENTS  # a talent value's encoding
 crates/sim/src/script/engine.rs FORCE_POWER  # a `last` kind id
 crates/sim/src/script/engine.rs FOUND_ENEMY  # a `last` kind id
@@ -507,6 +509,7 @@ crates/sim/src/script/influence.rs NPC_TAGS  # TSL's executable's companion tags
 crates/sim/src/script/influence.rs SITH_LORD  # classes.2da row
 crates/sim/src/script/influence.rs TOP  # the alignment and influence scale's top (0 to 100)
 crates/sim/src/script/locks.rs DOOR_ACTIONS  # DOOR_ACTION_* script constants' names
+crates/sim/src/script/maths.rs DEGREES_PER_RADIAN  # a unit's conversion, 180/π
 crates/sim/src/script/mod.rs CRITERIA  # script constants: CREATURE_TYPE_* names
 crates/sim/src/script/mod.rs FIRST_DIALOG_ANIMATION  # DLG value range: dialoganimations.2da rows
 crates/sim/src/script/mod.rs FLOOR_SEARCH_M  # placement: a place's floor search
@@ -664,3 +667,11 @@ crates/sim/src/notice.rs ENDING_MOVIES  # TSL's ending movies' names (the execut
 crates/sim/src/world/remote/kit.rs HEALED_VISUAL  # a visualeffects.2da row
 crates/sim/src/world/remote/kit.rs REVIVED_VISUAL  # a visualeffects.2da row
 crates/sim/src/reconcile.rs SNAP_M  # kjk's own save migration: how far a body off the mesh is moved to the nearest walkable point, not a game number
+crates/sim/src/combat/effects.rs INVISIBLE_NORMAL  # nwscript's INVISIBILITY_TYPE_NORMAL constant
+crates/sim/src/notice.rs SWOOP_UPGRADE  # a screen notice's wire tag
+crates/sim/src/script/actions.rs GET_LOW  # nwscript's ANIMATION_LOOPING_GET_LOW constant
+crates/sim/src/script/engine.rs INVISIBILITY_TYPES  # nwscript's INVISIBILITY_TYPE_* constants' names
+crates/sim/src/script/engine.rs PLAYER_DIED  # a `last` kind id
+crates/sim/src/script/state.rs FOLLOW  # save tag
+crates/sim/src/script/state.rs PICK_UP  # save tag
+crates/sim/src/script/state.rs PUT_DOWN  # save tag

@@ -330,6 +330,7 @@ fn cast_alone(
             by: own,
             id: 1,
             at: time,
+            third: 0,
         };
         theirs.effects.add(lasting, time);
     }
@@ -1078,6 +1079,7 @@ pub fn force(
                 by: own,
                 id: id as u32 + 1,
                 at: time,
+                third: 0,
             };
             theirs.effects.add(lasting, time);
         }

@@ -243,8 +243,32 @@ pub(super) fn hurt(
                             by: by.0,
                             id: applied.id,
                             at: now,
+                            third: 0,
                         };
                         effects::add(fighter, lasting, now);
+                    }
+                }
+                // One of three integers (a damage reduction, a damage
+                // shield), its third kept on it.
+                &ScriptEffect::Ints {
+                    modifies,
+                    amount,
+                    of,
+                    third,
+                } => {
+                    if let (Some(at), Some(until)) = (at, until) {
+                        let lasting = effects::Lasting {
+                            modifies,
+                            amount,
+                            of,
+                            until,
+                            spell: applied.spell,
+                            by: by.0,
+                            id: applied.id,
+                            at: now,
+                            third,
+                        };
+                        effects::add(&mut actors[at].5.0, lasting, now);
                     }
                 }
                 // Taken above, before what is linked to it.
@@ -273,6 +297,7 @@ pub(super) fn hurt(
                                 by: by.0,
                                 id: applied.id,
                                 at: now,
+                                third: 0,
                             };
                             effects::add(fighter, lasting, now);
                         }
@@ -321,6 +346,7 @@ pub(super) fn hurt(
                                 by: by.0,
                                 id: applied.id,
                                 at: now,
+                                third: 0,
                             };
                             effects::add(&mut actors[at].5.0, lasting, now);
                         }
@@ -382,6 +408,21 @@ pub(super) fn hurt(
                             fighting.0.blasted_ms = now;
                         }
                         pushed(&mut player.0, &mut fighting.0, centre, now);
+                    }
+                }
+                // Thrown down for the effect's time and a little more
+                // (`OnApplyKnockdown`), unless immune to knockdown.
+                ScriptEffect::Knockdown => {
+                    if let Some(at) = at {
+                        let fighter = &mut actors[at].5.0;
+                        let immune = fighter
+                            .effects
+                            .immune_effect(effects::state::KNOCKDOWN, now);
+                        if fighter.alive() && !immune && !fighter.saber.floored() {
+                            let held = until.map_or(0, |until| until.saturating_sub(now));
+                            let ms = held.saturating_add(rules::force_effects::knockdown::EXTRA_MS);
+                            fighter.saber.knock_down(now, ms);
+                        }
                     }
                 }
                 // A downed party member up again (I30 P11's rise); one dead
@@ -527,7 +568,11 @@ pub(super) fn hurt(
     // trick a hit broke.
     let mut spent = Vec::new();
     let mut broken = Vec::new();
-    for hit in hits {
+    // Each hit in turn, a damage shield's blow back (`shields`) after the
+    // rest.
+    let mut next = 0;
+    while let Some(&hit) = hits.get(next) {
+        next += 1;
         // One that found no character may have found a door or a
         // placeable (`objects`).
         let Some(at) = find(&actors, hit.target) else {
@@ -576,6 +621,13 @@ pub(super) fn hurt(
             .2
             .and_then(|object| object.facts.as_ref()?.body)
             .is_some_and(|body| body.immobile());
+        // An invisible attacker its target does not see through
+        // (`Modifies::Invisibility`): the target's DEX bonus to Defense is
+        // lost against it.
+        let unseen = attacker.filter(|by| *by != at).is_some_and(|by| {
+            actors[by].5.0.effects.invisible(clock.time_ms).0
+                && !actors[at].5.0.effects.sees_invisible(clock.time_ms)
+        });
         let (_, avatar, _, _, player, fighting) = &mut actors[at];
         // The dead take nothing more; the downed nothing but the story's
         // death.
@@ -635,6 +687,10 @@ pub(super) fn hurt(
         // (`forms::defence`).
         let targeted = fighting.0.target == Some(hit.attacker);
         let mut defending = crate::combat::forms::defending(&target_sheet, targeted);
+        if unseen {
+            let dex = target_sheet.dex_defence().max(0);
+            defending.defence = defending.defence.saturating_sub(dex.min(127) as i8);
+        }
         let (_, exposed) = fighting.0.shooting.exposed(clock.time_ms);
         defending.defence = defending.defence.saturating_add(exposed);
         for kind in [gear::immunity::CRITICAL_HIT, gear::immunity::SNEAK_ATTACK] {
@@ -663,6 +719,14 @@ pub(super) fn hurt(
             // protect turns its share of the rest (paid from FP); rage last.
             if extra > 0 && matches!(hit.source, Source::Weapon { .. }) {
                 assessed.damage = assessed.damage.saturating_mul(1 + extra);
+            }
+            if let Source::Weapon { weapon, .. } = hit.source {
+                assessed.damage = reduced(
+                    &mut fighting.0,
+                    assessed.damage,
+                    (assessed.damage_type, weapon.enhancement),
+                    clock.time_ms,
+                );
             }
             assessed.damage -= items::absorb(
                 &mut fighting.0.pack,
@@ -829,11 +893,47 @@ pub(super) fn hurt(
                 }
             }
         }
+        // Each damage shield on it strikes back at a melee attacker whose
+        // blow landed (TSL's `ResolveDamageShields`).
+        let landed = matches!(
+            resolved.outcome,
+            crate::combat::Outcome::Hit
+                | crate::combat::Outcome::Critical
+                | crate::combat::Outcome::Automatic
+        );
+        if attacker_blade
+            && landed
+            && attacker.is_some_and(|by| by != at)
+            && matches!(hit.source, Source::Weapon { .. })
+        {
+            let back: Vec<Hit> = fighting
+                .0
+                .effects
+                .shields(clock.time_ms)
+                .map(|shield| shield_blow(shield, hit, &mut streams.authority))
+                .collect();
+            hits.extend(back);
+        }
         if let Some(by) = attacker {
             let theirs = &mut actors[by].5.0;
             // The story's death is no fight of its giver's.
             if !death {
                 theirs.combat_until = clock.time_ms + COMBAT_MS;
+            }
+            // A normal invisibility ends as its bearer attacks.
+            if attacked && theirs.effects.invisible(clock.time_ms).1 {
+                let ids: Vec<u32> = theirs
+                    .effects
+                    .running(clock.time_ms)
+                    .filter(|l| {
+                        l.modifies == effects::Modifies::Invisibility
+                            && l.amount == effects::INVISIBLE_NORMAL
+                    })
+                    .map(|l| l.id)
+                    .collect();
+                for id in ids {
+                    effects::remove(theirs, Some(id), clock.time_ms);
+                }
             }
             if killed && by != at {
                 let effects = &mut theirs.effects;
@@ -909,6 +1009,7 @@ pub(super) fn settle_effects(
                 amount: row as i16,
                 of: 0,
                 at: now,
+                third: 0,
                 ..took
             };
             effects::add(fighter, lasting, now);
@@ -951,4 +1052,81 @@ pub(super) fn break_fragile(fighter: &mut Fighter, now: u64) -> bool {
         effects::remove(fighter, Some(*id), now);
     }
     !ids.is_empty()
+}
+
+/// What is left of `damage` (hundredths) of `(type row, enhancement)`
+/// after the damage reduction holding on `fighter` (TSL's
+/// `DoDamageReduction`): the highest amount alone, on physical damage of a
+/// weapon whose enhancement is below its power. A limit is drained by the
+/// whole blow first, whatever its power: one the blow spends ends the
+/// effect, and takes off only what was left of it.
+pub(super) fn reduced(
+    fighter: &mut Fighter,
+    damage: i32,
+    (row, enhancement): (Option<u8>, u8),
+    now: u64,
+) -> i32 {
+    let physical = row.is_some_and(|row| row <= crate::combat::sheet::type_rows::SLASHING);
+    let Some(slot) = fighter.effects.reduction(now).filter(|_| physical) else {
+        return damage;
+    };
+    let Some(reduction) = fighter.effects.lasting[slot] else {
+        return damage;
+    };
+    let whole = (damage / 100).max(0) as u32;
+    let mut off = i32::from(reduction.amount);
+    if reduction.third > 0 {
+        if reduction.third > whole {
+            if let Some(lasting) = fighter.effects.lasting[slot].as_mut() {
+                lasting.third = reduction.third - whole;
+            }
+        } else {
+            off = reduction.third as i32;
+            effects::remove(fighter, Some(reduction.id), now);
+        }
+    }
+    if enhancement >= reduction.of {
+        return damage;
+    }
+    (damage - off * 100).max(0)
+}
+
+/// A damage shield's blow back at the one whose blow `hit` landed: its
+/// points and its bonus (`rules::force_effects::damage_shield`), of its
+/// damage type's row (the highest flag set; none past the rows).
+pub(super) fn shield_blow(
+    shield: &effects::Lasting,
+    hit: Hit,
+    rng: &mut crate::rng::SimRng,
+) -> Hit {
+    use rules::force_effects::damage_shield::{BONUS_DICE, FLAT_BELOW};
+    let bonus = match shield.of {
+        0 => 0,
+        flat if flat < FLAT_BELOW => i32::from(flat),
+        dice => {
+            let pair = usize::from(dice - FLAT_BELOW) * 2;
+            match BONUS_DICE.get(pair..pair + 2) {
+                Some(&[count, sides]) => (0..count)
+                    .map(|_| rng.below(u32::from(sides)) as i32 + 1)
+                    .sum(),
+                _ => 0,
+            }
+        }
+    };
+    let row = (shield.third != 0)
+        .then(|| (31 - shield.third.leading_zeros()) as u8)
+        .filter(|row| usize::from(*row) < crate::combat::sheet::DAMAGE_TYPES);
+    Hit {
+        attacker: hit.target,
+        target: hit.attacker,
+        source: Source::Script {
+            damage_type: row,
+            damage: (i32::from(shield.amount) + bonus).clamp(0, i32::from(u16::MAX)) as u16,
+            cast: false,
+            shot: None,
+            staged: false,
+        },
+        point: None,
+        direction: None,
+    }
 }

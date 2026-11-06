@@ -71,6 +71,9 @@ pub enum Screen {
     /// `PlayPazaak`: a match began; its table is the snapshot's
     /// (`Snapshot::pazaak`), which the screens follow.
     Pazaak,
+    /// TSL's `ShowSwoopUpgradeScreen`: the swoop bike's upgrades (the
+    /// executable's `ShowSwoopUpgradeScreen(OBJECT_INVALID)`).
+    SwoopUpgrade,
 }
 
 /// A workbench or lab station a script opened (`Screen::Workbench`): the
@@ -131,6 +134,7 @@ const PAZAAK: u8 = 11;
 const WORKBENCH: u8 = 12;
 const TUTORIAL: u8 = 13;
 const DATAPAD: u8 = 14;
+const SWOOP_UPGRADE: u8 = 15;
 
 /// The most companions a party selection screen shows (KOTOR 2's twelve;
 /// KOTOR 1 has nine).
@@ -367,6 +371,7 @@ impl Screen {
             Screen::End => out.u8(END),
             Screen::Credits => out.u8(CREDITS),
             Screen::Pazaak => out.u8(PAZAAK),
+            Screen::SwoopUpgrade => out.u8(SWOOP_UPGRADE),
             Screen::Workbench(ref bench) => {
                 out.u8(WORKBENCH);
                 bench.encode(&mut out);
@@ -412,6 +417,7 @@ impl Screen {
                 }
             }
             TUTORIAL => Screen::Tutorial { row: input.u8()? },
+            SWOOP_UPGRADE => Screen::SwoopUpgrade,
             DATAPAD => Screen::Datapad {
                 template: input.string()?,
             },
@@ -583,6 +589,9 @@ pub enum Notice {
     /// Not fitted or taken out (`Action::Fit`, `Unfit`): the item does not
     /// take that upgrade, its kind is full, or the upgrade is not there.
     CannotUpgrade,
+    /// `DoSinglePlayerAutoSave`: the game is to autosave now (the
+    /// executable's `SetAutoSavePending`), told to the host alone.
+    AutoSave,
 }
 
 /// The notices since the last `SimWorld::take_notices`, by seat.
