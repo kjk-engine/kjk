@@ -24,7 +24,7 @@ const RESPAWN_MS: u64 = 500;
 
 /// The proving ground as an arena laying out `props`, the foe's template in
 /// its library; the world and its rules.
-fn arena_with(props: Vec<Prop>) -> Result<(SimWorld, Rules), String> {
+pub(super) fn arena_with(props: Vec<Prop>) -> Result<(SimWorld, Rules), String> {
     let ground = crate::determinism::proving_ground();
     let entry = ground.module().ok_or("the ground has no module")?.entry;
     let rules = Rules {

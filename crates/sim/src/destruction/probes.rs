@@ -118,4 +118,7 @@ pub fn probes() -> Checks {
         ("destruction_worth", worth_probe()),
         ("destruction_guards", guards_probe()),
     ]
+    .into_iter()
+    .chain(crate::world::destruction_probes::probes())
+    .collect()
 }
