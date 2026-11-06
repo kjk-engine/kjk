@@ -113,7 +113,7 @@ pub(super) fn bashable<'a>(
 ) -> Vec<(u32, SimId)> {
     let mut all: Vec<(u32, SimId)> = objects
         .filter(|(_, object)| {
-            (object.facts.as_deref()).is_some_and(|facts| object.state.bashable(facts))
+            (object.facts.as_deref()).is_some_and(|facts| object.state.breakable(facts))
         })
         .map(|(id, object)| (object.index, id.0))
         .collect();
@@ -129,11 +129,20 @@ const PLACEABLE_BODY: (f32, f32) = (
     crate::target::PLACEABLE_HEIGHT,
 );
 
-/// The bodies of what may be bashed among `objects`: what a party member's
-/// fist or a blast meets (by its id, as a character's), in metres, in id
-/// order.
+/// The bodies of what may be bashed or broken among `objects`: what a fist
+/// or a blast meets (by its id, as a character's), in metres, in id order.
 pub(super) fn bodies<'a>(objects: impl Iterator<Item = (&'a Id, &'a Object)>) -> Vec<Body> {
-    bodies_where(objects, |object, facts| object.state.bashable(facts))
+    bodies_where(objects, |object, facts| object.state.breakable(facts))
+}
+
+/// The bodies of the destructible props among `objects` not yet broken:
+/// what anyone's bolt meets.
+pub(super) fn destructible_bodies<'a>(
+    objects: impl Iterator<Item = (&'a Id, &'a Object)>,
+) -> Vec<Body> {
+    bodies_where(objects, |object, facts| {
+        facts.destructible.is_some() && object.state.breakable(facts)
+    })
 }
 
 /// The bodies of every one of `objects` there is (the 107per turret's bolts
@@ -169,6 +178,37 @@ fn bodies_where<'a>(
         .collect();
     all.sort_by_key(|body| body.entity);
     all
+}
+
+/// The objects among `objects` that may be bashed or broken which a blast
+/// at `at` (units) reaches, each with the way it is thrown: within the
+/// blast's radius of their middle, in its line of sight.
+pub(super) fn blast_reach<'a>(
+    level: &super::level::Level,
+    states: Option<&[u8]>,
+    objects: impl Iterator<Item = (&'a Id, &'a Object)>,
+    at: [f32; 3],
+) -> Vec<(SimId, [f32; 3])> {
+    let objects: Vec<(&Id, &Object)> = objects.collect();
+    let bashed: Vec<(SimId, [f32; 3])> = bodies(objects.iter().copied())
+        .iter()
+        .map(|body| (SimId(body.entity & !BODY), middle(body)))
+        .collect();
+    // A destructible prop's own brushes (the level's entity of its number)
+    // do not hide it; what is bashed is reached as before.
+    let own = |target: SimId| {
+        objects
+            .iter()
+            .find(|(id, object)| {
+                id.0 == target
+                    && object
+                        .facts
+                        .as_ref()
+                        .is_some_and(|f| f.destructible.is_some())
+            })
+            .map(|(_, object)| object.index)
+    };
+    super::bolts::caught_by_blast(level, states, &bashed, at, own)
 }
 
 /// Where a body is in the middle (units, as characters' places are).
@@ -226,6 +266,11 @@ pub(crate) fn hurts(
     if facts.toughness.plot || scenery || state.broken(facts) || state.hit_points(facts).is_none() {
         return false;
     }
+    // A destructible prop (unguarded: `destruction::fill`) is hurt by
+    // anyone's weapon, blast or power.
+    if facts.destructible.is_some() {
+        return true;
+    }
     match source {
         Source::Script { .. } | Source::Death => true,
         // A script's blow lands locked or not: a bash is asked only of
@@ -243,7 +288,15 @@ pub(crate) fn land(facts: &ObjectData, state: &mut ObjectState, lost: i32) -> (u
     let Some((now, _)) = state.hit_points(facts) else {
         return (0, false);
     };
-    let floor = if facts.toughness.min_one_hp { 1 } else { 0 };
+    // A prop that only shows damage never goes (`destruction::Class`).
+    let shows = facts
+        .destructible
+        .is_some_and(|d| d.class == crate::destruction::Class::Damage);
+    let floor = if facts.toughness.min_one_hp || shows {
+        1
+    } else {
+        0
+    };
     let whole = ((lost + 50) / 100).clamp(0, (now - floor).max(0));
     let whole = u16::try_from(whole).unwrap_or(u16::MAX);
     state.damage = state.damage.saturating_add(whole);
@@ -349,6 +402,11 @@ pub(super) fn objects(
             swings.push((by, weapon.delivery));
         }
         let most = facts.hit_points.map_or(1, |(_, most)| most);
+        // Destruction weighs its own hardness after (`destruction::worth`).
+        let hardness = match facts.destructible {
+            Some(_) => 0,
+            None => facts.toughness.hardness,
+        };
         let blow = Blow {
             attacker: Some(by),
             relation: Relation::Hostile,
@@ -360,22 +418,34 @@ pub(super) fn objects(
         let assessed = damage::assess(
             &blow,
             sheet.as_ref(),
-            &stand_in(facts.toughness.hardness, most),
+            &stand_in(hardness, most),
             level.0.friendly_fire,
             level.0.game(),
             &mut streams.authority,
         );
-        let worth = match source {
+        let area = match source {
+            Source::Blast { .. } => true,
+            Source::Weapon { area, .. } | Source::Power { area, .. } => area,
+            Source::Script { cast, .. } => cast,
+            Source::Death => false,
+        };
+        let worth = match (source, facts.destructible) {
+            (Source::Death, _) => assessed.damage,
+            (_, Some(d)) => {
+                crate::destruction::worth(assessed.damage, assessed.damage_type, area, d)
+            }
             // TSL's Door Cutting (the plasma torch): a hit takes all its
             // hit points, whatever its hardness.
-            Source::Weapon { weapon, .. } if weapon.traits & weapon_traits::DOOR_CUTTING != 0 => {
+            (Source::Weapon { weapon, .. }, _)
+                if weapon.traits & weapon_traits::DOOR_CUTTING != 0 =>
+            {
                 object
                     .state
                     .hit_points(&facts)
                     .map_or(0, |(now, _)| now.max(0))
                     * 100
             }
-            Source::Weapon { .. } | Source::Blast { .. } => {
+            (Source::Weapon { .. } | Source::Blast { .. }, _) => {
                 assessed.damage.saturating_mul(BASH_TIMES)
             }
             _ => assessed.damage,

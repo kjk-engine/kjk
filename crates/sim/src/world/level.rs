@@ -484,8 +484,14 @@ impl Level {
                 .placed
                 .get(index as usize)
                 .is_some_and(|facts| facts.kind == ObjectKind::Placeable);
+            let passable = self
+                .placed
+                .get(index as usize)
+                .is_some_and(|facts| object.passable(facts));
             states[slot] = match object.state {
                 collision::GONE => collision::GONE,
+                // A destructible prop broken lets bodies by.
+                _ if passable => collision::GONE,
                 _ if placeable => 0,
                 state => state,
             };
