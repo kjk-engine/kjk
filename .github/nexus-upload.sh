@@ -2,24 +2,39 @@
 # Puts one Release's packages on the Nexus Mods page (docs/RELEASE.md):
 #   .github/nexus-upload.sh <version> <package>...
 # Each package (kjk-v0.6.0-linux-x86_64.tar.gz) becomes a new version of its
-# OS's file on the page, the file whose id is the repository variable
-# NEXUS_FILE_<PLATFORM> (NEXUS_FILE_LINUX_X86_64). With no such variable the
-# package is added as a new main file and its id is printed, to be saved as
-# that variable so the next release updates it.
+# OS's file on the page, the file named by the environment variable
+# NEXUS_FILE_<PLATFORM> (NEXUS_FILE_LINUX_X86_64): the API's id for the file,
+# or the file_id in one of its versions' download links on the site. With no
+# such variable the package is added as a new main file and its id is
+# printed, to be saved so the next release updates it.
 #
 # NEXUS_API_KEY is the owner's key (nexusmods.com/settings/api-keys),
-# NEXUS_MOD_ID the mod's id (not the 1911 in its URL), VARS the repository
-# variables as JSON. The API: https://api-docs.nexusmods.com/
+# NEXUS_MOD_ID the mod's id (not the 1911 in its URL), NEXUS_GAME the game's
+# name in the site's URLs. The API: https://api-docs.nexusmods.com/
 set -euo pipefail
 
 api=https://api.nexusmods.com/v3
 version=${1#v}
 shift
 
-call() { # method path [json]
-  curl --silent --show-error --fail-with-body -X "$1" "$api$2" \
+call() { # method path [json]; on failure Nexus's answer goes to stderr
+  local out
+  if ! out=$(curl --silent --show-error --fail-with-body -X "$1" "$api$2" \
     -H "apikey: $NEXUS_API_KEY" -H "Content-Type: application/json" \
-    ${3:+--data "$3"}
+    ${3:+--data "$3"}); then
+    echo "$1 $2 failed: $out" >&2
+    return 1
+  fi
+  printf '%s\n' "$out"
+}
+
+# The API's id for a file, given that id or a version's game-scoped id.
+file_of() {
+  if call GET "/mod-files/$1" >/dev/null 2>&1; then
+    echo "$1"
+  else
+    call GET "/games/$NEXUS_GAME/mod-file-versions/$1" | jq -er .data.file.id
+  fi
 }
 
 label() {
@@ -32,13 +47,31 @@ label() {
   esac
 }
 
+# Nexus takes .zip, .7z, .rar, .exe and .omod, so a .tar.gz is repacked as a
+# .zip; zip keeps the files' modes, and -y the app's symlinks.
+zipped() {
+  local stage
+  stage=$(mktemp -d)
+  tar -xzf "$1" -C "$stage"
+  (cd "$stage" && zip -qry - .) >"${1%.tar.gz}.zip"
+  rm -rf "$stage"
+  echo "${1%.tar.gz}.zip"
+}
+
 for package in "$@"; do
+  [[ $package == *.tar.gz ]] && package=$(zipped "$package")
   filename=$(basename "$package")
   platform=${filename#kjk-v"$version"-}
   platform=${platform%.tar.gz}
   platform=${platform%.zip}
   variable=NEXUS_FILE_$(tr 'a-z-' 'A-Z_' <<<"$platform")
-  file_id=$(jq -r --arg v "$variable" '.[$v] // empty' <<<"${VARS:-null}")
+  file_id=${!variable:-}
+  if [ -n "$file_id" ]; then
+    file_id=$(file_of "$file_id") || {
+      echo "::error::$variable names no file or file version on Nexus"
+      exit 1
+    }
+  fi
   size=$(stat -c %s "$package")
   if (( size > 100 * 1024 * 1024 )); then
     echo "::error::$filename is over 100 MiB, which needs Nexus's multipart upload (not written yet)"
@@ -51,6 +84,7 @@ for package in "$@"; do
     '{filename: $f, size_bytes: $s, md5: $m}')")
   upload_id=$(jq -r .data.id <<<"$upload")
   curl --silent --show-error --fail-with-body -X PUT --upload-file "$package" \
+    -H "Content-Type: application/octet-stream" \
     -H "Content-Disposition: attachment; filename=\"$filename\"" \
     -H "Content-MD5: $(openssl dgst -md5 -binary "$package" | base64)" \
     "$(jq -r .data.presigned_url <<<"$upload")"

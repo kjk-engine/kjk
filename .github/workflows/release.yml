@@ -100,10 +100,14 @@ jobs:
             target/packages/*.zip
           if-no-files-found: error
 
+  # Drafted with the packages that built: GitHub's macOS arm64 runners are at
+  # times not given at all ("not acquired ... after multiple attempts"), and
+  # one OS missing should not hold back the others. The notes name what is
+  # missing; it can be built and added to the draft later (docs/RELEASE.md).
   release:
     name: draft release
     needs: [package]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: always() && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -120,8 +124,19 @@ jobs:
       - name: draft
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >
-          gh release create "$GITHUB_REF_NAME" packages/*
-          --repo "$GITHUB_REPOSITORY" --draft --verify-tag
-          --title "kjk $GITHUB_REF_NAME"
-          --notes "Unsigned builds for macOS (Apple silicon), Windows and Linux (x86-64). Read README.txt in the package first; SHA256SUMS lists each file's checksum."
+        run: |
+          built="" missing=""
+          for pair in "macos-aarch64:macOS (Apple silicon)" "windows-x86_64:Windows (x86-64)" "linux-x86_64:Linux (x86-64)"; do
+            label=${pair#*:}
+            if compgen -G "packages/kjk-*-${pair%%:*}.*" >/dev/null; then
+              built+="${built:+, }$label"
+            else
+              missing+="${missing:+, }$label"
+              echo "::warning::no $label package: it is not on the draft"
+            fi
+          done
+          notes="Unsigned builds for $built. Read README.txt in the package first; SHA256SUMS lists each file's checksum."
+          [ -z "$missing" ] || notes+=" The $missing build is not here yet."
+          gh release create "$GITHUB_REF_NAME" packages/* \
+            --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+            --title "kjk $GITHUB_REF_NAME" --notes "$notes"
