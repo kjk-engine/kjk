@@ -647,14 +647,16 @@ impl Move<'_, '_> {
 
     /// Whether the style's kata can start: standing ready (or starting a
     /// swing) on the ground with both attacks held and no keys, and the
-    /// Force to pay for it.
+    /// Force to pay for it. The pair's kata sends both blades about the
+    /// body, so it is a Force user's alone (stamina pays for the others).
     fn kata_possible(&mut self, arms: &Arms) -> bool {
         let saber = &arms.fighter.saber;
         let Some(style) = saber.style else {
             return false;
         };
         let current = saber.current_move;
-        !arms.kit.secondary(arms.fighter.hand, style)
+        (style != Style::Dual || arms.kit.max_fp > 0)
+            && !arms.kit.secondary(arms.fighter.hand, style)
             && (current == READY || current.start())
             && !current.kata()
             && !is_kata(self.ps.legs.anim)
