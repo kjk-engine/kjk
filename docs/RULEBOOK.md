@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `1a5bf2191e829e69`.
+Edition `0cf478bf1a1d5013`.
 
 ## Contents
 
@@ -42,7 +42,6 @@ Edition `1a5bf2191e829e69`.
   - [Sonic Weapons](#weapons-sonic)
   - [Bolts in Flight](#weapons-flight)
   - [Unarmed Combat](#weapons-unarmed)
-  - [Bloom and Kick](#weapons-bloom)
 - [Feats](#feats)
   - [Weapon Training](#feats-weapon)
   - [Two-Weapon Fighting and Dueling](#feats-two-weapon)
@@ -82,6 +81,12 @@ Edition `1a5bf2191e829e69`.
   - [Plasma Grenade](#grenades-fire)
   - [Ion Grenade](#grenades-ion)
   - [Wrist Launcher](#grenades-launched)
+- [Destruction](#destruction)
+  - [Hardness](#destruction-hardness)
+  - [Hit points](#destruction-hit-points)
+  - [Damage types](#destruction-multipliers)
+  - [Area blows](#destruction-area)
+  - [Damage stages](#destruction-stages)
 - [Lightsabers and Melee Weapons](#sabers)
   - [Saber Frame](#sabers-ja)
   - [Blades](#sabers-blades)
@@ -192,7 +197,7 @@ Edition `1a5bf2191e829e69`.
   - [Recover Mine](#traps-recover)
   - [Set Mine](#traps-lay)
   - [Triggering Mines](#traps-springing)
-  - [Mines on Locks](#traps-door-mines)
+  - [Mines on Doors](#traps-door-mines)
 - [Doors, Locks and Bashing](#interaction)
   - [Skill Checks](#interaction-checks)
   - [Locks and Security](#interaction-security)
@@ -243,7 +248,6 @@ Edition `1a5bf2191e829e69`.
   - [Paths](#walking-route)
   - [Movement Speed](#walking-pace)
   - [Walking in Conversations](#walking-walker)
-  - [Getting Unstuck](#walking-jam)
   - [Finding the Floor](#walking-searches)
 - [Targeting](#targeting)
   - [Selecting a Target](#targeting-pick)
@@ -732,7 +736,6 @@ attack or a flip-over attack always grunts. Any other lightsaber or melee
 swing grunts only sometimes, for the player's own character as for anyone
 else. In a scene's combat rounds, and when hurt, the player's character
 always grunts and others grunt one time in 5.
-A character that has just grunted keeps quiet for a moment.
 
 <a id="combat-grunts-chance"></a>**Swing Grunt Chance** = **2 in 10** · `combat.grunts.chance`
 
@@ -745,12 +748,6 @@ An ordinary lightsaber or melee swing grunts 2 in 10 times.
 A character other than the player's own grunts at a scene round's swing, or in pain, one time in 5.
 
 <sub>Source: KOTOR's rule: the K1 executable's attack and pain grunts. Code: `game::grunts::says`.</sub>
-
-<a id="combat-grunts-gap-ms"></a>**Grunt Gap** = **1.5 seconds** (`1500 ms`) · `combat.grunts.gap_ms`
-
-After a character grunts, in attack or in pain, it grunts no more for 1.5 seconds. A grunt the odds pass over does not start the gap, and a death cry is never held back.
-
-<sub>Source: GitHub #265 (2026-11-10): JA holds back a pain sound 700 ms and an NPC's combat talk 5000 ms; KOTOR's one attack a round spaced them. Code: `game::grunts::Gap`.</sub>
 
 ### <a id="combat-sheet"></a>Character Sheet
 
@@ -916,28 +913,6 @@ A blaster pistol's bolt flies at 40.6 meters per second.
 
 <sub>Source: JA: projectile speed. Code: `sim::combat::weapons::primary`.</sub>
 
-<a id="weapons-pistol-bloom"></a>**Bloom** = **0.6° / 2.5° / 8°** (`0.6 / 2.5 / 8°`) · `weapons.pistol.bloom`
-
-per shot **0.6°** · most **2.5°** · fall per second **8°**
-
-Each shot of a blaster pistol adds 0.6 degrees of spread, up to 2.5; resting, it falls 8 degrees a second.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
-<a id="weapons-pistol-bloom-rest-ms"></a>**Bloom Rest** = **0.9 seconds** (`900 ms`) · `weapons.pistol.bloom_rest_ms`
-
-A blaster pistol's bloom starts to fall 0.9 seconds after its last shot.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
-<a id="weapons-pistol-kick"></a>**Kick** = **0.8° / 0.15°** (`0.8 / 0.15°`) · `weapons.pistol.kick`
-
-up **0.8°** · either side **0.15°**
-
-Each shot of a blaster pistol kicks the aim up 0.8 degrees and up to 0.15 to either side.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
 ### <a id="weapons-rifle"></a>Blaster Rifles
 
 Blaster rifles and carbines fire a steady stream of bolts. The alternate fire is Rapid Shot.
@@ -953,28 +928,6 @@ A blaster rifle fires once every 0.35 seconds.
 A blaster rifle's bolt flies at 58.4 meters per second.
 
 <sub>Source: JA: projectile speed. Code: `sim::combat::weapons::primary`.</sub>
-
-<a id="weapons-rifle-bloom"></a>**Bloom** = **0.3° / 3° / 6°** (`0.3 / 3 / 6°`) · `weapons.rifle.bloom`
-
-per shot **0.3°** · most **3°** · fall per second **6°**
-
-Each shot of a blaster rifle adds 0.3 degrees of spread, up to 3; resting, it falls 6 degrees a second.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
-<a id="weapons-rifle-bloom-rest-ms"></a>**Bloom Rest** = **0.45 seconds** (`450 ms`) · `weapons.rifle.bloom_rest_ms`
-
-A blaster rifle's bloom starts to fall 0.45 seconds after its last shot.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
-<a id="weapons-rifle-kick"></a>**Kick** = **0.35° / 0.2°** (`0.35 / 0.2°`) · `weapons.rifle.kick`
-
-up **0.35°** · either side **0.2°**
-
-Each shot of a blaster rifle kicks the aim up 0.35 degrees and up to 0.2 to either side.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
 ### <a id="weapons-repeater"></a>Repeating Blasters
 
@@ -1006,28 +959,6 @@ A repeating blaster's bolt leaves the gun 0.3 meters forward of the eye, 0.11 me
 
 <sub>Source: JA: the repeater's muzzle offset. Code: `sim::combat::weapons::primary`.</sub>
 
-<a id="weapons-repeater-bloom"></a>**Bloom** = **0.12° / 2° / 4°** (`0.12 / 2 / 4°`) · `weapons.repeater.bloom`
-
-per shot **0.12°** · most **2°** · fall per second **4°**
-
-Each shot of a repeating blaster adds 0.12 degrees of spread, up to 2; resting, it falls 4 degrees a second.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
-<a id="weapons-repeater-bloom-rest-ms"></a>**Bloom Rest** = **0.2 seconds** (`200 ms`) · `weapons.repeater.bloom_rest_ms`
-
-A repeating blaster's bloom starts to fall 0.2 seconds after its last shot.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
-<a id="weapons-repeater-kick"></a>**Kick** = **0.2° / 0.25°** (`0.2 / 0.25°`) · `weapons.repeater.kick`
-
-up **0.2°** · either side **0.25°**
-
-Each shot of a repeating blaster kicks the aim up 0.2 degrees and up to 0.25 to either side.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
 ### <a id="weapons-bowcaster"></a>Bowcaster
 
 The bowcaster fires one slow, wide bolt with each pull of the trigger.
@@ -1057,28 +988,6 @@ forward **0.3 meters** · right **0.051 meters** · up **-0.15 meters**
 A bowcaster's bolt leaves the weapon 0.3 meters forward of the eye, 0.051 meters to the right and -0.15 meters up.
 
 <sub>Source: JA: the bowcaster's muzzle offset. Code: `sim::combat::weapons::primary`.</sub>
-
-<a id="weapons-bowcaster-bloom"></a>**Bloom** = **0.8° / 2° / 6°** (`0.8 / 2 / 6°`) · `weapons.bowcaster.bloom`
-
-per shot **0.8°** · most **2°** · fall per second **6°**
-
-Each shot of a bowcaster adds 0.8 degrees of spread, up to 2; resting, it falls 6 degrees a second.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
-<a id="weapons-bowcaster-bloom-rest-ms"></a>**Bloom Rest** = **1.1 seconds** (`1100 ms`) · `weapons.bowcaster.bloom_rest_ms`
-
-A bowcaster's bloom starts to fall 1.1 seconds after its last shot.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
-<a id="weapons-bowcaster-kick"></a>**Kick** = **1.2° / 0.2°** (`1.2 / 0.2°`) · `weapons.bowcaster.kick`
-
-up **1.2°** · either side **0.2°**
-
-Each shot of a bowcaster kicks the aim up 1.2 degrees and up to 0.2 to either side.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
 ### <a id="weapons-disruptor"></a>Disruptors
 
@@ -1110,28 +1019,6 @@ A disruptor's shot reaches 208.1 meters.
 
 <sub>Source: JA (the disruptor's range). Code: `sim::combat::weapons::HITSCAN_RANGE`.</sub>
 
-<a id="weapons-disruptor-bloom"></a>**Bloom** = **0° / 0° / 0°** (`0 / 0 / 0°`) · `weapons.disruptor.bloom`
-
-per shot **0°** · most **0°** · fall per second **0°**
-
-Each shot of a disruptor adds 0 degrees of spread, up to 0; resting, it falls 0 degrees a second.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
-<a id="weapons-disruptor-bloom-rest-ms"></a>**Bloom Rest** = **0 seconds** (`0 ms`) · `weapons.disruptor.bloom_rest_ms`
-
-A disruptor's bloom starts to fall 0 seconds after its last shot.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
-<a id="weapons-disruptor-kick"></a>**Kick** = **2° / 0.1°** (`2 / 0.1°`) · `weapons.disruptor.kick`
-
-up **2°** · either side **0.1°**
-
-Each shot of a disruptor kicks the aim up 2 degrees and up to 0.1 to either side.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
 ### <a id="weapons-ion"></a>Ion Weapons
 
 Ion blasters and ion rifles fire a wide bolt that passes through lightsaber blades.
@@ -1159,28 +1046,6 @@ An ion bolt strikes anything within 0.051 meters of its path.
 An ion bolt cannot be deflected by a lightsaber.
 
 <sub>Source: JA. Code: `sim::combat::weapons::primary`.</sub>
-
-<a id="weapons-ion-bloom"></a>**Bloom** = **0.5° / 2° / 6°** (`0.5 / 2 / 6°`) · `weapons.ion.bloom`
-
-per shot **0.5°** · most **2°** · fall per second **6°**
-
-Each shot of a ion blaster adds 0.5 degrees of spread, up to 2; resting, it falls 6 degrees a second.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
-<a id="weapons-ion-bloom-rest-ms"></a>**Bloom Rest** = **0.6 seconds** (`600 ms`) · `weapons.ion.bloom_rest_ms`
-
-A ion blaster's bloom starts to fall 0.6 seconds after its last shot.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
-<a id="weapons-ion-kick"></a>**Kick** = **0.6° / 0.15°** (`0.6 / 0.15°`) · `weapons.ion.kick`
-
-up **0.6°** · either side **0.15°**
-
-Each shot of a ion blaster kicks the aim up 0.6 degrees and up to 0.15 to either side.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
 ### <a id="weapons-sonic"></a>Sonic Weapons
 
@@ -1215,28 +1080,6 @@ Shards per shot: 5. Each deals an equal share of the shot's damage.
 A shard strikes anything within 0.025 meters of its path.
 
 <sub>Source: JA: projectile size. Code: `sim::combat::weapons::primary`.</sub>
-
-<a id="weapons-sonic-bloom"></a>**Bloom** = **0.4° / 2° / 6°** (`0.4 / 2 / 6°`) · `weapons.sonic.bloom`
-
-per shot **0.4°** · most **2°** · fall per second **6°**
-
-Each shot of a sonic weapon adds 0.4 degrees of spread, up to 2; resting, it falls 6 degrees a second.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
-<a id="weapons-sonic-bloom-rest-ms"></a>**Bloom Rest** = **0.8 seconds** (`800 ms`) · `weapons.sonic.bloom_rest_ms`
-
-A sonic weapon's bloom starts to fall 0.8 seconds after its last shot.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
-
-<a id="weapons-sonic-kick"></a>**Kick** = **1° / 0.3°** (`1 / 0.3°`) · `weapons.sonic.kick`
-
-up **1°** · either side **0.3°**
-
-Each shot of a sonic weapon kicks the aim up 1 degrees and up to 0.3 to either side.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
 ### <a id="weapons-flight"></a>Bolts in Flight
 
@@ -1278,47 +1121,6 @@ Critical threat range: 1 (1 is a roll of 20 alone, 2 is 19-20).
 An unarmed critical hit multiplies the damage roll by 2.
 
 <sub>Source: KOTOR's unarmed strike. Code: `sim::combat::sheet::Weapon::UNARMED`.</sub>
-
-### <a id="weapons-bloom"></a>Bloom and Kick
-
-A player's blaster grows less accurate the longer it keeps firing, and
-each shot kicks the aim up a little. Resting the trigger brings both back.
-The crosshair's gap shows the spread the next shot will have.
-
-The first shot after a rest flies true unless the weapon sprays. Creatures
-keep their own aim (see AI: Shot Spread).
-
-<a id="weapons-bloom-stance"></a>**Bloom by Stance** = **×2.5 / ×0.25 / ×0.6** (`×2.5 / 0.25 / 0.6`) · `weapons.bloom.stance`
-
-in the air **×2.5** · aiming **×0.25** · crouched **×0.6**
-
-A shot's spread is multiplied by 2.5 in the air, 0.25 while aiming a Sniper Shot and 0.6 while crouched.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::cone`.</sub>
-
-<a id="weapons-bloom-pace-spread"></a>**Spread on the Move** = **0.4° / 1°** (`0.4 / 1°`) · `weapons.bloom.pace_spread`
-
-walking **0.4°** · running **1°**
-
-Walking adds 0.4 degrees to a shot's spread and running 1, however long the trigger has rested.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::cone`.</sub>
-
-<a id="weapons-bloom-kick-limit"></a>**Kick Limit** = **4° / 12° / 80°** (`4 / 12 / 80°`) · `weapons.bloom.kick_limit`
-
-most **4°** · recovery per second **12°** · recovery after (ms) **80°**
-
-The kick lifts the aim at most 4 degrees, and settles back 12 degrees a second once 80 ms pass without a shot.
-
-<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::on_shot`.</sub>
-
-<a id="weapons-bloom-pace"></a>**Walking and Running for Bloom** = **0.51 meters per second / 4.1 meters per second** (`20 / 160 units/s`) · `weapons.bloom.pace`
-
-walking **0.51 meters per second** · running **4.1 meters per second**
-
-For its spread, a character walks above 0.51 meters per second and runs above 4.1 meters per second; the combat run is 6.4 meters per second.
-
-<sub>Source: kjk. Code: `sim::combat::bloom::stance`.</sub>
 
 ## <a id="feats"></a>Feats
 
@@ -2385,6 +2187,135 @@ A projectile flies 2 m/s more than its distance's share (Speed by Distance).
 A homing projectile (a launched grenade, a rocket, a dart) flies 2 times that speed.
 
 <sub>Source: TSL's executable, CSWCObject::CalculateProjectileTimeToTarget. Code: `sim::combat::grenades::homing_speed`.</sub>
+
+## <a id="destruction"></a>Destruction
+
+Weapons, grenades and Force powers break the props a room is furnished
+with: jars, chairs, crates, plants. Consoles, machinery, statues and banners
+only show damage. Anything the story needs (plot items, containers, things
+you use or talk to, anything a script names) never breaks.
+
+Which kinds of prop break, show damage or stay intact, and what each is made
+of and how big it is, is `data/destruction/props.csv`. A blow counts only
+for its damage above the prop's hardness; the damage's type and an area
+blow change how much that is. Everyone's blows count, the enemies' too.
+Breaking a prop gives no experience and makes nobody hostile.
+
+### <a id="destruction-hardness"></a>Hardness
+
+A blow counts only for the damage above what the prop is made of shrugs off.
+
+<a id="destruction-hardness-by-material"></a>**Hardness by Material** = **0 HP / 0 HP / 1 HP / 1 HP / 1 HP / 1 HP / 5 HP / 0 HP / 2 HP** (`0 / 0 / 1 / 1 / 1 / 1 / 5 / 0 / 2 HP`) · `destruction.hardness.by_material`
+
+ceramic **0 HP** · organic **0 HP** · wood **1 HP** · plastic **1 HP** · metal **1 HP** · electronic **1 HP** · stone **5 HP** · cloth **0 HP** · debris **2 HP**
+
+Each blow on a prop loses 0 HP / 0 HP / 1 HP / 1 HP / 1 HP / 1 HP / 5 HP / 0 HP / 2 HP hit points, by what it is made of, before it counts.
+
+So a pistol only marks stone, and fists never break metal.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::hardness`.</sub>
+
+### <a id="destruction-hit-points"></a>Hit points
+
+How much a prop takes before it breaks, by its size; the file's own hit points are not used.
+
+<a id="destruction-hit-points-by-size"></a>**Hit Points by Size** = **5 HP / 20 HP / 75 HP** (`5 / 20 / 75 HP`) · `destruction.hit_points.by_size`
+
+small **5 HP** · medium **20 HP** · large **75 HP**
+
+A prop breaks after 5 HP / 20 HP / 75 HP hit points of damage, by its size.
+
+The toolset gave nearly every placeable the same 15 HP, so size decides instead.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::most_hp`.</sub>
+
+<a id="destruction-hit-points-damage-times"></a>**Damage-Only Toughness** = **×4** · `destruction.hit_points.damage_times`
+
+Consoles, machinery, stone and cloth, which only show damage, take ×4 times as much to wreck.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::most_hp`.</sub>
+
+### <a id="destruction-multipliers"></a>Damage types
+
+A blow's damage type counts for more or less on some materials; any other type counts as it is.
+
+<a id="destruction-multipliers-bludgeoning"></a>**Bludgeoning on Materials** = **150% / 100% / 150% / 100% / 25% / 100% / 25% / 100% / 100%** (`1500 / 1000 / 1500 / 1000 / 250 / 1000 / 250 / 1000 / 1000 ‰`) · `destruction.multipliers.bludgeoning`
+
+ceramic **150%** · organic **100%** · wood **150%** · plastic **100%** · metal **25%** · electronic **100%** · stone **25%** · cloth **100%** · debris **100%**
+
+Bludgeoning (fists, Push, Wave) counts 1500 ‰ / 1000 ‰ / 1500 ‰ / 1000 ‰ / 250 ‰ / 1000 ‰ / 250 ‰ / 1000 ‰ / 1000 ‰ on each material: it shatters ceramic and wood.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-slashing"></a>**Slashing on Materials** = **100% / 100% / 120% / 100% / 100% / 100% / 100% / 120% / 100%** (`1000 / 1000 / 1200 / 1000 / 1000 / 1000 / 1000 / 1200 / 1000 ‰`) · `destruction.multipliers.slashing`
+
+ceramic **100%** · organic **100%** · wood **120%** · plastic **100%** · metal **100%** · electronic **100%** · stone **100%** · cloth **120%** · debris **100%**
+
+Slashing counts 1000 ‰ / 1000 ‰ / 1200 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1200 ‰ / 1000 ‰ on each material: blades cut wood and cloth.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-electrical"></a>**Electrical on Materials** = **100% / 150% / 100% / 100% / 100% / 200% / 100% / 150% / 100%** (`1000 / 1500 / 1000 / 1000 / 1000 / 2000 / 1000 / 1500 / 1000 ‰`) · `destruction.multipliers.electrical`
+
+ceramic **100%** · organic **150%** · wood **100%** · plastic **100%** · metal **100%** · electronic **200%** · stone **100%** · cloth **150%** · debris **100%**
+
+Electrical damage (Force Lightning) counts 1000 ‰ / 1500 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 2000 ‰ / 1000 ‰ / 1500 ‰ / 1000 ‰ on each material: it wrecks electronics and burns plants and cloth.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-fire"></a>**Fire on Materials** = **200% / 200% / 100% / 100% / 100% / 100% / 100% / 200% / 100%** (`2000 / 2000 / 1000 / 1000 / 1000 / 1000 / 1000 / 2000 / 1000 ‰`) · `destruction.multipliers.fire`
+
+ceramic **200%** · organic **200%** · wood **100%** · plastic **100%** · metal **100%** · electronic **100%** · stone **100%** · cloth **200%** · debris **100%**
+
+Fire counts 2000 ‰ / 2000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 2000 ‰ / 1000 ‰ on each material: it cracks ceramic and burns plants and cloth.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-sonic"></a>**Sonic on Materials** = **200% / 200% / 100% / 100% / 100% / 100% / 100% / 200% / 100%** (`2000 / 2000 / 1000 / 1000 / 1000 / 1000 / 1000 / 2000 / 1000 ‰`) · `destruction.multipliers.sonic`
+
+ceramic **200%** · organic **200%** · wood **100%** · plastic **100%** · metal **100%** · electronic **100%** · stone **100%** · cloth **200%** · debris **100%**
+
+Sonic damage counts 2000 ‰ / 2000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 2000 ‰ / 1000 ‰ on each material: it shatters ceramic and tears plants and cloth.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-ion"></a>**Ion on Materials** = **100% / 100% / 100% / 100% / 100% / 300% / 20% / 100% / 100%** (`1000 / 1000 / 1000 / 1000 / 1000 / 3000 / 200 / 1000 / 1000 ‰`) · `destruction.multipliers.ion`
+
+ceramic **100%** · organic **100%** · wood **100%** · plastic **100%** · metal **100%** · electronic **300%** · stone **20%** · cloth **100%** · debris **100%**
+
+Ion damage counts 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 3000 ‰ / 200 ‰ / 1000 ‰ / 1000 ‰ on each material: it wrecks electronics and barely touches stone.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-energy"></a>**Energy on Materials** = **100% / 100% / 120% / 120% / 120% / 100% / 100% / 100% / 100%** (`1000 / 1000 / 1200 / 1200 / 1200 / 1000 / 1000 / 1000 / 1000 ‰`) · `destruction.multipliers.energy`
+
+ceramic **100%** · organic **100%** · wood **120%** · plastic **120%** · metal **120%** · electronic **100%** · stone **100%** · cloth **100%** · debris **100%**
+
+Energy (blaster bolts, lightsabers) counts 1000 ‰ / 1000 ‰ / 1200 ‰ / 1200 ‰ / 1200 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ on each material: it cuts wood, plastic and metal.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+### <a id="destruction-area"></a>Area blows
+
+Grenades and area powers wreck a room; single shots chip.
+
+<a id="destruction-area-times"></a>**Area Blow Strength** = **×3** · `destruction.area.times`
+
+A grenade's or an area power's damage counts ×3 times over on props.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::worth`.</sub>
+
+### <a id="destruction-stages"></a>Damage stages
+
+A prop shows its damage in stages, by the share of its hit points it has lost.
+
+<a id="destruction-stages-at"></a>**Stage Thresholds** = **33.3% / 66.7%** (`333 / 667 ‰`) · `destruction.stages.at`
+
+damaged **33.3%** · wrecked **66.7%**
+
+A prop is damaged once it has lost 333 ‰ of its hit points, and wrecked at 667 ‰; a prop that breaks goes when it has lost them all.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::stage`.</sub>
 
 ## <a id="sabers"></a>Lightsabers and Melee Weapons
 
@@ -7418,23 +7349,17 @@ a creature of the owner's faction never does. A creature carrying the
 mine's key disarms it instead. A one-shot mine is removed once it goes off.
 A trapped door or object goes off when it is opened or used.
 
-### <a id="traps-door-mines"></a>Mines on Locks
+### <a id="traps-door-mines"></a>Mines on Doors
 
-In TSL, a mine can be set on a locked door or placeable, unless its data
-marks it not blastable. No die is rolled, even in combat.
-3 seconds later the mine blasts the lock:
+In TSL, a mine can be set on a locked door. No die is rolled, even in
+combat. 3 seconds later the mine blasts the lock:
 20 + the setter's Demolitions ÷
-2 (a door) or ÷
-20 (a placeable) + the mine's blast
-strength, against the lock's DC. A blasted placeable is unlocked at once;
-a blasted door opens, unlocked, 1 second later.
+2 + the mine's blast strength,
+against the lock's DC. A blasted door opens
+1 second later, unlocked.
 
 A player sets the weakest mine that opens the lock, or else the strongest.
-A mine removed before it goes off does nothing. The engine's blast hurts
-nothing and draws nothing: the mine just goes, and what shows is the
-object's own unlock script's (Peragus's damaged cylinders make their smoke
-there). Only a door's blast is told in the log; a placeable's tells its
-setter "You triggered a Mine!", as the original does.
+A mine removed before it goes off does nothing.
 
 <a id="traps-door-mines-blast-ms"></a>**Blast Time** = **3 seconds** (`3000 ms`) · `traps.door_mines.blast_ms`
 
@@ -7459,12 +7384,6 @@ A mine's blast against a lock starts at 20.
 A mine's blast against a lock adds the setter's Demolitions ÷ 2, rounded down.
 
 <sub>Source: TSL's executable (line 128535). Code: `sim::traps::blasts`.</sub>
-
-<a id="traps-door-mines-placeable-divisor"></a>**Demolitions Bonus on a Placeable** = **20** · `traps.door_mines.placeable_divisor`
-
-A mine's blast against a placeable's lock adds the setter's Demolitions ÷ 20, rounded down.
-
-<sub>Source: TSL's executable (its placeable events). Code: `sim::traps::blasts`.</sub>
 
 <a id="traps-door-mines-strength"></a>**Blast Strength** = **3 / 9 / 0 / 3 / 9 / 0 / 0 / 0 / 0 / 0 / 0 / 3 / 9 / 0 / 0 / 9 / 12 / 9 / 12 / 0 / 0 / 9 / 12** · `traps.door_mines.strength`
 
@@ -7579,9 +7498,7 @@ A door or container must be in view at 1 meters above its base to be used.
 
 A placeable with action points must be in view at the nearest of them, 1.5 meters up, to be used: a cage or rail round it does not stop a character standing at its side.
 
-The crosshair sees such a placeable at the same point, so the player can aim at it through the cage or rail.
-
-<sub>Source: TSL's executable (CSWSCreature::GetIsInUseRange: the line of sight to CSWSPlaceable::GetNearestActionPoint, 1.5 up at both ends) [verify in K1's]. Code: `sim::world::uses::Target::aimed, sim::target::seen_at_action_point`.</sub>
+<sub>Source: TSL's executable (CSWSCreature::GetIsInUseRange: the line of sight to CSWSPlaceable::GetNearestActionPoint, 1.5 up at both ends) [verify in K1's]. Code: `sim::world::uses::Target::aimed`.</sub>
 
 <a id="interaction-using-door-point-reach-m"></a>**Door Use Range** = **0.75 m** · `interaction.using.door_point_reach_m`
 
@@ -9024,41 +8941,6 @@ If the first spot is blocked, a pushed character is placed in the nearest free s
 
 <sub>Source: ours. Code: `sim::walk::pushed_aside`.</sub>
 
-### <a id="walking-jam"></a>Getting Unstuck
-
-Characters are solid to each other: the player, the companions and every
-other character. A character that keeps running into another character for
-1 second walks through that character until the two have
-parted, and then the two are solid to each other again. Two characters
-fighting each other never walk through each other.
-
-A character counts as running into another while it is trying to move,
-touches that character, and moves slower than 0.5 m/s. A
-step in which it moves freely, or touches someone else, starts the count
-again. The two have parted once a gap of 0.1 m lies
-between their boxes. A party member that a conversation holds, or that a
-script has ordered to move or attack, passes through the party's other
-members, as before, so a scene never waits on one of them standing in
-another's way.
-
-<a id="walking-jam-stuck-ms"></a>**Stuck Against a Character** = **1 second** (`1000 ms`) · `walking.jam.stuck_ms`
-
-A character that keeps running into another character for 1 second walks through it until the two have parted.
-
-<sub>Source: the owner's design, 2026-11-10 (issue 280). Code: `sim::world::jams::Jams::ran_into`.</sub>
-
-<a id="walking-jam-crawl-mps"></a>**Blocked Speed** = **0.5 m/s** · `walking.jam.crawl_mps`
-
-A character trying to move that touches another character and moves slower than 0.5 m/s is running into it.
-
-<sub>Source: ours. Code: `sim::world::jams::blocked_by`.</sub>
-
-<a id="walking-jam-parted-m"></a>**Parted** = **0.1 m** · `walking.jam.parted_m`
-
-Two characters walking through each other are solid to each other again once 0.1 m lies between them.
-
-<sub>Source: ours. Code: `sim::world::jams::Jams::release`.</sub>
-
 ### <a id="walking-searches"></a>Finding the Floor
 
 A walking character finds the floor below and above it, below a script's
@@ -9274,12 +9156,6 @@ A walk to a target is canceled after it is blocked 3 times.
 A target that moves more than 1 meters makes the character find a new path to it.
 
 <sub>Source: ours. Code: `sim::target::Walk::stride`.</sub>
-
-<a id="targeting-walk-exit-margin-m"></a>**Exits on the Way** = **0.5 m** · `targeting.walk.exit_margin_m`
-
-A walk to a target never takes the character out of the area: it stops before a door or exit that leads elsewhere (unless that door is the target) once the character's run, slid to a stop, would end within 0.5 meters of it. The action is performed there if the target is within reach, otherwise the walk is canceled.
-
-<sub>Source: KOTOR (a click on a creature or object never leaves the area; only a click on the transition does). Code: `sim::target::Walk::stride`.</sub>
 
 ### <a id="targeting-revive"></a>Reviving
 
