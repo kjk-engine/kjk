@@ -236,7 +236,10 @@ pub(crate) fn proving_ground_named(name: &str) -> Level {
     let wall = Tag::level(Contents::SOLID, 2);
     let door = |state: u8| Tag {
         contents: Contents::SOLID,
-        surface: Surface { material: 4, ..Default::default() },
+        surface: Surface {
+            material: 4,
+            ..Default::default()
+        },
         entity: Some(DOOR),
         states: 1 << state,
     };

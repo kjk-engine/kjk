@@ -62,9 +62,7 @@ const DUSTS: [(Ground, &str); 5] = [
     (Ground::Gravel, "materials/gravel_large"),
 ];
 /// The effects this asks `combat_fx` for.
-pub const EFFECTS: [&str; 5] = [
-    DUSTS[0].1, DUSTS[1].1, DUSTS[2].1, DUSTS[3].1, DUSTS[4].1,
-];
+pub const EFFECTS: [&str; 5] = [DUSTS[0].1, DUSTS[1].1, DUSTS[2].1, DUSTS[3].1, DUSTS[4].1];
 
 /// The sounds this plays itself (the effects' own are `combat_fx`'s).
 pub fn sounds() -> impl Iterator<Item = String> {
@@ -115,7 +113,13 @@ fn sound(
                 .seen
                 .insert(entity.id, (player.velocity[2], player.takeoff_z));
             if let Some(was) = was {
-                landed(entity, player, was, (snapshot, &swap.level), (&mut cues.0, &mut bursts.0));
+                landed(
+                    entity,
+                    player,
+                    was,
+                    (snapshot, &swap.level),
+                    (&mut cues.0, &mut bursts.0),
+                );
             }
         }
     }
@@ -222,4 +226,3 @@ fn ground(level: &Level, snapshot: &Snapshot, at: Vec3) -> Option<(&'static str,
         .unwrap_or(Vec3::Z);
     Some((effect, Vec3::from_array(met.end) / UNIT, normal))
 }
-

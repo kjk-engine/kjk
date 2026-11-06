@@ -1359,11 +1359,8 @@ fn footsteps(
             vx * vx + vy * vy >= RUNNING * RUNNING
         });
         if humanoid
-            && let Some(name) = crate::ja_footsteps::step(
-                floor.surface.ground,
-                running,
-                rng.roll_between(1, 4),
-            )
+            && let Some(name) =
+                crate::ja_footsteps::step(floor.surface.ground, running, rng.roll_between(1, 4))
         {
             cues.0.push(Cue {
                 entity: Some(entity.id),

@@ -452,7 +452,10 @@ pub fn build_area(
     let mut look_builder = LevelBuilder::new();
     for &(corners, material, ground) in &drawn {
         if let Some(material) = material {
-            look_builder.triangle(corners, Tag::level(Contents::SOLID, material as u16).on(ground));
+            look_builder.triangle(
+                corners,
+                Tag::level(Contents::SOLID, material as u16).on(ground),
+            );
         }
     }
     let look_level = look_builder.build();
@@ -587,7 +590,10 @@ pub fn build_area(
         {
             let tag = Tag {
                 contents: Contents::WALK_CLIP,
-                surface: collision::Surface { material: 0, ..Default::default() },
+                surface: collision::Surface {
+                    material: 0,
+                    ..Default::default()
+                },
                 entity: Some(entity),
                 states: 1,
             };

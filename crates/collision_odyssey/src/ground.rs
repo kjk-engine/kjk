@@ -60,4 +60,3 @@ pub fn of(material: u32, texture: &str) -> Ground {
         _ => Ground::Unknown,
     }
 }
-
