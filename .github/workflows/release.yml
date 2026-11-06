@@ -1,5 +1,6 @@
 # The player's packages (docs/RELEASE.md). A `v*` tag, which only the owner
-# pushes, builds them and puts them on a draft Release with SHA256SUMS; the
+# pushes, builds and attests them (build provenance) and puts them on a
+# draft Release with SHA256SUMS; the
 # owner reviews the draft and publishes it. Run by hand, it builds the same
 # packages as the run's artifacts and makes no Release.
 #
@@ -25,6 +26,11 @@ jobs:
   package:
     name: package (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
+    # The attestation's signing identity and its store.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -92,6 +98,16 @@ jobs:
             "$program" --help
           done
 
+      # Proof the package came from this repository's workflow at this
+      # commit: a Sigstore-signed provenance anyone can check with
+      # `gh attestation verify <file> --repo kjk-engine/kjk`. Hand runs
+      # attest too, so a package added to a Release later is covered.
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            target/packages/*.tar.gz
+            target/packages/*.zip
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -135,7 +151,7 @@ jobs:
               echo "::warning::no $label package: it is not on the draft"
             fi
           done
-          notes="Unsigned builds for $built. Read README.txt in the package first; SHA256SUMS lists each file's checksum."
+          notes="Unsigned builds for $built. Read README.txt in the package first; SHA256SUMS lists each file's checksum; \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\` proves a package was built by this repository's release workflow."
           [ -z "$missing" ] || notes+=" The $missing build is not here yet."
           gh release create "$GITHUB_REF_NAME" packages/* \
             --repo "$GITHUB_REPOSITORY" --draft --verify-tag \

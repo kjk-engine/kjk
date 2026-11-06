@@ -90,6 +90,15 @@ release → Run workflow) it makes the packages as the run's artifacts and
 no Release. Each package is built on its own runner: macOS on Apple
 silicon, Windows and Linux on x86-64 (Ubuntu 22.04's glibc).
 
+Each package job also attests its package (`actions/attest-build-provenance`):
+a Sigstore-signed record, kept in the public transparency log, that the
+file with this SHA-256 was built by `release.yml` in this repository at
+this commit and ref. Anyone checks a download with
+`gh attestation verify kjk-<tag>-<os>.tar.gz --repo kjk-engine/kjk`; a
+package rebuilt elsewhere, or changed by one byte, fails. It proves where
+a package was built, not that the commit is safe. A package built on a Mac
+by hand has no attestation; one from a re-run job does.
+
 The draft is made with the packages that built: GitHub's macOS arm64
 runners are at times not given at all (the job is cancelled after about 15
 minutes, "not acquired by Runner of type hosted even after multiple
