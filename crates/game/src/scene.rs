@@ -1019,7 +1019,11 @@ impl<'t> Spawner<'t> {
             .flatten()
             .filter_map(|name| self.irs.get(name).map(|texture| &texture.facts))
             .collect();
-        let surface = material::surface(part.transparency_hint, part.alpha, &facts);
+        let surface = material::surface(
+            (part.transparency_hint, part.skin.is_some()),
+            part.alpha,
+            &facts,
+        );
         // Its back faces are culled, as reone and xoreos draw every KOTOR
         // mesh; a decal's are drawn (a textured window or grate seen from
         // both sides, a JA shader's `cull none`), and a mesh whose textures

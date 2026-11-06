@@ -463,8 +463,12 @@ impl Surface {
 /// alpha only when every texture has it (and `alphamean` is not 1), decal
 /// only when every texture is one; additive when any texture says so, with
 /// alpha or without, as KOTOR's executable reads a texture's TXI (xoreos
-/// only without). KOTOR meshes always carry a hint, so a hint above 1 or a decal
-/// makes a mesh transparent. Hint 1 does not: TSL's heads carry it on the
+/// only without). KOTOR meshes always carry a hint, so a hint above 1 or a
+/// decal makes a mesh transparent, but not a skinned one (`skinned`): a
+/// character's skin is one closed mesh that a draw without depth shows
+/// through itself (TSL's `pfhc06` carries 2 on its whole head, and its mouth
+/// and nose showed through its face), so it blends with the depth kept
+/// (`OpaqueAlpha`). Hint 1 does not either: TSL's heads carry it on the
 /// whole face (`head_geo`, its hair 2), which drawn without depth showed its
 /// mouth and eye sockets through it; as reone has it, the texture's alpha
 /// decides (`OpaqueAlpha`), the depth kept. Deviation: an additive mesh without a hint is drawn in
@@ -473,7 +477,7 @@ impl Surface {
 /// is its bump's mask, not coverage: opaque, as reone has it (xoreos ignores the bump map and
 /// blends by it, so the Hutts and the rancor showed through); reone still
 /// discards its alpha-0 texels, which would leave pinholes, so none are.
-pub fn surface(hint: u32, mesh_alpha: f32, loaded: &[&TextureFacts]) -> Surface {
+pub fn surface((hint, skinned): (u32, bool), mesh_alpha: f32, loaded: &[&TextureFacts]) -> Surface {
     if loaded.is_empty() {
         return Surface::Opaque;
     }
@@ -488,11 +492,11 @@ pub fn surface(hint: u32, mesh_alpha: f32, loaded: &[&TextureFacts]) -> Surface 
     let bumpmap = loaded.iter().any(|facts| facts.bumpmap.is_some());
     if additive {
         Surface::Additive
-    } else if hint > 1 || decal || mesh_alpha < 1.0 {
+    } else if decal || mesh_alpha < 1.0 || (hint > 1 && !skinned) {
         Surface::Blend
     } else if alpha && envmap {
         Surface::OpaqueEnvMasked
-    } else if alpha && !bumpmap {
+    } else if hint > 1 || (alpha && !bumpmap) {
         Surface::OpaqueAlpha
     } else {
         Surface::Opaque
