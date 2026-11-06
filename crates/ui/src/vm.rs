@@ -499,6 +499,9 @@ pub struct PicksView {
     pub power_chart: Vec<[Option<(u16, Entry)>; 3]>,
     /// The powers the character has.
     pub known_powers: Vec<u16>,
+    /// The level's class skills: the class's own and those the
+    /// character's Class Skill feats make (`sim::levels::class_skills`).
+    pub class_skills: [bool; 8],
 }
 
 /// A binding as a prompt shows it: its words (`F`, `Mouse 4`), and while a

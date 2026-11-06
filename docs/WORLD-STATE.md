@@ -674,10 +674,26 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   companion (`world::switch`: its `Mind::driver` the first seat, which
   the snapshot carries, so `Snapshot::body` and a client's prediction
   follow it), its mind stood down, in the party and the player's faction
-  meanwhile; the player's own stays where it is, benched (its mind's,
-  out of the party, still the snapshot's `Kind::Avatar`). Switching
-  back, the companion's mind takes over (in the party, or on its own if
-  not a member). A companion with no creature here is made from its
+  meanwhile; the player's own is benched, out of the party, still the
+  snapshot's `Kind::Avatar`. Where it waits is the game's
+  (`rules::party::switch`, `world::switch::leaves_area`): in K1 where it
+  stood, a character nobody plays (the Leviathan's torture cage, which the
+  one who escapes opens); in TSL out of the area, as TSL's executable
+  saves and deletes it at a switch: `Away`, a
+  disabling component, so no system moves, meets, sees or hits it, the
+  scripts' view leaves it out and the view does not draw it
+  (`Snapshot::away`). TSL's scenes that show the player meanwhile place
+  their own stand-in (the prologue lays `c_medbaypc` on the medbay bed).
+  Switching back, the table keeps the companion as it stands and its
+  creature goes (the exe's `SaveMember`, `KillNPCObject`), or, a party
+  member, its mind takes over; the player's own is its body again. In TSL
+  it comes back where the companion stands, facing its way, as the exe
+  makes it from its save at the played creature's place: Nar Shaddaa's
+  Exile is let out of the vent tunnels at Mira's place by their door
+  (`pcenter`) and walks to Visquis's ring, whose door starts his
+  conversation. TSL's exe also takes every party member out of the party
+  and its creature away at either switch; ours keeps them [verify]. A
+  companion with no creature here is made from its
   template a step to the PC's left, on its soles; one a guest drives is
   taken from it. False for a companion not available (or another negative
   number). Conversations held with the PC go on with the new one (the
@@ -1176,10 +1192,14 @@ actions and its damage.
   row and a name. The scripts read it of a player's own character
   (`GetGender`, `GetName`, `GetAppearanceType`), never of a companion it
   drives; the view draws the body from it (below), the screens show its
-  portrait and name, and a line's `<FullName>`, `<FirstName>` and gendered
-  pairs (`<man/woman>`, `<sir/madam>`: the first for a man) are its
-  (`dialogue_view::Fill`, the conversation's player; a bark's the first
-  seat's).
+  portrait and name, and a line's `<FullName>`, `<FirstName>`,
+  `<PlayerName>` and gendered pairs (`<man/woman>`, `<sir/madam>`: the
+  first for a man) are its, `<LastName>` and the highlight marks
+  (`<StartAction>` … `</Start>`) nothing (`dialogue_view::Fill`: the
+  player whose seat plays the listener, its own character or a creature
+  it drives, as T3-M4 in TSL's prologue; else the first seat's, as the
+  executable reads the party table's player whoever is addressed; a
+  bark's the first seat's).
 - **Character creation** (`Creation`, `SimWorld::create`, at a new game's
   start for the first seat): a player portrait gives the appearance by the
   class's build (`portraits.2da`: a soldier `appearance_l`, a scout

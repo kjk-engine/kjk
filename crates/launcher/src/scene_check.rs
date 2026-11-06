@@ -1472,11 +1472,11 @@ impl Checker<'_> {
         }
     }
 
-    /// A line's `AnimList` (1): each value a gesture, a stunt clip, or
+    /// A line's `AnimList` (1): each value a gesture, a cutscene clip, or
     /// nothing.
     fn gestures(&mut self, node: &fmt_odyssey::dlg::Node, at: &Where) {
         for (tag, value) in &node.anims {
-            if sim::script::names_clip(*value) {
+            if fmt_odyssey::dlg::cut_clip(*value).is_some() {
                 continue;
             }
             // Values in neither table, and rows with no name, play nothing

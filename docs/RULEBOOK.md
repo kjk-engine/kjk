@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `76e98f0053986ca5`.
+Edition `f517dbe10505c85a`.
 
 ## Contents
 
@@ -174,6 +174,7 @@ Edition `76e98f0053986ca5`.
 - [Co-op Party](#party)
   - [Party Members by Player](#party-seats)
   - [Leaving an Area](#party-exits)
+  - [Playing Another Character](#party-switch)
 - [Stealth and Awareness](#stealth)
   - [Stealth Mode](#stealth-mode)
   - [Standing, Walking and Running](#stealth-pace)
@@ -1660,6 +1661,18 @@ Level 1 **20 points** · Level 2 **30 points** · Level 3 **50 points**
 Droid environment shields absorb 20, 30 or 50 points, by level.
 
 <sub>Source: `forceshields.2da` `amount`. Code: `sim::combat::items::use_of`.</sub>
+
+<a id="items-shields-heat"></a>**Heat Shield** = **20 points** · `items.shields.heat`
+
+A heat shield (TSL's Telos mining shield) absorbs 20 points of energy, ion and fire damage: Peragus' hot steam.
+
+<sub>Source: TSL's `forceshields.2da` `amount` (`SHIELD_HEAT`). Code: `sim::combat::items::use_of`.</sub>
+
+<a id="items-shields-drexl"></a>**Drexl Shield** = **90 points** · `items.shields.drexl`
+
+Drexl's shield (TSL) absorbs 90 points of every damage type.
+
+<sub>Source: TSL's `forceshields.2da` `amount` (`SHIELD_DREXL`). Code: `sim::combat::items::use_of`.</sub>
 
 ### <a id="items-properties"></a>Item Properties
 
@@ -6739,6 +6752,25 @@ The host may force the party to leave 5 seconds after a player asks to leave.
 
 <sub>Source: ours. Code: `sim::world::party::ready`.</sub>
 
+### <a id="party-switch"></a>Playing Another Character
+
+When a scene has the player play a party member in their place, the
+player's own character waits. In K1 it stays where it is, standing in the
+area as a character nobody plays; in TSL it leaves the area and comes back
+where the character played stands when the scene switches back.
+
+<a id="party-switch-leaves-area-k1"></a>**Player Leaves the Area (K1)** = **false** · `party.switch.leaves_area_k1`
+
+Whether, in K1, the player's own character leaves the area while the player plays another: false.
+
+<sub>Source: K1's Leviathan scenes: the player waits in the torture room's cage the one who escapes opens (`k_plev_freeparty`) [verify in K1's executable]. Code: `sim::world::switch::leaves_area`.</sub>
+
+<a id="party-switch-leaves-area-tsl"></a>**Player Leaves the Area (TSL)** = **true** · `party.switch.leaves_area_tsl`
+
+Whether, in TSL, the player's own character leaves the area while the player plays another: true.
+
+<sub>Source: TSL's executable (at a switch it saves the player's creature and deletes it, and makes it again on the way back). Code: `sim::world::switch::leaves_area`.</sub>
+
 ## <a id="stealth"></a>Stealth and Awareness
 
 A character in Stealth Mode is seen only by an opponent that makes a spot
@@ -7487,7 +7519,8 @@ A level gives the class's skill points + Intelligence modifier
 1; a character's first level
 gives 4 times as many. A rank
 costs 1 point in a class skill and
-2 in a cross-class skill. A class
+2 in a cross-class skill; TSL's
+Class Skill feats make their skill a class skill whatever the class. A class
 skill may have at most the character's level +
 3 ranks, a cross-class skill that
 maximum ÷ 2.
@@ -8786,6 +8819,12 @@ An object at the character's feet must be in sight of eyes 1.6 meters above the 
 
 <sub>Source: ours. Code: `sim::target::pick`.</sub>
 
+<a id="targeting-pick-sight-slack"></a>**Sight Slack** = **0.05 m** · `targeting.pick.sight_slack`
+
+An object is in sight when the line to its middle or its top gets within 0.05 meters of it: a console's own body, or the bench it stands on, does not hide it.
+
+<sub>Source: ours (under the 0.15 m a wall must hide what stands behind it). Code: `sim::target::seen`.</sub>
+
 ### <a id="targeting-volumes"></a>Target Size
 
 Each kind of object is targeted within an upright cylinder standing on its
@@ -9010,6 +9049,19 @@ The first line of a conversation, and the first set of replies, use angle 2 when
 A speaker turns its body until the listener is within its head's turning arc, less 1°. Its head turns the rest of the way.
 
 <sub>Source: ours [verify the order against the exe]. Code: `sim::script::dialogue`.</sub>
+
+<a id="dialogue-cameras-every-camera-effect"></a>**Video Effects on Every Camera** = **false / true** · `dialogue.cameras.every_camera_effect`
+
+K1 **false** · TSL **true**
+
+Whether every line's camera but an animated one sets the screen's video effect (a hologram's noise) from the line, a line without one clearing it (false / true); where not, only a placed camera's line sets one, and keeps it on a line without.
+
+Both executables leave the effect alone on an animated camera's line. K1's
+takes a placed camera's row and keeps what showed on -1 or -2, and clears it
+on any other camera. TSL's takes any other camera's row and clears it on -1
+or -2, unless a script's `EnableVideoEffect` holds it.
+
+<sub>Source: K1's and TSL's Mac executables, 2026-11-06. Code: `game::video_effect::LineEffect`.</sub>
 
 ### <a id="dialogue-speakers"></a>Who Says a Line
 

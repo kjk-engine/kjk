@@ -6,7 +6,7 @@ use crate::input::{Command, Seat, TickInput};
 use crate::module::{ObjectData, ObjectKind, Placement};
 use crate::probe::check;
 use crate::script::Pending;
-use crate::snapshot::{Kind, SimId, Snapshot};
+use crate::snapshot::{EntityState, Kind, SimId, Snapshot};
 use crate::{Guests, Level, StepReason, WorldConfig};
 use std::sync::Arc;
 
@@ -166,10 +166,14 @@ fn companion(template: &str, at: [f32; 3]) -> ObjectData {
 }
 
 /// The proving ground with the standing companion 3 m ahead of its entry
-/// and `library`: the level and that companion's object number.
-fn ground() -> Result<(Level, u32), String> {
+/// and `library`, as `game`'s module where one is named: the level and that
+/// companion's object number.
+fn ground(game: Option<&str>) -> Result<(Level, u32), String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    if let Some(game) = game {
+        data.game = game.into();
+    }
     let entry = data.entry;
     let (sin, cos) = crate::math::sin_cos_deg(entry.yaw);
     let [x, y, z] = entry.position;
@@ -187,7 +191,16 @@ fn ground() -> Result<(Level, u32), String> {
 /// party, following the first seat, with `member`): the world, its level
 /// and the standing companion's id.
 fn switch_world(seats: u8, member: bool) -> Result<(SimWorld, Level, SimId), String> {
-    let (level, number) = ground()?;
+    switch_world_in(None, seats, member)
+}
+
+/// `switch_world` on `game`'s ground (`ground`).
+fn switch_world_in(
+    game: Option<&str>,
+    seats: u8,
+    member: bool,
+) -> Result<(SimWorld, Level, SimId), String> {
+    let (level, number) = ground(game)?;
     let config = WorldConfig {
         seats,
         guests: Guests::Companions,
@@ -267,7 +280,12 @@ fn tokens(snapshot: &Snapshot, numbers: std::ops::RangeInclusive<i32>) -> Vec<St
 
 /// How far `id` moved across the floor from `from` to `to` (metres).
 fn moved(from: &Snapshot, to: &Snapshot, id: SimId) -> f32 {
-    match (from.get(id), to.get(id)) {
+    apart(from.get(id), to.get(id))
+}
+
+/// How far apart two entities stand across the floor (metres).
+fn apart(a: Option<&EntityState>, b: Option<&EntityState>) -> f32 {
+    match (a, b) {
         (Some(a), Some(b)) => (b.position[0] - a.position[0]).hypot(b.position[1] - a.position[1]),
         _ => f32::MAX,
     }
@@ -364,6 +382,7 @@ pub fn probes() -> crate::probe::Checks {
         Err(why) => vec![("switch_scenario", Err(why))],
     };
     checks.push(("standing_creature_taken", standing_taken()));
+    checks.push(("back_where_its_game_puts_it", back_where_its_game_puts_it()));
     checks.push(("party_table_keeps_a_companion", kept()));
     checks.push(("switch_makes_the_kept_companion", switch_makes_kept()));
     checks.push(("guest_gives_way", guest_gives_way()));
@@ -767,6 +786,44 @@ fn standing_taken() -> Result<String, String> {
             after.spawned
         ),
     )
+}
+
+/// Seat 0 switched to the standing companion, no member, runs it on and
+/// switches back: in TSL its own character is away meanwhile and comes back
+/// where the companion stood (Nar Shaddaa: the Exile made at Mira's place
+/// by the vent door, outside Visquis's ring), in K1 it stays where it stood
+/// (the Leviathan's cage); in both the companion's creature is gone.
+fn back_where_its_game_puts_it() -> Result<String, String> {
+    let mut seen = Vec::new();
+    let mut held = true;
+    for game in ["k1", "tsl"] {
+        let (mut world, _, standing) = switch_world_in(Some(game), 1, false)?;
+        let start = run(&mut world, 1, 0);
+        let own = start.own(Seat(0)).map(|e| e.id).ok_or("no player")?;
+        queue(&mut world, &format!("probe_sw_to{STANDING}"));
+        run(&mut world, 1, 0);
+        let mut walked = run(&mut world, 1, 0);
+        let away = walked.get(own).is_some_and(|e| walked.away(e));
+        for _ in 0..RUN_STEPS {
+            walked = run(&mut world, 1, 127);
+        }
+        queue(&mut world, "probe_sw_back");
+        run(&mut world, 1, 0);
+        let back = run(&mut world, 1, 0);
+        let leaves = super::leaves_area(crate::combat::passive::Game::named(game));
+        let (from, there, whose) = if leaves {
+            (&walked, standing, "the companion")
+        } else {
+            (&start, own, "it")
+        };
+        let off = apart(from.get(there), back.get(own));
+        let gone = back.get(standing).is_none();
+        held &= away == leaves && off < 0.1 && gone;
+        seen.push(format!(
+            "{game}: away {away}, back {off:.2} m from where {whose} stood, the companion gone {gone}"
+        ));
+    }
+    check(held, seen.join("; "))
 }
 
 /// A guest drives the standing companion, in the party; the first seat

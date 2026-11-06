@@ -52,10 +52,15 @@ say Because you've all put a bounty on my head
 say I only just arrived on Nar Shaddaa # (LSP)
 say Enough - why did you put a bounty on me?
 say Leave him alone! # (LSP)
-to 305Precog         # the pit: Visquis, Goto's droids, Mira, Kreia, T3 sold
+to 305Precog         # Mira's place by the vent door is the Exile's (TSL's
+                     # switch back makes her there); before the ring door,
+talk                 # Force precognition's look into the pit
+use DoorRing         # the pit: Visquis, Goto's droids, Mira, Kreia, T3 sold
 talk
 talk
 talk
 module 303nar
+talk                 # Mira's apartment, the companions told
+talk
 wait 2s
 save nar_shaddaa_t3

@@ -121,6 +121,21 @@ summary = "A speaker turns its body until the listener is within its head's turn
 source = "ours [verify the order against the exe]"
 see = "sim::script::dialogue"
 
+[cameras.every_camera_effect]
+name = "Video Effects on Every Camera"
+type = "bool"
+value = [false, true]
+labels = ["K1", "TSL"]
+summary = "Whether every line's camera but an animated one sets the screen's video effect (a hologram's noise) from the line, a line without one clearing it ({dialogue.cameras.every_camera_effect}); where not, only a placed camera's line sets one, and keeps it on a line without."
+detail = """
+Both executables leave the effect alone on an animated camera's line. K1's
+takes a placed camera's row and keeps what showed on -1 or -2, and clears it
+on any other camera. TSL's takes any other camera's row and clears it on -1
+or -2, unless a script's `EnableVideoEffect` holds it.
+"""
+source = "K1's and TSL's Mac executables, 2026-11-06"
+see = "game::video_effect::LineEffect"
+
 [speakers]
 title = "Who Says a Line"
 summary = """

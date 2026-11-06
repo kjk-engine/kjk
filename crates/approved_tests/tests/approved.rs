@@ -1213,11 +1213,12 @@ fn destroy_fades() {
 /// leading out or one broken open; a companion, led or driven by a player,
 /// is a target, picked only clear ahead of the player, and never the target
 /// of the player it is the body of; a placeable hung up a wall (Yavin
-/// Station's door panels) is picked from the floor beneath it; two runs
+/// Station's door panels) is picked from the floor beneath it; a console
+/// on a bench, or in its own solid body, is picked (Peragus); two runs
 /// end the same. The sim alone.
 #[test]
 fn use_actions() {
-    probed("use", &sim::uses::probes(), 43);
+    probed("use", &sim::uses::probes(), 44);
 }
 
 /// Bashing (`docs/COMBAT.md`): on the proving ground
@@ -2019,7 +2020,7 @@ fn hold_and_resume() {
 /// `sim::player_probes`, no install.
 #[test]
 fn player_creation() {
-    probed("creation", &sim::player_probes::creation(), 10);
+    probed("creation", &sim::player_probes::creation(), 11);
 }
 
 /// TSL's player's level as the scripts read it (`G_PC_LEVEL`, set by the

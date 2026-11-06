@@ -335,7 +335,7 @@ fn bodies_as_drawn(
     shown
         .entities
         .iter()
-        .filter(|e| e.id != is.id && e.fighter.is_some())
+        .filter(|e| e.id != is.id && e.fighter.is_some() && !shown.away(e))
         .filter(|e| !(spares && shown.in_party(e)))
         .filter_map(|e| cast::blended(history, e.id, ms).map(|at| (e, at)))
         .filter(|(_, at)| at.alive && near(at.origin))
@@ -2706,16 +2706,13 @@ fn stunt_mark(
     clip_of: impl FnOnce(String, String, &ModelIr) -> Option<Arc<AnimationIr>>,
     seconds: f32,
 ) -> Option<StuntMark> {
-    let animation = line
-        .anims
-        .iter()
-        .find(|(who, animation)| {
-            who.eq_ignore_ascii_case(tag) && sim::script::names_clip(*animation)
-        })
-        .map_or(line.camera_animation, |(_, animation)| *animation);
+    let own = line.anims.iter().find_map(|(who, animation)| {
+        let clip = fmt_odyssey::dlg::cut_clip(*animation)?;
+        fmt_odyssey::dlg::same_participant(who, tag).then_some(clip.0)
+    });
     let stunt = stunt.to_ascii_lowercase();
     let model = models.get(&stunt)?;
-    let name = sim::script::camera_clip_name(animation)?;
+    let name = own.or_else(|| sim::script::camera_clip_name(line.camera_animation))?;
     let clip = clip_of(stunt, name, model)?;
     let dummy = model.node_index(hooks::CUTSCENE_DUMMY)?;
     let at_clip = seconds.min(clip.length);

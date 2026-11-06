@@ -965,6 +965,7 @@ pub(super) fn review() -> Vec<Check> {
             .map(|()| "OK keeps the focus".into())
         }),
         check("message_box_grows_as_kotors", message_box_grows()),
+        check("tutorial_pages_grow_each", pages_grow()),
     ]
 }
 
@@ -1003,6 +1004,35 @@ fn message_box_grows() -> Result<String, String> {
             && rows > shown,
     )?;
     Ok(format!("{long:?}, {rows} lines in {shown} rows"))
+}
+
+/// Each of a tutorial's pages is a box of its own grown to its words, OK
+/// on one opens the next, and on the last only closes.
+fn pages_grow() -> Result<String, String> {
+    use crate::screen::Screen;
+    use crate::screens::message::Pages;
+    let vm = ViewModel {
+        pages: vec![b"why".to_vec(), "\u{1}\u{2}\u{3} ".repeat(400).into_bytes()],
+        ..ViewModel::default()
+    };
+    let page = |at: &str| {
+        let mut gui = confirm_box();
+        let mut page = Pages::new(at, &vm).expect("a page");
+        page.fit(&mut gui, &mut Fake::new(), crate::skin::Source::Campaign);
+        let mut out = Vec::new();
+        page.press("BTN_OK", &vm, &mut out);
+        (gui.extent.height, out)
+    };
+    let (short, turned) = page("0");
+    let (long, closed) = page("1");
+    expect(
+        &format!("heights {short} then {long}; OK {turned:?}, then {closed:?}"),
+        short == 87
+            && long > 279
+            && turned == [Intent::Close, Intent::OpenFor("pages", "1".into())]
+            && closed == [Intent::Close],
+    )?;
+    Ok(format!("pages {short} then {long} tall"))
 }
 
 fn slider(tag: &str, id: i32, top: i32) -> Control {

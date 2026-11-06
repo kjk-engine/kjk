@@ -269,13 +269,36 @@ fn open(
         Option<Res<crate::sim_host::OwnSeat>>,
         ResMut<UiIntents>,
     ),
-    (mut bench, settings): (
+    (mut bench, settings, presented): (
         ResMut<crate::workbench_view::OpenBench>,
         Option<Res<crate::settings::Settings>>,
+        Option<Res<crate::sim_host::PresentedSnapshot>>,
     ),
-    (mut party_was_open, mut in_game_was, mut page_was): (Local<bool>, Local<bool>, Local<u8>),
+    (prompts, mut party_was_open, mut in_game_was, mut page_was): (
+        crate::pad::Prompts,
+        Local<bool>,
+        Local<bool>,
+        Local<u8>,
+    ),
 ) {
     let ui = &mut *ui;
+    // A page's tokens: the scripts' and the player's as a line's
+    // (`dialogue_view::said`), and the controls' as this player binds them.
+    let filled = |pages: Vec<Vec<u8>>| -> Vec<Vec<u8>> {
+        let Some(presented) = presented.as_ref() else {
+            return pages;
+        };
+        let snapshot = presented.0.current();
+        let seat = own.as_ref().map_or(sim::Seat(0), |own| own.0);
+        let fill = crate::dialogue_view::Fill {
+            told: &snapshot.talk,
+            pc: sim::persona::of(&snapshot.personas, seat),
+        };
+        pages
+            .iter()
+            .map(|page| crate::dialogue_view::said_with(page, fill, &|token| prompts.token(token)))
+            .collect()
+    };
     let party_shown = shown
         .0
         .iter()
@@ -297,7 +320,7 @@ fn open(
                     waiting.push(screen);
                     continue;
                 };
-                ui.vm.pages = tutorial(assets, row);
+                ui.vm.pages = filled(tutorial(assets, row));
                 ui.stack.close("pages");
             }
             Screen::Datapad { ref template } => {
@@ -306,7 +329,7 @@ fn open(
                     continue;
                 };
                 let words = assets.item(template).map(|item| item.description);
-                ui.vm.pages = words.into_iter().collect();
+                ui.vm.pages = filled(words.into_iter().collect());
                 ui.stack.close("pages");
             }
             // After the movies before them (Taris's fall, then the menu).

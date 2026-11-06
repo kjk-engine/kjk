@@ -1,0 +1,2 @@
+# The sim's hash moves on purpose: why.
+sim = "TSL's heat shield (the Telos mining shield) and Drexl's shield take the shield key and its HUD slot (`combat::items::use_of` rows 132 and 257)"

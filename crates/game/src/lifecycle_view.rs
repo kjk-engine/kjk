@@ -399,6 +399,7 @@ type DoorMaterials<'w, 's> = (
     Query<'w, 's, &'static mut MeshMaterial3d<crate::material::OdysseyMaterial>>,
     ResMut<'w, Assets<crate::material::OdysseyMaterial>>,
     Option<ResMut<'w, crate::material::Animated>>,
+    Option<ResMut<'w, crate::scene::AnimatedMaterials>>,
 );
 
 fn doors(
@@ -407,7 +408,7 @@ fn doors(
     presented: Res<PresentedSnapshot>,
     models: Query<&SceneModel>,
     mut transforms: Query<&mut Transform>,
-    (children, mut mesh_materials, mut materials, mut animated): DoorMaterials,
+    (children, mut mesh_materials, mut materials, mut animated, mut moving): DoorMaterials,
     mut doors: Local<Doors>,
 ) {
     let (Some(scene), Some(swap)) = (scene, swap) else {
@@ -495,8 +496,7 @@ fn doors(
                     (&fx, &placed.ir, &model.nodes),
                     &crate::model_fx::glows(&placed.ir, &scene.0.textures),
                     &children,
-                    &mut mesh_materials,
-                    &mut materials,
+                    (&mut mesh_materials, &mut materials, moving.as_deref_mut()),
                 )
             });
         }

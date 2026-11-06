@@ -564,20 +564,8 @@ impl<'a> Painter<'a> {
 
     /// The state's talk-table entry, its tokens filled in.
     fn told(&self, state: &ControlState) -> Option<Vec<u8>> {
-        let mut words = self.textures.text(Source::Campaign, state.strref?)?;
-        for (token, value) in &state.tokens {
-            let token = format!("<{token}>");
-            let mut from = 0;
-            while let Some(at) = words[from..]
-                .windows(token.len())
-                .position(|window| window == token.as_bytes())
-            {
-                let at = from + at;
-                words.splice(at..at + token.len(), value.iter().copied());
-                from = at + value.len();
-            }
-        }
-        Some(words)
+        let words = self.textures.text(Source::Campaign, state.strref?)?;
+        Some(fill_tokens(words, &state.tokens))
     }
 
     /// The words a control shows: the screen's, else its strref's, else
@@ -1205,6 +1193,24 @@ pub fn row_height(
     let lines = wrap(&font, text, width).len();
     let frame = rect[3] - inner_height;
     height.max((lines as f32 * font.line_height() + frame).ceil() as i32)
+}
+
+/// A talk-table entry's `words` with its `tokens` (`<CUSTOM0>`, by name)
+/// filled in.
+pub fn fill_tokens(mut words: Vec<u8>, tokens: &[(&'static str, Vec<u8>)]) -> Vec<u8> {
+    for (token, value) in tokens {
+        let token = format!("<{token}>");
+        let mut from = 0;
+        while let Some(at) = words[from..]
+            .windows(token.len())
+            .position(|window| window == token.as_bytes())
+        {
+            let at = from + at;
+            words.splice(at..at + token.len(), value.iter().copied());
+            from = at + value.len();
+        }
+    }
+    words
 }
 
 /// `bytes` broken into lines no wider than `width`: on new lines, on

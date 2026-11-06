@@ -121,7 +121,9 @@ lightning and how to see them).
 - Every `animloop…` clip loops at once from the scene's start, on the
   animations' clock (`anim` holds it), each over the rest pose; a node two
   key shows the later one's [verify: reone's order is a hash map's]. Only
-  nodes under the model's animation root move (reone).
+  nodes under the model's animation root move (reone); a clip whose root
+  names no node of the model moves all of them (`AnimationIr::bind`:
+  TSL's `p_kreiastunt` names its clips' root `p_kreiastunt01`).
 - A room's `scriptloopNN` clip a script plays on it (`PlayRoomAnimation`:
   the snapshot's `AreaSound::room`, the room by `sim::room_key` of its
   name, one at a time) loops from when it began, on the sim's clock, after
@@ -157,6 +159,13 @@ lightning and how to see them).
   their turning dummies); Malak's drain (`k_psta_cutdrainN`, a 201) plays
   `on2off` (the field flares, `SuperNova` bursts) and the pod stands empty
   (`off`).
+- Diffuses that move (UVs that scroll, `proceduretype cycle` flip-books)
+  move on every model: the scene's, and each placeable and creature made
+  in play (`scene::AnimatedMaterials`), and on the copies of their
+  materials that clips key (`model_fx::own_materials`): Peragus's force
+  cages (`plc_fccage2`, `plc_frcdist02`, 2 × 2 at 16 a second; TSL
+  `101per`). Its `plc_frcdist01` is `proceduretype water` (a distortion),
+  not drawn moving.
 - The particles hang under the model's root, so a room's culling hides
   them; a hidden model's still step (at most 0.25 s), unseen, and bounce
   off nothing [verify]. A lightning or point-to-point emitter aims at its

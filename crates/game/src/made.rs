@@ -574,16 +574,16 @@ impl Made {
     }
 
     /// Placeable `prop`, read, into `scene` and spawned under `root`: its
-    /// model's root and its models' indices. Its meshes whose UVs scroll
-    /// (`animateuv`) join the scene's (`scrolling`), its own clips and
-    /// emitters the scene's `own_fx`.
+    /// model's root and its models' indices. Its meshes whose diffuse moves
+    /// (UVs that scroll, flip-books) join the scene's (`animated`), its own
+    /// clips and emitters the scene's `own_fx`.
     fn spawn_prop(
         prop: Prop,
         (scene, root): (&mut LoadedScene, Entity),
-        (assets, commands, scrolling): (
+        (assets, commands, animated): (
             &mut ModelAssets,
             &mut Commands,
-            &mut crate::scene::ScrollingMaterials,
+            &mut crate::scene::AnimatedMaterials,
         ),
     ) -> (Entity, Range<usize>) {
         let first = scene.models.len();
@@ -607,7 +607,7 @@ impl Made {
             roots.push(model);
             nodes.push(its);
         }
-        scrolling.0.append(&mut spawner.scrolling);
+        animated.adopt(&mut spawner);
         drop(spawner);
         for (name, texture) in prop.textures {
             scene.textures.entry(name).or_insert(texture);
@@ -628,10 +628,16 @@ impl Made {
         &mut self,
         (index, entity, mut ready): (u32, &EntityState, Ready),
         (scene, root): (&mut LoadedScene, Entity),
-        (lives, assets, commands): (&mut LiveBlades, &mut ModelAssets, &mut Commands),
+        (lives, assets, commands, animated): (
+            &mut LiveBlades,
+            &mut ModelAssets,
+            &mut Commands,
+            &mut crate::scene::AnimatedMaterials,
+        ),
     ) -> (Entity, Range<usize>) {
         self.notes.append(&mut ready.notes);
-        let (view, arms, body, models) = spawned(ready, (scene, root), (lives, assets, commands));
+        let (view, arms, body, models) =
+            spawned(ready, (scene, root), (lives, assets, commands, animated));
         scene.creature_views.push(view);
         self.arrived.push(Arrival {
             index,
@@ -677,7 +683,7 @@ pub fn track(
     mut assets: ModelAssets,
     mut commands: Commands,
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
-    (mut tints, mut scrolling): (ResMut<MineTints>, ResMut<crate::scene::ScrollingMaterials>),
+    (mut tints, mut animated): (ResMut<MineTints>, ResMut<crate::scene::AnimatedMaterials>),
 ) {
     let made = &mut *made;
     if swap.generation != made.generation {
@@ -775,7 +781,7 @@ pub fn track(
                 let models = made.spawn(
                     (index, entity, ready),
                     (scene, root),
-                    (&mut lives, &mut assets, &mut commands),
+                    (&mut lives, &mut assets, &mut commands, &mut animated),
                 );
                 (Some(models), ms)
             }
@@ -814,26 +820,26 @@ pub fn track(
             made,
             (snapshot, &objects, level),
             (scene, root),
-            (&mut assets, &mut commands, &mut scrolling),
+            (&mut assets, &mut commands, &mut animated),
         );
         track_mines(
             made,
             (snapshot, &objects, level),
             (scene, root),
-            (&mut assets, &mut commands, &mut scrolling),
+            (&mut assets, &mut commands, &mut animated),
             &mut tints,
         );
         track_floor(
             made,
             (snapshot, level),
             (scene, root),
-            (&mut assets, &mut commands, &mut scrolling),
+            (&mut assets, &mut commands, &mut animated),
         );
         track_disguises(
             made,
             (snapshot, &objects, level),
             (scene, root),
-            (&mut lives, &mut assets, &mut commands),
+            (&mut lives, &mut assets, &mut commands, &mut animated),
         );
     }
     made.load_stealth_texture(level);
@@ -900,7 +906,12 @@ pub fn track(
 fn spawned(
     ready: Ready,
     (scene, root): (&mut LoadedScene, Entity),
-    (lives, assets, commands): (&mut LiveBlades, &mut ModelAssets, &mut Commands),
+    (lives, assets, commands, animated): (
+        &mut LiveBlades,
+        &mut ModelAssets,
+        &mut Commands,
+        &mut crate::scene::AnimatedMaterials,
+    ),
 ) -> (CreatureView, [Option<Armed>; 2], Entity, Range<usize>) {
     let Ready {
         mut models,
@@ -948,6 +959,7 @@ fn spawned(
     );
     let arms = arms.map(|held| held.map(|held| held.spawned(roots[held.model], first_blade)));
     let body = roots[view.body - first];
+    animated.adopt(&mut spawner);
     drop(spawner);
     for (name, texture) in textures {
         scene.textures.entry(name).or_insert(texture);
@@ -999,7 +1011,12 @@ fn track_disguises(
     made: &mut Made,
     (snapshot, objects, level): (&Snapshot, &Instances, &sim::Level),
     (scene, root): (&mut LoadedScene, Entity),
-    (lives, assets, commands): (&mut LiveBlades, &mut ModelAssets, &mut Commands),
+    (lives, assets, commands, animated): (
+        &mut LiveBlades,
+        &mut ModelAssets,
+        &mut Commands,
+        &mut crate::scene::AnimatedMaterials,
+    ),
 ) {
     made.worn = snapshot
         .all_drawn()
@@ -1053,7 +1070,7 @@ fn track_disguises(
             Ok(mut ready) => {
                 made.notes.append(&mut ready.notes);
                 let (view, _, body, models) =
-                    spawned(ready, (scene, root), (lives, assets, commands));
+                    spawned(ready, (scene, root), (lives, assets, commands, animated));
                 commands.entity(body).insert(Visibility::Hidden);
                 Some(Guised {
                     root: body,
@@ -1151,10 +1168,10 @@ fn track_props(
     made: &mut Made,
     (snapshot, objects, level): (&sim::Snapshot, &Instances, &sim::Level),
     (scene, root): (&mut LoadedScene, Entity),
-    (assets, commands, scrolling): (
+    (assets, commands, animated): (
         &mut ModelAssets,
         &mut Commands,
-        &mut crate::scene::ScrollingMaterials,
+        &mut crate::scene::AnimatedMaterials,
     ),
 ) {
     let present: BTreeMap<u32, (&EntityState, &Spawned)> = snapshot
@@ -1209,7 +1226,7 @@ fn track_props(
             Ok(prop) => Some(Made::spawn_prop(
                 prop,
                 (scene, root),
-                (assets, commands, scrolling),
+                (assets, commands, animated),
             )),
             Err(error) => {
                 made.notes.push(format!("#{index} {error}"));
@@ -1284,10 +1301,10 @@ fn track_mines(
     made: &mut Made,
     (snapshot, objects, level): (&sim::Snapshot, &Instances, &sim::Level),
     (scene, root): (&mut LoadedScene, Entity),
-    (assets, commands, scrolling): (
+    (assets, commands, animated): (
         &mut ModelAssets,
         &mut Commands,
-        &mut crate::scene::ScrollingMaterials,
+        &mut crate::scene::AnimatedMaterials,
     ),
     tints: &mut MineTints,
 ) {
@@ -1358,7 +1375,7 @@ fn track_mines(
         };
         let models = match read {
             Ok(prop) => {
-                let spawned = Made::spawn_prop(prop, (scene, root), (assets, commands, scrolling));
+                let spawned = Made::spawn_prop(prop, (scene, root), (assets, commands, animated));
                 tints.0.push(spawned.0);
                 Some(spawned)
             }
@@ -1474,10 +1491,10 @@ fn track_floor(
     made: &mut Made,
     (snapshot, level): (&sim::Snapshot, &sim::Level),
     (scene, root): (&mut LoadedScene, Entity),
-    (assets, commands, scrolling): (
+    (assets, commands, animated): (
         &mut ModelAssets,
         &mut Commands,
-        &mut crate::scene::ScrollingMaterials,
+        &mut crate::scene::AnimatedMaterials,
     ),
 ) {
     let goods = &snapshot.goods;
@@ -1528,7 +1545,7 @@ fn track_floor(
             Ok(prop) => Some(Made::spawn_prop(
                 prop,
                 (scene, root),
-                (assets, commands, scrolling),
+                (assets, commands, animated),
             )),
             Err(error) => {
                 made.notes.push(format!("item #{id} {error}"));
