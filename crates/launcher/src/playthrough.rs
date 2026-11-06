@@ -588,6 +588,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 let mut made = sim::walk::MadeWalls::default();
                 // A travel picked (met the step after, its notice sent).
                 let mut travelled = false;
+                // An `exit` taken out by another way than its own (`takes`):
+                // that way and where it led.
+                let mut astray: Option<String> = None;
                 // Since when the player has stood for code of its own due.
                 let mut cued_since: Option<u64> = None;
                 // Which of the driver's own rules last held the walk still
@@ -869,6 +872,22 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     }) {
                         // Planned again, round it, from the next step.
                         turned_back.wall(&here);
+                        walker = None;
+                    }
+                    // Out of the module only by an `exit`, and by its own way
+                    // out (a fight's chase of a foe fleeing to the map's edge
+                    // stops short of it; a walk across the Dune Sea passes the
+                    // way back to Anchorhead by its arrival). A walk to a way
+                    // out takes it too (`to k36_trg_k34`, the Shyrack cave's
+                    // mouth on Korriban: held 3.6 m short).
+                    let way_out = match goal {
+                        Goal::Exit(Target::Tag(tag, nth)) | Goal::To(Target::Tag(tag, nth)) => {
+                            find(&here, tag, *nth).map(|(index, _)| index)
+                        }
+                        _ => None,
+                    };
+                    let way_out_facts = way_out.and_then(|index| here.facts(index));
+                    if turned_back.keep_off_exits(&here, way_out) {
                         walker = None;
                     }
                     note_fallen(&mut fallen, here.snapshot, &world.script_state().corpses);
@@ -1386,7 +1405,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             let gone_by = found.is_none()
                                 && matches!(target, Target::Tag(tag, _)
                                     if left_through.as_deref().is_some_and(|by| by.eq_ignore_ascii_case(tag)));
-                            if matches!(goal, Goal::Exit(_)) && (module_of(&last) != module || gone_by) {
+                            if let Some(by) = astray.as_ref().filter(|_| module_of(&last) != module) {
+                                held = vec![format!("taken out by {by}, not by the exit's own way")];
+                                break;
+                            } else if matches!(goal, Goal::Exit(_)) && (module_of(&last) != module || gone_by) {
                                 met = true;
                             } else if matches!(goal, Goal::To(_)) && gone_by {
                                 // A trigger the walk before already went out
@@ -2582,18 +2604,6 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         command.right = 0;
                         stilled = Some(("code of its own due (a scene's)", now));
                     }
-                    // Out of the module only by an `exit`, and by its own way
-                    // out (a fight's chase of a foe fleeing to the map's edge
-                    // stops short of it; a walk across the Dune Sea passes the
-                    // way back to Anchorhead by its arrival). A walk to a way
-                    // out takes it too (`to k36_trg_k34`, the Shyrack cave's
-                    // mouth on Korriban: held 3.6 m short).
-                    let way_out = match goal {
-                        Goal::Exit(Target::Tag(tag, nth)) | Goal::To(Target::Tag(tag, nth)) => {
-                            find(&here, tag, *nth).map(|(index, _)| index)
-                        }
-                        _ => None,
-                    };
                     let ahead = (!matches!(goal, Goal::Race | Goal::Turrets))
                         .then(|| {
                             exit_ahead(
@@ -2736,6 +2746,13 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             .get(transition.via)
                             .and_then(|entity| Here::new(&level, &last, &refused).facts_of(entity));
                         left_by_exit = via.as_ref().is_some_and(|data| data.exit().is_some());
+                        if matches!(goal, Goal::Exit(_))
+                            && let (Some(own), Some(via)) = (way_out_facts.as_deref(), via.as_deref())
+                            && via.exit().is_some()
+                            && !takes(Some(own), via)
+                        {
+                            astray = Some(format!("{} to {}", via.tag, transition.module));
+                        }
                         left_through = via.map(|data| data.tag.clone());
                         transcribed =
                             transcribe(&installer, &world, (&names, &last), transcribed, &mut lines);

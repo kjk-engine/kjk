@@ -436,14 +436,17 @@ const TALK_RINGS: [f32; 4] = [0.4, 0.55, 0.7, 0.8];
 /// stood (`sim::walk::faces_under_body`), walled too: KOTOR's planner keeps
 /// its lines off creatures, so a walk takes another way past one standing in
 /// a gap (Moza in Chodo's office, where the way out ran between him and a
-/// wall, gone round and planned back through him for good). Of one level:
-/// another's are dropped.
+/// wall, gone round and planned back through him for good). And the
+/// triggers leading out of the module that the goal's way out does not take
+/// (`keep_off_exits`, with the way out they were chosen for), walled too. Of
+/// one level: another's are dropped.
 pub(super) struct TurnedBack {
     pub(super) level: String,
     pub(super) stood_in: BTreeSet<u32>,
     pub(super) was_at: Option<[f32; 3]>,
     pub(super) triggers: BTreeSet<u32>,
     pub(super) rounded: Vec<([f32; 3], u8)>,
+    pub(super) exits: Option<(Option<u32>, BTreeSet<u32>)>,
     pub(super) walled: Arc<[bool]>,
 }
 
@@ -461,6 +464,7 @@ impl Default for TurnedBack {
             was_at: None,
             triggers: BTreeSet::new(),
             rounded: Vec::new(),
+            exits: None,
             walled: Arc::new([]),
         }
     }
@@ -525,13 +529,43 @@ impl TurnedBack {
         count == ROUNDS_TO_WALL
     }
 
-    /// The faces under the triggers that turned the player back and the
-    /// bodies walled (`went_round`), made anew.
+    /// The goal's way out this step, `way_out` (an `exit`'s or a `to`'s
+    /// own): the triggers leading out of the module that it does not take
+    /// (`takes`) are walled, as `exit_ahead` holds the player back from them,
+    /// so the way is planned past them, not into the guard. Whether the walls
+    /// changed. The way from 601DAN's arrival from 605DAN to Khoonda ran
+    /// across the other way back to 605DAN, 9.6 m off, and took it.
+    pub(super) fn keep_off_exits(&mut self, here: &Here, way_out: Option<u32>) -> bool {
+        if self.exits.as_ref().is_some_and(|(of, _)| *of == way_out) {
+            return false;
+        }
+        let own = way_out.and_then(|index| here.facts(index));
+        let exits: BTreeSet<u32> = here
+            .objects()
+            .iter()
+            .filter(|(_, data)| {
+                data.kind == ObjectKind::Trigger && data.exit().is_some() && !takes(own.as_deref(), data)
+            })
+            .map(|(index, _)| index)
+            .collect();
+        let changed = self.exits.as_ref().map_or(!exits.is_empty(), |(_, was)| *was != exits);
+        self.exits = Some((way_out, exits));
+        if changed {
+            self.wall(here);
+        }
+        changed
+    }
+
+    /// The faces under the triggers that turned the player back, the exits
+    /// kept off (`keep_off_exits`) and the bodies walled (`went_round`), made
+    /// anew.
     pub(super) fn wall(&mut self, here: &Here) {
         let mut walled = Vec::new();
+        let kept_off = self.exits.iter().flat_map(|(_, exits)| exits);
         let triggers = self
             .triggers
             .iter()
+            .chain(kept_off)
             .filter_map(|index| here.facts(*index))
             .map(|trigger| sim::walk::faces_under(here.level, &trigger));
         let bodies = self
@@ -916,15 +950,15 @@ pub(super) fn key_meets(world: &mut sim::SimWorld, snapshot: &Snapshot, command:
 
 /// Where the body at `at` (metres), moving at `velocity` (units a
 /// second) and looking along `yaw` (degrees), would step into a trigger or
-/// door that leads to another module other than `way_out` (an `exit`'s or a
-/// `to`'s own, and any sharing its tag and way, or its tag where it leads
-/// nowhere itself: the Elders' inner door and their gate are both
-/// `RakataDoor2`): only a goal naming one takes the party out by one, as only
-/// a door's `exit` opens one that leads out. `Ahead::Command`: `command`
-/// carries it in (`EXIT_AHEAD_M` on); `Ahead::Slides`: let go (or
-/// stopped), it slides in before ground friction stops it (a run ended beside
-/// a map's edge: the Dune Sea's way into the Sand People's territory, a
-/// goal met at full tilt).
+/// door that leads to another module but by `way_out` (an `exit`'s or a
+/// `to`'s own, and those it `takes`): only a goal naming one takes the party
+/// out by one, as only a door's `exit` opens one that leads out.
+/// `Ahead::Command`: `command` carries it in (`EXIT_AHEAD_M` on);
+/// `Ahead::Slides`: it slides in before ground friction stops it, let go (a
+/// run ended beside a map's edge: the Dune Sea's way into the Sand People's
+/// territory, a goal met at full tilt) or driven another way (a stalled
+/// walk's backing off on 601DAN's slope, driven north, slid west across the
+/// corner of the way to 605DAN).
 pub(super) fn exit_ahead(
     here: &Here,
     at: [f32; 3],
@@ -935,15 +969,9 @@ pub(super) fn exit_ahead(
 ) -> Option<Ahead> {
     let (level, instances) = (here.level, here.objects());
     let own = way_out.and_then(|index| instances.get(index));
-    let taken = |data: &ObjectData| {
-        own.is_some_and(|own| {
-            own.tag.eq_ignore_ascii_case(&data.tag)
-                && (own.exit().is_none() || own.exit() == data.exit())
-        })
-    };
     let out = |point: [f32; 2]| {
         instances.iter().any(|(index, data)| {
-            !taken(data)
+            !takes(own, data)
                 && data.exit().is_some()
                 && match data.kind {
                     ObjectKind::Trigger => level.in_trigger(data, [point[0], point[1], at[2]]),
@@ -963,23 +991,20 @@ pub(super) fn exit_ahead(
     };
     let (f, r) = (f32::from(command.forward), f32::from(command.right));
     let driven = f != 0.0 || r != 0.0;
-    if driven {
+    let into = driven && {
         let (s, c) = yaw.to_radians().sin_cos();
         let way = [f * c + r * s, f * s - r * c];
         let length = way[0].hypot(way[1]);
-        let into = out([
+        out([
             at[0] + way[0] / length * EXIT_AHEAD_M,
             at[1] + way[1] / length * EXIT_AHEAD_M,
-        ]);
-        // Still driven, by a way that does not lead out: its own.
-        if !into {
-            return None;
-        }
-    }
-    // Let go, or to be stopped: where its slide ends, every quarter metre
-    // of the way (a trigger may be thin); never one it stands in already
-    // (where it arrived, or a goal's own way out beside another of its tag),
-    // whose way the sim has taken or not.
+        ])
+    };
+    // Where its slide ends, every quarter metre of the way (a trigger may be
+    // thin), driven or not: a body driven one way still moves another until
+    // it turns; never one it stands in already (where it arrived, or a goal's
+    // own way out beside another of its tag), whose way the sim has taken or
+    // not.
     let speed = velocity[0].hypot(velocity[1]);
     let slide = speed / sim::motion::FRICTION * UNIT;
     let steps = (slide / 0.25).ceil() as usize;
@@ -990,16 +1015,24 @@ pub(super) fn exit_ahead(
             at[1] + velocity[1] / speed * d,
         ])
     });
-    match (driven, slides) {
+    match (into, slides) {
         (true, slides) => Some(Ahead::Command { slides }),
         (false, true) => Some(Ahead::Slides),
         (false, false) => None,
     }
 }
 
+/// Whether a goal's way out `own` takes the party out by `data` too: its
+/// own, or one sharing its tag and way, or its tag where `own` leads nowhere
+/// itself (the Elders' inner door and their gate are both `RakataDoor2`).
+pub(super) fn takes(own: Option<&ObjectData>, data: &ObjectData) -> bool {
+    own.is_some_and(|own| {
+        own.tag.eq_ignore_ascii_case(&data.tag) && (own.exit().is_none() || own.exit() == data.exit())
+    })
+}
+
 /// What carries a body out by a way it is not to take (`exit_ahead`): its
-/// command (and whether, let go, it would still slide in), or, let go, its
-/// slide.
+/// command (and whether, let go, it would still slide in), or its slide.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Ahead {
     Command { slides: bool },
