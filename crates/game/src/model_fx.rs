@@ -1339,9 +1339,9 @@ impl Lit {
         animated: Option<&mut material::Animated>,
     ) {
         let illum = Vec3::from_array(self.illum);
-        if animated
-            .is_some_and(|animated| animated.light(&self.material, (self.alpha, illum), materials))
-        {
+        if animated.is_some_and(|animated| {
+            animated.light(self.material.id(), (self.alpha, illum), materials)
+        }) {
             return;
         }
         let glow = illum.extend(1.0);

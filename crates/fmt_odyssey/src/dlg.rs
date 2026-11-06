@@ -62,11 +62,12 @@ impl Dlg {
     }
 }
 
-/// Where the animations naming cutscene clips begin (`cut_clip`), the clips
-/// in each of its runs, and how far apart the runs are.
-const FIRST_CUT: u16 = 1000;
+/// Where the animations naming cutscene clips begin (`cut_clip`), how far
+/// apart its runs are, and where they end; the clips in each run.
+pub const FIRST_CUT: u16 = 1000;
+pub const CUT_RUN: u16 = 200;
+pub const CUT_END: u16 = FIRST_CUT + CUT_ENDINGS.len() as u16 * CUT_RUN;
 const CUT_CLIPS: u16 = 128;
-const CUT_RUN: u16 = 200;
 /// The runs' endings (`cut001`, `cut001w`, `cut001l`, `cut001wl`), the last
 /// two looped.
 const CUT_ENDINGS: [&str; 4] = ["", "w", "l", "wl"];
@@ -110,7 +111,7 @@ pub fn cut_animation(animation: u16) -> Option<u16> {
 /// Every cutscene clip a body may play (`cut_clip`): its number
 /// (`cut_animation`) and name.
 pub fn cut_clips() -> impl Iterator<Item = (u16, String)> {
-    (FIRST_CUT..FIRST_CUT + CUT_ENDINGS.len() as u16 * CUT_RUN)
+    (FIRST_CUT..CUT_END)
         .filter_map(|animation| Some((cut_animation(animation)?, cut_clip(animation)?.0)))
 }
 

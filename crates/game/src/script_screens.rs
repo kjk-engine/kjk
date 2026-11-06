@@ -166,7 +166,6 @@ pub(crate) fn level_up(me: &CharacterView, made: &Made) -> LevelUpView {
         class,
         level: me.level.saturating_add(1),
         skills,
-        feat_class_skills: me.feat_class_skills,
         picks,
     }
 }

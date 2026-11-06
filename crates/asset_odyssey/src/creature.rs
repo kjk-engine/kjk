@@ -395,9 +395,9 @@ pub fn scripted_clips() -> impl Iterator<Item = (u16, &'static str)> {
 /// `LOOPED`, past every row numbered from `ONCE`; looped from past every
 /// row numbered from `LOOPED`.
 const _: () = assert!(
-    fmt_odyssey::dlg::CUT_ONCE >= ONCE + 1000
-        && fmt_odyssey::dlg::CUT_ONCE + 400 <= LOOPED
-        && fmt_odyssey::dlg::CUT_LOOPED >= LOOPED + 1000
+    fmt_odyssey::dlg::CUT_ONCE >= ONCE + fmt_odyssey::dlg::FIRST_CUT
+        && fmt_odyssey::dlg::CUT_ONCE + 2 * fmt_odyssey::dlg::CUT_RUN <= LOOPED
+        && fmt_odyssey::dlg::CUT_LOOPED >= LOOPED + fmt_odyssey::dlg::FIRST_CUT
 );
 
 /// Whether a body of `appearance.2da` `modeltype` `model_type` is a creature

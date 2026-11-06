@@ -323,7 +323,8 @@ fn banked(classes: &Classes) -> (&'static str, Result<String, String>) {
 
 /// TSL's Class Skill feats: Security (skill 6, not the class's own) costs
 /// a point a rank to a character with Class Skill: Security, so the second
-/// level's 2 points buy 2 ranks; without the feat they buy none.
+/// level's 2 points buy 2 ranks; without the feat they buy none. The
+/// level's picks (the level-up screen's) say the same.
 fn class_skill_feat(classes: &Classes) -> (&'static str, Result<String, String>) {
     const SECURITY: usize = 6;
     let made = creation::sheet(classes, &made(vec![PICKED]), 2);
@@ -349,11 +350,18 @@ fn class_skill_feat(classes: &Classes) -> (&'static str, Result<String, String>)
             .map(|(after, _, left)| (after.skills[SECURITY], left))
     };
     let (with, without) = (left(&featured), left(&sheet));
+    // The level-up screen's class skills are the same set's.
+    let shown = |sheet: &crate::combat::Sheet| {
+        classes
+            .picks(sheet, &career, 0)
+            .map(|picks| picks.class_skills[SECURITY])
+    };
+    let shown = (shown(&featured), shown(&sheet));
     (
         "Class Skill: Security makes Security a class skill: a point a rank",
         check(
-            with == Some((2, 0)) && without.is_none(),
-            format!("with the feat {with:?}, without {without:?}"),
+            with == Some((2, 0)) && without.is_none() && shown == (Some(true), Some(false)),
+            format!("with the feat {with:?}, without {without:?}; picks show {shown:?}"),
         ),
     )
 }

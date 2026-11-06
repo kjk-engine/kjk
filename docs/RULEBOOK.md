@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `1452ca3225ec9fba`.
+Edition `da806cadd43c0733`.
 
 ## Contents
 
@@ -8982,6 +8982,19 @@ The first line of a conversation, and the first set of replies, use angle 2 when
 A speaker turns its body until the listener is within its head's turning arc, less 1°. Its head turns the rest of the way.
 
 <sub>Source: ours [verify the order against the exe]. Code: `sim::script::dialogue`.</sub>
+
+<a id="dialogue-cameras-every-camera-effect"></a>**Video Effects on Every Camera** = **false / true** · `dialogue.cameras.every_camera_effect`
+
+K1 **false** · TSL **true**
+
+Whether every line's camera but an animated one sets the screen's video effect (a hologram's noise) from the line, a line without one clearing it (false / true); where not, only a placed camera's line sets one, and keeps it on a line without.
+
+Both executables leave the effect alone on an animated camera's line. K1's
+takes a placed camera's row and keeps what showed on -1 or -2, and clears it
+on any other camera. TSL's takes any other camera's row and clears it on -1
+or -2, unless a script's `EnableVideoEffect` holds it.
+
+<sub>Source: K1's and TSL's Mac executables (`CGuiInGame::UpdateShotCamera`), 2026-11-06. Code: `game::video_effect::LineEffect`.</sub>
 
 ### <a id="dialogue-speakers"></a>Who Says a Line
 
