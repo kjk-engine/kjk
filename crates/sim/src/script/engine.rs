@@ -229,12 +229,20 @@ bound! {
     ActionForceFollowObject, DoSinglePlayerAutoSave, GetLastPlayerDied, ShowSwoopUpgradeScreen,
     ActionPickUpItem, ActionPutDownItem, EffectInvisibility, EffectDamageReduction,
     EffectDamageShield,
+    // K1's own scripts' last (`script::rare`).
+    GetHasInventory, GetInventoryDisturbType, GetItemActivated, GetItemActivator, ChangeItemCost,
+    AddToParty, RemoveFromParty, SetAvailableNPCId, PlayVisualAreaEffect,
+    EffectBlasterDeflectionIncrease, EffectBlasterDeflectionDecrease, GetDamageDealtByType,
+    GetMetaMagicFeat, GetSubScreenID, SetButtonMashCheck, GetButtonMashCheck, SetMusicVolume,
+    GetCheatCode,
 }
 
-/// Whether the routine `name` (`nwscript.nss`) is bound; every other one
-/// is a counted gap (`kjk script check` lists those the scripts call).
+/// Whether the routine `name` (`nwscript.nss`) is bound: in the table here,
+/// or a minigame's that `script::minigame` answers on a course (it reaches
+/// those by name first). Every other one is a counted gap (`kjk script
+/// check` lists those the scripts call).
 pub fn bound(name: &str) -> bool {
-    Bound::named(name).is_some()
+    Bound::named(name).is_some() || super::minigame::handles(name)
 }
 
 /// TSL's game key (`ModuleData::game`), for its executable's own rules.
@@ -336,6 +344,15 @@ pub mod last {
     /// The module's: the player whose death ran its `Mod_OnPlrDeath`
     /// (`GetLastPlayerDied`).
     pub const PLAYER_DIED: u8 = 33;
+    /// How its inventory was last disturbed (`GetInventoryDisturbType`):
+    /// `INVENTORY_DISTURB_TYPE_ADDED` (0) or `REMOVED` (1).
+    pub const DISTURB_TYPE: u8 = 34;
+    /// Its last damage's types (`DAMAGE_TYPE_*` bits) and what it took in
+    /// whole points after its resistances (`GetDamageDealtByType`).
+    pub const DAMAGE_TYPES: u8 = 35;
+    pub const DAMAGE_DEALT: u8 = 36;
+    /// Its last cast's metamagic (`GetMetaMagicFeat`).
+    pub const METAMAGIC: u8 = 37;
 }
 
 /// The listen pattern number `who`'s last dialogue event matched, kept on
@@ -686,6 +703,8 @@ fn effect_type(modifies: Modifies, amount: i16) -> &'static str {
         Modifies::DamageReduction => "EFFECT_TYPE_DAMAGE_REDUCTION",
         // No `EFFECT_TYPE_…` names one in either game's nwscript.nss.
         Modifies::DamageShield => "EFFECT_TYPE_INVALIDEFFECT",
+        // Nor does the executables' table (`GetEffectTypeScriptConstant`).
+        Modifies::BlasterDeflection => "EFFECT_TYPE_INVALIDEFFECT",
         Modifies::Skill if up => "EFFECT_TYPE_SKILL_INCREASE",
         Modifies::Skill => "EFFECT_TYPE_SKILL_DECREASE",
         Modifies::AssuredHit => "EFFECT_TYPE_ASSUREDHIT",
@@ -1221,7 +1240,7 @@ impl Engine<'_> {
     /// temporary one `seconds` long): what the sim carries out waits for
     /// the next step's pipeline (`script::effects`); visual ones change
     /// nothing; any other part is a gap, by its name.
-    fn apply_effect(
+    pub(super) fn apply_effect(
         &mut self,
         duration: i32,
         effect: Effect,
@@ -1378,7 +1397,7 @@ impl Engine<'_> {
 
     /// A modifier effect, or one per damage type set in `types`
     /// (`DAMAGE_TYPE_*` bits: bit `n` is damage type row `n`).
-    fn modifier(&mut self, modifies: Modifies, amount: i32, of: u8) -> Value {
+    pub(super) fn modifier(&mut self, modifies: Modifies, amount: i32, of: u8) -> Value {
         let amount = amount.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
         self.effect_value(Effect::Modifier {
             modifies,
@@ -5184,6 +5203,24 @@ impl Engine<'_> {
             | PlayOverlayAnimation
             | DisplayDatapad
             | CancelPostDialogCharacterSwitch => self.presentation_call(bound, caller, args),
+            GetHasInventory
+            | GetInventoryDisturbType
+            | GetItemActivated
+            | GetItemActivator
+            | ChangeItemCost
+            | AddToParty
+            | RemoveFromParty
+            | SetAvailableNPCId
+            | PlayVisualAreaEffect
+            | EffectBlasterDeflectionIncrease
+            | EffectBlasterDeflectionDecrease
+            | GetDamageDealtByType
+            | GetMetaMagicFeat
+            | GetSubScreenID
+            | SetButtonMashCheck
+            | GetButtonMashCheck
+            | SetMusicVolume
+            | GetCheatCode => self.rare_call(bound, caller, args),
             Print => {
                 let message = args.iter().find_map(|arg| match arg {
                     Value::String(text) => Some(text.to_string()),
@@ -5224,7 +5261,7 @@ impl Engine<'_> {
     }
 
     /// Something for one character's player, or (none) every player's.
-    fn tell(&mut self, to: Option<ObjectId>, notice: Notice) -> Value {
+    pub(super) fn tell(&mut self, to: Option<ObjectId>, notice: Notice) -> Value {
         self.out.notices.push((to, notice));
         Value::Int(0)
     }
@@ -5619,14 +5656,17 @@ impl Engine<'_> {
             }
             // An item's flag, or a character's (its sheet's `PLOT`: no
             // damage at all; a scene's creature made mortal when it acts).
-            // `CSWSItem::GetCost`: a plot item 0, any other its cost, at
-            // least 1 (stack, identification and properties no part).
+            // `CSWSItem::GetCost`: a plot item 0, any other its cost (by its
+            // base item's `ChangeItemCost` multiplier), at least 1 (stack,
+            // identification and properties no part).
             // [The executables read the cost from the UTI's `AddCost`; kjk's
             // catalogue keeps `Cost`, as its stores price by: verify.]
             GetGoldPieceValue => Value::Int(match self.state.items.get(&item.0) {
                 Some(held) if held.plot => 0,
                 Some(_) => facts(self.state, catalog, item).map_or(1, |facts| {
-                    i32::try_from(facts.cost).unwrap_or(i32::MAX).max(1)
+                    i32::try_from(self.state.value(facts))
+                        .unwrap_or(i32::MAX)
+                        .max(1)
                 }),
                 None => 0,
             }),

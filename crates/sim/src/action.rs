@@ -191,6 +191,11 @@ pub enum Action {
     /// one opens, which sets the map page's return button
     /// (`SetReturnStrref`).
     ScreenOpened,
+    /// The in-game page the seat shows now (`SUBSCREEN_ID_*`: 1 equipment
+    /// to 8 messages; 0 as its in-game screens close): as one shows or the
+    /// seat turns to another, the host runs `k_pend_screenchg`, as both
+    /// games' `CGuiInGame` does, which reads it (`GetSubScreenID`).
+    SubScreen(u8),
     /// Quit the TSL swoop race playing (its pause screen's quit: the global
     /// `GBL_QUIT_SWOOP` set, which the race's heartbeat reads). The first
     /// seat's.
@@ -351,6 +356,7 @@ const CAST: u8 = 55;
 const LEVEL_UP_ON: u8 = 56;
 const NEXT_FEAT: u8 = 57;
 const PICK_ITEM: u8 = 58;
+const SUB_SCREEN: u8 = 59;
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -552,6 +558,10 @@ impl Action {
                 }
             }
             Action::Forfeit => out.u8(FORFEIT),
+            Action::SubScreen(page) => {
+                out.u8(SUB_SCREEN);
+                out.u8(*page);
+            }
             Action::Arena(order) => {
                 out.u8(ARENA);
                 match order {
@@ -706,6 +716,7 @@ impl Action {
                 Action::Assemble { item, changes }
             }
             FORFEIT => Action::Forfeit,
+            SUB_SCREEN => Action::SubScreen(input.u8()?),
             ARENA => {
                 let at = input.at();
                 Action::Arena(match input.u8()? {
@@ -770,6 +781,7 @@ impl Action {
             | Action::PickItem { .. }
             | Action::Cast { .. }
             | Action::ScreenOpened
+            | Action::SubScreen(_)
             | Action::Forfeit
             | Action::Arena(_) => None,
         }

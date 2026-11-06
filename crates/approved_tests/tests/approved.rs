@@ -1156,10 +1156,15 @@ fn tsl_party_rules() {
 /// `ActionEquipMostEffectiveArmor`; TSLRCM's last ones (a forced follow,
 /// the module's player death and `GetLastPlayerDied`, the autosave and
 /// swoop screen asked), a pick-up and a put-down, and invisibility, damage
-/// reduction and damage shields. The sim alone, on the proving ground.
+/// reduction and damage shields; and K1's own scripts' last unbound ones
+/// (inventories and their disturbance, item costs changed, damage by type,
+/// a visual at a place, a party slot's creature, the music's volume, the
+/// in-game page's script), and every minigame routine answered counted bound
+/// (`kjk script check`). The sim alone, on the proving ground. At least 26
+/// checks (raised from 18, approved by the owner 2026-11-06).
 #[test]
 fn mod_routines() {
-    probed("mod routines", &sim::routine_probes::probes(), 18);
+    probed("mod routines", &sim::routine_probes::probes(), 26);
 }
 
 /// The dead's remains (KOTOR's body bags; `sim::remains::probes`), owner

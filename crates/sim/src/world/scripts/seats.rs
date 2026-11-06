@@ -169,6 +169,18 @@ pub(super) fn seat_actions(
                 state.pending.push(Pending::new(script, script::MODULE));
                 continue;
             }
+            // The page it shows, for `GetSubScreenID`; one shown or turned
+            // to runs the games' screen-change script with no caller (both
+            // executables' `CGuiInGame` run it whatever the module: only
+            // K1's Endar Spire has one, its tutorial's).
+            Action::SubScreen(page) => {
+                state.subscreen = *page;
+                if *page != 0 {
+                    let script = script::presentation::SCREEN_CHANGED;
+                    state.pending.push(Pending::new(script, ObjectId::INVALID));
+                }
+                continue;
+            }
             Action::Fit {
                 item,
                 upgrade,

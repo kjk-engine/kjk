@@ -325,6 +325,17 @@ pub struct State {
     /// item's id: the module whose area it lies in, and where. Each is
     /// held by the area (`AREA`) while it lies there (`State::lying_in`).
     pub floor: BTreeMap<u32, (String, crate::inventory::Lying)>,
+    /// What `ChangeItemCost` multiplied the value of every item of a
+    /// `baseitems.2da` row by, by the row; the rest are 1. Both executables
+    /// keep it on the base item for as long as the game runs, so no save
+    /// carries it (not saved).
+    pub cost_multipliers: BTreeMap<u16, f32>,
+    /// `SetButtonMashCheck`'s number: the server application keeps it, and
+    /// only `GetButtonMashCheck` reads it (not saved).
+    pub button_mash: i32,
+    /// The in-game screen a seat shows now (`SUBSCREEN_ID_*`, 0 none), as
+    /// `GetSubScreenID` reads it: KOTOR's client keeps it (not saved).
+    pub subscreen: u8,
 }
 
 /// What a skill's use is: on a trap (`world::traps`), or Security on a

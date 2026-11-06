@@ -543,6 +543,28 @@ the games' own compiled scripts; nothing of them is in the repo.
 - `SetItemNonEquippable`: a player's equip of the item refused; one worn
   stays worn [verify]. `YavinHackCloseDoor`: the door shut at once, no walk
   to it.
+- K1's own scripts' last (`script::rare`), each as both executables run
+  it: `GetHasInventory` (creatures and stores; a placeable by its
+  `HasInventory`; no item, as no base item of either game is a container);
+  `GetInventoryDisturbType` (a container's item taken `REMOVED`, put in
+  `ADDED`, `world::scripts`); `GetItemActivated` and `GetItemActivator`
+  invalid (only `EventActivateItem`'s event sets them, and no script builds
+  one); `ChangeItemCost` (a base item's multiplier on every item of it,
+  stores and `GetGoldPieceValue` included, the fraction cut off; not saved,
+  as the executables keep it on the base item); `AddToParty`,
+  `RemoveFromParty` nothing (NWN's player parties: no companion is a
+  player character); `SetAvailableNPCId` (slot 0 to 11's creature);
+  `PlayVisualAreaEffect` (an instant visual at the place); the blaster
+  deflection effects kept and walked, changing no deflection, of no effect
+  type; `GetDamageDealtByType` (a creature's last damage: its total after
+  resistances for a type it had, else -1; 0 for no single type);
+  `GetMetaMagicFeat` (255 before a cast, 0 after); `GetSubScreenID` (the
+  page a seat shows, `Action::SubScreen`, which runs `k_pend_screenchg` as
+  both executables' in-game GUI does); `SetButtonMashCheck` and
+  `GetButtonMashCheck` (a number kept, not saved); `SetMusicVolume` (the
+  host's music, clamped to 0 to 1, until the settings set it); `GetCheatCode`
+  0 (K1's console cheat `dancedancemalak` is not here). `kjk sim probes
+  --only "mod routines"`.
 - What runs them, and the action queues: `EVENTS.md`. The routines bound
   (`script::engine`'s `bound!` table; `kjk script coverage` counts each
   game's) are (globals, locals, objects by tag, party, positions, locations, HP,
@@ -571,4 +593,33 @@ kjk script xp k1                        # experience end to end
 kjk script levels k1                    # levels end to end
 kjk script routines tsl 101per          # the sweep's most reached, end to end
 kjk script fighting k1                  # the combat AI's routines, end to end
+```
+
+### The routines left unbound
+
+K1 binds 624 of its 772 routines, TSL 725 of its 877 (`sim::script::bound`:
+the `bound!` table and the minigames' routines `script::minigame` answers).
+No script shipped with either game calls an unbound routine, and neither
+does TSLRCM (TSL's Steam Workshop item 485537937): PRs 167 and 169 bound
+the last it called. What is left, read off each game's `nwscript.nss` and
+`sim::script::bound`, are mostly NWN's leftovers. K1's 148, grouped; TSL
+leaves the same 148 and 4 of its own:
+
+- Debug and logging (6): `PrintFloat`, `PrintInteger`, `PrintObject`, `PrintVector`, `WriteTimestampedLogEntry`, `ExportAllCharacters`.
+- NWN's clock and units (7): `SetTime`, `GetIsDay`, `GetIsNight`, `GetIsDawn`, `GetIsDusk`, `FeetToMeters`, `YardsToMeters`.
+- NWN's effects and their kinds (21): `GetEffectDurationType`, `GetEffectSubType`, `MagicalEffect`, `SupernaturalEffect`, `ExtraordinaryEffect`, `EffectForceJump`, `EffectConfused`, `EffectFrightened`, `EffectAreaOfEffect`, `EffectAssuredDeflection`, `EffectHitPointChangeWhenDying`, `EffectForceResistanceDecrease`, `EffectDispelMagicAll`, `EffectDispelMagicBest`, `EffectSeeInvisible`, `EffectTimeStop`, `EffectSpellLevelAbsorption`, `VersusAlignmentEffect`, `VersusRacialTypeEffect`, `GetAreaOfEffectCreator`, `GetHasFeatEffect`.
+- Combat (14): `TouchAttackMelee`, `TouchAttackRanged`, `GetGoingToBeAttackedBy`, `GetLastAttackType`, `GetLastAttackMode`, `GetIsWeaponEffective`, `GetWeaponRanged`, `GetItemACValue`, `GetMovementRate`, `GetDifficultyModifier`, `GetFirstAttacker`, `GetNextAttacker`, `SetForcePowerUnsuccessful`, `GetSpellCastItem`.
+- Faction statistics (11): `GetFactionWeakestMember`, `GetFactionStrongestMember`, `GetFactionMostDamagedMember`, `GetFactionLeastDamagedMember`, `GetFactionGold`, `GetFactionAverageGoodEvilAlignment`, `GetFactionAverageLevel`, `GetFactionAverageXP`, `GetFactionMostFrequentClass`, `GetFactionWorstAC`, `GetFactionBestAC`.
+- Strings, maths and places (9): `TestStringAgainstPattern`, `GetMatchedSubstring`, `GetMatchedSubstringsCount`, `VectorToAngle`, `RandomName`, `GetDistanceBetweenLocations2D`, `GetNearestCreatureToLocation`, `GetNearestObjectToLocation`, `GetStartingLocation`.
+- Objects and items (14): `GetLastItemEquipped`, `GetTransitionTarget`, `SetAreaTransitionBMP`, `GetModuleItemAcquiredFrom`, `GetModuleItemLostBy`, `GetIsPlayableRacialType`, `GetLockKeyTag`, `EventActivateItem`, `GetItemActivatedTargetLocation`, `GetItemActivatedTarget`, `GetPlaceableIllumination`, `SetPlaceableIllumination`, `GetIsPlaceableObjectActionPossible`, `DoPlaceableObjectAction`.
+- NWN's players and associates (6): `GetLastAssociateCommand`, `SetAssociateListenPatterns`, `GetLastPlayerDying`, `GetLastRespawnButtonPresser`, `GetPCLevellingUp`, `SetFormation`.
+- Actions and conversations (6): `ActionSpeakStringByStrRef`, `ActionMoveAwayFromLocation`, `EventConversation`, `CutsceneMove`, `GetLastConversation`, `GetStrRefSoundDuration`.
+- Camera, screens and sound (9): `SetCameraFacing`, `SetCameraMode`, `PopUpGUIPanel`, `SetTutorialWindowsEnabled`, `MusicBackgroundSetDelay`, `SoundObjectGetFixedVariance`, `SoundObjectSetPitchVariance`, `SetAreaFogColor`, `SuppressStatusSummaryEntry`.
+- The journal's world entries (6): `AddJournalWorldEntry`, `AddJournalWorldEntryStrref`, `DeleteJournalWorldAllEntries`, `DeleteJournalWorldEntry`, `DeleteJournalWorldEntryStrref`, `SetJournalQuestEntryPicture`.
+- Minigames (`SWMG_`, none answered by `script::minigame`) (39): `GetLastEvent`, `GetLastEventModelName`, `GetObjectByName`, `GetLastBulletFiredDamage`, `GetLastBulletFiredTarget`, `GetGunBankCount`, `GetGunBankBulletModel`, `GetGunBankGunModel`, `GetGunBankDamage`, `GetGunBankTimeBetweenShots`, `GetGunBankLifespan`, `GetGunBankSpeed`, `GetGunBankTarget`, `SetGunBankBulletModel`, `SetGunBankGunModel`, `SetGunBankDamage`, `SetGunBankTimeBetweenShots`, `SetGunBankLifespan`, `SetGunBankSpeed`, `SetGunBankTarget`, `GetLastBulletHitPart`, `IsGunBankTargetting`, `SetPlayerOrigin`, `GetGunBankHorizontalSpread`, `GetGunBankVerticalSpread`, `GetGunBankSensingRadius`, `GetGunBankInaccuracy`, `SetGunBankHorizontalSpread`, `SetGunBankVerticalSpread`, `SetGunBankSensingRadius`, `SetGunBankInaccuracy`, `GetSoundFrequency`, `SetSoundFrequency`, `GetSoundFrequencyIsRandom`, `SetSoundFrequencyIsRandom`, `GetSoundVolume`, `SetSoundVolume`, `GetPlayerTunnelInfinite`, `SetPlayerTunnelInfinite`.
+- TSL's alone (4): `GetItemComponent`, `GetItemComponentPieceValue`, `GetChemicals`, `GetChemicalPieceValue`.
+
+```bash
+kjk script check k1 --unbound           # the count, then every unbound routine
+kjk script check tsl --unbound
 ```
