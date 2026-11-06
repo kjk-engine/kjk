@@ -904,6 +904,7 @@ pub(crate) fn creature_template(tables: &mut Tables, template: &str) -> Option<O
         lock: None,
         hit_points: None,
         toughness: sim::module::Toughness::default(),
+        destructible: None,
         faction: 0,
         body: None,
         map_note: None,
@@ -977,6 +978,7 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
             )
         }),
         toughness: crate::objects::toughness(asset_odyssey::module::Toughness::read(&[root])),
+        destructible: None,
         faction: root
             .int("Faction")
             .map_or(0, |faction| faction.clamp(0, 255) as u8),

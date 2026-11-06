@@ -166,6 +166,8 @@ fn object(instance: &Instance, talk: Option<&Tlk>) -> ObjectData {
         lock,
         hit_points: instance.hit_points,
         toughness: toughness(instance.toughness),
+        // Read with the module's scripts, after (`destructible`).
+        destructible: None,
         faction: instance.faction.map_or(0, |faction| faction.min(255) as u8),
         body: None,
         map_note: instance.map_note.as_ref().map(|note| MapNote {
@@ -237,6 +239,33 @@ fn chart(map: &asset_odyssey::map::AreaMap) -> sim::fog::Chart {
         offset: axis.offset,
     });
     sim::fog::Chart::new(axes, map.res_x)
+}
+
+/// Each placeable of `module` (the entry area `area`'s, placed in its order)
+/// as destruction takes it (`sim::destruction::fill`) in `game`: its
+/// appearance's kind, unless a guard keeps it intact, `named` being every
+/// string the module's scripts and conversations hold.
+pub(crate) fn destructible(
+    module: &mut ModuleData,
+    area: &asset_odyssey::module::AreaIr,
+    game: &str,
+    named: &std::collections::BTreeSet<String>,
+) {
+    let game = match sim::combat::passive::Game::named(game) {
+        sim::combat::passive::Game::Tsl => "tsl",
+        sim::combat::passive::Game::K1 => "k1",
+    };
+    for (placement, instance) in module.placements.iter_mut().zip(&area.instances) {
+        let (Placement::Own(object), Some(appearance)) = (placement, instance.appearance) else {
+            continue;
+        };
+        let Ok(appearance) = u16::try_from(appearance) else {
+            continue;
+        };
+        sim::destruction::fill(object, game, appearance, |text| {
+            !text.is_empty() && named.contains(&text.to_ascii_lowercase())
+        });
+    }
 }
 
 /// The entry area `area` of `ir` as the sim runs it, with the link

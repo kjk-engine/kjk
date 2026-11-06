@@ -159,3 +159,35 @@ pub fn stage(d: Destructible, damage: u16) -> u8 {
         0
     }
 }
+
+/// Whether a guard keeps the prop of `facts` intact, whatever its kind: the
+/// story needs it (`Plot`, a container, used, spoken with, scripted,
+/// `Min1HP`, locked), or `named` says a script names its tag or template.
+pub fn guarded(facts: &crate::module::ObjectData, named: impl Fn(&str) -> bool) -> bool {
+    facts.toughness.plot
+        || facts.toughness.min_one_hp
+        || facts.container
+        || facts.useable
+        || !facts.conversation.is_empty()
+        || !facts.scripts.is_empty()
+        || facts.opens == crate::module::Opens::Locked
+        || named(&facts.tag)
+        || named(&facts.template)
+}
+
+/// `facts` as destruction takes a placeable of `game`'s (`k1`, `tsl`) row
+/// `appearance`: destructible, with the catalogue's hit points in place of
+/// the file's, unless a guard keeps it intact (`guarded`, with `named`).
+pub fn fill(
+    facts: &mut crate::module::ObjectData,
+    game: &str,
+    appearance: u16,
+    named: impl Fn(&str) -> bool,
+) {
+    let found = catalogue(game, appearance)
+        .filter(|_| facts.kind == crate::module::ObjectKind::Placeable && !guarded(facts, named));
+    facts.destructible = found;
+    if let Some(d) = found {
+        facts.hit_points = Some((most_hp(d), most_hp(d)));
+    }
+}

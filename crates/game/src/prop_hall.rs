@@ -176,6 +176,7 @@ pub fn props(resolver: &Resolver, game: &str) -> Result<Vec<Prop>, String> {
             at: [x - least[0], y - least[1], 0.0],
             yaw: FACING,
             footprint: walkmesh.map_or_else(Vec::new, |[least, most]| vec![least, most]),
+            destructible: sim::destruction::catalogue(game, kind.appearance),
         });
         x += wide + GAP;
         row_depth = row_depth.max(deep);
