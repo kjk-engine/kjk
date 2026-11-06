@@ -23,6 +23,9 @@ pub mod save {
     pub const REEL_NOTES: crate::Since = crate::Since(crate::Stored::Save, 73);
     pub const REPUTATION_HELD: crate::Since = crate::Since(crate::Stored::Save, 74);
     pub const SITH_BASE_FIXES: crate::Since = crate::Since(crate::Stored::Save, 75);
+    pub const MOD_ROUTINES: crate::Since = crate::Since(crate::Stored::Save, 76);
+    pub const MOD_ROUTINES_2: crate::Since = crate::Since(crate::Stored::Save, 77);
+    pub const CLAUDE_K1_ROUTINES: crate::Since = crate::Since(crate::Stored::Save, 78);
     #[allow(unused_imports)]
     pub use crate::pending::since::save::*;
 }
@@ -38,6 +41,9 @@ pub mod snapshot {
     pub const REEL_NOTES: crate::Since = crate::Since(crate::Stored::Snapshot, 80);
     pub const TUSKEN_STANDING: crate::Since = crate::Since(crate::Stored::Snapshot, 81);
     pub const SITH_BASE_FIXES: crate::Since = crate::Since(crate::Stored::Snapshot, 82);
+    pub const MOD_ROUTINES: crate::Since = crate::Since(crate::Stored::Snapshot, 83);
+    pub const MOD_ROUTINES_2: crate::Since = crate::Since(crate::Stored::Snapshot, 84);
+    pub const CLAUDE_K1_ROUTINES: crate::Since = crate::Since(crate::Stored::Snapshot, 85);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }
