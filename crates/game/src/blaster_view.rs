@@ -38,7 +38,7 @@ use crate::fx_model::{self, Drawing, Model, Spawned, Spawning};
 use crate::heat_haze::HeatHazeMaterial;
 use crate::lifecycle::Installer;
 use crate::lifecycle_view::SceneCamera;
-use crate::material::GpuLight;
+use crate::material::{GpuLight, LIGHT_COMBAT, LIGHT_DYNAMIC_ALL};
 use crate::scene::{ModelAssets, SceneContent, SceneRoot, Spawner, game_to_bevy};
 use crate::script_fx::Loaded;
 use crate::sim_host::{PresentedSnapshot, SceneSwap, view_ms};
@@ -88,6 +88,10 @@ pub struct BoltShown {
     pub model: String,
     pub at: Vec3,
     pub way: Vec3,
+    /// Its gun's bolt colour (`weapons::Handling::flash_tint`): what its
+    /// light shows where its model's light is plain white (KOTOR's ion,
+    /// sonic, bowcaster and disruptor bolts), so a blue bolt lights blue.
+    pub tint: Vec3,
 }
 
 /// What a flash shows: a model by name, or a feat's row.
@@ -126,8 +130,38 @@ const DIE_OUT_MS: f64 = 400.0;
 /// (metres).
 const GLOW_MS: f64 = 90.0;
 const GLOW_RADIUS: f32 = 4.0;
-/// A light that reaches everything (`odyssey.wgsl`).
-const LIGHT_DYNAMIC_ALL: u32 = 1;
+/// How far apart a light's channels may be for it to count as plain white.
+const WHITE_LIGHT_SPREAD: f32 = 0.05;
+
+/// A light that flares and dies at `at` (game space, metres) from `ms` (the
+/// view's): `colour` × `strength` reaching `radius` metres, fading as
+/// (1 − t)² over `lasts` ms (a bolt's deflection, `combat_fx`). A fight's
+/// light (`LIGHT_COMBAT`): the room about it takes it too.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Pulse {
+    pub at: Vec3,
+    pub colour: Vec3,
+    pub strength: f32,
+    pub radius: f32,
+    pub ms: f64,
+    pub lasts: f64,
+}
+
+impl Pulse {
+    /// Its light `now` (the view's ms), none before it starts or once out.
+    fn light(&self, now: f64) -> Option<GpuLight> {
+        let t = (now - self.ms) / self.lasts;
+        if !(0.0..1.0).contains(&t) {
+            return None;
+        }
+        let left = (1.0 - t as f32).powi(2);
+        Some(GpuLight {
+            position_radius: (game_to_bevy() * self.at).extend(self.radius),
+            color_multiplier: self.colour.extend(self.strength * left),
+            kind: UVec4::new(0, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
+        })
+    }
+}
 
 /// A tracer from `from` to `to` (game space, metres) from `ms` (the view's).
 pub struct Tracer {
@@ -163,6 +197,7 @@ pub struct BlasterShots {
     pub flashes: Vec<Flash>,
     pub tracers: Vec<Tracer>,
     pub held: Vec<Held>,
+    pub pulses: Vec<Pulse>,
 }
 
 /// The bolts' lights shown, in Bevy's space, as of this frame: candidates
@@ -221,6 +256,8 @@ pub struct BlasterView {
     models: BTreeMap<String, Loaded<Option<Arc<Read>>>>,
     pools: BTreeMap<String, Vec<Pooled>>,
     live: Vec<Live>,
+    /// The pulses still lit.
+    pulses: Vec<Pulse>,
     /// Keys handed to flashes and tracers.
     next: u64,
     drawn_ms: Option<f64>,
@@ -238,6 +275,7 @@ pub fn install(world: &mut World, installer: Option<Arc<Installer>>) {
         models: BTreeMap::new(),
         pools: BTreeMap::new(),
         live: Vec::new(),
+        pulses: Vec::new(),
         next: 0,
         drawn_ms: None,
         shown: [0; 3],
@@ -368,6 +406,7 @@ fn spawn(
         view.models.clear();
         view.pools.clear();
         view.live.clear();
+        view.pulses.clear();
         view.drawn_ms = None;
     }
     let Some(installer) = view.installer.clone() else {
@@ -455,6 +494,8 @@ struct Shown {
     ended_by: Option<f64>,
     reach: Option<f32>,
     tint: Vec3,
+    /// The colour its model's light takes where that light is white.
+    light: Vec3,
 }
 
 /// The copy of `copies` to show `key` in: the one that showed it last,
@@ -580,6 +621,7 @@ fn draw(
             ended_by: None,
             reach: None,
             tint: Vec3::ONE,
+            light: bolt.tint,
         })
         .collect();
     let mut counts = [shown.len(), 0, 0];
@@ -601,6 +643,7 @@ fn draw(
             ended_by: None,
             reach: held.reach,
             tint: Vec3::ONE,
+            light: Vec3::ONE,
         })
     }));
     // A flash lasts its clip, one cut short until its particles die out; a
@@ -617,7 +660,13 @@ fn draw(
             flown < from.distance(to)
         }
     });
-    let mut lit = Vec::new();
+    view.pulses.extend(shots.pulses);
+    view.pulses.retain(|pulse| now < pulse.ms + pulse.lasts);
+    let mut lit: Vec<GpuLight> = view
+        .pulses
+        .iter()
+        .filter_map(|pulse| pulse.light(now))
+        .collect();
     for live in view.live.iter().filter(|live| live.since <= now) {
         // Flashes and tracers keyed apart from the bolts.
         let key = live.key | 1 << 63;
@@ -642,7 +691,7 @@ fn draw(
                         position_radius: (game_to_bevy() * at).extend(GLOW_RADIUS),
                         color_multiplier: tint.extend(glow * fading as f32),
                         // Ambient: at the muzzle, it would only graze the gun.
-                        kind: UVec4::new(1, LIGHT_DYNAMIC_ALL, 0, 0),
+                        kind: UVec4::new(1, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
                     });
                 }
                 Shown {
@@ -662,6 +711,7 @@ fn draw(
                     // (`aim_fx`), not drawn again by the shot.
                     reach: Some(0.0),
                     tint,
+                    light: Vec3::ONE,
                 }
             }
             LiveKind::Tracer { from, to } => {
@@ -680,6 +730,7 @@ fn draw(
                     ended_by: None,
                     reach: None,
                     tint: Vec3::ONE,
+                    light: Vec3::ONE,
                 }
             }
         });
@@ -689,7 +740,7 @@ fn draw(
     }
     // Each in the copy that showed it last, else a free one, else the
     // oldest; made new for a new key, placed and posed.
-    let mut placed: Vec<(String, usize, Vec3, f64)> = Vec::new();
+    let mut placed: Vec<(String, usize, Vec3, f64, Vec3)> = Vec::new();
     let mut used: BTreeMap<String, Vec<bool>> = BTreeMap::new();
     {
         let mut transforms = posing.p0();
@@ -748,7 +799,7 @@ fn draw(
                     }
                 }
             }
-            placed.push((item.model, k, item.at, since));
+            placed.push((item.model, k, item.at, since, item.light));
         }
     }
     let mut drawing = posing.p1();
@@ -758,7 +809,7 @@ fn draw(
         .and_then(|camera| drawing.transforms.get(camera).ok())
         .map_or(Quat::IDENTITY, |t| t.rotation);
     let facing = fx_model::facing(turn);
-    for (model, k, at, since) in placed {
+    for (model, k, at, since, white_as) in placed {
         let Some(copy) = view
             .pools
             .get_mut(&model)
@@ -771,7 +822,12 @@ fn draw(
         }
         drawing.effects(copy, None, (now, dt), facing);
         if let Some(Loaded::Ready(Some(read))) = models.get(&model) {
-            lit.extend(light(read, copy, at, ((now - since) / 1000.0) as f32));
+            lit.extend(light(
+                read,
+                copy,
+                (at, white_as),
+                ((now - since) / 1000.0) as f32,
+            ));
         }
     }
     // The copies not shown: hidden, their particles cleared when shown next
@@ -804,22 +860,40 @@ fn draw(
             "pools": view.pools.len(),
             "live": view.live.len(),
             "lights": lights.0.len(),
+            // Each as [r, g, b, multiplier, radius].
+            "light_values": lights.0.iter().map(|light| {
+                let [r, g, b, m] = light.color_multiplier.to_array();
+                [r, g, b, m, light.position_radius.w].map(|x| (x * 100.0).round() / 100.0)
+            }).collect::<Vec<_>>(),
         }),
     );
 }
 
 /// The light of `read`'s model on `copy` at `at` (game space), `seconds`
-/// into its clip, as its clip keys its colour; none once out.
-fn light(read: &Read, copy: &Spawned, at: Vec3, seconds: f32) -> Option<GpuLight> {
+/// into its clip, as its clip keys its colour; none once out. A plain white
+/// light (grey: no channel apart from the others) takes `white_as`.
+fn light(
+    read: &Read,
+    copy: &Spawned,
+    (at, white_as): (Vec3, Vec3),
+    seconds: f32,
+) -> Option<GpuLight> {
     let ir = &copy.model.placed.ir;
     let light = ir.lights.first()?;
     let colour = colour_at(&read.light, seconds).unwrap_or(Vec3::from_array(light.color));
     if colour.max_element() <= 0.01 {
         return None;
     }
+    let grey = colour.max_element() - colour.min_element() < WHITE_LIGHT_SPREAD;
+    let colour = if grey { colour * white_as } else { colour };
     Some(GpuLight {
         position_radius: (game_to_bevy() * at).extend(light.radius),
         color_multiplier: colour.extend(light.multiplier),
-        kind: UVec4::new(u32::from(light.ambient_only), light.dynamic_type, 0, 0),
+        kind: UVec4::new(
+            u32::from(light.ambient_only),
+            light.dynamic_type,
+            LIGHT_COMBAT,
+            0,
+        ),
     })
 }

@@ -7,8 +7,10 @@ use crate::{by_hand, discover, installs, launch, persona, play, play_view, runti
 
 #[derive(clap::Args)]
 pub(crate) struct PlayArgs {
-    /// The stage: `course`, `duel` (two players facing off), or a KOTOR 1
-    /// module such as `end_m01aa`
+    /// The stage: `course`, `duel` (two players facing off), a KOTOR 1
+    /// module such as `end_m01aa`, `arena` (the grey-box arena), or
+    /// `arena@MODULE`, the arena's Jedi and keys on a real area (lit
+    /// `end_m01ab`, dark `lev_m40ac`: the combat lights' test beds)
     #[arg(long, default_value = "course")]
     stage: String,
     /// On a module stage: arrive at this door or waypoint (by tag)
@@ -249,7 +251,10 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         seats: 1,
         guests: sim::Guests::Avatars,
         // The arena's own Jedi unless another class is asked for.
-        sheet: match if stage == "arena" || stage.starts_with("arena:") {
+        sheet: match if stage == "arena"
+            || stage.starts_with("arena:")
+            || stage.starts_with("arena@")
+        {
             arena_sheet(&class)
         } else {
             player_sheet(&class)

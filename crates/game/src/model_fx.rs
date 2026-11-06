@@ -688,6 +688,14 @@ struct Particle {
     rest: bool,
 }
 
+/// What an emitter's glowing particles light (`Spray::glow`): their
+/// colour, and how much of them there is (their alphas summed).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Glow {
+    pub colour: Vec3,
+    pub weight: f32,
+}
+
 /// An emitter's particles, the births its fountain owes (`fountain_births`), and where it was; a
 /// lightning emitter's bolts (segments in its space) and how long until it
 /// makes them anew.
@@ -1096,6 +1104,33 @@ impl Particles {
             (low.min(at), high.max(at))
         });
         Some((low - reach, high + reach))
+    }
+
+    /// What its glowing particles light about them: only an added
+    /// emitter's (`Lighten`: sparks, flares, lightning, not smoke), each
+    /// particle's colour weighted by its alpha, a bolt's at its emitter's
+    /// starting colour; none with nothing alive.
+    fn glow(&self, emitter: &Emitter, values: &Values) -> Option<Glow> {
+        if emitter.blend != Blend::Lighten {
+            return None;
+        }
+        let bolt_colour = values.colour_at(0.0) * self.tint;
+        let lit = (self.list.iter())
+            .map(|particle| {
+                let f = values.share(particle.age);
+                let alpha = values.three([emit::ALPHA_START, emit::ALPHA_MID, emit::ALPHA_END], f);
+                (values.colour_at(f) * self.tint, alpha.clamp(0.0, 1.0))
+            })
+            .chain(self.bolts.iter().map(|_| (bolt_colour, 1.0)));
+        let (mut colour, mut weight) = (Vec3::ZERO, 0.0);
+        for (rgb, alpha) in lit {
+            colour += rgb * alpha;
+            weight += alpha;
+        }
+        (weight > f32::EPSILON).then(|| Glow {
+            colour: colour / weight,
+            weight,
+        })
     }
 
     /// Each particle's place (game space), share of its life and colour.
@@ -1753,6 +1788,12 @@ impl Spray {
                 self.particles.hold(emitter, weather, dt);
             }
         }
+    }
+
+    /// What its glowing particles light about them (`Particles::glow`).
+    pub fn glow(&self, fx: &ModelFx) -> Option<Glow> {
+        self.particles
+            .glow(&fx.emitters[self.emitter], &self.values)
     }
 
     /// The box (its parent's space) its mesh stays within, `space` its

@@ -70,7 +70,7 @@ use sim::combat::{Delivery, Event, Missile, Outcome, mind, weapons};
 use sim::module::ObjectKind;
 use sim::{EntityState, Instances, Kind, SimId, Snapshot};
 
-use crate::blaster_view::{BlasterShots, BoltShown, Flash, Flashed};
+use crate::blaster_view::{BlasterShots, BoltShown, Flash, Flashed, Pulse};
 use crate::cast::{self, Guns, Hitboxes};
 use crate::lifecycle_view::SceneCamera;
 use crate::material::OdysseyMaterial;
@@ -128,6 +128,15 @@ const CLASH_SPARKS: u16 = 4003;
 /// `v_blastdef_imp`), as its executable plays them.
 const BOLT_HIT: u16 = 4024;
 const BOLT_DEFLECTED: u16 = 4023;
+/// A bolt turned by a blade flashes: a hot light at the blade, this
+/// colour and strength, reaching this far (metres), gone in this long (ms).
+const DEFLECT_LIGHT: Vec3 = Vec3::new(1.0, 0.75, 0.45);
+const DEFLECT_STRENGTH: f32 = 1.5;
+const DEFLECT_RADIUS: f32 = 5.0;
+const DEFLECT_MS: f64 = 160.0;
+/// How bright a muzzle flash lights what is near when it is not before the
+/// eyes (`weapons::EyeFlash::glow` sets those).
+const MUZZLE_GLOW: f32 = 0.6;
 /// A lightsaber's hit on a body sounds one of these (`EV_SABER_HIT`).
 const BLADE_HIT_SOUNDS: [&str; 3] = [
     "sound/weapons/saber/saberhit1.wav",
@@ -317,6 +326,8 @@ struct Drawn {
     last: Option<Arc<Snapshot>>,
     /// Muzzle flashes waiting for their shot's moment (the view's ms).
     flashing: Vec<(Shot, f32)>,
+    /// Deflections' lights to hand `blaster_view` this frame.
+    pulses: Vec<Pulse>,
     /// Each bolt's launch (`Path::launch`), by shooter and when it was
     /// fired: taken once, when the view reaches the shot, so the arm's kick
     /// after does not shake it; kept while the bolt flies.
@@ -477,6 +488,7 @@ fn spawn(
         hidden: BTreeSet::new(),
         last: None,
         flashing: Vec::new(),
+        pulses: Vec::new(),
         launches: BTreeMap::new(),
         shaders,
         impacts: Vec::new(),
@@ -625,6 +637,7 @@ fn draw(
         drawn.hidden.clear();
         drawn.last = None;
         drawn.flashing.clear();
+        drawn.pulses.clear();
         drawn.launches.clear();
         contacts.0.clear();
         fire.shots.clear();
@@ -752,6 +765,7 @@ fn draw(
         &places,
         &mut blasters.flashes,
     );
+    blasters.pulses.append(&mut drawn.pulses);
     drawn.impacts.retain(|p| p.end_ms + FRAME_MS >= now);
     // Physics particles bounce off the level, a trace a frame each.
     let started = std::time::Instant::now();
@@ -1003,7 +1017,7 @@ impl Path {
 
     /// The bolt `key` in `model` as drawn at `now`: none before it was
     /// fired, nor once it stopped (KOTOR's bolt goes as it arrives).
-    fn shown(&self, key: (u32, u64), model: String, now: f32) -> Option<BoltShown> {
+    fn shown(&self, key: (u32, u64), (model, tint): (String, Vec3), now: f32) -> Option<BoltShown> {
         if now < self.fired || now > self.until {
             return None;
         }
@@ -1016,24 +1030,31 @@ impl Path {
             model,
             at: at * UNIT,
             way: (next - at).normalize_or(self.velocity.normalize_or(Vec3::Y)),
+            tint,
         })
     }
 }
 
 /// The model a bolt fired with `weapon` is drawn as: its row's `model0`,
 /// a Power Blast's `model1` (its shot carries more damage than the gun in
-/// its shooter's hand).
+/// its shooter's hand); and its colour, its gun's flash's
+/// (`weapons::Handling::flash_tint`).
 fn bolt_model(
     kotor: Option<&WeaponSounds>,
     weapon: &sim::combat::sheet::Weapon,
     (shooter, objects): (Option<&EntityState>, &Instances),
-) -> Option<String> {
+) -> Option<(String, Vec3)> {
     let ammo = kotor?.ammo(weapon.base_item)?;
     let held = shooter.map(|shooter| cast::weapon(shooter, objects));
     let power = held.is_some_and(|held| weapon.damage_bonus > held.damage_bonus);
-    ammo.models[usize::from(power)]
+    let model = ammo.models[usize::from(power)]
         .clone()
-        .or_else(|| ammo.models[0].clone())
+        .or_else(|| ammo.models[0].clone())?;
+    let tint = match Delivery::of_base_item(weapon.base_item) {
+        Some(Delivery::Blaster(blaster)) => crate::weapons::handling(blaster).flash_tint,
+        _ => Vec3::ONE,
+    };
+    Some((model, tint))
 }
 
 /// Where `who`'s gun in `hand` (`Guns`) as drawn lets its shots out
@@ -1146,7 +1167,7 @@ fn place_flashes(
         let (scale, glow, lasts) = if eyes == Some(shot.by) {
             (eye_flash.scale, eye_flash.glow, eye_flash.lasts_ms)
         } else {
-            (1.0, 0.0, None)
+            (1.0, MUZZLE_GLOW, None)
         };
         let muzzle = kotor
             .and_then(|kotor| kotor.ammo(shot.base_item))
@@ -1380,6 +1401,14 @@ fn block(
     let point = Vec3::from_array(at.map(|v| v as f32));
     if event.result == Outcome::Deflected {
         sparked.push(spark(BOLT_DEFLECTED, point));
+        drawn.pulses.push(Pulse {
+            at: point * UNIT,
+            colour: DEFLECT_LIGHT,
+            strength: DEFLECT_STRENGTH,
+            radius: DEFLECT_RADIUS,
+            ms: f64::from(ms),
+            lasts: DEFLECT_MS,
+        });
         if let Some(kotor) = kotor {
             cues.push(Cue::at(kotor.deflected(), point, ms));
         }
