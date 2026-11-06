@@ -45,9 +45,18 @@ impl Plugin for MerchantPlugin {
 }
 
 /// `item` (object `id`) as the screen lists it, at `percent` of its value
-/// (`bao_dur_met`: `character::described`).
-fn ware(assets: &mut GuiAssets, (id, item): (u32, &Item), percent: i32, bao_dur_met: bool) -> Ware {
-    let cost = assets.item(&item.template).map_or(0, |look| look.cost);
+/// (`bao_dur_met`: `character::described`): its template's cost by its base
+/// item's multiplier (`Goods::value`).
+fn ware(
+    assets: &mut GuiAssets,
+    goods: &Goods,
+    (id, item): (u32, &Item),
+    percent: i32,
+    bao_dur_met: bool,
+) -> Ware {
+    let cost = assets
+        .item(&item.template)
+        .map_or(0, |look| goods.value(look.base_item, look.cost));
     Ware {
         item: id,
         entry: crate::character::owned(assets, id, item, bao_dur_met).entry,
@@ -62,12 +71,12 @@ fn view(assets: &mut GuiAssets, goods: &Goods, trade: Trade, bao_dur_met: bool) 
         store: trade.store,
         stock: goods
             .carried(trade.store)
-            .map(|held| ware(assets, held, terms.markup, bao_dur_met))
+            .map(|held| ware(assets, goods, held, terms.markup, bao_dur_met))
             .collect(),
         offers: goods
             .carried(PARTY)
             .filter(|(_, item)| !item.plot)
-            .map(|held| ware(assets, held, terms.markdown, bao_dur_met))
+            .map(|held| ware(assets, goods, held, terms.markdown, bao_dur_met))
             .collect(),
         credits: goods.gold,
         sells: terms.sells,

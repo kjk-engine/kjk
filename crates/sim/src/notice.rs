@@ -592,6 +592,21 @@ pub enum Notice {
     /// `DoSinglePlayerAutoSave`: the game is to autosave now (the
     /// executable's `SetAutoSavePending`), told to the host alone.
     AutoSave,
+    /// `SetMusicVolume`: the music plays at this volume (0 to 1, an `f32`'s
+    /// bits) from now on, until the settings set it again: both
+    /// executables set the sound system's music volume, which no save
+    /// keeps. Told to the host alone, whose sound the executables set.
+    MusicVolume(u32),
+}
+
+impl Notice {
+    /// `SetMusicVolume`'s volume, clamped to 0 to 1 as both executables
+    /// clamp it (`maxss` with 0, then `minss` with 1: NaN comes out 1).
+    pub fn music_volume(volume: f32) -> Notice {
+        let volume = if 0.0 > volume { 0.0 } else { volume };
+        let volume = if volume < 1.0 { volume } else { 1.0 };
+        Notice::MusicVolume(volume.to_bits())
+    }
 }
 
 /// The notices since the last `SimWorld::take_notices`, by seat.

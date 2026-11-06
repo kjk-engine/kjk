@@ -294,6 +294,7 @@ pub(super) fn containers(
             | Action::PickItem { .. }
             | Action::Cast { .. }
             | Action::ScreenOpened
+            | Action::SubScreen(_)
             | Action::Forfeit
             | Action::Arena(_) => continue,
             Action::Close(_) => {

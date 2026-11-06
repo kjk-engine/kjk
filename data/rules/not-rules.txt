@@ -53,6 +53,7 @@ crates/sim/src/action.rs UNLOCK  # a player action's wire tag
 crates/sim/src/action.rs USE  # a player action's wire tag
 crates/sim/src/action.rs USE_ITEM  # a player action's wire tag
 crates/sim/src/action.rs WATCH  # a player action's wire tag
+crates/sim/src/action.rs SUB_SCREEN  # a player action's wire tag
 crates/sim/src/combat/ai.rs TASKS  # the tasks' wire order
 crates/sim/src/combat/damage.rs WHOLE_CADENCE_MS  # derived: the round over the pace
 crates/sim/src/combat/death.rs DIE  # animations.2da row 80 as the views number clips
@@ -672,6 +673,14 @@ crates/sim/src/notice.rs SWOOP_UPGRADE  # a screen notice's wire tag
 crates/sim/src/script/actions.rs GET_LOW  # nwscript's ANIMATION_LOOPING_GET_LOW constant
 crates/sim/src/script/engine.rs INVISIBILITY_TYPES  # nwscript's INVISIBILITY_TYPE_* constants' names
 crates/sim/src/script/engine.rs PLAYER_DIED  # a `last` kind id
+crates/sim/src/script/engine.rs DISTURB_TYPE  # a `last` kind id
+crates/sim/src/script/engine.rs DAMAGE_TYPES  # a `last` kind id
+crates/sim/src/script/engine.rs DAMAGE_DEALT  # a `last` kind id
+crates/sim/src/script/engine.rs METAMAGIC  # a `last` kind id
 crates/sim/src/script/state.rs FOLLOW  # save tag
 crates/sim/src/script/state.rs PICK_UP  # save tag
 crates/sim/src/script/state.rs PUT_DOWN  # save tag
+crates/sim/src/script/minigame.rs ANSWERED  # the minigames' routines' names, a list
+crates/sim/src/script/rare.rs NO_METAMAGIC  # the executables' metamagic byte before a cast
+crates/sim/src/script/rare.rs TABLE_SLOTS  # the party table's size
+crates/sim/src/script/rare.rs BASE_DAMAGE  # nwscript's DAMAGE_FLAG_BASE_DAMAGE bit

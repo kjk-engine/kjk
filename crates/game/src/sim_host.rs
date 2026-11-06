@@ -471,6 +471,33 @@ struct Authority {
     /// A script asked for an autosave (`DoSinglePlayerAutoSave`), not yet
     /// taken by `autosave`.
     autosave_asked: bool,
+    /// The music's volume a script set (`SetMusicVolume`), not yet taken by
+    /// `script_music`.
+    music_asked: Option<f32>,
+}
+
+impl Authority {
+    /// A notice for the game itself, not for its player: taken here.
+    /// Whether it was one.
+    fn took(&mut self, notice: &sim::notice::Notice) -> bool {
+        match notice {
+            sim::notice::Notice::AutoSave => self.autosave_asked = true,
+            sim::notice::Notice::MusicVolume(bits) => {
+                self.music_asked = Some(f32::from_bits(*bits))
+            }
+            _ => return false,
+        }
+        true
+    }
+}
+
+/// The music's volume a script set (`SetMusicVolume`): the music bus plays
+/// at it until the settings set the volumes again, as the executables set
+/// their sound system's.
+fn script_music(mut authority: ResMut<Authority>, volumes: Option<ResMut<crate::sound::Volumes>>) {
+    if let (Some(volume), Some(mut volumes)) = (authority.music_asked.take(), volumes) {
+        volumes.0.insert(audio::Bus::Music, volume);
+    }
 }
 
 impl Plugin for SimHostPlugin {
@@ -490,7 +517,7 @@ impl Plugin for SimHostPlugin {
                 (
                     crate::swallow::hold_up.after(bevy::input::InputSystems),
                     (
-                        (advance, save_world, autosave)
+                        (advance, save_world, autosave, script_music)
                             .chain()
                             .run_if(resource_exists::<Authority>),
                         crate::net_join::advance.run_if(crate::net_join::joined),
@@ -644,6 +671,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             solo,
             flight,
             autosave_asked: false,
+            music_asked: None,
         });
     }
     Ok(())
@@ -1458,8 +1486,10 @@ fn advance(
     let landed = authority.landed.take();
     if let Some(landed) = &landed {
         for (seat, notice) in landed.notices.iter().cloned() {
+            if authority.took(&notice) {
+                continue;
+            }
             match notice {
-                sim::notice::Notice::AutoSave => authority.autosave_asked = true,
                 sim::notice::Notice::Show(screen) => authority.solo.screen(seat, screen),
                 sim::notice::Notice::Sound(sound) => authority.solo.sound(seat, sound),
                 notice => {
@@ -1951,8 +1981,10 @@ fn advance(
                     flight.tick(msec, &input, &snapshot);
                 }
                 for (seat, notice) in authority.world.take_notices() {
+                    if authority.took(&notice) {
+                        continue;
+                    }
                     match notice {
-                        sim::notice::Notice::AutoSave => authority.autosave_asked = true,
                         sim::notice::Notice::Show(screen) => authority.solo.screen(seat, screen),
                         sim::notice::Notice::Sound(sound) => authority.solo.sound(seat, sound),
                         notice => {

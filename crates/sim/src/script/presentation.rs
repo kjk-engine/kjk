@@ -24,9 +24,15 @@ pub const SCREEN_OPENED: &str = "k_sup_guiopen";
 /// sends Visas to the Ebon Hawk (`003EBO_VISAS_ARRIVES`). K1 has none.
 pub const SUMMARY_CLOSED: &str = "k_align_movie";
 
+/// The script both games' executables run, with no caller, as an in-game
+/// page shows or the player turns to another (`CGuiInGame::ShowSWInGameGui`,
+/// `NextSWInGameGui`, `PrevSWInGameGui`, `SwitchToSWInGameGui`): K1's Endar
+/// Spire's tutorial reads the page (`GetSubScreenID`).
+pub const SCREEN_CHANGED: &str = "k_pend_screenchg";
+
 /// The scripts the engine runs of its own accord, which a module's library
 /// gathers whoever names them.
-pub const ENGINE_SCRIPTS: [&str; 2] = [SCREEN_OPENED, SUMMARY_CLOSED];
+pub const ENGINE_SCRIPTS: [&str; 3] = [SCREEN_OPENED, SUMMARY_CLOSED, SCREEN_CHANGED];
 
 /// A combat round and a turn, in seconds, as both games' executables count
 /// them (`TimeConversions`, not `nwscript.nss`'s; a turn in rounds).

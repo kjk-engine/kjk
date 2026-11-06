@@ -622,6 +622,13 @@ pub fn has_upgrade(fitted: u32, row: u8) -> bool {
     upgrade_bit(row).is_some_and(|bit| fitted & bit != 0)
 }
 
+/// An item's value with its base item's `ChangeItemCost` multiplier: both
+/// executables' `CSWSItem::GetCost` take the cost as a float by it, the
+/// fraction cut off.
+pub fn multiplied(cost: u32, multiplier: f32) -> u32 {
+    (cost as f32 * multiplier) as u32
+}
+
 /// What `percent` of an item's value (its UTI's `Cost`, one of a stack)
 /// comes to, in whole credits rounded down; nothing below nothing.
 pub fn price(cost: u32, percent: i32) -> i32 {
@@ -640,6 +647,9 @@ pub struct Goods {
     pub items: Vec<(u32, Item)>,
     pub trades: Vec<(u32, Trade)>,
     pub floor: Vec<(u32, Lying)>,
+    /// What `ChangeItemCost` multiplied the values of a base item's items by
+    /// (`baseitems.2da` row, multiplier), in row order; the rest are 1.
+    pub costs: Vec<(u16, f32)>,
 }
 
 /// Where an item lies on an area's floor (`CreateItemOnFloor`): metres,
@@ -683,6 +693,15 @@ impl Goods {
             .map(|(_, trade)| *trade)
     }
 
+    /// The value of an item of base item `base` whose template costs `cost`
+    /// (`multiplied` by its multiplier).
+    pub fn value(&self, base: u16, cost: u32) -> u32 {
+        self.costs
+            .iter()
+            .find(|(row, _)| *row == base)
+            .map_or(cost, |(_, multiplier)| multiplied(cost, *multiplier))
+    }
+
     pub(crate) fn encode(&self, out: &mut Writer) {
         out.u32(self.gold as u32);
         out.u32(self.items.len() as u32);
@@ -699,6 +718,11 @@ impl Goods {
         for (id, lying) in &self.floor {
             out.u32(*id);
             lying.encode(out);
+        }
+        out.u32(self.costs.len() as u32);
+        for (row, multiplier) in &self.costs {
+            out.u16(*row);
+            out.f32(*multiplier);
         }
     }
 
@@ -731,11 +755,23 @@ impl Goods {
             }
             floor.push((id, Lying::decode(input)?));
         }
+        let mut costs: Vec<(u16, f32)> = Vec::new();
+        if input.since(crate::since::snapshot::CLAUDE_K1_ROUTINES) {
+            for _ in 0..input.u32()? {
+                let at = input.at();
+                let row = input.u16()?;
+                if costs.last().is_some_and(|(last, _)| *last >= row) {
+                    return Err(input.invalid("goods cost order", at));
+                }
+                costs.push((row, input.f32()?));
+            }
+        }
         Ok(Goods {
             gold,
             items,
             trades,
             floor,
+            costs,
         })
     }
 }

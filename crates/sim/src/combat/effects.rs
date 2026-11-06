@@ -176,6 +176,12 @@ pub enum Modifies {
     /// attacker hitting its bearer, more by its `of`, a `DAMAGE_BONUS_…`,
     /// of its `third`, a `DAMAGE_TYPE_…`.
     DamageShield,
+    /// `EffectBlasterDeflectionIncrease` (`EffectBlasterDeflectionDecrease`
+    /// its amount negated): its amount the script's change. Kept and walked:
+    /// both executables' bolt deflection (`ResolveDefensiveEffects`) adds
+    /// these effects' second integer, which only an item's property sets;
+    /// the routine sets the first, so it changes no deflection.
+    BlasterDeflection,
 }
 
 /// `INVISIBILITY_TYPE_NORMAL`: the invisibility its bearer's attacks end.
@@ -186,7 +192,7 @@ pub const INVISIBLE_NORMAL: i16 = 1;
 pub const POISON_ID: u32 = u32::MAX - 1;
 
 impl Modifies {
-    const ALL: [Modifies; 37] = [
+    const ALL: [Modifies; 38] = [
         Modifies::Ability,
         Modifies::Defence,
         Modifies::Save,
@@ -224,6 +230,7 @@ impl Modifies {
         Modifies::Invisibility,
         Modifies::DamageReduction,
         Modifies::DamageShield,
+        Modifies::BlasterDeflection,
     ];
 
     pub fn index(self) -> u8 {
@@ -1213,7 +1220,8 @@ pub fn sheet_now(sheet: Sheet, fighter: &Fighter, now: u64) -> Sheet {
             | Modifies::SpellImmunity
             | Modifies::Invisibility
             | Modifies::DamageReduction
-            | Modifies::DamageShield => {}
+            | Modifies::DamageShield
+            | Modifies::BlasterDeflection => {}
         }
     }
     sheet.defence = sheet.defence.saturating_add(defence);

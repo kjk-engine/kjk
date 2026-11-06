@@ -34,7 +34,18 @@
 //!   `DoSinglePlayerAutoSave` and `ShowSwoopUpgradeScreen` tell the player;
 //! - the three combat effects: their constructors' clamps, an invisible
 //!   creature unseen, damage reduction's highest-amount, power and limit
-//!   rule, and a damage shield's blow back with its bonus.
+//!   rule, and a damage shield's blow back with its bonus;
+//! - the routines K1's own scripts called that were the last unbound:
+//!   what has an inventory, no item activated, no metamagic or cheat code
+//!   before any, the button mash check kept, `ChangeItemCost` on every item
+//!   of the base item (cut off), a blaster deflection of no effect type, the
+//!   music's volume clamped to 1, sonic damage read by type (-1 before it
+//!   and for another type, 0 for no single type), a visual at a place, a
+//!   party slot's creature set (not past slot 11), a container's item taken
+//!   (`INVENTORY_DISTURB_TYPE_REMOVED`) and put back (`ADDED`), and an
+//!   in-game page shown and turned running `k_pend_screenchg` (closed, not).
+//! - every `SWMG_` routine `script::minigame` matches on is the one its
+//!   list counts bound (`script::bound`, `kjk script check`), no more.
 
 use std::collections::BTreeMap;
 
@@ -284,6 +295,7 @@ pub fn probes() -> Checks {
     checks.extend(string_checks());
     checks.extend(world_checks());
     checks.extend(left_checks());
+    checks.extend(k1_checks());
     checks.push((
         "strings_and_maths_scripted",
         ran("probe_strings_maths").and_then(|snapshot| {
@@ -1402,5 +1414,466 @@ fn left_checks() -> Checks {
         ("player_died", player_died()),
         ("invisibility_reduction_shield_made", three_effects()),
         ("reduction_and_shield_rules", reduction_and_shield()),
+    ]
+}
+
+/// The K1 probe's creature, container and plain placeable.
+const TARGET: &str = "probe_k1_target";
+const CHEST: &str = "probe_k1_chest";
+const SIGN: &str = "probe_k1_sign";
+/// Two templates of one base item, and their costs.
+const MEDKIT: (&str, u32) = ("probe_k1_medkit", 100);
+const BANDAGE: (&str, u32) = ("probe_k1_bandage", 7);
+/// The visual `PlayVisualAreaEffect` plays.
+const AREA_VISUAL: i32 = 1000;
+
+/// The K1 probe's routines, each after its number.
+const K1_CATALOG: &str = r#"
+// 0
+void SetCustomToken(int nCustomTokenNumber, string sTokenValue);
+// 1
+string IntToString(int nInteger);
+// 2
+object GetObjectByTag(string sTag, int nNth = 0);
+// 3
+int GetHasInventory(object oObject);
+// 4
+object GetItemActivated();
+// 5
+object GetItemActivator();
+// 6
+int GetIsObjectValid(object oObject);
+// 7
+int GetMetaMagicFeat();
+// 8
+int GetCheatCode(int nCode);
+// 9
+int GetSubScreenID();
+// 10
+void SetButtonMashCheck(int nCheck);
+// 11
+int GetButtonMashCheck();
+// 12
+void ChangeItemCost(string sItem, float fCostMultiplier);
+// 13
+object CreateItemOnObject(string sItemTemplate, object oTarget = OBJECT_SELF, int nStackSize = 1);
+// 14
+int GetGoldPieceValue(object oItem);
+// 15
+effect EffectBlasterDeflectionIncrease(int nChange);
+// 16
+int GetIsEffectValid(effect eEffect);
+// 17
+int GetEffectType(effect eEffect);
+// 18
+void SetMusicVolume(float fVolume = 1.0f);
+// 19
+void ApplyEffectToObject(int nDurationType, effect eEffect, object oTarget, float fDuration = 0.0f);
+// 20
+effect EffectDamage(int nDamageAmount, int nDamageType = DAMAGE_TYPE_UNIVERSAL, int nDamagePower = DAMAGE_POWER_NORMAL);
+// 21
+int GetDamageDealtByType(int nDamageType);
+// 22
+void PlayVisualAreaEffect(int nEffectID, location lTarget);
+// 23
+location GetLocation(object oObject);
+// 24
+void SetAvailableNPCId(int nNPC, object oidNPC);
+// 25
+int GetInventoryDisturbType();
+// 26
+void AddToParty(object oPC, object oPartyLeader);
+// 27
+void RemoveFromParty(object oPC);
+// 28
+object GetFirstPC();
+int DURATION_TYPE_INSTANT = 0;
+int DURATION_TYPE_PERMANENT = 2;
+int EFFECT_TYPE_INVALIDEFFECT = 0;
+int DAMAGE_TYPE_UNIVERSAL = 8;
+int DAMAGE_TYPE_SONIC = 1024;
+int DAMAGE_TYPE_ENERGY = 4096;
+int DAMAGE_POWER_NORMAL = 0;
+"#;
+
+/// What `probe_k1_world`'s tokens should read.
+const K1_TOKENS: [(i32, &str, &str); 15] = [
+    (40, "a creature has an inventory", "1"),
+    (41, "a container has one", "1"),
+    (42, "a plain placeable has none", "0"),
+    (43, "nothing has none", "0"),
+    (44, "no item activated", "0"),
+    (45, "no activator", "0"),
+    (46, "no cast's metamagic", "255"),
+    (47, "no cheat code", "0"),
+    (48, "no in-game page", "0"),
+    (49, "the button mash check kept", "5"),
+    (50, "a medkit's worth", "100"),
+    (51, "its base item's other template, by 2.5 cut off", "17"),
+    (52, "the medkit by 2.5", "250"),
+    (53, "a blaster deflection is an effect", "1"),
+    (54, "of no effect type", "0"),
+];
+
+/// The object of tag `tag`, by the K1 catalog's `GetObjectByTag`.
+fn k1_tagged(tag: &str) -> Vec<Op> {
+    vec![int(0), text(tag), call(2, 2)]
+}
+
+/// `probe_k1_world`, run by the module: tokens 40 to 54, the music's volume
+/// set past 1, sonic damage on the target, a visual at its place, party slot
+/// 2 (and 12, past the table) given the target, and NWN's party calls.
+fn k1_world() -> Ncs {
+    let mut asm = Asm::default();
+    let target = k1_tagged(TARGET);
+    let has = |object: Vec<Op>| number([object, vec![call(3, 1)]].concat());
+    token(&mut asm, 40, &has(target.clone()));
+    token(&mut asm, 41, &has(k1_tagged(CHEST)));
+    token(&mut asm, 42, &has(k1_tagged(SIGN)));
+    token(&mut asm, 43, &has(vec![Op::Const(Const::Object(-1))]));
+    token(&mut asm, 44, &number(vec![call(4, 0), call(6, 1)]));
+    token(&mut asm, 45, &number(vec![call(5, 0), call(6, 1)]));
+    token(&mut asm, 46, &number(vec![call(7, 0)]));
+    token(&mut asm, 47, &number(vec![int(0), call(8, 1)]));
+    token(&mut asm, 48, &number(vec![call(9, 0)]));
+    asm.op(int(5)).op(call(10, 1));
+    token(&mut asm, 49, &number(vec![call(11, 0)]));
+    let worth = |template: &str| {
+        number(
+            [
+                vec![int(1)],
+                target.clone(),
+                vec![text(template), call(13, 3), call(14, 1)],
+            ]
+            .concat(),
+        )
+    };
+    token(&mut asm, 50, &worth(MEDKIT.0));
+    asm.op(float(2.5)).op(text(MEDKIT.0)).op(call(12, 2));
+    token(&mut asm, 51, &worth(BANDAGE.0));
+    token(&mut asm, 52, &worth(MEDKIT.0));
+    token(
+        &mut asm,
+        53,
+        &number(vec![int(5), call(15, 1), call(16, 1)]),
+    );
+    token(
+        &mut asm,
+        54,
+        &number(vec![int(5), call(15, 1), call(17, 1)]),
+    );
+    asm.op(float(1.5)).op(call(18, 1));
+    asm.op(float(0.0));
+    push(&mut asm, &target);
+    asm.op(int(0)).op(int(1024)).op(int(10)).op(call(20, 3));
+    asm.op(int(0)).op(call(19, 4));
+    push(&mut asm, &target);
+    asm.op(call(23, 1)).op(int(AREA_VISUAL)).op(call(22, 2));
+    for slot in [2, 12] {
+        push(&mut asm, &target);
+        asm.op(int(slot)).op(call(24, 2));
+    }
+    asm.op(call(28, 0)).op(call(28, 0)).op(call(26, 2));
+    push(&mut asm, &target);
+    asm.op(call(27, 1)).op(Op::Retn);
+    asm.build()
+}
+
+/// A script setting token `n` to `GetDamageDealtByType` of each of `types`
+/// in turn (`n`, `n + 1`, …), run by the target.
+fn dealt(n: i32, types: &[i32]) -> Ncs {
+    let mut asm = Asm::default();
+    for (at, kind) in (n..).zip(types) {
+        token(&mut asm, at, &number(vec![int(*kind), call(21, 1)]));
+    }
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// A script setting token `n` to the int routine `routine` (no arguments).
+fn reads(n: i32, routine: u16) -> Ncs {
+    let mut asm = Asm::default();
+    token(&mut asm, n, &number(vec![call(routine, 0)]));
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// What the K1 probe saw.
+struct K1 {
+    tokens: Snapshot,
+    before: String,
+    dealt: Vec<String>,
+    music: Vec<Notice>,
+    area_visual: bool,
+    slots: (Option<u32>, Option<u32>, u32),
+    disturbed: Vec<String>,
+    pages: Vec<(u8, String)>,
+}
+
+/// One step with `actions` of seat 0.
+fn act(world: &mut SimWorld, actions: &[crate::action::Action]) -> Snapshot {
+    let mut input = TickInput::default();
+    input.insert(Seat(0), crate::input::Command::default());
+    for action in actions {
+        input.act(Seat(0), action.clone());
+    }
+    let tick = world.tick() + 1;
+    crate::step(world, tick, &input, MSEC, StepReason::Authority)
+}
+
+fn k1() -> Result<K1, String> {
+    use crate::action::Action as SeatAction;
+    use crate::inventory::Held;
+    use crate::module::ObjectData;
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    let entry = data.entry.position;
+    let held = |template: &str| Held {
+        template: template.to_string(),
+        stack: 1,
+        slot: None,
+        droppable: true,
+        infinite: false,
+    };
+    data.placements.extend(
+        [
+            ObjectData {
+                sheet: Some(Sheet::dev_soldier()),
+                template: TARGET.to_string(),
+                ..ObjectData::bare(
+                    ObjectKind::Creature,
+                    TARGET,
+                    [entry[0] + 2.0, entry[1] + 3.0, entry[2]],
+                )
+            },
+            ObjectData {
+                inventory: vec![held(BANDAGE.0)],
+                container: true,
+                useable: true,
+                scripts: vec![("OnInvDisturbed".into(), "probe_k1_disturbed".into())],
+                ..ObjectData::bare(ObjectKind::Placeable, CHEST, entry)
+            },
+            ObjectData::bare(
+                ObjectKind::Placeable,
+                SIGN,
+                [entry[0] - 3.0, entry[1] + 3.0, entry[2]],
+            ),
+        ]
+        .map(Placement::Own),
+    );
+    let worth = |(template, cost): (&str, u32)| ItemFacts {
+        cost,
+        base_item: 53,
+        ..ItemFacts::plain(template)
+    };
+    let library = crate::probe::library(
+        K1_CATALOG,
+        [
+            ("probe_k1_world", k1_world()),
+            ("probe_k1_before", dealt(64, &[1024])),
+            ("probe_k1_reads", dealt(60, &[1024, 4096, 3, 0])),
+            ("probe_k1_disturbed", reads(70, 25)),
+            (crate::script::presentation::SCREEN_CHANGED, reads(80, 9)),
+        ],
+    )
+    .with_items(Catalog::new([worth(MEDKIT), worth(BANDAGE)]));
+    let mut world = SimWorld::new(
+        crate::WorldConfig::one_seat(),
+        ground.with_module(data).with_scripts(library),
+    )
+    .map_err(|error| error.to_string())?;
+    let start = step(&mut world);
+    let objects = crate::Instances::in_snapshot(world.level(), &start);
+    let entity_of = |tag: &str| {
+        start
+            .entities
+            .iter()
+            .find(|entity| {
+                objects
+                    .of_entity(entity)
+                    .is_some_and(|data| data.tag == tag)
+            })
+            .ok_or(format!("no {tag}"))
+    };
+    let target = entity_of(TARGET)?.id.0;
+    let chest = entity_of(CHEST)?;
+    let (chest_id, chest_index) = match chest.kind {
+        crate::Kind::Object(ObjectKind::Placeable, index) => (chest.id.0, index),
+        _ => return Err("the chest is no placeable".into()),
+    };
+    let mut state = world.script_state().clone();
+    for slot in [2, 12] {
+        state.party.available.insert(
+            slot,
+            crate::script::party::Npc {
+                template: format!("probe_k1_npc{slot}"),
+                object: None,
+                kept: None,
+                template_data: None,
+            },
+        );
+    }
+    state
+        .pending
+        .push(Pending::new("probe_k1_before", ObjectId(target)));
+    state
+        .pending
+        .push(Pending::new("probe_k1_world", crate::script::MODULE));
+    world.set_script_state(state);
+    let tokens = step(&mut world);
+    let area_visual = world.script_state().applied.iter().any(|applied| {
+        applied.at.is_some()
+            && matches!(
+                applied.effect,
+                crate::script::effects::Effect::Visual { row: Some(row), .. }
+                    if i32::from(row) == AREA_VISUAL
+            )
+    });
+    let available = &world.script_state().party.available;
+    let slots = (
+        available.get(&2).and_then(|npc| npc.object),
+        available.get(&12).and_then(|npc| npc.object),
+        target,
+    );
+    let mut music: Vec<Notice> = world.take_notices().into_iter().map(|(_, n)| n).collect();
+    // The damage lands, then the target reads it.
+    step(&mut world);
+    music.extend(world.take_notices().into_iter().map(|(_, n)| n));
+    music.retain(|notice| matches!(notice, Notice::MusicVolume(_)));
+    let mut state = world.script_state().clone();
+    state
+        .pending
+        .push(Pending::new("probe_k1_reads", ObjectId(target)));
+    world.set_script_state(state);
+    let after = step(&mut world);
+    let dealt = (60..=63).map(|n| read(&after, n)).collect();
+    // Taken out of the chest, then put back.
+    let mut disturbed = Vec::new();
+    act(&mut world, &[SeatAction::Open(chest_index)]);
+    let item = world
+        .script_state()
+        .loot(chest_id)
+        .map(|(item, _)| item)
+        .next()
+        .ok_or("the chest holds nothing")?;
+    let taken = act(
+        &mut world,
+        &[SeatAction::Take {
+            container: chest_index,
+            item,
+        }],
+    );
+    disturbed.push(read(&taken, 70));
+    let back = world
+        .script_state()
+        .items
+        .iter()
+        .find(|(_, held)| held.template == BANDAGE.0 && held.holder == crate::inventory::PARTY)
+        .map(|(id, _)| *id)
+        .ok_or("the party holds no bandage")?;
+    let put = act(
+        &mut world,
+        &[SeatAction::Put {
+            container: chest_index,
+            item: back,
+        }],
+    );
+    disturbed.push(read(&put, 70));
+    // An in-game page shown, turned, closed.
+    let mut pages = Vec::new();
+    for page in [1, 5, 0] {
+        let shown = act(&mut world, &[SeatAction::SubScreen(page)]);
+        pages.push((world.script_state().subscreen, read(&shown, 80)));
+    }
+    Ok(K1 {
+        before: read(&tokens, 64),
+        tokens,
+        dealt,
+        music,
+        area_visual,
+        slots,
+        disturbed,
+        pages,
+    })
+}
+
+/// The routines K1's own scripts called unbound until now.
+fn k1_checks() -> Checks {
+    let ran = match k1() {
+        Ok(ran) => ran,
+        Err(error) => return vec![("k1_routines", Err(error))],
+    };
+    let bad: Vec<String> = K1_TOKENS
+        .iter()
+        .filter(|(n, _, want)| read(&ran.tokens, *n) != *want)
+        .map(|(n, what, want)| format!("{what}: {:?}, want {want:?}", read(&ran.tokens, *n)))
+        .collect();
+    let want_dealt = ["10", "-1", "0", "0"];
+    let (slot, past, target) = ran.slots;
+    let want_pages = [
+        (1, "1".to_string()),
+        (5, "5".to_string()),
+        (0, "5".to_string()),
+    ];
+    let (unlisted, unanswered) = crate::script::answered_drift();
+    vec![
+        (
+            "minigame_routines_counted_bound",
+            check(
+                unlisted.is_empty() && unanswered.is_empty(),
+                format!(
+                    "SWMG_ routines answered but not counted bound {unlisted:?}, counted but not answered {unanswered:?}"
+                ),
+            ),
+        ),
+        (
+            "k1_routines_scripted",
+            check(
+                bad.is_empty(),
+                format!("{} tokens; wrong: {bad:?}", K1_TOKENS.len()),
+            ),
+        ),
+        (
+            "music_volume_clamped",
+            check(
+                ran.music == [Notice::MusicVolume(1.0f32.to_bits())],
+                format!("told {:?}", ran.music),
+            ),
+        ),
+        (
+            "damage_dealt_by_type",
+            check(
+                ran.before == "-1" && ran.dealt == want_dealt,
+                format!(
+                    "before {}, sonic/energy/two bits/none {:?}, want -1 and {want_dealt:?}",
+                    ran.before, ran.dealt
+                ),
+            ),
+        ),
+        (
+            "visual_at_a_place",
+            check(
+                ran.area_visual,
+                format!("visual {AREA_VISUAL} put at a place: {}", ran.area_visual),
+            ),
+        ),
+        (
+            "available_npc_object",
+            check(
+                slot == Some(target) && past.is_none(),
+                format!("slot 2 {slot:?}, slot 12 (past the table) {past:?}"),
+            ),
+        ),
+        (
+            "inventory_disturb_type",
+            check(
+                ran.disturbed == ["1", "0"],
+                format!("taken, put back: {:?}", ran.disturbed),
+            ),
+        ),
+        (
+            "sub_screen_script",
+            check(ran.pages == want_pages, format!("pages {:?}", ran.pages)),
+        ),
     ]
 }

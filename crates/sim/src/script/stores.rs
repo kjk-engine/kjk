@@ -7,7 +7,8 @@
 //! to the party's gold, until it leaves or its seat readies for an exit
 //! (R11); while more than one seat plays a body, also until it is hurt or a
 //! party conversation gathers it (R8). A price is the item's value (its
-//! UTI's `Cost`) by the markup to buy and by the markdown to sell
+//! UTI's `Cost`, by its base item's `ChangeItemCost` multiplier, `value`)
+//! by the markup to buy and by the markdown to sell
 //! (`inventory::price`). Plot items and what the party wears are not for
 //! sale. Components and chemicals bought are the party's counts
 //! (`State::pool_carried`). What players see of it rides in the snapshot
@@ -18,7 +19,7 @@ use std::collections::BTreeMap;
 use super::state::State;
 use super::{Library, workbench};
 use crate::action::Action;
-use crate::inventory::{Goods, Item, PARTY, Terms, Trade, price, slots};
+use crate::inventory::{Goods, Item, ItemFacts, PARTY, Terms, Trade, multiplied, price, slots};
 use crate::notice::Notice;
 
 impl State {
@@ -84,8 +85,8 @@ impl State {
                     && (buying || !offered.plot)
             })
             .and_then(|offered| self.item_facts(catalog, &offered.template))
-            .ok_or(Notice::NotForSale)?
-            .cost;
+            .map(|facts| self.value(facts))
+            .ok_or(Notice::NotForSale)?;
         let paid = price(value, percent);
         if buying {
             if self.gold < paid {
@@ -150,6 +151,19 @@ impl State {
                 .map(|(player, trade)| (*player, *trade))
                 .collect(),
             floor,
+            costs: self
+                .cost_multipliers
+                .iter()
+                .map(|(row, multiplier)| (*row, *multiplier))
+                .collect(),
         }
+    }
+
+    /// What an item of these facts is worth now: its template's cost by its
+    /// base item's `ChangeItemCost` multiplier, if one was set.
+    pub(crate) fn value(&self, facts: &ItemFacts) -> u32 {
+        self.cost_multipliers
+            .get(&facts.base_item)
+            .map_or(facts.cost, |multiplier| multiplied(facts.cost, *multiplier))
     }
 }
