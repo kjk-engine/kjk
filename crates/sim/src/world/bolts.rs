@@ -81,12 +81,14 @@ pub(super) fn fly(
     // The placeables that may be bashed, as a player's own bolt meets them:
     // their bodies, as a fist does (a footlocker has no brushes to stop a
     // shot: TSL's prologue's, K1's). A door's brushes stop a shot already;
-    // a companion's bolts fly at its foes past them, as before.
+    // a companion's bolts fly at its foes past them, as before. Anyone's
+    // bolt meets a destructible prop (`crate::destruction`).
     let bashable = objects::bodies(
         placed
             .iter()
             .filter(|(_, object)| object.kind == ObjectKind::Placeable),
     );
+    let destructible = objects::destructible_bodies(placed.iter());
     let mut bolts: Vec<_> = bolts.iter_mut().collect();
     bolts.sort_by_key(|(_, id, _)| id.0);
     for (entity, _, mut bolt) in bolts {
@@ -111,14 +113,11 @@ pub(super) fn fly(
                         .scripts()
                         .is_some_and(|library| library.impact(*row).is_some())
                 });
-                // What may be bashed is caught by any blast (`objects`), its
-                // body's middle: KOTOR's grenade script asks for creatures
-                // alone.
-                let bashed: Vec<(SimId, [f32; 3])> = objects::bodies(placed.iter())
-                    .iter()
-                    .map(|body| (SimId(body.entity & !BODY), objects::middle(body)))
-                    .collect();
+                // What may be bashed or broken is caught by any blast
+                // (`objects`), its body's middle: KOTOR's grenade script asks
+                // for creatures alone.
                 let states = states.as_deref();
+                let bashed = objects::blast_reach(&level.0, states, placed.iter(), at);
                 match scripted {
                     Some(row) if authority => {
                         casts.0.push(crate::script::Cast {
@@ -133,18 +132,18 @@ pub(super) fn fly(
                                     script_ncs::vm::ObjectId(id.0)
                                 }),
                             at: scale(at, UNIT),
-                            caught: caught_by_blast(&level.0, states, &chests, at)
+                            caught: caught_by_blast(&level.0, states, &chests, at, |_| None)
                                 .into_iter()
                                 .map(|(id, _)| script_ncs::vm::ObjectId(id.0))
                                 .collect(),
                         });
-                        blast(&level.0, states, &bashed, bolt, at, &mut hits.0);
+                        blast(bolt, &bashed, &mut hits.0);
                     }
                     Some(_) => {}
                     None => {
-                        let caught: Vec<(SimId, [f32; 3])> =
-                            chests.iter().chain(&bashed).copied().collect();
-                        blast(&level.0, states, &caught, bolt, at, &mut hits.0);
+                        let mut caught = caught_by_blast(&level.0, states, &chests, at, |_| None);
+                        caught.extend(bashed);
+                        blast(bolt, &caught, &mut hits.0);
                     }
                 }
                 commands.entity(entity).despawn();
@@ -216,6 +215,8 @@ pub(super) fn fly(
         let player = find(bolt.owner).is_some_and(|at| actors[at].1.is_some());
         if player {
             bodies.extend(bashable.iter().cloned());
+        } else {
+            bodies.extend(destructible.iter().cloned());
         }
         bodies.sort_by_key(|body| body.entity);
         let trace = |to: [f32; 3]| {
@@ -449,6 +450,7 @@ pub(super) fn caught_by_blast(
     states: Option<&[u8]>,
     chests: &[(SimId, [f32; 3])],
     at: [f32; 3],
+    own: impl Fn(SimId) -> Option<u32>,
 ) -> Vec<(SimId, [f32; 3])> {
     // From a little above where it lies, so a floor does not hide it.
     let centre = [at[0], at[1], at[2] + 8.0];
@@ -459,16 +461,15 @@ pub(super) fn caught_by_blast(
             if math::length(away) > grenades::RADIUS {
                 return None;
             }
+            // Clear to it, or stopped on its own brushes (a placeable's).
             let clear = level.with(states, |world| {
-                world
-                    .trace(
-                        scale(centre, UNIT),
-                        scale(chest, UNIT),
-                        &Extents::POINT,
-                        Contents::SOLID,
-                    )
-                    .fraction
-                    >= 1.0
+                let met = world.trace(
+                    scale(centre, UNIT),
+                    scale(chest, UNIT),
+                    &Extents::POINT,
+                    Contents::SOLID,
+                );
+                met.fraction >= 1.0 || met.entity.is_some() && met.entity == own(target)
             });
             math::normalize(&mut away);
             clear.then_some((target, away))
@@ -476,18 +477,13 @@ pub(super) fn caught_by_blast(
         .collect()
 }
 
-pub(super) fn blast(
-    level: &Level,
-    states: Option<&[u8]>,
-    chests: &[(SimId, [f32; 3])],
-    bolt: &Missile,
-    at: [f32; 3],
-    hits: &mut Vec<Hit>,
-) {
+/// `bolt`'s blast's hits on `caught` (`caught_by_blast`'s), each thrown
+/// its way.
+pub(super) fn blast(bolt: &Missile, caught: &[(SimId, [f32; 3])], hits: &mut Vec<Hit>) {
     let Some(lob) = bolt.lob else {
         return;
     };
-    for (target, direction) in caught_by_blast(level, states, chests, at) {
+    for &(target, direction) in caught {
         hits.push(Hit {
             attacker: bolt.owner,
             target,

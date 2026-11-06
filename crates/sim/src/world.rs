@@ -59,6 +59,8 @@ use crate::script::dialogue::Told;
 use crate::script::effects::Hold;
 #[cfg(feature = "probes")]
 pub mod destroy_probes;
+#[cfg(feature = "probes")]
+pub(crate) mod destruction_probes;
 pub mod falls;
 #[cfg(feature = "probes")]
 pub mod feats;
@@ -681,7 +683,11 @@ fn made_bodies(id: SimId, object: &Object, at: [f32; 3], placed: usize) -> Vec<B
     if object.kind != ObjectKind::Placeable || (object.index as usize) < placed {
         return Vec::new();
     }
-    let Some(facts) = object.facts.as_ref() else {
+    let Some(facts) = object
+        .facts
+        .as_ref()
+        .filter(|facts| !object.state.passable(facts))
+    else {
         return Vec::new();
     };
     let (sin, cos) = math::sin_cos_deg(facts.yaw);
@@ -751,7 +757,10 @@ fn made_footprint(id: SimId, object: &Object, at: [f32; 3], placed: usize) -> Op
     if object.kind != ObjectKind::Placeable || (object.index as usize) < placed {
         return None;
     }
-    let facts = object.facts.as_ref()?;
+    let facts = object
+        .facts
+        .as_ref()
+        .filter(|facts| !object.state.passable(facts))?;
     let (least, most) =
         facts
             .geometry

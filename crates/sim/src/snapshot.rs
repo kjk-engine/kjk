@@ -401,6 +401,18 @@ impl ObjectState {
         }
     }
 
+    /// Whether bodies, bolts and sight pass where it stands: gone from play,
+    /// or a destructible prop broken (its look dead).
+    pub fn passable(&self, facts: &crate::module::ObjectData) -> bool {
+        self.state == collision::GONE || facts.destructible.is_some() && self.state == look::DEAD
+    }
+
+    /// Whether blows may hurt it: it may be bashed, or it is a destructible
+    /// prop not yet broken (`crate::destruction`).
+    pub fn breakable(&self, facts: &crate::module::ObjectData) -> bool {
+        self.bashable(facts) || facts.destructible.is_some() && !self.broken(facts)
+    }
+
     /// Whether blows may break it open (`module::bashable`).
     pub fn bashable(&self, facts: &crate::module::ObjectData) -> bool {
         crate::module::bashable(facts, self.locked(facts.opens), self.hit_points(facts))
