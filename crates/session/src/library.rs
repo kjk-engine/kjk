@@ -24,7 +24,32 @@ use crate::{Bakes, Request, imported, sheets};
 pub(crate) struct Library {
     pub library: sim::script::Library,
     pub strings: Vec<String>,
+    /// Every string its scripts and conversations hold, lowercase, of any
+    /// length: what may name an object (`sim::destruction::guarded`).
+    pub named: BTreeSet<String>,
     pub stored: bool,
+}
+
+/// Every string constant of `gathered`'s scripts and every string its
+/// conversations' calls pass, lowercase.
+fn named(gathered: &Gathered) -> BTreeSet<String> {
+    let in_scripts = gathered.scripts.values().flat_map(|program| {
+        program
+            .code
+            .iter()
+            .filter_map(|instruction| match &instruction.op {
+                Op::Const(Const::String(bytes)) => {
+                    Some(String::from_utf8_lossy(bytes).to_ascii_lowercase())
+                }
+                _ => None,
+            })
+    });
+    let in_talks = gathered
+        .dialogues
+        .values()
+        .flat_map(|dlg| dlg.strings())
+        .map(|named| named.to_ascii_lowercase());
+    in_scripts.chain(in_talks).collect()
 }
 
 /// The hash of the gathering's code, from `build.rs`.
@@ -211,6 +236,7 @@ pub(crate) fn script_library(
             }
         }
     }
+    let named = named(&gathered);
     let clips = camera_clips(source, &gathered.dialogues);
     let gestures = dialog_animations(source, &catalog);
     // TSL's scripts play `animations.2da`'s rows by number
@@ -242,6 +268,7 @@ pub(crate) fn script_library(
     Some(Library {
         library,
         strings: gathered.strings,
+        named,
         stored,
     })
 }
