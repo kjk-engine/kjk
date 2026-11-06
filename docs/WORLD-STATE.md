@@ -678,8 +678,8 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   snapshot's `Kind::Avatar`. Where it waits is the game's
   (`rules::party::switch`, `world::switch::leaves_area`): in K1 where it
   stood, a character nobody plays (the Leviathan's torture cage, which the
-  one who escapes opens); in TSL out of the area, as TSL's
-  `CSWPartyTable::SwitchPlayerCharacter` saves and deletes it: `Away`, a
+  one who escapes opens); in TSL out of the area, as TSL's executable
+  saves and deletes it at a switch: `Away`, a
   disabling component, so no system moves, meets, sees or hits it, the
   scripts' view leaves it out and the view does not draw it
   (`Snapshot::away`). TSL's scenes that show the player meanwhile place

@@ -929,9 +929,8 @@ fn chain(
 
 /// The feats a sheet knows, with those the class grants at `class_level`.
 /// TSL's "Class Skill" feats by the skill (`skills.2da` row) each makes a
-/// class skill of whatever the class, as the executable's
-/// `CSWCCreatureStats::HasClassSkillFeat` holds them (`feat.2da`'s
-/// `CLASS_SKILL_*` rows; Persuade has none). K1's table has no such rows.
+/// class skill of whatever the class, as TSL's executable holds them
+/// (`feat.2da`'s `CLASS_SKILL_*` rows; Persuade has none). K1's table has no such rows.
 pub const CLASS_SKILL_FEATS: [Option<u16>; SKILLS] = [
     Some(184),
     Some(185),
@@ -945,7 +944,7 @@ pub const CLASS_SKILL_FEATS: [Option<u16>; SKILLS] = [
 
 /// Whether `skill` is a class skill to `class` for a character knowing
 /// `feats`: the class's own, or one its Class Skill feat makes one
-/// (`CSWGuiSkillsCharGen::IsClassSkill` asks the feat first).
+/// (TSL's skills screen asks the feat first).
 pub fn class_skill(class: &Class, feats: &[u16], skill: usize) -> bool {
     class.class_skills[skill] || CLASS_SKILL_FEATS[skill].is_some_and(|feat| feats.contains(&feat))
 }

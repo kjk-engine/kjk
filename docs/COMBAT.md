@@ -249,7 +249,7 @@ whole too, `OnDamaged` (`GetLastDamager`) on every blow that tells, and
 `OnDeath` (`GetLastKiller`) on the last; a script's damage hurts any
 object but a `Plot` one, and like a blast's it damages without attacking:
 no `OnMeleeAttacked`, which the executables raise from an attack's
-resolution (`CSWSCreature::SignalMeleeDamage`), not from a damage effect
+resolution, not from a damage effect
 (TSL's 103per airlock, whose `k_desairlock` blows it when attacked, stays
 shut when a floating mine goes off beside it). Others' blows
 do nothing, unless a script asks a creature to bash

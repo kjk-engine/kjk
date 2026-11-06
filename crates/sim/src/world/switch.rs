@@ -5,7 +5,7 @@
 //! waits is the game's (`leaves_area`): in K1 where it stood, a character
 //! nobody plays (the Leviathan's torture cage the one who escapes opens);
 //! in TSL out of the area, coming back where the creature played stands,
-//! facing its way, as TSL's `CSWPartyTable::SwitchPlayerCharacter` saves
+//! facing its way, as TSL's executable, switching, saves
 //! the player's creature and deletes it, and makes it again from that save
 //! on the way back (the scenes make their own stand-ins where one is seen:
 //! TSL's prologue lays a disguised `c_medbaypc` on the Ebon Hawk's medbay

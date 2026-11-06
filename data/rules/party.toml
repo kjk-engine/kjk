@@ -69,5 +69,5 @@ see = "sim::world::switch::leaves_area"
 name = "Player Leaves the Area (TSL)"
 value = true
 summary = "Whether, in TSL, the player's own character leaves the area while the player plays another: {party.switch.leaves_area_tsl}."
-source = "TSL's executable (`CSWPartyTable::SwitchPlayerCharacter` saves the player's creature and deletes it, and makes it again on the way back)"
+source = "TSL's executable (at a switch it saves the player's creature and deletes it, and makes it again on the way back)"
 see = "sim::world::switch::leaves_area"

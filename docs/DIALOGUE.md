@@ -386,7 +386,7 @@ where they part, the choice is ours and named.
   filter is put on a droid's or a comm's line by them).
 - **Video effects** (`CamVidEffect`, `game::video_effect`): as each
   executable sets it when it puts a line's camera up
-  (`CGuiInGame::UpdateShotCamera`, both Mac executables, 2026-11-05/06;
+  (both Mac executables, 2026-11-05/06;
   `dialogue.cameras.every_camera_effect`). An animated camera's line
   (`CameraAngle` 5) keeps what showed. K1: a placed camera's line (6) shows
   its `videoeffects.2da` row (0 on) and keeps the line before's on -1 or

@@ -525,7 +525,7 @@ impl Prompts<'_> {
 
     /// A control's token in the games' text (`<abutton>`, `<ActionUp>`;
     /// `stringtokens.2da`, action codes 24 and 25) as this player's
-    /// binding of what it asks for: the executable's `GetTokenValue` writes
+    /// binding of what it asks for: the executable writes
     /// the key `keymap.2da` binds to the row's action (25), and for the
     /// Xbox's buttons (24) the font's glyph of the button, so each is the
     /// binding of the action the button does there (A uses, Y switches

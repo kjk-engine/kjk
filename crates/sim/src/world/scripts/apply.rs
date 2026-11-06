@@ -462,8 +462,8 @@ pub(in crate::world) fn apply(
                 // A door closes on no one standing in its doorway: it would
                 // shut them in its panels (Manaan's Sith base, its wing door
                 // behind an apprentice). KOTOR's executable closes it at once
-                // (`CSWSObject::AIActionCloseDoor` looks for no one in the
-                // way), so it closes once the doorway is clear: its own queue
+                // (its close looks for no one in the way), so it closes once
+                // the doorway is clear: its own queue
                 // asks again (Citadel Station's Exchange door, shut and locked
                 // behind Slusk as he walks through it to his desk).
                 let index = object.index;

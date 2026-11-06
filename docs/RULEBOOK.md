@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `35a7ad88857a75f8`.
+Edition `f517dbe10505c85a`.
 
 ## Contents
 
@@ -6769,7 +6769,7 @@ Whether, in K1, the player's own character leaves the area while the player play
 
 Whether, in TSL, the player's own character leaves the area while the player plays another: true.
 
-<sub>Source: TSL's executable (`CSWPartyTable::SwitchPlayerCharacter` saves the player's creature and deletes it, and makes it again on the way back). Code: `sim::world::switch::leaves_area`.</sub>
+<sub>Source: TSL's executable (at a switch it saves the player's creature and deletes it, and makes it again on the way back). Code: `sim::world::switch::leaves_area`.</sub>
 
 ## <a id="stealth"></a>Stealth and Awareness
 
@@ -9061,7 +9061,7 @@ takes a placed camera's row and keeps what showed on -1 or -2, and clears it
 on any other camera. TSL's takes any other camera's row and clears it on -1
 or -2, unless a script's `EnableVideoEffect` holds it.
 
-<sub>Source: K1's and TSL's Mac executables (`CGuiInGame::UpdateShotCamera`), 2026-11-06. Code: `game::video_effect::LineEffect`.</sub>
+<sub>Source: K1's and TSL's Mac executables, 2026-11-06. Code: `game::video_effect::LineEffect`.</sub>
 
 ### <a id="dialogue-speakers"></a>Who Says a Line
 
