@@ -106,18 +106,37 @@ fn plays_once(animation: u16) -> bool {
 }
 
 /// How long (ms) a body shows `acting`, a clip of `length` with its
-/// `transition`: a once-through to its end and half its transition's fade
-/// (`plays_once`, `shown`), else its time. A round's ready stance holds for
-/// the blow's time after its clip (`ready`).
+/// `transition` (`shown`): a once-through to its end, held there for the
+/// rest of its time, and half its transition's fade (`plays_once`); a loop
+/// its time and its transition's fade. A round's ready stance holds for the
+/// blow's time after its clip (`ready`).
 pub fn shows_ms(acting: &Acting, length: f32, transition: f32) -> f64 {
+    let fade = f64::from(transition) * 1000.0;
     if plays_once(acting.animation) && blows::of(acting.animation).is_none() {
-        f64::from(length) * 1000.0 + f64::from(transition) * 500.0
-    } else if holds_full_time(acting.animation) {
-        f64::from(acting.ms) + f64::from(transition) * 1000.0
+        once_ms(acting, length) + fade / 2.0
     } else {
-        f64::from(acting.ms)
+        f64::from(acting.ms) + fade
     }
 }
+
+/// How long (ms) a clip of `length` played once by `acting` stays whole:
+/// to its end, and held on its last frame while its action lasts (a
+/// conversation line's sink in `101awake` lies at the tank's floor until the
+/// line is over, not stood back up), as `Gob::Animate` leaves a clip that
+/// does not loop on its last frame until another is set.
+fn once_ms(acting: &Acting, length: f32) -> f64 {
+    let clip = f64::from(length) * 1000.0;
+    if acting.ms == u32::MAX {
+        clip
+    } else {
+        clip.max(f64::from(acting.ms))
+    }
+}
+
+/// How late (ms) after a looped clip's time is up the same animation may be
+/// played again and carry it on rather than begin it anew (`Shows::follow`):
+/// a conversation's lines play a participant's loop line after line.
+const CARRIED_MS: u64 = 100;
 
 /// What a body shows of `scripted` (what it plays as `cast::drawn_acting`
 /// has it) and of `talk` (its talk as a conversation's speaker,
@@ -148,14 +167,6 @@ pub fn or_talk(
         Some(acting) if acting.playing(ms as u64) && !done(&acting) => Some(acting),
         _ => Some(talk),
     }
-}
-
-/// Whether a loop stays whole for its time and fades after: a cast's, whose
-/// transition (1 s) is most of a usual power's 1.33 s, the arm out to its end.
-fn holds_full_time(animation: u16) -> bool {
-    asset_odyssey::creature::CAST_CLIPS
-        .iter()
-        .any(|&(clip, _)| clip == animation && !plays_once(clip))
 }
 
 /// A whirlwind's victim spinning (`EffectWhirlWind`), `animations.2da`
@@ -851,6 +862,10 @@ impl Throw {
 #[derive(Default)]
 pub struct Shows {
     playing: Option<(Acting, Option<f64>)>,
+    /// When (sim ms) the loop `playing` carries on began: the same looped
+    /// animation played again as its time ran out goes on from there
+    /// (`CARRIED_MS`), not from its start.
+    carried_from: Option<u64>,
     fading: Option<(Acting, f64)>,
     /// The round's clip it last finished, whole: the ready stance it holds
     /// until the next round (`shown`).
@@ -874,7 +889,8 @@ impl Shows {
     /// gunner a script runs on draws its run, not its last shot or flinch
     /// slid over the floor; anything else, while a conversation holds the
     /// world, `held`, only by dying, the sim's queue ending it, S7). One
-    /// that is replaced or stopped fades out from then.
+    /// that is replaced or stopped fades out from then; a loop played again
+    /// as its time runs out carries on (`carried_from`).
     pub fn follow(
         &mut self,
         acting: Option<Acting>,
@@ -884,10 +900,20 @@ impl Shows {
         self.first.get_or_insert(ms);
         self.moving = moving;
         if self.playing.map(|(was, _)| was) != acting {
-            if let Some((was, broke)) = self.playing.take() {
-                self.fading = Some((was, broke.map_or(ms, |broke| broke.min(ms))));
-                self.last_round =
-                    (broke.is_none() && blows::of(was.animation).is_some()).then_some(was);
+            let carried = match (self.playing, acting) {
+                (Some((was, None)), Some(now)) => carries_on(&was, &now),
+                _ => false,
+            };
+            if carried {
+                let was = self.playing.map(|(was, _)| was.since);
+                self.carried_from = self.carried_from.or(was);
+            } else {
+                self.carried_from = None;
+                if let Some((was, broke)) = self.playing.take() {
+                    self.fading = Some((was, broke.map_or(ms, |broke| broke.min(ms))));
+                    self.last_round =
+                        (broke.is_none() && blows::of(was.animation).is_some()).then_some(was);
+                }
             }
             self.playing = acting.map(|acting| (acting, None));
         }
@@ -905,8 +931,8 @@ impl Shows {
     /// last read, at `ms`: from its start for one begun since (`heard_from`),
     /// none once it is no longer shown.
     pub fn passed<'a>(&mut self, bound: &'a Bound, ms: f64, wield: u8) -> Vec<&'a str> {
-        let shown = self.playing.and_then(|(acting, broke)| {
-            let (animator, at, _) = shown(bound, (&acting, wield), ms, broke)?;
+        let shown = self.run().and_then(|(acting, broke)| {
+            let (animator, at, _) = shown(bound, (&acting, wield), ms, (broke, false))?;
             Some((acting, animator, at))
         });
         let Some((acting, animator, at)) = shown else {
@@ -924,27 +950,69 @@ impl Shows {
     /// `wield`), the one fading out first; in a fight (`combat`: its own
     /// melee wield number) a character whose last clip was a round's holds
     /// its wield's ready stance once that clip ends (`ready`), under it as
-    /// it fades, and on between rounds.
+    /// it fades, and on between rounds. The one replaced stays whole under
+    /// the one blending in, as `Gob::Animate` moves each node from the pose
+    /// it holds toward the new clip: what is under them both never shows
+    /// between two clips.
     pub fn shown<'a>(
         &self,
         bound: &'a Bound,
         ms: f64,
         (wield, combat): (u8, Option<u8>),
     ) -> impl Iterator<Item = (&'a Animator, f32, f32)> {
+        let run = self.run();
         let ready = combat.filter(|_| !self.moving).and_then(|wield| {
-            let (acting, broke) = self
-                .playing
-                .or(self.last_round.map(|round| (round, None)))?;
+            let (acting, broke) = run.or(self.last_round.map(|round| (round, None)))?;
             ready(bound, (&acting, broke), wield, ms)
         });
-        let fading = self
-            .fading
-            .and_then(|(acting, broke)| shown(bound, (&acting, wield), ms, Some(broke)));
-        let playing = self
-            .playing
-            .and_then(|(acting, broke)| shown(bound, (&acting, wield), ms, broke));
+        let playing =
+            run.and_then(|(acting, broke)| shown(bound, (&acting, wield), ms, (broke, false)));
+        let blending_in = run.is_some_and(|(acting, broke)| {
+            broke.is_none() && playing.is_some_and(|(clip, _, _)| rising(clip, &acting, ms))
+        });
+        let fading = self.fading.and_then(|(acting, broke)| {
+            shown(bound, (&acting, wield), ms, (Some(broke), blending_in))
+        });
         ready.into_iter().chain(fading).chain(playing)
     }
+
+    /// What plays, as it is drawn: a loop carried on (`carried_from`) from
+    /// when it began, for its time then and since.
+    fn run(&self) -> Option<(Acting, Option<f64>)> {
+        let (acting, broke) = self.playing?;
+        let Some(from) = self.carried_from else {
+            return Some((acting, broke));
+        };
+        let ms = if acting.ms == u32::MAX {
+            u32::MAX
+        } else {
+            let end = acting.since.saturating_add(u64::from(acting.ms));
+            u32::try_from(end.saturating_sub(from)).unwrap_or(u32::MAX)
+        };
+        let carried = Acting {
+            since: from,
+            ms,
+            ..acting
+        };
+        Some((carried, broke))
+    }
+}
+
+/// Whether `now`, played as `was` was playing unbroken, carries it on: the
+/// same looped animation, begun again as `was`'s time ran out
+/// (`CARRIED_MS`).
+fn carries_on(was: &Acting, now: &Acting) -> bool {
+    was.animation == now.animation
+        && !plays_once(now.animation)
+        && was.ms != u32::MAX
+        && now.since >= was.since
+        && now.since <= was.since + u64::from(was.ms) + CARRIED_MS
+}
+
+/// Whether `clip`, shown for `acting`, is still blending in at `ms`
+/// (`blended_in`).
+fn rising(clip: &Animator, acting: &Acting, ms: f64) -> bool {
+    ((ms - acting.since as f64) / 1000.0) < f64::from(clip.transition())
 }
 
 /// Whether `acting`, playing on a body at `ms`, goes on being drawn
@@ -971,7 +1039,8 @@ pub fn kept_on(
 }
 
 /// Where (seconds in) the events of `acting`'s clip, now `at` in, are heard
-/// from, the clip `heard` last as it was: from there for the same one, from
+/// from, the clip `heard` last as it was: from there for the same one (the
+/// same animation from the same start, a loop carried on longer too), from
 /// its start for one begun since the body was `first` followed (sim ms),
 /// else from `at`: a clip already playing when the body was first seen (a
 /// save loaded in the middle of it) cues only what comes after.
@@ -981,7 +1050,7 @@ pub fn heard_from(
     first: Option<f64>,
 ) -> f32 {
     match heard {
-        Some((was, from)) if was == acting => from,
+        Some((was, from)) if (was.animation, was.since) == (acting.animation, acting.since) => from,
         _ if first.is_some_and(|first| (acting.since as f64) < first) => at,
         _ => 0.0,
     }
@@ -990,12 +1059,13 @@ pub fn heard_from(
 /// What a body of wield number `wield` shows of a scripted animation at
 /// `ms` (sim ms): its clip (`stance_of`), how far in (seconds), and how
 /// much of it over the JA pose (0 to 1). `broke`: when (sim ms) it was
-/// broken off, if it was: it fades out from then.
+/// broken off, if it was: it fades out from then, unless `whole` (another
+/// clip blends in over it: it stays as it is under that one).
 fn shown<'a>(
     bound: &'a Bound,
     (acting, wield): (&Acting, u8),
     ms: f64,
-    broke: Option<f64>,
+    (broke, whole): (Option<f64>, bool),
 ) -> Option<(&'a Animator, f32, f32)> {
     let animator = stance_of(acting.animation, wield)
         .into_iter()
@@ -1008,16 +1078,16 @@ fn shown<'a>(
     let clip_at = ((ms - since) / 1000.0).max(0.0) as f32;
     let fade = f64::from(transition) * 1000.0;
     let once = plays_once(acting.animation);
-    // A clip played once holds its end while it fades, in half its
-    // transition time; a dying clip stays there.
+    // Whole for its time (a clip played once to its end and held there
+    // while its action lasts, `once_ms`), then it fades: a loop in its
+    // transition time, a clip played once in half of it; a dying clip
+    // stays.
     let end = if acting.animation == DIE {
         f64::INFINITY
     } else if once {
-        since + f64::from(length) * 1000.0 + fade / 2.0
-    } else if holds_full_time(acting.animation) {
-        since + f64::from(acting.ms) + fade
+        since + once_ms(acting, length) + fade / 2.0
     } else {
-        since + f64::from(acting.ms)
+        since + f64::from(acting.ms) + fade
     };
     let out = if once && broke.is_none() {
         fade / 2.0
@@ -1025,7 +1095,12 @@ fn shown<'a>(
         fade
     };
     let end = broke.map_or(end, |broke| end.min(broke + fade));
-    let weight = blended_in(clip_at, transition).min(((end - ms) / out).clamp(0.0, 1.0) as f32);
+    let left = if whole {
+        1.0
+    } else {
+        ((end - ms) / out).clamp(0.0, 1.0) as f32
+    };
+    let weight = blended_in(clip_at, transition).min(left);
     let at = if once {
         clip_at.min(length)
     } else {
