@@ -124,6 +124,8 @@ use crate::lifecycle::Installer;
 use crate::minigame_bot::{PRESS_MS, pressed};
 mod route;
 pub mod build;
+mod aim;
+use aim::*;
 pub(crate) use route::*;
 mod here;
 use here::*;
@@ -565,6 +567,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 let mut pressed_ever = false;
                 // The scripts' talk lines before the goal's first press.
                 let mut talk_at_press: Option<usize> = None;
+                // A press whose click no crosshair could aim (`clickable`):
+                // the object and where the player stood.
+                let mut unaimed: Option<(u32, [f32; 3])> = None;
                 // The use the sim heard of the goal's target, by the player,
                 // since the press (`SimWorld::uses_heard`).
                 let mut heard: Option<sim::UseCame> = None;
@@ -1955,12 +1960,18 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                                 // And KOTOR's click on it: what
                                                 // the key's trace misses (a
                                                 // basket a script made,
-                                                // Kashyyyk's lift), as E asks it.
-                                                acts.extend(choice.zip(data.as_ref()).and_then(|(choice, data)| {
-                                                    sim::target::ask(choice, index, data.kind)
-                                                }));
+                                                // Kashyyyk's lift), as E asks it,
+                                                // on what the crosshair picks
+                                                // (`clickable`).
+                                                let aimed = clickable(&here, &last, (me.id, &player), index);
+                                                unaimed = (!aimed).then_some((index, me.position));
+                                                acts.extend(choice.zip(data.as_ref()).filter(|_| aimed).and_then(
+                                                    |(choice, data)| sim::target::ask(choice, index, data.kind),
+                                                ));
                                             }
-                                            if now < pressed_at + PRESS_MS {
+                                            // Neither, for what no crosshair picks:
+                                            // the game's E has no key trace.
+                                            if now < pressed_at + PRESS_MS && unaimed.is_none() {
                                                 command.buttons |= buttons::USE;
                                                 pressed_for = Some(index);
                                             }
@@ -2308,6 +2319,13 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 })
                                 .collect();
                             held.push(format!("doors pressed that stayed shut (not planned through): {}", tags.join(", ")));
+                        }
+                        if let Some((index, at)) = unaimed {
+                            let tag = level.placed().get(index as usize).map_or(format!("#{index}"), |o| o.tag.clone());
+                            held.push(format!(
+                                "the crosshair picks {tag} neither from ({:.2}, {:.2}, {:.2}) nor from any floor round it: a player cannot click it",
+                                at[0], at[1], at[2]
+                            ));
                         }
                         if let Some((why, at)) = stilled.filter(|(_, at)| now < at + 2000) {
                             held.push(format!("held still by the driver: {why} ({:.1} s ago)", (now - at) as f64 / 1000.0));
