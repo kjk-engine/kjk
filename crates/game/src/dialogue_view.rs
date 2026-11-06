@@ -244,7 +244,8 @@ pub(crate) struct Fill<'a> {
 
 impl<'a> Fill<'a> {
     /// For the player whose character is `pc` in `snapshot`, or whose seat
-    /// drives it, else the first seat's: the executable fills the player's
+    /// drives it, else (no such seat, or one with no persona: a remote
+    /// droid's) the first seat's: the executable fills the player's
     /// tokens from the party table's player whoever the line is said to and
     /// whoever the player controls (T3-M4 in TSL's prologue, "<FullName>'s
     /// fate"; Visas Marr asking "What happened with <FirstName>?" on Dxun
@@ -255,11 +256,11 @@ impl<'a> Fill<'a> {
             .and_then(|entity| match entity.kind {
                 sim::Kind::Avatar(seat) => Some(seat),
                 _ => entity.fighter?.mind.driver,
-            })
-            .unwrap_or(sim::Seat(0));
+            });
+        let persona = |seat| sim::persona::of(&snapshot.personas, seat);
         Fill {
             told: &snapshot.talk,
-            pc: sim::persona::of(&snapshot.personas, seat),
+            pc: seat.and_then(persona).or_else(|| persona(sim::Seat(0))),
         }
     }
 }
