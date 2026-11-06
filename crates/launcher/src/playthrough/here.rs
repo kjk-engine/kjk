@@ -1179,7 +1179,9 @@ impl Here<'_> {
     /// The area's living creatures (`Creature`), once a step.
     pub(super) fn creatures(&self, world: &sim::SimWorld) -> &[Creature] {
         self.creatures.get_or_init(|| {
-            let player = self.snapshot.own(sim::Seat(0)).map(|me| me.id);
+            // Hostile to the body the player plays: T3-M4 while switched to
+            // him, the player's own character out of the area meanwhile.
+            let player = self.snapshot.body(sim::Seat(0)).map(|me| me.id);
             self.snapshot
                 .entities
                 .iter()
