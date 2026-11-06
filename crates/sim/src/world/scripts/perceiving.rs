@@ -16,7 +16,8 @@ pub(super) const PERCEIVE_IDLE_MS: u64 = rules::stealth::perception::IDLE_MS;
 /// another every `PERCEIVE_IDLE_MS` (KOTOR's). A stealthed body is heard
 /// only past the listen check and seen only past the spot check
 /// (`stealth::listen_score`, `spot_score`), with the rolls each holds for
-/// `stealth::ROLL_EVERY_MS`. Sight goes all round, as xoreos has it (range alone) and the
+/// `stealth::ROLL_EVERY_MS`; an invisible one is seen only by those that see
+/// the invisible. Sight goes all round, as xoreos has it (range alone) and the
 /// Aurora engine's creatures see [verify in K1's exe]; reone gives a 120°
 /// field of view, under which the Upper City's interrogation commander,
 /// facing his prisoner as the scene places him, never saw the party come
@@ -104,6 +105,7 @@ pub(super) fn perceive(
                 now.heard.push(other.id);
             }
             if metres <= range
+                && (!other.invisible || body.sees_invisible)
                 && sight(body.eye, other.chest)
                 && sneaker.is_none_or(|sneaker| {
                     let toward = [d[0] * collision::UNIT, d[1] * collision::UNIT];

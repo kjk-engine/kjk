@@ -668,3 +668,11 @@ crates/sim/src/notice.rs ENDING_MOVIES  # TSL's ending movies' names (the execut
 crates/sim/src/world/remote/kit.rs HEALED_VISUAL  # a visualeffects.2da row
 crates/sim/src/world/remote/kit.rs REVIVED_VISUAL  # a visualeffects.2da row
 crates/sim/src/reconcile.rs SNAP_M  # kjk's own save migration: how far a body off the mesh is moved to the nearest walkable point, not a game number
+crates/sim/src/combat/effects.rs INVISIBLE_NORMAL  # nwscript's INVISIBILITY_TYPE_NORMAL constant
+crates/sim/src/notice.rs SWOOP_UPGRADE  # a screen notice's wire tag
+crates/sim/src/script/actions.rs GET_LOW  # nwscript's ANIMATION_LOOPING_GET_LOW constant
+crates/sim/src/script/engine.rs INVISIBILITY_TYPES  # nwscript's INVISIBILITY_TYPE_* constants' names
+crates/sim/src/script/engine.rs PLAYER_DIED  # a `last` kind id
+crates/sim/src/script/state.rs FOLLOW  # save tag
+crates/sim/src/script/state.rs PICK_UP  # save tag
+crates/sim/src/script/state.rs PUT_DOWN  # save tag

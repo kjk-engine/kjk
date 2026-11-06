@@ -468,6 +468,9 @@ struct Authority {
     /// A live world's ticks streamed to the run's folder (a replay's are
     /// not).
     flight: Option<crate::flight_writer::Flight>,
+    /// A script asked for an autosave (`DoSinglePlayerAutoSave`), not yet
+    /// taken by `autosave`.
+    autosave_asked: bool,
 }
 
 impl Plugin for SimHostPlugin {
@@ -640,6 +643,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             generation: 0,
             solo,
             flight,
+            autosave_asked: false,
         });
     }
     Ok(())
@@ -1262,8 +1266,8 @@ pub fn autosave_probes() -> sim::probe::Checks {
     ]
 }
 
-/// The autosave owed after each module installed (KOTOR's rule), once a
-/// second until nothing refuses it: a player's game, solo or hosting (the
+/// The autosave owed after each module installed (KOTOR's rule) and when a
+/// script asks for one, once a second until nothing refuses it: a player's game, solo or hosting (the
 /// host's world is the authority), live, with Autosave on.
 fn autosave(
     mut authority: ResMut<Authority>,
@@ -1295,6 +1299,11 @@ fn autosave(
         restored,
     ) {
         info!(target: "saves", installs = authority.installs.len(), "autosave owed");
+    }
+    // A script's (`DoSinglePlayerAutoSave`), on the same terms.
+    if std::mem::take(&mut authority.autosave_asked) && eligible {
+        info!(target: "saves", "a script asks for an autosave");
+        due.owed = true;
     }
     let now = Instant::now();
     if !due.owed
@@ -1450,6 +1459,7 @@ fn advance(
     if let Some(landed) = &landed {
         for (seat, notice) in landed.notices.iter().cloned() {
             match notice {
+                sim::notice::Notice::AutoSave => authority.autosave_asked = true,
                 sim::notice::Notice::Show(screen) => authority.solo.screen(seat, screen),
                 sim::notice::Notice::Sound(sound) => authority.solo.sound(seat, sound),
                 notice => {
@@ -1942,6 +1952,7 @@ fn advance(
                 }
                 for (seat, notice) in authority.world.take_notices() {
                     match notice {
+                        sim::notice::Notice::AutoSave => authority.autosave_asked = true,
                         sim::notice::Notice::Show(screen) => authority.solo.screen(seat, screen),
                         sim::notice::Notice::Sound(sound) => authority.solo.sound(seat, sound),
                         notice => {

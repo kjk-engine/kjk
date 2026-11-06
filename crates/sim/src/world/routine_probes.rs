@@ -23,7 +23,20 @@
 //!   `ResistForce` 2, a knockdown throwing its bearer down;
 //!   `ActionUseFeat` queues an attack feat it has and nothing for one it
 //!   lacks; `ActionEquipMostEffectiveArmor` wears the carried armour of the
-//!   most armour class (its properties' in) it may wear.
+//!   most armour class (its properties' in) it may wear;
+//! - TSLRCM's last ones and the actions on items, on a walkable half of the
+//!   ground: `ActionForceFollowObject` runs to its object and follows on,
+//!   holds near it, and keeps through a save; `ActionPickUpItem` walks to an
+//!   item, plays the reach-low animation and takes it, `ActionPutDownItem`
+//!   lays it at the feet, and an item another holds is not taken; the
+//!   module's `Mod_OnPlrDeath` runs as the player dies, `GetLastPlayerDied`
+//!   naming it, and its resurrection keeps the game from being lost;
+//!   `DoSinglePlayerAutoSave` and `ShowSwoopUpgradeScreen` tell the player;
+//! - the three combat effects: their constructors' clamps, an invisible
+//!   creature unseen, damage reduction's highest-amount, power and limit
+//!   rule, and a damage shield's blow back with its bonus.
+
+use std::collections::BTreeMap;
 
 use super::{Fighting, Id, SimWorld};
 use crate::StepReason;
@@ -270,6 +283,7 @@ pub fn probes() -> Checks {
     ));
     checks.extend(string_checks());
     checks.extend(world_checks());
+    checks.extend(left_checks());
     checks.push((
         "strings_and_maths_scripted",
         ran("probe_strings_maths").and_then(|snapshot| {
@@ -803,4 +817,590 @@ fn world_checks() -> Checks {
         ),
     ));
     checks
+}
+
+/// The leftover routines' probe's creatures: one following from afar, one
+/// following from near, the one they follow, and one picking up and
+/// putting down an item.
+const FAR: &str = "probe_far";
+const NEAR: &str = "probe_near";
+const LEADER: &str = "probe_leader";
+const PICKER: &str = "probe_picker";
+/// The item lying on the floor, and the one the leader carries.
+const LYING: &str = "probe_datapad";
+const HELD: &str = "probe_credits";
+/// How far the followers follow, and where each creature stands in the
+/// proving ground's frame (metres), all in the half the player arrives in.
+const FOLLOW_FAR_M: f32 = 2.0;
+const SPOTS: [(&str, [f32; 2]); 4] = [
+    (FAR, [-7.0, 3.0]),
+    (NEAR, [-2.5, 3.0]),
+    (LEADER, [-2.0, 3.0]),
+    (PICKER, [-6.0, -3.0]),
+];
+/// Where the item lies: 3 m from the picker.
+const LYING_AT: [f32; 2] = [-3.0, -3.0];
+/// The creatures' walk and run (m/s), and how far they see and hear (m).
+const WALK_RUN: (f32, f32) = (1.7, 5.4);
+const SENSE_M: f32 = 20.0;
+
+/// The leftover routines' probe's routines, each after its number.
+const LEFT_CATALOG: &str = r#"
+// 0
+void SetCustomToken(int nCustomTokenNumber, string sTokenValue);
+// 1
+string IntToString(int nInteger);
+// 2
+object GetObjectByTag(string sTag, int nNth = 0);
+// 3
+object GetFirstPC();
+// 4
+void ActionForceFollowObject(object oFollow, float fFollowDistance = 0.0f);
+// 5
+void ActionPickUpItem(object oItem);
+// 6
+void ActionPutDownItem(object oItem);
+// 7
+object GetLastPlayerDied();
+// 8
+void DoSinglePlayerAutoSave();
+// 9
+void ShowSwoopUpgradeScreen();
+// 10
+int GetIsObjectValid(object oObject);
+// 11
+void ApplyEffectToObject(int nDurationType, effect eEffect, object oTarget, float fDuration = 0.0f);
+// 12
+effect EffectDeath(int nSpectacularDeath = FALSE, int nDisplayFeedback = TRUE, int nNoFadeAway = FALSE);
+// 13
+effect EffectResurrection(int nHPPercent = 0);
+// 14
+effect EffectInvisibility(int nInvisibilityType);
+// 15
+effect EffectDamageReduction(int nAmount, int nDamagePower, int nLimit = 0);
+// 16
+effect EffectDamageShield(int nDamageAmount, int nRandomAmount, int nDamageType);
+// 17
+int GetIsEffectValid(effect eEffect);
+int INVISIBILITY_TYPE_NORMAL = 1;
+int INVISIBILITY_TYPE_DARKNESS = 2;
+int INVISIBILITY_TYPE_IMPROVED = 4;
+int DAMAGE_POWER_NORMAL = 0;
+int DAMAGE_POWER_ENERGY = 6;
+int DAMAGE_TYPE_UNIVERSAL = 8;
+"#;
+
+/// `probe_follow_far`, `probe_follow_near`: the caller follows the leader.
+fn follow(range: f32) -> Ncs {
+    let mut asm = Asm::default();
+    asm.op(float(range));
+    push(&mut asm, &[int(0), text(LEADER), call(2, 2)]);
+    asm.op(call(4, 2)).op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_pick_up`, `probe_put_down`: the caller's action on the item.
+fn on_item(routine: u16) -> Ncs {
+    let mut asm = Asm::default();
+    push(
+        &mut asm,
+        &[int(0), text(LYING), call(2, 2), call(routine, 1)],
+    );
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_lift_held`: the caller tries to pick up the leader's own item.
+fn lift_held() -> Ncs {
+    let mut asm = Asm::default();
+    push(&mut asm, &[int(0), text(HELD), call(2, 2), call(5, 1)]);
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_kill_pc`: the player killed; the module's `probe_plr_death`
+/// (`Mod_OnPlrDeath`) sets token 40 to whether `GetLastPlayerDied` names
+/// the first PC and raises it; `probe_screens` asks for an autosave and
+/// the swoop upgrade screen.
+fn kill_pc() -> Ncs {
+    let mut asm = Asm::default();
+    at_once(
+        &mut asm,
+        &[int(1), int(0), int(0), call(12, 3)],
+        &[call(3, 0)],
+    );
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `effect` applied to `on` at once (`DURATION_TYPE_INSTANT`), by
+/// `LEFT_CATALOG`'s `ApplyEffectToObject`.
+fn at_once(asm: &mut Asm, effect: &[Op], on: &[Op]) {
+    asm.op(float(0.0));
+    push(asm, on);
+    push(asm, effect);
+    asm.op(int(0)).op(call(11, 4));
+}
+
+fn plr_death() -> Ncs {
+    let mut asm = Asm::default();
+    let same = [
+        call(7, 0),
+        call(3, 0),
+        Op::Equal(fmt_odyssey::ncs::Pair::ObjectObject),
+        call(1, 1),
+    ];
+    token(&mut asm, 40, &same);
+    at_once(&mut asm, &[int(100), call(13, 1)], &[call(7, 0)]);
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_effects`: token 41 whether an invisibility of type 3 is an
+/// effect (none), then on the leader a normal invisibility, a damage
+/// reduction (5, a power past energy's, a limit below 0) and a damage shield
+/// (points past the most, a bonus past 2d6, a type below 0), permanent.
+fn effects_script() -> Ncs {
+    let mut asm = Asm::default();
+    token(
+        &mut asm,
+        41,
+        &[int(3), call(14, 1), call(17, 1), call(1, 1)],
+    );
+    let leader = [int(0), text(LEADER), call(2, 2)];
+    for effect in [
+        vec![int(1), call(14, 1)],
+        vec![int(-3), int(99), int(5), call(15, 3)],
+        vec![int(-1), int(11), int(20_000), call(16, 3)],
+    ] {
+        asm.op(float(0.0));
+        push(&mut asm, &leader);
+        push(&mut asm, &effect);
+        asm.op(int(2)).op(call(11, 4));
+    }
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+fn screens() -> Ncs {
+    let mut asm = Asm::default();
+    asm.op(call(8, 0)).op(call(9, 0)).op(Op::Retn);
+    asm.build()
+}
+
+/// The leftover routines' world: the four creatures in a row from the entry
+/// (`SPOTS`), the leader carrying `HELD`, `LYING` on the floor at
+/// `LYING_AT`, a walk from the picker; the module's `Mod_OnPlrDeath` `probe_plr_death` when
+/// `raised`.
+fn left_world(raised: bool) -> Result<(SimWorld, BTreeMap<&'static str, u32>), String> {
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.repute = crate::module::Repute {
+        rows: vec![vec![50; 8]; 8],
+    };
+    let body = crate::module::Body {
+        appearance: 0,
+        size: 3,
+        movement: 4,
+        walk_mps: WALK_RUN.0,
+        run_mps: WALK_RUN.1,
+        head_arc_h: 0.0,
+        bag: 0,
+        destroy_ms: 0,
+        fade_ms: None,
+        bulk: None,
+    };
+    for (tag, [x, y]) in SPOTS {
+        data.placements
+            .push(Placement::Own(crate::module::ObjectData {
+                sheet: Some(Sheet::dev_soldier()),
+                template: tag.to_string(),
+                body: Some(body),
+                senses: Some(crate::module::Senses {
+                    sight: SENSE_M,
+                    hearing: SENSE_M,
+                }),
+                ..crate::module::ObjectData::bare(
+                    ObjectKind::Creature,
+                    tag,
+                    crate::determinism::ground_point(x, y, 0.0),
+                )
+            }));
+    }
+    if raised {
+        data.module_scripts
+            .push(("Mod_OnPlrDeath".into(), "probe_plr_death".into()));
+    }
+    let module = data.name.clone();
+    let library = crate::probe::library(
+        LEFT_CATALOG,
+        [
+            ("probe_follow_far", follow(FOLLOW_FAR_M)),
+            ("probe_follow_near", follow(FOLLOW_FAR_M)),
+            ("probe_follow_none", follow(0.0)),
+            ("probe_pick_up", on_item(5)),
+            ("probe_put_down", on_item(6)),
+            ("probe_lift_held", lift_held()),
+            ("probe_kill_pc", kill_pc()),
+            ("probe_plr_death", plr_death()),
+            ("probe_screens", screens()),
+            ("probe_effects", effects_script()),
+        ],
+    )
+    .with_items(Catalog::new([
+        ItemFacts::plain(LYING),
+        ItemFacts::plain(HELD),
+    ]))
+    .with_move_rates(crate::script::MoveRates {
+        player: Some(WALK_RUN),
+        default: Some(WALK_RUN),
+    });
+    // The navigation mesh over that half (`pace_probes`'s).
+    let [a, b, c, d] = [[-7.5, -5.5], [-0.5, -5.5], [-0.5, 5.5], [-7.5, 5.5]]
+        .map(|[x, y]| crate::determinism::ground_point(x, y, 0.0));
+    let mut nav = collision::nav::NavMesh::build(
+        &[[a, b, c], [a, c, d]],
+        crate::walk::CLEARANCE * collision::UNIT,
+    );
+    if let Some(level) = ground.collision().level() {
+        nav.mark(level);
+    }
+    let level = ground.with_module(data).with_scripts(library).with_nav(nav);
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    let start = step(&mut world);
+    let objects = crate::Instances::in_snapshot(world.level(), &start);
+    let mut ids = BTreeMap::new();
+    for entity in &start.entities {
+        if let Some(data) = objects.of_entity(entity)
+            && let Some((tag, _)) = SPOTS.iter().find(|(tag, _)| *tag == data.tag)
+        {
+            ids.insert(*tag, entity.id.0);
+        }
+    }
+    let leader = *ids.get(LEADER).ok_or("no leader")?;
+    let catalog = Catalog::new([ItemFacts::plain(LYING), ItemFacts::plain(HELD)]);
+    let mut state = world.script_state().clone();
+    let lying = crate::determinism::ground_point(LYING_AT[0], LYING_AT[1], 0.0);
+    state
+        .lay_item(&catalog, LYING, &module, (lying, 0.0))
+        .ok_or("no item laid")?;
+    state
+        .make_item(&catalog, HELD, leader, 1, None)
+        .ok_or("no item held")?;
+    world.set_script_state(state);
+    Ok((world, ids))
+}
+
+/// `script` queued for `caller`.
+fn run_as(world: &mut SimWorld, script: &str, caller: u32) {
+    let mut state = world.script_state().clone();
+    state.pending.push(Pending::new(script, ObjectId(caller)));
+    world.set_script_state(state);
+}
+
+/// `who`'s queue now.
+fn queue_of(world: &SimWorld, who: u32) -> Vec<Action> {
+    world
+        .script_state()
+        .actions
+        .get(&who)
+        .map_or_else(Vec::new, |queue| {
+            queue.iter().map(|queued| queued.action.clone()).collect()
+        })
+}
+
+/// `ActionForceFollowObject`: the far follower queues a run to the leader
+/// within its range and the follow again behind it; the near one holds its
+/// follow step after step; a distance of 0 follows at the least range;
+/// the queues come back from a save as they were.
+fn force_follow() -> Result<String, String> {
+    use crate::script::actions::Target;
+    let (mut world, ids) = left_world(false)?;
+    let (far, near, leader) = (ids[FAR], ids[NEAR], ids[LEADER]);
+    run_as(&mut world, "probe_follow_far", far);
+    run_as(&mut world, "probe_follow_near", near);
+    step(&mut world);
+    step(&mut world);
+    step(&mut world);
+    let follow = Action::Follow {
+        object: ObjectId(leader),
+        range: FOLLOW_FAR_M,
+    };
+    let (far_queue, near_queue) = (queue_of(&world, far), queue_of(&world, near));
+    let ran = matches!(
+        far_queue.as_slice(),
+        [Action::Move { to: Target::Object(to), run: true, range, .. }, again]
+            if *to == ObjectId(leader) && *range == FOLLOW_FAR_M && *again == follow
+    );
+    let held = near_queue == [follow];
+    let state = world.script_state();
+    let mut out = crate::wire::Writer::default();
+    state.encode(&mut out);
+    let kept = crate::script::State::decode(&mut crate::wire::Reader::new("state", &out.0))
+        .is_ok_and(|back| back.actions == state.actions);
+    run_as(&mut world, "probe_follow_none", near);
+    step(&mut world);
+    let least = queue_of(&world, near).iter().any(|action| {
+        *action
+            == Action::Follow {
+                object: ObjectId(leader),
+                range: rules::scripts::moves::FOLLOW_LEAST,
+            }
+    });
+    check(
+        ran && held && kept && least,
+        format!(
+            "far {far_queue:?}; near {near_queue:?}; kept {kept}; a distance of 0 at the least {least}"
+        ),
+    )
+}
+
+/// `ActionPickUpItem` and `ActionPutDownItem`: the picker walks to the item,
+/// plays the reach-low animation, then holds it (the floor without it); put
+/// down, it lies at the picker's feet again, the area's; an item the
+/// leader holds is not taken.
+fn pick_up_put_down() -> Result<String, String> {
+    use crate::script::actions::{GET_LOW, PICK_UP_MS};
+    let (mut world, ids) = left_world(false)?;
+    let (picker, leader) = (ids[PICKER], ids[LEADER]);
+    let module = world
+        .level()
+        .module()
+        .map(|m| m.name.clone())
+        .ok_or("the ground has no module")?;
+    let item_of = |world: &SimWorld, template: &str| {
+        let state = world.script_state();
+        state
+            .items
+            .iter()
+            .find(|(_, held)| held.template == template)
+            .map(|(id, held)| (*id, held.holder))
+    };
+    let (item, _) = item_of(&world, LYING).ok_or("no item")?;
+    let animation = Action::Animate {
+        animation: GET_LOW,
+        ms: PICK_UP_MS,
+    };
+    let mut animated = false;
+    run_as(&mut world, "probe_pick_up", picker);
+    let mut steps = 0;
+    let mut began = Vec::new();
+    while steps < 2000
+        && world
+            .script_state()
+            .lying(&module, ObjectId(item))
+            .is_some()
+    {
+        step(&mut world);
+        animated |= queue_of(&world, picker).first() == Some(&animation);
+        steps += 1;
+        if steps == 5 {
+            began = queue_of(&world, picker);
+        }
+    }
+    let holder = item_of(&world, LYING).map(|(_, holder)| holder);
+    let picked = holder == Some(picker);
+    let reach = rules::scripts::moves::PICK_UP_REACH;
+    let off_floor = !world.script_state().floor.contains_key(&item);
+    run_as(&mut world, "probe_put_down", picker);
+    let mut dropped_animated = false;
+    for _ in 0..400 {
+        step(&mut world);
+        dropped_animated |= queue_of(&world, picker).first() == Some(&animation);
+    }
+    let at = world
+        .script_state()
+        .lying(&module, ObjectId(item))
+        .map(|lying| lying.at);
+    let feet = world
+        .snapshot()
+        .get(crate::snapshot::SimId(picker))
+        .map(|entity| entity.position);
+    let put = at
+        .zip(feet)
+        .is_some_and(|(at, feet)| crate::script::mod_routines::distance(at, feet) < reach);
+    run_as(&mut world, "probe_lift_held", picker);
+    for _ in 0..40 {
+        step(&mut world);
+    }
+    let kept = item_of(&world, HELD).map(|(_, holder)| holder) == Some(leader)
+        && queue_of(&world, picker).is_empty();
+    check(
+        picked && off_floor && animated && dropped_animated && put && kept,
+        format!(
+            "picked {picked} in {steps} steps (animated {animated}; queued {began:?}); put down at {at:?}, \
+             feet {feet:?} (animated {dropped_animated}); the leader's kept {kept}"
+        ),
+    )
+}
+
+/// The module's `Mod_OnPlrDeath` runs as the player dies, `GetLastPlayerDied`
+/// the player; its resurrection keeps the game from being lost; without
+/// it, the game is lost. `DoSinglePlayerAutoSave` and
+/// `ShowSwoopUpgradeScreen` tell the player.
+fn player_died() -> Result<String, String> {
+    let mut outcomes = Vec::new();
+    for raised in [true, false] {
+        let (mut world, _) = left_world(raised)?;
+        run_as(&mut world, "probe_kill_pc", crate::script::MODULE.0);
+        let mut last = step(&mut world);
+        for _ in 0..20 {
+            last = step(&mut world);
+        }
+        let named = read(&last, 40);
+        outcomes.push((raised, named, last.lost.is_some()));
+    }
+    let (mut world, _) = left_world(false)?;
+    run_as(&mut world, "probe_screens", crate::script::MODULE.0);
+    step(&mut world);
+    let told: Vec<Notice> = world
+        .take_notices()
+        .into_iter()
+        .map(|(_, notice)| notice)
+        .collect();
+    let screens = told.contains(&Notice::AutoSave)
+        && told.contains(&Notice::Show(crate::notice::Screen::SwoopUpgrade));
+    check(
+        outcomes == [(true, "1".into(), false), (false, "(unset)".into(), true)] && screens,
+        format!("(raised, the player named, lost): {outcomes:?}; told {told:?}"),
+    )
+}
+
+/// The three effects as the constructors clamp them: no invisibility of an
+/// unknown type; a reduction's power past energy's none's, its limit at
+/// least 0; a shield's points past the most 1, its bonus past 2d6 none, its
+/// type below 0 universal. The leader, invisible, is not seen by the near
+/// follower, which saw it before.
+fn three_effects() -> Result<String, String> {
+    use crate::combat::effects::Modifies;
+    let (mut world, ids) = left_world(false)?;
+    let (near, leader) = (ids[NEAR], ids[LEADER]);
+    let seen = |world: &SimWorld| {
+        world
+            .script_state()
+            .perceived
+            .get(&near)
+            .is_some_and(|perceived| perceived.seen.contains(&leader))
+    };
+    for _ in 0..300 {
+        step(&mut world);
+    }
+    let before = seen(&world);
+    run_as(&mut world, "probe_effects", crate::script::MODULE.0);
+    let made = step(&mut world);
+    for _ in 0..300 {
+        step(&mut world);
+    }
+    let after = seen(&world);
+    let lasting: Vec<(Modifies, i16, u8, u32)> = world
+        .world
+        .query::<(&Id, &Fighting)>()
+        .iter(&world.world)
+        .filter(|(id, _)| id.0.0 == leader)
+        .flat_map(|(_, fighting)| fighting.0.effects.lasting.iter().flatten().copied())
+        .map(|l| (l.modifies, l.amount, l.of, l.third))
+        .collect();
+    let want = [
+        (Modifies::Invisibility, 1, 0, 0),
+        (Modifies::DamageReduction, 5, 0, 0),
+        (Modifies::DamageShield, 1, 0, 8),
+    ];
+    let unknown = read(&made, 41);
+    check(
+        want.iter().all(|w| lasting.contains(w)) && unknown == "0" && before && !after,
+        format!(
+            "on the leader {lasting:?}; type 3 an effect {unknown}; seen before {before}, \
+             invisible {after}"
+        ),
+    )
+}
+
+/// The damage reduction's rule (`harm::reduced`): 10 off a physical hit
+/// below power 2, none at power 2 or on another type; a limit of 5 is
+/// drained by a 3-point blow (all taken off) to 2, then a 8-point blow
+/// spends it, taking 2 off and ending it. A shield of 4 points and a bonus
+/// of 3, slashing, strikes back 7 of slashing; 2d6 more lies in 2 to 12.
+fn reduction_and_shield() -> Result<String, String> {
+    use crate::combat::effects::{Lasting, Modifies};
+    use crate::combat::sheet::type_rows::SLASHING;
+    let lasting = |modifies, amount, of, third| Lasting {
+        modifies,
+        amount,
+        of,
+        until: u64::MAX,
+        spell: u16::MAX,
+        by: 0,
+        id: 7,
+        at: 0,
+        third,
+    };
+    let mut fighter = crate::combat::Fighter::fresh(20, 0);
+    fighter.effects.lasting[0] = Some(lasting(Modifies::DamageReduction, 10, 2, 0));
+    let physical = Some(SLASHING);
+    let cases = [
+        super::harm::reduced(&mut fighter, 1500, (physical, 0), 1),
+        super::harm::reduced(&mut fighter, 1500, (physical, 2), 1),
+        super::harm::reduced(&mut fighter, 1500, (Some(SLASHING + 1), 0), 1),
+    ];
+    fighter.effects.lasting[0] = Some(lasting(Modifies::DamageReduction, 10, 2, 5));
+    let first = super::harm::reduced(&mut fighter, 300, (physical, 0), 1);
+    let left = fighter.effects.lasting[0].map(|l| l.third);
+    let second = super::harm::reduced(&mut fighter, 800, (physical, 0), 1);
+    let ended = fighter.effects.reduction(1).is_none();
+    let slashing_flag = 1u32 << SLASHING;
+    let hit = super::Hit {
+        attacker: crate::snapshot::SimId(1),
+        target: crate::snapshot::SimId(2),
+        source: crate::combat::damage::Source::Death,
+        point: None,
+        direction: None,
+    };
+    let mut rng = crate::rng::SimRng::new(1, 2);
+    let flat = super::harm::shield_blow(
+        &lasting(Modifies::DamageShield, 4, 3, slashing_flag),
+        hit,
+        &mut rng,
+    );
+    let rolled: Vec<u16> = (0..50)
+        .filter_map(|_| {
+            let blow =
+                super::harm::shield_blow(&lasting(Modifies::DamageShield, 0, 10, 0), hit, &mut rng);
+            match blow.source {
+                crate::combat::damage::Source::Script { damage, .. } => Some(damage),
+                _ => None,
+            }
+        })
+        .collect();
+    let back = matches!(
+        flat.source,
+        crate::combat::damage::Source::Script { damage: 7, damage_type: Some(row), .. } if row == SLASHING
+    ) && flat.target == hit.attacker
+        && flat.attacker == hit.target;
+    let dice = rolled.iter().all(|d| (2..=12).contains(d)) && rolled.len() == 50;
+    check(
+        cases == [500, 1500, 1500]
+            && first == 0
+            && left == Some(2)
+            && second == 600
+            && ended
+            && back
+            && dice,
+        format!(
+            "{cases:?}; limited: {first} then {left:?} left, {second} (ended {ended}); \
+             shield back {flat:?}; 2d6 {dice}"
+        ),
+    )
+}
+
+/// The leftover routines' checks (TSLRCM's, the item actions, the three
+/// effects).
+fn left_checks() -> Checks {
+    vec![
+        ("force_follow", force_follow()),
+        ("pick_up_put_down", pick_up_put_down()),
+        ("player_died", player_died()),
+        ("invisibility_reduction_shield_made", three_effects()),
+        ("reduction_and_shield_rules", reduction_and_shield()),
+    ]
 }

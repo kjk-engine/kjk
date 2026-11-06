@@ -132,6 +132,8 @@ fn name(screen: Screen) -> String {
         Screen::GalaxyMap { .. } => "galaxymap".into(),
         Screen::Pazaak => "pazaak".into(),
         Screen::Tutorial { .. } | Screen::Datapad { .. } => "pages".into(),
+        // No screen of its own yet: `open` warns of it.
+        Screen::SwoopUpgrade => "swoopupgrade".into(),
     }
 }
 

@@ -3,9 +3,10 @@
 //! the authority, after the step's hits (`falls`), in order:
 //!
 //! 1. one down that left the party gets up at once;
-//! 2. the whole party down is the loss (`Snapshot::lost`; a script's
-//!    `EndGame` with its death screen is one too), final until the
-//!    world is replaced;
+//! 2. the whole party down since a step before is the loss
+//!    (`Snapshot::lost`; a script's `EndGame` with its death screen is one
+//!    too), final until the world is replaced: the step it falls, the
+//!    module's `Mod_OnPlrDeath` may raise a player first;
 //! 3. the revives chosen in the target block (`Action::Revive`) begin on
 //!    their bodies;
 //! 4. the revives under way go on, finish or break off;
@@ -98,7 +99,21 @@ pub(super) fn falls(
         arena_falls(arena, &mut rows, &party, anims, now);
         return;
     }
-    if lost.0.is_none() && !party.is_empty() && party.iter().all(|&at| !rows[at].5.0.alive()) {
+    // The step after the last fell: the module's `Mod_OnPlrDeath`, raised
+    // the step a player falls, may raise them first (`scripts`).
+    // A death has no fall's time: its blow's event, this tick, says so.
+    let down = |at: usize| {
+        let fighter = &rows[at].5.0;
+        let now_fell = match &fighter.fallen {
+            Some(fallen) => fallen.since_ms >= now,
+            None => fighter
+                .newest()
+                .next()
+                .is_some_and(|event| event.tick >= clock.tick),
+        };
+        !fighter.alive() && !now_fell
+    };
+    if lost.0.is_none() && !party.is_empty() && party.iter().all(|&at| down(at)) {
         lost.0 = Some(now);
     }
     if lost.0.is_some() {

@@ -49,6 +49,8 @@ pub enum Hook {
     AcquireItem,
     UnacquireItem,
     ActivateItem,
+    /// The module's, as a player's character falls (`Mod_OnPlrDeath`).
+    PlayerDeath,
 }
 
 /// Who holds a hook: an object of the area, the area, or the module.
@@ -119,6 +121,7 @@ impl Hook {
             AcquireItem if module => "Mod_OnAcquirItem",
             UnacquireItem if module => "Mod_OnUnAqreItem",
             ActivateItem if module => "Mod_OnActvtItem",
+            PlayerDeath if module => "Mod_OnPlrDeath",
             _ => return None,
         };
         Some(label)

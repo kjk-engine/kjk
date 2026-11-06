@@ -1153,10 +1153,13 @@ fn tsl_party_rules() {
 /// string routines as `CExoString` and `atof` work them, and in a world of
 /// three creatures the faction walk, leader and change, the sheet getters,
 /// an item's worth, floating text, six effects, `ActionUseFeat` and
-/// `ActionEquipMostEffectiveArmor`. The sim alone, on the proving ground.
+/// `ActionEquipMostEffectiveArmor`; TSLRCM's last ones (a forced follow,
+/// the module's player death and `GetLastPlayerDied`, the autosave and
+/// swoop screen asked), a pick-up and a put-down, and invisibility, damage
+/// reduction and damage shields. The sim alone, on the proving ground.
 #[test]
 fn mod_routines() {
-    probed("mod routines", &sim::routine_probes::probes(), 13);
+    probed("mod routines", &sim::routine_probes::probes(), 18);
 }
 
 /// The dead's remains (KOTOR's body bags; `sim::remains::probes`), owner

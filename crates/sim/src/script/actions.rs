@@ -71,6 +71,21 @@
 //!   range, and the follow again are queued behind what waits, and it
 //!   completes (the executable's `AIActionFollowOwner`: it never ends but
 //!   by a clear); one that is no puppet in the party, or dead, fails;
+//! - **force follow** (`ActionForceFollowObject`): held while its object
+//!   stands within its range (2D); farther, a run to it, within the range,
+//!   and the follow again are queued behind what waits (the executable's
+//!   follow and its check, each queueing the other again: it never ends but
+//!   by a clear); gone with its object, or failed when it is dead;
+//! - **pick up** (`ActionPickUpItem`): an item lying on this area's floor;
+//!   walks to within `PICK_UP_REACH` (3D) of it, plays the reach-low
+//!   animation for `PICK_UP_MS` (the executable's height test reads a value
+//!   it never set, so always the low one), then the item is its own, or the
+//!   party's for a party member, and the module's acquire runs as for any;
+//!   an item someone holds, or none, fails;
+//! - **put down** (`ActionPutDownItem`): an item it holds or wears is laid
+//!   at its feet after the same animation (the executable drops it at the
+//!   caller's own position, so there is no walk); one it does not hold
+//!   fails;
 //! - **instant**: a routine queued as an action the sim cannot do yet (a
 //!   gap), which completes at once.
 //!
@@ -199,6 +214,22 @@ pub enum Action {
     FollowOwner {
         range: f32,
     },
+    /// `ActionForceFollowObject`: keeps within `range` (metres) of `object`.
+    Follow {
+        object: ObjectId,
+        range: f32,
+    },
+    /// `ActionPickUpItem`: `item` off the floor; `played` once its
+    /// animation has been queued before it.
+    PickUp {
+        item: ObjectId,
+        played: bool,
+    },
+    /// `ActionPutDownItem`: `item` laid at the feet; `played` as `PickUp`'s.
+    PutDown {
+        item: ObjectId,
+        played: bool,
+    },
 }
 
 impl Action {
@@ -226,6 +257,9 @@ impl Action {
             Action::Surrender => "surrender",
             Action::Bark { .. } => "bark",
             Action::FollowOwner { .. } => "follow owner",
+            Action::Follow { .. } => "force follow",
+            Action::PickUp { .. } => "pick up",
+            Action::PutDown { .. } => "put down",
         }
     }
 
@@ -249,6 +283,9 @@ impl Action {
             Action::RandomWalk { .. } => "ACTION_RANDOMWALK",
             Action::Converse { .. } => "ACTION_DIALOGOBJECT",
             Action::FollowOwner { .. } => "ACTION_FOLLOWOWNER",
+            Action::Follow { .. } => "ACTION_FOLLOW",
+            Action::PickUp { .. } => "ACTION_PICKUPITEM",
+            Action::PutDown { .. } => "ACTION_DROPITEM",
             Action::Jump { .. }
             | Action::Code { .. }
             | Action::Hold { .. }
@@ -301,6 +338,14 @@ pub use crate::combat::ROUND_MS;
 /// after this long (ms) if not reached.
 pub const WANDER_M: f32 = rules::scripts::wander::REACH_M;
 pub const WANDER_MS: u64 = rules::scripts::wander::REPICK_MS;
+
+/// How near an item (3D) a character picks it up or puts it down
+/// (metres), and how long its animation plays first (ms).
+pub const PICK_UP_REACH: f32 = rules::scripts::moves::PICK_UP_REACH;
+pub const PICK_UP_MS: u32 = rules::scripts::moves::PICK_UP_MS;
+/// `ANIMATION_LOOPING_GET_LOW`, the reach-low animation a pick-up and a
+/// put-down play (the executables' own animation for that constant).
+pub const GET_LOW: u16 = 10;
 
 /// How near a door an object opens or closes it (metres).
 pub const DOOR_REACH: f32 = rules::scripts::moves::DOOR_REACH;
