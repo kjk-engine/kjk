@@ -344,18 +344,7 @@ fn target(
                 .map(|candidate| candidate.index)
         }
         None => {
-            // Only those `pick` may choose: within its range, or within
-            // reach in front (its last resort). It traces a line of sight
-            // to each it weighs, and the rest of the area's candidates
-            // cost a trace each and could never be chosen.
-            let weighed: Vec<sim::target::Candidate> = candidates
-                .iter()
-                .filter(|candidate| {
-                    sim::math::flat_distance(candidate.feet, feet) <= sim::target::RANGE
-                        || sim::containers::ahead(feet, looker.facing, candidate.feet).is_some()
-                })
-                .copied()
-                .collect();
+            let weighed = sim::target::weighed(&candidates, &looker);
             sim::target::pick(level, states.as_deref(), &look, &looker, &weighed)
         }
     };

@@ -227,6 +227,7 @@ The report says what held it. Sort it into one of these:
 | `stalled N times`, the player high off the floor | navigation: the mesh sends a body where collision stops it | `kjk collision trace` (below) |
 | `no object tagged …` after a module change | the route's goal is for the last module | the route |
 | gaps, faults, missing scripts in the summary | an engine routine not bound or failing | `SCRIPTS.md`, `kjk script coverage` |
+| `the crosshair picks TAG neither from (x, y, z) nor from any floor round it: a player cannot click it` | the object can be used, but a player's crosshair lands on it neither from where the walk stood nor from any floor within 8 m a way leads to (`playthrough/aim.rs`), so in the window E does nothing (Peragus' consoles, 2026-11-05) | `sim::target::pick`: its pick volume (`candidates`, `hung`) and line of sight (`seen`) |
 
 Tools for the second look:
 

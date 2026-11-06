@@ -37,7 +37,7 @@ pub const HOLD_MS: u64 = rules::targeting::pick::HOLD_MS;
 
 /// How high a standing player's eyes are above its feet (metres), for the
 /// near rule's sight.
-const EYES: f32 = rules::targeting::pick::EYES;
+pub const EYES: f32 = rules::targeting::pick::EYES;
 /// How near the point it looks at a line of sight may stop (metres; `seen`).
 const SIGHT_SLACK: f32 = rules::targeting::pick::SIGHT_SLACK;
 /// A creature's pick volume: a standing cylinder (metres).
@@ -117,7 +117,7 @@ impl Candidate {
     }
 
     /// The point of its axis `share` of the way up its volume.
-    fn up(&self, share: f32) -> Vec3 {
+    pub fn up(&self, share: f32) -> Vec3 {
         [
             self.feet[0],
             self.feet[1],
@@ -373,6 +373,20 @@ pub fn pick(
         })
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, index)| index)
+}
+
+/// Those of `candidates` that `pick` may choose for `looker`: within its
+/// range, or within reach in front (its last resort). It traces a line of
+/// sight to each it weighs, and the rest could never be chosen.
+pub fn weighed(candidates: &[Candidate], looker: &Looker) -> Vec<Candidate> {
+    candidates
+        .iter()
+        .filter(|candidate| {
+            math::flat_distance(candidate.feet, looker.feet) <= RANGE
+                || crate::containers::ahead(looker.feet, looker.facing, candidate.feet).is_some()
+        })
+        .copied()
+        .collect()
 }
 
 /// What may be done to a target (T8), the first the default.
@@ -711,7 +725,7 @@ fn feet_of(player: &crate::motion::MotionState) -> Vec3 {
 }
 
 /// The feet (metres) of a body whose origin is `origin` (units).
-fn feet_at(origin: Vec3) -> Vec3 {
+pub fn feet_at(origin: Vec3) -> Vec3 {
     math::scale(
         [origin[0], origin[1], origin[2] + crate::motion::SOLE_Z],
         UNIT,
