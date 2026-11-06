@@ -658,6 +658,27 @@ impl Resolver {
         names
     }
 
+    /// The module whose own archives hold each resref of `restype` that
+    /// they hold, the first by name where several do: where a template the
+    /// shared data lacks is read once its module is left (an item carried
+    /// out of the module that made it). Meant for a `base`.
+    pub fn module_owners(
+        &self,
+        index: &DirIndex,
+        restype: ResType,
+    ) -> std::collections::BTreeMap<String, String> {
+        let mut owners = std::collections::BTreeMap::new();
+        for module in Resolver::modules(index) {
+            let Ok(resolver) = self.with_module(index, &module) else {
+                continue;
+            };
+            for name in resolver.module_names(restype) {
+                owners.entry(name).or_insert_with(|| module.clone());
+            }
+        }
+        owners
+    }
+
     /// Every layer once: this (shared) resolver's, then each module's own
     /// archives (`modules`). For walking every copy of every resource.
     pub fn every_layer(&self, index: &DirIndex) -> Vec<Arc<Layer>> {
