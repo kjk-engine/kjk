@@ -268,12 +268,3 @@ pub fn wear(
         chest: look.chest,
     })
 }
-
-/// The persona of the player whose own character is `id` in `snapshot`.
-pub fn of_character(snapshot: &sim::Snapshot, id: u32) -> Option<&Persona> {
-    let entity = snapshot.entities.iter().find(|entity| entity.id.0 == id)?;
-    match entity.kind {
-        sim::Kind::Avatar(seat) => sim::persona::of(&snapshot.personas, seat),
-        _ => None,
-    }
-}

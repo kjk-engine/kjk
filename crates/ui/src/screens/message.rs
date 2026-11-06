@@ -1,23 +1,27 @@
 //! A message and OK (`confirm`): why a session could not start, a
 //! script's message box (`DisplayMessageBox`, its strref), and the like,
 //! the box grown to it as KOTOR's grows (`fit`) and what still does not fit
-//! scrolled. OK or Back closes it.
+//! scrolled. OK or Back closes it. Every other box on `confirm` (a
+//! question, a tutorial's pages) asks through a `Message` for its words, so
+//! each grows and scrolls alike.
 
 use fmt_odyssey::gui::{Control, Gui};
 
 use crate::draw::Textures;
 use crate::intent::Intent;
-use crate::paint::{ControlState, ListView, Row, rows_that_fit, wrap};
+use crate::paint::{ControlState, ListView, Row, fill_tokens, rows_that_fit, wrap};
 use crate::screen::{Screen, ScreenId};
 use crate::screens::pages::description;
-use crate::screens::tab::told;
 use crate::skin::Source;
 use crate::strings;
 use crate::vm::ViewModel;
 
+/// What a talk-table entry's tokens (`<CUSTOM0>`, by name) are filled with.
+pub type Tokens = Vec<(&'static str, Vec<u8>)>;
+
 enum Words {
     Text(String),
-    Strref(u32),
+    Strref(u32, Tokens),
     /// In the game's code page.
     Said(Vec<u8>),
 }
@@ -45,18 +49,36 @@ impl Message {
 
     /// The game's text `strref`.
     pub fn told(strref: &str) -> Option<Message> {
-        Some(Message::of(Words::Strref(strref.parse().ok()?)))
+        Some(Message::strref(strref.parse().ok()?, Vec::new()))
+    }
+
+    /// The game's text `strref`, its `tokens` filled in.
+    pub fn strref(strref: u32, tokens: Tokens) -> Message {
+        Message::of(Words::Strref(strref, tokens))
     }
 }
 
 /// A message box of pages a script showed (`ViewModel::pages`): KOTOR's
 /// tutorial window (its `tutorial.2da` row's `Message_PC0` to `2`, a page
 /// each) and TSL's datapad (its item's words). OK turns the page, and on
-/// the last closes it; there is no cancel. The tutorial's icon is not drawn
-/// [verify where KOTOR puts it].
-#[derive(Default)]
+/// the last closes it; there is no cancel. Each page is a box of its own
+/// (`pages:<at>`), grown to its words as KOTOR's tutorial box grows for
+/// each message. The tutorial's icon is not drawn [verify where KOTOR puts
+/// it].
 pub struct Pages {
     at: usize,
+    page: Message,
+}
+
+impl Pages {
+    /// Page `at` of the pages `vm` holds.
+    pub fn new(at: &str, vm: &ViewModel) -> Option<Pages> {
+        let at = at.parse().ok()?;
+        Some(Pages {
+            at,
+            page: Message::said(vm.pages.get(at).cloned().unwrap_or_else(Vec::new)),
+        })
+    }
 }
 
 impl Screen for Pages {
@@ -69,25 +91,15 @@ impl Screen for Pages {
     }
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
-        match control.tag.as_str() {
-            "LB_MESSAGE" => description(vm.pages.get(self.at).map_or(&[][..], Vec::as_slice)),
-            "BTN_OK" => ControlState {
-                text: Some(strings::bytes(strings::OK)),
-                ..ControlState::default()
-            },
-            "BTN_CANCEL" => ControlState {
-                hidden: true,
-                ..ControlState::default()
-            },
-            _ => ControlState::default(),
-        }
+        self.page.state(control, vm)
     }
 
     fn press(&mut self, tag: &str, vm: &ViewModel, out: &mut Vec<Intent>) {
         if tag == "BTN_OK" {
-            self.at += 1;
-            if self.at >= vm.pages.len() {
-                out.push(Intent::Close);
+            out.push(Intent::Close);
+            let next = self.at + 1;
+            if next < vm.pages.len() {
+                out.push(Intent::OpenFor("pages", next.to_string()));
             }
         }
     }
@@ -96,8 +108,8 @@ impl Screen for Pages {
         Some("BTN_OK")
     }
 
-    fn shape(&self, gui: &mut Gui) {
-        grow(gui);
+    fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
+        self.page.fit(gui, textures, source);
     }
 }
 
@@ -163,9 +175,6 @@ impl Screen for Restore {
     }
 }
 
-/// Lines of room the box gains for its message.
-const GROW: i32 = 3 * 18;
-
 impl Screen for Message {
     fn id(&self) -> ScreenId {
         ScreenId("message")
@@ -193,7 +202,11 @@ impl Screen for Message {
                     ..ControlState::default()
                 },
                 (None, Words::Text(text)) => description(&strings::bytes(text)),
-                (None, Words::Strref(strref)) => told(Some(*strref)),
+                (None, Words::Strref(strref, tokens)) => ControlState {
+                    strref: Some(*strref),
+                    tokens: tokens.clone(),
+                    ..ControlState::default()
+                },
                 (None, Words::Said(words)) => description(words),
             },
             "BTN_OK" => ControlState {
@@ -221,19 +234,14 @@ impl Screen for Message {
     fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
         let words = match &self.words {
             Words::Text(text) => strings::bytes(text),
-            Words::Strref(strref) => match textures.text(Source::Campaign, *strref) {
-                Some(words) => words,
+            Words::Strref(strref, tokens) => match textures.text(Source::Campaign, *strref) {
+                Some(words) => fill_tokens(words, tokens),
                 None => return,
             },
             Words::Said(words) => words.clone(),
         };
         self.lines = fit(gui, textures, source, &words);
     }
-}
-
-/// `confirm` grown by `GROW` for its message, the buttons below moved down.
-pub(super) fn grow(gui: &mut Gui) {
-    taller(gui, GROW);
 }
 
 /// `confirm` `by` taller, its top up half of it, the list as much taller

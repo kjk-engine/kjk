@@ -254,7 +254,9 @@ where they part, the choice is ours and named.
   after it comes (`EVENTS.md`, action queues).
 - **Replies.** The player may answer while the line plays (it is cut),
   not while it is paused;
-  the one silent reply is taken when the line ends; none ends the
+  the one silent reply is taken when the line ends (one saying nothing
+  but developer notes, `{camera 33}`, is silent: TSL's `101awake` and
+  `003disci` close every line with one); none ends the
   conversation. A reply runs its scripts, then the first entry it links
   to whose condition holds; none ends it. A skip ends the line where the
   DLG is `Skippable` and the entry is not TSL's `NodeUnskippable`: TSL's
@@ -304,8 +306,10 @@ where they part, the choice is ours and named.
   the journal (`WORLD-STATE.md`, "The journal"). Not yet: the scripts'
   `bPrivateConversation` (a player's own conversation in co-op is
   another thing, below), `bUseLeader`, the ignore list.
-- **Gestures** (`AnimList`, outside animated cutscenes): a shown entry's
-  participants (`owner`, `player`: the listener where it is a guest
+- **Gestures** (`AnimList`; in an animated cutscene or a staged
+  conversation too, but for its stunt participants, whose stunt models
+  pose them): a shown entry's
+  participants (`owner` or no tag, `player`: the listener where it is a guest
   seat's body, else the PC, as lines are said to and the camera frames;
   else by tag; one not found left out)
   play its `dialoganimations.2da` row (value − 10000) for the line's
@@ -328,7 +332,12 @@ where they part, the choice is ours and named.
   row played only where its `Dialog` column is set, else a `cut` clip by
   range (1000+ `cut%03d`, 1200+ `cut%03dw`, 1400+ `cut%03dl`, 1600+
   `cut%03dwl`, 128 each, numbered from 1), so K1's 35, 40, 41, 44, 70 and
-  2000 play nothing.
+  2000 play nothing. In both games a value from 1000 plays that `cut` clip
+  on the participant's own body (`fmt_odyssey::dlg::cut_clip`; the `l`
+  runs looped for the line, the others once): TSL's player afloat, sinking,
+  lying and getting up in `101awake` (no stunt models), Atton's and
+  Kreia's lines elsewhere. Both executables' tables name each run's 29th
+  clip as its 39th (`cut039`; neither holds a `cut029`), as played here (QUIRKS Q-0360).
 - **Talking** (render only; outside animated cutscenes and staged
   conversations): a conversation's speaker (`Conversation::speaker`, the
   entry's; never the PC for its replies) loops its chain's `tlknorm`
@@ -375,10 +384,19 @@ where they part, the choice is ours and named.
   the heads' faces come from the voice's LIP alone, "Lips" below), and
   `PostProcNode`/`PostProcOwner` (no code names either field: no voice
   filter is put on a droid's or a comm's line by them).
-- **Video effects** (`CamVidEffect`, `game::video_effect`): a line's row (0
-  on) shows that `videoeffects.2da` row while it shows; -1 on a placed
-  camera's line shows none; -1 elsewhere and -2 keep the line before's; a
-  conversation begins and ends with none [verify -1 on a placed camera].
+- **Video effects** (`CamVidEffect`, `game::video_effect`): as each
+  executable sets it when it puts a line's camera up
+  (both Mac executables, 2026-11-05/06;
+  `dialogue.cameras.every_camera_effect`). An animated camera's line
+  (`CameraAngle` 5) keeps what showed. K1: a placed camera's line (6) shows
+  its `videoeffects.2da` row (0 on) and keeps the line before's on -1 or
+  -2; any other camera's line shows none, so the Endar Spire's Trask is
+  clear again after Carth's call (`end_trask01` 32 to 33). TSL: every other
+  camera's line shows its row and none on -1 or -2, where a script's
+  `EnableVideoEffect` shows on. TSL's DLGs give 98
+  rows to lines on cameras 0, 1 and 4 (the prologue's T3 views, `intro`
+  row 1 on camera 4; Kreia's visions, rows 3 and 0); 446 lines in all carry
+  one. A conversation begins and ends with none.
 - **Fades:** a node's own (`FadeType`, `FadeDelay`, `FadeLength`,
   `FadeColor`; `dlg::NodeFade`) starts as the node plays (an entry shown,
   a reply taken), before its scripts, whose own fades then win: 3 fades
@@ -1042,9 +1060,11 @@ conversation).
     above).
 - **Cutscene participants** (an `AnimatedCut` DLG's `StuntList`, reone's
   stunt mode, `play_view::stage_stunts`): while its line shows, each
-  participant (by tag; `owner`, `player`) stands where its stunt model's
+  participant (by tag; `owner` or none, as `101kreia`'s stunt of its
+  owner, `player`) stands where its stunt model's
   `cutscenedummy` stands in the line's clip for it (its `AnimList` entry,
-  else the camera's clip) at the time since the line showed, played at
+  named as gestures' `cut` clips are, else the camera's clip) at the time
+  since the line showed, played at
   scale 1 and held at the end: a body whose nodes the clip names has its
   root there and the clip poses its limbs (reone plays the stunt model's
   clip on the participant's model at the origin); JA's own body is turned

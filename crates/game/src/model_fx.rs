@@ -1374,9 +1374,9 @@ impl Lit {
         animated: Option<&mut material::Animated>,
     ) {
         let illum = Vec3::from_array(self.illum);
-        if animated
-            .is_some_and(|animated| animated.light(&self.material, (self.alpha, illum), materials))
-        {
+        if animated.is_some_and(|animated| {
+            animated.light(self.material.id(), (self.alpha, illum), materials)
+        }) {
             return;
         }
         let glow = illum.extend(1.0);
@@ -1412,13 +1412,17 @@ pub fn glows(ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> Vec<usize>
 /// its node one of `glows` (reone draws a texture its TXI makes additive
 /// additive with alpha or without; xoreos only without: the swoop's
 /// thruster cards, `lmg_jet01` and `02`, are DXT5 with alpha); `None`
-/// until the model's meshes are spawned.
-pub fn own_materials(
+/// until the model's meshes are spawned. A copy goes on scrolling and
+/// flipping as its material did (`moving`).
+pub(crate) fn own_materials(
     (fx, ir, nodes): (&ModelFx, &ModelIr, &[Entity]),
     glows: &[usize],
     children: &Query<&Children>,
-    mesh_materials: &mut Query<&mut MeshMaterial3d<OdysseyMaterial>>,
-    materials: &mut Assets<OdysseyMaterial>,
+    (mesh_materials, materials, mut moving): (
+        &mut Query<&mut MeshMaterial3d<OdysseyMaterial>>,
+        &mut Assets<OdysseyMaterial>,
+        Option<&mut crate::scene::AnimatedMaterials>,
+    ),
 ) -> Option<Vec<Lit>> {
     let mut keyed: BTreeMap<usize, bool> = BTreeMap::new();
     for surfaces in fx.surfaces.values() {
@@ -1468,6 +1472,9 @@ pub fn own_materials(
                 copy.surface = material::Surface::Blend;
             }
             let material = materials.add(copy);
+            if let Some(moving) = moving.as_deref_mut() {
+                moving.copied(&handle.0, &material);
+            }
             handle.0 = material.clone();
             lit.push(Lit {
                 node,

@@ -381,6 +381,28 @@ source = "`forceshields.2da` `amount`"
 see = "sim::combat::items::use_of"
 applies = ["kind:droid", "spell:DROID_ITEM_HAZARD_SHIELD_1", "spell:DROID_ITEM_HAZARD_SHIELD_2", "spell:DROID_ITEM_HAZARD_SHIELD_3"]
 
+[shields.heat]
+name = "Heat Shield"
+type = "u16"
+value = 20
+unit = "points"
+range = [0, 1000]
+summary = "A heat shield (TSL's Telos mining shield) absorbs {items.shields.heat} of energy, ion and fire damage: Peragus' hot steam."
+source = "TSL's `forceshields.2da` `amount` (`SHIELD_HEAT`)"
+see = "sim::combat::items::use_of"
+applies = ["spell:ITEM_ABILITY_HEAT_SHIELD"]
+
+[shields.drexl]
+name = "Drexl Shield"
+type = "u16"
+value = 90
+unit = "points"
+range = [0, 1000]
+summary = "Drexl's shield (TSL) absorbs {items.shields.drexl} of every damage type."
+source = "TSL's `forceshields.2da` `amount` (`SHIELD_DREXL`)"
+see = "sim::combat::items::use_of"
+applies = ["spell:ITEM_ABILITY_DREXL_SHIELD"]
+
 [properties]
 title = "Item Properties"
 summary = """

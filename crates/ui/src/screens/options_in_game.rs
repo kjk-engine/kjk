@@ -11,10 +11,13 @@
 
 use fmt_odyssey::gui::{Control, Gui};
 
+use crate::draw::Textures;
 use crate::intent::{GameAction, Intent, SessionIntent};
 use crate::paint::ControlState;
 use crate::screen::{Screen, ScreenId};
-use crate::screens::tab::{Page, enabled, text, told};
+use crate::screens::message::Message;
+use crate::screens::tab::{Page, enabled, text};
+use crate::skin::Source;
 use crate::strings;
 use crate::vm::{BreakButton, ViewModel};
 
@@ -131,15 +134,20 @@ impl Page for OptionsInGame {
 /// menu or the desktop, Cancel goes back to the menu.
 pub struct Quit {
     desktop: bool,
+    asked: Message,
 }
 
 impl Quit {
     pub fn new(to: &str) -> Option<Quit> {
         match to {
-            TO_MENU => Some(Quit { desktop: false }),
-            TO_DESKTOP => Some(Quit { desktop: true }),
+            TO_MENU => Some(false),
+            TO_DESKTOP => Some(true),
             _ => None,
         }
+        .map(|desktop| Quit {
+            desktop,
+            asked: Message::strref(REALLY_QUIT, Vec::new()),
+        })
     }
 }
 
@@ -152,9 +160,9 @@ impl Screen for Quit {
         "confirm"
     }
 
-    fn state(&self, control: &Control, _: &ViewModel) -> ControlState {
+    fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         match control.tag.as_str() {
-            "LB_MESSAGE" => told(Some(REALLY_QUIT)),
+            "LB_MESSAGE" => self.asked.state(control, vm),
             "BTN_OK" => text(strings::OK),
             "BTN_CANCEL" => text(strings::CANCEL),
             _ => ControlState::default(),
@@ -174,7 +182,7 @@ impl Screen for Quit {
         Some("BTN_CANCEL")
     }
 
-    fn shape(&self, gui: &mut Gui) {
-        super::message::grow(gui);
+    fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
+        self.asked.fit(gui, textures, source);
     }
 }

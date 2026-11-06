@@ -410,7 +410,7 @@ pub(super) fn all() -> Vec<Check> {
             class: 0,
             level: 4,
             skills: [2, 0, 0, 0, 0, 0, 0, 0],
-            picks: crate::vm::PicksView::default(),
+            ..LevelUpView::default()
         }),
         character: Some(CharacterView {
             abilities: [14, 12, 12, 10, 10, 10],

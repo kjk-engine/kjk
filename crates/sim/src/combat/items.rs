@@ -226,6 +226,8 @@ pub fn use_of(row: u16) -> Option<Use> {
         DROID_ITEM_HAZARD_SHIELD_1 => shield(shields::DROID_HAZARD[0], hazard),
         DROID_ITEM_HAZARD_SHIELD_2 => shield(shields::DROID_HAZARD[1], hazard),
         DROID_ITEM_HAZARD_SHIELD_3 => shield(shields::DROID_HAZARD[2], hazard),
+        ITEM_ABILITY_HEAT_SHIELD => shield(shields::HEAT, t::ENERGY | t::ION | FIRE),
+        ITEM_ABILITY_DREXL_SHIELD => shield(shields::DREXL, (1 << DAMAGE_TYPES) - 1),
         _ => return None,
     })
 }

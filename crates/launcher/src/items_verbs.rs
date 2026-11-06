@@ -294,6 +294,51 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
         broke == Some(8) && through[8] == 2000,
         format!("K1's plot shield takes 8 disruptor hits whole, the 9th passes: {through:?}"),
     );
+    // TSL's heat shield (the Telos mining shield) takes Peragus' hot steam
+    // (`tr_steamdamhb`: a script's `EffectDamage(d3, DAMAGE_TYPE_FIRE)`);
+    // an energy shield lets it through.
+    let steam = sim::combat::damage::assess(
+        &sim::combat::damage::Blow {
+            attacker: None,
+            relation: sim::combat::damage::Relation::Hostile,
+            source: sim::combat::damage::Source::Script {
+                damage: 3,
+                damage_type: Some(sim::combat::sheet::type_rows::FIRE),
+                cast: false,
+                shot: None,
+                staged: true,
+            },
+            location: sim::combat::Location::Chest,
+            direction: None,
+            sneak: 0,
+        },
+        None,
+        &Sheet::dev_soldier(),
+        sim::combat::FriendlyFire::Off,
+        sim::combat::passive::Game::Tsl,
+        &mut sim::SimRng::new(1, 7),
+    );
+    let steamed = [ITEM_ABILITY_HEAT_SHIELD, ITEM_ABILITY_ENERGY_SHIELD].map(|row| {
+        let Some(Use::Shield { points, types }) = items::use_of(row) else {
+            return None;
+        };
+        let mut pack = Pack {
+            shield: Some(items::Shielded::item(row, types, points, u64::MAX)),
+            ..Pack::default()
+        };
+        Some(items::absorb(
+            &mut pack,
+            steam.damage_type.map(usize::from),
+            steam.damage,
+        ))
+    });
+    report.check(
+        steam.damage == 300 && steamed == [Some(300), Some(0)],
+        format!(
+            "TSL's heat shield takes hot steam's 3 fire whole, an energy shield none: {steamed:?} of {}",
+            steam.damage
+        ),
+    );
 
     outln!("  in the arena");
     // A medpac at 0, again at 2 s, a third press at 4 s with two carried.

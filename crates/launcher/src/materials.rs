@@ -165,7 +165,7 @@ fn tally_mesh(
         .flatten()
         .filter_map(|(_, resolved)| resolved.as_ref().map(|(facts, _, _)| facts))
         .collect();
-    let surface = material::surface(mesh.transparency_hint, mesh.alpha, &facts);
+    let surface = material::surface((mesh.transparency_hint, mesh.skin.is_some()), mesh.alpha, &facts);
     tally.add(format!("surface {}", surface.name()), place);
     if surface == Surface::Additive && mesh.transparency_hint == 0 {
         tally.add("additive without hint (transparent pass: deviation)", place);

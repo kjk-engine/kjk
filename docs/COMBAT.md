@@ -247,7 +247,11 @@ maker and never closed again, `OnMeleeAttacked` (`GetLastAttacker`,
 `GetLastWeaponUsed`) on every weapon's blow, one its hardness turns
 whole too, `OnDamaged` (`GetLastDamager`) on every blow that tells, and
 `OnDeath` (`GetLastKiller`) on the last; a script's damage hurts any
-object but a `Plot` one. Others' blows
+object but a `Plot` one, and like a blast's it damages without attacking:
+no `OnMeleeAttacked`, which the executables raise from an attack's
+resolution, not from a damage effect
+(TSL's 103per airlock, whose `k_desairlock` blows it when attacked, stays
+shut when a floating mine goes off beside it). Others' blows
 do nothing, unless a script asks a creature to bash
 (`DoDoorAction(…, DOOR_ACTION_BASH)`, `k_ai_master`'s answer to a door in
 its way): it walks there and strikes a KOTOR attack of what it has in hand
