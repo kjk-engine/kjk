@@ -209,7 +209,22 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// whether it has no end (`Shielded`). Old saves: an old snapshot's shield
 /// reads as an item's own (no effect id, no vulnerable types, no cap on a hit),
 /// as it drained before..
-pub const VERSION: u32 = 82 + crate::pending::SNAPSHOT;
+/// 83: a lasting effect may be haste's own part, a concealment or a spell
+/// immunity (`Modifies::Haste`, `Concealment`, `SpellImmunity`). Old saves: old
+/// snapshots read as they are: the new kinds are new indices after the old,
+/// which no old snapshot holds.
+/// 84: a lasting effect keeps a third integer (`Lasting::third`: a damage
+/// reduction's limit left, a damage shield's damage type), and may be an
+/// invisibility, a damage reduction or a damage shield
+/// (`Modifies::Invisibility`, `DamageReduction`, `DamageShield`). Old saves:
+/// old snapshots read `third = 0` (no limit), and hold none of the new kinds,
+/// which are new indices after the old.
+/// 85: the goods carry ChangeItemCost's multipliers by base item
+/// (`Goods::costs`), and a lasting effect may be a blaster deflection change
+/// (`Modifies::BlasterDeflection`). Old saves: old snapshots read no cost
+/// multipliers (every value as its template's), and hold none of the new kind,
+/// a new index after the old.
+pub const VERSION: u32 = 85 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
