@@ -50,6 +50,8 @@ pub struct Identity {
     pub home: String,
     pub user: String,
     pub host: String,
+    /// The player's Steam name, where Steam is open.
+    pub persona: String,
 }
 
 impl Identity {
@@ -64,8 +66,27 @@ impl Identity {
             home: var(["HOME", "USERPROFILE"]),
             user: var(["USER", "USERNAME"]),
             host: sysinfo::System::host_name().unwrap_or_else(String::new),
+            persona: persona().unwrap_or_else(String::new),
         }
     }
+
+    /// `text` with all of this identity scrubbed (`scrub`), the Steam name
+    /// as `<player>` too.
+    pub fn scrub(&self, text: &str) -> String {
+        let out = scrub(text, &self.home, &self.user, &self.host);
+        replace_any_case(&out, &self.persona, "<player>")
+    }
+}
+
+/// The player's Steam name, where Steam is built in and open.
+#[cfg(feature = "steam")]
+fn persona() -> Option<String> {
+    net::io::steam::persona_name()
+}
+
+#[cfg(not(feature = "steam"))]
+fn persona() -> Option<String> {
+    None
 }
 
 /// `text` with `from` put as `to`, whatever its case.
@@ -90,9 +111,10 @@ fn replace_any_case(text: &str, from: &str, to: &str) -> String {
 }
 
 /// `text` with the home folder (either way its separators go, any case)
-/// as `~`, then the user's name as `<user>` and the machine's as `<host>`.
+/// as `~`, then the user's name as `<user>` and the machine's as `<host>`;
+/// IP addresses and Steam IDs too (`scrub_addresses`).
 pub fn scrub(text: &str, home: &str, user: &str, host: &str) -> String {
-    let mut out = text.to_string();
+    let mut out = scrub_addresses(text);
     if !home.is_empty() {
         for home in [
             home.to_string(),
@@ -104,6 +126,58 @@ pub fn scrub(text: &str, home: &str, user: &str, host: &str) -> String {
     }
     out = replace_any_case(&out, user, "<user>");
     replace_any_case(&out, host, "<host>")
+}
+
+/// `text` with every IP address as `<ip>` (but loopback's and the
+/// unspecified one, which name nobody) and every Steam ID as `<steam id>`:
+/// a co-op log names its peers by these, and Steam's start the player.
+fn scrub_addresses(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut run = String::new();
+    for c in text.chars() {
+        if c.is_ascii_hexdigit() || c == ':' || c == '.' {
+            run.push(c);
+        } else {
+            out.push_str(&scrub_run(&run));
+            run.clear();
+            out.push(c);
+        }
+    }
+    out.push_str(&scrub_run(&run));
+    out
+}
+
+/// A run of hex digits, colons and dots with the addresses in it scrubbed:
+/// all of it an IPv6 address, or pieces between its colons (an IPv4
+/// address and its port, a Steam ID after `steam:`).
+fn scrub_run(run: &str) -> String {
+    let named = |core: &str| {
+        core.parse::<std::net::IpAddr>()
+            .ok()
+            .filter(|ip| !ip.is_loopback() && !ip.is_unspecified())
+            .is_some()
+    };
+    let ends = |c: char| c == '.' || c == ':';
+    let core = run.trim_start_matches('.').trim_end_matches(ends);
+    if core.contains(':') && named(core) {
+        return run.replacen(core, "<ip>", 1);
+    }
+    run.split(':')
+        .map(|piece| {
+            let core = piece.trim_matches('.');
+            if named(core) {
+                piece.replacen(core, "<ip>", 1)
+            } else if core.len() == 17
+                && core.starts_with("7656119")
+                && core.bytes().all(|b| b.is_ascii_digit())
+            {
+                piece.replacen(core, "<steam id>", 1)
+            } else {
+                piece.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 /// The settings' file without this install's host id (which would tie
@@ -121,7 +195,7 @@ pub fn settings_text(json: &str) -> String {
 pub fn zip(mut parts: Vec<Part>, me: &Identity, limit: usize) -> (Vec<u8>, Vec<String>) {
     for part in parts.iter_mut().filter(|part| part.text) {
         let text = String::from_utf8_lossy(&part.bytes);
-        part.bytes = scrub(&text, &me.home, &me.user, &me.host).into_bytes();
+        part.bytes = me.scrub(&text).into_bytes();
     }
     let mut dropped = Vec::new();
     loop {
@@ -420,7 +494,7 @@ fn make(world: &mut World) {
             }
             format!(
                 "The report is saved as {}. Drag it onto the issue's box opened in your browser.",
-                scrub(&path.display().to_string(), &me.home, &me.user, &me.host)
+                me.scrub(&path.display().to_string())
             )
         }
         Err(error) => format!("The report could not be saved: {error}"),
@@ -461,7 +535,7 @@ fn encoded(text: &str) -> String {
 /// (`body`) the note and the version, the note scrubbed of `me`, with
 /// comments saying what else may go in and where the zip is dropped.
 pub fn issue_url(note: &str, version: &str, me: &Identity) -> String {
-    let note = scrub(note.trim(), &me.home, &me.user, &me.host);
+    let note = me.scrub(note.trim());
     let title: String = note
         .lines()
         .next()

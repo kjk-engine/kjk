@@ -22,6 +22,7 @@ pub fn probes() -> Checks {
     let checks = vec![
         ("scrub_homes", scrubs()),
         ("scrub_host", host()),
+        ("scrub_addresses", addresses()),
         ("zip_has_no_identity", no_identity()),
         ("settings_drop_host_id", drop_host_id()),
         ("zip_cap_drops_oldest_flight", cap()),
@@ -40,6 +41,7 @@ fn filled_in() -> Result<String, String> {
         home: home.clone(),
         user,
         host: "box".into(),
+        persona: String::new(),
     };
     let note = format!("Sword shows as a pistol & more\nsaved in {home}/saves");
     let url = issue_url(&note, "0.1.0 (abc)", &me);
@@ -92,6 +94,48 @@ fn host() -> Result<String, String> {
     check(got == "user <user> on <host>", got)
 }
 
+/// Peers' addresses and Steam IDs as a co-op log writes them go; times,
+/// versions, loopback and numbers that only look alike stay.
+fn addresses() -> Result<String, String> {
+    let steam = "76561198000000042";
+    let cases = [
+        (
+            "refused Addr(203.0.113.7:7777): full",
+            "refused Addr(<ip>:7777): full",
+        ),
+        (
+            "Joined { peer: Addr([2001:db8::1]:7777) }",
+            "Joined { peer: Addr([<ip>]:7777) }",
+        ),
+        (
+            "from fe80::1%3 and ::ffff:198.51.100.2.",
+            "from <ip>%3 and <ip>.",
+        ),
+        (&format!("id={steam}"), "id=<steam id>"),
+        (
+            &format!("address: \"steam:{steam}\""),
+            "address: \"steam:<steam id>\"",
+        ),
+        (&format!("Steam({steam})"), "Steam(<steam id>)"),
+        (
+            "at 12:34:56.789 tick 76561198",
+            "at 12:34:56.789 tick 76561198",
+        ),
+        (
+            "kjk 0.2.0 (abc1234) on 127.0.0.1:7777 and [::1]:9",
+            "kjk 0.2.0 (abc1234) on 127.0.0.1:7777 and [::1]:9",
+        ),
+        ("bound 0.0.0.0:7777", "bound 0.0.0.0:7777"),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .map(|(text, wanted)| (scrub(text, "", "", ""), *wanted))
+        .filter(|(got, wanted)| got != wanted)
+        .map(|(got, wanted)| format!("{got:?} != {wanted:?}"))
+        .collect();
+    check(wrong.is_empty(), format!("{wrong:?}"))
+}
+
 fn part(name: &str, text: &str) -> Part {
     Part {
         name: name.into(),
@@ -124,19 +168,31 @@ fn no_identity() -> Result<String, String> {
         home: home.clone(),
         user: user.clone(),
         host: "box-7".into(),
+        persona: "Revan Fan".into(),
     };
     let parts = vec![
         part(
             "kjk.log",
             &format!("run folder: {home}/.config/kjk/logs on box-7 for {user}"),
         ),
+        part(
+            "net.log",
+            "Join { address: \"203.0.113.7:7777\", name: \"Revan Fan\" } steam id=76561198000000042",
+        ),
         part("settings.json", &format!("{{\"saves\":\"{home}/saves\"}}")),
     ];
     let (zipped, _) = zip(parts, &me, LIMIT);
-    let found: Vec<&str> = [home.as_str(), user.as_str(), "box-7"]
-        .into_iter()
-        .filter(|needle| holds(&zipped, needle).unwrap_or(true))
-        .collect();
+    let found: Vec<&str> = [
+        home.as_str(),
+        user.as_str(),
+        "box-7",
+        "Revan Fan",
+        "203.0.113.7",
+        "76561198000000042",
+    ]
+    .into_iter()
+    .filter(|needle| holds(&zipped, needle).unwrap_or(true))
+    .collect();
     check(found.is_empty(), format!("found {found:?}"))
 }
 
