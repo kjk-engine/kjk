@@ -243,6 +243,7 @@ pub(super) fn force(
     mut hits: ResMut<Hits>,
     mut spells: ResMut<super::scripts::SpellsAt>,
     mut casts: ResMut<super::scripts::Casts>,
+    mut battering: ResMut<super::objects::Battering>,
     mut ordered: ResMut<super::scripts::Ordered>,
     mut let_go: ResMut<super::scripts::LetGo>,
     scripts: Res<super::scripts::Scripts>,
@@ -331,6 +332,7 @@ pub(super) fn force(
         hits: &mut hits.0,
         spells: &mut spells.0,
         casts: &mut casts.0,
+        battering: &mut battering,
         ordered: &mut ordered.0,
         let_go: &mut let_go.0,
         deferred: &scripts.state.delayed,
@@ -475,6 +477,9 @@ struct Cast<'a, 'b> {
     /// The casts whose impact scripts decide them (C10), and the library
     /// that has those scripts.
     casts: &'a mut Vec<crate::script::Cast>,
+    /// The powers paid for this step, for what of destruction's props they
+    /// reach (`objects::Battering::power`).
+    battering: &'a mut super::objects::Battering,
     /// The party members whose players ordered a power
     /// (`scripts::Ordered`).
     ordered: &'a mut Vec<SimId>,
@@ -516,8 +521,19 @@ impl Cast<'_, '_> {
 
     /// Pays `cost` from `at`'s pool if it holds what it takes from it (TSL's
     /// Force Body: a share, and as much from its health; `effects::pay`).
+    /// A power paid for (not a channel's upkeep) reaches destruction's props
+    /// from where its caster stands, the way it faces.
     fn pay(&mut self, at: usize, cost: i32) -> bool {
-        effects::pay(&mut self.fighters[at], cost, self.now)
+        let paid = effects::pay(&mut self.fighters[at], cost, self.now);
+        if paid && self.authority {
+            let person = self.person(at);
+            let from = scale(person.ps.origin, collision::UNIT);
+            let (sin, cos) = crate::math::sin_cos_deg(person.ps.view[1]);
+            let ahead = [from[0] + cos, from[1] + sin, from[2]];
+            let (id, row) = (person.id, self.row);
+            self.battering.power(id, row, from, ahead);
+        }
+        paid
     }
 
     /// Whether the power `at` uses now (`row`) has an impact script that
@@ -782,7 +798,7 @@ impl Cast<'_, '_> {
         let mut going = self.now < channel.until
             && held
             && !self.fighters[at].saber.floored()
-            && self.pay(at, owed);
+            && effects::pay(&mut self.fighters[at], owed, self.now);
         if going && channel.power == Power::Grip {
             going = self.squeeze(at, &mut channel);
         } else if going {
