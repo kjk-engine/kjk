@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose: why.
-sim = "a door's or placeable's OnMeleeAttacked runs for a weapon's attack only (103per's airlock no longer blows when a floating mine goes off beside it); a door asked to close on someone in its doorway closes once the doorway is clear (the Exchange door behind Slusk); code already due when its object is destroyed still runs (a_atrissis reaches the next module)"

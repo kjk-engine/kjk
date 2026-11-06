@@ -51,7 +51,9 @@ const MAGIC: &[u8; 4] = b"KJKR";
 /// (`Action::NextFeat`, a new action code, 57).
 /// 39: a seat may pick the kind its item key uses (`Action::PickItem`, a new
 /// action code, 58).
-const VERSION: u32 = 39 + crate::pending::REPLAY;
+/// 40: a seat may tell the in-game page it shows (`Action::SubScreen`, a new
+/// action code, 59).
+const VERSION: u32 = 40 + crate::pending::REPLAY;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordedTick {

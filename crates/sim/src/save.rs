@@ -160,7 +160,18 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 75: a script's shield effect carries its forceshields.2da row, vulnerable
 /// types and resistance (`Effect::Shield`). Old saves: an old save's shield
 /// effect reads with no look, no vulnerable types and no cap on a hit..
-pub const VERSION: u32 = 75 + crate::pending::SAVE;
+/// 76: a pending effect may be a knockdown (`Effect::Knockdown`), and its
+/// lasting parts the three new `Modifies`. Old saves: old saves read as they
+/// are: the knockdown's tag and the new kinds are new, which no old save holds.
+/// 77: a queued action may be a forced follow, a pick-up or a put-down
+/// (`Action::Follow`, `PickUp`, `PutDown`), and a pending effect one of three
+/// integers (`Effect::Ints`: a damage reduction, a damage shield). Old saves:
+/// old saves read as they are: the new actions' and the reduction's tags are
+/// new, which no old save holds.
+/// 78: a pending effect's lasting part may be a blaster deflection change
+/// (`Modifies::BlasterDeflection`). Old saves: old saves read as they are: the
+/// new kind is a new index after the old, which no old save holds.
+pub const VERSION: u32 = 78 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
