@@ -850,23 +850,25 @@ fn draw(
         }
     }
     lights.set_if_neq(ShotLights(lit));
-    facts.0.insert(
-        "blaster_view".into(),
-        serde_json::json!({
-            "bolts_shown": view.shown[0],
-            "flashes_shown": view.shown[1],
-            "tracers_shown": view.shown[2],
-            "models": view.models.keys().collect::<Vec<_>>(),
-            "pools": view.pools.len(),
-            "live": view.live.len(),
-            "lights": lights.0.len(),
-            // Each as [r, g, b, multiplier, radius].
-            "light_values": lights.0.iter().map(|light| {
-                let [r, g, b, m] = light.color_multiplier.to_array();
-                [r, g, b, m, light.position_radius.w].map(|x| (x * 100.0).round() / 100.0)
-            }).collect::<Vec<_>>(),
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "blaster_view".into(),
+            serde_json::json!({
+                "bolts_shown": view.shown[0],
+                "flashes_shown": view.shown[1],
+                "tracers_shown": view.shown[2],
+                "models": view.models.keys().collect::<Vec<_>>(),
+                "pools": view.pools.len(),
+                "live": view.live.len(),
+                "lights": lights.0.len(),
+                // Each as [r, g, b, multiplier, radius].
+                "light_values": lights.0.iter().map(|light| {
+                    let [r, g, b, m] = light.color_multiplier.to_array();
+                    [r, g, b, m, light.position_radius.w].map(|x| (x * 100.0).round() / 100.0)
+                }).collect::<Vec<_>>(),
+            }),
+        );
+    }
 }
 
 /// The light of `read`'s model on `copy` at `at` (game space), `seconds`

@@ -358,15 +358,17 @@ fn grade(
                 noise,
             }
         });
-    facts.0.insert(
-        "video_grade".into(),
-        serde_json::json!({
-            "rows": effects.rows.as_ref().map(Vec::len),
-            "cameras": cameras.iter().count(),
-            "wanted": wanted.is_some(),
-            "had": had.is_some(),
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "video_grade".into(),
+            serde_json::json!({
+                "rows": effects.rows.as_ref().map(Vec::len),
+                "cameras": cameras.iter().count(),
+                "wanted": wanted.is_some(),
+                "had": had.is_some(),
+            }),
+        );
+    }
     match (wanted, had) {
         (Some(wanted), had) if had != Some(&wanted) => {
             commands.entity(camera).insert(wanted);

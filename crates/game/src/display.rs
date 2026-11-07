@@ -343,25 +343,27 @@ fn facts(
     let Ok(window) = windows.single() else {
         return;
     };
-    facts.0.insert(
-        "display".into(),
-        serde_json::json!({
-            "mode": format!("{:?}", window.mode),
-            "physical": [window.resolution.physical_width(), window.resolution.physical_height()],
-            "scale": window.resolution.scale_factor(),
-            "present": format!("{:?}", window.present_mode),
-            "samples": display.samples,
-            "gamma": display.gamma,
-            "screens": monitors
-                .iter()
-                .map(|(_, monitor, primary)| {
-                    serde_json::json!({
-                        "size": [monitor.physical_width, monitor.physical_height],
-                        "primary": primary,
-                        "modes": monitor.video_modes.len(),
+    if facts.wanted() {
+        facts.0.insert(
+            "display".into(),
+            serde_json::json!({
+                "mode": format!("{:?}", window.mode),
+                "physical": [window.resolution.physical_width(), window.resolution.physical_height()],
+                "scale": window.resolution.scale_factor(),
+                "present": format!("{:?}", window.present_mode),
+                "samples": display.samples,
+                "gamma": display.gamma,
+                "screens": monitors
+                    .iter()
+                    .map(|(_, monitor, primary)| {
+                        serde_json::json!({
+                            "size": [monitor.physical_width, monitor.physical_height],
+                            "primary": primary,
+                            "modes": monitor.video_modes.len(),
+                        })
                     })
-                })
-                .collect::<Vec<_>>(),
-        }),
-    );
+                    .collect::<Vec<_>>(),
+            }),
+        );
+    }
 }

@@ -682,10 +682,12 @@ pub fn apply(
             }
         }
     }
-    facts.0.insert(
-        "severing".into(),
-        serde_json::json!({ "cuts": made.0, "marks_parted": made.1 }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "severing".into(),
+            serde_json::json!({ "cuts": made.0, "marks_parted": made.1 }),
+        );
+    }
 }
 
 /// Closes the wounds of a model gone with a cut part: each of its skinned

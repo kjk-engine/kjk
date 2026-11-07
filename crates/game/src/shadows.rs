@@ -929,10 +929,12 @@ fn gate_casters(
             }
         }
     }
-    facts.0.insert(
-        "shadow_casters".into(),
-        serde_json::json!({ "marked": casters.iter().len(), "let_in": let_in, "focus": focus.feet.to_array() }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "shadow_casters".into(),
+            serde_json::json!({ "marked": casters.iter().len(), "let_in": let_in, "focus": focus.feet.to_array() }),
+        );
+    }
 }
 
 /// Puts casters and rooms on the layers their maps are drawn from.

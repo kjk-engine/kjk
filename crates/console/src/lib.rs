@@ -46,9 +46,25 @@ pub enum CaptureTarget {
     Image(Handle<Image>),
 }
 
-/// Facts other plugins publish for `dump` (render adapter, mode, …).
-#[derive(Resource, Default, Debug)]
-pub struct DumpFacts(pub BTreeMap<String, serde_json::Value>);
+/// Facts other plugins publish for `dump` (render adapter, mode, …), and
+/// whether a dump is due (`DumpDue`, mirrored): facts that change every
+/// frame are worth building only then (`wanted`).
+#[derive(Resource, Debug)]
+pub struct DumpFacts(pub BTreeMap<String, serde_json::Value>, bool);
+
+impl Default for DumpFacts {
+    fn default() -> DumpFacts {
+        DumpFacts(BTreeMap::new(), true)
+    }
+}
+
+impl DumpFacts {
+    /// Whether a dump may be written before these facts are next published:
+    /// a fact a system writes every frame is built only then.
+    pub fn wanted(&self) -> bool {
+        self.1
+    }
+}
 
 /// Whether the next frame's `Update` may write a dump: facts costly to
 /// publish every frame (the sim's hash) are published only then. True
@@ -294,8 +310,9 @@ fn screenshot(target: &CaptureTarget) -> Screenshot {
 
 /// After the queue ran: a dump starts next frame when nothing is active
 /// and a dump is next.
-fn dump_due(queue: Res<Queue>, mut due: ResMut<DumpDue>) {
+fn dump_due(queue: Res<Queue>, mut due: ResMut<DumpDue>, mut facts: ResMut<DumpFacts>) {
     due.0 = queue.active.is_none() && matches!(queue.pending.front(), Some(Command::Dump(_)));
+    facts.1 = due.0;
 }
 
 #[allow(clippy::too_many_arguments)]
