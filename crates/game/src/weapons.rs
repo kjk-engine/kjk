@@ -62,6 +62,7 @@
 //!   bounces it).
 
 use std::collections::BTreeMap;
+use std::sync::{Mutex, PoisonError};
 
 use asset_ja::Bolt;
 use asset_odyssey::hooks;
@@ -455,8 +456,17 @@ pub fn shaders() -> Vec<String> {
 /// The colour of a KOTOR blade texture (a glow round a bright dot, which
 /// the game draws on crossed planes): its texels' colours weighted by their
 /// brightness, scaled so the strongest channel is full. `None` for a
-/// texture without light.
-pub fn own_colour(texture: &asset_odyssey::texture::TextureIr) -> Option<[f32; 3]> {
+/// texture without light. Worked out once a texture name: every blade lit
+/// after that takes it as it was.
+pub fn own_colour(name: &str, texture: &asset_odyssey::texture::TextureIr) -> Option<[f32; 3]> {
+    static KNOWN: Mutex<BTreeMap<String, Option<[f32; 3]>>> = Mutex::new(BTreeMap::new());
+    let mut known = KNOWN.lock().unwrap_or_else(PoisonError::into_inner);
+    *known
+        .entry(name.to_string())
+        .or_insert_with(|| texture_colour(texture))
+}
+
+fn texture_colour(texture: &asset_odyssey::texture::TextureIr) -> Option<[f32; 3]> {
     let decoded = texture.decoded();
     let level = decoded.mips.first()?;
     let mut sum = [0.0f64; 3];

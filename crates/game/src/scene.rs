@@ -1246,8 +1246,7 @@ impl<'t> Spawner<'t> {
         let own = spec
             .own
             .as_deref()
-            .and_then(|name| self.irs.get(name))
-            .and_then(crate::weapons::own_colour);
+            .and_then(|name| crate::weapons::own_colour(name, self.irs.get(name)?));
         // The trail keeps its texture: its colour is its vertices'.
         let material = |name: &str, recolour: bool, materials: &mut Assets<OdysseyMaterial>| {
             let made = OdysseyMaterial::new(
