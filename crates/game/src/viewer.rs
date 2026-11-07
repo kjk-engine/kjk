@@ -1454,9 +1454,6 @@ impl CreatureLoad {
             return Ok(None);
         };
         retexture(&mut body, look.body_texture.as_deref());
-        if let Some(amount) = look.chest {
-            asset_odyssey::body_morph::apply(&mut body, amount);
-        }
         if let Some(texture) = &look.missing_body_texture
             && !self.missing_body_textures.contains(texture)
         {
