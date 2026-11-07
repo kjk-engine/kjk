@@ -715,6 +715,7 @@ fn members(
                 busy: seat.and_then(|seat| crate::hud::busy(snapshot, seat)),
                 effects: effect_icons(assets, &fighter, snapshot.time_ms),
                 debilitated: fighter.debilitated(snapshot.time_ms),
+                poisoned: fighter.pack.poison.is_some(),
                 id: entity.id.0,
             },
         });

@@ -23,6 +23,9 @@
 //!   (reone's `Party::onLeaderChanged`). Not on a scene's first look, nor
 //!   the seat taking a body after none [verify: `SwitchPlayerCharacter`].
 //!
+//! - **poisoned**: a poison taking hold (`Pack::poison` new): its
+//!   Poisoned line, always, as both games' executables say it.
+//!
 //! The death cry (`Dead`) is cried by every creature that dies,
 //! a script's death too (`combat_fx`).
 
@@ -47,6 +50,8 @@ pub struct Seen {
     looked_ms: Option<u64>,
     events: BTreeMap<SimId, u16>,
     sabers: BTreeMap<SimId, SaberState>,
+    /// Each character's poison as last seen (when it ends).
+    poisons: BTreeMap<SimId, Option<u64>>,
     /// The body the seat played when last looked at.
     body: Option<SimId>,
 }
@@ -55,6 +60,12 @@ pub struct Seen {
 /// (JA's move into an attack, or the next of a chain).
 fn swung(was: &SaberState, now: &SaberState) -> bool {
     now.current_move.attack() && (!was.current_move.attack() || now.chain != was.chain)
+}
+
+/// Whether a poison took hold between `was` and `now` (each the end of the
+/// one running, if any): one there now that was not.
+fn took(was: Option<u64>, now: Option<u64>) -> bool {
+    now.is_some() && now != was
 }
 
 /// Whether a grunt is said: always by the player's own (`own`), else when
@@ -107,6 +118,14 @@ fn new_grunts(snapshot: &Snapshot, me: Option<SimId>, seen: &mut Seen) -> Vec<(S
                     pick(&slots::ATTACK_GRUNTS, roll(entity.id, at, 2)),
                 ));
             }
+        }
+        let poison = fighter.pack.poison.map(|poison| poison.until);
+        if seen
+            .poisons
+            .insert(entity.id, poison)
+            .is_some_and(|was| took(was, poison))
+        {
+            said.push((entity.id, slots::POISONED));
         }
         let Some(last) = seen.events.insert(entity.id, fighter.next_event) else {
             continue;
@@ -227,6 +246,21 @@ pub fn probes() -> sim::probe::Checks {
                 format!("first, same, to b, back to a, none, b after none: {said:?}"),
             )
         }),
+        (
+            "a poison taking hold says Poisoned, its course and its end none",
+            {
+                let seen = [
+                    took(None, Some(9000)),
+                    took(Some(9000), Some(9000)),
+                    took(Some(9000), None),
+                    took(Some(9000), Some(20_000)),
+                ];
+                check(
+                    seen == [true, false, false, true] && slots::POISONED == 27,
+                    format!("taken, running, ended, another after it: {seen:?}"),
+                )
+            },
+        ),
         (
             "attack grunts 1-3, pain grunts 1-2",
             check(
