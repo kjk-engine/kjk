@@ -354,4 +354,4 @@ pub(super) fn closed_empty(view: &View, state: &State, out: &mut Out, closed: &[
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
-pub use probes::probes;
+pub use probes::{probes, wave_probes};
