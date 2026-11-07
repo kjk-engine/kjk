@@ -1,6 +1,7 @@
 # Environmental destruction — design
 
-2026-11-06. Owner: reclaimterrain. Status: draft for the owner's approval.
+2026-11-06. Owner: reclaimterrain. Status: first pass built (props break and
+show damage; no flying chunks yet): `docs/COMBAT.md`, "Destruction".
 
 Companion table: [`2026-11-06-destruction-props.csv`](2026-11-06-destruction-props.csv),
 every kind of placeable used in K1 and TSL (351 appearance rows, 6,437
