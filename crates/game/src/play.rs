@@ -216,8 +216,6 @@ pub struct Wear {
     pub head: String,
     pub texture: Option<String>,
     pub strides: [f32; 2],
-    /// Its chest enlarged by this much (`asset_odyssey::body_morph`).
-    pub chest: Option<f32>,
 }
 
 /// The strides of a body `appearance.2da` does not give: a man's.
@@ -234,14 +232,6 @@ fn wears(
 ) -> Result<Vec<Wear>, String> {
     let count = usize::from(seats.max(1));
     let mut tables = asset_odyssey::tables::Tables::default();
-    // A body named without an appearance row takes the chest its rows give.
-    let appearances = resolver
-        .and_then(|resolver| tables.get(&crate::viewer::ResolverSource(resolver), "appearance"));
-    let chest = |body: &str| {
-        appearances
-            .as_deref()
-            .and_then(|table| asset_odyssey::body_morph::chest_of_body(table, body))
-    };
     if !named.is_empty() {
         return Ok(named
             .iter()
@@ -251,7 +241,6 @@ fn wears(
                 head: head.clone(),
                 texture: None,
                 strides: STRIDES,
-                chest: chest(body),
             })
             .collect());
     }
@@ -268,7 +257,6 @@ fn wears(
                     head: head.into(),
                     texture: None,
                     strides: STRIDES,
-                    chest: chest(body),
                 }
             }))
         })
@@ -1093,9 +1081,6 @@ pub(crate) fn dress(
     let mut body =
         viewer::cached(cache, resolver, body_name)?.ok_or(format!("{body_name}.mdl: not found"))?;
     viewer::retexture(&mut body, wear.texture.as_deref());
-    if let Some(amount) = wear.chest {
-        asset_odyssey::body_morph::apply(&mut body, amount);
-    }
     let head =
         viewer::cached(cache, resolver, head_name)?.ok_or(format!("{head_name}.mdl: not found"))?;
     let hook_node = body

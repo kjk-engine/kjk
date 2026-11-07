@@ -58,8 +58,6 @@ pub struct CreatureLook {
     pub sound_set: Option<u16>,
     /// The sound its sound set's death line plays (`sound_set_line`).
     pub death_sound: Option<String>,
-    /// Its body's chest enlarged by this much when drawn (`body_morph`).
-    pub chest: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -537,9 +535,6 @@ pub fn resolve_appearance(
         left_weapon: None,
         sound_set: None,
         death_sound: None,
-        chest: appearances
-            .resref(row, "label")
-            .and_then(|label| crate::body_morph::chest(&label)),
         appearance,
         model_type,
         body,
@@ -603,6 +598,16 @@ pub fn floor_model(source: &dyn Source, template: &str) -> Option<(String, i64)>
         .and_then(|row| base_items.int(row, "rotateonground"))
         .unwrap_or(0);
     Some((model, turn))
+}
+
+/// Whether `appearance.2da` row `row` names `body` as a body (`modela` …
+/// `modelj`).
+pub fn names_body(appearances: &TwoDa, row: usize, body: &str) -> bool {
+    ('a'..='j').any(|letter| {
+        appearances
+            .resref(row, &format!("model{letter}"))
+            .is_some_and(|model| model.eq_ignore_ascii_case(body))
+    })
 }
 
 fn item_model_in(source: &dyn Source, base_items: &TwoDa, template: &str) -> Option<String> {

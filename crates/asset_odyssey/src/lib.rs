@@ -3,7 +3,6 @@
 //! games' space (Z up, metres).
 
 pub mod anim;
-pub mod body_morph;
 pub mod creature;
 pub mod emitter;
 pub mod font;
