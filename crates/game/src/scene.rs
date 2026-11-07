@@ -830,6 +830,8 @@ pub(crate) struct Tally {
     hidden: usize,
     skinned_meshes: usize,
     dangly: usize,
+    /// The see-through room meshes cut into pieces, and their pieces.
+    split: [usize; 2],
     animated: usize,
     additive_without_hint: usize,
     unweighted_skins: Vec<String>,
@@ -1136,8 +1138,10 @@ impl<'t> Spawner<'t> {
         // see-through by where each piece of them stands, not by the middle
         // of the whole mesh: one mesh carries every light panel of a room's
         // walls, and its middle, nearer than a console in front of a panel,
-        // drew the panel over the console's screen (153har).
-        if is_room && !material::writes_depth(surface) && part.dangly.is_none() {
+        // drew the panel over the console's screen (153har). A skinned or
+        // dangly mesh stays whole: its pieces would lose the bones.
+        if is_room && !material::writes_depth(surface) && part.dangly.is_none() && skinned.is_none()
+        {
             let pieces = see_through_pieces(&part.positions, &part.indices);
             if pieces.len() > 1 {
                 for piece in &pieces {
@@ -1152,6 +1156,8 @@ impl<'t> Spawner<'t> {
                     commands.entity(nodes[part.node]).add_child(child);
                 }
                 tally.drawn += 1;
+                tally.split[0] += 1;
+                tally.split[1] += pieces.len();
                 return;
             }
         }
@@ -1240,8 +1246,7 @@ impl<'t> Spawner<'t> {
         let own = spec
             .own
             .as_deref()
-            .and_then(|name| self.irs.get(name))
-            .and_then(crate::weapons::own_colour);
+            .and_then(|name| crate::weapons::own_colour(name, self.irs.get(name)?));
         // The trail keeps its texture: its colour is its vertices'.
         let material = |name: &str, recolour: bool, materials: &mut Assets<OdysseyMaterial>| {
             let made = OdysseyMaterial::new(
@@ -1544,6 +1549,7 @@ pub(crate) fn spawn_scene(
             "hidden_no_texture_loaded": tally.hidden,
             "skinned_meshes": tally.skinned_meshes,
             "dangly_meshes": tally.dangly,
+            "see_through_split": { "meshes": tally.split[0], "pieces": tally.split[1] },
             "animated": tally.animated,
             "missing_clips": loaded.missing_clips,
             "creature_notes": loaded.creature_notes,

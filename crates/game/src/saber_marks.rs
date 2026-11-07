@@ -33,7 +33,7 @@
 //!
 //! The wall sound and sparks are `blade_fx`'s.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use asset_ja::fx::Rng;
 use bevy::prelude::*;
@@ -96,22 +96,82 @@ pub type Faces<'a> = &'a dyn Fn(Vec3, Vec3) -> Vec<[Vec3; 3]>;
 /// chosen reach.
 const DRAWN_REACH: f32 = 40.0;
 
+/// The side of a `DrawnLevel` grid cell (units, across the ground). Our
+/// chosen size: a cut's look along its normal spans about one.
+const CELL: f32 = 2.0 * DRAWN_REACH;
+
+/// One drawn face: its corners, its unit normal, its bounds.
+struct DrawnFace {
+    corners: [Vec3; 3],
+    normal: Vec3,
+    low: Vec3,
+    high: Vec3,
+}
+
+impl DrawnFace {
+    fn overlaps(&self, least: Vec3, most: Vec3) -> bool {
+        self.low.cmple(most).all() && self.high.cmpge(least).all()
+    }
+}
+
 /// The drawn level's faces, for the marks: each room's triangles as its
-/// model has them (units, game space), not the collision's.
-pub struct DrawnLevel(pub Vec<[Vec3; 3]>);
+/// model has them (units, game space), not the collision's. Built once a
+/// level; a box asks only the faces in the ground cells it covers.
+#[derive(Default)]
+pub struct DrawnLevel {
+    faces: Vec<DrawnFace>,
+    cells: HashMap<(i32, i32), Vec<u32>>,
+}
+
+/// The ground cells a box covers.
+fn cells(least: Vec3, most: Vec3) -> impl Iterator<Item = (i32, i32)> {
+    let cell = |v: f32| (v / CELL).floor() as i32;
+    let (x0, x1, y0, y1) = (cell(least.x), cell(most.x), cell(least.y), cell(most.y));
+    (x0..=x1).flat_map(move |x| (y0..=y1).map(move |y| (x, y)))
+}
 
 impl DrawnLevel {
+    pub fn new(triangles: impl IntoIterator<Item = [Vec3; 3]>) -> Self {
+        let mut level = Self::default();
+        for corners in triangles {
+            let [a, b, c] = corners;
+            let face = DrawnFace {
+                corners,
+                normal: (b - a).cross(c - a).normalize_or_zero(),
+                low: a.min(b).min(c),
+                high: a.max(b).max(c),
+            };
+            let at = level.faces.len() as u32;
+            for key in cells(face.low, face.high) {
+                level.cells.entry(key).or_default().push(at);
+            }
+            level.faces.push(face);
+        }
+        level
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.faces.is_empty()
+    }
+
+    /// The faces overlapping a box, each once.
+    fn near(&self, least: Vec3, most: Vec3) -> impl Iterator<Item = &DrawnFace> {
+        let mut found: Vec<u32> = cells(least, most)
+            .filter_map(|key| self.cells.get(&key))
+            .flatten()
+            .copied()
+            .collect();
+        found.sort_unstable();
+        found.dedup();
+        found
+            .into_iter()
+            .map(|at| &self.faces[at as usize])
+            .filter(move |face| face.overlaps(least, most))
+    }
+
     /// The faces overlapping a box, as `Faces` asks.
     pub fn faces(&self, least: Vec3, most: Vec3) -> Vec<[Vec3; 3]> {
-        self.0
-            .iter()
-            .filter(|triangle| {
-                let low = triangle[0].min(triangle[1]).min(triangle[2]);
-                let high = triangle[0].max(triangle[1]).max(triangle[2]);
-                low.cmple(most).all() && high.cmpge(least).all()
-            })
-            .copied()
-            .collect()
+        self.near(least, most).map(|face| face.corners).collect()
     }
 
     /// `cut` moved along its normal onto the nearest drawn face turned
@@ -121,11 +181,11 @@ impl DrawnLevel {
         let normal = cut.normal.try_normalize()?;
         let middle = (cut.from + cut.to) / 2.0;
         let origin = middle - normal * DRAWN_REACH;
+        let end = middle + normal * DRAWN_REACH;
         let offset = self
-            .0
-            .iter()
-            .filter(|[a, b, c]| (*b - *a).cross(*c - *a).normalize_or_zero().dot(normal) > 0.5)
-            .filter_map(|triangle| crate::shadows::ray_hit(origin, normal, triangle))
+            .near(origin.min(end), origin.max(end))
+            .filter(|face| face.normal.dot(normal) > 0.5)
+            .filter_map(|face| crate::shadows::ray_hit(origin, normal, &face.corners))
             .map(|t| t - DRAWN_REACH)
             .filter(|offset| offset.abs() <= DRAWN_REACH)
             .min_by(|a, b| a.abs().total_cmp(&b.abs()))?;
