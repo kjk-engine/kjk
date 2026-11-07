@@ -516,6 +516,9 @@ pub struct Library {
     /// (a player's body, which has no template) and its `DEFAULT` row (a
     /// creature whose own row reads as nothing), where it has them.
     move_rates: MoveRates,
+    /// Each `appearance.2da` row's `driveanimwalk` (m/s): the walk of a
+    /// body its player drives (`drive_walk`).
+    drive_walks: Vec<f32>,
     regeneration: Option<Regeneration>,
     health_regeneration: Option<HealthRegeneration>,
     /// TSL's `influence.2da`: each companion tag's base influence
@@ -648,6 +651,7 @@ impl Library {
             animation_rows: Vec::new(),
             head_arcs: Vec::new(),
             move_rates: MoveRates::default(),
+            drive_walks: Vec::new(),
             regeneration: None,
             health_regeneration: None,
             influence: Vec::new(),
@@ -936,6 +940,33 @@ impl Library {
     /// `creaturespeed.2da`'s `PLAYER` and `DEFAULT` rows, where read.
     pub fn move_rates(&self) -> MoveRates {
         self.move_rates
+    }
+
+    /// The `driveanimwalk` of each `appearance.2da` row (m/s, 0 where
+    /// blank), in the digest when any is not 0.
+    pub fn with_drive_walks(mut self, walks: Vec<f32>) -> Library {
+        if walks.iter().all(|walk| *walk == 0.0) {
+            return self;
+        }
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&self.digest);
+        hasher.update(b"drive walks");
+        for walk in &walks {
+            hasher.update(&walk.to_le_bytes());
+        }
+        self.drive_walks = walks;
+        self.digest = *hasher.finalize().as_bytes();
+        self
+    }
+
+    /// How fast (m/s) a body of `appearance.2da` row `appearance` walks
+    /// while its player drives it (`driveanimwalk`, `walk::rates`); none
+    /// for a row it doesn't know or that leaves it blank.
+    pub fn drive_walk(&self, appearance: u16) -> Option<f32> {
+        self.drive_walks
+            .get(usize::from(appearance))
+            .copied()
+            .filter(|walk| *walk > 0.0)
     }
 
     /// TSL's natural healing (`Regeneration`), in the digest when read.
