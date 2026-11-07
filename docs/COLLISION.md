@@ -33,6 +33,20 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
 - Rooms: every drawn triangle of the room models (LYT place, node rest
   transforms) and every walkmesh face (`.wok`, world space). A drawn
   triangle on a walkmesh face takes its material; the rest have 0.
+- Floor clutter (`floor_clutter`) is left out: a drawn triangle on no
+  walkmesh face with some part over walkable floor and no part more than
+  a step (18 units) from the walkmesh right under it or, over a hole in
+  the walkmesh (under a console), more than a step over that floor.
+  KOTOR's walker walks the walkmesh through it; solid, the player's box
+  rode up onto the Ebon Hawk's floor pipes, was shoved up the sloped
+  skirts of its consoles and stuck on the slanted tops of their sides
+  (TSL 003ebo, playtest of 2026-11-07). The walkmesh is what bodies meet
+  there instead, and the edge walls keep them off the floor's edge.
+  Floor drawn flat at the floor's height stays, as does anything higher
+  than a step (consoles' tops, crates, walls), so jumps still reach the
+  perches they did. `kjk collision build` counts them (`skipped N: floor
+  clutter`: 1771 in TSL 003ebo, 1768 in K1's Ebon Hawk). Shots and
+  marks meet the floor under them, a few centimetres down.
 - Doors: `<model>0/1/2.dwk` in states 0 (closed), 1, 2 (open), less open
   ones that are a sheet edge-on in the doorway, which KOTOR's point walker
   never meets (`placeholder`). Placeables: `<model>.pwk`, state 0.
@@ -183,10 +197,13 @@ kjk collision trace k1 end_m01aa 15,20,0 15,30,0 [--shape capsule]
 kjk collision audit k1 end_m01aa [--cell 0.25] [--seeds walkmesh] [--zoom x,y,r]
 ```
 
-## Known issue: render-mesh slopes at wall feet (open, not acted on)
-KOTOR's own movement walks the walkmesh only, so its rooms are full of
-trims, skirts and console bases that nothing ever collided with. JA's
-movement meets them as real surfaces:
+## Render-mesh slopes at wall feet (the low ones left out)
+The floor clutter rule (above) now leaves out the trims, skirts and
+console bases no higher than a step over the floor; what follows still
+holds for those that rise higher. KOTOR's own movement walks the
+walkmesh only, so its rooms are full of trims, skirts and console bases
+that nothing ever collided with. JA's movement meets them as real
+surfaces:
 - anything flatter than 45.6° (normal z above 0.7) is walkable to JA, so the
   player steps onto a 40° trim (render mesh, material 0) at a wall's foot;
 - the steeper face above it then turns the push into an upward shove in

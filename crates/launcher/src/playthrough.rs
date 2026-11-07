@@ -286,6 +286,26 @@ const BACKING_MS: u64 = 2500;
 const UNWEDGE_M: f32 = 1.5;
 const UNWEDGE_MS: u64 = 1000;
 
+/// How near (metres, across) the floor a player off the navigation mesh
+/// steps back onto is to be straight under it (on a body's head, a prop),
+/// and how far ahead it then walks instead (`step_off`).
+const UNDERFOOT_M: f32 = 0.8;
+const STEP_OFF_M: f32 = 1.5;
+
+/// Where a player off the navigation mesh walks to get back on it: `spot`,
+/// the nearest floor, unless that is right under it (it stands on a body's
+/// head or a prop over the floor: Leviathan's Dark Jedi), where walking at
+/// it turned the player back and forth over it and held it there; then a
+/// way ahead as it faces, off what it stands on.
+fn step_off(player: &sim::motion::MotionState, spot: [f32; 3]) -> [f32; 3] {
+    if flat(spot.map(|v| v * UNIT), player.origin.map(|v| v * UNIT)) > UNDERFOOT_M {
+        return spot;
+    }
+    let (ahead, _, _) = sim::math::angle_vectors([0.0, player.view[1], 0.0]);
+    let off = sim::math::mad(player.origin, STEP_OFF_M / UNIT, ahead);
+    [off[0], off[1], spot[2]]
+}
+
 /// How long a fight goal sees no foe before it is over (ms).
 const QUIET_MS: u64 = 2000;
 /// How long a fight goal waits for a first foe (ms).
@@ -2573,7 +2593,12 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         } else {
                             sim::walk::back_on(&level, player.origin)
                                 .filter(|_| stranded())
-                                .map(|spot| (spot, "off the navigation mesh, stepping back on"))
+                                .map(|spot| {
+                                    (
+                                        step_off(&player, spot),
+                                        "off the navigation mesh, stepping back on",
+                                    )
+                                })
                         }
                     {
                         command = Command {
