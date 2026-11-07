@@ -17,3 +17,99 @@ summary = """A full meter of block points under MDA: {duel.meters.points_max}; e
 source = "the duel modes' behaviour spec, docs/SABER-RULES.md section 1"
 see = "sim::combat::saber::duel::Duel::FRESH"
 applies = ["kind:lightsaber"]
+
+[slow_motion]
+title = "Perfect-Block Slow Motion"
+summary = """With the "Perfect-block slow-mo" option on (off by default), a perfect block by the player, or by the one it fights, slows the world for a moment. Only in a game played alone: a session of more than one player never slows."""
+
+[slow_motion.scale]
+name = "Slow-Motion Pace"
+type = "f32"
+value = 0.3
+unit = "×"
+range = [0.05, 1.0]
+summary = """The world runs at {duel.slow_motion.scale:bare} of its pace while a perfect block slows it."""
+source = "the duel modes' behaviour spec, docs/SABER-RULES.md section 3"
+see = "game::sim_host::Slowed"
+applies = ["kind:lightsaber"]
+
+[slow_motion.ms]
+name = "Slow-Motion Time"
+type = "u32"
+value = 200
+unit = "ms"
+range = [0, 2000]
+summary = """A perfect block slows the world for {duel.slow_motion.ms} of real time."""
+source = "the duel modes' behaviour spec, docs/SABER-RULES.md section 3"
+see = "game::sim_host::Slowed"
+applies = ["kind:lightsaber"]
+
+[hud]
+title = "Duel Bars"
+summary = """What the HUD shows of the duel meters while a duel mode is played: block points (MDA) and stamina, by the player's own bars and, with the "Overhead duel bars" option, over every saber user's head."""
+
+[hud.stamina_steps]
+name = "Stamina Steps"
+type = "u8"
+value = 16
+range = [1, 255]
+summary = """The stamina bar is the mishap count turned upside down: full at none, losing one {duel.hud.stamina_steps:bare}th for each mishap."""
+source = "the duel modes' behaviour spec, docs/SABER-RULES.md sections 1.1 and 12"
+see = "game::duel_view::stamina"
+applies = ["kind:lightsaber"]
+
+[hud.lamps]
+name = "Stamina Warnings"
+type = "u8"
+value = [2, 6, 10, 12]
+labels = ["green", "blue", "magenta", "red"]
+range = [0, 15]
+summary = """The stamina bar flashes once the mishap count is above {duel.hud.lamps[0]:bare} (green), above {duel.hud.lamps[1]:bare} (blue), above {duel.hud.lamps[2]:bare} (magenta) and above {duel.hud.lamps[3]:bare} (red, where swings tire)."""
+source = "the duel modes' behaviour spec, docs/SABER-RULES.md sections 5.4 and 12"
+see = "game::duel_view::stamina"
+applies = ["kind:lightsaber"]
+
+[hud.lamp_ms]
+name = "Stamina Flash"
+type = "u32"
+value = 600
+unit = "ms"
+range = [100, 5000]
+summary = """A flashing stamina bar goes off and on again every {duel.hud.lamp_ms}."""
+source = "the duel modes' behaviour spec, docs/SABER-RULES.md section 12"
+see = "game::duel_view::stamina"
+applies = ["kind:lightsaber"]
+
+[hud.gauge_bands]
+name = "Block Point Colours"
+type = "u8"
+value = [20, 50, 75]
+labels = ["red under", "purple under", "dark purple under"]
+unit = "points"
+range = [0, 255]
+summary = """The block-point bar is red under {duel.hud.gauge_bands[0]:bare} points, purple under {duel.hud.gauge_bands[1]:bare}, dark purple under {duel.hud.gauge_bands[2]:bare}, and bright magenta above."""
+source = "the duel modes' behaviour spec, docs/SABER-RULES.md section 12"
+see = "game::duel_view::points"
+applies = ["kind:lightsaber"]
+
+[hud.gauge_flash]
+name = "Block Points Low"
+type = "u8"
+value = 7
+unit = "points"
+range = [0, 255]
+summary = """Under {duel.hud.gauge_flash:bare} block points the bar flashes, off and on every {duel.hud.gauge_flash_ms}."""
+source = "the duel modes' behaviour spec, docs/SABER-RULES.md section 12"
+see = "game::duel_view::points"
+applies = ["kind:lightsaber"]
+
+[hud.gauge_flash_ms]
+name = "Block Points Flash"
+type = "u32"
+value = 400
+unit = "ms"
+range = [100, 5000]
+summary = """A low block-point bar goes off and on again every {duel.hud.gauge_flash_ms}."""
+source = "the duel modes' behaviour spec, docs/SABER-RULES.md section 12"
+see = "game::duel_view::points"
+applies = ["kind:lightsaber"]

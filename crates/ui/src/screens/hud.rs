@@ -20,6 +20,9 @@
 //! offers Revive, and while one is revived (I30 P11) its bar is how far
 //! along, "Reviving" beneath (the downed player's own block too, its
 //! reviver named).
+//! While a duel mode is played (`docs/SABER-RULES.md` section 12), the
+//! player's duel meters stand left of its portrait's vitality bar, level
+//! with its top: block points (MDA) over stamina (`duel_bars`).
 //! In co-op each player's portrait carries an icon for what it is in
 //! (R10: talking, trading, pazaak, asking the host in; `busy`).
 //! Each portrait shows its effects' icons where KOTOR stacks its arrows
@@ -42,7 +45,9 @@ use crate::draw::{DrawList, Quad, Textures};
 use crate::paint::{ControlState, Painter, rect_of};
 use crate::screens::tab::hidden;
 use crate::skin::Source;
-use crate::vm::{Busy, HudView, KeyLabel, MemberView, MinimapView, TargetView, ViewModel};
+use crate::vm::{
+    Bar, Busy, DuelBars, HudView, KeyLabel, MemberView, MinimapView, TargetView, ViewModel,
+};
 
 pub const LAYOUT: &str = "mipc28x6";
 
@@ -733,6 +738,58 @@ pub fn effects(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut DrawL
             ..Quad::image(stacked.rect, id, [1.0; 4])
         });
     }
+}
+
+/// The duel bars' size and gaps (layout pixels): each bar's width and
+/// height, the gap between them and from the vitality bar.
+const DUEL_BAR: [f32; 2] = [90.0, 4.0];
+pub(crate) const DUEL_GAP: f32 = 2.0;
+/// The shade behind a bar, and how far it reaches round it.
+const DUEL_SHADE: [f32; 4] = [0.0, 0.0, 0.0, 0.6];
+const DUEL_EDGE: f32 = 1.0;
+
+/// `bars` drawn as stacked bars from `[left, top]`, each `size`, the block
+/// points over the stamina, each on its shade; `alpha` fades them all.
+pub fn bars_at(bars: &DuelBars, [left, top]: [f32; 2], size: [f32; 2], alpha: f32) -> Vec<Quad> {
+    let [width, height] = size;
+    let rows: Vec<&Bar> = bars.points.iter().chain([&bars.stamina]).collect();
+    let mut quads = Vec::new();
+    for (row, bar) in rows.into_iter().enumerate() {
+        let y = top + row as f32 * (height + DUEL_GAP);
+        let mut shade = DUEL_SHADE;
+        shade[3] *= alpha;
+        quads.push(Quad::solid(
+            [
+                left - DUEL_EDGE,
+                y - DUEL_EDGE,
+                width + 2.0 * DUEL_EDGE,
+                height + 2.0 * DUEL_EDGE,
+            ],
+            shade,
+        ));
+        let mut color = bar.color;
+        color[3] *= alpha;
+        if color[3] > 0.0 && bar.share > 0.0 {
+            quads.push(Quad::solid(
+                [left, y, width * bar.share.clamp(0.0, 1.0), height],
+                color,
+            ));
+        }
+    }
+    quads
+}
+
+/// The player's duel bars (`HudView::duel`), left of its vitality bar.
+pub fn duel_bars(gui: &Gui, vm: &ViewModel, out: &mut DrawList) {
+    let (Some(bars), Some(vitality)) = (
+        vm.hud.as_ref().and_then(|hud| hud.duel.as_ref()),
+        gui.find("PB_VIT1"),
+    ) else {
+        return;
+    };
+    let [left, top, ..] = rect_of(vitality);
+    let at = [left - DUEL_GAP - DUEL_BAR[0], top];
+    out.quads.extend(bars_at(bars, at, DUEL_BAR, 1.0));
 }
 
 /// The busy icons drawn (`busy_marks`).

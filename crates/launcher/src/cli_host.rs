@@ -2,7 +2,7 @@
 
 use std::process::ExitCode;
 
-use crate::cli_play::player_sheet;
+use crate::cli_play::{parse_saber_rules, player_sheet};
 use crate::{
     ByHandParty, HostSpec, by_hand, discover, host_session, launch, net_join, netem_conditions,
     save_view,
@@ -99,6 +99,11 @@ pub(crate) struct HostArgs {
     /// always offers it; scripted hosts only when asked
     #[arg(long)]
     steam: bool,
+    /// The saber rules this session plays by, over the setting, as `kjk
+    /// play --saber-rules`: `ja`, `md` or `mda`; those who join play by
+    /// the host's
+    #[arg(long, value_parser = parse_saber_rules)]
+    saber_rules: Option<sim::combat::saber::SaberRules>,
 }
 
 pub(crate) fn parse_seats(text: &str) -> Result<u8, String> {
@@ -138,6 +143,9 @@ fn seats_for(guests: sim::Guests) -> u8 {
 
 /// `kjk host`: the stage for `seats` players, listening for them.
 pub(crate) fn run(args: HostArgs, size: (u32, u32)) -> ExitCode {
+    if let Some(rules) = args.saber_rules {
+        kjk_game::settings::hold_saber_rules(rules);
+    }
     let conditions = match netem_conditions(args.netem.as_deref()) {
         Ok(conditions) => conditions,
         Err(error) => {

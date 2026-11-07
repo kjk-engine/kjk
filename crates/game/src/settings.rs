@@ -4,11 +4,19 @@
 //! options screens change them (`Intent::Setting`); each change is saved
 //! at once and shown back to the screens. The file also keeps the
 //! install's host id (`Settings::host_id`), made once.
+//!
+//! The duel options (`DuelOptions`): the saber rules a session played here
+//! plays by (`game.saber_rules`, JA's or a duel mode, `kjk play
+//! --saber-rules` holding another for one run), and how the duel modes
+//! show: the duel bars over saber users' heads, the red warning of an
+//! unblockable swing, and a perfect block's slow motion (`duel_view`,
+//! `sim_host`).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use bevy::prelude::*;
+use sim::combat::saber::SaberRules;
 use ui::intent::Intent;
 use ui::vm::KeyRow;
 
@@ -620,10 +628,13 @@ impl Default for MouseFeel {
 pub struct Settings {
     values: BTreeMap<String, String>,
     path: Option<PathBuf>,
+    /// The saber rules held for this run (`HELD_RULES`), until the options
+    /// change them.
+    held_rules: Option<SaberRules>,
 }
 
 /// Each setting the screens change, and its default.
-const DEFAULTS: [(&str, &str); 21] = [
+const DEFAULTS: [(&str, &str); 25] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -645,10 +656,43 @@ const DEFAULTS: [(&str, &str); 21] = [
     ("display.soft_shadows", "true"),
     ("feedback.tutorials", "true"),
     (AUTOSAVE, "true"),
+    (SABER_RULES, "ja"),
+    (DUEL_BARS, "false"),
+    (DUEL_WARNING, "true"),
+    (DUEL_SLOW_MOTION, "false"),
 ];
 
 /// The key of Autosave (saving on each module entered, `sim_host::autosave`).
 pub(crate) const AUTOSAVE: &str = "game.autosave";
+
+/// The keys of the duel options (`DuelOptions`).
+const SABER_RULES: &str = "game.saber_rules";
+const DUEL_BARS: &str = "game.duel_bars";
+const DUEL_WARNING: &str = "game.duel_warning";
+const DUEL_SLOW_MOTION: &str = "game.duel_slow_motion";
+
+/// The saber rules `kjk play --saber-rules` (or `kjk host`) holds for its
+/// run over the setting, unsaved, until the options change it.
+static HELD_RULES: std::sync::OnceLock<SaberRules> = std::sync::OnceLock::new();
+
+/// Holds `rules` for this run over the setting (`HELD_RULES`); before the
+/// settings are first read.
+pub fn hold_saber_rules(rules: SaberRules) {
+    let _ = HELD_RULES.set(rules);
+}
+
+/// The duel options as the settings have them: the rules a session played
+/// here plays by, and how the duel modes show (`duel_view`, `sim_host`).
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DuelOptions {
+    pub rules: SaberRules,
+    /// Block points and stamina over saber users' heads.
+    pub bars: bool,
+    /// A character whose swing cannot be blocked drawn red.
+    pub warning: bool,
+    /// A perfect block slows the world for a moment (alone only).
+    pub slow_motion: bool,
+}
 
 /// Each part of the mix and the setting of its slider.
 const VOLUMES: [(Bus, &str); 4] = [
@@ -678,7 +722,14 @@ const MOVED: [(&str, &str); 3] = [
 /// What a page's Default button puts back.
 fn page_keys(page: &str) -> &'static [&'static str] {
     match page {
-        "options_gameplay" => &["camera.invert", AUTOSAVE],
+        "options_gameplay" => &[
+            "camera.invert",
+            AUTOSAVE,
+            SABER_RULES,
+            DUEL_BARS,
+            DUEL_WARNING,
+            DUEL_SLOW_MOTION,
+        ],
         "options_mouse" => &["mouse.sensitivity"],
         "options_controller" => &[
             "pad.sensitivity",
@@ -749,6 +800,7 @@ impl Settings {
         Settings {
             values: Settings::default_values(),
             path: None,
+            held_rules: HELD_RULES.get().copied(),
         }
     }
 
@@ -837,6 +889,9 @@ impl Settings {
                 }
             }
             ("reset", page) => {
+                if page_keys(page).contains(&SABER_RULES) {
+                    self.held_rules = None;
+                }
                 for name in page_keys(page) {
                     self.values
                         .insert(name.to_string(), defaults[*name].clone());
@@ -855,6 +910,9 @@ impl Settings {
                 return;
             }
             (name, value) => {
+                if name == SABER_RULES {
+                    self.held_rules = None;
+                }
                 self.values.insert(name.to_string(), value.to_string());
             }
         }
@@ -940,6 +998,38 @@ impl Settings {
         self.values
             .get("feedback.tutorials")
             .is_none_or(|v| v != "false")
+    }
+
+    /// The saber rules a session played here plays by: those held for the
+    /// run, else the setting's (JA's when unset or not a name).
+    pub fn saber_rules(&self) -> SaberRules {
+        self.held_rules.unwrap_or_else(|| {
+            self.values
+                .get(SABER_RULES)
+                .and_then(|name| SaberRules::named(name))
+                .unwrap_or(SaberRules::Ja)
+        })
+    }
+
+    /// The duel options (`DuelOptions`).
+    pub fn duel(&self) -> DuelOptions {
+        let on = |key: &str| self.values.get(key).is_some_and(|value| value == "true");
+        DuelOptions {
+            rules: self.saber_rules(),
+            bars: on(DUEL_BARS),
+            warning: on(DUEL_WARNING),
+            slow_motion: on(DUEL_SLOW_MOTION),
+        }
+    }
+
+    /// The settings as the screens show them: the saber rules held for the
+    /// run in the setting's place.
+    fn shown(&self) -> BTreeMap<String, String> {
+        let mut shown = self.values.clone();
+        if let Some(rules) = self.held_rules {
+            shown.insert(SABER_RULES.into(), rules.name().into());
+        }
+        shown
     }
 
     /// The player looks through its own eyes (`play_view::CameraMode`).
@@ -1150,6 +1240,7 @@ impl Plugin for SettingsPlugin {
             .insert_resource(settings.volumes())
             .insert_resource(settings.display())
             .insert_resource(settings.shadows())
+            .insert_resource(settings.duel())
             .insert_resource(settings)
             .add_systems(Startup, show)
             .add_systems(Update, apply.after(crate::ui_view::Stepped));
@@ -1159,7 +1250,7 @@ impl Plugin for SettingsPlugin {
 /// The settings as the screens show them.
 fn show(settings: Res<Settings>, ui: Option<ResMut<Ui>>) {
     if let Some(mut ui) = ui {
-        ui.vm.settings = settings.values.clone();
+        ui.vm.settings = settings.shown();
         ui.vm.keys = settings.rows();
         ui.vm.pad_keys = settings.pad_rows();
     }
@@ -1172,10 +1263,11 @@ fn apply(
     mut keys: ResMut<KeyMap>,
     mut mouse: ResMut<MouseFeel>,
     (mut pads, mut pad): (ResMut<crate::pad::PadMap>, ResMut<crate::pad::PadFeel>),
-    (mut volumes, mut display, mut shadows): (
+    (mut volumes, mut display, mut shadows, mut duel): (
         ResMut<Volumes>,
         ResMut<Display>,
         ResMut<crate::shadows::ShadowSettings>,
+        ResMut<DuelOptions>,
     ),
     ui: Option<ResMut<Ui>>,
 ) {
@@ -1196,8 +1288,9 @@ fn apply(
         volumes.set_if_neq(settings.volumes());
         display.set_if_neq(settings.display());
         shadows.set_if_neq(settings.shadows());
+        duel.set_if_neq(settings.duel());
         if let Some(mut ui) = ui {
-            ui.vm.settings = settings.values.clone();
+            ui.vm.settings = settings.shown();
             ui.vm.keys = settings.rows();
             ui.vm.pad_keys = settings.pad_rows();
         }

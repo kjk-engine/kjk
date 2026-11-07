@@ -1351,6 +1351,9 @@ pub(super) fn options() -> Vec<Check> {
             vec![
                 check_box("CB_INVERTCAM", 0, 100),
                 check_box("CB_LEVELUP", 1, 140),
+                check_box("CB_DISABLEMOVE", 2, 180),
+                linked("BTN_DIFFLEFT", 3, 60, -1, -1),
+                linked("BTN_DIFFRIGHT", 4, 60, -1, -1),
                 linked("BTN_KEYMAP", 12, 300, -1, -1),
                 linked("BTN_BACK", 10, 400, -1, -1),
             ],
@@ -1397,10 +1400,13 @@ pub(super) fn options() -> Vec<Check> {
                 .any(|quad| quad.texture != crate::draw::TextureId::WHITE)
         });
     let mut gameplay = opened("options_gameplay", &mut assets, &vm);
-    let greyed = gameplay
-        .state_of("CB_LEVELUP", &vm)
-        .is_some_and(|state| state.disabled);
     let inverted = press(&mut gameplay, &mut assets, &vm, "CB_INVERTCAM");
+    // The saber rules step both ways from JA's (unset), the controller's
+    // page opens from the level-up box, the duel options are check boxes.
+    let stepped = ["BTN_DIFFRIGHT", "BTN_DIFFLEFT", "CB_DISABLEMOVE"]
+        .map(|tag| press(&mut gameplay, &mut assets, &vm, tag));
+    press(&mut gameplay, &mut assets, &vm, "CB_LEVELUP");
+    let controller = gameplay.top().map(|screen| screen.0) == Some("options_controller");
     let mut keymap = opened("options_keymap", &mut assets, &vm);
     keymap.step(&mut assets, &vm, &keys(&[Key::Activate]));
     let entry_open = keymap.top().map(|screen| screen.0) == Some("key_entry");
@@ -1427,11 +1433,23 @@ pub(super) fn options() -> Vec<Check> {
             slid == vec![Intent::Setting("mouse.sensitivity".into(), "0.55".into())],
         )
         .and_then(|()| expect("the slider's thumb drawn", thumb_drawn))
-        .and_then(|()| expect("what is not built yet is greyed", greyed))
         .and_then(|()| {
             expect(
                 &format!("the camera inverted: {inverted:?}"),
                 inverted == vec![Intent::Setting("camera.invert".into(), "true".into())],
+            )
+        })
+        .and_then(|()| {
+            let setting = |key: &str, value: &str| vec![Intent::Setting(key.into(), value.into())];
+            expect(
+                &format!("the saber rules, a duel option, the controller's page: {stepped:?} {controller}"),
+                stepped
+                    == [
+                        setting("game.saber_rules", "md"),
+                        setting("game.saber_rules", "mda"),
+                        setting("game.duel_slow_motion", "true"),
+                    ]
+                    && controller,
             )
         })
         .and_then(|()| expect("a row opens the key entry", entry_open))
@@ -1452,7 +1470,7 @@ pub(super) fn options() -> Vec<Check> {
                     && main.top().is_none(),
             )
         })
-        .map(|()| "sliders, check boxes, greyed, keys, Debug".into())
+        .map(|()| "sliders, check boxes, greyed, stepped choices, keys, Debug".into())
     })]
 }
 

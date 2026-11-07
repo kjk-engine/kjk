@@ -876,6 +876,7 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
         ui::screens::hud::effects(&gui, vm, &mut painter, &mut out);
         ui::screens::hud::busy(&gui, vm, &mut painter, &mut out);
         ui::screens::hud::action_keys(&gui, vm, &mut painter, &mut out);
+        ui::screens::hud::duel_bars(&gui, vm, &mut out);
     }
     if vm.crosshair {
         out.quads.extend(ui::screens::hud::crosshair(&gui));
@@ -889,15 +890,14 @@ fn floaty_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let Ui {
         assets, vm, stack, ..
     } = ui;
-    if vm.floaties.is_empty() {
+    if vm.floaties.is_empty() && vm.overhead.is_empty() {
         return None;
     }
     let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
-    Some(ui::screens::floaty::draw(
-        &mut painter,
-        &vm.floaties,
-        window,
-    ))
+    let mut out = ui::screens::floaty::bars(&vm.overhead, window);
+    let words = ui::screens::floaty::draw(&mut painter, &vm.floaties, window);
+    out.quads.extend(words.quads);
+    Some(out)
 }
 
 /// The Force power carousel for a window of `window` pixels, while the

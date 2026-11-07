@@ -531,17 +531,30 @@ Running and checking:
   between a window and borderless. Applied at once and at the next start.
   The grass check box (`display.grass`, on) hides the area's grass without
   rebuilding it. Greyed: shadows, texture quality, anisotropy, frame buffer
-  effects, soft shadows, the advanced sound page, the feedback list,
-  difficulty, auto level-up, autosave and the minigames' axis. `dump`'s
-  `display` shows the window. The main page's unused auto-pause button is
-  Debug: it starts the combat sandbox alone (`SessionIntent::Sandbox`,
-  `COMBAT.md`); only the main menu opens that page.
+  effects, soft shadows, the advanced sound page and the feedback list.
+  `dump`'s `display` shows the window. The main page's unused auto-pause
+  button is Debug: it starts the combat sandbox alone
+  (`SessionIntent::Sandbox`, `COMBAT.md`); only the main menu opens that
+  page.
 - The combat arena's panel (`ui::screens::arena_panel`), in every arena but
   the floors stage: under the HUD's minimap in the HUD's frame, KOTOR 2's
   rounded rim (its option buttons' `uibit_brdr_16wc`/`16we`) in the
   campaign's colour over a dark fill, "COMBAT DEBUG", then a row per key
   (the key in the highlight colour, what it does, its state at the right:
   the foe F2 calls in, god mode bright when on).
+- The gameplay page's duel options (`docs/SABER-RULES.md` sections 12 and
+  13), in KOTOR's unused controls: its difficulty and arrows step the
+  saber rules a session played here plays by (`game.saber_rules`: `ja`,
+  Jedi Academy's, the default; `md`, Movie Duels; `mda`, Movie Duels
+  Advanced; `kjk play` and `kjk host --saber-rules` hold another for one
+  run, unsaved, until the page changes it); the host sets them on its world
+  when the session starts, a save loads or the setting changes (the
+  recording begun anew, `inputs-<tick>.kjkr` keeping what came before), and
+  a guest plays by the host's, from its snapshots. The controller's page
+  opens from the auto level-up box's place; the check boxes below autosave
+  are "Overhead duel bars" (`game.duel_bars`, off), "Unblockable warning"
+  (`game.duel_warning`, on) and "Perfect-block slow-mo"
+  (`game.duel_slow_motion`, off; `settings::DuelOptions`).
 
 The equip page: a slot chosen lists what the party carries that fits it,
 after "None" and, on a line of its own, what the slot holds marked
@@ -638,6 +651,24 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   its `feedbacktext.2da` line, "Resisted", "Immune", "Saved" over a Force
   power's target; "BAD STRREF" for a row without one), in white [verify
   KOTOR's colour].
+- while a duel mode is played (`game::duel_view`, rulebook "Duel Bars"),
+  a saber user's duel bars: its block points under MDA (red, purple, dark
+  purple and magenta as they rise; flashing when few are left) over its
+  stamina, the mishap count turned upside down (grey; flashing green,
+  blue, magenta, then red as the count climbs). The player's own stand
+  left of its portrait's vitality bar, level with its top
+  (`hud::duel_bars`, `HudView::duel`; and over the fight HUD's bars where
+  KOTOR's is not drawn); with "Overhead duel bars" on, every other living
+  saber user's stand over its head, 60 pixels wide, faded out from 10 to
+  25 m (under MD the upper bar is its Force, blue;
+  `ui::screens::floaty::bars`, `ViewModel::overhead`). With "Unblockable
+  warning" on, a character swinging what only a perfect block stops
+  (`Duel::warn`) wears a red shell, as the stealth field's
+  (`stealth_view::follow`), never the player's own, nor one in stealth,
+  nor during the player's conversation. With "Perfect-block slow-mo"
+  on, in a game played alone, the player's perfect block, or its foe's,
+  slows the host's clock a moment (`sim_host::Slowed`, rulebook "Perfect-
+  Block Slow Motion"); a session of more than one player never slows.
 - a script's message box of pages (`ui::screens::message::Pages`, the
   `confirm` layout, no cancel, OK turning the page): KOTOR's tutorial
   window (`ShowTutorialWindow`: the row's `Message_PC0` to `2`; its icon

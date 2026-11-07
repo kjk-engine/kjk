@@ -39,6 +39,13 @@ pub const DEAD_ZONE_LARGE: &str = "Stick Dead Zone: Large";
 pub const ANTI_ALIASING_OFF: &str = "Anti-Aliasing: Off";
 pub const ANTI_ALIASING_2X: &str = "Anti-Aliasing: 2x";
 pub const ANTI_ALIASING_4X: &str = "Anti-Aliasing: 4x";
+/// The saber rules a session plays by, and the duel modes' options.
+pub const SABER_RULES_JA: &str = "Sabers: Jedi Academy";
+pub const SABER_RULES_MD: &str = "Sabers: Movie Duels";
+pub const SABER_RULES_MDA: &str = "Sabers: MD Advanced";
+pub const DUEL_BARS: &str = "Overhead duel bars";
+pub const DUEL_WARNING: &str = "Unblockable warning";
+pub const DUEL_SLOW_MOTION: &str = "Perfect-block slow-mo";
 pub const TAKE_ALL: &str = "Take all (A)";
 /// The same while a pad plays: its hint bar names its button.
 pub const TAKE_ALL_PAD: &str = "Take all";

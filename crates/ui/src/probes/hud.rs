@@ -9,11 +9,12 @@ use super::{Check, check, expect};
 use crate::draw::DrawList;
 use crate::paint::{Painter, Palette};
 use crate::screens::hud::{
-    BusyMark, SWAP, anchor, backed, busy, busy_marks, crosshair, effect_icons, portrait_at, state,
-    swap_at, watch_at,
+    BusyMark, SWAP, anchor, backed, busy, busy_marks, crosshair, duel_bars, effect_icons,
+    portrait_at, state, swap_at, watch_at,
 };
 use crate::vm::{
-    Busy, EffectIcon, HudView, MemberView, RequestsView, TargetAction, TargetView, ViewModel,
+    Bar, Busy, DuelBars, EffectIcon, HudView, MemberView, RequestsView, TargetAction, TargetView,
+    ViewModel,
 };
 
 fn at(gui: &Gui, tag: &str) -> Option<(i32, i32)> {
@@ -44,6 +45,49 @@ pub(super) fn swap_button() -> Vec<Check> {
             shown && at(&gui, SWAP) == Some((1080, 660)) && clicks == (true, false, false),
         )
         .map(|()| "shown at the lower right, a click on it swaps".into()),
+    )]
+}
+
+/// The player's duel bars (`duel_bars`): left of its vitality bar, level
+/// with its top, block points over stamina, each on its shade and filled
+/// to its share; none without them.
+pub(super) fn duel() -> Vec<Check> {
+    let gui = root(800, 600, vec![button("PB_VIT1", [700, 520, 6, 70], b"")]);
+    let bar = |share| Bar {
+        share,
+        color: [1.0; 4],
+    };
+    let with = |duel| ViewModel {
+        hud: Some(HudView {
+            duel,
+            ..HudView::default()
+        }),
+        ..ViewModel::default()
+    };
+    let drawn = |vm: &ViewModel| {
+        let mut out = DrawList::default();
+        duel_bars(&gui, vm, &mut out);
+        out.quads.iter().map(|quad| quad.rect).collect::<Vec<_>>()
+    };
+    let both = drawn(&with(Some(DuelBars {
+        points: Some(bar(0.5)),
+        stamina: bar(1.0),
+    })));
+    let none = drawn(&with(None));
+    let [points, stamina] =
+        [both.get(1), both.get(3)].map(|rect| rect.copied().unwrap_or([0.0; 4]));
+    let placed = both.len() == 4
+        && points[0] + points[2] * 2.0 < 700.0
+        && points[1] == 520.0
+        && stamina[1] > points[1] + points[3]
+        && stamina[2] == 2.0 * points[2];
+    vec![check(
+        "hud_duel_bars",
+        expect(
+            &format!("{both:?}, without {none:?}"),
+            placed && none.is_empty(),
+        )
+        .map(|()| "left of the vitality bar, block points over stamina".into()),
     )]
 }
 
@@ -196,6 +240,7 @@ pub(super) fn all() -> Vec<Check> {
             solo: false,
             busy: None,
             poisoned: false,
+            duel: None,
         }),
         party: vec![MemberView {
             may_level: true,

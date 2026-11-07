@@ -562,6 +562,36 @@ pub struct HudView {
     pub busy: Option<Busy>,
     /// A poison runs in the character: its vitality bar drawn green.
     pub poisoned: bool,
+    /// Its duel meters, while a duel mode is played and it holds a saber
+    /// (`screens::hud::duel_bars`).
+    pub duel: Option<DuelBars>,
+}
+
+/// A saber user's duel meters as bars (`docs/SABER-RULES.md` section 12):
+/// its block points (MDA's own meter; over the head, MD's Force), and its
+/// stamina (the mishap count turned upside down).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DuelBars {
+    pub points: Option<Bar>,
+    pub stamina: Bar,
+}
+
+/// A bar: how full (0 to 1) and its colour, its alpha 0 while it flashes
+/// off.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Bar {
+    pub share: f32,
+    pub color: [f32; 4],
+}
+
+/// The duel bars over a saber user's head (`screens::floaty::bars`): the
+/// point over it, as shares of the window across and down, and how faded
+/// with distance (1 near, 0 gone).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct OverheadView {
+    pub over: [f32; 2],
+    pub alpha: f32,
+    pub bars: DuelBars,
 }
 
 /// The HUD's minimap: the area's picture (`lbl_map<area>`), where the
@@ -1018,6 +1048,9 @@ pub struct ViewModel {
     pub bark: Option<BarkView>,
     /// Words floating over creatures in play (`screens::floaty`).
     pub floaties: Vec<FloatyView>,
+    /// The duel bars over saber users' heads, with the option on
+    /// (`screens::floaty::bars`).
+    pub overhead: Vec<OverheadView>,
     /// The Force power carousel, while the player picks a power
     /// (`screens::power_pick`).
     pub power_pick: Option<PowerPickView>,

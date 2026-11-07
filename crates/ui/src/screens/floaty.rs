@@ -8,11 +8,15 @@
 //! under the older, each a line higher. Each is ringed in black, drawn
 //! first at the four diagonal pixels round it, and fades out evenly over
 //! its time.
+//!
+//! The duel bars over saber users' heads (`bars`, `docs/SABER-RULES.md`
+//! section 12) are drawn under the words, in the window's pixels, centred
+//! over the head, faded with distance.
 
 use crate::draw::DrawList;
 use crate::paint::Painter;
 use crate::skin::Source;
-use crate::vm::FloatyView;
+use crate::vm::{FloatyView, OverheadView};
 use fmt_odyssey::gui::align;
 
 const FONT: &str = crate::paint::NUMBER_FONT;
@@ -29,6 +33,30 @@ const RING_AT: [[f32; 2]; 4] = [[-1.0, 1.0], [1.0, 1.0], [1.0, -1.0], [-1.0, -1.
 /// the XP, and its colour.
 pub const XP_LINE: u32 = 38551;
 pub const XP_COLOR: [f32; 3] = [0.95, 0.0, 0.85];
+
+/// A head's duel bars: each bar's width and height (pixels: the spec's 60
+/// units at scale 1), and how far over the head the lowest stands.
+const BARS: [f32; 2] = [60.0, 4.0];
+const BARS_OVER: f32 = 10.0;
+
+/// The duel bars over saber users' heads (`overhead`) for a window of
+/// `window` pixels.
+pub fn bars(overhead: &[OverheadView], window: (f32, f32)) -> DrawList {
+    let mut out = DrawList {
+        size: window,
+        ..DrawList::default()
+    };
+    for head in overhead {
+        let rows = 1 + usize::from(head.bars.points.is_some());
+        let tall = rows as f32 * (BARS[1] + crate::screens::hud::DUEL_GAP);
+        let [x, y] = [head.over[0] * window.0, head.over[1] * window.1];
+        let at = [x - BARS[0] / 2.0, y - BARS_OVER - tall];
+        out.quads.extend(crate::screens::hud::bars_at(
+            &head.bars, at, BARS, head.alpha,
+        ));
+    }
+    out
+}
 
 /// `floaties` for a window of `window` pixels.
 pub fn draw(painter: &mut Painter, floaties: &[FloatyView], window: (f32, f32)) -> DrawList {

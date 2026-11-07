@@ -172,6 +172,7 @@ crates/sim/src/combat/rounds.rs UNARMED  # weapon class number: bare hands
 crates/sim/src/combat/saber/blades.rs SABERS  # the skeleton data's saber names (the host loads them by these)
 crates/sim/src/combat/saber/blades.rs SINGLE  # an index into SABERS
 crates/sim/src/combat/saber/blades.rs STAFF  # an index into SABERS
+crates/sim/src/combat/saber/duel.rs ALL  # every saber rules value, a list
 crates/sim/src/combat/saber/grace.rs HELD  # a buffer size: the held hits' slots, in the snapshot
 crates/sim/src/combat/saber/lock.rs ENDS  # a table of the five ends of a new lock block, in list order (an enum's values)
 crates/sim/src/combat/saber/lock.rs KINDS  # a table of the lock kinds (an enum's values)
@@ -292,11 +293,13 @@ crates/sim/src/fog.rs COLUMNS  # the AreaMap grid's width where the ARE gives no
 crates/sim/src/fog.rs MOST_COLUMNS  # the widest AreaMap grid kept (the saves' format)
 crates/sim/src/input.rs ALT_ATTACK  # bit flag: a command button
 crates/sim/src/input.rs ATTACK  # bit flag: a command button
+crates/sim/src/input.rs BLOCK  # bit flag: a held command button
 crates/sim/src/input.rs FORCE_DRAIN  # bit flag: a command button
 crates/sim/src/input.rs FORCE_GRIP  # bit flag: a command button
 crates/sim/src/input.rs FORCE_LIGHTNING  # bit flag: a command button
 crates/sim/src/input.rs FORCE_POWER  # bit flag: a command button
 crates/sim/src/input.rs GRENADE  # bit flag: a command button
+crates/sim/src/input.rs KICK  # bit flag: a held command button
 crates/sim/src/input.rs LAY_MINE  # bit flag: a command button
 crates/sim/src/input.rs MEDPAC  # bit flag: a command button
 crates/sim/src/input.rs SABER_STYLE  # bit flag: a command button

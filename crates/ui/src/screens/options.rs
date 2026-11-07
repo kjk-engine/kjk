@@ -4,11 +4,15 @@
 //! bound to a setting, a button that opens another page, or greyed where
 //! the game has nothing behind it yet (texture quality, frame buffer
 //! effects, the feedback list, saves and levels for the world state). KOTOR 2's
-//! pages (the skin) have two more check boxes, hidden. The controller's
+//! pages (the skin) have two more check boxes: the graphics page's hidden,
+//! the gameplay page's the overhead duel bars'. The controller's
 //! page is ours, on the graphics page's layout, opened from the gameplay
-//! page in its unused difficulty button's place. The main page's unused
-//! auto-pause button is Debug: the combat sandbox (only the main menu opens
-//! this page; play has its own, `options_in_game`).
+//! page in its unused auto level-up box's place. The gameplay page's
+//! difficulty, stepped by its arrows, picks the saber rules a session
+//! played here plays by (`docs/SABER-RULES.md`), and its unused check
+//! boxes are the duel modes' options. The main page's unused auto-pause
+//! button is Debug: the combat sandbox (only the main menu opens this
+//! page; play has its own, `options_in_game`).
 
 use fmt_odyssey::gui::Control;
 
@@ -84,6 +88,13 @@ use Role::{
     ToggleAs,
 };
 
+/// The saber rules (`sim::combat::saber::SaberRules::name`).
+const SABER_RULES: &[(&str, &str)] = &[
+    ("ja", strings::SABER_RULES_JA),
+    ("md", strings::SABER_RULES_MD),
+    ("mda", strings::SABER_RULES_MDA),
+];
+
 /// Anti-aliasing: the samples a pixel takes.
 const SAMPLES: &[(&str, &str)] = &[
     ("1", strings::ANTI_ALIASING_OFF),
@@ -121,17 +132,35 @@ const PAGES: [Spec; 8] = [
                 "CB_INVERTCAM",
                 ToggleAs("camera.invert", strings::INVERT_CAMERA),
             ),
-            ("CB_LEVELUP", Greyed),
-            ("CB_AUTOSAVE", Toggle("game.autosave")),
-            ("CB_REVERSE", Greyed),
-            ("CB_DISABLEMOVE", Greyed),
-            ("CB_REVERSE_INGAME", Hidden),
             (
-                "BTN_DIFFICULTY",
+                "CB_LEVELUP",
                 OpenAs("options_controller", strings::CONTROLLER),
             ),
-            ("BTN_DIFFLEFT", Hidden),
-            ("BTN_DIFFRIGHT", Hidden),
+            ("CB_AUTOSAVE", Toggle("game.autosave")),
+            (
+                "CB_REVERSE_INGAME",
+                ToggleAs("game.duel_bars", strings::DUEL_BARS),
+            ),
+            (
+                "CB_REVERSE",
+                ToggleAs("game.duel_warning", strings::DUEL_WARNING),
+            ),
+            (
+                "CB_DISABLEMOVE",
+                ToggleAs("game.duel_slow_motion", strings::DUEL_SLOW_MOTION),
+            ),
+            (
+                "BTN_DIFFICULTY",
+                Cycle("game.saber_rules", SABER_RULES, Step::Shown),
+            ),
+            (
+                "BTN_DIFFLEFT",
+                Cycle("game.saber_rules", SABER_RULES, Step::Back),
+            ),
+            (
+                "BTN_DIFFRIGHT",
+                Cycle("game.saber_rules", SABER_RULES, Step::On),
+            ),
             ("BTN_KEYMAP", Open("options_keymap")),
             ("BTN_MOUSE", Open("options_mouse")),
             ("BTN_DEFAULT", Defaults),

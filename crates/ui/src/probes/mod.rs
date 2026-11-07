@@ -88,6 +88,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(menus::equip_tells_off_hand());
     checks.extend(menus::equip_locks_slots());
     checks.extend(hud::swap_button());
+    checks.extend(hud::duel());
     checks.extend(hud::effect_icons_stack());
     checks.extend(menus::inventory_uses_items());
     checks
