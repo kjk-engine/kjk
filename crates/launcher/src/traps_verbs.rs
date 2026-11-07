@@ -307,7 +307,7 @@ pub fn traps(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             Ok(())
         })?;
         stand(&mut probe, mine, at[0], at[1])?;
-        // Past the poison's first period.
+        // Its first dose lands as it takes; 4 s on, it still runs.
         let (hurt, told) = probe.step_told(4 * SECOND);
         let ran = runs(&probe, &row.script) - before.0;
         let warned = told.contains(&Notice::Line(lines::MINE_TRIGGERED));
