@@ -274,16 +274,16 @@ on the authority; a save carries it.
   (approved test `destroy_fades`).
 - **Remains** (`world::remains`; KOTOR's body bags, read from the K1
   and TSL executables). A creature dead outside the party is taken away
-  after its appearance's `destroyobjectdelay` (3 s where blank) unless a
-  script keeps it (`SetIsDestroyable(FALSE)`, read when it is due, so a
-  death script's counts), its body fading out over `fadedelayondeath`
-  (the engine's own where blank: 1 s [verify]) while still in the world,
-  as KOTOR's client fades a body from the fade delay its death set while
-  the server holds it, then gone (`Going::Fades`; the views blend it,
-  `going_view`). Taking the body out of the world when the fade begins
-  instead (2026-10-09, briefly) moved the K1 chain's timings from the
-  Taris Sith base on and stalled Dantooine's ruins and Manaan's sea
-  floor. If it held a droppable item (worn or carried, as
+  after its appearance's `destroyobjectdelay` (`items.remains.destroy_ms`
+  where blank) unless a script keeps it (`SetIsDestroyable(FALSE)`, read
+  when it is due, so a death script's counts): out of the world then, gone
+  to scripts at once, as TSL's executable's destroy event takes it from
+  its area and deletes it, leaving the fade over `fadedelayondeath` to the
+  client (`SetFadeOutTime`). The view lays the body on (`going_view`); a
+  corpse row's departs fading. Until 2026-11-07 the body stayed in the
+  world through its fade (the server was thought to hold it), which let
+  Telos' shuttle trigger find the tank droid's body hostile a moment after
+  its fade began. If it held a droppable item (worn or carried, as
   `State::items` has them: an item of its template's lists only when the
   list marks it `Dropable`, a missing mark not, as K1's executable and
   reone load a creature; what scripts gave it counts, as K1's spawn
