@@ -21,8 +21,6 @@
 //! - **A grenade landing** (each bounce, and where it comes to rest): its
 //!   `grenadesnd.2da` row by the surface met (`surfacemat.2da`'s row): K1
 //!   gives every surface but the non-walkable ones `fs_metal_droid1`.
-//! - **A roll** (JA's, pressed crouching on the run): row 0's swing, the
-//!   body's whoosh (`cb_sw_unarmed1`), as it starts.
 //! - **A blaster's shot** (`Ammo`): its base item's `ammunitiontype`, a
 //!   row of `ammunitiontypes.2da`: `shotsound0` as it fires (`shotsound1`
 //!   for a Power Blast), `impactsound0`/`1` where it hits a body, as the

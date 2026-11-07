@@ -27,14 +27,17 @@ pub(crate) enum Coded {
 
 impl Coded {
     /// A WAV, MP3 or FLAC file. Bytes before a WAV's `RIFF` (some of
-    /// KOTOR's carry a header of their own there) are passed over.
+    /// KOTOR's carry a header of their own there) are passed over, and an
+    /// MP3's count of none is not believed (`uncounted`).
     pub(crate) fn file(bytes: &[u8]) -> Coded {
         let at = bytes
             .windows(4)
             .take(JUNK_MOST)
             .position(|w| w == b"RIFF")
             .unwrap_or(0);
-        Coded::File(bytes[at..].into())
+        let mut kept: Vec<u8> = bytes[at..].into();
+        uncounted(&mut kept);
+        Coded::File(kept.into())
     }
 
     /// A KOTOR WAV: its MP3 taken out of its RIFF, IMA ADPCM by its
@@ -185,6 +188,37 @@ impl Decoder {
 }
 
 const STEREO_MOST: &str = "more than two channels";
+
+/// How far into an MP3's first frame its `Xing` or `Info` tag is looked
+/// for (after the frame's header and side information).
+const TAG_MOST: usize = 64;
+
+/// An MP3 whose first frame's `Xing` (or `Info`) tag counts no frames
+/// (many of JA's footsteps: rug, wood, snow, water, gravel) plays as JA
+/// plays it, every frame after it: the tag is blanked, and its frame
+/// decodes as the silent frame it is. Symphonia believes the count and
+/// would decode nothing.
+fn uncounted(bytes: &mut [u8]) {
+    if !bytes.starts_with(&[0xff]) || bytes.get(1).is_none_or(|b| b & 0xe0 != 0xe0) {
+        return;
+    }
+    let Some(at) = bytes
+        .windows(4)
+        .take(TAG_MOST)
+        .position(|w| w == b"Xing" || w == b"Info")
+    else {
+        return;
+    };
+    let word = |from: usize| {
+        bytes
+            .get(from..from + 4)
+            .map(|b| u32::from_be_bytes(b.try_into().expect("4 bytes")))
+    };
+    let counts_frames = word(at + 4).is_some_and(|flags| flags & 1 != 0);
+    if counts_frames && word(at + 8) == Some(0) {
+        bytes[at..at + 4].fill(0);
+    }
+}
 
 /// A decoded packet's frames: mono heard in both ears.
 fn frames(buffer: &GenericAudioBufferRef) -> Result<Vec<Frame>, String> {

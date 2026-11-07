@@ -205,6 +205,47 @@ impl Stage {
         })
     }
 
+    /// The floors stage (`crate::floor_arena`): a patch of each floor of
+    /// both games, on the arena's data, rules and Jedi.
+    pub fn floors(
+        discovery: &Discovery,
+        anims: Arc<AnimTable>,
+        seats: u8,
+    ) -> Result<Stage, String> {
+        use crate::{arena, floor_arena};
+        let module = arena::BASE_MODULE;
+        let game = crate::installs::game_of_module(discovery, module);
+        let installer = Arc::new(Installer::new(discovery, game, anims.clone())?);
+        let prepared = installer.prepare(&installer.request(module, None, seats), false)?;
+        let world = floor_arena::collision();
+        let mut notes = Vec::new();
+        let model = floor_arena::model(discovery, &world, &mut notes);
+        for note in notes {
+            bevy::log::warn!("{note}");
+        }
+        let level = arena::on_floor(
+            &prepared.plan.level,
+            anims,
+            floor_arena::NAME,
+            world,
+            floor_arena::nav(),
+        )?;
+        Ok(Stage {
+            name: floor_arena::NAME.into(),
+            model: Some(model),
+            level,
+            spawn: arena::SPAWN,
+            yaw: arena::YAW,
+            scene: None,
+            plan: None,
+            installer: Some(installer),
+            seats,
+            sheet: arena::sheet(),
+            guests: sim::Guests::Avatars,
+            face_off: None,
+        })
+    }
+
     /// The arena's rules and Jedi on a real area (`arena@MODULE`): the
     /// module's rooms, lightmaps and lights as they are, its event scripts
     /// gone, so fights and their lights can be tried in a lit or a dark
@@ -258,6 +299,7 @@ impl Stage {
             "duel" => Ok(Stage::duel(anims, seats)),
             "ring" => Ok(Stage::ring(anims, seats)),
             "arena" => Stage::arena(discovery, crate::arena::BASE_MODULE, anims, seats),
+            crate::floor_arena::NAME => Stage::floors(discovery, anims, seats),
             _ if let Some(base) = name.strip_prefix("arena:") => {
                 Stage::arena(discovery, base, anims, seats)
             }

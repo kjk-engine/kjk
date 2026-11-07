@@ -83,7 +83,9 @@ impl Plugin for FloatyViewPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            show.run_if(resource_exists::<PresentedSnapshot>)
+            (show, floor_labels)
+                .chain()
+                .run_if(resource_exists::<PresentedSnapshot>)
                 .before(crate::ui_view::Stepped),
         );
     }
@@ -199,6 +201,53 @@ fn show(
             });
     ui.vm.floaties = floaties.collect();
 }
+
+/// The floors stage's labels (`floor_arena::labels`), floated over the
+/// patches near the player's own character, in KOTOR's floaty words.
+fn floor_labels(
+    presented: Res<PresentedSnapshot>,
+    (swap, seat): (Option<Res<SceneSwap>>, Option<Res<OwnSeat>>),
+    cameras: Query<(&GlobalTransform, &Camera), SceneCamera>,
+    mut ui: ResMut<Ui>,
+) {
+    if swap.is_none_or(|swap| swap.level.name() != crate::floor_arena::NAME) {
+        return;
+    }
+    let Ok((place, camera)) = cameras.single() else {
+        return;
+    };
+    let snapshot = presented.0.current();
+    let me = crate::cast::me(snapshot, seat.map_or(sim::Seat(0), |seat| seat.0))
+        .and_then(|id| snapshot.get(id));
+    let Some(me) = me else {
+        return;
+    };
+    for (middle, words) in crate::floor_arena::labels(me.position) {
+        let at = crate::scene::game_to_bevy() * Vec3::from_array(middle);
+        let Some(share) = camera
+            .world_to_viewport(place, at)
+            .ok()
+            .zip(camera.logical_viewport_size())
+            .map(|(at, size)| at / size)
+            .filter(|share| (0.0..=1.0).contains(&share.x) && (0.0..=1.0).contains(&share.y))
+        else {
+            continue;
+        };
+        let lines = words
+            .into_iter()
+            .enumerate()
+            .map(|(row, words)| ui::vm::FloatyView {
+                text: words.into_bytes(),
+                color: LABEL_COLOR,
+                alpha: 1.0,
+                over: [share.x, share.y],
+                stacked: 1 - row,
+            });
+        ui.vm.floaties.extend(lines);
+    }
+}
+
+const LABEL_COLOR: [f32; 3] = [0.85, 0.85, 0.8];
 
 /// The damage numbers' probes (`kjk sim probes --only "damage numbers"`):
 /// the player's own hits float over the struck, any hit on the player

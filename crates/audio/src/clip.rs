@@ -11,7 +11,7 @@ pub struct Clip(pub(crate) StaticSoundData);
 
 impl Clip {
     /// The version of `encode`'s bytes: bump when they change.
-    pub const VERSION: u32 = 1;
+    pub const VERSION: u32 = 2;
 
     /// A WAV (PCM), MP3 or FLAC file (`Coded::file`).
     pub fn decode(bytes: &[u8]) -> Result<Clip, String> {

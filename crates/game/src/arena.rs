@@ -142,6 +142,18 @@ pub fn rules() -> sim::arena::Rules {
 /// `base` (`BASE_MODULE`'s level) as the arena: its scripts, templates and
 /// tables kept, its objects, area and scripts gone, on the arena's floor.
 pub fn level(base: &sim::Level, anims: Arc<sim::motion::AnimTable>) -> Result<sim::Level, String> {
+    on_floor(base, anims, "arena", collision(), nav())
+}
+
+/// `base` as an arena named `name` on `world`, walked by `nav` (the
+/// arena's own floor, or the floors stage's: `floor_arena`).
+pub fn on_floor(
+    base: &sim::Level,
+    anims: Arc<sim::motion::AnimTable>,
+    name: &str,
+    world: BrushWorld,
+    nav: collision::nav::NavMesh,
+) -> Result<sim::Level, String> {
     let mut data = base
         .module()
         .ok_or("the arena's base has no module")?
@@ -159,9 +171,9 @@ pub fn level(base: &sim::Level, anims: Arc<sim::motion::AnimTable>) -> Result<si
         .scripts()
         .ok_or("the arena's base has no scripts")?
         .clone();
-    Ok(sim::Level::new("arena", Arc::new(collision()), anims)
+    Ok(sim::Level::new(name, Arc::new(world), anims)
         .with_module(data)
-        .with_nav(nav())
+        .with_nav(nav)
         .with_scripts(library)
         .with_arena(rules()))
 }
@@ -296,10 +308,13 @@ fn keys(
     if let Some(outgoing) = outgoing.as_mut() {
         outgoing.0.extend(asked.into_iter().map(Action::Arena));
     }
-    let god = presented.zip(own).is_some_and(|(presented, own)| {
-        crate::cast::body_sheet(presented.0.current(), own.0, &swap.level)
-            .is_some_and(|(_, sheet)| sheet.flags & sim::combat::sheet::flags::IMMORTAL != 0)
-    });
+    let god = presented
+        .as_ref()
+        .zip(own.as_ref())
+        .is_some_and(|(presented, own)| {
+            crate::cast::body_sheet(presented.0.current(), own.0, &swap.level)
+                .is_some_and(|(_, sheet)| sheet.flags & sim::combat::sheet::flags::IMMORTAL != 0)
+        });
     if let Some(keys) = keys {
         let mut order = |order: ArenaOrder| {
             if let Some(outgoing) = outgoing.as_mut() {
@@ -319,7 +334,20 @@ fn keys(
             order(ArenaOrder::Clear);
         }
     }
-    if let Some(ui) = ui.as_mut() {
+    // The floors stage says the floor underfoot instead.
+    let me = presented
+        .as_ref()
+        .zip(own.as_ref())
+        .and_then(|(presented, own)| {
+            let current = presented.0.current();
+            let id = crate::cast::me(current, own.0)?;
+            current.get(id).map(|entity| entity.position)
+        });
+    if swap.level.name() == crate::floor_arena::NAME
+        && let Some(ui) = ui.as_mut()
+    {
+        ui.vm.arena = Some(crate::floor_arena::line(me.unwrap_or([0.0; 3])).into_bytes());
+    } else if let Some(ui) = ui.as_mut() {
         let line = format!(
             "ARENA   F2 spawn {}   F3 next foe   F4 god mode {}   F6 clear   [ ] pick power, F cast",
             ROSTER[chosen.foe].0,
