@@ -1053,10 +1053,14 @@ impl<'t> Spawner<'t> {
             .flatten()
             .filter_map(|name| self.irs.get(name).map(|texture| &texture.facts))
             .collect();
-        let surface = material::surface(
-            (part.transparency_hint, part.skin.is_some()),
-            part.alpha,
+        let surface = material::weapon_surface(
+            material::surface(
+                (part.transparency_hint, part.skin.is_some()),
+                part.alpha,
+                &facts,
+            ),
             &facts,
+            material::is_weapon_model(&placed.ir.name),
         );
         // Its back faces are culled, as reone and xoreos draw every KOTOR
         // mesh; a decal's are drawn (a textured window or grate seen from

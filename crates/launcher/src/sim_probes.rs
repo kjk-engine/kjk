@@ -62,6 +62,7 @@ const GROUPS: &[Group] = &[
     ("pazaak view", crate::pazaak_view::probes),
     ("feats", sim::feats::probes),
     ("destroys", sim::destroys::probes),
+    ("remains by tag", sim::remains::wave_probes),
     ("floor items", sim::floor_probes::probes),
     ("reputation", sim::reputation_probes::probes),
     ("tsl", sim::tsl_probes::probes),

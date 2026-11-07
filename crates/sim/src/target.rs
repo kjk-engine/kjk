@@ -584,12 +584,15 @@ pub fn action_point(level: &Level, facts: &crate::module::ObjectData, from: Vec3
     Some(feet_at(*point))
 }
 
-/// Where a walk to do a choice heads (feet, metres) and how near it must
-/// come (metres, across the floor) for the choice to be done there.
+/// Where a walk to do a choice heads (feet, metres), how near it must
+/// come (metres, across the floor) for the choice to be done there, and
+/// the farthest the choice reaches from it (`reach`), where a walk that
+/// can come no nearer does it (`Walk::stride`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Spot {
     pub at: Vec3,
     pub within: f32,
+    pub reach: f32,
 }
 
 impl Spot {
@@ -599,6 +602,7 @@ impl Spot {
         Spot {
             at: feet,
             within: arrival(choice, kind),
+            reach: reach(choice, kind),
         }
     }
 
@@ -618,6 +622,7 @@ impl Spot {
             Some(at) => Spot {
                 at,
                 within: door_point_reach() * ARRIVE,
+                reach: door_point_reach(),
             },
             None => Spot::plain(feet, choice, facts.kind),
         }
@@ -704,6 +709,10 @@ pub struct Walk {
     toward: Vec3,
     direct: bool,
     started_ms: u64,
+    /// The nearest the walk has come to its target (metres, across the
+    /// floor), and since when.
+    nearest: f32,
+    nearest_ms: u64,
 }
 
 /// What a walk does this step.
@@ -764,6 +773,8 @@ impl Walk {
             toward: spot.at,
             direct: false,
             started_ms: now_ms,
+            nearest: f32::MAX,
+            nearest_ms: now_ms,
         };
         walk.plan(level, ways, player, spot);
         walk
@@ -795,6 +806,21 @@ impl Walk {
         self.toward = to;
     }
 
+    /// Whether the walk has come no nearer `spot` for a walker's stall
+    /// (`walk::STALL_MS`) while within the choice's own reach of it: a
+    /// counter or a desk between, where no way leads round (Greeta Holda
+    /// in Anchorhead's Czerka office, 3.4 m off across hers), as KOTOR's
+    /// walk to talk ends where its path does and the conversation starts
+    /// there, within range [verify in the exe].
+    fn no_nearer(&mut self, player: &crate::motion::MotionState, spot: Spot, now_ms: u64) -> bool {
+        let off = math::flat_distance(feet_of(player), spot.at);
+        if off < self.nearest - rules::walking::route::HEADWAY * UNIT {
+            self.nearest = off;
+            self.nearest_ms = now_ms;
+        }
+        off <= spot.reach && now_ms >= self.nearest_ms + crate::walk::STALL_MS
+    }
+
     /// This step of the walk for `player`, its target's `spot` now, at
     /// `now_ms`.
     pub fn stride(
@@ -806,7 +832,7 @@ impl Walk {
         now_ms: u64,
     ) -> Stride {
         let late = now_ms >= self.started_ms + WALK_MS;
-        if Walk::near(player, spot) {
+        if Walk::near(player, spot) || self.no_nearer(player, spot, now_ms) {
             // Arrived at a run, it stops first where the choice breaks off
             // on its user moving: the slide would carry it past.
             let moving = math::length([player.velocity[0], player.velocity[1], 0.0])

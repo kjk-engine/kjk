@@ -340,8 +340,66 @@ pub fn probes() -> Checks {
         format!("{run:.2} m/s, legs {legs:?}; KOTOR's run 10.00"),
     );
     formation(&mut put);
+    speed_power(&mut put);
     keeps_pace(&mut put);
     checks
+}
+
+/// Burst of Speed on the player as K1's `k_sp1_generic` leaves it: JA's
+/// speed toggle running and the power's own +99 % movement effect. Out of
+/// a fight it runs at KOTOR's 5.40 m/s run times the fastest movement
+/// (`walking.pace.most_multiplier`), as the executables hold +99 % to it;
+/// in one at JA's run times JA's speed (`force.speed.scale`). Issue 194:
+/// out of a fight it ran at JA's speed over KOTOR's run, hardly faster.
+fn speed_power(put: &mut impl FnMut(&'static str, bool, String)) {
+    let mut run = match Run::new((3.2, 5.4)) {
+        Ok(run) => run,
+        Err(error) => return put("speed_power_ground", false, error),
+    };
+    let mut snapshot = run.last.clone();
+    let now = snapshot.time_ms;
+    for entity in &mut snapshot.entities {
+        if entity.id == run.host
+            && let Some(fighter) = entity.fighter.as_mut()
+        {
+            fighter.force.speed_until = now + 60_000;
+            fighter.force.speed_level = 1;
+            fighter.effects.lasting[0] = Some(crate::combat::effects::Lasting {
+                modifies: crate::combat::effects::Modifies::Speed,
+                amount: 99,
+                of: 0,
+                until: now + 60_000,
+                spell: crate::combat::spells::FORCE_POWER_SPEED_BURST,
+                by: run.host.0,
+                id: 1,
+                at: now,
+                third: 0,
+            });
+        }
+    }
+    match SimWorld::from_snapshot(&snapshot, run.level.clone()) {
+        Ok(world) => (run.world, run.last) = (world, snapshot),
+        Err(error) => return put("speed_power_world", false, error.to_string()),
+    }
+    run.hold(keys(90.0, 127, false), 704);
+    let calm = run.speed(run.host);
+    let want = 5.4 * rules::walking::pace::MOST_MULTIPLIER;
+    put(
+        "speed_power_runs_at_kotor_speed_out_of_a_fight",
+        near(calm, want),
+        format!("{calm:.2} m/s, KOTOR's run 5.40 × its fastest: {want:.2}"),
+    );
+    if let Err(error) = run.fight_for(60_000) {
+        return put("speed_power_fight", false, error);
+    }
+    run.hold(keys(270.0, 127, false), 304);
+    let fighting = run.speed(run.host);
+    let want = 250.0 * collision::UNIT * crate::combat::force::ja::SPEED_SCALE;
+    put(
+        "speed_power_runs_at_ja_speed_in_a_fight",
+        near(fighting, want),
+        format!("{fighting:.2} m/s, JA's run 6.35 × its speed: {want:.2}"),
+    );
 }
 
 /// The player walks off from its companion, 3 m behind: the companion
