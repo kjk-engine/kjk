@@ -21,11 +21,12 @@ use super::anim::{
 };
 use super::{Anim, Ground, Move, events};
 use crate::combat::saber::{
-    Block, Blocked, Change, Getup, Hand, Held, Kit, Move as SaberMove, SaberState, Style,
+    Block, Blocked, Change, Getup, Hand, Held, Kit, Move as SaberMove, SaberRules, SaberState,
+    Style,
 };
 use crate::combat::sheet::Blaster;
 use crate::combat::{Fighter, Sheath};
-use crate::input::buttons;
+use crate::input::{buttons, holds};
 use crate::math;
 use crate::rng::SimRng;
 use crate::world::{BODY, COMBAT_MS};
@@ -53,6 +54,8 @@ pub struct Arms<'a> {
     /// A conversation has this party member and it fights no one: its blade
     /// goes away and stays away, whatever its 8 s say.
     pub at_rest: bool,
+    /// The rules the blades play by (the session's, `world::Rules`).
+    pub rules: SaberRules,
 }
 
 /// Another character, as a saber move's check meets it: its body's entity
@@ -472,7 +475,17 @@ impl Move<'_, '_> {
         {
             arms.fighter.saber.on = false;
         }
+        if arms.rules.duel() {
+            // Held only while the blade's step finds it may be
+            // (`saber::duel_block`).
+            let state = &mut arms.fighter.saber.duel;
+            state.block_held = false;
+            state.sprint = false;
+        }
         if arms.fighter.force.hand_out(now) || self.hand_state(arms) {
+            return;
+        }
+        if arms.rules.duel() && self.duel_kick(arms) {
             return;
         }
 
@@ -530,6 +543,45 @@ impl Move<'_, '_> {
             self.light(arms);
         }
         self.saber_step(arms, blade);
+    }
+
+    /// The duel modes' kick key (`holds::KICK`, `docs/SABER-RULES.md` 9.2):
+    /// on a press, standing free on the ground, a kick the way the keys
+    /// point (ahead without one), with any weapon in hand: a lit blade
+    /// kicks as its move, anything else plays the kick on the whole body.
+    /// Whether it kicked.
+    fn duel_kick(&mut self, arms: &mut Arms) -> bool {
+        let held = self.cmd.holds & holds::KICK != 0;
+        let saber = &mut arms.fighter.saber;
+        let pressed = held && !saber.duel.kick_held;
+        saber.duel.kick_held = held;
+        let busy = arms.fighter.weapon_wait_ms > 0
+            || is_kick(self.ps.legs.anim)
+            || is_kick(self.ps.torso.anim)
+            || saber.lock_until > self.time_ms
+            || saber.floored()
+            || self.ps.ground.is_none();
+        if !pressed || busy {
+            return false;
+        }
+        let kick = match (self.cmd.forward.signum(), self.cmd.right.signum()) {
+            (_, 1) => SaberMove::KICK_R,
+            (_, -1) => SaberMove::KICK_L,
+            (-1, _) => SaberMove::KICK_B,
+            _ => SaberMove::KICK_F,
+        };
+        let lit = arms.kit.blade(arms.fighter.hand).is_some() && arms.fighter.saber.on;
+        if lit {
+            self.begin_saber_move(arms, kick);
+            arms.fighter.weapon_wait_ms = self.ps.torso.timer;
+        } else {
+            let set = play_flags::OVER_ANY | play_flags::HOLD_FULL;
+            self.animator
+                .play(self.ps, Parts::WHOLE, kick.data().anim, set);
+            arms.fighter.weapon_wait_ms = self.ps.legs.timer;
+        }
+        self.still();
+        true
     }
 
     /// The gun goes down: its lowering played and held.
@@ -652,13 +704,16 @@ impl Move<'_, '_> {
     fn get_up(&mut self, arms: &mut Arms) {
         let now = self.time_ms;
         let keys = self.raw;
+        // Under a duel mode a fatigued player gets up plainly
+        // (`docs/SABER-RULES.md` 1.4).
+        let weary = arms.rules.duel() && arms.player && arms.fighter.saber.duel.fatigued;
         let saber = &mut arms.fighter.saber;
         let acrobatic = |saber: &mut SaberState, ps: &mut super::MotionState| {
             saber.getup = Getup::Quick;
             saber.hand_until = now + knockdown::FORCE_GETUP_MS;
             ps.velocity[2] = knockdown::GETUP_LIFT;
         };
-        if (keys.forward != 0) != (keys.right != 0) {
+        if !weary && (keys.forward != 0) != (keys.right != 0) {
             let roll = match (keys.forward, keys.right) {
                 (f, _) if f > 0 => BOTH_GETUP_BROLL_F,
                 (f, _) if f < 0 => BOTH_GETUP_BROLL_B,
@@ -672,9 +727,9 @@ impl Move<'_, '_> {
                 play_flags::OVER_ANY | play_flags::HOLD_FULL,
             );
             saber.hand = Hand::None;
-        } else if keys.up != 0 && arms.kit.force_jump > 1 {
+        } else if !weary && keys.up != 0 && arms.kit.force_jump > 1 {
             acrobatic(saber, self.ps);
-        } else if keys.up != 0 {
+        } else if !weary && keys.up != 0 {
             saber.getup = Getup::Force;
             saber.hand_until = now + knockdown::FORCE_GETUP_MS;
         } else if now - saber.hand_until > knockdown::LIE_MS {

@@ -74,6 +74,7 @@ const GROUPS: &[Group] = &[
     ("tsl party", sim::tsl_probes::party_probes),
     ("mod routines", sim::routine_probes::probes),
     ("regeneration", sim::regen_probes::probes),
+    ("duel rules", sim::trace::duel_probes::probes),
     ("weapon sets", sim::weapon_set_probes::probes),
     ("aim", sim::aim_probes::probes),
     ("bulks", sim::bulk_probes::probes),

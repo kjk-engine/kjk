@@ -172,7 +172,7 @@ crates/sim/src/combat/rounds.rs UNARMED  # weapon class number: bare hands
 crates/sim/src/combat/saber/blades.rs SABERS  # the skeleton data's saber names (the host loads them by these)
 crates/sim/src/combat/saber/blades.rs SINGLE  # an index into SABERS
 crates/sim/src/combat/saber/blades.rs STAFF  # an index into SABERS
-crates/sim/src/combat/saber/duel.rs ALL  # every saber rules value, a list
+crates/sim/src/combat/saber/duel.rs ALL  # every saber rules value in number order, a list (an enum's values)
 crates/sim/src/combat/saber/grace.rs HELD  # a buffer size: the held hits' slots, in the snapshot
 crates/sim/src/combat/saber/lock.rs ENDS  # a table of the five ends of a new lock block, in list order (an enum's values)
 crates/sim/src/combat/saber/lock.rs KINDS  # a table of the lock kinds (an enum's values)
@@ -310,6 +310,8 @@ crates/sim/src/input.rs STIM  # bit flag: a command button
 crates/sim/src/input.rs USE  # bit flag: a command button
 crates/sim/src/input.rs USE_HELD  # bit flag: a command button
 crates/sim/src/input.rs WALKING  # bit flag: a command button
+crates/sim/src/input.rs BLOCK  # bit flag: a held duel bit (Command::holds)
+crates/sim/src/input.rs KICK  # bit flag: a held duel bit (Command::holds)
 crates/sim/src/install.rs APART  # arrival placement: the spacing of players' candidate spots
 crates/sim/src/install.rs ARRIVAL_SEARCH_M  # arrival placement: the walkmesh search's depth
 crates/sim/src/install.rs FLOOR_BELOW  # arrival placement: the floor search's depth
@@ -693,3 +695,10 @@ crates/sim/src/action.rs RETURN_TO_SHIP  # a player action's wire tag
 crates/sim/src/snapshot.rs APART  # a talk-table strref (the map page's refusal)
 crates/sim/src/snapshot.rs BARRED  # a talk-table strref (the map page's refusal)
 crates/sim/src/snapshot.rs FOES  # a talk-table strref (the map page's refusal)
+crates/sim/src/combat/saber/duel.rs FLAGS  # a format's size: the flags a duel's encoding packs
+crates/sim/src/world/minds.rs MEDITATE_SALT  # a dice salt (a hash constant), no number the game plays by
+crates/sim/src/world/sabers/duel.rs ASIDE  # a table of moves (game facts: the knockaways)
+crates/sim/src/world/sabers/duel.rs BOUNCES  # a table of moves (game facts: an attack's bounces)
+crates/sim/src/world/sabers/duel.rs STAGGERS  # a table of moves (game facts: the heavy staggers)
+crates/sim/src/world/sabers/duel.rs STUMBLES  # a table of animation ids (the stumbles)
+crates/sim/src/combat/saber/duel.rs LAST_HEALTH  # a unit: one hit point, in the hundredths health is kept in

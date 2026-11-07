@@ -19,7 +19,7 @@ pub(super) fn fly(
     clock: Res<Clock>,
     level: Res<Static>,
     inputs: Res<Inputs>,
-    blades: Res<sabers::Blades>,
+    (blades, rules): (Res<sabers::Blades>, Res<super::Rules>),
     mut streams: ResMut<Streams>,
     (mut hits, mut battering): (ResMut<Hits>, ResMut<objects::Battering>),
     mut scripts: ResMut<scripts::Scripts>,
@@ -175,6 +175,7 @@ pub(super) fn fly(
             let fate = saw
                 .then(|| {
                     sabers::bolt_block(
+                        (rules.0, avatar.is_some()),
                         &mut fighting.0,
                         &player.0,
                         &sheet,
@@ -264,6 +265,7 @@ pub(super) fn fly(
                 let (_, avatar, object, sheet, player, fighting) = &mut actors[at_target];
                 let sheet = sheet_of(*sheet, *object);
                 let fate = sabers::bolt_block(
+                    (rules.0, avatar.is_some()),
                     &mut fighting.0,
                     &player.0,
                     &sheet,

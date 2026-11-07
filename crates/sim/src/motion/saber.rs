@@ -16,18 +16,19 @@
 use collision::Contents;
 
 use super::anim::{
-    Parts, is_flip, is_jump, is_kata, is_kick, is_knockdown, is_leap, is_lit_stance,
+    Parts, is_flip, is_jump, is_kata, is_kick, is_knockdown, is_leap, is_lit_stance, is_run,
     is_slope_stance, is_special_move, is_spin, play_flags, roll_playing, single_transition,
     standing,
 };
 use super::weapon::{Arms, Other};
 use super::{Anim, Ground, Move, events, motion_flags};
 use crate::combat::pace;
+use crate::combat::saber::duel::{self, meter};
 use crate::combat::saber::moves::{self as table, Quad};
 use crate::combat::saber::{
     Blade, Blocked, Change, Hold, Move as SaberMove, Style, Thrown, power, throw,
 };
-use crate::input::buttons;
+use crate::input::{buttons, holds};
 use crate::math::{self, Vec3};
 use rules::saber_moves::chains;
 use rules::saber_moves::costs;
@@ -301,8 +302,13 @@ impl Move<'_, '_> {
         let forced = arms.kit.forced_style(hand);
         let pair = forced == Some(Style::Dual);
 
+        Self::duel_broken(arms, forced);
         self.fit_style(arms, forced);
         self.style_button(arms, forced);
+        if arms.rules.duel() {
+            Self::duel_broken(arms, forced);
+            self.duel_block(arms, blade);
+        }
 
         // Down or rolling: the timer runs, and the forward roll may stab.
         let legs = self.ps.legs;
@@ -338,6 +344,9 @@ impl Move<'_, '_> {
             arms.fighter.weapon_wait_ms = 0;
         }
 
+        if arms.rules.duel() && arms.player && self.duel_fake(arms) {
+            return;
+        }
         let unlit = !arms.fighter.saber.on;
         if unlit {
             self.unlit_step(arms);
@@ -404,6 +413,129 @@ impl Move<'_, '_> {
                 torso
             };
         }
+    }
+
+    /// A staff whose hilt broke (`Duel::broken`, `docs/SABER-RULES.md` 9.1)
+    /// fights with one blade, in a single style.
+    fn duel_broken(arms: &mut Arms, forced: Option<Style>) {
+        let saber = &mut arms.fighter.saber;
+        if !arms.rules.duel() || !saber.duel.broken || forced != Some(Style::Staff) {
+            return;
+        }
+        if !saber.second_off {
+            saber.second_off = true;
+            saber.style = arms.kit.single_for(arms.fighter.hand, saber.style);
+            saber.queued = None;
+        }
+    }
+
+    /// The duel modes' block button (`holds::BLOCK`, `docs/SABER-RULES.md`
+    /// 2): a player's block while it may hold one (`duel::can_hold`), its
+    /// saber lit for it; attack pressed with it aims the block, the press
+    /// opening the perfect window (`duel::window`), and never swings; held
+    /// while running it sprints (`duel::runs_blocking`).
+    fn duel_block(&mut self, arms: &mut Arms, blade: Blade) {
+        let now = self.time_ms;
+        let (rules, pool) = (arms.rules, arms.kit.pool);
+        let fighter = &*arms.fighter;
+        let saber = &fighter.saber;
+        let current = saber.current_move;
+        let others = buttons::ALT_ATTACK
+            | buttons::FORCE_POWER
+            | buttons::FORCE_GRIP
+            | buttons::FORCE_LIGHTNING
+            | buttons::FORCE_DRAIN;
+        let busy = saber.floored()
+            || saber.locked(now)
+            || current.special()
+            || current.bounce()
+            || current.knockaway()
+            || current.broken()
+            || current.attack()
+            || current.kick()
+            || roll_playing(self.ps, self.ps.legs.anim)
+            || fighter.hp <= duel::LAST_HEALTH
+            || self.cmd.buttons & others != 0;
+        let hold = duel::Hold {
+            blade: blade.saber && saber.thrown.is_none(),
+            defence: arms.kit.defence(blade),
+            meter: meter::meter(rules, fighter, pool),
+            force: meter::force(fighter, pool),
+            on_ground: self.on_ground(),
+            busy,
+        };
+        let valid = arms.player && self.cmd.holds & holds::BLOCK != 0 && duel::can_hold(&hold);
+        if valid && !arms.fighter.saber.on {
+            self.light(arms);
+        }
+        let attack = self.attack_held();
+        let running = is_run(self.ps.legs.anim);
+        let walking = self.cmd.buttons & buttons::WALKING != 0;
+        let state = &mut arms.fighter.saber.duel;
+        let aimed = valid && attack;
+        if aimed && !state.aimed {
+            state.perfect_until = now + duel::window();
+            state.aimed_at = now;
+        }
+        if !aimed {
+            state.perfect_until = 0;
+        }
+        state.aimed = aimed;
+        state.block_held = valid;
+        let sprint =
+            valid && running && !attack && !walking && duel::runs_blocking(hold.meter, state.fuel);
+        if sprint && !state.sprint {
+            meter::sprint_started(state);
+        }
+        state.sprint = sprint;
+        if valid {
+            self.cmd.buttons &= !buttons::ATTACK;
+        }
+    }
+
+    /// The duel modes' attack fake (`docs/SABER-RULES.md` 6.2): attack and
+    /// use pressed in a swing's start or a transition, one at a time, turn
+    /// the blade to where the keys point, or with none (or the quadrant it
+    /// heads for already) to the opposite one, a bottom either side. Every
+    /// other swing of a chain it adds a mishap, a pair's never. Whether it
+    /// faked.
+    fn duel_fake(&mut self, arms: &mut Arms) -> bool {
+        use rules::duel::mishap;
+        let saber = &arms.fighter.saber;
+        let current = saber.current_move;
+        let wants = self.attack_held() && self.cmd.buttons & buttons::USE != 0;
+        if !wants || saber.duel.fake || !(current.start() || current.transition()) {
+            return false;
+        }
+        let end = current.data().end;
+        let opposite = |q: Quad| {
+            let at = Quad::ALL.iter().position(|&each| each == q).unwrap_or(0);
+            Quad::ALL[(at + Quad::ALL.len() / 2) % Quad::ALL.len()]
+        };
+        let keyed = self.cmd.forward != 0 || self.cmd.right != 0;
+        let mut to = self.keys_quadrant();
+        if !keyed || to == end {
+            to = opposite(end);
+        }
+        if to == Quad::B {
+            to = if Self::roll(arms, 0, 1) == 0 {
+                Quad::BL
+            } else {
+                Quad::BR
+            };
+        }
+        let Some(next) = table::transition(end, to) else {
+            return false;
+        };
+        let pair = arms.fighter.saber.style == Some(Style::Dual);
+        self.begin_saber_move(arms, next);
+        arms.fighter.weapon_wait_ms = self.ps.torso.timer;
+        let saber = &mut arms.fighter.saber;
+        saber.duel.fake = true;
+        if !pair && saber.chain.is_multiple_of(mishap::FAKE_EVERY) {
+            meter::shift(&mut saber.duel, mishap::FAKE, is_run(self.ps.legs.anim));
+        }
+        true
     }
 
     /// The style must suit the hands: a staff with its second blade off, a
@@ -1339,8 +1471,17 @@ impl Move<'_, '_> {
             Parts::UPPER
         };
 
-        self.animator
-            .play_at(self.ps, parts, anim, set, play_speed(style, anim));
+        let speed = if arms.rules.duel() {
+            let own = if rules::duel::speed::OPTION {
+                1.0
+            } else {
+                play_speed(style, anim)
+            };
+            own * duel::play_speed(&arms.fighter.saber.duel, style, next, self.time_ms)
+        } else {
+            play_speed(style, anim)
+        };
+        self.animator.play_at(self.ps, parts, anim, set, speed);
         if parts != Parts::LOWER
             && matches!(self.ps.legs.anim, BOTH_ARIAL_LEFT | BOTH_ARIAL_RIGHT)
             && self.ps.legs.timer > self.ps.torso.timer
@@ -1362,6 +1503,27 @@ impl Move<'_, '_> {
         }
         if next.special() {
             arms.fighter.weapon_wait_ms = arms.fighter.weapon_wait_ms.max(self.ps.torso.timer);
+        }
+        if arms.rules.duel() {
+            let running = is_run(self.ps.legs.anim);
+            let (rules, pool, player) = (arms.rules, arms.kit.pool, arms.player);
+            meter::started(
+                rules,
+                arms.fighter,
+                pool,
+                player,
+                style,
+                current,
+                next,
+                running,
+            );
+            let state = &mut arms.fighter.saber.duel;
+            if !(next.start() || next.transition() || next.attack()) {
+                state.fake = false;
+            }
+            if next.attack() || next.idle() {
+                state.pace = duel::Pace::Own;
+            }
         }
         let saber = &mut arms.fighter.saber;
         saber.current_move = next;

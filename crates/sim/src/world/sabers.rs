@@ -40,6 +40,8 @@
 //! client over its own predictions and the bodies it draws: where its
 //! contact sparks go (I22 C20).
 
+mod duel;
+
 use bevy_ecs::prelude::*;
 use collision::{Body, Contents, Extents, UNIT};
 
@@ -58,7 +60,7 @@ use crate::combat::saber::grace::{self, Held};
 use crate::combat::saber::lock::{self, Lock, Stance};
 use crate::combat::saber::sweep::{self, Swing};
 use crate::combat::saber::throw::{self, Flight, Thrown};
-use crate::combat::saber::{Blade, Blocked, Hand, Kit, Move, Style, kick, power};
+use crate::combat::saber::{Blade, Blocked, Hand, Kit, Move, SaberRules, Style, kick, power};
 use crate::combat::sheet::{Ability, Delivery, flags, type_rows};
 use crate::combat::{Fighter, Sheet, mind};
 use crate::input::buttons;
@@ -234,6 +236,9 @@ struct Step<'a> {
     /// footlocker), as a fist or a bolt does.
     bashable_bodies: Vec<Body>,
     history: &'a History,
+    /// The rules the blades play by (the session's): a duel mode's paths
+    /// run only under one (`duel`).
+    rules: SaberRules,
 }
 
 /// The blades system (see the module documentation).
@@ -247,7 +252,11 @@ pub(super) fn sabers(
     mut hits: ResMut<Hits>,
     mut cache: ResMut<Blades>,
     scripts: Res<super::scripts::Scripts>,
-    (scene, talking): (Res<super::scene::Held>, Res<super::Talking>),
+    (scene, talking, rules): (
+        Res<super::scene::Held>,
+        Res<super::Talking>,
+        Res<super::Rules>,
+    ),
     objects: Query<&Object>,
     placed: Query<(&Id, &Object)>,
     bolts: Query<&Bolt>,
@@ -321,6 +330,7 @@ pub(super) fn sabers(
                 .filter(|(_, object)| object.kind == crate::module::ObjectKind::Placeable),
         ),
         history: &history,
+        rules: rules.0,
     };
     step.pose();
     step.placed = step.place(&near);
@@ -332,6 +342,9 @@ pub(super) fn sabers(
     ));
     step.swings(authority);
     if authority {
+        if step.rules.duel() {
+            step.duel_upkeep();
+        }
         step.graces();
         step.locks();
         step.sweeps();
@@ -559,6 +572,29 @@ impl Step<'_> {
             point: Some(blow.point),
             direction: Some(blow.direction),
         });
+        if self.rules.own_meter() {
+            self.confirmed(at, victim);
+        }
+    }
+
+    /// MDA's hit-confirm (`docs/SABER-RULES.md` 4.7): a blow that lands
+    /// halves its striker's weapon timer (at least `hits::CONFIRM_LEAST`),
+    /// and one on a foe winding up a swing cancels it.
+    fn confirmed(&mut self, at: usize, victim: SimId) {
+        use rules::duel::hits;
+        let striker = &mut self.men[at].f;
+        if striker.weapon_wait_ms > 0 {
+            let halved = (striker.weapon_wait_ms as f32 * hits::CONFIRM) as i32;
+            striker.weapon_wait_ms = halved.max(hits::CONFIRM_LEAST);
+        }
+        if let Some(d) = self.find(victim)
+            && self.men[d].f.saber.current_move.start()
+        {
+            let saber = &mut self.men[d].f.saber;
+            saber.current_move = Move::READY;
+            saber.blocked = Blocked::None;
+            self.men[d].f.weapon_wait_ms = 0;
+        }
     }
 
     /// Step 4: The held blows (C19): one that this tick's command, made
@@ -577,16 +613,27 @@ impl Step<'_> {
                 // Judged from where the attacker stands (QUIRKS.md Q-0084).
                 let attacker = self.find(blow.by);
                 let from = attacker.map_or(blow.point, |a| self.men[a].ps.origin);
-                let blocking = saw && self.blocks(d, from, Against::Blade);
+                let guard = (saw && self.rules.duel()).then(|| self.duel_guard(d, from));
+                let blocking = match guard {
+                    Some(guard) => guard != crate::combat::saber::duel::exchange::Guard::None,
+                    None => saw && self.blocks(d, from, Against::Blade),
+                };
                 if !blocking && self.tick < blow.until() {
                     continue;
                 }
                 self.men[d].f.grace[slot] = None;
                 // A blow its block would turn is turned on the chance to
                 // miss (`turned`), drawn the once: either way the hold ends.
-                match (blocking, attacker) {
-                    (true, Some(a)) if self.misses(a, d) => self.state_block(a, d, blow.point),
-                    (true, None) => {}
+                match (blocking, attacker, guard) {
+                    (true, Some(a), Some(guard)) => {
+                        if !self.duel_meet(a, d, blow.point, false, guard) {
+                            self.land(self.men[d].id, blow);
+                        }
+                    }
+                    (true, Some(a), None) if self.misses(a, d) => {
+                        self.state_block(a, d, blow.point)
+                    }
+                    (true, None, _) => {}
                     _ => self.land(self.men[d].id, blow),
                 }
             }
@@ -662,14 +709,22 @@ impl Step<'_> {
                 let (b0, d0) = blade.start();
                 let (b1, d1) = (blade.now.muzzle, blade.now.direction);
                 let view = self.view(a);
-                // Blade against blade (a super-break's win cuts through), unless
+                // Blade against blade (a super-break's win cuts through, but
+                // under a duel mode, which decides it, `duel_turned`), unless
                 // the blow gets past it (`turned`).
-                if !power::final_break_won(torso.anim)
-                    && let Some((d, point)) = self.meets(a, &blade, view)
-                    && self.turned(a, d, point)
-                {
-                    self.clash(a, d, point, true);
-                    continue;
+                let duel = self.rules.duel();
+                let met = (duel || !power::final_break_won(torso.anim))
+                    .then(|| self.meets(a, &blade, view))
+                    .flatten();
+                if let Some((d, point)) = met {
+                    if duel {
+                        if self.duel_turned(a, d, point, true) {
+                            continue;
+                        }
+                    } else if self.turned(a, d, point) {
+                        self.clash(a, d, point, true);
+                        continue;
+                    }
                 }
                 let segments = sweep::segments(b0, d0, b1, d1, blade.length, arcs);
                 if segments.is_empty() {
@@ -847,7 +902,15 @@ impl Step<'_> {
                 .effects
                 .sum(crate::combat::effects::Modifies::AssuredHit, self.now)
                 > 0;
-            if !mv.special()
+            // Under a duel mode a swing made with block held harms no one,
+            // and a body that blocks it decides it (`duel_turned`).
+            if self.rules.duel() {
+                let blocking = self.men[a].f.saber.duel.block_held;
+                if blocking || (!assured && self.foes(a, d) && self.duel_turned(a, d, point, false))
+                {
+                    continue;
+                }
+            } else if !mv.special()
                 && !assured
                 && self.turns(d, from, view)
                 && self.foes(a, d)
@@ -1270,7 +1333,11 @@ impl Step<'_> {
     fn end_lock(&mut self, w: usize, l: usize, victory: bool, strength: i32) {
         let now = self.now;
         let banked = self.men[w].f.saber.lock.map_or(0, |mine| mine.hits);
-        let super_break = lock::super_breaks(strength, banked, self.rng);
+        let super_break = if self.rules.duel() {
+            victory && self.duel_super_break(l, strength)
+        } else {
+            lock::super_breaks(strength, banked, self.rng)
+        };
         let anim_of = |man: &Man| man.f.saber.lock.map_or(man.ps.torso.anim, |mine| mine.anim);
         let (won, lost) = lock::breaks(
             anim_of(&self.men[w]),
@@ -1299,7 +1366,11 @@ impl Step<'_> {
         }
         let from = self.men[w].ps.origin;
         let to = self.men[l].ps.origin;
-        if victory {
+        if victory && self.rules.duel() {
+            if self.men[l].f.alive() {
+                self.duel_lock_won(w, l, strength);
+            }
+        } else if victory {
             if banked > 0 && !super_break && self.men[l].f.alive() {
                 let winner = self.men[w].id;
                 let loser = &mut self.men[l];
@@ -1396,6 +1467,10 @@ impl Step<'_> {
             direction: Some(kick.direction),
         });
         if !self.foes(a, d) || self.men[d].ps.flags & motion::motion_flags::KNOCKBACK_HOLD != 0 {
+            return;
+        }
+        if self.rules.duel() && self.men[d].saber_out() {
+            self.duel_kicked(a, d, kick);
             return;
         }
         let (low, high) = kick.push;
@@ -1563,7 +1638,12 @@ impl Step<'_> {
         };
         t.hit_until = self.now + throw::HIT_EVERY_MS;
         let (thrower, weapon) = (self.men[a].id, self.men[a].delivery());
-        if self.blocks(d, t.at, Against::Thrown) {
+        let parried = if self.rules.duel() {
+            self.duel_guard(d, t.at) != crate::combat::saber::duel::exchange::Guard::None
+        } else {
+            self.blocks(d, t.at, Against::Thrown)
+        };
+        if parried {
             let tick = self.tick;
             let at = self.parried_at(d, t.at);
             let defender = &mut self.men[d];
@@ -1577,6 +1657,9 @@ impl Step<'_> {
             }
             t.turn_back(self.now);
             return;
+        }
+        if self.rules.duel() && self.men[d].saber_out() {
+            self.duel_thrown_hit(d);
         }
         let man = &self.men[a];
         let mut direction = t.velocity;
@@ -1679,6 +1762,7 @@ pub(super) fn could_turn(fighter: &Fighter, sheet: &Sheet, bolt: &crate::combat:
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn bolt_block(
+    (rules, player): (SaberRules, bool),
     fighter: &mut Fighter,
     ps: &MotionState,
     sheet: &Sheet,
@@ -1689,6 +1773,21 @@ pub(super) fn bolt_block(
     (now, tick): (u64, u64),
     rng: &mut SimRng,
 ) -> Option<BoltFate> {
+    if rules.duel() {
+        return duel::bolt_block(
+            rules,
+            player,
+            fighter,
+            ps,
+            sheet,
+            bolt,
+            at,
+            on_blade,
+            shooter,
+            (now, tick),
+            rng,
+        );
+    }
     let kit = Kit::of(sheet);
     let lightsaber = kit.blade(fighter.hand).is_some_and(|blade| blade.saber);
     if !bolt.blockable

@@ -105,7 +105,7 @@ pub(super) fn move_actors(
     inputs: Res<Inputs>,
     level: Res<Static>,
     (mut touched, mut bumped, mut sent): (ResMut<Touched>, ResMut<Bumped>, ResMut<TorsoSent>),
-    (driven, scripts, held, talking, fight, made_faces, personas): (
+    (driven, scripts, held, talking, fight, made_faces, personas, rules): (
         Res<Driven>,
         Res<scripts::Scripts>,
         Res<scene::Held>,
@@ -113,6 +113,7 @@ pub(super) fn move_actors(
         Res<InCombat>,
         Res<MadeFaces>,
         Res<Personas>,
+        Res<super::Rules>,
     ),
     (objects, made): (
         Query<&Object>,
@@ -556,6 +557,7 @@ pub(super) fn move_actors(
             rng: &mut rolls,
             enemy,
             at_rest,
+            rules: rules.0,
         };
         // A made box it stands in (made where it stood) holds it not: it
         // walks out of it.
