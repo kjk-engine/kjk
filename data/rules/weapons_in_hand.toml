@@ -35,6 +35,29 @@ summary = "A weapon takes {weapons_in_hand.change.raise_ms:s} to raise after a s
 source = "JA: weapon changes"
 see = "sim::motion::Move::raise_weapon"
 
+[look]
+title = "How a Weapon Looks"
+summary = """
+A weapon is drawn whole: where its texture carries transparency that nothing
+says how to use, it is drawn solid rather than see-through.
+"""
+applies = ["kind:weapon"]
+
+[look.solid]
+name = "Solid Weapons"
+value = true
+summary = "A weapon's texture with transparency but no instructions for it {weapons_in_hand.look.solid:can} be drawn solid instead of see-through."
+detail = """
+kjk's choice, not KOTOR's: the original blends such a texture by its alpha
+over whatever is behind the weapon. Texture mods that leave out the TXI
+files telling the game the alpha is a shine mask (High Quality Blasters)
+showed the world through their guns. Textures whose TXI names an env map,
+a bump map, a blending mode or a decal keep their own look, and nothing but
+weapon models is changed.
+"""
+source = "the owner's call, 2026-11-07 (issue 171)"
+see = "game::material::weapon_surface"
+
 [knockdown]
 title = "Getting Up"
 summary = """

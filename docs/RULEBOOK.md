@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f1012d923126c5d5`.
+Edition `0742bd560ef02e2f`.
 
 ## Contents
 
@@ -233,6 +233,7 @@ Edition `f1012d923126c5d5`.
   - [Tight Spaces](#movement-fine)
 - [Weapons in Hand](#weapons-in-hand)
   - [Switching Weapons](#weapons-in-hand-change)
+  - [How a Weapon Looks](#weapons-in-hand-look)
   - [Getting Up](#weapons-in-hand-knockdown)
   - [Movement while Attacking](#weapons-in-hand-saber-speed)
   - [Moves that Carry the Character](#weapons-in-hand-moves)
@@ -8354,6 +8355,24 @@ A weapon takes 0.2 seconds to lower when switched or put away.
 A weapon takes 0.25 seconds to raise after a switch, after getting up, or when a blaster is drawn by an attack.
 
 <sub>Source: JA: weapon changes. Code: `sim::motion::Move::raise_weapon`.</sub>
+
+### <a id="weapons-in-hand-look"></a>How a Weapon Looks
+
+A weapon is drawn whole: where its texture carries transparency that nothing
+says how to use, it is drawn solid rather than see-through.
+
+<a id="weapons-in-hand-look-solid"></a>**Solid Weapons** = **true** · `weapons_in_hand.look.solid`
+
+A weapon's texture with transparency but no instructions for it can be drawn solid instead of see-through.
+
+kjk's choice, not KOTOR's: the original blends such a texture by its alpha
+over whatever is behind the weapon. Texture mods that leave out the TXI
+files telling the game the alpha is a shine mask (High Quality Blasters)
+showed the world through their guns. Textures whose TXI names an env map,
+a bump map, a blending mode or a decal keep their own look, and nothing but
+weapon models is changed.
+
+<sub>Source: the owner's call, 2026-11-07 (issue 171). Code: `game::material::weapon_surface`.</sub>
 
 ### <a id="weapons-in-hand-knockdown"></a>Getting Up
 
