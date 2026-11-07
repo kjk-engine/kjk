@@ -276,6 +276,68 @@ dormitory door so. A broken door plays its model's `busted` where its
 stock row does), else stands open. The target block shows a door's
 vitality once blows have told on it. Approved test `bash_doors`.
 
+## Destruction (`sim::destruction`, the step in `world::objects`)
+
+Weapons, grenades and Force powers break the props a room is furnished
+with, everyone's blows alike (design:
+`docs/superpowers/specs/2026-11-06-destruction-design.md`).
+
+**What breaks.** `data/destruction/props.csv` gives every `placeables.2da`
+row both games place a class, a material and a size: **break** (pottery,
+plants, furniture, junk, empty crates: destroyed), **damage** (consoles,
+machinery, vehicles, stone, cloth: shows damage, never goes) or
+**intact** (anchors, effects, bodies, holograms, star maps, story
+machines). A placeable takes its row's kind as the module loads
+(`destruction::fill`), and the catalogue's hit points replace its file's
+(the toolset's 15 on nearly everything). Made placeables never break.
+
+**Guards.** Any one keeps a prop intact whatever its kind
+(`destruction::guarded`): `Plot`, `Min1HP`, a container, `Useable`, a
+conversation, any event script, locked (the bash rule above keeps it), or
+its tag or template among the strings of every script and conversation
+the module's library gathered, shared layers included
+(`session::library::Library::named`). So breaking a prop runs no script,
+gives no experience and makes nobody hostile; the AI never aims at one.
+
+**A blow.** Its damage is assessed as against a body with no hardness,
+then weighed (`destruction::worth`): times its type's multiplier on the
+material (energy cuts metal and wood, ion wrecks electronics, bludgeoning
+barely marks metal and stone, fire and sonic crack ceramic), three times
+over for an area's (a grenade, an area power, a cast), less the
+material's hardness. A prop that only shows damage stops at 1 hit point.
+Anyone's bolt meets an unbroken prop's body; a blast reaches a prop
+through its own brushes. Force powers reach props when paid for
+(`destruction::power_reach`): Wave, Storm and Destroy Droid every prop
+around the caster in sight, Push, Whirlwind, Lightning, Kill and the
+saber throw the first prop the way the caster faces.
+
+| Source | small | medium | damage-only (medium) |
+|---|---|---|---|
+| Blaster pistol | 2 shots | 7 | first stage after 11 |
+| Heavy pistol | 2 | 5 | |
+| Vibroblade | 1 | 3 | |
+| Lightsaber | 1 | 2 | wrecked after 6 |
+| Fists | 1 | never (metal) | |
+| Frag grenade | 1 | 1 | |
+| Force Wave | 1 | 1 | one stage up |
+| Force Push | 1 | 1 | one stage up |
+
+Probe `destruction_feel` holds the table to the design's targets.
+
+**Broken.** A prop that breaks takes the look `DEAD` and lets bodies,
+bolts and sight by (`ObjectState::passable`): its brushes leave the
+level's collision, a made one's footprint stops colliding. Nav stays as
+baked. Damage stages (`destruction::stage`: damaged, wrecked, broken)
+read `ObjectState::damage`, so the snapshot, saves and co-op carry them
+as they are. The view (`game::prop_breaks`) plays KOTOR's impact on a
+blow, a burst sized by the prop and its material's
+`placeableobjsnds.2da` destroyed sound on a break, hides a broken model
+without a `dead` clip, and keeps a damaged console sparking.
+
+The numbers are the rulebook's chapter Destruction
+(`data/rules/destruction.toml`). Probes: `kjk sim probes --only
+destruction`.
+
 ## Lag compensation (`world::history`)
 A seat's view lag rides in `TickInput` (recorded). The authority keeps 32
 ticks of every character (from its own steps, never before its first):
