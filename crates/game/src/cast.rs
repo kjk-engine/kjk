@@ -3326,12 +3326,9 @@ const SPINE: [&str; 2] = [hooks::TORSO, hooks::UPPER_TORSO];
 
 /// How much of its bend each spine joint of a body held level
 /// (`HeadBone::level`) gives back: the neck turns that much less to hold
-/// the head level, and the back looks less hunched (tuning, view only).
+/// the head level, and the back looks less hunched; a crouch keeps a slight
+/// hunch with it too (tuning, view only).
 const SPINE_SHARE: f32 = 0.4;
-
-/// The same in a crouch (`BOTH_CROUCH1IDLE`, `…WALK`, `…WALKBACK`), whose
-/// clips bow the chest 70–85° (tuning, view only).
-const CROUCH_SPINE_SHARE: f32 = 0.6;
 
 /// `body`'s spine (`Spine`), where the head's way up from body node `end`
 /// (the node the head model hangs at, or the head itself) passes it: its
@@ -3574,8 +3571,7 @@ impl HeadBone {
         // The spine straightened first, so the neck turns the less; a
         // weapon in hand keeps the arms where the pose holds it.
         if let Some(spine) = &self.spine {
-            let straight = SPINE_SHARE + (CROUCH_SPINE_SHARE - SPINE_SHARE) * crouch;
-            spine.straighten(straight * weight, hold.armed, transforms);
+            spine.straighten(SPINE_SHARE * weight, hold.armed, transforms);
             rotations = read(transforms);
         }
         let above = product(&rotations);
