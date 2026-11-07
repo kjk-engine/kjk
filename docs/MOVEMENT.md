@@ -75,10 +75,19 @@ walker going round a body it overlapped stopped and started step by step). `moti
   its keys is its `creaturespeed.2da` walk or run (faster than JA's run
   where KOTOR's is: the krayt's 10 m/s), its own base speed kept
   (`walk::rates`, `kotor_speed`: a seat's body's the `PLAYER` row, K1 3.20 /
-  5.40 m/s, TSL 1.70 / 5.40, but its walk its appearance's `driveanimwalk`
-  (K1's men 1.813, women 1.6; `Library::drive_walk`), as K1's executable
-  walks the creature its player drives [verify TSL's]; a creature's its own
-  row, 1.70 / 5.40 for most). It holds for a script's move of a body no seat drives while it
+  5.40 m/s, TSL 1.70 / 5.40; a creature's its own row, 1.70 / 5.40 for
+  most). A seat's body its player walks, and any body in stealth mode,
+  walks at its appearance's `driveanimwalk` instead (K1's men 1.813, women
+  1.6; `Library::drive_walk`), as K1's executable caps the walk of the
+  creature its player drives and of one sneaking; a script's walk of it
+  (a cutscene's `ActionMoveToLocation`, `ActionForceMoveToLocation`) keeps
+  the row's walk, as K1's executable walks every creature a script moves
+  [verify TSL's]. A companion following its leader keeps pace with it
+  (`minds::leader_pace`, K1's executable): with the leader walking (moving
+  under 0.6 of the `PLAYER` row's run) or standing, one within
+  `minds.tasks.follow_pace` (4 m) of its place beside it walks there at the
+  leader's walk; farther off, or with the leader running, it runs. It holds
+  for a script's move of a body no seat drives while it
   engages no foe (walkways, `ActionRandomWalk`, `ActionMoveTo*`, a follow
   run; known to a client by `Mind::moving`, which the authority sets), and
   for a seat's body and a companion following one while neither it is in a

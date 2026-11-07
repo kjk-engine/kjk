@@ -831,7 +831,10 @@ pub(super) fn think(
                 let far = math::flat_distance(leader.origin, ps.origin) > ai::FOLLOW_NEAR;
                 let crowded = crowds(id.0, ps.origin, leader.origin, &followers);
                 let walking = mind.walker.is_some_and(|walker| !walker.stuck());
-                let slot = (far || crowded || walking)
+                // A leader walking keeps its party moving at its pace, not
+                // standing until far behind and then running (K1's).
+                let (leads_walking, leader_runs) = leader_pace(&level.0, &leader);
+                let slot = (far || crowded || walking || leads_walking)
                     .then(|| follow_slot(&level.0, &leader, id.0, &followers))
                     .flatten();
                 let short = |slot: Vec3| {
@@ -839,7 +842,9 @@ pub(super) fn think(
                         > rules::walking::route::ARRIVED * crate::walk::REACHED
                 };
                 let goal = match slot {
-                    Some(slot) if far || crowded || (walking && short(slot)) => Some(slot),
+                    Some(slot) if far || crowded || leads_walking || (walking && short(slot)) => {
+                        Some(slot)
+                    }
                     None if far => Some(leader.origin),
                     _ => None,
                 };
@@ -847,7 +852,21 @@ pub(super) fn think(
                 // planned afresh to where the place is now.
                 let ended = mind.walker.is_some_and(|walker| walker.arrived(ps));
                 let moved = if ended { 0.0 } else { tasks::FOLLOW_REPLAN };
+                // Within `FOLLOW_PACE` of its place and its leader not
+                // running, it walks there (at its leader's walk,
+                // `world::move_actors`); farther off it runs.
+                let keeps_pace = |goal: Vec3| {
+                    !leader_runs
+                        && math::flat_distance(goal, ps.origin) * UNIT <= tasks::FOLLOW_PACE
+                };
                 match goal.filter(|_| !scripts.state.party.solo) {
+                    Some(goal) if keeps_pace(goal) => {
+                        let mut command = mind
+                            .walk_to(goal, moved)
+                            .command(&level.0, ps, now, opening);
+                        self::walking(&mut command);
+                        command
+                    }
                     Some(goal) => mind
                         .walk_to(goal, moved)
                         .command(&level.0, ps, now, opening),
@@ -1097,6 +1116,18 @@ fn walking(command: &mut Command) {
 
 /// The most a walking command's axes are (JA's client's walk).
 const WALK_AXIS: i8 = tasks::WALK_AXIS;
+
+/// Whether `leader` walks (moving, slower than `FOLLOW_WALK_SHARE` of the
+/// `PLAYER` row's run: K1 plays the walk below it) and whether it runs, for
+/// its party keeping its pace (`Task::Follow`).
+fn leader_pace(level: &super::Level, leader: &MotionState) -> (bool, bool) {
+    let speed = math::flat_length(leader.velocity) * UNIT;
+    let run = super::move_rates(level)
+        .player
+        .map_or(rules::walking::pace::LEAST_RUN, |(_, run)| run);
+    let runs = speed >= tasks::FOLLOW_WALK_SHARE * run;
+    (speed > tasks::FOLLOW_MOVING && !runs, runs)
+}
 
 /// Where a following party member `me` stands beside `leader` (its origin,
 /// units), among `followers` (every party member nobody plays, by id):

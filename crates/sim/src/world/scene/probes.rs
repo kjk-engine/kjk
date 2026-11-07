@@ -124,6 +124,10 @@ const PROBES: &[Probe] = &[
     ("loop_ends_on_walk", loop_ends_on_walk),
     ("wait_for_gestures", wait_for_gestures),
     ("walks_at_kotor_speed", walks_at_kotor_speed),
+    (
+        "player_scripted_walk_at_its_row",
+        player_scripted_walk_at_its_row,
+    ),
     ("faces_its_path", faces_its_path),
     ("route_from_doorway_heads_on", route_from_doorway_heads_on),
     ("route_rounds_outside_corner", route_rounds_outside_corner),
@@ -682,6 +686,9 @@ struct Stage {
     dialog: &'static str,
     arc: f32,
     pc_arc: f32,
+    /// The host's persona's appearance's `driveanimwalk` (m/s, row 0 of
+    /// the library's `drive_walks`; none where 0).
+    pc_walk: f32,
     voices: BTreeMap<String, u32>,
     clips: BTreeMap<(u16, u16), u32>,
     /// The camera models' clip lengths (`Library::with_camera_clips`).
@@ -722,6 +729,7 @@ impl Default for Stage {
             dialog: "probe_talk",
             arc: 0.0,
             pc_arc: 0.0,
+            pc_walk: 0.0,
             voices: BTreeMap::new(),
             clips: BTreeMap::new(),
             camera_clips: BTreeMap::new(),
@@ -908,6 +916,7 @@ impl Ground {
             .with_scripts(
                 library(stage.dialog, stage.talk, stage.voices)
                     .with_head_arcs(vec![stage.pc_arc])
+                    .with_drive_walks(vec![stage.pc_walk])
                     .with_clips(stage.clips)
                     .with_camera_clips(stage.camera_clips)
                     .with_dialog_animations(stage.gestures)
@@ -943,7 +952,7 @@ impl Ground {
                 fighting.0.faction = Some(PLAYER);
             }
         }
-        if stage.pc_arc > 0.0 {
+        if stage.pc_arc > 0.0 || stage.pc_walk > 0.0 {
             ground.world.set_persona(crate::persona::Persona {
                 seat: Seat(0),
                 appearance: 0,
@@ -4301,6 +4310,28 @@ fn walks_at_kotor_speed() -> Found {
     check(
         near_speed(walking, KOTOR_WALK) && near_speed(running, KOTOR_RUN),
         format!("walked at {walking:?} m/s, ran at {running:?} m/s"),
+    )
+}
+
+/// S3: a script's walk of the player 10 m on, the world held, crosses at
+/// the `PLAYER` row's walk (3.20 m/s), not its body's `driveanimwalk`
+/// (1.813 here): K1's executable walks every creature a script moves at its
+/// `creaturespeed.2da` rate, the body's own walk only for its player's
+/// walk or in stealth mode.
+fn player_scripted_walk_at_its_row() -> Found {
+    let stage = Stage {
+        pc_walk: 1.813,
+        ..Stage::default()
+    };
+    let (mut ground, _) = walking_on(stage, ASIDE[0], true)?;
+    let host = ground.body(0)?;
+    ground.put(host, WALK_FROM);
+    ground.step();
+    let walk = walked(&mut ground, host, move_to(WALK_TO, false, None), 8000);
+    let walking = walk.speed(WALK_FROM, WALK_TO, (2.0, 8.0));
+    check(
+        near_speed(walking, 3.2),
+        format!("walked at {walking:?} m/s, the PLAYER row's 3.20"),
     )
 }
 

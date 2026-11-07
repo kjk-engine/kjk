@@ -340,7 +340,34 @@ pub fn probes() -> Checks {
         format!("{run:.2} m/s, legs {legs:?}; KOTOR's run 10.00"),
     );
     formation(&mut put);
+    keeps_pace(&mut put);
     checks
+}
+
+/// The player walks off from its companion, 3 m behind: the companion
+/// walks after it at its walk (`minds::leader_pace`), never running ahead
+/// and stopping, as K1's party keeps a walking leader's pace.
+fn keeps_pace(put: &mut impl FnMut(&'static str, bool, String)) {
+    let mut run = match Run::new((3.2, 5.4)) {
+        Ok(run) => run,
+        Err(error) => return put("keeps_pace_ground", false, error),
+    };
+    let speeds: Vec<f32> = (0..28)
+        .map(|_| {
+            run.hold(keys(90.0, 64, true), 96);
+            run.speed(run.buddy)
+        })
+        .collect();
+    let fastest = speeds.iter().copied().fold(0.0, f32::max);
+    let late = &speeds[speeds.len() / 2..];
+    let pace = late.iter().sum::<f32>() / late.len() as f32;
+    put(
+        "companion_keeps_a_walking_leaders_pace",
+        fastest < 0.6 * 5.4 && (pace - MAN_WALK).abs() < 0.25,
+        format!(
+            "at most {fastest:.2} m/s, {pace:.2} m/s on average once going; the player's walk 1.813"
+        ),
+    );
 }
 
 /// Two companions put on one spot behind the standing player: they part.
