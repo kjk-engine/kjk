@@ -268,7 +268,92 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         nav_past_gate_between_corners(),
     ));
     checks.push(("additive_texture_not_met", additive_texture()));
+    checks.push(("floor_clutter_left_out", floor_clutter()));
     checks
+}
+
+/// Drawn triangles low on the floor are left to the walkmesh
+/// (`crate::floor_clutter`), as KOTOR's walker walks through them: on a
+/// made-up walkmesh, a 4 m floor with a 1 m hole (a console's), a pipe's
+/// top and side, a skirt sloping off the console onto the floor and its
+/// side with a corner over the hole a step up are clutter; the console's
+/// top, a side rising a metre over the hole, a crate's side 0.6 m up and
+/// floor drawn flat at the floor's height are kept.
+fn floor_clutter() -> Result<String, String> {
+    use collision::{LevelBuilder, Tag};
+    let quad = |[x0, y0, x1, y1]: [f32; 4]| -> [[[f32; 3]; 3]; 2] {
+        [
+            [[x0, y0, 0.0], [x1, y0, 0.0], [x1, y1, 0.0]],
+            [[x0, y0, 0.0], [x1, y1, 0.0], [x0, y1, 0.0]],
+        ]
+    };
+    let mut walkmesh = LevelBuilder::new();
+    for rect in [
+        [0.0, 0.0, 4.0, 1.0],
+        [0.0, 2.0, 4.0, 4.0],
+        [0.0, 1.0, 1.0, 2.0],
+        [2.0, 1.0, 4.0, 2.0],
+    ] {
+        for corners in quad(rect) {
+            walkmesh.triangle(corners, Tag::level(Contents::SOLID, 1));
+        }
+    }
+    let walkmesh = walkmesh.build();
+    let cases: [(&str, [[f32; 3]; 3], bool); 8] = [
+        (
+            "pipe top",
+            [[3.0, 0.2, 0.12], [3.5, 0.2, 0.12], [3.5, 0.8, 0.15]],
+            true,
+        ),
+        (
+            "pipe side",
+            [[3.0, 0.2, 0.0], [3.0, 0.8, 0.0], [3.0, 0.8, 0.15]],
+            true,
+        ),
+        (
+            "skirt slope",
+            [[1.2, 0.9, 0.0], [1.8, 0.9, 0.0], [1.5, 1.1, 0.2]],
+            true,
+        ),
+        (
+            "skirt side",
+            [[1.2, 0.9, 0.0], [1.2, 1.1, 0.2], [1.2, 1.3, 0.4]],
+            true,
+        ),
+        (
+            "console top",
+            [[1.1, 1.1, 0.4], [1.9, 1.1, 0.4], [1.5, 1.9, 0.4]],
+            false,
+        ),
+        (
+            "console side",
+            [[1.2, 0.95, 0.0], [1.8, 0.95, 0.0], [1.5, 1.4, 1.0]],
+            false,
+        ),
+        (
+            "crate side",
+            [[3.0, 3.0, 0.0], [3.5, 3.0, 0.0], [3.2, 3.0, 0.6]],
+            false,
+        ),
+        (
+            "floor drawn flat",
+            [[0.5, 0.5, 0.0], [1.5, 0.5, 0.0], [1.5, 1.5, 0.0]],
+            false,
+        ),
+    ];
+    let surfaces = test_surfaces();
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter(|(_, corners, clutter)| {
+            crate::floor_clutter(&walkmesh, &surfaces, corners) != *clutter
+        })
+        .map(|(name, _, clutter)| format!("{name} {}", if *clutter { "kept" } else { "left out" }))
+        .collect();
+    if wrong.is_empty() {
+        Ok(format!("{} drawn triangles told apart", cases.len()))
+    } else {
+        Err(wrong.join(", "))
+    }
 }
 
 /// A room mesh whose texture blends additively is drawn, never met
