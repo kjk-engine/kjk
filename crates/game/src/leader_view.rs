@@ -66,14 +66,16 @@ fn lead(
     };
     let snapshot = presented.0.current();
     let party = crate::cast::party_of(snapshot, own.0);
-    facts.0.insert(
-        "lead".into(),
-        serde_json::json!({
-            "leading": snapshot.leading.map(|id| id.0),
-            "solo": snapshot.solo,
-            "party": party.iter().map(|member| member.id.0).collect::<Vec<_>>(),
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "lead".into(),
+            serde_json::json!({
+                "leading": snapshot.leading.map(|id| id.0),
+                "solo": snapshot.solo,
+                "party": party.iter().map(|member| member.id.0).collect::<Vec<_>>(),
+            }),
+        );
+    }
     if own.0 != Seat(0) {
         return;
     }

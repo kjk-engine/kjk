@@ -42,6 +42,7 @@ mod display;
 mod dotenv;
 pub mod draw_anim;
 mod emitter_view;
+mod executors;
 mod face;
 mod fade_view;
 mod feat_view;
@@ -146,6 +147,7 @@ mod stance;
 mod stealth_view;
 #[cfg(feature = "steam")]
 mod steam_join;
+mod still_maps;
 pub mod store_verbs;
 mod swallow;
 mod target_view;

@@ -240,37 +240,39 @@ fn show(
             .map(|(_, item)| serde_json::json!([item.slot, item.template]))
             .collect::<Vec<_>>()
     };
-    facts.0.insert(
-        "loot".into(),
-        serde_json::json!({
-            "nearest_container": nearest.map(|(distance, index, object)| serde_json::json!({
-                "index": index,
-                "distance_m": distance,
-                "open": object.state,
-                "tenants": object.tenants,
-            })),
-            "party": snapshot
-                .goods
-                .carried(sim::inventory::PARTY)
-                .map(|(_, item)| item.template.clone())
-                .collect::<Vec<_>>(),
-            "worn": me_id.map(worn_by),
-            // The party's characters: level, who drives them, what they wear.
-            "members": snapshot
-                .entities
-                .iter()
-                .filter(|entity| snapshot.in_party(entity))
-                .map(|entity| serde_json::json!({
-                    "id": entity.id.0,
-                    "level": crate::cast::sheet(entity, &objects).level,
-                    "driver": entity.fighter.and_then(|fighter| fighter.mind.driver).map(|seat| seat.0),
-                    "worn": worn_by(entity.id.0),
-                }))
-                .collect::<Vec<_>>(),
-            "gold": snapshot.goods.gold,
-            "feedback": ui.vm.feedback.iter().rev().take(5).collect::<Vec<_>>(),
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "loot".into(),
+            serde_json::json!({
+                "nearest_container": nearest.map(|(distance, index, object)| serde_json::json!({
+                    "index": index,
+                    "distance_m": distance,
+                    "open": object.state,
+                    "tenants": object.tenants,
+                })),
+                "party": snapshot
+                    .goods
+                    .carried(sim::inventory::PARTY)
+                    .map(|(_, item)| item.template.clone())
+                    .collect::<Vec<_>>(),
+                "worn": me_id.map(worn_by),
+                // The party's characters: level, who drives them, what they wear.
+                "members": snapshot
+                    .entities
+                    .iter()
+                    .filter(|entity| snapshot.in_party(entity))
+                    .map(|entity| serde_json::json!({
+                        "id": entity.id.0,
+                        "level": crate::cast::sheet(entity, &objects).level,
+                        "driver": entity.fighter.and_then(|fighter| fighter.mind.driver).map(|seat| seat.0),
+                        "worn": worn_by(entity.id.0),
+                    }))
+                    .collect::<Vec<_>>(),
+                "gold": snapshot.goods.gold,
+                "feedback": ui.vm.feedback.iter().rev().take(5).collect::<Vec<_>>(),
+            }),
+        );
+    }
     let open = presented.0.current().entities.iter().find_map(|entity| {
         let (sim::Kind::Object(ObjectKind::Placeable, index), Some(object)) =
             (entity.kind, entity.object)

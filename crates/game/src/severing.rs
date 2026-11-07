@@ -610,7 +610,13 @@ pub fn apply(
                     if !parted {
                         body.insert(Parted(mesh3d.0.clone()));
                     }
-                    body.insert(Mesh3d(meshes.add(bevy_mesh(&stays, None))));
+                    // The mesh left carries no bounds for its bones: never
+                    // culled from here on.
+                    body.insert((
+                        Mesh3d(meshes.add(bevy_mesh(&stays, None))),
+                        bevy::camera::visibility::NoFrustumCulling,
+                    ))
+                    .remove::<bevy::camera::visibility::DynamicSkinnedMeshBounds>();
                 }
                 // All the limb's, it goes with it as it is; all the body's,
                 // it stays: only its wound closed.
@@ -682,10 +688,12 @@ pub fn apply(
             }
         }
     }
-    facts.0.insert(
-        "severing".into(),
-        serde_json::json!({ "cuts": made.0, "marks_parted": made.1 }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "severing".into(),
+            serde_json::json!({ "cuts": made.0, "marks_parted": made.1 }),
+        );
+    }
 }
 
 /// Closes the wounds of a model gone with a cut part: each of its skinned

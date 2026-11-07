@@ -37,6 +37,10 @@ use crate::material::{
 };
 use crate::viewer::{LoadedScene, Placed, RoomView};
 
+/// How far from 1 a skinned vertex's weights may add up and still count as
+/// whole (`DynamicSkinnedMeshBounds` encloses only such vertices).
+const WHOLE_WEIGHT: f32 = 0.01;
+
 /// The frame size of a headless run unless `--size` says otherwise.
 pub const HEADLESS_SIZE: (u32, u32) = (1280, 720);
 /// The viewer's vertical field of view until a `camera` command sets one:
@@ -1172,12 +1176,20 @@ impl<'t> Spawner<'t> {
             }
         }
         let mut mesh = odyssey_mesh(part, usage, lightmap.is_some(), None);
+        // Whether the mesh's box can follow its bones: every vertex weighted
+        // whole, so each one skinned lies within its joints' boxes.
+        let mut bounded = false;
         if let Some(skin) = skinned {
             mesh.insert_attribute(
                 Mesh::ATTRIBUTE_JOINT_INDEX,
                 VertexAttributeValues::Uint16x4(skin.vertex_joints.clone()),
             );
             mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, skin.vertex_weights.clone());
+            bounded = skin
+                .vertex_weights
+                .iter()
+                .all(|w| (w.iter().sum::<f32>() - 1.0).abs() < WHOLE_WEIGHT)
+                && mesh.generate_skinned_mesh_bounds().is_ok();
         }
         let child = commands
             .spawn((
@@ -1194,17 +1206,25 @@ impl<'t> Spawner<'t> {
         }
         if let Some(skin) = skinned {
             let binds: Vec<Mat4> = skin.inverse_binds.iter().map(to_mat4).collect();
+            commands.entity(child).insert(SkinnedMesh {
+                inverse_bindposes: stores
+                    .bindposes
+                    .add(SkinnedMeshInverseBindposes::from(binds)),
+                joints: skin.joints.iter().map(|&node| nodes[node]).collect(),
+            });
             // The bones can carry the mesh far from its rest bounds (a
-            // character walking off), so it is never frustum-culled.
-            commands.entity(child).insert((
-                SkinnedMesh {
-                    inverse_bindposes: stores
-                        .bindposes
-                        .add(SkinnedMeshInverseBindposes::from(binds)),
-                    joints: skin.joints.iter().map(|&node| nodes[node]).collect(),
-                },
-                bevy::camera::visibility::NoFrustumCulling,
-            ));
+            // character walking off): its box follows them each frame, so it
+            // is culled where it truly stands (off screen, out of a lamp's
+            // cone). One whose weights do not add up is never culled.
+            if bounded {
+                commands
+                    .entity(child)
+                    .insert(bevy::camera::visibility::DynamicSkinnedMeshBounds);
+            } else {
+                commands
+                    .entity(child)
+                    .insert(bevy::camera::visibility::NoFrustumCulling);
+            }
             tally.skinned_meshes += 1;
             let unweighted = skin
                 .vertex_weights

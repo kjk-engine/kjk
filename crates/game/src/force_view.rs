@@ -144,6 +144,10 @@ struct Drawn {
     lightning: [fx::Effect; 2],
     shaders: ShaderMeshes,
     refraction: Option<(EffectModel, Handle<Mesh>)>,
+    /// The distortion's mesh holds nothing now: it is not written again
+    /// until something is drawn into it (a mesh written is sent to the GPU
+    /// anew).
+    refraction_empty: bool,
     /// Each distortion's cast (ms) and where it stopped following the hand.
     held: BTreeMap<SimId, (f32, Vec3)>,
     /// Client frames drawn with lightning, grip and a distortion.
@@ -204,6 +208,7 @@ fn spawn(
         lightning: setup.lightning,
         shaders,
         refraction,
+        refraction_empty: false,
         held: BTreeMap::new(),
         frames: [0; 3],
         glows,
@@ -358,8 +363,10 @@ fn draw(
         casters.push((own, now + *shift as f32));
     }
     let level = &swap.level;
-    let doors = level.states_in(current);
+    // The doors as they stand, found only when a bolt is traced.
+    let doors = std::cell::OnceCell::new();
     let ends = |from: Vec3, to: Vec3| {
+        let doors = doors.get_or_init(|| level.states_in(current));
         let hit = level.with(doors.as_deref(), |world| {
             world.trace(
                 (from * UNIT).to_array(),
@@ -466,22 +473,28 @@ fn draw(
     drawn.held = held;
     lights.set_if_neq(ForceLights(lit));
     drawn.shaders.fill(batches, &mut meshes);
+    let (batch, indices) = refraction;
+    let empty = indices.is_empty();
     if let Some((_, mesh)) = &drawn.refraction
-        && let Some(mut handle) = meshes.get_mut(mesh)
+        && !(empty && drawn.refraction_empty)
     {
-        let (batch, indices) = refraction;
-        *handle = batch.into_triangles(indices);
+        if let Some(mut handle) = meshes.get_mut(mesh) {
+            *handle = batch.into_triangles(indices);
+        }
+        drawn.refraction_empty = empty;
     }
-    facts.0.insert(
-        "force_fx".into(),
-        serde_json::json!({
-            "lightning_frames": drawn.frames[0],
-            "grip_frames": drawn.frames[1],
-            "distortion_frames": drawn.frames[2],
-            "lights": lights.0.iter().map(|light| {
-                let [r, g, b, m] = light.color_multiplier.to_array();
-                [r, g, b, m].map(|x| (x * 100.0).round() / 100.0)
-            }).collect::<Vec<_>>(),
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "force_fx".into(),
+            serde_json::json!({
+                "lightning_frames": drawn.frames[0],
+                "grip_frames": drawn.frames[1],
+                "distortion_frames": drawn.frames[2],
+                "lights": lights.0.iter().map(|light| {
+                    let [r, g, b, m] = light.color_multiplier.to_array();
+                    [r, g, b, m].map(|x| (x * 100.0).round() / 100.0)
+                }).collect::<Vec<_>>(),
+            }),
+        );
+    }
 }

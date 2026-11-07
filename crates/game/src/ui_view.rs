@@ -638,16 +638,18 @@ fn step(
             other => intents.0.push(other),
         }
     }
-    facts.0.insert(
-        "ui".into(),
-        serde_json::json!({
-            "screens": ui.stack.screens().map(|screen| screen.0).collect::<Vec<_>>(),
-            "focused": ui.stack.focused(),
-            "quads": frame.layers.iter().map(|layer| layer.quads.len()).collect::<Vec<_>>(),
-            "refusals": frame.refusals,
-            "window": [size.x, size.y],
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "ui".into(),
+            serde_json::json!({
+                "screens": ui.stack.screens().map(|screen| screen.0).collect::<Vec<_>>(),
+                "focused": ui.stack.focused(),
+                "quads": frame.layers.iter().map(|layer| layer.quads.len()).collect::<Vec<_>>(),
+                "refusals": frame.refusals,
+                "window": [size.x, size.y],
+            }),
+        );
+    }
     let mut layers = frame.layers;
     let hud = presented
         .is_some()
@@ -1257,15 +1259,17 @@ fn draw(
     mut facts: ResMut<console::DumpFacts>,
 ) {
     let drawn = &mut *drawn;
-    facts.0.insert(
-        "ui_drawn".into(),
-        serde_json::json!({
-            "camera": drawn.camera.is_some(),
-            "size": [drawn.size.x, drawn.size.y],
-            "runs": drawn.runs.len(),
-            "images": drawn.images.len(),
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "ui_drawn".into(),
+            serde_json::json!({
+                "camera": drawn.camera.is_some(),
+                "size": [drawn.size.x, drawn.size.y],
+                "runs": drawn.runs.len(),
+                "images": drawn.images.len(),
+            }),
+        );
+    }
     if drawn.camera.is_none() {
         let Some(target) = scene.iter().next() else {
             return;

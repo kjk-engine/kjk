@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use bevy::app::AppExit;
+use bevy::app::{AppExit, MainScheduleOrder};
 use bevy::prelude::*;
 use bevy::render::render_resource::{CachedPipelineState, PipelineCache};
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
@@ -46,9 +46,25 @@ pub enum CaptureTarget {
     Image(Handle<Image>),
 }
 
-/// Facts other plugins publish for `dump` (render adapter, mode, …).
-#[derive(Resource, Default, Debug)]
-pub struct DumpFacts(pub BTreeMap<String, serde_json::Value>);
+/// Facts other plugins publish for `dump` (render adapter, mode, …), and
+/// whether a dump is due (`DumpDue`, mirrored): facts that change every
+/// frame are worth building only then (`wanted`).
+#[derive(Resource, Debug)]
+pub struct DumpFacts(pub BTreeMap<String, serde_json::Value>, bool);
+
+impl Default for DumpFacts {
+    fn default() -> DumpFacts {
+        DumpFacts(BTreeMap::new(), true)
+    }
+}
+
+impl DumpFacts {
+    /// Whether a dump may be written before these facts are next published:
+    /// a fact a system writes every frame is built only then.
+    pub fn wanted(&self) -> bool {
+        self.1
+    }
+}
 
 /// Whether the next frame's `Update` may write a dump: facts costly to
 /// publish every frame (the sim's hash) are published only then. True
@@ -148,7 +164,10 @@ impl Plugin for ConsolePlugin {
         .init_resource::<DumpDue>()
         .init_resource::<Hold>()
         .init_resource::<vitals::FrameTimes>()
+        .init_resource::<vitals::MainTimes>()
         .add_systems(First, vitals::time_frames)
+        .add_systems(vitals::FrameStart, vitals::main_started)
+        .add_systems(vitals::FrameEnd, vitals::main_ended)
         .add_systems(
             Update,
             (vitals::publish, run_queue, dump_due)
@@ -156,10 +175,29 @@ impl Plugin for ConsolePlugin {
                 .in_set(ConsoleQueue)
                 .run_if(|hold: Res<Hold>| !hold.0),
         );
+        let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();
+        order.insert_before(First, vitals::FrameStart);
+        order.insert_after(Last, vitals::FrameEnd);
+        let render_times = vitals::RenderTimes::default();
+        app.insert_resource(render_times.clone());
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render
                 .insert_resource(pipelines)
-                .add_systems(Render, count_pipelines.in_set(RenderSystems::Cleanup));
+                .insert_resource(render_times)
+                .add_systems(
+                    Render,
+                    (
+                        vitals::render_started.in_set(RenderSystems::ExtractCommands),
+                        vitals::graph_started
+                            .in_set(RenderSystems::Render)
+                            .before(bevy::render::renderer::render_system),
+                        vitals::graph_ended
+                            .in_set(RenderSystems::Render)
+                            .after(bevy::render::renderer::render_system),
+                        (count_pipelines, vitals::render_views).in_set(RenderSystems::Cleanup),
+                        vitals::render_ended.in_set(RenderSystems::PostCleanup),
+                    ),
+                );
         }
     }
 }
@@ -272,8 +310,9 @@ fn screenshot(target: &CaptureTarget) -> Screenshot {
 
 /// After the queue ran: a dump starts next frame when nothing is active
 /// and a dump is next.
-fn dump_due(queue: Res<Queue>, mut due: ResMut<DumpDue>) {
+fn dump_due(queue: Res<Queue>, mut due: ResMut<DumpDue>, mut facts: ResMut<DumpFacts>) {
     due.0 = queue.active.is_none() && matches!(queue.pending.front(), Some(Command::Dump(_)));
+    facts.1 = due.0;
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -354,7 +354,8 @@ impl Plugin for ShadowsPlugin {
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
             .insert(&AREA_SHADOWS, ShaderBuffer::from(ShadowList::default()));
-        app.insert_resource(DirectionalLightShadowMap { size: MAP_SIZE })
+        app.add_plugins(crate::still_maps::StillMapsPlugin)
+            .insert_resource(DirectionalLightShadowMap { size: MAP_SIZE })
             .init_resource::<ShadowLights>()
             .init_resource::<RoomSurfaces>()
             .init_resource::<Slots>()
@@ -383,7 +384,7 @@ impl Plugin for ShadowsPlugin {
 fn spawn_shadow_lights(mut commands: Commands) {
     for (layer, tag) in [(CASTER_LAYER, 0.0), (ROOM_LAYER, ROOM_MAP_TAG)] {
         for slot in 0..POINT_SLOTS {
-            commands.spawn((
+            let mut lamp = commands.spawn((
                 LampLight(slot),
                 SpotLight {
                     intensity: 0.0,
@@ -403,6 +404,11 @@ fn spawn_shadow_lights(mut commands: Commands) {
                 RenderLayers::layer(layer),
                 Transform::from_translation(PARKED).looking_to(Vec3::NEG_Y, Vec3::X),
             ));
+            // The rooms never move: a lamp's rooms map is drawn once while
+            // its lamp holds the slot (`still_maps`).
+            if layer == ROOM_LAYER {
+                lamp.insert(crate::still_maps::StillShadowMap);
+            }
         }
     }
     // The rooms' map only says whether the sun reaches a point at all (a
@@ -923,10 +929,12 @@ fn gate_casters(
             }
         }
     }
-    facts.0.insert(
-        "shadow_casters".into(),
-        serde_json::json!({ "marked": casters.iter().len(), "let_in": let_in, "focus": focus.feet.to_array() }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "shadow_casters".into(),
+            serde_json::json!({ "marked": casters.iter().len(), "let_in": let_in, "focus": focus.feet.to_array() }),
+        );
+    }
 }
 
 /// Puts casters and rooms on the layers their maps are drawn from.

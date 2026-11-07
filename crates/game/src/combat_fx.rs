@@ -988,32 +988,34 @@ fn draw(
     if let Some(mut visuals) = visuals {
         visuals.0.extend(sparked);
     }
-    facts.0.insert(
-        "combat_fx".into(),
-        serde_json::json!({
-            "bolts_drawn": bolts,
-            "impact_primitives": drawn.impacts.len(),
-            "marks": drawn.marks.len(),
-            "saber_marks": drawn.saber_marks.len(),
-            "physics_traces": drawn.physics.0,
-            "physics_traces_most_in_a_frame": drawn.physics.1,
-            "physics_ms_worst_frame": drawn.physics.2,
-            "bolt_hits_seen": drawn.hits[0],
-            "blade_hits_seen": drawn.hits[1],
-            "contacts_shown": drawn.contacts.shown,
-            "contacts_confirmed": drawn.contacts.confirmed,
-            "contacts_unconfirmed": drawn.contacts.unconfirmed,
-            "flashes_own": drawn.flashes[0],
-            "flashes_others": drawn.flashes[1],
-            "own_bolts": drawn.own[0],
-            "own_bolts_handed": drawn.own[1],
-            "own_bolts_met": drawn.own[2],
-            "own_bolts_unfired": drawn.own[3],
-            "own_bolts_stopped": drawn.own[4],
-            "blade_blocks_seen": drawn.blocks_seen[0],
-            "bolt_blocks_seen": drawn.blocks_seen[1],
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "combat_fx".into(),
+            serde_json::json!({
+                "bolts_drawn": bolts,
+                "impact_primitives": drawn.impacts.len(),
+                "marks": drawn.marks.len(),
+                "saber_marks": drawn.saber_marks.len(),
+                "physics_traces": drawn.physics.0,
+                "physics_traces_most_in_a_frame": drawn.physics.1,
+                "physics_ms_worst_frame": drawn.physics.2,
+                "bolt_hits_seen": drawn.hits[0],
+                "blade_hits_seen": drawn.hits[1],
+                "contacts_shown": drawn.contacts.shown,
+                "contacts_confirmed": drawn.contacts.confirmed,
+                "contacts_unconfirmed": drawn.contacts.unconfirmed,
+                "flashes_own": drawn.flashes[0],
+                "flashes_others": drawn.flashes[1],
+                "own_bolts": drawn.own[0],
+                "own_bolts_handed": drawn.own[1],
+                "own_bolts_met": drawn.own[2],
+                "own_bolts_unfired": drawn.own[3],
+                "own_bolts_stopped": drawn.own[4],
+                "blade_blocks_seen": drawn.blocks_seen[0],
+                "bolt_blocks_seen": drawn.blocks_seen[1],
+            }),
+        );
+    }
 }
 
 /// A bolt's way: from `base` (units) at `fired` (ms) at `velocity`
