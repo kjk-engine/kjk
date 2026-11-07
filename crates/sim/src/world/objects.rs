@@ -157,8 +157,25 @@ pub(super) fn bodies<'a>(objects: impl Iterator<Item = (&'a Id, &'a Object)>) ->
     bodies_where(objects, |object, facts| object.state.breakable(facts))
 }
 
+/// The bodies a bolt meets among `objects` (placeables): a party member's
+/// what it may bash or break, anyone else's the destructible props.
+pub(super) fn shot_bodies<'a>(
+    objects: impl Iterator<Item = (&'a Id, &'a Object)>,
+    party: bool,
+) -> Vec<Body> {
+    let placeables = objects.filter(|(_, object)| object.kind == ObjectKind::Placeable);
+    let shows = |facts: &ObjectData| {
+        facts
+            .destructible
+            .is_some_and(|d| d.class == crate::destruction::Class::Damage)
+    };
+    bodies_where(placeables, |object, facts| {
+        object.state.breakable(facts) && !shows(facts) && (party || facts.destructible.is_some())
+    })
+}
+
 /// The bodies of the destructible props among `objects` not yet broken:
-/// what anyone's bolt meets.
+/// what a power reaches.
 pub(super) fn destructible_bodies<'a>(
     objects: impl Iterator<Item = (&'a Id, &'a Object)>,
 ) -> Vec<Body> {
@@ -184,10 +201,14 @@ fn bodies_where<'a>(
         .filter_map(|(id, object)| {
             let facts = object.facts.as_deref()?;
             keep(object, facts).then_some(())?;
-            let (half, height) = if object.kind == ObjectKind::Door {
-                DOOR_BODY
-            } else {
-                PLACEABLE_BODY
+            let (half, height) = match facts.destructible {
+                // A prop is met as big as it is.
+                Some(d) => (
+                    rules::destruction::bodies::HALF_M[d.size as usize],
+                    rules::destruction::bodies::HEIGHT_M[d.size as usize],
+                ),
+                None if object.kind == ObjectKind::Door => DOOR_BODY,
+                None => PLACEABLE_BODY,
             };
             let [x, y, z] = facts.position;
             Some(Body {

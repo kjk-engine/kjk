@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `c262221fde59142c`.
+Edition `76d603dec05e5843`.
 
 ## Contents
 
@@ -88,6 +88,7 @@ Edition `c262221fde59142c`.
   - [Area blows](#destruction-area)
   - [Damage stages](#destruction-stages)
   - [Force powers](#destruction-powers)
+  - [What blows meet](#destruction-bodies)
 - [Lightsabers and Melee Weapons](#sabers)
   - [Saber Frame](#sabers-ja)
   - [Blades](#sabers-blades)
@@ -2519,6 +2520,28 @@ Destroy Droid deals 20 HP to each prop it reaches, before the prop's hardness.
 The damage-type row of Destroy Droid's damage to props: 11.
 
 <sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+### <a id="destruction-bodies"></a>What blows meet
+
+A prop with no walls of its own is met by bolts, fists and blades as a box sized by the prop.
+
+Props that only show damage are not met by bolts this way, so a flag or a sign never stands in a shot as an invisible column.
+
+<a id="destruction-bodies-half-m"></a>**Prop Half Width** = **0.3 m / 0.5 m / 1 m** (`0.3 / 0.5 / 1 m`) · `destruction.bodies.half_m`
+
+small **0.3 m** · medium **0.5 m** · large **1 m**
+
+Blows meet a prop within 0.3 m / 0.5 m / 1 m of its middle, by its size.
+
+<sub>Source: ours (destruction review 2026-11-07). Code: `sim::world::objects::bodies_where`.</sub>
+
+<a id="destruction-bodies-height-m"></a>**Prop Height** = **0.6 m / 1.2 m / 2.4 m** (`0.6 / 1.2 / 2.4 m`) · `destruction.bodies.height_m`
+
+small **0.6 m** · medium **1.2 m** · large **2.4 m**
+
+Blows meet a prop up to 0.6 m / 1.2 m / 2.4 m over its feet, by its size.
+
+<sub>Source: ours (destruction review 2026-11-07). Code: `sim::world::objects::bodies_where`.</sub>
 
 ## <a id="sabers"></a>Lightsabers and Melee Weapons
 

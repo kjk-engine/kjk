@@ -527,6 +527,30 @@ fn wave_by_hand() -> Result<String, String> {
     )
 }
 
+/// What bolts meet of a jar, a chair and a panel: anyone's meets the jar
+/// and the chair, each as big as its size, and never the panel, which only
+/// shows damage (no lasting invisible column for bolts).
+fn shot_bodies() -> Result<String, String> {
+    let (mut world, ids) = arena_props(&[
+        (JAR, [3.0, 4.0]),
+        (CHAIR, [-3.0, 4.0]),
+        (PANEL, [0.0, -4.0]),
+    ])?;
+    let mut query = world.world.query::<(&Id, &Object)>();
+    let met: Vec<(SimId, f32)> = super::objects::shot_bodies(query.iter(&world.world), false)
+        .iter()
+        .map(|body| (SimId(body.entity & !super::BODY), body.max[0] - body.min[0]))
+        .collect();
+    let wide = |at: usize| met.iter().find(|(id, _)| *id == ids[at].0).map(|(_, w)| *w);
+    let (jar, chair, panel) = (wide(0), wide(1), wide(2));
+    check(
+        jar.zip(chair).is_some_and(|(jar, chair)| jar < chair) && panel.is_none(),
+        format!(
+            "bolts meet the jar {jar:?} m wide, the chair {chair:?}, the panel {panel:?} (want none)"
+        ),
+    )
+}
+
 /// The probes.
 pub fn probes() -> crate::probe::Checks {
     vec![
@@ -536,5 +560,6 @@ pub fn probes() -> crate::probe::Checks {
         ("destruction_blast_on_brushes", blast_on_brushes()),
         ("destruction_powers", powers()),
         ("destruction_wave_by_hand", wave_by_hand()),
+        ("destruction_shot_bodies", shot_bodies()),
     ]
 }

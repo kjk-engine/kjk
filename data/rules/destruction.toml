@@ -451,3 +451,30 @@ range = [0, 12]
 summary = "The damage-type row of Destroy Droid's damage to props: {destruction.powers.destroy_droid.damage_type}."
 source = "ours (destruction design 2026-11-06)"
 see = "sim::destruction::power_reach"
+
+[bodies]
+title = "What blows meet"
+summary = "A prop with no walls of its own is met by bolts, fists and blades as a box sized by the prop."
+detail = "Props that only show damage are not met by bolts this way, so a flag or a sign never stands in a shot as an invisible column."
+
+[bodies.half_m]
+name = "Prop Half Width"
+type = "f32"
+value = [0.3, 0.5, 1.0]
+labels = ["small", "medium", "large"]
+unit = "m"
+range = [0.05, 5.0]
+summary = "Blows meet a prop within {destruction.bodies.half_m} of its middle, by its size."
+source = "ours (destruction review 2026-11-07)"
+see = "sim::world::objects::bodies_where"
+
+[bodies.height_m]
+name = "Prop Height"
+type = "f32"
+value = [0.6, 1.2, 2.4]
+labels = ["small", "medium", "large"]
+unit = "m"
+range = [0.1, 10.0]
+summary = "Blows meet a prop up to {destruction.bodies.height_m} over its feet, by its size."
+source = "ours (destruction review 2026-11-07)"
+see = "sim::world::objects::bodies_where"

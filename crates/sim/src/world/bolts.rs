@@ -83,12 +83,8 @@ pub(super) fn fly(
     // shot: TSL's prologue's, K1's). A door's brushes stop a shot already;
     // a companion's bolts fly at its foes past them, as before. Anyone's
     // bolt meets a destructible prop (`crate::destruction`).
-    let bashable = objects::bodies(
-        placed
-            .iter()
-            .filter(|(_, object)| object.kind == ObjectKind::Placeable),
-    );
-    let destructible = objects::destructible_bodies(placed.iter());
+    let bashable = objects::shot_bodies(placed.iter(), true);
+    let destructible = objects::shot_bodies(placed.iter(), false);
     let mut bolts: Vec<_> = bolts.iter_mut().collect();
     bolts.sort_by_key(|(_, id, _)| id.0);
     for (entity, _, mut bolt) in bolts {

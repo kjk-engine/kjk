@@ -44,8 +44,16 @@ const FRAG_BURST: u16 = 3003;
 /// How high a prop's middle stands over its feet, by size (metres).
 const MIDDLE_M: [f32; 3] = [0.3, 0.6, 1.2];
 /// How often a damaged prop sparks or puffs (ms); a wrecked one twice as
-/// often.
+/// often; only while a player stands within `SMOULDER_REACH_M` of it.
 const SMOULDER_MS: f64 = 1600.0;
+const SMOULDER_REACH_M: f32 = 20.0;
+
+/// Whether a player of `players` (metres) stands within reach of `at`.
+pub(crate) fn watched(players: &[Vec3], at: Vec3) -> bool {
+    players
+        .iter()
+        .any(|player| player.distance(at) <= SMOULDER_REACH_M)
+}
 
 /// What a material looks and sounds like breaking.
 struct Looks {
@@ -171,6 +179,10 @@ fn breaks(
     for snapshot in &presented.1 {
         let instances = sim::Instances::in_snapshot(&swap.level, snapshot);
         let now = snapshot.time_ms as f64;
+        let players: Vec<Vec3> = (snapshot.entities.iter())
+            .filter(|entity| matches!(entity.kind, sim::Kind::Avatar(_)))
+            .map(|entity| Vec3::from(entity.position))
+            .collect();
         for entity in &snapshot.entities {
             let sim::Kind::Object(ObjectKind::Placeable, index) = entity.kind else {
                 continue;
@@ -198,9 +210,11 @@ fn breaks(
             if state.state == look::DEAD && !has_dead(&scene, index) {
                 breaks.hidden.insert(index);
             }
-            smoulder(&mut breaks.smoulders, index, d, state.damage, now, || {
-                sparked.push(at(looks.smoulder, middle))
-            });
+            if watched(&players, middle) {
+                smoulder(&mut breaks.smoulders, index, d, state.damage, now, || {
+                    sparked.push(at(looks.smoulder, middle))
+                });
+            }
         }
     }
     if let Some(mut visuals) = visuals {
@@ -268,6 +282,12 @@ fn at(row: u16, place: Vec3) -> HookVisual {
 /// a look that stays or lost hit points that do not grow.
 #[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
+    let (near, far) = (Vec3::new(5.0, 0.0, 0.0), Vec3::new(50.0, 0.0, 0.0));
+    let watch = (
+        watched(&[near], Vec3::ZERO),
+        watched(&[far], Vec3::ZERO),
+        watched(&[], Vec3::ZERO),
+    );
     let cases = [
         ((look::DEFAULT, 0), (look::DEFAULT, 3), Change::Hit),
         ((look::DEFAULT, 3), (look::DEAD, 20), Change::Broke),
@@ -284,11 +304,26 @@ pub fn probes() -> sim::probe::Checks {
             )
         })
         .collect();
-    vec![(
-        "prop_break_changes",
-        sim::probe::check(
-            wrong.is_empty(),
-            format!("{} cases, wrong: {wrong:?}", cases.len()),
+    let (near, far) = (Vec3::new(5.0, 0.0, 0.0), Vec3::new(50.0, 0.0, 0.0));
+    let watch = (
+        watched(&[near], Vec3::ZERO),
+        watched(&[far], Vec3::ZERO),
+        watched(&[], Vec3::ZERO),
+    );
+    vec![
+        (
+            "prop_break_changes",
+            sim::probe::check(
+                wrong.is_empty(),
+                format!("{} cases, wrong: {wrong:?}", cases.len()),
+            ),
         ),
-    )]
+        (
+            "prop_smoulder_near",
+            sim::probe::check(
+                watch == (true, false, false),
+                format!("a player 5 m off, 50 m off, none: {watch:?} (want true, false, false)"),
+            ),
+        ),
+    ]
 }
