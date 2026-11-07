@@ -54,7 +54,7 @@ const ROWS: [Ground; 10] = [
 
 /// The patches: game, the module whose floor it is, its walkmesh material
 /// (a `surfacemat.2da` row) and texture.
-const PATCHES: [(Game, &str, u32, &str); 55] = [
+const PATCHES: [(Game, &str, u32, &str); 53] = [
     (Game::Kotor1, "tat_m18ab", 1, "lta_flr01a"),
     (Game::Kotor1, "korr_m34aa", 1, "lrk_flr03"),
     (Game::Kotor1, "unk_m41aa", 1, "lun_sand01"),
@@ -63,7 +63,6 @@ const PATCHES: [(Game, &str, u32, &str); 55] = [
     (Game::Kotor1, "manm26mg", 1, "lmg_water01"),
     (Game::Kotor1, "tat_m17mg", 1, "lmg_tatline02"),
     (Game::Kotor1, "danm14ae", 1, "lda_ultimate1"),
-    (Game::Kotor1, "tar_m04aa", 1, "lts_trimn01"),
     (Game::Kotor1, "kas_m25aa", 3, "lka_mud02"),
     (Game::Kotor1, "danm14ac", 3, "lda_grass07"),
     (Game::Kotor1, "unk_m41ad", 3, "lun_grss02"),
@@ -72,7 +71,6 @@ const PATCHES: [(Game, &str, u32, &str); 55] = [
     (Game::Kotor1, "danm15", 4, "lrk_rock03"),
     (Game::Kotor1, "korr_m39aa", 4, "lko_flr01"),
     (Game::Kotor1, "tat_m18ac", 4, "lta_clitran"),
-    (Game::Kotor1, "tar_m04aa", 4, "lts_unwal02"),
     (Game::Kotor1, "lev_m40ab", 10, "lsi_floor01"),
     (Game::Kotor1, "tar_m03ab", 10, "lts_pwall01"),
     (Game::Kotor1, "manm26aa", 10, "lma_floor03"),

@@ -23,14 +23,17 @@ const DEEP_WATER: u32 = 17;
 const NON_WALK_GRASS: u32 = 19;
 
 /// Words in a texture's name that say its ground, whatever its material
-/// (Anchorhead's deck plates and grates are marked dirt).
-const NAMED: [(&str, Ground); 7] = [
+/// (Anchorhead's deck plates and grates are marked dirt, Manaan's sea floor
+/// dirt, Nar Shaddaa's plates carpet).
+const NAMED: [(&str, Ground); 9] = [
     ("snw", Ground::Snow),
     ("snow", Ground::Snow),
     ("sand", Ground::Sand),
     ("mud", Ground::Mud),
     ("gravel", Ground::Gravel),
+    ("water", Ground::Water),
     ("metal", Ground::Metal),
+    ("_met", Ground::Metal),
     ("grate", Ground::Metal),
 ];
 
@@ -39,11 +42,19 @@ const NAMED: [(&str, Ground); 7] = [
 /// the Dark Lords' floor (`lrk_flr03`, both games).
 const SANDY: [&str; 5] = ["lta_", "lko_", "m36_", "kor_", "lrk_flr03"];
 
+/// Planets' textures whose floors are metal whatever their material:
+/// Taris's (`lts_`), its streets and Undercity marked dirt, grass and stone.
+const METALLIC: [&str; 1] = ["lts_"];
+
 /// The ground of a floor of `material` drawn with `texture` (lowercase; ""
 /// for none).
 pub fn of(material: u32, texture: &str) -> Ground {
     if let Some(&(_, ground)) = NAMED.iter().find(|(word, _)| texture.contains(word)) {
         return ground;
+    }
+    let wet = matches!(material, WATER | PUDDLES | SWAMP | DEEP_WATER);
+    if !wet && METALLIC.iter().any(|prefix| texture.starts_with(prefix)) {
+        return Ground::Metal;
     }
     if material == DIRT && SANDY.iter().any(|prefix| texture.starts_with(prefix)) {
         return Ground::Sand;

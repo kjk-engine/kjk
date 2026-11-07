@@ -711,15 +711,18 @@ fn play(
         let standing = swap.level.module().map(|module| current.standings(module));
         let hostile = crate::battle_music::hostility(standing);
         let battle = ambience.fight.step(&moment, hostile);
-        tracks(
-            ambience,
-            current,
-            battle,
-            now,
-            &sounding,
-            &mut beds,
-            minigame_music,
-        );
+        // The floors stage plays no music or ambience over its footsteps.
+        if swap.level.name() != crate::floor_arena::NAME {
+            tracks(
+                ambience,
+                current,
+                battle,
+                now,
+                &sounding,
+                &mut beds,
+                minigame_music,
+            );
+        }
         // In a minigame the camera rides the course away from where the
         // area's sound objects stand: one not positional (the swoop's
         // engine, gears, countdown) is heard in both ears at its volume
@@ -1325,8 +1328,14 @@ fn footsteps(
             stepped.push((entity, steps, origin));
             continue;
         }
-        // Quake's rule: a step each time the cycle passes 64 or 192.
-        if !moving || cycle == 0 || (u16::from(was) + 64) & 128 == (u16::from(cycle) + 64) & 128 {
+        // Quake's rule: a step each time the cycle passes 64 or 192, and
+        // none while ducked (crouching or rolling).
+        let ducked = player.ducked() || player.flags & sim::motion::motion_flags::ROLLING != 0;
+        if !moving
+            || ducked
+            || cycle == 0
+            || (u16::from(was) + 64) & 128 == (u16::from(cycle) + 64) & 128
+        {
             continue;
         }
         stepped.push((entity, steps, origin));
