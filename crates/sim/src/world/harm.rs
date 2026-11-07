@@ -99,7 +99,7 @@ pub(super) fn hurt(
         // Fortitude save against its DC: Affliction's average poison, DC
         // 20; Plague's virulent one, DC 100, none), nothing linked to it
         // lasts; taken, what is linked lasts as long as its course (their
-        // slow).
+        // slow). One already running keeps a second off, as in both games.
         let leaves = applied.effect.leaves();
         let poison = leaves.iter().find_map(|leaf| match leaf {
             ScriptEffect::Poison(course) => Some(*course),
@@ -107,6 +107,9 @@ pub(super) fn hurt(
         });
         let taken = poison.zip(at).and_then(|(course, at)| {
             let (.., object, sheet, _, fighting) = &mut actors[at];
+            if fighting.0.pack.poison.is_some() {
+                return None;
+            }
             let sheet = effects::sheet_now(sheet_of(*sheet, *object), &fighting.0, now);
             let saved = course.dc > 0 && {
                 let d20 = i32::try_from(streams.authority.below(rules::interaction::checks::DIE))
@@ -383,13 +386,10 @@ pub(super) fn hurt(
                         });
                     }
                 }
-                // A poison's course, taken (above) in place of one running
-                // (and its link).
+                // A poison's course, taken (above).
                 ScriptEffect::Poison(_) => {
                     if let (Some(at), Some(course)) = (at, taken) {
-                        let fighter = &mut actors[at].5.0;
-                        effects::end_poison(fighter, now);
-                        fighter.pack.poison = Some(crate::combat::items::Poisoned::new(
+                        actors[at].5.0.pack.poison = Some(crate::combat::items::Poisoned::new(
                             by,
                             course,
                             now,

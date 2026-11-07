@@ -628,6 +628,10 @@ fn target(
         name: name.into_bytes(),
         hostile,
         hp,
+        poisoned: object
+            .and_then(entity_of)
+            .and_then(|entity| entity.fighter.as_ref())
+            .is_some_and(|fighter| fighter.pack.poison.is_some()),
         actions,
         selected: targeted.selected,
         busy: targeted.walk.is_some() || targeted.reviving.is_some(),

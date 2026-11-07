@@ -765,7 +765,16 @@ when a delayed combat round runs (`Pack::ordered`); the talent's action
 ends with its use, one item an action, or with its refusal (no such item
 left, its target out of reach). Minds heal below 35% (an antidote when
 afflicted), raise a shield and take a stim in a fight (`ai::choose_item`),
-never before they are aware. `kjk combat items k1`: 15 checks.
+never before they are aware. A **poison** (`items::Poisoned`: a script's
+`EffectPoison` by its `poison.2da` row, a trap's, a weapon's on-hit, the
+poison grenade) runs as KOTOR's executables run it: its first dose lands
+as it takes, then one every `period` while its `duration` lasts (none at
+its very end), and it stays on until then, keeping a second poison off
+(both executables refuse one while one runs); each dose's ability points add
+up and all come back at the poison's end (neither executable reads
+`abil_dur`). A medpac does not cure it (`k_sup_healing` removes poison for
+the antidote alone), nor does poison stop a heal. `kjk combat items k1`: 18
+checks.
 
 ## Grenades (`combat::grenades`)
 KOTOR's grenades thrown as JA's thermal detonator: the grenade button

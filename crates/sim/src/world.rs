@@ -485,6 +485,7 @@ fn struck_by(fighter: &mut Fighter, effect: gear::Struck, by: SimId, now: u64, l
                 .scripts()
                 .and_then(|library| library.poison(usize::from(row)))
                 && !fighter.effects.poison_immune(now)
+                && fighter.pack.poison.is_none()
             {
                 fighter.pack.poison = Some(items::Poisoned::new(by, course, now, None));
             }

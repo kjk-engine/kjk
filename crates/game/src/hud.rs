@@ -377,6 +377,7 @@ fn kotor_view(
             .zip(label_at)
             .map(|((_, words, alpha), at)| (at, words, alpha)),
         stealth: fighter.covert.stealth,
+        poisoned: fighter.pack.poison.is_some(),
         ..ui::vm::HudView::default()
     }
 }
