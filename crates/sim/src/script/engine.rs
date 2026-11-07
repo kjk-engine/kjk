@@ -757,9 +757,9 @@ pub(crate) const MOVE_TO_LOCATION_RANGE: f32 = rules::scripts::moves::MOVE_TO_LO
 /// (ms).
 pub(super) const ANIMATION_MS: u32 = rules::scripts::animations::UNKNOWN_MS;
 /// The looping `ANIMATION_…` constants (the low range) a negative duration
-/// plays at once, outside the queue, until something else plays: K1's to
-/// 32, TSL's to 46 (its chair sits, meditations and choke), as each
-/// executable takes them.
+/// plays at once, outside the queue, until something else plays: each
+/// executable's own range, TSL's the longer (its chair sits, meditations
+/// and choke).
 const LOOPS_AT_ONCE: u16 = 32;
 const LOOPS_AT_ONCE_TSL: u16 = 46;
 /// A queued animation's time from which the same one queued after it is

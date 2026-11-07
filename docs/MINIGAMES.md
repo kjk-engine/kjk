@@ -163,15 +163,24 @@ or not) or its hooks; K1's minigames play as before.
   stops it and hears a user-defined event, the bolt's damage its number
   (the troopers' `k_sith_damage` takes it, the barrels' `a_barrelexplode`
   bursts). The executable names the module (`107PER`, ignoring case), so
-  this does (`minigame::WORLD_TURRET`). Its ARE gives the bolts 0.2 m/s,
+  this does (`minigame::WORLD_TURRET`). Its ARE gives the bolts a crawl,
   but TSL's executable flies a bolt of the player's own guns at its
   bank's speed plus the player's (`Course::bolt_speed`), and starts every
-  player at 100 m/s (`minigames.speed.start`) until a script sets it:
-  every race's `OnCreate` does, no turret's does, so the hangar's bolts
-  fly at 100.2 m/s (Dxun's and Onderon's at 700). The player holds still
+  player at `minigames.speed.start` until a script sets it: every race's
+  `OnCreate` does, no turret's does, so the hangar's bolts fly at about
+  that speed (Dxun's and Onderon's at their ARE's speed plus it). The
+  player's speed holds there, its acceleration nothing (the executable
+  takes it as the span from `Minimum_Speed` to `Maximum_Speed` over
+  `Accel_Secs`, an empty span on every turret), and every turret's track
+  is still, so its player never travels. The player holds still
   in the step that raises the hooks' `OnCreate` (the executables run them
   before anything moves). Its bolts, and Onderon's (`505ond`) that hit a
-  fighter, go at once: no `explode` (`minigame::bolts_burst`).
+  fighter, go at once: no `explode` (`minigame::bolts_burst`). The
+  hangar's sequence ends once its dead and its boarded together count
+  every trooper sent (`a_hangar_timer`: `107PER_MG_DEAD` and
+  `107PER_MG_EBON`): fired on, they fall and the Ebon Hawk leaves with
+  none aboard (the chain's `peragus_turret` branch); held, they board and
+  are fought inside (`peragus_escape`, the walkthrough's way).
 - **Engines**: a follower's `Sounds` `Engine` (Dxun's fighters') loops
   where it is while it lives.
 - Checked by `sim::minigame::tsl_probes` (`kjk sim probes --only

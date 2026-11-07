@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `ad98668acb707b18`.
+Edition `3f56ea809ad13b2c`.
 
 ## Contents
 
@@ -9167,7 +9167,7 @@ than their module says.
 
 <a id="minigames-speed-start"></a>**Starting Speed** = **100 m/s** · `minigames.speed.start`
 
-In TSL, a minigame's player starts at 100 meters per second until a script sets its speed (every race does as it begins). Its own bolts fly at their gun's speed plus the player's: at Peragus' hangar a turret bolt's 0.2 m/s becomes 100.2.
+In TSL, a minigame's player starts at 100 meters per second until a script sets its speed (every race does as it begins). Its own bolts fly at their gun's speed plus the player's: at Peragus' hangar a turret's crawling bolts fly at about this speed.
 
 <sub>Source: TSL's executable. Code: `sim::minigame::course::Course::new`.</sub>
 
