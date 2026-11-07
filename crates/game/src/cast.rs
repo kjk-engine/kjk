@@ -3302,23 +3302,30 @@ struct HeadBone {
     spine: Option<Spine>,
 }
 
-/// A body's upper spine (`UPPER_SPINE`): its node, the nodes above it from
-/// the model's root down, its turn in the model's space at rest, and its
-/// children off the head's way (the collars, and the arms on them), kept
-/// where the pose put them when it turns.
+/// A body's spine (`SPINE`) where the head's way passes it: its joints low
+/// to high, each a child of the one before; the nodes above the lowest
+/// from the model's root down, with their turn in the model's space at
+/// rest; and the top joint's children off the head's way (the collars),
+/// each with its own children (the upper arms).
 struct Spine {
-    node: Entity,
-    above: Vec<Entity>,
-    rest: Quat,
-    kept: Vec<Entity>,
+    joints: Vec<Joint>,
+    base: Vec<Entity>,
+    base_rest: Quat,
+    collars: Vec<(Entity, Vec<Entity>)>,
 }
 
-/// The node of KOTOR's skeleton between the waist and the neck, which the
-/// collars and the neck hang from.
-const UPPER_SPINE: &str = "torsoupr_g";
+/// A spine joint: its node and its turn in its parent's space at rest.
+struct Joint {
+    node: Entity,
+    rest: Quat,
+}
 
-/// How much of its upper spine's lean from upright a body held level
-/// (`HeadBone::level`) straightens: the neck turns that much less to hold
+/// The joints of KOTOR's spine, low to high: the lower back, bent at the
+/// waist, and the upper back the collars and the neck hang from.
+const SPINE: [&str; 2] = [hooks::TORSO, hooks::UPPER_TORSO];
+
+/// How much of its bend each spine joint of a body held level
+/// (`HeadBone::level`) gives back: the neck turns that much less to hold
 /// the head level, and the back looks less hunched (tuning, view only).
 const SPINE_SHARE: f32 = 0.4;
 
@@ -3326,66 +3333,117 @@ const SPINE_SHARE: f32 = 0.4;
 /// clips bow the chest 70–85° (tuning, view only).
 const CROUCH_SPINE_SHARE: f32 = 0.6;
 
-/// `body`'s upper spine (`Spine`), where the head's way up from body node
-/// `end` (the node the head model hangs at, or the head itself) passes it.
+/// `body`'s spine (`Spine`), where the head's way up from body node `end`
+/// (the node the head model hangs at, or the head itself) passes it: its
+/// joints there that hang one from the next, else its top one alone.
 fn spine_of((ir, nodes): (&ModelIr, &[Entity]), end: usize) -> Option<Spine> {
-    let index = (ir.nodes.iter()).position(|node| node.name.eq_ignore_ascii_case(UPPER_SPINE))?;
     let way: Vec<usize> =
         std::iter::successors(Some(end), |&at| ir.nodes.get(at).and_then(|n| n.parent)).collect();
-    if !way.contains(&index) {
-        return None;
+    let mut found: Vec<usize> = (SPINE.iter())
+        .filter_map(|name| (way.iter()).find(|&&at| ir.nodes[at].name.eq_ignore_ascii_case(name)))
+        .copied()
+        .collect();
+    if found
+        .windows(2)
+        .any(|pair| ir.nodes[pair[1]].parent != Some(pair[0]))
+    {
+        found.drain(..found.len() - 1);
     }
-    let above = ancestors((ir, nodes), index);
-    let rest = (above.iter()).fold(Quat::IDENTITY, |turn, (_, rotation)| turn * *rotation)
-        * at_rest_of((ir, nodes), index)?.1;
-    let kept = (ir.nodes.iter().enumerate())
-        .filter(|(at, node)| node.parent == Some(index) && !way.contains(at))
-        .filter_map(|(at, _)| nodes.get(at).copied())
+    let (&low, &top) = (found.first()?, found.last()?);
+    let base = ancestors((ir, nodes), low);
+    let joints = (found.iter())
+        .map(|&at| at_rest_of((ir, nodes), at).map(|(node, rest)| Joint { node, rest }))
+        .collect::<Option<_>>()?;
+    let children =
+        |of: usize| (ir.nodes.iter().enumerate()).filter(move |(_, n)| n.parent == Some(of));
+    let collars = children(top)
+        .filter(|(at, _)| !way.contains(at))
+        .filter_map(|(at, _)| {
+            let arms = children(at)
+                .filter_map(|(arm, _)| nodes.get(arm).copied())
+                .collect();
+            Some((*nodes.get(at)?, arms))
+        })
         .collect();
     Some(Spine {
-        node: *nodes.get(index)?,
-        above: above.into_iter().map(|(entity, _)| entity).collect(),
-        rest,
-        kept,
+        joints,
+        base_rest: (base.iter()).fold(Quat::IDENTITY, |turn, (_, rotation)| turn * *rotation),
+        base: base.into_iter().map(|(entity, _)| entity).collect(),
+        collars,
     })
 }
 
 impl Spine {
-    /// Turned back toward upright by `share` of its lean about its own
-    /// joint; its children off the head's way set again where they stood,
-    /// so the arms, the hands and what they hold stay where the pose put
-    /// them (the drawn blade on the sim's).
-    fn straighten(&self, share: f32, transforms: &mut Query<&mut Transform>) {
-        let above = (self.above.iter()).fold(Quat::IDENTITY, |turn, &entity| {
-            turn * transforms
+    /// Each joint, low to high, bent back toward its parent's up by `share`
+    /// of its bend from it (a turn across, its twist kept), so the back
+    /// straightens all along and no joint bends backward. `keep` (a weapon
+    /// in hand): the collars set again where they stood, so the arms, the
+    /// hands and what they hold stay where the pose put them (the drawn
+    /// blade on the sim's). Else the shoulders ride on the chest, and the
+    /// upper arms keep the way the pose swings them.
+    fn straighten(&self, share: f32, keep: bool, transforms: &mut Query<&mut Transform>) {
+        let affine = |transforms: &Query<&mut Transform>, entity: Entity| {
+            transforms
                 .get(entity)
-                .map_or(Quat::IDENTITY, |t| t.rotation)
-        });
-        let Ok(own) = transforms.get(self.node).copied() else {
-            return;
+                .map_or(Default::default(), |t| t.compute_affine())
         };
-        let up = (above * own.rotation * self.rest.inverse()) * Vec3::Z;
-        let axis = up.cross(Vec3::Z).normalize_or_zero();
-        if axis == Vec3::ZERO {
-            return;
-        }
-        let back = Quat::from_axis_angle(axis, up.angle_between(Vec3::Z) * share);
-        let kept: Vec<(Entity, bevy::math::Affine3A)> = (self.kept.iter())
-            .filter_map(|&entity| {
-                let child = transforms.get(entity).ok()?.compute_affine();
-                Some((entity, own.compute_affine() * child))
+        let chain = |transforms: &Query<&mut Transform>| {
+            (self.joints.iter()).fold(bevy::math::Affine3A::IDENTITY, |chain, joint| {
+                chain * affine(transforms, joint.node)
+            })
+        };
+        let turn = |affine: bevy::math::Affine3A| affine.to_scale_rotation_translation().1;
+        // Before: the collars where they stand, or the arms (with their
+        // collar) as they turn, in the spine's parent's space.
+        let before = chain(transforms);
+        let stood: Vec<(Entity, Option<Entity>, bevy::math::Affine3A)> = (self.collars.iter())
+            .flat_map(|(collar, arms)| {
+                let on = before * affine(transforms, *collar);
+                if keep {
+                    vec![(*collar, None, on)]
+                } else {
+                    let arm = |&arm: &Entity| (arm, Some(*collar), on * affine(transforms, arm));
+                    arms.iter().map(arm).collect()
+                }
             })
             .collect();
-        let turned = Transform {
-            rotation: (above.inverse() * back * above * own.rotation).normalize(),
-            ..own
+        let rotation = |entity: Entity| {
+            transforms
+                .get(entity)
+                .map_or(Quat::IDENTITY, |t| t.rotation)
         };
-        edit(transforms, self.node, |t| *t = turned);
-        let from = turned.compute_affine().inverse();
-        for (entity, stood) in kept {
-            edit(transforms, entity, |t| {
-                *t = Transform::from_matrix(Mat4::from(from * stood))
-            });
+        let mut world = (self.base.iter()).fold(Quat::IDENTITY, |turn, &e| turn * rotation(e));
+        let mut rest = self.base_rest;
+        for joint in &self.joints {
+            let Ok(own) = transforms.get(joint.node).map(|t| t.rotation) else {
+                return;
+            };
+            let parent_up = (world * rest.inverse()) * Vec3::Z;
+            rest *= joint.rest;
+            let up = (world * own * rest.inverse()) * Vec3::Z;
+            let axis = up.cross(parent_up).normalize_or_zero();
+            let turned = if axis == Vec3::ZERO {
+                own
+            } else {
+                let back = Quat::from_axis_angle(axis, up.angle_between(parent_up) * share);
+                (world.inverse() * back * world * own).normalize()
+            };
+            edit(transforms, joint.node, |t| t.rotation = turned);
+            world *= turned;
+        }
+        let after = chain(transforms);
+        for (entity, collar, stood) in stood {
+            match collar {
+                None => {
+                    let set = Transform::from_matrix(Mat4::from(after.inverse() * stood));
+                    edit(transforms, entity, |t| *t = set);
+                }
+                Some(collar) => {
+                    let on = turn(after * affine(transforms, collar));
+                    let set = (on.inverse() * turn(stood)).normalize();
+                    edit(transforms, entity, |t| t.rotation = set);
+                }
+            }
         }
     }
 }
@@ -3474,15 +3532,17 @@ const LEVEL_LEAN_DEG: (f32, f32) = (55.0, 85.0);
 const AIM_REACH_DEG: f32 = 70.0;
 
 impl HeadBone {
-    /// The head held level along `aim` (game degrees), as JA's head looks
-    /// along the view whatever its clip does with the chest: the head's
-    /// turn in the model's space set to its rest turned about the model's
-    /// up to `aim` (the model facing `facing`), by `share` (the JA pose's
-    /// share of the body), less as the chest leans far from upright unless
-    /// the legs crouch (`crouch`, 0 to 1: how far into a crouch's hold).
+    /// The head held level along `hold.aim` (game degrees), as JA's head
+    /// looks along the view whatever its clip does with the chest: the
+    /// head's turn in the model's space set to its rest turned about the
+    /// model's up to the aim (the model facing `hold.facing`), by `share`
+    /// (the JA pose's share of the body left to hold), less as the chest
+    /// leans far from upright unless the legs crouch (`crouch`, 0 to 1: how
+    /// far into a crouch's hold).
     fn level(
         &self,
-        (aim, facing, share, crouch): (f32, f32, f32, f32),
+        hold: Hold,
+        (share, crouch): (f32, f32),
         transforms: &mut Query<&mut Transform>,
     ) {
         let read = |transforms: &Query<&mut Transform>| -> Vec<Quat> {
@@ -3511,14 +3571,16 @@ impl HeadBone {
         if weight <= 0.0 {
             return;
         }
-        // The upper spine straightened first, so the neck turns the less.
+        // The spine straightened first, so the neck turns the less; a
+        // weapon in hand keeps the arms where the pose holds it.
         if let Some(spine) = &self.spine {
             let straight = SPINE_SHARE + (CROUCH_SPINE_SHARE - SPINE_SHARE) * crouch;
-            spine.straighten(straight * weight, transforms);
+            spine.straighten(straight * weight, hold.armed, transforms);
             rotations = read(transforms);
         }
         let above = product(&rotations);
-        let wanted = Quat::from_rotation_z(angles::wrap_180(aim - facing).to_radians()) * self.rest;
+        let toward = angles::wrap_180(hold.aim - hold.facing).to_radians();
+        let wanted = Quat::from_rotation_z(toward) * self.rest;
         let local = (above.inverse() * wanted).normalize();
         edit(transforms, self.node, |t| {
             t.rotation = t.rotation.slerp(local, weight).normalize();
@@ -3545,7 +3607,7 @@ struct Head {
 
 /// What a head is held level by (`HeadBone::level`): its body's aim and
 /// facing (game degrees), the JA pose's share of the body, whether the
-/// body lives, and whether its legs crouch.
+/// body lives, whether its legs crouch, and whether it has a weapon out.
 #[derive(Clone, Copy)]
 struct Hold {
     aim: f32,
@@ -3553,6 +3615,7 @@ struct Hold {
     share: f32,
     alive: bool,
     crouched: bool,
+    armed: bool,
 }
 
 /// How long (seconds) a body that dies takes to let its head go from level
@@ -3600,7 +3663,7 @@ impl Head {
             ease(&mut self.let_go, !hold.alive, LEVEL_FADE_S);
             ease(&mut self.crouch, hold.crouched, CROUCH_EASE_S);
             let share = hold.share * (1.0 - self.let_go);
-            (share > 0.0).then_some((hold.aim, hold.facing, share, self.crouch))
+            (share > 0.0).then_some((hold, (share, self.crouch)))
         });
         if self.yaw.abs() < 0.01 && self.turned.is_none() && level.is_none() {
             return;
@@ -3614,8 +3677,8 @@ impl Head {
             _ => now,
         };
         edit(transforms, entity, |t| t.rotation = from);
-        if let Some(level) = level {
-            bone.level(level, transforms);
+        if let Some((hold, shares)) = level {
+            bone.level(hold, shares, transforms);
         }
         if self.yaw.abs() >= 0.01 {
             let turn = Quat::from_rotation_z(self.yaw.to_radians());
@@ -3972,6 +4035,7 @@ fn place(
                 share: under,
                 alive: at.alive,
                 crouched: crouches(&at.state),
+                armed,
             });
             let head = |figure: &mut Figure, transforms: &mut Query<&mut Transform>| {
                 if let Some(bone) = &body.head {
