@@ -125,6 +125,12 @@ impl Plugin for DuelViewPlugin {
         app.init_resource::<Warned>()
             .add_systems(
                 Update,
+                facts
+                    .run_if(resource_exists::<PresentedSnapshot>)
+                    .run_if(resource_exists::<SceneSwap>),
+            )
+            .add_systems(
+                Update,
                 overhead
                     .run_if(resource_exists::<PresentedSnapshot>)
                     .run_if(resource_exists::<DuelOptions>)
@@ -139,6 +145,42 @@ impl Plugin for DuelViewPlugin {
                     .after(crate::play_view::Drawn),
             );
     }
+}
+
+/// The duel meters of every saber user standing, for `dump`: the rules,
+/// and each one's points, mishaps and guard.
+fn facts(
+    presented: Res<PresentedSnapshot>,
+    swap: Res<SceneSwap>,
+    mut facts: ResMut<console::DumpFacts>,
+) {
+    let snapshot = presented.0.current();
+    let objects = Instances::in_snapshot(&swap.level, snapshot);
+    let fighters: Vec<_> = snapshot
+        .entities
+        .iter()
+        .filter(|entity| saber_user(entity, &objects))
+        .filter_map(|entity| {
+            let fighter = entity.fighter.as_ref().filter(|fighter| fighter.hp > 0)?;
+            let duel = &fighter.saber.duel;
+            Some(serde_json::json!({
+                "id": entity.id.0, "hp": fighter.hp, "fp": fighter.fp,
+                "points": duel.points, "mishap": duel.mishap,
+                "fatigued": duel.fatigued, "drained": duel.drained,
+                "block_held": duel.block_held, "aimed": duel.aimed,
+                "warn": duel.warn, "broken": duel.broken,
+                "perfect_at": duel.perfect_at, "wear": duel.wear,
+            }))
+        })
+        .collect();
+    facts.0.insert(
+        "duel".into(),
+        serde_json::json!({
+            "rules": snapshot.saber_rules.name(),
+            "now_ms": snapshot.time_ms,
+            "fighters": fighters,
+        }),
+    );
 }
 
 /// Every other saber user's duel bars over its head, with the option on in

@@ -5,8 +5,9 @@
 //! Force (MD); a high mishap count ends in a stagger and in a disarm (past
 //! the normal difficulty's guard); the meters refill and the mishaps fall,
 //! the Force slower with block held; a creature blocks of itself; a player
-//! turns bolts only holding block; a kick floors one not absorbing it; and
-//! under JA the block and kick keys change nothing.
+//! turns bolts only holding block; a kick floors one not absorbing it; a
+//! worn staff breaks; two swings meeting lock; and under JA the block and
+//! kick keys change nothing.
 
 use super::duels::play;
 use crate::Seat;
@@ -19,10 +20,15 @@ use crate::snapshot::{Kind, Snapshot};
 /// Two medium-style players 45 units apart facing each other, lit, under
 /// `rules`, with `more` directives before they begin and `then` after.
 fn duel(rules: &str, more: &str, then: &str) -> String {
+    duel_of(rules, ["medium", "medium"], more, then)
+}
+
+/// `duel` with each seat's fighter kind (`strong`, `staff`, ...).
+fn duel_of(rules: &str, [one, two]: [&str; 2], more: &str, then: &str) -> String {
     format!(
         "scenario probe\nrules {rules}\nseed 7\n\
-         fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
-         fighter 1 medium x=45 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
+         fighter 0 {one} x=0 defence=2 tiers=2 fp=100 hp=400\n\
+         fighter 1 {two} x=45 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
          {more}\nbegin\ntick 1 b0=attack b1=attack\ntick 60\n{then}\n"
     )
 }
@@ -103,15 +109,22 @@ fn perfect(rules: &str) -> Result<String, String> {
         attacker[at].saber.duel.mishap,
     );
     let (paid_from, paid_to) = (meter(&attacker[at - 1], mda), meter(&attacker[at], mda));
+    // MDA alone opens the blocker's riposte window (`Duel::riposte_until`).
+    let riposte = blocker[at].saber.duel.riposte_until > blocker[at - 1].saber.duel.riposte_until;
     let reeling = attacker[at..(at + 3).min(attacker.len())]
         .iter()
         .find(|f| f.saber.current_move.broken() || f.saber.current_move.bounce())
         .map(|f| f.saber.current_move);
     check(
-        after > before && upset > calm && paid_to < paid_from && reeling.is_some(),
+        after > before
+            && upset > calm
+            && paid_to < paid_from
+            && reeling.is_some()
+            && riposte == mda,
         format!(
             "{rules}: perfect block at tick {at}: blocker's meter {before} -> {after}, \
-             attacker's {paid_from} -> {paid_to}, its mishaps {calm} -> {upset}, it plays {}",
+             attacker's {paid_from} -> {paid_to}, its mishaps {calm} -> {upset}, it plays {}, \
+             riposte {riposte}",
             reeling.map_or("nothing", Move::name)
         ),
     )
@@ -289,6 +302,54 @@ fn kicked() -> Result<String, String> {
     )
 }
 
+/// A strong-style attacker against a staff held in block, already worn
+/// to 90 (MDA): the hilt wears through and breaks, and fights on with one
+/// blade.
+fn staff_breaks() -> Result<String, String> {
+    let then = "duel 1 wear=90\ntick 3000 b0=attack h1=block";
+    let blocker = fighters(&play(&duel_of("mda", ["strong", "staff"], "", then))?, 1);
+    let worn = blocker.iter().map(|f| f.saber.duel.wear).max().unwrap_or(0);
+    let broke = blocker.iter().position(|f| f.saber.duel.broken);
+    check(
+        broke.is_some(),
+        format!(
+            "mda: the staff wears from 90 to {worn}, breaking at tick {}",
+            broke.map_or("never".into(), |at| at.to_string())
+        ),
+    )
+}
+
+/// Both seats swinging at each other with equal power under `rules`, over
+/// several seeds: a saber lock starts (the setting's chance on each clash
+/// that tries one).
+fn locks(rules: &str) -> Result<String, String> {
+    let (mut clashes, mut tried) = (0, 0);
+    for seed in 1..=LOCK_SEEDS {
+        tried = seed;
+        let more = format!("seed {seed}");
+        let ticks = play(&duel(rules, &more, "tick 3000 b0=attack b1=attack"))?;
+        let (one, two) = (fighters(&ticks, 0), fighters(&ticks, 1));
+        clashes += count_events(&one, Outcome::Parried);
+        if let Some(at) = one
+            .iter()
+            .zip(&two)
+            .position(|(a, b)| a.saber.lock.is_some() && b.saber.lock.is_some())
+        {
+            return check(
+                true,
+                format!("{rules}: locked at tick {at} of seed {seed}, after {clashes} blows met"),
+            );
+        }
+    }
+    check(
+        false,
+        format!("{rules}: {clashes} blows met over {tried} seeds, never a lock"),
+    )
+}
+
+/// The seeds `locks` tries.
+const LOCK_SEEDS: u64 = 10;
+
 /// Under JA the block and kick keys change nothing: the meters stay fresh
 /// and seat 1 is harmed as without them.
 fn ja_still() -> Result<String, String> {
@@ -326,6 +387,9 @@ pub fn probes() -> Checks {
         ("creature_blocks", creature_blocks()),
         ("bolts_need_block", bolts()),
         ("kick_floors", kicked()),
+        ("staff_breaks", staff_breaks()),
+        ("locks_md", locks("md")),
+        ("locks_mda", locks("mda")),
         ("ja_unchanged", ja_still()),
     ]
 }
