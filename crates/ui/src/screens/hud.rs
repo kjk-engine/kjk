@@ -879,6 +879,14 @@ pub fn banner(control: &Control, vm: &ViewModel) -> ControlState {
     }
 }
 
+/// A toggle of the layout's lit: KOTOR's stealth, TSL's solo mode.
+fn lit() -> ControlState {
+    ControlState {
+        selected: true,
+        ..ControlState::default()
+    }
+}
+
 /// How the HUD shows `control`.
 pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
     let hud = vm.hud.clone().unwrap_or(HudView::default());
@@ -909,12 +917,8 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
     }
     match tag {
         "LBL_MAPBORDER" => return shown(hud.minimap.is_some()),
-        "TB_STEALTH" if hud.stealth => {
-            return ControlState {
-                selected: true,
-                ..ControlState::default()
-            };
-        }
+        "TB_STEALTH" if hud.stealth => return lit(),
+        "TB_SOLO" if hud.solo => return lit(),
         _ => {}
     }
     if let Some(shown) = target_state(tag, vm.target.as_ref()) {

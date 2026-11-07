@@ -1225,6 +1225,10 @@ pub struct Snapshot {
     /// click or a script's `SetPartyLeader`), which the first seat moves
     /// while its own character stands.
     pub leading: Option<SimId>,
+    /// Solo mode is on (`GetSoloMode`): the companions stand rather than
+    /// follow the leader. The scripts' party table holds it; this is made
+    /// again each step, for the HUD's solo toggle.
+    pub solo: bool,
     /// The minigame in play, in a minigame's module.
     pub minigame: Option<crate::minigame::Course>,
     /// The pazaak matches under way (`PlayPazaak`), each its player's
@@ -1776,6 +1780,7 @@ impl Snapshot {
         write_fixed(out, self.leading.as_ref(), &SimId(0), |id, out| {
             out.u32(id.0);
         });
+        out.u8(u8::from(self.solo));
         match &self.minigame {
             Some(course) => {
                 out.u8(1);
@@ -1904,6 +1909,15 @@ impl Snapshot {
             "leading flag",
         )?;
         let at = input.at();
+        let solo = match input.since(crate::since::snapshot::CLAUDE_BR_TSL_STORY) {
+            false => false,
+            true => match input.u8()? {
+                0 => false,
+                1 => true,
+                _ => return Err(input.invalid("solo flag", at)),
+            },
+        };
+        let at = input.at();
         let minigame = match input.u8()? {
             0 => None,
             1 => Some(crate::minigame::Course::decode(&mut input)?),
@@ -1989,6 +2003,7 @@ impl Snapshot {
             ready,
             kept,
             leading,
+            solo,
             minigame,
             pazaak,
             explored,

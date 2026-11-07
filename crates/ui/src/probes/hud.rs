@@ -193,6 +193,7 @@ pub(super) fn all() -> Vec<Check> {
             lit: vec!["LBL_PLOTXP"],
             minimap: None,
             stealth: false,
+            solo: false,
             busy: None,
         }),
         party: vec![MemberView {
@@ -250,19 +251,25 @@ pub(super) fn all() -> Vec<Check> {
         shown("BTN_ACTION2").hidden,
     );
     // Stealth mode: KOTOR's stealth toggle lit; pause and solo stay hidden.
-    let stealthed = ViewModel {
+    // Solo mode: TSL's solo toggle lit.
+    let with = |stealth: bool, solo: bool| ViewModel {
         hud: vm.hud.clone().map(|hud| HudView {
-            stealth: true,
+            stealth,
+            solo,
             ..hud
         }),
         ..vm.clone()
     };
+    let (stealthed, solo) = (with(true, false), with(false, true));
     let toggle = |vm: &ViewModel, tag: &str| state(&button(tag, [0, 0, 1, 1], b""), vm);
     let stealth = (
         toggle(&vm, "TB_STEALTH").hidden,
         toggle(&stealthed, "TB_STEALTH").hidden,
         toggle(&stealthed, "TB_STEALTH").selected,
         toggle(&stealthed, "TB_PAUSE").hidden,
+        toggle(&stealthed, "TB_SOLO").hidden,
+        toggle(&solo, "TB_SOLO").hidden,
+        toggle(&solo, "TB_SOLO").selected,
     );
     // A companion: the second portrait and its bars; no third.
     let with_trask = ViewModel {
@@ -532,8 +539,10 @@ pub(super) fn all() -> Vec<Check> {
         .and_then(|()| expect("the queue and the party hidden", queue))
         .and_then(|()| {
             expect(
-                &format!("the stealth toggle lit only in stealth mode: {stealth:?}"),
-                stealth == (true, false, true, true),
+                &format!(
+                    "the stealth toggle lit only in stealth mode, the solo toggle only in solo mode: {stealth:?}"
+                ),
+                stealth == (true, false, true, true, true, false, true),
             )
         })
         .and_then(|()| {

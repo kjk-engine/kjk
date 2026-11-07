@@ -531,6 +531,9 @@ pub struct HudView {
     pub lit: Vec<&'static str>,
     /// The character is in stealth mode (KOTOR's stealth toggle lit).
     pub stealth: bool,
+    /// The party is in solo mode (TSL's solo toggle lit): the companions
+    /// stand where they are.
+    pub solo: bool,
     /// The minimap, where the area has a picture.
     pub minimap: Option<MinimapView>,
     /// What the player is in, its portrait's icon (R10).

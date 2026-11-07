@@ -994,6 +994,23 @@ fn exit_used() -> Result<String, String> {
     )
 }
 
+/// Solo mode as the snapshot carries it (the HUD's solo toggle): a guest's
+/// solo key changes nothing (the companions follow the first seat's
+/// leader), the first seat's turns it on, then off.
+fn solo_by_seat() -> Result<String, String> {
+    let mut pair = built(2, 2, true, open_exit_gate)?;
+    let solo = [
+        pair.step(&[(1, Action::Solo(true))]).snapshot.solo,
+        pair.step(&[(0, Action::Solo(true))]).snapshot.solo,
+        pair.step(&[]).snapshot.solo,
+        pair.step(&[(0, Action::Solo(false))]).snapshot.solo,
+    ];
+    check(
+        solo == [false, true, true, false],
+        format!("guest's, host's, held, host's off: {solo:?}"),
+    )
+}
+
 /// A break and a ready check, recorded, replay to the same end.
 fn recorded() -> Result<String, String> {
     let mut ground = ground(2, 2, true)?;
@@ -1111,6 +1128,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ("queued_actions_at_resume", queued),
         ("recorded_calls_replay", recorded),
         ("kept_by_party", kept_by_party),
+        ("solo_mode_by_the_first_seat", solo_by_seat),
     ];
     cases.into_iter().map(|(name, run)| (name, run())).collect()
 }

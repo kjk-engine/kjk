@@ -7,3 +7,9 @@
 # bolts fly at their bank's speed plus the player's (Peragus' hangar turret
 # at 100.2 m/s, not 0.2).
 sim = "TSL's looping animation constants to 46 loop on, scripted clips are timed as the executables map them, and a TSL minigame player's bolts add its speed (starting at 100)"
+
+[formats]
+snapshot = "the tail carries solo mode (`solo`), for the HUD's solo toggle and the solo key."
+
+[migrations]
+snapshot = "old saves read `solo = false`; the scripts' party table, saved as before, sets it again on the first step"

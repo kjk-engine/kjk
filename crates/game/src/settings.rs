@@ -62,6 +62,8 @@ pub enum Action {
     QuickLoad,
     /// The next party member leads (KOTOR's `ChangeChar`, Tab).
     Leader,
+    /// Solo mode on or off (TSL's `PartyActive`, its V: here Next Form's).
+    Solo,
     /// While the seat watches (I30 P3): follow the next party member.
     Follow,
     Break,
@@ -80,7 +82,7 @@ pub enum Action {
 
 /// Each action: its settings name, its label, its default key or mouse
 /// button, and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 43] = [
+pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 44] = [
     (
         Action::Forward,
         "forward",
@@ -312,6 +314,13 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 43] = [
         "leader",
         "Switch party leader",
         Input::Key(KeyCode::Tab),
+        false,
+    ),
+    (
+        Action::Solo,
+        "solo",
+        "Solo mode",
+        Input::Key(KeyCode::KeyQ),
         false,
     ),
     (

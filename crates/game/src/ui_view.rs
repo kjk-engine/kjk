@@ -496,6 +496,7 @@ fn requests(
             ["force"] => calls.0.push(sim::action::Action::Force),
             ["holster"] => calls.0.push(sim::action::Action::Holster),
             ["swap"] => calls.0.push(sim::action::Action::SwitchWeapons),
+            ["solo", on @ ("on" | "off")] => calls.0.push(sim::action::Action::Solo(*on == "on")),
             ["form", row] => match row.parse() {
                 Ok(row) => calls.0.push(sim::action::Action::Form(row)),
                 Err(_) => warn!(target: "console", "ui form: {row} is not a spells.2da row"),

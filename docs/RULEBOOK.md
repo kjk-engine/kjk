@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `15d1b74a896f4939`.
+Edition `ad98668acb707b18`.
 
 ## Contents
 
@@ -305,7 +305,9 @@ Lightning and Drain last while it is held). [Grenade] charges while held and
 throws on release. [Medpac], [Stim] and [Energy shield] use the first one
 carried. [Stealth mode] and [Lay a mine] act at once. [Saber style] changes
 the saber style, [Next feat attack] the feat attack of the weapon in hand,
-[Next Form] the lightsaber Form. [First person] changes the view.
+[Next Form] the lightsaber Form. [Solo mode] keeps the companions where they
+stand instead of following, until pressed again. [First person] changes the
+view.
 
 ### <a id="controls-swings"></a>Swings
 

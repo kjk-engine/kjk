@@ -476,7 +476,8 @@ Running and checking:
   template, e.g. `*bag2` for remains, as if the crosshair
   were on it; `ui target` lets it go; a walk there steers headless too), `ui act` (the
   use key on the target; `ui act N`: choice N first, from 0), `ui holster` (the
-  holster key), `ui swap` (the weapon swap key), `ui form ROW` (TSL's Form of that `spells.2da` row in use,
+  holster key), `ui swap` (the weapon swap key), `ui solo on|off` (solo mode, as
+  the solo key turns it), `ui form ROW` (TSL's Form of that `spells.2da` row in use,
   as the next-Form key picks one), `ui portrait 2|3` (a click on the HUD's second
   or third portrait), `ui watch 2|3` (a click on that portrait's pazaak
   icon), and `ui script upgrade|levelup|party|death|credits|end|box

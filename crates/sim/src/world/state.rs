@@ -157,6 +157,7 @@ impl SimWorld {
             ready: None,
             kept: Vec::new(),
             leading: None,
+            solo: false,
             minigame: None,
             pazaak: Vec::new(),
             explored: Vec::new(),
@@ -525,6 +526,7 @@ impl SimWorld {
         let kept = self.world.resource::<drivers::Kept>().0.clone();
         let script_state = &self.world.resource::<scripts::Scripts>().state;
         let leading = lent(&script_state.party);
+        let solo = script_state.party.solo;
         let standing = script_state.reputation.clone();
         let screens = script_state.screens(
             self.world
@@ -567,6 +569,7 @@ impl SimWorld {
             ready,
             kept,
             leading,
+            solo,
             minigame,
             pazaak,
             explored,
