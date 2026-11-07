@@ -615,7 +615,7 @@ fn draw(
         Option<ResMut<HookVisuals>>,
         ResMut<BlasterShots>,
     ),
-    rooms: Option<Res<crate::shadows::RoomSurfaces>>,
+    (rooms, mut level): (Option<Res<crate::shadows::RoomSurfaces>>, Local<DrawnLevel>),
 ) {
     let Some(mut drawn) = drawn else { return };
     // KOTOR's sparks are drawn by `script_fx`; none without it.
@@ -708,18 +708,16 @@ fn draw(
     // blade's contact with the collision (none where no drawn wall is near:
     // an open doorway the collision closes); a level without drawn rooms
     // (JA's stages) lays them on the collision's faces.
-    let level = (!cuts.0.is_empty()).then(|| {
+    if rooms.as_ref().is_none_or(|rooms| rooms.is_changed()) {
         let to_game = crate::scene::game_to_bevy().inverse();
         let triangles = rooms.iter().flat_map(|rooms| rooms.0.iter().flatten());
-        DrawnLevel(
-            triangles
-                .map(|surface| surface.corners.map(|p| to_game * p / UNIT))
-                .collect(),
-        )
-    });
-    let level = level.filter(|level| !level.0.is_empty());
+        *level =
+            DrawnLevel::new(triangles.map(|surface| surface.corners.map(|p| to_game * p / UNIT)));
+    }
+    let _span = (!cuts.0.is_empty()).then(|| bevy::log::info_span!("saber_marks.lay").entered());
+    let level = (!level.is_empty()).then_some(&*level);
     for cut in cuts.0.drain(..) {
-        match &level {
+        match level {
             Some(level) => {
                 if let Some(moved) = level.onto(&cut) {
                     drawn
