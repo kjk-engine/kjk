@@ -1,0 +1,19 @@
+[chapter]
+title = "Duel Saber Rules"
+order = 88
+summary = """The rules the blades play by when a session picks one of the duel modes (MD, MDA) instead of JA's: the block button, block points, perfect blocks, mishaps and fatigue (`docs/SABER-RULES.md`)."""
+
+[meters]
+title = "Meters"
+summary = """What a saber user's blocks are paid from: the Force pool under MD, block points of their own under MDA."""
+
+[meters.points_max]
+name = "Block Points"
+type = "u8"
+value = 100
+unit = "count"
+range = [10, 255]
+summary = """A full meter of block points under MDA: {duel.meters.points_max}; every saber starts a fight with it full."""
+source = "the duel modes' behaviour spec, docs/SABER-RULES.md section 1"
+see = "sim::combat::saber::duel::Duel::FRESH"
+applies = ["kind:lightsaber"]

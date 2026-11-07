@@ -245,6 +245,8 @@ pub struct SaberState {
     /// not, as a fight holds it out (`move_body`'s sheathing): a swing at
     /// no one is no fight (`Fighter::combat_until`).
     pub out_until: u64,
+    /// The duel modes' meters and timers (`duel`).
+    pub duel: duel::Duel,
 }
 
 impl SaberState {
@@ -318,6 +320,7 @@ impl SaberState {
             },
         );
         out.u64(self.out_until);
+        self.duel.encode(out);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<SaberState, DecodeError> {
@@ -384,6 +387,10 @@ impl SaberState {
                 "kicked flag",
             )?,
             out_until: input.u64()?,
+            duel: match input.since(crate::since::snapshot::SABER_MODES) {
+                true => duel::Duel::decode(input)?,
+                false => duel::Duel::FRESH,
+            },
         })
     }
 }

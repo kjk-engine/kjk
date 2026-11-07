@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `858272f7c38c2ff3`.
+Edition `d4976a12d0281f10`.
 
 ## Contents
 
@@ -176,7 +176,6 @@ Edition `858272f7c38c2ff3`.
   - [Party Members by Player](#party-seats)
   - [Leaving an Area](#party-exits)
   - [Playing Another Character](#party-switch)
-  - [Returning to the Ebon Hawk](#party-return-to-ship)
 - [Stealth and Awareness](#stealth)
   - [Stealth Mode](#stealth-mode)
   - [Standing, Walking and Running](#stealth-pace)
@@ -234,7 +233,6 @@ Edition `858272f7c38c2ff3`.
   - [Tight Spaces](#movement-fine)
 - [Weapons in Hand](#weapons-in-hand)
   - [Switching Weapons](#weapons-in-hand-change)
-  - [How a Weapon Looks](#weapons-in-hand-look)
   - [Getting Up](#weapons-in-hand-knockdown)
   - [Movement while Attacking](#weapons-in-hand-saber-speed)
   - [Moves that Carry the Character](#weapons-in-hand-moves)
@@ -270,6 +268,8 @@ Edition `858272f7c38c2ff3`.
   - [Shock Bolt](#remote-bolt)
   - [Sonic Blast](#remote-sonic)
   - [Stim Dart](#remote-dart)
+- [Duel Saber Rules](#duel)
+  - [Meters](#duel-meters)
 - [Scripts](#scripts)
   - [Script Checks](#scripts-answers)
   - [Conversation](#scripts-talk)
@@ -4448,20 +4448,18 @@ speed, or 0.8 times under a speed power.
 
 ### <a id="force-speed"></a>Burst of Speed, Knight Speed and Master Speed
 
-A toggled power. The Jedi moves faster (1.15 times in
-combat, 1.5 times out of it) for 10 seconds, 15 seconds or
+A toggled power. The Jedi moves 1.15 times as fast
+for 10 seconds, 15 seconds or
 20 seconds by rank, and Force points do not regenerate
 meanwhile. The Defense bonus and extra attacks are listed with the
 power's effects.
 
-In combat this speed replaces the power's own movement bonus; out of
-combat the Jedi moves by that bonus instead, as in KOTOR (the fastest
-movement, 1.5 times its walk and run). Force Suppression ends
+This speed replaces the power's own movement bonus. Force Suppression ends
 Burst of Speed and Knight Speed; Force Breach ends all three.
 
 <a id="force-speed-scale"></a>**Speed Bonus** = **×1.15** · `force.speed.scale`
 
-In combat the speed powers make the Jedi move 1.15 times as fast at every rank.
+The speed powers make the Jedi move 1.15 times as fast at every rank.
 
 <sub>Source: the owner's call, over JA's 1.7. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
@@ -6818,19 +6816,6 @@ Whether, in TSL, the player's own character leaves the area while the player pla
 
 <sub>Source: TSL's executable (at a switch it saves the player's creature and deletes it, and makes it again on the way back). Code: `sim::world::switch::leaves_area`.</sub>
 
-### <a id="party-return-to-ship"></a>Returning to the Ebon Hawk
-
-The map's return button takes the party to the Ebon Hawk and back, after a
-question. It refuses where the area keeps the party from leaving, while a
-party member stands more than 30 meters
-from the leader, and during combat.
-
-<a id="party-return-to-ship-together-m"></a>**Party Together** = **30 m** · `party.return_to_ship.together_m`
-
-The party may return to the Ebon Hawk only with every party member within 30 meters of the leader.
-
-<sub>Source: K1's executable (the map page's check, the distance squared against 900). Code: `sim::snapshot::Snapshot::transit_refusal`.</sub>
-
 ## <a id="stealth"></a>Stealth and Awareness
 
 A character in Stealth Mode is seen only by an opponent that makes a spot
@@ -8390,24 +8375,6 @@ A weapon takes 0.25 seconds to raise after a switch, after getting up, or when a
 
 <sub>Source: JA: weapon changes. Code: `sim::motion::Move::raise_weapon`.</sub>
 
-### <a id="weapons-in-hand-look"></a>How a Weapon Looks
-
-A weapon is drawn whole: where its texture carries transparency that nothing
-says how to use, it is drawn solid rather than see-through.
-
-<a id="weapons-in-hand-look-solid"></a>**Solid Weapons** = **true** · `weapons_in_hand.look.solid`
-
-A weapon's texture with transparency but no instructions for it can be drawn solid instead of see-through.
-
-kjk's choice, not KOTOR's: the original blends such a texture by its alpha
-over whatever is behind the weapon. Texture mods that leave out the TXI
-files telling the game the alpha is a shine mask (High Quality Blasters)
-showed the world through their guns. Textures whose TXI names an env map,
-a bump map, a blending mode or a decal keep their own look, and nothing but
-weapon models is changed.
-
-<sub>Source: the owner's call, 2026-11-07 (issue 171). Code: `game::material::weapon_surface`.</sub>
-
 ### <a id="weapons-in-hand-knockdown"></a>Getting Up
 
 A knocked-down character lies until the knockdown ends. Then [Strafe left],
@@ -8737,15 +8704,13 @@ A character leaving combat slows to its walking speeds over 0.5 seconds.
 
 Effects and powers can slow a character's walking and running to no less than 0.125 times normal.
 
-<sub>Source: TSL's Mac executable, 2026-11-07. Code: `sim::walk::kotor_speed`.</sub>
+<sub>Source: ours [verify against KOTOR's executable]. Code: `sim::walk::kotor_speed`.</sub>
 
 <a id="walking-pace-most-multiplier"></a>**Fastest Movement** = **×1.5** · `walking.pace.most_multiplier`
 
 Burst of Speed, adrenals and other bonuses can raise a character's walking and running to no more than 1.5 times normal.
 
-The speed powers' own +99% reaches it: out of combat Burst of Speed, Knight Speed and Master Speed move the Jedi at this much of its walk and run.
-
-<sub>Source: TSL's Mac executable, 2026-11-07: a movement rate is held to 0.125 to 1.5 times, and a speed increase multiplies it by one plus its percent. Code: `sim::walk::kotor_speed`.</sub>
+<sub>Source: ours [verify against KOTOR's executable]. Code: `sim::walk::kotor_speed`.</sub>
 
 <a id="walking-pace-least-walk"></a>**Slowest Walk** = **0.1 m/s** · `walking.pace.least_walk`
 
@@ -8906,9 +8871,9 @@ An object at the character's feet must be in sight of eyes 1.6 meters above the 
 
 <a id="targeting-pick-sight-slack"></a>**Sight Slack** = **0.05 m** · `targeting.pick.sight_slack`
 
-An object is in sight when the line to its middle or its top gets within 0.05 meters of it: a console's own body, or the bench it stands on, does not hide it. A use's line of sight to what it uses takes the same slack, so a panel flush with its wall that the crosshair offers is used.
+An object is in sight when the line to its middle or its top gets within 0.05 meters of it: a console's own body, or the bench it stands on, does not hide it.
 
-<sub>Source: ours (under the 0.15 m a wall must hide what stands behind it). Code: `sim::target::in_sight_near`.</sub>
+<sub>Source: ours (under the 0.15 m a wall must hide what stands behind it). Code: `sim::target::seen`.</sub>
 
 ### <a id="targeting-volumes"></a>Target Size
 
@@ -8982,7 +8947,7 @@ first. Moving, jumping or attacking cancels the walk.
 
 <a id="targeting-walk-arrive"></a>**Action Reach** = **×0.8** · `targeting.walk.arrive`
 
-A character within 0.8 times an action's reach performs it without walking. One whose walk gets no closer for 1 second while within the whole reach performs it where it stands, such as talking to a shopkeeper across a counter.
+A character within 0.8 times an action's reach performs it without walking.
 
 <sub>Source: ours. Code: `sim::target::Walk::near`.</sub>
 
@@ -9576,6 +9541,20 @@ A dart heals 10% of its target's most hit points.
 A member a dart revives gets up with 25% of its most hit points.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
+
+## <a id="duel"></a>Duel Saber Rules
+
+The rules the blades play by when a session picks one of the duel modes (MD, MDA) instead of JA's: the block button, block points, perfect blocks, mishaps and fatigue (`docs/SABER-RULES.md`).
+
+### <a id="duel-meters"></a>Meters
+
+What a saber user's blocks are paid from: the Force pool under MD, block points of their own under MDA.
+
+<a id="duel-meters-points-max"></a>**Block Points** = **100 count** · `duel.meters.points_max`
+
+A full meter of block points under MDA: 100 count; every saber starts a fight with it full.
+
+<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md section 1. Code: `sim::combat::saber::duel::Duel::FRESH`.</sub>
 
 ## <a id="scripts"></a>Scripts
 
