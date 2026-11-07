@@ -744,6 +744,22 @@ pub struct SimWorld {
 }
 
 impl SimWorld {
+    /// Takes over what `old` worked out from what it showed and keeps
+    /// across steps without it being state (the faces under the made
+    /// placeables, `MadeFaces`), when both stand in the same level: each
+    /// is keyed by what it was worked out from, so it holds here as it did
+    /// there. A client rebuilds its world from every snapshot it predicts
+    /// from; without this, each rebuild worked the faces out anew over the
+    /// whole navigation mesh, a frame's worth of time on a large level.
+    pub fn keep_worked_out(&mut self, old: &mut SimWorld) {
+        let level = |world: &SimWorld| world.world.resource::<Static>().0.placed.clone();
+        if !Arc::ptr_eq(&level(self), &level(old)) {
+            return;
+        }
+        let faces = std::mem::take(&mut *old.world.resource_mut::<MadeFaces>());
+        *self.world.resource_mut::<MadeFaces>() = faces;
+    }
+
     /// Seat `persona.seat`'s player is `persona` from now on (character
     /// creation's, or the host's default for a seat without one).
     pub fn set_persona(&mut self, persona: crate::persona::Persona) {
