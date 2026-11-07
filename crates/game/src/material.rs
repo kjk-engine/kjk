@@ -538,6 +538,42 @@ pub fn surface((hint, skinned): (u32, bool), mesh_alpha: f32, loaded: &[&Texture
     }
 }
 
+/// A weapon's surface, as kjk draws it (`rules::weapons_in_hand::look::SOLID`):
+/// a texture with alpha that no TXI gives a meaning to (no env map, bump
+/// map, blending, decal or animation) is drawn solid. A kjk choice, not
+/// KOTOR's: its executable blends such a mesh by its alpha over what is
+/// behind it, and mods that leave out their TXIs (High Quality Blasters,
+/// whose alpha is an env-map mask) showed the world through their guns
+/// (issue 171). Any other surface, and every surface of a model that is not
+/// a weapon (`weapon`), is `surface` unchanged.
+pub fn weapon_surface(surface: Surface, loaded: &[&TextureFacts], weapon: bool) -> Surface {
+    let untold = |facts: &&TextureFacts| {
+        facts.blending == Blending::Default
+            && !facts.decal
+            && facts.envmap.is_none()
+            && facts.bumpmap.is_none()
+            && facts.odd_blending.is_none()
+            && facts.cycle.is_none()
+    };
+    if rules::weapons_in_hand::look::SOLID
+        && weapon
+        && surface == Surface::OpaqueAlpha
+        && loaded.iter().all(untold)
+    {
+        Surface::Opaque
+    } else {
+        surface
+    }
+}
+
+/// Whether `model` is a weapon's: every weapon model the games' items name
+/// (`baseitems.2da` `defaultmodel`, a variation added) begins `w_`.
+pub fn is_weapon_model(model: &str) -> bool {
+    model
+        .get(..2)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("w_"))
+}
+
 #[derive(Clone, Copy, Debug, ShaderType)]
 pub struct OdysseyParams {
     /// Multiplies the diffuse; stored values, not linear.

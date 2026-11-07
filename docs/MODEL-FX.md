@@ -110,6 +110,19 @@ lightning and how to see them).
   `Aligned_to_World_Z` and `Aligned_to_Particle_Dir` follow TSL's
   executable (K1's [verify]).
 
+## Weapons drawn solid (`material::weapon_surface`)
+- A kjk choice, not KOTOR's (`weapons_in_hand.look.solid`, issue 171): a
+  weapon model's (`w_…`, as every `baseitems.2da` `defaultmodel` is named)
+  mesh whose texture has alpha that no TXI explains (no env map, bump map,
+  blending, decal or animation) is drawn opaque. KOTOR's executable blends
+  it by that alpha over what was drawn before it: its opaque pass keeps
+  blending on (source alpha) and draws textures by their mean alpha, the
+  solid ones first, so a weapon whose TGA carries a shine mask without its
+  TXI (High Quality Blasters) shows the room through it. A loose TXI is
+  the only one a TGA gets (never the replaced TPC's), and a weapon has no
+  env map of its own. Saber blades (additive), glows, effects, bodies,
+  rooms and placeables keep KOTOR's rule.
+
 ## Rooms and placeables (`own_fx`, `viewer::OwnFx`)
 - `viewer::module_scene` reads each room's and placeable's MDL once for
   both its model and its effects; a room with `animloop…` or

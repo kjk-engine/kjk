@@ -21,8 +21,9 @@ story, or anything much worse than described ([`CONTRIBUTING.md`](CONTRIBUTING.m
 - KOTOR models on JA animations don't fit well, so limbs bend and clip oddly; female characters look worst.
 - A modded texture whose alpha is a shine mask but that comes without a
   `.txi` naming an env map (`envmaptexture CM_Baremetal`) looks see-through,
-  as it does in KOTOR. High Quality Blasters ships most of its blaster
-  textures this way; adding the `.txi` files to `override/` fixes them.
+  as it does in KOTOR, unless it is a weapon's (weapons are drawn solid,
+  `weapons_in_hand.look.solid`). Adding the `.txi` files to `override/`
+  fixes the rest.
 
 ## Menus and controls
 
