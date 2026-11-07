@@ -66,6 +66,18 @@ fn hp_at(run: &Run, at: usize, ms: u64) -> f64 {
     f64::from(fighter(snapshot, at).hp) / 100.0
 }
 
+/// `poison.2da` row 6 (average damage and abilities): 4 HP and a point of
+/// each ability a dose, every 6 s for 36 s.
+fn course_of_six() -> items::Course {
+    items::Course {
+        points: 4,
+        drains: [1; 6],
+        every_ms: 6000,
+        for_ms: 36_000,
+        dc: 0,
+    }
+}
+
 /// A stage of the arena with `sheet` for every seat, at `hp` hundredths.
 fn arena(sheet: Sheet, seats: u8, hp: i32) -> (Stage, Snapshot) {
     let config = sim::WorldConfig {
@@ -472,18 +484,7 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
         10_000,
     );
     if let Some(fighter) = start.entities[me].fighter.as_mut() {
-        fighter.pack.poison = Some(Poisoned::new(
-            sim::SimId(0),
-            items::Course {
-                points: 4,
-                drains: [1; 6],
-                every_ms: 6000,
-                for_ms: 36_000,
-                dc: 0,
-            },
-            start.time_ms,
-            None,
-        ));
+        fighter.pack.poison = Some(Poisoned::new(sim::SimId(0), course_of_six(), start.time_ms, None));
     }
     let run = stage.drive(&start, 40_000, &mut presses(me, buttons::MEDPAC, &[37_000]));
     let drained_at = |ms: u64| fighter_at(&run, me, ms).pack.drained(start.time_ms + ms);
@@ -513,6 +514,24 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
         ),
     );
     report.replayed("poison's course", run.replayed);
+
+    // The same poison ended early by immunity (Knight Valor on): what it
+    // drained comes back as it ends, not at its full course's end.
+    let (stage, mut start) = arena(carrying(&[]), 1, 10_000);
+    if let Some(fighter) = start.entities[me].fighter.as_mut() {
+        let poison = Poisoned::new(sim::SimId(0), course_of_six(), start.time_ms, None);
+        fighter.pack.drained = (items::drain(Ability::Dexterity, 2), poison.until);
+        fighter.pack.poison = Some(poison);
+        fighter.effects.valor = (2, start.time_ms + 60_000);
+    }
+    let run = stage.drive(&start, 1000, &mut presses(me, buttons::MEDPAC, &[]));
+    let immune = fighter_at(&run, me, 900).pack;
+    let ended = (immune.poison.is_none(), immune.drained(start.time_ms + 900));
+    report.check(
+        ended == (true, [0; 6]),
+        format!("poison ended by Knight Valor: gone with its drain at 0.9 s {ended:?}"),
+    );
+    report.replayed("poison ended by immunity", run.replayed);
 
     let (stage, start) = arena(carrying(&[(ITEM_ABILITY_COMBAT_SHOT_3, 1), (ITEM_ABILITY_ADRENAL_SHOT_STRENGTH, 1)]), 1, 10_000);
     let run = stage.drive(&start, 2000, &mut presses(me, buttons::STIM, &[0, 500]));
