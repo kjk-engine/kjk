@@ -52,6 +52,9 @@
 //!   torso plays a saber move (`asset_ja::saber_trail_ms`). The gripping
 //!   hand reaches for the sim's blade (`cast`, `Wielded::blades_in`), so it is drawn
 //!   where it cuts.
+//! - **Power.** A weapon model with power clips (`Power`: a quarterstaff,
+//!   a force pike) unfolds by them while readied in hand and folds when
+//!   put away; a lightsaber hilt's power is its JA blade instead.
 //! - **Away.** A saber out of the hand (`SaberState::thrown`) hangs from the
 //!   scene where the snapshots put it: flying out spun as JA spins it, back
 //!   pointing away from its owner (`saber_flight`), lit and trailing (JA's
@@ -94,6 +97,7 @@ pub struct Held {
     pub blades: Vec<usize>,
     pub ends: Vec<BladeEnd>,
     pub gun: Option<GunShape>,
+    pub power: Option<PowerClips>,
 }
 
 /// Where a blade leaves its hilt and which way it runs, in the hilt's space
@@ -104,7 +108,8 @@ pub type BladeEnd = (Vec3, Vec3);
 pub type Arms = [Option<Held>; 2];
 
 /// A weapon model spawned in the scene: its root entity, its name, its
-/// blades' indices in `LiveBlades` and ends, and a gun's shape.
+/// blades' indices in `LiveBlades` and ends, a gun's shape, and a powered
+/// item's clips.
 #[derive(Debug, Clone)]
 pub struct Armed {
     pub root: Entity,
@@ -112,18 +117,20 @@ pub struct Armed {
     pub blades: Vec<usize>,
     pub ends: Vec<BladeEnd>,
     pub gun: Option<GunShape>,
+    pub power: Option<Power>,
 }
 
 impl Held {
     /// The weapon as spawned, `models` being the scene's by index.
     pub fn armed(&self, models: &[Option<(Entity, Vec<Entity>)>]) -> Option<Armed> {
-        let (root, _) = models.get(self.model)?.as_ref()?;
-        Some(self.spawned(*root, 0))
+        let (root, nodes) = models.get(self.model)?.as_ref()?;
+        Some(self.spawned((*root, nodes), 0))
     }
 
-    /// The weapon spawned later as `root`, its blades `first_blade` on in
-    /// `LiveBlades` (`scene::Spawner::live_blades`).
-    pub fn spawned(&self, root: Entity, first_blade: usize) -> Armed {
+    /// The weapon spawned later as `root` with its node entities, its
+    /// blades `first_blade` on in `LiveBlades`
+    /// (`scene::Spawner::live_blades`).
+    pub fn spawned(&self, (root, nodes): (Entity, &[Entity]), first_blade: usize) -> Armed {
         Armed {
             root,
             name: self.name.clone(),
@@ -134,7 +141,91 @@ impl Held {
                 .collect(),
             ends: self.ends.clone(),
             gun: self.gun.clone(),
+            power: self.power.as_ref().map(|clips| clips.bind(nodes)),
         }
+    }
+}
+
+/// A powered item's state clips, as its model names them: `off`,
+/// `powerup`, `powered` and `powerdown` (K1's and TSL's quarterstaffs
+/// and TSL's force pike unfold by them; K1's heavy repeaters and every
+/// lightsaber hilt have them too).
+const POWER_CLIPS: [&str; 4] = ["off", "powerup", "powered", "powerdown"];
+
+/// A weapon model's power clips (`POWER_CLIPS`), before it is spawned.
+#[derive(Debug, Clone)]
+pub struct PowerClips([Option<crate::scene::Unbound>; 4]);
+
+impl PowerClips {
+    /// `ir`'s, for a model with a `powerup` or `powered` clip.
+    fn of(ir: &ModelIr) -> Option<PowerClips> {
+        let clips = POWER_CLIPS.map(|name| {
+            let clip = std::sync::Arc::new(ir.animation(name)?.clone());
+            crate::scene::unbound(ir, &clip)
+        });
+        (clips[1].is_some() || clips[2].is_some()).then_some(PowerClips(clips))
+    }
+
+    fn bind(&self, nodes: &[Entity]) -> Power {
+        Power {
+            clips: self.0.each_ref().map(|clip| clip.as_ref()?.bind(nodes)),
+            on: false,
+            since: None,
+        }
+    }
+}
+
+/// A spawned weapon's power: its clips (`POWER_CLIPS`) on its nodes,
+/// whether it is powered, and since when (sim ms; `None` until it first
+/// powers).
+#[derive(Debug, Clone)]
+pub struct Power {
+    clips: [Option<crate::scene::Animator>; 4],
+    on: bool,
+    since: Option<f64>,
+}
+
+impl Power {
+    /// Poses the model powered (`on`) or not at `ms` (sim ms), as TSL's
+    /// executable powers a wielder's items as it readies them and unpowers
+    /// them as it puts them away: `powerup` once, then `powered` (a pose,
+    /// or looped); `powerdown` once, then `off`. The clip it shows.
+    fn show(&mut self, on: bool, ms: f64, transforms: &mut Query<&mut Transform>) -> &'static str {
+        if on != self.on {
+            self.on = on;
+            self.since = Some(ms);
+        }
+        let Some(since) = self.since else {
+            // Never powered: as the model rests.
+            for clip in self.clips.iter().flatten() {
+                clip.rest(transforms);
+            }
+            return POWER_CLIPS[0];
+        };
+        let seconds = ((ms - since) / 1000.0).max(0.0) as f32;
+        let (change, after) = if on { (1, 2) } else { (3, 0) };
+        let changing = self.clips[change]
+            .as_ref()
+            .filter(|clip| seconds < clip.length());
+        let (index, clip, at) = match (changing, &self.clips[after]) {
+            (Some(clip), _) => (change, clip, seconds),
+            // Settled: a pose (length 0, the staff's `powered` and `off`)
+            // or a loop.
+            (None, Some(clip)) if clip.length() <= 0.0 => (after, clip, 0.0),
+            (None, Some(clip)) => {
+                let past = self.clips[change]
+                    .as_ref()
+                    .map_or(0.0, |clip| clip.length());
+                (after, clip, (seconds - past) % clip.length())
+            }
+            // No clip to settle in: the change's last pose.
+            (None, None) => match &self.clips[change] {
+                Some(clip) => (change, clip, clip.length()),
+                None => return POWER_CLIPS[after],
+            },
+        };
+        clip.pose(at, transforms);
+        POWER_CLIPS[index]
     }
 }
 
@@ -550,9 +641,12 @@ pub fn arm(
             blades: Vec::new(),
             ends: Vec::new(),
             gun: GunShape::of(&placed.ir),
+            power: PowerClips::of(&placed.ir),
         };
         if let Some((hilt, specs)) = kotor_blades(placed.ir.clone()) {
             placed.ir = hilt;
+            // A lightsaber's power is its JA blade, lit as the sim lights it.
+            held.power = None;
             let ja = sabers.of(specs.len() > 1);
             // A double-bladed hilt is held by its middle (`Wielded::new`);
             // each blade reaches as far past the middle as JA's does, its
@@ -835,6 +929,8 @@ struct Wield {
     rest: Option<(Entity, Transform)>,
     /// Where it hangs now.
     hung: Hung,
+    /// A powered item's clips (`Power`).
+    power: Option<Power>,
 }
 
 /// Where a weapon model hangs: the hand that holds it in a fight, where it
@@ -855,6 +951,8 @@ pub struct Drawn {
     /// Each lit blade in hand: its place among the sim's blades
     /// (`blades::slots`) and its index in `LiveBlades`.
     pub blades: Vec<(usize, usize)>,
+    /// Each powered item's clip (`Power::show`).
+    pub powered: Vec<&'static str>,
 }
 
 /// A character's state for its weapons at the drawn moment.
@@ -1041,6 +1139,7 @@ impl Wielded {
                 blades: armed.blades,
                 ends: armed.ends,
                 gun: armed.gun,
+                power: armed.power,
                 hand,
                 local,
                 middle,
@@ -1102,6 +1201,7 @@ impl Wielded {
                 blades: wield.blades,
                 ends: wield.ends,
                 gun: wield.gun,
+                power: wield.power,
             })
         })
     }
@@ -1265,6 +1365,12 @@ impl Wielded {
             }
             if shown {
                 drawn.shown.push(wield.name.clone());
+            }
+            // Powered while readied in hand (TSL sets a wielder's power
+            // bits as it readies, when a saber ignites); the dead keep it.
+            if let Some(power) = &mut wield.power {
+                let on = shown && at.armed;
+                drawn.powered.push(power.show(on, at.ms, transforms));
             }
             let hand = if slot == right {
                 Hand::Right

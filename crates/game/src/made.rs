@@ -957,7 +957,9 @@ fn spawned(
         lives,
         (&blades, |model| roots[model]),
     );
-    let arms = arms.map(|held| held.map(|held| held.spawned(roots[held.model], first_blade)));
+    let arms = arms.map(|held| {
+        held.map(|held| held.spawned((roots[held.model], &nodes[held.model]), first_blade))
+    });
     let body = roots[view.body - first];
     animated.adopt(&mut spawner);
     drop(spawner);

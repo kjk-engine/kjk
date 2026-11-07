@@ -1924,7 +1924,7 @@ fn cycle_flipbooks(
 
 /// A clip looping on a model: each track bound to its node's entity and
 /// rest pose.
-#[derive(Component)]
+#[derive(Component, Debug, Clone)]
 pub struct Animator {
     clip: std::sync::Arc<asset_odyssey::anim::AnimationIr>,
     scale: f32,
@@ -1932,15 +1932,24 @@ pub struct Animator {
     bindings: Vec<(Entity, Vec3, Quat, usize)>,
 }
 
-/// Binds a clip's tracks to a model's nodes (by name, animated nodes at
-/// or under the clip's root, as reone).
-pub(crate) fn animator(
-    placed: &Placed,
+/// A clip's tracks matched to a model's nodes by index, before the model is
+/// spawned (`Unbound::bind` takes its node entities).
+#[derive(Debug, Clone)]
+pub struct Unbound {
+    clip: std::sync::Arc<asset_odyssey::anim::AnimationIr>,
+    scale: f32,
+    /// (node index, rest translation, rest rotation, track index).
+    tracks: Vec<(usize, Vec3, Quat, usize)>,
+}
+
+/// A clip's tracks matched to `ir`'s nodes (by name, animated nodes at or
+/// under the clip's root, as reone); `None` for a clip that keys none of
+/// them. A clip of length 0 is a pose.
+pub(crate) fn unbound(
+    ir: &asset_odyssey::model::ModelIr,
     clip: &std::sync::Arc<asset_odyssey::anim::AnimationIr>,
-    nodes: &[Entity],
-) -> Option<Animator> {
-    let ir = &placed.ir;
-    let bindings: Vec<(Entity, Vec3, Quat, usize)> = clip
+) -> Option<Unbound> {
+    let tracks: Vec<(usize, Vec3, Quat, usize)> = clip
         .bind(ir)
         .into_iter()
         .enumerate()
@@ -1948,18 +1957,48 @@ pub(crate) fn animator(
             let node = &ir.nodes[index];
             let [x, y, z, w] = node.rotation;
             Some((
-                *nodes.get(index)?,
+                index,
                 Vec3::from_array(node.translation),
                 Quat::from_xyzw(x, y, z, w),
                 track?,
             ))
         })
         .collect();
-    (!bindings.is_empty() && clip.length > 0.0).then(|| Animator {
+    (!tracks.is_empty()).then(|| Unbound {
         clip: clip.clone(),
         scale: ir.animation_scale,
-        bindings,
+        tracks,
     })
+}
+
+impl Unbound {
+    /// Its tracks bound to the spawned model's node entities.
+    pub(crate) fn bind(&self, nodes: &[Entity]) -> Option<Animator> {
+        let bindings: Vec<(Entity, Vec3, Quat, usize)> = self
+            .tracks
+            .iter()
+            .filter_map(|&(index, rest_t, rest_r, track)| {
+                Some((*nodes.get(index)?, rest_t, rest_r, track))
+            })
+            .collect();
+        (!bindings.is_empty()).then(|| Animator {
+            clip: self.clip.clone(),
+            scale: self.scale,
+            bindings,
+        })
+    }
+}
+
+/// Binds a clip that lasts a while to a model's nodes (`unbound`).
+pub(crate) fn animator(
+    placed: &Placed,
+    clip: &std::sync::Arc<asset_odyssey::anim::AnimationIr>,
+    nodes: &[Entity],
+) -> Option<Animator> {
+    if clip.length <= 0.0 {
+        return None;
+    }
+    unbound(&placed.ir, clip)?.bind(nodes)
 }
 
 /// A clip's pose, as reone computes it: position = rest + scale × key, the
