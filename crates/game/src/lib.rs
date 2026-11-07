@@ -146,6 +146,7 @@ mod stance;
 mod stealth_view;
 #[cfg(feature = "steam")]
 mod steam_join;
+mod still_maps;
 pub mod store_verbs;
 mod swallow;
 mod target_view;
