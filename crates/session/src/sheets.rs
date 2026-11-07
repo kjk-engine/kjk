@@ -1253,8 +1253,8 @@ pub fn talents(source: &dyn Source) -> sim::script::Talents {
         };
         (0..rows)
             .map(|row| {
-                let [every_ms, for_ms, drain_ms] = ["period", "duration", "abil_dur"]
-                    .map(|column| (number(row, column, 3_600) * 1000) as u32);
+                let [every_ms, for_ms] =
+                    ["period", "duration"].map(|column| (number(row, column, 3_600) * 1000) as u32);
                 sim::combat::items::Course {
                     points: number(row, "dam_hp", 255) as u8,
                     drains: [
@@ -1263,7 +1263,6 @@ pub fn talents(source: &dyn Source) -> sim::script::Talents {
                     .map(|column| number(row, column, 255) as u8),
                     every_ms: every_ms.max(1000),
                     for_ms,
-                    drain_ms,
                     dc: number(row, "dc_save", 255) as u8,
                 }
             })

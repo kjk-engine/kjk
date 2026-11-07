@@ -396,27 +396,30 @@ pub fn arm(
         let (images, mut stores) = assets.split();
         let mut spawner = Spawner::new(&ready.textures, scene.0.area_light(), images);
         // Out of the scene's model indices: never a body's or a room's.
-        let spawned: Vec<Entity> = ready
+        let spawned: Vec<(Entity, Vec<Entity>)> = ready
             .models
             .iter()
             .map(|placed| {
                 let at = (root, Transform::IDENTITY);
-                let (model, _) =
+                let (model, nodes) =
                     spawner.model(&mut commands, &mut stores, (placed, usize::MAX, false), at);
                 // Shown once hung in a hand (`weapons::Wielded::draw`).
                 commands.entity(model).insert(Visibility::Hidden);
-                model
+                (model, nodes)
             })
             .collect();
         let first = spawner.live_blades(
             &mut commands,
             &mut stores,
             &mut lives,
-            (&ready.blades, |model| spawned[model]),
+            (&ready.blades, |model| spawned[model].0),
         );
-        let arms = ready
-            .arms
-            .map(|held| held.map(|held| held.spawned(spawned[held.model], first)));
+        let arms = ready.arms.map(|held| {
+            held.map(|held| {
+                let (root, nodes) = &spawned[held.model];
+                held.spawned((*root, nodes), first)
+            })
+        });
         armory.armed += 1;
         if draws {
             armory.drawn.push((owner, current.tick));

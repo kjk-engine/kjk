@@ -56,7 +56,7 @@ const fn shifted(button: GamepadButton) -> Chord {
 /// the view, a break (the menu's too) and the bug report stay the
 /// keyboard's. LB with the D-pad's left and right turns the target's
 /// action (`CYCLE`), as KOTOR's pad does.
-const PAD: [(Action, Chord); 26] = {
+const PAD: [(Action, Chord); 27] = {
     use GamepadButton::*;
     [
         (Action::Attack, alone(RightTrigger2)),
@@ -85,6 +85,7 @@ const PAD: [(Action, Chord); 26] = {
         (Action::QuickSave, shifted(Start)),
         (Action::Ready, shifted(Select)),
         (Action::Follow, shifted(RightThumb)),
+        (Action::Solo, shifted(LeftTrigger2)),
     ]
 };
 
@@ -572,7 +573,7 @@ impl Prompts<'_> {
 
 /// The controls' tokens of `stringtokens.2da` the games' text uses, each
 /// with the action it asks for here (`Prompts::token`).
-const CONTROL_TOKENS: [(&str, Action); 20] = [
+const CONTROL_TOKENS: [(&str, Action); 21] = [
     ("abutton", Action::Use),
     ("ybutton", Action::SwitchWeapons),
     ("blbutton", Action::Leader),
@@ -583,6 +584,7 @@ const CONTROL_TOKENS: [(&str, Action); 20] = [
     ("MGActionLeft", Action::Left),
     ("MGActionRight", Action::Right),
     ("ChangeChar", Action::Leader),
+    ("PartyActive", Action::Solo),
     ("Equip", Action::Inventory),
     ("Inventory", Action::Inventory),
     ("Map", Action::Map),

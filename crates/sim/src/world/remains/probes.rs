@@ -15,9 +15,9 @@ use crate::{StepReason, TickInput};
 /// medpac (both droppable), a hide that does not drop and 25 gold, its
 /// appearance taking it away 2 s after its death, fading over 0.6 s; one
 /// whose death script keeps it (`SetIsDestroyable(FALSE)`). The first's
-/// body fades and goes on time, in the world while it fades, a script's
-/// `DestroyObject` on it mid-fade changing nothing (its fade goes on to
-/// its end), its remains then standing where it lay: a
+/// body leaves the world at its delay, gone to scripts then (its fade is
+/// the client's), a script's `DestroyObject` by its tag after finding
+/// nothing, its remains standing where it lay once the fade is over: a
 /// placeable with no tag, named and drawn as its bag's row, holding the
 /// rifle, the medpac and the gold; the kept one stays, a `DestroyObject` on
 /// it refused, and leaves nothing. A
@@ -32,18 +32,16 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         Err(why) => return vec![("remains_scenario", Err(why))],
     };
     let again = scenario().map(|again| again.last.hash());
-    let due = ran.killed_ms + 2600;
+    let (taken, faded) = (ran.killed_ms + 2000, ran.killed_ms + 2600);
     let body_until = ran
         .steps
         .iter()
         .rfind(|step| step.body.is_some())
         .map(|step| step.ms);
     let bag_from = ran.steps.iter().find(|step| step.bag).map(|step| step.ms);
-    let faded = ran
-        .steps
-        .iter()
-        .any(|step| step.body == Some(true) && !step.bag);
-    let near = |ms: Option<u64>| ms.is_some_and(|ms| ms + 2 * u64::from(MSEC) >= due && ms <= due);
+    let near = |ms: Option<u64>, due: u64| {
+        ms.is_some_and(|ms| ms + 2 * u64::from(MSEC) >= due && ms <= due)
+    };
     let made = ran.made.as_ref();
     let took = |snapshot: &Snapshot| {
         let mut carried: Vec<String> = snapshot
@@ -59,11 +57,11 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     });
     vec![
         (
-            "taken_after_delay_and_fade",
+            "taken_after_delay_remains_after_fade",
             check(
-                near(body_until) && near(bag_from) && faded,
+                near(body_until, taken) && near(bag_from, faded),
                 format!(
-                    "killed at {} ms: the body until {body_until:?}, faded {faded}, the remains \
+                    "killed at {} ms: the body in the world until {body_until:?}, the remains \
                      from {bag_from:?}",
                     ran.killed_ms
                 ),
@@ -170,7 +168,7 @@ const NAME: &str = "Remains";
 const MSEC: u32 = 8;
 const KILL_STEP: u64 = 4;
 /// The step a script destroys the fallen one, its body fading (2.3 s
-/// after its death: taken away at 2 s, faded at 2.6 s).
+/// after its death: out of the world at 2 s, faded at 2.6 s).
 const DESTROY_AGAIN_STEP: u64 = KILL_STEP + 2300 / MSEC as u64;
 /// How many steps the scenario runs before saving.
 const STEPS: u64 = 400;

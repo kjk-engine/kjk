@@ -253,6 +253,8 @@ pub struct MemberView {
     /// Down, held or under a state (`sim::Fighter::debilitated`): its
     /// portrait's overlay, in its icons' place.
     pub debilitated: bool,
+    /// A poison runs in it: its vitality bar drawn green.
+    pub poisoned: bool,
     /// Its body (`sim::SimId`): what a click on its portrait or its icon
     /// names.
     pub id: u32,
@@ -531,10 +533,15 @@ pub struct HudView {
     pub lit: Vec<&'static str>,
     /// The character is in stealth mode (KOTOR's stealth toggle lit).
     pub stealth: bool,
+    /// The party is in solo mode (KOTOR's solo toggle lit): the companions
+    /// stand where they are.
+    pub solo: bool,
     /// The minimap, where the area has a picture.
     pub minimap: Option<MinimapView>,
     /// What the player is in, its portrait's icon (R10).
     pub busy: Option<Busy>,
+    /// A poison runs in the character: its vitality bar drawn green.
+    pub poisoned: bool,
 }
 
 /// The HUD's minimap: the area's picture (`lbl_map<area>`), where the
@@ -564,6 +571,8 @@ pub struct TargetView {
     /// A foe: its name and vitality drawn red.
     pub hostile: bool,
     pub hp: Option<(i32, i32)>,
+    /// A poison runs in it: its vitality drawn with the poisoned bar.
+    pub poisoned: bool,
     pub actions: Vec<TargetAction>,
     pub selected: usize,
     pub busy: bool,

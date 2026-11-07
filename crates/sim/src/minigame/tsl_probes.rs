@@ -51,6 +51,7 @@ pub fn probes() -> Checks {
         ("routines", routines().unwrap_or_else(Err)),
         ("forfeit_globals", forfeit().unwrap_or_else(Err)),
         ("world_turret", world_turret().unwrap_or_else(Err)),
+        ("player_bolt_speed", bolt_speed()),
         (
             "talk_answered_while_playing",
             talk_while_playing().unwrap_or_else(Err),
@@ -744,6 +745,43 @@ fn world_turret() -> Result<Result<String, String>, String> {
             "107per: on the creature {hit:?}, on the wall {wall:?}; elsewhere {elsewhere:?} (struck, bolts flying)"
         ),
     ))
+}
+
+/// TSL's player starts at its executable's speed, and its own bolts fly
+/// at their bank's speed plus that (the hangar's crawling bolts at about
+/// `START_SPEED`);
+/// it holds still in the step that raises its `OnCreate`. KOTOR's player
+/// starts still, and its bolts fly at their bank's speed. Played on, as a
+/// turret's ARE has it (no speed span, so no acceleration, and a still
+/// track), its speed holds and it stays where it is, as the executable
+/// plays it (`MINIGAMES.md`), however fast its speed runs the track.
+fn bolt_speed() -> Result<String, String> {
+    const ON_STEPS: u64 = 30;
+    let ran = |tsl: bool| {
+        let mut rules = turret();
+        rules.tsl = tsl;
+        rules.movement_per_sec = 100.0;
+        let mut course = Course::new(&rules);
+        let fire = [(0, command(0, 0, true))];
+        run(&mut course, &rules, &fire, 1);
+        let speed = course.bullets.first().map(|bolt| {
+            let [x, y, z] = bolt.velocity;
+            (x * x + y * y + z * z).sqrt().round()
+        });
+        let first = (course.movers[0].speed, course.position(&rules, 0));
+        run(&mut course, &rules, &fire, ON_STEPS);
+        let on = (course.movers[0].speed, course.position(&rules, 0));
+        (first.0, speed, first == on)
+    };
+    let (tsl, k1) = (ran(true), ran(false));
+    let start = super::course::START_SPEED;
+    check(
+        tsl == (start, Some(start + 20.0), true) && k1 == (0.0, Some(20.0), true),
+        format!(
+            "TSL's (player speed, bolt speed, speed and place held {ON_STEPS} steps on) \
+             {tsl:?}; K1's {k1:?}"
+        ),
+    )
 }
 
 /// A conversation the scripts start while the turret plays is the

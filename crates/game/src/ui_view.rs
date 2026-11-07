@@ -496,6 +496,7 @@ fn requests(
             ["force"] => calls.0.push(sim::action::Action::Force),
             ["holster"] => calls.0.push(sim::action::Action::Holster),
             ["swap"] => calls.0.push(sim::action::Action::SwitchWeapons),
+            ["solo", on @ ("on" | "off")] => calls.0.push(sim::action::Action::Solo(*on == "on")),
             ["form", row] => match row.parse() {
                 Ok(row) => calls.0.push(sim::action::Action::Form(row)),
                 Err(_) => warn!(target: "console", "ui form: {row} is not a spells.2da row"),
@@ -616,7 +617,13 @@ fn step(
         None => Default::default(),
     };
     for why in &frame.refusals {
-        debug!(target: "ui", "refused: {why}");
+        // A layout that does not load closes its screen unseen (a TSL
+        // galaxy map once did, its console then doing nothing).
+        if why.starts_with("layout ") {
+            warn!(target: "ui", "refused: {why}");
+        } else {
+            debug!(target: "ui", "refused: {why}");
+        }
     }
     if let Some(mut heard) = heard {
         heard.0.extend(frame.sounds.iter().copied());

@@ -193,7 +193,9 @@ pub(super) fn all() -> Vec<Check> {
             lit: vec!["LBL_PLOTXP"],
             minimap: None,
             stealth: false,
+            solo: false,
             busy: None,
+            poisoned: false,
         }),
         party: vec![MemberView {
             may_level: true,
@@ -250,19 +252,25 @@ pub(super) fn all() -> Vec<Check> {
         shown("BTN_ACTION2").hidden,
     );
     // Stealth mode: KOTOR's stealth toggle lit; pause and solo stay hidden.
-    let stealthed = ViewModel {
+    // Solo mode: KOTOR's solo toggle lit.
+    let with = |stealth: bool, solo: bool| ViewModel {
         hud: vm.hud.clone().map(|hud| HudView {
-            stealth: true,
+            stealth,
+            solo,
             ..hud
         }),
         ..vm.clone()
     };
+    let (stealthed, solo) = (with(true, false), with(false, true));
     let toggle = |vm: &ViewModel, tag: &str| state(&button(tag, [0, 0, 1, 1], b""), vm);
     let stealth = (
         toggle(&vm, "TB_STEALTH").hidden,
         toggle(&stealthed, "TB_STEALTH").hidden,
         toggle(&stealthed, "TB_STEALTH").selected,
         toggle(&stealthed, "TB_PAUSE").hidden,
+        toggle(&stealthed, "TB_SOLO").hidden,
+        toggle(&solo, "TB_SOLO").hidden,
+        toggle(&solo, "TB_SOLO").selected,
     );
     // A companion: the second portrait and its bars; no third.
     let with_trask = ViewModel {
@@ -374,6 +382,7 @@ pub(super) fn all() -> Vec<Check> {
         name: b"Metal Box".to_vec(),
         hostile: false,
         hp: None,
+        poisoned: false,
         actions: vec![
             action("isk_security", b"Security"),
             action("i_openplace", b"Open"),
@@ -432,6 +441,7 @@ pub(super) fn all() -> Vec<Check> {
         name: b"Player 1".to_vec(),
         hostile: false,
         hp: Some((0, 40)),
+        poisoned: false,
         actions: vec![action("isk_treatinj", b"Treat Injury")],
         selected: 0,
         busy: false,
@@ -499,6 +509,52 @@ pub(super) fn all() -> Vec<Check> {
         )
         .map(|()| format!("{pazaak_clicks:?}")),
     );
+    // A poison running (both executables): the portrait's vitality bar
+    // green over their own red, a companion's alike; the target's bar
+    // drawn with the poisoned bar's art, not tinted.
+    let sick = ViewModel {
+        hud: vm.hud.clone().map(|hud| HudView {
+            poisoned: true,
+            ..hud
+        }),
+        party: vec![
+            MemberView::default(),
+            MemberView {
+                poisoned: true,
+                ..MemberView::default()
+            },
+        ],
+        target: Some(TargetView {
+            hp: Some((10, 40)),
+            hostile: true,
+            poisoned: true,
+            ..TargetView::default()
+        }),
+        ..vm.clone()
+    };
+    let bar = |vm: &ViewModel, tag: &str| block_shows(vm, tag).bar;
+    let poison = (
+        bar(&vm, "PB_VIT1").1,
+        bar(&sick, "PB_VIT1").1,
+        bar(&sick, "PB_VIT2").1,
+        bar(&sick, "PB_HEALTH"),
+        block_shows(&sick, "PB_HEALTH").tint,
+    );
+    let poison_bars = check(
+        "hud_poison",
+        expect(
+            &format!("red, then green; the target's poison_bar untinted: {poison:?}"),
+            poison
+                == (
+                    Some([0.74, 0.11, 0.0]),
+                    Some([0.28, 0.92, 0.11]),
+                    Some([0.28, 0.92, 0.11]),
+                    (Some("poison_bar".into()), None),
+                    None,
+                ),
+        )
+        .map(|()| format!("{poison:?}")),
+    );
     let hud = check("hud", {
         expect(
             &format!("the frame the window, or its shape when smaller: {frame:?}"),
@@ -532,8 +588,10 @@ pub(super) fn all() -> Vec<Check> {
         .and_then(|()| expect("the queue and the party hidden", queue))
         .and_then(|()| {
             expect(
-                &format!("the stealth toggle lit only in stealth mode: {stealth:?}"),
-                stealth == (true, false, true, true),
+                &format!(
+                    "the stealth toggle lit only in stealth mode, the solo toggle only in solo mode: {stealth:?}"
+                ),
+                stealth == (true, false, true, true, true, false, true),
             )
         })
         .and_then(|()| {
@@ -651,5 +709,5 @@ pub(super) fn all() -> Vec<Check> {
         })
         .map(|()| "anchoring, bars, slots, marks, companions and their clicks, the target, Revive and its bar".into())
     });
-    vec![hud, watch_click]
+    vec![hud, watch_click, poison_bars]
 }

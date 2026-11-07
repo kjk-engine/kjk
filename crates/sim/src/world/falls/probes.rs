@@ -267,24 +267,23 @@ impl Run {
 
     /// `who` at 1 HP, poisoned by the foe with a dose due now that kills it,
     /// a dose a second for `for_ms`.
-    fn poison(&mut self, who: Who, for_ms: u64) {
+    fn poison(&mut self, who: Who, for_ms: u32) {
         let (id, now, by) = (self.id(who), self.last.time_ms, self.foe);
         let mut fighters = self.world.world.query::<(&Id, &mut Fighting)>();
         for (own, mut fighting) in fighters.iter_mut(&mut self.world.world) {
             if own.0 == id {
                 fighting.0.hp = 100;
-                fighting.0.pack.poison = Some(crate::combat::items::Poisoned {
+                fighting.0.pack.poison = Some(crate::combat::items::Poisoned::new(
                     by,
-                    course: crate::combat::items::Course {
+                    crate::combat::items::Course {
                         points: 10,
                         every_ms: 1000,
-                        for_ms: 1000,
+                        for_ms,
                         ..Default::default()
                     },
-                    next: now,
-                    until: now + for_ms,
-                    link: None,
-                });
+                    now,
+                    None,
+                ));
             }
         }
     }

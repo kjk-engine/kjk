@@ -1320,7 +1320,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         // Played by the bots from what the snapshot shows,
                         // met when the minigame's script leaves its module
                         // (the goal may start before it is entered).
-                        Goal::Race | Goal::Turrets => {
+                        Goal::Race | Goal::Turrets(_) => {
                             if let (Some(course), Some(rules)) =
                                 (last.minigame.as_ref(), level.minigame())
                             {
@@ -1344,6 +1344,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     &crate::minigame_bot::area_foes(&last),
                                 ) {
                                     command = played;
+                                }
+                                if matches!(goal, Goal::Turrets(Fire::Hold)) {
+                                    command.buttons &= !sim::buttons::ATTACK;
                                 }
                             }
                             met = played_in
@@ -2160,7 +2163,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     // seat meanwhile, as KOTOR's is: a global they set changing
                     // is progress (Peragus' turret counts the troopers that
                     // board the Ebon Hawk, `107PER_MG_EBON`, until all 25 have).
-                    if matches!(goal, Goal::Race | Goal::Turrets) {
+                    if matches!(goal, Goal::Race | Goal::Turrets(_)) {
                         let numbers = &world.script_state().numbers;
                         if counted.as_ref() != Some(numbers) {
                             if counted.is_some() {
@@ -2258,7 +2261,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     let on_mesh = sim::walk::on_mesh(&level, player.origin);
                     if on_mesh
                         || player.ground.is_none()
-                        || matches!(goal, Goal::Race | Goal::Turrets)
+                        || matches!(goal, Goal::Race | Goal::Turrets(_))
                         || off_mesh_since.is_some_and(|since| clock_ms > since)
                     {
                         off_mesh_since = None;
@@ -2557,7 +2560,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             .and_then(|w| sim::walk::down_to(&level, player.origin, w.goal))
                     };
                     if talking.is_none()
-                        && !matches!(goal, Goal::Race | Goal::Turrets)
+                        && !matches!(goal, Goal::Race | Goal::Turrets(_))
                         && let Some((spot, why)) = if on_mesh {
                             lifted().map(|spot| (spot, "on a raised floor its goal is not on, stepping down"))
                         } else {
@@ -2622,7 +2625,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         command.right = 0;
                         stilled = Some(("code of its own due (a scene's)", now));
                     }
-                    let ahead = (!matches!(goal, Goal::Race | Goal::Turrets))
+                    let ahead = (!matches!(goal, Goal::Race | Goal::Turrets(_)))
                         .then(|| {
                             exit_ahead(
                                 &here,

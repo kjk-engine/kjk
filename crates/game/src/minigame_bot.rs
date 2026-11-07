@@ -293,7 +293,7 @@ pub fn turret(rules: &Rules, course: &Course, foes: &[[f32; 3]]) -> Command {
         .banks
         .iter()
         .find(|bank| bank.live())
-        .map_or(300.0, |bank| bank.speed);
+        .map_or(300.0, |bank| course.bolt_speed(rules, bank.speed));
     let toward = |there: [f32; 3]| [0, 1, 2].map(|i| there[i] - at[i]);
     let length = |v: [f32; 3]| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
     // Where each live fighter will be when a bolt reaches it.
@@ -360,7 +360,7 @@ pub fn turret(rules: &Rules, course: &Course, foes: &[[f32; 3]]) -> Command {
             .player
             .banks
             .iter()
-            .map(|bank| bank.speed * bank.lifespan_ms as f32 / 1000.0)
+            .map(|bank| course.bolt_speed(rules, bank.speed) * bank.lifespan_ms as f32 / 1000.0)
             .fold(0.0f32, f32::max);
         if cos >= trig::sin_cos_deg(ON_TARGET_DEG).1 && length(d) <= range {
             command.buttons |= buttons::ATTACK;

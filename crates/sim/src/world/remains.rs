@@ -1,9 +1,11 @@
 //! The dead's remains, as KOTOR's engine leaves them (both games; read from
 //! their executables, behaviour only). A creature dying outside the party
 //! is taken away a while after (its appearance's `destroyobjectdelay`,
-//! `DESTROY_MS` where blank) unless a script keeps it (`SetIsDestroyable(FALSE)`): its
-//! body fades out as it goes (`fadedelayondeath`; the engine's own fade
-//! where blank) and, if it held anything that drops, any gold, or its bag
+//! `DESTROY_MS` where blank) unless a script keeps it (`SetIsDestroyable(FALSE)`): it
+//! leaves the world then, gone to scripts at once (TSL's executable's
+//! destroy event removes it from its area and leaves its fade to the
+//! client), its body drawn fading after (`fadedelayondeath`; the engine's
+//! own fade where blank) and, if it held anything that drops, any gold, or its bag
 //! is a corpse, its remains stand where it lay, facing its way, once the
 //! fade is over (half a second at the least). They are a placeable with no
 //! tag, named as their `bodybag.2da` row (strref 38151, "Remains"), drawn
@@ -250,13 +252,22 @@ pub(super) fn take_away(
                 // Its components and chemicals go with it, never in its
                 // remains (TSL's own counts).
                 state.hoards.remove(&id);
-                // Its body fading out, in the world until the fade ends.
+                // Out of the world now, as TSL's executable's destroy event
+                // removes it from its area (scripts find it gone from
+                // here on); its body fading is the client's. A body that
+                // lies on is the view's (`game::going_view`); a corpse
+                // row's is drawn fading as it departs.
+                let corpse = bag_in(view.module, row).corpse;
                 out.changes.push(Change::Destroy {
                     who: thing.id,
-                    ms: fade_ms,
-                    going: Some(crate::snapshot::Going::Fades(fade_ms)),
+                    ms: 0,
+                    going: corpse.then_some(crate::snapshot::Going::Departs(
+                        crate::snapshot::Departure {
+                            whole_ms: 0,
+                            fade_ms,
+                        },
+                    )),
                 });
-                let corpse = bag_in(view.module, row).corpse;
                 let drops = state.items.held_by(id).any(|(_, item)| item.droppable);
                 if drops || corpse || state.purses.get(&id).is_some_and(|gold| *gold > 0) {
                     let [x, y, z] = thing.position;

@@ -354,6 +354,8 @@ impl Save {
         let script = if section.is_empty() {
             ScriptVmState::default()
         } else {
+            // Read by the snapshot's version as just decoded: a poison's
+            // course in it (`Effect::Poison`) is snapshot-versioned.
             let mut script = Reader::new("save's scripts", section).with_versions(versions);
             let state = ScriptVmState::decode(&mut script)?;
             script.finish()?;

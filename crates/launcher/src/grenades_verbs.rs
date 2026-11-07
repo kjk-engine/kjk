@@ -124,6 +124,22 @@ pub fn grenades(discovery: &Discovery, game: &str, module: &str, target_tag: &st
         )),
         ..Pack::default()
     };
+    let mut again = sim::combat::Fighter::of(&soldier);
+    again.pack.poison = poisoned.poison;
+    grenades::afflict(
+        &mut again,
+        Secondary::Poison {
+            points: 9,
+            every_ms: 1000,
+            for_ms: 5000,
+        },
+        sim::SimId(1),
+        500,
+    );
+    report.check(
+        again.pack.poison == poisoned.poison,
+        "a second poison is kept off while one runs".to_string(),
+    );
     let doses: usize = (1..=40).map(|s| poisoned.doses(s * 1000).len()).sum();
     report.check(
         doses == 10 && poisoned.poison.is_none(),

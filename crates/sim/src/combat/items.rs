@@ -278,15 +278,15 @@ impl Carried {
 /// A poison's course, a `poison.2da` row's (`EffectPoison`; a poison
 /// grenade's): hit points a dose, ability points a dose drains (STR, DEX,
 /// CON, INT, WIS, CHA, `Ability`'s order), a dose every `every_ms` for
-/// `for_ms`, the drained points back `drain_ms` after the last dose, and the
-/// Fortitude DC that keeps it off where it lands (0 for none).
+/// `for_ms`, and the Fortitude DC that keeps it off where it lands (0 for
+/// none). The drained points come back as the poison ends: both
+/// executables read no `abil_dur`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Course {
     pub points: u8,
     pub drains: [u8; 6],
     pub every_ms: u32,
     pub for_ms: u32,
-    pub drain_ms: u32,
     pub dc: u8,
 }
 
@@ -296,7 +296,6 @@ impl Course {
         out.bytes(&self.drains);
         out.u32(self.every_ms);
         out.u32(self.for_ms);
-        out.u32(self.drain_ms);
         out.u8(self.dc);
     }
 
@@ -306,8 +305,12 @@ impl Course {
             drains: input.array()?,
             every_ms: input.u32()?,
             for_ms: input.u32()?,
-            drain_ms: input.u32()?,
-            dc: input.u8()?,
+            dc: {
+                if !input.since(crate::since::snapshot::BR_COMBAT) {
+                    input.u32()?;
+                }
+                input.u8()?
+            },
         })
     }
 }
@@ -339,7 +342,6 @@ impl Poisoned {
             drains: [0; 6],
             every_ms: 0,
             for_ms: 0,
-            drain_ms: 0,
             dc: 0,
         },
         next: 0,
@@ -348,15 +350,21 @@ impl Poisoned {
     };
 
     /// `course` taken at `now`, `by` (in the script effect `link`): its
-    /// first dose a period on.
+    /// first dose at once, as it takes.
     pub fn new(by: SimId, course: Course, now: u64, link: Option<u32>) -> Poisoned {
         Poisoned {
             by,
             course,
-            next: now + u64::from(course.every_ms),
+            next: now,
             until: now + u64::from(course.for_ms),
             link,
         }
+    }
+
+    /// No dose given yet: the one as it takes lands even when the poison
+    /// lasts no time at all.
+    fn first(&self) -> bool {
+        self.next + u64::from(self.course.for_ms) == self.until
     }
 
     fn encode(&self, out: &mut Writer) {
@@ -552,16 +560,19 @@ impl Pack {
     }
 
     /// The poison doses due by `now` (whole hit points each, and who
-    /// poisoned it), the points each drains kept until its course says, the
-    /// schedule moved on; the poison ends with its last dose.
+    /// poisoned it), the schedule moved on: one as it takes, then one a
+    /// period while its time lasts (none at its very end). The points each
+    /// drains add up and stay until the poison's end; the poison ends at
+    /// its end, not at its last dose.
     pub fn doses(&mut self, now: u64) -> Vec<(u8, SimId)> {
         let mut due = Vec::new();
-        while let Some(poison) = self.poison.as_mut().filter(|poison| poison.next <= now) {
-            let (course, by, at) = (poison.course, poison.by, poison.next);
+        while let Some(poison) = self
+            .poison
+            .as_mut()
+            .filter(|poison| poison.next <= now && (poison.next < poison.until || poison.first()))
+        {
+            let (course, by, at, until) = (poison.course, poison.by, poison.next, poison.until);
             poison.next += u64::from(course.every_ms.max(1));
-            if poison.next > poison.until {
-                self.poison = None;
-            }
             if course.points > 0 {
                 due.push((course.points, by));
             }
@@ -570,8 +581,11 @@ impl Pack {
                 for (lost, more) in drained.iter_mut().zip(course.drains) {
                     *lost = lost.saturating_add(more);
                 }
-                self.drained = (drained, at + u64::from(course.drain_ms));
+                self.drained = (drained, until);
             }
+        }
+        if self.poison.is_some_and(|poison| poison.until <= now) {
+            self.poison = None;
         }
         due
     }

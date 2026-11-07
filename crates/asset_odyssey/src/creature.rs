@@ -182,10 +182,11 @@ pub fn hiding_animations(source: &dyn Source) -> Vec<String> {
 /// both executables' `PlayAnimation` (read off the Mac builds) picks one:
 /// `WORSHIP` (4) meditates, `VICTORY2`/`3` (109, 110) are `VICTORY`, and
 /// `CUSTOM01` (119) plays row 346's `usecomp`, the clip only the Taris
-/// rancor's model holds (it eats from the bone pile so, `k_ptar_rancorcs1`).
-/// TSL's `CHECK_BODY` (33), `SIT_CHAIR_COMP1`/`2` (39, 40) and `SCREAM`
-/// (124) have no row and play none. `READY` (19) plays the body's wield's
-/// ready stance, in the view (`game::acting`).
+/// rancor's model holds (it eats from the bone pile so, `k_ptar_rancorcs1`);
+/// `DEACTIVATE` (20) the looping `disabled`, TSL's chair sits (36 to 40)
+/// the loops `animloop01` to `05`, `CHECK_BODY` (33) `disablemine` and
+/// `SCREAM` (124) `forcerage`. `READY` (19) plays the body's wield's ready
+/// stance, in the view (`game::acting`).
 pub const SCRIPTED_CLIPS: &[(u16, u16, &str)] = &[
     (0, 6, "pause1"),
     (1, 7, "pause2"),
@@ -209,7 +210,9 @@ pub const SCRIPTED_CLIPS: &[(u16, u16, &str)] = &[
     (16, 53, "dance"),
     (17, 54, "dance1"),
     (18, 74, "horror"),
-    (20, 349, "deactivate"),
+    // The droid's looping disabled stance (`Disabled_Droid`), not row 349's
+    // one-off `deactivate`: what both executables play for it.
+    (20, 270, "disabled"),
     (21, 77, "spasm"),
     (22, 76, "sleep"),
     (23, 79, "prone"),
@@ -223,15 +226,19 @@ pub const SCRIPTED_CLIPS: &[(u16, u16, &str)] = &[
     (30, 375, "dead3"),
     (31, 384, "kdtlkangry"),
     (32, 385, "kdtlksad"),
+    // TSL's `CHECK_BODY` kneels as over a mine (`Disable_Mine_On_Ground`).
+    (33, 51, "disablemine"),
     (34, 47, "unlockdr"),
     (35, 457, "meditatesit"),
-    // Rows 21 (`Sit_Loop`) and 456 (`Sit_To_Meditate`) share the name; the
-    // models hold one `sit` [verify].
-    (36, 21, "sit"),
-    // `drink` and `cardplay` have no description, and no model holds them
-    // [verify].
-    (37, 55, "drink"),
-    (38, 56, "cardplay"),
+    // The chair sits (`SIT_CHAIR`, its `_DRINK`, `_PAZAK`, `_COMP1`, `_COMP2`)
+    // are the five loops `animloop01` to `05` (rows 316 to 320) the
+    // humanoid models hold, in that order: Atton at the Ebon Hawk's helm
+    // is `_COMP2`.
+    (36, 316, "animloop01"),
+    (37, 317, "animloop02"),
+    (38, 318, "animloop03"),
+    (39, 319, "animloop04"),
+    (40, 320, "animloop05"),
     // A fire-and-forget row (`Perform_Force_Rage`) [verify].
     (41, 461, "forcerage"),
     (43, 333, "closed"),
@@ -265,6 +272,8 @@ pub const SCRIPTED_CLIPS: &[(u16, u16, &str)] = &[
     (121, 62, "castout1"),
     (122, 310, "open"),
     (123, 567, "diveroll"),
+    // `SCREAM` plays the Force rage.
+    (124, 461, "forcerage"),
 ];
 
 /// Where the engine's clips a body plays for its time, looping, are
