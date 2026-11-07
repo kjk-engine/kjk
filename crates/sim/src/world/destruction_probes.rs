@@ -403,7 +403,10 @@ fn arena_props_playing(
         .iter()
         .map(|prop| {
             made.iter()
-                .find(|(.., at)| (at[0] - prop.at[0]).hypot(at[1] - prop.at[1]) < 0.01)
+                .find(|(.., at)| {
+                    let (x, y) = (at[0] - prop.at[0], at[1] - prop.at[1]);
+                    (x * x + y * y).sqrt() < 0.01
+                })
                 .map(|&(id, index, _)| (id, index))
                 .ok_or(format!("{} was not laid out", prop.name))
         })
