@@ -74,6 +74,13 @@ const STEP: f32 = 0.6;
 const FLOOR: f32 = 64.0;
 const SOLES: f32 = 24.0;
 const STILL: f32 = 5.0;
+/// `footstepsounds.2da`'s humanoid rows, whose steps are JA's
+/// (`ja_footsteps`).
+const SOFT: u8 = 0;
+const HARD: u8 = 1;
+/// The ground speed a step is a running one from (units a second; JA runs
+/// at 250 and walks at half that or less).
+const RUNNING: f32 = 180.0;
 /// Players' footstep row (`Soft`).
 const PLAYER_STEPS: u8 = 0;
 /// How long the music and the ambience take to fade in or out, and the
@@ -604,6 +611,18 @@ fn play(
     ambience.worker.get_or_insert_with(Worker::start);
     // Heard this frame or not at all.
     let asked = std::mem::take(&mut clip_steps.0);
+    // A soft landing is a footstep, as in JA.
+    let landed: BTreeSet<sim::SimId> = presented
+        .1
+        .iter()
+        .flat_map(|snapshot| &snapshot.entities)
+        .filter(|entity| {
+            entity
+                .player
+                .is_some_and(|player| player.events & sim::motion::events::LAND != 0)
+        })
+        .map(|entity| entity.id)
+        .collect();
     let module = swap.level.module().cloned();
     if ambience.generation != Some(swap.generation) {
         ambience.generation = Some(swap.generation);
@@ -692,15 +711,18 @@ fn play(
         let standing = swap.level.module().map(|module| current.standings(module));
         let hostile = crate::battle_music::hostility(standing);
         let battle = ambience.fight.step(&moment, hostile);
-        tracks(
-            ambience,
-            current,
-            battle,
-            now,
-            &sounding,
-            &mut beds,
-            minigame_music,
-        );
+        // The floors stage plays no music or ambience over its footsteps.
+        if swap.level.name() != crate::floor_arena::NAME {
+            tracks(
+                ambience,
+                current,
+                battle,
+                now,
+                &sounding,
+                &mut beds,
+                minigame_music,
+            );
+        }
         // In a minigame the camera rides the course away from where the
         // area's sound objects stand: one not positional (the swoop's
         // engine, gears, countdown) is heard in both ears at its volume
@@ -724,7 +746,7 @@ fn play(
             ambience,
             (&swap.level, &instances),
             current,
-            asked,
+            (asked, &landed),
             (&mut loops, &mut cues),
         );
     }
@@ -1243,12 +1265,13 @@ fn emit(
 /// the sim's walk's, and those its KOTOR clips' own events ask for
 /// (`clip_steps`, by whom and where, units) where the walk steps nothing,
 /// standing still (a cutscene's stunt, a script's clip), as the
-/// executable's footsteps come from its walk and run clips' events alone.
+/// executable's footsteps come from its walk and run clips' events alone;
+/// and one for each soft landing in `landed`.
 fn footsteps(
     ambience: &mut Ambience,
     (level, instances): (&sim::Level, &Instances),
     current: &Snapshot,
-    clip_steps: Vec<(sim::SimId, Vec3)>,
+    (clip_steps, landed): (Vec<(sim::SimId, Vec3)>, &BTreeSet<sim::SimId>),
     (loops, cues): (&mut Loops, &mut Cues),
 ) {
     let Some((area, tables)) = &ambience.area else {
@@ -1301,8 +1324,18 @@ fn footsteps(
             }
             continue;
         }
-        // Quake's rule: a step each time the cycle passes 64 or 192.
-        if !moving || cycle == 0 || (u16::from(was) + 64) & 128 == (u16::from(cycle) + 64) & 128 {
+        if landed.contains(&entity.id) {
+            stepped.push((entity, steps, origin));
+            continue;
+        }
+        // Quake's rule: a step each time the cycle passes 64 or 192, and
+        // none while ducked (crouching or rolling).
+        let ducked = player.ducked() || player.flags & sim::motion::motion_flags::ROLLING != 0;
+        if !moving
+            || ducked
+            || cycle == 0
+            || (u16::from(was) + 64) & 128 == (u16::from(cycle) + 64) & 128
+        {
             continue;
         }
         stepped.push((entity, steps, origin));
@@ -1326,6 +1359,24 @@ fn footsteps(
             Contents::SOLID,
         );
         if floor.fraction >= 1.0 {
+            continue;
+        }
+        // A humanoid's step is JA's for the ground it looks like.
+        let humanoid = matches!(rows.get(&entity.id.0), Some(&(SOFT | HARD)));
+        let running = entity.player.as_ref().is_some_and(|player| {
+            let [vx, vy, _] = player.velocity;
+            vx * vx + vy * vy >= RUNNING * RUNNING
+        });
+        if humanoid
+            && let Some(name) =
+                crate::ja_footsteps::step(floor.surface.ground, running, rng.roll_between(1, 4))
+        {
+            cues.0.push(Cue {
+                entity: Some(entity.id),
+                gain: STEP,
+                ..Cue::at(name, origin - Vec3::Z * SOLES, current.time_ms as f32)
+            });
+            ambience.steps += 1;
             continue;
         }
         let choices: Vec<&String> = tables

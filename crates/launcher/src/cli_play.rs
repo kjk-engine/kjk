@@ -252,6 +252,7 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         guests: sim::Guests::Avatars,
         // The arena's own Jedi unless another class is asked for.
         sheet: match if stage == "arena"
+            || stage == "floors"
             || stage.starts_with("arena:")
             || stage.starts_with("arena@")
         {

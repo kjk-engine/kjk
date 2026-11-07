@@ -194,7 +194,10 @@ pub fn run(options: RunOptions) -> AppExit {
             crate::play_view::PlayViewPlugin,
             crate::combat_fx::CombatFxPlugin,
             crate::sound::SoundPlugin,
-            crate::blade_fx::BladeFxPlugin,
+            (
+                crate::blade_fx::BladeFxPlugin,
+                crate::landing_fx::LandingFxPlugin,
+            ),
             crate::body_marks::BodyMarksPlugin,
             crate::shot_fx::ShotFxPlugin,
             crate::power_fx::PowerFxPlugin,

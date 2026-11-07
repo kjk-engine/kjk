@@ -102,63 +102,69 @@ const TEXTURES: [(&str, u8); 3] = [
     ("kjk_course_y", 78),
 ];
 
-/// The course as a model to draw (every brush face, with 1 m checks in
-/// world space) and its textures.
-pub fn model(world: &BrushWorld) -> (ModelIr, Vec<(String, TextureIr)>) {
-    let mut meshes: Vec<MeshIr> = TEXTURES
-        .iter()
-        .map(|(name, _)| MeshIr {
-            node: 0,
-            positions: Vec::new(),
-            normals: Vec::new(),
-            uv1: Vec::new(),
-            uv2: Vec::new(),
-            indices: Vec::new(),
-            texture: Some((*name).into()),
-            lightmap: None,
-            transparency_hint: 0,
-            skinned: false,
-            self_illum: [0.0; 3],
-            alpha: 1.0,
-            ambient: [1.0; 3],
-            diffuse: [1.0; 3],
-            uv_scroll: None,
-            dangly: None,
-            skin: None,
-        })
-        .collect();
-    for brush in &world.brushes {
-        for (i, plane) in brush.planes.iter().enumerate() {
-            let polygon = face(brush, i);
-            if polygon.len() < 3 {
-                continue;
-            }
-            let n = Vec3::from_array(plane.normal);
-            let (mesh, axes) = if n.z.abs() >= n.x.abs().max(n.y.abs()) {
-                (0, (0, 1))
-            } else if n.x.abs() >= n.y.abs() {
-                (1, (1, 2))
-            } else {
-                (2, (0, 2))
-            };
-            let mesh = &mut meshes[mesh];
-            let base = mesh.positions.len() as u32;
-            for p in &polygon {
-                mesh.positions.push(p.to_array());
-                mesh.normals.push(n.to_array());
-                // Half a texture repeat a metre: one check a metre.
-                mesh.uv1.push([p[axes.0] * 0.5, p[axes.1] * 0.5]);
-            }
-            for k in 1..polygon.len() as u32 - 1 {
-                mesh.indices.extend([base, base + k, base + k + 1]);
-            }
-        }
+/// An empty mesh drawn with `texture`.
+pub(crate) fn mesh(texture: &str) -> MeshIr {
+    MeshIr {
+        node: 0,
+        positions: Vec::new(),
+        normals: Vec::new(),
+        uv1: Vec::new(),
+        uv2: Vec::new(),
+        indices: Vec::new(),
+        texture: Some(texture.into()),
+        lightmap: None,
+        transparency_hint: 0,
+        skinned: false,
+        self_illum: [0.0; 3],
+        alpha: 1.0,
+        ambient: [1.0; 3],
+        diffuse: [1.0; 3],
+        uv_scroll: None,
+        dangly: None,
+        skin: None,
     }
-    let ir = ModelIr {
-        name: "course".into(),
+}
+
+/// Which way face `i` of `brush` mostly faces: up or down (0), along X
+/// (1) or along Y (2), and the two axes its texture runs along.
+pub(crate) fn facing(brush: &Brush, i: usize) -> (usize, (usize, usize)) {
+    let n = Vec3::from_array(brush.planes[i].normal);
+    if n.z.abs() >= n.x.abs().max(n.y.abs()) {
+        (0, (0, 1))
+    } else if n.x.abs() >= n.y.abs() {
+        (1, (1, 2))
+    } else {
+        (2, (0, 2))
+    }
+}
+
+/// Face `i` of `brush` added to `mesh`, its texture repeating every two
+/// metres in world space along `axes`.
+pub(crate) fn add_face(mesh: &mut MeshIr, brush: &Brush, i: usize, axes: (usize, usize)) {
+    let polygon = face(brush, i);
+    if polygon.len() < 3 {
+        return;
+    }
+    let n = brush.planes[i].normal;
+    let base = mesh.positions.len() as u32;
+    for p in &polygon {
+        mesh.positions.push(p.to_array());
+        mesh.normals.push(n);
+        // Half a texture repeat a metre: one check a metre.
+        mesh.uv1.push([p[axes.0] * 0.5, p[axes.1] * 0.5]);
+    }
+    for k in 1..polygon.len() as u32 - 1 {
+        mesh.indices.extend([base, base + k, base + k + 1]);
+    }
+}
+
+/// `meshes` as one model named `name` (the empty ones left out).
+pub(crate) fn model_of(name: &str, meshes: Vec<MeshIr>) -> ModelIr {
+    ModelIr {
+        name: name.into(),
         supermodel: None,
         nodes: vec![NodeIr {
-            name: "course".into(),
+            name: name.into(),
             parent: None,
             translation: [0.0; 3],
             rotation: [0.0, 0.0, 0.0, 1.0],
@@ -175,12 +181,28 @@ pub fn model(world: &BrushWorld) -> (ModelIr, Vec<(String, TextureIr)>) {
         animation_scale: 1.0,
         affected_by_fog: false,
         refusals: Vec::new(),
-    };
-    let textures = TEXTURES
+    }
+}
+
+/// The checks' textures: floors, and sides facing X and Y.
+pub(crate) fn check_textures() -> Vec<(String, TextureIr)> {
+    TEXTURES
         .iter()
         .map(|(name, grey)| ((*name).to_string(), checks(*grey)))
-        .collect();
-    (ir, textures)
+        .collect()
+}
+
+/// The course as a model to draw (every brush face, with 1 m checks in
+/// world space) and its textures.
+pub fn model(world: &BrushWorld) -> (ModelIr, Vec<(String, TextureIr)>) {
+    let mut meshes: Vec<MeshIr> = TEXTURES.iter().map(|(name, _)| mesh(name)).collect();
+    for brush in &world.brushes {
+        for i in 0..brush.planes.len() {
+            let (which, axes) = facing(brush, i);
+            add_face(&mut meshes[which], brush, i, axes);
+        }
+    }
+    (model_of("course", meshes), check_textures())
 }
 
 /// Face `i` of a convex brush: a big square on its plane cut by every

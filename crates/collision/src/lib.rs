@@ -118,10 +118,59 @@ impl std::ops::BitOr for Contents {
 }
 
 /// The surface a trace hit: KOTOR's walkmesh material (a row of
-/// `surfacemat.2da`; 0 when the solid has none, as a box does).
+/// `surfacemat.2da`; 0 when the solid has none, as a box does), and the
+/// ground it looks like (sounds only: not in the level's digest).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Surface {
     pub material: u16,
+    pub ground: Ground,
+}
+
+/// What a floor looks like underfoot, from the texture drawn on it (a
+/// Tatooine street marked dirt is sand, Telos's snow marked carpet is
+/// snow): JA's footstep and landing kinds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[repr(u8)]
+pub enum Ground {
+    /// Not known (a box, a door, a placeable): the material says.
+    #[default]
+    Unknown = 0,
+    Dirt,
+    Sand,
+    Snow,
+    Mud,
+    Gravel,
+    Grass,
+    Stone,
+    Metal,
+    Wood,
+    Rug,
+    Water,
+}
+
+impl Ground {
+    pub const ALL: [Ground; 12] = [
+        Ground::Unknown,
+        Ground::Dirt,
+        Ground::Sand,
+        Ground::Snow,
+        Ground::Mud,
+        Ground::Gravel,
+        Ground::Grass,
+        Ground::Stone,
+        Ground::Metal,
+        Ground::Wood,
+        Ground::Rug,
+        Ground::Water,
+    ];
+
+    /// The ground stored as `byte`; unknown for one no ground has.
+    pub fn from_u8(byte: u8) -> Ground {
+        Ground::ALL
+            .get(usize::from(byte))
+            .copied()
+            .unwrap_or(Ground::Unknown)
+    }
 }
 
 /// A plane: points `p` with `normal · p = dist`.

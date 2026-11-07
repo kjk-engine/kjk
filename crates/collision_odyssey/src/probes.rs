@@ -544,7 +544,10 @@ fn footprint_nav_marks() -> Result<String, String> {
     let floor = floor.build();
     let tag = |contents| Tag {
         contents,
-        surface: collision::Surface { material: 0 },
+        surface: collision::Surface {
+            material: 0,
+            ..Default::default()
+        },
         entity: Some(1),
         states: 1,
     };

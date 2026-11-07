@@ -1122,7 +1122,7 @@ spawn g_sithtroop01; arena spawn g_sithtroop01; record f 0.5 8 20; quit'`.
 | a grenade bursts | its visual effect's KOTOR sound (`cb_gr_fragment`, `cb_gr_thermal`, …; JA's explosion sound is left out) | where it burst |
 | a lit lightsaber's blade meets the level (the blade as drawn, traced hilt to tip each client frame, as the cgame traces the blade it draws: alone or in a fight) | sparks `sparks/spark_nosnd` a client frame; two client frames running, one of `saberhitwall1–3`, at most every 100 ms a blade (a melee weapon's blade meeting the level shows and sounds nothing: only its blows and parries sound, owner 2026-10-10) | where it meets |
 | a lit lightsaber's blade drags along the level itself (met two client frames running; not a door, a placeable or a body) | no sound of its own: JA's burn (`gfx/damage/rivetmark`, 10 s) and orange glow (`gfx/effects/saberDamageGlow`, 1.5 s) laid along the way it dragged, a client frame's strip each, onto the level's faces (`saber_marks`; QUIRKS.md Q-0280) | where it dragged |
-| a roll starts (move_body's `ROLL`: crouch pressed on the run, or a hard landing) | the body's whoosh, KOTOR's `cb_sw_unarmed1` (row 0's swing; the roll is ours, KOTOR has none), body slot; the roll stab after it is a new attack | the roller, going with it |
+| a roll starts (move_body's `ROLL`: crouch pressed on the run, or a hard landing) | JA's `sound/player/roll1` (KOTOR has no roll), body slot; out of a hard landing the fall's sound too (`docs/SOUND.md`, "Landings and rolls"); the roll stab after it is a new attack | the roller, going with it |
 
 **Muzzle flashes and own bolts (`shots`, QUIRKS.md Q-0070).** A shot is a
 blaster holder's torso starting (or starting over) its attack from one
