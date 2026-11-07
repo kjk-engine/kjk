@@ -1934,20 +1934,9 @@ impl Cast<'_, '_> {
         }
         // Scripts' speed effects: percent more or less. The speed powers'
         // own (K1's +99 %) are JA's speed's while it runs: it moves the
-        // caster (C10).
-        let speed_rows = [
-            crate::combat::spells::FORCE_POWER_SPEED_BURST,
-            crate::combat::spells::FORCE_POWER_KNIGHT_SPEED,
-            crate::combat::spells::FORCE_POWER_SPEED_MASTERY,
-        ];
-        let percent: i32 = fighter
-            .effects
-            .counted(now)
-            .filter(|l| l.modifies == Modifies::Speed)
-            .filter(|l| !(speeding && speed_rows.contains(&l.spell)))
-            .map(|l| i32::from(l.amount))
-            .sum();
-        speed *= (100 + percent).clamp(effects::SPEED_LEAST, effects::SPEED_MOST) as f32 / 100.0;
+        // caster (C10). KOTOR's pace puts them back
+        // (`effects::kotor_multiplier`).
+        speed *= fighter.effects.speed_factor(now, !speeding);
         if force.raging(now) > 0 {
             speed *= ja::RAGE_SPEED;
         } else if force.recover_until > now {

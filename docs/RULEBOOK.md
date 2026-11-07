@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f1012d923126c5d5`.
+Edition `0e7202eab985a155`.
 
 ## Contents
 
@@ -4446,18 +4446,20 @@ speed, or 0.8 times under a speed power.
 
 ### <a id="force-speed"></a>Burst of Speed, Knight Speed and Master Speed
 
-A toggled power. The Jedi moves 1.15 times as fast
-for 10 seconds, 15 seconds or
+A toggled power. The Jedi moves faster (1.15 times in
+combat, 1.5 times out of it) for 10 seconds, 15 seconds or
 20 seconds by rank, and Force points do not regenerate
 meanwhile. The Defense bonus and extra attacks are listed with the
 power's effects.
 
-This speed replaces the power's own movement bonus. Force Suppression ends
+In combat this speed replaces the power's own movement bonus; out of
+combat the Jedi moves by that bonus instead, as in KOTOR (the fastest
+movement, 1.5 times its walk and run). Force Suppression ends
 Burst of Speed and Knight Speed; Force Breach ends all three.
 
 <a id="force-speed-scale"></a>**Speed Bonus** = **×1.15** · `force.speed.scale`
 
-The speed powers make the Jedi move 1.15 times as fast at every rank.
+In combat the speed powers make the Jedi move 1.15 times as fast at every rank.
 
 <sub>Source: the owner's call, over JA's 1.7. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
@@ -8679,13 +8681,15 @@ A character leaving combat slows to its walking speeds over 0.5 seconds.
 
 Effects and powers can slow a character's walking and running to no less than 0.125 times normal.
 
-<sub>Source: ours [verify against KOTOR's executable]. Code: `sim::walk::kotor_speed`.</sub>
+<sub>Source: TSL's Mac executable, 2026-11-07. Code: `sim::walk::kotor_speed`.</sub>
 
 <a id="walking-pace-most-multiplier"></a>**Fastest Movement** = **×1.5** · `walking.pace.most_multiplier`
 
 Burst of Speed, adrenals and other bonuses can raise a character's walking and running to no more than 1.5 times normal.
 
-<sub>Source: ours [verify against KOTOR's executable]. Code: `sim::walk::kotor_speed`.</sub>
+The speed powers' own +99% reaches it: out of combat Burst of Speed, Knight Speed and Master Speed move the Jedi at this much of its walk and run.
+
+<sub>Source: TSL's Mac executable, 2026-11-07: a movement rate is held to 0.125 to 1.5 times, and a speed increase multiplies it by one plus its percent. Code: `sim::walk::kotor_speed`.</sub>
 
 <a id="walking-pace-least-walk"></a>**Slowest Walk** = **0.1 m/s** · `walking.pace.least_walk`
 
