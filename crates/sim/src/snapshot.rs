@@ -372,7 +372,7 @@ impl ObjectState {
     /// Whether bodies, bolts and sight pass where it stands: gone from play,
     /// or a destructible prop broken (its look dead).
     pub fn passable(&self, facts: &crate::module::ObjectData) -> bool {
-        self.state == collision::GONE || facts.destructible.is_some() && self.state == look::DEAD
+        self.state == collision::GONE || facts.destructible.is_some() && self.broken(facts)
     }
 
     /// Whether blows may hurt it: it may be bashed, or it is a destructible
