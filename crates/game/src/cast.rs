@@ -2216,9 +2216,17 @@ impl Cast {
             commands,
         );
         let hung = crate::face::hung_head(&scene.models, model).and_then(|head| {
-            let (_, head_nodes) = models.get(head)?.as_ref()?;
+            let (head_root, head_nodes) = models.get(head)?.as_ref()?;
             let placed = scene.models.get(head)?;
-            Some((&placed.ir, &head_nodes[..], placed.hook?.1))
+            let hung_at = placed.hook_local.as_ref().map_or(Quat::IDENTITY, |local| {
+                Transform::from_matrix(crate::scene::to_mat4(local)).rotation
+            });
+            Some(Hung {
+                ir: &placed.ir,
+                nodes: &head_nodes[..],
+                hook: placed.hook?.1,
+                root: (*head_root, hung_at),
+            })
         });
         let head = head_bone((&placed.ir, &nodes), hung);
         if let Look::Retargeted { gait: bound, .. } = &mut look {
@@ -3282,55 +3290,240 @@ const HEAD_TURN_RAD_S: f32 = 10.0;
 const HEAD_TURN_BONE: &str = "hturn_g";
 
 /// The node a body's head turns by (S7) and the nodes above it, from the
-/// body model's root down (across the head model hung on it).
+/// body model's root down (across the head model hung on it), with the
+/// turn each takes in the model's space at rest: the head's (`rest`) and
+/// the chest's it hangs from (`chest`, the last of `above` from the body).
 struct HeadBone {
     node: Entity,
     above: Vec<Entity>,
+    rest: Quat,
+    chest: (usize, Quat),
+    /// The upper spine the head rides on, straightened with it (`level`).
+    spine: Option<Spine>,
+}
+
+/// A body's upper spine (`UPPER_SPINE`): its node, the nodes above it from
+/// the model's root down, its turn in the model's space at rest, and its
+/// children off the head's way (the collars, and the arms on them), kept
+/// where the pose put them when it turns.
+struct Spine {
+    node: Entity,
+    above: Vec<Entity>,
+    rest: Quat,
+    kept: Vec<Entity>,
+}
+
+/// The node of KOTOR's skeleton between the waist and the neck, which the
+/// collars and the neck hang from.
+const UPPER_SPINE: &str = "torsoupr_g";
+
+/// How much of its upper spine's lean from upright a body held level
+/// (`HeadBone::level`) straightens: the neck turns that much less to hold
+/// the head level, and the back looks less hunched (tuning, view only).
+const SPINE_SHARE: f32 = 0.4;
+
+/// The same in a crouch (`BOTH_CROUCH1IDLE`, `…WALK`, `…WALKBACK`), whose
+/// clips bow the chest 70–85° (tuning, view only).
+const CROUCH_SPINE_SHARE: f32 = 0.6;
+
+/// `body`'s upper spine (`Spine`), where the head's way up from body node
+/// `end` (the node the head model hangs at, or the head itself) passes it.
+fn spine_of((ir, nodes): (&ModelIr, &[Entity]), end: usize) -> Option<Spine> {
+    let index = (ir.nodes.iter()).position(|node| node.name.eq_ignore_ascii_case(UPPER_SPINE))?;
+    let way: Vec<usize> =
+        std::iter::successors(Some(end), |&at| ir.nodes.get(at).and_then(|n| n.parent)).collect();
+    if !way.contains(&index) {
+        return None;
+    }
+    let above = ancestors((ir, nodes), index);
+    let rest = (above.iter()).fold(Quat::IDENTITY, |turn, (_, rotation)| turn * *rotation)
+        * at_rest_of((ir, nodes), index)?.1;
+    let kept = (ir.nodes.iter().enumerate())
+        .filter(|(at, node)| node.parent == Some(index) && !way.contains(at))
+        .filter_map(|(at, _)| nodes.get(at).copied())
+        .collect();
+    Some(Spine {
+        node: *nodes.get(index)?,
+        above: above.into_iter().map(|(entity, _)| entity).collect(),
+        rest,
+        kept,
+    })
+}
+
+impl Spine {
+    /// Turned back toward upright by `share` of its lean about its own
+    /// joint; its children off the head's way set again where they stood,
+    /// so the arms, the hands and what they hold stay where the pose put
+    /// them (the drawn blade on the sim's).
+    fn straighten(&self, share: f32, transforms: &mut Query<&mut Transform>) {
+        let above = (self.above.iter()).fold(Quat::IDENTITY, |turn, &entity| {
+            turn * transforms
+                .get(entity)
+                .map_or(Quat::IDENTITY, |t| t.rotation)
+        });
+        let Ok(own) = transforms.get(self.node).copied() else {
+            return;
+        };
+        let up = (above * own.rotation * self.rest.inverse()) * Vec3::Z;
+        let axis = up.cross(Vec3::Z).normalize_or_zero();
+        if axis == Vec3::ZERO {
+            return;
+        }
+        let back = Quat::from_axis_angle(axis, up.angle_between(Vec3::Z) * share);
+        let kept: Vec<(Entity, bevy::math::Affine3A)> = (self.kept.iter())
+            .filter_map(|&entity| {
+                let child = transforms.get(entity).ok()?.compute_affine();
+                Some((entity, own.compute_affine() * child))
+            })
+            .collect();
+        let turned = Transform {
+            rotation: (above.inverse() * back * above * own.rotation).normalize(),
+            ..own
+        };
+        edit(transforms, self.node, |t| *t = turned);
+        let from = turned.compute_affine().inverse();
+        for (entity, stood) in kept {
+            edit(transforms, entity, |t| {
+                *t = Transform::from_matrix(Mat4::from(from * stood))
+            });
+        }
+    }
+}
+
+/// A head model hung on its body: its model and nodes, the body node it
+/// hangs at (`headhook`), and its root's entity and turn there.
+struct Hung<'a> {
+    ir: &'a ModelIr,
+    nodes: &'a [Entity],
+    hook: usize,
+    root: (Entity, Quat),
 }
 
 /// `body`'s head bone (S7): `HEAD_TURN_BONE` in the head model hung on it
 /// (`hung`, at body node `hook`), else in its own model; without one, its
 /// head (`head_g`), else a creature model's `head` (HK-47's, T3-M4's
 /// `Head`).
-fn head_bone(
-    body: (&ModelIr, &[Entity]),
-    hung: Option<(&ModelIr, &[Entity], usize)>,
-) -> Option<HeadBone> {
+fn head_bone(body: (&ModelIr, &[Entity]), hung: Option<Hung>) -> Option<HeadBone> {
     let find = |ir: &ModelIr, name: &str| {
         (ir.nodes.iter()).position(|node| node.name.eq_ignore_ascii_case(name))
+    };
+    let turned = |chain: &[(Entity, Quat)]| {
+        (chain.iter()).fold(Quat::IDENTITY, |above, (_, rotation)| above * *rotation)
     };
     [HEAD_TURN_BONE, hooks::HEAD, "head"]
         .iter()
         .find_map(|name| {
-            if let Some((ir, nodes, hook)) = hung
-                && let Some(index) = find(ir, name)
-            {
-                let mut above = ancestors(body, hook);
-                above.extend(body.1.get(hook));
-                above.extend(ancestors((ir, nodes), index));
-                return Some(HeadBone {
-                    node: *nodes.get(index)?,
-                    above,
-                });
-            }
-            let index = find(body.0, name)?;
+            // The chest: the hook, else the head's own parent; and the
+            // body's node the head's way leaves it at.
+            let (mut chain, node, chest, end) = match &hung {
+                Some(hung) if let Some(index) = find(hung.ir, name) => {
+                    let mut chain = ancestors(body, hung.hook);
+                    let chest = chain.len();
+                    chain.push(at_rest_of(body, hung.hook)?);
+                    chain.push(hung.root);
+                    chain.extend(ancestors((hung.ir, hung.nodes), index));
+                    let node = at_rest_of((hung.ir, hung.nodes), index)?;
+                    (chain, node, chest, hung.hook)
+                }
+                _ => {
+                    let index = find(body.0, name)?;
+                    let chain = ancestors(body, index);
+                    let chest = chain.len().checked_sub(1)?;
+                    (chain, at_rest_of(body, index)?, chest, index)
+                }
+            };
+            let chest_rest = turned(&chain[..=chest]);
+            let rest = turned(&chain) * node.1;
+            let above = chain.drain(..).map(|(entity, _)| entity).collect();
             Some(HeadBone {
-                node: *body.1.get(index)?,
-                above: ancestors(body, index),
+                node: node.0,
+                above,
+                rest,
+                chest: (chest, chest_rest),
+                spine: spine_of(body, end),
             })
         })
 }
 
-/// The entities of `node`'s ancestors in `ir`, from its root down.
-fn ancestors((ir, nodes): (&ModelIr, &[Entity]), node: usize) -> Vec<Entity> {
+/// Node `node` of `ir` (its entity among `nodes`) and its turn at rest.
+fn at_rest_of((ir, nodes): (&ModelIr, &[Entity]), node: usize) -> Option<(Entity, Quat)> {
+    let [x, y, z, w] = ir.nodes.get(node)?.rotation;
+    Some((*nodes.get(node)?, Quat::from_xyzw(x, y, z, w).normalize()))
+}
+
+/// The entities of `node`'s ancestors in `ir`, from its root down, each
+/// with its turn at rest.
+fn ancestors((ir, nodes): (&ModelIr, &[Entity]), node: usize) -> Vec<(Entity, Quat)> {
     let mut above = Vec::new();
     let mut parent = ir.nodes.get(node).and_then(|n| n.parent);
     while let Some(index) = parent {
-        above.extend(nodes.get(index));
+        above.extend(at_rest_of((ir, nodes), index));
         parent = ir.nodes[index].parent;
     }
     above.reverse();
     above
+}
+
+/// How far (degrees) a body's chest may lean from upright and its head
+/// still be held level: wholly up to the first, not at all from the
+/// second (a roll, a flip, a knockdown: the head goes with the body).
+const LEVEL_LEAN_DEG: (f32, f32) = (55.0, 85.0);
+
+/// How far (degrees) a level head looks off its legs toward the aim: JA's
+/// look reach across.
+const AIM_REACH_DEG: f32 = 70.0;
+
+impl HeadBone {
+    /// The head held level along `aim` (game degrees), as JA's head looks
+    /// along the view whatever its clip does with the chest: the head's
+    /// turn in the model's space set to its rest turned about the model's
+    /// up to `aim` (the model facing `facing`), by `share` (the JA pose's
+    /// share of the body), less as the chest leans far from upright unless
+    /// the legs crouch (`crouch`, 0 to 1: how far into a crouch's hold).
+    fn level(
+        &self,
+        (aim, facing, share, crouch): (f32, f32, f32, f32),
+        transforms: &mut Query<&mut Transform>,
+    ) {
+        let read = |transforms: &Query<&mut Transform>| -> Vec<Quat> {
+            (self.above.iter())
+                .map(|&e| transforms.get(e).map_or(Quat::IDENTITY, |t| t.rotation))
+                .collect()
+        };
+        let mut rotations = read(transforms);
+        let product = |rotations: &[Quat]| {
+            (rotations.iter()).fold(Quat::IDENTITY, |above, rotation| above * *rotation)
+        };
+        let (chest, chest_rest) = self.chest;
+        let Some(chest_now) = rotations.get(..=chest).map(product) else {
+            return;
+        };
+        let lean = ((chest_now * chest_rest.inverse()) * Vec3::Z)
+            .dot(Vec3::Z)
+            .clamp(-1.0, 1.0)
+            .acos()
+            .to_degrees();
+        let (whole, none) = LEVEL_LEAN_DEG;
+        // A crouch bows the chest as far as a roll does, but its legs stand:
+        // its head is held whatever the lean.
+        let upright = ((none - lean) / (none - whole)).clamp(0.0, 1.0).max(crouch);
+        let weight = share.clamp(0.0, 1.0) * upright;
+        if weight <= 0.0 {
+            return;
+        }
+        // The upper spine straightened first, so the neck turns the less.
+        if let Some(spine) = &self.spine {
+            let straight = SPINE_SHARE + (CROUCH_SPINE_SHARE - SPINE_SHARE) * crouch;
+            spine.straighten(straight * weight, transforms);
+            rotations = read(transforms);
+        }
+        let above = product(&rotations);
+        let wanted = Quat::from_rotation_z(angles::wrap_180(aim - facing).to_radians()) * self.rest;
+        let local = (above.inverse() * wanted).normalize();
+        edit(transforms, self.node, |t| {
+            t.rotation = t.rotation.slerp(local, weight).normalize();
+        });
+    }
 }
 
 /// A head turned toward whom its body looks at in a conversation's line
@@ -3342,16 +3535,54 @@ struct Head {
     yaw: f32,
     ms: Option<f64>,
     turned: Option<(Quat, Quat)>,
+    /// How much of the level hold (`HeadBone::level`) has let go since its
+    /// body died (0 alive, 1 dead `LEVEL_FADE_S` and more).
+    let_go: f32,
+    /// How far its body is into a crouch (`Hold::crouched`): 0 out of one,
+    /// 1 crouched `CROUCH_EASE_S` and more.
+    crouch: f32,
+}
+
+/// What a head is held level by (`HeadBone::level`): its body's aim and
+/// facing (game degrees), the JA pose's share of the body, whether the
+/// body lives, and whether its legs crouch.
+#[derive(Clone, Copy)]
+struct Hold {
+    aim: f32,
+    facing: f32,
+    share: f32,
+    alive: bool,
+    crouched: bool,
+}
+
+/// How long (seconds) a body that dies takes to let its head go from level
+/// to its death's clip, and one revived to take it back: at once, the head
+/// jumped as far as it was held.
+const LEVEL_FADE_S: f32 = 0.3;
+
+/// How long (seconds) a body's head takes to come into a crouch's hold, and
+/// out of it (a roll from a crouch lets the head go with the body).
+const CROUCH_EASE_S: f32 = 0.2;
+
+/// Whether a body's legs crouch, standing or walking (not a roll's duck).
+fn crouches(state: &MotionState) -> bool {
+    matches!(
+        state.legs.anim,
+        Anim::BOTH_CROUCH1IDLE | Anim::BOTH_CROUCH1WALK | Anim::BOTH_CROUCH1WALKBACK
+    )
 }
 
 impl Head {
     /// At `ms`, eases toward `target` (degrees from the body; none: ahead)
     /// at `HEAD_TURN_RAD_S` and turns `bone` so far about the model's up
-    /// after the body's pose (`turn_under`). A node no pose moved since it
+    /// after the body's pose (`turn_under`), the head first held level
+    /// (`HeadBone::level`) where `level` says, letting go over
+    /// `LEVEL_FADE_S` once its body is dead. A node no pose moved since it
     /// was turned turns from where it stood before.
     fn turn(
         &mut self,
         (target, ms): (Option<f32>, f64),
+        level: Option<Hold>,
         bone: &HeadBone,
         transforms: &mut Query<&mut Transform>,
     ) {
@@ -3361,7 +3592,17 @@ impl Head {
         self.ms = Some(ms);
         let most = HEAD_TURN_RAD_S.to_degrees() * seconds;
         self.yaw += (target.unwrap_or(0.0) - self.yaw).clamp(-most, most);
-        if self.yaw.abs() < 0.01 && self.turned.is_none() {
+        let ease = |at: &mut f32, to: bool, over: f32| {
+            let step = seconds / over;
+            *at += (f32::from(u8::from(to)) - *at).clamp(-step, step);
+        };
+        let level = level.and_then(|hold| {
+            ease(&mut self.let_go, !hold.alive, LEVEL_FADE_S);
+            ease(&mut self.crouch, hold.crouched, CROUCH_EASE_S);
+            let share = hold.share * (1.0 - self.let_go);
+            (share > 0.0).then_some((hold.aim, hold.facing, share, self.crouch))
+        });
+        if self.yaw.abs() < 0.01 && self.turned.is_none() && level.is_none() {
             return;
         }
         let entity = bone.node;
@@ -3373,13 +3614,18 @@ impl Head {
             _ => now,
         };
         edit(transforms, entity, |t| t.rotation = from);
-        if self.yaw.abs() < 0.01 {
-            self.turned = None;
-            return;
+        if let Some(level) = level {
+            bone.level(level, transforms);
         }
-        let turn = Quat::from_rotation_z(self.yaw.to_radians());
-        turn_under(transforms, &bone.above, entity, turn);
-        self.turned = transforms.get(entity).ok().map(|t| (t.rotation, from));
+        if self.yaw.abs() >= 0.01 {
+            let turn = Quat::from_rotation_z(self.yaw.to_radians());
+            turn_under(transforms, &bone.above, entity, turn);
+        }
+        self.turned = transforms
+            .get(entity)
+            .ok()
+            .map(|t| (t.rotation, from))
+            .filter(|(written, from)| written != from);
     }
 }
 
@@ -3711,18 +3957,32 @@ fn place(
             }
             let gun = wielded.filter(|_| gripping.is_none());
             let aims = gun_aim(figure, at, (gun, armed, drawn), ms, (to_model, soles, eye));
+            // The JA pose's share left under the clips laid over it in turn.
+            let under: f32 = shown.iter().map(|&(_, _, weight)| 1.0 - weight).product();
+            // Its head looks along its aim, level, under the JA pose (JA's
+            // head follows the view whatever the clip does with the chest),
+            // let go as it dies, then turns to whom it looks at in a
+            // conversation.
+            let legs = figure.yaw().unwrap_or(at.view[1]);
+            let aim =
+                legs + angles::wrap_180(at.view[1] - legs).clamp(-AIM_REACH_DEG, AIM_REACH_DEG);
+            let level = Some(Hold {
+                aim,
+                facing: yaw.to_degrees(),
+                share: under,
+                alive: at.alive,
+                crouched: crouches(&at.state),
+            });
             let head = |figure: &mut Figure, transforms: &mut Query<&mut Transform>| {
                 if let Some(bone) = &body.head {
                     let target = look.map(|look| look_toward(soles, faces, look));
-                    figure.head.turn((target, ms), bone, transforms);
+                    figure.head.turn((target, ms), level, bone, transforms);
                 }
             };
             // While the world is held, a body wholly on KOTOR's clips (the
-            // JA pose's share left under the clips laid over it in turn at
-            // most `1 − WHOLE`), nothing gripped (no hand reaches, so
-            // `reached` is empty) or aimed, is that clip on its model: its JA
-            // pose is not made.
-            let under: f32 = shown.iter().map(|&(_, _, weight)| 1.0 - weight).product();
+            // JA pose's share under them at most `1 − WHOLE`), nothing
+            // gripped (no hand reaches, so `reached` is empty) or aimed, is
+            // that clip on its model: its JA pose is not made.
             if world_held && under <= 1.0 - WHOLE && gripping.is_none() && aims.is_empty() {
                 lay(
                     &mut shown.into_iter().chain(throw.shown(acted, ms)),
@@ -3853,7 +4113,7 @@ fn place(
                 );
                 if let Some(bone) = &body.head {
                     let target = look.map(|look| look_toward(soles, faces, look));
-                    figure.head.turn((target, ms), bone, transforms);
+                    figure.head.turn((target, ms), None, bone, transforms);
                 }
             }
             None

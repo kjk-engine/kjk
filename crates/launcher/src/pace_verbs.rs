@@ -105,7 +105,7 @@ fn pace_module(
                 continue;
             }
             let data = objects.of_entity(entity);
-            let Some(rates) = sim::walk::rates(data.and_then(|data| data.body.as_ref()), false, table)
+            let Some(rates) = sim::walk::rates(data.and_then(|data| data.body.as_ref()), false, None, table)
             else {
                 continue;
             };

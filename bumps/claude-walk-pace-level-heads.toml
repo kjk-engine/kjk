@@ -1,0 +1,12 @@
+# The sim's hash moves on purpose: a seat's body its player walks (and any
+# body in stealth mode) walks at its appearance's `driveanimwalk` (K1's men
+# 1.813 m/s, women 1.6), as K1's executable caps the walk of the creature
+# its player drives, not at `creaturespeed.2da`'s PLAYER walk (3.20); a
+# script's walk of it keeps the row's. A companion following its leader
+# keeps pace with it: within `minds.tasks.follow_pace` of its place, the
+# leader walking or standing, it walks there at the leader's walk (K1's
+# executable), no longer standing until far behind and then running. The
+# library reads `appearance.2da`'s `driveanimwalk` (its digest moves with an
+# install). No format changes: the persona a seat walks by already rides in
+# the snapshot.
+sim = "a player's own walk at its body's driveanimwalk; companions keep a walking leader's pace"

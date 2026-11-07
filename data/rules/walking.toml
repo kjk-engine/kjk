@@ -133,8 +133,13 @@ title = "Movement Speed"
 summary = """
 Outside combat, a character walks and runs at its own speeds, raised or
 lowered by movement speed effects from {walking.pace.least_multiplier:bare} to
-{walking.pace.most_multiplier:bare} times normal. A character leaving
-combat slows to those speeds over {walking.pace.ease_ms:s}.
+{walking.pace.most_multiplier:bare} times normal. A creature walks and runs
+at its movement rate's speeds (`creaturespeed.2da`), a player's character
+at the `PLAYER` row's, as KOTOR moves every character a script walks. A
+character its player walks, or one sneaking, walks at its body's own walk
+instead (`appearance.2da`'s `driveanimwalk`), as KOTOR walks the character
+its player drives. A character leaving combat slows to those speeds over
+{walking.pace.ease_ms:s}.
 """
 
 [pace.ease_ms]
