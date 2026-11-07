@@ -127,6 +127,7 @@ pub fn run(options: RunOptions) -> AppExit {
 
     let log = LogPlugin {
         custom_layer: run_layers,
+        filter: log_filter(),
         ..default()
     };
     let mut laps = crate::launch_times::Laps::new("app");
@@ -157,7 +158,7 @@ pub fn run(options: RunOptions) -> AppExit {
         .insert_resource(CaptureTarget::PrimaryWindow);
     }
     laps.lap("engine (window, render device)");
-    app.add_plugins(ScenePlugin);
+    app.add_plugins((ScenePlugin, crate::executors::ExecutorsPlugin));
     if thunder {
         // Its mixer first, so the plugin opens no menu one.
         crate::sound::install(app.world_mut(), crate::sound::Bank::default());
@@ -391,6 +392,32 @@ fn add_games(path: &std::path::Path, games: serde_json::Value) {
     if let Err(error) = std::fs::write(path, text) {
         eprintln!("cannot write {}: {error}", path.display());
     }
+}
+
+/// The engine's crates that open a span per system, per schedule, per
+/// render pass and per parallel query, every frame. Logged from warnings
+/// up, those spans are never made: at Bevy's `info`, the log's layers took
+/// a sixth of each frame recording them (2026-11-07: Harbinger 141 to 160
+/// fps). A trace (`KJK_PERF=1`) keeps them: they are what it shows.
+const SPANNING: [&str; 6] = [
+    "bevy_ecs",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_app",
+    "rapier3d",
+];
+
+/// The log's filter: Bevy's, and the spanning crates' spans off unless a
+/// trace is wanted (`RUST_LOG` still overrides it all).
+fn log_filter() -> String {
+    let mut filter = bevy::log::DEFAULT_FILTER.trim_end_matches(',').to_string();
+    if !perf_enabled() {
+        for target in SPANNING {
+            filter.push_str(&format!(",{target}=warn"));
+        }
+    }
+    filter
 }
 
 fn perf_enabled() -> bool {

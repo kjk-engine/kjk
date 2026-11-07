@@ -42,6 +42,7 @@ mod display;
 mod dotenv;
 pub mod draw_anim;
 mod emitter_view;
+mod executors;
 mod face;
 mod fade_view;
 mod feat_view;
