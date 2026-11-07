@@ -22,7 +22,8 @@ proposed 2026-10-07 and 08, awaiting the owner; `scene_mode` approved
 the owner; `coop_data_check` approved 2026-10-30; `stale_stamps_load`
 proposed 2026-10-30, awaiting the owner; `store_cap` proposed 2026-11-03,
 awaiting the owner; `save_edits` approved 2026-11-04; `mod_precedence`,
-`talk_lines_digest` and `mod_2da_size_ignored` 2026-11-05);
+`talk_lines_digest` and `mod_2da_size_ignored` 2026-11-05; `use_walk`'s
+counter checks 2026-11-07);
 `cargo xtask publish-check` refuses tests anywhere else. All eighty-seven
 are in `tests/approved.rs` and call library code (no window). The save
 editor's `save_edits` is built only with `--features editor` and run by
