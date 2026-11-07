@@ -3322,6 +3322,10 @@ const UPPER_SPINE: &str = "torsoupr_g";
 /// the head level, and the back looks less hunched (tuning, view only).
 const SPINE_SHARE: f32 = 0.4;
 
+/// The same in a crouch (`BOTH_CROUCH1IDLE`, `…WALK`, `…WALKBACK`), whose
+/// clips bow the chest 70–85° (tuning, view only).
+const CROUCH_SPINE_SHARE: f32 = 0.6;
+
 /// `body`'s upper spine (`Spine`), where the head's way up from body node
 /// `end` (the node the head model hangs at, or the head itself) passes it.
 fn spine_of((ir, nodes): (&ModelIr, &[Entity]), end: usize) -> Option<Spine> {
@@ -3347,11 +3351,11 @@ fn spine_of((ir, nodes): (&ModelIr, &[Entity]), end: usize) -> Option<Spine> {
 }
 
 impl Spine {
-    /// Turned back toward upright by `SPINE_SHARE` of its lean, times
-    /// `weight`, about its own joint; its children off the head's way set
-    /// again where they stood, so the arms, the hands and what they hold
-    /// stay where the pose put them (the drawn blade on the sim's).
-    fn straighten(&self, weight: f32, transforms: &mut Query<&mut Transform>) {
+    /// Turned back toward upright by `share` of its lean about its own
+    /// joint; its children off the head's way set again where they stood,
+    /// so the arms, the hands and what they hold stay where the pose put
+    /// them (the drawn blade on the sim's).
+    fn straighten(&self, share: f32, transforms: &mut Query<&mut Transform>) {
         let above = (self.above.iter()).fold(Quat::IDENTITY, |turn, &entity| {
             turn * transforms
                 .get(entity)
@@ -3365,7 +3369,7 @@ impl Spine {
         if axis == Vec3::ZERO {
             return;
         }
-        let back = Quat::from_axis_angle(axis, up.angle_between(Vec3::Z) * SPINE_SHARE * weight);
+        let back = Quat::from_axis_angle(axis, up.angle_between(Vec3::Z) * share);
         let kept: Vec<(Entity, bevy::math::Affine3A)> = (self.kept.iter())
             .filter_map(|&entity| {
                 let child = transforms.get(entity).ok()?.compute_affine();
@@ -3474,8 +3478,13 @@ impl HeadBone {
     /// along the view whatever its clip does with the chest: the head's
     /// turn in the model's space set to its rest turned about the model's
     /// up to `aim` (the model facing `facing`), by `share` (the JA pose's
-    /// share of the body), less as the chest leans far from upright.
-    fn level(&self, (aim, facing, share): (f32, f32, f32), transforms: &mut Query<&mut Transform>) {
+    /// share of the body), less as the chest leans far from upright unless
+    /// the legs crouch (`crouch`, 0 to 1: how far into a crouch's hold).
+    fn level(
+        &self,
+        (aim, facing, share, crouch): (f32, f32, f32, f32),
+        transforms: &mut Query<&mut Transform>,
+    ) {
         let read = |transforms: &Query<&mut Transform>| -> Vec<Quat> {
             (self.above.iter())
                 .map(|&e| transforms.get(e).map_or(Quat::IDENTITY, |t| t.rotation))
@@ -3495,13 +3504,17 @@ impl HeadBone {
             .acos()
             .to_degrees();
         let (whole, none) = LEVEL_LEAN_DEG;
-        let weight = share.clamp(0.0, 1.0) * ((none - lean) / (none - whole)).clamp(0.0, 1.0);
+        // A crouch bows the chest as far as a roll does, but its legs stand:
+        // its head is held whatever the lean.
+        let upright = ((none - lean) / (none - whole)).clamp(0.0, 1.0).max(crouch);
+        let weight = share.clamp(0.0, 1.0) * upright;
         if weight <= 0.0 {
             return;
         }
         // The upper spine straightened first, so the neck turns the less.
         if let Some(spine) = &self.spine {
-            spine.straighten(weight, transforms);
+            let straight = SPINE_SHARE + (CROUCH_SPINE_SHARE - SPINE_SHARE) * crouch;
+            spine.straighten(straight * weight, transforms);
             rotations = read(transforms);
         }
         let above = product(&rotations);
@@ -3525,12 +3538,39 @@ struct Head {
     /// How much of the level hold (`HeadBone::level`) has let go since its
     /// body died (0 alive, 1 dead `LEVEL_FADE_S` and more).
     let_go: f32,
+    /// How far its body is into a crouch (`Hold::crouched`): 0 out of one,
+    /// 1 crouched `CROUCH_EASE_S` and more.
+    crouch: f32,
+}
+
+/// What a head is held level by (`HeadBone::level`): its body's aim and
+/// facing (game degrees), the JA pose's share of the body, whether the
+/// body lives, and whether its legs crouch.
+#[derive(Clone, Copy)]
+struct Hold {
+    aim: f32,
+    facing: f32,
+    share: f32,
+    alive: bool,
+    crouched: bool,
 }
 
 /// How long (seconds) a body that dies takes to let its head go from level
 /// to its death's clip, and one revived to take it back: at once, the head
 /// jumped as far as it was held.
 const LEVEL_FADE_S: f32 = 0.3;
+
+/// How long (seconds) a body's head takes to come into a crouch's hold, and
+/// out of it (a roll from a crouch lets the head go with the body).
+const CROUCH_EASE_S: f32 = 0.2;
+
+/// Whether a body's legs crouch, standing or walking (not a roll's duck).
+fn crouches(state: &MotionState) -> bool {
+    matches!(
+        state.legs.anim,
+        Anim::BOTH_CROUCH1IDLE | Anim::BOTH_CROUCH1WALK | Anim::BOTH_CROUCH1WALKBACK
+    )
+}
 
 impl Head {
     /// At `ms`, eases toward `target` (degrees from the body; none: ahead)
@@ -3542,7 +3582,7 @@ impl Head {
     fn turn(
         &mut self,
         (target, ms): (Option<f32>, f64),
-        level: Option<(f32, f32, f32, bool)>,
+        level: Option<Hold>,
         bone: &HeadBone,
         transforms: &mut Query<&mut Transform>,
     ) {
@@ -3552,11 +3592,15 @@ impl Head {
         self.ms = Some(ms);
         let most = HEAD_TURN_RAD_S.to_degrees() * seconds;
         self.yaw += (target.unwrap_or(0.0) - self.yaw).clamp(-most, most);
-        let level = level.and_then(|(aim, facing, share, alive)| {
-            let gone = if alive { 0.0 } else { 1.0 };
-            let step = seconds / LEVEL_FADE_S;
-            self.let_go += (gone - self.let_go).clamp(-step, step);
-            Some((aim, facing, share * (1.0 - self.let_go))).filter(|(.., share)| *share > 0.0)
+        let ease = |at: &mut f32, to: bool, over: f32| {
+            let step = seconds / over;
+            *at += (f32::from(u8::from(to)) - *at).clamp(-step, step);
+        };
+        let level = level.and_then(|hold| {
+            ease(&mut self.let_go, !hold.alive, LEVEL_FADE_S);
+            ease(&mut self.crouch, hold.crouched, CROUCH_EASE_S);
+            let share = hold.share * (1.0 - self.let_go);
+            (share > 0.0).then_some((hold.aim, hold.facing, share, self.crouch))
         });
         if self.yaw.abs() < 0.01 && self.turned.is_none() && level.is_none() {
             return;
@@ -3922,7 +3966,13 @@ fn place(
             let legs = figure.yaw().unwrap_or(at.view[1]);
             let aim =
                 legs + angles::wrap_180(at.view[1] - legs).clamp(-AIM_REACH_DEG, AIM_REACH_DEG);
-            let level = Some((aim, yaw.to_degrees(), under, at.alive));
+            let level = Some(Hold {
+                aim,
+                facing: yaw.to_degrees(),
+                share: under,
+                alive: at.alive,
+                crouched: crouches(&at.state),
+            });
             let head = |figure: &mut Figure, transforms: &mut Query<&mut Transform>| {
                 if let Some(bone) = &body.head {
                     let target = look.map(|look| look_toward(soles, faces, look));
