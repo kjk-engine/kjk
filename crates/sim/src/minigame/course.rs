@@ -699,6 +699,26 @@ impl Course {
         }
     }
 
+    /// Seat `seat`'s command while a conversation holds it: the
+    /// conversation has its controls (TSL's executable hands the input to
+    /// the dialog until it closes, while the minigame plays on), so nothing
+    /// is pressed or moved, and its gun keeps its aim as the view turns
+    /// (`aim_from` follows the view), turning on from there once let go.
+    pub fn hold(&mut self, rules: &Rules, seat: u8, command: &Command) -> Command {
+        if rules.kind == Kind::Turret {
+            let angles = command.angles;
+            if self.seat == seat
+                && let Some(mover) = self.movers.first()
+            {
+                aim_kept(rules, &mut self.aim_from, &mover.offset, angles);
+            }
+            for gunner in self.gunners.iter_mut().filter(|gunner| gunner.seat == seat) {
+                aim_kept(rules, &mut gunner.aim_from, &gunner.offset, angles);
+            }
+        }
+        command.idle()
+    }
+
     /// A push on the player (`SWMG_PlayerApplyForce`, TSL's executable): its
     /// drift across and the lateral acceleration both `force`'s x, its jump
     /// speed its z; its y is not read.
@@ -1782,7 +1802,7 @@ fn turn_within(
         -turned(command.angles[0], aim_from[0]),
     ];
     for (k, turn) in turns.into_iter().enumerate() {
-        let axis = usize::from(rules.mouse[k]).min(2);
+        let axis = mouse_axis(rules, k);
         let sign = if rules.flip[k] { -1.0 } else { 1.0 };
         offset[axis] = rules.player.start_offset[axis] + sign * turn;
     }
@@ -1795,15 +1815,41 @@ fn turn_within(
             continue;
         }
         offset[axis] = offset[axis].clamp(low.min(high), high.max(low));
-        if let Some(k) = (0..2).find(|&k| usize::from(rules.mouse[k]).min(2) == axis) {
-            let sign = if rules.flip[k] { -1.0 } else { 1.0 };
-            let turn = (offset[axis] - rules.player.start_offset[axis]) * sign;
-            if k == 0 {
-                aim_from[1] = command.angles[1].wrapping_sub(math::degrees_to_short(turn));
-            } else {
-                aim_from[0] = command.angles[0].wrapping_sub(math::degrees_to_short(-turn));
-            }
+        if let Some(k) = (0..2).find(|&k| mouse_axis(rules, k) == axis) {
+            aim_from_offset(rules, k, offset, command.angles, aim_from);
         }
+    }
+}
+
+/// The offset's axis the view's turn `k` (0 its yaw, 1 its pitch) moves.
+fn mouse_axis(rules: &Rules, k: usize) -> usize {
+    usize::from(rules.mouse[k]).min(2)
+}
+
+/// `aim_from`'s part for the view's turn `k` (`mouse_axis`) set so that the
+/// view at `angles` turns it to where `offset` has it.
+fn aim_from_offset(
+    rules: &Rules,
+    k: usize,
+    offset: &Vec3,
+    angles: [i16; 3],
+    aim_from: &mut [i16; 2],
+) {
+    let axis = mouse_axis(rules, k);
+    let sign = if rules.flip[k] { -1.0 } else { 1.0 };
+    let turn = (offset[axis] - rules.player.start_offset[axis]) * sign;
+    if k == 0 {
+        aim_from[1] = angles[1].wrapping_sub(math::degrees_to_short(turn));
+    } else {
+        aim_from[0] = angles[0].wrapping_sub(math::degrees_to_short(-turn));
+    }
+}
+
+/// `aim_from` set so that the view at `angles` keeps `offset` where it is,
+/// on both of the view's turns (`Course::hold`).
+fn aim_kept(rules: &Rules, aim_from: &mut [i16; 2], offset: &Vec3, angles: [i16; 3]) {
+    for k in 0..2 {
+        aim_from_offset(rules, k, offset, angles, aim_from);
     }
 }
 

@@ -1,0 +1,5 @@
+# A conversation holding a seat while a minigame plays takes its controls
+# (nothing pressed or moved on the course, its gun's aim kept), as TSL's
+# executable gives the input to the dialog (Peragus' `106percut` and
+# `turend`).
+sim = "a conversation takes a minigame's controls while it holds the seat"
