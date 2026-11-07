@@ -188,7 +188,8 @@ pub struct Power {
 impl Power {
     /// Poses the model powered (`on`) or not at `ms` (sim ms), as TSL's
     /// executable powers a wielder's items as it readies them and unpowers
-    /// them as it puts them away: `powerup` once, then `powered` (a pose,
+    /// them as it puts them away (K1's reads the same `baseitems.2da`
+    /// power columns, `PoweredItem` and its sounds): `powerup` once, then `powered` (a pose,
     /// or looped); `powerdown` once, then `off`. The clip it shows.
     fn show(&mut self, on: bool, ms: f64, transforms: &mut Query<&mut Transform>) -> &'static str {
         if on != self.on {
@@ -1367,7 +1368,8 @@ impl Wielded {
                 drawn.shown.push(wield.name.clone());
             }
             // Powered while readied in hand (TSL sets a wielder's power
-            // bits as it readies, when a saber ignites); the dead keep it.
+            // bits as it readies, when a saber ignites; K1 powers the same
+            // items); the dead keep it.
             if let Some(power) = &mut wield.power {
                 let on = shown && at.armed;
                 drawn.powered.push(power.show(on, at.ms, transforms));
