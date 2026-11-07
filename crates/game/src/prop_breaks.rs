@@ -282,12 +282,6 @@ fn at(row: u16, place: Vec3) -> HookVisual {
 /// a look that stays or lost hit points that do not grow.
 #[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
-    let (near, far) = (Vec3::new(5.0, 0.0, 0.0), Vec3::new(50.0, 0.0, 0.0));
-    let watch = (
-        watched(&[near], Vec3::ZERO),
-        watched(&[far], Vec3::ZERO),
-        watched(&[], Vec3::ZERO),
-    );
     let cases = [
         ((look::DEFAULT, 0), (look::DEFAULT, 3), Change::Hit),
         ((look::DEFAULT, 3), (look::DEAD, 20), Change::Broke),
