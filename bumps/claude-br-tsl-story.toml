@@ -1,0 +1,5 @@
+# The sim's hash moves on purpose: TSL's looping ANIMATION_* constants to
+# 46 loop on when asked for a negative duration (Atton at the Ebon Hawk's
+# helm), and the scripted clips the sim times are the executables' (the
+# droids' looping `disabled`, TSL's chair sits `animloop01` to `05`).
+sim = "TSL's looping animation constants to 46 loop on, and scripted clips are timed as the executables map them"

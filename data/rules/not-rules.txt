@@ -478,6 +478,7 @@ crates/sim/src/script/engine.rs LIGHT_SIDE  # script constant: ALIGNMENT_*
 crates/sim/src/script/engine.rs LIVE_YAVIN  # script constant: LIVE_CONTENT_PKG1
 crates/sim/src/script/engine.rs LOCKED  # a `last` kind id
 crates/sim/src/script/engine.rs LOOPS_AT_ONCE  # script constant: the looping ANIMATION_* range
+crates/sim/src/script/engine.rs LOOPS_AT_ONCE_TSL  # script constant: TSL's looping ANIMATION_* range
 crates/sim/src/script/engine.rs NEUTRAL  # script constant: ALIGNMENT_*
 crates/sim/src/script/engine.rs NPC_PLAYER  # script constant: NPC_PLAYER
 crates/sim/src/script/engine.rs OPENED  # a `last` kind id

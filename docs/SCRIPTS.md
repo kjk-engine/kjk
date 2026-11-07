@@ -326,10 +326,7 @@ the games' own compiled scripts; nothing of them is in the repo.
   `MEDITATE_STAND` (46) `meditatestand`; `CHOKE_WORKING` (45) `choke`
   (TSL's looping choke, 116 being the fire-and-forget one too);
   `PAUSE_SCRATCH_HEAD`, `PAUSE_BORED` (102, 103) `pausesh`, `pausebrd`;
-  `DIVE_ROLL` (123) `diveroll`. [verify]: `SIT_CHAIR` (36) `sit` (rows 21
-  `Sit_Loop` and 456 `Sit_To_Meditate` share the name, the models hold
-  one), `SIT_CHAIR_DRINK` (37) `drink` and `SIT_CHAIR_PAZAK` (38)
-  `cardplay` (no description; no model holds them), `RAGE` (41)
+  `DIVE_ROLL` (123) `diveroll`. [verify]: `RAGE` (41)
   `forcerage` (a fire-and-forget row), `THROW_HIGH`/`LOW` (117, 118)
   `throwgren`/`throwgren1`, `FORCE_CAST` (121) `castout1`, `GET_LOW` and
   `GET_MID` (10, 11) the pick-ups `getfromgnd` and `getfromtbl` (rows 40,
@@ -340,8 +337,12 @@ the games' own compiled scripts; nothing of them is in the repo.
   `PlayAnimation` (read off the Mac builds) still picks one: `WORSHIP`
   (4) meditates, `VICTORY2`/`3` (109, 110) are `VICTORY`, and `CUSTOM01`
   (119) plays row 346's `usecomp`, which only the Taris rancor's model
-  holds (it eats from the bone pile so). `CHECK_BODY` (33),
-  `SIT_CHAIR_COMP1`/`2` (39, 40) and `SCREAM` (124) play nothing. The
+  holds (it eats from the bone pile so); `DEACTIVATE` (20) the droid's
+  looping `disabled` (row 270), not row 349's one-off `deactivate`; TSL's
+  chair sits, `SIT_CHAIR`, `_DRINK`, `_PAZAK`, `_COMP1` and `_COMP2` (36
+  to 40), the loops `animloop01` to `05` (rows 316 to 320, held by the
+  humanoid models: Atton at the Ebon Hawk's helm); `CHECK_BODY` (33)
+  `disablemine`; `SCREAM` (124) `forcerage`. The
   `kdtlk*` clips are in no model of either install. A creature model
   (`appearance.2da` `modeltype` S or L) is asked for each clip by its
   creature name first (`cpause1`, `cdie`, `cdead`, `cvictory`), as reone's
