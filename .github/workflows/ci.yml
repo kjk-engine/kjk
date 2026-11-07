@@ -41,7 +41,7 @@ env:
   # manual.yml. Branches never edit it: a bump file says the sim moves, and
   # the merge pins it (bumps/README.md, pin.yml); `git log --grep "Pinned
   # at merge"` is its history.
-  KJK_SIM_HASH: 765ed908cc9edb0a480857394fdfa88270fb853b8cd65c7e7d6ddecb03a0407e
+  KJK_SIM_HASH: 5db44fe19bc8a81a04cab42fd4d33d014563cee368eb5928e99c7f92a593abda
 
 jobs:
   # The approved tests and clippy are jobs of their own, side by side:

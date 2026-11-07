@@ -224,7 +224,18 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// (`Modifies::BlasterDeflection`). Old saves: old snapshots read no cost
 /// multipliers (every value as its template's), and hold none of the new kind,
 /// a new index after the old.
-pub const VERSION: u32 = 85 + crate::pending::SNAPSHOT;
+/// 86: a poison's course no longer carries the drained points' own time
+/// (`items::Course::drain_ms`): they end with the poison. The course is written
+/// in the snapshot (a fighter's poison) and in the save's scripts section (a
+/// script's `Effect::Poison`); both read it by the snapshot's version, the
+/// scripts section by the one `Save::decode_versioned` just read from the
+/// snapshot. Old saves: old saves skip the course's drain time, in the snapshot
+/// and in the save's scripts section alike; points already drained keep the
+/// time they were given.
+/// 87: the tail carries solo mode (`solo`), for the HUD's solo toggle and the
+/// solo key. Old saves: old saves read `solo = false`; the scripts' party
+/// table, saved as before, sets it again on the first step.
+pub const VERSION: u32 = 87 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
