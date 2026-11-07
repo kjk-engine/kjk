@@ -251,7 +251,7 @@ pub(super) fn all() -> Vec<Check> {
         shown("BTN_ACTION2").hidden,
     );
     // Stealth mode: KOTOR's stealth toggle lit; pause and solo stay hidden.
-    // Solo mode: TSL's solo toggle lit.
+    // Solo mode: KOTOR's solo toggle lit.
     let with = |stealth: bool, solo: bool| ViewModel {
         hud: vm.hud.clone().map(|hud| HudView {
             stealth,

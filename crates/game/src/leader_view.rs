@@ -8,9 +8,9 @@
 //! only the first seat leads (the party table is the host's), so a guest's
 //! key and clicks do nothing. A member down or dead, or a companion a
 //! guest plays, is not picked (the key goes on to the next). The solo key
-//! (TSL's `PartyActive`) turns solo mode on or off (`Action::Solo`: the
+//! (`PartyActive` in both games) turns solo mode on or off (`Action::Solo`: the
 //! companions stand where they are), the first seat's alone as the leader
-//! key is (the companions follow its leader); the HUD lights TSL's solo
+//! key is (the companions follow its leader); the HUD lights KOTOR's solo
 //! toggle while it is on (`Snapshot::solo`). The dump's `lead`: who
 //! leads, solo mode, and the party in the HUD's order.
 

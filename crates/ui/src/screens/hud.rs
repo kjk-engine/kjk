@@ -879,7 +879,7 @@ pub fn banner(control: &Control, vm: &ViewModel) -> ControlState {
     }
 }
 
-/// A toggle of the layout's lit: KOTOR's stealth, TSL's solo mode.
+/// A toggle of the layout's lit: KOTOR's stealth and solo mode.
 fn lit() -> ControlState {
     ControlState {
         selected: true,

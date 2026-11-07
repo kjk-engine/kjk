@@ -62,7 +62,7 @@ pub enum Action {
     QuickLoad,
     /// The next party member leads (KOTOR's `ChangeChar`, Tab).
     Leader,
-    /// Solo mode on or off (TSL's `PartyActive`, its V: here Next Form's).
+    /// Solo mode on or off (both games' `PartyActive`, their V: here Next Form's).
     Solo,
     /// While the seat watches (I30 P3): follow the next party member.
     Follow,

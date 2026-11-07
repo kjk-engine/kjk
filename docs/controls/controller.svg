@@ -54,6 +54,7 @@
 <text x="715" y="136" class="glyph" text-anchor="middle">RB</text>
 </g>
 <text x="360" y="100" class="main" text-anchor="end"><tspan class="key">LT</tspan>  Alt attack (kick, special)</text>
+<text x="360" y="118" class="sub" text-anchor="end">LB+LT: solo mode</text>
 <polyline class="lead" points="368,96 525,146"/>
 <circle class="dot" cx="525" cy="146" r="3"/>
 <text x="360" y="160" class="main" text-anchor="end"><tspan class="key">LB</tspan>  Hold: the second layer (LB+…)</text>
