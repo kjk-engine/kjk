@@ -3298,6 +3298,92 @@ struct HeadBone {
     above: Vec<Entity>,
     rest: Quat,
     chest: (usize, Quat),
+    /// The upper spine the head rides on, straightened with it (`level`).
+    spine: Option<Spine>,
+}
+
+/// A body's upper spine (`UPPER_SPINE`): its node, the nodes above it from
+/// the model's root down, its turn in the model's space at rest, and its
+/// children off the head's way (the collars, and the arms on them), kept
+/// where the pose put them when it turns.
+struct Spine {
+    node: Entity,
+    above: Vec<Entity>,
+    rest: Quat,
+    kept: Vec<Entity>,
+}
+
+/// The node of KOTOR's skeleton between the waist and the neck, which the
+/// collars and the neck hang from.
+const UPPER_SPINE: &str = "torsoupr_g";
+
+/// How much of its upper spine's lean from upright a body held level
+/// (`HeadBone::level`) straightens: the neck turns that much less to hold
+/// the head level, and the back looks less hunched (tuning, view only).
+const SPINE_SHARE: f32 = 0.4;
+
+/// `body`'s upper spine (`Spine`), where the head's way up from body node
+/// `end` (the node the head model hangs at, or the head itself) passes it.
+fn spine_of((ir, nodes): (&ModelIr, &[Entity]), end: usize) -> Option<Spine> {
+    let index = (ir.nodes.iter()).position(|node| node.name.eq_ignore_ascii_case(UPPER_SPINE))?;
+    let way: Vec<usize> =
+        std::iter::successors(Some(end), |&at| ir.nodes.get(at).and_then(|n| n.parent)).collect();
+    if !way.contains(&index) {
+        return None;
+    }
+    let above = ancestors((ir, nodes), index);
+    let rest = (above.iter()).fold(Quat::IDENTITY, |turn, (_, rotation)| turn * *rotation)
+        * at_rest_of((ir, nodes), index)?.1;
+    let kept = (ir.nodes.iter().enumerate())
+        .filter(|(at, node)| node.parent == Some(index) && !way.contains(at))
+        .filter_map(|(at, _)| nodes.get(at).copied())
+        .collect();
+    Some(Spine {
+        node: *nodes.get(index)?,
+        above: above.into_iter().map(|(entity, _)| entity).collect(),
+        rest,
+        kept,
+    })
+}
+
+impl Spine {
+    /// Turned back toward upright by `SPINE_SHARE` of its lean, times
+    /// `weight`, about its own joint; its children off the head's way set
+    /// again where they stood, so the arms, the hands and what they hold
+    /// stay where the pose put them (the drawn blade on the sim's).
+    fn straighten(&self, weight: f32, transforms: &mut Query<&mut Transform>) {
+        let above = (self.above.iter()).fold(Quat::IDENTITY, |turn, &entity| {
+            turn * transforms
+                .get(entity)
+                .map_or(Quat::IDENTITY, |t| t.rotation)
+        });
+        let Ok(own) = transforms.get(self.node).copied() else {
+            return;
+        };
+        let up = (above * own.rotation * self.rest.inverse()) * Vec3::Z;
+        let axis = up.cross(Vec3::Z).normalize_or_zero();
+        if axis == Vec3::ZERO {
+            return;
+        }
+        let back = Quat::from_axis_angle(axis, up.angle_between(Vec3::Z) * SPINE_SHARE * weight);
+        let kept: Vec<(Entity, bevy::math::Affine3A)> = (self.kept.iter())
+            .filter_map(|&entity| {
+                let child = transforms.get(entity).ok()?.compute_affine();
+                Some((entity, own.compute_affine() * child))
+            })
+            .collect();
+        let turned = Transform {
+            rotation: (above.inverse() * back * above * own.rotation).normalize(),
+            ..own
+        };
+        edit(transforms, self.node, |t| *t = turned);
+        let from = turned.compute_affine().inverse();
+        for (entity, stood) in kept {
+            edit(transforms, entity, |t| {
+                *t = Transform::from_matrix(Mat4::from(from * stood))
+            });
+        }
+    }
 }
 
 /// A head model hung on its body: its model and nodes, the body node it
@@ -3323,21 +3409,23 @@ fn head_bone(body: (&ModelIr, &[Entity]), hung: Option<Hung>) -> Option<HeadBone
     [HEAD_TURN_BONE, hooks::HEAD, "head"]
         .iter()
         .find_map(|name| {
-            // The chest: the hook, else the head's own parent.
-            let (mut chain, node, chest) = match &hung {
+            // The chest: the hook, else the head's own parent; and the
+            // body's node the head's way leaves it at.
+            let (mut chain, node, chest, end) = match &hung {
                 Some(hung) if let Some(index) = find(hung.ir, name) => {
                     let mut chain = ancestors(body, hung.hook);
                     let chest = chain.len();
                     chain.push(at_rest_of(body, hung.hook)?);
                     chain.push(hung.root);
                     chain.extend(ancestors((hung.ir, hung.nodes), index));
-                    (chain, at_rest_of((hung.ir, hung.nodes), index)?, chest)
+                    let node = at_rest_of((hung.ir, hung.nodes), index)?;
+                    (chain, node, chest, hung.hook)
                 }
                 _ => {
                     let index = find(body.0, name)?;
                     let chain = ancestors(body, index);
                     let chest = chain.len().checked_sub(1)?;
-                    (chain, at_rest_of(body, index)?, chest)
+                    (chain, at_rest_of(body, index)?, chest, index)
                 }
             };
             let chest_rest = turned(&chain[..=chest]);
@@ -3348,6 +3436,7 @@ fn head_bone(body: (&ModelIr, &[Entity]), hung: Option<Hung>) -> Option<HeadBone
                 above,
                 rest,
                 chest: (chest, chest_rest),
+                spine: spine_of(body, end),
             })
         })
 }
@@ -3387,9 +3476,12 @@ impl HeadBone {
     /// up to `aim` (the model facing `facing`), by `share` (the JA pose's
     /// share of the body), less as the chest leans far from upright.
     fn level(&self, (aim, facing, share): (f32, f32, f32), transforms: &mut Query<&mut Transform>) {
-        let rotations: Vec<Quat> = (self.above.iter())
-            .map(|&e| transforms.get(e).map_or(Quat::IDENTITY, |t| t.rotation))
-            .collect();
+        let read = |transforms: &Query<&mut Transform>| -> Vec<Quat> {
+            (self.above.iter())
+                .map(|&e| transforms.get(e).map_or(Quat::IDENTITY, |t| t.rotation))
+                .collect()
+        };
+        let mut rotations = read(transforms);
         let product = |rotations: &[Quat]| {
             (rotations.iter()).fold(Quat::IDENTITY, |above, rotation| above * *rotation)
         };
@@ -3406,6 +3498,11 @@ impl HeadBone {
         let weight = share.clamp(0.0, 1.0) * ((none - lean) / (none - whole)).clamp(0.0, 1.0);
         if weight <= 0.0 {
             return;
+        }
+        // The upper spine straightened first, so the neck turns the less.
+        if let Some(spine) = &self.spine {
+            spine.straighten(weight, transforms);
+            rotations = read(transforms);
         }
         let above = product(&rotations);
         let wanted = Quat::from_rotation_z(angles::wrap_180(aim - facing).to_radians()) * self.rest;
