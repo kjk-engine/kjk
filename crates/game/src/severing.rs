@@ -610,7 +610,13 @@ pub fn apply(
                     if !parted {
                         body.insert(Parted(mesh3d.0.clone()));
                     }
-                    body.insert(Mesh3d(meshes.add(bevy_mesh(&stays, None))));
+                    // The mesh left carries no bounds for its bones: never
+                    // culled from here on.
+                    body.insert((
+                        Mesh3d(meshes.add(bevy_mesh(&stays, None))),
+                        bevy::camera::visibility::NoFrustumCulling,
+                    ))
+                    .remove::<bevy::camera::visibility::DynamicSkinnedMeshBounds>();
                 }
                 // All the limb's, it goes with it as it is; all the body's,
                 // it stays: only its wound closed.
