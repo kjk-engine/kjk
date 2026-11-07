@@ -2005,3 +2005,23 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Expected:   `cut029` and its endings.
 - Status:     reproduced.
 - Ours:       `fmt_odyssey::dlg::cut_clip`
+
+### Q-0361 — Multiplayer roots the fast kata and the spin attacks
+
+- Reference:  OpenJK (JA multiplayer's movement for the spin attacks and
+  the katas; single player's command clamps and footsteps)
+- Behaviour:  multiplayer clears the keys and holds the view while the
+  pair's and the staff's spin attacks (crouch, forward and attack) and the
+  fast kata (both attacks) play. Single player leaves the keys alone: the
+  walk or run takes the legs (its footsteps override `BOTH_SPINATTACK6`/`7`,
+  "just spinning the saber", and the fast kata's legs timer is cleared once
+  keys are held), and the arms play on. The pair's kata is rooted in both.
+- Expected:   single player's: a playtester (2026-11-06) walked through
+  both in JA and found them rooted here.
+- Status:     fixed: the keys stay free and the gait takes the legs. Every
+  other special kjk roots or drives is held in single player too (its
+  flips, back attacks and stab-downs keep their full-body clips).
+- Ours:       `sim::motion::weapon` (`special_move_keys`, `kata_keys`,
+  `gait_overrides`), `Move::footsteps`
+- Evidence:   `kjk combat saber`, "fast kata: walks on", "dual spin: walks
+  on", "staff spin: walks on", "dual kata: stands"

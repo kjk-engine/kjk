@@ -75,8 +75,9 @@ title = "Kata"
 summary = """
 [Attack] + [Alt attack], standing on the ground with no movement key held,
 from ready or the start of a swing. Each style has its own kata. Two
-weapons spin to protect the character; a double-bladed lightsaber makes
-the Soulcal. Cost: {saber_moves.costs.kata}.
+weapons spin to protect the character, a Force user's alone; a
+double-bladed lightsaber makes the Soulcal. The fast style's kata can be
+walked through; the others move the body themselves. Cost: {saber_moves.costs.kata}.
 """
 
 [specials.lunge]
@@ -84,7 +85,7 @@ title = "Lunge and Spin Attacks"
 summary = """
 [Crouch] + [Forward] + [Attack] on the ground, blade ready: the fast
 style's lunge, or the spin attack of a double-bladed lightsaber or two
-weapons. Cost: {saber_moves.costs.forward_back}.
+weapons, which can be walked through. Cost: {saber_moves.costs.forward_back}.
 """
 
 [specials.flip]

@@ -5,7 +5,7 @@ use fmt_odyssey::mdl::{self, Model, Node};
 use mdl::{
     CONTROLLER_ALPHA as ALPHA, CONTROLLER_LIGHT_COLOR as LIGHT_COLOR,
     CONTROLLER_LIGHT_MULTIPLIER as LIGHT_MULTIPLIER, CONTROLLER_LIGHT_RADIUS as LIGHT_RADIUS,
-    CONTROLLER_SELF_ILLUM as SELF_ILLUM,
+    CONTROLLER_SCALE as SCALE, CONTROLLER_SELF_ILLUM as SELF_ILLUM,
 };
 
 /// Row-major 4×4 matrix.
@@ -129,6 +129,19 @@ pub struct DanglyIr {
     pub period: f32,
     pub constraints: Vec<f32>,
     pub rest: Vec<[f32; 3]>,
+}
+
+impl MeshIr {
+    /// Scales the vertices about the node's origin (a rest scale baked in).
+    fn scale(&mut self, by: f32) {
+        let scaled = |points: &mut Vec<[f32; 3]>| {
+            points.iter_mut().for_each(|p| *p = p.map(|v| v * by));
+        };
+        scaled(&mut self.positions);
+        if let Some(dangly) = &mut self.dangly {
+            scaled(&mut dangly.rest);
+        }
+    }
 }
 
 /// A skinned mesh's bones. `joints[slot]` is the node driving bone slot
@@ -386,7 +399,7 @@ impl ModelIr {
             refusals: Vec::new(),
         };
         let mut skins = Vec::new();
-        ir.add(&model.root, None, &IDENTITY, &mut skins);
+        ir.add(&model.root, None, &IDENTITY, 1.0, &mut skins);
         for (mesh, source) in skins {
             let node = ir.meshes[mesh].node;
             ir.meshes[mesh].skin = skin(&ir.nodes, node, source);
@@ -394,20 +407,33 @@ impl ModelIr {
         ir
     }
 
+    /// `parent_scale` is the product of the ancestors' rest scales (the
+    /// scale controller's first key, as the exe draws it: K1's saber blade
+    /// planes rest at 0). It is baked into the node's offset and its mesh
+    /// so node transforms stay rigid for every consumer. Mods exported from
+    /// Blender store an object's scale there: a weapon modelled big and
+    /// scaled down drew at its modelled size without it.
     fn add<'m>(
         &mut self,
         node: &'m Node,
         parent: Option<usize>,
         parent_world: &Matrix,
+        parent_scale: f32,
         skins: &mut Vec<(usize, &'m mdl::Skin)>,
     ) {
         let rotation = quaternion(node.orientation);
-        let world = multiply(parent_world, &matrix(node.position, rotation));
+        let translation = node.position.map(|v| v * parent_scale);
+        let scale = parent_scale
+            * first_row(node, SCALE)
+                .and_then(|row| row.first().copied())
+                .filter(|s| s.is_finite())
+                .unwrap_or(1.0);
+        let world = multiply(parent_world, &matrix(translation, rotation));
         let index = self.nodes.len();
         self.nodes.push(NodeIr {
             name: node.name.clone(),
             parent,
-            translation: node.position,
+            translation,
             rotation,
             world,
             animated: node.animated,
@@ -435,7 +461,10 @@ impl ModelIr {
         }
         if let Some(mesh) = &node.mesh {
             match Self::mesh(index, node, mesh) {
-                Ok(drawable) => {
+                Ok(mut drawable) => {
+                    if scale != 1.0 && mesh.skin.is_none() {
+                        drawable.scale(scale);
+                    }
                     if let Some(source) = &mesh.skin {
                         skins.push((self.meshes.len(), source));
                     }
@@ -445,7 +474,7 @@ impl ModelIr {
             }
         }
         for child in &node.children {
-            self.add(child, Some(index), &world, skins);
+            self.add(child, Some(index), &world, scale, skins);
         }
     }
 

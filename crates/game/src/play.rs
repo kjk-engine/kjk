@@ -124,7 +124,7 @@ pub struct Loaded {
 /// The party's bodies (body, head) the seats take in turn until the party
 /// table (I19) picks them: the same on every machine, so a joined player
 /// draws each seat as its host does. Only `--body roster` and a seat with
-/// no persona take them (K1's party templates' looks, by name [verify]).
+/// no persona in a K1 game take them (`ROSTER_TSL` in a TSL game).
 pub const ROSTER: [(&str, &str); 6] = [
     ("p_carthbb", "p_carthh"),
     ("p_bastilabb", "p_bastilah"),
@@ -133,6 +133,42 @@ pub const ROSTER: [(&str, &str); 6] = [
     ("p_joleebb", "p_joleeh"),
     ("p_juhanibb", "p_juhanih"),
 ];
+
+/// TSL's party bodies (body, head), the seats without a persona take in
+/// turn in a TSL game: K1's are not all in TSL's files (no Canderous).
+pub const ROSTER_TSL: [(&str, &str); 7] = [
+    ("p_attonbb", "p_attonh"),
+    ("p_kreiabb", "p_kreiah"),
+    ("p_baodurbb", "p_baodurh"),
+    ("p_mirabb", "p_mirah"),
+    ("p_visasbb", "p_visash"),
+    ("p_handmaidenbb", "p_handmaidenh"),
+    ("p_disciplebb", "p_discipleh"),
+];
+
+/// The party bodies a seat without a persona takes: its game's, only those
+/// whose body and head the install has (all of them when none are found,
+/// so the missing model is still the one named).
+fn stand_ins(resolver: Option<&Resolver>) -> Vec<(&'static str, &'static str)> {
+    let Some(resolver) = resolver else {
+        return ROSTER.to_vec();
+    };
+    let party: &[(&str, &str)] = match resolver.game {
+        Game::Kotor2 => &ROSTER_TSL,
+        _ => &ROSTER,
+    };
+    let has = |name: &str| resolver.find(name, fmt_odyssey::ResType::MDL).is_some();
+    let found: Vec<_> = party
+        .iter()
+        .copied()
+        .filter(|&(body, head)| has(body) && has(head))
+        .collect();
+    if found.is_empty() {
+        party.to_vec()
+    } else {
+        found
+    }
+}
 
 /// `ROSTER` as the options take it.
 pub fn roster() -> Vec<(String, String)> {
@@ -219,13 +255,14 @@ fn wears(
             })
             .collect());
     }
+    let stand_ins = stand_ins(resolver);
     (0..seats.max(1))
         .map(|seat| {
             let worn = resolver
                 .zip(sim::persona::dressed(snapshot, sim::Seat(seat)))
                 .and_then(|(resolver, worn)| crate::persona::wear(resolver, &mut tables, worn));
             Ok(worn.unwrap_or_else(|| {
-                let (body, head) = ROSTER[usize::from(seat) % ROSTER.len()];
+                let (body, head) = stand_ins[usize::from(seat) % stand_ins.len()];
                 Wear {
                     body: body.into(),
                     head: head.into(),
@@ -844,14 +881,6 @@ pub(crate) fn from_save(
 ) -> Result<(sim::SimWorld, sim::Announcement), String> {
     if let Some(restamp) = save.restamp(level)? {
         bevy::log::warn!(target: "save-migrate", "{restamp}");
-    }
-    let changed = save.stale_code(level);
-    if !changed.is_empty() {
-        bevy::log::warn!(
-            target: "save-migrate",
-            scripts = %changed.join(", "),
-            "refused: deferred code of scripts that changed"
-        );
     }
     let mut world = save.world(level, seats, tick)?;
     if let Some(report) = world.reconciled() {
