@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `cd3c70af3816c377`.
+Edition `0df5b8e1a1552f2e`.
 
 ## Contents
 
@@ -6412,6 +6412,24 @@ A following party member finds a new path when its leader moves 2.4 meters.
 
 <sub>Source: ours. Code: `sim::world::minds::think`.</sub>
 
+<a id="minds-tasks-follow-pace"></a>**Keeping Pace** = **4 m** · `minds.tasks.follow_pace`
+
+A party member within 4 meters of its place beside a walking leader walks there at its leader's walk; farther off it runs to catch up.
+
+<sub>Source: K1's executable. Code: `sim::world::minds::think`.</sub>
+
+<a id="minds-tasks-follow-walk-share"></a>**Leader Walking** = **×0.6** · `minds.tasks.follow_walk_share`
+
+A leader moving at more than 0.1 m/s but under 0.6 times a run is walking, for its party members keeping pace.
+
+<sub>Source: K1's executable. Code: `sim::world::minds::think`.</sub>
+
+<a id="minds-tasks-follow-moving"></a>**Leader Moving** = **0.1 m/s** · `minds.tasks.follow_moving`
+
+A leader slower than 0.1 m/s stands, for its party members keeping pace.
+
+<sub>Source: K1's executable. Code: `sim::world::minds::think`.</sub>
+
 <a id="minds-tasks-follow-back"></a>**Formation Depth** = **1.6 meters** (`64 units`) · `minds.tasks.follow_back`
 
 A following party member keeps 1.6 meters behind its leader, a second pair twice as far.
@@ -8698,8 +8716,13 @@ A character can walk down to floor no more than 4 steps below.
 
 Outside combat, a character walks and runs at its own speeds, raised or
 lowered by movement speed effects from 0.125 to
-1.5 times normal. A character leaving
-combat slows to those speeds over 0.5 seconds.
+1.5 times normal. A creature walks and runs
+at its movement rate's speeds (`creaturespeed.2da`), a player's character
+at the `PLAYER` row's, as KOTOR moves every character a script walks. A
+character its player walks, or one sneaking, walks at its body's own walk
+instead (`appearance.2da`'s `driveanimwalk`), as KOTOR walks the character
+its player drives. A character leaving combat slows to those speeds over
+0.5 seconds.
 
 <a id="walking-pace-ease-ms"></a>**Leaving Combat** = **0.5 seconds** (`500 ms`) · `walking.pace.ease_ms`
 
