@@ -752,20 +752,32 @@ pub(crate) fn install_key(game: vfs::Game) -> String {
     format!("install.{}", game.key())
 }
 
-/// The folders the player chose for the games, by their variables' names
-/// (`KJK_KOTOR1`, …), read from the settings file alone: `discover` reads
-/// them before any app, and saves nothing.
-pub(crate) fn chosen_installs() -> std::collections::HashMap<String, String> {
-    let values = file()
+/// The setting naming Jedi Academy's mod folder (`MD`), the variable
+/// `KJK_JA_MOD`'s stand-in (`chosen_installs`).
+pub(crate) const JA_MOD: &str = "ja.mod";
+
+/// The settings file's values alone, as kept (no defaults); nothing when
+/// it does not read. What loading reads before any app (`discover`, the
+/// view's options), saving nothing.
+pub(crate) fn stored() -> BTreeMap<String, String> {
+    file()
         .and_then(|path| std::fs::read_to_string(path).ok())
         .and_then(|text| serde_json::from_str::<BTreeMap<String, String>>(&text).ok())
-        .unwrap_or_else(BTreeMap::new);
-    vfs::Game::ALL
+        .unwrap_or_else(BTreeMap::new)
+}
+
+/// The folders the player chose for the games, by their variables' names
+/// (`KJK_KOTOR1`, …), and Jedi Academy's mod folder (`ja.mod`, as
+/// `KJK_JA_MOD`), read from the settings file alone: `discover` reads them
+/// before any app, and saves nothing.
+pub(crate) fn chosen_installs() -> std::collections::HashMap<String, String> {
+    let values = stored();
+    let installs = vfs::Game::ALL
         .into_iter()
-        .filter_map(|game| {
-            let chosen = values.get(&install_key(game))?;
-            Some((game.env_var().to_string(), chosen.clone()))
-        })
+        .map(|game| (install_key(game), game.env_var()));
+    installs
+        .chain([(JA_MOD.to_string(), vfs::JA_MOD_VAR)])
+        .filter_map(|(key, var)| Some((var.to_string(), values.get(&key)?.clone())))
         .collect()
 }
 

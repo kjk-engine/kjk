@@ -1072,7 +1072,11 @@ fn load_ja(
 ) -> Result<Ja, String> {
     use crate::launch_times::timed;
     let mut notes = Vec::new();
-    let sabers = weapons::Sabers::load(files)?;
+    // The view's own choices (`settings::stored`): the JA hilts KOTOR's
+    // lightsabers are drawn with.
+    let stored = crate::settings::stored();
+    let (sabers, hilt_textures) =
+        weapons::Sabers::load(files)?.with_hilts(files, &stored, &mut notes);
     let events = files.read(ANIM_EVENTS).map_or_else(
         || {
             notes.push(format!(
@@ -1088,23 +1092,32 @@ fn load_ja(
             })
         },
     );
+    let sequences: BTreeMap<String, fmt_ja::animation_cfg::Sequence> = cfg
+        .sequences
+        .iter()
+        .map(|s| (s.name.to_ascii_uppercase(), s.clone()))
+        .collect();
+    // And the characters' own stances and walks, when asked for.
+    let duel = if crate::duel_stances::DuelStances::wanted(&stored) {
+        crate::duel_stances::DuelStances::load(&sequences, &mut notes)
+    } else {
+        crate::duel_stances::DuelStances::off()
+    };
     let rig = Rig {
         gla,
-        sequences: cfg
-            .sequences
-            .iter()
-            .map(|s| (s.name.to_ascii_uppercase(), s.clone()))
-            .collect(),
+        sequences,
         ja_sole: crate::viewer_rig::sole_height(glm),
         quirks,
         hands: ["*r_hand", "*l_hand"].map(|tag| asset_ja::bolt(glm, tag)),
         sabers: sabers.clone(),
         events: Arc::new(events),
+        duel,
     };
     // Every saber colour's shaders for the blades.
-    let (blade_textures, lost_blade_textures) = timed("ja/blade textures", || {
+    let (mut blade_textures, lost_blade_textures) = timed("ja/blade textures", || {
         viewer_ja::textures(files, &weapons::shaders())
     });
+    blade_textures.extend(hilt_textures);
     let named: Vec<&'static str> = crate::blade_fx::EFFECTS
         .iter()
         .copied()

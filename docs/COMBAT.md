@@ -1223,6 +1223,17 @@ flies, spinning, where the snapshots have it. Dumps list each character's
 weapons and lit blades (`characters.roster`), `blade_ends` the blades
 drawn.
 
+A KOTOR lightsaber can be drawn with a JA hilt instead (the base game's or
+a mod folder's, `docs/VFS.md`; `kjk sabers` lists them), in the view
+alone: the setting `saber.hilt.<key>` = a `.sab` name, read when a run
+loads, `<key>` the KOTOR hilt's model (`w_lghtsbr_001`, the base item's
+model with its variation) or `single` / `double` for every hilt of one or
+two blades, the model's own winning. The JA hilt is turned so its first
+blade runs up KOTOR's hilt axis from its grip, its blades leave it where
+JA's do, in KOTOR's colour and at the sim's lengths; one whose blade count
+is not KOTOR's hilt's is not used. The sim's blades stay `single_1`'s and
+`dual_1`'s. The run's notes say each one drawn or why not.
+
 The characters' weapons follow their sheets in the snapshots (`armory`): a
 scene is composed with every seat holding the local sheet's weapons and
 every creature its template's, and a character whose snapshot sheet names

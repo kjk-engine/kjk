@@ -238,6 +238,33 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
 - The view only: the sim's skeleton (JA's) still decides what a blade
   cuts. `dump`'s `characters.roster[].clip.gait` gives each clip's weight.
 
+## Duel stances (`game::duel_stances`)
+- A JA mod's skeleton (a mod folder, `docs/VFS.md`; Movie Duels') has
+  stances and walks of its own for its characters
+  (`BOTH_SABERSTAFF_STANCE_KOTOR`, `BOTH_WALK_DUAL_ANI`;
+  `docs/SABER-RULES.md` section 11). With the setting
+  `game.duel_stances` = `true` (off by default; read when a run loads),
+  a character with its blade lit is drawn in its own: while the sim
+  plays one of JA's lit stances or walks (`BOTH_STAND2`, the four
+  `BOTH_SABER…_STANCE`s, `BOTH_WALK2`, `BOTH_WALK_DUAL`,
+  `BOTH_WALK_STAFF`), the body plays the sequence its row of
+  `data/duel_stances.toml` finds in the stack's `animation.cfg`: one
+  named outright, else JA's name with each of the row's suffixes in turn
+  (`_KOTOR`, `_BEN`, …). Rows go by template or tag (`p_bastilla*`), the
+  player's own character, and a default; the first that matches, of those
+  with a sequence in the stack, wins. The run's notes (a dump's
+  `scene.creature_notes`) say what each row found (`duel stances, Bastila Shan: BOTH_SABERSTAFF_STANCE as …`).
+- The other sequence is played from the sim's moment, at the sim's share
+  of its rate (a walk sped by the pace keeps its speed), looping as its
+  `animation.cfg` line says. A part going to, from or between such
+  sequences blends from the pose it shows, over the sim's blend's length;
+  JA's held-stance breathing (`stance`) stays off while one plays.
+- Nothing changes without the setting, without a mod (no such sequence),
+  with no blade lit, or for a body drawn the cgame's way (`--quirks`) or
+  dead. The view only, as `stance` and the gait: the sim's skeleton holds
+  JA's sequence, the blades cut from it, and no digest moves.
+  `kjk sim probes --only "duel stances"` checks the table and the replay.
+
 ## Tools (`kjk rig a|b|c`)
 - `--moves` a timeline (`showcase`, `acrobatics`, `specials`, `defense`,
   `force`, `staff`, `dual`, `reactions`, `melee`, `styles`, `gestures`,

@@ -219,6 +219,13 @@ enum Command {
         #[arg(long)]
         shadowed: bool,
     },
+    /// Jedi Academy's sabers after precedence (every `ext_data/sabers/*.sab`
+    /// block, its mod folder's too): name, file, hilt model, blades,
+    /// lengths and colours; the names a `saber.hilt.*` setting can give.
+    Sabers {
+        /// Name pattern; `*` and `?` are wildcards
+        pattern: Option<String>,
+    },
     /// Digest the game data of each install (or one), for comparing machines.
     Fingerprint {
         /// k1, tsl or ja; all found installs when left out
@@ -704,6 +711,9 @@ pub fn run() -> ExitCode {
             module.as_deref(),
             shadowed,
         ),
+        Some(Command::Sabers { pattern }) => {
+            resources::sabers(&discover(), &pattern.unwrap_or("*".into()))
+        }
         Some(Command::Fingerprint { game, no_cache }) => {
             fingerprint(&discover(), game.as_deref(), no_cache)
         }
@@ -880,6 +890,9 @@ fn games() -> ExitCode {
         outln!("    markers: {}", install.markers.join(" "));
         if let Some(note) = install.workshop_note() {
             outln!("    workshop: {note}");
+        }
+        if let Some(note) = install.ja_mod_note() {
+            outln!("    mod: {note}");
         }
         match DirIndex::of_install(install) {
             Ok(index) => {

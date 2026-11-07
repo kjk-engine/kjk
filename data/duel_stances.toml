@@ -1,0 +1,82 @@
+# The stances and walks KOTOR's characters take from a mod's skeleton
+# (Movie Duels' per-character sequences, docs/SABER-RULES.md section 11)
+# when the setting `game.duel_stances` is `true` (docs/SKELETON.md, "Duel
+# stances"). View only: the sim's skeleton plays JA's sequences.
+#
+# While a character's blade is lit and the sim plays one of JA's ready
+# stances or walks (BOTH_STAND2, BOTH_SABERFAST_STANCE,
+# BOTH_SABERSLOW_STANCE, BOTH_SABERDUAL_STANCE, BOTH_SABERSTAFF_STANCE,
+# BOTH_WALK2, BOTH_WALK_DUAL, BOTH_WALK_STAFF), its body plays the first of
+# these the stack's animation.cfg has:
+#   - the sequence its row names for it outright (`sequences`);
+#   - JA's name with each of its row's `suffixes`, in order
+#     (BOTH_SABERDUAL_STANCE + "_MAUL" = BOTH_SABERDUAL_STANCE_MAUL).
+# None found, JA's plays. Without a mod folder none is found.
+#
+# Rows: `[default]` for everyone without a row of their own; each
+# `[[character]]` by `templates` and `tags` (the creature's, any case, `*`
+# standing for any run of characters), or `player = true` for a seat's own
+# character. The first row that matches, of those with a sequence in the
+# stack, wins.
+
+[default]
+suffixes = ["_KOTOR"]
+
+[[character]]
+name = "the player"
+player = true
+suffixes = ["_KOTOR"]
+
+# K1's Jedi companions.
+[[character]]
+name = "Bastila Shan"
+templates = ["p_bastilla*"]
+suffixes = ["_KOTOR"]
+# Her double-bladed saber's stance, whatever style the sim gives her.
+sequences = { BOTH_STAND2 = "BOTH_SABERSTAFF_STANCE_KOTOR", BOTH_SABERSTAFF_STANCE = "BOTH_SABERSTAFF_STANCE_KOTOR" }
+
+[[character]]
+name = "Jolee Bindo"
+templates = ["p_jolee*"]
+suffixes = ["_BEN", "_KOTOR"]
+
+[[character]]
+name = "Juhani"
+templates = ["p_juhani*"]
+suffixes = ["_REY", "_KOTOR"]
+
+# TSL's.
+[[character]]
+name = "Kreia"
+templates = ["p_kreia*"]
+suffixes = ["_PAL", "_KOTOR"]
+
+[[character]]
+name = "Atton Rand"
+templates = ["p_atton*"]
+suffixes = ["_ANI", "_KOTOR"]
+
+[[character]]
+name = "Visas Marr"
+templates = ["p_visas*"]
+suffixes = ["_GALEN", "_KOTOR"]
+
+[[character]]
+name = "Bao-Dur"
+templates = ["p_baodur*"]
+suffixes = ["_MACE", "_KOTOR"]
+
+[[character]]
+name = "Mira"
+templates = ["p_mira*"]
+suffixes = ["_CAL", "_KOTOR"]
+
+[[character]]
+name = "Brianna"
+templates = ["p_handmaiden*"]
+suffixes = ["_REY", "_KOTOR"]
+
+[[character]]
+name = "Mical"
+templates = ["p_disciple*"]
+suffixes = ["_OBI", "_KOTOR"]

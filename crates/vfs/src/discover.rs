@@ -19,11 +19,18 @@ pub struct Install {
     /// Whether the Steam Workshop items the game loads are played
     /// (`workshop_items`); `KJK_WORKSHOP=off` plays the game folder alone.
     pub workshop: bool,
+    /// Jedi Academy's mod folder, as `KJK_JA_MOD` names it (`MD`): a folder
+    /// beside `base/` whose archives load after `base/`'s (`ja_mod_folder`).
+    /// `None` for the KOTOR games and when nothing names one.
+    pub ja_mod: Option<String>,
 }
 
 /// The variable that turns the Workshop items off (`off`, `0`, `no` or
 /// `false`).
 pub const WORKSHOP_VAR: &str = "KJK_WORKSHOP";
+
+/// The variable naming Jedi Academy's mod folder (`MD`), beside `base/`.
+pub const JA_MOD_VAR: &str = "KJK_JA_MOD";
 
 /// The most subscribed items the game asks Steam for (`LoadSteamMods`).
 pub const MAX_WORKSHOP_ITEMS: usize = 30;
@@ -102,6 +109,46 @@ impl Install {
                 .filter_map(installed)
                 .collect(),
             order_from,
+        }
+    }
+
+    /// The mod folder `ja_mod` names, found beside `base/` in any case: its
+    /// lowercased name (the index's keys start with it) and its path; why
+    /// not, when it names something else than a folder there. `Ok(None)`
+    /// when nothing names one.
+    pub fn ja_mod_folder(&self) -> Result<Option<(String, PathBuf)>, String> {
+        let Some(name) = self.ja_mod.as_deref() else {
+            return Ok(None);
+        };
+        let plain = !name.is_empty()
+            && !name.contains(['/', '\\', ':'])
+            && name != "."
+            && name != ".."
+            && !name.eq_ignore_ascii_case("base");
+        if !plain {
+            return Err(format!(
+                "{JA_MOD_VAR}={name:?}: not a folder name beside base/"
+            ));
+        }
+        let lower = name.to_ascii_lowercase();
+        match find_child(&self.data_root, &lower).filter(|path| path.is_dir()) {
+            Some(path) => Ok(Some((lower, path))),
+            None => Err(format!(
+                "{JA_MOD_VAR}={name}: no such folder in {}",
+                self.data_root.display()
+            )),
+        }
+    }
+
+    /// What a player is told when a mod folder is named: where it is read
+    /// from, or why it is not.
+    pub fn ja_mod_note(&self) -> Option<String> {
+        match self.ja_mod_folder() {
+            Ok(None) => None,
+            Ok(Some((_, path))) => {
+                Some(format!("mod folder {} loaded after base/", path.display()))
+            }
+            Err(why) => Some(format!("{why}; base/ alone is played")),
         }
     }
 
@@ -321,7 +368,8 @@ impl Discovery {
 /// that names something other than that game is a refusal, with no fallback,
 /// so a wrong path is never silently replaced by another install. Without a
 /// variable, Steam libraries are searched, then GOG's default folders.
-/// `KJK_WORKSHOP=off` leaves the installs' Workshop items out.
+/// `KJK_WORKSHOP=off` leaves the installs' Workshop items out;
+/// `KJK_JA_MOD` names Jedi Academy's mod folder.
 pub fn discover(var: impl Fn(&str) -> Option<String>) -> Discovery {
     let mut discovery = Discovery::default();
     let steam_libraries = steam_libraries();
@@ -375,8 +423,14 @@ pub fn discover(var: impl Fn(&str) -> Option<String>) -> Discovery {
             "off" | "0" | "no" | "false"
         )
     });
+    let ja_mod = var(JA_MOD_VAR)
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty());
     for install in &mut discovery.installs {
         install.workshop = workshop;
+        if install.game == Game::JediAcademy {
+            install.ja_mod = ja_mod.clone();
+        }
     }
     discovery
 }
@@ -525,6 +579,7 @@ fn probe(game: Game, root: &Path, source: Source) -> Result<Install, String> {
         store,
         markers,
         workshop: true,
+        ja_mod: None,
     })
 }
 

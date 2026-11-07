@@ -28,6 +28,15 @@ The builds are not signed, so your computer warns you the first time:
 Movies need [ffmpeg](https://ffmpeg.org/download.html) installed; the game
 runs without it.
 
+**Movie Duels (optional).** With Movie Duels installed for Jedi Academy
+(its `MD` folder beside `base/`), kjk can read it after `base/`: set
+`KJK_JA_MOD=MD` (in the environment or `.env`), or `"ja.mod": "MD"` in
+kjk's `settings.json`. Its sabers can then stand in for KOTOR's hilts
+(`"saber.hilt.single": "<saber>"`; `kjk sabers` lists the names), and
+`"game.duel_stances": "true"` draws the characters in its stances and
+walks. Its files come from your own install and are never shipped with
+kjk; players in co-op need the same one ([`docs/VFS.md`](docs/VFS.md)).
+
 (Building from source is only needed for development; see
 [Development](#development).)
 

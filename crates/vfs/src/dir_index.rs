@@ -11,11 +11,14 @@ use crate::Install;
 /// An install's index (`of_install`) also holds the Steam Workshop items
 /// the game loads, each indexed the same way (`workshop`); the lookups here
 /// are the game folder's alone, and the resolver ranks the items' files.
+/// A Jedi Academy install's names its mod folder (`ja_mod`), whose files
+/// are in the index under its name.
 #[derive(Debug, Default)]
 pub struct DirIndex {
     files: BTreeMap<String, PathBuf>,
     collisions: Vec<CaseCollision>,
     workshop: Vec<WorkshopFolder>,
+    ja_mod: Option<String>,
 }
 
 /// A Steam Workshop item's folder, indexed.
@@ -55,14 +58,31 @@ pub struct CaseCollision {
 
 impl DirIndex {
     /// The install's data folder and the Workshop items its game loads
-    /// (`Install::workshop_items`), in their load order.
+    /// (`Install::workshop_items`), in their load order; Jedi Academy's
+    /// mod folder when one is named and found (`Install::ja_mod_folder`).
     pub fn of_install(install: &Install) -> io::Result<DirIndex> {
         let mut index = DirIndex::build(&install.data_root)?;
         for item in install.workshop_items().items {
             let files = DirIndex::build(&item.folder)?;
             index.workshop.push(WorkshopFolder { id: item.id, files });
         }
+        if let Ok(Some((folder, _))) = install.ja_mod_folder() {
+            index.ja_mod = Some(folder);
+        }
         Ok(index)
+    }
+
+    /// This index with `folder` (a folder at its root, any case) as Jedi
+    /// Academy's mod folder.
+    pub fn with_ja_mod(mut self, folder: &str) -> DirIndex {
+        self.ja_mod = Some(normalize(folder));
+        self
+    }
+
+    /// Jedi Academy's mod folder, lowercased (`md`): its archives and files
+    /// load after `base/`'s (`ja::JaStack`).
+    pub fn ja_mod(&self) -> Option<&str> {
+        self.ja_mod.as_deref()
     }
 
     /// This index with `items` as its Workshop items, in load order.

@@ -559,15 +559,7 @@ pub fn table_of(gla: &Gla, cfg: &AnimationConfig) -> AnimTable {
             .sequences
             .iter()
             .find(|s| s.name.eq_ignore_ascii_case(name))?;
-        let fps = match sequence.frames_per_second {
-            0 => 1.0,
-            fps => fps as f32,
-        };
-        let frame_lerp = if fps < 0.0 {
-            (1000.0 / fps).floor()
-        } else {
-            (1000.0 / fps).ceil()
-        } as i32;
+        let timed = sim_sequence(sequence);
         let feet = match (feet, root) {
             ([Some(left), Some(right)], Some(root)) => {
                 let mut player = asset_ja::g2::Player::new(gla);
@@ -583,13 +575,34 @@ pub fn table_of(gla: &Gla, cfg: &AnimationConfig) -> AnimTable {
             _ => None,
         };
         Some(AnimInfo {
-            first_frame: sequence.first_frame,
-            frames: sequence.frame_count,
-            frame_lerp,
+            first_frame: timed.first_frame,
+            frames: timed.frames,
+            frame_lerp: timed.frame_lerp,
             feet,
-            looping: sequence.loop_frame != -1,
+            looping: timed.looping,
         })
     })
+}
+
+/// An `animation.cfg` sequence as a part is handed it: its frames, its
+/// milliseconds a frame (`ceil(1000 / fps)`, `floor` backward; a rate of
+/// 0 read as 1), and whether it loops (a loop frame other than -1).
+pub fn sim_sequence(sequence: &fmt_ja::animation_cfg::Sequence) -> sim::skeleton::Sequence {
+    let fps = match sequence.frames_per_second {
+        0 => 1.0,
+        fps => fps as f32,
+    };
+    let frame_lerp = if fps < 0.0 {
+        (1000.0 / fps).floor()
+    } else {
+        (1000.0 / fps).ceil()
+    } as i32;
+    sim::skeleton::Sequence {
+        first_frame: sequence.first_frame,
+        frames: sequence.frame_count,
+        frame_lerp,
+        looping: sequence.loop_frame != -1,
+    }
 }
 
 /// JA's player skeleton and its `animation.cfg`, from the install.

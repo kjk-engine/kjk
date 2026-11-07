@@ -110,11 +110,10 @@ impl Files<'_> {
                     .flat_map(|value| value.to_le_bytes())
                     .collect()
             }
-            JaSource::Loose => {
+            JaSource::Loose { folder } => {
                 let meta = self
                     .stack
-                    .loose
-                    .get(name)
+                    .loose_path(name, folder)
                     .and_then(|path| std::fs::metadata(path).ok());
                 let modified = meta
                     .as_ref()
