@@ -263,7 +263,8 @@ pub(crate) enum Verb {
         /// `default`, `low` (no MSAA, no shadows) or `high`
         #[arg(long, default_value = "default")]
         preset: String,
-        /// Only these scenes (a comma list); all by default
+        /// Only these scenes (a comma list); all but the held-out ones
+        /// (`bench::HELD_OUT`) by default
         #[arg(long, value_delimiter = ',')]
         scenes: Vec<String>,
         /// Seconds after the world is up before measuring

@@ -95,6 +95,11 @@ beside it; the run folders are deleted. A frame takes about the longer of
 the two threads plus the extract (which runs on the main thread while the
 render thread waits).
 
+Two more scenes, Citadel Station (`telos`) and Kashyyyk's Great Walkway
+(`kashyyyk`), run only when named (`--scenes telos,kashyyyk`): a
+profile-guided build is trained on the others (docs/RELEASE.md), and these
+check that its gain holds beyond them.
+
 Two switches for measuring against: `KJK_EXEC` names the schedules run
 on one thread (`main,render,graph` by default; `none`: Bevy's
 multithreaded executor everywhere), and `KJK_PERF=1` keeps Bevy's spans

@@ -85,6 +85,20 @@ pub const SCENES: &[Scene] = &[
         args: &["play", "--stage", "danm14aa"],
         setup: "",
     },
+    // Not run unless named (`--scenes`): areas a profile-guided build was
+    // not trained on, to check its gain holds beyond the scenes above.
+    Scene {
+        name: "telos",
+        why: "TSL 201tel, held out: Citadel Station",
+        args: &["--load", "tsl-15"],
+        setup: "",
+    },
+    Scene {
+        name: "kashyyyk",
+        why: "K1 kas_m22aa, held out: the Great Walkway",
+        args: &["play", "--stage", "kas_m22aa"],
+        setup: "",
+    },
     Scene {
         name: "upper_city",
         why: "K1 tar_m02af: the first open hub",
@@ -92,6 +106,9 @@ pub const SCENES: &[Scene] = &[
         setup: "",
     },
 ];
+
+/// Scenes run only when named.
+const HELD_OUT: [&str; 2] = ["telos", "kashyyyk"];
 
 /// The settings a preset puts over the defaults (`settings.rs` keys).
 fn preset(name: &str) -> Option<Value> {
@@ -344,8 +361,9 @@ pub fn bench(options: BenchOptions) -> ExitCode {
     }
     let chosen: Vec<&Scene> = SCENES
         .iter()
-        .filter(|scene| {
-            options.scenes.is_empty() || options.scenes.iter().any(|name| name == scene.name)
+        .filter(|scene| match options.scenes.is_empty() {
+            true => !HELD_OUT.contains(&scene.name),
+            false => options.scenes.iter().any(|name| name == scene.name),
         })
         .collect();
     let out = options
