@@ -50,7 +50,7 @@ unlock PeragusDoor1@8 # (DC 25) into the room before the hangar
 leader player
 # Through the formerly poisonous room to Hangar 25 and the Ebon Hawk:
 # Atton wants the laser turret (DSimpson lets the troopers board and
-# fights them inside).
+# fights them inside; the `peragus_turret` branch fires on them).
 exit TO_107PERm      # up the ramp: aboard
 module 107per        # Atton's 106percut: the turret (permov04), troopers sent every 2 s
 turrets hold         # fire held until all 25 troopers are aboard; Atton's turend answered

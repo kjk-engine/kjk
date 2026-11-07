@@ -90,10 +90,17 @@ pub(super) enum Goal {
     Race,
     /// The turret played until the module changes: its fighters fought,
     /// else the area's foes shot (Peragus' hangar's troopers); `hold` holds
-    /// fire (`false`), the troopers let aboard.
-    Turrets(bool),
+    /// fire, the troopers let aboard.
+    Turrets(Fire),
     /// A pazaak match a conversation started, played out.
     Pazaak,
+}
+
+/// Whether a `turrets` goal fires.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Fire {
+    Fire,
+    Hold,
 }
 
 /// What a walking goal names: an object by tag (or template), with the
@@ -360,8 +367,8 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                 "module" => Goal::Module(a.ok_or(format!("{part}: module NAME"))?.to_string()),
                 "race" => Goal::Race,
                 "turrets" => Goal::Turrets(match a {
-                    None => true,
-                    Some("hold") => false,
+                    None => Fire::Fire,
+                    Some("hold") => Fire::Hold,
                     Some(_) => return Err(format!("{part}: turrets [hold]")),
                 }),
                 "pazaak" => Goal::Pazaak,

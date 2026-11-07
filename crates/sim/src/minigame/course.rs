@@ -1128,8 +1128,9 @@ impl Course {
 
     /// How fast a bolt of the player's gun banks flies, its bank's speed
     /// `speed`: in TSL, that plus the player's own speed (its executable;
-    /// a sum below 0 keeps the bank's), so Peragus' hangar turret's 0.2 m/s
-    /// bolts fly at 100.2 (`START_SPEED`); KOTOR's flies the bank's.
+    /// a negative sum keeps the bank's), so Peragus' hangar turret's
+    /// crawling bolts fly at about its player's `START_SPEED`; KOTOR's
+    /// flies the bank's.
     pub fn bolt_speed(&self, rules: &Rules, speed: f32) -> f32 {
         let moving = self.movers.first().map_or(0.0, |mover| mover.speed);
         match speed + moving {

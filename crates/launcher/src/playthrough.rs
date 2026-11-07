@@ -1345,7 +1345,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 ) {
                                     command = played;
                                 }
-                                if matches!(goal, Goal::Turrets(false)) {
+                                if matches!(goal, Goal::Turrets(Fire::Hold)) {
                                     command.buttons &= !sim::buttons::ATTACK;
                                 }
                             }

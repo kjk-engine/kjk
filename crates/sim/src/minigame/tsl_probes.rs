@@ -748,27 +748,39 @@ fn world_turret() -> Result<Result<String, String>, String> {
 }
 
 /// TSL's player starts at its executable's speed, and its own bolts fly
-/// at their bank's speed plus that (the hangar's 0.2 m/s bolts at 100.2);
+/// at their bank's speed plus that (the hangar's crawling bolts at about
+/// `START_SPEED`);
 /// it holds still in the step that raises its `OnCreate`. KOTOR's player
-/// starts still, and its bolts fly at their bank's speed.
+/// starts still, and its bolts fly at their bank's speed. Played on, as a
+/// turret's ARE has it (no speed span, so no acceleration, and a still
+/// track), its speed holds and it stays where it is, as the executable
+/// plays it (`MINIGAMES.md`), however fast its speed runs the track.
 fn bolt_speed() -> Result<String, String> {
+    const ON_STEPS: u64 = 30;
     let ran = |tsl: bool| {
         let mut rules = turret();
         rules.tsl = tsl;
         rules.movement_per_sec = 100.0;
         let mut course = Course::new(&rules);
-        run(&mut course, &rules, &[(0, command(0, 0, true))], 1);
+        let fire = [(0, command(0, 0, true))];
+        run(&mut course, &rules, &fire, 1);
         let speed = course.bullets.first().map(|bolt| {
             let [x, y, z] = bolt.velocity;
             (x * x + y * y + z * z).sqrt().round()
         });
-        (course.movers[0].speed, speed, course.movers[0].track)
+        let first = (course.movers[0].speed, course.position(&rules, 0));
+        run(&mut course, &rules, &fire, ON_STEPS);
+        let on = (course.movers[0].speed, course.position(&rules, 0));
+        (first.0, speed, first == on)
     };
     let (tsl, k1) = (ran(true), ran(false));
     let start = super::course::START_SPEED;
     check(
-        tsl == (start, Some(start + 20.0), 0.0) && k1 == (0.0, Some(20.0), 0.0),
-        format!("TSL's (player speed, bolt speed, track) {tsl:?}; K1's {k1:?}"),
+        tsl == (start, Some(start + 20.0), true) && k1 == (0.0, Some(20.0), true),
+        format!(
+            "TSL's (player speed, bolt speed, speed and place held {ON_STEPS} steps on) \
+             {tsl:?}; K1's {k1:?}"
+        ),
     )
 }
 
