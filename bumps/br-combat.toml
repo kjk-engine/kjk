@@ -2,7 +2,7 @@
 sim = "a poison's first dose lands as it takes, it lasts its whole duration, what it drained comes back at its end (immunity ending it early, then), and a second poison is kept off while one runs (KOTOR's executables)"
 
 [formats]
-snapshot = "a poison's course no longer carries the drained points' own time (`items::Course::drain_ms`): they end with the poison."
+snapshot = "a poison's course no longer carries the drained points' own time (`items::Course::drain_ms`): they end with the poison. The course is written in the snapshot (a fighter's poison) and in the save's scripts section (a script's `Effect::Poison`); both read it by the snapshot's version, the scripts section by the one `Save::decode_versioned` just read from the snapshot."
 
 [migrations]
-snapshot = "old saves skip the course's drain time; points already drained keep the time they were given"
+snapshot = "old saves skip the course's drain time, in the snapshot and in the save's scripts section alike; points already drained keep the time they were given"
