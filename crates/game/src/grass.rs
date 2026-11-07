@@ -134,6 +134,15 @@ impl Material for GrassMaterial {
         AlphaMode::Blend
     }
 
+    /// Drawn before everything truly see-through, as the blended opaque
+    /// surfaces are (`material::OPAQUE_FIRST`): it writes depth, so what is
+    /// see-through and behind it stays hidden and what is in front shows.
+    /// Sorted by the middle of its patch, nearer than a saber's blade in the
+    /// grass, it drew over the blade (issue 193).
+    fn depth_bias(&self) -> f32 {
+        crate::material::OPAQUE_FIRST
+    }
+
     fn enable_prepass() -> bool {
         false
     }

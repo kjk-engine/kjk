@@ -747,9 +747,10 @@ impl OdysseyMaterial {
     }
 }
 
-/// `depth_bias` of a blended opaque surface: farther than anything in view,
+/// `depth_bias` of a blended opaque surface (one that writes depth: this
+/// material's `OpaqueAlpha`, the grass): farther than anything in view,
 /// keeping their order among themselves.
-const OPAQUE_FIRST: f32 = -1.0e5;
+pub const OPAQUE_FIRST: f32 = -1.0e5;
 
 /// What a material's pipeline depends on: its blend and whether it writes
 /// depth. Surfaces that agree on both (opaque and env-masked opaque; blend
@@ -767,19 +768,26 @@ impl From<&OdysseyMaterial> for OdysseyKey {
         let surface = material.surface;
         OdysseyKey {
             blend: blend(surface),
-            depth_write: !matches!(
-                surface,
-                Surface::Blend
-                    | Surface::Additive
-                    | Surface::AddOne
-                    | Surface::BlendVertex
-                    | Surface::Lighten
-                    | Surface::Modulate
-            ),
+            depth_write: writes_depth(surface),
             culled: material.culled,
             particles: material.particles.id() != NO_PARTICLES.id(),
         }
     }
+}
+
+/// Whether a surface writes depth: the opaque ones, and the blended ones
+/// drawn as the opaque pass is (`OpaqueAlpha`); what is truly see-through
+/// does not, so its order among the see-through decides what shows.
+pub fn writes_depth(surface: Surface) -> bool {
+    !matches!(
+        surface,
+        Surface::Blend
+            | Surface::Additive
+            | Surface::AddOne
+            | Surface::BlendVertex
+            | Surface::Lighten
+            | Surface::Modulate
+    )
 }
 
 /// How a surface blends with what is drawn: none for an opaque one.
