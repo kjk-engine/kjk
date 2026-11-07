@@ -757,8 +757,11 @@ pub(crate) const MOVE_TO_LOCATION_RANGE: f32 = rules::scripts::moves::MOVE_TO_LO
 /// (ms).
 pub(super) const ANIMATION_MS: u32 = rules::scripts::animations::UNKNOWN_MS;
 /// The looping `ANIMATION_…` constants (the low range) a negative duration
-/// plays at once, outside the queue, until something else plays.
+/// plays at once, outside the queue, until something else plays: each
+/// executable's own range, TSL's the longer (its chair sits, meditations
+/// and choke).
 const LOOPS_AT_ONCE: u16 = 32;
+const LOOPS_AT_ONCE_TSL: u16 = 46;
 /// A queued animation's time from which the same one queued after it is
 /// dropped (ms, `queued_long`).
 const LONG_ANIMATION_MS: u32 = rules::scripts::animations::LONG_MS;
@@ -899,8 +902,13 @@ fn possessor(state: &State, view: &View, item: ObjectId) -> ObjectId {
     }
 }
 
-fn loops_on(animation: u16, seconds: f32) -> bool {
-    animation <= LOOPS_AT_ONCE && seconds < 0.0
+fn loops_on(animation: u16, seconds: f32, tsl: bool) -> bool {
+    let last = if tsl {
+        LOOPS_AT_ONCE_TSL
+    } else {
+        LOOPS_AT_ONCE
+    };
+    animation <= last && seconds < 0.0
 }
 
 /// How long `animation` (an `ANIMATION_…` constant) asked for `seconds` at
@@ -909,12 +917,12 @@ fn loops_on(animation: u16, seconds: f32) -> bool {
 /// `loops_on` until replaced; any other one play of its clip at the speed
 /// (a fire-and-forget clip, or a duration of 0 or less), `ANIMATION_MS`
 /// with no length. A speed of 0 plays at 1 [verify].
-fn animation_ms(animation: u16, (speed, seconds): (f32, f32), clip: Option<u32>) -> u32 {
+fn animation_ms(animation: u16, (speed, seconds): (f32, f32), clip: Option<u32>, tsl: bool) -> u32 {
     use crate::combat::idle::{FIRE_AND_FORGET, LOOPED_ROWS};
     let looping = !(FIRE_AND_FORGET..LOOPED_ROWS).contains(&animation);
     if looping && seconds > 0.0 {
         seconds_ms(seconds)
-    } else if loops_on(animation, seconds) {
+    } else if loops_on(animation, seconds, tsl) {
         u32::MAX
     } else {
         let speed = if speed == 0.0 { 1.0 } else { speed.abs() };
@@ -4666,10 +4674,10 @@ impl Engine<'_> {
                     .and_then(|row| self.library.clip_ms(row, animation));
                 let ms = match bound == PlayAnimation && seconds < 0.0 {
                     true => u32::MAX,
-                    false => animation_ms(animation, (speed, seconds), clip),
+                    false => animation_ms(animation, (speed, seconds), clip, tsl),
                 };
                 let action = Action::Animate { animation, ms };
-                let at_once = bound == PlayAnimation || loops_on(animation, seconds);
+                let at_once = bound == PlayAnimation || loops_on(animation, seconds, tsl);
                 if !at_once {
                     if !self.queued_long(caller, (animation, ms)) {
                         self.queue(caller, action);

@@ -7,14 +7,17 @@
 //!   clip's start: a scene's swing (a round's, its `Acting` a new
 //!   `blows::SWING`) or JA's own (its saber or melee move entering an
 //!   attack, `swung`): one of AttackGrunt 1–3 at random; a gun's shot says
-//!   nothing;
+//!   nothing. A round's swing grunts as KOTOR's (below); JA's lunge, jump
+//!   forward and flips always, its other swings `combat.grunts.chance` in
+//!   10 for everyone (`swing_grunts`): KOTOR's every-attack rule at JA's
+//!   pace grunted on every swing;
 //! - **pain**: a landed blow on one still standing (a hit, critical or
 //!   automatic hit event with damage, its hit points above 0): one of
 //!   PainGrunt 1–2 at random.
 //!
-//! Each is said always by the player's own character, else one time in
-//! five. Two flags of the executable's attack that skip both are not read
-//! [verify].
+//! KOTOR's rule: said always by the player's own character, else one time
+//! in `combat.grunts.others_one_in`. Two flags of the executable's attack
+//! that skip both are not read [verify].
 //!
 //! - **selected**: the body the seat plays changing to another (Tab, a
 //!   portrait click, control passing on from a fallen leader, a script's
@@ -22,6 +25,9 @@
 //!   one of Select 1–3 at random, as KOTOR's party does on a new leader
 //!   (reone's `Party::onLeaderChanged`). Not on a scene's first look, nor
 //!   the seat taking a body after none [verify: `SwitchPlayerCharacter`].
+//!
+//! - **poisoned**: a poison taking hold (`Pack::poison` new): its
+//!   Poisoned line, always, as both games' executables say it.
 //!
 //! The death cry (`Dead`) is cried by every creature that dies,
 //! a script's death too (`combat_fx`).
@@ -32,6 +38,7 @@ use bevy::prelude::*;
 use fmt_odyssey::ssf::slots;
 use sim::combat::Outcome;
 use sim::combat::saber::SaberState;
+use sim::combat::saber::moves::Move;
 use sim::script::effects::blows;
 use sim::{SimId, Snapshot};
 
@@ -47,6 +54,8 @@ pub struct Seen {
     looked_ms: Option<u64>,
     events: BTreeMap<SimId, u16>,
     sabers: BTreeMap<SimId, SaberState>,
+    /// Each character's poison as last seen (when it ends).
+    poisons: BTreeMap<SimId, Option<u64>>,
     /// The body the seat played when last looked at.
     body: Option<SimId>,
 }
@@ -57,10 +66,28 @@ fn swung(was: &SaberState, now: &SaberState) -> bool {
     now.current_move.attack() && (!was.current_move.attack() || now.chain != was.chain)
 }
 
+/// Whether a poison took hold between `was` and `now` (each the end of the
+/// one running, if any): one there now that was not.
+fn took(was: Option<u64>, now: Option<u64>) -> bool {
+    now.is_some() && now != was
+}
+
 /// Whether a grunt is said: always by the player's own (`own`), else when
-/// `roll` comes up one in five.
+/// `roll` comes up one in `combat.grunts.others_one_in`.
 fn says(own: bool, roll: u32) -> bool {
-    own || roll.is_multiple_of(5)
+    own || roll.is_multiple_of(rules::combat::grunts::OTHERS_ONE_IN)
+}
+
+/// Whether a melee attack begun grunts, by `roll`: a scene round's swing
+/// (`ja` none) as KOTOR's (`says`); of JA's, a lunge, the jump forward and
+/// the flips always, JA's only voiced attacks, any other
+/// `combat.grunts.chance` in 10 times, the player's own too.
+pub(crate) fn swing_grunts(ja: Option<Move>, own: bool, roll: u32) -> bool {
+    match ja {
+        None => says(own, roll),
+        Some(Move::A_LUNGE | Move::A_JUMP_T__B_ | Move::A_FLIP_STAB | Move::A_FLIP_SLASH) => true,
+        Some(_) => roll % 10 < rules::combat::grunts::CHANCE,
+    }
 }
 
 /// One of `lines` by `roll`.
@@ -97,16 +124,24 @@ fn new_grunts(snapshot: &Snapshot, me: Option<SimId>, seen: &mut Seen) -> Vec<(S
             .insert(entity.id, fighter.saber)
             .is_some_and(|was| swung(&was, &fighter.saber));
         let swing = round
-            .map(|acting| acting.since)
-            .or(ja.then_some(snapshot.time_ms));
-        if let Some(since) = swing {
+            .map(|acting| (acting.since, None))
+            .or(ja.then_some((snapshot.time_ms, Some(fighter.saber.current_move))));
+        if let Some((since, ja)) = swing {
             let at = since as u32;
-            if says(own, roll(entity.id, at, 1)) {
+            if swing_grunts(ja, own, roll(entity.id, at, 1)) {
                 said.push((
                     entity.id,
                     pick(&slots::ATTACK_GRUNTS, roll(entity.id, at, 2)),
                 ));
             }
+        }
+        let poison = fighter.pack.poison.map(|poison| poison.until);
+        if seen
+            .poisons
+            .insert(entity.id, poison)
+            .is_some_and(|was| took(was, poison))
+        {
+            said.push((entity.id, slots::POISONED));
         }
         let Some(last) = seen.events.insert(entity.id, fighter.next_event) else {
             continue;
@@ -176,20 +211,51 @@ pub fn probes() -> sim::probe::Checks {
     let rolls = 0..1000u32;
     let others = rolls.clone().filter(|roll| says(false, *roll)).count();
     let own = rolls.clone().filter(|roll| says(true, *roll)).count();
+    // Per 1000 rolls: the book's one in N for others, its N in 10 for a
+    // swing of JA's.
+    let one_in = rules::combat::grunts::OTHERS_ONE_IN;
+    let (sometimes, swing) = (
+        1000usize.div_ceil(one_in as usize),
+        rules::combat::grunts::CHANCE as usize * 100,
+    );
     let attacks: Vec<usize> = (0..3)
         .map(|roll| pick(&slots::ATTACK_GRUNTS, roll))
         .collect();
     let pains: Vec<usize> = (0..2).map(|roll| pick(&slots::PAIN_GRUNTS, roll)).collect();
     vec![
         (
-            "the player's own always, others one in five",
+            "the player's own always, others at the book's odds",
             check(
-                own == 1000 && others == 200,
-                format!("own {own}/1000, others {others}/1000"),
+                own == 1000 && others == sometimes,
+                format!("own {own}/1000, others {others}/1000 (one in {one_in})"),
             ),
         ),
+        (
+            "JA's specials always grunt, its other swings the book's chance for all, rounds as KOTOR's",
+            {
+                let rate = |ja: Option<Move>, own: bool| {
+                    rolls
+                        .clone()
+                        .filter(|roll| swing_grunts(ja, own, *roll))
+                        .count()
+                };
+                let rates = [
+                    rate(Some(Move::A_LUNGE), false),
+                    rate(Some(Move::A_FLIP_SLASH), false),
+                    rate(Some(Move::A_T2B), true),
+                    rate(Some(Move::A_T2B), false),
+                    rate(None, true),
+                    rate(None, false),
+                ];
+                check(
+                    rates == [1000, 1000, swing, swing, 1000, sometimes],
+                    format!(
+                        "lunge, flip, own swing, other's swing, own round, other's round: {rates:?}/1000"
+                    ),
+                )
+            },
+        ),
         ("a melee attack begun grunts, JA's too", {
-            use sim::combat::saber::moves::Move;
             let state = |saber_move, chain| SaberState {
                 current_move: saber_move,
                 chain,
@@ -227,6 +293,21 @@ pub fn probes() -> sim::probe::Checks {
                 format!("first, same, to b, back to a, none, b after none: {said:?}"),
             )
         }),
+        (
+            "a poison taking hold says Poisoned, its course and its end none",
+            {
+                let seen = [
+                    took(None, Some(9000)),
+                    took(Some(9000), Some(9000)),
+                    took(Some(9000), None),
+                    took(Some(9000), Some(20_000)),
+                ];
+                check(
+                    seen == [true, false, false, true] && slots::POISONED == 27,
+                    format!("taken, running, ended, another after it: {seen:?}"),
+                )
+            },
+        ),
         (
             "attack grunts 1-3, pain grunts 1-2",
             check(

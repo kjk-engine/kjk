@@ -241,6 +241,7 @@ impl Bench {
             blades: vec![blade],
             ends: Vec::new(),
             gun: None,
+            power: None,
         }
     }
 

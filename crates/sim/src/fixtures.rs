@@ -132,6 +132,7 @@ fn fill(save: &mut Save, ground: &Level) {
         at_ms: 500,
     });
     snapshot.leading = snapshot.entities.first().map(|entity| entity.id);
+    snapshot.solo = true;
     snapshot.personas.push(crate::persona::Persona {
         seat: crate::Seat(0),
         appearance: 91,
@@ -349,6 +350,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         ready: _,
         kept: _,
         leading: _,
+        solo: _,
         minigame: _,
         pazaak: _,
         explored: _,
@@ -364,7 +366,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
     check!("snapshot", save.snapshot, start;
         tick, time_ms, place, entities, transition, stash, area_sound, fade,
         world_fade_in, video_effect, talk, goods, spawned, roster, progress, personas,
-        seats_held, lost, in_combat, paused_by, ready, kept, leading, minigame,
+        seats_held, lost, in_combat, paused_by, ready, kept, leading, solo, minigame,
         pazaak, explored, visuals, departing, screens, remotes, standing, shared,
         authority, next_id,
     );

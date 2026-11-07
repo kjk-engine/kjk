@@ -18,6 +18,10 @@
 //!   added, red 215–255, green 96–128, blue 0–15), the glow dated
 //!   `GLOW_BACK_MS` back so it lives 1.5 s, full for half a second and
 //!   darkening to nothing over the last.
+//! - In a KOTOR level the faces are its rooms' as drawn (`DrawnLevel`),
+//!   not its collision's, which stands apart from them: a strip moves along
+//!   the wall's normal from the blade's contact onto the nearest drawn face
+//!   turned towards it, and none is laid where no drawn wall is near.
 //! - Marks live `LIFE_MS`; the client keeps `MOST` of them (both kinds,
 //!   and every other mark), dropping the oldest. The burn's last second
 //!   fades its vertex alpha, which its shader does not read: it goes at
@@ -29,7 +33,7 @@
 //!
 //! The wall sound and sparks are `blade_fx`'s.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use asset_ja::fx::Rng;
 use bevy::prelude::*;
@@ -85,6 +89,113 @@ pub struct Cuts(pub Vec<Cut>);
 /// The level's faces overlapping a box (units: its least and most
 /// corners), each a triangle anticlockwise seen from outside.
 pub type Faces<'a> = &'a dyn Fn(Vec3, Vec3) -> Vec<[Vec3; 3]>;
+
+/// How far either way along a cut's normal the drawn wall is looked for
+/// from where the blade met the collision (units): a KOTOR room's collision
+/// is built apart from its drawn walls and can stand well off them. Our
+/// chosen reach.
+const DRAWN_REACH: f32 = 40.0;
+
+/// The side of a `DrawnLevel` grid cell (units, across the ground). Our
+/// chosen size: a cut's look along its normal spans about one.
+const CELL: f32 = 2.0 * DRAWN_REACH;
+
+/// One drawn face: its corners, its unit normal, its bounds.
+struct DrawnFace {
+    corners: [Vec3; 3],
+    normal: Vec3,
+    low: Vec3,
+    high: Vec3,
+}
+
+impl DrawnFace {
+    fn overlaps(&self, least: Vec3, most: Vec3) -> bool {
+        self.low.cmple(most).all() && self.high.cmpge(least).all()
+    }
+}
+
+/// The drawn level's faces, for the marks: each room's triangles as its
+/// model has them (units, game space), not the collision's. Built once a
+/// level; a box asks only the faces in the ground cells it covers.
+#[derive(Default)]
+pub struct DrawnLevel {
+    faces: Vec<DrawnFace>,
+    cells: HashMap<(i32, i32), Vec<u32>>,
+}
+
+/// The ground cells a box covers.
+fn cells(least: Vec3, most: Vec3) -> impl Iterator<Item = (i32, i32)> {
+    let cell = |v: f32| (v / CELL).floor() as i32;
+    let (x0, x1, y0, y1) = (cell(least.x), cell(most.x), cell(least.y), cell(most.y));
+    (x0..=x1).flat_map(move |x| (y0..=y1).map(move |y| (x, y)))
+}
+
+impl DrawnLevel {
+    pub fn new(triangles: impl IntoIterator<Item = [Vec3; 3]>) -> Self {
+        let mut level = Self::default();
+        for corners in triangles {
+            let [a, b, c] = corners;
+            let face = DrawnFace {
+                corners,
+                normal: (b - a).cross(c - a).normalize_or_zero(),
+                low: a.min(b).min(c),
+                high: a.max(b).max(c),
+            };
+            let at = level.faces.len() as u32;
+            for key in cells(face.low, face.high) {
+                level.cells.entry(key).or_default().push(at);
+            }
+            level.faces.push(face);
+        }
+        level
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.faces.is_empty()
+    }
+
+    /// The faces overlapping a box, each once.
+    fn near(&self, least: Vec3, most: Vec3) -> impl Iterator<Item = &DrawnFace> {
+        let mut found: Vec<u32> = cells(least, most)
+            .filter_map(|key| self.cells.get(&key))
+            .flatten()
+            .copied()
+            .collect();
+        found.sort_unstable();
+        found.dedup();
+        found
+            .into_iter()
+            .map(|at| &self.faces[at as usize])
+            .filter(move |face| face.overlaps(least, most))
+    }
+
+    /// The faces overlapping a box, as `Faces` asks.
+    pub fn faces(&self, least: Vec3, most: Vec3) -> Vec<[Vec3; 3]> {
+        self.near(least, most).map(|face| face.corners).collect()
+    }
+
+    /// `cut` moved along its normal onto the nearest drawn face turned
+    /// towards the blade within `DRAWN_REACH` of where it met the
+    /// collision; `None` when no drawn face is there.
+    pub fn onto(&self, cut: &Cut) -> Option<Cut> {
+        let normal = cut.normal.try_normalize()?;
+        let middle = (cut.from + cut.to) / 2.0;
+        let origin = middle - normal * DRAWN_REACH;
+        let end = middle + normal * DRAWN_REACH;
+        let offset = self
+            .near(origin.min(end), origin.max(end))
+            .filter(|face| face.normal.dot(normal) > 0.5)
+            .filter_map(|face| crate::shadows::ray_hit(origin, normal, &face.corners))
+            .map(|t| t - DRAWN_REACH)
+            .filter(|offset| offset.abs() <= DRAWN_REACH)
+            .min_by(|a, b| a.abs().total_cmp(&b.abs()))?;
+        Some(Cut {
+            from: cut.from + normal * offset,
+            to: cut.to + normal * offset,
+            ..*cut
+        })
+    }
+}
 
 /// One mark: its points and their texture coordinates, whether it is the
 /// glow, from when it counts its life (the view's ms), its colour.

@@ -25,7 +25,9 @@ Lightning and Drain last while it is held). [Grenade] charges while held and
 throws on release. [Medpac], [Stim] and [Energy shield] use the first one
 carried. [Stealth mode] and [Lay a mine] act at once. [Saber style] changes
 the saber style, [Next feat attack] the feat attack of the weapon in hand,
-[Next Form] the lightsaber Form. [First person] changes the view.
+[Next Form] the lightsaber Form. [Solo mode] keeps the companions where they
+stand instead of following, until pressed again. [First person] changes the
+view.
 """
 
 [swings]

@@ -377,6 +377,7 @@ fn kotor_view(
             .zip(label_at)
             .map(|((_, words, alpha), at)| (at, words, alpha)),
         stealth: fighter.covert.stealth,
+        poisoned: fighter.pack.poison.is_some(),
         ..ui::vm::HudView::default()
     }
 }
@@ -800,6 +801,7 @@ fn show(
         ui.vm.hud = Some(ui::vm::HudView {
             minimap,
             busy: busy(snapshot, own.0),
+            solo: snapshot.solo,
             ..kotor_view(
                 ui,
                 &sheet,
@@ -827,6 +829,7 @@ fn show(
             "hp": health, "bar": fighter.fp as f32 / pool,
             "power": power, "powers": choices, "shield": shield, "items": carried,
             "icons": hud.icons.len(),
+            "solo": snapshot.solo,
             "busy": (0..snapshot.seats())
                 .map(|seat| busy(snapshot, sim::Seat(seat)).map(|busy| format!("{busy:?}")))
                 .collect::<Vec<_>>(),

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f8e6bdf19e2e59e9`.
+Edition `f1012d923126c5d5`.
 
 ## Contents
 
@@ -28,6 +28,7 @@ Edition `f8e6bdf19e2e59e9`.
   - [Friendly Fire](#combat-friendly-fire)
   - [Rounds and Timers](#combat-timing)
   - [Flinching](#combat-flinch)
+  - [Attack Grunts](#combat-grunts)
   - [Character Sheet](#combat-sheet)
   - [Idle Animations](#combat-idle)
 - [Weapons](#weapons)
@@ -254,6 +255,7 @@ Edition `f8e6bdf19e2e59e9`.
   - [Rounds and Turns](#dialogue-clock)
 - [Minigames](#minigames)
   - [Swoop](#minigames-swoop)
+  - [Speed](#minigames-speed)
   - [Collisions](#minigames-bumps)
   - [Co-op Races](#minigames-coop)
 - [Pazaak](#pazaak)
@@ -304,7 +306,9 @@ Lightning and Drain last while it is held). [Grenade] charges while held and
 throws on release. [Medpac], [Stim] and [Energy shield] use the first one
 carried. [Stealth mode] and [Lay a mine] act at once. [Saber style] changes
 the saber style, [Next feat attack] the feat attack of the weapon in hand,
-[Next Form] the lightsaber Form. [First person] changes the view.
+[Next Form] the lightsaber Form. [Solo mode] keeps the companions where they
+stand instead of following, until pressed again. [First person] changes the
+view.
 
 ### <a id="controls-swings"></a>Swings
 
@@ -716,6 +720,26 @@ vitality) + damage / (maximum vitality / 2), divided by
 A creature's chance to flinch from a hit is divided by 2.
 
 <sub>Source: JA (NPC skill level 1); a delegated decision. Code: `sim::combat::death::pain_chance`.</sub>
+
+### <a id="combat-grunts"></a>Attack Grunts
+
+A character may grunt as it begins a melee attack. A lunge, a jump-forward
+attack or a flip-over attack always grunts. Any other lightsaber or melee
+swing grunts only sometimes, for the player's own character as for anyone
+else. In a scene's combat rounds, and when hurt, the player's character
+always grunts and others grunt one time in 5.
+
+<a id="combat-grunts-chance"></a>**Swing Grunt Chance** = **2 in 10** · `combat.grunts.chance`
+
+An ordinary lightsaber or melee swing grunts 2 in 10 times.
+
+<sub>Source: a delegated decision: JA voices only its special attacks, KOTOR's player grunts on every round's attack. Code: `game::grunts::swing_grunts`.</sub>
+
+<a id="combat-grunts-others-one-in"></a>**Grunt Odds: Others** = **5** · `combat.grunts.others_one_in`
+
+A character other than the player's own grunts at a scene round's swing, or in pain, one time in 5.
+
+<sub>Source: KOTOR's rule: the K1 executable's attack and pain grunts. Code: `game::grunts::says`.</sub>
 
 ### <a id="combat-sheet"></a>Character Sheet
 
@@ -9154,6 +9178,19 @@ A swoop's jump in TSL falls back with a gravity of -45.8 meters per second, each
 In TSL, each point of the player's Dexterity modifier adds 0.3 times the race's steering to the swoop. In KOTOR, Dexterity has no effect.
 
 <sub>Source: TSL's executable. Code: `sim::script::minigame`.</sub>
+
+### <a id="minigames-speed"></a>Speed
+
+In TSL, every swoop and turret starts at a speed of
+100, which the races' own start scripts replace. A
+turret's speed stays there, and the bolts its guns fire fly that much faster
+than their module says.
+
+<a id="minigames-speed-start"></a>**Starting Speed** = **100 m/s** · `minigames.speed.start`
+
+In TSL, a minigame's player starts at 100 meters per second until a script sets its speed (every race does as it begins). Its own bolts fly at their gun's speed plus the player's: at Peragus' hangar a turret's crawling bolts fly at about this speed.
+
+<sub>Source: TSL's executable. Code: `sim::minigame::course::Course::new`.</sub>
 
 ### <a id="minigames-bumps"></a>Collisions
 

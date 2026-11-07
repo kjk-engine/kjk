@@ -711,6 +711,8 @@ pub(crate) fn assemble(
         // The party table names the leader's body again once the world
         // stands (`world::lent`).
         leading: None,
+        // As the scripts' party table has it, once the world stands.
+        solo: before.solo,
         spawned: instances.made().to_vec(),
         roster,
         shared: before.shared,

@@ -7,8 +7,12 @@
 //! its second. The action (`Action::Lead`) names the member by its body;
 //! only the first seat leads (the party table is the host's), so a guest's
 //! key and clicks do nothing. A member down or dead, or a companion a
-//! guest plays, is not picked (the key goes on to the next). The
-//! dump's `lead`: who leads, and the party in the HUD's order.
+//! guest plays, is not picked (the key goes on to the next). The solo key
+//! (`PartyActive` in both games) turns solo mode on or off (`Action::Solo`: the
+//! companions stand where they are), the first seat's alone as the leader
+//! key is (the companions follow its leader); the HUD lights KOTOR's solo
+//! toggle while it is on (`Snapshot::solo`). The dump's `lead`: who
+//! leads, solo mode, and the party in the HUD's order.
 
 use bevy::prelude::*;
 use sim::Seat;
@@ -53,7 +57,7 @@ fn lead(
     taken: Busy,
     (presented, own): (Option<Res<PresentedSnapshot>>, Option<Res<OwnSeat>>),
     mut picked: ResMut<Picked>,
-    outgoing: Option<ResMut<Outgoing>>,
+    mut outgoing: Option<ResMut<Outgoing>>,
     mut facts: ResMut<console::DumpFacts>,
 ) {
     let clicked = picked.0.take();
@@ -66,6 +70,7 @@ fn lead(
         "lead".into(),
         serde_json::json!({
             "leading": snapshot.leading.map(|id| id.0),
+            "solo": snapshot.solo,
             "party": party.iter().map(|member| member.id.0).collect::<Vec<_>>(),
         }),
     );
@@ -73,8 +78,19 @@ fn lead(
         return;
     }
     let busy = busy(taken);
-    let key =
-        !busy && actions.is_some_and(|actions| actions.pressed(crate::settings::Action::Leader));
+    let pressed = |action| {
+        !busy
+            && actions
+                .as_ref()
+                .is_some_and(|actions| actions.pressed(action))
+    };
+    let key = pressed(crate::settings::Action::Leader);
+    if pressed(crate::settings::Action::Solo)
+        && let Some(outgoing) = outgoing.as_deref_mut()
+    {
+        info!(target: "party", "solo: {}", !snapshot.solo);
+        outgoing.0.push(Action::Solo(!snapshot.solo));
+    }
     let member = match clicked {
         Some(id) => party
             .iter()

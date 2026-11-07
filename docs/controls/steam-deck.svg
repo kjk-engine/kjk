@@ -67,6 +67,7 @@
 <rect class="hole" x="1160" y="486" width="40" height="16" rx="6"/>
 <text x="1180" y="495" class="glyph" text-anchor="middle">R5</text>
 <text x="270" y="90" class="main" text-anchor="end"><tspan class="key">L2</tspan>  Alt attack (kick, special)</text>
+<text x="270" y="108" class="sub" text-anchor="end">L1+L2: solo mode</text>
 <polyline class="lead" points="278,86 350,158"/>
 <circle class="dot" cx="350" cy="158" r="3"/>
 <text x="270" y="145" class="main" text-anchor="end"><tspan class="key">L1</tspan>  Hold: the second layer (L1+…)</text>

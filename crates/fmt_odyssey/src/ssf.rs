@@ -25,6 +25,8 @@ pub mod slots {
     pub const BEGIN_UNLOCK: usize = 22;
     pub const UNLOCK_FAILED: usize = 23;
     pub const UNLOCK_SUCCESS: usize = 24;
+    /// A poison taking hold.
+    pub const POISONED: usize = 27;
 }
 const HEADER_LEN: usize = 12;
 

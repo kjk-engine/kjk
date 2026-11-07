@@ -73,6 +73,22 @@ const WORDS_GAP: i32 = 1;
 /// A foe's name, its backing and its vitality bar (KOTOR's red).
 const HOSTILE: [f32; 3] = [0.86, 0.16, 0.12];
 
+/// A portrait's vitality bar as both games' executables colour it, over
+/// the layout's red: their own red, green while a poison runs.
+const VITALITY: [f32; 3] = [0.74, 0.11, 0.0];
+const POISONED: [f32; 3] = [0.28, 0.92, 0.11];
+/// The target's vitality bar while a poison runs in it (both games' art).
+const POISON_BAR: &str = "poison_bar";
+
+/// A portrait's vitality bar at `hp`.
+fn vitality((hp, poisoned): ((i32, i32), bool)) -> ControlState {
+    ControlState {
+        value: Some(share(hp)),
+        bar: (None, Some(if poisoned { POISONED } else { VITALITY })),
+        ..ControlState::default()
+    }
+}
+
 fn in_block(tag: &str) -> bool {
     BLOCK.iter().any(|prefix| tag.starts_with(prefix)) || tag.starts_with("LBL_TARGET")
 }
@@ -392,6 +408,7 @@ fn target_state(tag: &str, target: Option<&TargetView>) -> Option<ControlState> 
     };
     let bar = target.progress.or(target.hp.map(share));
     let tint = (target.hostile && target.progress.is_none()).then_some(HOSTILE);
+    let poisoned = target.poisoned && target.progress.is_none() && target.hp.is_some();
     let slot = |prefix: &str| tag.strip_prefix(prefix)?.parse::<usize>().ok();
     Some(match tag {
         "LBL_NAME" => ControlState {
@@ -401,6 +418,11 @@ fn target_state(tag: &str, target: Option<&TargetView>) -> Option<ControlState> 
         },
         "LBL_NAMEBG" => ControlState {
             tint,
+            ..ControlState::default()
+        },
+        "PB_HEALTH" if poisoned => ControlState {
+            value: bar,
+            bar: (Some(POISON_BAR.into()), None),
             ..ControlState::default()
         },
         "LBL_HEALTHBG" | "PB_HEALTH" => match bar {
@@ -513,10 +535,7 @@ fn companion_state(member: Option<&MemberView>, prefix: &str) -> ControlState {
             fill: Some(member.portrait.clone().unwrap_or(String::new())),
             ..ControlState::default()
         },
-        "PB_VIT" => ControlState {
-            value: Some(share(member.hp)),
-            ..ControlState::default()
-        },
+        "PB_VIT" => vitality((member.hp, member.poisoned)),
         "PB_FORCE" if member.fp.1 > 0 => ControlState {
             value: Some(share(member.fp)),
             ..ControlState::default()
@@ -879,6 +898,14 @@ pub fn banner(control: &Control, vm: &ViewModel) -> ControlState {
     }
 }
 
+/// A toggle of the layout's lit: KOTOR's stealth and solo mode.
+fn lit() -> ControlState {
+    ControlState {
+        selected: true,
+        ..ControlState::default()
+    }
+}
+
 /// How the HUD shows `control`.
 pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
     let hud = vm.hud.clone().unwrap_or(HudView::default());
@@ -909,12 +936,8 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
     }
     match tag {
         "LBL_MAPBORDER" => return shown(hud.minimap.is_some()),
-        "TB_STEALTH" if hud.stealth => {
-            return ControlState {
-                selected: true,
-                ..ControlState::default()
-            };
-        }
+        "TB_STEALTH" if hud.stealth => return lit(),
+        "TB_SOLO" if hud.solo => return lit(),
         _ => {}
     }
     if let Some(shown) = target_state(tag, vm.target.as_ref()) {
@@ -953,10 +976,7 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
         };
     }
     match tag {
-        "PB_VIT1" => ControlState {
-            value: Some(share(hud.hp)),
-            ..ControlState::default()
-        },
+        "PB_VIT1" => vitality((hud.hp, hud.poisoned)),
         "PB_FORCE1" if hud.fp.1 > 0 => ControlState {
             value: Some(share(hud.fp)),
             ..ControlState::default()

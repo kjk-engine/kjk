@@ -244,10 +244,13 @@ impl GuiAssets {
     }
 
     /// The layout a screen named `name` draws: the skin's in its place, but
-    /// for one of the campaign's own world (`skin::own`).
+    /// for one of the campaign's own world (`skin::own`), which a KOTOR 2
+    /// campaign names as KOTOR 2 does (`skin::moved`).
     pub fn screen_layout(&self, name: &str) -> Result<(Gui, Source), String> {
         if skin::own(name) {
-            return Ok((GuiAssets::layout(self, name)?, Source::Campaign));
+            let gui = GuiAssets::layout(self, name)
+                .or_else(|_| GuiAssets::layout(self, &skin::moved(name)))?;
+            return Ok((gui, Source::Campaign));
         }
         Ok((self.skin_layout(name)?, Source::Skin))
     }

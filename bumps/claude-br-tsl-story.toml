@@ -1,0 +1,18 @@
+# The sim's hash moves on purpose: TSL's looping ANIMATION_* constants
+# loop on when asked for a negative duration (Atton at the Ebon Hawk's
+# helm), and the scripted clips the sim times are the executables' (the
+# droids' looping `disabled`, TSL's chair sits `animloop01` to `05`); a TSL
+# minigame's player starts at the executable's speed
+# (`minigames.speed.start`) until a script sets it, holds still in the
+# step that raises its `OnCreate`, and its own bolts fly at their bank's
+# speed plus the player's (Peragus' hangar turret's bolts reach the
+# troopers); a dead creature taken away leaves the world at its
+# appearance's delay, its fade the client's (Telos' shuttle trigger no
+# longer finds the tank droid's fading body).
+sim = "TSL's looping animation constants loop on, scripted clips are timed as the executables map them, a TSL minigame player's bolts add its speed, and the dead leave the world when taken away, not after their fade"
+
+[formats]
+snapshot = "the tail carries solo mode (`solo`), for the HUD's solo toggle and the solo key."
+
+[migrations]
+snapshot = "old saves read `solo = false`; the scripts' party table, saved as before, sets it again on the first step"

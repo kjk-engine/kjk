@@ -45,13 +45,18 @@
 //!   JA's blade drawn instead, from where the planes leave the hilt, at JA's
 //!   length and radius (`single_1`'s, `dual_1`'s), in the blade texture's
 //!   colour (`SaberColor::of_texture`; the hilt's model variation picks it:
-//!   1 blue, 2 red, 3 green, 4 yellow, 5 violet). A blade is lit
+//!   1 blue, 2 red, 3 green, 4 yellow, 5 violet); a colour JA has no blade
+//!   of (TSL's silver, cyan, viridian, bronze) is JA's blue blade recoloured
+//!   by the KOTOR texture's own colour (`own_colour`). A blade is lit
 //!   as the sim lights it (`saber::blades::slots`: the saber on, a staff's
 //!   second blade unless put out, none while the saber is away, none once
 //!   its holder is dead), grows and shrinks as JA's do, and trails while the
 //!   torso plays a saber move (`asset_ja::saber_trail_ms`). The gripping
 //!   hand reaches for the sim's blade (`cast`, `Wielded::blades_in`), so it is drawn
 //!   where it cuts.
+//! - **Power.** A weapon model with power clips (`Power`: a quarterstaff,
+//!   a force pike) unfolds by them while readied in hand and folds when
+//!   put away; a lightsaber hilt's power is its JA blade instead.
 //! - **Away.** A saber out of the hand (`SaberState::thrown`) hangs from the
 //!   scene where the snapshots put it: flying out spun as JA spins it, back
 //!   pointing away from its owner (`saber_flight`), lit and trailing (JA's
@@ -60,6 +65,7 @@
 //!   bounces it).
 
 use std::collections::BTreeMap;
+use std::sync::{Mutex, PoisonError};
 
 use asset_ja::Bolt;
 use asset_odyssey::hooks;
@@ -94,6 +100,7 @@ pub struct Held {
     pub blades: Vec<usize>,
     pub ends: Vec<BladeEnd>,
     pub gun: Option<GunShape>,
+    pub power: Option<PowerClips>,
 }
 
 /// Where a blade leaves its hilt and which way it runs, in the hilt's space
@@ -104,7 +111,8 @@ pub type BladeEnd = (Vec3, Vec3);
 pub type Arms = [Option<Held>; 2];
 
 /// A weapon model spawned in the scene: its root entity, its name, its
-/// blades' indices in `LiveBlades` and ends, and a gun's shape.
+/// blades' indices in `LiveBlades` and ends, a gun's shape, and a powered
+/// item's clips.
 #[derive(Debug, Clone)]
 pub struct Armed {
     pub root: Entity,
@@ -112,18 +120,20 @@ pub struct Armed {
     pub blades: Vec<usize>,
     pub ends: Vec<BladeEnd>,
     pub gun: Option<GunShape>,
+    pub power: Option<Power>,
 }
 
 impl Held {
     /// The weapon as spawned, `models` being the scene's by index.
     pub fn armed(&self, models: &[Option<(Entity, Vec<Entity>)>]) -> Option<Armed> {
-        let (root, _) = models.get(self.model)?.as_ref()?;
-        Some(self.spawned(*root, 0))
+        let (root, nodes) = models.get(self.model)?.as_ref()?;
+        Some(self.spawned((*root, nodes), 0))
     }
 
-    /// The weapon spawned later as `root`, its blades `first_blade` on in
-    /// `LiveBlades` (`scene::Spawner::live_blades`).
-    pub fn spawned(&self, root: Entity, first_blade: usize) -> Armed {
+    /// The weapon spawned later as `root` with its node entities, its
+    /// blades `first_blade` on in `LiveBlades`
+    /// (`scene::Spawner::live_blades`).
+    pub fn spawned(&self, (root, nodes): (Entity, &[Entity]), first_blade: usize) -> Armed {
         Armed {
             root,
             name: self.name.clone(),
@@ -134,7 +144,92 @@ impl Held {
                 .collect(),
             ends: self.ends.clone(),
             gun: self.gun.clone(),
+            power: self.power.as_ref().map(|clips| clips.bind(nodes)),
         }
+    }
+}
+
+/// A powered item's state clips, as its model names them: `off`,
+/// `powerup`, `powered` and `powerdown` (K1's and TSL's quarterstaffs
+/// and TSL's force pike unfold by them; K1's heavy repeaters and every
+/// lightsaber hilt have them too).
+const POWER_CLIPS: [&str; 4] = ["off", "powerup", "powered", "powerdown"];
+
+/// A weapon model's power clips (`POWER_CLIPS`), before it is spawned.
+#[derive(Debug, Clone)]
+pub struct PowerClips([Option<crate::scene::Unbound>; 4]);
+
+impl PowerClips {
+    /// `ir`'s, for a model with a `powerup` or `powered` clip.
+    fn of(ir: &ModelIr) -> Option<PowerClips> {
+        let clips = POWER_CLIPS.map(|name| {
+            let clip = std::sync::Arc::new(ir.animation(name)?.clone());
+            crate::scene::unbound(ir, &clip)
+        });
+        (clips[1].is_some() || clips[2].is_some()).then_some(PowerClips(clips))
+    }
+
+    fn bind(&self, nodes: &[Entity]) -> Power {
+        Power {
+            clips: self.0.each_ref().map(|clip| clip.as_ref()?.bind(nodes)),
+            on: false,
+            since: None,
+        }
+    }
+}
+
+/// A spawned weapon's power: its clips (`POWER_CLIPS`) on its nodes,
+/// whether it is powered, and since when (sim ms; `None` until it first
+/// powers).
+#[derive(Debug, Clone)]
+pub struct Power {
+    clips: [Option<crate::scene::Animator>; 4],
+    on: bool,
+    since: Option<f64>,
+}
+
+impl Power {
+    /// Poses the model powered (`on`) or not at `ms` (sim ms), as TSL's
+    /// executable powers a wielder's items as it readies them and unpowers
+    /// them as it puts them away (K1's reads the same `baseitems.2da`
+    /// power columns, `PoweredItem` and its sounds): `powerup` once, then `powered` (a pose,
+    /// or looped); `powerdown` once, then `off`. The clip it shows.
+    fn show(&mut self, on: bool, ms: f64, transforms: &mut Query<&mut Transform>) -> &'static str {
+        if on != self.on {
+            self.on = on;
+            self.since = Some(ms);
+        }
+        let Some(since) = self.since else {
+            // Never powered: as the model rests.
+            for clip in self.clips.iter().flatten() {
+                clip.rest(transforms);
+            }
+            return POWER_CLIPS[0];
+        };
+        let seconds = ((ms - since) / 1000.0).max(0.0) as f32;
+        let (change, after) = if on { (1, 2) } else { (3, 0) };
+        let changing = self.clips[change]
+            .as_ref()
+            .filter(|clip| seconds < clip.length());
+        let (index, clip, at) = match (changing, &self.clips[after]) {
+            (Some(clip), _) => (change, clip, seconds),
+            // Settled: a pose (length 0, the staff's `powered` and `off`)
+            // or a loop.
+            (None, Some(clip)) if clip.length() <= 0.0 => (after, clip, 0.0),
+            (None, Some(clip)) => {
+                let past = self.clips[change]
+                    .as_ref()
+                    .map_or(0.0, |clip| clip.length());
+                (after, clip, (seconds - past) % clip.length())
+            }
+            // No clip to settle in: the change's last pose.
+            (None, None) => match &self.clips[change] {
+                Some(clip) => (change, clip, clip.length()),
+                None => return POWER_CLIPS[after],
+            },
+        };
+        clip.pose(at, transforms);
+        POWER_CLIPS[index]
     }
 }
 
@@ -450,6 +545,34 @@ pub fn shaders() -> Vec<String> {
         .collect()
 }
 
+/// The colour of a KOTOR blade texture (a glow round a bright dot, which
+/// the game draws on crossed planes): its texels' colours weighted by their
+/// brightness, scaled so the strongest channel is full. `None` for a
+/// texture without light. Worked out once a texture name: every blade lit
+/// after that takes it as it was.
+pub fn own_colour(name: &str, texture: &asset_odyssey::texture::TextureIr) -> Option<[f32; 3]> {
+    static KNOWN: Mutex<BTreeMap<String, Option<[f32; 3]>>> = Mutex::new(BTreeMap::new());
+    let mut known = KNOWN.lock().unwrap_or_else(PoisonError::into_inner);
+    *known
+        .entry(name.to_string())
+        .or_insert_with(|| texture_colour(texture))
+}
+
+fn texture_colour(texture: &asset_odyssey::texture::TextureIr) -> Option<[f32; 3]> {
+    let decoded = texture.decoded();
+    let level = decoded.mips.first()?;
+    let mut sum = [0.0f64; 3];
+    for texel in level.as_chunks::<4>().0 {
+        let rgb = [texel[0], texel[1], texel[2]].map(f64::from);
+        let weight = rgb.into_iter().fold(0.0, f64::max);
+        for (total, channel) in sum.iter_mut().zip(rgb) {
+            *total += channel * weight;
+        }
+    }
+    let most = sum.into_iter().fold(0.0, f64::max);
+    (most > 0.0).then(|| sum.map(|total| (total / most) as f32))
+}
+
 /// Where a KOTOR hilt's blades run, and the hilt without them. A hilt's
 /// blades are its saber meshes (the nodes' saber flag), which the model
 /// reader refuses (with their boxes); most come with crossed planes drawn
@@ -467,9 +590,10 @@ pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
             .as_ref()
             .is_some_and(|texture| textures.contains(texture))
     };
-    let color = textures
-        .first()
-        .map_or(SaberColor::Blue, |texture| SaberColor::of_texture(texture));
+    let texture = textures.first();
+    let ja_color = texture.and_then(|texture| SaberColor::of_texture(texture));
+    let color = ja_color.unwrap_or(SaberColor::Blue);
+    let own = texture.filter(|_| ja_color.is_none()).cloned();
     let place = |node: usize, p: [f32; 3]| {
         let w = ir.nodes[node].world;
         Vec3::from_array(
@@ -516,13 +640,16 @@ pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
             } else {
                 (high.z, -1.0)
             };
-            BladeSpec::new(
-                [centre.x, centre.y, start],
-                [0.0, 0.0, dir],
-                (high.z - low.z) / asset_ja::UNIT,
-                3.0,
-                color,
-            )
+            BladeSpec {
+                own: own.clone(),
+                ..BladeSpec::new(
+                    [centre.x, centre.y, start],
+                    [0.0, 0.0, dir],
+                    (high.z - low.z) / asset_ja::UNIT,
+                    3.0,
+                    color,
+                )
+            }
         })
         .collect();
     if blades.is_empty() {
@@ -550,9 +677,12 @@ pub fn arm(
             blades: Vec::new(),
             ends: Vec::new(),
             gun: GunShape::of(&placed.ir),
+            power: PowerClips::of(&placed.ir),
         };
         if let Some((hilt, specs)) = kotor_blades(placed.ir.clone()) {
             placed.ir = hilt;
+            // A lightsaber's power is its JA blade, lit as the sim lights it.
+            held.power = None;
             let ja = sabers.of(specs.len() > 1);
             // A double-bladed hilt is held by its middle (`Wielded::new`);
             // each blade reaches as far past the middle as JA's does, its
@@ -835,6 +965,8 @@ struct Wield {
     rest: Option<(Entity, Transform)>,
     /// Where it hangs now.
     hung: Hung,
+    /// A powered item's clips (`Power`).
+    power: Option<Power>,
 }
 
 /// Where a weapon model hangs: the hand that holds it in a fight, where it
@@ -855,6 +987,8 @@ pub struct Drawn {
     /// Each lit blade in hand: its place among the sim's blades
     /// (`blades::slots`) and its index in `LiveBlades`.
     pub blades: Vec<(usize, usize)>,
+    /// Each powered item's clip (`Power::show`).
+    pub powered: Vec<&'static str>,
 }
 
 /// A character's state for its weapons at the drawn moment.
@@ -1041,6 +1175,7 @@ impl Wielded {
                 blades: armed.blades,
                 ends: armed.ends,
                 gun: armed.gun,
+                power: armed.power,
                 hand,
                 local,
                 middle,
@@ -1102,6 +1237,7 @@ impl Wielded {
                 blades: wield.blades,
                 ends: wield.ends,
                 gun: wield.gun,
+                power: wield.power,
             })
         })
     }
@@ -1265,6 +1401,13 @@ impl Wielded {
             }
             if shown {
                 drawn.shown.push(wield.name.clone());
+            }
+            // Powered while readied in hand (TSL sets a wielder's power
+            // bits as it readies, when a saber ignites; K1 powers the same
+            // items); the dead keep it.
+            if let Some(power) = &mut wield.power {
+                let on = shown && at.armed;
+                drawn.powered.push(power.show(on, at.ms, transforms));
             }
             let hand = if slot == right {
                 Hand::Right

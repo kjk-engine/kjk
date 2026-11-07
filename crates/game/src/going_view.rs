@@ -2,10 +2,10 @@
 //! as KOTOR's client fades the model it still holds: the snapshot carries
 //! each as it went while it departs (`Snapshot::departing`,
 //! `sim::Departing`), drawn where it stood at what is left of its fade,
-//! its meshes given blended materials of their own, until it is done. The
-//! dead fade as they are taken away, still in the world until their fade
-//! ends (`sim::Going::Fades`, `sim::remains`: their appearance's
-//! `fadedelayondeath`, the engine's own where blank); what a script's
+//! its meshes given blended materials of their own, until it is done. A
+//! corpse row's dead depart as they are taken away (`sim::remains`: their
+//! appearance's `fadedelayondeath`, the engine's own where blank; the
+//! older snapshots' `sim::Going::Fades` faded them in the world); what a script's
 //! `DestroyObject` takes is drawn whole for its `fDelayUntilFade`, then
 //! fades over the engine's fade, or goes at once for `bNoFade`. A
 //! creature's remains stand once it has gone (`made`).

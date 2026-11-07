@@ -427,8 +427,9 @@ pub fn afflict(fighter: &mut Fighter, secondary: Secondary, by: SimId, now: u64)
         }
         Secondary::Knockdown => fighter.saber.knock_down(now, ja::KNOCKDOWN_MS),
         // Knight and Master Valor and the improved Energy Resistance keep
-        // poison off.
-        Secondary::Poison { .. } if fighter.effects.poison_immune(now) => {}
+        // poison off, and so does one already running.
+        Secondary::Poison { .. }
+            if fighter.effects.poison_immune(now) || fighter.pack.poison.is_some() => {}
         Secondary::Poison {
             points,
             every_ms,

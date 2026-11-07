@@ -389,7 +389,8 @@ fn spawn_shadow_lights(mut commands: Commands) {
                     intensity: 0.0,
                     range: 0.01,
                     radius: tag,
-                    shadow_maps_enabled: true,
+                    // On while its slot holds a lamp (`place_shadow_lights`).
+                    shadow_maps_enabled: false,
                     // Texel-scaled along the normal; the depth bias is
                     // metres.
                     shadow_depth_bias: 0.02,
@@ -857,6 +858,12 @@ fn place_shadow_lights(
         if point.range != range {
             point.range = range;
         }
+        // A parked slot renders no maps: each of its views is a pass a
+        // frame, kept up with shadows off too.
+        let casting = slots.0[slot.0].is_some();
+        if point.shadow_maps_enabled != casting {
+            point.shadow_maps_enabled = casting;
+        }
     }
     for (mut light, mut transform) in &mut suns {
         let casting = slots.0[SUN].is_some();
@@ -1034,7 +1041,7 @@ impl Clearance {
 
 /// Where along `direction` from `origin` the ray meets `triangle`
 /// (Möller–Trumbore), either face.
-fn ray_hit(origin: Vec3, direction: Vec3, [a, b, c]: &[Vec3; 3]) -> Option<f32> {
+pub(crate) fn ray_hit(origin: Vec3, direction: Vec3, [a, b, c]: &[Vec3; 3]) -> Option<f32> {
     let (ab, ac) = (*b - *a, *c - *a);
     let p = direction.cross(ac);
     let det = ab.dot(p);

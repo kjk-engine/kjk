@@ -691,8 +691,9 @@ pub(super) fn scripts(
         );
     }
     // The first seat's player making a companion in the party its leader,
-    // or itself again (the party table is the host's, I30 P4); a player
-    // turning solo mode on or off.
+    // or itself again (the party table is the host's, I30 P4), or turning
+    // solo mode on or off: the companions follow the first seat's leader,
+    // so only that seat's solo mode is theirs (a guest leads no one).
     let leader_own = own
         .iter()
         .find(|(seat, _)| *seat == super::LEADER_SEAT)
@@ -709,7 +710,7 @@ pub(super) fn scripts(
             Action::SetLeader(u8::MAX) if leads => table.leader = None,
             Action::SetLeader(npc) if leads && table.has(npc) => table.leader = Some(npc),
             Action::Lead(body) if leads => table.lead(body.0, leader_own),
-            Action::Solo(on) => table.solo = on,
+            Action::Solo(on) if leads => table.solo = on,
             _ => {}
         }
     }

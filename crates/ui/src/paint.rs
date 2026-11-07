@@ -205,6 +205,10 @@ pub struct ControlState {
     /// A colour in place of the layout's: its text's, its border's, a
     /// bar's fill.
     pub tint: Option<[f32; 3]>,
+    /// A progress bar's art in place of the layout's, and the colour it is
+    /// drawn in in place of the layout's bar colour (KOTOR's own vitality
+    /// red and poisoned green): the art kept, unlike `tint`.
+    pub bar: (Option<String>, Option<[f32; 3]>),
     /// Its border, or the picture in its place, at the pulsing alpha
     /// (`Painter::pulsing`): KOTOR's pulsing borders.
     pub pulsing: bool,
@@ -705,11 +709,12 @@ impl<'a> Painter<'a> {
     }
 
     fn progress(&mut self, control: &Control, state: &ControlState, out: &mut DrawList) {
-        let Some((fill, color)) = control
-            .progress
-            .as_ref()
-            .map(|bar| (bar.fill.clone(), self.color(bar.color)))
-        else {
+        let Some((fill, color)) = control.progress.as_ref().map(|bar| {
+            (
+                state.bar.0.clone().unwrap_or_else(|| bar.fill.clone()),
+                state.bar.1.unwrap_or_else(|| self.color(bar.color)),
+            )
+        }) else {
             return;
         };
         let share = state

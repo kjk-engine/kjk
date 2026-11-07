@@ -2560,6 +2560,7 @@ impl Cast {
                 "hp": entity.fighter.map(|f| f64::from(f.hp) / 100.0),
                 "weapons": drawn.shown,
                 "blades_lit": drawn.lit,
+                "weapons_powered": drawn.powered,
                 "saber_away": drawn.away,
                 "clip": clip,
                 "disguised": member.own.is_some(),

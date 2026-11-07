@@ -82,6 +82,8 @@ const SHADOWED: u32 = 1024;
 /// An opaque surface of a room: its light is baked, and only the combat
 /// lights (`LIGHT_COMBAT`) add to it, measured from each fragment.
 const ROOM: u32 = 2048;
+/// Its texture's hue is the tint's (`recoloured`).
+const RECOLOUR: u32 = 4096;
 
 /// Most lights a surface is lit by at once: the nearest to the camera win.
 /// Our chosen cap (the shader's light list is this long).
@@ -618,6 +620,17 @@ impl OdysseyMaterial {
         self
     }
 
+    /// Its texture's hue replaced by `colour`, its light and white kept: each
+    /// texel's whitest part (its least channel) stays white, the rest of
+    /// its brightness takes `colour`. A JA blade in a colour JA has none of
+    /// (TSL's silver, cyan, viridian, bronze), coloured by KOTOR's own blade
+    /// texture (`weapons::own_colour`).
+    pub fn recoloured(mut self, colour: [f32; 3]) -> OdysseyMaterial {
+        self.params.tint = Vec4::new(colour[0], colour[1], colour[2], self.params.tint.w);
+        self.params.flags |= RECOLOUR;
+        self
+    }
+
     /// The diffuse texture has no alpha (a DXT1, an RGB image): it is taken
     /// as 1, so a DXT1 kept in blocks samples its transparent texel as the
     /// games drew it, opaque black.
@@ -747,9 +760,10 @@ impl OdysseyMaterial {
     }
 }
 
-/// `depth_bias` of a blended opaque surface: farther than anything in view,
+/// `depth_bias` of a blended opaque surface (one that writes depth: this
+/// material's `OpaqueAlpha`, the grass): farther than anything in view,
 /// keeping their order among themselves.
-const OPAQUE_FIRST: f32 = -1.0e5;
+pub const OPAQUE_FIRST: f32 = -1.0e5;
 
 /// What a material's pipeline depends on: its blend and whether it writes
 /// depth. Surfaces that agree on both (opaque and env-masked opaque; blend
@@ -767,19 +781,26 @@ impl From<&OdysseyMaterial> for OdysseyKey {
         let surface = material.surface;
         OdysseyKey {
             blend: blend(surface),
-            depth_write: !matches!(
-                surface,
-                Surface::Blend
-                    | Surface::Additive
-                    | Surface::AddOne
-                    | Surface::BlendVertex
-                    | Surface::Lighten
-                    | Surface::Modulate
-            ),
+            depth_write: writes_depth(surface),
             culled: material.culled,
             particles: material.particles.id() != NO_PARTICLES.id(),
         }
     }
+}
+
+/// Whether a surface writes depth: the opaque ones, and the blended ones
+/// drawn as the opaque pass is (`OpaqueAlpha`); what is truly see-through
+/// does not, so its order among the see-through decides what shows.
+pub fn writes_depth(surface: Surface) -> bool {
+    !matches!(
+        surface,
+        Surface::Blend
+            | Surface::Additive
+            | Surface::AddOne
+            | Surface::BlendVertex
+            | Surface::Lighten
+            | Surface::Modulate
+    )
 }
 
 /// How a surface blends with what is drawn: none for an opaque one.

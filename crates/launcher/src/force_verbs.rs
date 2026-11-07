@@ -1036,14 +1036,14 @@ pub fn force(
     let scene = stage.run(&start, target, 13_500, &mut tap(38));
     let at = |ms: u64| &scene.snapshots[(ms / 8) as usize - 1];
     // Its impact script's: the virulent poison (`poison.2da` row 2, DC 100:
-    // no save), a point of each ability a dose every 6 s, linked with half
-    // speed.
+    // no save), a point of each ability a dose, one as it takes and one
+    // every 6 s, linked with half speed.
     let drained = |ms: u64| fighter(at(ms), target).pack.drained(at(ms).time_ms);
     let (sick, sicker) = (drained(6400), drained(13_400));
     report.check(
         fighter(at(6400), target).pack.poison.is_some()
-            && sick == [1; 6]
-            && sicker == [2; 6]
+            && sick == [2; 6]
+            && sicker == [3; 6]
             && player(at(6400), target).run_speed <= motion::BASE_SPEED * 0.5,
         format!(
             "poisoned and slowed (base speed {}); drained {sick:?} at 6.4 s, {sicker:?} at 13.4 s",

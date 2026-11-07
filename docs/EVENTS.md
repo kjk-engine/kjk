@@ -70,10 +70,13 @@ travels in saves and recordings (`script::State`).
 - **Damage** `ScriptDamaged` at most every 500 ms, **death**
   `ScriptDeath`; the attacker is `GetLastDamager`'s / `GetLastKiller`'s.
   A dead creature not of the party is taken away after its appearance's
-  `destroyobjectdelay` (3 s where blank), fading out over its
-  `fadedelayondeath` (1 s where blank [verify]), unless
-  `SetIsDestroyable(FALSE)` keeps it (read when it is due). Gone, it is no
-  longer valid to scripts (Taris's Mission waits for the rakghoul's;
+  `destroyobjectdelay` (`items.remains.destroy_ms` where blank), unless
+  `SetIsDestroyable(FALSE)` keeps it (read when it is due): TSL's
+  executable's destroy event takes it out of its area then, and its body
+  fading over its `fadedelayondeath` (`items.remains.fade_ms` where blank)
+  is the client's. Gone, it is no
+  longer valid to scripts (Telos' shuttle trigger `tr_shuttle` waits for
+  the tank droid's; Taris's Mission waits for the rakghoul's;
   `GetNearestCreature` passes it over: Tatooine's bantha waits for no foe
   near; `GetIsDead` still holds it dead, as Aurora's does any invalid
   object: Korriban's tomb opens on Yuthura's death if Uthar's, faded, is
