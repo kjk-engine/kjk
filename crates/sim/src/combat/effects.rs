@@ -1037,10 +1037,19 @@ pub fn remove(fighter: &mut Fighter, id: Option<u32>, now: u64) {
     }
 }
 
-/// Ends the poison on `fighter` (its course kept off now), and what came
-/// linked with it.
+/// Ends the poison on `fighter` (its course kept off now), the points it
+/// drained coming back now, and what came linked with it.
 pub fn end_poison(fighter: &mut Fighter, now: u64) {
-    if let Some(link) = fighter.pack.poison.take().and_then(|poison| poison.link) {
+    let Some(poison) = fighter.pack.poison.take() else {
+        return;
+    };
+    // Its drain runs to the poison's end (`Pack::doses`); another's, to
+    // its own.
+    let drained = &mut fighter.pack.drained.1;
+    if *drained == poison.until {
+        *drained = (*drained).min(now);
+    }
+    if let Some(link) = poison.link {
         remove(fighter, Some(link), now);
     }
 }

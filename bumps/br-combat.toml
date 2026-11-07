@@ -1,5 +1,5 @@
 # The sim's hash moves on purpose: why.
-sim = "a poison's first dose lands as it takes, it lasts its whole duration, what it drained comes back at its end, and a second poison is kept off while one runs (KOTOR's executables)"
+sim = "a poison's first dose lands as it takes, it lasts its whole duration, what it drained comes back at its end (immunity ending it early, then), and a second poison is kept off while one runs (KOTOR's executables)"
 
 [formats]
 snapshot = "a poison's course no longer carries the drained points' own time (`items::Course::drain_ms`): they end with the poison."
