@@ -1,13 +1,14 @@
 //! The floors stage (`kjk play --stage floors`): a patch of each kind of
 //! floor both games walk on, to hear and see what each sounds like. Each
-//! patch is 3 m square, drawn with a floor texture of K1's or TSL's as it
+//! patch is 6 m square, drawn with a floor texture of K1's or TSL's as it
 //! lies in a module there, and solid as a floor of that material with the
 //! ground its texture makes (`collision_odyssey::ground`): its footsteps,
 //! its landings and its landing dust are those the module's floor plays.
 //!
 //! A row for each ground (sand, snow, dirt, mud, grass, stone, metal, wood,
 //! rug, water), the far row sand; K1's patches west of the grey aisle the
-//! player starts in, TSL's east. The patches are the floor textures the
+//! player starts in, TSL's east. The patches near the player carry their
+//! planet, module and texture over them (`labels`). The patches are the floor textures the
 //! modules use most for each ground, one a planet (`kjk collision build`
 //! lists them). The grey floor between them steps as stone. The line at
 //! the top says the patch underfoot: its game, module, material, texture
@@ -24,11 +25,13 @@ use vfs::{Discovery, Game};
 /// The stage's level name.
 pub const NAME: &str = "floors";
 /// A patch's side, and half the aisle down the middle (metres).
-const PATCH: f32 = 3.0;
+const PATCH: f32 = 6.0;
 const AISLE: f32 = 1.5;
-/// Half the floor's side, and its walls' height (the arena's).
-const HALF: f32 = 18.0;
+/// The space between the patches and the walls, and the walls' height.
+const MARGIN: f32 = 3.0;
 const WALL: f32 = 4.0;
+/// Patches within this of the player carry their labels (metres).
+const LABELLED: f32 = 14.0;
 /// The grey floor between the patches sits this far below them, so the two
 /// never draw over each other.
 const UNDER: f32 = 0.01;
@@ -123,6 +126,45 @@ fn material_label(material: u32) -> &'static str {
     }
 }
 
+/// The planet a module lies on (or the ship it is aboard): K1's by the
+/// module's first letters, TSL's by the letters after its number.
+fn planet(game: Game, module: &str) -> &'static str {
+    const K1: [(&str, &str); 10] = [
+        ("tat", "Tatooine"),
+        ("korr", "Korriban"),
+        ("unk", "Unknown World"),
+        ("man", "Manaan"),
+        ("dan", "Dantooine"),
+        ("tar", "Taris"),
+        ("kas", "Kashyyyk"),
+        ("lev", "Leviathan"),
+        ("ebo", "Ebon Hawk"),
+        ("sta", "Star Forge"),
+    ];
+    const TSL: [(&str, &str); 13] = [
+        ("261tel", "Telos polar"),
+        ("tel", "Telos"),
+        ("per", "Peragus"),
+        ("har", "Harbinger"),
+        ("ebo", "Ebon Hawk"),
+        ("nar", "Nar Shaddaa"),
+        ("dxn", "Dxun"),
+        ("ond", "Onderon"),
+        ("dan", "Dantooine"),
+        ("kor", "Korriban"),
+        ("nih", "Ravager"),
+        ("mal", "Malachor V"),
+        ("cor", "Coruscant"),
+    ];
+    let found = match game {
+        Game::Kotor1 => K1.iter().find(|(key, _)| module.starts_with(key)),
+        _ => TSL
+            .iter()
+            .find(|(key, _)| module.ends_with(key) || module == *key),
+    };
+    found.map_or("?", |(_, planet)| planet)
+}
+
 /// A patch laid out: what it is, the ground it makes and where it lies
 /// (min and max x, y; metres).
 struct Laid {
@@ -177,27 +219,38 @@ fn laid() -> Vec<Laid> {
         .collect()
 }
 
+/// Half the floor's side: the patches' reach and a margin.
+fn half() -> f32 {
+    let reach = laid()
+        .iter()
+        .flat_map(|patch| [patch.min, patch.max])
+        .flatten()
+        .fold(0.0f32, |reach, v| reach.max(v.abs()));
+    reach + MARGIN
+}
+
 /// The stage's collision: the grey floor and walls, and each patch solid
 /// as its floor.
 pub fn collision() -> BrushWorld {
     let cuboid = Brush::cuboid;
+    let half = half();
     // The grey floor steps as stone, so leaving a patch is heard.
-    let mut grey = cuboid([-HALF, -HALF, -1.0], [HALF, HALF, -UNDER]);
+    let mut grey = cuboid([-half, -half, -1.0], [half, half, -UNDER]);
     grey.surface = Surface {
         material: STONE,
         ground: Ground::Stone,
     };
     let mut world = BrushWorld::new()
         .with(grey)
-        .with(cuboid([-HALF - 0.5, -HALF, 0.0], [-HALF, HALF, WALL]))
-        .with(cuboid([HALF, -HALF, 0.0], [HALF + 0.5, HALF, WALL]))
+        .with(cuboid([-half - 0.5, -half, 0.0], [-half, half, WALL]))
+        .with(cuboid([half, -half, 0.0], [half + 0.5, half, WALL]))
         .with(cuboid(
-            [-HALF - 0.5, -HALF - 0.5, 0.0],
-            [HALF + 0.5, -HALF, WALL],
+            [-half - 0.5, -half - 0.5, 0.0],
+            [half + 0.5, -half, WALL],
         ))
         .with(cuboid(
-            [-HALF - 0.5, HALF, 0.0],
-            [HALF + 0.5, HALF + 0.5, WALL],
+            [-half - 0.5, half, 0.0],
+            [half + 0.5, half + 0.5, WALL],
         ));
     for patch in laid() {
         let mut brush = cuboid(
@@ -215,11 +268,12 @@ pub fn collision() -> BrushWorld {
 
 /// The floor as a navigation mesh: one square.
 pub fn nav() -> collision::nav::NavMesh {
+    let half = half();
     let [a, b, c, d] = [
-        [-HALF, -HALF, 0.0],
-        [HALF, -HALF, 0.0],
-        [HALF, HALF, 0.0],
-        [-HALF, HALF, 0.0],
+        [-half, -half, 0.0],
+        [half, -half, 0.0],
+        [half, half, 0.0],
+        [-half, half, 0.0],
     ];
     collision::nav::NavMesh::build(
         &[[a, b, c], [a, c, d]],
@@ -297,8 +351,9 @@ pub fn line(at: [f32; 3]) -> String {
     });
     match under {
         Some(patch) => format!(
-            "FLOORS   {} {}   {} floor, {}   sounds like {:?}",
+            "FLOORS   {} {} {}   {} floor, {}   sounds like {:?}",
             patch.game.key().to_uppercase(),
+            planet(patch.game, patch.module),
             patch.module,
             material_label(patch.material),
             patch.texture,
@@ -306,4 +361,29 @@ pub fn line(at: [f32; 3]) -> String {
         ),
         None => "FLOORS   a row per ground (far: sand, near: water); K1 west, TSL east   F2 spawn   F4 god mode".to_string(),
     }
+}
+
+/// The labels over the patches within `LABELLED` of `at` (metres): at each
+/// patch's middle, its game and planet over its module and texture.
+pub fn labels(at: [f32; 3]) -> Vec<([f32; 3], [String; 2])> {
+    laid()
+        .into_iter()
+        .filter_map(|patch| {
+            let middle = [
+                (patch.min[0] + patch.max[0]) / 2.0,
+                (patch.min[1] + patch.max[1]) / 2.0,
+                0.0,
+            ];
+            let near = (middle[0] - at[0]).hypot(middle[1] - at[1]) < LABELLED;
+            let game = patch.game.key().to_uppercase();
+            near.then(|| {
+                let planet = planet(patch.game, patch.module);
+                let words = [
+                    format!("{game} {planet}"),
+                    format!("{} {}", patch.module, patch.texture),
+                ];
+                (middle, words)
+            })
+        })
+        .collect()
 }
