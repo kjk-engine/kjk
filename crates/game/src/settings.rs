@@ -658,8 +658,8 @@ const DEFAULTS: [(&str, &str); 25] = [
     (AUTOSAVE, "true"),
     (SABER_RULES, "ja"),
     (DUEL_BARS, "false"),
-    (DUEL_WARNING, "true"),
-    (DUEL_SLOW_MOTION, "false"),
+    (DUEL_WARNING, "false"),
+    (DUEL_SLOW_MOTION, "true"),
 ];
 
 /// The key of Autosave (saving on each module entered, `sim_host::autosave`).

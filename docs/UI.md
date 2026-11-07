@@ -553,8 +553,8 @@ Running and checking:
   a guest plays by the host's, from its snapshots. The controller's page
   opens from the auto level-up box's place; the check boxes below autosave
   are "Overhead duel bars" (`game.duel_bars`, off), "Unblockable warning"
-  (`game.duel_warning`, on) and "Perfect-block slow-mo"
-  (`game.duel_slow_motion`, off; `settings::DuelOptions`).
+  (`game.duel_warning`, off, as MD has it) and "Perfect-block slow-mo"
+  (`game.duel_slow_motion`, on, the player's own perfect blocks alone; `settings::DuelOptions`).
 
 The equip page: a slot chosen lists what the party carries that fits it,
 after "None" and, on a line of its own, what the slot holds marked

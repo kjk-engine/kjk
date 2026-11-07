@@ -486,35 +486,27 @@ struct Authority {
 }
 
 /// A perfect block's slow motion (`rules::duel::slow_motion`, the option
-/// on, a game played alone): when the player's last perfect block, or its
-/// foe's, was seen (sim ms, by character), and until when (real seconds)
-/// the world's clock runs slow.
+/// on, a game played alone): when the player's last perfect block was seen
+/// (sim ms), and until when (real seconds) the world's clock runs slow.
 #[derive(Default)]
 pub(crate) struct Slowed {
-    seen: Vec<(sim::SimId, u64)>,
+    seen: Option<(sim::SimId, u64)>,
     until: f64,
 }
 
 impl Slowed {
-    /// Follows `seat`'s body and its foe in `snapshot` at `now` (real
-    /// seconds): a perfect block new since the last look slows the world
+    /// Follows `seat`'s body in `snapshot` at `now` (real seconds): a
+    /// perfect block of its own new since the last look slows the world
     /// from now, when `on`.
     fn follow(&mut self, snapshot: &Snapshot, seat: Seat, on: bool, now: f64) {
-        let body = snapshot.body(seat);
-        let foe = body
-            .and_then(|body| body.fighter?.target)
-            .and_then(|id| snapshot.entities.iter().find(|entity| entity.id == id));
-        let seen: Vec<(sim::SimId, u64)> = [body, foe]
-            .into_iter()
-            .flatten()
-            .filter_map(|entity| Some((entity.id, entity.fighter?.saber.duel.perfect_at)))
-            .collect();
-        let blocked = seen.iter().any(|&(id, at)| {
+        let seen = snapshot
+            .body(seat)
+            .and_then(|body| Some((body.id, body.fighter?.saber.duel.perfect_at)));
+        let blocked = seen.is_some_and(|(id, at)| {
             at != 0
                 && self
                     .seen
-                    .iter()
-                    .any(|&(was, before)| was == id && before != at)
+                    .is_some_and(|(was, before)| was == id && before != at)
         });
         if on && snapshot.saber_rules.duel() && blocked {
             self.until = now + f64::from(slow_motion::MS) / 1000.0;
