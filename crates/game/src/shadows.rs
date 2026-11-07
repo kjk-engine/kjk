@@ -1034,7 +1034,7 @@ impl Clearance {
 
 /// Where along `direction` from `origin` the ray meets `triangle`
 /// (Möller–Trumbore), either face.
-fn ray_hit(origin: Vec3, direction: Vec3, [a, b, c]: &[Vec3; 3]) -> Option<f32> {
+pub(crate) fn ray_hit(origin: Vec3, direction: Vec3, [a, b, c]: &[Vec3; 3]) -> Option<f32> {
     let (ab, ac) = (*b - *a, *c - *a);
     let p = direction.cross(ac);
     let det = ab.dot(p);

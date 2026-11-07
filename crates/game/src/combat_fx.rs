@@ -74,7 +74,7 @@ use crate::blaster_view::{BlasterShots, BoltShown, Flash, Flashed, Pulse};
 use crate::cast::{self, Guns, Hitboxes};
 use crate::lifecycle_view::SceneCamera;
 use crate::material::OdysseyMaterial;
-use crate::saber_marks::{self, Cuts};
+use crate::saber_marks::{self, Cuts, DrawnLevel};
 use crate::scene::{SceneContent, game_to_bevy};
 use crate::scene_fx::{self, Batch, ShaderMeshes};
 use crate::script_fx::{HookVisual, HookVisuals, Place};
@@ -615,6 +615,7 @@ fn draw(
         Option<ResMut<HookVisuals>>,
         ResMut<BlasterShots>,
     ),
+    rooms: Option<Res<crate::shadows::RoomSurfaces>>,
 ) {
     let Some(mut drawn) = drawn else { return };
     // KOTOR's sparks are drawn by `script_fx`; none without it.
@@ -703,8 +704,31 @@ fn draw(
             .map(|(_, corners)| corners.map(|p| Vec3::from_array(p) / UNIT))
             .collect()
     };
+    // A KOTOR level's marks lie on its walls as drawn, moved there from the
+    // blade's contact with the collision (none where no drawn wall is near:
+    // an open doorway the collision closes); a level without drawn rooms
+    // (JA's stages) lays them on the collision's faces.
+    let level = (!cuts.0.is_empty()).then(|| {
+        let to_game = crate::scene::game_to_bevy().inverse();
+        let triangles = rooms.iter().flat_map(|rooms| rooms.0.iter().flatten());
+        DrawnLevel(
+            triangles
+                .map(|surface| surface.corners.map(|p| to_game * p / UNIT))
+                .collect(),
+        )
+    });
+    let level = level.filter(|level| !level.0.is_empty());
     for cut in cuts.0.drain(..) {
-        drawn.saber_marks.lay(&cut, &faces);
+        match &level {
+            Some(level) => {
+                if let Some(moved) = level.onto(&cut) {
+                    drawn
+                        .saber_marks
+                        .lay(&moved, &|least, most| level.faces(least, most));
+                }
+            }
+            None => drawn.saber_marks.lay(&cut, &faces),
+        }
     }
     // Own time: where the own character is drawn, ahead of the view's.
     let me = fire.me;
