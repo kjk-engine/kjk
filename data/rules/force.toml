@@ -756,14 +756,16 @@ applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_PO
 [speed]
 title = "Burst of Speed, Knight Speed and Master Speed"
 summary = """
-A toggled power. The Jedi moves {force.speed.scale:bare} times as fast
-for {force.speed.length_ms[0]:s}, {force.speed.length_ms[1]:s} or
+A toggled power. The Jedi moves faster ({force.speed.scale:bare} times in
+combat, {walking.pace.most_multiplier:bare} times out of it) for {force.speed.length_ms[0]:s}, {force.speed.length_ms[1]:s} or
 {force.speed.length_ms[2]:s} by rank, and Force points do not regenerate
 meanwhile. The Defense bonus and extra attacks are listed with the
 power's effects.
 """
 detail = """
-This speed replaces the power's own movement bonus. Force Suppression ends
+In combat this speed replaces the power's own movement bonus; out of
+combat the Jedi moves by that bonus instead, as in KOTOR (the fastest
+movement, {walking.pace.most_multiplier:bare} times its walk and run). Force Suppression ends
 Burst of Speed and Knight Speed; Force Breach ends all three.
 """
 applies = ["spell:FORCE_POWER_SPEED_BURST", "spell:FORCE_POWER_KNIGHT_SPEED", "spell:FORCE_POWER_SPEED_MASTERY"]
@@ -773,7 +775,7 @@ name = "Speed Bonus"
 value = 1.15
 unit = "×"
 range = [1, 3]
-summary = "The speed powers make the Jedi move {force.speed.scale:bare} times as fast at every rank."
+summary = "In combat the speed powers make the Jedi move {force.speed.scale:bare} times as fast at every rank."
 source = "the owner's call, over JA's 1.7"
 see = "sim::world::powers::Cast::upkeep"
 applies = ["spell:FORCE_POWER_SPEED_BURST", "spell:FORCE_POWER_KNIGHT_SPEED", "spell:FORCE_POWER_SPEED_MASTERY"]
