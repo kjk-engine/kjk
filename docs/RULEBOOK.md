@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f1012d923126c5d5`.
+Edition `1118e67052085415`.
 
 ## Contents
 
@@ -8922,7 +8922,7 @@ first. Moving, jumping or attacking cancels the walk.
 
 <a id="targeting-walk-arrive"></a>**Action Reach** = **×0.8** · `targeting.walk.arrive`
 
-A character within 0.8 times an action's reach performs it without walking.
+A character within 0.8 times an action's reach performs it without walking. One whose walk gets no closer for 1 second while within the whole reach performs it where it stands, such as talking to a shopkeeper across a counter.
 
 <sub>Source: ours. Code: `sim::target::Walk::near`.</sub>
 

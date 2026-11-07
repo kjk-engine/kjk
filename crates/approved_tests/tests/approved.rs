@@ -1342,10 +1342,12 @@ fn use_scripts() {
 /// used; two runs end the same; from beside the wall the player walks to
 /// the gate's action point on its side (KOTOR's use range from a door's
 /// walkmesh use position), off the wall's face, opens the gate, then closes
-/// it with Close, its `OnClosed` heard. The sim alone.
+/// it with Close, its `OnClosed` heard; Dialog on a creature behind a
+/// counter no walk comes round starts where the walk comes no nearer,
+/// within a talk's reach, and not past it (issue 204). The sim alone.
 #[test]
 fn use_walk() {
-    probed("walk", &sim::uses::walk_probes(), 5);
+    probed("walk", &sim::uses::walk_probes(), 7);
 }
 
 /// Security in one press (owner's playtest, 2026-10-25: "Security
