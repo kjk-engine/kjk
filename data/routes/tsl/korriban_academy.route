@@ -44,8 +44,10 @@ to tr_leave          # the ramp: the party screen
 module 701kor
 to 48,20             # up the valley's path to the Academy: the party together
 gather
-to tr_acad_banter    # the Academy's open doors (kreia_ac)
-talk
+to tr_acad_banter    # the Academy's open doors (kreia_ac): Atton's line only
+                     # with him within 10 m (c_con_attonpm); a tuk'ata fought
+                     # away from the Exile leaves Kreia's line alone, a bark,
+                     # so no `talk` waits on it
 fight 25             # the tuk'ata at its doors
 exit To_702          # the Sith Academy
 module 702kor

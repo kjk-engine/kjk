@@ -105,6 +105,36 @@ source = "ours"
 see = "sim::world::minds::think"
 applies = ["kind:companion"]
 
+[tasks.follow_pace]
+name = "Keeping Pace"
+value = 4.0
+unit = "m"
+range = [0.5, 50.0]
+summary = "A party member within {minds.tasks.follow_pace:bare} meters of its place beside a walking leader walks there at its leader's walk; farther off it runs to catch up."
+source = "K1's executable"
+see = "sim::world::minds::think"
+applies = ["kind:companion"]
+
+[tasks.follow_walk_share]
+name = "Leader Walking"
+value = 0.6
+unit = "×"
+range = [0.0, 1.0]
+summary = "A leader moving at more than {minds.tasks.follow_moving:bare} m/s but under {minds.tasks.follow_walk_share:bare} times a run is walking, for its party members keeping pace."
+source = "K1's executable"
+see = "sim::world::minds::think"
+applies = ["kind:companion"]
+
+[tasks.follow_moving]
+name = "Leader Moving"
+value = 0.1
+unit = "m/s"
+range = [0.0, 5.0]
+summary = "A leader slower than {minds.tasks.follow_moving:bare} m/s stands, for its party members keeping pace."
+source = "K1's executable"
+see = "sim::world::minds::think"
+applies = ["kind:companion"]
+
 [tasks.follow_back]
 name = "Formation Depth"
 value = 64.0

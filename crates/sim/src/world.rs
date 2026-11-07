@@ -605,6 +605,14 @@ fn move_rates(level: &Level) -> crate::script::MoveRates {
         .map_or_else(Default::default, |library| library.move_rates())
 }
 
+/// The walk (m/s) of a body of `appearance.2da` row `appearance` its player
+/// drives (`Library::drive_walk`), where the level's library knows it.
+fn drive_walk(level: &Level, appearance: u16) -> Option<f32> {
+    level
+        .scripts()
+        .and_then(|library| library.drive_walk(appearance))
+}
+
 /// Where a standing body's box (`body`, `blocking`) puts its origin (units).
 fn origin_of(body: &Body) -> [f32; 3] {
     [
