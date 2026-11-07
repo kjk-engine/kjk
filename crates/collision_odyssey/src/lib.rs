@@ -8,7 +8,9 @@
 //!   sides, and every face of the room's walkmesh (`.wok`, already in world
 //!   space). A drawn triangle takes the material of the walkmesh face it
 //!   lies on, if any, so a trace reports the floor's material; walls and
-//!   ceilings the walkmesh does not cover have material 0. A floor's
+//!   ceilings the walkmesh does not cover have material 0. Clutter low on
+//!   the floor, which KOTOR's walker walks through, is left out
+//!   ([`floor_clutter`]). A floor's
 //!   ground (sand, snow, metal, …: sounds only) comes from its texture and
 //!   material ([`ground`]), and a walkmesh face takes the ground of the
 //!   floor drawn on it.
@@ -479,6 +481,13 @@ pub fn build_area(
         }
     }
     for (corners, material, ground) in drawn {
+        if material.is_none() && floor_clutter(&walk_level, surfaces, &corners) {
+            *stats
+                .render_skipped
+                .entry("floor clutter".into())
+                .or_insert(0) += 1;
+            continue;
+        }
         let material = material.unwrap_or(0);
         let tag = Tag::level(surfaces.contents(material), material as u16).on(ground);
         if builder.triangle(corners, tag) {
@@ -758,6 +767,73 @@ fn drawn_triangles(
     }
     drawn
 }
+
+/// Whether a drawn triangle is clutter on the floor, which KOTOR's walker
+/// walks through: some part of it over walkable floor, and none more than
+/// a step from the walkmesh right under it or, where the walkmesh has a
+/// hole (under a console), more than a step over that floor (the Ebon
+/// Hawk's pipes, a console's sloped skirt and its sides reaching past the
+/// walkmesh's edge onto the floor). Solid, the player's box rode up onto
+/// every pipe and was shoved up a skirt's slope, or the slanted top of its
+/// side; left out, the walkmesh is what bodies meet there (the floor, a
+/// console's own non-walkable faces), and the edge walls keep them off the
+/// floor's edge. Floor drawn flat at the floor's height is kept: nothing
+/// to snag on, and what lies or rolls there has it under it.
+fn floor_clutter(walkmesh: &Level, surfaces: &Surfaces, corners: &[[f32; 3]; 3]) -> bool {
+    use collision::CollisionWorld;
+    let step = collision::player::STEP_HEIGHT * collision::UNIT;
+    let middle: [f32; 3] =
+        std::array::from_fn(|i| (corners[0][i] + corners[1][i] + corners[2][i]) / 3.0);
+    // The corners drawn in a centimetre, so a corner on a seam between two
+    // faces still finds one; and the middle.
+    let inward = |p: [f32; 3]| -> [f32; 3] {
+        let d: [f32; 3] = std::array::from_fn(|i| middle[i] - p[i]);
+        let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        let t = if length > CLUTTER_INSET {
+            CLUTTER_INSET / length
+        } else {
+            1.0
+        };
+        std::array::from_fn(|i| p[i] + d[i] * t)
+    };
+    let points = [
+        inward(corners[0]),
+        inward(corners[1]),
+        inward(corners[2]),
+        middle,
+    ];
+    // The highest walkable floor under a point, and the highest point over
+    // a hole.
+    let mut floor = f32::NEG_INFINITY;
+    let mut over_hole = f32::NEG_INFINITY;
+    for p in &points {
+        // From a step over the point (a corner under the floor, a pipe's
+        // lower half, still finds the floor over it) down to a step under it.
+        let from = [p[0], p[1], p[2] + step];
+        let to = [p[0], p[1], p[2] - step];
+        let hit = walkmesh.trace(from, to, &Extents::POINT, Contents::SOLID);
+        if hit.start_solid {
+            return false;
+        }
+        if hit.fraction >= 1.0 {
+            over_hole = over_hole.max(p[2]);
+        } else if hit.plane.normal[2] >= collision::player::WALKABLE_NORMAL_Z
+            && surfaces.walkable(u32::from(hit.surface.material))
+        {
+            floor = floor.max(hit.end[2]);
+        }
+    }
+    let flat_on_floor = normal(corners).is_some_and(|n| n[2] >= FLAT)
+        && corners.iter().all(|c| (c[2] - floor).abs() <= SAME_SURFACE);
+    floor.is_finite() && over_hole <= floor + step && !flat_on_floor
+}
+
+/// A drawn triangle whose normal is this near straight up is flat.
+const FLAT: f32 = 0.99;
+
+/// How far in from a drawn triangle's corners [`floor_clutter`] looks for
+/// the floor under it, metres.
+const CLUTTER_INSET: f32 = 0.01;
 
 /// The material of the walkmesh face a drawn triangle lies on.
 fn classify(walkmesh: &Level, corners: &[[f32; 3]; 3]) -> Option<u32> {
