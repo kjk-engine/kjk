@@ -216,6 +216,8 @@ pub(super) fn strikes(
         .collect();
     bodies.sort_by_key(|body| body.id);
     let bashable = super::objects::bodies(placed.iter());
+    // Anyone else's fists meet the destructible props alone.
+    let breakable = super::objects::destructible_bodies(placed.iter());
     // The companion leading the party (`lent`) is its player's hands: it
     // throws a punch at their press, and punches what may be bashed, as
     // their own body does (TSL's Bao-Dur led to strike a force field open:
@@ -278,13 +280,12 @@ pub(super) fn strikes(
                 None => {
                     let party = in_party(avatar, fighter) || lent == Some(id.0);
                     let apart = level.0.friendly_fire == FriendlyFire::Off && party;
-                    // The party punches what may be bashed too (`objects`).
-                    let near: Vec<Standing> = match party {
-                        true => (bodies.iter().copied())
-                            .chain(bashable.iter().map(|body| nearest(body, ps.origin)))
-                            .collect(),
-                        false => bodies.clone(),
-                    };
+                    // The party punches what may be bashed too (`objects`),
+                    // anyone else what may be broken.
+                    let props = if party { &bashable } else { &breakable };
+                    let near: Vec<Standing> = (bodies.iter().copied())
+                        .chain(props.iter().map(|body| nearest(body, ps.origin)))
+                        .collect();
                     in_front(ps, &near, id.0, target.map(|body| body.id), |body| {
                         within(body) && !(apart && body.party)
                     })

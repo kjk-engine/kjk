@@ -35,6 +35,16 @@ pub(super) fn arena_playing(
     config: WorldConfig,
     edit: impl FnOnce(&mut crate::module::ModuleData),
 ) -> Result<(SimWorld, Rules), String> {
+    let (level, rules) = arena_level(props, edit)?;
+    let world = SimWorld::new(config, level).map_err(|error| error.to_string())?;
+    Ok((world, rules))
+}
+
+/// The level of `arena_playing`, and its rules.
+pub(super) fn arena_level(
+    props: Vec<Prop>,
+    edit: impl FnOnce(&mut crate::module::ModuleData),
+) -> Result<(super::Level, Rules), String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
     edit(&mut data);
@@ -54,9 +64,10 @@ pub(super) fn arena_playing(
     }
     let library = crate::probe::library("", std::iter::empty::<(String, _)>())
         .with_creatures([(FOE.to_string(), Arc::new(foe))].into());
-    let level = ground.with_scripts(library).with_arena(rules.clone());
-    let world = SimWorld::new(config, level).map_err(|error| error.to_string())?;
-    Ok((world, rules))
+    Ok((
+        ground.with_scripts(library).with_arena(rules.clone()),
+        rules,
+    ))
 }
 
 /// The proving ground as an arena with no props.

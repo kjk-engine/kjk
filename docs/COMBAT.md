@@ -297,7 +297,12 @@ barely marks metal and stone, fire and sonic crack ceramic), three times
 over for an area's (a grenade, an area power, a cast), less the
 material's hardness. A prop that only shows damage stops at 1 hit point.
 Anyone's bolt meets an unbroken prop's body; a blast reaches a prop
-through its own brushes. Force powers reach props when paid for
+through its own brushes. Anyone's saber sweep and fists meet one too: the
+party's whatever it may bash, anyone else's the destructible props alone,
+never a guarded one (`world::sabers`, `world::strikes`; probes
+`destruction_enemy_melee` and `destruction_enemy_melee_guarded`). A punch
+lands on its target while that is in reach, on the nearest prop in front
+when it is not. Force powers reach props when paid for
 (`destruction::power_reach`): Wave, Storm and Destroy Droid every prop
 around the caster in sight, Push, Whirlwind, Lightning, Kill and the
 saber throw the first prop the way the caster faces.
