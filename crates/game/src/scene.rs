@@ -1235,8 +1235,16 @@ impl<'t> Spawner<'t> {
         (index, spec): (usize, &crate::viewer::BladeSpec),
         hilt: Entity,
     ) {
-        let material = |name: &str, materials: &mut Assets<OdysseyMaterial>| {
-            materials.add(OdysseyMaterial::new(
+        // A colour JA has no blade of: KOTOR's own texture's colour on
+        // JA's blade (`BladeSpec::own`).
+        let own = spec
+            .own
+            .as_deref()
+            .and_then(|name| self.irs.get(name))
+            .and_then(crate::weapons::own_colour);
+        // The trail keeps its texture: its colour is its vertices'.
+        let material = |name: &str, recolour: bool, materials: &mut Assets<OdysseyMaterial>| {
+            let made = OdysseyMaterial::new(
                 Vec4::ONE,
                 self.textures.get(name).cloned(),
                 None,
@@ -1252,7 +1260,11 @@ impl<'t> Spawner<'t> {
                     fogged: false,
                 },
                 &self.area,
-            ))
+            );
+            materials.add(match own.filter(|_| recolour) {
+                Some(colour) => made.recoloured(colour),
+                None => made,
+            })
         };
         let glow_mesh = stores.meshes.add(blade_mesh(Vec::new(), Vec::new()));
         let core_mesh = stores.meshes.add(blade_mesh(Vec::new(), Vec::new()));
@@ -1262,13 +1274,19 @@ impl<'t> Spawner<'t> {
             .meshes
             .add(coloured_quads(Vec::new(), Vec::new(), Vec::new()));
         let mut parts = vec![
-            (glow_mesh.clone(), material(&spec.glow, stores.materials)),
-            (core_mesh.clone(), material(&spec.core, stores.materials)),
+            (
+                glow_mesh.clone(),
+                material(&spec.glow, true, stores.materials),
+            ),
+            (
+                core_mesh.clone(),
+                material(&spec.core, true, stores.materials),
+            ),
         ];
         if !spec.trail.is_empty() || spec.live {
             parts.push((
                 trail_mesh.clone(),
-                material(&spec.trail_texture, stores.materials),
+                material(&spec.trail_texture, false, stores.materials),
             ));
         }
         commands
@@ -1294,7 +1312,7 @@ impl<'t> Spawner<'t> {
                     period: spec.period,
                     trail: spec.trail.clone(),
                     trail_mesh,
-                    trail_color: spec.trail_color,
+                    trail_color: own.unwrap_or(spec.trail_color),
                     shown: spec.shown.clone(),
                     glow_empty: true,
                     trail_empty: true,

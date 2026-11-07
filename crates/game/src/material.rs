@@ -82,6 +82,8 @@ const SHADOWED: u32 = 1024;
 /// An opaque surface of a room: its light is baked, and only the combat
 /// lights (`LIGHT_COMBAT`) add to it, measured from each fragment.
 const ROOM: u32 = 2048;
+/// Its texture's hue is the tint's (`recoloured`).
+const RECOLOUR: u32 = 4096;
 
 /// Most lights a surface is lit by at once: the nearest to the camera win.
 /// Our chosen cap (the shader's light list is this long).
@@ -615,6 +617,17 @@ impl OdysseyMaterial {
         self.surface = Surface::Opaque;
         self.params.flags &= !OPAQUE_ALPHA;
         self.params.flags |= UNLIT | DISCARD_ZERO_ALPHA | VERTEX_ALPHA;
+        self
+    }
+
+    /// Its texture's hue replaced by `colour`, its light and white kept: each
+    /// texel's whitest part (its least channel) stays white, the rest of
+    /// its brightness takes `colour`. A JA blade in a colour JA has none of
+    /// (TSL's silver, cyan, viridian, bronze), coloured by KOTOR's own blade
+    /// texture (`weapons::own_colour`).
+    pub fn recoloured(mut self, colour: [f32; 3]) -> OdysseyMaterial {
+        self.params.tint = Vec4::new(colour[0], colour[1], colour[2], self.params.tint.w);
+        self.params.flags |= RECOLOUR;
         self
     }
 

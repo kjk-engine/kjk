@@ -563,6 +563,10 @@ pub struct BladeSpec {
     /// Lit and trailed each frame as `scene::LiveBlades` says (a play
     /// scene's blades, from the snapshots), instead of by the clip.
     pub live: bool,
+    /// The KOTOR blade texture whose colour the blade takes, for a colour
+    /// JA has no blade of (`SaberColor::of_texture`); its glow and core are
+    /// then JA's blue ones recoloured.
+    pub own: Option<String>,
 }
 
 impl BladeSpec {
@@ -590,6 +594,7 @@ impl BladeSpec {
             trail_color: color.trail(),
             shown: Vec::new(),
             live: false,
+            own: None,
         }
     }
 }
@@ -621,22 +626,24 @@ impl SaberColor {
 
     /// The JA colour of a KOTOR blade texture, by the colour its name gives
     /// (`w_lsabre<colour>01`; both games' are blue, red, gold, yelo, gren,
-    /// purp and turq, TSL's dgrn and silv too). JA has no gold, turquoise
-    /// or silver: orange, blue and blue stand in; any other name is blue
-    /// [verify: the texture's own colour would decide one we do not know].
-    pub fn of_texture(texture: &str) -> SaberColor {
+    /// purp and turq, TSL's dgrn and silv too): JA has blue, red, yellow,
+    /// green and purple. `None` for the others (gold, turquoise, dark green,
+    /// silver: TSL's bronze, cyan, viridian and silver crystals, and any
+    /// name we do not know), which take the texture's own colour on JA's
+    /// blade (`weapons::own_colour`).
+    pub fn of_texture(texture: &str) -> Option<SaberColor> {
         let texture = texture.to_ascii_lowercase();
+        let name = texture.strip_prefix("w_lsabre").unwrap_or(&texture);
         [
+            ("blue", SaberColor::Blue),
             ("red", SaberColor::Red),
-            ("gold", SaberColor::Orange),
             ("yelo", SaberColor::Yellow),
             ("gren", SaberColor::Green),
-            ("dgrn", SaberColor::Green),
             ("purp", SaberColor::Purple),
         ]
         .into_iter()
-        .find(|(name, _)| texture.contains(name))
-        .map_or(SaberColor::Blue, |(_, color)| color)
+        .find(|(colour, _)| name.starts_with(colour))
+        .map(|(_, color)| color)
     }
 
     fn name(self) -> &'static str {
@@ -879,12 +886,23 @@ pub(crate) fn textures<'m>(
             None => missing.push(name.clone()),
         }
     };
-    let names = models
-        .into_iter()
-        .flat_map(|placed| &placed.ir.meshes)
-        .flat_map(|mesh| [mesh.texture.as_ref(), mesh.lightmap.as_ref()])
-        .flatten();
-    for name in names {
+    // A lightsaber's blades are saber meshes the model reader refuses; their
+    // texture still gives a blade in a colour JA lacks its colour
+    // (`BladeSpec::own`).
+    let mut names: Vec<String> = Vec::new();
+    for placed in models {
+        names.extend(
+            placed
+                .ir
+                .meshes
+                .iter()
+                .flat_map(|mesh| [mesh.texture.as_ref(), mesh.lightmap.as_ref()])
+                .flatten()
+                .cloned(),
+        );
+        names.extend(placed.ir.saber_textures().map(str::to_string));
+    }
+    for name in &names {
         load(name, &mut textures);
     }
     // Env maps the loaded textures' TXI names.
