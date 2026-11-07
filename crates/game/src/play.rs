@@ -871,6 +871,7 @@ pub fn load_for(
         let resrefs = crate::power_fx::kotor_sounds()
             .into_iter()
             .chain(crate::ui_sounds::resrefs())
+            .chain(crate::prop_breaks::sounds())
             .chain(files.iter().map(String::as_str));
         sounds.load_kotor(
             resolver.as_deref(),
