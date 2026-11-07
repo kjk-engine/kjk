@@ -794,6 +794,19 @@ impl Effects {
         self.lasting[slot] = Some(effect);
     }
 
+    /// What scripts' speed effects running at `now` multiply movement by
+    /// (their percents summed, held to `SPEED_LEAST`..`SPEED_MOST`); with
+    /// `own_speed` false, the speed powers' own effects left out.
+    pub fn speed_factor(&self, now: u64, own_speed: bool) -> f32 {
+        let percent: i32 = self
+            .counted(now)
+            .filter(|l| l.modifies == Modifies::Speed)
+            .filter(|l| own_speed || !of_row(l.spell).is_some_and(|(of, _)| of == Power::Speed))
+            .map(|l| i32::from(l.amount))
+            .sum();
+        (100 + percent).clamp(SPEED_LEAST, SPEED_MOST) as f32 / 100.0
+    }
+
     /// Whether an effect of `power`'s own script runs: its native
     /// stand-in (speed's and protect's defence, ...) then gives way.
     pub fn scripted(&self, power: Power, now: u64) -> bool {
@@ -1319,6 +1332,21 @@ pub fn extra_attacks(force: &ForceState, effects: &Effects, now: u64) -> i32 {
         level => SPEED_ATTACKS[level - 1],
     };
     speed + effects.sum(Modifies::Attacks, now)
+}
+
+/// The multiplier KOTOR's pace (out of a fight) moves `fighter` by, from
+/// `multiplier`, the one its run speed carries for JA's pace. While a speed
+/// power runs, JA's pace moves by JA's speed (`ja::SPEED_SCALE`) in place
+/// of the power's own script effects; KOTOR's moves by those effects, as
+/// KOTOR's pace has no other speed. With no such effect (no scripts) JA's
+/// speed stays.
+pub fn kotor_multiplier(fighter: &Fighter, multiplier: f32, now: u64) -> f32 {
+    let effects = &fighter.effects;
+    if fighter.force.speed_until <= now || !effects.scripted(Power::Speed, now) {
+        return multiplier;
+    }
+    let ja = super::force::ja::SPEED_SCALE * effects.speed_factor(now, false);
+    multiplier / ja * effects.speed_factor(now, true)
 }
 
 /// The lowest level among the powers a dispel could end running on a

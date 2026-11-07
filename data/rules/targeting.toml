@@ -188,7 +188,7 @@ name = "Action Reach"
 value = 0.8
 unit = "×"
 range = [0.1, 1.0]
-summary = "A character within {targeting.walk.arrive:bare} times an action's reach performs it without walking."
+summary = "A character within {targeting.walk.arrive:bare} times an action's reach performs it without walking. One whose walk gets no closer for {walking.route.stall_ms:s} while within the whole reach performs it where it stands, such as talking to a shopkeeper across a counter."
 source = "ours"
 see = "sim::target::Walk::near"
 
