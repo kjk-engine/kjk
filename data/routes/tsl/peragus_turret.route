@@ -1,0 +1,14 @@
+# Peragus, the hangar's turret fired (TSL, 107PER): the branch beside the
+# escape's walkthrough way, which lets the troopers board. Here the
+# turret's bolts cut them down on the way to the Ebon Hawk: the hangar's
+# sequence ends when its dead and its boarded count every trooper sent
+# (`a_hangar_timer`), so with none aboard the Ebon Hawk leaves with no
+# boarders to fight. Starts from the hangar's checkpoint:
+#   kjk playthrough tsl @peragus_hangar25 data/routes/tsl/peragus_turret.route --god
+leader 8             # past the chamber, T3 picks the low security door
+unlock PeragusDoor1@8
+leader player
+exit TO_107PERm      # up the ramp: aboard
+module 107per        # Atton's 106percut: the turret (permov04)
+turrets              # fired until the troopers are dead; Atton's turend answered
+module 003ebo        # none aboard: the escape
