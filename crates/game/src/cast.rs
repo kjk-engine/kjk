@@ -3425,18 +3425,27 @@ struct Head {
     yaw: f32,
     ms: Option<f64>,
     turned: Option<(Quat, Quat)>,
+    /// How much of the level hold (`HeadBone::level`) has let go since its
+    /// body died (0 alive, 1 dead `LEVEL_FADE_S` and more).
+    let_go: f32,
 }
+
+/// How long (seconds) a body that dies takes to let its head go from level
+/// to its death's clip, and one revived to take it back: at once, the head
+/// jumped as far as it was held.
+const LEVEL_FADE_S: f32 = 0.3;
 
 impl Head {
     /// At `ms`, eases toward `target` (degrees from the body; none: ahead)
     /// at `HEAD_TURN_RAD_S` and turns `bone` so far about the model's up
     /// after the body's pose (`turn_under`), the head first held level
-    /// (`HeadBone::level`) where `level` says. A node no pose moved since
-    /// it was turned turns from where it stood before.
+    /// (`HeadBone::level`) where `level` says, letting go over
+    /// `LEVEL_FADE_S` once its body is dead. A node no pose moved since it
+    /// was turned turns from where it stood before.
     fn turn(
         &mut self,
         (target, ms): (Option<f32>, f64),
-        level: Option<(f32, f32, f32)>,
+        level: Option<(f32, f32, f32, bool)>,
         bone: &HeadBone,
         transforms: &mut Query<&mut Transform>,
     ) {
@@ -3446,6 +3455,12 @@ impl Head {
         self.ms = Some(ms);
         let most = HEAD_TURN_RAD_S.to_degrees() * seconds;
         self.yaw += (target.unwrap_or(0.0) - self.yaw).clamp(-most, most);
+        let level = level.and_then(|(aim, facing, share, alive)| {
+            let gone = if alive { 0.0 } else { 1.0 };
+            let step = seconds / LEVEL_FADE_S;
+            self.let_go += (gone - self.let_go).clamp(-step, step);
+            Some((aim, facing, share * (1.0 - self.let_go))).filter(|(.., share)| *share > 0.0)
+        });
         if self.yaw.abs() < 0.01 && self.turned.is_none() && level.is_none() {
             return;
         }
@@ -3805,11 +3820,12 @@ fn place(
             let under: f32 = shown.iter().map(|&(_, _, weight)| 1.0 - weight).product();
             // Its head looks along its aim, level, under the JA pose (JA's
             // head follows the view whatever the clip does with the chest),
-            // then turns to whom it looks at in a conversation.
+            // let go as it dies, then turns to whom it looks at in a
+            // conversation.
             let legs = figure.yaw().unwrap_or(at.view[1]);
             let aim =
                 legs + angles::wrap_180(at.view[1] - legs).clamp(-AIM_REACH_DEG, AIM_REACH_DEG);
-            let level = at.alive.then_some((aim, yaw.to_degrees(), under));
+            let level = Some((aim, yaw.to_degrees(), under, at.alive));
             let head = |figure: &mut Figure, transforms: &mut Query<&mut Transform>| {
                 if let Some(bone) = &body.head {
                     let target = look.map(|look| look_toward(soles, faces, look));
