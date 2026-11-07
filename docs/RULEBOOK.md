@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `a59d611e15b7e386`.
+Edition `e98367f4ce4df67e`.
 
 ## Contents
 
@@ -723,14 +723,20 @@ A creature's chance to flinch from a hit is divided by 2.
 A character may grunt as it begins a melee attack. A lunge, a jump-forward
 attack or a flip-over attack always grunts. Any other lightsaber or melee
 swing grunts only sometimes, for the player's own character as for anyone
-else. In a scene's combat rounds, the player's character always grunts and
-others grunt one time in five.
+else. In a scene's combat rounds, and when hurt, the player's character
+always grunts and others grunt one time in 5.
 
 <a id="combat-grunts-chance"></a>**Swing Grunt Chance** = **2 in 10** · `combat.grunts.chance`
 
 An ordinary lightsaber or melee swing grunts 2 in 10 times.
 
 <sub>Source: a delegated decision: JA voices only its special attacks, KOTOR's player grunts on every round's attack. Code: `game::grunts::swing_grunts`.</sub>
+
+<a id="combat-grunts-others-one-in"></a>**Grunt Odds: Others** = **5** · `combat.grunts.others_one_in`
+
+A character other than the player's own grunts at a scene round's swing, or in pain, one time in 5.
+
+<sub>Source: KOTOR's rule: the K1 executable's attack and pain grunts. Code: `game::grunts::says`.</sub>
 
 ### <a id="combat-sheet"></a>Character Sheet
 

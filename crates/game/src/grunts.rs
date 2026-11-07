@@ -16,8 +16,8 @@
 //!   PainGrunt 1–2 at random.
 //!
 //! KOTOR's rule: said always by the player's own character, else one time
-//! in five. Two flags of the executable's attack that skip both are not read
-//! [verify].
+//! in `combat.grunts.others_one_in`. Two flags of the executable's attack
+//! that skip both are not read [verify].
 //!
 //! - **selected**: the body the seat plays changing to another (Tab, a
 //!   portrait click, control passing on from a fallen leader, a script's
@@ -73,9 +73,9 @@ fn took(was: Option<u64>, now: Option<u64>) -> bool {
 }
 
 /// Whether a grunt is said: always by the player's own (`own`), else when
-/// `roll` comes up one in five.
+/// `roll` comes up one in `combat.grunts.others_one_in`.
 fn says(own: bool, roll: u32) -> bool {
-    own || roll.is_multiple_of(5)
+    own || roll.is_multiple_of(rules::combat::grunts::OTHERS_ONE_IN)
 }
 
 /// Whether a melee attack begun grunts, by `roll`: a scene round's swing
@@ -211,20 +211,27 @@ pub fn probes() -> sim::probe::Checks {
     let rolls = 0..1000u32;
     let others = rolls.clone().filter(|roll| says(false, *roll)).count();
     let own = rolls.clone().filter(|roll| says(true, *roll)).count();
+    // Per 1000 rolls: the book's one in N for others, its N in 10 for a
+    // swing of JA's.
+    let one_in = rules::combat::grunts::OTHERS_ONE_IN;
+    let (sometimes, swing) = (
+        1000usize.div_ceil(one_in as usize),
+        rules::combat::grunts::CHANCE as usize * 100,
+    );
     let attacks: Vec<usize> = (0..3)
         .map(|roll| pick(&slots::ATTACK_GRUNTS, roll))
         .collect();
     let pains: Vec<usize> = (0..2).map(|roll| pick(&slots::PAIN_GRUNTS, roll)).collect();
     vec![
         (
-            "the player's own always, others one in five",
+            "the player's own always, others at the book's odds",
             check(
-                own == 1000 && others == 200,
-                format!("own {own}/1000, others {others}/1000"),
+                own == 1000 && others == sometimes,
+                format!("own {own}/1000, others {others}/1000 (one in {one_in})"),
             ),
         ),
         (
-            "JA's specials always grunt, its other swings 2 in 10 for all, rounds as KOTOR's",
+            "JA's specials always grunt, its other swings the book's chance for all, rounds as KOTOR's",
             {
                 let rate = |ja: Option<Move>, own: bool| {
                     rolls
@@ -241,7 +248,7 @@ pub fn probes() -> sim::probe::Checks {
                     rate(None, false),
                 ];
                 check(
-                    rates == [1000, 1000, 200, 200, 1000, 200],
+                    rates == [1000, 1000, swing, swing, 1000, sometimes],
                     format!(
                         "lunge, flip, own swing, other's swing, own round, other's round: {rates:?}/1000"
                     ),
