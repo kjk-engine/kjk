@@ -1075,7 +1075,9 @@ lights (`material::LIGHT_COMBAT`). So are the powers': every script
 visual's glowing particles (its `Lighten` emitters', `model_fx::Glow`:
 their colours weighted by alpha) light 4 m in their own colour from where
 the visual is drawn (a beam's halfway to its target), as strong as how
-many show (`script_fx::GLOW_*`; K1's power models carry no lights), and
+many show (`script_fx::GLOW_*`; K1's power models carry no lights; a
+hit's, clash's or deflection's sparks light nothing, else they would hold a
+light on the body as long as they fly), and
 lightning lights at the hand and where
 its bolts end, in its primitives' colour times its shader's texture's
 (`force_view::LIGHTNING_*`). They are picked before the area's own,
