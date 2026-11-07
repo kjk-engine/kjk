@@ -67,12 +67,13 @@ fn worth_probe() -> Result<String, String> {
 
 /// A bare placeable of K1's row 39 (a footlocker), tagged `chest`.
 pub(crate) fn bare_prop() -> ObjectData {
-    ObjectData {
+    let mut facts = ObjectData {
         kind: ObjectKind::Placeable,
         tag: "chest".into(),
-        destructible: catalogue("k1", 39),
         ..ObjectData::unknown("chest_tpl", [0.0; 3], 0.0)
-    }
+    };
+    super::fill(&mut facts, "k1", 39, |_| false);
+    facts
 }
 
 fn guards_probe() -> Result<String, String> {
@@ -111,12 +112,32 @@ fn guards_probe() -> Result<String, String> {
     )
 }
 
+/// A destructible prop placed in its dead pose (look `DEAD`, no damage)
+/// still stands in the way; broken, it does not.
+fn placed_dead_probe() -> Result<String, String> {
+    let facts = bare_prop();
+    let placed = crate::snapshot::ObjectState {
+        state: crate::snapshot::look::DEAD,
+        ..crate::snapshot::ObjectState::default()
+    };
+    let broken = crate::snapshot::ObjectState {
+        damage: 20,
+        ..placed
+    };
+    let (standing, gone) = (placed.passable(&facts), broken.passable(&facts));
+    check(
+        !standing && gone,
+        format!("placed dead passable {standing} (want false), broken {gone} (want true)"),
+    )
+}
+
 /// The probes.
 pub fn probes() -> Checks {
     vec![
         ("destruction_catalogue", catalogue_probe()),
         ("destruction_worth", worth_probe()),
         ("destruction_guards", guards_probe()),
+        ("destruction_placed_dead", placed_dead_probe()),
     ]
     .into_iter()
     .chain(crate::world::destruction_probes::probes())
