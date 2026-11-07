@@ -28,7 +28,7 @@ story, or anything much worse than described ([`CONTRIBUTING.md`](CONTRIBUTING.m
 
 - Menus are unfinished: inventory, item descriptions and others have gaps.
 - Choosing Force powers, stims, shields and mines is a stand-in key scheme and will be redesigned.
-- No gamepad support yet.
+- Gamepads and the Steam Deck work, but the controller layout is a first draft; proposals for a better one are welcome.
 
 ## Combat
 
@@ -44,5 +44,5 @@ Damage is not final and will change. Today:
 
 ## Saves and releases
 
-- Saves may not load after an update; original KOTOR saves are never read.
+- Saves carry over to new versions; one that fails to load after an update is a bug worth reporting. Original KOTOR saves are never read.
 - Releases are unsigned, and there is no Intel Mac build.
