@@ -196,7 +196,9 @@ const HIDDEN_FRAMES: u32 = 2;
 /// (`fx_model::Spawned::glow`, a fight's light: rooms take it too): this
 /// far (metres), this strong once this much of them shows (their alphas
 /// summed), less with less. Ours: KOTOR lights a power's effects with
-/// nothing; its models carry no lights.
+/// nothing; its models carry no lights. A hit's, a clash's or a
+/// deflection's sparks (`HookVisual`) light nothing: they would hold a
+/// light on the body for as long as they fly, long after the hit.
 const GLOW_RADIUS: f32 = 4.0;
 const GLOW_STRENGTH: f32 = 0.5;
 const GLOW_FULL: f32 = 10.0;
@@ -403,7 +405,8 @@ enum Anchor {
 type Kept = Option<(SimId, u16)>;
 
 /// An effect asked for: its row, where, from when to when (world ms; no
-/// end for one that stays), a beam's source, and what keeps it.
+/// end for one that stays), a beam's source, what keeps it, and whether its
+/// glowing particles light what is near (`GLOW_*`).
 struct Asked {
     row: Row,
     anchor: Anchor,
@@ -411,6 +414,7 @@ struct Asked {
     until: Option<u64>,
     source: Option<SimId>,
     kept: Kept,
+    glows: bool,
 }
 
 /// A model of an effect in play: where it stands and on which node, from
@@ -433,6 +437,7 @@ struct Live {
     source: Option<SimId>,
     frames: u32,
     kept: Kept,
+    glows: bool,
 }
 
 /// What the executable does to the player's own screen, as of the frame
@@ -563,6 +568,7 @@ fn at_hook(
         until: None,
         source: None,
         kept: None,
+        glows: false,
     })
 }
 
@@ -899,6 +905,7 @@ fn new_visuals(
                     until: Some(until),
                     source,
                     kept: Some((entity.id, number)),
+                    glows: true,
                 });
             }
             continue;
@@ -933,6 +940,7 @@ fn new_visuals(
                 until,
                 source,
                 kept: until.map(|_| (entity.id, visual.row)),
+                glows: true,
             });
         }
     }
@@ -990,6 +998,7 @@ fn new_holds(
             until: Some(until),
             source: None,
             kept: Some((entity.id, number)),
+            glows: true,
         });
     }
     asked
@@ -1039,6 +1048,7 @@ fn new_on_objects(
             until: on.until(),
             source,
             kept: None,
+            glows: true,
         });
     }
     asked
@@ -1127,6 +1137,7 @@ fn asked_by_hand(
         until: (seconds > 0.0).then(|| since + (seconds * 1000.0) as u64),
         source,
         kept: None,
+        glows: true,
     })
 }
 
@@ -1231,6 +1242,7 @@ fn spawn(
                 until: None,
                 source: None,
                 kept: asked.kept,
+                glows: asked.glows,
             });
         }
     }
@@ -1471,6 +1483,7 @@ fn spawn(
                 },
                 frames: 0,
                 kept: asked.kept,
+                glows: asked.glows,
             });
         }
     }
@@ -1577,6 +1590,7 @@ fn draw(
                     "stands": live.stands,
                     // What its glowing particles light: where, colour, how much.
                     "glow": live.spawned.glow().map(|(colour, weight)| (colour.to_array(), weight)),
+                    "glows": live.glows,
                     // Each emitter: node, its texture, blend and facing,
                     // reference node, its target, particles.
                     "sprays": live.spawned.sprays.iter().map(|spray| {
@@ -1714,7 +1728,7 @@ fn draw(
             .chain(
                 view.live
                     .iter()
-                    .filter(|live| live.frames >= HIDDEN_FRAMES)
+                    .filter(|live| live.glows && live.frames >= HIDDEN_FRAMES)
                     // Where it is drawn (Bevy's space); a beam halfway to
                     // where it ends, on its target.
                     .filter_map(|live| {
