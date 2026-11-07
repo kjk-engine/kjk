@@ -773,8 +773,11 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   steered in place of the keys, keeping its hand and power;
   its own move, jump or attack ends the walk, as do a screen, a
   conversation, the target going or no longer offering the choice (a door
-  opened, a creature turned hostile). 10 s of the sim's time or three
-  stalls: "out of reach". The `USE` bit is scripted `--moves … use`'s.
+  opened, a creature turned hostile). A walk that comes no nearer for a
+  walker's stall while within the whole reach does the choice there: a
+  shopkeeper behind a counter no way leads round (Greeta Holda in
+  Anchorhead's Czerka office, talked to from 3.4 m; issue 204). 10 s of
+  the sim's time or three stalls short of the reach: "out of reach". The `USE` bit is scripted `--moves … use`'s.
 - **Revive** (`sim::target::Reviving`): there (within 2 m, else after the
   walk) the player asks for that body (`Action::Revive`, wire 23), turns
   to it and holds use (`USE_HELD`) with no key down until it stands

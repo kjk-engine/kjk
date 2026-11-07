@@ -449,7 +449,12 @@ pub(super) fn move_actors(
                 .map(|(walk, run)| (leader_walk.unwrap_or(walk), run));
             if let Some(rates) = rates {
                 let run = command.buttons & buttons::WALKING == 0;
-                let speed = walk::kotor_speed(rates, player.0.run_speed / motion::BASE_SPEED, run);
+                let multiplier = crate::combat::effects::kotor_multiplier(
+                    &fighting.0,
+                    player.0.run_speed / motion::BASE_SPEED,
+                    clock.time_ms,
+                );
+                let speed = walk::kotor_speed(rates, multiplier, run);
                 // Out of its fight lately, it eases down from JA's.
                 let left = fighting.0.combat_until.max(fighting.0.saber.out_until);
                 let keep = match left {
@@ -503,10 +508,14 @@ pub(super) fn move_actors(
             })
             .collect();
         let stepped = kotor.and_then(|rates| {
+            let multiplier = crate::combat::effects::kotor_multiplier(
+                &fighting.0,
+                player.0.run_speed / motion::BASE_SPEED,
+                clock.time_ms,
+            );
             let walker = fighting.0.mind.walker.as_mut()?;
             let moves = command.forward != 0 || command.right != 0;
             let run = command.buttons & buttons::WALKING == 0;
-            let multiplier = player.0.run_speed / motion::BASE_SPEED;
             let speed = if moves {
                 walk::kotor_speed(rates, multiplier, run)
             } else {

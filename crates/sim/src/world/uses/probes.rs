@@ -1936,14 +1936,28 @@ pub(crate) fn walk_world(
     data: crate::module::ModuleData,
     sheet: crate::combat::Sheet,
 ) -> Result<(super::super::Level, super::super::SimWorld), String> {
-    let floor = [[-7.5, -5.5], [7.5, -5.5], [7.5, 5.5], [-7.5, 5.5]].map(floor_at);
-    let nav = collision::nav::NavMesh::build(
-        &[
-            [floor[0], floor[1], floor[2]],
-            [floor[0], floor[2], floor[3]],
-        ],
-        crate::walk::CLEARANCE * collision::UNIT,
-    );
+    walk_world_over(data, sheet, &[[-7.5, 7.5]])
+}
+
+/// `walk_world` with only the floor between each pair of `strips` (the
+/// ground's own x, metres) walkable, each its own island where they do
+/// not meet.
+fn walk_world_over(
+    data: crate::module::ModuleData,
+    sheet: crate::combat::Sheet,
+    strips: &[[f32; 2]],
+) -> Result<(super::super::Level, super::super::SimWorld), String> {
+    let triangles: Vec<[[f32; 3]; 3]> = strips
+        .iter()
+        .flat_map(|&[x0, x1]| {
+            let floor = [[x0, -5.5], [x1, -5.5], [x1, 5.5], [x0, 5.5]].map(floor_at);
+            [
+                [floor[0], floor[1], floor[2]],
+                [floor[0], floor[2], floor[3]],
+            ]
+        })
+        .collect();
+    let nav = collision::nav::NavMesh::build(&triangles, crate::walk::CLEARANCE * collision::UNIT);
     let level = crate::determinism::proving_ground()
         .with_module(data)
         .with_scripts(library())
@@ -2156,6 +2170,77 @@ fn walk_scenario(cancel_at: Option<usize>) -> Result<(bool, Walked), String> {
     Ok((told, walked))
 }
 
+/// Where the player starts for the counter walk, and the two floors either
+/// side of the wall across (the ground's own x, metres), islands no way
+/// joins: the wall stands for a shop's counter, its doorway shut.
+const BEFORE_COUNTER: [f32; 2] = [-4.0, 3.0];
+const COUNTER_FLOORS: [[f32; 2]; 2] = [[-7.5, -0.5], [0.5, 7.5]];
+
+/// Where the shopkeeper stands behind the counter (the ground's own x,
+/// metres, level with `BEFORE_COUNTER`): within a talk's reach of the
+/// counter's near side but past where a walk arrives (Greeta Holda,
+/// issue 204), and a step farther, out of reach.
+const ACROSS_COUNTER: f32 = 3.0;
+const PAST_COUNTER: f32 = 4.5;
+
+/// A counter walk: the step Dialog was asked (none if never), whether the
+/// shopkeeper's dialogue hook heard the player, and how far (metres,
+/// across the floor) the player stood from it when it asked.
+struct Countered {
+    asked: Option<usize>,
+    talked: bool,
+    off: Option<f32>,
+}
+
+/// The player chooses Dialog on a creature standing `x` along the ground
+/// behind the wall across, which no walk can come round
+/// (`COUNTER_FLOORS`): walked as near as it gets, then asked where it
+/// stands.
+fn counter_scenario(x: f32) -> Result<Countered, String> {
+    use crate::module::{ObjectData, Placement};
+    use crate::notice::Notice;
+
+    const KEEPER_AT: u32 = 2;
+    let keeper = floor_at([x, BEFORE_COUNTER[1]]);
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.placements.push(Placement::Own(ObjectData {
+        kind: ObjectKind::Creature,
+        tag: "keeper".into(),
+        scripts: vec![("ScriptDialogue".into(), "probe_talk".into())],
+        ..ObjectData::unknown("keeper", keeper, 0.0)
+    }));
+    let (kept, mut world) =
+        walk_world_over(data, crate::combat::Sheet::dev_soldier(), &COUNTER_FLOORS)?;
+    let how = Choosing {
+        stand: Some(BEFORE_COUNTER),
+        run_in: 0,
+        object: KEEPER_AT,
+        kind: ObjectKind::Creature,
+        choice: crate::target::Choice::Talk,
+        cancel_at: None,
+    };
+    let (mut talked, mut off) = (false, None);
+    let walked = walk_and_choose(&kept, &mut world, &how, |asked, last, notices| {
+        if asked && off.is_none() {
+            off = last
+                .entities
+                .iter()
+                .find(|entity| entity.kind == crate::Kind::Avatar(Seat(0)))
+                .map(|entity| crate::math::flat_distance(entity.position, keeper));
+        }
+        talked |= notices
+            .iter()
+            .any(|(_, notice)| *notice == Notice::Said("talked".into()));
+        talked
+    })?;
+    Ok(Countered {
+        asked: walked.asked,
+        talked,
+        off,
+    })
+}
+
 /// Security on the proving ground's gate, locked (`OpenLockDC` the
 /// player's Security takes out of combat): where the player starts (the
 /// ground's own axes), how many steps it runs forward first, and whether
@@ -2346,8 +2431,10 @@ fn door_scenario() -> Result<([f32; 2], bool, bool), String> {
 /// cancels the walk and nothing is used; two runs end the same; from
 /// beside the wall the player walks to the gate's action point on its side
 /// (KOTOR's `CSWSCreature::GetUseRange`), off the wall's face, and opens
-/// it, then closes it with Close, its `OnClosed` heard (QUIRKS.md Q-0330).
-/// For the approved test `use_walk`.
+/// it, then closes it with Close, its `OnClosed` heard (QUIRKS.md Q-0330);
+/// Dialog on a creature behind a counter no walk comes round is asked
+/// where the walk comes no nearer, within a talk's reach, and is not past
+/// it (issue 204). For the approved test `use_walk`.
 pub fn walk_probes() -> Vec<(&'static str, Result<String, String>)> {
     let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
     let door = match door_scenario() {
@@ -2407,6 +2494,32 @@ pub fn walk_probes() -> Vec<(&'static str, Result<String, String>)> {
         ),
     ];
     checks.extend(door);
+    let talk =
+        crate::target::Spot::plain([0.0; 3], crate::target::Choice::Talk, ObjectKind::Creature);
+    checks.push((
+        "talk_across_counter",
+        counter_scenario(ACROSS_COUNTER).and_then(|ran| {
+            check(
+                ran.talked
+                    && ran
+                        .off
+                        .is_some_and(|off| off > talk.within && off <= talk.reach),
+                format!(
+                    "asked at step {:?} from {:?} m (a walk arrives within {:.1} m), talked {}",
+                    ran.asked, ran.off, talk.within, ran.talked
+                ),
+            )
+        }),
+    ));
+    checks.push((
+        "counter_out_of_reach",
+        counter_scenario(PAST_COUNTER).and_then(|ran| {
+            check(
+                ran.asked.is_none() && !ran.talked,
+                format!("asked at step {:?}, talked {}", ran.asked, ran.talked),
+            )
+        }),
+    ));
     checks
 }
 

@@ -669,6 +669,62 @@ fn mod_2da_size_ignored() {
     );
 }
 
+/// A weapon's texture with alpha and no TXI is drawn solid
+/// (`kjk_game::material::weapon_surface`, `weapons_in_hand.look.solid`; a
+/// kjk choice, issue 171: High Quality Blasters' guns showed the world
+/// through them). A mod's 32-bit TGA takes its facts from a loose TXI
+/// alone; with none its alpha blends on anything but a weapon, and a TXI
+/// naming an env map or additive blending (a saber's blade) keeps its own
+/// look on a weapon too. Needs `--features rig` (the game's library); no
+/// installs (proposed 2026-11-07, not yet approved).
+#[test]
+fn weapon_alpha_without_txi_solid() {
+    #[cfg(not(feature = "rig"))]
+    println!("weapon_alpha_without_txi_solid skipped: run with --features rig");
+    #[cfg(feature = "rig")]
+    {
+        use asset_odyssey::texture::TextureIr;
+        use fmt_odyssey::texture::Texture;
+        use fmt_odyssey::txi::Txi;
+        use kjk_game::material::{Surface, is_weapon_model, surface, weapon_surface};
+
+        // A 2×2 uncompressed 32-bit TGA, alpha 8 bits, its texels' alpha low.
+        let mut tga = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 32, 8];
+        for _ in 0..4 {
+            tga.extend_from_slice(&[40, 40, 40, 128]);
+        }
+        let texture = Texture::parse_tga(&tga).expect("the TGA parses");
+        for (txi, model, expected) in [
+            (None, "w_hvyblstr_001", Surface::Opaque),
+            (None, "W_BlstrRfl_001", Surface::Opaque),
+            (None, "p_bastilabb", Surface::OpaqueAlpha),
+            (None, "plc_chair1", Surface::OpaqueAlpha),
+            (
+                Some("envmaptexture CM_Baremetal"),
+                "w_hvyblstr_001",
+                Surface::OpaqueEnvMasked,
+            ),
+            (
+                Some("blending additive"),
+                "w_lghtsbr_001",
+                Surface::Additive,
+            ),
+            (Some("decal 1"), "w_hvyblstr_001", Surface::Blend),
+        ] {
+            let txi = txi.map(|line| Txi::parse(format!("{line}\r\n").as_bytes()));
+            let facts = TextureIr::from_texture(&texture, txi.as_ref())
+                .expect("the TGA decodes")
+                .facts;
+            let drawn = weapon_surface(
+                surface((0, false), 1.0, &[&facts]),
+                &[&facts],
+                is_weapon_model(model),
+            );
+            assert_eq!(drawn, expected, "{model} with TXI {txi:?}");
+        }
+    }
+}
+
 /// Which copy of a resource the games read (`vfs::probes`, journal
 /// 2026-11-05-override-precedence): `override/` over a module's own, a
 /// `.mod` standing for its RIMs and `_dlg.erf`, `patch.erf` over a module,
@@ -1342,10 +1398,12 @@ fn use_scripts() {
 /// used; two runs end the same; from beside the wall the player walks to
 /// the gate's action point on its side (KOTOR's use range from a door's
 /// walkmesh use position), off the wall's face, opens the gate, then closes
-/// it with Close, its `OnClosed` heard. The sim alone.
+/// it with Close, its `OnClosed` heard; Dialog on a creature behind a
+/// counter no walk comes round starts where the walk comes no nearer,
+/// within a talk's reach, and not past it (issue 204). The sim alone.
 #[test]
 fn use_walk() {
-    probed("walk", &sim::uses::walk_probes(), 5);
+    probed("walk", &sim::uses::walk_probes(), 7);
 }
 
 /// Security in one press (owner's playtest, 2026-10-25: "Security
