@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f8e6bdf19e2e59e9`.
+Edition `15d1b74a896f4939`.
 
 ## Contents
 
@@ -254,6 +254,7 @@ Edition `f8e6bdf19e2e59e9`.
   - [Rounds and Turns](#dialogue-clock)
 - [Minigames](#minigames)
   - [Swoop](#minigames-swoop)
+  - [Speed](#minigames-speed)
   - [Collisions](#minigames-bumps)
   - [Co-op Races](#minigames-coop)
 - [Pazaak](#pazaak)
@@ -9154,6 +9155,19 @@ A swoop's jump in TSL falls back with a gravity of -45.8 meters per second, each
 In TSL, each point of the player's Dexterity modifier adds 0.3 times the race's steering to the swoop. In KOTOR, Dexterity has no effect.
 
 <sub>Source: TSL's executable. Code: `sim::script::minigame`.</sub>
+
+### <a id="minigames-speed"></a>Speed
+
+In TSL, every swoop and turret starts at a speed of
+100, which the races' own start scripts replace. A
+turret's speed stays there, and the bolts its guns fire fly that much faster
+than their module says.
+
+<a id="minigames-speed-start"></a>**Starting Speed** = **100 m/s** · `minigames.speed.start`
+
+In TSL, a minigame's player starts at 100 meters per second until a script sets its speed (every race does as it begins). Its own bolts fly at their gun's speed plus the player's: at Peragus' hangar a turret bolt's 0.2 m/s becomes 100.2.
+
+<sub>Source: TSL's executable. Code: `sim::minigame::course::Course::new`.</sub>
 
 ### <a id="minigames-bumps"></a>Collisions
 

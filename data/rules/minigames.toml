@@ -41,6 +41,24 @@ summary = "In TSL, each point of the player's Dexterity modifier adds {minigames
 source = "TSL's executable"
 see = "sim::script::minigame"
 
+[speed]
+title = "Speed"
+summary = """
+In TSL, every swoop and turret starts at a speed of
+{minigames.speed.start:bare}, which the races' own start scripts replace. A
+turret's speed stays there, and the bolts its guns fire fly that much faster
+than their module says.
+"""
+
+[speed.start]
+name = "Starting Speed"
+value = 100.0
+unit = "m/s"
+range = [0.0, 1000.0]
+summary = "In TSL, a minigame's player starts at {minigames.speed.start:bare} meters per second until a script sets its speed (every race does as it begins). Its own bolts fly at their gun's speed plus the player's: at Peragus' hangar a turret bolt's 0.2 m/s becomes 100.2."
+source = "TSL's executable"
+see = "sim::minigame::course::Course::new"
+
 [bumps]
 title = "Collisions"
 summary = """

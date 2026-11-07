@@ -53,7 +53,7 @@ leader player
 # fights them inside).
 exit TO_107PERm      # up the ramp: aboard
 module 107per        # Atton's 106percut: the turret (permov04), troopers sent every 2 s
-turrets              # until all 25 troopers are dead or aboard; Atton's turend answered
+turrets hold         # fire held until all 25 troopers are aboard; Atton's turend answered
 module 005ebo        # the boarded Ebon Hawk
 fight 60             # the boarders (DSimpson: let them board, fight them inside)
 module 003ebo        # after the last falls: Kreia (turend's end) and the escape

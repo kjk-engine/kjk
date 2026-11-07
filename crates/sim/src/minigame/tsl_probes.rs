@@ -51,6 +51,7 @@ pub fn probes() -> Checks {
         ("routines", routines().unwrap_or_else(Err)),
         ("forfeit_globals", forfeit().unwrap_or_else(Err)),
         ("world_turret", world_turret().unwrap_or_else(Err)),
+        ("player_bolt_speed", bolt_speed()),
         (
             "talk_answered_while_playing",
             talk_while_playing().unwrap_or_else(Err),
@@ -744,6 +745,31 @@ fn world_turret() -> Result<Result<String, String>, String> {
             "107per: on the creature {hit:?}, on the wall {wall:?}; elsewhere {elsewhere:?} (struck, bolts flying)"
         ),
     ))
+}
+
+/// TSL's player starts at its executable's speed, and its own bolts fly
+/// at their bank's speed plus that (the hangar's 0.2 m/s bolts at 100.2);
+/// it holds still in the step that raises its `OnCreate`. KOTOR's player
+/// starts still, and its bolts fly at their bank's speed.
+fn bolt_speed() -> Result<String, String> {
+    let ran = |tsl: bool| {
+        let mut rules = turret();
+        rules.tsl = tsl;
+        rules.movement_per_sec = 100.0;
+        let mut course = Course::new(&rules);
+        run(&mut course, &rules, &[(0, command(0, 0, true))], 1);
+        let speed = course.bullets.first().map(|bolt| {
+            let [x, y, z] = bolt.velocity;
+            (x * x + y * y + z * z).sqrt().round()
+        });
+        (course.movers[0].speed, speed, course.movers[0].track)
+    };
+    let (tsl, k1) = (ran(true), ran(false));
+    let start = super::course::START_SPEED;
+    check(
+        tsl == (start, Some(start + 20.0), 0.0) && k1 == (0.0, Some(20.0), 0.0),
+        format!("TSL's (player speed, bolt speed, track) {tsl:?}; K1's {k1:?}"),
+    )
 }
 
 /// A conversation the scripts start while the turret plays is the

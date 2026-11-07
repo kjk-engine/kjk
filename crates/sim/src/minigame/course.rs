@@ -219,6 +219,10 @@ pub struct Leaving {
 /// (ms).
 pub const LEAVE_WAIT_MS: u64 = rules::minigames::coop::LEAVE_WAIT_MS;
 
+/// The speed TSL's executable starts a minigame's player at, until a
+/// script sets it (every race does as it begins; no turret does).
+pub(super) const START_SPEED: f32 = rules::minigames::speed::START;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Course {
     pub time_ms: u64,
@@ -272,12 +276,17 @@ impl Course {
     pub fn new(rules: &Rules) -> Course {
         let movers = std::iter::once(&rules.player)
             .chain(&rules.enemies)
-            .map(|follower| Mover {
+            .enumerate()
+            .map(|(n, follower)| Mover {
                 track: 0.0,
                 loops: follower.loops,
                 offset: follower.start_offset,
                 drift: [0.0; 3],
-                speed: 0.0,
+                speed: if n == 0 && rules.tsl {
+                    START_SPEED
+                } else {
+                    0.0
+                },
                 min_speed: follower.min_speed,
                 max_speed: follower.max_speed,
                 accel: 0.0,
@@ -827,7 +836,8 @@ impl Course {
         self.time_ms += u64::from(msec);
         let dt = msec as f32 / 1000.0;
         let command = command.copied().unwrap_or(Command::default());
-        if !self.started {
+        let creating = !self.started;
+        if creating {
             self.started = true;
             self.aim_from = [command.angles[0], command.angles[1]];
             for n in 0..rules.followers() + rules.obstacles.len() {
@@ -854,7 +864,7 @@ impl Course {
             let gunner = &mut self.gunners[k];
             turn_turret(rules, &mut gunner.aim_from, &mut gunner.offset, &command);
         }
-        self.move_followers(rules, dt, &mut raised);
+        self.move_followers(rules, (dt, creating), &mut raised);
         self.shoot(rules, fire, tick);
         self.gunners_shoot(rules, gunning);
         self.fly(rules, &mut raised);
@@ -928,8 +938,15 @@ impl Course {
     }
 
     /// Each follower along its track: the player at its speed, the others
-    /// at their track's own pace.
-    fn move_followers(&mut self, rules: &Rules, dt: f32, raised: &mut Vec<Raised>) {
+    /// at their track's own pace. The player holds in the step that raises
+    /// the hooks' `OnCreate` (`creating`): the executables run them before
+    /// anything moves, and the races' set its speed.
+    fn move_followers(
+        &mut self,
+        rules: &Rules,
+        (dt, creating): (f32, bool),
+        raised: &mut Vec<Raised>,
+    ) {
         for n in 0..self.movers.len() {
             let Some(follower) = rules.follower(n) else {
                 continue;
@@ -950,7 +967,7 @@ impl Course {
                 } else {
                     mover.speed = (mover.speed + step).min(mover.max_speed);
                 }
-                if rules.movement_per_sec > 0.0 {
+                if rules.movement_per_sec > 0.0 && !creating {
                     mover.speed / rules.movement_per_sec
                 } else {
                     0.0
@@ -1022,12 +1039,17 @@ impl Course {
                     direction
                 };
                 self.movers[n].shots[b] = now + u64::from(bank.rate_ms);
+                let speed = if n == 0 {
+                    self.bolt_speed(rules, bank.speed)
+                } else {
+                    bank.speed
+                };
                 self.bullets.push(Bullet {
                     shooter: n as u16,
                     bank: b as u8,
                     gunner: 0,
                     from,
-                    velocity: math::scale(direction, bank.speed),
+                    velocity: math::scale(direction, speed),
                     born: now,
                     until: now + u64::from(bank.lifespan_ms),
                     damage: bank.damage,
@@ -1088,18 +1110,31 @@ impl Course {
                 let mut way = self.turned_by(rules, 0, offset, bank.way);
                 math::normalize(&mut way);
                 self.gunners[k].shots[b] = now + u64::from(bank.rate_ms);
+                let speed = self.bolt_speed(rules, bank.speed);
                 self.bullets.push(Bullet {
                     shooter: 0,
                     bank: b as u8,
                     gunner: k as u8 + 1,
                     from,
-                    velocity: math::scale(way, bank.speed),
+                    velocity: math::scale(way, speed),
                     born: now,
                     until: now + u64::from(bank.lifespan_ms),
                     damage: bank.damage,
                     target: bank.target,
                 });
             }
+        }
+    }
+
+    /// How fast a bolt of the player's gun banks flies, its bank's speed
+    /// `speed`: in TSL, that plus the player's own speed (its executable;
+    /// a sum below 0 keeps the bank's), so Peragus' hangar turret's 0.2 m/s
+    /// bolts fly at 100.2 (`START_SPEED`); KOTOR's flies the bank's.
+    pub fn bolt_speed(&self, rules: &Rules, speed: f32) -> f32 {
+        let moving = self.movers.first().map_or(0.0, |mover| mover.speed);
+        match speed + moving {
+            sum if rules.tsl && sum >= 0.0 => sum,
+            _ => speed,
         }
     }
 

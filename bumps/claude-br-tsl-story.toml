@@ -1,5 +1,9 @@
 # The sim's hash moves on purpose: TSL's looping ANIMATION_* constants to
 # 46 loop on when asked for a negative duration (Atton at the Ebon Hawk's
 # helm), and the scripted clips the sim times are the executables' (the
-# droids' looping `disabled`, TSL's chair sits `animloop01` to `05`).
-sim = "TSL's looping animation constants to 46 loop on, and scripted clips are timed as the executables map them"
+# droids' looping `disabled`, TSL's chair sits `animloop01` to `05`); a TSL
+# minigame's player starts at the executable's speed (100) until a script
+# sets it, holds still in the step that raises its `OnCreate`, and its own
+# bolts fly at their bank's speed plus the player's (Peragus' hangar turret
+# at 100.2 m/s, not 0.2).
+sim = "TSL's looping animation constants to 46 loop on, scripted clips are timed as the executables map them, and a TSL minigame player's bolts add its speed (starting at 100)"

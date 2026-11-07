@@ -164,10 +164,14 @@ or not) or its hooks; K1's minigames play as before.
   (the troopers' `k_sith_damage` takes it, the barrels' `a_barrelexplode`
   bursts). The executable names the module (`107PER`, ignoring case), so
   this does (`minigame::WORLD_TURRET`). Its ARE gives the bolts 0.2 m/s,
-  as the executable flies them [verify in the game: they barely leave
-  the barrel]; the hangar's sequence ends by its timer either way. Its
-  bolts, and Onderon's (`505ond`) that hit a fighter, go at once: no
-  `explode` (`minigame::bolts_burst`).
+  but TSL's executable flies a bolt of the player's own guns at its
+  bank's speed plus the player's (`Course::bolt_speed`), and starts every
+  player at 100 m/s (`minigames.speed.start`) until a script sets it:
+  every race's `OnCreate` does, no turret's does, so the hangar's bolts
+  fly at 100.2 m/s (Dxun's and Onderon's at 700). The player holds still
+  in the step that raises the hooks' `OnCreate` (the executables run them
+  before anything moves). Its bolts, and Onderon's (`505ond`) that hit a
+  fighter, go at once: no `explode` (`minigame::bolts_burst`).
 - **Engines**: a follower's `Sounds` `Engine` (Dxun's fighters') loops
   where it is while it lives.
 - Checked by `sim::minigame::tsl_probes` (`kjk sim probes --only
@@ -357,8 +361,10 @@ the countdown is over (the script shifts when the gear allows) and steers
 for the nearest pad ahead round the nearest buoy in the way (a TSL race
 read across and along its curving track, its mines steered round too and
 jumped when close, what lies off the swoop's height left alone); the turret
-turns the view to the nearest fighter ahead of it by the bolts' flight and
-holds fire while on it. Each is met when the minigame's script leaves its
+turns the view to the nearest fighter ahead of it by the bolts' flight (with
+none, Peragus' hangar's, the nearest of the area's foes) and holds fire while
+on it; `turrets hold` never fires (the Peragus route lets the troopers
+board, as its walkthrough does). Each is met when the minigame's script leaves its
 module; `turrets` is refused once the game is lost (`EndGame(TRUE)`). A
 global the scripts set changing is progress, holding the goal's clock as a
 foe losing hit points does (Peragus' turret counts the troopers boarding,
@@ -374,7 +380,7 @@ kjk playthrough k1 tar_m03mg race --global TAR_SWOOP_ACCEL=7    # a race, cold
 kjk playthrough k1 m12ab turrets --global K_KOTOR_MASTER=10     # after Taris
 kjk playthrough k1 @vulkar_out data/routes/k1/taris_swoop.route --god
 kjk playthrough tsl 211tel race          # TSL's races, cold: 371nar, 510ond too
-kjk playthrough tsl 421dxn turrets       # TSL's turrets: 505ond; 107per to its end talk
+kjk playthrough tsl 421dxn turrets       # TSL's turrets: 505ond; 107per (cold: Kreia never spawns, its end talk stops short)
 kjk play --stage tar_m03mg --global TAR_SWOOP_ACCEL=7 --moves '5.3s; 0.15s attack; …'
 kjk play --stage m12ab --global K_KOTOR_MASTER=10 --headless --moves 30s --aim turrets --cmds 'wait 10f; clip fight 16 20; quit'
 ```
@@ -384,6 +390,5 @@ kjk play --stage m12ab --global K_KOTOR_MASTER=10 --headless --moves 30s --aim t
   hull bar's red flash, the guns' muzzle lights); `DOF`, `Accel_Secs`,
   `Target_Type`'s bits are read as noted [verify].
 - A TSL race's quit on its pause screen (`Action::Forfeit` has no key);
-  the swoop upgrade screen (cut content); the bot aims at no 107per
-  trooper.
+  the swoop upgrade screen (cut content).
 - `ProgFX` 1300 (a MIRV's shot, a projectile) (`script_fx`, MODEL-FX.md).
