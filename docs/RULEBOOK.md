@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f1012d923126c5d5`.
+Edition `ecafffe2e8103377`.
 
 ## Contents
 
@@ -8666,8 +8666,12 @@ A character can walk down to floor no more than 4 steps below.
 
 Outside combat, a character walks and runs at its own speeds, raised or
 lowered by movement speed effects from 0.125 to
-1.5 times normal. A character leaving
-combat slows to those speeds over 0.5 seconds.
+1.5 times normal. A creature walks and runs
+at its movement rate's speeds (`creaturespeed.2da`); a player's character
+runs at the `PLAYER` row's and walks at its body's own walk
+(`appearance.2da`'s `driveanimwalk`), as KOTOR walks the character its
+player drives. A character leaving combat slows to those speeds over
+0.5 seconds.
 
 <a id="walking-pace-ease-ms"></a>**Leaving Combat** = **0.5 seconds** (`500 ms`) · `walking.pace.ease_ms`
 
