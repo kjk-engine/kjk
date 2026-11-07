@@ -229,6 +229,9 @@ struct Step<'a> {
     /// What the party's blades may bash (`objects`): each door's or
     /// placeable's number among the level's entities, and its id.
     bashable: Vec<(u32, SimId)>,
+    /// The ids of the destructible props among them (in order): all anyone
+    /// else's blades meet of them.
+    breakable: Vec<SimId>,
     /// The pick volumes (metres) of the placeables among them: what a
     /// blade meets of one with no brushes of its own (a locker, a
     /// footlocker), as a fist or a bolt does.
@@ -315,6 +318,9 @@ pub(super) fn sabers(
         placed: Vec::new(),
         bodies: None,
         bashable: super::objects::bashable(placed.iter()),
+        breakable: (super::objects::destructible_bodies(placed.iter()).iter())
+            .map(|body| SimId(body.entity & !BODY))
+            .collect(),
         bashable_bodies: super::objects::bodies(
             placed
                 .iter()
@@ -677,9 +683,7 @@ impl Step<'_> {
                 }
                 self.strike_thrown(a, &segments, strength);
                 let half = sweep_half(&self.men[a].f);
-                if self.men[a].party {
-                    self.bash(a, &segments, half);
-                }
+                self.bash(a, &segments, half);
                 let bodies = self.targets(a, blade.length + 64.0 + motion::HALF_WIDTH * 2.0);
                 if bodies.is_empty() {
                     continue;
@@ -691,13 +695,16 @@ impl Step<'_> {
     }
 
     /// A party member's blade through a door or placeable that may be
-    /// bashed (`objects`), JA's way: each segment meeting its collision is
+    /// bashed (`objects`), anyone else's through a destructible prop (never
+    /// a guarded one), JA's way: each segment meeting its collision is
     /// a contact of the swing, worth as a cut through a body is; a
     /// placeable's pick volume where it meets that first, before any wall
     /// (a locker or a footlocker has no brushes: a fist and a bolt meet
     /// that volume too).
     fn bash(&mut self, a: usize, segments: &[sweep::Segment], half: f32) {
-        if self.bashable.is_empty() {
+        let party = self.men[a].party;
+        let meets = |id: SimId| party || self.breakable.binary_search(&id).is_ok();
+        if self.bashable.is_empty() || !party && self.breakable.is_empty() {
             return;
         }
         for segment in segments {
@@ -708,12 +715,14 @@ impl Step<'_> {
                 .and_then(|entity| {
                     (self.bashable.iter()).find_map(|&(at, id)| (at == entity).then_some(id))
                 })
+                .filter(|&id| meets(id))
                 .map(|id| (id, met.fraction));
             let picked = || {
                 (self.bashable_bodies.iter())
                     .filter_map(|body| {
+                        let id = SimId(body.entity & !BODY);
                         let fraction = sweep::enters(segment, body, half)?;
-                        (fraction < met.fraction).then_some((SimId(body.entity & !BODY), fraction))
+                        (fraction < met.fraction && meets(id)).then_some((id, fraction))
                     })
                     .min_by(|x, y| x.1.total_cmp(&y.1))
             };
