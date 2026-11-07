@@ -927,10 +927,13 @@ fn let_go(
             hitboxes.0.remove(&id);
             blades
         }
+        // Its weapons go first: they hang from its hands, so the body's
+        // despawn would take them too, and theirs come after it.
         Leaves::Made(gone) => {
             hitboxes.0.remove(&gone.id);
+            let blades = cast.forget((gone.id, Owner::Creature(gone.index)), commands);
             commands.entity(gone.root).despawn();
-            cast.forget((gone.id, Owner::Creature(gone.index)), commands)
+            blades
         }
     }
 }
