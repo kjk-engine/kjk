@@ -551,6 +551,216 @@ fn shot_bodies() -> Result<String, String> {
     )
 }
 
+/// The most steps (50 ms) an enemy is given to swing across a prop.
+const FOE_STEPS: u32 = 300;
+
+/// How `foe_across` lays out its fight: the props' spots and the foe's
+/// distance off the player along the world's x (metres), and the steps the
+/// player sidesteps each way, if it does.
+#[derive(Clone, Copy, Debug)]
+struct Layout {
+    spots: &'static [[f32; 2]],
+    foe_m: f32,
+    dodge: Option<u32>,
+}
+
+/// What befell one of the props about the player in `foe_across`.
+#[derive(Debug, Default)]
+struct Struck {
+    /// Each blow it took: by whom, hit points lost, whether it broke.
+    blows: Vec<(SimId, u16, bool)>,
+    /// Whether the foe's swings touched it (a contact of its attack).
+    touched: bool,
+    broken: bool,
+}
+
+/// A foe of `sheet` at war with the player in the arena, with the props
+/// `prop` makes (by spot, where) about the player as `layout` lays them,
+/// its script setting it on the player: its id, and what befell each prop.
+fn foe_across(
+    layout: Layout,
+    sheet: crate::combat::Sheet,
+    prop: impl Fn(usize, [f32; 3]) -> ObjectData,
+) -> Result<(SimId, Vec<Struck>), String> {
+    use crate::combat::sheet::factions::{HOSTILE_1, PLAYER};
+    use crate::module::Repute;
+    let [x, y, z] = standing(WorldConfig::one_seat())?;
+    let mut first = 0;
+    let edit = |data: &mut crate::module::ModuleData| {
+        first = data.placements.len() as u32;
+        let foe = crate::combat::Sheet {
+            faction: HOSTILE_1,
+            ..sheet
+        };
+        let ring =
+            (layout.spots.iter().enumerate()).map(|(n, [dx, dy])| prop(n, [x + dx, y + dy, z]));
+        let foe = ObjectData::creature("foe", "foe", [x + layout.foe_m, y, z], foe);
+        data.placements
+            .extend(ring.chain([foe]).map(Placement::Own));
+        data.repute = Repute::at_war([PLAYER, HOSTILE_1]);
+    };
+    // The duels' made-up skeleton, so blades sweep (none without one).
+    let level = super::arena_probes::arena_level(Vec::new(), edit)?.0;
+    let level = level.with_anims(crate::trace::blade_anims()?);
+    let mut world =
+        SimWorld::new(WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    let at: Vec<u32> = (first..).take(layout.spots.len()).collect();
+    let props: Vec<SimId> = (at.iter())
+        .map(|&index| id_of(&mut world, index).ok_or("no prop"))
+        .collect::<Result<_, _>>()?;
+    let foe = id_of(&mut world, first + layout.spots.len() as u32).ok_or("no foe")?;
+    let player = (world.snapshot().body(crate::Seat(0)))
+        .map(|body| body.id)
+        .ok_or("no player")?;
+    let mut struck: Vec<Struck> = props.iter().map(|_| Struck::default()).collect();
+    let of = |id: SimId| props.iter().position(|prop| *prop == id);
+    for step in 0..FOE_STEPS {
+        // Its script's attack on the player (`ActionAttack`): a world with
+        // scripts leaves the choice of foe to them.
+        let mut state = world.script_state().clone();
+        state.intents.insert(
+            foe.0,
+            crate::script::actions::Intent {
+                target: script_ncs::vm::ObjectId(player.0),
+                passive: false,
+                talent: None,
+            },
+        );
+        world.set_script_state(state);
+        // The player sidesteps one way and back (`Layout::dodge`): a blow
+        // under way may find it gone and land on what is in front.
+        let right = match layout.dodge {
+            Some(each) if (step / each).is_multiple_of(2) => 127,
+            Some(_) => -127,
+            None => 0,
+        };
+        let mut input = TickInput::default();
+        input.insert(
+            crate::input::Seat(0),
+            crate::Command {
+                right,
+                ..crate::Command::default()
+            },
+        );
+        let tick = world.tick() + 1;
+        crate::step(&mut world, tick, &input, 50, StepReason::Authority);
+        let contacts = (world.snapshot().get(foe))
+            .and_then(|foe| foe.fighter)
+            .map(|fighter| fighter.swing.contacts);
+        for contact in contacts.into_iter().flatten().flatten() {
+            if let Some(n) = of(contact.victim) {
+                struck[n].touched = true;
+            }
+        }
+        for blow in &world.world.resource::<Battered>().0 {
+            if let Some(n) = of(blow.object) {
+                struck[n].blows.push((blow.by, blow.lost, blow.broke));
+            }
+        }
+    }
+    for (n, &index) in at.iter().enumerate() {
+        struck[n].broken =
+            object_of(&mut world, index).is_some_and(|(state, facts)| state.broken(&facts));
+    }
+    Ok((foe, struck))
+}
+
+/// The enemies' melee, each with the fight that shows it: a Jedi's saber
+/// 1.2 m off a player ringed by props, a commoner's fists 2.5 m off one
+/// with a prop before it, sidestepping so a punch finds it gone.
+fn foes() -> [(&'static str, Layout, crate::combat::Sheet); 2] {
+    const RING: &[[f32; 2]] = &[
+        [0.7, 0.0],
+        [-0.7, 0.0],
+        [0.0, 0.7],
+        [0.0, -0.7],
+        [0.5, 0.5],
+        [0.5, -0.5],
+        [-0.5, 0.5],
+        [-0.5, -0.5],
+    ];
+    let ring = Layout {
+        spots: RING,
+        foe_m: 1.2,
+        dodge: None,
+    };
+    let before = Layout {
+        spots: &[[0.6, 0.0]],
+        foe_m: 2.5,
+        dodge: Some(10),
+    };
+    [
+        // With no powers or feats to weigh first: its blade alone.
+        (
+            "saber",
+            ring,
+            crate::combat::Sheet {
+                powers: Default::default(),
+                feats: Default::default(),
+                ..crate::combat::Sheet::dev_jedi()
+            },
+        ),
+        ("fists", before, crate::combat::Sheet::commoner()),
+    ]
+}
+
+/// An enemy swinging at the player across jars breaks them, with a saber
+/// and with its fists, as the party's blows do.
+fn enemy_melee() -> Result<String, String> {
+    let mut seen = Vec::new();
+    let mut ok = true;
+    for (arm, layout, sheet) in foes() {
+        let (foe, struck) = foe_across(layout, sheet, |_, at| prop(JAR, at, false))?;
+        let broken = struck.iter().filter(|prop| prop.broken).count();
+        let by_foe = (struck.iter().flat_map(|prop| &prop.blows)).all(|(by, ..)| *by == foe);
+        ok &= broken > 0 && by_foe;
+        seen.push(format!(
+            "{arm}: {broken} of {} jars broken (want some, every blow the foe's: {by_foe})",
+            struck.len()
+        ));
+    }
+    check(ok, seen.join("; "))
+}
+
+/// A jar guarded as the story keeps a prop (locked, a script hooking it:
+/// the party's blows may bash it open), at `at`.
+fn guarded_jar(at: [f32; 3]) -> ObjectData {
+    let mut facts = ObjectData {
+        scripts: [("OnDamaged".to_string(), "probe".to_string())].into(),
+        opens: crate::module::Opens::Locked,
+        ..prop(JAR, at, false)
+    };
+    destruction::fill(&mut facts, "k1", JAR, |_| false);
+    facts
+}
+
+/// An enemy swinging at the player across jars, every other one guarded,
+/// never meets a guarded one: its swing touches none, and none takes a
+/// blow (no damage, no hook); the others it does meet.
+fn enemy_melee_guarded() -> Result<String, String> {
+    let mut seen = Vec::new();
+    let mut ok = true;
+    for (arm, layout, sheet) in foes() {
+        let guarded = |n: usize| n % 2 == 1 || layout.spots.len() == 1;
+        let (_, struck) = foe_across(layout, sheet, |n, at| match guarded(n) {
+            true => guarded_jar(at),
+            false => prop(JAR, at, false),
+        })?;
+        let (kept, open): (Vec<_>, Vec<_>) =
+            (struck.iter().enumerate()).partition(|(n, _)| guarded(*n));
+        let met = |prop: &Struck| prop.touched || !prop.blows.is_empty();
+        let guarded_met: Vec<_> = (kept.iter()).filter(|(_, prop)| met(prop)).collect();
+        let others_met = open.iter().any(|(_, prop)| met(prop));
+        ok &= guarded_met.is_empty() && (open.is_empty() || others_met);
+        seen.push(format!(
+            "{arm}: guarded jars met {guarded_met:?} (want none); the others met: {others_met} \
+             (want true, of {})",
+            open.len()
+        ));
+    }
+    check(ok, seen.join("; "))
+}
+
 /// The probes.
 pub fn probes() -> crate::probe::Checks {
     vec![
@@ -561,5 +771,7 @@ pub fn probes() -> crate::probe::Checks {
         ("destruction_powers", powers()),
         ("destruction_wave_by_hand", wave_by_hand()),
         ("destruction_shot_bodies", shot_bodies()),
+        ("destruction_enemy_melee", enemy_melee()),
+        ("destruction_enemy_melee_guarded", enemy_melee_guarded()),
     ]
 }

@@ -206,6 +206,16 @@ impl Level {
 
     /// This level with the session's friendly fire (C17): players' shots,
     /// blades and powers hurt each other at `Full` (a duel, I25).
+    /// This level with `anims` (a probe's made-up skeleton's, so blades
+    /// sweep: `trace::blade_anims`).
+    pub fn with_anims(self, anims: Arc<AnimTable>) -> Level {
+        Level {
+            anims,
+            digests: Arc::new(OnceLock::new()),
+            ..self
+        }
+    }
+
     pub fn with_friendly_fire(self, friendly_fire: FriendlyFire) -> Level {
         Level {
             friendly_fire,
