@@ -648,6 +648,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 let mut over = false;
                 // The minigame's module, once the goal is in it.
                 let mut played_in: Option<String> = None;
+                // The gun's aim and the course's time when a conversation
+                // began holding the player while the minigame played.
+                let mut talk_began: Option<([f32; 3], u64)> = None;
                 // A pazaak match seen under way.
                 let mut tabled = false;
                 // A `craft` or `fit` pressed at its bench: for a `craft`,
@@ -1347,6 +1350,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 }
                                 if matches!(goal, Goal::Turrets(Fire::Hold)) {
                                     command.buttons &= !sim::buttons::ATTACK;
+                                }
+                                if let Err(why) = given_up(&last, (course, rules), &mut talk_began) {
+                                    held = vec![format!("{bot}: {why}")];
+                                    break;
                                 }
                             }
                             met = played_in
@@ -3105,4 +3112,42 @@ fn step_on(
     }
     watch.after(last, &snapshot);
     snapshot
+}
+
+/// While a conversation holds the player in a minigame, the minigame has
+/// given it the screen and the controls (`kjk_game::takes_view`,
+/// `Course::hold`), as TSL's executable does: none of its view drawn, its
+/// gun's aim where it was when the conversation began (`began`: the aim and
+/// the course's time then; one short's turn apart at most, as the view's
+/// turns are kept; a turret's, as a swoop drifts on) and no bolt of the
+/// gun's fired since. Peragus' turret's `turend` once played on under the
+/// turret's view.
+fn given_up(
+    last: &Snapshot,
+    (course, rules): (&sim::minigame::Course, &sim::minigame::Rules),
+    began: &mut Option<([f32; 3], u64)>,
+) -> Result<(), String> {
+    if last.talk_for(Seat(0)).is_none() {
+        *began = None;
+        return Ok(());
+    }
+    let aim = course.movers.first().map_or([0.0; 3], |mover| mover.offset);
+    let (kept, since) = *began.get_or_insert((aim, course.time_ms));
+    let one_short = sim::math::short_to_degrees(1);
+    let turned = rules.kind == sim::minigame::Kind::Turret
+        && (0..3).any(|axis| (aim[axis] - kept[axis]).abs() > one_short);
+    let fired = course
+        .bullets
+        .iter()
+        .any(|bullet| bullet.shooter == 0 && bullet.born > since);
+    if kjk_game::takes_view(last, Seat(0)) {
+        Err("the minigame's view kept the screen through a conversation".into())
+    } else if turned || fired {
+        Err(format!(
+            "the minigame kept its controls through a conversation (aim {aim:?} from {kept:?}, \
+             fired {fired})"
+        ))
+    } else {
+        Ok(())
+    }
 }

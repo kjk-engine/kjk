@@ -7,6 +7,7 @@ use fmt_odyssey::ncs::{Const, Op, Pair};
 
 use super::{Bank, Course, Follower, Hook, Hooks, Kind, LEAVE_WAIT_MS, Leaving, Path, Rules};
 use crate::input::{Command, buttons};
+use crate::math::{self, Vec3};
 use crate::probe::{Checks, check};
 use crate::wire::{Reader, Writer};
 use crate::{Seat, SimWorld, StepReason, TickInput, WorldConfig};
@@ -143,6 +144,7 @@ pub fn probes() -> Checks {
         ("turret_gunner_per_seat", gunners()),
         ("turret_fighters_scaled", scaled()),
         ("turret_late_gunner", late_gunner()),
+        ("turret_held_by_talk", held_by_talk()),
         ("coop_course_round_trip", round_trip()),
         ("coop_course_twice_alike", twice_alike()),
         (
@@ -318,6 +320,46 @@ fn gunners() -> Result<String, String> {
         format!(
             "gunners {}, aims {first:?} {second:?}, bolts {ways:?}",
             course.gunners.len()
+        ),
+    )
+}
+
+/// A conversation holding both seats (`Course::hold`): the player's gun and
+/// a gunner's keep their aims however their views turn and fire none; let
+/// go, each turns on from where it was held, by how far its view turns
+/// from there.
+fn held_by_talk() -> Result<String, String> {
+    let rules = turret();
+    let mut course = Course::new(&rules);
+    let both = |yaw: i16, fire: bool| [(0, command(0, yaw, fire)), (1, command(0, yaw, fire))];
+    run(&mut course, &rules, &both(0, false), 1);
+    run(&mut course, &rules, &both(0x1000, false), 2);
+    let aims = |course: &Course| [course.movers[0].offset, course.gunners[0].offset];
+    let before = aims(&course);
+    for _ in 0..20 {
+        let held: Vec<(u8, Command)> = both(0x3000, true)
+            .iter()
+            .map(|(seat, command)| (*seat, course.hold(&rules, *seat, command)))
+            .collect();
+        run(&mut course, &rules, &held, 1);
+    }
+    let kept = aims(&course);
+    run(&mut course, &rules, &both(0x3000, false), 1);
+    let let_go = aims(&course);
+    run(&mut course, &rules, &both(0x4000, false), 1);
+    let turned = aims(&course);
+    let near = |a: [Vec3; 2], b: [Vec3; 2]| {
+        (0..2).all(|k| {
+            (0..3).all(|axis| (a[k][axis] - b[k][axis]).abs() <= math::short_to_degrees(1))
+        })
+    };
+    let quarter = math::short_to_degrees(0x1000);
+    let on = (0..2).all(|k| ((turned[k][2] - let_go[k][2]).abs() - quarter).abs() < 0.01);
+    check(
+        near(before, kept) && near(kept, let_go) && on && course.bullets.is_empty(),
+        format!(
+            "aims {before:?}, held {kept:?}, let go {let_go:?}, turned {turned:?}, bolts {}",
+            course.bullets.len()
         ),
     )
 }

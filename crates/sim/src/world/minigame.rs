@@ -2,7 +2,9 @@
 //! moves by each seat's command (a race's run each, the turret's gunners),
 //! the hooks it raises queue for this
 //! step's scripts (on the authority), and every seat's player stands parked
-//! while it plays: its command keeps only where it looks.
+//! while it plays: its command keeps only where it looks. A seat a
+//! conversation holds steers nothing while it runs (`Course::hold`): the
+//! minigame plays on, its controls the conversation's.
 //!
 //! Two rules TSL's executable keeps outside the course:
 //! - a TSL race begins with the global `FORFEIT_SWOOPRACE` false (its
@@ -27,6 +29,7 @@ use crate::input::Command;
 use crate::minigame::{Course, Kind, Rules, WORLD_TURRET};
 use crate::module::ObjectKind;
 use crate::snapshot::SimId;
+use script_ncs::vm::ObjectId;
 
 /// The minigame in play (`Snapshot::minigame`): the install starts it, a
 /// snapshot restores it, the step and the scripts move it.
@@ -84,9 +87,18 @@ pub(super) fn steer(
         .iter()
         .map(|(seat, command)| (seat.0, *command))
         .collect();
+    // Which of them a conversation holds, by the seat that sent it.
+    let talking = talking_seats(&scripts.state.talk, &creatures);
+    let held: Vec<bool> = commands
+        .iter()
+        .map(|(seat, _)| talking.contains(seat))
+        .collect();
     let alone = course.runs.is_empty() && course.gunners.is_empty();
     if let ([only], true) = (commands.as_mut_slice(), alone) {
         only.0 = LEADER_SEAT.0;
+    }
+    for ((seat, command), _) in commands.iter_mut().zip(held).filter(|(_, held)| *held) {
+        *command = course.hold(rules, *seat, command);
     }
     let raised = course.step(rules, &commands, clock.msec, clock.tick);
     if world_turret(&level.0, rules) {
@@ -131,6 +143,23 @@ pub(super) fn steer(
     for (seat, command) in parked {
         inputs.0.insert(seat, command);
     }
+}
+
+/// The seats a conversation holds (`Snapshot::talk_for`): each whose body
+/// stands in one, every seat while a party conversation runs.
+#[allow(clippy::type_complexity)]
+fn talking_seats(
+    talk: &crate::script::dialogue::Talk,
+    creatures: &Query<(&Id, Option<&Avatar>, Option<&Object>, &Player, &Fighting)>,
+) -> Vec<u8> {
+    let party = talk.party().is_some();
+    creatures
+        .iter()
+        .filter_map(|(id, avatar, ..)| {
+            let seat = avatar?.0.0;
+            (party || talk.holding(ObjectId(id.0.0)).is_some()).then_some(seat)
+        })
+        .collect()
 }
 
 /// Whether `level`'s minigame is the turret whose bolts meet the area

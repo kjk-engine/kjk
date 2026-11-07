@@ -43,6 +43,7 @@ use asset_odyssey::hooks;
 use asset_odyssey::texture::TextureIr;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
+use sim::Seat;
 use sim::minigame::{Course, Kind, Rules};
 
 use crate::cast::BodyRoots;
@@ -651,6 +652,17 @@ fn own_seat(own: Option<Res<OwnSeat>>) -> u8 {
     own.map_or(0, |own| own.0.0)
 }
 
+/// Whether `seat`'s screen shows `snapshot`'s minigame through its own
+/// camera: while one plays and no conversation holds the seat
+/// (`Snapshot::talk_for`). A conversation the scripts start while it plays
+/// takes the screen, filmed as any other, and gives it back when it ends
+/// (TSL's executable hands the camera and the controls to the dialog and
+/// back; the minigame plays on behind it, `Course::hold`): Peragus'
+/// turret's `turend`, Atton's `106percut` as it begins.
+pub fn takes_view(snapshot: &sim::Snapshot, seat: Seat) -> bool {
+    snapshot.minigame.is_some() && snapshot.talk_for(seat).is_none()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw(
     mut view: ResMut<MinigameView>,
@@ -901,20 +913,26 @@ fn draw(
             }),
         )
     });
-    if let Some(hook) = hook {
-        let world = Mat4::from_quat(game_to_bevy()) * hook;
-        for (entity, mut projection) in cameras.iter_mut() {
-            if let Ok(mut transform) = transforms.get_mut(entity) {
-                *transform = Transform::from_matrix(world);
-            }
-            if let Projection::Perspective(perspective) = &mut *projection {
-                if rules.view_angle > 0.0 {
-                    perspective.fov = rules.view_angle.to_radians();
-                }
-                perspective.near = now.clip[0].max(0.05);
-                perspective.far = now.clip[1].max(perspective.near + 1.0);
-            }
+    let takes = takes_view(current, Seat(seat));
+    for (entity, mut projection) in cameras.iter_mut() {
+        let Projection::Perspective(perspective) = &mut *projection else {
+            continue;
+        };
+        // A conversation's camera (`play_view`) films with the scene's clip
+        // planes.
+        let Some(hook) = hook.filter(|_| takes) else {
+            let scene = crate::scene::view_clip();
+            (perspective.near, perspective.far) = (scene.near, scene.far);
+            continue;
+        };
+        if let Ok(mut transform) = transforms.get_mut(entity) {
+            *transform = Transform::from_matrix(Mat4::from_quat(game_to_bevy()) * hook);
         }
+        if rules.view_angle > 0.0 {
+            perspective.fov = rules.view_angle.to_radians();
+        }
+        perspective.near = now.clip[0].max(0.05);
+        perspective.far = now.clip[1].max(perspective.near + 1.0);
     }
     if dump_due.0 {
         let near: Vec<serde_json::Value> = (1..drawn.things.len())

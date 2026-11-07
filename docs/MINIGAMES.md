@@ -62,6 +62,17 @@ under "TSL's rules". Pazaak is no module but a conversation's game:
     bumps;
   - each live follower's `OnHeartbeat` runs every tick (the swoop's timer
     and finish line, the turret's compass), objects' `OnCreate` once.
+- **A conversation takes the controls and the screen.** One the scripts
+  start while a minigame plays (Atton's `106percut` as Peragus' turret
+  begins, his `turend` once the hangar's sequence ends) holds its seats
+  until it ends, as TSL's executable gives the input and the camera to the
+  dialog and back (the minigame's own when it closes, if one still plays;
+  K1's [verify]): the minigame plays on behind it (its followers, bolts
+  and hooks), but a
+  held seat's command presses and moves nothing on the course, and its gun
+  keeps its aim however its view turns, turning on from there once let go
+  (`Course::hold`). Its view gives the screen to the conversation's camera
+  (`game::takes_view`, below).
 - Hooks queue as the scripts' other events (`Pending`), the thing as the
   caller (`minigame::FIRST_ID` + its number: the player 0, the enemies, the
   obstacles), the hit they hear of as the event's number (`Course::facts`,
@@ -194,6 +205,10 @@ or not) or its hooks; K1's minigames play as before.
 - Once a course is presented its models are read off the frame (each
   follower's, each obstacle's, the bullets', the turret's camera rig) and
   spawned under the scene's root.
+- The camera stands at the rig's hook only while the minigame has the
+  screen (`takes_view`): while a conversation holds the seat it is
+  filmed as any other (`play_view`, the scene's clip planes back), the
+  minigame's models drawn where they are and its speed smear off.
 - Each frame after `play_view`: every thing between the last two ticks,
   turned as its track turns (the turret's rotating models as the view turns
   it); posed by the animations playing on it: the last one not an overlay
@@ -348,8 +363,8 @@ Every seat sending commands plays, a watching guest too (M12).
     mid-fight to each fighter still flying.
 - Checked by `sim::minigame::probes` (the approved test `minigame_coop`:
   runs, hooks by run, the held module, gunners, scaling (a late gunner
-  too), the encoding, two runs alike, a two-seat race whose scripts keep
-  their globals apart, each run's sound objects, and the turret's
+  too), guns held by a conversation, the encoding, two runs alike, a
+  two-seat race whose scripts keep their globals apart, each run's sound objects, and the turret's
   heartbeat through a gunner's lens playing its own compass and writing
   nothing else)
   and `cargo xtask duo --preset race` / `--preset turret` (each side draws
@@ -380,7 +395,11 @@ foe losing hit points does (Peragus' turret counts the troopers boarding,
 `107PER_MG_EBON`, and ends with Atton's `turend` once all 25 are dead or
 aboard). A conversation the scripts start while a minigame plays is
 answered as any other: the minigame parks what moves the player, not its
-answer (`world::minigame::steer`). `kjk play
+answer (`world::minigame::steer`), and takes nothing of the bot's while
+it runs. The goal is blocked if, while one holds the player, the
+minigame's view keeps the screen, its gun turns or it fires
+(`playthrough::given_up`): Peragus' `turend` once ran on under the
+turret's view. `kjk play
 --aim race|turrets` hands the scripted player to the same bot, for
 filming a minigame played.
 
