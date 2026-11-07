@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `a13091edb2b4159b`.
+Edition `cd3c70af3816c377`.
 
 ## Contents
 
@@ -14,6 +14,7 @@ Edition `a13091edb2b4159b`.
   - [Saber Styles](#controls-styles)
   - [Specials](#controls-specials)
   - [Kicks](#controls-kicks)
+  - [Blocks and Kicks Under the Duel Rules](#controls-duel)
   - [Lightsaber Throw](#controls-throw)
   - [Blasters](#controls-guns)
   - [Force Powers](#controls-force)
@@ -270,6 +271,8 @@ Edition `a13091edb2b4159b`.
   - [Stim Dart](#remote-dart)
 - [Duel Saber Rules](#duel)
   - [Meters](#duel-meters)
+  - [Perfect-Block Slow Motion](#duel-slow-motion)
+  - [Duel Bars](#duel-hud)
   - [Costs](#duel-costs)
   - [Masters](#duel-master)
   - [Refill](#duel-refill)
@@ -430,6 +433,14 @@ roll: a rising stab. Cost: 25%.
 [Alt attack] + a movement key, standing with a double-bladed lightsaber
 ready: a kick in that direction. In the air it is an air kick, or a kick on
 landing. A kick knocks the target back and may knock it down. No cost.
+
+### <a id="controls-duel"></a>Blocks and Kicks Under the Duel Rules
+
+Under the duel saber rules (Movie Duels or Movie Duels Advanced, chosen on
+the gameplay options page), the blade blocks only while [Block (duel rules)]
+is held; [Attack] pressed while it is held opens the moment of a perfect
+block. [Kick (duel rules)] kicks with any weapon in hand. Under Jedi
+Academy's rules neither key does anything.
 
 ### <a id="controls-throw"></a>Lightsaber Throw
 
@@ -9592,6 +9603,66 @@ Under MDA a saber user with block points under 10 points is drained, and is no m
 
 <sub>Source: docs/SABER-RULES.md 1.4. Code: `sim::combat::saber::duel::meter::settle`.</sub>
 
+### <a id="duel-slow-motion"></a>Perfect-Block Slow Motion
+
+With the "Perfect-block slow-mo" option on (off by default), a perfect block by the player, or by the one it fights, slows the world for a moment. Only in a game played alone: a session of more than one player never slows.
+
+<a id="duel-slow-motion-scale"></a>**Slow-Motion Pace** = **×0.3** · `duel.slow_motion.scale`
+
+The world runs at 0.3 of its pace while a perfect block slows it.
+
+<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
+
+<a id="duel-slow-motion-ms"></a>**Slow-Motion Time** = **0.2 seconds** (`200 ms`) · `duel.slow_motion.ms`
+
+A perfect block slows the world for 200 ms of real time.
+
+<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
+
+### <a id="duel-hud"></a>Duel Bars
+
+What the HUD shows of the duel meters while a duel mode is played: block points (MDA) and stamina, by the player's own bars and, with the "Overhead duel bars" option, over every saber user's head.
+
+<a id="duel-hud-stamina-steps"></a>**Stamina Steps** = **16** · `duel.hud.stamina_steps`
+
+The stamina bar is the mishap count turned upside down: full at none, losing one 16th for each mishap.
+
+<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md sections 1.1 and 12. Code: `game::duel_view::stamina`.</sub>
+
+<a id="duel-hud-lamps"></a>**Stamina Warnings** = **2 / 6 / 10 / 12** · `duel.hud.lamps`
+
+green **2** · blue **6** · magenta **10** · red **12**
+
+The stamina bar flashes once the mishap count is above 2 (green), above 6 (blue), above 10 (magenta) and above 12 (red, where swings tire).
+
+<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md sections 5.4 and 12. Code: `game::duel_view::stamina`.</sub>
+
+<a id="duel-hud-lamp-ms"></a>**Stamina Flash** = **0.6 seconds** (`600 ms`) · `duel.hud.lamp_ms`
+
+A flashing stamina bar goes off and on again every 600 ms.
+
+<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::stamina`.</sub>
+
+<a id="duel-hud-gauge-bands"></a>**Block Point Colours** = **20 points / 50 points / 75 points** (`20 / 50 / 75 points`) · `duel.hud.gauge_bands`
+
+red under **20 points** · purple under **50 points** · dark purple under **75 points**
+
+The block-point bar is red under 20 points, purple under 50, dark purple under 75, and bright magenta above.
+
+<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
+
+<a id="duel-hud-gauge-flash"></a>**Block Points Low** = **7 points** · `duel.hud.gauge_flash`
+
+Under 7 block points the bar flashes, off and on every 400 ms.
+
+<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
+
+<a id="duel-hud-gauge-flash-ms"></a>**Block Points Flash** = **0.4 seconds** (`400 ms`) · `duel.hud.gauge_flash_ms`
+
+A low block-point bar goes off and on again every 400 ms.
+
+<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
+
 ### <a id="duel-costs"></a>Costs
 
 What starting a move costs.
@@ -10504,7 +10575,7 @@ How creatures with sabers fight under the duel modes: they block whenever they c
 
 a blade's length **1 meter** · times the body's half width **0.038 meters** · and **0.41 meters** · left beyond **0.81 meters**
 
-Under MDA a creature within a blade's length (40 units), 1.5 units body half widths and 16 units of a saber user holds its ground facing it, until 32 units farther.
+Under MDA a creature within a blade's length (40 units), 1.5 units body half widths and 16 units of a saber user takes a block stance facing it, until 32 units farther; it holds its ground only within that reach, and steps back in when pushed past it, so its swings still land.
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
 

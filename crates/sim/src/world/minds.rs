@@ -1135,7 +1135,9 @@ impl Duelling<'_> {
                     apart <= reach
                 }
             });
-        if state.stance && command.forward >= 0 {
+        // It holds its ground only within reach: pushed past it (a bounce,
+        // a kick), it steps back in, or its swings would cut the air.
+        if state.stance && command.forward >= 0 && apart.is_some_and(|apart| apart <= reach) {
             command.forward = 0;
             command.right = 0;
         }

@@ -1408,7 +1408,7 @@ type = "f32"
 value = [40.0, 1.5, 16.0, 32.0]
 labels = ["a blade's length", "times the body's half width", "and", "left beyond"]
 unit = "units"
-summary = "Under MDA a creature within a blade's length ({duel.npc.stance[0]}), {duel.npc.stance[1]} body half widths and {duel.npc.stance[2]} of a saber user holds its ground facing it, until {duel.npc.stance[3]} farther."
+summary = "Under MDA a creature within a blade's length ({duel.npc.stance[0]}), {duel.npc.stance[1]} body half widths and {duel.npc.stance[2]} of a saber user takes a block stance facing it, until {duel.npc.stance[3]} farther; it holds its ground only within that reach, and steps back in when pushed past it, so its swings still land."
 source = "docs/SABER-RULES.md 10"
 see = "sim::world::minds"
 
