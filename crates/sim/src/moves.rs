@@ -233,6 +233,7 @@ impl Script {
                     reply: segment.reply,
                     // The client's camera sets it (`Command::aim`).
                     aim: [0; 3],
+                    holds: 0,
                 };
             }
             from = to;

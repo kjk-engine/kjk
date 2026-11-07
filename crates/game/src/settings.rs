@@ -43,6 +43,12 @@ pub enum Action {
     Stim,
     Stealth,
     LayMine,
+    /// Hold the blade up to block, under the duel saber rules
+    /// (`sim::combat::saber::duel`); with attack it aims the block, while
+    /// running it sprints.
+    Block,
+    /// Kick with any weapon in hand, under the duel saber rules.
+    Kick,
     /// Put the weapon in hand away (`sim::action::Action::Holster`).
     Holster,
     /// Exchange the weapon sets (`sim::action::Action::SwitchWeapons`).
@@ -82,7 +88,7 @@ pub enum Action {
 
 /// Each action: its settings name, its label, its default key or mouse
 /// button, and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 44] = [
+pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 46] = [
     (
         Action::Forward,
         "forward",
@@ -215,6 +221,20 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 44] = [
         "lay_mine",
         "Lay a mine",
         Input::Key(KeyCode::KeyO),
+        false,
+    ),
+    (
+        Action::Block,
+        "block",
+        "Block (duel rules)",
+        Input::Key(KeyCode::KeyR),
+        false,
+    ),
+    (
+        Action::Kick,
+        "kick",
+        "Kick (duel rules)",
+        Input::Key(KeyCode::KeyG),
         false,
     ),
     (

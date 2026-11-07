@@ -64,7 +64,7 @@ const fn shifted(button: GamepadButton) -> Chord {
 /// the view, a break (the menu's too) and the bug report stay the
 /// keyboard's. LB with the D-pad's left and right turns the target's
 /// action (`CYCLE`), as KOTOR's pad does.
-const PAD: [(Action, Chord); 27] = {
+const PAD: [(Action, Chord); 28] = {
     use GamepadButton::*;
     [
         (Action::Attack, alone(RightTrigger2)),
@@ -94,6 +94,7 @@ const PAD: [(Action, Chord); 27] = {
         (Action::Ready, shifted(Select)),
         (Action::Follow, shifted(RightThumb)),
         (Action::Solo, shifted(LeftTrigger2)),
+        (Action::Block, shifted(RightTrigger2)),
     ]
 };
 

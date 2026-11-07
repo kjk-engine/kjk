@@ -13,11 +13,13 @@
 //! - `clash`: the clash decision tree;
 //! - `lock`: saber locks;
 //! - `throw`: the thrown saber, and a saber knocked away;
-//! - `kick`: the staff's kicks and the roll get-ups.
+//! - `kick`: the staff's kicks and the roll get-ups;
+//! - `duel`: the rules the blades play by (JA's, or a duel mode).
 
 pub mod blades;
 pub mod clash;
 pub mod defence;
+pub mod duel;
 pub mod grace;
 pub mod kick;
 pub mod lock;
@@ -27,6 +29,7 @@ pub mod power;
 pub mod sweep;
 pub mod throw;
 
+pub use duel::SaberRules;
 pub use lock::Lock;
 pub use moves::{Block, Hold, Move, MoveData, Quad};
 pub use throw::Thrown;

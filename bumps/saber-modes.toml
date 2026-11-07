@@ -1,0 +1,10 @@
+# The sim's hash moves on purpose: the session's saber rules and the duel
+# modes' meters are stepped and kept.
+sim = "the blades play by the session's saber rules (JA, or the duel modes MD and MDA): block button, block points, perfect blocks, mishaps, fatigue"
+
+[formats]
+snapshot = "the world keeps the session's saber rules (`Snapshot::saber_rules`) and a saber its duel meters (`SaberState::duel`); a command its held duel bits (`Command::holds`)."
+replay = "a command carries its held duel bits, block and kick (`Command::holds`)."
+
+[migrations]
+snapshot = "old saves read JA's rules and full, unhurried duel meters: no save was made under a duel mode, and a kept command held no duel bits"

@@ -950,6 +950,13 @@ pub(crate) fn player_command(actions: &Actions, look: Look, controls: Controls) 
         reply: controls.reply,
         // The camera's, put in as the command is sent (`CameraAim`).
         aim: [0; 3],
+        holds: [
+            (held(Action::Block), sim::holds::BLOCK),
+            (held(Action::Kick), sim::holds::KICK),
+        ]
+        .iter()
+        .filter(|(on, _)| *on)
+        .fold(0, |bits, (_, bit)| bits | bit),
     }
 }
 

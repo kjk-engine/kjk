@@ -1273,6 +1273,8 @@ pub struct Snapshot {
     /// party member it lists or leads (`follows`). Made each step from the
     /// scripts' party table.
     pub puppets: Vec<SimId>,
+    /// The rules the blades play by, the session's (`saber::duel`).
+    pub saber_rules: crate::combat::saber::SaberRules,
     pub(crate) shared: SimRng,
     pub(crate) authority: SimRng,
     pub(crate) next_id: u32,
@@ -1872,6 +1874,7 @@ impl Snapshot {
         for puppet in &self.puppets {
             out.u32(puppet.0);
         }
+        self.saber_rules.encode(out);
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -2041,6 +2044,11 @@ impl Snapshot {
                 puppets.push(SimId(input.u32()?));
             }
         }
+        let saber_rules = if input.since(crate::since::snapshot::SABER_MODES) {
+            crate::combat::saber::SaberRules::decode(&mut input)?
+        } else {
+            crate::combat::saber::SaberRules::Ja
+        };
         let stash = match stash {
             Some(stash) => stash.clone(),
             None => Stash::read(&mut input)?,
@@ -2087,6 +2095,7 @@ impl Snapshot {
             remotes,
             standing,
             puppets,
+            saber_rules,
             shared,
             authority,
             next_id,
