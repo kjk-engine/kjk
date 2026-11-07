@@ -86,6 +86,7 @@ const OPAQUE_TEXTURE: u32 = 256u;
 const ADD_FADE: u32 = 512u;
 const SHADOWED: u32 = 1024u;
 const ROOM: u32 = 2048u;
+const RECOLOUR: u32 = 4096u;
 const LIGHT_DYNAMIC_TYPE_ALL: u32 = 1u;
 // `GpuLight::kind.z` of a fight's light (`material::LIGHT_COMBAT`).
 const LIGHT_COMBAT: u32 = 1u;
@@ -608,7 +609,16 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if (params.flags & OPAQUE_TEXTURE) != 0u {
         texel.a = 1.0;
     }
-    let base = texel * tint;
+    var shade = tint;
+    // A recoloured texture: its whitest part stays white, the rest of its
+    // brightness takes the tint's colour.
+    if (params.flags & RECOLOUR) != 0u {
+        let high = max(texel.r, max(texel.g, texel.b));
+        let low = min(texel.r, min(texel.g, texel.b));
+        texel = vec4<f32>(vec3<f32>(low) + (high - low) * tint.rgb, texel.a);
+        shade = vec4<f32>(1.0, 1.0, 1.0, tint.a);
+    }
+    let base = texel * shade;
     // The second UV set's lightmap, read on every fragment so the sample
     // stays in uniform control flow (a mesh without one binds a stand-in).
     let lightmap = textureSample(lightmap_texture, lightmap_sampler, uv2).rgb;

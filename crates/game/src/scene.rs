@@ -1014,14 +1014,6 @@ impl<'t> Spawner<'t> {
         } else {
             RenderAssetUsages::RENDER_WORLD
         };
-        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, usage);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, part.positions.clone());
-        if part.normals.len() == part.positions.len() {
-            mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, part.normals.clone());
-        }
-        if part.uv1.len() == part.positions.len() {
-            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, part.uv1.clone());
-        }
         let texture = part
             .texture
             .as_deref()
@@ -1033,7 +1025,6 @@ impl<'t> Spawner<'t> {
             .filter(|_| part.uv2.len() == part.positions.len());
         if lightmap.is_some() {
             tally.lightmapped += 1;
-            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, part.uv2.clone());
         }
         // As xoreos loads textures: a mesh none of whose textures
         // load is not rendered.
@@ -1045,7 +1036,6 @@ impl<'t> Spawner<'t> {
             tally.hidden += 1;
             return;
         }
-        mesh.insert_indices(Indices::U32(part.indices.clone()));
         let facts: Vec<_> = [part.texture.as_deref(), part.lightmap.as_deref()]
             .into_iter()
             .flatten()
@@ -1142,6 +1132,30 @@ impl<'t> Spawner<'t> {
             skin.vertex_joints.len() == part.positions.len()
                 && skin.vertex_weights.len() == part.positions.len()
         });
+        // A room's see-through surfaces are sorted among everything else
+        // see-through by where each piece of them stands, not by the middle
+        // of the whole mesh: one mesh carries every light panel of a room's
+        // walls, and its middle, nearer than a console in front of a panel,
+        // drew the panel over the console's screen (153har).
+        if is_room && !material::writes_depth(surface) && part.dangly.is_none() {
+            let pieces = see_through_pieces(&part.positions, &part.indices);
+            if pieces.len() > 1 {
+                for piece in &pieces {
+                    let mesh = odyssey_mesh(part, usage, lightmap.is_some(), Some(piece));
+                    let child = commands
+                        .spawn((
+                            Mesh3d(stores.meshes.add(mesh)),
+                            MeshMaterial3d(material.clone()),
+                            Transform::IDENTITY,
+                        ))
+                        .id();
+                    commands.entity(nodes[part.node]).add_child(child);
+                }
+                tally.drawn += 1;
+                return;
+            }
+        }
+        let mut mesh = odyssey_mesh(part, usage, lightmap.is_some(), None);
         if let Some(skin) = skinned {
             mesh.insert_attribute(
                 Mesh::ATTRIBUTE_JOINT_INDEX,
@@ -1221,8 +1235,16 @@ impl<'t> Spawner<'t> {
         (index, spec): (usize, &crate::viewer::BladeSpec),
         hilt: Entity,
     ) {
-        let material = |name: &str, materials: &mut Assets<OdysseyMaterial>| {
-            materials.add(OdysseyMaterial::new(
+        // A colour JA has no blade of: KOTOR's own texture's colour on
+        // JA's blade (`BladeSpec::own`).
+        let own = spec
+            .own
+            .as_deref()
+            .and_then(|name| self.irs.get(name))
+            .and_then(crate::weapons::own_colour);
+        // The trail keeps its texture: its colour is its vertices'.
+        let material = |name: &str, recolour: bool, materials: &mut Assets<OdysseyMaterial>| {
+            let made = OdysseyMaterial::new(
                 Vec4::ONE,
                 self.textures.get(name).cloned(),
                 None,
@@ -1238,7 +1260,11 @@ impl<'t> Spawner<'t> {
                     fogged: false,
                 },
                 &self.area,
-            ))
+            );
+            materials.add(match own.filter(|_| recolour) {
+                Some(colour) => made.recoloured(colour),
+                None => made,
+            })
         };
         let glow_mesh = stores.meshes.add(blade_mesh(Vec::new(), Vec::new()));
         let core_mesh = stores.meshes.add(blade_mesh(Vec::new(), Vec::new()));
@@ -1248,13 +1274,19 @@ impl<'t> Spawner<'t> {
             .meshes
             .add(coloured_quads(Vec::new(), Vec::new(), Vec::new()));
         let mut parts = vec![
-            (glow_mesh.clone(), material(&spec.glow, stores.materials)),
-            (core_mesh.clone(), material(&spec.core, stores.materials)),
+            (
+                glow_mesh.clone(),
+                material(&spec.glow, true, stores.materials),
+            ),
+            (
+                core_mesh.clone(),
+                material(&spec.core, true, stores.materials),
+            ),
         ];
         if !spec.trail.is_empty() || spec.live {
             parts.push((
                 trail_mesh.clone(),
-                material(&spec.trail_texture, stores.materials),
+                material(&spec.trail_texture, false, stores.materials),
             ));
         }
         commands
@@ -1280,7 +1312,7 @@ impl<'t> Spawner<'t> {
                     period: spec.period,
                     trail: spec.trail.clone(),
                     trail_mesh,
-                    trail_color: spec.trail_color,
+                    trail_color: own.unwrap_or(spec.trail_color),
                     shown: spec.shown.clone(),
                     glow_empty: true,
                     trail_empty: true,
@@ -2313,6 +2345,91 @@ fn follow_paths(
         transform.translation = position;
         transform.rotation = rotation;
     }
+}
+
+/// `part` as a Bevy mesh: its positions, normals and diffuse UVs, the
+/// lightmap's UVs when `lightmapped`; every triangle, or only `piece`'s
+/// (corner indices into `part.positions`), its vertices numbered anew so
+/// the mesh's bounds are the piece's.
+fn odyssey_mesh(
+    part: &asset_odyssey::model::MeshIr,
+    usage: RenderAssetUsages,
+    lightmapped: bool,
+    piece: Option<&[u32]>,
+) -> Mesh {
+    let count = part.positions.len();
+    let (vertices, indices): (Vec<u32>, Vec<u32>) = match piece {
+        None => ((0..count as u32).collect(), part.indices.clone()),
+        Some(corners) => {
+            let mut renumbered: BTreeMap<u32, u32> = BTreeMap::new();
+            let mut vertices = Vec::new();
+            let indices = corners
+                .iter()
+                .map(|&corner| {
+                    *renumbered.entry(corner).or_insert_with(|| {
+                        vertices.push(corner);
+                        vertices.len() as u32 - 1
+                    })
+                })
+                .collect();
+            (vertices, indices)
+        }
+    };
+    fn pick<T: Copy>(values: &[T], vertices: &[u32]) -> Vec<T> {
+        vertices.iter().map(|&v| values[v as usize]).collect()
+    }
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, usage);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pick(&part.positions, &vertices));
+    if part.normals.len() == count {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, pick(&part.normals, &vertices));
+    }
+    if part.uv1.len() == count {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, pick(&part.uv1, &vertices));
+    }
+    if lightmapped {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, pick(&part.uv2, &vertices));
+    }
+    mesh.insert_indices(Indices::U32(indices));
+    mesh
+}
+
+/// A see-through mesh's triangles grouped into the pieces that touch (share
+/// a corner's place, to the millimetre), each piece its triangles' corner
+/// indices in their order: a room's light panels, each one apart. One piece
+/// when they all touch, or when there would be more than `MOST_PIECES`
+/// (scattered glints are not worth a draw each).
+fn see_through_pieces(positions: &[[f32; 3]], indices: &[u32]) -> Vec<Vec<u32>> {
+    const MOST_PIECES: usize = 64;
+    let triangles = indices.len() / 3;
+    let mut parent: Vec<usize> = (0..triangles).collect();
+    fn root(parent: &mut [usize], mut at: usize) -> usize {
+        while parent[at] != at {
+            parent[at] = parent[parent[at]];
+            at = parent[at];
+        }
+        at
+    }
+    let mut first_at: std::collections::HashMap<[i32; 3], usize> = Default::default();
+    for (triangle, corners) in indices.as_chunks::<3>().0.iter().enumerate() {
+        for &corner in corners {
+            let Some(p) = positions.get(corner as usize) else {
+                continue;
+            };
+            let key = p.map(|axis| (axis * 1000.0).round() as i32);
+            let other = *first_at.entry(key).or_insert(triangle);
+            let (a, b) = (root(&mut parent, triangle), root(&mut parent, other));
+            parent[a] = b;
+        }
+    }
+    let mut pieces: BTreeMap<usize, Vec<u32>> = BTreeMap::new();
+    for (triangle, corners) in indices.as_chunks::<3>().0.iter().enumerate() {
+        let at = root(&mut parent, triangle);
+        pieces.entry(at).or_default().extend_from_slice(corners);
+    }
+    if pieces.len() > MOST_PIECES {
+        return vec![indices.to_vec()];
+    }
+    pieces.into_values().collect()
 }
 
 /// A mesh of quads. An empty one is given a single degenerate quad: Bevy's

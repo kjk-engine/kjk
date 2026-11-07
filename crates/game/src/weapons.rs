@@ -45,7 +45,9 @@
 //!   JA's blade drawn instead, from where the planes leave the hilt, at JA's
 //!   length and radius (`single_1`'s, `dual_1`'s), in the blade texture's
 //!   colour (`SaberColor::of_texture`; the hilt's model variation picks it:
-//!   1 blue, 2 red, 3 green, 4 yellow, 5 violet). A blade is lit
+//!   1 blue, 2 red, 3 green, 4 yellow, 5 violet); a colour JA has no blade
+//!   of (TSL's silver, cyan, viridian, bronze) is JA's blue blade recoloured
+//!   by the KOTOR texture's own colour (`own_colour`). A blade is lit
 //!   as the sim lights it (`saber::blades::slots`: the saber on, a staff's
 //!   second blade unless put out, none while the saber is away, none once
 //!   its holder is dead), grows and shrinks as JA's do, and trails while the
@@ -541,6 +543,25 @@ pub fn shaders() -> Vec<String> {
         .collect()
 }
 
+/// The colour of a KOTOR blade texture (a glow round a bright dot, which
+/// the game draws on crossed planes): its texels' colours weighted by their
+/// brightness, scaled so the strongest channel is full. `None` for a
+/// texture without light.
+pub fn own_colour(texture: &asset_odyssey::texture::TextureIr) -> Option<[f32; 3]> {
+    let decoded = texture.decoded();
+    let level = decoded.mips.first()?;
+    let mut sum = [0.0f64; 3];
+    for texel in level.as_chunks::<4>().0 {
+        let rgb = [texel[0], texel[1], texel[2]].map(f64::from);
+        let weight = rgb.into_iter().fold(0.0, f64::max);
+        for (total, channel) in sum.iter_mut().zip(rgb) {
+            *total += channel * weight;
+        }
+    }
+    let most = sum.into_iter().fold(0.0, f64::max);
+    (most > 0.0).then(|| sum.map(|total| (total / most) as f32))
+}
+
 /// Where a KOTOR hilt's blades run, and the hilt without them. A hilt's
 /// blades are its saber meshes (the nodes' saber flag), which the model
 /// reader refuses (with their boxes); most come with crossed planes drawn
@@ -558,9 +579,10 @@ pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
             .as_ref()
             .is_some_and(|texture| textures.contains(texture))
     };
-    let color = textures
-        .first()
-        .map_or(SaberColor::Blue, |texture| SaberColor::of_texture(texture));
+    let texture = textures.first();
+    let ja_color = texture.and_then(|texture| SaberColor::of_texture(texture));
+    let color = ja_color.unwrap_or(SaberColor::Blue);
+    let own = texture.filter(|_| ja_color.is_none()).cloned();
     let place = |node: usize, p: [f32; 3]| {
         let w = ir.nodes[node].world;
         Vec3::from_array(
@@ -607,13 +629,16 @@ pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
             } else {
                 (high.z, -1.0)
             };
-            BladeSpec::new(
-                [centre.x, centre.y, start],
-                [0.0, 0.0, dir],
-                (high.z - low.z) / asset_ja::UNIT,
-                3.0,
-                color,
-            )
+            BladeSpec {
+                own: own.clone(),
+                ..BladeSpec::new(
+                    [centre.x, centre.y, start],
+                    [0.0, 0.0, dir],
+                    (high.z - low.z) / asset_ja::UNIT,
+                    3.0,
+                    color,
+                )
+            }
         })
         .collect();
     if blades.is_empty() {

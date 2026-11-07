@@ -18,6 +18,10 @@
 //!   added, red 215–255, green 96–128, blue 0–15), the glow dated
 //!   `GLOW_BACK_MS` back so it lives 1.5 s, full for half a second and
 //!   darkening to nothing over the last.
+//! - In a KOTOR level the faces are its rooms' as drawn (`DrawnLevel`),
+//!   not its collision's, which stands apart from them: a strip moves along
+//!   the wall's normal from the blade's contact onto the nearest drawn face
+//!   turned towards it, and none is laid where no drawn wall is near.
 //! - Marks live `LIFE_MS`; the client keeps `MOST` of them (both kinds,
 //!   and every other mark), dropping the oldest. The burn's last second
 //!   fades its vertex alpha, which its shader does not read: it goes at
@@ -85,6 +89,53 @@ pub struct Cuts(pub Vec<Cut>);
 /// The level's faces overlapping a box (units: its least and most
 /// corners), each a triangle anticlockwise seen from outside.
 pub type Faces<'a> = &'a dyn Fn(Vec3, Vec3) -> Vec<[Vec3; 3]>;
+
+/// How far either way along a cut's normal the drawn wall is looked for
+/// from where the blade met the collision (units): a KOTOR room's collision
+/// is built apart from its drawn walls and can stand well off them. Our
+/// chosen reach.
+const DRAWN_REACH: f32 = 40.0;
+
+/// The drawn level's faces, for the marks: each room's triangles as its
+/// model has them (units, game space), not the collision's.
+pub struct DrawnLevel(pub Vec<[Vec3; 3]>);
+
+impl DrawnLevel {
+    /// The faces overlapping a box, as `Faces` asks.
+    pub fn faces(&self, least: Vec3, most: Vec3) -> Vec<[Vec3; 3]> {
+        self.0
+            .iter()
+            .filter(|triangle| {
+                let low = triangle[0].min(triangle[1]).min(triangle[2]);
+                let high = triangle[0].max(triangle[1]).max(triangle[2]);
+                low.cmple(most).all() && high.cmpge(least).all()
+            })
+            .copied()
+            .collect()
+    }
+
+    /// `cut` moved along its normal onto the nearest drawn face turned
+    /// towards the blade within `DRAWN_REACH` of where it met the
+    /// collision; `None` when no drawn face is there.
+    pub fn onto(&self, cut: &Cut) -> Option<Cut> {
+        let normal = cut.normal.try_normalize()?;
+        let middle = (cut.from + cut.to) / 2.0;
+        let origin = middle - normal * DRAWN_REACH;
+        let offset = self
+            .0
+            .iter()
+            .filter(|[a, b, c]| (*b - *a).cross(*c - *a).normalize_or_zero().dot(normal) > 0.5)
+            .filter_map(|triangle| crate::shadows::ray_hit(origin, normal, triangle))
+            .map(|t| t - DRAWN_REACH)
+            .filter(|offset| offset.abs() <= DRAWN_REACH)
+            .min_by(|a, b| a.abs().total_cmp(&b.abs()))?;
+        Some(Cut {
+            from: cut.from + normal * offset,
+            to: cut.to + normal * offset,
+            ..*cut
+        })
+    }
+}
 
 /// One mark: its points and their texture coordinates, whether it is the
 /// glow, from when it counts its life (the view's ms), its colour.

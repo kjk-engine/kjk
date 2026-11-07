@@ -1573,9 +1573,10 @@ fn reconcile(session: &mut Session, starting: bool) {
     let Some(level) = session.level.clone() else {
         return;
     };
-    let Ok(world) = SimWorld::from_snapshot(&snapshot, level) else {
+    let Ok(mut world) = SimWorld::from_snapshot(&snapshot, level) else {
         return;
     };
+    world.keep_worked_out(&mut play.world);
     play.world = world;
     // The seat took a body, or lost it (I30 P2–P5): what was predicted of
     // the old one compares with nothing, and the new one is drawn where it
