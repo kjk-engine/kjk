@@ -541,8 +541,8 @@ fn influence(source: &dyn Source) -> Vec<(String, u8)> {
 
 /// What the presentation routines read (`sim::script::Presentation`):
 /// `tutorial.2da`'s rows with `message_pc0` set, `feedbacktext.2da`'s
-/// `strref`s, `appearance.2da`'s `normalhead`s; empty where a table is
-/// missing.
+/// `strref`s, `appearance.2da`'s `normalhead`s and `equipslotslocked`s
+/// (TSL's); empty where a table or column is missing.
 fn presentation(source: &dyn Source) -> sim::script::Presentation {
     let table = |name: &str| {
         source
@@ -580,6 +580,9 @@ fn presentation(source: &dyn Source) -> sim::script::Presentation {
             .collect(),
         heads: (column("appearance", "normalhead").iter())
             .map(|head| head.and_then(|head| i16::try_from(head).ok()).unwrap_or(-1))
+            .collect(),
+        locked: (column("appearance", "equipslotslocked").iter())
+            .map(|mask| mask.and_then(|mask| u32::try_from(mask).ok()).unwrap_or(0))
             .collect(),
     }
 }

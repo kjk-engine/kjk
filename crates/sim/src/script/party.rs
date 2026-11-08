@@ -44,11 +44,12 @@ impl Npc {
 /// (`SaveNPCState`, a member leaving it): the creature that last had it, whose
 /// items, career and XP the next one made of it takes (`script::make_npc`), its
 /// sheet as it stood (levels, what it wore) and its hit and Force points
-/// (hundredths), and the item it wore in each slot (0: none; none at all from
+/// (hundredths), the item it wore in each slot (0: none; none at all from
 /// a save older than this), as a scene that strips a creature it later
-/// destroys leaves the table's copy dressed. KOTOR's table keeps the whole
-/// creature; without it a companion sent away came back as its template, its
-/// gear and levels lost.
+/// destroys leaves the table's copy dressed, and what scripts made of its
+/// body (`combat::Look`: TSL's Kreia keeps the one hand 107PER leaves her).
+/// KOTOR's table keeps the whole creature; without it a companion sent away
+/// came back as its template, its gear, levels and body lost.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Kept {
     pub from: u32,
@@ -56,6 +57,7 @@ pub struct Kept {
     pub hp: i32,
     pub fp: i32,
     pub worn: Option<[u32; crate::inventory::slots::COUNT as usize]>,
+    pub look: crate::combat::Look,
 }
 
 /// The party selection screen a script showed (`ShowPartySelectionGUI`),
@@ -377,6 +379,7 @@ impl Party {
                     for item in kept.worn.iter().flatten() {
                         out.u32(*item);
                     }
+                    kept.look.encode(out);
                 }
                 None => out.u8(0),
             }
@@ -452,6 +455,11 @@ impl Party {
                         Some(worn)
                     } else {
                         None
+                    },
+                    look: if input.since(crate::since::save::CLAUDE_KREIA_HAND) {
+                        crate::combat::Look::decode(input)?
+                    } else {
+                        crate::combat::Look::default()
                     },
                 }),
             };

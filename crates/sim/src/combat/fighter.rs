@@ -456,12 +456,12 @@ pub struct Look {
 }
 
 impl Look {
-    fn encode(&self, out: &mut Writer) {
+    pub(crate) fn encode(&self, out: &mut Writer) {
         write_fixed(out, self.appearance.as_ref(), &0, |row, out| out.u16(*row));
         write_fixed(out, self.head.as_ref(), &0, |row, out| out.u8(*row));
     }
 
-    fn decode(input: &mut Reader) -> Result<Look, DecodeError> {
+    pub(crate) fn decode(input: &mut Reader) -> Result<Look, DecodeError> {
         Ok(Look {
             appearance: read_fixed(input, &0, |input| input.u16(), "appearance flag")?,
             head: read_fixed(input, &0, |input| input.u8(), "head flag")?,

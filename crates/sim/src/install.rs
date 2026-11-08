@@ -192,7 +192,11 @@ impl SimWorld {
         let catalog = |level: &Level| level.scripts().map(|library| library.items().clone());
         let (last, next_catalog) = (catalog(self.level()), catalog(&level));
         let next = SimWorld::from_snapshot(&after, level)?;
+        // Every companion standing in the module left is kept by the party
+        // table as it stands (TSL's executable does so at a module change).
+        let objects = crate::Instances::in_snapshot(self.level(), &before);
         let mut carried = self.take_scripts();
+        crate::script::keep_standing(&mut carried.state, &before, &objects);
         // What waits in the module left stays with it (its objects: those
         // that did not come along), to go on when the party is back.
         if let Some(place) = &before.place {

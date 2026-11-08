@@ -235,6 +235,18 @@ pub(in crate::world) fn apply(
                 _ => None,
             })
             .or(fighter.acting);
+        // Its body as a script changed it as it was made (TSL's 107PER Kreia,
+        // `a_kreia_cut`), else as the party table kept it.
+        fighter.look = scripts
+            .changes
+            .iter()
+            .rev()
+            .find_map(|change| match change {
+                Change::Look { who, look } if *who == made.id => Some(*look),
+                _ => None,
+            })
+            .or(made.kept.map(|kept| kept.look))
+            .unwrap_or(fighter.look);
         commands.spawn((
             Id(crate::SimId(made.id.0)),
             Object {

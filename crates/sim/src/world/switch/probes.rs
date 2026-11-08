@@ -20,6 +20,9 @@ const TEMPLATES: [(u8, &str); 2] = [(MADE, "probe_switch"), (STANDING, "probe_sw
 const UNKNOWN: u8 = 7;
 /// The custom token `probe_first` sets to `GetTag(GetFirstPC())`.
 const FIRST_TOKEN: i32 = 12;
+/// TSL's one-handed Kreia's `appearance.2da` row (`Party_NPC_Kreia_Gimped`),
+/// the body 107PER gives her.
+const ONE_HANDED: u16 = 627;
 
 /// The probes' scripts (`script`), each setting custom tokens everyone sees
 /// (`Snapshot::talk`):
@@ -64,6 +67,8 @@ object SpawnAvailableNPC(int nNPC, location lPosition);
 location GetLocation(object oObject);
 // 13
 void DestroyObject(object oDestroy, float fDelay=0.0f, int bNoFade = FALSE, float fDelayUntilFade = 0.0f, int nHideFeedback = 0);
+// 14
+void ChangeObjectAppearance(object oObjectToChange, int nAppearance);
 "#;
     let call = |routine: u16, args: u8| Op::Action { routine, args };
     let int = |value: i32| Op::Const(Const::Int(value));
@@ -135,6 +140,19 @@ void DestroyObject(object oDestroy, float fDelay=0.0f, int bNoFade = FALSE, floa
     ];
     token(&mut spawn, 11, &made_here, true);
     spawn.op(Op::Retn);
+    // `probe_spawn_changed`: sent away, then
+    // `ChangeObjectAppearance(SpawnAvailableNPC(STANDING, …), ONE_HANDED)`
+    // in the same run, as TSL's 107PER makes Kreia one-handed
+    // (`a_kreia_cut`).
+    let mut changed = script_ncs::probes::Asm::default();
+    for op in &send_away {
+        changed.op(op.clone());
+    }
+    changed.op(int(i32::from(ONE_HANDED)));
+    for op in &made_here[..4] {
+        changed.op(op.clone());
+    }
+    changed.op(call(14, 2)).op(Op::Retn);
     // `probe_first`: 12 `GetTag(GetFirstPC())`.
     let mut first = script_ncs::probes::Asm::default();
     token(&mut first, FIRST_TOKEN, &first_tag, true);
@@ -145,6 +163,7 @@ void DestroyObject(object oDestroy, float fDelay=0.0f, int bNoFade = FALSE, floa
         ("probe_keep".to_string(), keep.build()),
         ("probe_send".to_string(), send.build()),
         ("probe_spawn".to_string(), spawn.build()),
+        ("probe_spawn_changed".to_string(), changed.build()),
         ("probe_first".to_string(), first.build()),
     ]);
     let creatures = TEMPLATES
@@ -385,6 +404,8 @@ pub fn probes() -> crate::probe::Checks {
     checks.push(("back_where_its_game_puts_it", back_where_its_game_puts_it()));
     checks.push(("party_table_keeps_a_companion", kept()));
     checks.push(("switch_makes_the_kept_companion", switch_makes_kept()));
+    checks.push(("body_changed_as_it_is_made", changed_as_made()));
+    checks.push(("kept_leaving_a_module", kept_leaving_module()));
     checks.push(("guest_gives_way", guest_gives_way()));
     checks.push(("leads_a_companion_while_switched", leads_while_switched()));
     checks.push(("install_after_switching_back", install_after_back()));
@@ -597,6 +618,46 @@ fn install_after_back() -> Result<String, String> {
         body == Some(own) && follows.is_some_and(|f| f == (None, None)),
         format!(
             "seat 0's body {body:?} (its own {own:?}), the one given back's leader and driver {follows:?}"
+        ),
+    )
+}
+
+/// A companion standing in a module the party leaves, not in the party, is
+/// kept by the party table as it stands, its body too (TSL's executable at a
+/// module change: 107PER's one-handed Kreia, spawned on the Ebon Hawk); one
+/// made from the table then has that body.
+fn kept_leaving_module() -> Result<String, String> {
+    let (mut world, level, standing) = switch_world(1, false)?;
+    let one_handed = crate::combat::Look {
+        appearance: Some(ONE_HANDED),
+        head: None,
+    };
+    let mut fighters = world.world.query::<(&Id, &mut Fighting)>();
+    for (id, mut fighting) in fighters.iter_mut(&mut world.world) {
+        if id.0 == standing {
+            fighting.0.look = one_handed;
+        }
+    }
+    run(&mut world, 1, 0);
+    world
+        .install(level, None)
+        .map_err(|error| error.to_string())?;
+    let kept = (world.script_state().party.available.get(&STANDING))
+        .and_then(|slot| slot.kept)
+        .map(|kept| (kept.from, kept.look));
+    queue(&mut world, "probe_spawn");
+    run(&mut world, 1, 0);
+    let after = run(&mut world, 1, 0);
+    let made = (world.script_state().party.available.get(&STANDING))
+        .and_then(|slot| slot.object)
+        .and_then(|id| after.get(SimId(id)))
+        .and_then(|entity| entity.fighter)
+        .map(|fighter| fighter.look);
+    check(
+        kept == Some((standing.0, one_handed)) && made == Some(one_handed),
+        format!(
+            "kept {kept:?} (from #{}), made from it {made:?}",
+            standing.0
         ),
     )
 }
@@ -864,9 +925,9 @@ fn guest_gives_way() -> Result<String, String> {
 
 /// The party table keeps a companion as it stood (`SaveNPCState`) and makes
 /// it so again (`SpawnAvailableNPC`): hurt, its sheet its own, an item worn,
-/// the creature made has the same hit points, sheet and item (KOTOR's
-/// companions sent away keep their gear and levels); a save carries what
-/// the table kept.
+/// one-handed (TSL's Kreia), the creature made has the same hit points,
+/// sheet, item and body (KOTOR's companions sent away keep their gear,
+/// levels and looks); a save carries what the table kept.
 fn kept() -> Result<String, String> {
     use crate::inventory::{FIRST_ITEM, Item};
     let (mut world, _, standing) = switch_world(1, true)?;
@@ -881,8 +942,13 @@ fn kept() -> Result<String, String> {
     sheet.good_evil = 7;
     let mut found = world.world.entity_mut(entity);
     found.insert(super::super::PlayerSheet(sheet));
+    let one_handed = crate::combat::Look {
+        appearance: Some(ONE_HANDED),
+        head: None,
+    };
     if let Some(mut fighting) = found.get_mut::<Fighting>() {
         fighting.0.hp = 300;
+        fighting.0.look = one_handed;
     }
     let mut state = world.script_state().clone();
     let item = FIRST_ITEM + state.next_item;
@@ -924,6 +990,7 @@ fn kept() -> Result<String, String> {
         .get(made)
         .ok_or("the made companion is not in the world")?;
     let hp = body.fighter.map_or(0, |f| f.hp);
+    let look = body.fighter.map(|f| f.look);
     let good_evil = body.sheet.map_or(0, |sheet| sheet.good_evil);
     let holder = state.items.get(&item).map_or(0, |item| item.holder);
     // Made, destroyed and made again with no save between (Dantooine's
@@ -955,19 +1022,55 @@ fn kept() -> Result<String, String> {
         .map_err(|error| error.to_string())?;
     check(
         hp == 300
+            && look == Some(one_handed)
             && good_evil == 7
             && holder == made.0
             && holder_again == again
             && slot_again == Some(4)
             && back.party == state.party,
         format!(
-            "made #{}: {hp} hundredths of HP, good/evil {good_evil}, the item with #{holder}; made again #{again}, the item with #{holder_again} in slot {slot_again:?}; the table {}",
+            "made #{}: {hp} hundredths of HP, body {look:?}, good/evil {good_evil}, the item with #{holder}; made again #{again}, the item with #{holder_again} in slot {slot_again:?}; the table {}",
             made.0,
             if back.party == state.party {
                 "round-trips"
             } else {
                 "differs after a round trip"
             }
+        ),
+    )
+}
+
+/// A companion made from the table and given another body in the same run
+/// (TSL's 107PER Kreia, `a_kreia_cut`: `SpawnAvailableNPC` then
+/// `ChangeObjectAppearance`) stands in that body; the table keeps it
+/// (`SaveNPCState`), so the next one made of it has it too.
+fn changed_as_made() -> Result<String, String> {
+    let (mut world, _, standing) = switch_world(1, true)?;
+    let body_of = |snapshot: &Snapshot, world: &SimWorld| {
+        let made = world
+            .script_state()
+            .party
+            .available
+            .get(&STANDING)?
+            .object?;
+        let look = snapshot.get(SimId(made))?.fighter?.look;
+        Some((made, look.appearance))
+    };
+    queue(&mut world, "probe_spawn_changed");
+    run(&mut world, 1, 0);
+    let after = run(&mut world, 1, 0);
+    let first = body_of(&after, &world).filter(|(made, _)| *made != standing.0);
+    queue(&mut world, "probe_keep");
+    run(&mut world, 1, 0);
+    queue(&mut world, "probe_spawn");
+    run(&mut world, 1, 0);
+    let again = run(&mut world, 1, 0);
+    let second = body_of(&again, &world).filter(|(made, _)| Some(*made) != first.map(|(id, _)| id));
+    let wanted = Some(ONE_HANDED);
+    check(
+        first.is_some_and(|(_, row)| row == wanted) && second.is_some_and(|(_, row)| row == wanted),
+        format!(
+            "made changed {first:?}, made again from the table {second:?} (wanted row {ONE_HANDED})"
         ),
     )
 }
