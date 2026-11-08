@@ -102,7 +102,9 @@ check that its gain holds beyond them.
 
 Two switches for measuring against: `KJK_EXEC` names the schedules run
 on one thread (`main,render,graph` by default; `none`: Bevy's
-multithreaded executor everywhere), and `KJK_PERF=1` keeps Bevy's spans
+multithreaded executor everywhere; on macOS a run with a window keeps
+`render` multithreaded, since its surface is made on the main thread),
+and `KJK_PERF=1` keeps Bevy's spans
 (which cost about a quarter of the frame rate).
 
 ## The whole-game sweep
