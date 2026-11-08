@@ -1,10 +1,12 @@
 # Environmental destruction — design
 
-2026-11-06. Owner: reclaimterrain. Status: first pass built (props break and
-show damage; no flying chunks yet): `docs/COMBAT.md`, "Destruction". Second
-pass designed 2026-11-08 from the owner's playtest of the prop hall: see
-"Second pass: what breaking looks like", which replaces "What breaking looks
-like" below where they differ.
+2026-11-06. Owner: reclaimterrain. Status: second pass built 2026-11-08
+(props fly apart into pieces of their own models, hits land where they
+strike and leave marks, damage props crumple; workbenches intact):
+`docs/COMBAT.md`, "Destruction". The second pass followed the owner's
+playtest of the prop hall: "Second pass: what breaking looks like"
+replaces "What breaking looks like" below where they differ. Rooms are
+still to come.
 
 Companion table: [`2026-11-06-destruction-props.csv`](2026-11-06-destruction-props.csv),
 every kind of placeable used in K1 and TSL (351 appearance rows, 6,437

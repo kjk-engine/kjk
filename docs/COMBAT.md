@@ -325,10 +325,46 @@ bolts and sight by (`ObjectState::passable`): its brushes leave the
 level's collision, a made one's footprint stops colliding. Nav stays as
 baked. Damage stages (`destruction::stage`: damaged, wrecked, broken)
 read `ObjectState::damage`, so the snapshot, saves and co-op carry them
-as they are. The view (`game::prop_breaks`) plays KOTOR's impact on a
-blow, a burst sized by the prop and its material's
-`placeableobjsnds.2da` destroyed sound on a break, hides a broken model
-without a `dead` clip, and keeps a damaged console sparking.
+as they are. The view (`game::prop_breaks`) plays a burst sized by the
+prop and its material's `placeableobjsnds.2da` destroyed sound on a
+break, keeps a damaged console sparking, and hands every change to
+`game::prop_looks`. Workbenches (`RepairTable1/2`, TSL's `Work_Table02`)
+stay intact; desks, kiosks and big lockers only crumple, and no
+electronic or large kind ever breaks (probe
+`destruction_classes_revised`).
+
+**Pieces.** Everything a prop looks like as it breaks is its own model,
+cut (`ragdoll::shatter`): each mesh, in the model's frame, split at points
+seeded from the model's name, each triangle to its nearest point, every
+open loop closed by a fan textured at the mesh's own texel size, so every
+machine cuts the same pieces. Alpha-tested, two-sided, skinned, dangly
+and lightmapped meshes are not cut. `prop_looks` cuts each breakable
+model once, off the main thread: 6, 10 or 16 pieces by size. When it
+breaks the model hides; the pieces in its lowest quarter stand as its
+wreck and the rest fly from the blow as debris, convex bodies in a
+`ragdoll::World` of the level's faces around it that meet the room and
+each other, never a ragdoll, and sleep once still. Pieces bigger than a
+fist stay for the visit, smaller ones shrink away after 10 to 20 s, at
+most 256 at once; a prop already broken when first seen shows its base
+only. A model with its own `dead` clip plays KOTOR's die and dead clips
+instead.
+
+**Where a hit lands.** A blaster bolt's last run, or a drawn blade,
+crossed with the prop's own triangles gives the point
+(`ragdoll::shatter::first_crossing`); fists, kicks, blasts and blades
+already past land on its body box facing the nearest creature. There the
+material's KOTOR impact plays, wood, ceramic, stone, plastic and debris throw 3 to 6 shards of
+the prop's own surface (gone within 2 s), `body_marks`' scorch is laid on
+its triangles (a blade's glows a moment; the newest 8 kept), and a small
+or medium prop jolts away from the blow for 150 ms.
+
+**Crumpling.** A damaged prop's materials darken by stage (×0.75, then
+×0.45). A damage-class prop's still meshes take seeded dents at each
+stage, more and deeper for large ones, pressed into the model's own
+vertices; its screens (glowing, scrolling or flipping meshes) flicker once
+damaged and go dark and still, with a burst of sparks, once wrecked.
+Collision never changes. Probes: `kjk sim probes --only 'prop
+looks,shatter'`.
 
 The numbers are the rulebook's chapter Destruction
 (`data/rules/destruction.toml`). Probes: `kjk sim probes --only
