@@ -9,6 +9,9 @@ pub const LEFT_HAND: &str = "lhand";
 pub const HANDS: [&str; 2] = [RIGHT_HAND, LEFT_HAND];
 /// Where a head model hangs from a body.
 pub const HEAD_HOOK: &str = "headhook";
+/// Where what is worn on the head (a mask, a visor) hangs from a head
+/// model.
+pub const HEADGEAR_HOOK: &str = "gogglehook";
 /// A camera model's eye (dialogue cameras, the menus' stages).
 pub const CAMERA_HOOK: &str = "camerahook";
 /// Where an animated cutscene's stunt model puts its actor.

@@ -686,8 +686,10 @@ impl GuiAssets {
 
     /// `name` read from `source`; a font's sheet is a shape (`Pixels`).
     fn load(&mut self, source: Source, name: &str, font: bool) -> Option<(TextureId, Txi)> {
-        // A pad's buttons are drawn here, not read (`icons`).
-        if let Some((width, height, rgba)) = crate::icons::pad_icon(name) {
+        // A pad's buttons and the headgear eye are drawn here, not read
+        // (`icons`).
+        let drawn = crate::icons::pad_icon(name).or_else(|| crate::icons::eye_icon(name));
+        if let Some((width, height, rgba)) = drawn {
             self.loaded.push(Some(Loaded {
                 pixels: Pixels {
                     width,

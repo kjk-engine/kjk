@@ -53,6 +53,48 @@ pub fn pad_icon(name: &str) -> Option<(u32, u32, Vec<u8>)> {
     Some((width, SIDE, canvas.bytes()))
 }
 
+/// The equip page's headgear eye (`pages::Equip`): open while what is worn
+/// on the head shows, struck through while it is hidden, on a pad
+/// button's dark tile.
+const EYE_PREFIX: &str = "kjkeye_";
+const EYE_SIDE: u32 = 48;
+
+/// The eye's texture: open (`shown`) or struck through.
+pub fn eye_texture(shown: bool) -> String {
+    format!("{EYE_PREFIX}{}", if shown { "shown" } else { "hidden" })
+}
+
+/// The eye texture `name` names (`eye_texture`), if it is one: its width,
+/// height and RGBA bytes.
+pub fn eye_icon(name: &str) -> Option<(u32, u32, Vec<u8>)> {
+    let shown = match name.strip_prefix(EYE_PREFIX)? {
+        "shown" => true,
+        "hidden" => false,
+        _ => return None,
+    };
+    let side = EYE_SIDE as f32;
+    let middle = [side / 2.0, side / 2.0];
+    let mut canvas = Canvas::new(EYE_SIDE, EYE_SIDE);
+    canvas.round_rect(middle, [side / 2.0 - 1.0; 2], 9.0, DARK, EDGE);
+    // The lids: where two discs above and below the middle overlap, an
+    // almond 32 wide and 18 tall.
+    let (half_wide, half_tall) = (16.0f32, 9.0f32);
+    let radius = (half_wide * half_wide + half_tall * half_tall) / (2.0 * half_tall);
+    let lids = move |p: [f32; 2]| {
+        let up = length(p[0] - middle[0], p[1] - (middle[1] - half_tall + radius)) - radius;
+        let down = length(p[0] - middle[0], p[1] - (middle[1] + half_tall - radius)) - radius;
+        up.max(down)
+    };
+    canvas.fill(INK, move |p| lids(p).abs() - 1.5);
+    canvas.disc(middle, 5.5, INK);
+    if !shown {
+        let (a, b) = ([12.0, 36.0], [36.0, 12.0]);
+        canvas.line(a, b, 7.0, DARK);
+        canvas.line(a, b, 3.0, INK);
+    }
+    Some((EYE_SIDE, EYE_SIDE, canvas.bytes()))
+}
+
 /// The texture of a chord (`LB+South`) on `kind`'s pad (`xbox`).
 pub fn pad_texture(kind: &str, chord: &str) -> String {
     format!("{PREFIX}{kind}_{}", chord.to_ascii_lowercase())

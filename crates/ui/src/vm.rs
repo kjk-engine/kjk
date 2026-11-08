@@ -91,6 +91,9 @@ pub struct Entry {
 pub struct CharacterView {
     /// Its object id: whom the equip page dresses.
     pub id: u32,
+    /// The setting that hides what it wears on its head (the equip page's
+    /// eye); none for a character the choice cannot be kept for.
+    pub headgear_setting: Option<String>,
     /// Its class (`classes.2da` row) when its template says (a
     /// companion's); the level-up screen's class.
     pub class_row: Option<u8>,

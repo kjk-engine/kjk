@@ -28,8 +28,9 @@ use fmt_odyssey::twoda::TwoDa;
 
 use crate::module::Source;
 
-/// The body slot's bit in `Equip_ItemList` struct ids: the body is
-/// inventory slot 1, and a struct's id is `1 << slot`.
+/// The head and body slots' bits in `Equip_ItemList` struct ids: they are
+/// inventory slots 0 and 1, and a struct's id is `1 << slot`.
+const HEAD_SLOT_ID: u32 = 1 << 0;
 const BODY_SLOT_ID: u32 = 1 << 1;
 /// Right and left weapon slots (inventory slots 4 and 5).
 const RIGHT_WEAPON_ID: u32 = 1 << 4;
@@ -51,6 +52,9 @@ pub struct CreatureLook {
     pub bodyvar_disagrees: Option<(char, String)>,
     /// The head came from `backuphead` (xoreos only).
     pub backup_head: bool,
+    /// The model of what it wears on its head (`item_model`), hung on its
+    /// head model's `gogglehook` (as reone hangs a mask).
+    pub headgear: Option<String>,
     /// Weapon models for `rhand` and `lhand` (`weapon_model`).
     pub right_weapon: Option<String>,
     pub left_weapon: Option<String>,
@@ -109,18 +113,18 @@ pub fn resolve_with(
         .and_then(|value| u32::try_from(value).ok())
         .ok_or(CreatureRefusal::NoAppearanceType)?;
     let mut look = resolve_appearance(source, appearance, template_armour(&utc), tables)?;
-    let mut weapon = |slot: u32| {
+    let mut worn = |slot: u32| {
         let name = utc
             .root
             .list("Equip_ItemList")
             .iter()
             .find(|item| item.id == slot)
             .and_then(|item| item.resref("EquippedRes"))?;
-        let base_items = tables.get(source, "baseitems")?;
-        item_model_in(source, &base_items, &name)
+        item_model_with(source, &name, tables)
     };
-    look.right_weapon = weapon(RIGHT_WEAPON_ID);
-    look.left_weapon = weapon(LEFT_WEAPON_ID);
+    look.headgear = worn(HEAD_SLOT_ID);
+    look.right_weapon = worn(RIGHT_WEAPON_ID);
+    look.left_weapon = worn(LEFT_WEAPON_ID);
     look.sound_set = utc
         .root
         .int("SoundSetFile")
@@ -531,6 +535,7 @@ pub fn resolve_appearance(
         }
     }
     Ok(CreatureLook {
+        headgear: None,
         right_weapon: None,
         left_weapon: None,
         sound_set: None,
@@ -578,6 +583,12 @@ pub fn weapon_model(source: &dyn Source, base_item: i64, variation: i64) -> Opti
 /// lightsaber's is its blade's colour).
 pub fn item_model(source: &dyn Source, template: &str) -> Option<String> {
     let base_items = Tables::default().get(source, "baseitems")?;
+    item_model_in(source, &base_items, template)
+}
+
+/// `item_model`, its tables from (and kept in) `tables`.
+pub fn item_model_with(source: &dyn Source, template: &str, tables: &mut Tables) -> Option<String> {
+    let base_items = tables.get(source, "baseitems")?;
     item_model_in(source, &base_items, template)
 }
 

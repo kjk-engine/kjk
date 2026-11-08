@@ -832,6 +832,11 @@ impl Settings {
         self.save();
     }
 
+    /// Whether setting `key` is `true`.
+    pub fn on(&self, key: &str) -> bool {
+        self.values.get(key).is_some_and(|value| value == "true")
+    }
+
     pub fn keys(&self) -> KeyMap {
         KeyMap(
             ACTIONS

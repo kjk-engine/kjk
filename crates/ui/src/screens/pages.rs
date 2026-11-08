@@ -5,10 +5,11 @@
 //! skin): the character's portrait, name, class, level and vitality are
 //! the bar's.
 
-use fmt_odyssey::gui::Control;
+use fmt_odyssey::gui::{Control, Gui};
 
+use crate::draw::{DrawList, Quad};
 use crate::intent::{GameAction, GuiSound, Intent};
-use crate::paint::{ControlState, ListView, Row};
+use crate::paint::{ControlState, ListView, Painter, Row, rect_of};
 use crate::screens::filter::{self, Filter};
 use crate::screens::tab::{Page, disabled, enabled, hidden, image, rows, signed, text};
 use crate::vm::{CharacterView, Entry, Owned, Preview, SceneView, ViewModel};
@@ -161,6 +162,32 @@ pub struct Equip {
     chosen: Option<usize>,
     /// The row the list's cursor is on: described while none is chosen.
     pointed: usize,
+    /// The headgear eye has the focus: its tip shows.
+    eye_focused: bool,
+}
+
+/// The eye in the head slot's top right corner (a remaster's, kjk's own
+/// button: KOTOR always draws what is worn on the head): it hides or shows
+/// the member's headgear (`CharacterView::headgear_setting`), as drawn
+/// only. Its icons are drawn here (`icons::eye_icon`), a fraction of the
+/// slot wide; its tip shows while it has the focus.
+const EYE: &str = "BTN_HEADGEAR";
+const HEAD_SLOT: &str = "BTN_INV_HEAD";
+const EYE_SHARE: i32 = 3;
+
+impl Equip {
+    /// Whether the member shown wears something on its head that the eye
+    /// may hide, and whether it is hidden.
+    fn eye(vm: &ViewModel) -> Option<(String, bool)> {
+        let me = vm.character.as_ref()?;
+        let setting = me.headgear_setting.clone()?;
+        me.worn.iter().any(|(slot, _)| *slot == 0).then_some(())?;
+        let hidden = vm
+            .settings
+            .get(&setting)
+            .is_some_and(|value| value == "true");
+        Some((setting, hidden))
+    }
 }
 
 /// Where TSL's `equip_p` keeps its description box (`LB_DESC`): over the
@@ -287,6 +314,10 @@ impl Page for Equip {
             };
         }
         match tag {
+            EYE => match Equip::eye(vm).filter(|_| self.slot.is_none()) {
+                Some((_, hidden)) => image(Some(crate::icons::eye_texture(!hidden))),
+                None => hidden(),
+            },
             "LBL_SLOTNAME" => ControlState {
                 strref: self.slot.and_then(|(slot, _)| {
                     SLOTS
@@ -353,7 +384,13 @@ impl Page for Equip {
     }
 
     fn press(&mut self, tag: &str, vm: &ViewModel, out: &mut Vec<Intent>) {
-        if let Some((_, button, .., slot)) = SLOTS.iter().find(|(_, button, ..)| *button == tag) {
+        if tag == EYE {
+            if let Some((setting, hidden)) = Equip::eye(vm) {
+                out.push(Intent::Setting(setting, (!hidden).to_string()));
+            }
+        } else if let Some((_, button, .., slot)) =
+            SLOTS.iter().find(|(_, button, ..)| *button == tag)
+        {
             // A locked slot does not open: TSL says why.
             if locked(character(vm).locked, *slot) {
                 out.push(Intent::OpenFor("message_box", LOCKED_SLOT.to_string()));
@@ -431,6 +468,66 @@ impl Page for Equip {
         } else {
             "BTN_INV_BODY"
         })
+    }
+
+    fn focused(&mut self, tag: &str, _: &ViewModel) {
+        self.eye_focused = tag == EYE;
+    }
+
+    fn left(&mut self, tag: &str) {
+        if tag == EYE {
+            self.eye_focused = false;
+        }
+    }
+
+    /// The eye's tip, over its top right corner while it has the focus.
+    fn quads(&self, gui: &Gui, vm: &ViewModel, painter: &mut Painter) -> Vec<Quad> {
+        let (Some((_, hidden)), Some(eye), true) =
+            (Equip::eye(vm), gui.find(EYE), self.eye_focused)
+        else {
+            return Vec::new();
+        };
+        let words: &[u8] = if hidden {
+            b"Show headgear"
+        } else {
+            b"Hide headgear"
+        };
+        let [l, t, w, _] = rect_of(eye);
+        let mut out = DrawList::default();
+        painter.tooltip(words, [l + w, t], &mut out);
+        out.quads
+    }
+
+    /// The eye, a square a share of the head slot wide in its top right
+    /// corner, last so the pointer finds it over the slot.
+    fn shape(&self, gui: &mut Gui) {
+        let Some(slot) = gui.find(HEAD_SLOT).cloned() else {
+            return;
+        };
+        let side = slot.extent.width.min(slot.extent.height) / EYE_SHARE;
+        let id = gui
+            .controls
+            .iter()
+            .map(|control| control.id)
+            .max()
+            .unwrap_or(0)
+            + 1;
+        let mut eye = Control {
+            id,
+            tag: EYE.into(),
+            border: None,
+            hilight: None,
+            selected: None,
+            hilight_selected: None,
+            text: None,
+            moveto: None,
+            children: Vec::new(),
+            ..slot
+        };
+        eye.extent.left += eye.extent.width - side;
+        eye.extent.width = side;
+        eye.extent.height = side;
+        gui.controls.push(eye);
     }
 }
 

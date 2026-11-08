@@ -147,7 +147,7 @@ pub fn module_resolver_probes() -> sim::probe::Checks {
     let in_module = has(resources.get());
     let dressed = resources.get().and_then(|resolver| {
         let mut tables = asset_odyssey::tables::Tables::default();
-        crate::persona::wear(&resolver, &mut tables, (PLAYER, Some(ROBE.into())))
+        crate::persona::wear(&resolver, &mut tables, (PLAYER, Some(ROBE.into()), None))
     });
     let left = resources.enter("tar_m02aa");
     let elsewhere = has(resources.get());
