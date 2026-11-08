@@ -9,7 +9,7 @@
 //! right stick scrolls.
 
 use bevy::input::ButtonState;
-use bevy::input::gamepad::{Gamepad, GamepadButton};
+use bevy::input::gamepad::GamepadButton;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
@@ -96,7 +96,7 @@ pub(crate) fn gather(
     mouse: Option<&ButtonInput<MouseButton>>,
     typed: &mut MessageReader<KeyboardInput>,
     wheel: &mut MessageReader<MouseWheel>,
-    pads: Option<(&Query<&Gamepad>, bool)>,
+    pads: Option<(&crate::pad::Pads, bool)>,
     window: Option<&Window>,
     window_size: Vec2,
     dt: f32,
@@ -158,7 +158,7 @@ pub(crate) fn gather(
         Some((gamepads, open)) => (Some(gamepads), open),
         None => (None, false),
     };
-    for gamepad in gamepads.into_iter().flatten() {
+    for (gamepad, sticks) in gamepads.into_iter().flatten() {
         let shift = gamepad.pressed(crate::pad::SHIFT);
         for (button, key) in [
             (GamepadButton::DPadUp, Key::Up),
@@ -201,11 +201,12 @@ pub(crate) fn gather(
                     format!("{}{}", ui::screens::key_mapping::PAD_RAW, chord.name())
                 }),
         );
-        if stick.length() < gamepad.left_stick().length() {
-            stick = gamepad.left_stick();
+        let (left, right) = crate::pad::Sticks::of(sticks);
+        if stick.length() < left.length() {
+            stick = left;
         }
-        if scroll.abs() < gamepad.right_stick().y.abs() {
-            scroll = gamepad.right_stick().y;
+        if scroll.abs() < right.y.abs() {
+            scroll = right.y;
         }
     }
     held.moves.hold(stick_key(stick), dt, &mut input.keys);
