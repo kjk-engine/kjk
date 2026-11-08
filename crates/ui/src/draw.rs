@@ -81,6 +81,10 @@ pub struct DrawList {
     /// height (the conversation's, a bark's).
     pub fill: bool,
     pub quads: Vec<Quad>,
+    /// The textures whose quads reach the window's sides past the layout's
+    /// (`ControlState::wide`): their height the layout's, their width the
+    /// window's.
+    pub wide: Vec<TextureId>,
 }
 
 impl DrawList {

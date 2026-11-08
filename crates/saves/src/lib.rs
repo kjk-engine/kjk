@@ -316,6 +316,49 @@ pub fn read_story(root: &Path, id: &str) -> Option<Story> {
     serde_json::from_str(&text).ok()
 }
 
+/// What this machine last played, beside the saves (`played.json`): what
+/// the main menu shows, kept by a guest as by a host, whoever's save it is
+/// (KOTOR 2 keeps its menu's figure outside its saves too).
+const PLAYED: &str = "played.json";
+
+/// The game last played here: where, when, and how it was won.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Played {
+    /// The game (`k1`, `tsl`) and module.
+    pub game: String,
+    pub module: String,
+    /// When (Unix seconds).
+    pub saved: u64,
+    /// This player's own character as the game was won; none while it
+    /// goes on.
+    pub won: Option<Winner>,
+}
+
+/// A player's character as its game was won.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Winner {
+    /// Its `appearance.2da` row, the body armour it wore, and its
+    /// alignment (0 dark to 100 light).
+    pub appearance: u16,
+    pub armour: Option<String>,
+    pub alignment: u8,
+}
+
+/// Keeps `played` as what was last played here.
+pub fn write_played(root: &Path, played: &Played) -> Result<(), String> {
+    std::fs::create_dir_all(root).map_err(|error| error.to_string())?;
+    let text = serde_json::to_string(played).map_err(|error| error.to_string())?;
+    std::fs::write(root.join(PLAYED), text).map_err(|error| error.to_string())
+}
+
+/// What was last played here; none before anything was.
+pub fn read_played(root: &Path) -> Option<Played> {
+    let text = std::fs::read_to_string(root.join(PLAYED)).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
 /// What a player is asked when save `id` cannot be loaded exactly and has
 /// a story to restore (spec 4b), with the release and commit its meta names;
 /// none without a story, when the refusal is told as it is.

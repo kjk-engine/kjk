@@ -261,7 +261,7 @@ fn credits(assets: &mut GuiAssets) -> Vec<Vec<u8>> {
 }
 
 fn open(
-    mut shown: ResMut<Shown>,
+    (mut commands, mut shown): (Commands, ResMut<Shown>),
     made: Res<Made>,
     mut ui: ResMut<Ui>,
     mut movies: ResMut<crate::movie_view::Movies>,
@@ -347,6 +347,8 @@ fn open(
             }
             // Credits rolling, or waiting to, take the player there.
             Screen::End => {
+                // Won: the main menu stands the game's end there next.
+                commands.queue(crate::menu_figure::note_won);
                 if !waiting.contains(&Screen::Credits) && !ui.stack.has("credits") {
                     info!(target: "ui", "the game is over");
                     intents.0.push(ui::intent::Intent::Session(

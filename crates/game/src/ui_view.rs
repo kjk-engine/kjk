@@ -252,6 +252,7 @@ impl Plugin for UiViewPlugin {
             env!("KJK_VERSION"),
             &env!("KJK_GIT_SHA")[..8.min(env!("KJK_GIT_SHA").len())]
         );
+        vm.session.campaign = assets.as_ref().map(|assets| assets.game);
         if let Some(start) = self.start
             && !stack.open(start, &vm)
         {
@@ -1156,11 +1157,15 @@ fn corners(quad: &Quad, layer: &DrawList, size: Vec2) -> Option<[([f32; 2], [f32
         return None;
     }
     let (scale, [ox, oy]) = layer.placed((size.x, size.y));
+    // A wide quad's sides are the window's (`DrawList::wide`).
+    let wide = layer.wide.contains(&quad.texture);
     let place = |x: f32, y: f32| {
-        [
-            -size.x / 2.0 + ox + x * scale,
-            size.y / 2.0 - (oy + y * scale),
-        ]
+        let across = if wide {
+            (x - rx) / rw * size.x
+        } else {
+            ox + x * scale
+        };
+        [-size.x / 2.0 + across, size.y / 2.0 - (oy + y * scale)]
     };
     let centre = [rx + rw / 2.0, ry + rh / 2.0];
     let at = |x: f32, y: f32| {

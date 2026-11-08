@@ -600,10 +600,12 @@ fn install(world: &mut World, loaded: play::Loaded) -> Result<(), String> {
     info!(target: "session", "installed");
     // The screens read the session's campaign: a TSL save loaded from the
     // menu, a TSL host joined, as a TSL new game does.
-    let campaign = sim
-        .level
-        .module()
-        .and_then(|module| vfs::Game::from_key(&module.game));
+    let module = sim.level.module();
+    // What is played here, for the main menu, whoever's game it is.
+    if let Some(module) = module {
+        crate::menu_figure::note_played(&module.game, &module.name);
+    }
+    let campaign = module.and_then(|module| vfs::Game::from_key(&module.game));
     if let Some(campaign) = campaign {
         crate::runtime::set_campaign(&mut world.resource_mut::<Ui>(), campaign);
     }
