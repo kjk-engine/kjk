@@ -213,15 +213,16 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   owner's call, 2026-10-05: JA's male stance and walk looked wrong on
   K1's female bodies): alive, its weapons away, no script's animation, and
   its legs in JA's plain standing, its idle, walking or running
-  (forwards, sideways or backwards), its own clip of the same (`pause1`, `walk`, `run`, through its supermodel chain,
+  (forwards or sideways), its own clip of the same (`pause1`, `walk`, `run`, through its supermodel chain,
   so a woman's are the female ones; a creature's read with its look,
   `CreatureClips`) is laid over the JA pose. Anything
   else (a fight, a jump, a roll, a Force move) is JA's.
 - Facing (the owner's call): moving, the body turns to the way it goes,
   720° a second, as KOTOR's characters do (KOTOR has no strafing): a
   strafe runs sideways facing its way, not crabbing at JA's 60° leg turn.
-  Going backwards it faces the other way and plays its walk or run in
-  reverse (KOTOR has no backpedal). Standing, it faces as JA's legs do.
+  Going backwards is JA's own backpedal (`BOTH_WALKBACK1`,
+  `BOTH_RUNBACK1`): KOTOR has none, and its walk or run played in
+  reverse looks wrong. Standing, it faces as JA's legs do.
 - Each clip's weight eases in or out over 0.25 s, laid over the JA pose as
   one weighted mean, so standing to walking cross-fades the clips and the
   gait fades back into JA's pose. Standing plays at its own pace; walking
