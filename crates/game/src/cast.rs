@@ -1066,7 +1066,12 @@ impl Figure {
             });
             parts[1] = self.raise(&rig.sequences, parts[1], held, time_ms);
             let lit = entity.fighter.is_some_and(|f| f.saber.on);
-            let duel = self.duel_swap(rig, &mut parts, lit);
+            // A held block's pose (with attack held: aimed), duel rules'.
+            let guard = entity
+                .fighter
+                .filter(|f| f.saber.duel.block_held)
+                .map(|f| f.saber.duel.aimed);
+            let duel = self.duel_swap(rig, &mut parts, lit, guard);
             if duel.contains(&true) {
                 // Its own stance moves; JA's held pose does not breathe.
                 self.holding = false;
@@ -1132,17 +1137,25 @@ impl Figure {
 
     /// Each part (legs, torso) the sim plays one of JA's lit stances or
     /// walks on, replayed over the sequence its look draws for it
-    /// (`duel_stances`), while its blade is `lit`: which parts were.
+    /// (`duel_stances`), while its blade is `lit`; under a held block
+    /// (`guard`: whether aimed) over the block's pose, the legs walking on:
+    /// which parts were.
     fn duel_swap(
         &self,
         rig: &Rig,
         parts: &mut [sim::combat::saber::blades::Shown; 2],
         lit: bool,
+        guard: Option<bool>,
     ) -> [bool; 2] {
+        use crate::duel_stances::{DuelStances, SWAPPED};
         let look = self.duel.flatten().filter(|_| lit);
         let mut swapped = [false; 2];
-        for (shown, swapped) in parts.iter_mut().zip(&mut swapped) {
-            if let Some(other) = rig.duel.swap(look, shown.anim) {
+        for (part, (shown, swapped)) in parts.iter_mut().zip(&mut swapped).enumerate() {
+            let guarded = guard
+                .filter(|_| lit && SWAPPED.contains(&shown.anim))
+                .filter(|_| part == 1 || !DuelStances::walks(shown.anim))
+                .and_then(|aimed| rig.duel.guard(look, shown.anim, aimed));
+            if let Some(other) = guarded.or_else(|| rig.duel.swap(look, shown.anim)) {
                 let own = rig.sequences.get(shown.anim.name());
                 *shown = crate::duel_stances::replayed(*shown, own, other);
                 *swapped = true;

@@ -262,6 +262,13 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   that matches, of those that found a sequence, wins. The run's notes (a
   dump's `scene.creature_notes`) say what each row found (`duel stances,
   Bastila Shan (_humanoid_kotor): BOTH_STAND2 as BOTH_SABERSTAFF_STANCE, …`).
+- A held block (the duel rules' button, `Duel::block_held`) shows its
+  pose over a lit stance, its fidgets or (the torso alone) a walk, in the
+  character's look or else the stack's skeleton, setting or not, when the
+  skeleton has it (`docs/SABER-RULES.md` 11.5): `BOTH_STAND_BLOCKING_ON`
+  (`_DUAL`, `_STAFF`), with attack held the top parry (`BOTH_P1_S1_T_`,
+  `BOTH_P6_S6_T_`, `BOTH_P7_S7_T_`). JA's skeleton has the parries, Movie
+  Duels' the guards too.
 - The other sequence is played from the sim's moment, at the sim's share
   of its rate (a walk sped by the pace keeps its speed), looping as its
   `animation.cfg` line says. A part going to, from or between such

@@ -56,6 +56,32 @@ pub const SWAPPED: [Anim; 10] = [
     Anim::BOTH_WALK_STAFF,
 ];
 
+/// The sim's walks among `SWAPPED`: under a held block the legs walk on.
+const WALKS: [Anim; 3] = [
+    Anim::BOTH_WALK2,
+    Anim::BOTH_WALK_DUAL,
+    Anim::BOTH_WALK_STAFF,
+];
+
+/// What a held block shows (`docs/SABER-RULES.md` 11.5), for one blade,
+/// two and a staff: the standing guard, and with attack held the top
+/// parry. A skeleton without them (JA's) shows the stance as before.
+const BLOCKING: [[&str; 3]; 2] = [
+    [
+        "BOTH_STAND_BLOCKING_ON",
+        "BOTH_STAND_BLOCKING_ON_DUAL",
+        "BOTH_STAND_BLOCKING_ON_STAFF",
+    ],
+    ["BOTH_P1_S1_T_", "BOTH_P6_S6_T_", "BOTH_P7_S7_T_"],
+];
+
+/// `BLOCKING`'s sequences as `find` finds them.
+type Guards = [[Option<Sequence>; 3]; 2];
+
+fn guards(mut find: impl FnMut(&str) -> Option<Sequence>) -> Guards {
+    BLOCKING.map(|row| row.map(&mut find))
+}
+
 /// One row of the table, read.
 #[derive(Debug, Clone, Default, PartialEq)]
 struct Row {
@@ -77,6 +103,8 @@ struct Row {
 pub struct Look {
     pub name: String,
     pub swaps: Vec<(Anim, Sequence)>,
+    /// Its held block's poses (`BLOCKING`).
+    guards: Guards,
 }
 
 /// Every row with a sequence in the stack, and whom each is for.
@@ -86,12 +114,18 @@ pub struct DuelStances {
     /// (templates, tags, for the player) by look.
     who: Vec<(Vec<String>, Vec<String>, bool)>,
     default: Option<u16>,
+    /// The stack's own held block's poses, for those without a look's.
+    guards: Guards,
 }
 
 impl DuelStances {
-    /// Off: nothing changes.
-    pub fn off() -> DuelStances {
-        DuelStances::default()
+    /// Off: no looks, the held block's poses the stack's (`sequences`, by
+    /// upper-case name), if it has them (Movie Duels').
+    pub fn plain(sequences: &BTreeMap<String, Sequence>) -> DuelStances {
+        DuelStances {
+            guards: guards(|name| sequences.get(name).cloned()),
+            ..DuelStances::default()
+        }
     }
 
     /// Whether `settings` turn them on.
@@ -113,11 +147,11 @@ impl DuelStances {
             Ok(rows) => rows,
             Err(error) => {
                 notes.push(format!("data/duel_stances.toml: {error}"));
-                return (DuelStances::off(), None);
+                return (DuelStances::plain(sequences), None);
             }
         };
         let mut borrowed = Borrowed::new(gla);
-        let stances = DuelStances::of(
+        let mut stances = DuelStances::of(
             &rows,
             |row, name| match &row.skeleton {
                 Some(skeleton) => borrowed.take(files, skeleton, name),
@@ -126,6 +160,7 @@ impl DuelStances {
             notes,
         );
         notes.append(&mut borrowed.notes);
+        stances.guards = DuelStances::plain(sequences).guards;
         (stances, borrowed.extended)
     }
 
@@ -181,6 +216,7 @@ impl DuelStances {
             stances.looks.push(Look {
                 name: row.name.clone(),
                 swaps,
+                guards: guards(|name| find(row, name)),
             });
             stances
                 .who
@@ -205,6 +241,25 @@ impl DuelStances {
                 })
         });
         found.map(|look| look as u16).or(self.default)
+    }
+
+    /// The pose a held block (`aimed`: with attack held) shows over `anim`
+    /// in `look`, else the stack's (`BLOCKING`), by the blades `anim` holds.
+    pub fn guard(&self, look: Option<u16>, anim: Anim, aimed: bool) -> Option<&Sequence> {
+        let blades = match anim {
+            Anim::BOTH_SABERDUAL_STANCE | Anim::BOTH_WALK_DUAL => 1,
+            Anim::BOTH_SABERSTAFF_STANCE | Anim::BOTH_WALK_STAFF => 2,
+            _ => 0,
+        };
+        let row = usize::from(aimed);
+        look.and_then(|look| self.looks.get(usize::from(look)))
+            .and_then(|look| look.guards[row][blades].as_ref())
+            .or(self.guards[row][blades].as_ref())
+    }
+
+    /// Whether `anim` is a walk, which the legs keep under a held block.
+    pub fn walks(anim: Anim) -> bool {
+        WALKS.contains(&anim)
     }
 
     /// The sequence `look` draws for `anim`, if it draws another.
@@ -445,7 +500,8 @@ fn rows(text: &str) -> Result<Vec<Row>, String> {
 }
 
 /// The duel stances' checks, without an install (`kjk sim probes`, group
-/// "duel stances"): the table reads, a skeleton's frames are lent after
+/// "duel stances"): the table reads, a held block finds its blades'
+/// guard, a skeleton's frames are lent after
 /// the view's own, the wildcards match, a row finds the sequences the
 /// stack has and only those, and a swapped walk keeps the sim's moment and
 /// pace over the other frames.
@@ -533,8 +589,29 @@ pub fn probes() -> sim::probe::Checks {
         .as_ref()
         .is_some_and(|s| s.first_frame == 1 && s.frame_count == 2)
         && lent_frames == [1, 2, 5, 6, 7, 8];
+    // A held block's poses, as the stack has them: a staff's guard, no
+    // single blade's aimed parry (the stance plays on).
+    let plain = DuelStances::plain(
+        &[sequence("BOTH_STAND_BLOCKING_ON_STAFF", 900, 2)]
+            .into_iter()
+            .map(|s| (s.name.clone(), s))
+            .collect(),
+    );
+    let guarded = (
+        plain
+            .guard(None, Anim::BOTH_SABERSTAFF_STANCE, false)
+            .map(|s| s.name.as_str()),
+        plain.guard(None, Anim::BOTH_STAND2, true).is_none(),
+    );
     vec![
         ("the shipped table reads", table),
+        (
+            "a held block shows the stack's guard for its blades",
+            check(
+                guarded == (Some("BOTH_STAND_BLOCKING_ON_STAFF"), true),
+                format!("{guarded:?}"),
+            ),
+        ),
         (
             "a skeleton's frames are lent after the view's own",
             check(lends, format!("{lent:?}, frames {lent_frames:?}")),

@@ -1100,7 +1100,7 @@ fn load_ja(
         };
         (duel, gla)
     } else {
-        (crate::duel_stances::DuelStances::off(), gla)
+        (crate::duel_stances::DuelStances::plain(&sequences), gla)
     };
     let rig = Rig {
         gla,
