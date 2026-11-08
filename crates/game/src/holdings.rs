@@ -566,6 +566,7 @@ pub fn probes() -> Vec<Check> {
 /// A made creature let go with a weapon in its hand (the hand under its
 /// body): the weapon goes before the body, so it is not despawned twice
 /// (the body takes what hangs under it along).
+#[cfg(feature = "probes")]
 pub fn depart_probes() -> sim::probe::Checks {
     use bevy::ecs::lifecycle::Despawn;
     /// What was despawned, in order.

@@ -109,6 +109,7 @@ mod power_fx;
 mod probe_kit;
 mod progress;
 pub mod prop_breaks;
+pub mod prop_damage;
 mod prop_hall;
 pub mod prop_looks;
 mod ragdolls;
