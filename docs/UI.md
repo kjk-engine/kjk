@@ -480,7 +480,8 @@ Running and checking:
   the solo key turns it), `ui form ROW` (TSL's Form of that `spells.2da` row in use,
   as the next-Form key picks one), `ui portrait 2|3` (a click on the HUD's second
   or third portrait), `ui watch 2|3` (a click on that portrait's pazaak
-  icon), and `ui script upgrade|levelup|party|death|credits|end|box
+  icon), `ui set KEY VALUE` (a setting changed as the options screens
+  change it: `ui set display.size 800x600`), and `ui script upgrade|levelup|party|death|credits|end|box
   <strref>|movie <name>|galaxy <planet> [<available> <selectable>]` (`party` lists no
   companions: `ui open party` in play shows the host's table; rows by commas,
   `ui script galaxy 3 1,3,4,5,6,7,9 3,4,5,6,7`) (a store opens

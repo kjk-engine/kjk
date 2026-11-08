@@ -474,6 +474,11 @@ fn requests(
                 *verb == "wear",
                 on.first().map(|tag| tag.to_string()),
             )),
+            // A setting changed as the options screens change it
+            // (`ui set display.size 800x600`).
+            ["set", key, value] => intents
+                .0
+                .push(Intent::Setting(key.to_string(), value.to_string())),
             ["save", name @ ..] => intents.0.push(Intent::Save {
                 slot: None,
                 name: name.join(" "),

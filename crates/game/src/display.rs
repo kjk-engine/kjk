@@ -127,8 +127,110 @@ impl Plugin for DisplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Display>()
             .add_systems(Update, (alt_enter, offer))
+            .add_systems(
+                PostUpdate,
+                cameras_in_step.before(bevy::camera::CameraUpdateSystems),
+            )
             .add_systems(Last, (show, samples, brightness, facts));
     }
+}
+
+/// Every camera drawing to the window takes the window's new size in the
+/// frame it changes. Bevy sizes a camera anew only when the window's
+/// resize message comes, or when the camera is new or its projection
+/// changes; but the window holds the size `show` asks for at once, and the
+/// message comes only once the system has resized the window (later, on
+/// Windows; a fullscreen mode's change takes a second). A camera made
+/// meanwhile (a movie's, a fade's) took the new size while the others
+/// kept the old, and the cameras on one window share the colour texture
+/// the first of them sized: the new one's depth no longer matched it, and
+/// wgpu ended the game ("Attachments have differing sizes": a resolution
+/// changed in the options, or the settings' size taken at start).
+fn cameras_in_step(
+    windows: Query<&Window, (With<PrimaryWindow>, Changed<Window>)>,
+    mut seen: Local<Option<(UVec2, f32)>>,
+    mut cameras: Query<(&RenderTarget, &mut Projection)>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let now = (
+        window.resolution.physical_size(),
+        window.resolution.scale_factor(),
+    );
+    if seen.replace(now) == Some(now) {
+        return;
+    }
+    // A changed projection has Bevy size its camera from the window again.
+    for (target, mut projection) in &mut cameras {
+        if matches!(target, RenderTarget::Window(_)) {
+            projection.set_changed();
+        }
+    }
+}
+
+#[cfg(feature = "probes")]
+pub fn probes() -> sim::probe::Checks {
+    vec![("cameras_share_a_resize", cameras_share_a_resize())]
+}
+
+/// Bevy's own camera sizing over a window resized without its message yet
+/// (as `show` leaves it until the system resizes the window), with a
+/// camera made meanwhile: with `cameras_in_step` the old camera and the
+/// new agree on the new size; without it they do not (the crash's cause,
+/// shown so the probe can still see it).
+#[cfg(feature = "probes")]
+fn cameras_share_a_resize() -> Result<String, String> {
+    use bevy::asset::AssetEvent;
+    use bevy::render::camera::camera_system;
+    use bevy::render::texture::ManualTextureViews;
+    use bevy::window::{WindowCreated, WindowResized, WindowScaleFactorChanged};
+
+    let sizes = |in_step: bool| -> Result<(UVec2, UVec2), String> {
+        let mut app = App::new();
+        app.add_message::<WindowResized>()
+            .add_message::<WindowCreated>()
+            .add_message::<WindowScaleFactorChanged>()
+            .add_message::<AssetEvent<Image>>()
+            .init_resource::<Assets<Image>>()
+            .init_resource::<ManualTextureViews>()
+            .add_systems(
+                PostUpdate,
+                camera_system.in_set(bevy::camera::CameraUpdateSystems),
+            );
+        if in_step {
+            app.add_systems(
+                PostUpdate,
+                cameras_in_step.before(bevy::camera::CameraUpdateSystems),
+            );
+        }
+        let mut window = Window::default();
+        window.resolution.set_physical_resolution(1280, 720);
+        let window = app.world_mut().spawn((window, PrimaryWindow)).id();
+        let old = app.world_mut().spawn(Camera3d::default()).id();
+        app.update();
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .ok_or("no window")?
+            .resolution
+            .set_physical_resolution(800, 600);
+        let new = app.world_mut().spawn(Camera3d::default()).id();
+        app.update();
+        let size = |camera: Entity| {
+            app.world()
+                .get::<Camera>(camera)
+                .and_then(Camera::physical_target_size)
+                .ok_or(format!("camera {camera} has no size"))
+        };
+        Ok((size(old)?, size(new)?))
+    };
+    let (old, new) = sizes(true)?;
+    let (stale, fresh) = sizes(false)?;
+    let wanted = UVec2::new(800, 600);
+    sim::probe::check(
+        old == wanted && new == wanted && stale != fresh,
+        format!("in step: old {old}, new {new}; without: old {stale}, new {fresh}"),
+    )
 }
 
 /// The screen the window is on, else the primary one.

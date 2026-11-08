@@ -38,7 +38,7 @@ pub mod course;
 pub mod crash;
 pub mod dangly;
 pub mod dialogue_view;
-mod display;
+pub mod display;
 mod dotenv;
 pub mod draw_anim;
 mod emitter_view;
