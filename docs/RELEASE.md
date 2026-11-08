@@ -14,6 +14,7 @@ first start and only ever read.
 ```bash
 cargo xtask dist                 # build and pack for this machine's OS
 cargo xtask dist --skip-build    # pack the last build again
+cargo xtask dist --pgo <profile> # kjk built with a profile (below)
 ```
 
 `dist` builds `kjk` with the `dist` profile (`Cargo.toml`: release with
@@ -55,6 +56,42 @@ Sizes, macOS arm64 (2026-10-27):
 | release (development, with probes) | 129 MB, 86 MB stripped | 30 MB | |
 | dist, thin LTO, 16 codegen units | 99 MB | 33.7 MB | 7.5 min |
 | **dist, fat LTO, 1 codegen unit** (in use) | **67 MB** | **28.6 MB** | 16.5 min |
+
+### A profile-guided build
+
+```bash
+rustup component add llvm-tools          # once: llvm-profdata
+cargo xtask pgo                          # target/pgo/kjk.profdata (~1 h)
+cargo xtask dist --pgo target/pgo/kjk.profdata
+```
+
+`pgo` builds `kjk` as `dist` does but counting what it runs (its own target
+folder, `target/pgo/gen`), plays the bench's scenes with it on the default
+and low presets (`kjk bench --exe`, driven by a development build, so it
+needs the games), and merges the counts. `dist --pgo` then builds `kjk`
+laid out by them: hot code together and inlined, cold code apart. The
+picture is the same; only where the time goes changes. A function changed
+since the profile was made is built as without one, so a profile goes stale
+slowly but should be made again for each release.
+
+Measured on Windows (Ryzen 7 3700X, RTX 4070 Ti SUPER, 2026-11-07), the
+same commit's `dist` build without and with a profile, `kjk bench`, back to
+back:
+
+| fps | low | default |
+|---|---|---|
+| Javyar's cantina | 360 → 430 (+19%) | 229 → 262 (+14%) |
+| Harbinger | 274 → 332 (+21%) | 215 → 246 (+14%) |
+| Taris Undercity | 323 → 377 (+17%) | 312 → 348 (+12%) |
+| Arena, 8 foes | 354 → 412 (+16%) | 288 → 320 (+11%) |
+| Citadel Station (not trained on) | 328 → 378 (+15%) | 249 → 284 (+14%) |
+| Kashyyyk's Great Walkway (not trained on) | 335 → 387 (+16%) | 216 → 245 (+13%) |
+
+The last two areas are `kjk bench --scenes telos,kashyyyk`, left out of the
+training, so the gain is not the trained scenes' alone. `release.yml` has
+no games to train on, so a release with a profile takes one made on the
+owner's machine (committed, or the Windows package built by hand); the
+releases are built without one until the owner decides.
 
 ### Before the tag
 

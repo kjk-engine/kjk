@@ -261,10 +261,12 @@ fn show(
             .played
             .extend(movies.0.drain(..).map(|queued| queued.name));
     }
-    facts.0.insert(
-        "movies".into(),
-        serde_json::json!({ "played": theatre.played, "queued": movies.0.iter().map(|queued| &queued.name).collect::<Vec<_>>(), "play": theatre.play }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "movies".into(),
+            serde_json::json!({ "played": theatre.played, "queued": movies.0.iter().map(|queued| &queued.name).collect::<Vec<_>>(), "play": theatre.play }),
+        );
+    }
     if theatre.screening.is_none()
         && let Some(Queued {
             name,
@@ -413,16 +415,18 @@ fn show(
                 },
             ));
         }
-        facts.0.insert(
-            "movie".into(),
-            serde_json::json!({
-                "name": screening.name,
-                "size": [movie.width, movie.height],
-                "frames": movie.frames(),
-                "frame": screening.shown,
-                "seconds": seconds,
-            }),
-        );
+        if facts.wanted() {
+            facts.0.insert(
+                "movie".into(),
+                serde_json::json!({
+                    "name": screening.name,
+                    "size": [movie.width, movie.height],
+                    "frames": movie.frames(),
+                    "frame": screening.shown,
+                    "seconds": seconds,
+                }),
+            );
+        }
     }
     if over {
         info!(target: "movie", name = %screening.name, skipped, "ends");

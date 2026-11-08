@@ -104,17 +104,19 @@ fn show(
 ) {
     let snapshot = presented.0.current();
     // What the sim floats (over whom, the strref) and what was drawn.
-    facts.0.insert(
-        "floaties".into(),
-        serde_json::json!({
-            "feedback": snapshot.progress.feedback.iter()
-                .map(|feedback| [feedback.over, feedback.strref])
-                .collect::<Vec<_>>(),
-            "drawn": ui.vm.floaties.iter()
-                .map(|floaty| String::from_utf8_lossy(&floaty.text).into_owned())
-                .collect::<Vec<_>>(),
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "floaties".into(),
+            serde_json::json!({
+                "feedback": snapshot.progress.feedback.iter()
+                    .map(|feedback| [feedback.over, feedback.strref])
+                    .collect::<Vec<_>>(),
+                "drawn": ui.vm.floaties.iter()
+                    .map(|floaty| String::from_utf8_lossy(&floaty.text).into_owned())
+                    .collect::<Vec<_>>(),
+            }),
+        );
+    }
     let generation = swap.map(|swap| swap.generation);
     if damages.generation != generation {
         *damages = Damages {

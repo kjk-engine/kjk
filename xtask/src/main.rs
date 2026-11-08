@@ -2,6 +2,7 @@ mod discord;
 mod dist;
 mod duo;
 mod icon;
+mod pgo;
 mod pin;
 mod publish_check;
 mod refusals;
@@ -10,7 +11,7 @@ mod rulebook;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-const USAGE: &str = "usage: cargo xtask <publish-check | email-hash | hooks | rulebook [--list] | duo [options] | refusals [options] | pin [--message <file>] | dist [--skip-build] | icon | discord [--dry-run] <caption> <file>...>";
+const USAGE: &str = "usage: cargo xtask <publish-check | email-hash | hooks | rulebook [--list] | duo [options] | refusals [options] | pin [--message <file>] | dist [--skip-build] [--pgo <profile>] | pgo | icon | discord [--dry-run] <caption> <file>...>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
@@ -22,6 +23,7 @@ fn main() -> ExitCode {
         Some("refusals") => refusals::run(&args[2..]),
         Some("rulebook") => rulebook::run(&args[2..]),
         Some("dist") => dist::run(&args[2..]),
+        Some("pgo") => pgo::run(&args[2..]),
         Some("pin") => pin::run(&args[2..]),
         Some("icon") => icon::run(&args[2..]),
         Some("discord") => discord::run(&args[2..]),

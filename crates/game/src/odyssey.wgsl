@@ -301,6 +301,18 @@ fn lamp_occlusion(shadow: GpuShadow, position: vec3<f32>, normal: vec3<f32>, fra
     let turn = shadow_turn(frag);
     let source = shadow.params.y;
 
+    // A hard edge (Soft Shadows off): `hard_edge`'s few samples.
+    if shadows.soft == 0u {
+        let hard = hard_edge(uv, depth, layer, turn, 1.5 * texel);
+        if hard.y == 0.0 {
+            return 0.0;
+        }
+        let caster = light.shadow_map_near_z / hard.y;
+        let gap = max(receiver - caster, 0.0);
+        return (1.0 - hard.x) * shadow_fade(gap * span / receiver, LAMP_FADE_NEAR, LAMP_FADE_FAR)
+            * (1.0 - smoothstep(0.85, 1.0, edge)) * lamp_reaches(local, lamp_light(shadow.position_radius.xyz, true));
+    }
+
     // The casters about the point: within the lamp's size as seen from
     // casters halfway to it.
     let search = max(source / span * uv_per_angle, 4.0 * texel);
@@ -320,11 +332,7 @@ fn lamp_occlusion(shadow: GpuShadow, position: vec3<f32>, normal: vec3<f32>, fra
     let caster = light.shadow_map_near_z / (blocker / found);
     let gap = max(receiver - caster, 0.0);
     // The penumbra as an angle from the lamp, then across the map.
-    let penumbra = select(
-        1.5 * texel,
-        clamp(source * gap / (max(caster, 0.05) * span) * uv_per_angle, 1.5 * texel, 0.25 * uv_per_angle),
-        shadows.soft != 0u,
-    );
+    let penumbra = clamp(source * gap / (max(caster, 0.05) * span) * uv_per_angle, 1.5 * texel, 0.25 * uv_per_angle);
     var lit = 0.0;
     for (var i = 0u; i < 16u; i++) {
         lit += map_compare(uv + turn * DISC[i] * penumbra, depth, layer);
@@ -332,6 +340,26 @@ fn lamp_occlusion(shadow: GpuShadow, position: vec3<f32>, normal: vec3<f32>, fra
     let reaches = lamp_reaches(local, lamp_light(shadow.position_radius.xyz, true));
     return (1.0 - lit / 16.0) * shadow_fade(gap * span / receiver, LAMP_FADE_NEAR, LAMP_FADE_FAR)
         * (1.0 - smoothstep(0.85, 1.0, edge)) * reaches;
+}
+
+// A hard shadow edge (Soft Shadows off) at `uv`: four samples of the map
+// `layer` within `radius`, each both filtering and finding casters, where
+// the soft one searches with 16 and filters with 16 more. x: how much is
+// lit (0 to 1); y: the casters' mean depth there, 0 where none is found.
+fn hard_edge(uv: vec2<f32>, depth: f32, layer: i32, turn: mat2x2<f32>, radius: f32) -> vec2<f32> {
+    var lit = 0.0;
+    var found = 0.0;
+    var blocker = 0.0;
+    for (var i = 0u; i < 4u; i++) {
+        let at = uv + turn * DISC[i * 4u] * radius;
+        lit += map_compare(at, depth, layer);
+        let sampled = map_depth(at, layer);
+        if sampled > depth {
+            found += 1.0;
+            blocker += sampled;
+        }
+    }
+    return vec2<f32>(lit / 4.0, select(0.0, blocker / max(found, 1.0), found > 0.0));
 }
 
 // 1 where the map `layer` (a sun's cascade, or a lamp's map after them)
@@ -465,6 +493,16 @@ fn sun_occlusion(shadow: GpuShadow, position: vec3<f32>, normal: vec3<f32>, frag
     let turn = shadow_turn(frag);
     let angle = shadow.params.y;
 
+    // A hard edge (Soft Shadows off): `hard_edge`'s few samples.
+    if shadows.soft == 0u {
+        let hard = hard_edge(uv, depth, layer, turn, 1.5 * texel * per_metre);
+        if hard.y == 0.0 {
+            return 0.0;
+        }
+        let gap = max((hard.y - depth) / rise, 0.0);
+        return (1.0 - hard.x) * shadow_fade(gap, SUN_FADE_NEAR, SUN_FADE_FAR) * sun_reaches(position, normal);
+    }
+
     let search = max(angle * SUN_SEARCH, 4.0 * texel) * per_metre;
     var found = 0.0;
     var blocker = 0.0;
@@ -479,7 +517,7 @@ fn sun_occlusion(shadow: GpuShadow, position: vec3<f32>, normal: vec3<f32>, frag
         return 0.0;
     }
     let gap = max((blocker / found - depth) / rise, 0.0);
-    let penumbra = select(1.5 * texel, max(angle * gap, 1.5 * texel), shadows.soft != 0u) * per_metre;
+    let penumbra = max(angle * gap, 1.5 * texel) * per_metre;
     var lit = 0.0;
     for (var i = 0u; i < 16u; i++) {
         lit += map_compare(uv + turn * DISC[i] * penumbra, depth, layer);

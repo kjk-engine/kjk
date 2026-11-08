@@ -250,6 +250,42 @@ pub(crate) enum Verb {
         #[command(subcommand)]
         verb: RemoteVerb,
     },
+    /// The frame rate of fixed scenes (`bench::SCENES`) in a 1920x1080
+    /// window with v-sync off, a settings preset over the defaults: mean,
+    /// p50, p95, p99 frame time, the main and render schedules' CPU and
+    /// the views per frame, a line of JSON per scene in
+    /// `kjk-artifacts/bench/LABEL/results.jsonl` beside each scene's last
+    /// frame
+    Bench {
+        /// Another `kjk` to measure (a release's), run from here
+        #[arg(long)]
+        exe: Option<std::path::PathBuf>,
+        /// `default`, `low` (no MSAA, no shadows) or `high`
+        #[arg(long, default_value = "default")]
+        preset: String,
+        /// Only these scenes (a comma list); all but the held-out ones
+        /// (`bench::HELD_OUT`) by default
+        #[arg(long, value_delimiter = ',')]
+        scenes: Vec<String>,
+        /// Seconds after the world is up before measuring
+        #[arg(long, default_value_t = 5)]
+        warmup: u32,
+        /// Seconds measured
+        #[arg(long, default_value_t = 20)]
+        seconds: u32,
+        /// Seconds a dump's window covers
+        #[arg(long, default_value_t = 5)]
+        window: u32,
+        /// The results' folder name
+        #[arg(long, default_value = "bench")]
+        label: String,
+        /// Append the results' lines here instead
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+        /// Keep each scene's Perfetto trace (`KJK_PERF=1`) beside its results
+        #[arg(long)]
+        trace: bool,
+    },
     /// Launches `kjk play` headless a few times and tables where each
     /// launch's time went (its loading phases, and when it was loaded, built,
     /// spawned and warmed), for finding and watching load costs
@@ -595,6 +631,27 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
         Verb::Remote {
             verb: RemoteVerb::Census { game },
         } => remote_census::census(&discover(), &game),
+        Verb::Bench {
+            exe,
+            preset,
+            scenes,
+            warmup,
+            seconds,
+            window,
+            label,
+            out,
+            trace,
+        } => bench::bench(bench::BenchOptions {
+            exe,
+            preset,
+            scenes,
+            warmup,
+            seconds,
+            window,
+            label,
+            out,
+            trace,
+        }),
         Verb::LaunchReport { stage, runs } => launch_report::launch_report(&stage, runs),
         Verb::Script { verb } => match verb {
             ScriptVerb::Dis {

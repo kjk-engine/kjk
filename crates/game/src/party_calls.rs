@@ -227,20 +227,22 @@ fn show(
         }
         _ => {}
     }
-    facts.0.insert(
-        "calls".into(),
-        json!({
-            "banner": shown_banner,
-            "in_combat": snapshot.in_combat,
-            "paused_by": snapshot.paused_by.map(|seat| seat.0),
-            "ready": snapshot.ready.as_ref().map(|check| json!({
-                "module": check.module,
-                "asked_by": check.asked_by.0,
-                "ready": check.ready,
-                "since_ms": check.since_ms,
-            })),
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "calls".into(),
+            json!({
+                "banner": shown_banner,
+                "in_combat": snapshot.in_combat,
+                "paused_by": snapshot.paused_by.map(|seat| seat.0),
+                "ready": snapshot.ready.as_ref().map(|check| json!({
+                    "module": check.module,
+                    "asked_by": check.asked_by.0,
+                    "ready": check.ready,
+                    "since_ms": check.since_ms,
+                })),
+            }),
+        );
+    }
     *seen = Seen {
         paused_by: snapshot.paused_by,
         ready: snapshot.ready.clone(),

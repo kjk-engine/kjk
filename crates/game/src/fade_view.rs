@@ -76,19 +76,21 @@ fn fade(
     let fade = presented.0.current().fade;
     let now_ms = view_ms(&presented.0) as u64;
     let alpha = covered(&presented.0);
-    facts.0.insert(
-        "fade".into(),
-        serde_json::json!(fade.map(|fade| serde_json::json!({
-            "out": fade.out,
-            "colour": fade.colour,
-            "start_ms": fade.start_ms,
-            "wait_ms": fade.wait_ms,
-            "length_ms": fade.length_ms,
-            "conversation": fade.conversation,
-            "now_ms": now_ms,
-            "alpha": alpha,
-        }))),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "fade".into(),
+            serde_json::json!(fade.map(|fade| serde_json::json!({
+                "out": fade.out,
+                "colour": fade.colour,
+                "start_ms": fade.start_ms,
+                "wait_ms": fade.wait_ms,
+                "length_ms": fade.length_ms,
+                "conversation": fade.conversation,
+                "now_ms": now_ms,
+                "alpha": alpha,
+            }))),
+        );
+    }
     let Some(fade) = fade else {
         if let Some(layer) = layer.as_ref() {
             if let Ok(mut visibility) = shown.get_mut(layer.quad) {
