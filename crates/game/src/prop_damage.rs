@@ -40,6 +40,9 @@ const FLAT_SHARE: f32 = 1.0 / 3.0;
 const HANG_DEG: (f32, f32) = (25.0, 70.0);
 /// The chance that stage 2 drops the panel stage 1 left hanging.
 const FALLS: f32 = 0.5;
+/// How far off a missing piece's box a mark still counts as over its gap
+/// (metres).
+const GAP_M: f32 = 0.02;
 /// The most lasting emitters lit, and how near a player they must be
 /// (metres): the nearest first.
 const MOST_EMITTERS: usize = 24;
@@ -206,6 +209,16 @@ pub(crate) fn chunks(
     }
 }
 
+/// Whether `point` (model frame) lies on one of `pieces` that is not
+/// drawn in place (`missing`: knocked off or hanging), within `GAP_M` of
+/// its box: a mark there would float over the gap.
+pub(crate) fn over_gap(point: [f32; 3], pieces: &[Piece], missing: &BTreeSet<usize>) -> bool {
+    missing.iter().filter_map(|&i| pieces.get(i)).any(|piece| {
+        let (lo, hi) = extent(piece);
+        (0..3).all(|axis| point[axis] >= lo[axis] - GAP_M && point[axis] <= hi[axis] + GAP_M)
+    })
+}
+
 /// The pieces of `count` a prop breaking now throws: all but those already
 /// knocked off (`gone`).
 pub(crate) fn remaining(count: usize, gone: &BTreeSet<usize>) -> Vec<usize> {
@@ -305,16 +318,25 @@ pub(crate) fn lit(candidates: &[(u32, f32)], most: usize, reach_m: f32) -> Vec<u
     near.into_iter().take(most).map(|(key, _)| key).collect()
 }
 
+/// Lasting emitters by prop and slot: what each is and where it stands.
+pub(crate) type Wanted = BTreeMap<(u32, u8), (Emitter, Vec3)>;
+
 /// The lasting emitters wanted on props this frame, for `script_fx` to
 /// draw: by prop and slot, the model (and whether bare) and where it stands
 /// (game space, metres). Empty again with every scene swap.
 #[derive(Resource, Default)]
 pub(crate) struct PropEmitters {
     generation: u32,
-    pub wanted: BTreeMap<(u32, u8), (Emitter, Vec3)>,
+    pub wanted: Wanted,
 }
 
 impl PropEmitters {
+    /// What is wanted in scene swap `generation`: nothing while it still
+    /// holds another's (the frame a scene swaps in, before `emit` runs).
+    pub(crate) fn wanted_in(&self, generation: u32) -> Option<&Wanted> {
+        (self.generation == generation).then_some(&self.wanted)
+    }
+
     /// For scene swap `generation`: one from another starts empty.
     pub(crate) fn start(&mut self, generation: u32) {
         if self.generation != generation {
@@ -351,6 +373,15 @@ struct Drawn {
 }
 
 impl PropDamage {
+    /// Prop `index`'s pieces not drawn in place: knocked off or hanging.
+    pub(crate) fn missing(&self, index: u32) -> BTreeSet<usize> {
+        let Some(drawn) = self.drawn.get(&index) else {
+            return BTreeSet::new();
+        };
+        let hanging = drawn.chunks.hanging.iter().map(|(i, _)| *i);
+        drawn.chunks.gone.iter().copied().chain(hanging).collect()
+    }
+
     /// Prop `index`'s pieces knocked off, if it is drawn damaged.
     pub(crate) fn gone(&self, index: u32) -> Option<&BTreeSet<usize>> {
         self.drawn.get(&index).map(|drawn| &drawn.chunks.gone)
@@ -570,6 +601,13 @@ pub(crate) fn draw(
                 .entity(*entity)
                 .try_insert(Mesh3d(meshes.add(rebuilt)));
         }
+        // Marks laid on what just left would float over the gap.
+        let missing: BTreeSet<usize> = chunks.gone.union(&hanging).copied().collect();
+        looks.drop_marks(
+            index,
+            |at| over_gap(at.to_array(), &fracture.pieces, &missing),
+            &mut commands,
+        );
         let drawn = damage.drawn.entry(index).or_default();
         for gone in drawn.hangers.drain(..) {
             commands.entity(gone).try_despawn();
@@ -752,6 +790,13 @@ pub fn probes() -> sim::probe::Checks {
     let live = chunks(&set, &base, (Size::Large, 2, 7), middle, Some(1));
     let at_one = chunks(&set, &base, (Size::Large, 1, 7), middle, Some(0));
     let thrown = remaining(set.len(), &first.gone);
+    // Piece 6 (a top corner block, middle (-0.4, 0, 1.0)) gone.
+    let missing = BTreeSet::from([6]);
+    let gaps = [
+        over_gap([-0.4, 0.2, 1.1], &set, &missing),
+        over_gap([0.4, 0.2, 1.1], &set, &missing),
+        over_gap([-0.4, 0.21, 1.0], &set, &missing),
+    ];
     let flat_ok = |chunks: &Chunks| {
         chunks
             .hanging
@@ -798,6 +843,10 @@ pub fn probes() -> sim::probe::Checks {
         emitters.wanted.len()
     };
     let (left, kept) = (swap(2), swap(1));
+    let mut stale = PropEmitters::default();
+    stale.start(1);
+    stale.wanted.insert((3, 0), (EMITTERS[0], Vec3::ZERO));
+    let (old, new) = (stale.wanted_in(1).is_some(), stale.wanted_in(2).is_some());
     vec![
         (
             "damage_knocked_cumulative",
@@ -862,6 +911,16 @@ pub fn probes() -> sim::probe::Checks {
             ),
         ),
         (
+            "damage_marks_over_gap",
+            check(
+                gaps == [true, false, true],
+                format!(
+                    "a mark on the gone corner's face, on a piece still drawn, 1 cm off the gone \
+                     one: {gaps:?} (want [true, false, true])"
+                ),
+            ),
+        ),
+        (
             "damage_break_remaining",
             check(
                 thrown.len() + first.gone.len() == set.len()
@@ -893,9 +952,10 @@ pub fn probes() -> sim::probe::Checks {
         (
             "emitters_leave_with_area",
             check(
-                left == 0 && kept == 1,
+                left == 0 && kept == 1 && old && !new,
                 format!(
-                    "emitters wanted after a scene swap {left} (want 0); in the same scene {kept} (want 1)"
+                    "emitters wanted after a scene swap {left} (want 0); in the same scene {kept} \
+                     (want 1); the old scene's read in it {old}, in the next {new} (want true, false)"
                 ),
             ),
         ),
