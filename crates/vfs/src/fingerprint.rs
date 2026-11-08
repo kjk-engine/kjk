@@ -101,9 +101,11 @@ pub const LATER_WORKSHOP_ITEMS: &str = "workshop/later";
 /// (`workshop/485537937/override`). JA's loaded PK3s are groups of their
 /// own (`base/assets0.pk3`), the first `MAX_WORLD_GROUPS - 1` in name
 /// order, so a refusal names the archive that differs; the rest of `base/`
-/// is `base`. With a mod folder, its PK3s come first (`md/zz_md.pk3`), then
-/// `base/`'s, `MAX_WORLD_GROUPS - 2` in all, and the rest of it is its own
-/// group (`md`).
+/// is `base`. With a mod folder, `base/`'s PK3s come first, then the mod's
+/// (`md/md_assets.pk3`), `MAX_WORLD_GROUPS - 2` in all, and the rest of it
+/// is its own group (`md`): `base/` is grouped alike with the mod and
+/// without, so a machine without the mod is told its mod folder differs,
+/// not its `base/` (Movie Duels' 30 PK3s took every place before).
 fn group_of<'a>(game: Game, key: &'a str, own: &[&str]) -> &'a str {
     if game == Game::JediAcademy && own.contains(&key) {
         return key;
@@ -463,11 +465,12 @@ fn compute(
             .map(|(key, _)| key.as_str())
             .filter(move |key| key.strip_prefix(&prefix).is_some_and(crate::ja::root_pk3))
     };
-    // A mod folder's archives first: its own group leaves one fewer.
+    // `base/`'s archives first, grouped alike with a mod folder or not; a
+    // mod's own group leaves one fewer.
     let own: Vec<&str> = match ja_mod {
         None => root_pk3_of("base").take(MAX_WORLD_GROUPS - 1).collect(),
-        Some(folder) => root_pk3_of(folder)
-            .chain(root_pk3_of("base"))
+        Some(folder) => root_pk3_of("base")
+            .chain(root_pk3_of(folder))
             .take(MAX_WORLD_GROUPS - 2)
             .collect(),
     };

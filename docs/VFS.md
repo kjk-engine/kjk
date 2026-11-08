@@ -144,11 +144,12 @@ inflates to at most its directory size.
 BLAKE3 over every file the resolvers read (not saves, configs or exes), with
 one digest per top-level folder so a mismatch names what differs. A JA
 mod folder's files are covered with `base/`'s, and its PK3s are world
-groups of their own (`md/zz_md.pk3`, before `base/`'s; with `base/`'s,
+groups of their own after `base/`'s (`md/md_assets.pk3`; with `base/`'s,
 two fewer than `MAX_WORLD_GROUPS`; the rest of the folder is `md`), so a
-host and a
-guest must have the same mod, and a refusal names the archive that
-differs. Without a mod folder the print is as before, and an install with
+host and a guest must have the same mod, and a refusal names the mod
+archive that differs: `base/` is grouped alike with a mod and without, so
+a guest without the host's mod is told its mod folder differs, not its
+`base/` (Movie Duels' 30 PK3s, put first, took every place). Without a mod folder the print is as before, and an install with
 one differs from it (new names, no `VERSION` bump, as with the Workshop
 items). Workshop
 items' files are covered under `workshop/<id>/` (`covered_in_item`), with
