@@ -929,8 +929,7 @@ fn let_go(
         }
         Leaves::Made(gone) => {
             hitboxes.0.remove(&gone.id);
-            commands.entity(gone.root).despawn();
-            cast.forget((gone.id, Owner::Creature(gone.index)), commands)
+            cast.depart((gone.id, Owner::Creature(gone.index)), gone.root, commands)
         }
     }
 }
