@@ -113,8 +113,12 @@ BLAKE3 over every file the resolvers read (not saves, configs or exes), with
 one digest per top-level folder so a mismatch names what differs. Workshop
 items' files are covered under `workshop/<id>/` (`covered_in_item`), with
 the items' order; co-op compares each item's world files as one group
-(`workshop/<id>`, its place among the items in its digest), so a refusal
-names the item that differs or moved, and the items past the eight groups
+(`workshop/<id>`, in id order). An item's digest has the items loaded
+before it that hold some of the same world data (an override resource by
+name, a module by any of its archives), so a refusal names the item that
+differs or moved past one it vies with, and two players who subscribed to
+the same items in another order (Steam's list is per account) share a world
+when that order changes nothing served. The items past the eight groups
 a handshake carries share `workshop/later`. An item of movies, voices or
 music alone leaves the world as without it. Per-file
 hashes are cached in the store's `cache/fingerprint/<game>.tsv` (`IMPORT.md`;
