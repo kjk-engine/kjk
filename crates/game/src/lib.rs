@@ -90,6 +90,7 @@ pub mod minigame_bot;
 mod minigame_view;
 pub mod model_fx;
 pub mod modules;
+mod motion_proxy;
 pub mod movie_verbs;
 mod movie_view;
 pub mod net_feel;

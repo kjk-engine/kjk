@@ -1216,6 +1216,9 @@ impl<'t> Spawner<'t> {
                 .all(|w| (w.iter().sum::<f32>() - 1.0).abs() < WHOLE_WEIGHT)
                 && mesh.generate_skinned_mesh_bounds().is_ok();
         }
+        if part.dangly.is_some() {
+            mesh = crate::dangly::with_previous(mesh);
+        }
         let child = commands
             .spawn((
                 Mesh3d(stores.meshes.add(mesh)),

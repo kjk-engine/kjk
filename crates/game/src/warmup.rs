@@ -238,28 +238,29 @@ fn stand_ins<M: Material>(
 }
 
 /// A material of each surface, culled and not, and drawing particles (not
-/// culled): only a material's surface, culling and whether it reads a
-/// particles' list reach its pipeline.
+/// culled), and the punch-through particles' (`OdysseyMaterial::
+/// punch_through`): only a material's surface, culling, whether it reads a
+/// particles' list and whether it discards alpha 0 reach its pipeline.
 fn surface_materials(materials: &mut Assets<OdysseyMaterial>) -> Vec<Handle<OdysseyMaterial>> {
     let plain = crate::lifecycle_view::unlit(Vec4::ZERO, None);
+    let lists = [&material::NO_PARTICLES, &material::STAND_IN_PARTICLES];
+    let punched = lists.map(|particles| OdysseyMaterial {
+        particles: particles.clone(),
+        ..plain.clone().punch_through()
+    });
     Surface::ALL
         .iter()
         .flat_map(|&surface| {
-            [
-                (false, &material::NO_PARTICLES),
-                (true, &material::NO_PARTICLES),
-                (false, &material::STAND_IN_PARTICLES),
-            ]
-            .map(|(culled, particles)| (surface, culled, particles.clone()))
-        })
-        .map(|(surface, culled, particles)| {
-            materials.add(OdysseyMaterial {
-                surface,
-                culled,
-                particles,
-                ..plain.clone()
+            [(false, lists[0]), (true, lists[0]), (false, lists[1])].map(|(culled, particles)| {
+                OdysseyMaterial {
+                    culled,
+                    particles: particles.clone(),
+                    ..plain.clone().as_surface(surface)
+                }
             })
         })
+        .chain(punched)
+        .map(|made| materials.add(made))
         .collect()
 }
 
@@ -362,7 +363,7 @@ fn watch(cache: Res<PipelineCache>, compiled: Res<Compiled>, mut ready: Local<Ve
 
 /// The vertex attributes a remembered layout can name: those the scene's
 /// meshes are made of.
-const ATTRIBUTES: [(&str, MeshVertexAttribute); 9] = [
+const ATTRIBUTES: [(&str, MeshVertexAttribute); 10] = [
     ("position", Mesh::ATTRIBUTE_POSITION),
     ("normal", Mesh::ATTRIBUTE_NORMAL),
     ("uv0", Mesh::ATTRIBUTE_UV_0),
@@ -372,6 +373,7 @@ const ATTRIBUTES: [(&str, MeshVertexAttribute); 9] = [
     ("weights", Mesh::ATTRIBUTE_JOINT_WEIGHT),
     ("sway", crate::grass::SWAY),
     ("base", crate::grass::BASE),
+    ("previous", material::PREVIOUS_POSITION),
 ];
 
 const TOPOLOGIES: [(&str, PrimitiveTopology); 5] = [
