@@ -29,6 +29,14 @@ stands only where the executables were silent, and those points are marked
 - **Wind:** within 15 m the top edge leans along +X+Y with the area's
   `WindPower` (0: still), easing to still from 12 m out. A gust in the vertex
   shader, not the original's spring per quad, so the motion differs a little.
+- **Under TAA or DLSS:** blended, the grass is not in Bevy's motion
+  prepass, so while the scene camera has one each patch has a motion twin
+  (`GrassMotion`) drawn in the prepass alone: the blades' motion, sway
+  included (the sway's clock then and now), where the alpha test passes and
+  nothing opaque is nearer. It writes no depth, which would keep the ground
+  from being drawn behind the blended texels; where only the sky is behind
+  the grass, the sky's motion stays. Without a motion prepass (multisampling)
+  there are no twins. Its texture takes the view's mip bias, as the scene's do.
 - **The option:** `display.grass` on the options page, on by default, saved
   with the other settings. Off hides the patches (nothing is rebuilt).
 - **In the games:** K1's Dantooine (`danm13`, `danm14aa` to `ad`, `danm16`),

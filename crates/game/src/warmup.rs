@@ -162,14 +162,18 @@ impl WarmMaterials<'_> {
         let [odyssey, refracting, grassy] = &samples.0;
         let surfaces = surface_materials(&mut self.odyssey);
         let refraction = self.refraction.add(RefractionMaterial::default());
-        let grass = self.grass.add(GrassMaterial {
-            params: GrassParams::default(),
-            art: None,
-            lightmap: None,
+        // The patches' and their motion twins' (`grass::GrassMotion`).
+        let grass = [false, true].map(|motion| {
+            self.grass.add(GrassMaterial {
+                params: GrassParams::default(),
+                art: None,
+                lightmap: None,
+                motion,
+            })
         });
         let mut spawned = stand_ins(commands, odyssey, &surfaces);
         spawned.extend(stand_ins(commands, refracting, &[refraction]));
-        spawned.extend(stand_ins(commands, grassy, &[grass]));
+        spawned.extend(stand_ins(commands, grassy, &grass));
         spawned
     }
 }
