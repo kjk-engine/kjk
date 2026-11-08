@@ -81,8 +81,10 @@
   script. Probes `kjk sim probes "party fights"`.
 - Switched to another character (`SwitchPlayerCharacter`, `world::switch`),
   seat 0 leads through a companion the same way (`world::lent`): the one
-  switched to stands as the seat's own character would, its portrait takes
-  the lead back, and a switch either way makes the one played lead (TSL's
+  switched to stands as the seat's own character would, its portrait (or
+  the leader key) takes the lead back, and a switch either way makes the
+  one played lead. The view follows the one led and lists the party from
+  it (`Snapshot::body`: the leader before the one switched to) (TSL's
   prologue: T3-M4 waits in the garage's airlock while 3C-FD works the
   security console). A module installed in the step a script switched back
   carries the seat's own character, the one given back left behind unless

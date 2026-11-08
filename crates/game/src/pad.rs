@@ -13,11 +13,19 @@
 //! read it (`ui_input`, `dialogue_view`), and what is still held when they
 //! let it go is taken (`swallow`) so the A that closed a screen does not
 //! jump.
+//!
+//! A stick axis whose first change since its pad connected lands off its
+//! middle counts only once it has come back to the middle (`Settle`): a controller that is no gamepad
+//! (a flight throttle, pedals) shows up as one, its parked axis read as a
+//! stick, and would otherwise turn the view or walk on its own.
 
 use std::collections::BTreeMap;
 
 use bevy::ecs::system::SystemParam;
-use bevy::input::gamepad::{Gamepad, GamepadButton, GamepadRumbleIntensity, GamepadRumbleRequest};
+use bevy::input::gamepad::{
+    Gamepad, GamepadAxis, GamepadAxisChangedEvent, GamepadButton, GamepadRumbleIntensity,
+    GamepadRumbleRequest,
+};
 use bevy::prelude::*;
 
 use crate::settings::{Action, Input, KeyMap};
@@ -237,6 +245,113 @@ pub(crate) fn rest(stick: Vec2, dead: f32) -> Vec2 {
     let scaled = ((length - dead) / (OUTER - dead)).min(1.0);
     stick * (scaled / length)
 }
+
+/// Whether play takes a stick axis of a pad. A gamepad's sticks spring back
+/// to the middle, so an axis whose first change since the pad connected
+/// lands off its middle (by more than the dead middle) is parked (a
+/// throttle, a pedal) and reads as the middle until a change brings it back
+/// there; one whose first change lands in the middle, as a gamepad's does
+/// when its stick starts to move, counts at once and from then on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Settle {
+    /// No change heard since the pad connected: its axes read as at rest.
+    #[default]
+    Unheard,
+    Parked,
+    Live,
+}
+
+impl Settle {
+    /// Moves on for a change of the axis to `value`.
+    pub(crate) fn hear(&mut self, value: f32, dead: f32) {
+        let centred = value.abs() <= dead;
+        *self = match *self {
+            Settle::Unheard | Settle::Parked if !centred => Settle::Parked,
+            _ => Settle::Live,
+        };
+    }
+
+    /// What play takes of the axis's `reading`.
+    pub(crate) fn take(self, reading: f32) -> f32 {
+        if self == Settle::Live { reading } else { 0.0 }
+    }
+}
+
+/// The sticks' axes in `Settle` order: the left stick's x and y, the right's.
+const STICK_AXES: [GamepadAxis; 4] = [
+    GamepadAxis::LeftStickX,
+    GamepadAxis::LeftStickY,
+    GamepadAxis::RightStickX,
+    GamepadAxis::RightStickY,
+];
+
+/// A pad's sticks as play and the screens take them (`Settle`), read each
+/// frame before either. Every pad has one (`SticksPlugin`).
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct Sticks {
+    settle: [Settle; 4],
+    pub left: Vec2,
+    pub right: Vec2,
+}
+
+/// The pads with their sticks as play takes them, for the screens.
+pub(crate) type Pads<'w, 's> = Query<'w, 's, (&'static Gamepad, &'static Sticks)>;
+
+/// Each pad's `Sticks` for this frame, from the axes' changes heard since
+/// it connected; a parked axis in the run's log, to tell from a report
+/// which device would turn the view on its own.
+fn settle(
+    mut pads: Query<(Entity, Ref<Gamepad>, &mut Sticks)>,
+    mut changes: MessageReader<GamepadAxisChangedEvent>,
+    feel: Option<Res<PadFeel>>,
+) {
+    let dead = feel.map_or(PadFeel::default().dead, |feel| feel.dead);
+    // A pad (re)connected is heard afresh: its axes start at rest.
+    for (_, pad, mut sticks) in &mut pads {
+        if pad.is_added() {
+            *sticks = Sticks::default();
+        }
+    }
+    for change in changes.read() {
+        let Some(i) = STICK_AXES.iter().position(|axis| *axis == change.axis) else {
+            continue;
+        };
+        let Ok((entity, _, mut sticks)) = pads.get_mut(change.entity) else {
+            continue;
+        };
+        let was = sticks.settle[i];
+        sticks.settle[i].hear(change.value, dead);
+        if was == Settle::Unheard && sticks.settle[i] == Settle::Parked {
+            info!(target: "pad", ?entity, axis = ?change.axis, value = change.value,
+                "axis off its middle, ignored until it comes back");
+        }
+    }
+    for (_, pad, mut sticks) in &mut pads {
+        let [lx, ly, rx, ry] =
+            std::array::from_fn(|i| sticks.settle[i].take(pad.get(STICK_AXES[i]).unwrap_or(0.0)));
+        sticks.left = Vec2::new(lx, ly);
+        sticks.right = Vec2::new(rx, ry);
+    }
+}
+
+/// Gives every pad its `Sticks` and reads them each frame, after bevy's
+/// input: for play (`PadPlugin`) and the setup's screen.
+pub struct SticksPlugin;
+
+impl Plugin for SticksPlugin {
+    fn build(&self, app: &mut App) {
+        app.register_required_components::<Gamepad, Sticks>()
+            .add_message::<GamepadAxisChangedEvent>()
+            .add_systems(
+                PreUpdate,
+                settle.in_set(Settled).after(bevy::input::InputSystems),
+            );
+    }
+}
+
+/// Where `Sticks` are read.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Settled;
 
 /// The least share of a full step a stick pushed past its middle asks for:
 /// the slowest walk, not a crawl in place.
@@ -670,7 +785,7 @@ type Bound<'w> = (
 pub(crate) fn sample(
     desk: Desk,
     (key_map, pad_map, feel, headless): Bound,
-    mut gamepads: Query<&mut Gamepad>,
+    mut gamepads: Query<(&mut Gamepad, &Sticks)>,
     taken: crate::leader_view::Busy,
     time: Res<Time>,
     mut actions: ResMut<Actions>,
@@ -695,7 +810,7 @@ pub(crate) fn sample(
     // Let go by the screens: what is still held reads as up until released
     // (LB stays: it is no action, and a held shift carries on).
     if *was_busy && !menus {
-        for mut pad in &mut gamepads {
+        for (mut pad, _) in &mut gamepads {
             let held: Vec<GamepadButton> = pad
                 .digital()
                 .get_pressed()
@@ -752,10 +867,11 @@ pub(crate) fn sample(
     presses.pressed.clear();
     let mut pushed = IVec2::ZERO;
     let mut look = Vec2::ZERO;
-    for pad in &gamepads {
+    for (pad, sticks) in &gamepads {
+        let (left, right) = (sticks.left, sticks.right);
         let used = pad.digital().get_just_pressed().next().is_some()
-            || rest(pad.left_stick(), feel.dead) != Vec2::ZERO
-            || rest(pad.right_stick(), feel.dead) != Vec2::ZERO;
+            || rest(left, feel.dead) != Vec2::ZERO
+            || rest(right, feel.dead) != Vec2::ZERO;
         if used {
             next.device = Device::Pad(PadKind::of(pad.vendor_id(), pad.product_id()));
         }
@@ -764,9 +880,8 @@ pub(crate) fn sample(
             .pressed
             .extend(pad.digital().get_just_pressed().filter(|_| !shift).copied());
         let axis = |value: f32| i32::from(value > FLICK) - i32::from(value < -FLICK);
-        let stick = pad.left_stick();
         if pushed == IVec2::ZERO {
-            pushed = IVec2::new(axis(stick.x), axis(stick.y));
+            pushed = IVec2::new(axis(left.x), axis(left.y));
         }
         let choosing = picking
             .as_ref()
@@ -793,17 +908,17 @@ pub(crate) fn sample(
         for (chord, step) in CYCLE.iter().filter(|(chord, _)| chord.shifted == shift) {
             next.cycle += step * i8::from(pad.just_pressed(chord.button));
         }
-        let stick = rest(pad.left_stick(), feel.dead);
+        let stick = rest(left, feel.dead);
         if stick.length() > next.stick.length() {
             next.stick = stick;
         }
-        let right = rest(pad.right_stick(), feel.dead);
+        let right = rest(right, feel.dead);
         if right.length() > look.length() {
             look = right;
         }
     }
 
-    *stepping = *stepping && gamepads.iter().any(|pad| pad.pressed(PICK_STEP));
+    *stepping = *stepping && gamepads.iter().any(|(pad, _)| pad.pressed(PICK_STEP));
     presses.flick = IVec2::select(pushed.cmpne(*flicked), pushed, IVec2::ZERO);
     *flicked = pushed;
 
@@ -1019,7 +1134,8 @@ pub struct PadPlugin;
 
 impl Plugin for PadPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Actions>()
+        app.add_plugins(SticksPlugin)
+            .init_resource::<Actions>()
             .init_resource::<PadPresses>()
             .add_message::<Rumble>()
             // Bevy's, which a run without its gamepad plugin (headless)
@@ -1029,7 +1145,7 @@ impl Plugin for PadPlugin {
                 PreUpdate,
                 sample
                     .in_set(Sampled)
-                    .after(bevy::input::InputSystems)
+                    .after(Settled)
                     .after(crate::swallow::hold_up),
             )
             .add_systems(Update, ((felt, rumble).chain(), pad_names, connected, heard));

@@ -1561,6 +1561,9 @@ fn advance(
                     for line in authority.world.dropped_code() {
                         warn!(target: "save-migrate", "{line}");
                     }
+                    if let Some(line) = authority.world.arrival_fallback() {
+                        warn!(target: "lifecycle", "{line}");
+                    }
                     announcement
                 }
             };

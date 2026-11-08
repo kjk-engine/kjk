@@ -1072,6 +1072,10 @@ Stealth XP is not raised yet.
   The careers ride in the snapshot's progress too (`Progress::careers`),
   for the level-up screen: what its next level may pick
   (`Classes::picks`, the checks `take` makes) in its latest class.
+  The skill points a level leaves unspent are kept for the next
+  (`State::unspent`, a save carries it) and ride in the progress too
+  (`Progress::unspent`): the level-up screen and Auto Level Up offer them
+  added to the level's own, as both games' screens do.
 - A player without a character made (`kjk play`'s dev sheet) has no class
   in the sim until it asks for a level: that level takes the class asked
   for as the one its levels so far were in [verify].

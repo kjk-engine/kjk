@@ -197,6 +197,14 @@ const GUN_M: f32 = 25.0;
 /// its creatures (`mind::engage`): it steps in to the first and swings
 /// within the second, pressing on into a body wider than a humanoid's (a
 /// Mark IV droid's) until it stands against it.
+/// Says where the party stood when the module just entered put its
+/// arrival over no floor (`SimWorld::arrival_fallback`).
+fn say_arrival_fallback(world: &sim::SimWorld) {
+    if let Some(line) = world.arrival_fallback() {
+        outln!("            {line}");
+    }
+}
+
 fn melee_m() -> (f32, f32) {
     (mind::REACH * UNIT, mind::STRIKE * UNIT)
 }
@@ -751,6 +759,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         .commit(&mut world)
                         .map_err(|e| e.to_string())?;
                     recorder.install(announcement);
+                    say_arrival_fallback(&world);
                     last = world.snapshot();
                     names = crate::transcript::speakers(&last, world.level());
                     fallen.clear();
@@ -2833,6 +2842,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             module_of(&last),
                             transition.tag
                         );
+                        say_arrival_fallback(&world);
                     }
                 }
                 if met && let Goal::Use(Target::Tag(tag, _)) = goal {

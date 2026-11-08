@@ -129,7 +129,7 @@ const HOME: (f32, f32) = (-3.0, 0.0);
 /// half-metre squares over a 3 m square of its floor, x -7.5 to -4.5 and y
 /// -2.5 to 0.5 in the room's frame; the rest of the floor is collision
 /// alone.
-fn mesh_ground() -> Level {
+pub(crate) fn mesh_ground() -> Level {
     const CELL: f32 = 0.5;
     let level = ground(|placements| {
         placements.push(Placement::Own(ObjectData {

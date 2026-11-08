@@ -82,7 +82,10 @@ over; hold LB for a second layer of actions. Every screen runs on the
 D-pad, A, B and X, and the bumpers step through the menu's tabs. The
 prompts name the pad's own buttons while you play with it. Look speed,
 invert, dead zone and vibration are under Options → Gameplay →
-Controller.
+Controller. A stick that sits off its middle when it is first heard (a
+flight throttle or pedals plugged in, which show up as a pad) is ignored
+until it comes back to the middle, so it never turns the view or walks
+on its own.
 
 Every action rebinds under Options → Gameplay → Keymap, on its
 Keyboard and Mouse tabs (any key or mouse button, Mouse 4 and 5

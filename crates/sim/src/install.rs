@@ -15,7 +15,9 @@
 //!   switch as the party table has it, `SimWorld::settle_switch`), standing at the
 //!   arrival: the door or waypoint the transition names, else the module's
 //!   entry, dropped to the floor there, the next seats on free spots
-//!   around it; each looks the arrival's way;
+//!   around it (an arrival over no floor: around the walkmesh's nearest
+//!   face, else at the arrival itself, so an install never fails for want
+//!   of room); each looks the arrival's way;
 //! - the party's companions (creatures following a seat) come along as
 //!   objects made in the new module (`snapshot::Spawned`, from their
 //!   templates), keeping their ids, fights and sheets, on the next free
@@ -60,8 +62,6 @@ pub enum InstallError {
     /// The module was left in a state taken with other data than the
     /// level's (another install, another build).
     StashChanged { module: String },
-    /// No room to stand at or near the arrival (metres).
-    NoRoom { module: String, at: [f32; 3] },
     /// A seat past the last a world holds (`MAX_SEATS`).
     Seat(Seat),
 }
@@ -89,11 +89,6 @@ impl fmt::Display for InstallError {
             InstallError::StashChanged { module } => {
                 write!(f, "{module} was left with other module data than this")
             }
-            InstallError::NoRoom { module, at } => write!(
-                f,
-                "{module}: no room to stand near ({:.2}, {:.2}, {:.2})",
-                at[0], at[1], at[2]
-            ),
             InstallError::Seat(seat) => write!(
                 f,
                 "seat {}: a world holds seats 0 to {}",
@@ -185,7 +180,7 @@ impl SimWorld {
         let members = members(party);
         let before = self.snapshot();
         let items = &self.script_state().items;
-        let (after, reconciled) = assemble(
+        let (after, reconciled, fallback) = assemble(
             &before,
             &level,
             arrival,
@@ -233,6 +228,7 @@ impl SimWorld {
             self.reconciled_with(report);
         }
         self.dropped_code_with(dropped);
+        self.arrival_fallback_with(fallback);
         Ok(after)
     }
 }
@@ -318,7 +314,8 @@ fn arrived(fighter: Option<Fighter>) -> Option<Fighter> {
 /// whose lines the ceremony after it says), arrives with the party, as
 /// KOTOR places the whole party at a module's arrival. With it, what
 /// reconciling the module left with the level's placements did, if it ran
-/// (`items`: every item in play, for what the party stored in it).
+/// (`items`: every item in play, for what the party stored in it), and
+/// where the party stood instead when its arrival is over no floor.
 pub(crate) fn assemble(
     before: &Snapshot,
     level: &Level,
@@ -326,7 +323,7 @@ pub(crate) fn assemble(
     old: Option<&Level>,
     members: &[(u32, String)],
     items: &crate::inventory::Items,
-) -> Result<(Snapshot, Option<Report>), InstallError> {
+) -> Result<(Snapshot, Option<Report>, Option<String>), InstallError> {
     let module = level.module().cloned().ok_or(InstallError::NoModule)?;
     let place = level.place().ok_or(InstallError::NoModule)?;
     let mut stash = before.stash.to_vec();
@@ -489,10 +486,48 @@ pub(crate) fn assemble(
                 spots(world, &lifted, count, &[], None, RINGS)
             })
         });
-    let origins = origins.ok_or(InstallError::NoRoom {
-        module: module.name.clone(),
-        at: spot.position,
-    })?;
+    // An arrival nowhere over its walkmesh (a cutscene module's entry off
+    // its rooms in other data than ours) stands the party round the
+    // walkmesh's closest face, crowded onto the face itself where no room
+    // is found round it; a module with no walkmesh, at the arrival itself:
+    // a transition always lands. Where the party stood is said
+    // (`SimWorld::arrival_fallback`), and the companions gather there.
+    let (origins, soles, fallback) = match origins {
+        Some(origins) => (origins, spot.position, None),
+        None => match level.nav().and_then(|nav| nav.closest(spot.position)) {
+            Some(face) => {
+                let moved = Spot {
+                    position: face,
+                    ..spot
+                };
+                let found = level.with(states.as_deref(), |world| {
+                    spots(world, &moved, count, &[], None, RINGS)
+                });
+                let how = if found.is_some() {
+                    "round the walkmesh's closest face"
+                } else {
+                    "crowded on the walkmesh's closest face"
+                };
+                let origins = found.unwrap_or_else(|| at_spot(&moved, count));
+                (origins, face, Some((how, face)))
+            }
+            None => (
+                at_spot(&spot, count),
+                spot.position,
+                Some((
+                    "at the arrival, the module having no walkmesh",
+                    spot.position,
+                )),
+            ),
+        },
+    };
+    let fallback = fallback.map(|(how, [x, y, z])| {
+        let [ax, ay, az] = spot.position;
+        format!(
+            "{}: the arrival ({ax:.2}, {ay:.2}, {az:.2}) is over no floor: the party stands {how} ({x:.2}, {y:.2}, {z:.2})",
+            module.name
+        )
+    });
     // The companions follow, made anew in this module from their templates,
     // each where the safe-location search stands it within `PARTY` of the
     // arrival (`PARTY`), clear of the seats, the area's living creatures and
@@ -509,7 +544,6 @@ pub(crate) fn assemble(
             alive.then_some((player.origin, crate::world::strikes::humanoid_space(own)))
         }))
         .collect();
-    let soles = spot.position;
     for (companion, template) in &companions {
         let made = crate::snapshot::Spawned {
             kind: ObjectKind::Creature,
@@ -528,10 +562,15 @@ pub(crate) fn assemble(
                 stand_among(level, world, soles, &stood, (space, PARTY))
             })
             .or_else(|| origins.last().copied())
-            .ok_or(InstallError::NoRoom {
-                module: module.name.clone(),
-                at: spot.position,
-            })?;
+            .unwrap_or_else(|| {
+                at_spot(
+                    &Spot {
+                        position: soles,
+                        ..spot
+                    },
+                    1,
+                )[0]
+            });
         stood.push((origin, space));
         let mut player = MotionState::standing(origin, spot.yaw);
         // One a guest drives turns from its seat's commands, as a player.
@@ -720,7 +759,7 @@ pub(crate) fn assemble(
         next_id,
         seats_held: before.seats_held,
     };
-    Ok((after, reconciled))
+    Ok((after, reconciled, fallback))
 }
 
 /// The module's creatures stood where KOTOR's area loader stands them, one
@@ -945,6 +984,15 @@ pub(crate) fn spots(
         }
     }
     (found.len() == count).then_some(found)
+}
+
+/// `count` box origins (units) at `spot` itself, `APART` from one another
+/// along x: where an arrival with no floor anywhere stands its seats.
+fn at_spot(spot: &Spot, count: usize) -> Vec<[f32; 3]> {
+    let [x, y, z] = math::scale(spot.position, 1.0 / UNIT);
+    (0..count)
+        .map(|seat| [x + seat as f32 * APART, y, z - motion::SOLE_Z])
+        .collect()
 }
 
 /// How far a safe-location search looks around its mark (`jump_place`):
