@@ -442,8 +442,9 @@ pub fn first_crossing(
 }
 
 /// Presses a dent into a mesh: each vertex within `radius` of `centre`
-/// moves in against its normal by `depth × (1 − (d / radius)²)`, `d` its
-/// distance from `centre`.
+/// moves in by `depth × (1 − (d / radius)²)`, `d` its distance from
+/// `centre`, all against one way (the mean of their normals), so the
+/// copies of a vertex split at a hard edge move together and no seam opens.
 pub fn dent(
     positions: &mut [[f32; 3]],
     normals: &[[f32; 3]],
@@ -451,12 +452,19 @@ pub fn dent(
     radius: f32,
     depth: f32,
 ) {
-    for (p, n) in positions.iter_mut().zip(normals) {
+    let within = |p: &[f32; 3]| length(sub(*p, centre)) < radius;
+    let sum = (positions.iter().zip(normals))
+        .filter(|(p, _)| within(p))
+        .fold([0.0; 3], |sum, (_, &n)| add(sum, n));
+    let size = length(sum);
+    if size < 1e-6 {
+        return;
+    }
+    let way = scale(sum, 1.0 / size);
+    for p in positions.iter_mut().filter(|p| within(p)) {
         let d = length(sub(*p, centre));
-        if d < radius {
-            let fall = 1.0 - (d / radius) * (d / radius);
-            *p = sub(*p, scale(*n, depth * fall));
-        }
+        let fall = 1.0 - (d / radius) * (d / radius);
+        *p = sub(*p, scale(way, depth * fall));
     }
 }
 
@@ -717,10 +725,67 @@ mod probes {
         )
     }
 
+    /// A dent by a cube's corner keeps the copies of each split vertex
+    /// together: no seam opens.
+    fn dent_seams() -> Result<String, String> {
+        let cube = cube([0.0; 3], true);
+        let mut positions = cube.positions.clone();
+        dent(&mut positions, &cube.normals, [1.0, 1.0, 0.8], 0.5, 0.08);
+        let moved = (positions.iter().zip(&cube.positions))
+            .filter(|(a, b)| a != b)
+            .count();
+        let mut torn = 0;
+        for a in 0..positions.len() {
+            for b in a + 1..positions.len() {
+                let was = length(sub(cube.positions[a], cube.positions[b]));
+                if was < 1e-6 && length(sub(positions[a], positions[b])) > 1e-5 {
+                    torn += 1;
+                }
+            }
+        }
+        check(
+            moved > 0 && torn == 0,
+            format!(
+                "{moved} vertices pressed (want some), {torn} split copies torn apart (want 0)"
+            ),
+        )
+    }
+
+    /// A piece whose hull is flat (one face of a box) still has a body and
+    /// falls.
+    fn debris_flat_falls() -> Result<String, String> {
+        let mut world = crate::World::new();
+        let hull = [
+            [0.0, 0.0, 0.0],
+            [0.3, 0.0, 0.0],
+            [0.3, 0.3, 0.0],
+            [0.0, 0.3, 0.0],
+        ];
+        let Some(id) = world.debris(
+            &hull,
+            [0.0, 0.0, 5.0],
+            [0.0, 0.0, 0.0, 1.0],
+            [0.0; 3],
+            [0.0; 3],
+        ) else {
+            return Err("a flat hull made no piece".into());
+        };
+        for _ in 0..30 {
+            world.step(1.0 / 60.0);
+        }
+        let z = world.debris_pose(id).map(|(at, _)| at[2]);
+        check(
+            z.is_some_and(|z| z < 4.0),
+            format!("after half a second its z is {z:?} (want under 4: falling from 5)"),
+        )
+    }
+
     /// The probes.
     pub fn probes() -> Checks {
         vec![
             ("prop_stage_dent", dented()),
+            ("prop_stage_dent_seams", dent_seams()),
+            ("debris_flat_falls", debris_flat_falls()),
             ("prop_hit_crossing", crossing()),
             ("debris_settles", debris_settles()),
             ("shatter_covers_once", covers_once()),

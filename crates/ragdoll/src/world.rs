@@ -55,6 +55,9 @@ const DEBRIS: u128 = u128::MAX - 1;
 /// bounce.
 const DEBRIS_DENSITY: f32 = 700.0;
 const DEBRIS_SURFACE: (f32, f32) = (0.7, 0.1);
+/// How thick a piece whose hull is flat (one face of a box) is made (m):
+/// a flat hull has no mass, so gravity would not pull it.
+const DEBRIS_THICKNESS: f32 = 0.01;
 /// A piece slower than this (m/s) for `DEBRIS_SETTLE` (s) has come to
 /// rest, and is put to sleep.
 const DEBRIS_SLOW: f32 = 0.05;
@@ -577,8 +580,9 @@ impl World {
     /// A piece of a broken prop: a rigid body of the convex hull of `hull`
     /// (points about the body's origin) at `at` turned by `rotation`
     /// (x, y, z, w), moving at `velocity` and spinning at `spin` (rad/s,
-    /// world). It meets the level and other pieces, never a ragdoll. None
-    /// when the hull has no volume.
+    /// world). It meets the level and other pieces, never a ragdoll. A flat
+    /// hull is given `DEBRIS_THICKNESS`. None when the hull is a line or a
+    /// point.
     pub fn debris(
         &mut self,
         hull: &[[f32; 3]],
@@ -587,7 +591,10 @@ impl World {
         velocity: [f32; 3],
         spin: [f32; 3],
     ) -> Option<DebrisId> {
-        let points: Vec<Vector> = hull.iter().map(|&p| vector(Vec3::from_array(p))).collect();
+        let points: Vec<Vector> = thickened(hull.iter().map(|&p| Vec3::from_array(p)).collect())
+            .into_iter()
+            .map(vector)
+            .collect();
         let collider = ColliderBuilder::convex_hull(&points)?
             .density(DEBRIS_DENSITY)
             .friction(DEBRIS_SURFACE.0)
@@ -973,4 +980,35 @@ fn drive(bodies: &mut RigidBodySet, ragdoll: &Ragdoll) {
             rigid.apply_impulse(vector(push), true);
         }
     }
+}
+
+/// `points`, and when they all lie in one plane, the same again
+/// `DEBRIS_THICKNESS` behind it.
+fn thickened(points: Vec<Vec3>) -> Vec<Vec3> {
+    let Some(&first) = points.first() else {
+        return points;
+    };
+    let mut normal = None;
+    'search: for (i, &a) in points.iter().enumerate().skip(1) {
+        for &b in &points[i + 1..] {
+            if let Some(n) = (a - first).cross(b - first).try_normalize() {
+                normal = Some(n);
+                break 'search;
+            }
+        }
+    }
+    let Some(normal) = normal else {
+        return points;
+    };
+    if points
+        .iter()
+        .any(|&p| (p - first).dot(normal).abs() > DEBRIS_THICKNESS / 2.0)
+    {
+        return points;
+    }
+    let behind: Vec<Vec3> = points
+        .iter()
+        .map(|&p| p - normal * DEBRIS_THICKNESS)
+        .collect();
+    [points, behind].concat()
 }
