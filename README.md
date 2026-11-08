@@ -28,6 +28,27 @@ The builds are not signed, so your computer warns you the first time:
 Movies need [ffmpeg](https://ffmpeg.org/download.html) installed; the game
 runs without it.
 
+### Anti-aliasing and DLSS
+
+Options → Graphics → Advanced → Anti-Aliasing: Off, 2x, 4x, TAA, and on an
+NVIDIA RTX card DLAA and DLSS Quality, Balanced, Performance and Ultra
+Performance. DLAA smooths edges at the window's size; DLSS draws a smaller
+frame and NVIDIA's upscaler brings it to the window's size, for more frames
+a second.
+
+- DLSS is in the Windows and Linux downloads, which draw through Vulkan
+  (on Windows, DirectX 12 where the driver has no Vulkan). The macOS
+  download has no DLSS.
+- The DLSS choices are shown only when the card and its driver offer DLSS.
+  Elsewhere, a DLSS choice saved on another machine plays as TAA.
+- What ships is NVIDIA's DLSS Super Resolution and DLAA, from the DLSS SDK
+  310.5.3. The neural rendering NVIDIA calls DLSS 5 is for RTX 50 cards
+  and its SDK is not public, so kjk does not have it.
+- `nvngx_dlss.dll` (Windows) or `libnvidia-ngx-dlss.so.310.5.3` (Linux)
+  next to `kjk` is NVIDIA's library; leave it there. Its licence and
+  notices are in the download (`NVIDIA-RTX-SDK-LICENSE.txt`,
+  `NVIDIA-DLSS-NOTICES.txt`).
+
 (Building from source is only needed for development; see
 [Development](#development).)
 

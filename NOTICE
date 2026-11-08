@@ -33,5 +33,20 @@ SDK's redistributable as the steamworks-sys crate ships it, for co-op
 through Steam. It is Valve's, under the Steamworks SDK's terms, not the MIT
 License. Steam and the Steam logo are trademarks of Valve Corporation.
 
+NVIDIA DLSS
+-----------
+The Windows and Linux binary releases are built with the `dlss` feature.
+They contain NVIDIA's NGX library, linked into the program, and ship
+NVIDIA's signed DLSS library beside it (nvngx_dlss.dll on Windows,
+libnvidia-ngx-dlss.so.<version> on Linux), both from the NVIDIA DLSS SDK
+(https://github.com/NVIDIA/DLSS). They are NVIDIA's, under the NVIDIA RTX
+SDKs licence (NVIDIA-RTX-SDK-LICENSE.txt in those releases), not the MIT
+License, and may not be reverse engineered or shipped apart from kjk. The
+notices of the code inside the DLSS library are in NVIDIA-DLSS-NOTICES.txt.
+The source in this repository is MIT and contains nothing of the SDK; a
+build made from source with `dlss` needs the SDK, under its licence. NVIDIA,
+RTX and DLSS are trademarks of NVIDIA Corporation. kjk is not sponsored or
+endorsed by NVIDIA.
+
 Binary releases include THIRD-PARTY-LICENSES.html for the Rust crates they
 are built from.

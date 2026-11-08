@@ -559,7 +559,9 @@ Running and checking:
   screen's own fullscreen modes, except on macOS, where fullscreen is
   borderless; sizes in the screen's pixels; the window's present one
   chosen), and the advanced page's anti-aliasing (off, 2x, 4x, on every
-  camera drawing to the window) and v-sync, with Cancel. Alt+Enter goes
+  camera drawing to the window; TAA, and DLAA and DLSS's four qualities
+  where the build has DLSS and the card offers it, `game::temporal`,
+  README.md) and v-sync, with Cancel. Alt+Enter goes
   between a window and borderless. Applied at once and at the next start.
   The grass check box (`display.grass`, on) hides the area's grass without
   rebuilding it. Greyed: shadows, texture quality, anisotropy, frame buffer

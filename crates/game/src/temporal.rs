@@ -29,6 +29,7 @@
 
 use bevy::anti_alias::taa::TemporalAntiAliasing;
 use bevy::asset::{load_internal_asset, uuid_handle};
+use bevy::camera::Hdr;
 use bevy::camera::RenderTarget;
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::core_pipeline::prepass::{DepthPrepass, MotionVectorPrepass};
@@ -40,7 +41,6 @@ use bevy::render::render_resource::{
     AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError,
 };
 use bevy::shader::ShaderRef;
-use bevy::camera::Hdr;
 
 use crate::display::Display;
 use crate::lifecycle_view::OverlayCamera;
@@ -89,7 +89,10 @@ pub const CHOICES: [(Antialias, &str); 10] = [
     (Antialias::Dlss(DlssQuality::Dlaa), "dlaa"),
     (Antialias::Dlss(DlssQuality::Quality), "dlss_quality"),
     (Antialias::Dlss(DlssQuality::Balanced), "dlss_balanced"),
-    (Antialias::Dlss(DlssQuality::Performance), "dlss_performance"),
+    (
+        Antialias::Dlss(DlssQuality::Performance),
+        "dlss_performance",
+    ),
     (
         Antialias::Dlss(DlssQuality::UltraPerformance),
         "dlss_ultra_performance",
@@ -197,19 +200,19 @@ impl Plugin for TemporalPlugin {
 }
 
 /// Whether this card and build have DLSS's upscaling.
-#[cfg(feature = "dlss")]
+#[cfg(dlss)]
 fn dlss_supported(world: &World) -> bool {
     world.contains_resource::<bevy::anti_alias::dlss::DlssSuperResolutionSupported>()
 }
 
-#[cfg(not(feature = "dlss"))]
+#[cfg(not(dlss))]
 fn dlss_supported(_world: &World) -> bool {
     false
 }
 
 /// The project id NVIDIA's runtime asks of every application (any fixed
 /// UUID; this one is kjk's). Inserted before Bevy's plugins (`runtime`).
-#[cfg(feature = "dlss")]
+#[cfg(dlss)]
 pub fn dlss_project_id() -> bevy::anti_alias::dlss::DlssProjectId {
     bevy::anti_alias::dlss::DlssProjectId(bevy::asset::uuid::Uuid::from_u128(
         0x6b1f_3c2e_9d84_4a17_b5e0_2f7c_8a91_d463,
@@ -219,7 +222,12 @@ pub fn dlss_project_id() -> bevy::anti_alias::dlss::DlssProjectId {
 /// What the run uses, from what it asks and the machine has.
 fn choose(world: &mut World) {
     // A run without the options (a viewer) has the defaults.
-    let asked = chosen(&world.get_resource::<Display>().cloned().unwrap_or_else(Display::default));
+    let asked = chosen(
+        &world
+            .get_resource::<Display>()
+            .cloned()
+            .unwrap_or_else(Display::default),
+    );
     let dlss = dlss_supported(world);
     let used = match asked {
         Antialias::Dlss(_) if !dlss => Antialias::Taa,
@@ -238,7 +246,10 @@ fn choose(world: &mut World) {
 
 /// Whether a camera draws onto the world's target: the window's, or the
 /// headless frame's image.
-fn on_world_target(target: Option<&RenderTarget>, capture: Option<&console::CaptureTarget>) -> bool {
+fn on_world_target(
+    target: Option<&RenderTarget>,
+    capture: Option<&console::CaptureTarget>,
+) -> bool {
     match target {
         None | Some(RenderTarget::Window(_)) => true,
         Some(RenderTarget::Image(image)) => matches!(
@@ -322,7 +333,7 @@ fn apply(
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 struct DlssOn(DlssQuality);
 
-#[cfg(feature = "dlss")]
+#[cfg(dlss)]
 fn insert_dlss(camera: &mut EntityCommands, quality: DlssQuality) {
     use bevy::anti_alias::dlss::{Dlss, DlssPerfQualityMode};
     let perf_quality_mode = match quality {
@@ -341,19 +352,19 @@ fn insert_dlss(camera: &mut EntityCommands, quality: DlssQuality) {
     ));
 }
 
-#[cfg(not(feature = "dlss"))]
+#[cfg(not(dlss))]
 fn insert_dlss(camera: &mut EntityCommands, quality: DlssQuality) {
     // Never reached: `choose` uses TAA where the build has no DLSS.
     camera.insert(DlssOn(quality));
 }
 
-#[cfg(feature = "dlss")]
+#[cfg(dlss)]
 fn remove_dlss(camera: &mut EntityCommands) {
     camera.remove::<(bevy::anti_alias::dlss::Dlss, DlssOn)>();
-    camera.remove::<bevy::render::camera::MainPassResolutionOverride>();
+    camera.remove::<bevy::camera::MainPassResolutionOverride>();
 }
 
-#[cfg(not(feature = "dlss"))]
+#[cfg(not(dlss))]
 fn remove_dlss(camera: &mut EntityCommands) {
     camera.remove::<DlssOn>();
 }
@@ -374,7 +385,7 @@ fn cut(
         ),
         Without<OverlayCamera>,
     >,
-    #[cfg(feature = "dlss")] mut dlss: Query<&mut bevy::anti_alias::dlss::Dlss>,
+    #[cfg(dlss)] mut dlss: Query<&mut bevy::anti_alias::dlss::Dlss>,
 ) {
     let told = std::mem::take(&mut asked.0);
     for (camera, transform, projection, mut last, taa, has_dlss) in &mut cameras {
@@ -400,7 +411,7 @@ fn cut(
         if let Some(mut taa) = taa {
             taa.reset = true;
         }
-        #[cfg(feature = "dlss")]
+        #[cfg(dlss)]
         if has_dlss {
             for mut dlss in &mut dlss {
                 dlss.reset = true;
@@ -474,7 +485,8 @@ fn motion_debug(
     mut commands: Commands,
     mut on: Local<Option<bool>>,
 ) {
-    let on = *on.get_or_insert_with(|| std::env::var_os("KJK_MOTION_DEBUG").is_some_and(|v| v == "1"));
+    let on =
+        *on.get_or_insert_with(|| std::env::var_os("KJK_MOTION_DEBUG").is_some_and(|v| v == "1"));
     if !on {
         return;
     }

@@ -43,9 +43,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: macOS arm64, runner: macos-15, artifact: macos-arm64 }
-          - { name: Windows x86-64, runner: windows-latest, artifact: windows-x86_64 }
-          - { name: Linux x86-64, runner: ubuntu-22.04, artifact: linux-x86_64 }
+          # Windows and Linux with DLSS (`dist --dlss`): NVIDIA's library and
+          # notices beside kjk. macOS has no DLSS.
+          - { name: macOS arm64, runner: macos-15, artifact: macos-arm64, dist: "" }
+          - { name: Windows x86-64, runner: windows-latest, artifact: windows-x86_64, dist: --dlss }
+          - { name: Linux x86-64, runner: ubuntu-22.04, artifact: linux-x86_64, dist: --dlss }
     defaults:
       run:
         shell: bash
@@ -59,10 +61,20 @@ jobs:
       - name: Toolchain
         run: rustup toolchain install
 
-      # Bevy's window crates and the sound device (cpal) link these.
+      # Bevy's window crates and the sound device (cpal) link these;
+      # pdftotext (poppler-utils) reads NVIDIA's notices out of its guide.
       - name: Linux packages
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev poppler-utils
+
+      - name: DLSS SDK
+        if: matrix.dist == '--dlss'
+        uses: ./.github/actions/dlss-sdk
+
+      # xpdf's pdftotext, where the runner has none.
+      - name: pdftotext
+        if: matrix.dist == '--dlss' && runner.os == 'Windows'
+        run: command -v pdftotext || choco install -y --no-progress xpdf-utils
 
       - uses: taiki-e/install-action@v2
         with:
@@ -79,9 +91,11 @@ jobs:
       # Git Bash's.
       - name: package
         shell: pwsh
-        run: cargo xtask dist
+        run: cargo xtask dist ${{ matrix.dist }}
 
       - name: check the package
+        env:
+          DIST: ${{ matrix.dist }}
         run: |
           cd target/packages
           ls -la
@@ -89,6 +103,18 @@ jobs:
           for f in README.txt LICENSE.txt NOTICE.txt THIRD-PARTY-LICENSES.html THIRD-PARTY-LICENSES-save-editor.html; do
             test -f "$stage$f" || { echo "missing $f"; exit 1; }
           done
+          # NVIDIA's release library (never a development one), its
+          # licence and notices.
+          if [ "$DIST" = --dlss ]; then
+            for f in NVIDIA-RTX-SDK-LICENSE.txt NVIDIA-DLSS-NOTICES.txt; do
+              test -s "$stage$f" || { echo "missing $f"; exit 1; }
+            done
+            case "$RUNNER_OS" in
+              Windows) library=nvngx_dlss.dll platform=Windows_x86_64 ;;
+              *) library=$(basename "$(ls "$stage"libnvidia-ngx-dlss.so.*)") platform=Linux_x86_64 ;;
+            esac
+            cmp "$stage$library" "$DLSS_SDK/lib/$platform/rel/$library"
+          fi
           # kjk and the save editor beside it, each started once.
           for pair in "kjk.app:kjk" "kjk Save Editor.app:kjk-save-editor"; do
             app="${stage}${pair%%:*}"

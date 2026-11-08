@@ -511,7 +511,9 @@ fn on(vm: &ViewModel, key: &str) -> bool {
 /// them).
 /// Whether this machine offers `value` of `key` (DLSS needs its card).
 fn offered(vm: &ViewModel, key: &str, value: &str) -> bool {
-    key != ANTIALIAS || vm.antialias.is_empty() || vm.antialias.iter().any(|offered| offered == value)
+    key != ANTIALIAS
+        || vm.antialias.is_empty()
+        || vm.antialias.iter().any(|offered| offered == value)
 }
 
 fn chosen(vm: &ViewModel, key: &str, choices: &[(&str, &str)]) -> usize {

@@ -133,7 +133,7 @@ pub fn run(options: RunOptions) -> AppExit {
     let mut laps = crate::launch_times::Laps::new("app");
     // NVIDIA's runtime wants the project's id before the render device is
     // made (Bevy's DLSS panics without it).
-    #[cfg(feature = "dlss")]
+    #[cfg(dlss)]
     app.insert_resource(crate::temporal::dlss_project_id());
     if options.headless {
         app.add_plugins(

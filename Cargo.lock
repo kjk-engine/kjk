@@ -2986,6 +2986,7 @@ dependencies = [
  "asset_odyssey",
  "audio",
  "bevy",
+ "bevy_internal",
  "bevy_post_process",
  "blake3",
  "collision",
