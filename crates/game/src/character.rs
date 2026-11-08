@@ -663,7 +663,8 @@ fn members(
             (None, None, None) => (Vec::new(), Vec::new(), None),
         };
         let portrait = portrait.or_else(|| assets.portrait_of(&data?.template));
-        let dresses = at == 0 || (own == sim::Seat(0) && fighter.mind.driver.is_none());
+        let dresses =
+            at == 0 || (own == sim::Seat(0) && fighter.mind.driver.is_none_or(|seat| seat == own));
         let may_level = dresses
             && level
                 .and_then(|level| level.scripts())

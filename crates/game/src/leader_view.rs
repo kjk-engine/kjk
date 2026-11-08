@@ -107,8 +107,10 @@ fn lead(
 }
 
 /// Whether `member` may lead: standing, and no guest's to play (I30 P2).
+/// The character the first seat is switched to (`world::switch`) is driven
+/// by that seat itself, and takes the lead back.
 fn free(member: &sim::EntityState) -> bool {
-    member
-        .fighter
-        .is_none_or(|fighter| fighter.alive() && fighter.mind.driver.is_none())
+    member.fighter.is_none_or(|fighter| {
+        fighter.alive() && fighter.mind.driver.is_none_or(|seat| seat == Seat(0))
+    })
 }

@@ -1368,18 +1368,17 @@ impl Snapshot {
         id
     }
 
-    /// The body `seat`'s player moves: the creature it drives (a
-    /// companion, I30 P2; for the first seat, the one it is switched to,
-    /// `world::switch`, its own character benched meanwhile), for the first
-    /// seat the companion leading the party (`leading`), else its avatar;
-    /// `None` while it watches (P3).
+    /// The body `seat`'s player moves, as the sim's `acting_body` has it:
+    /// for the first seat the companion leading the party (`leading`),
+    /// which goes before the one it is switched to; else the creature it
+    /// drives (a companion, I30 P2; for the first seat, the one it is
+    /// switched to, `world::switch`, its own character benched meanwhile),
+    /// else its avatar; `None` while it watches (P3).
     pub fn body(&self, seat: Seat) -> Option<&EntityState> {
-        self.driven(seat)
-            .or_else(|| {
-                self.leading
-                    .filter(|_| seat == crate::world::LEADER_SEAT)
-                    .and_then(|id| self.get(id))
-            })
+        self.leading
+            .filter(|_| seat == crate::world::LEADER_SEAT)
+            .and_then(|id| self.get(id))
+            .or_else(|| self.driven(seat))
             .or_else(|| self.own(seat))
     }
 
