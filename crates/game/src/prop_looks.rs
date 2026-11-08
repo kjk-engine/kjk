@@ -428,7 +428,8 @@ pub(crate) struct PropLooks {
     /// This frame's blows, by prop.
     impacts: BTreeMap<u32, Impact>,
     /// Each prop's marks (each one a stage entity or two), newest last.
-    marks: BTreeMap<u32, VecDeque<Vec<Entity>>>,
+    /// Each with where it struck (model frame).
+    marks: BTreeMap<u32, VecDeque<(Vec3, Vec<Entity>)>>,
     /// Props jolting from a blow.
     jolts: BTreeMap<u32, Jolt>,
     /// The blades as drawn these last frames (ms of `Time`), oldest first.
@@ -496,7 +497,7 @@ impl Plugin for PropLooksPlugin {
             .init_resource::<PropLooks>()
             .add_systems(
                 PostUpdate,
-                (hits, stages, wrecks, fly)
+                (start_over, hits, stages, wrecks, fly)
                     .chain()
                     .after(PropsSeen)
                     .after(crate::scene::BladesDrawn)
@@ -551,22 +552,10 @@ pub(crate) fn wrecks(
     (mut fractures, mut looks): (ResMut<Fractures>, ResMut<PropLooks>),
     scene_models: Query<(Entity, &SceneModel)>,
     (globals, children, parts): (Query<&GlobalTransform>, Query<&Children>, MeshParts),
-    flying: Query<Entity, With<Flying>>,
     mut meshes: ResMut<Assets<Mesh>>,
     time: Res<Time>,
     damage: Option<Res<crate::prop_damage::PropDamage>>,
 ) {
-    if looks.generation != swap.generation {
-        let left = flying.iter().count();
-        for entity in &flying {
-            commands.entity(entity).try_despawn();
-        }
-        info!("scene swap {}: {left} prop pieces cleared", swap.generation);
-        *looks = PropLooks {
-            generation: swap.generation,
-            ..PropLooks::default()
-        };
-    }
     fractures.collect();
     let made = made.as_deref();
     for change in &changes.changes {
@@ -873,6 +862,29 @@ fn throws_shards(material: Material) -> bool {
 /// Blows on props: where each landed (kept for a break's pieces), and for a
 /// prop left standing, its impact there, shards of itself, a mark that
 /// stays and a jolt.
+/// A scene swapped in: every piece of the old one gone and the looks
+/// started over, first in the frame, so the props first seen with it (their
+/// changes come once) are taken in by every system after.
+fn start_over(
+    mut commands: Commands,
+    swap: Res<SceneSwap>,
+    mut looks: ResMut<PropLooks>,
+    flying: Query<Entity, With<Flying>>,
+) {
+    if looks.generation == swap.generation {
+        return;
+    }
+    let left = flying.iter().count();
+    for entity in &flying {
+        commands.entity(entity).try_despawn();
+    }
+    info!("scene swap {}: {left} prop pieces cleared", swap.generation);
+    *looks = PropLooks {
+        generation: swap.generation,
+        ..PropLooks::default()
+    };
+}
+
 #[allow(clippy::too_many_arguments)]
 fn hits(
     mut commands: Commands,
@@ -893,7 +905,10 @@ fn hits(
     ),
     (bolts, blades): Strikers,
     (mut meshes, mut mark_looks, mut glows): MarkMakers,
-    visuals: Option<ResMut<HookVisuals>>,
+    (visuals, damage): (
+        Option<ResMut<HookVisuals>>,
+        Option<Res<crate::prop_damage::PropDamage>>,
+    ),
     time: Res<Time>,
 ) {
     if looks.generation != swap.generation {
@@ -998,7 +1013,14 @@ fn hits(
                 );
             }
         }
-        if let Some(mark_looks) = mark_looks.as_deref_mut() {
+        // No mark over a gap a chunk left (`prop_damage`).
+        let struck = game.compute_affine().inverse().transform_point3(found.at);
+        let missing =
+            (damage.as_deref()).map_or_else(BTreeSet::new, |damage| damage.missing(change.index));
+        let over_gap = (fractures.get(ir)).is_some_and(|fracture| {
+            crate::prop_damage::over_gap(struck.to_array(), &fracture.pieces, &missing)
+        });
+        if let Some(mark_looks) = mark_looks.as_deref_mut().filter(|_| !over_gap) {
             let laid = lay_mark(
                 &mut commands,
                 (&mut meshes, mark_looks, &mut glows),
@@ -1008,11 +1030,10 @@ fn hits(
             );
             if !laid.is_empty() {
                 let marks = looks.marks.entry(change.index).or_default();
-                for gone in keep_newest(marks, laid, change.d.class)
-                    .into_iter()
-                    .flatten()
-                {
-                    commands.entity(gone).try_despawn();
+                if let Some((_, gone)) = keep_newest(marks, (struck, laid), change.d.class) {
+                    for gone in gone {
+                        commands.entity(gone).try_despawn();
+                    }
                 }
             }
         }
@@ -1368,6 +1389,27 @@ impl PropLooks {
     /// on a new one).
     pub(crate) fn current(&self, generation: u32) -> bool {
         self.generation == generation
+    }
+
+    /// Takes away prop `index`'s marks struck where `gone` says (model
+    /// frame).
+    pub(crate) fn drop_marks(
+        &mut self,
+        index: u32,
+        gone: impl Fn(Vec3) -> bool,
+        commands: &mut Commands,
+    ) {
+        if let Some(marks) = self.marks.get_mut(&index) {
+            marks.retain(|(at, entities)| {
+                let keep = !gone(*at);
+                if !keep {
+                    entities
+                        .iter()
+                        .for_each(|&entity| commands.entity(entity).try_despawn());
+                }
+                keep
+            });
+        }
     }
 
     /// Prop `index`'s meshes' own (staged) materials, by mesh number, once

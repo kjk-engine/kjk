@@ -1218,7 +1218,7 @@ fn spawn(
             .extend(view.sounds.keys().map(|resref| sound_name(resref)));
         view.sounds.clear();
     }
-    let wanted = props.as_deref().map(|props| &props.wanted);
+    let wanted = (props.as_deref()).and_then(|props| props.wanted_in(swap.generation));
     let keys: BTreeSet<(u32, u8)> = wanted
         .into_iter()
         .flat_map(|wanted| wanted.keys().copied())
