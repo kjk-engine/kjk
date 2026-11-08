@@ -158,8 +158,10 @@ kill, Q-0044) → Min1HP floor. Integer hundredths, saturating;
 dice from the `authority` stream. A death picks JA's death animation
 (`combat::death`) and move_body goes limp; a creature that lives may flinch
 (JA's NPC pain odds at medium skill; always to a blade, a saber's as JA's,
-a sword's or vibroblade's too: the owner's balance of 2026-10-15), doing
-nothing new until it has played.
+a sword's or vibroblade's too: the owner's balance of 2026-10-15; but a
+blade's graze, a blow of less than `flinch.blade_share` of a cut, only by
+the odds, else a pair's or a staff's lighter cuts kept its foe from ever
+swinging back), doing nothing new until it has played.
 
 A death KOTOR stages is KOTOR's own instead (`death::in_place`): one in
 a scene (`scene::Held::scene`: a conversation holds the world, or the

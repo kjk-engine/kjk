@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `1a1d85fa17d1cded`.
+Edition `daf1be3f2aa19744`.
 
 ## Contents
 
@@ -738,7 +738,7 @@ Switching weapons during combat takes 1 second. Outside of combat, the switch is
 ### <a id="combat-flinch"></a>Flinching
 
 A creature that is hit may flinch, losing its next action until it
-recovers. A surprised creature, or one struck by a blade, always flinches.
+recovers. A surprised creature, or one cut by a blade (not a graze), always flinches.
 Otherwise the chance grows with the creature's wounds and the size of the
 hit, and a hit that takes more than half of its maximum vitality points
 always causes a flinch. Droids flinch only when surprised or struck by a
@@ -753,6 +753,14 @@ vitality) + damage / (maximum vitality / 2), divided by
 A creature's chance to flinch from a hit is divided by 2.
 
 <sub>Source: JA (NPC skill level 1); a delegated decision. Code: `sim::combat::death::pain_chance`.</sub>
+
+<a id="combat-flinch-blade-share"></a>**Blade Flinch Cut** = **60%** (`600 ‰`) · `combat.flinch.blade_share`
+
+A blade's blow makes its target flinch for certain only when it carries at least 60% of a full cut; a lighter graze flinches by the chance above.
+
+Two blades or a double-bladed weapon land more, lighter cuts than one blade, each blade's pass a graze: without this their foe would flinch at every one and hardly swing back.
+
+<sub>Source: ours, measured with `kjk combat balance` (a double wielder's foe against a single blade's). Code: `sim::combat::death::pain_chance`.</sub>
 
 ### <a id="combat-grunts"></a>Attack Grunts
 

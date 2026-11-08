@@ -881,12 +881,18 @@ pub(super) fn hurt(
             && resolved.damage > 0
             && clock.time_ms >= fighting.0.pain_until
         {
+            // A blade's graze flinches by the chance alone
+            // (`rules::combat::flinch::BLADE_SHARE`).
+            let cut = match hit.source {
+                Source::Weapon { share, .. } => share >= rules::combat::flinch::BLADE_SHARE,
+                _ => true,
+            };
             let chance = death::pain_chance(
                 resolved.damage,
                 fighting.0.hp,
                 target_sheet.max_hp,
                 surprised,
-                attacker_blade,
+                attacker_blade && cut,
                 target_sheet.flags & flags::DROID != 0,
             );
             // Spins, specials, knockdowns, rolls and flips go on.
