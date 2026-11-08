@@ -19,6 +19,8 @@
 //! `docs/LIFECYCLE.md`.
 
 pub mod action;
+#[cfg(feature = "probes")]
+pub mod arrival_probes;
 pub mod combat;
 pub mod creation;
 pub mod determinism;
