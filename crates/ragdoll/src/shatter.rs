@@ -578,9 +578,56 @@ mod probes {
         )
     }
 
+    fn debris_settles() -> Result<String, String> {
+        let mut world = crate::World::new();
+        let floor = [[-5.0, -5.0], [5.0, -5.0], [5.0, 5.0], [-5.0, 5.0]]
+            .map(|[x, y]| glam::Vec3::new(x, y, 0.0));
+        world.add_faces([
+            (0, [floor[0], floor[1], floor[2]]),
+            (1, [floor[0], floor[2], floor[3]]),
+        ]);
+        let hull: Vec<[f32; 3]> = (0..8)
+            .map(|i| [0, 1, 2].map(|axis| if i >> axis & 1 == 1 { 0.1 } else { -0.1 }))
+            .collect();
+        let rotation = [0.0, 0.0, 0.0, 1.0];
+        let Some(id) = world.debris(
+            &hull,
+            [0.0, 0.0, 1.0],
+            rotation,
+            [0.5, 0.0, 0.0],
+            [3.0, 2.0, 1.0],
+        ) else {
+            return Err("a cube's hull made no piece".into());
+        };
+        let mut rested = None;
+        for step in 0..180 {
+            world.step(1.0 / 60.0);
+            if world.resting_debris(id) {
+                rested = Some(step as f32 / 60.0);
+                break;
+            }
+        }
+        let lowest = world.debris_pose(id).map(|(at, turn)| {
+            let turn = glam::Quat::from_array(turn);
+            hull.iter()
+                .map(|&p| (glam::Vec3::from_array(at) + turn * glam::Vec3::from_array(p)).z)
+                .fold(f32::MAX, f32::min)
+        });
+        world.remove_debris(id);
+        let gone = world.debris_pose(id).is_none();
+        check(
+            rested.is_some() && lowest.is_some_and(|z| z.abs() <= 0.02) && gone,
+            format!(
+                "rested after {rested:?} s (want within 3), lowest point z {lowest:?} \
+                 (want within 0.02 of 0), gone once removed {gone}"
+            ),
+        )
+    }
+
     /// The probes.
     pub fn probes() -> Checks {
         vec![
+            ("debris_settles", debris_settles()),
             ("shatter_covers_once", covers_once()),
             ("shatter_same_everywhere", same_everywhere()),
             ("shatter_model_frame", model_frame()),
