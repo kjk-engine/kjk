@@ -32,7 +32,7 @@ use crate::shot_fx::BoltEnds;
 use crate::sim_host::{PresentedSnapshot, SceneSwap};
 
 /// How many pieces a prop is cut into, by size (small, medium, large).
-const PIECES: [usize; 3] = [6, 10, 16];
+pub(crate) const PIECES: [usize; 3] = [6, 10, 16];
 /// The share of a prop's height its base stands to.
 const BASE_SHARE: f32 = 0.25;
 /// How fast pieces fly (m/s): from a blow, from a blast; how much they
@@ -86,7 +86,7 @@ const SWEEP_STEPS: usize = 8;
 
 /// A number from 0 to 1 (1 never) from `parts` and `salt`, the same on
 /// every machine: FNV-1a 64 of their bits, then splitmix64's finish.
-fn noise(parts: &[f32], salt: u64) -> f32 {
+pub(crate) fn noise(parts: &[f32], salt: u64) -> f32 {
     let hash = parts
         .iter()
         .flat_map(|part| part.to_bits().to_le_bytes())
@@ -255,9 +255,9 @@ pub(crate) fn wreck(was: Option<(u8, u16)>, now: (u8, u16)) -> Wreck {
 /// of their parts is (by its index among those cut), and how tall the
 /// model stands (m).
 pub(crate) struct Fracture {
-    pieces: Vec<Piece>,
-    meshes: Vec<usize>,
-    height: f32,
+    pub(crate) pieces: Vec<Piece>,
+    pub(crate) meshes: Vec<usize>,
+    pub(crate) height: f32,
 }
 
 /// Each breakable prop's model cut into pieces, by model name, once ready:
@@ -324,7 +324,12 @@ fn cuttable(ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> (Vec<Plain>
 impl Fractures {
     /// Starts cutting model `ir` into `count` pieces, off the main thread,
     /// unless it is cut or being cut.
-    fn cut(&mut self, ir: &ModelIr, textures: &BTreeMap<String, TextureIr>, count: usize) {
+    pub(crate) fn cut(
+        &mut self,
+        ir: &ModelIr,
+        textures: &BTreeMap<String, TextureIr>,
+        count: usize,
+    ) {
         let name = ir.name.to_ascii_lowercase();
         if self.ready.contains_key(&name) || self.cutting.contains_key(&name) {
             return;
@@ -349,7 +354,7 @@ impl Fractures {
     }
 
     /// Takes in the cuts that are done.
-    fn collect(&mut self) {
+    pub(crate) fn collect(&mut self) {
         let done: Vec<String> = (self.cutting.iter())
             .filter(|(_, task)| task.is_finished())
             .map(|(name, _)| name.clone())
@@ -366,13 +371,17 @@ impl Fractures {
     }
 
     /// Model `ir`'s meshes that can be cut, made the first time.
-    fn plains(&mut self, ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> Arc<Cuttable> {
+    pub(crate) fn plains(
+        &mut self,
+        ir: &ModelIr,
+        textures: &BTreeMap<String, TextureIr>,
+    ) -> Arc<Cuttable> {
         (self.plains.entry(ir.name.to_ascii_lowercase()))
             .or_insert_with(|| Arc::new(cuttable(ir, textures)))
             .clone()
     }
 
-    fn get(&self, ir: &ModelIr) -> Option<&Arc<Fracture>> {
+    pub(crate) fn get(&self, ir: &ModelIr) -> Option<&Arc<Fracture>> {
         self.ready.get(&ir.name.to_ascii_lowercase())
     }
 }
@@ -439,6 +448,7 @@ struct Staged {
 /// tint and glow as the model has them, whether it is a screen, and when a
 /// scarred screen next flickers (ms of `Time`) and whether it is lit.
 struct StagedMesh {
+    number: usize,
     copy: Handle<OdysseyMaterial>,
     tint: Vec4,
     self_illum: Vec4,
@@ -495,7 +505,7 @@ impl Plugin for PropLooksPlugin {
 }
 
 /// The model of prop `index` in the scene and its model root, once drawn.
-fn model_of(
+pub(crate) fn model_of(
     index: u32,
     (scene, made): (&SceneContent, Option<&Made>),
     scene_models: &Query<(Entity, &SceneModel)>,
@@ -510,7 +520,7 @@ fn model_of(
 
 /// Where a blow on a prop at `position` came from: the nearest creature
 /// within 10 m, or under the prop (its pieces rise straight up).
-fn blow_from(position: [f32; 3], creatures: &[Vec3]) -> [f32; 3] {
+pub(crate) fn blow_from(position: [f32; 3], creatures: &[Vec3]) -> [f32; 3] {
     let at = Vec3::from_array(position);
     (creatures.iter())
         .filter(|c| c.distance(at) > 0.1 && c.distance(at) <= 10.0)
@@ -521,13 +531,13 @@ fn blow_from(position: [f32; 3], creatures: &[Vec3]) -> [f32; 3] {
 }
 
 /// Each drawn mesh's place in its model, and its material.
-type MeshParts<'w, 's> =
+pub(crate) type MeshParts<'w, 's> =
     Query<'w, 's, (&'static MeshPart, &'static MeshMaterial3d<OdysseyMaterial>)>;
 
 /// Breakable props: their models cut once first seen; broken ones hidden
 /// and their pieces put in their place (or owed until the cut is ready).
 #[allow(clippy::too_many_arguments)]
-fn wrecks(
+pub(crate) fn wrecks(
     mut commands: Commands,
     (presented, swap, scene, made): (
         Res<PresentedSnapshot>,
@@ -542,6 +552,7 @@ fn wrecks(
     flying: Query<Entity, With<Flying>>,
     mut meshes: ResMut<Assets<Mesh>>,
     time: Res<Time>,
+    damage: Option<Res<crate::prop_damage::PropDamage>>,
 ) {
     if looks.generation != swap.generation {
         let left = flying.iter().count();
@@ -572,13 +583,9 @@ fn wrecks(
             Wreck::Flies => true,
         };
         if !looks.done.contains(&change.index) {
-            let (from, blast) = match looks.impacts.get(&change.index) {
-                Some(impact) => (
-                    (impact.at + impact.normal).to_array(),
-                    impact.blow == Blow::Blast,
-                ),
-                None => (blow_from(change.position, &changes.creatures), false),
-            };
+            let (from, blast) = looks
+                .blow_on(change.index)
+                .unwrap_or((blow_from(change.position, &changes.creatures), false));
             let size = change.d.size;
             looks.owed.insert(
                 change.index,
@@ -632,57 +639,85 @@ fn wrecks(
                 "already broken"
             }
         );
-        let LooksWorld { world, floor } = looks.split();
-        if owe.flies {
-            crate::ragdolls::gather(
-                world,
-                floor,
-                (&swap.level, newest),
-                game.translation,
-                game.translation.z,
-            );
-        }
-        for (number, piece) in fracture.pieces.iter().enumerate() {
-            let stays = standing.contains(&number);
-            if !owe.flies && !stays {
-                continue;
-            }
-            let middle = game
-                .transform_point(Vec3::from_array(piece.middle))
-                .to_array();
-            let debris = (owe.flies && !stays)
-                .then(|| {
-                    world.debris(
-                        &piece.hull,
-                        game.translation.to_array(),
-                        game.rotation.to_array(),
-                        fling(middle, owe.from, owe.blast),
-                        spin(middle),
-                    )
-                })
-                .flatten();
-            let small = !kept(piece.volume);
-            let fade_ms = (small && !stays).then(|| {
-                let (lo, hi) = FADE_S;
-                now_ms + (lo + (hi - lo) * f64::from(noise(&middle, 9))) * 1000.0
-            });
-            spawn_piece(
-                &mut commands,
-                &mut meshes,
-                (piece, &fracture.meshes, &materials),
-                (game, format!("{} piece {number}", ir.name)),
-                Flying {
-                    debris,
-                    born_ms: now_ms,
-                    lasts: match (stays, small) {
-                        (true, _) => Lasts::Base,
-                        (false, true) => Lasts::Fades,
-                        (false, false) => Lasts::Visit,
-                    },
-                    fade_ms,
+        // Knocked off before (`prop_damage`): gone already.
+        let none = BTreeSet::new();
+        let gone = (damage.as_deref().and_then(|damage| damage.gone(index))).unwrap_or(&none);
+        let out: Vec<(usize, bool)> = crate::prop_damage::remaining(fracture.pieces.len(), gone)
+            .into_iter()
+            .map(|number| (number, standing.contains(&number)))
+            .filter(|&(_, stays)| owe.flies || stays)
+            .collect();
+        lay_pieces(
+            &mut commands,
+            &mut meshes,
+            looks.split(),
+            (&swap.level, newest),
+            (&fracture, &out),
+            (game, &ir.name, &materials),
+            (owe.from, owe.blast),
+            now_ms,
+        );
+    }
+}
+
+/// Pieces `out` of `fracture` (each by its number, and whether it stays: a
+/// base) of model `name` at `game` in its meshes' `materials`: those that
+/// stay stand, the rest are thrown as debris by a blow from `from` (a
+/// `blast`) into the pieces' world, gathered round them from `level`; the
+/// small ones fade.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn lay_pieces(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    LooksWorld { world, floor }: LooksWorld,
+    level: (&sim::Level, Option<&sim::Snapshot>),
+    (fracture, out): (&Fracture, &[(usize, bool)]),
+    (game, name, materials): (Transform, &str, &BTreeMap<usize, Handle<OdysseyMaterial>>),
+    (from, blast): ([f32; 3], bool),
+    now_ms: f64,
+) {
+    if out.iter().any(|&(_, stays)| !stays) {
+        crate::ragdolls::gather(world, floor, level, game.translation, game.translation.z);
+    }
+    for &(number, stays) in out {
+        let Some(piece) = fracture.pieces.get(number) else {
+            continue;
+        };
+        let middle = game
+            .transform_point(Vec3::from_array(piece.middle))
+            .to_array();
+        let debris = (!stays)
+            .then(|| {
+                world.debris(
+                    &piece.hull,
+                    game.translation.to_array(),
+                    game.rotation.to_array(),
+                    fling(middle, from, blast),
+                    spin(middle),
+                )
+            })
+            .flatten();
+        let small = !kept(piece.volume);
+        let fade_ms = (small && !stays).then(|| {
+            let (lo, hi) = FADE_S;
+            now_ms + (lo + (hi - lo) * f64::from(noise(&middle, 9))) * 1000.0
+        });
+        spawn_piece(
+            commands,
+            meshes,
+            (piece, &fracture.meshes, materials),
+            (game, format!("{name} piece {number}")),
+            Flying {
+                debris,
+                born_ms: now_ms,
+                lasts: match (stays, small) {
+                    (true, _) => Lasts::Base,
+                    (false, true) => Lasts::Fades,
+                    (false, false) => Lasts::Visit,
                 },
-            );
-        }
+                fade_ms,
+            },
+        );
     }
 }
 
@@ -699,7 +734,7 @@ type MarkMakers<'w> = (
 
 /// The model's place in game space (the scene's root turns game space to
 /// Bevy's), from its root's.
-fn in_game(global: &GlobalTransform) -> Transform {
+pub(crate) fn in_game(global: &GlobalTransform) -> Transform {
     Transform::from_matrix(Mat4::from_quat(game_to_bevy().inverse()) * global.to_matrix())
 }
 
@@ -1092,6 +1127,17 @@ fn spawn_piece(
             Name::new(name),
         ))
         .id();
+    piece_meshes(commands, meshes, (piece, numbers, materials), entity);
+}
+
+/// `piece`'s meshes as children of `entity`, each in its source mesh's
+/// material (`numbers`: which mesh each cut one is), casting no shadow.
+pub(crate) fn piece_meshes(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    (piece, numbers, materials): (&Piece, &[usize], &BTreeMap<usize, Handle<OdysseyMaterial>>),
+    entity: Entity,
+) {
     for (source, plain) in &piece.meshes {
         let Some(material) = numbers.get(*source).and_then(|m| materials.get(m)) else {
             continue;
@@ -1118,13 +1164,12 @@ fn spawn_piece(
 /// What a damage stage is drawn with: the meshes, the materials and those
 /// that scroll or flip.
 type StageMakers<'w> = (
-    ResMut<'w, Assets<Mesh>>,
     ResMut<'w, Assets<OdysseyMaterial>>,
     Option<ResMut<'w, AnimatedMaterials>>,
 );
 
 /// Whether a clip of `ir`'s own moves node `node`.
-fn keyed(ir: &ModelIr, node: usize) -> bool {
+pub(crate) fn keyed(ir: &ModelIr, node: usize) -> bool {
     let Some(name) = ir.nodes.get(node).map(|node| &node.name) else {
         return false;
     };
@@ -1135,18 +1180,18 @@ fn keyed(ir: &ModelIr, node: usize) -> bool {
 }
 
 /// Damaged props drawn at their stage (`sim::destruction::stage`): their
-/// own copy of each material darkened; a damage-class one dented at seeded
-/// points of its static meshes and its screens flickering, then dead with
-/// a burst of sparks. Collision never changes.
+/// own copy of each material darkened; a damage-class one's screens
+/// flickering, then dead with a burst of sparks (its dents and chunks are
+/// `prop_damage`'s). Collision never changes.
 #[allow(clippy::too_many_arguments)]
-fn stages(
+pub(crate) fn stages(
     mut commands: Commands,
     (swap, scene, made): (Res<SceneSwap>, Res<SceneContent>, Option<Res<Made>>),
     changes: Res<PropChanges>,
-    (mut fractures, mut looks): (ResMut<Fractures>, ResMut<PropLooks>),
+    mut looks: ResMut<PropLooks>,
     scene_models: Query<(Entity, &SceneModel)>,
     (children, parts): (Query<&Children>, MeshParts),
-    (mut meshes, mut materials, mut animated): StageMakers,
+    (mut materials, mut animated): StageMakers,
     visuals: Option<ResMut<HookVisuals>>,
     time: Res<Time>,
 ) {
@@ -1185,8 +1230,6 @@ fn stages(
             continue;
         };
         let ir = &scene.0.models[model].ir;
-        let seed =
-            shatter::seed_of(&ir.name) ^ u64::from(index).wrapping_mul(0x9e37_79b9_7f4a_7c15);
         let drawn: Vec<(Entity, usize, Handle<OdysseyMaterial>)> = (children
             .iter_descendants(root))
         .filter_map(|entity| {
@@ -1216,6 +1259,7 @@ fn stages(
                     .and_then(|name| scene.0.textures.get(name))
                     .map(|t| &t.facts);
                 own.push(StagedMesh {
+                    number: *number,
                     copy,
                     tint,
                     self_illum,
@@ -1264,54 +1308,6 @@ fn stages(
                 place: Place::At(middle),
             });
         }
-        if d.class != Class::Damage {
-            continue;
-        }
-        let cut = fractures.plains(ir, &scene.0.textures);
-        let pressed = dents(seed, stage, d.size, &cut.0);
-        for (entity, number, _) in &drawn {
-            let mesh = &ir.meshes[*number];
-            let Some(plain) = cut.1.iter().position(|n| n == number) else {
-                continue;
-            };
-            if !dentable(mesh, keyed(ir, mesh.node)) {
-                continue;
-            }
-            let ours: Vec<_> = pressed.iter().filter(|dent| dent.0 == plain).collect();
-            if ours.is_empty() {
-                continue;
-            }
-            // The dents are in the model's frame; the mesh is in its node's.
-            let world = ir
-                .nodes
-                .get(mesh.node)
-                .map_or(asset_odyssey::model::IDENTITY, |n| n.world);
-            let to_node = crate::scene::to_mat4(&world).inverse();
-            let mut positions = mesh.positions.clone();
-            for &&(_, centre, radius, depth) in &ours {
-                let local = to_node.transform_point3(Vec3::from_array(centre));
-                shatter::dent(
-                    &mut positions,
-                    &mesh.normals,
-                    local.to_array(),
-                    radius,
-                    depth,
-                );
-            }
-            let mut rebuilt = base_mesh(
-                &positions,
-                &mesh.normals,
-                &mesh.uv1,
-                RenderAssetUsages::RENDER_WORLD,
-            );
-            if mesh.lightmap.is_some() && mesh.uv2.len() == positions.len() {
-                rebuilt.insert_attribute(Mesh::ATTRIBUTE_UV_1, mesh.uv2.clone());
-            }
-            rebuilt.insert_indices(Indices::U32(mesh.indices.clone()));
-            commands
-                .entity(*entity)
-                .try_insert(Mesh3d(meshes.add(rebuilt)));
-        }
     }
     // Scarred screens flicker.
     for (&index, staged) in &mut looks.staged {
@@ -1341,13 +1337,38 @@ fn stages(
 }
 
 /// The world and its floor flag, borrowed apart from the rest.
-struct LooksWorld<'a> {
+pub(crate) struct LooksWorld<'a> {
     world: &'a mut ragdoll::World,
     floor: &'a mut bool,
 }
 
 impl PropLooks {
-    fn split(&mut self) -> LooksWorld<'_> {
+    /// Whether it is the scene swap `generation`'s (`wrecks` starts it over
+    /// on a new one).
+    pub(crate) fn current(&self, generation: u32) -> bool {
+        self.generation == generation
+    }
+
+    /// Prop `index`'s meshes' own (staged) materials, by mesh number, once
+    /// it is drawn damaged.
+    pub(crate) fn copies(&self, index: u32) -> BTreeMap<usize, Handle<OdysseyMaterial>> {
+        (self.staged.get(&index).into_iter())
+            .flat_map(|staged| &staged.meshes)
+            .map(|mesh| (mesh.number, mesh.copy.clone()))
+            .collect()
+    }
+
+    /// Where this frame's blow on prop `index` came from (a little off the
+    /// face it struck, game space) and whether it was a blast.
+    pub(crate) fn blow_on(&self, index: u32) -> Option<([f32; 3], bool)> {
+        let impact = self.impacts.get(&index)?;
+        Some((
+            (impact.at + impact.normal).to_array(),
+            impact.blow == Blow::Blast,
+        ))
+    }
+
+    pub(crate) fn split(&mut self) -> LooksWorld<'_> {
         LooksWorld {
             world: &mut self.world,
             floor: &mut self.floor,
