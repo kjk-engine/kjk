@@ -124,7 +124,16 @@ travels in saves and recordings (`script::State`).
   reach is an attack every step, blow or none (reone runs a round for
   it), as a gun's every shot is: a duel no blow lands in for a while (the
   Endar Spire's two Jedi, a scene holding them apart, then each Feared by
-  the other) still has its rounds, and its AI attacks again.
+  the other) still has its rounds, and its AI attacks again. One taking
+  part in a conversation (its owner, its player, the one speaking) keeps
+  its rounds but hears no end of them, as KOTOR's dialogue holds its
+  creatures out of combat (Korriban's Jorak Uln, in combat from his own
+  questions' punishment, would run `k_ai_master`'s round, whose
+  `ClearAllActions` takes the resume his scene queued): a script's attack
+  still ends with its round, so a conversation's owner told to spar while
+  its line pauses comes back to the resume queued behind it (a mod's
+  restored `dan13_cort`, Garrum on Tar'eelok; probe
+  `resume_behind_an_attack`).
 - **Shouts** (`SetListening`, `SetListenPattern`, `SpeakString`): each
   listener within the volume's reach (whisper 3 m, talk 20 m, shouts the
   area) whose pattern fits (exact, `**` any run) runs `ScriptDialogue`
