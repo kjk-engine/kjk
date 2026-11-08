@@ -462,7 +462,7 @@ fn placed_body(
     crate::viewer::CreatureLoad::default()
         .place_appearance(
             (resolver, game),
-            (u32::from(appearance), body, None),
+            (u32::from(appearance), body, None, None),
             at,
             models,
         )?

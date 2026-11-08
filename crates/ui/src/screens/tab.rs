@@ -42,6 +42,10 @@ pub trait Page: Send + Sync {
     fn click(&mut self, _gui: &Gui, _at: [f32; 2], _textures: &mut dyn Textures, _vm: &ViewModel) {}
     /// Its layout changed once loaded (`Screen::shape`).
     fn shape(&self, _gui: &mut Gui) {}
+    /// The focus (the pointer's, or the keys') came to `tag`, or left it
+    /// (`Screen::focused`, `Screen::left`).
+    fn focused(&mut self, _tag: &str, _vm: &ViewModel) {}
+    fn left(&mut self, _tag: &str) {}
 }
 
 pub struct Tab<P> {
@@ -127,6 +131,14 @@ impl<P: Page> Screen for Tab<P> {
 
     fn shape(&self, gui: &mut Gui) {
         self.page.shape(gui);
+    }
+
+    fn focused(&mut self, tag: &str, vm: &ViewModel) {
+        self.page.focused(tag, vm);
+    }
+
+    fn left(&mut self, tag: &str) {
+        self.page.left(tag);
     }
 }
 

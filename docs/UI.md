@@ -544,6 +544,19 @@ party's goods and casts the item's spell at once (its impact script:
 `k_sup_healing` heals the user; without one, the item's button's own
 use), or tells why not ("That cannot be used now.").
 
+What a character wears on its head is drawn as reone draws a mask: the
+head slot item's model (`itemclass` and its `ModelVariation`, as a
+weapon's) hung on the head model's `gogglehook` (`viewer::hang_headgear`),
+for creatures as their templates dress them, disguises, and the seats'
+bodies (`wardrobe`). The head slot carries an eye in its top right corner
+(`BTN_HEADGEAR`, a remaster liberty: KOTOR always draws headgear), shown
+while something is worn there: a click hides or shows the member's
+headgear, its tip saying which ("Hide headgear", "Show headgear"). The
+choice is drawing only (the item stays worn, its properties count) and the
+player's own: a setting by the character (`headgear.hidden.seat<n>` for a
+seat's, `headgear.hidden.<tag>` for a companion's, `game::headgear`), kept
+in their settings file, so another player in co-op still sees it.
+
 An item's description, wherever a screen shows one (equip, inventory,
 store, workbench, upgrade bench: `game::character::described`), is its
 UTI's `DescIdentified`; in TSL, once Bao-Dur has been met (his influence

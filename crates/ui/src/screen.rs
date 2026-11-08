@@ -512,6 +512,11 @@ impl Stack {
         Some(entry.state(control, vm))
     }
 
+    /// Where `tag` sits in the top screen's layout, as shaped.
+    pub fn extent_of(&self, tag: &str) -> Option<fmt_odyssey::gui::Rect> {
+        Some(self.entries.last()?.gui.as_ref()?.find(tag)?.extent)
+    }
+
     /// The pad's hints for the top screen as its bar shows them.
     pub fn hints(&self, assets: &mut dyn Assets, vm: &ViewModel) -> Vec<Hint> {
         let Some(entry) = self.entries.last() else {

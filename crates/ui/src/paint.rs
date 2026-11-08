@@ -66,6 +66,8 @@ const HINT_END: f32 = 14.0;
 const HINT_GAP: f32 = 4.0;
 const HINT_SPACE: f32 = 14.0;
 const HINT_FONT: &str = "dialogfont16x16";
+/// The room round a tooltip's words (layout pixels).
+const TIP_PAD: f32 = 4.0;
 
 /// A pad's hint: the buttons to press (their names in the settings,
 /// `South`, `LeftTrigger`) and what they do.
@@ -490,6 +492,38 @@ impl<'a> Painter<'a> {
             }
             x -= HINT_SPACE;
         }
+    }
+
+    /// A pointer's tip: `words` on a dark box with a rim in the layout's
+    /// colour, its lower left corner at `at`.
+    pub fn tooltip(&mut self, words: &[u8], at: [f32; 2], out: &mut DrawList) {
+        let Some((_, font)) = self.textures.font(self.source, HINT_FONT) else {
+            return;
+        };
+        let (wide, tall) = (font.measure(words).ceil(), font.line_height().ceil());
+        let (pad, rim) = (TIP_PAD, 1.0);
+        let rect = [
+            at[0],
+            at[1] - tall - 2.0 * pad,
+            wide + 2.0 * pad,
+            tall + 2.0 * pad,
+        ];
+        let [l, t, w, h] = rect;
+        let color = rgba(self.palette.base, 1.0);
+        out.quads.push(Quad::solid(rect, color));
+        out.quads.push(Quad::solid(
+            [l + rim, t + rim, w - 2.0 * rim, h - 2.0 * rim],
+            [0.0, 0.0, 0.0, 0.85],
+        ));
+        let inner = [l + pad, t + pad, wide + 1.0, tall];
+        self.text(
+            HINT_FONT,
+            words,
+            inner,
+            align::LEFT | align::MIDDLE,
+            color,
+            out,
+        );
     }
 
     pub fn text(

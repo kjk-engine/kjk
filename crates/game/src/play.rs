@@ -215,6 +215,8 @@ pub struct Wear {
     pub body: String,
     pub head: String,
     pub texture: Option<String>,
+    /// The model worn on the head (`headgear`), hung on its `gogglehook`.
+    pub headgear: Option<String>,
     pub strides: [f32; 2],
 }
 
@@ -240,15 +242,22 @@ fn wears(
                 body: body.clone(),
                 head: head.clone(),
                 texture: None,
+                headgear: None,
                 strides: STRIDES,
             })
             .collect());
     }
     let stand_ins = stand_ins(resolver);
+    // Headgear as worn: a seat's player's choice to hide it is the
+    // wardrobe's, in its first frame (`wardrobe`).
     (0..seats.max(1))
         .map(|seat| {
             let worn = resolver
-                .zip(sim::persona::dressed(snapshot, sim::Seat(seat)))
+                .zip(crate::headgear::seat_look(
+                    snapshot,
+                    sim::Seat(seat),
+                    &|_| false,
+                ))
                 .and_then(|(resolver, worn)| crate::persona::wear(resolver, &mut tables, worn));
             Ok(worn.unwrap_or_else(|| {
                 let (body, head) = stand_ins[usize::from(seat) % stand_ins.len()];
@@ -256,6 +265,7 @@ fn wears(
                     body: body.into(),
                     head: head.into(),
                     texture: None,
+                    headgear: None,
                     strides: STRIDES,
                 }
             }))
@@ -1095,7 +1105,7 @@ pub(crate) fn dress(
     }
     // What the engine plays on a player (`acting::clips`: a mine's disarm).
     let acted = viewer::scripted_clips(cache, resolver, (Game::Kotor1, false), &body)?;
-    let models = vec![
+    let mut models = vec![
         Placed::at(body, at),
         Placed {
             attach: Some(hook),
@@ -1103,7 +1113,9 @@ pub(crate) fn dress(
             ..Placed::at(head, [0.0; 3])
         },
     ];
-    let (textures, missing) = viewer::textures(resolver, models.iter());
+    let absent = viewer::hang_headgear(cache, resolver, &mut models, 1, wear.headgear.as_deref())?;
+    let (textures, mut missing) = viewer::textures(resolver, models.iter());
+    missing.extend(absent.map(|name| format!("{name}.mdl")));
     Ok(Dressed {
         models,
         textures,
