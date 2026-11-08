@@ -16,7 +16,8 @@
 //! - Components are a count wherever they come: taken from a container;
 //!   made on the player (none made, the game's "Acquired" line); made on a
 //!   creature outside the party, and among its starting items, its own count;
-//!   added to the party's as it joins, its own kept.
+//!   added to the party's as it joins, its own kept. The blade it carries
+//!   is the party's as it joins; the gloves it wears stay on it.
 //! - The upgrade bench's Assemble: an upgrade above the item's level
 //!   refuses the whole visit; its changes made together; a crystal fits
 //!   whatever its level; a worn item its wearer may no longer wear goes to
@@ -179,6 +180,7 @@ fn catalog() -> Catalog {
         item("compont", 0, COMPONENTS, true),
         item("medkit", 400, PLAIN, false),
         item("hkpart", 400, PLAIN, false),
+        item("vibroblade", 80, PLAIN, false),
         gloves,
         host("scoped", vec![4, 5, 6], slots::RIGHT_WEAPON),
         host(
@@ -234,13 +236,18 @@ fn world() -> SimWorld {
     let ground = crate::determinism::proving_ground();
     let mut companion =
         crate::module::ObjectData::creature(COMPANION, COMPANION, [0.0; 3], Sheet::dev_soldier());
-    companion.inventory = vec![crate::inventory::Held {
-        template: "compont".into(),
-        stack: 2,
-        slot: None,
+    let held = |template: &str, stack, slot| crate::inventory::Held {
+        template: template.into(),
+        stack,
+        slot,
         droppable: true,
         infinite: false,
-    }];
+    };
+    companion.inventory = vec![
+        held("compont", 2, None),
+        held("vibroblade", 1, None),
+        held("gloves", 1, Some(slots::HANDS)),
+    ];
     let library = crate::probe::library(CATALOG, scripts())
         .with_items(catalog())
         .with_workshop(workshop())
@@ -508,6 +515,23 @@ pub fn probes() -> Checks {
         check(
             joined == 5 && kept == Some((5, 0)),
             format!("+{joined}, its own {kept:?}"),
+        ),
+    ));
+    let holders = |template: &str| -> Vec<(u32, Option<u8>)> {
+        state
+            .items
+            .values()
+            .filter(|held| held.template == template)
+            .map(|held| (held.holder, held.slot))
+            .collect()
+    };
+    let (blade, gloves) = (holders("vibroblade"), holders("gloves"));
+    checks.push((
+        "it joins: the blade it carries the party's, the gloves it wears its own (TransferInventory)",
+        check(
+            blade == [(PARTY, None)]
+                && npc.is_some_and(|npc| gloves.contains(&(npc, Some(slots::HANDS)))),
+            format!("its blade with {blade:?}, its gloves with {gloves:?}"),
         ),
     ));
 

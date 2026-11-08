@@ -22,8 +22,8 @@ use super::{Character, Library, View};
 use crate::action::Workbench;
 use crate::combat::Sheet;
 use crate::combat::sheet::Ability;
-use crate::inventory::PARTY;
 use crate::inventory::workshop::{self, Pool, Recipe};
+use crate::inventory::{Catalog, PARTY};
 use crate::notice::{Bench, Notice, Screen, Sound};
 
 /// The game's lines: the skill not reached, too few components (too few
@@ -155,10 +155,27 @@ impl State {
         gained
     }
 
-    /// Creature `who` joining the party: what it holds of its own added to
-    /// the party's pools (`CSWPartyTable::TransferInventory`, uncapped), its
-    /// own count left as it was (QUIRKS Q-0232).
-    pub(crate) fn takes_in(&mut self, who: u32) {
+    /// Creature `who` joining the party (`CSWPartyTable::TransferInventory`):
+    /// the items it carries go to the party's, joining its stacks
+    /// (Mission's vibroblade, carried on her template, is the party's once
+    /// she joins); what it wears stays on it. What it holds of its own is
+    /// added to the party's pools (uncapped), its own count left as it was
+    /// (QUIRKS Q-0232).
+    pub(crate) fn takes_in(&mut self, catalog: &Catalog, who: u32) {
+        let carried: Vec<u32> = self
+            .items
+            .held_by(who)
+            .filter(|(_, item)| item.slot.is_none())
+            .map(|(id, _)| id)
+            .collect();
+        for item in carried {
+            // The party's like any other it carries: one a template left
+            // unmarked (`Dropable`) may still come back out of a container.
+            if let Some(mut held) = self.items.get_mut(&item) {
+                held.droppable = true;
+            }
+            self.hand_stack(catalog, item);
+        }
         if let Some(&(components, chemicals)) = self.hoards.get(&who) {
             self.components = self.components.saturating_add(components);
             self.chemicals = self.chemicals.saturating_add(chemicals);

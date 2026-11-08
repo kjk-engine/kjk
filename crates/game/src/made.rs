@@ -520,7 +520,7 @@ impl Made {
             let installer = installer.ok_or("no install to draw items from")?;
             let module = module_with(&installer, &modules, &names, |_, resolver| {
                 Ok(resolver
-                    .find(&template, fmt_odyssey::ResType::UTI)
+                    .find(fmt_odyssey::resref_of(&template), fmt_odyssey::ResType::UTI)
                     .is_some())
             })?;
             let resolver = module
@@ -1033,8 +1033,15 @@ fn guise(
             .find(|held| held.slot == Some(slot))
             .map(|held| held.template.to_ascii_lowercase())
     };
+    // A module's own template (`sim::inventory::own_template`) is its
+    // template's item still.
+    let worn = |item: &Option<String>| {
+        item.as_deref()
+            .map(|item| sim::inventory::resref_of(item).to_string())
+    };
     use sim::inventory::slots;
-    let redressed = body != composed(slots::BODY) || headgear != composed(slots::HEAD);
+    let redressed =
+        worn(&body) != composed(slots::BODY) || worn(&headgear) != composed(slots::HEAD);
     redressed.then(|| Some(guise(own()?, None)))?
 }
 

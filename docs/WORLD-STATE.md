@@ -20,6 +20,18 @@ on the authority; a save carries it.
   (`Library::with_items`, in its digest); where an install cannot list
   its resources, the module's objects' templates and the strings its
   scripts hold stand in.
+- **A module's own templates** (a UTI its own archives hold) are named for
+  their module (`inventory::own_template`, `g_i_datapad002@tar_m08aa`):
+  K1 gives seven modules a `g_i_datapad002` of their own (Calo Nord's
+  journal, the Sith base's log, the Leviathan's note), as it does other
+  resrefs. The catalog finds one by its resref too, first (its archives
+  win over the shared ones: `CreateItemOnObject`, a creature's list). So
+  two modules' items of one resref never stack together, keep their own
+  tags after their module is left (`State::known`), and the screens read
+  each from its module's archives (`GuiAssets::item_resolver`); what draws
+  a model reads its resref (`fmt_odyssey::resref_of`). KOTOR keeps each
+  item's fields on it. An item a save made before this kept its resref
+  alone.
 - **Starting items.** A creature's `Equip_ItemList` (the struct id's bit
   is the slot) and `ItemList`, a placeable's or store's `ItemList`, become
   `ObjectData::inventory` (`Held`). On a module's first visit (with its
@@ -29,7 +41,11 @@ on the authority; a save carries it.
   a save carries them, KJKV 9): template, holder, slot, stack, charges,
   flags. KOTOR's items never stand in the world. The party carries one
   inventory (`inventory::PARTY`; `GetItemPossessor` gives the leader); a
-  party member's equipment is its own. A stackable item made where a stack
+  party member's equipment is its own. A creature joining the party
+  (`AddPartyMember`, the party selection) puts what it carries in the
+  party's inventory, joining its stacks, and keeps what it wears
+  (`State::takes_in`, `CSWPartyTable::TransferInventory`): Mission's
+  vibroblade, carried on her template. A stackable item made where a stack
   of its template has room joins it. An item carried into a module whose
   catalog lacks its template (one a module's own archive held: Gadon's
   papers) keeps its facts in the scripts' state (`State::known`, KJKV 16;

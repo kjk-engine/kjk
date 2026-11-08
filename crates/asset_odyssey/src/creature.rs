@@ -78,8 +78,10 @@ fn texture_exists(source: &dyn Source, name: &str) -> bool {
     source.exists(name, ResType::TPC) || source.exists(name, ResType::TGA)
 }
 
+/// `name`'s file of `kind` in `source`: an item of a module's own by its
+/// resref (`fmt_odyssey::resref_of`).
 fn gff(source: &dyn Source, name: &str, kind: ResType) -> Option<Gff> {
-    Gff::parse(&source.read(name, kind)?).ok()
+    Gff::parse(&source.read(fmt_odyssey::resref_of(name), kind)?).ok()
 }
 
 pub fn resolve(source: &dyn Source, template: &str) -> Result<CreatureLook, CreatureRefusal> {

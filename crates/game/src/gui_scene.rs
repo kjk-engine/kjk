@@ -328,7 +328,7 @@ fn item(resolver: Resolver, template: String, aspect: f32) -> Task<Result<Ready,
     AsyncComputeTaskPool::get().spawn(async move {
         use fmt_odyssey::gff::Gff;
         let bytes = resolver
-            .find(&template, fmt_odyssey::ResType::UTI)
+            .find(fmt_odyssey::resref_of(&template), fmt_odyssey::ResType::UTI)
             .ok_or(format!("{template}.uti: not found"))?
             .location
             .read()
@@ -849,7 +849,7 @@ fn want(
                     aspect,
                 )),
                 SceneView::Item(template) => {
-                    State::Loading(item(gui.resolver().clone(), template.clone(), aspect))
+                    State::Loading(item(gui.item_resolver(template), template.clone(), aspect))
                 }
                 SceneView::Dressed { appearance, armour } => State::Loading(creature_figure(
                     gui.resolver().clone(),

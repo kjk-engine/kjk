@@ -216,10 +216,18 @@ impl<'a> ItemSearch<'a> {
         }
     }
 
-    /// The facts of item template `template`: the install's shared data's,
-    /// else the first module's whose own archives hold it.
+    /// The facts of item template `template`: a module's own from that
+    /// module (`sim::inventory::own_template`), else the install's shared
+    /// data's, else the first module's whose own archives hold it.
     pub fn facts(&self, template: &str) -> Option<sim::inventory::ItemFacts> {
         let name = template.to_ascii_lowercase();
+        if let Some(module) = sim::inventory::module_of(&name) {
+            let resolver = self.installer.resolver(module).ok()?;
+            let resref = sim::inventory::resref_of(&name);
+            let mut facts = session::item_facts(&ResolverSource(&resolver), resref)?;
+            facts.template = name;
+            return Some(facts);
+        }
         let shared = self.installer.base_resolver().ok();
         if let Some(found) =
             shared.and_then(|base| session::item_facts(&ResolverSource(base), &name))
