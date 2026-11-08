@@ -205,6 +205,7 @@ impl Plugin for ScenePlugin {
             crate::heat_haze::HeatHazePlugin,
             crate::glow_shell::GlowShellPlugin,
             crate::speed_blur::SpeedBlurPlugin,
+            crate::temporal::TemporalPlugin,
             crate::own_fx::OwnFxPlugin,
             crate::grass::GrassPlugin,
             crate::dangly::DanglyPlugin,

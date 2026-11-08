@@ -33,6 +33,7 @@ use ui::intent::Intent;
 use ui::vm::DisplayChoice;
 
 use crate::settings::Settings;
+use crate::temporal::Antialias;
 use crate::ui_composite::UiComposite;
 use crate::ui_view::{Ui, UiIntents};
 
@@ -70,8 +71,8 @@ pub struct Display {
     /// as it is (a window), the screen's own (fullscreen).
     pub size: Option<UVec2>,
     pub vsync: bool,
-    /// Samples a pixel takes (1, 2 or 4).
-    pub samples: u32,
+    /// Multisampling, TAA or DLSS (`temporal`).
+    pub antialias: Antialias,
     /// The frame's encoded values to the power of 1 / this.
     pub gamma: f32,
     /// The area's grass is drawn (`grass::option`).
@@ -84,7 +85,7 @@ impl Default for Display {
             mode: DisplayMode::Window,
             size: None,
             vsync: true,
-            samples: 4,
+            antialias: Antialias::Msaa(4),
             gamma: 1.0,
             grass: true,
         }
@@ -163,7 +164,7 @@ impl Plugin for DisplayPlugin {
                 PostUpdate,
                 cameras_in_step.before(bevy::camera::CameraUpdateSystems),
             )
-            .add_systems(Last, (show, trial_settles, samples, brightness, facts));
+            .add_systems(Last, (show, trial_settles, brightness, facts));
     }
 }
 
@@ -479,8 +480,16 @@ fn offer(
     windows: Query<(&Window, Option<&OnMonitor>), With<PrimaryWindow>>,
     monitors: Query<(Entity, &Monitor, Has<PrimaryMonitor>)>,
     ui: Option<ResMut<Ui>>,
+    temporal: Option<Res<crate::temporal::Temporal>>,
 ) {
-    let (Some(mut ui), Ok((window, on))) = (ui, windows.single()) else {
+    let Some(mut ui) = ui else {
+        return;
+    };
+    let antialias = crate::temporal::offered(temporal.is_some_and(|temporal| temporal.dlss));
+    if ui.vm.antialias != antialias {
+        ui.vm.antialias = antialias;
+    }
+    let Ok((window, on)) = windows.single() else {
         return;
     };
     let offered = screen(on, &monitors)
@@ -758,24 +767,6 @@ pub fn reset() {
     eprintln!("the display is back to a window");
 }
 
-/// Every camera drawing to the window takes the samples `Display` has.
-fn samples(
-    display: Res<Display>,
-    mut cameras: Query<(&mut Msaa, Option<&RenderTarget>), With<Camera>>,
-) {
-    let wanted = match display.samples {
-        1 => Msaa::Off,
-        2 => Msaa::Sample2,
-        _ => Msaa::Sample4,
-    };
-    for (mut msaa, target) in &mut cameras {
-        let window = target.is_none_or(|target| matches!(target, RenderTarget::Window(_)));
-        if window && *msaa != wanted {
-            *msaa = wanted;
-        }
-    }
-}
-
 /// The composite's gamma (the brightness slider).
 fn brightness(display: Res<Display>, mut composites: Query<&mut UiComposite>) {
     for mut composite in &mut composites {
@@ -803,7 +794,7 @@ fn facts(
                 "physical": [window.resolution.physical_width(), window.resolution.physical_height()],
                 "scale": window.resolution.scale_factor(),
                 "present": format!("{:?}", window.present_mode),
-                "samples": display.samples,
+                "antialias": display.antialias.name(),
                 "gamma": display.gamma,
                 "screens": monitors
                     .iter()

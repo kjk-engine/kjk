@@ -147,6 +147,7 @@ pub mod skeleton;
 mod solo;
 pub mod sound;
 mod speed_blur;
+pub mod temporal;
 pub mod stage;
 mod stance;
 mod stealth_view;

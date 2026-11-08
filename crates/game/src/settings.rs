@@ -1047,11 +1047,7 @@ impl Settings {
             mode: DisplayMode::named(get("display.mode")),
             size: crate::display::size_named(get("display.size")),
             vsync: get("display.vsync") != "false",
-            samples: match get("display.msaa") {
-                "1" => 1,
-                "2" => 2,
-                _ => 4,
-            },
+            antialias: crate::temporal::Antialias::named(get("display.msaa")),
             gamma: crate::display::gamma(self.fraction("display.gamma", 0.5)),
             grass: get("display.grass") != "false",
         }

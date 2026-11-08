@@ -73,6 +73,12 @@ pub const BODY_FADE_OFF: &str = "Body Fade Up Close: Off";
 pub const ANTI_ALIASING_OFF: &str = "Anti-Aliasing: Off";
 pub const ANTI_ALIASING_2X: &str = "Anti-Aliasing: 2x";
 pub const ANTI_ALIASING_4X: &str = "Anti-Aliasing: 4x";
+pub const ANTI_ALIASING_TAA: &str = "Anti-Aliasing: TAA";
+pub const ANTI_ALIASING_DLAA: &str = "Anti-Aliasing: DLAA";
+pub const ANTI_ALIASING_DLSS_QUALITY: &str = "DLSS: Quality";
+pub const ANTI_ALIASING_DLSS_BALANCED: &str = "DLSS: Balanced";
+pub const ANTI_ALIASING_DLSS_PERFORMANCE: &str = "DLSS: Performance";
+pub const ANTI_ALIASING_DLSS_ULTRA_PERFORMANCE: &str = "DLSS: Ultra Performance";
 /// The options pages' descriptions where a setting is ours, not KOTOR 2's
 /// (whose own come from its talk table).
 pub const INVERT_CAMERA_HELP: &str = "ON: Moving the mouse up turns the view downwards.\n\nOFF: Moving the mouse up turns the view upwards.";

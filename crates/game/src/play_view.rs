@@ -903,6 +903,9 @@ impl View {
     /// retire.
     fn reset(&mut self, swap: &SceneSwap, commands: &mut Commands) -> Vec<usize> {
         self.generation = swap.generation;
+        // The frames before were of another place, however near the camera
+        // stands to where it stood.
+        commands.insert_resource(crate::temporal::TemporalCut(true));
         let retired = self.cast.reset(swap.body.as_deref(), !swap.scene, commands);
         self.level = swap.level.clone();
         self.history.clear();
