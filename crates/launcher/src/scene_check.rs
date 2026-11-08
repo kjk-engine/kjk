@@ -1687,8 +1687,9 @@ impl Checker<'_> {
                 Err(error) => self.fail(5, "a weapon model does not load", at, format!("{who}: {error}")),
             }
             for template in worn.iter().flatten() {
-                if self.assets.base.find(template, ResType::UTI).is_none()
-                    && self.assets.resolver.find(template, ResType::UTI).is_some()
+                let resref = fmt_odyssey::resref_of(template);
+                if self.assets.base.find(resref, ResType::UTI).is_none()
+                    && self.assets.resolver.find(resref, ResType::UTI).is_some()
                 {
                     // The weapon sounds read the sheet's base item, which the
                     // sim reads through the module: nothing is missed.

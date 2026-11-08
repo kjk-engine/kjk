@@ -6348,7 +6348,7 @@ impl Engine<'_> {
                 let party = &mut self.state.party;
                 let joined = exists && npc.is_some_and(|npc| party.join(npc, who.0));
                 if let (true, Some(npc)) = (joined, npc) {
-                    self.state.takes_in(who.0);
+                    self.state.takes_in(self.library.items(), who.0);
                     self.out.changes.push(Change::Join { who });
                     self.follow_influence(who);
                     super::puppet_joins(self.library, self.view, self.state, self.out, npc, who);

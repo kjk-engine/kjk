@@ -674,18 +674,35 @@ pub(crate) fn fill_containers(tables: &mut Tables, module: &mut ModuleData) {
 }
 
 /// The templates scripts may make: every UTI the install lists, else the
-/// module's objects' and those `named` (strings in its scripts) that read.
+/// module's objects' and those `named` (strings in its scripts) that read;
+/// those of `module`'s own archives as its own (`own_catalog`).
 pub(crate) fn catalog<'a>(
     tables: &mut Tables,
-    module: &ModuleData,
+    (module, data): (&str, &ModuleData),
     named: impl IntoIterator<Item = &'a str>,
 ) -> Catalog {
+    let own = tables.source.own_names(ResType::UTI);
     let mut names: Vec<String> = tables.source.names(ResType::UTI);
-    for object in module.objects() {
+    for object in data.objects() {
         names.extend(object.inventory.iter().map(|held| held.template.clone()));
     }
     names.extend(named.into_iter().map(str::to_string));
-    catalog_of(tables, names)
+    names.retain(|name| !own.contains(name));
+    catalog_of(tables, names).with(own_catalog(tables, own, module))
+}
+
+/// The templates of `module`'s own archives (`names`) that read, each
+/// once, as that module's own (`sim::inventory::own_template`): the same
+/// resref is another item in another module's.
+pub(crate) fn own_catalog(tables: &mut Tables, mut names: Vec<String>, module: &str) -> Catalog {
+    names.sort();
+    names.dedup();
+    let module = module.to_ascii_lowercase();
+    Catalog::new(names.iter().filter_map(|name| {
+        let mut facts = facts(tables, name)?;
+        facts.template = sim::inventory::own_template(name, &module);
+        Some(facts)
+    }))
 }
 
 /// Every UTI `source` lists, as scripts know items, and the names of those

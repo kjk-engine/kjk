@@ -28,6 +28,7 @@ pub mod probes;
 pub mod properties;
 pub mod workshop;
 
+pub use fmt_odyssey::{module_of, own_template, resref_of};
 pub use properties::{Limit, Property, Upgrade};
 
 /// `ItemFacts::slot_kinds`' mark for a lightsaber's colour crystal slot.
@@ -121,7 +122,9 @@ impl Armour {
 /// What an item template is, as the sim uses it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemFacts {
-    /// Lowercase resrefs.
+    /// Lowercase resrefs; a module's own file's carries its module
+    /// (`own_template`): several modules give the same resref an item of
+    /// their own.
     pub template: String,
     pub tag: String,
     /// The tag as its data writes it, when that has capitals; empty
@@ -439,10 +442,13 @@ impl ItemSpell {
 
 /// The item templates scripts may make, by lowercase resref: every one the
 /// game has where the install lists them, else those its module's objects
-/// carry and its scripts name.
+/// carry and its scripts name. A module's own (`own_template`) is found by
+/// its template and by its resref.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Catalog {
-    items: std::collections::BTreeMap<String, ItemFacts>,
+    items: BTreeMap<String, ItemFacts>,
+    /// The resrefs of a module's own templates, to their templates.
+    own: BTreeMap<String, String>,
 }
 
 #[cfg(feature = "probes")]
@@ -489,16 +495,30 @@ impl ItemFacts {
 
 impl Catalog {
     pub fn new(items: impl IntoIterator<Item = ItemFacts>) -> Catalog {
-        Catalog {
-            items: items
-                .into_iter()
-                .map(|facts| (facts.template.clone(), facts))
-                .collect(),
-        }
+        let items: BTreeMap<String, ItemFacts> = items
+            .into_iter()
+            .map(|facts| (facts.template.clone(), facts))
+            .collect();
+        let own = Self::own_of(&items);
+        Catalog { items, own }
     }
 
+    /// The resrefs of `items`' own templates (`own_template`).
+    fn own_of(items: &BTreeMap<String, ItemFacts>) -> BTreeMap<String, String> {
+        items
+            .keys()
+            .filter(|template| module_of(template).is_some())
+            .map(|template| (resref_of(template).to_string(), template.clone()))
+            .collect()
+    }
+
+    /// The facts of `template`: a resref names the module's own template
+    /// of it first (its archives win over the shared ones).
     pub fn get(&self, template: &str) -> Option<&ItemFacts> {
-        self.items.get(template)
+        self.own
+            .get(template)
+            .and_then(|own| self.items.get(own))
+            .or_else(|| self.items.get(template))
     }
 
     pub fn len(&self) -> usize {
@@ -514,6 +534,7 @@ impl Catalog {
     /// same name (a module's own over the shared ones).
     pub fn with(mut self, more: Catalog) -> Catalog {
         self.items.extend(more.items);
+        self.own = Self::own_of(&self.items);
         self
     }
 

@@ -565,10 +565,15 @@ pub fn plan_with(
          }| {
             let items = match imported {
                 Some(imported) => {
-                    let mine = items::catalog_of(&mut tables, own(fmt_odyssey::ResType::UTI));
+                    let mine =
+                        items::own_catalog(&mut tables, own(fmt_odyssey::ResType::UTI), module);
                     imported.templates.items.clone().with(mine)
                 }
-                None => items::catalog(&mut tables, &data, named.iter().map(String::as_str)),
+                None => items::catalog(
+                    &mut tables,
+                    (module, &data),
+                    named.iter().map(String::as_str),
+                ),
             };
             // The install's shared placeable templates its scripts name join
             // the module's own (`CreateObject` takes a template its script

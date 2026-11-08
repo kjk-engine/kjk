@@ -255,9 +255,10 @@ impl Party<'_> {
             .flat_map(|facts| &facts.inventory)
             .map(|held| held.template.to_lowercase())
             .collect();
-        self.items
-            .held_by(entity.id.0)
-            .any(|(_, item)| !own.contains(&item.template.to_lowercase()))
+        self.items.held_by(entity.id.0).any(|(_, item)| {
+            let resref = crate::inventory::resref_of(&item.template).to_lowercase();
+            !own.contains(&resref)
+        })
     }
 }
 

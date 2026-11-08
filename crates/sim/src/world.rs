@@ -93,6 +93,8 @@ pub mod floor_probes;
 pub mod force_probes;
 mod minigame;
 #[cfg(feature = "probes")]
+pub mod own_item_probes;
+#[cfg(feature = "probes")]
 pub mod pace_probes;
 #[cfg(feature = "probes")]
 pub mod pair_probes;

@@ -2613,7 +2613,7 @@ impl Step<'_> {
                 && !self.state.party.has(*npc)
                 && self.state.party.join(*npc, who.0)
             {
-                self.state.takes_in(who.0);
+                self.state.takes_in(self.library.items(), who.0);
                 self.out.changes.push(Change::Join { who });
                 influence::follow(self.library, self.view, self.state, self.out, who);
                 puppet_joins(self.library, self.view, self.state, self.out, *npc, who);
