@@ -29,10 +29,13 @@ one call; its GIT instances are sim entities; doors and triggers lead on.
   seat on it as the game places it, the next seats round it: TSL's Exile
   wakes inside Peragus's kolto tank (101PER, `k_awaken`). An entry over
   no floor at all (a player's `stunt_06`, another edition's or a mod's,
-  entered 60 m off its rooms: issue 211) stands the party round the walkmesh's nearest face, and a
-  module with no walkmesh stands its seats at the entry itself: an
-  install never fails for want of room (`kjk sim probes --only
-  arrivals`). A trigger that
+  entered 60 m off its rooms: issue 211) stands the party and its
+  companions round the walkmesh's closest face in space, crowded onto
+  the face where no room is found round it, and a module with no
+  walkmesh stands its seats at the entry itself: an install never fails
+  for want of room. The install says which (`SimWorld::arrival_fallback`,
+  a `lifecycle` warning in play, a line in playthroughs and `kjk
+  lifecycle plan`; `kjk sim probes --only arrivals`). A trigger that
   leads out, or an open exit doorway, arrived in already counts the
   player, and a guest's companion as its seat (`ObjectState::tenants`: a
   bit per seat, `MAX_SEATS`); any other trigger counts it on its first

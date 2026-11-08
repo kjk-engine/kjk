@@ -2064,6 +2064,20 @@ impl SimWorld {
     pub(crate) fn dropped_code_with(&mut self, lines: Vec<String>) {
         self.world.resource_mut::<super::Module>().dropped_code = lines;
     }
+
+    /// Where the party stood as it entered its module, its arrival being
+    /// over no floor, in a line (`install::assemble`); none for an arrival
+    /// on its floor.
+    pub fn arrival_fallback(&self) -> Option<&str> {
+        self.world
+            .resource::<super::Module>()
+            .arrival_fallback
+            .as_deref()
+    }
+
+    pub(crate) fn arrival_fallback_with(&mut self, line: Option<String>) {
+        self.world.resource_mut::<super::Module>().arrival_fallback = line;
+    }
 }
 
 /// Placements come alive (each its entity's id and facts): every one's

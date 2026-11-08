@@ -19,8 +19,6 @@
 //! `docs/LIFECYCLE.md`.
 
 pub mod action;
-#[cfg(feature = "probes")]
-pub mod arrival_probes;
 pub mod combat;
 pub mod creation;
 pub mod determinism;
@@ -100,6 +98,8 @@ pub use world::aim_probes;
 pub use world::arena;
 #[cfg(feature = "probes")]
 pub use world::arena_probes;
+#[cfg(feature = "probes")]
+pub use world::arrival_probes;
 #[cfg(feature = "probes")]
 pub use world::bulk_probes;
 pub use world::charting;

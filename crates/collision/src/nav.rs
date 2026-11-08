@@ -621,6 +621,21 @@ impl NavMesh {
             .map(|(_, centre)| centre)
     }
 
+    /// The middle of the face nearest `point` (metres) in space, not under
+    /// furniture: where an arrival far off the mesh stands, on the storey
+    /// nearest it rather than a roof over or under it.
+    pub fn closest(&self, point: Vec3) -> Option<Vec3> {
+        self.faces
+            .iter()
+            .filter(|face| !face.covered)
+            .map(|face| {
+                let [dx, dy, dz] = std::array::from_fn(|i| face.centre[i] - point[i]);
+                (dx * dx + dy * dy + dz * dz, face.centre)
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, centre)| centre)
+    }
+
     /// The mesh's height under `point` (`locate`'s face there).
     pub fn height(&self, point: Vec3, below: f32, above: f32) -> Option<f32> {
         let face = self.locate(point, below, above)?;

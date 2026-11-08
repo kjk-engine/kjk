@@ -180,7 +180,7 @@ impl SimWorld {
         let members = members(party);
         let before = self.snapshot();
         let items = &self.script_state().items;
-        let (after, reconciled) = assemble(
+        let (after, reconciled, fallback) = assemble(
             &before,
             &level,
             arrival,
@@ -228,6 +228,7 @@ impl SimWorld {
             self.reconciled_with(report);
         }
         self.dropped_code_with(dropped);
+        self.arrival_fallback_with(fallback);
         Ok(after)
     }
 }
@@ -313,7 +314,8 @@ fn arrived(fighter: Option<Fighter>) -> Option<Fighter> {
 /// whose lines the ceremony after it says), arrives with the party, as
 /// KOTOR places the whole party at a module's arrival. With it, what
 /// reconciling the module left with the level's placements did, if it ran
-/// (`items`: every item in play, for what the party stored in it).
+/// (`items`: every item in play, for what the party stored in it), and
+/// where the party stood instead when its arrival is over no floor.
 pub(crate) fn assemble(
     before: &Snapshot,
     level: &Level,
@@ -321,7 +323,7 @@ pub(crate) fn assemble(
     old: Option<&Level>,
     members: &[(u32, String)],
     items: &crate::inventory::Items,
-) -> Result<(Snapshot, Option<Report>), InstallError> {
+) -> Result<(Snapshot, Option<Report>, Option<String>), InstallError> {
     let module = level.module().cloned().ok_or(InstallError::NoModule)?;
     let place = level.place().ok_or(InstallError::NoModule)?;
     let mut stash = before.stash.to_vec();
@@ -483,28 +485,49 @@ pub(crate) fn assemble(
             level.with(states.as_deref(), |world| {
                 spots(world, &lifted, count, &[], None, RINGS)
             })
-        })
-        .or_else(|| {
-            // An arrival nowhere over its walkmesh (a cutscene module's
-            // entry off its rooms in other data than ours): the party
-            // stands around the walkmesh's nearest face instead.
-            let nearest = level.nav()?.nearest(
+        });
+    // An arrival nowhere over its walkmesh (a cutscene module's entry off
+    // its rooms in other data than ours) stands the party round the
+    // walkmesh's closest face, crowded onto the face itself where no room
+    // is found round it; a module with no walkmesh, at the arrival itself:
+    // a transition always lands. Where the party stood is said
+    // (`SimWorld::arrival_fallback`), and the companions gather there.
+    let (origins, soles, fallback) = match origins {
+        Some(origins) => (origins, spot.position, None),
+        None => match level.nav().and_then(|nav| nav.closest(spot.position)) {
+            Some(face) => {
+                let moved = Spot {
+                    position: face,
+                    ..spot
+                };
+                let found = level.with(states.as_deref(), |world| {
+                    spots(world, &moved, count, &[], None, RINGS)
+                });
+                let how = if found.is_some() {
+                    "round the walkmesh's closest face"
+                } else {
+                    "crowded on the walkmesh's closest face"
+                };
+                let origins = found.unwrap_or_else(|| at_spot(&moved, count));
+                (origins, face, Some((how, face)))
+            }
+            None => (
+                at_spot(&spot, count),
                 spot.position,
-                f32::INFINITY,
-                f32::INFINITY,
-                f32::INFINITY,
-            )?;
-            let moved = Spot {
-                position: nearest,
-                ..spot
-            };
-            level.with(states.as_deref(), |world| {
-                spots(world, &moved, count, &[], None, RINGS)
-            })
-        })
-        // No floor to stand on anywhere: the arrival itself, as its module
-        // gives it, so a transition always lands.
-        .unwrap_or_else(|| at_spot(&spot, count));
+                Some((
+                    "at the arrival, the module having no walkmesh",
+                    spot.position,
+                )),
+            ),
+        },
+    };
+    let fallback = fallback.map(|(how, [x, y, z])| {
+        let [ax, ay, az] = spot.position;
+        format!(
+            "{}: the arrival ({ax:.2}, {ay:.2}, {az:.2}) is over no floor: the party stands {how} ({x:.2}, {y:.2}, {z:.2})",
+            module.name
+        )
+    });
     // The companions follow, made anew in this module from their templates,
     // each where the safe-location search stands it within `PARTY` of the
     // arrival (`PARTY`), clear of the seats, the area's living creatures and
@@ -521,7 +544,6 @@ pub(crate) fn assemble(
             alive.then_some((player.origin, crate::world::strikes::humanoid_space(own)))
         }))
         .collect();
-    let soles = spot.position;
     for (companion, template) in &companions {
         let made = crate::snapshot::Spawned {
             kind: ObjectKind::Creature,
@@ -540,7 +562,15 @@ pub(crate) fn assemble(
                 stand_among(level, world, soles, &stood, (space, PARTY))
             })
             .or_else(|| origins.last().copied())
-            .unwrap_or_else(|| at_spot(&spot, 1)[0]);
+            .unwrap_or_else(|| {
+                at_spot(
+                    &Spot {
+                        position: soles,
+                        ..spot
+                    },
+                    1,
+                )[0]
+            });
         stood.push((origin, space));
         let mut player = MotionState::standing(origin, spot.yaw);
         // One a guest drives turns from its seat's commands, as a player.
@@ -729,7 +759,7 @@ pub(crate) fn assemble(
         next_id,
         seats_held: before.seats_held,
     };
-    Ok((after, reconciled))
+    Ok((after, reconciled, fallback))
 }
 
 /// The module's creatures stood where KOTOR's area loader stands them, one
