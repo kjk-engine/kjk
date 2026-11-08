@@ -334,6 +334,17 @@ impl Step<'_> {
             return true;
         }
         let x = exchange::resolve(self.rules, &side_a, &side_d, met, self.rng);
+        #[cfg(feature = "probes")]
+        duel::tap::tell(duel::tap::Tapped::Exchange {
+            tick,
+            a: ida,
+            d: idd,
+            guard,
+            took: x.took,
+            perfect: x.perfect,
+            stopped: x.stopped,
+            met,
+        });
         self.duel_apply(a, d, at, &x);
         if x.forced_lock && self.try_lock(a, d) {
             return true;

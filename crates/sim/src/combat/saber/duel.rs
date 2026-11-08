@@ -28,6 +28,8 @@
 pub mod exchange;
 pub mod meter;
 pub mod shots;
+#[cfg(feature = "probes")]
+pub mod tap;
 
 use super::{Kit, Move, Style};
 use crate::math::{self, Vec3};

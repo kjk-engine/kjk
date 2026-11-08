@@ -36,6 +36,7 @@ macro_rules! probes {
 // only they use.
 probes!(
     ai_verbs,
+    balance_verbs,
     bench,
     brawl_verbs,
     chain,

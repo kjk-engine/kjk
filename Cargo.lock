@@ -3690,6 +3690,7 @@ dependencies = [
  "rules",
  "saves",
  "script_ncs",
+ "serde",
  "serde_json",
  "session",
  "sim",

@@ -1233,7 +1233,7 @@ fn blade_bolts(level: &Level, report: &mut Report, bouts: &mut Bouts) -> serde_j
 
 /// A lock's break animation for its winner: an old lock's win, or any
 /// super-break won.
-fn wins(anim: motion::Anim) -> bool {
+pub(crate) fn wins(anim: motion::Anim) -> bool {
     use motion::Anim::*;
     matches!(
         anim,

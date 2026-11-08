@@ -999,6 +999,12 @@ impl Step<'_> {
         let (by, weapon) = (self.men[a].id, self.men[a].delivery());
         let at = self.parried_at(d, point);
         self.men[d].record(by, Outcome::Parried, tick, weapon, at);
+        #[cfg(feature = "probes")]
+        crate::combat::saber::duel::tap::tell(crate::combat::saber::duel::tap::Tapped::Block {
+            tick,
+            a: by,
+            d: self.men[d].id,
+        });
         self.men[d].f.combat_until = self.now + super::COMBAT_MS;
         if odds && !self.men[d].player_at_rest() && self.try_lock(a, d) {
             return;
@@ -1023,6 +1029,12 @@ impl Step<'_> {
         let (wa, wd) = (self.men[a].delivery(), self.men[d].delivery());
         self.men[a].record(idd, Outcome::Parried, tick, wd, point);
         self.men[d].record(ida, Outcome::Parried, tick, wa, point);
+        #[cfg(feature = "probes")]
+        crate::combat::saber::duel::tap::tell(crate::combat::saber::duel::tap::Tapped::Clash {
+            tick,
+            a: ida,
+            d: idd,
+        });
         let special = self.men[a].f.saber.current_move.special()
             || self.men[d].f.saber.current_move.special();
         if met
