@@ -548,6 +548,7 @@ fn view(
         may_level: false,
         next_level: None,
         auto_level: None,
+        unspent: 0,
     }
 }
 
@@ -662,7 +663,8 @@ fn members(
             (None, None, None) => (Vec::new(), Vec::new(), None),
         };
         let portrait = portrait.or_else(|| assets.portrait_of(&data?.template));
-        let dresses = at == 0 || (own == sim::Seat(0) && fighter.mind.driver.is_none());
+        let dresses =
+            at == 0 || (own == sim::Seat(0) && fighter.mind.driver.is_none_or(|seat| seat == own));
         let may_level = dresses
             && level
                 .and_then(|level| level.scripts())
@@ -1006,6 +1008,9 @@ fn show(
         me.may_level = party
             .get(viewed)
             .is_some_and(|member| member.view.may_level);
+        me.unspent = party.get(viewed).map_or(0, |member| {
+            progress.unspent.get(&member.id).copied().unwrap_or(0)
+        });
         // The next level is in its latest class (a Jedi's once it is one).
         let next = party
             .get(viewed)
@@ -1014,7 +1019,7 @@ fn show(
                 let career = &member.career;
                 let &(class, _) = career.last()?;
                 let picks = classes.picks(&member.sheet, career, class)?;
-                let auto = classes.auto(&member.sheet, career, class, 0)?;
+                let auto = classes.auto(&member.sheet, career, class, me.unspent)?;
                 Some((class, picks_view(assets, &picks), auto))
             });
         me.auto_level = next.as_ref().map(|(_, _, auto)| AutoLevelView {
@@ -1029,8 +1034,12 @@ fn show(
     // The level the member shown may take next, from its ranks now (a level
     // taken, or another member shown, moves it on).
     if let Some(me) = ui.vm.character.as_ref().filter(|me| me.may_level)
-        && ui.vm.levelup.as_ref().map(|up| (up.who, up.level))
-            != Some((me.id, me.level.saturating_add(1)))
+        && ui
+            .vm
+            .levelup
+            .as_ref()
+            .map(|up| (up.who, up.level, up.unspent))
+            != Some((me.id, me.level.saturating_add(1), me.unspent))
     {
         ui.vm.levelup = Some(crate::script_screens::level_up(me, &made));
     }

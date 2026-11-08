@@ -1588,7 +1588,8 @@ fn passes_on(
         .find(free)
 }
 
-/// The journal, the party's XP and the careers as everyone sees them, when
+/// The journal, the party's XP, the careers and the skill points left
+/// unspent as everyone sees them, when
 /// they moved; the kills' XP and the statuses kept until their time
 /// (`now_ms`) is up.
 fn show_progress(state: &State, now_ms: u64, progressed: &mut super::Progressed) {
@@ -1604,10 +1605,15 @@ fn show_progress(state: &State, now_ms: u64, progressed: &mut super::Progressed)
     shown
         .statuses
         .retain(|status| now_ms < status.at_ms + Status::KEPT_MS);
-    if shown.xp != xp || shown.journal != state.journal || shown.careers != state.careers {
+    if shown.xp != xp
+        || shown.journal != state.journal
+        || shown.careers != state.careers
+        || shown.unspent != state.unspent
+    {
         shown.journal.clone_from(&state.journal);
         shown.xp = xp;
         shown.careers.clone_from(&state.careers);
+        shown.unspent.clone_from(&state.unspent);
     }
 }
 
@@ -2063,6 +2069,20 @@ impl SimWorld {
 
     pub(crate) fn dropped_code_with(&mut self, lines: Vec<String>) {
         self.world.resource_mut::<super::Module>().dropped_code = lines;
+    }
+
+    /// Where the party stood as it entered its module, its arrival being
+    /// over no floor, in a line (`install::assemble`); none for an arrival
+    /// on its floor.
+    pub fn arrival_fallback(&self) -> Option<&str> {
+        self.world
+            .resource::<super::Module>()
+            .arrival_fallback
+            .as_deref()
+    }
+
+    pub(crate) fn arrival_fallback_with(&mut self, line: Option<String>) {
+        self.world.resource_mut::<super::Module>().arrival_fallback = line;
     }
 }
 

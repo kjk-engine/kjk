@@ -6,6 +6,7 @@ use sim::probe::check;
 pub(super) fn checks() -> sim::probe::Checks {
     vec![
         ("stick rest", stick_rest()),
+        ("parked axis", parked_axis()),
         ("stick step", stick_step()),
         ("keys over stick", keys_over_stick()),
         ("stick directed", stick_directed()),
@@ -24,6 +25,84 @@ fn stick_rest() -> Result<String, String> {
     check(
         still == Vec2::ZERO && (edge - 1.0).abs() < 1e-6 && (half - 0.5).abs() < 1e-6,
         format!("middle {still}, edge {edge}, half-way {half}"),
+    )
+}
+
+/// A pad's world as play has it: bevy's input and `SticksPlugin`, fed the
+/// messages a controller sends.
+struct PadWorld(App);
+
+impl PadWorld {
+    fn new() -> PadWorld {
+        let mut app = App::new();
+        app.add_plugins((bevy::input::InputPlugin, SticksPlugin));
+        PadWorld(app)
+    }
+
+    fn plug(&mut self, pad: Entity, plugged: bool) {
+        use bevy::input::gamepad::{GamepadConnection, GamepadConnectionEvent};
+        let connection = if plugged {
+            GamepadConnection::Connected {
+                name: "probe".into(),
+                vendor_id: None,
+                product_id: None,
+            }
+        } else {
+            GamepadConnection::Disconnected
+        };
+        self.0
+            .world_mut()
+            .write_message(GamepadConnectionEvent::new(pad, connection));
+        self.0.update();
+    }
+
+    /// Moves `pad`'s right stick across to `x` for a frame; the right stick
+    /// play then takes.
+    fn across(&mut self, pad: Entity, x: f32) -> f32 {
+        use bevy::input::gamepad::{RawGamepadAxisChangedEvent, RawGamepadEvent};
+        self.0
+            .world_mut()
+            .write_message(RawGamepadEvent::Axis(RawGamepadAxisChangedEvent::new(
+                pad,
+                GamepadAxis::RightStickX,
+                x,
+            )));
+        self.0.update();
+        self.0
+            .world()
+            .get::<Sticks>(pad)
+            .map_or(f32::NAN, |sticks| sticks.right.x)
+    }
+}
+
+/// Through bevy's own pad messages: a throttle parked hard back from the
+/// frame after it connects (bevy starts every axis at 0) turns nothing,
+/// jittering; brought through the middle it counts; unplugged and plugged
+/// in again parked it turns nothing again. A gamepad's stick, its first
+/// change small, counts at once out to its edge.
+fn parked_axis() -> Result<String, String> {
+    let mut world = PadWorld::new();
+    let throttle = world.0.world_mut().spawn_empty().id();
+    let stick = world.0.world_mut().spawn_empty().id();
+    world.plug(throttle, true);
+    world.plug(stick, true);
+    let parked = [-1.0, -0.98].map(|x| world.across(throttle, x));
+    let used = [0.0, 0.6].map(|x| world.across(throttle, x));
+    world.plug(throttle, false);
+    world.plug(throttle, true);
+    let replugged = world.across(throttle, 0.6);
+    let moved = [0.1, 0.9].map(|x| world.across(stick, x));
+    let near = |a: f32, b: f32| (a - b).abs() < 1e-3;
+    check(
+        parked == [0.0, 0.0]
+            && near(used[0], 0.0)
+            && near(used[1], 0.6)
+            && replugged == 0.0
+            && near(moved[0], 0.1)
+            && near(moved[1], 0.9),
+        format!(
+            "throttle parked {parked:?}, through the middle {used:?}, replugged {replugged}; stick {moved:?}"
+        ),
     )
 }
 
