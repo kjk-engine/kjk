@@ -101,12 +101,27 @@ fn noise(parts: &[f32], salt: u64) -> f32 {
 }
 
 /// A prop's pieces whose middle is in the lowest quarter of its `height`
-/// (model frame, its feet at 0): the base that stays where it stood.
-pub(crate) fn base(pieces: &[Piece], height: f32) -> Vec<usize> {
+/// (model frame, its feet at 0), or that touch the `floor` (their lowest
+/// point within `TOUCH_M` of it: a table's legs): the base that stays where
+/// it stood; at least the lowest piece of a set that has any.
+pub(crate) fn base(pieces: &[Piece], height: f32, floor: f32) -> Vec<usize> {
+    let low = |piece: &Piece| (piece.hull.iter().map(|p| p[2])).fold(piece.middle[2], f32::min);
+    let standing: Vec<usize> = (0..pieces.len())
+        .filter(|&i| {
+            pieces[i].middle[2] < height * BASE_SHARE || low(&pieces[i]) - floor <= TOUCH_M
+        })
+        .collect();
+    if !standing.is_empty() {
+        return standing;
+    }
     (0..pieces.len())
-        .filter(|&i| pieces[i].middle[2] < height * BASE_SHARE)
+        .min_by(|&a, &b| low(&pieces[a]).total_cmp(&low(&pieces[b])))
+        .into_iter()
         .collect()
 }
+
+/// How near the floor a piece's lowest point is to stand on it (metres).
+const TOUCH_M: f32 = 0.05;
 
 /// How a piece at `middle` flies from a blow from `from` (game space,
 /// metres): away from it, up and out; harder for a blast.
@@ -259,36 +274,34 @@ pub(crate) struct Fractures {
 /// A model's meshes that can be cut (model frame), and which mesh each is.
 type Cuttable = (Vec<Plain>, Vec<usize>);
 
-/// The meshes of `ir` that can be cut, in the model's frame (each node's
-/// rest transform applied), and which mesh each is: drawn, not skinned,
-/// dangly or lightmapped (a piece has no lightmap uvs); capped unless its
-/// surface is alpha-tested, blended or two-sided.
+/// The meshes of `ir` that can be cut, in the model's frame (at rest: each
+/// node's rest transform, a skinned mesh posed by its bones, a dangly one
+/// as it hangs still), and which mesh each is: every drawn mesh with
+/// triangles, a lightmapped one only where the model has nothing else (a
+/// piece has no lightmap uvs); capped unless its surface is alpha-tested,
+/// blended or two-sided.
 fn cuttable(ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> (Vec<Plain>, Vec<usize>) {
+    let drawn = |mesh: &&MeshIr| mesh.texture.is_some() && !mesh.indices.is_empty();
+    let lightmapped =
+        |mesh: &MeshIr| mesh.lightmap.is_some() && mesh.uv2.len() == mesh.positions.len();
+    let plain_only = ir
+        .meshes
+        .iter()
+        .filter(drawn)
+        .any(|mesh| !lightmapped(mesh));
+    let rest = ir.rest();
     ir.meshes
         .iter()
         .enumerate()
-        .filter(|(_, mesh)| {
-            mesh.texture.is_some()
-                && mesh.skin.is_none()
-                && mesh.dangly.is_none()
-                && !(mesh.lightmap.is_some() && mesh.uv2.len() == mesh.positions.len())
-                && !mesh.indices.is_empty()
-        })
+        .filter(|(_, mesh)| drawn(mesh) && !(plain_only && lightmapped(mesh)))
         .map(|(number, mesh)| {
-            let world = ir
-                .nodes
-                .get(mesh.node)
-                .map_or(asset_odyssey::model::IDENTITY, |n| n.world);
-            let place = |p: [f32; 3], w: f32| -> [f32; 3] {
-                std::array::from_fn(|r| {
-                    world[r][0] * p[0] + world[r][1] * p[1] + world[r][2] * p[2] + world[r][3] * w
-                })
-            };
-            let turn = |n: [f32; 3]| {
-                let n = place(n, 0.0);
-                let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-9);
-                n.map(|c| c / length)
-            };
+            let normals = ir
+                .placed(mesh, &rest, &mesh.normals, 0.0)
+                .into_iter()
+                .map(|n| {
+                    let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-9);
+                    n.map(|c| c / length)
+                });
             let facts: Vec<_> = mesh
                 .texture
                 .iter()
@@ -297,8 +310,8 @@ fn cuttable(ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> (Vec<Plain>
             let surface = material::surface((mesh.transparency_hint, false), mesh.alpha, &facts);
             let open = facts.iter().any(|facts| facts.two_sided || facts.decal);
             let plain = Plain {
-                positions: mesh.positions.iter().map(|&p| place(p, 1.0)).collect(),
-                normals: mesh.normals.iter().map(|&n| turn(n)).collect(),
+                positions: ir.placed(mesh, &rest, &mesh.positions, 1.0),
+                normals: normals.collect(),
                 uvs: mesh.uv1.clone(),
                 indices: mesh.indices.clone(),
                 capped: matches!(surface, Surface::Opaque | Surface::OpaqueEnvMasked) && !open,
@@ -606,7 +619,7 @@ fn wrecks(
             .filter_map(|entity| parts.get(entity).ok())
             .map(|(part, material)| (part.0, material.0.clone()))
             .collect();
-        let standing = base(&fracture.pieces, fracture.height);
+        let standing = base(&fracture.pieces, fracture.height, 0.0);
         info!(
             "prop #{index} ({}) at {:.1?}: {} pieces, {} standing, {}",
             ir.name,
@@ -1488,7 +1501,7 @@ pub fn probes() -> sim::probe::Checks {
         ..Piece::default()
     };
     let set = [0.1, 0.2, 0.3, 0.6, 0.9].map(piece);
-    let chosen = base(&set, 1.0);
+    let chosen = base(&set, 1.0, 0.0);
     let from = [0.0, 0.0, 0.5];
     let single = fling([1.0, 0.0, 0.5], from, false);
     let blast = fling([1.0, 0.0, 0.5], from, true);
@@ -1808,6 +1821,88 @@ pub fn probes() -> sim::probe::Checks {
                      first seen standing {standing:?} (Standing)"
                 ),
             ),
+        ),
+    ]
+    .into_iter()
+    .chain(fault_probes())
+    .collect()
+}
+
+/// A piece standing from `low` to `high` (model frame, metres), its middle
+/// between.
+#[cfg(feature = "probes")]
+fn upright(low: f32, high: f32) -> Piece {
+    Piece {
+        middle: [0.0, 0.0, (low + high) / 2.0],
+        hull: vec![[0.0, 0.0, low], [0.0, 0.0, high]],
+        ..Piece::default()
+    }
+}
+
+/// The playtest log's faults: legged furniture's legs stand, a floating set
+/// keeps its lowest piece, and a plant is cut.
+#[cfg(feature = "probes")]
+fn fault_probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    // A table: four legs from the floor to 0.7 m, a top from 0.7 to 0.8.
+    let table = [
+        upright(0.0, 0.7),
+        upright(0.0, 0.7),
+        upright(0.0, 0.7),
+        upright(0.0, 0.7),
+        upright(0.7, 0.8),
+    ];
+    let legs = base(&table, 0.8, 0.0);
+    // A lamp hung above the floor: nothing touches it, nothing low.
+    let hung = [upright(1.0, 1.4), upright(0.6, 1.0), upright(1.4, 2.0)];
+    let floating = base(&hung, 2.0, 0.0);
+    let plant = crate::k1_resolver().map(|resolver| {
+        let parsed = crate::viewer::parsed(&resolver, "plc_firixa01");
+        let ir = parsed.ok().flatten().map(|m| ModelIr::from_model(&m));
+        ir.map(|ir| {
+            let (plains, _) = cuttable(&ir, &BTreeMap::new());
+            let why: Vec<String> = (ir.meshes.iter())
+                .map(|mesh| {
+                    format!(
+                        "texture {} skin {} dangly {} lightmapped {} triangles {}",
+                        mesh.texture.is_some(),
+                        mesh.skin.is_some(),
+                        mesh.dangly.is_some(),
+                        mesh.lightmap.is_some() && mesh.uv2.len() == mesh.positions.len(),
+                        mesh.indices.len() / 3
+                    )
+                })
+                .collect();
+            (plains.len(), why)
+        })
+    });
+    vec![
+        (
+            "prop_pieces_base_legs",
+            check(
+                legs == [0, 1, 2, 3],
+                format!("a table's base {legs:?} (want its four legs [0, 1, 2, 3])"),
+            ),
+        ),
+        (
+            "prop_pieces_base_never_empty",
+            check(
+                floating == [1],
+                format!("a hung set's base {floating:?} (want its lowest piece [1])"),
+            ),
+        ),
+        (
+            "prop_cut_plant",
+            match plant {
+                None => Ok("no K1 install: skipped".into()),
+                Some(None) => Err("plc_firixa01 did not read".into()),
+                Some(Some((plains, why))) => check(
+                    plains > 0,
+                    format!(
+                        "plc_firixa01 cuts into {plains} surfaces (want some); meshes: {why:?}"
+                    ),
+                ),
+            },
         ),
     ]
 }
