@@ -269,6 +269,16 @@ impl GuiAssets {
         self.base.with_module(&self.index, module).ok()
     }
 
+    /// The files item `template` is read from: those of the module whose
+    /// own it is (`fmt_odyssey::module_of`: Calo Nord's journal reads as
+    /// his module's datapad wherever it is carried), else the campaign's
+    /// as they stand.
+    pub fn item_resolver(&self, template: &str) -> Resolver {
+        fmt_odyssey::module_of(template)
+            .and_then(|module| self.module_resolver(module))
+            .unwrap_or_else(|| self.resolver.clone())
+    }
+
     /// The module whose own templates (a container's name) are read too;
     /// nothing changes when it is the one already entered.
     pub fn enter_module(&mut self, module: &str) {
@@ -358,21 +368,21 @@ impl GuiAssets {
         read_layout(&self.resolver, name)
     }
 
-    /// How the item with template `resref` shows: its UTI's name (its
-    /// strref's text, else its own), and its icon: `i`, its base item's
-    /// class, `_`, its variation in three digits (`ModelVariation`, else
-    /// `TextureVar`, else 1).
-    pub fn item(&mut self, resref: &str) -> Option<ItemLook> {
-        self.item_ref(resref).cloned()
+    /// How the item with template `template` shows (read where
+    /// `item_resolver` says): its UTI's name (its strref's text, else its
+    /// own), and its icon: `i`, its base item's class, `_`, its variation
+    /// in three digits (`ModelVariation`, else `TextureVar`, else 1).
+    pub fn item(&mut self, template: &str) -> Option<ItemLook> {
+        self.item_ref(template).cloned()
     }
 
     /// The same, borrowed.
-    pub fn item_ref(&mut self, resref: &str) -> Option<&ItemLook> {
-        if !self.items.contains_key(resref) {
-            let look = self.look(resref);
-            self.items.insert(resref.to_string(), look);
+    pub fn item_ref(&mut self, template: &str) -> Option<&ItemLook> {
+        if !self.items.contains_key(template) {
+            let look = self.look(template);
+            self.items.insert(template.to_string(), look);
         }
-        self.items.get(resref)?.as_ref()
+        self.items.get(template)?.as_ref()
     }
 
     /// A template's name (`LocName`, its strref's text else its own; a
@@ -458,11 +468,23 @@ impl GuiAssets {
         self.localized(gff.root.get("LocName").or(gff.root.get("Name")))
     }
 
-    /// Item template `resref`'s UTI: the module entered's or the shared
-    /// data's, else the one of the module whose own archives hold it. KOTOR
-    /// keeps a carried item whole in its save, so a story item made in one
-    /// module (Tatooine's star map datapad) shows as itself in every other.
-    fn uti(&mut self, resref: &str) -> Option<fmt_odyssey::gff::Gff> {
+    /// Item template `template`'s UTI: a module's own template's from that
+    /// module (`item_resolver`), else the module entered's or the shared
+    /// data's, else the one of the module whose own archives hold its
+    /// resref. KOTOR keeps a carried item whole in its save, so a story
+    /// item made in one module (Tatooine's star map datapad) shows as
+    /// itself in every other.
+    fn uti(&mut self, template: &str) -> Option<fmt_odyssey::gff::Gff> {
+        let resref = fmt_odyssey::resref_of(template);
+        if fmt_odyssey::module_of(template).is_some() {
+            let bytes = self
+                .item_resolver(template)
+                .find(resref, ResType::UTI)
+                .and_then(|found| found.location.read().ok());
+            if let Some(uti) = bytes.and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok()) {
+                return Some(uti);
+            }
+        }
         if let Some(uti) = self.gff(resref, ResType::UTI) {
             return Some(uti);
         }
@@ -479,9 +501,10 @@ impl GuiAssets {
         fmt_odyssey::gff::Gff::parse(&bytes).ok()
     }
 
-    fn look(&mut self, resref: &str) -> Option<ItemLook> {
+    fn look(&mut self, template: &str) -> Option<ItemLook> {
         use asset_odyssey::item::{self, item_type, property};
-        let uti = self.uti(resref)?;
+        let resref = fmt_odyssey::resref_of(template);
+        let uti = self.uti(template)?;
         let root = &uti.root;
         // TSL's item names carry sort keys in braces its screens leave out.
         let name = self

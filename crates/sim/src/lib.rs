@@ -127,6 +127,8 @@ pub use world::locks;
 pub use world::minds_probes;
 pub use world::objects;
 #[cfg(feature = "probes")]
+pub use world::own_item_probes;
+#[cfg(feature = "probes")]
 pub use world::pace_probes;
 #[cfg(feature = "probes")]
 pub use world::pair_probes;

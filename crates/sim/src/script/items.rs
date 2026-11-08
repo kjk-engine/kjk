@@ -186,7 +186,7 @@ impl State {
             let stacks: Vec<u32> = self
                 .items
                 .held_by(holder)
-                .filter(|(_, item)| joinable(item, &template, holder))
+                .filter(|(_, item)| joinable(item, &facts.template, holder))
                 .map(|(id, _)| id)
                 .collect();
             for id in stacks {
@@ -303,7 +303,7 @@ impl State {
         self.item_facts(catalog, template).is_some_and(|facts| {
             facts.stacking > 1
                 && self.items.held_by(holder).any(|(_, item)| {
-                    joinable(item, template, holder) && item.stack < facts.stacking
+                    joinable(item, &facts.template, holder) && item.stack < facts.stacking
                 })
         })
     }
@@ -319,11 +319,11 @@ impl State {
         for held in held {
             let first_new = FIRST_ITEM + self.next_item;
             if held.infinite {
-                let had = self
-                    .items
-                    .held_by(object)
-                    .any(|(_, item)| item.infinite && item.template == held.template);
-                if let Some(facts) = catalog.get(&held.template).filter(|_| !had) {
+                let facts = catalog.get(&held.template);
+                let had = self.items.held_by(object).any(|(_, item)| {
+                    item.infinite && facts.is_some_and(|facts| item.template == facts.template)
+                });
+                if let Some(facts) = facts.filter(|_| !had) {
                     self.new_item(facts, object, held.stack.max(1), None);
                 }
             } else {
@@ -837,7 +837,7 @@ impl State {
 
     /// `item`'s whole stack to the party: credits as its gold, the rest
     /// joining its stacks (`hand_over`).
-    fn hand_stack(&mut self, catalog: &Catalog, item: u32) {
+    pub(crate) fn hand_stack(&mut self, catalog: &Catalog, item: u32) {
         let Some(held) = self.items.get(&item) else {
             return;
         };

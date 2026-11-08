@@ -51,6 +51,34 @@ pub fn resref(raw: &[u8]) -> String {
     String::from_utf8_lossy(&raw[..end]).to_ascii_lowercase()
 }
 
+/// What joins a module's own file's resref to its module in a template
+/// (`own_template`): no resref holds it.
+const OWN: char = '@';
+
+/// The template of resref `resref` read from `module`'s own archives: one
+/// of its own, which neither stacks with nor reads as another module's
+/// file of the same resref (K1 gives seven modules a `g_i_datapad002` of
+/// their own: Calo Nord's journal, the Sith base's log, the Leviathan's
+/// note). The engines keep each item's fields on it; ours keep where it
+/// came from.
+pub fn own_template(resref: &str, module: &str) -> String {
+    format!("{resref}{OWN}{module}")
+}
+
+/// The resref of `template` (`own_template`'s first half; a plain resref
+/// is its own): what scripts name it by and what a source reads.
+pub fn resref_of(template: &str) -> &str {
+    template
+        .split_once(OWN)
+        .map_or(template, |(resref, _)| resref)
+}
+
+/// The module whose own archives hold `template`, for one of a module's
+/// own (`own_template`).
+pub fn module_of(template: &str) -> Option<&str> {
+    template.split_once(OWN).map(|(_, module)| module)
+}
+
 /// Text in the games' code page (one character a byte) as a `String`.
 pub fn code_page(bytes: &[u8]) -> String {
     bytes.iter().map(|&byte| char::from(byte)).collect()

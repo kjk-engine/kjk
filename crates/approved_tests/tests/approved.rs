@@ -1326,6 +1326,18 @@ fn corpse_remains() {
     probed("remains", &sim::remains::probes(), 9);
 }
 
+/// Items a module gives a resref of its own, and what a creature joining
+/// brings (`sim::own_item_probes`), approved 2026-11-08: two modules'
+/// `g_i_datapad002` (Calo Nord's journal, the Sith base's log) are two
+/// items, each read as its own module's, never one stack; two of one
+/// module's still stack; a companion joining puts what it carries in the
+/// party's inventory (Mission's vibroblade) and keeps what it wears. The
+/// script state alone.
+#[test]
+fn own_items() {
+    probed("own items", &sim::own_item_probes::probes(), 4);
+}
+
 /// `DestroyObject` as K1's engine takes it (`sim::destroys::probes`),
 /// approved 2026-10-10: on the proving ground a destroyed thing leaves the
 /// world at its delay and is drawn departing after: `bNoFade` takes a
