@@ -227,6 +227,10 @@ pub fn sheet() -> Sheet {
 /// screen takes it off and swaps it as any other (K1's blue lightsaber).
 pub const SABER: &str = "g_w_lghtsbr01";
 
+/// The saber a two-saber arena player (`--class duelist@dual`) holds in
+/// its left hand: another template, so wearing it leaves `SABER` in the right.
+pub const LEFT_SABER: &str = "g_w_lghtsbr02";
+
 /// Every hand weapon and every armour K1 has (`library`'s item templates a
 /// right hand holds or a body wears, but plot items), by template: what the
 /// arena's player carries, one of each, two of a gun the left hand takes too

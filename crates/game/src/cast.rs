@@ -3561,18 +3561,32 @@ fn ancestors((ir, nodes): (&ModelIr, &[Entity]), node: usize) -> Vec<(Entity, Qu
 /// second (a roll, a flip, a knockdown: the head goes with the body).
 const LEVEL_LEAN_DEG: (f32, f32) = (55.0, 85.0);
 
-/// How far (degrees) a level head looks off its legs toward the aim: JA's
-/// look reach across.
-const AIM_REACH_DEG: f32 = 70.0;
+/// The part of `turn` about the model's up (its twist): `turn` less its
+/// tilt. None where `turn` tips the up over (no heading to keep).
+fn twist_about_up(turn: Quat) -> Option<Quat> {
+    let twist = Quat::from_xyzw(0.0, 0.0, turn.z, turn.w);
+    (twist.length_squared() > 1e-6).then(|| twist.normalize())
+}
+
+/// The heading of JA's head in `pose` (radians about the model's up from
+/// its base pose): its `cranium`'s turn less its tilt, so the clip's twist
+/// of the body, a spin, and the cgame's look toward the view. None for a
+/// skeleton without one, or a head tipped over.
+fn ja_head_heading(g2: &G2, pose: &[Local]) -> Option<f32> {
+    let cranium = g2.bone("cranium")?;
+    let twist = twist_about_up(g2.bone_final(pose, cranium).0)?;
+    Some(2.0 * twist.z.atan2(twist.w))
+}
 
 impl HeadBone {
-    /// The head held level along `hold.aim` (game degrees), as JA's head
-    /// looks along the view whatever its clip does with the chest: the
-    /// head's turn in the model's space set to its rest turned about the
-    /// model's up to the aim (the model facing `hold.facing`), by `share`
-    /// (the JA pose's share of the body left to hold), less as the chest
-    /// leans far from upright unless the legs crouch (`crouch`, 0 to 1: how
-    /// far into a crouch's hold).
+    /// The head held level, heading where JA's own head heads
+    /// (`hold.heading`, else where the pose turned it): its turn in the
+    /// model's space set to its rest turned about the model's up by that
+    /// much, so it stands up whatever the clip does with the chest and
+    /// turns with a spin or a swing as JA's does. By `share` (the JA pose's
+    /// share of the body left to hold), less as the chest leans far from
+    /// upright unless the legs crouch (`crouch`, 0 to 1: how far into a
+    /// crouch's hold).
     fn level(
         &self,
         hold: Hold,
@@ -3612,9 +3626,17 @@ impl HeadBone {
             rotations = read(transforms);
         }
         let above = product(&rotations);
-        let toward = angles::wrap_180(hold.aim - hold.facing).to_radians();
-        let wanted = Quat::from_rotation_z(toward) * self.rest;
-        let local = (above.inverse() * wanted).normalize();
+        let Ok(own) = transforms.get(self.node).map(|t| t.rotation) else {
+            return;
+        };
+        let heading = match hold.heading {
+            Some(heading) => Quat::from_rotation_z(heading),
+            None => match twist_about_up(above * own * self.rest.inverse()) {
+                Some(heading) => heading,
+                None => return,
+            },
+        };
+        let local = (above.inverse() * heading * self.rest).normalize();
         edit(transforms, self.node, |t| {
             t.rotation = t.rotation.slerp(local, weight).normalize();
         });
@@ -3638,13 +3660,12 @@ struct Head {
     crouch: f32,
 }
 
-/// What a head is held level by (`HeadBone::level`): its body's aim and
-/// facing (game degrees), the JA pose's share of the body, whether the
-/// body lives, whether its legs crouch, and whether it has a weapon out.
+/// What a head is held level by (`HeadBone::level`): JA's head's heading
+/// (`ja_head_heading`), the JA pose's share of the body, whether the body
+/// lives, whether its legs crouch, and whether it has a weapon out.
 #[derive(Clone, Copy)]
 struct Hold {
-    aim: f32,
-    facing: f32,
+    heading: Option<f32>,
     share: f32,
     alive: bool,
     crouched: bool,
@@ -4055,27 +4076,25 @@ fn place(
             let aims = gun_aim(figure, at, (gun, armed, drawn), ms, (to_model, soles, eye));
             // The JA pose's share left under the clips laid over it in turn.
             let under: f32 = shown.iter().map(|&(_, _, weight)| 1.0 - weight).product();
-            // Its head looks along its aim, level, under the JA pose (JA's
-            // head follows the view whatever the clip does with the chest),
-            // let go as it dies, then turns to whom it looks at in a
-            // conversation.
-            let legs = figure.yaw().unwrap_or(at.view[1]);
-            let aim =
-                legs + angles::wrap_180(at.view[1] - legs).clamp(-AIM_REACH_DEG, AIM_REACH_DEG);
-            let level = Some(Hold {
-                aim,
-                facing: yaw.to_degrees(),
+            // Its head stands level under the JA pose, heading where JA's
+            // head heads (once the pose is made), let go as it dies, then
+            // turns to whom it looks at in a conversation.
+            let level = Hold {
+                heading: None,
                 share: under,
                 alive: at.alive,
                 crouched: crouches(&at.state),
                 armed,
-            });
-            let head = |figure: &mut Figure, transforms: &mut Query<&mut Transform>| {
-                if let Some(bone) = &body.head {
-                    let target = look.map(|look| look_toward(soles, faces, look));
-                    figure.head.turn((target, ms), level, bone, transforms);
-                }
             };
+            let head =
+                |figure: &mut Figure, transforms: &mut Query<&mut Transform>, level: Hold| {
+                    if let Some(bone) = &body.head {
+                        let target = look.map(|look| look_toward(soles, faces, look));
+                        figure
+                            .head
+                            .turn((target, ms), Some(level), bone, transforms);
+                    }
+                };
             // While the world is held, a body wholly on KOTOR's clips (the
             // JA pose's share under them at most `1 − WHOLE`), nothing
             // gripped (no hand reaches, so `reached` is empty) or aimed, is
@@ -4085,7 +4104,7 @@ fn place(
                     &mut shown.into_iter().chain(throw.shown(acted, ms)),
                     transforms,
                 );
-                head(figure, transforms);
+                head(figure, transforms, level);
                 return None;
             }
             let ja = figure.pose_facing(ms, shown.is_empty());
@@ -4146,7 +4165,8 @@ fn place(
                 &mut shown.into_iter().chain(throw.shown(acted, ms)),
                 transforms,
             );
-            head(figure, transforms);
+            let heading = ja_head_heading(&figure.g2, &ja);
+            head(figure, transforms, Hold { heading, ..level });
             Some(posed)
         }
         Look::Ja => {
