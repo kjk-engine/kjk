@@ -253,7 +253,11 @@ impl SimWorld {
         world.init_resource::<Hits>();
         world.init_resource::<Heals>();
         world.init_resource::<sabers::Blades>();
-        world.init_resource::<scripts::Scripts>();
+        let mut scripts = scripts::Scripts::default();
+        scripts
+            .state
+            .take_told(snapshot, level.module().map(|module| &**module));
+        world.insert_resource(scripts);
         world.init_resource::<scripts::Opened>();
         world.init_resource::<scripts::Blocked>();
         world.init_resource::<scripts::Closed>();
