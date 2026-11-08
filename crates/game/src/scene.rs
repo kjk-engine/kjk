@@ -290,6 +290,29 @@ impl Plugin for ScenePlugin {
 
 /// The game's Z-up space to Bevy's Y-up: game +Z becomes +Y and game +Y
 /// becomes -Z (Bevy's forward).
+/// Which of its model's meshes (`ModelIr::meshes`) a drawn mesh is.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MeshPart(pub usize);
+
+/// A triangle list of `positions` with their normals and uvs where there
+/// is one per vertex (no indices yet).
+pub(crate) fn base_mesh(
+    positions: &[[f32; 3]],
+    normals: &[[f32; 3]],
+    uvs: &[[f32; 2]],
+    usage: RenderAssetUsages,
+) -> Mesh {
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, usage);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions.to_vec());
+    if normals.len() == positions.len() {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals.to_vec());
+    }
+    if uvs.len() == positions.len() {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs.to_vec());
+    }
+    mesh
+}
+
 pub(crate) fn game_to_bevy() -> Quat {
     Quat::from_rotation_x(-FRAC_PI_2)
 }
@@ -957,8 +980,8 @@ impl<'t> Spawner<'t> {
             commands.entity(model_root).insert(animator);
             self.tally.animated += 1;
         }
-        for part in &placed.ir.meshes {
-            self.mesh(commands, stores, (placed, part, is_room), &nodes);
+        for (number, part) in placed.ir.meshes.iter().enumerate() {
+            self.mesh(commands, stores, (placed, (number, part), is_room), &nodes);
         }
         (model_root, nodes)
     }
@@ -1017,7 +1040,7 @@ impl<'t> Spawner<'t> {
         &mut self,
         commands: &mut Commands,
         stores: &mut Stores,
-        (placed, part, is_room): (&Placed, &asset_odyssey::model::MeshIr, bool),
+        (placed, (number, part), is_room): (&Placed, (usize, &asset_odyssey::model::MeshIr), bool),
         nodes: &[Entity],
     ) {
         let tally = &mut self.tally;
@@ -1220,6 +1243,7 @@ impl<'t> Spawner<'t> {
                 Mesh3d(stores.meshes.add(mesh)),
                 MeshMaterial3d(material),
                 Transform::IDENTITY,
+                MeshPart(number),
             ))
             .id();
         if let Some(dangly) = &part.dangly {

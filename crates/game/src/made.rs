@@ -277,6 +277,12 @@ impl Made {
         Some(self.props.get(&index)?.models.as_ref()?.0)
     }
 
+    /// Made placeable `index`'s model in the scene (`LoadedScene::models`),
+    /// once it is spawned.
+    pub fn prop_model(&self, index: u32) -> Option<usize> {
+        Some(self.props.get(&index)?.models.as_ref()?.1.start)
+    }
+
     /// Whether creature `index` is one made in play (loading or drawn):
     /// its leaving is this module's own.
     pub fn makes(&self, index: u32) -> bool {

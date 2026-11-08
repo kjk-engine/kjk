@@ -7,14 +7,15 @@
 //! - a prop that breaks (look `DEAD`) bursts at its middle, the burst sized
 //!   by its size (blaster sparks, a droid's explosion, a frag grenade's),
 //!   and sounds its material's `placeableobjsnds.2da` destroyed sound; one
-//!   whose model has no `dead` clip stops drawing, one that has plays its
-//!   `die` and `dead` clips (`own_fx`);
+//!   whose model has no `dead` clip flies apart into pieces of itself
+//!   (`prop_looks`), one that has plays its `die` and `dead` clips
+//!   (`own_fx`);
 //! - a prop that only shows damage keeps sparking (metal, electronics,
 //!   plastic) or puffing dust (the rest) once damaged, twice as often once
 //!   wrecked: `visualeffects.2da` has no lasting smoke, so its one-shot
 //!   impacts repeat.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use bevy::prelude::*;
 use sim::destruction::{Class, Destructible, Material, Size, stage};
@@ -22,8 +23,7 @@ use sim::look;
 use sim::module::ObjectKind;
 
 use crate::combat_fx::FightDrawn;
-use crate::made::Made;
-use crate::scene::{SceneContent, SceneModel};
+use crate::scene::SceneContent;
 use crate::script_fx::{HookVisual, HookVisuals, Place};
 use crate::sim_host::{PresentedSnapshot, SceneSwap};
 use crate::sound::{Cue, Cues};
@@ -126,26 +126,55 @@ pub(crate) fn change(was: (u8, u16), now: (u8, u16)) -> Change {
 }
 
 /// What has been seen of each destructible prop, by object index: its look
-/// and lost hit points, when it next smoulders; those hidden.
+/// and lost hit points, when it next smoulders.
 #[derive(Resource, Default)]
 struct Breaks {
     generation: u32,
     seen: BTreeMap<u32, (u8, u16)>,
     smoulders: BTreeMap<u32, f64>,
-    hidden: BTreeSet<u32>,
 }
+
+/// A destructible prop first seen, or whose look or lost hit points
+/// changed, this frame: for `prop_looks`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PropChange {
+    pub index: u32,
+    pub d: Destructible,
+    /// `(look, damage)` before (`None`: first seen) and now.
+    pub was: Option<(u8, u16)>,
+    pub now: (u8, u16),
+    /// Where it stands (game space, metres).
+    pub position: [f32; 3],
+    /// Its model has a `dead` clip of its own, which it plays instead.
+    pub own_dead: bool,
+}
+
+/// This frame's prop changes, and where the creatures stand (game space,
+/// metres), newest snapshot last.
+#[derive(Resource, Default)]
+pub(crate) struct PropChanges {
+    pub changes: Vec<PropChange>,
+    pub creatures: Vec<Vec3>,
+}
+
+/// The system that fills `PropChanges`; `prop_looks` runs after it.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct PropsSeen;
 
 pub struct PropBreaksPlugin;
 
 impl Plugin for PropBreaksPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Breaks>().add_systems(
-            PostUpdate,
-            breaks
-                .run_if(resource_exists::<PresentedSnapshot>)
-                .after(bevy::transform::TransformSystems::Propagate)
-                .before(FightDrawn),
-        );
+        app.init_resource::<Breaks>()
+            .init_resource::<PropChanges>()
+            .add_systems(
+                PostUpdate,
+                breaks
+                    .in_set(PropsSeen)
+                    .run_if(resource_exists::<PresentedSnapshot>)
+                    .after(bevy::transform::TransformSystems::Propagate)
+                    .before(FightDrawn),
+            );
     }
 }
 
@@ -158,17 +187,15 @@ fn has_dead(scene: &SceneContent, index: u32) -> bool {
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 fn breaks(
     presented: Res<PresentedSnapshot>,
     swap: Res<SceneSwap>,
     scene: Res<SceneContent>,
-    made: Option<Res<Made>>,
-    scene_models: Query<(Entity, &SceneModel)>,
-    mut visibility: Query<&mut Visibility>,
     (visuals, mut cues): (Option<ResMut<HookVisuals>>, ResMut<Cues>),
     mut breaks: ResMut<Breaks>,
+    mut seen: ResMut<PropChanges>,
 ) {
+    seen.changes.clear();
     if breaks.generation != swap.generation {
         *breaks = Breaks {
             generation: swap.generation,
@@ -181,6 +208,15 @@ fn breaks(
         let now = snapshot.time_ms as f64;
         let players: Vec<Vec3> = (snapshot.entities.iter())
             .filter(|entity| matches!(entity.kind, sim::Kind::Avatar(_)))
+            .map(|entity| Vec3::from(entity.position))
+            .collect();
+        seen.creatures = (snapshot.entities.iter())
+            .filter(|entity| {
+                matches!(
+                    entity.kind,
+                    sim::Kind::Avatar(_) | sim::Kind::Object(ObjectKind::Creature, _)
+                )
+            })
             .map(|entity| Vec3::from(entity.position))
             .collect();
         for entity in &snapshot.entities {
@@ -197,6 +233,16 @@ fn breaks(
             let looks = looks(d.material);
             let middle = middle(entity.position, d);
             let was = breaks.seen.insert(index, shown);
+            if was != Some(shown) {
+                seen.changes.push(PropChange {
+                    index,
+                    d,
+                    was,
+                    now: shown,
+                    position: entity.position,
+                    own_dead: has_dead(&scene, index),
+                });
+            }
             match was.map(|was| change(was, shown)) {
                 Some(Change::Hit) => sparked.push(at(looks.hit, middle)),
                 Some(Change::Broke) => {
@@ -207,9 +253,6 @@ fn breaks(
                 }
                 _ => {}
             }
-            if state.state == look::DEAD && !has_dead(&scene, index) {
-                breaks.hidden.insert(index);
-            }
             if watched(&players, middle) {
                 smoulder(&mut breaks.smoulders, index, d, state.damage, now, || {
                     sparked.push(at(looks.smoulder, middle))
@@ -219,22 +262,6 @@ fn breaks(
     }
     if let Some(mut visuals) = visuals {
         visuals.0.extend(sparked);
-    }
-    let placed_root = |index: u32| {
-        let model = *scene.0.instance_models.get(&index)?;
-        scene_models
-            .iter()
-            .find(|(_, scene_model)| scene_model.index == model)
-            .map(|(root, _)| root)
-    };
-    for &index in &breaks.hidden {
-        let root = made
-            .as_ref()
-            .and_then(|made| made.prop_root(index))
-            .or_else(|| placed_root(index));
-        if let Some(mut shown) = root.and_then(|root| visibility.get_mut(root).ok()) {
-            *shown = Visibility::Hidden;
-        }
     }
 }
 
