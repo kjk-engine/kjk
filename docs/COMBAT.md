@@ -258,9 +258,11 @@ its way): it walks there and strikes a KOTOR attack of what it has in hand
 a round, swinging. A script's attack of a door or placeable
 (`ActionAttack` on an object, KOTOR's attack of one) strikes the same way,
 locked or not, with its `OnMeleeAttacked` on every blow, until it breaks;
-a player's too, once the player stands within `DOOR_REACH` of it (its
-legs are its seat's: the attack waits at the front of its queue,
-`SimWorld::assigned_strike`, and the playthrough harness walks it there).
+a player's too, once the player stands within a conversation's range of
+it, as far as the reply that told it may have been chosen from (its legs
+are its seat's, where KOTOR's walk in: the attack waits at the front of
+its queue, `SimWorld::assigned_strike`, and the playthrough harness walks
+it there).
 TSL's Peragus shift console, "[Destroy the console]", opens the
 dormitory door so. A broken door plays its model's `busted` where its
 `genericdoors.2da` row's `StaticAnim` names it (the executable's rule; no
