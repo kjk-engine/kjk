@@ -88,7 +88,7 @@ struct Asked {
 
 /// The marks' images, from the combat effects' textures (`install`).
 #[derive(Resource)]
-struct Looks {
+pub(crate) struct Looks {
     images: BTreeMap<&'static str, Handle<Image>>,
     /// Each stage's material, by its texture, made once.
     materials: BTreeMap<&'static str, Handle<GlowMaterial>>,
@@ -179,7 +179,7 @@ impl Looks {
 
     /// The mark's stages: its burn, alpha-blended, then its glow, added
     /// (`Glowing`).
-    fn stages(
+    pub(crate) fn stages(
         &mut self,
         materials: &mut Assets<GlowMaterial>,
     ) -> Vec<(Handle<GlowMaterial>, bool)> {
@@ -625,7 +625,7 @@ fn lay(
 /// (radians); `s_size` and `t_size` (metres) are half-widths: the mark
 /// spans twice each along its axis. A point offset along an axis by its
 /// half-width moves its coordinate by 0.5.
-fn mark_axes(ray: Vec3, theta: f32, (s_size, t_size): (f32, f32)) -> (Vec3, Vec3) {
+pub(crate) fn mark_axes(ray: Vec3, theta: f32, (s_size, t_size): (f32, f32)) -> (Vec3, Vec3) {
     let mut across = ray.cross(Vec3::Z);
     // A ray nearly straight up or down takes its side from +Y instead.
     if across.length_squared() < 0.1 {
@@ -647,7 +647,7 @@ fn mark_axes(ray: Vec3, theta: f32, (s_size, t_size): (f32, f32)) -> (Vec3, Vec3
 /// of the mark, or all three outside its depth along the ray; one that
 /// crosses an edge is kept whole. None when nothing is covered (or the
 /// mesh has no index list).
-fn gore(
+pub(crate) fn gore(
     mesh: &Mesh,
     at: &[Vec3],
     (hit, ray): (Vec3, Vec3),

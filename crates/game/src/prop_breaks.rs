@@ -3,7 +3,7 @@
 //!
 //! - a blow that tells plays the impact the bolt-miss path picks by surface
 //!   family (`shot_fx`): blaster sparks on metal, electronics and plastic,
-//!   the ground's splash on the rest;
+//!   the ground's splash on the rest, where it landed (`prop_looks`);
 //! - a prop that breaks (look `DEAD`) bursts at its middle, the burst sized
 //!   by its size (blaster sparks, a droid's explosion, a frag grenade's),
 //!   and sounds its material's `placeableobjsnds.2da` destroyed sound; one
@@ -92,6 +92,11 @@ fn looks(material: Material) -> Looks {
             destroyed,
         },
     }
+}
+
+/// The impact a blow on `material` plays (`visualeffects.2da` row).
+pub(crate) fn hit_row(material: Material) -> u16 {
+    looks(material).hit
 }
 
 /// The KOTOR sounds this plays, for the sound bank.
@@ -243,15 +248,11 @@ fn breaks(
                     own_dead: has_dead(&scene, index),
                 });
             }
-            match was.map(|was| change(was, shown)) {
-                Some(Change::Hit) => sparked.push(at(looks.hit, middle)),
-                Some(Change::Broke) => {
-                    sparked.push(at(looks.burst[d.size as usize], middle));
-                    let sound = format!("k1/{}", looks.destroyed);
-                    cues.0
-                        .push(Cue::at(sound, middle / asset_ja::UNIT, now as f32));
-                }
-                _ => {}
+            if was.map(|was| change(was, shown)) == Some(Change::Broke) {
+                sparked.push(at(looks.burst[d.size as usize], middle));
+                let sound = format!("k1/{}", looks.destroyed);
+                cues.0
+                    .push(Cue::at(sound, middle / asset_ja::UNIT, now as f32));
             }
             if watched(&players, middle) {
                 smoulder(&mut breaks.smoulders, index, d, state.damage, now, || {
