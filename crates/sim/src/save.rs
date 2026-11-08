@@ -171,7 +171,10 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 78: a pending effect's lasting part may be a blaster deflection change
 /// (`Modifies::BlasterDeflection`). Old saves: old saves read as they are: the
 /// new kind is a new index after the old, which no old save holds.
-pub const VERSION: u32 = 78 + crate::pending::SAVE;
+/// 79: the party table keeps what scripts made of a companion's body
+/// (`party::Kept::look`). Old saves: old saves read no body change on a kept
+/// companion: it comes back in its template's body, as it did.
+pub const VERSION: u32 = 79 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

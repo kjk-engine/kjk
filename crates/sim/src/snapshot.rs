@@ -235,7 +235,10 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 87: the tail carries solo mode (`solo`), for the HUD's solo toggle and the
 /// solo key. Old saves: old saves read `solo = false`; the scripts' party
 /// table, saved as before, sets it again on the first step.
-pub const VERSION: u32 = 87 + crate::pending::SNAPSHOT;
+/// 88: the story's progress shows the skill points each character left unspent
+/// (`Progress::unspent`). Old saves: old saves read none shown: the first step
+/// shows those the scripts' state kept.
+pub const VERSION: u32 = 88 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
