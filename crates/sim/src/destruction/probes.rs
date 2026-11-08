@@ -27,13 +27,13 @@ fn catalogue_probe() -> Result<String, String> {
         size: Size::Medium,
     };
     check(
-        k1 == 92
-            && tsl == 137
+        k1 == 90
+            && tsl == 134
             && invisible.is_none()
             && footlocker == Some(want_footlocker)
             && panel == Some(want_panel),
         format!(
-            "K1 {k1} rows (want 92), TSL {tsl} (want 137); k1/54 {invisible:?}, \
+            "K1 {k1} rows (want 90), TSL {tsl} (want 134); k1/54 {invisible:?}, \
              k1/39 {footlocker:?}, tsl/23 {panel:?}"
         ),
     )
@@ -131,10 +131,62 @@ fn placed_dead_probe() -> Result<String, String> {
     )
 }
 
+/// The owner's playtest classes: workbenches stay intact; desks, kiosks and
+/// lockers crumple; no electronic or large kind ever breaks.
+fn classes_revised_probe() -> Result<String, String> {
+    const INTACT: [(&str, u16); 5] = [
+        ("k1", 168),
+        ("k1", 169),
+        ("tsl", 168),
+        ("tsl", 169),
+        ("tsl", 336),
+    ];
+    const DAMAGE: [(&str, u16); 12] = [
+        ("k1", 27),
+        ("k1", 28),
+        ("k1", 59),
+        ("k1", 60),
+        ("k1", 61),
+        ("k1", 67),
+        ("tsl", 27),
+        ("tsl", 28),
+        ("tsl", 60),
+        ("tsl", 61),
+        ("tsl", 67),
+        ("tsl", 296),
+    ];
+    let not_intact: Vec<_> = INTACT
+        .iter()
+        .filter(|(game, row)| catalogue(game, *row).is_some())
+        .collect();
+    let not_damage: Vec<_> = DAMAGE
+        .iter()
+        .filter(|(game, row)| catalogue(game, *row).map(|d| d.class) != Some(Class::Damage))
+        .collect();
+    let big_breaks: Vec<(&str, u16)> = ["k1", "tsl"]
+        .into_iter()
+        .flat_map(|game| (0..=u16::MAX).map(move |row| (game, row)))
+        .filter(|(game, row)| {
+            catalogue(game, *row).is_some_and(|d| {
+                d.class == Class::Break
+                    && (d.material == Material::Electronic || d.size == Size::Large)
+            })
+        })
+        .collect();
+    check(
+        not_intact.is_empty() && not_damage.is_empty() && big_breaks.is_empty(),
+        format!(
+            "still destructible {not_intact:?}, not damage {not_damage:?}, \
+             electronic or large that break {big_breaks:?} (all want none)"
+        ),
+    )
+}
+
 /// The probes.
 pub fn probes() -> Checks {
     vec![
         ("destruction_catalogue", catalogue_probe()),
+        ("destruction_classes_revised", classes_revised_probe()),
         ("destruction_worth", worth_probe()),
         ("destruction_guards", guards_probe()),
         ("destruction_placed_dead", placed_dead_probe()),
