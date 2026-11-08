@@ -8,7 +8,7 @@
 //!   own stand on the HUD (`hud`), every other saber user's over its head
 //!   with the "Overhead duel bars" option, faded with distance
 //!   (`overhead`);
-//! - the unblockable warning (`warning`, the option on by default): a
+//! - the unblockable warning (`warning`, the option off by default): a
 //!   character whose swing playing cannot be blocked but by a perfect block
 //!   (`Duel::warn`) wears a red shell (`shell`, as the stealth field's),
 //!   never the player's own, nor one in stealth, nor during a conversation.

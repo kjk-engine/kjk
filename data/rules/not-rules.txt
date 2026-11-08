@@ -310,8 +310,6 @@ crates/sim/src/input.rs STIM  # bit flag: a command button
 crates/sim/src/input.rs USE  # bit flag: a command button
 crates/sim/src/input.rs USE_HELD  # bit flag: a command button
 crates/sim/src/input.rs WALKING  # bit flag: a command button
-crates/sim/src/input.rs BLOCK  # bit flag: a held duel bit (Command::holds)
-crates/sim/src/input.rs KICK  # bit flag: a held duel bit (Command::holds)
 crates/sim/src/install.rs APART  # arrival placement: the spacing of players' candidate spots
 crates/sim/src/install.rs ARRIVAL_SEARCH_M  # arrival placement: the walkmesh search's depth
 crates/sim/src/install.rs FLOOR_BELOW  # arrival placement: the floor search's depth

@@ -10,8 +10,10 @@
 //!   the powers; the block button holds its own poses.
 //!
 //! The rules are the session's (the host's), kept in the world and in its
-//! snapshots (`Snapshot::saber_rules`), so every seat and every save plays
-//! the same ones. Every number they play by is the rulebook's chapter
+//! snapshots (`Snapshot::saber_rules`), so every seat and every replay plays
+//! the same ones; a save loaded into play takes the host's setting
+//! (`game.saber_rules`) again, as the rules are the player's choice, not
+//! the story's. Every number they play by is the rulebook's chapter
 //! `duel` (`data/rules/duel.toml`).
 //!
 //! - `meter`: the meters, what moves cost, what gives back, the refill,

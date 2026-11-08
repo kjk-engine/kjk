@@ -576,8 +576,8 @@ pub struct DuelBars {
     pub stamina: Bar,
 }
 
-/// A bar: how full (0 to 1) and its colour, its alpha 0 while it flashes
-/// off.
+/// A bar: how full (0 to 1) and its colour, its alpha dimmed while it
+/// flashes off.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Bar {
     pub share: f32,

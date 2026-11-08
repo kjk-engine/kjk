@@ -170,7 +170,7 @@ enum Way {
 impl Move<'_, '_> {
     // --- Small helpers ------------------------------------------------------
 
-    fn attack_held(&self) -> bool {
+    pub(super) fn attack_held(&self) -> bool {
         self.cmd.buttons & buttons::ATTACK != 0
     }
 
@@ -302,7 +302,6 @@ impl Move<'_, '_> {
         let forced = arms.kit.forced_style(hand);
         let pair = forced == Some(Style::Dual);
 
-        Self::duel_broken(arms, forced);
         self.fit_style(arms, forced);
         self.style_button(arms, forced);
         if arms.rules.duel() {

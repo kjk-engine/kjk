@@ -475,14 +475,19 @@ impl Move<'_, '_> {
         {
             arms.fighter.saber.on = false;
         }
-        if arms.rules.duel() {
-            // Held only while the blade's step finds it may be
-            // (`saber::duel_block`).
-            let state = &mut arms.fighter.saber.duel;
-            state.block_held = false;
-            state.sprint = false;
-        }
+        // Held only while the blade's step finds it may be
+        // (`saber::duel_block`); never under JA, whose rules may have
+        // replaced a duel mode's since.
+        let state = &mut arms.fighter.saber.duel;
+        state.block_held = false;
+        state.sprint = false;
         if arms.fighter.force.hand_out(now) || self.hand_state(arms) {
+            // The keys still count while the hands are busy: a kick or an
+            // aimed block wants a fresh press once they are free.
+            let (kick, attack) = (self.cmd.holds & holds::KICK != 0, self.attack_held());
+            let state = &mut arms.fighter.saber.duel;
+            state.kick_held = kick;
+            state.aimed &= attack;
             return;
         }
         if arms.rules.duel() && self.duel_kick(arms) {

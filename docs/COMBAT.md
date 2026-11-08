@@ -1020,8 +1020,8 @@ A session plays its blades by JA's rules (above, the default) or by one of
 the two duel modes players know from Movie Duels, re-made from a behaviour
 spec in our own words ([`SABER-RULES.md`](SABER-RULES.md); its last section
 says what was built where). The host picks (`SimWorld::set_saber_rules`),
-the world and its saves keep it (`world::Rules`, `Snapshot::saber_rules`),
-and every number is the rulebook's chapter `duel` (`data/rules/duel.toml`,
+the world and its snapshots keep it (`world::Rules`, `Snapshot::saber_rules`;
+a save loaded into play takes the host's `game.saber_rules` again), and every number is the rulebook's chapter `duel` (`data/rules/duel.toml`,
 `docs/RULEBOOK.md`). Under JA none of it runs: every path is gated on
 `SaberRules::duel`.
 

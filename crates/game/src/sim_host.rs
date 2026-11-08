@@ -1403,8 +1403,8 @@ impl AutosaveDue {
     }
 }
 
-/// A perfect block's slow motion (`Slowed`): the player's new perfect
-/// block, or its foe's, slows the clock for the rule's time when on; an
+/// A perfect block's slow motion (`Slowed`): the player's own new perfect
+/// block slows the clock for the rule's time when on; an
 /// old one seen again, the option off or JA's rules do not.
 #[cfg(feature = "probes")]
 pub fn slow_motion_probes() -> sim::probe::Checks {

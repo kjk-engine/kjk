@@ -405,6 +405,11 @@ pub(super) fn move_actors(
         } else {
             command_for(&inputs.0, seat, &player.0, &fighting.0, clock.time_ms)
         };
+        // JA has no block or kick button: their bits are dropped, so a
+        // fighter's kept command is JA's own.
+        if !rules.0.duel() {
+            command.holds = 0;
+        }
         // A creature its appearance gives no movement (`moverate` NOMOVE,
         // both rates none: a turret) moves not at all, in a fight too (JA's
         // pace there let Telos's hidden turrets chase the Exile out of their

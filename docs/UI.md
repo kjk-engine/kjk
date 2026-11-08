@@ -678,8 +678,7 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   (`Duel::warn`) wears a red shell, as the stealth field's
   (`stealth_view::follow`), never the player's own, nor one in stealth,
   nor during the player's conversation. With "Perfect-block slow-mo"
-  on, in a game played alone, the player's perfect block, or its foe's,
-  slows the host's clock a moment (`sim_host::Slowed`, rulebook "Perfect-
+  on, in a game played alone, the player's own perfect block slows the host's clock a moment (`sim_host::Slowed`, rulebook "Perfect-
   Block Slow Motion"); a session of more than one player never slows.
 - a script's message box of pages (`ui::screens::message::Pages`, the
   `confirm` layout, no cancel, OK turning the page): KOTOR's tutorial

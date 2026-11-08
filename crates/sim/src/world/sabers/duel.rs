@@ -170,10 +170,12 @@ impl Step<'_> {
             meter::refill(rules, &mut man.f, pool, rest, now);
             let saber = &mut man.f.saber;
             saber.duel.warn = duel::unblockable(saber.current_move);
-            // A broken staff is a new weapon once put away and lit again.
+            // A broken staff is a new weapon once put away and lit again:
+            // both blades back, the style fitted to them on the next step.
             if !saber.on && saber.duel.broken {
                 saber.duel.broken = false;
                 saber.duel.wear = 0;
+                saber.second_off = false;
             }
             let worn = saber.duel.wear >= wear::LEVELS[1];
             if worn && !saber.duel.broken && !saber.current_move.attack() {
