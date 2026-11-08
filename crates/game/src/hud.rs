@@ -784,12 +784,14 @@ fn show(
             .and_then(|(module, assets)| {
                 crate::map_view::minimap(assets, map, module, snapshot, entity)
             });
-        facts.0.insert(
-            "minimap".into(),
-            minimap.as_ref().map_or(serde_json::Value::Null, |view| {
-                serde_json::json!({"picture": view.picture, "at": view.at, "spin": view.spin})
-            }),
-        );
+        if facts.wanted() {
+            facts.0.insert(
+                "minimap".into(),
+                minimap.as_ref().map_or(serde_json::Value::Null, |view| {
+                    serde_json::json!({"picture": view.picture, "at": view.at, "spin": view.spin})
+                }),
+            );
+        }
         // A companion played: its template's portrait.
         let template = swap
             .as_ref()
@@ -823,16 +825,18 @@ fn show(
             )
         });
     }
-    facts.0.insert(
-        "hud".into(),
-        serde_json::json!({
-            "hp": health, "bar": fighter.fp as f32 / pool,
-            "power": power, "powers": choices, "shield": shield, "items": carried,
-            "icons": hud.icons.len(),
-            "solo": snapshot.solo,
-            "busy": (0..snapshot.seats())
-                .map(|seat| busy(snapshot, sim::Seat(seat)).map(|busy| format!("{busy:?}")))
-                .collect::<Vec<_>>(),
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "hud".into(),
+            serde_json::json!({
+                "hp": health, "bar": fighter.fp as f32 / pool,
+                "power": power, "powers": choices, "shield": shield, "items": carried,
+                "icons": hud.icons.len(),
+                "solo": snapshot.solo,
+                "busy": (0..snapshot.seats())
+                    .map(|seat| busy(snapshot, sim::Seat(seat)).map(|busy| format!("{busy:?}")))
+                    .collect::<Vec<_>>(),
+            }),
+        );
+    }
 }

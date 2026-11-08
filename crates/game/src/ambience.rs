@@ -763,32 +763,34 @@ fn play(
         }
         ambience.played = ambience.playing.clone();
     }
-    facts.0.insert(
-        "ambience".into(),
-        serde_json::json!({
-            "area": module.area,
-            "silent": silent,
-            "playing": ambience.playing,
-            "fighting": ambience.fighting,
-            "battle": {
-                "on": ambience.fight.on,
-                "stirred": ambience.fight.stirred,
-            },
-            "clips": ambience.clips.len(),
-            "streams": ambience
-                .beds
-                .iter()
-                .map(|(name, stream)| (name, stream.bytes()))
-                .collect::<BTreeMap<_, _>>(),
-            "failed": ambience.failed,
-            "objects": ambience.turns.len(),
-            "cued": ambience.cued,
-            "scripted": ambience.scripted,
-            "steps": ambience.steps,
-            "moves": ambience.moves,
-            "rolled": ambience.rolled,
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "ambience".into(),
+            serde_json::json!({
+                "area": module.area,
+                "silent": silent,
+                "playing": ambience.playing,
+                "fighting": ambience.fighting,
+                "battle": {
+                    "on": ambience.fight.on,
+                    "stirred": ambience.fight.stirred,
+                },
+                "clips": ambience.clips.len(),
+                "streams": ambience
+                    .beds
+                    .iter()
+                    .map(|(name, stream)| (name, stream.bytes()))
+                    .collect::<BTreeMap<_, _>>(),
+                "failed": ambience.failed,
+                "objects": ambience.turns.len(),
+                "cued": ambience.cued,
+                "scripted": ambience.scripted,
+                "steps": ambience.steps,
+                "moves": ambience.moves,
+                "rolled": ambience.rolled,
+            }),
+        );
+    }
 }
 
 /// The music, the battle music and its stinger, and the ambience.

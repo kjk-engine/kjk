@@ -71,6 +71,40 @@ since the process began (loaded, app built, world up, scene spawned,
 pipelines warmed). The report tables each one's median, fastest and
 slowest. A phase is added with `launch_times::timed` or `record`.
 
+## Frame rate: `kjk bench`
+
+```bash
+kjk bench                                   # every scene, the default settings
+kjk bench --preset low --label mine         # MSAA, shadows and soft shadows off
+kjk bench --scenes cantina,harbinger --seconds 10
+kjk bench --exe path/to/old/kjk.exe --label v0.10.0   # another build, run from here
+kjk bench --scenes cantina --trace          # also keep each scene's trace.json
+```
+
+Each scene (`bench::SCENES`: a stage or a chain save, copied to
+`kjk-artifacts/bench/saves`, and a script) opens in a 1920x1080 window
+with v-sync off, movies and sound off, its settings a preset over the
+defaults. After the warm-up it dumps every few seconds; the dumps' vitals
+give the frame times (mean, p50, p95, p99), the CPU of the main app's
+schedules and of the render schedule per frame (the render graph's share
+apart), the views and the main passes' draws, and the frames counted
+between the first and last dump give the mean (so an older `kjk` that
+dumps no CPU is measured alike). A table, a line of JSON per scene in
+`kjk-artifacts/bench/LABEL/results.jsonl`, and each scene's last frame
+beside it; the run folders are deleted. A frame takes about the longer of
+the two threads plus the extract (which runs on the main thread while the
+render thread waits).
+
+Two more scenes, Citadel Station (`telos`) and Kashyyyk's Great Walkway
+(`kashyyyk`), run only when named (`--scenes telos,kashyyyk`): a
+profile-guided build is trained on the others (docs/RELEASE.md), and these
+check that its gain holds beyond them.
+
+Two switches for measuring against: `KJK_EXEC` names the schedules run
+on one thread (`main,render,graph` by default; `none`: Bevy's
+multithreaded executor everywhere), and `KJK_PERF=1` keeps Bevy's spans
+(which cost about a quarter of the frame rate).
+
 ## The whole-game sweep
 
 ```bash

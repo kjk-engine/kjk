@@ -587,7 +587,9 @@ fn show(
                 .iter()
                 .map(|(name, npc)| [text(name), text(npc)])
                 .collect();
-            facts.0.insert("requests".into(), serde_json::json!(asks));
+            if facts.wanted() {
+                facts.0.insert("requests".into(), serde_json::json!(asks));
+            }
         }
         None => {
             facts.0.remove("requests");

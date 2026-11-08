@@ -1498,51 +1498,55 @@ fn draw(
     }
     let frames = view.frames.len().max(1) as f32;
     let p = at.state;
-    facts.0.insert(
-        "play".into(),
-        serde_json::json!({
-            "render_ms": ms,
-            "origin_units": at.origin,
-            "velocity": p.velocity,
-            "view": at.view,
-            "ground": p.ground.is_some(),
-            "ducked": p.ducked(),
-            "legs": p.legs.anim.name(),
-            "torso": p.torso.anim.name(),
-            "legs_yaw": view.me.and_then(|me| view.cast.figure(me)?.yaw()),
-            "camera_units": view.camera.location,
-            "camera_target_units": view.camera.target,
-            "soles_m": soles.to_array(),
-            "watching": view.watched != view.me,
-            "follows": view.watched.map(|id| id.0),
-            "remote_predicted": view.own.active
-                && cast::remote_in(&view.own.history, view.cast.seat, ms + view.own.shift).is_some(),
-            "own_rewrites": view.own.rewrites,
-            "own_rewritten": view.own.rewritten,
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "play".into(),
+            serde_json::json!({
+                "render_ms": ms,
+                "origin_units": at.origin,
+                "velocity": p.velocity,
+                "view": at.view,
+                "ground": p.ground.is_some(),
+                "ducked": p.ducked(),
+                "legs": p.legs.anim.name(),
+                "torso": p.torso.anim.name(),
+                "legs_yaw": view.me.and_then(|me| view.cast.figure(me)?.yaw()),
+                "camera_units": view.camera.location,
+                "camera_target_units": view.camera.target,
+                "soles_m": soles.to_array(),
+                "watching": view.watched != view.me,
+                "follows": view.watched.map(|id| id.0),
+                "remote_predicted": view.own.active
+                    && cast::remote_in(&view.own.history, view.cast.seat, ms + view.own.shift).is_some(),
+                "own_rewrites": view.own.rewrites,
+                "own_rewritten": view.own.rewritten,
+            }),
+        );
+    }
     let (weapons, blades_lit) = view.cast.arms_drawn();
-    facts.0.insert(
-        "characters".into(),
-        serde_json::json!({
-            "drawn": view.cast.drawn(),
-            "seat_bodies_shown": seat_bodies,
-            "weapons_shown": weapons,
-            "blades_lit": blades_lit,
-            "posed": view.cast.posed,
-            "pose_ms": view.cast.pose_ms,
-            "arms_ms": view.cast.arms_ms,
-            "ragdolls": view.cast.ragdolls.counts(),
-            "lying": fading.lying(),
-            "ragdoll_ms": view.cast.ragdolls.step_ms,
-            "falls": dump_due.0.then(|| view.cast.ragdolls.facts()),
-            "frame_ms_mean": view.frames.iter().sum::<f32>() / frames,
-            "frame_ms_worst": view.frames.iter().copied().fold(0.0, f32::max),
-            "frames": view.frames.len(),
-            // Only for a dump: one row per character.
-            "roster": dump_due.0.then(|| view.cast.roster(&view.history, ms, &view.level)),
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "characters".into(),
+            serde_json::json!({
+                "drawn": view.cast.drawn(),
+                "seat_bodies_shown": seat_bodies,
+                "weapons_shown": weapons,
+                "blades_lit": blades_lit,
+                "posed": view.cast.posed,
+                "pose_ms": view.cast.pose_ms,
+                "arms_ms": view.cast.arms_ms,
+                "ragdolls": view.cast.ragdolls.counts(),
+                "lying": fading.lying(),
+                "ragdoll_ms": view.cast.ragdolls.step_ms,
+                "falls": dump_due.0.then(|| view.cast.ragdolls.facts()),
+                "frame_ms_mean": view.frames.iter().sum::<f32>() / frames,
+                "frame_ms_worst": view.frames.iter().copied().fold(0.0, f32::max),
+                "frames": view.frames.len(),
+                // Only for a dump: one row per character.
+                "roster": dump_due.0.then(|| view.cast.roster(&view.history, ms, &view.level)),
+            }),
+        );
+    }
 }
 
 /// Hands `combat_fx` the own shots and bolts found since the last frame,

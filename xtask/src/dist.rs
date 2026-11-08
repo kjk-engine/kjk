@@ -16,7 +16,8 @@
 //! macOS, with its own `THIRD-PARTY-LICENSES-save-editor.html`.
 //!
 //! Everything goes to `target/packages/`. `--skip-build` packs the
-//! programs the last run built.
+//! programs the last run built; `--pgo <profile>` builds kjk with a profile
+//! `cargo xtask pgo` made (docs/RELEASE.md, "A profile-guided build").
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -94,34 +95,48 @@ built from (THIRD-PARTY-LICENSES-save-editor.html the save editor's).
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let mut skip_build = false;
-    for arg in args {
+    let mut profile: Option<PathBuf> = None;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
         match arg.as_str() {
             "--skip-build" => skip_build = true,
-            other => return Err(format!("dist: unknown option {other} (--skip-build)")),
+            "--pgo" => {
+                let path = args
+                    .next()
+                    .ok_or("dist: --pgo takes a profile (cargo xtask pgo)")?;
+                let path = std::path::absolute(path).map_err(|error| format!("dist: {error}"))?;
+                if !path.is_file() {
+                    return Err(format!("dist: {} is not a profile", path.display()));
+                }
+                profile = Some(path);
+            }
+            other => {
+                return Err(format!(
+                    "dist: unknown option {other} (--skip-build, --pgo <profile>)"
+                ));
+            }
         }
     }
     let root = repo_root();
     if !skip_build {
-        // The sources' paths the program carries (in its panics) name no
-        // machine: the home folder (cargo's registry, the toolchain) as `~`,
-        // the checkout as `.`; the later, longer prefix wins where both fit.
-        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
-        let remaps: Vec<String> = home
-            .map(PathBuf::from)
-            .into_iter()
-            .map(|home| (home, "~"))
-            .chain([(root.clone(), ".")])
-            .map(|(from, to)| format!("--remap-path-prefix={}={to}", from.display()))
-            .collect();
+        let remaps = remaps(&root);
         // One cargo run each: the editor's crates and features never touch
         // kjk's build.
         for package in [
             &["-p", "launcher", "--no-default-features"][..],
             &["-p", "save_editor"],
         ] {
+            // kjk laid out by where a profile says its time goes (`cargo
+            // xtask pgo`); a function changed since the profile was made is
+            // built as without one, unwarned.
+            let mut flags = remaps.clone();
+            if let Some(profile) = profile.as_ref().filter(|_| package[1] == "launcher") {
+                flags.push(format!("-Cprofile-use={}", profile.display()));
+                flags.push("-Cllvm-args=-no-pgo-warn-mismatch".to_string());
+            }
             let status = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
                 .current_dir(&root)
-                .env("CARGO_ENCODED_RUSTFLAGS", remaps.join("\u{1f}"))
+                .env("CARGO_ENCODED_RUSTFLAGS", flags.join("\u{1f}"))
                 .args(["build", "--profile", "dist"])
                 .args(package)
                 .status()
@@ -279,7 +294,20 @@ const EDITOR: Program = Program {
     category: "public.app-category.utilities",
 };
 
-fn target_dir(root: &Path) -> PathBuf {
+/// The sources' paths the program carries (in its panics) name no machine:
+/// the home folder (cargo's registry, the toolchain) as `~`, the checkout as
+/// `.`; the later, longer prefix wins where both fit.
+pub(crate) fn remaps(root: &Path) -> Vec<String> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+    home.map(PathBuf::from)
+        .into_iter()
+        .map(|home| (home, "~"))
+        .chain([(root.to_path_buf(), ".")])
+        .map(|(from, to)| format!("--remap-path-prefix={}={to}", from.display()))
+        .collect()
+}
+
+pub(crate) fn target_dir(root: &Path) -> PathBuf {
     std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), PathBuf::from)
 }
 
