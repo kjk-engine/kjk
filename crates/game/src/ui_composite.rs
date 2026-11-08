@@ -60,7 +60,12 @@ impl Plugin for UiCompositePlugin {
         render_app
             .add_systems(RenderStartup, init)
             .add_systems(Render, prepare.in_set(RenderSystems::Prepare))
-            .add_systems(Core3d, composite.in_set(Core3dSystems::PostProcess));
+            .add_systems(
+                Core3d,
+                composite
+                    .in_set(Core3dSystems::PostProcess)
+                    .after(crate::video_effect::VideoEffectPass),
+            );
     }
 }
 

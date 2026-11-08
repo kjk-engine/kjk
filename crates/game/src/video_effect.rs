@@ -268,9 +268,22 @@ impl Plugin for VideoEffectPlugin {
         render_app
             .add_systems(RenderStartup, init)
             .add_systems(Render, prepare.in_set(RenderSystems::Prepare))
-            .add_systems(Core3d, pass.in_set(Core3dSystems::PostProcess));
+            .add_systems(
+                Core3d,
+                pass.in_set(Core3dSystems::PostProcess)
+                    .in_set(VideoEffectPass),
+            );
     }
 }
+
+/// The pass grading the world's frame. The screens' composite runs after
+/// it: both post-process the same camera when the scene's hosts the
+/// composite, and the render schedule's executor ran the two in either
+/// order frame to frame. Run out of order, about one frame in seven lost the
+/// screens and showed the graded world bare: the security camera's
+/// letterbox and the terminals flickered.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct VideoEffectPass;
 
 /// Puts the presented row's grade on the last camera drawing the world, the
 /// fade's while it draws (a grade on the scene's camera is lost under it, and
