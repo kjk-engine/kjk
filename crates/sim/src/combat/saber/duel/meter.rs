@@ -83,11 +83,12 @@ pub fn change(rules: SaberRules, f: &mut Fighter, pool: u16, points: i32) {
     }
 }
 
-/// What a blocker pays for `cost` under `rules`: a master under MDA its
-/// share (`master::SABER_SHARE`, `master::BOLT_SHARE` against a bolt),
-/// rounded, at least a point.
-pub fn price(rules: SaberRules, is_master: bool, cost: i32, bolt: bool) -> i32 {
-    if cost <= 0 || !rules.own_meter() || !is_master {
+/// What a blocker at `mastery` (`duel::mastery`) pays for `cost` under
+/// `rules`: under MDA its way toward a master's share (`master::SABER_SHARE`,
+/// `master::BOLT_SHARE` against a bolt; `duel::toward_master`), rounded, at
+/// least a point.
+pub fn price(rules: SaberRules, mastery: u8, cost: i32, bolt: bool) -> i32 {
+    if cost <= 0 || !rules.own_meter() {
         return cost;
     }
     let share = if bolt {
@@ -95,6 +96,10 @@ pub fn price(rules: SaberRules, is_master: bool, cost: i32, bolt: bool) -> i32 {
     } else {
         master::SABER_SHARE
     };
+    let share = super::toward_master(mastery, i64::from(share)) as i32;
+    if share >= 100 {
+        return cost;
+    }
     ((cost * share + 50) / 100).max(1)
 }
 
@@ -171,7 +176,8 @@ pub fn settle(rules: SaberRules, f: &mut Fighter, pool: u16) {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Rest {
     pub player: bool,
-    pub master: bool,
+    /// How far toward a master it is (`duel::mastery`).
+    pub mastery: u8,
     /// Its blade lit in hand.
     pub lit: bool,
     pub on_ground: bool,
@@ -275,9 +281,8 @@ fn points(rules: SaberRules, f: &mut Fighter, pool: u16, rest: Rest, calm: bool,
             wait += refill::SLOW_MS;
         }
     }
-    if rest.master {
-        wait = wait * master::WAIT_SHARE / 100;
-    }
+    let share = super::toward_master(rest.mastery, master::WAIT_SHARE as i64);
+    wait = wait * share as u64 / 100;
     duel.refill_at = now + wait;
 }
 

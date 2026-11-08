@@ -51,8 +51,8 @@ pub(super) const SKILLS: [Skill; 3] = [
         block: 0.45,
         perfect: 0.3,
         timing: (40.0, 120.0),
-        discipline: 0.4,
-        aggression: 0.5,
+        discipline: 0.3,
+        aggression: 0.4,
         kick: 0.02,
         mishap_cap: 16,
     },
@@ -62,8 +62,8 @@ pub(super) const SKILLS: [Skill; 3] = [
         block: 0.7,
         perfect: 0.6,
         timing: (20.0, 70.0),
-        discipline: 0.75,
-        aggression: 0.4,
+        discipline: 0.5,
+        aggression: 0.55,
         kick: 0.05,
         mishap_cap: 11,
     },
@@ -73,8 +73,8 @@ pub(super) const SKILLS: [Skill; 3] = [
         block: 0.92,
         perfect: 0.9,
         timing: (0.0, 35.0),
-        discipline: 0.95,
-        aggression: 0.45,
+        discipline: 0.6,
+        aggression: 0.7,
         kick: 0.08,
         mishap_cap: 8,
     },
@@ -330,16 +330,16 @@ impl Bot {
     fn decide(&mut self, now: u64, me: &Fighter, them: &Fighter, apart: f32, forward: i8) {
         let mv = them.saber.current_move;
         // An opening: the foe down or reeling (bounced, broken, knocked
-        // away); under JA's rules also recovering from its swing, the
-        // moments after it seen (a duel mode's creature guards then too);
-        // or a foe that has not swung for a while (no fight waits for ever).
+        // away), recovering from its swing (the moments after it seen: a
+        // guard then holds only on KOTOR's miss chance, as in every rule
+        // set), or a foe that has not swung for a while (no fight waits for
+        // ever).
         let duel = self.rules.duel();
         let reeling = mv.bounce() || mv.broken() || mv.knockaway();
-        let recovering = !duel
-            && (mv.ret()
-                || self
-                    .opening
-                    .is_some_and(|at| now >= at && now < at + OPENING_MS));
+        let recovering = mv.ret()
+            || self
+                .opening
+                .is_some_and(|at| now >= at && now < at + OPENING_MS);
         let open = them.saber.floored()
             || reeling
             || recovering

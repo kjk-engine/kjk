@@ -215,7 +215,7 @@ see = "sim::combat::saber::duel::meter::started"
 
 [master]
 title = "Masters"
-summary = """KOTOR's masters of the blade: a character with Master Jedi Defense, or of level {duel.master.level} or more. Under MDA they pay less for their blocks and get their block points back sooner."""
+summary = """KOTOR's masters of the blade: a character with Master Jedi Defense, or of level {duel.master.level} or more. Under MDA they pay less for their blocks and get their block points back sooner. A Jedi on the way takes part of it: nothing at Jedi Defense, half at Advanced Jedi Defense."""
 
 [master.defense]
 name = "Master's Defense"
@@ -557,7 +557,7 @@ see = "sim::combat::saber::duel::shots::cost"
 
 [block]
 title = "Blocks"
-summary = "What a block of a blade costs and plays, by how the blocker blocks."
+summary = "What a block of a blade costs and plays, by how the blocker blocks. A creature parries only the blows KOTOR's attack roll misses (the attacker's attack bonus against its defence, as under JA); a player blocks by its button."
 
 [block.low]
 name = "Low Meter"
@@ -1034,7 +1034,7 @@ see = "sim::combat::saber::duel::play_speed"
 
 [bolts]
 title = "Bolts"
-summary = "Under the duel modes a player turns bolts only while holding block, paying for each; a creature turns them whenever its saber is lit."
+summary = "Under the duel modes a player turns bolts only while holding block, paying for each; a creature turns them as under JA (its Jedi Defense and Deflect, facing them, a pause between bolts below Master Jedi Defense), paying for each."
 
 [bolts.base]
 name = "Deflection Cost"

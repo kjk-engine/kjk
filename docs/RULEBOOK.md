@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `03db003293357b37`.
+Edition `b2a3a4db99aa76f6`.
 
 ## Contents
 
@@ -9743,7 +9743,7 @@ Under MD a creature starting a kick pays 2 points from its Force pool.
 
 ### <a id="duel-master"></a>Masters
 
-KOTOR's masters of the blade: a character with Master Jedi Defense, or of level 20 or more. Under MDA they pay less for their blocks and get their block points back sooner.
+KOTOR's masters of the blade: a character with Master Jedi Defense, or of level 20 or more. Under MDA they pay less for their blocks and get their block points back sooner. A Jedi on the way takes part of it: nothing at Jedi Defense, half at Advanced Jedi Defense.
 
 <a id="duel-master-defense"></a>**Master's Defense** = **3** · `duel.master.defense`
 
@@ -9985,7 +9985,7 @@ Block and attack held together 3000 ms or more make turning bolts cost twice as 
 
 ### <a id="duel-block"></a>Blocks
 
-What a block of a blade costs and plays, by how the blocker blocks.
+What a block of a blade costs and plays, by how the blocker blocks. A creature parries only the blows KOTOR's attack roll misses (the attacker's attack bonus against its defence, as under JA); a player blocks by its button.
 
 <a id="duel-block-low"></a>**Low Meter** = **20 points** · `duel.block.low`
 
@@ -10341,7 +10341,7 @@ With the option, a bounce plays at these paces by why it bounced: blocked ×0.85
 
 ### <a id="duel-bolts"></a>Bolts
 
-Under the duel modes a player turns bolts only while holding block, paying for each; a creature turns them whenever its saber is lit.
+Under the duel modes a player turns bolts only while holding block, paying for each; a creature turns them as under JA (its Jedi Defense and Deflect, facing them, a pause between bolts below Master Jedi Defense), paying for each.
 
 <a id="duel-bolts-base"></a>**Deflection Cost** = **1 points** · `duel.bolts.base`
 

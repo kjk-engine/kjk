@@ -60,7 +60,8 @@ pub enum Took {
 #[derive(Debug, Clone, Copy)]
 pub struct Side {
     pub npc: bool,
-    pub master: bool,
+    /// How far toward a master it is (`duel::mastery`).
+    pub mastery: u8,
     pub running: bool,
     /// The meter (`meter::meter`) and the block points, both in points.
     pub meter: i32,
@@ -215,7 +216,7 @@ impl Deal<'_> {
 
     /// The blocker pays `cost` (its master's price).
     fn blocker_pays(&mut self, cost: i32) {
-        self.x.meter[1] -= super::meter::price(self.rules, self.d.master, cost, false);
+        self.x.meter[1] -= super::meter::price(self.rules, self.d.mastery, cost, false);
     }
 
     /// A perfect block's rewards (`docs/SABER-RULES.md` 3), for a blow
@@ -281,8 +282,9 @@ impl Deal<'_> {
                     self.x.took[loser] = Took::Disarm;
                 } else {
                     self.x.took[loser] = Took::Stagger;
-                    let master = [a.master, d.master][loser] && loser == 1;
-                    let cost = super::meter::price(self.rules, master, block::KATA, false);
+                    // A blocker's price (the attacker pays it whole).
+                    let mastery = if loser == 1 { d.mastery } else { 0 };
+                    let cost = super::meter::price(self.rules, mastery, block::KATA, false);
                     self.x.points[loser] -= cost;
                 }
                 self.x.stopped = true;

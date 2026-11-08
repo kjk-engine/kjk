@@ -455,7 +455,26 @@ pub fn heavy(style: Style) -> bool {
 /// A master of the blade (the spec's master classes, KOTOR's own): Master
 /// Jedi Defense (`master::DEFENSE`), or `master::LEVEL` levels.
 pub fn master(kit: &Kit, level: u8) -> bool {
-    kit.jedi_defense >= master::DEFENSE || level >= master::LEVEL
+    mastery(kit, level) >= master::DEFENSE
+}
+
+/// How far toward a master `kit`'s holder of `level` levels is: its Jedi
+/// Defense tier (0 to `master::DEFENSE`), the top from `master::LEVEL`.
+pub fn mastery(kit: &Kit, level: u8) -> u8 {
+    if level >= master::LEVEL {
+        master::DEFENSE
+    } else {
+        kit.jedi_defense.min(master::DEFENSE)
+    }
+}
+
+/// The share (percent) a holder at `mastery` pays or waits of the usual,
+/// where a master's is `share`: all of it at the first Jedi Defense tier,
+/// the master's at the top, evenly between.
+pub fn toward_master(mastery: u8, share: i64) -> i64 {
+    let steps = i64::from(mastery.saturating_sub(1));
+    let top = i64::from(master::DEFENSE.saturating_sub(1)).max(1);
+    100 - (100 - share) * steps / top
 }
 
 /// How long the perfect window stays open at the duel's difficulty.

@@ -93,6 +93,10 @@ impl Man {
         duel::master(&self.kit, self.sheet.level)
     }
 
+    fn mastery(&self) -> u8 {
+        duel::mastery(&self.kit, self.sheet.level)
+    }
+
     fn running(&self) -> bool {
         motion::anim::is_run(self.ps.legs.anim)
     }
@@ -147,7 +151,7 @@ impl Step<'_> {
             let mv = saber.current_move;
             let rest = meter::Rest {
                 player: man.avatar,
-                master: man.is_master(),
+                mastery: man.mastery(),
                 lit: man.saber_out(),
                 on_ground: man.ps.ground.is_some(),
                 running: man.running(),
@@ -256,7 +260,7 @@ impl Step<'_> {
         let state = &man.f.saber.duel;
         Side {
             npc: !man.avatar,
-            master: man.is_master(),
+            mastery: man.mastery(),
             running: man.running(),
             meter: man.meter(self.rules),
             points: i32::from(state.points),
@@ -284,7 +288,13 @@ impl Step<'_> {
             return turned;
         }
         let from = self.men[a].ps.origin;
-        let guard = self.duel_guard(d, from);
+        // A creature parries what KOTOR's attack roll misses (`misses`),
+        // as under JA's rules: the sheets decide whether its guard holds,
+        // the duel how the parry plays and what it costs.
+        let guard = match self.duel_guard(d, from) {
+            Guard::Npc if !self.misses(a, d) => Guard::None,
+            guard => guard,
+        };
         let stops = (met || guard != Guard::None) && self.duel_meet(a, d, point, met, guard);
         let swing = &mut self.men[a].f.swing;
         if stops {
@@ -693,7 +703,8 @@ pub(in crate::world) fn bolt_block(
     let pool = kit.pool;
     let state = fighter.saber.duel;
     let current = fighter.saber.current_move;
-    let is_master = duel::master(&kit, sheet.level);
+    let mastery = duel::mastery(&kit, sheet.level);
+    let is_master = mastery >= rules::duel::master::DEFENSE;
     let running = motion::anim::is_run(ps.legs.anim);
     let moving = math::flat_length(ps.velocity) > 0.0;
     let blocker = shots::Blocker {
@@ -708,7 +719,7 @@ pub(in crate::world) fn bolt_block(
         held_long: state.aimed && now >= state.aimed_at + perfect::HELD_LONG_MS,
     };
     let aimed = player && state.aimed;
-    let cost = meter::price(rules, is_master, shots::cost(&blocker, aimed), true);
+    let cost = meter::price(rules, mastery, shots::cost(&blocker, aimed), true);
     let left = meter::meter(rules, fighter, pool);
     let steady = !(current.broken() || current.kick() || fighter.saber.floored())
         && !(running && blocker.speeding);

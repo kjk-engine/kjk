@@ -1785,21 +1785,6 @@ pub(super) fn bolt_block(
     (now, tick): (u64, u64),
     rng: &mut SimRng,
 ) -> Option<BoltFate> {
-    if rules.duel() {
-        return duel::bolt_block(
-            rules,
-            player,
-            fighter,
-            ps,
-            sheet,
-            bolt,
-            at,
-            on_blade,
-            shooter,
-            (now, tick),
-            rng,
-        );
-    }
     let kit = Kit::of(sheet);
     let lightsaber = kit.blade(fighter.hand).is_some_and(|blade| blade.saber);
     if !bolt.blockable
@@ -1812,6 +1797,7 @@ pub(super) fn bolt_block(
     }
     let blade = kit.blade(fighter.hand)?;
     let level = defence::bolt_level(kit.defence(blade), held(sheet, fighter).deflect);
+    let now_level = defence::bolt_level_now(ps, fighter.last_command.forward < 0, level);
     let guard = Guard {
         saber: &fighter.saber,
         ps,
@@ -1820,8 +1806,33 @@ pub(super) fn bolt_block(
         attack_held: fighter.last_command.buttons & buttons::ATTACK != 0,
         hand_out: fighter.force.hand_out(now),
     };
-    let now_level = defence::bolt_level_now(ps, fighter.last_command.forward < 0, level);
-    if !on_blade && (now_level == 0 || !defence::can_block(&guard, at, Against::Bolt, now)) {
+    let turns = on_blade || (now_level > 0 && defence::can_block(&guard, at, Against::Bolt, now));
+    if rules.duel() {
+        // A creature turns a bolt as under JA's rules (its Jedi Defense and
+        // Deflect, its arc, its pause between bolts), the duel deciding what
+        // it costs, where it goes and the pose; a player by its button.
+        if !player && !turns {
+            return None;
+        }
+        let fate = duel::bolt_block(
+            rules,
+            player,
+            fighter,
+            ps,
+            sheet,
+            bolt,
+            at,
+            on_blade,
+            shooter,
+            (now, tick),
+            rng,
+        );
+        if !player && fate.is_some() {
+            fighter.saber.bolt_block_until = defence::cooldown(now_level, now);
+        }
+        return fate;
+    }
+    if !turns {
         return None;
     }
     let away = shooter.unwrap_or_else(|| math::sub(math::scale(at, 2.0), ps.origin));
