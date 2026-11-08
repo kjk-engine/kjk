@@ -2980,12 +2980,16 @@ impl Step<'_> {
                     // it locked or not and raises its `OnMeleeAttacked`),
                     // until it breaks or is gone. A creature walks up to it;
                     // a player's legs are its seat's, so the player strikes
-                    // once it stands within reach, the attack kept at the
+                    // once it stands within a conversation's range, as far
+                    // as the reply that told it may have been chosen from
+                    // (where KOTOR's Exile walks in), the attack kept at the
                     // front of its queue meanwhile (`SimWorld::assigned_strike`).
                     // TSL's Peragus shift console, "[Destroy the console]",
                     // has the Exile attack it; its `OnMeleeAttacked` opens
                     // the dormitory door. (Dropped for a player before, the
-                    // door stayed shut.)
+                    // door stayed shut; then struck only within a door's
+                    // reach of the console's invisible twin, so a player who
+                    // had talked from farther stood there and nothing broke.)
                     &Action::Attack { target, .. }
                         if self.view.thing(target).is_some_and(Thing::struck_as_object) =>
                     {
@@ -2995,7 +2999,9 @@ impl Step<'_> {
                                 self.attacking(id, None);
                             }
                             let near = match self.view.place(Target::Object(target)) {
-                                Some((at, _)) if player => flat(thing.position, at) <= DOOR_REACH,
+                                Some((at, _)) if player => {
+                                    flat(thing.position, at) <= CONVERSATION_RANGE
+                                }
                                 Some(_) => self.within_reach(id, &thing, false, target, |_| {}),
                                 None => false,
                             };
