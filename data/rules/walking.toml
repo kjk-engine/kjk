@@ -133,8 +133,13 @@ title = "Movement Speed"
 summary = """
 Outside combat, a character walks and runs at its own speeds, raised or
 lowered by movement speed effects from {walking.pace.least_multiplier:bare} to
-{walking.pace.most_multiplier:bare} times normal. A character leaving
-combat slows to those speeds over {walking.pace.ease_ms:s}.
+{walking.pace.most_multiplier:bare} times normal. A creature walks and runs
+at its movement rate's speeds (`creaturespeed.2da`), a player's character
+at the `PLAYER` row's, as KOTOR moves every character a script walks. A
+character its player walks, or one sneaking, walks at its body's own walk
+instead (`appearance.2da`'s `driveanimwalk`), as KOTOR walks the character
+its player drives. A character leaving combat slows to those speeds over
+{walking.pace.ease_ms:s}.
 """
 
 [pace.ease_ms]
@@ -153,7 +158,7 @@ value = 0.125
 unit = "×"
 range = [0.0, 1.0]
 summary = "Effects and powers can slow a character's walking and running to no less than {walking.pace.least_multiplier:bare} times normal."
-source = "ours [verify against KOTOR's executable]"
+source = "TSL's Mac executable, 2026-11-07"
 see = "sim::walk::kotor_speed"
 
 [pace.most_multiplier]
@@ -162,7 +167,8 @@ value = 1.5
 unit = "×"
 range = [1.0, 5.0]
 summary = "Burst of Speed, adrenals and other bonuses can raise a character's walking and running to no more than {walking.pace.most_multiplier:bare} times normal."
-source = "ours [verify against KOTOR's executable]"
+detail = "The speed powers' own +99% reaches it: out of combat Burst of Speed, Knight Speed and Master Speed move the Jedi at this much of its walk and run."
+source = "TSL's Mac executable, 2026-11-07: a movement rate is held to 0.125 to 1.5 times, and a speed increase multiplies it by one plus its percent"
 see = "sim::walk::kotor_speed"
 applies = ["spell:FORCE_POWER_SPEED_BURST", "spell:FORCE_POWER_KNIGHT_SPEED", "spell:FORCE_POWER_SPEED_MASTERY", "kind:adrenal"]
 

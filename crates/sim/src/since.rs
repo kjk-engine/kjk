@@ -44,6 +44,8 @@ pub mod snapshot {
     pub const MOD_ROUTINES: crate::Since = crate::Since(crate::Stored::Snapshot, 83);
     pub const MOD_ROUTINES_2: crate::Since = crate::Since(crate::Stored::Snapshot, 84);
     pub const CLAUDE_K1_ROUTINES: crate::Since = crate::Since(crate::Stored::Snapshot, 85);
+    pub const BR_COMBAT: crate::Since = crate::Since(crate::Stored::Snapshot, 86);
+    pub const CLAUDE_BR_TSL_STORY: crate::Since = crate::Since(crate::Stored::Snapshot, 87);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }

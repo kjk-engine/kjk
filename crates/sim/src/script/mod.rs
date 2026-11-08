@@ -439,12 +439,31 @@ pub struct FpRegeneration {
 /// whether each `tutorial.2da` row has words for its window (`Message_PC0`
 /// set: KOTOR shows no window for the rest); `feedbacktext.2da`'s strrefs;
 /// each `appearance.2da` row's `normalhead` (a `heads.2da` row; -1 blank),
-/// the head `DuplicateHeadAppearance` gives.
+/// the head `DuplicateHeadAppearance` gives; and each row's TSL
+/// `equipslotslocked`, the slots a body of it may not have filled or
+/// emptied by its player (`inventory::slots::locked`; K1's table has no
+/// such column: none locked).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Presentation {
     pub tutorials: Vec<bool>,
     pub feedback: Vec<u32>,
     pub heads: Vec<i16>,
+    pub locked: Vec<u32>,
+}
+
+/// The `appearance.2da` row of a body: the one a script changed it to
+/// (`look`, `ChangeObjectAppearance`), else its creature template's
+/// (`facts`), a player's persona's.
+pub fn body_row(
+    look: crate::combat::Look,
+    facts: Option<&crate::module::ObjectData>,
+    persona: Option<&crate::persona::Persona>,
+) -> Option<u16> {
+    look.appearance
+        .or(facts
+            .and_then(|facts| facts.body)
+            .map(|body| body.appearance))
+        .or(persona.map(|persona| persona.appearance))
 }
 
 /// The key of `weapondischarge.2da`'s rows every body shares
@@ -516,6 +535,9 @@ pub struct Library {
     /// (a player's body, which has no template) and its `DEFAULT` row (a
     /// creature whose own row reads as nothing), where it has them.
     move_rates: MoveRates,
+    /// Each `appearance.2da` row's `driveanimwalk` (m/s): the walk of a
+    /// body its player drives (`drive_walk`).
+    drive_walks: Vec<f32>,
     regeneration: Option<Regeneration>,
     health_regeneration: Option<HealthRegeneration>,
     /// TSL's `influence.2da`: each companion tag's base influence
@@ -648,6 +670,7 @@ impl Library {
             animation_rows: Vec::new(),
             head_arcs: Vec::new(),
             move_rates: MoveRates::default(),
+            drive_walks: Vec::new(),
             regeneration: None,
             health_regeneration: None,
             influence: Vec::new(),
@@ -938,6 +961,33 @@ impl Library {
         self.move_rates
     }
 
+    /// The `driveanimwalk` of each `appearance.2da` row (m/s, 0 where
+    /// blank), in the digest when any is not 0.
+    pub fn with_drive_walks(mut self, walks: Vec<f32>) -> Library {
+        if walks.iter().all(|walk| *walk == 0.0) {
+            return self;
+        }
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&self.digest);
+        hasher.update(b"drive walks");
+        for walk in &walks {
+            hasher.update(&walk.to_le_bytes());
+        }
+        self.drive_walks = walks;
+        self.digest = *hasher.finalize().as_bytes();
+        self
+    }
+
+    /// How fast (m/s) a body of `appearance.2da` row `appearance` walks
+    /// while its player drives it (`driveanimwalk`, `walk::rates`); none
+    /// for a row it doesn't know or that leaves it blank.
+    pub fn drive_walk(&self, appearance: u16) -> Option<f32> {
+        self.drive_walks
+            .get(usize::from(appearance))
+            .copied()
+            .filter(|walk| *walk > 0.0)
+    }
+
     /// TSL's natural healing (`Regeneration`), in the digest when read.
     pub fn with_regeneration(mut self, regeneration: Option<Regeneration>) -> Library {
         let Some(r) = regeneration else {
@@ -1058,6 +1108,15 @@ impl Library {
     /// The tables the presentation routines read.
     pub fn presentation(&self) -> &Presentation {
         &self.presentation
+    }
+
+    /// The slots a body of `appearance.2da` row `appearance` has locked
+    /// (`Presentation::locked`): TSL's one-handed Kreia's off hands.
+    pub fn locked_slots(&self, appearance: u16) -> u32 {
+        (self.presentation.locked)
+            .get(usize::from(appearance))
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Whether the game keeps influence (TSL).
@@ -1791,16 +1850,12 @@ impl View<'_> {
     /// to (`ChangeObjectAppearance`), else a creature's template's, a
     /// player's persona's.
     pub fn appearance(&self, id: ObjectId) -> Option<u16> {
-        let changed = (self.thing(id))
-            .and_then(|thing| thing.character.as_ref())
-            .and_then(|c| c.look.appearance);
-        if changed.is_some() {
-            return changed;
-        }
-        match self.facts(id).and_then(|facts| facts.body) {
-            Some(body) => Some(body.appearance),
-            None => Some(self.thing(id)?.persona.as_ref()?.appearance),
-        }
+        let thing = self.thing(id);
+        // Not a character: no script changed its body.
+        let look = (thing.and_then(|thing| thing.character.as_ref()))
+            .map_or(crate::combat::Look::default(), |c| c.look);
+        let persona = thing.and_then(|thing| thing.persona.as_ref());
+        body_row(look, self.facts(id), persona)
     }
 
     /// The script `id` runs for `hook`, if it names one: the module's, the
@@ -2949,12 +3004,16 @@ impl Step<'_> {
                     // it locked or not and raises its `OnMeleeAttacked`),
                     // until it breaks or is gone. A creature walks up to it;
                     // a player's legs are its seat's, so the player strikes
-                    // once it stands within reach, the attack kept at the
+                    // once it stands within a conversation's range, as far
+                    // as the reply that told it may have been chosen from
+                    // (where KOTOR's Exile walks in), the attack kept at the
                     // front of its queue meanwhile (`SimWorld::assigned_strike`).
                     // TSL's Peragus shift console, "[Destroy the console]",
                     // has the Exile attack it; its `OnMeleeAttacked` opens
                     // the dormitory door. (Dropped for a player before, the
-                    // door stayed shut.)
+                    // door stayed shut; then struck only within a door's
+                    // reach of the console's invisible twin, so a player who
+                    // had talked from farther stood there and nothing broke.)
                     &Action::Attack { target, .. }
                         if self.view.thing(target).is_some_and(Thing::struck_as_object) =>
                     {
@@ -2964,7 +3023,9 @@ impl Step<'_> {
                                 self.attacking(id, None);
                             }
                             let near = match self.view.place(Target::Object(target)) {
-                                Some((at, _)) if player => flat(thing.position, at) <= DOOR_REACH,
+                                Some((at, _)) if player => {
+                                    flat(thing.position, at) <= CONVERSATION_RANGE
+                                }
                                 Some(_) => self.within_reach(id, &thing, false, target, |_| {}),
                                 None => false,
                             };
@@ -4154,12 +4215,7 @@ fn keep_npc(view: &View, state: &mut State, out: &Out, npc: u8) {
 /// stands now (`keep_npc`; TSL's `SaveNPCByObject`, any creature), if it
 /// stands here and `npc` is available.
 fn keep_creature(view: &View, state: &mut State, out: &Out, npc: u8, who: ObjectId) {
-    let mut worn = [0; crate::inventory::slots::COUNT as usize];
-    for (item, held) in state.items.held_by(who.0) {
-        if let Some(at) = held.slot.and_then(|slot| worn.get_mut(usize::from(slot))) {
-            *at = item;
-        }
-    }
+    let worn = worn_slots(state, who.0);
     let Some(slot) = state.party.available.get_mut(&npc) else {
         return;
     };
@@ -4177,7 +4233,57 @@ fn keep_creature(view: &View, state: &mut State, out: &Out, npc: u8, who: Object
             .map_or(HUNDREDTHS, |(now, _)| now.max(1) * HUNDREDTHS),
         fp: c.fp,
         worn: Some(worn),
+        look: c.look,
     });
+}
+
+/// The item `holder` wears in each slot (0: none), as the party table keeps
+/// it (`party::Kept::worn`).
+fn worn_slots(state: &State, holder: u32) -> [u32; crate::inventory::slots::COUNT as usize] {
+    let mut worn = [0; crate::inventory::slots::COUNT as usize];
+    for (item, held) in state.items.held_by(holder) {
+        if let Some(at) = held.slot.and_then(|slot| worn.get_mut(usize::from(slot))) {
+            *at = item;
+        }
+    }
+    worn
+}
+
+/// What the party table keeps of every available companion whose creature
+/// stands in `before` as the party leaves its module, in the party or not,
+/// as `keep_creature` keeps one (its sheet, else its template's in
+/// `objects`): TSL's executable writes each companion's whole creature into
+/// its table at a module change, so 107PER's Kreia, made one-handed beside
+/// the party and not in it, is spawned so on the Ebon Hawk.
+pub(crate) fn keep_standing(
+    state: &mut State,
+    before: &crate::snapshot::Snapshot,
+    objects: &crate::Instances,
+) {
+    let standing: Vec<(u8, &crate::snapshot::EntityState)> = (state.party.available.iter())
+        .filter_map(|(npc, slot)| {
+            let id = slot.object?;
+            let entity = before.entities.iter().find(|entity| entity.id.0 == id)?;
+            Some((*npc, entity))
+        })
+        .collect();
+    for (npc, entity) in standing {
+        let template = || objects.of_entity(entity).and_then(|facts| facts.sheet);
+        let (Some(fighter), Some(sheet)) = (entity.fighter, entity.sheet.or_else(template)) else {
+            continue;
+        };
+        let worn = worn_slots(state, entity.id.0);
+        if let Some(slot) = state.party.available.get_mut(&npc) {
+            slot.kept = Some(party::Kept {
+                from: entity.id.0,
+                sheet,
+                hp: fighter.whole_hp().max(1) * HUNDREDTHS,
+                fp: fighter.fp,
+                worn: Some(worn),
+                look: fighter.look,
+            });
+        }
+    }
 }
 
 /// Counts a run's instructions, its fault or its stop at the limit; the

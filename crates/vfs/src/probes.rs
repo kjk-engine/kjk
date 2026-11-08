@@ -595,8 +595,9 @@ fn workshop_talk_and_streams() -> Result<String, String> {
 }
 
 /// Co-op compares the Workshop items too: the same items in the same
-/// order are the same world, items in another order or an item's changed
-/// script are not, and a refusal names the item; an item of movies alone
+/// order are the same world, items holding the same file in another order
+/// or an item's changed script are not, items with nothing in common are
+/// in any order, and a refusal names the item; an item of movies alone
 /// leaves the world as without it. Past the groups a handshake carries,
 /// the later items share one group.
 fn workshop_fingerprint() -> Result<String, String> {
@@ -624,6 +625,30 @@ fn workshop_fingerprint() -> Result<String, String> {
     ] {
         if other.digest == same.digest {
             return Err(format!("items {what} are the same world"));
+        }
+    }
+    // Items vie only for what both hold: another order of items with no
+    // world file in common (TSLRCM and a blaster pack) is the same world,
+    // while a texture's TGA under another item's TPC, or one module's
+    // `.rim` under another's `_s.rim`, is not.
+    let file = |id: u64, path: &'static str| (id, vec![(path, b"x".to_vec())]);
+    for (first, second, same_world) in [
+        (file(1, "override/a.ncs"), file(2, "override/b.ncs"), true),
+        (file(1, "override/a.tga"), file(2, "override/a.tpc"), false),
+        (
+            file(1, "modules/m02.rim"),
+            file(2, "modules/m02_s.rim"),
+            false,
+        ),
+    ] {
+        let paths = [first.1[0].0, second.1[0].0];
+        let ordered = world("wsfp-order", &[first.clone(), second.clone()])?;
+        let swapped = world("wsfp-swap", &[second, first])?;
+        if (ordered == swapped) != same_world {
+            return Err(format!(
+                "items holding {paths:?} in another order are {} world",
+                if same_world { "another" } else { "the same" }
+            ));
         }
     }
     let differ: Vec<&str> = changed

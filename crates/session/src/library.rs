@@ -235,6 +235,7 @@ pub(crate) fn script_library(
         .with_alien_voices(aliens)
         .with_head_arcs(head_arcs(source))
         .with_move_rates(move_rates(source))
+        .with_drive_walks(drive_walks(source))
         .with_regeneration(regeneration(source))
         .with_health_regeneration(health_regeneration(source))
         .with_influence(influence(source))
@@ -430,6 +431,17 @@ fn rounds(source: &dyn Source) -> sim::combat::rounds::Table {
 /// Each `appearance.2da` row's `head_arc_h` (degrees, 0 where blank): a
 /// player's head arc, by its persona's appearance (`Library::head_arc`).
 fn head_arcs(source: &dyn Source) -> Vec<f32> {
+    appearance_column(source, "head_arc_h")
+}
+
+/// Each `appearance.2da` row's `driveanimwalk` (m/s, 0 where blank): the
+/// walk of a body its player drives (`Library::drive_walk`).
+fn drive_walks(source: &dyn Source) -> Vec<f32> {
+    appearance_column(source, "driveanimwalk")
+}
+
+/// One number column of `appearance.2da`, by row (0 where blank).
+fn appearance_column(source: &dyn Source, column: &str) -> Vec<f32> {
     let Some(table) = source
         .read("appearance", ResType::TWO_DA)
         .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok())
@@ -437,7 +449,7 @@ fn head_arcs(source: &dyn Source) -> Vec<f32> {
         return Vec::new();
     };
     (0..table.cells.len())
-        .map(|row| table.float(row, "head_arc_h").unwrap_or(0.0))
+        .map(|row| table.float(row, column).unwrap_or(0.0))
         .collect()
 }
 
@@ -529,8 +541,8 @@ fn influence(source: &dyn Source) -> Vec<(String, u8)> {
 
 /// What the presentation routines read (`sim::script::Presentation`):
 /// `tutorial.2da`'s rows with `message_pc0` set, `feedbacktext.2da`'s
-/// `strref`s, `appearance.2da`'s `normalhead`s; empty where a table is
-/// missing.
+/// `strref`s, `appearance.2da`'s `normalhead`s and `equipslotslocked`s
+/// (TSL's); empty where a table or column is missing.
 fn presentation(source: &dyn Source) -> sim::script::Presentation {
     let table = |name: &str| {
         source
@@ -568,6 +580,9 @@ fn presentation(source: &dyn Source) -> sim::script::Presentation {
             .collect(),
         heads: (column("appearance", "normalhead").iter())
             .map(|head| head.and_then(|head| i16::try_from(head).ok()).unwrap_or(-1))
+            .collect(),
+        locked: (column("appearance", "equipslotslocked").iter())
+            .map(|mask| mask.and_then(|mask| u32::try_from(mask).ok()).unwrap_or(0))
             .collect(),
     }
 }

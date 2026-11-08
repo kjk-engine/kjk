@@ -107,6 +107,7 @@ mod progress;
 mod ragdolls;
 pub mod report;
 mod rulebook_text;
+pub use minigame_view::takes_view;
 pub use ragdolls::doll_fits;
 #[cfg(feature = "probes")]
 pub mod held_probes;

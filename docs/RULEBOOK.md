@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f1012d923126c5d5`.
+Edition `bd834092d75f4376`.
 
 ## Contents
 
@@ -233,6 +233,7 @@ Edition `f1012d923126c5d5`.
   - [Tight Spaces](#movement-fine)
 - [Weapons in Hand](#weapons-in-hand)
   - [Switching Weapons](#weapons-in-hand-change)
+  - [How a Weapon Looks](#weapons-in-hand-look)
   - [Getting Up](#weapons-in-hand-knockdown)
   - [Movement while Attacking](#weapons-in-hand-saber-speed)
   - [Moves that Carry the Character](#weapons-in-hand-moves)
@@ -4446,18 +4447,20 @@ speed, or 0.8 times under a speed power.
 
 ### <a id="force-speed"></a>Burst of Speed, Knight Speed and Master Speed
 
-A toggled power. The Jedi moves 1.15 times as fast
-for 10 seconds, 15 seconds or
+A toggled power. The Jedi moves faster (1.15 times in
+combat, 1.5 times out of it) for 10 seconds, 15 seconds or
 20 seconds by rank, and Force points do not regenerate
 meanwhile. The Defense bonus and extra attacks are listed with the
 power's effects.
 
-This speed replaces the power's own movement bonus. Force Suppression ends
+In combat this speed replaces the power's own movement bonus; out of
+combat the Jedi moves by that bonus instead, as in KOTOR (the fastest
+movement, 1.5 times its walk and run). Force Suppression ends
 Burst of Speed and Knight Speed; Force Breach ends all three.
 
 <a id="force-speed-scale"></a>**Speed Bonus** = **×1.15** · `force.speed.scale`
 
-The speed powers make the Jedi move 1.15 times as fast at every rank.
+In combat the speed powers make the Jedi move 1.15 times as fast at every rank.
 
 <sub>Source: the owner's call, over JA's 1.7. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
@@ -6379,6 +6382,24 @@ A party member follows its leader once it is more than 4.9 meters away.
 A following party member finds a new path when its leader moves 2.4 meters.
 
 <sub>Source: ours. Code: `sim::world::minds::think`.</sub>
+
+<a id="minds-tasks-follow-pace"></a>**Keeping Pace** = **4 m** · `minds.tasks.follow_pace`
+
+A party member within 4 meters of its place beside a walking leader walks there at its leader's walk; farther off it runs to catch up.
+
+<sub>Source: K1's executable. Code: `sim::world::minds::think`.</sub>
+
+<a id="minds-tasks-follow-walk-share"></a>**Leader Walking** = **×0.6** · `minds.tasks.follow_walk_share`
+
+A leader moving at more than 0.1 m/s but under 0.6 times a run is walking, for its party members keeping pace.
+
+<sub>Source: K1's executable. Code: `sim::world::minds::think`.</sub>
+
+<a id="minds-tasks-follow-moving"></a>**Leader Moving** = **0.1 m/s** · `minds.tasks.follow_moving`
+
+A leader slower than 0.1 m/s stands, for its party members keeping pace.
+
+<sub>Source: K1's executable. Code: `sim::world::minds::think`.</sub>
 
 <a id="minds-tasks-follow-back"></a>**Formation Depth** = **1.6 meters** (`64 units`) · `minds.tasks.follow_back`
 
@@ -8355,6 +8376,24 @@ A weapon takes 0.25 seconds to raise after a switch, after getting up, or when a
 
 <sub>Source: JA: weapon changes. Code: `sim::motion::Move::raise_weapon`.</sub>
 
+### <a id="weapons-in-hand-look"></a>How a Weapon Looks
+
+A weapon is drawn whole: where its texture carries transparency that nothing
+says how to use, it is drawn solid rather than see-through.
+
+<a id="weapons-in-hand-look-solid"></a>**Solid Weapons** = **true** · `weapons_in_hand.look.solid`
+
+A weapon's texture with transparency but no instructions for it can be drawn solid instead of see-through.
+
+kjk's choice, not KOTOR's: the original blends such a texture by its alpha
+over whatever is behind the weapon. Texture mods that leave out the TXI
+files telling the game the alpha is a shine mask (High Quality Blasters)
+showed the world through their guns. Textures whose TXI names an env map,
+a bump map, a blending mode or a decal keep their own look, and nothing but
+weapon models is changed.
+
+<sub>Source: the owner's call, 2026-11-07 (issue 171). Code: `game::material::weapon_surface`.</sub>
+
 ### <a id="weapons-in-hand-knockdown"></a>Getting Up
 
 A knocked-down character lies until the knockdown ends. Then [Strafe left],
@@ -8666,8 +8705,13 @@ A character can walk down to floor no more than 4 steps below.
 
 Outside combat, a character walks and runs at its own speeds, raised or
 lowered by movement speed effects from 0.125 to
-1.5 times normal. A character leaving
-combat slows to those speeds over 0.5 seconds.
+1.5 times normal. A creature walks and runs
+at its movement rate's speeds (`creaturespeed.2da`), a player's character
+at the `PLAYER` row's, as KOTOR moves every character a script walks. A
+character its player walks, or one sneaking, walks at its body's own walk
+instead (`appearance.2da`'s `driveanimwalk`), as KOTOR walks the character
+its player drives. A character leaving combat slows to those speeds over
+0.5 seconds.
 
 <a id="walking-pace-ease-ms"></a>**Leaving Combat** = **0.5 seconds** (`500 ms`) · `walking.pace.ease_ms`
 
@@ -8679,13 +8723,15 @@ A character leaving combat slows to its walking speeds over 0.5 seconds.
 
 Effects and powers can slow a character's walking and running to no less than 0.125 times normal.
 
-<sub>Source: ours [verify against KOTOR's executable]. Code: `sim::walk::kotor_speed`.</sub>
+<sub>Source: TSL's Mac executable, 2026-11-07. Code: `sim::walk::kotor_speed`.</sub>
 
 <a id="walking-pace-most-multiplier"></a>**Fastest Movement** = **×1.5** · `walking.pace.most_multiplier`
 
 Burst of Speed, adrenals and other bonuses can raise a character's walking and running to no more than 1.5 times normal.
 
-<sub>Source: ours [verify against KOTOR's executable]. Code: `sim::walk::kotor_speed`.</sub>
+The speed powers' own +99% reaches it: out of combat Burst of Speed, Knight Speed and Master Speed move the Jedi at this much of its walk and run.
+
+<sub>Source: TSL's Mac executable, 2026-11-07: a movement rate is held to 0.125 to 1.5 times, and a speed increase multiplies it by one plus its percent. Code: `sim::walk::kotor_speed`.</sub>
 
 <a id="walking-pace-least-walk"></a>**Slowest Walk** = **0.1 m/s** · `walking.pace.least_walk`
 
@@ -8922,7 +8968,7 @@ first. Moving, jumping or attacking cancels the walk.
 
 <a id="targeting-walk-arrive"></a>**Action Reach** = **×0.8** · `targeting.walk.arrive`
 
-A character within 0.8 times an action's reach performs it without walking.
+A character within 0.8 times an action's reach performs it without walking. One whose walk gets no closer for 1 second while within the whole reach performs it where it stands, such as talking to a shopkeeper across a counter.
 
 <sub>Source: ours. Code: `sim::target::Walk::near`.</sub>
 

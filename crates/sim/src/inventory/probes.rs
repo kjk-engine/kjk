@@ -239,6 +239,7 @@ fn limits() -> Checks {
         player: true,
         tag: String::new(),
         tsl,
+        locked: 0,
     };
     let light_only = [Limit::Side(sides::LIGHT)];
     let all = [Limit::Side(sides::ALL)];
@@ -314,6 +315,35 @@ fn limits() -> Checks {
     };
     let on_droid = kept.wear(&humans, &mut out, (3, &droid), band_on.clone());
     let on_human = kept.wear(&humans, &mut out, (4, &light), band_on);
+    // TSL's one-handed Kreia (`appearance.2da` row 627's `equipslotslocked`
+    // 32, the off hand): neither off hand filled nor emptied by her player,
+    // her main hand as anyone's.
+    let one_handed = Wearer {
+        locked: 1 << slots::LEFT_WEAPON,
+        ..light.clone()
+    };
+    let mut gimped = crate::script::State::default();
+    let blade = |state: &mut crate::script::State| {
+        state
+            .make_item(&catalog, "pistol", PARTY, 1, None)
+            .map_or(0, |id| id.0)
+    };
+    let mut equip_in = |slot: u8| {
+        let item = blade(&mut gimped);
+        let action = crate::action::Action::Equip { item, slot };
+        gimped.wear(&catalog, &mut out, (5, &one_handed), action)
+    };
+    let off_hands = [slots::LEFT_WEAPON, slots::LEFT_WEAPON_2].map(&mut equip_in);
+    let main_hand = equip_in(slots::RIGHT_WEAPON);
+    let emptied = gimped.wear(
+        &catalog,
+        &mut out,
+        (5, &one_handed),
+        crate::action::Action::Unequip(slots::LEFT_WEAPON),
+    );
+    let locked = Err(crate::notice::Notice::Line(
+        properties::refusals::LOCKED_SLOT,
+    ));
     let race = [Limit::Race(races::DROID)];
     let strong = [Limit::Ability {
         ability: 0,
@@ -333,6 +363,18 @@ fn limits() -> Checks {
             check(
                 on_droid == Err(crate::notice::Notice::CannotEquip) && on_human.is_ok(),
                 format!("droid {on_droid:?}, human {on_human:?}"),
+            ),
+        ),
+        (
+            "locked_slots_refused",
+            check(
+                off_hands.iter().all(|refused| *refused == locked)
+                    && emptied == locked
+                    && main_hand.is_ok()
+                    && (0..slots::COUNT)
+                        .filter(|slot| slots::locked(1 << slots::LEFT_WEAPON, *slot))
+                        .eq([slots::LEFT_WEAPON, slots::LEFT_WEAPON_2]),
+                format!("off hands {off_hands:?}, emptied {emptied:?}, main hand {main_hand:?}"),
             ),
         ),
         (

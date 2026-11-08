@@ -10,7 +10,7 @@
 //! cached by (path, size, modification time), so a second run reads only
 //! what changed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
@@ -122,11 +122,67 @@ pub fn world_group(game: Game, group: &str) -> bool {
     }
 }
 
+/// What a world file at `key` in a Workshop item vies for with another
+/// item's copy, or `None` for a file outside the world groups. Which of two
+/// items loads last decides only what they both hold: an override resource
+/// (by its name, any type of it, as a texture's TGA and TPC stand for each
+/// other) or a module (its `.mod`, `.rim`, `_s.rim` and `_dlg.erf` alike).
+fn contest(game: Game, key: &str) -> Option<String> {
+    let (part, rest) = key.split_once('/')?;
+    if !world_group(game, part) {
+        return None;
+    }
+    let stem = rest.rsplit_once('.').map_or(rest, |(stem, _)| stem);
+    let stem = match part {
+        "modules" => ["_s", "_dlg"]
+            .iter()
+            .find_map(|suffix| stem.strip_suffix(suffix))
+            .unwrap_or(stem),
+        _ => stem,
+    };
+    Some(format!("{part}/{stem}"))
+}
+
+/// For each Workshop item, the items loaded before it that hold some of
+/// the same world data (`contest`), by id: the load order as far as it
+/// changes what the resolver serves. Items holding nothing in common load
+/// the same world in any order.
+fn beneath(game: Game, index: &DirIndex) -> BTreeMap<u64, BTreeSet<u64>> {
+    let claims: Vec<(u64, BTreeSet<String>)> = index
+        .workshop()
+        .iter()
+        .map(|item| {
+            let keys = item
+                .files
+                .iter()
+                .filter(|(key, _)| covered_in_item(key))
+                .filter_map(|(key, _)| contest(game, key))
+                .collect();
+            (item.id, keys)
+        })
+        .collect();
+    claims
+        .iter()
+        .enumerate()
+        .map(|(place, (id, mine))| {
+            let under = claims[..place]
+                .iter()
+                .filter(|(_, theirs)| !mine.is_disjoint(theirs))
+                .map(|(other, _)| *other)
+                .collect();
+            (*id, under)
+        })
+        .collect()
+}
+
 #[derive(Debug)]
 pub struct Fingerprint {
     pub game: Game,
     /// The Workshop items covered, in load order (`DirIndex::workshop`).
     pub workshop: Vec<u64>,
+    /// Each Workshop item's items loaded before it that hold some of the
+    /// same world data (`beneath`).
+    pub beneath: BTreeMap<u64, BTreeSet<u64>>,
     /// BLAKE3, hex.
     pub digest: String,
     pub files: usize,
@@ -149,10 +205,14 @@ pub struct WorldData {
 impl Fingerprint {
     /// The part of the data a shared world is built from: the game
     /// folder's world groups, and each Workshop item's world groups as one
-    /// group named by the item (`workshop/485537937`), whose digest has
-    /// its place among the items with world data, so a refusal names an
-    /// item that differs or moved. Past `MAX_WORLD_GROUPS`, the later items
-    /// share one group (`LATER_WORKSHOP_ITEMS`).
+    /// group named by the item (`workshop/485537937`), in id order, whose
+    /// digest has the items loaded before it that hold some of the same
+    /// world data (`beneath`), so a refusal names an item that differs or
+    /// moved past another it vies with. Two players who subscribed to the
+    /// same items in another order (Steam's list is per account, the newest
+    /// first) share a world unless that order changes what is served.
+    /// Past `MAX_WORLD_GROUPS`, the later items share one group
+    /// (`LATER_WORKSHOP_ITEMS`).
     pub fn world(&self) -> WorldData {
         let bytes =
             |digest: &str| blake3::Hash::from_hex(digest).map_or([0; 32], |hash| *hash.as_bytes());
@@ -163,9 +223,10 @@ impl Fingerprint {
             .map(|(group, (digest, _))| (group.clone(), bytes(digest)))
             .collect();
         // Each item with world data: its label, and a digest of its world
-        // groups and its place among those items.
-        let items: Vec<(String, [u8; 32])> = self
-            .workshop
+        // groups and the items beneath it.
+        let mut ids = self.workshop.clone();
+        ids.sort_unstable();
+        let items: Vec<(String, [u8; 32])> = ids
             .iter()
             .filter_map(|id| {
                 let label = format!("workshop/{id}");
@@ -178,12 +239,14 @@ impl Fingerprint {
                         world_group(self.game, part).then(|| (part, bytes(digest)))
                     })
                     .collect();
-                (!parts.is_empty()).then_some((label, parts))
+                (!parts.is_empty()).then_some((*id, label, parts))
             })
-            .enumerate()
-            .map(|(place, (label, parts))| {
+            .map(|(id, label, parts)| {
                 let mut hasher = blake3::Hasher::new();
-                hasher.update(format!("{VERSION}\n{label} {place}\n").as_bytes());
+                hasher.update(format!("{VERSION}\n{label}\n").as_bytes());
+                for under in self.beneath.get(&id).into_iter().flatten() {
+                    hasher.update(format!("over {under}\n").as_bytes());
+                }
                 for (part, digest) in parts {
                     hasher.update(part.as_bytes());
                     hasher.update(b"\n");
@@ -385,6 +448,7 @@ fn compute(
     Ok(Some(Fingerprint {
         game,
         workshop,
+        beneath: beneath(game, index),
         digest: whole.finalize().to_hex().to_string(),
         files: lines.len(),
         bytes,

@@ -48,6 +48,8 @@ pub const HEADLESS_SIZE: (u32, u32) = (1280, 720);
 const FOV_DEGREES: f32 = crate::viewer::DEFAULT_VIEW_ANGLE;
 /// Eye height above the entry point, metres.
 const EYE_HEIGHT: f32 = crate::cast::HEAD_M;
+/// The scene camera's near clip plane (metres); its far one is Bevy's.
+const NEAR_M: f32 = 0.05;
 
 #[derive(Resource)]
 pub struct Headless(pub bool);
@@ -451,10 +453,18 @@ pub(crate) fn camera_view() -> impl Bundle {
         encoded_view(),
         Projection::Perspective(PerspectiveProjection {
             fov: FOV_DEGREES.to_radians(),
-            near: 0.05,
-            ..default()
+            ..view_clip()
         }),
     )
+}
+
+/// The scene camera's clip planes (`NEAR_M`, Bevy's far), which a view that
+/// set its own (a minigame's) puts back when it gives the camera up.
+pub(crate) fn view_clip() -> PerspectiveProjection {
+    PerspectiveProjection {
+        near: NEAR_M,
+        ..default()
+    }
 }
 
 /// How every camera drawing onto the world's target draws: blending in
@@ -1047,10 +1057,14 @@ impl<'t> Spawner<'t> {
             .flatten()
             .filter_map(|name| self.irs.get(name).map(|texture| &texture.facts))
             .collect();
-        let surface = material::surface(
-            (part.transparency_hint, part.skin.is_some()),
-            part.alpha,
+        let surface = material::weapon_surface(
+            material::surface(
+                (part.transparency_hint, part.skin.is_some()),
+                part.alpha,
+                &facts,
+            ),
             &facts,
+            material::is_weapon_model(&placed.ir.name),
         );
         // Its back faces are culled, as reone and xoreos draw every KOTOR
         // mesh; a decal's are drawn (a textured window or grate seen from

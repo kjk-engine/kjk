@@ -197,6 +197,14 @@ const GUN_M: f32 = 25.0;
 /// its creatures (`mind::engage`): it steps in to the first and swings
 /// within the second, pressing on into a body wider than a humanoid's (a
 /// Mark IV droid's) until it stands against it.
+/// Says where the party stood when the module just entered put its
+/// arrival over no floor (`SimWorld::arrival_fallback`).
+fn say_arrival_fallback(world: &sim::SimWorld) {
+    if let Some(line) = world.arrival_fallback() {
+        outln!("            {line}");
+    }
+}
+
 fn melee_m() -> (f32, f32) {
     (mind::REACH * UNIT, mind::STRIKE * UNIT)
 }
@@ -285,6 +293,26 @@ const BACKING_MS: u64 = 2500;
 /// line to step back to it, and for how long (ms).
 const UNWEDGE_M: f32 = 1.5;
 const UNWEDGE_MS: u64 = 1000;
+
+/// How near (metres, across) the floor a player off the navigation mesh
+/// steps back onto is to be straight under it (on a body's head, a prop),
+/// and how far ahead it then walks instead (`step_off`).
+const UNDERFOOT_M: f32 = 0.8;
+const STEP_OFF_M: f32 = 1.5;
+
+/// Where a player off the navigation mesh walks to get back on it: `spot`,
+/// the nearest floor, unless that is right under it (it stands on a body's
+/// head or a prop over the floor: Leviathan's Dark Jedi), where walking at
+/// it turned the player back and forth over it and held it there; then a
+/// way ahead as it faces, off what it stands on.
+fn step_off(player: &sim::motion::MotionState, spot: [f32; 3]) -> [f32; 3] {
+    if flat(spot.map(|v| v * UNIT), player.origin.map(|v| v * UNIT)) > UNDERFOOT_M {
+        return spot;
+    }
+    let (ahead, _, _) = sim::math::angle_vectors([0.0, player.view[1], 0.0]);
+    let off = sim::math::mad(player.origin, STEP_OFF_M / UNIT, ahead);
+    [off[0], off[1], spot[2]]
+}
 
 /// How long a fight goal sees no foe before it is over (ms).
 const QUIET_MS: u64 = 2000;
@@ -648,6 +676,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 let mut over = false;
                 // The minigame's module, once the goal is in it.
                 let mut played_in: Option<String> = None;
+                // The gun's aim and the course's time when a conversation
+                // began holding the player while the minigame played.
+                let mut talk_began: Option<([f32; 3], u64)> = None;
                 // A pazaak match seen under way.
                 let mut tabled = false;
                 // A `craft` or `fit` pressed at its bench: for a `craft`,
@@ -728,6 +759,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         .commit(&mut world)
                         .map_err(|e| e.to_string())?;
                     recorder.install(announcement);
+                    say_arrival_fallback(&world);
                     last = world.snapshot();
                     names = crate::transcript::speakers(&last, world.level());
                     fallen.clear();
@@ -1347,6 +1379,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 }
                                 if matches!(goal, Goal::Turrets(Fire::Hold)) {
                                     command.buttons &= !sim::buttons::ATTACK;
+                                }
+                                if let Err(why) = given_up(&last, (course, rules), &mut talk_began) {
+                                    held = vec![format!("{bot}: {why}")];
+                                    break;
                                 }
                             }
                             met = played_in
@@ -2566,7 +2602,12 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         } else {
                             sim::walk::back_on(&level, player.origin)
                                 .filter(|_| stranded())
-                                .map(|spot| (spot, "off the navigation mesh, stepping back on"))
+                                .map(|spot| {
+                                    (
+                                        step_off(&player, spot),
+                                        "off the navigation mesh, stepping back on",
+                                    )
+                                })
                         }
                     {
                         command = Command {
@@ -2801,6 +2842,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             module_of(&last),
                             transition.tag
                         );
+                        say_arrival_fallback(&world);
                     }
                 }
                 if met && let Goal::Use(Target::Tag(tag, _)) = goal {
@@ -3105,4 +3147,42 @@ fn step_on(
     }
     watch.after(last, &snapshot);
     snapshot
+}
+
+/// While a conversation holds the player in a minigame, the minigame has
+/// given it the screen and the controls (`kjk_game::takes_view`,
+/// `Course::hold`), as TSL's executable does: none of its view drawn, its
+/// gun's aim where it was when the conversation began (`began`: the aim and
+/// the course's time then; one short's turn apart at most, as the view's
+/// turns are kept; a turret's, as a swoop drifts on) and no bolt of the
+/// gun's fired since. Peragus' turret's `turend` once played on under the
+/// turret's view.
+fn given_up(
+    last: &Snapshot,
+    (course, rules): (&sim::minigame::Course, &sim::minigame::Rules),
+    began: &mut Option<([f32; 3], u64)>,
+) -> Result<(), String> {
+    if last.talk_for(Seat(0)).is_none() {
+        *began = None;
+        return Ok(());
+    }
+    let aim = course.movers.first().map_or([0.0; 3], |mover| mover.offset);
+    let (kept, since) = *began.get_or_insert((aim, course.time_ms));
+    let one_short = sim::math::short_to_degrees(1);
+    let turned = rules.kind == sim::minigame::Kind::Turret
+        && (0..3).any(|axis| (aim[axis] - kept[axis]).abs() > one_short);
+    let fired = course
+        .bullets
+        .iter()
+        .any(|bullet| bullet.shooter == 0 && bullet.born > since);
+    if kjk_game::takes_view(last, Seat(0)) {
+        Err("the minigame's view kept the screen through a conversation".into())
+    } else if turned || fired {
+        Err(format!(
+            "the minigame kept its controls through a conversation (aim {aim:?} from {kept:?}, \
+             fired {fired})"
+        ))
+    } else {
+        Ok(())
+    }
 }

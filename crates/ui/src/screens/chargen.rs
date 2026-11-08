@@ -657,7 +657,10 @@ impl Chargen {
             .as_ref()
             .is_some_and(|chargen| chargen.whole_skill_points);
         let points = i32::from(class.skill_points) + int;
-        let total = if whole { points } else { points / 2 }.max(1) * first;
+        let mut total = if whole { points } else { points / 2 }.max(1) * first;
+        if let Some(up) = vm.levelup.as_ref().filter(|_| self.levelling()) {
+            total += i32::from(up.unspent);
+        }
         let spent = (0..SKILLS.len())
             .map(|skill| {
                 let bought = self.choices.skills[skill].saturating_sub(self.floor.1[skill]);

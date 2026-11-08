@@ -6,16 +6,17 @@
 //!
 //! - **When:** alive, its weapons away (`weapons::armed`), no script's
 //!   animation playing, and its legs in JA's plain standing (its idle
-//!   too), walking or running, forwards, sideways or backwards
-//!   (`BOTH_STAND1`, `BOTH_STAND1IDLE1`, `BOTH_WALK1`, `BOTH_RUN1`,
-//!   `BOTH_WALKBACK1`, `BOTH_RUNBACK1`) with the torso going along
-//!   (`of_body`): the KOTOR clip of the same. Anything else (a fight, a
-//!   jump, a roll, a Force move, a Force hand cast standing) is JA's.
+//!   too), walking or running, forwards or sideways (`BOTH_STAND1`,
+//!   `BOTH_STAND1IDLE1`, `BOTH_WALK1`, `BOTH_RUN1`) with the torso going
+//!   along (`of_body`): the KOTOR clip of the same. Anything else (going
+//!   backwards, a fight, a jump, a roll, a Force move, a Force hand cast
+//!   standing) is JA's: KOTOR has no backpedal, and its walk or run
+//!   reversed looks wrong, so going backwards shows JA's own backpedal
+//!   (`BOTH_WALKBACK1`, `BOTH_RUNBACK1`).
 //! - **Facing** (the owner's call): moving, the body turns to the way it
 //!   goes, as KOTOR's characters do (KOTOR has no strafing), at
-//!   `TURN_DEG_S`; going backwards it faces the other way and plays its
-//!   walk or run in reverse (KOTOR has no backpedal). Standing, it faces
-//!   as JA's legs do (the view, as they turn to it).
+//!   `TURN_DEG_S`. Standing, it faces as JA's legs do (the view, as they
+//!   turn to it).
 //! - **Blending:** each clip's weight over the JA pose eases to 1 or 0
 //!   over `EASE_S`, so going from standing to walking cross-fades the two
 //!   clips and leaving the gait fades back into JA's pose; the weights are
@@ -54,33 +55,23 @@ pub struct GaitClips {
     pub strides: [f32; 2],
 }
 
-/// A gait clip and whether it plays backwards.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Step {
-    pub clip: usize,
-    pub backwards: bool,
-}
-
-/// The JA body's animation as a gait clip, if its legs stand, walk or run
-/// plainly (backwards: the clip reversed) and its torso goes along: playing
+/// The JA body's animation as a gait clip (its index in `NAMES`), if its
+/// legs stand, walk or run plainly forwards and its torso goes along: playing
 /// what the legs play, or a gun's ready pose (drawn as the legs' with the
 /// gun away). A torso of its own (a Force hand's hold, a push) is JA's: the
 /// clip, over the whole body, would hang its arms.
-pub fn of_body(legs: Anim, torso: Anim) -> Option<Step> {
+pub fn of_body(legs: Anim, torso: Anim) -> Option<usize> {
     let along =
         torso == legs || matches!(torso, Anim::TORSO_WEAPONREADY2 | Anim::TORSO_WEAPONREADY3);
     if !along {
         return None;
     }
-    let (clip, backwards) = match legs {
-        Anim::BOTH_STAND1 | Anim::BOTH_STAND1IDLE1 => (PAUSE, false),
-        Anim::BOTH_WALK1 => (WALK, false),
-        Anim::BOTH_RUN1 => (RUN, false),
-        Anim::BOTH_WALKBACK1 => (WALK, true),
-        Anim::BOTH_RUNBACK1 => (RUN, true),
-        _ => return None,
-    };
-    Some(Step { clip, backwards })
+    match legs {
+        Anim::BOTH_STAND1 | Anim::BOTH_STAND1IDLE1 => Some(PAUSE),
+        Anim::BOTH_WALK1 => Some(WALK),
+        Anim::BOTH_RUN1 => Some(RUN),
+        _ => None,
+    }
 }
 
 /// How the body moves this frame: metres a second over the floor, the way
@@ -120,8 +111,6 @@ pub struct Gait {
     strides: [f32; 2],
     weights: [f32; 3],
     at: [f32; 3],
-    /// Each clip played in reverse (its latest wanting).
-    backwards: [bool; 3],
     /// Where the body faces (game degrees), turning to where it goes.
     facing: Option<f32>,
     last_ms: Option<f64>,
@@ -147,39 +136,29 @@ impl Gait {
             strides,
             weights: [0.0; 3],
             at: [0.0; 3],
-            backwards: [false; 3],
             facing: None,
             last_ms: None,
         }
     }
 
     /// At `ms`, `wanted` plays (none: JA's pose), the body moving so.
-    pub fn follow(&mut self, wanted: Option<Step>, motion: Motion, ms: f64) {
+    pub fn follow(&mut self, wanted: Option<usize>, motion: Motion, ms: f64) {
         let seconds = self
             .last_ms
             .map_or(0.0, |last| ((ms - last) / 1000.0) as f32);
         self.last_ms = Some(ms);
         let seconds = seconds.clamp(0.0, 0.25);
-        let wanted = wanted.filter(|step| self.clips[step.clip].is_some());
-        if let Some(step) = wanted {
-            self.backwards[step.clip] = step.backwards;
-        }
-        // Moving, it faces the way it goes (the other way, backwards);
-        // standing or under JA's pose, as JA's legs do.
-        let going = wanted.filter(|step| step.clip != PAUSE && motion.speed > MOVING);
-        let target = going.map_or(motion.legs, |step| {
-            motion.travel + if step.backwards { 180.0 } else { 0.0 }
-        });
+        let wanted = wanted.filter(|&clip| self.clips[clip].is_some());
+        // Moving, it faces the way it goes; standing or under JA's pose, as
+        // JA's legs do.
+        let going = wanted.is_some_and(|clip| clip != PAUSE) && motion.speed > MOVING;
+        let target = if going { motion.travel } else { motion.legs };
         let facing = self.facing.unwrap_or(target);
         let turn = wrap(target - facing);
         let most = TURN_DEG_S * seconds;
         self.facing = Some(wrap(facing + turn.clamp(-most, most)));
         for (clip, weight) in self.weights.iter_mut().enumerate() {
-            let target = if wanted.map(|step| step.clip) == Some(clip) {
-                1.0
-            } else {
-                0.0
-            };
+            let target = if wanted == Some(clip) { 1.0 } else { 0.0 };
             *weight = ease(*weight, target, seconds / EASE_S);
         }
         for (clip, at) in self.at.iter_mut().enumerate() {
@@ -190,11 +169,6 @@ impl Gait {
             let advance = match clip {
                 PAUSE => seconds,
                 _ => by_stride(motion.speed, seconds, self.strides[clip - 1], length),
-            };
-            let advance = if self.backwards[clip] {
-                -advance
-            } else {
-                advance
             };
             *at = (*at + advance).rem_euclid(length);
         }

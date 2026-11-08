@@ -183,14 +183,21 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   animates in the same step (TSL's medbay body, made lying dead) has the
   animation from its first snapshot.
 - Every posed body starts each frame from its model's rest pose
-  (`cast::at_rest`), then takes the JA pose and the clips over it: a node
-  the JA pose does not turn (`rootdummy`, which KOTOR's lying clips lay
-  down) stands at rest once no clip keys it, as KOTOR leaves a node no
-  animation keys. Before, it kept what the last clip left: Taris's duel
-  ring loser (`k_ptar_dueler_ud`: `ANIMATION_LOOPING_DEAD`, then
-  `ANIMATION_LOOPING_PAUSE` for 0.1 s and a jump to the lobby) stood 46°
-  aslant. Probe `up again` (`kjk sim probes --only "up again"`, K1's body
-  and clips).
+  (`cast::at_rest`), then takes the JA pose and the clips over it, but for
+  the nodes its standing clip (`pause1`) does not key (`cast::held_nodes`).
+  KOTOR writes only the nodes the playing clip keys (reone, xoreos): a
+  node the standing clip keys is set again whenever the body stands, any
+  other keeps what the last clip keying it left. So a node the JA pose
+  does not turn (`rootdummy`, which KOTOR's lying clips lay down) stands
+  at rest once no clip keys it; before, it kept what the last clip left:
+  Taris's duel ring loser (`k_ptar_dueler_ud`: `ANIMATION_LOOPING_DEAD`,
+  then `ANIMATION_LOOPING_PAUSE` for 0.1 s and a jump to the lobby) stood
+  46° aslant. And a robe's hood thrown back stays back: TSL's Handmaiden
+  at Atris's academy (`handmaiden.dlg`'s welcome, `Hood_Off`: `offhood`
+  keys `P_HandmaidenBB`'s hood, `pause1` does not) put it up again the
+  moment the clip ended while every node was posed from rest. Probe `up
+  again` (`kjk sim probes --only "up again"`: K1's body and clips, TSL's
+  robe).
 - In every conversation the line's pair turn their heads toward each
   other (`DIALOGUE.md`, "Lines"). While a conversation holds the world
   (scene mode), and only then:
@@ -213,15 +220,16 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   owner's call, 2026-10-05: JA's male stance and walk looked wrong on
   K1's female bodies): alive, its weapons away, no script's animation, and
   its legs in JA's plain standing, its idle, walking or running
-  (forwards, sideways or backwards), its own clip of the same (`pause1`, `walk`, `run`, through its supermodel chain,
+  (forwards or sideways), its own clip of the same (`pause1`, `walk`, `run`, through its supermodel chain,
   so a woman's are the female ones; a creature's read with its look,
   `CreatureClips`) is laid over the JA pose. Anything
   else (a fight, a jump, a roll, a Force move) is JA's.
 - Facing (the owner's call): moving, the body turns to the way it goes,
   720° a second, as KOTOR's characters do (KOTOR has no strafing): a
   strafe runs sideways facing its way, not crabbing at JA's 60° leg turn.
-  Going backwards it faces the other way and plays its walk or run in
-  reverse (KOTOR has no backpedal). Standing, it faces as JA's legs do.
+  Going backwards is JA's own backpedal (`BOTH_WALKBACK1`,
+  `BOTH_RUNBACK1`): KOTOR has none, and its walk or run played in
+  reverse looks wrong. Standing, it faces as JA's legs do.
 - Each clip's weight eases in or out over 0.25 s, laid over the JA pose as
   one weighted mean, so standing to walking cross-fades the clips and the
   gait fades back into JA's pose. Standing plays at its own pace; walking

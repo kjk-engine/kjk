@@ -19,6 +19,7 @@ use bevy::render::render_resource::{
     AsBindGroup, BlendState, RenderPipelineDescriptor, SpecializedMeshPipelineError,
 };
 use bevy::shader::ShaderRef;
+use sim::Seat;
 
 use crate::lifecycle_view::SceneCamera;
 use crate::sim_host::{OwnSeat, PresentedSnapshot};
@@ -124,14 +125,13 @@ fn blur(
     mut meshes: ResMut<Assets<Mesh>>,
     mut commands: Commands,
 ) {
-    let ratio = presented
-        .0
-        .current()
+    // The course's own, while its view has the screen (`takes_view`).
+    let (current, seat) = (presented.0.current(), own.map_or(Seat(0), |own| own.0));
+    let ratio = current
         .minigame
         .as_ref()
-        .map_or(0.0, |course| {
-            course.run_of(own.map_or(0, |own| own.0.0)).blur
-        })
+        .filter(|_| crate::minigame_view::takes_view(current, seat))
+        .map_or(0.0, |course| course.run_of(seat.0).blur)
         .max(screen.map_or(0.0, |screen| screen.blur));
     let Some(camera) = cameras.iter().next() else {
         return;

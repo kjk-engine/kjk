@@ -128,6 +128,9 @@ pub fn plan_verb(
             return ExitCode::FAILURE;
         }
     };
+    if let Some(line) = world.arrival_fallback() {
+        outln!("  {line}");
+    }
     let after = world.snapshot();
     let bytes = announcement.encode();
     let census = after.census();

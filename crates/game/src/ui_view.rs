@@ -29,7 +29,6 @@ use bevy::camera::{
 };
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
-use bevy::input::gamepad::Gamepad;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::MouseWheel;
 use bevy::mesh::{Indices, PrimitiveTopology};
@@ -558,7 +557,7 @@ fn step(
     mut ui: ResMut<Ui>,
     (keys, mouse): Buttons,
     (mut typed, mut wheel): (MessageReader<KeyboardInput>, MessageReader<MouseWheel>),
-    gamepads: Query<&Gamepad>,
+    gamepads: crate::pad::Pads,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<&Camera, With<UiCamera>>,
     time: Res<Time>,

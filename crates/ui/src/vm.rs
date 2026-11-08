@@ -128,11 +128,17 @@ pub struct CharacterView {
     /// That level with the game's picks (`sim::levels::Classes::auto`): what
     /// Auto Level Up asks.
     pub auto_level: Option<AutoLevelView>,
+    /// The skill points it left unspent at its levels before: its next
+    /// level offers them with the level's own.
+    pub unspent: u8,
     /// What the party carries: each item's id, how it shows, where it may
     /// be worn and whether this member may use it.
     pub owned: Vec<Owned>,
     /// What it wears, by `INVENTORY_SLOT_*`.
     pub worn: Vec<(u8, Owned)>,
+    /// The slots its body has locked (`sim::inventory::slots::locked`'s
+    /// mask: TSL's one-handed Kreia's off hands).
+    pub locked: u32,
     /// The party's credits.
     pub credits: i32,
 }
@@ -479,6 +485,9 @@ pub struct LevelUpView {
     pub level: u8,
     /// Skill ranks now.
     pub skills: [u8; 8],
+    /// The skill points left unspent at its levels before, added to the
+    /// level's own.
+    pub unspent: u8,
     /// The feats and powers it may pick.
     pub picks: PicksView,
 }

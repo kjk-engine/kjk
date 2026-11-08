@@ -12,7 +12,7 @@ use super::state::{global, set_global};
 use super::{Change, State, key};
 use crate::module::{Global, ModuleData};
 use crate::notice::{Notice, Screen};
-use crate::snapshot::{Screens, Transit};
+use crate::snapshot::{Screens, Snapshot, Transit};
 
 /// The script KOTOR runs each time an in-game screen opens (both games'
 /// executables, `ShowSWInGameGui`): it sets the map page's return button.
@@ -105,6 +105,30 @@ impl State {
                 disabled,
             },
         }
+    }
+
+    /// Takes back into a state made with nothing what `snapshot` tells of
+    /// the scripts' state in `module`: its screens (`screens`, all but
+    /// Bao-Dur met, TSL's influence, which it does not carry), the party
+    /// table's solo and the standings. A world made from a snapshot alone,
+    /// as a guest's is, then snapshots, and installs the next module, as
+    /// the authority's did (`end_m01aa`'s scripts label the return button,
+    /// `SetReturnStrref`, before the party leaves for `end_m01ab`).
+    pub(crate) fn take_told(&mut self, snapshot: &Snapshot, module: Option<&ModuleData>) {
+        let screens = snapshot.screens;
+        let Transit {
+            show,
+            label,
+            query,
+            disabled,
+        } = screens.transit;
+        self.return_button = (show, label, query);
+        if let Some(module) = module.filter(|module| module.disable_transit != disabled) {
+            self.transit.insert(key(&module.name), disabled);
+        }
+        self.party.no_map = screens.map_disabled;
+        self.party.solo = snapshot.solo;
+        self.reputation = snapshot.standing.clone();
     }
 }
 
@@ -341,13 +365,49 @@ impl Engine<'_> {
         self.tell_all(Notice::Show(Screen::Tutorial { row }))
     }
 
+    /// What scripts made of creature `who`'s body so far (`combat::Look`),
+    /// this step's changes to it counted, and whether a disguise holds it:
+    /// one here, or one a script made this step (TSL's 107PER spawns Kreia
+    /// from the party table and changes her body in one run,
+    /// `a_kreia_cut`), as the party table kept it. None for no creature.
+    fn look_of(&self, who: ObjectId) -> Option<(crate::combat::Look, bool)> {
+        let changed = self
+            .out
+            .changes
+            .iter()
+            .rev()
+            .find_map(|change| match change {
+                Change::Look { who: at, look } if *at == who => Some(*look),
+                _ => None,
+            });
+        if let Some(c) = self.character(who) {
+            return Some((changed.unwrap_or(c.look), c.sheet.gear.disguise.is_some()));
+        }
+        let made = (self.out.made.iter()).find(|made| {
+            made.id == who && made.facts.kind == crate::module::ObjectKind::Creature
+        })?;
+        // Made from its template: none yet.
+        let kept = made
+            .kept
+            .map_or(crate::combat::Look::default(), |kept| kept.look);
+        let sheet = made.kept.map(|kept| kept.sheet).or(made.facts.sheet);
+        let disguised = sheet.is_some_and(|sheet| sheet.gear.disguise.is_some());
+        Some((changed.unwrap_or(kept), disguised))
+    }
+
     /// `ChangeObjectAppearance`: a creature not under a disguise takes the
     /// appearance for good and stands where its new body fits.
     fn change_appearance(&mut self, who: ObjectId, appearance: i32) -> Value {
-        let (Some(c), Ok(appearance)) = (self.character(who), u16::try_from(appearance)) else {
+        let (Some((look, disguised)), Ok(appearance)) =
+            (self.look_of(who), u16::try_from(appearance))
+        else {
+            self.trace(&format!(
+                "  {}: no creature, its appearance stays",
+                super::name(who)
+            ));
             return Value::Int(0);
         };
-        if c.sheet.gear.disguise.is_some() {
+        if disguised {
             self.trace(&format!(
                 "  {}: disguised, its appearance stays",
                 super::name(who)
@@ -356,7 +416,7 @@ impl Engine<'_> {
         }
         let look = crate::combat::Look {
             appearance: Some(appearance),
-            ..c.look
+            ..look
         };
         self.out.changes.push(Change::Look { who, look });
         if let Some(thing) = self.view.thing(who) {
@@ -378,12 +438,12 @@ impl Engine<'_> {
                     .copied()
             })
             .and_then(|head| u8::try_from(head).ok());
-        if let (Some(c), Some(head), true) =
-            (self.character(who), head, self.character(like).is_some())
+        if let (Some((look, _)), Some(head), true) =
+            (self.look_of(who), head, self.character(like).is_some())
         {
             let look = crate::combat::Look {
                 head: Some(head),
-                ..c.look
+                ..look
             };
             self.out.changes.push(Change::Look { who, look });
         }

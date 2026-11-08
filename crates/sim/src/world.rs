@@ -82,6 +82,8 @@ pub use minds::probes as minds_probes;
 )]
 pub mod aim_probes;
 #[cfg(feature = "probes")]
+pub mod arrival_probes;
+#[cfg(feature = "probes")]
 pub mod bulk_probes;
 #[cfg(feature = "probes")]
 pub mod effects_probes;
@@ -331,6 +333,9 @@ struct Module {
     /// The saved continuations dropped as the world loaded or entered the
     /// module, one line each (`reconcile::drop_stale_code`): not state.
     dropped_code: Vec<String>,
+    /// Where the party stood instead of an arrival over no floor, as it
+    /// entered the module (`SimWorld::arrival_fallback`): not state.
+    arrival_fallback: Option<String>,
     /// What the party explored of each area's map (`crate::fog`).
     explored: Vec<crate::fog::Explored>,
     /// The scripts' visual effects on its doors and placeables
@@ -603,6 +608,14 @@ fn move_rates(level: &Level) -> crate::script::MoveRates {
     level
         .scripts()
         .map_or_else(Default::default, |library| library.move_rates())
+}
+
+/// The walk (m/s) of a body of `appearance.2da` row `appearance` its player
+/// drives (`Library::drive_walk`), where the level's library knows it.
+fn drive_walk(level: &Level, appearance: u16) -> Option<f32> {
+    level
+        .scripts()
+        .and_then(|library| library.drive_walk(appearance))
 }
 
 /// Where a standing body's box (`body`, `blocking`) puts its origin (units).

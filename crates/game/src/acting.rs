@@ -58,6 +58,8 @@ pub const LOOPING_READY: u16 = 19;
 /// `ANIMATION_LOOPING_TALK_NORMAL` (`tlknorm`): what a conversation's
 /// speaker plays standing where nothing else plays on it (`cast::talking`).
 pub const LOOPING_TALK_NORMAL: u16 = 5;
+/// `ANIMATION_LOOPING_PAUSE` (`pause1`): what a body stands in.
+pub const LOOPING_PAUSE: u16 = 0;
 /// How long (ms) after an animation begins its body's motion does not
 /// break it off: the stop of a run that brought it there.
 const SETTLE_MS: f64 = 400.0;

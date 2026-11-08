@@ -227,6 +227,10 @@ void SetIsDestroyable(int bDestroyable, int bRaiseable = TRUE, int bSelectableWh
 void DestroyObject(object oDestroy, float fDelay=0.0f, int bNoFade = FALSE, float fDelayUntilFade = 0.0f);
 // 2
 object GetObjectByTag(string sTag, int nNth=0);
+// 3
+int GetIsObjectValid(object oObject);
+// 4
+void SetGlobalNumber(string sIdentifier, int nValue);
 "#;
     let mut keep = script_ncs::probes::Asm::default();
     for value in [0, 1, 0] {
@@ -252,13 +256,108 @@ object GetObjectByTag(string sTag, int nNth=0);
             });
     }
     destroy.op(Op::Retn);
+    // `SetGlobalNumber(global, GetIsObjectValid(GetObjectByTag("fallen", 0)))`.
+    let look = |global: &str| {
+        let mut look = script_ncs::probes::Asm::default();
+        look.op(Op::Const(Const::Int(0)))
+            .op(Op::Const(Const::String(b"fallen".to_vec())))
+            .op(Op::Action {
+                routine: 2,
+                args: 2,
+            })
+            .op(Op::Action {
+                routine: 3,
+                args: 1,
+            })
+            .op(Op::Const(Const::String(global.as_bytes().to_vec())))
+            .op(Op::Action {
+                routine: 4,
+                args: 2,
+            })
+            .op(Op::Retn);
+        look.build()
+    };
     crate::probe::library(
         CATALOG,
         [
             ("probe_keep", keep.build()),
             ("probe_destroy", destroy.build()),
+            (LOOKS[0].0, look(LOOKS[0].1)),
+            (LOOKS[1].0, look(LOOKS[1].1)),
         ],
     )
+}
+
+/// The looks for the fallen one by its tag (`wave_probes`): each script and
+/// the global it sets, just before its body's delay ends (1.9 s after its
+/// death) and as it fades out after it (2.1 s).
+const LOOKS: [(&str, &str); 2] = [
+    ("probe_look_before", "seen_before"),
+    ("probe_look_after", "seen_after"),
+];
+const LOOK_STEPS: [u64; 2] = [
+    KILL_STEP + 1900 / MSEC as u64,
+    KILL_STEP + 2100 / MSEC as u64,
+];
+
+/// A wave of Sand People on the Dune Sea (`tat_m18aa`, the Czerka miners'
+/// ambush): each wave's last death starts a conversation whose script
+/// spawns the next wave and, about 3 s later, turns hostile the first four
+/// of that tag (`GetObjectByTag("tat18_tusken04", 0..3)`). The dead are found
+/// by their tag until their delay ends (TSL's executable removes an object
+/// from the module's tag table only as it is destroyed, its destroy event
+/// due the delay after its death), then no longer, whether or not their
+/// body is still drawn fading: before that, the last wave's bodies took the
+/// new wave's places and one of the new Sand People was never made hostile
+/// (issue 192). On the proving ground (`ground`): a script's look for the
+/// fallen one's tag finds it just before its delay ends and not as it
+/// fades after.
+pub fn wave_probes() -> Vec<(&'static str, Result<String, String>)> {
+    let seen = (|| -> Result<[Option<i32>; 2], String> {
+        let (_, mut world, first) = ground()?;
+        let player = world
+            .snapshot()
+            .entities
+            .iter()
+            .find(|entity| matches!(entity.kind, Kind::Avatar(_)))
+            .map(|entity| entity.id.0)
+            .ok_or("no player")?;
+        for tick in 1..=LOOK_STEPS[1] {
+            if tick == KILL_STEP {
+                kill(&mut world, first);
+            }
+            if let Some((script, _)) = LOOK_STEPS
+                .iter()
+                .zip(LOOKS)
+                .find_map(|(step, look)| (*step == tick).then_some(look))
+            {
+                let mut state = world.script_state().clone();
+                state.pending.push(crate::script::Pending::new(
+                    script,
+                    script_ncs::vm::ObjectId(player),
+                ));
+                world.set_script_state(state);
+            }
+            crate::step(
+                &mut world,
+                tick,
+                &TickInput::default(),
+                MSEC,
+                StepReason::Authority,
+            );
+        }
+        let numbers = &world.script_state().numbers;
+        Ok(LOOKS.map(|(_, global)| crate::script::global(numbers, global).copied()))
+    })();
+    vec![(
+        "dead_found_by_tag_until_their_delay",
+        seen.and_then(|seen| {
+            check(
+                seen == [Some(1), Some(0)],
+                format!("found before the delay ended, then as the body faded: {seen:?}"),
+            )
+        }),
+    )]
 }
 
 /// The proving ground with the two creatures added (`probes`), a world on

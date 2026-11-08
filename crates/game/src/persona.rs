@@ -100,7 +100,7 @@ impl Portraits {
     /// when they agree; none for a body no player portrait wears.
     pub fn female_body(&self, appearances: &TwoDa, body: &str) -> Option<bool> {
         let wears =
-            |row: u16| asset_odyssey::body_morph::names_body(appearances, usize::from(row), body);
+            |row: u16| asset_odyssey::creature::names_body(appearances, usize::from(row), body);
         let mut sexes = self
             .0
             .iter()
@@ -265,6 +265,5 @@ pub fn wear(
         head: look.head?,
         texture: look.body_texture,
         strides: strides.unwrap_or(crate::play::STRIDES),
-        chest: look.chest,
     })
 }

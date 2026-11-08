@@ -258,9 +258,11 @@ its way): it walks there and strikes a KOTOR attack of what it has in hand
 a round, swinging. A script's attack of a door or placeable
 (`ActionAttack` on an object, KOTOR's attack of one) strikes the same way,
 locked or not, with its `OnMeleeAttacked` on every blow, until it breaks;
-a player's too, once the player stands within `DOOR_REACH` of it (its
-legs are its seat's: the attack waits at the front of its queue,
-`SimWorld::assigned_strike`, and the playthrough harness walks it there).
+a player's too, once the player stands within a conversation's range of
+it, as far as the reply that told it may have been chosen from (its legs
+are its seat's, where KOTOR's walk in: the attack waits at the front of
+its queue, `SimWorld::assigned_strike`, and the playthrough harness walks
+it there).
 TSL's Peragus shift console, "[Destroy the console]", opens the
 dormitory door so. A broken door plays its model's `busted` where its
 `genericdoors.2da` row's `StaticAnim` names it (the executable's rule; no
@@ -1075,7 +1077,9 @@ lights (`material::LIGHT_COMBAT`). So are the powers': every script
 visual's glowing particles (its `Lighten` emitters', `model_fx::Glow`:
 their colours weighted by alpha) light 4 m in their own colour from where
 the visual is drawn (a beam's halfway to its target), as strong as how
-many show (`script_fx::GLOW_*`; K1's power models carry no lights), and
+many show (`script_fx::GLOW_*`; K1's power models carry no lights; a
+hit's, clash's or deflection's sparks light nothing, else they would hold a
+light on the body as long as they fly), and
 lightning lights at the hand and where
 its bolts end, in its primitives' colour times its shader's texture's
 (`force_view::LIGHTNING_*`). They are picked before the area's own,

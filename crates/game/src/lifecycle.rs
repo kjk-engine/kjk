@@ -30,14 +30,6 @@ pub fn open_playtest_links() {
     PLAYTEST_LINKS.store(true, Ordering::Relaxed);
 }
 
-/// What this process's plans apply over the module's own data.
-fn overrides(encounters: bool) -> session::Overrides {
-    session::Overrides {
-        encounters,
-        playtest_links: PLAYTEST_LINKS.load(Ordering::Relaxed),
-    }
-}
-
 /// Opens and plans the modules of one install.
 pub struct Installer {
     pub game: Game,
@@ -49,6 +41,9 @@ pub struct Installer {
     /// The areas its plans built (D13's level cache): planning a module
     /// again (a host's own client, a module gone back to) takes them.
     areas: session::AreaCache,
+    /// Its plans open the sealed ways whatever the process does
+    /// (`playtest_links`).
+    links: bool,
 }
 
 /// What a loading screen shows: the module's image, the progress bar's
@@ -278,7 +273,27 @@ impl Installer {
             install,
             anims,
             areas,
+            links: false,
         })
+    }
+
+    /// The same, its plans opening the ways the games keep sealed
+    /// (`data/links`) as `--playtest-links` opens them for a process: for
+    /// a run that goes back through one (`kjk net session`'s Endar Spire
+    /// players, back through the Starboard Section's door).
+    pub fn with_playtest_links(self) -> Self {
+        Installer {
+            links: true,
+            ..self
+        }
+    }
+
+    /// What its plans apply over the module's own data.
+    fn overrides(&self, encounters: bool) -> session::Overrides {
+        session::Overrides {
+            encounters,
+            playtest_links: self.links || PLAYTEST_LINKS.load(Ordering::Relaxed),
+        }
     }
 
     /// Whether its plans take the import step's products.
@@ -342,7 +357,7 @@ impl Installer {
             &ResolverSource(&resolver),
             request,
             self.anims.clone(),
-            overrides(false),
+            self.overrides(false),
             Some(&self.areas),
         )
         .map_err(|error| error.to_string())
@@ -378,7 +393,7 @@ impl Installer {
                 &ResolverSource(&resolver),
                 request,
                 self.anims.clone(),
-                overrides(true),
+                self.overrides(true),
                 Some(&self.areas),
             );
             let plan_ms = started.elapsed().as_secs_f64() * 1000.0;

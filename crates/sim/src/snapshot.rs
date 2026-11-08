@@ -224,7 +224,18 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// (`Modifies::BlasterDeflection`). Old saves: old snapshots read no cost
 /// multipliers (every value as its template's), and hold none of the new kind,
 /// a new index after the old.
-pub const VERSION: u32 = 85 + crate::pending::SNAPSHOT;
+/// 86: a poison's course no longer carries the drained points' own time
+/// (`items::Course::drain_ms`): they end with the poison. The course is written
+/// in the snapshot (a fighter's poison) and in the save's scripts section (a
+/// script's `Effect::Poison`); both read it by the snapshot's version, the
+/// scripts section by the one `Save::decode_versioned` just read from the
+/// snapshot. Old saves: old saves skip the course's drain time, in the snapshot
+/// and in the save's scripts section alike; points already drained keep the
+/// time they were given.
+/// 87: the tail carries solo mode (`solo`), for the HUD's solo toggle and the
+/// solo key. Old saves: old saves read `solo = false`; the scripts' party
+/// table, saved as before, sets it again on the first step.
+pub const VERSION: u32 = 87 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
@@ -1357,18 +1368,17 @@ impl Snapshot {
         id
     }
 
-    /// The body `seat`'s player moves: the creature it drives (a
-    /// companion, I30 P2; for the first seat, the one it is switched to,
-    /// `world::switch`, its own character benched meanwhile), for the first
-    /// seat the companion leading the party (`leading`), else its avatar;
-    /// `None` while it watches (P3).
+    /// The body `seat`'s player moves, as the sim's `acting_body` has it:
+    /// for the first seat the companion leading the party (`leading`),
+    /// which goes before the one it is switched to; else the creature it
+    /// drives (a companion, I30 P2; for the first seat, the one it is
+    /// switched to, `world::switch`, its own character benched meanwhile),
+    /// else its avatar; `None` while it watches (P3).
     pub fn body(&self, seat: Seat) -> Option<&EntityState> {
-        self.driven(seat)
-            .or_else(|| {
-                self.leading
-                    .filter(|_| seat == crate::world::LEADER_SEAT)
-                    .and_then(|id| self.get(id))
-            })
+        self.leading
+            .filter(|_| seat == crate::world::LEADER_SEAT)
+            .and_then(|id| self.get(id))
+            .or_else(|| self.driven(seat))
             .or_else(|| self.own(seat))
     }
 
@@ -2045,6 +2055,9 @@ pub struct Progress {
     /// The levels taken in play, by character id: its classes and levels
     /// in each (`State::careers`), what the level-up screen offers from.
     pub careers: std::collections::BTreeMap<u32, crate::levels::Career>,
+    /// The skill points each character left unspent at its levels, by id
+    /// (`State::unspent`): its next level-up offers them with its own.
+    pub unspent: std::collections::BTreeMap<u32, u8>,
     /// The XP the party's kills gave in the last `Kill::SHOWN_MS`, oldest
     /// first: KOTOR floats each over its dead.
     pub kills: Vec<Kill>,
@@ -2282,6 +2295,11 @@ impl Progress {
                 out.u8(*levels);
             }
         }
+        out.u32(self.unspent.len() as u32);
+        for (id, points) in &self.unspent {
+            out.u32(*id);
+            out.u8(*points);
+        }
         out.u32(self.kills.len() as u32);
         for kill in &self.kills {
             out.u32(kill.dead);
@@ -2319,6 +2337,20 @@ impl Progress {
             }
             careers.insert(id, career);
         }
+        let mut unspent = std::collections::BTreeMap::new();
+        if input.since(crate::since::snapshot::CLAUDE_BR8_ISSUE_209) {
+            for _ in 0..input.u32()? {
+                let at = input.at();
+                let id = input.u32()?;
+                if unspent
+                    .last_key_value()
+                    .is_some_and(|(last, _)| *last >= id)
+                {
+                    return Err(input.invalid("unspent id", at));
+                }
+                unspent.insert(id, input.u8()?);
+            }
+        }
         let kills = (0..input.u32()?)
             .map(|_| {
                 Ok(Kill {
@@ -2344,6 +2376,7 @@ impl Progress {
             journal,
             xp,
             careers,
+            unspent,
             kills,
             statuses,
             feedback,

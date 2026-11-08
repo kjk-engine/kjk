@@ -354,8 +354,9 @@ struct Kotor {
     plans: Vec<Level>,
     /// Per seat, the module its client last showed and the crossings so far.
     seen: std::collections::BTreeMap<u8, (String, u32)>,
-    /// Per seat, its answer byte and the line it last answered.
-    answers: std::collections::BTreeMap<u8, (u8, Option<Line>)>,
+    /// Per seat, its answer byte and the line it last answered, and whether
+    /// with a reply.
+    answers: std::collections::BTreeMap<u8, (u8, Option<(Line, bool)>)>,
 }
 
 /// A line shown: its conversation, entry and when it was shown (sim ms).
@@ -383,13 +384,15 @@ impl Kotor {
     /// `seat`'s answer byte (`dialogue::answer`): in a conversation, each
     /// line answered once, as a player clicks through (Trask's opening
     /// holds the party at `wp_player01` until it is): its first reply, or,
-    /// with none offered, skipped once a skip may end it. Held until the
-    /// next answer.
+    /// with none offered, skipped once a skip may end it. A line skipped
+    /// that plays out instead (Trask's opening may not be skipped) is still
+    /// replied to once its replies are up. Held until the next answer.
     fn answer(&mut self, seat: Seat, view: &Snapshot) -> u8 {
         let (byte, answered) = self.answers.entry(seat.0).or_insert((0, None));
         let pick = view.talk_for(seat).and_then(|talk| {
             let line = (talk.id, talk.entry, talk.shown_ms);
-            let pick = if !talk.auto && !talk.replies.is_empty() {
+            let reply = !talk.auto && !talk.replies.is_empty();
+            let pick = if reply {
                 Pick::Reply(0)
             } else if talk.until_ms != u64::MAX
                 && view.time_ms >= talk.shown_ms + dialogue::SKIP_AFTER_MS
@@ -398,8 +401,8 @@ impl Kotor {
             } else {
                 return None;
             };
-            (*answered != Some(line)).then(|| {
-                *answered = Some(line);
+            (*answered != Some((line, reply))).then(|| {
+                *answered = Some((line, reply));
                 pick
             })
         });
@@ -489,18 +492,18 @@ impl Scenario for Kotor {
 
 /// `end_m01aa`, and `end_m01aa_late`: the module planned for three, as a
 /// save made with three has it, and a third player joining at 6 s who
-/// plans it as announced (I30 P21; planned for one, it is refused). None
-/// without KOTOR.
+/// plans it as announced (I30 P21; planned for one, it is refused). Their
+/// plans open the playtest links: KOTOR seals the door back to
+/// `end_m01aa`, which the players run back through. None without KOTOR.
 fn kotor_sessions(discovery: &vfs::Discovery) -> Result<Vec<Session>, String> {
     if discovery.get(Game::Kotor1).is_none() {
         return Ok(Vec::new());
     }
     let (anims, _) = crate::stage::anims(discovery);
-    let installer = Arc::new(crate::lifecycle::Installer::new(
-        discovery,
-        Game::Kotor1,
-        Arc::new(anims),
-    )?);
+    let installer = Arc::new(
+        crate::lifecycle::Installer::new(discovery, Game::Kotor1, Arc::new(anims))?
+            .with_playtest_links(),
+    );
     let setup = Setup {
         name: "end_m01aa".into(),
         clients: vec![

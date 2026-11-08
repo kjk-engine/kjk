@@ -52,6 +52,7 @@ pub(super) fn feat_limits_met(
         player: true,
         tag: String::new(),
         tsl: false,
+        locked: 0,
     };
     may_wear(&of_feats, &wearer).is_ok()
 }

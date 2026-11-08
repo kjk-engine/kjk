@@ -592,8 +592,8 @@ fn stand(world: &mut super::super::SimWorld, at: [f32; 2]) {
 /// on it, as `AssignCommand(PC, ActionAttack(…))` queues it: TSL's Peragus
 /// shift console), out of its reach for `AWAY_MS`, then moved within it:
 /// its legs are its seat's, so nothing is struck from afar and the attack
-/// waits (`SimWorld::assigned_strike`); within reach it strikes.
-fn assigned() -> Result<Assigned, String> {
+/// waits (`SimWorld::assigned_strike`); moved to `within` it strikes.
+fn assigned(within: [f32; 2]) -> Result<Assigned, String> {
     let mut world = world(|data| {
         data.placements.push(Placement::Own(chest([-6.5, 3.5])));
         Ok(())
@@ -628,7 +628,7 @@ fn assigned() -> Result<Assigned, String> {
     let (mut ticks, mut notices) = (0, Vec::new());
     let (_, away) = until_broken(&mut world, &mut ticks, AWAY_MS, &mut notices);
     let waiting = world.assigned_strike(player);
-    stand(&mut world, [-5.5, 3.5]);
+    stand(&mut world, within);
     let (broke, _) = until_broken(&mut world, &mut ticks, ATTACK_WITHIN_MS, &mut notices);
     Ok((
         away.map_or(u16::MAX, |chest| chest.damage),
@@ -637,6 +637,19 @@ fn assigned() -> Result<Assigned, String> {
         notices.contains(&Notice::Said("attacked".into())),
         world.assigned_strike(player),
     ))
+}
+
+/// `assigned`'s check: untouched out of reach, the attack waiting, then
+/// broken once moved to `within`, heard attacked, nothing left queued.
+fn told_strike(within: [f32; 2]) -> Result<String, String> {
+    match assigned(within)? {
+        (0, Some(_), Some(at), true, None) => Ok(format!(
+            "untouched out of reach, the attack waiting; broke at {at} ms within it"
+        )),
+        seen => Err(format!(
+            "(damage away, waiting, broke at, attacked, left) {seen:?}"
+        )),
+    }
 }
 
 /// An object's state after `step`.
@@ -773,15 +786,13 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ),
         (
             "player_strikes_what_it_was_told_to",
-            match assigned() {
-                Ok((0, Some(_), Some(at), true, None)) => Ok(format!(
-                    "untouched out of reach, the attack waiting; broke at {at} ms within it"
-                )),
-                Ok(seen) => Err(format!(
-                    "(damage away, waiting, broke at, attacked, left) {seen:?}"
-                )),
-                Err(why) => Err(why),
-            },
+            told_strike([-5.5, 3.5]),
+        ),
+        // 3.5 m off: within a conversation's range, out of a door's reach
+        // (TSL's Peragus shift console, talked to from where it was).
+        (
+            "player_strikes_from_where_it_talked",
+            told_strike([-3.0, 3.5]),
         ),
         (
             "shots_bash",

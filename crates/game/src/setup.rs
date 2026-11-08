@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use bevy::camera::CompositingSpace;
 use bevy::ecs::system::NonSendMarker;
-use bevy::input::gamepad::{Gamepad, GamepadButton};
+use bevy::input::gamepad::GamepadButton;
 use bevy::input_focus::AutoFocus;
 use bevy::prelude::*;
 use bevy::text::{EditableText, TextCursorStyle};
@@ -110,7 +110,8 @@ impl Plugin for SetupPlugin {
         if self.start {
             setup.pending.push(Act::Start);
         }
-        app.insert_resource(ClearColor(BACKGROUND))
+        app.add_plugins(crate::pad::SticksPlugin)
+            .insert_resource(ClearColor(BACKGROUND))
             .insert_resource(setup)
             .add_systems(
                 Update,
@@ -538,11 +539,11 @@ fn pointer(mut setup: ResMut<Setup>, buttons: Query<(&Interaction, &Act), Change
 fn navigate(
     mut setup: ResMut<Setup>,
     keys: Res<ButtonInput<KeyCode>>,
-    gamepads: Query<&Gamepad>,
+    gamepads: crate::pad::Pads,
     mut stick_was: Local<f32>,
 ) {
     if setup.editing.is_some() {
-        let pad = |button| gamepads.iter().any(|pad| pad.just_pressed(button));
+        let pad = |button| gamepads.iter().any(|(pad, _)| pad.just_pressed(button));
         if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter) {
             setup.pending.push(Act::Accept);
         } else if keys.just_pressed(KeyCode::Escape) || pad(GamepadButton::East) {
@@ -577,7 +578,7 @@ fn navigate(
         press = true;
     }
     let mut stick = 0.0f32;
-    for pad in &gamepads {
+    for (pad, sticks) in &gamepads {
         if pad.just_pressed(GamepadButton::DPadUp) || pad.just_pressed(GamepadButton::DPadLeft) {
             step = -1;
         }
@@ -587,8 +588,8 @@ fn navigate(
         if pad.just_pressed(GamepadButton::South) {
             press = true;
         }
-        if stick.abs() < pad.left_stick().y.abs() {
-            stick = pad.left_stick().y;
+        if stick.abs() < sticks.left.y.abs() {
+            stick = sticks.left.y;
         }
     }
     // The stick moves the focus once each time it is pushed past half.
