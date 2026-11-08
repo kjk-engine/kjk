@@ -5,7 +5,8 @@
 strike and leave marks, damage props crumple; workbenches intact):
 `docs/COMBAT.md`, "Destruction". The second pass followed the owner's
 playtest of the prop hall: "Second pass: what breaking looks like"
-replaces "What breaking looks like" below where they differ. Rooms are
+replaces "What breaking looks like" below where they differ. Third pass designed the same evening: see
+"Third pass: damage that reads, bolts that land". Rooms are
 still to come.
 
 Companion table: [`2026-11-06-destruction-props.csv`](2026-11-06-destruction-props.csv),
@@ -334,6 +335,70 @@ without sending anything:
 - **Never** hidden outright any more, except a model that has no triangles
   to cut.
 
+## Third pass: damage that reads, bolts that land (owner playtest 2026-11-08, evening)
+
+The owner threw grenades and shot through the hall after the second pass:
+pieces were "pretty good", but darkening alone is not damage, and blaster
+bolts showed no impact on many props. The owner chose all four damage looks
+below.
+
+### Bolts meet every destructible prop as big as its model
+
+A bolt meets a damage-class prop not at all today (`objects::shot_bodies`
+leaves them out so that a flag never stands in a shot as an invisible
+column), and a breakable one as a box sized by its `Size`. Instead every
+destructible prop, both classes, gets a **body box from its own model**:
+the model's rest bounds (meshes only, emitters and dummies left out), in
+its own frame, turned by its facing. It is computed when the module loads
+(`session::objects::destructible`, which already fills `destructible`) and
+when the arena makes its props, kept in the prop's facts beside
+`destructible`. A bolt meets that box; a flag's box is as thin as the flag.
+A prop whose model has no meshes gets no body, as today. The view's impact
+for a bolt that ended on a body is the box's face it struck (no longer the
+"facing the shooter" fallback).
+
+### What damage looks like (replaces "Scorch" and "Dents" of the second pass where they differ)
+
+Each look is seeded from the model, the object and the stage, so every
+seat, every save and every return to a module shows the same damage; none
+of it is synced.
+
+1. **Chunks knocked off.** Damage-class props, and breakable props before
+   they break, are cut by the same fracture as breaking (`Fractures`). At
+   each stage some pieces leave: medium 1–2 at stage 1 and 2 more at stage 2,
+   large 2–3 and 3 more; never base pieces, preferring the outermost and
+   highest. From the first one, the prop is drawn as its remaining pieces
+   in place (dents applied to them) instead of its whole model, so the gaps
+   and the capped cuts show. Pieces knocked off fly as debris when it
+   happens live, and are not there at all when the prop is first seen
+   damaged. Collision never changes.
+2. **Hanging panels.** Of the pieces leaving at a stage, a flat one (its
+   thinnest side under a third of its others) on the prop's outside hinges
+   instead of falling: it turns 25–70° about its edge nearest the body and
+   stays hanging. At stage 2 one hanging panel of stage 1 may fall.
+3. **Lasting fire and smoke.** Damaged props keep KOTOR's own emitters,
+   taken from the games' own effect placeables and `visualeffects.2da` (the
+   smoke, steam, spark and fire models the catalogue lists as intact):
+   electronics spark (stage 1) and arc and smoke (stage 2); metal smokes;
+   wood, cloth and organic smoulder, then burn with a small fire at stage 2;
+   stone trickles dust. A broken prop's base smokes for 5–10 s. At most 24
+   live emitters within 30 m of a player, nearest first.
+4. **Scorch and cracks build up.** Damage-class props keep their 24 newest
+   marks (breakables 8). Each mark lays a wider, faint soot mark under it,
+   so soot spreads as hits pile up. Stone and screens get crack marks, from
+   a crack or broken-glass texture the games (or the JA marks already used)
+   have; with none, no cracks. Overall darkening drops to 1.0, 0.9, 0.8
+   (stages 0, 1, 2+).
+
+### Fixes from the playtest log
+
+- A prop whose fracture has no pieces (`plc_firixa01`, a plant) still
+  vanished: every model with triangles is cut, uncapped where it must be.
+- Legged furniture (benches, beds, tables) left no base: the base is the
+  pieces in the lowest quarter **or touching the floor** (lowest point
+  within 5 cm of it), and always at least the lowest piece.
+- A piece despawned twice (`Entity despawned` warning): despawn once.
+
 ## Rules for collision, nav and story
 
 - A **broken** prop becomes `ObjectState::GONE`-like for collision: bodies,
@@ -479,3 +544,9 @@ Steps 1 and 3 can run in parallel; 2 needs 1; 4 needs 2 and 3.
   pieces bigger than a fist stay for the visit, not across saves (a save
   shows the base); desks, kiosks and `LargeLocker` move to damage, and
   every electronic or large kind is damage.
+- Third pass: bolts meet destructible props as their model's rest bounds,
+  computed at load into the facts (the level digest changes, as any fact
+  does; saves re-stamp as usual); damaged props are drawn as their
+  remaining pieces once a chunk is off; emitters come from KOTOR's own
+  effect placeables; 24 emitters within 30 m; no cracks if the games have no
+  crack texture.
