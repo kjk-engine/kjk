@@ -269,7 +269,7 @@ fn exactness_in(run: &Recorded, back: usize, shots: std::ops::Range<usize>) -> E
                     Ok(Rebuilt {
                         tick: snapshot.tick,
                         parts,
-                        snapshot,
+                        snapshot: Arc::new(snapshot),
                     })
                 })
             };

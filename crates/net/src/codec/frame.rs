@@ -226,12 +226,14 @@ pub fn unpack(packed: &[u8]) -> Result<Cow<'_, [u8]>, CodecError> {
 }
 
 /// A snapshot rebuilt from a frame and checked: its parts (a later frame's
-/// baseline) and the snapshot (what prediction restores from).
+/// baseline) and the snapshot (what prediction restores from), shared
+/// with what presents it: a snapshot is large, and a client hands each on
+/// several times (issue 229).
 #[derive(Debug, Clone)]
 pub struct Rebuilt {
     pub tick: u64,
     pub parts: Parts,
-    pub snapshot: Snapshot,
+    pub snapshot: Arc<Snapshot>,
 }
 
 impl Rebuilt {
@@ -241,7 +243,7 @@ impl Rebuilt {
         Rebuilt {
             tick: snapshot.tick,
             parts: snapshot.split(),
-            snapshot,
+            snapshot: Arc::new(snapshot),
         }
     }
 }
@@ -279,7 +281,7 @@ pub fn rebuild(
     Ok(Rebuilt {
         tick: header.tick,
         parts,
-        snapshot,
+        snapshot: Arc::new(snapshot),
     })
 }
 
