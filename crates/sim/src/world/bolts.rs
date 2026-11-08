@@ -385,6 +385,7 @@ pub(super) fn bolt_source(bolt: &Missile) -> Source {
         cadence_ms: bolt.cadence_ms,
         share: bolt.share,
         area: false,
+        second: None,
     }
 }
 

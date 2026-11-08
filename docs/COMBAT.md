@@ -978,7 +978,15 @@ is instant.
   Strike's threat range ×2/×3/×4 in the medium, Flurry −4/−2 to hit in
   the fast, its blows counting more pace (`Kit::paced`); the dual and staff
   styles carry the line chosen for them (`combat::picks`), none until one
-  is. `kjk combat duel --only feat_worth` measures each. Kicks (`saber::kick`): 2 or 3 JA
+  is. Both blades of a dual or staff swing share its one roll's budget, so
+  each blow also carries the second blade's own attack (`damage::Second`:
+  the off hand's weapon or the staff's other end, its own roll at its own
+  chance to hit, two-weapon fighting's penalty for each hand), KOTOR's
+  second attack a round: the staff's whole, the pair's 60%
+  (`Style::second_attack`; a pair's quicker, longer cuts land more often).
+  Before it a pair or a staff dealt about what one blade does where KOTOR
+  has 1.3 to 1.7 times (`kjk combat balance`, 2026-11-08), under JA as
+  under the duel modes. `kjk combat duel --only feat_worth` measures each. Kicks (`saber::kick`): 2 or 3 JA
   points, a toss, a 700 ms knockdown for the busy and the bladeless.
 - **Blocks** (`saber::defence`): a holder not attacking turns blows
   within its arc, and the blow it meets is held (no crush of a block by

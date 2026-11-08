@@ -64,6 +64,17 @@ impl Style {
         })
     }
 
+    /// The share of the second blade's own attack a blow in the style
+    /// carries (thousandths, `damage::Second`): the staff's and the pair's
+    /// (`styles::SECOND_ATTACK`); none with one blade.
+    pub fn second_attack(self) -> Option<u16> {
+        match self {
+            Style::Staff => Some(styles::SECOND_ATTACK[0]),
+            Style::Dual => Some(styles::SECOND_ATTACK[1]),
+            _ => None,
+        }
+    }
+
     /// Where the style's animations sit among the style groups (fast,
     /// medium, strong, dual, staff).
     pub fn group(self) -> u16 {

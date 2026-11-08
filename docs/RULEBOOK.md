@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `5567d57c15c1dc14`.
+Edition `1a1d85fa17d1cded`.
 
 ## Contents
 
@@ -3080,6 +3080,16 @@ Blows that carry Flurry deal 200% of the damage their pace gives.
 Damage follows the time between blows, so faster swings alone add little: this is KOTOR's extra attack, and what pays for Flurry's penalty to hit.
 
 <sub>Source: ours, measured to match Critical Strike's gain (`kjk combat duel --only feat_worth`). Code: `sim::combat::saber::Kit::paced`.</sub>
+
+<a id="saber-moves-styles-second-attack"></a>**Second Blade Attack** = **100% / 60%** (`1000 / 600 ‰`) · `saber_moves.styles.second_attack`
+
+Staff **100%** · Dual **60%**
+
+Blows of the staff style also carry 100% of the double-bladed weapon's other end's own attack, and blows of the dual style 60% of the off hand's, each at its own chance to hit.
+
+Both blades of a swing share one blow, so the second blade's attack rides on it as KOTOR's second attack a round. Two-Weapon Fighting's penalties to hit apply to each hand. A pair's quicker, longer cuts land more often than a staff's, so its share is less.
+
+<sub>Source: KOTOR's two-weapon round (the staff's); the dual style's ours, measured with `kjk combat balance` to keep a pair's damage over a single blade's at KOTOR's. Code: `sim::combat::saber::Style::second_attack`.</sub>
 
 <a id="saber-moves-styles-fast-transitions"></a>**Fast Style Recovery** = **×1.5** · `saber_moves.styles.fast_transitions`
 

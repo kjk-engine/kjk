@@ -21,8 +21,9 @@
 //! so a round's expected damage over that cadence, times the side's own
 //! cadence, is what a kjk blow would carry to keep KOTOR's time to kill
 //! (`per_blow`); `landed` is what kjk sizes one landed blow at (the main
-//! hand's hit times its chance times the pace at the side's cadence, Speed's
-//! and Juyo's extra attacks multiplying it, as `world::harm` does).
+//! hand's hit times its chance, the second blade's attack added, times the
+//! pace at the side's cadence, Speed's and Juyo's extra attacks multiplying
+//! it, as `world::harm` does).
 
 use serde::Serialize;
 use sim::combat::Sheet;
@@ -60,7 +61,8 @@ pub(super) struct Reference {
     /// What a kjk blow at the side's cadence would carry for KOTOR's time
     /// to kill (the round over `WHOLE_CADENCE_MS`, times the cadence).
     pub per_blow: f64,
-    /// A blow landed in kjk, whole points (`hit` × `p` × pace × extra).
+    /// A blow landed in kjk, whole points ((`hit` × `p` + the second
+    /// blade's) × pace × extra).
     pub landed: f64,
     pub cadence_ms: u32,
     /// The other's most HP, and what it takes to bring them down.
@@ -164,7 +166,11 @@ pub(super) fn reference(
     let cadence = cadence_ms.min(damage::WHOLE_CADENCE_MS);
     let per_blow = round * f64::from(cadence) / f64::from(damage::WHOLE_CADENCE_MS);
     let pace = damage::pace(kit.paced(style, cadence)) as f64 / 1000.0;
-    let landed = hit * p * pace * (1.0 + extra);
+    // The second blade's attack rides on each blow (`Source::Weapon::second`).
+    let second = (attacks.iter().find(|a| a.hand == 1))
+        .zip(style.second_attack())
+        .map_or(0.0, |(a, share)| a.p * a.hit * f64::from(share) / 1000.0);
+    let landed = (hit * p + second) * pace * (1.0 + extra);
     let foe_hp = f64::from(target.max_hp);
     let over = |per: f64| if per > 0.0 { foe_hp / per } else { f64::INFINITY };
     Reference {

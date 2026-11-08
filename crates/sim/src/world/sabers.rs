@@ -558,16 +558,27 @@ impl Step<'_> {
             return;
         };
         let man = &self.men[at];
+        let swung = |hand: u8| man.kit.swing(blow.style, in_hand(&man.sheet, &man.f, hand));
+        // Both blades out: the second's own attack (`damage::Second`), the
+        // pair's other hand, the staff's other end.
+        let second = (blow.style.second_attack())
+            .filter(|_| man.f.saber.thrown.is_none())
+            .map(|share| damage::Second {
+                weapon: match blow.style {
+                    Style::Dual => swung(1 - blow.hand.min(1)),
+                    _ => swung(blow.hand),
+                },
+                share,
+            });
         self.hits.push(Hit {
             attacker: blow.by,
             target: victim,
             source: Source::Weapon {
-                weapon: man
-                    .kit
-                    .swing(blow.style, in_hand(&man.sheet, &man.f, blow.hand)),
+                weapon: swung(blow.hand),
                 cadence_ms: man.kit.paced(blow.style, blow.cadence_ms),
                 share: blow.share,
                 area: false,
+                second,
             },
             point: Some(blow.point),
             direction: Some(blow.direction),
@@ -1684,6 +1695,7 @@ impl Step<'_> {
                 cadence_ms: throw::CADENCE_MS,
                 share: 1000,
                 area: false,
+                second: None,
             },
             point: Some(t.at),
             direction: Some(direction),
