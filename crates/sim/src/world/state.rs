@@ -312,6 +312,7 @@ impl SimWorld {
             roster: snapshot.roster.clone(),
             reconciled: None,
             dropped_code: Vec::new(),
+            arrival_fallback: None,
             explored: snapshot.explored.clone(),
             visuals: snapshot.visuals.clone(),
         });
