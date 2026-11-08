@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b2a3a4db99aa76f6`.
+Edition `5567d57c15c1dc14`.
 
 ## Contents
 
@@ -10625,7 +10625,7 @@ How creatures with sabers fight under the duel modes: they block whenever they c
 
 a blade's length **1 meter** · times the body's half width **0.038 meters** · and **0.41 meters** · left beyond **0.81 meters**
 
-Under MDA a creature within a blade's length (40 units), 1.5 units body half widths and 16 units of a saber user takes a block stance facing it, until 32 units farther; it holds its ground only within that reach, and steps back in when pushed past it, so its swings still land.
+Under MDA a creature within a blade's length (40 units), 1.5 units body half widths and 16 units of a saber user takes a block stance facing it, until 32 units farther; it holds its ground only within that reach, and steps back in when pushed past it, so its swings still land. A creature with no straight way to its foe, going round to it, takes no stance.
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
 

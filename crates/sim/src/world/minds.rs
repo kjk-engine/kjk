@@ -1135,8 +1135,13 @@ impl Duelling<'_> {
         let [blade, widths, pad, leave] = npc::STANCE;
         let reach = blade + widths * crate::motion::HALF_WIDTH + pad;
         let unblockable = crate::combat::saber::duel::unblockable(fighter.saber.current_move);
+        // Hunting its foe along a route (no straight way to it, `fight`), it
+        // takes no stance: held there, short of a wall's corner, it could
+        // neither reach its foe nor swing at it.
+        let hunting = fighter.mind.pace.hunting;
         let state_now = state.stance;
         state.stance = !unblockable
+            && !hunting
             && apart.is_some_and(|apart| {
                 if state_now {
                     apart <= reach + leave
