@@ -12,7 +12,7 @@ use super::state::{global, set_global};
 use super::{Change, State, key};
 use crate::module::{Global, ModuleData};
 use crate::notice::{Notice, Screen};
-use crate::snapshot::{Screens, Transit};
+use crate::snapshot::{Screens, Snapshot, Transit};
 
 /// The script KOTOR runs each time an in-game screen opens (both games'
 /// executables, `ShowSWInGameGui`): it sets the map page's return button.
@@ -105,6 +105,30 @@ impl State {
                 disabled,
             },
         }
+    }
+
+    /// Takes back into a state made with nothing what `snapshot` tells of
+    /// the scripts' state in `module`: its screens (`screens`, all but
+    /// Bao-Dur met, TSL's influence, which it does not carry), the party
+    /// table's solo and the standings. A world made from a snapshot alone,
+    /// as a guest's is, then snapshots, and installs the next module, as
+    /// the authority's did (`end_m01aa`'s scripts label the return button,
+    /// `SetReturnStrref`, before the party leaves for `end_m01ab`).
+    pub(crate) fn take_told(&mut self, snapshot: &Snapshot, module: Option<&ModuleData>) {
+        let screens = snapshot.screens;
+        let Transit {
+            show,
+            label,
+            query,
+            disabled,
+        } = screens.transit;
+        self.return_button = (show, label, query);
+        if let Some(module) = module.filter(|module| module.disable_transit != disabled) {
+            self.transit.insert(key(&module.name), disabled);
+        }
+        self.party.no_map = screens.map_disabled;
+        self.party.solo = snapshot.solo;
+        self.reputation = snapshot.standing.clone();
     }
 }
 
