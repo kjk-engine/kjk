@@ -403,6 +403,44 @@ fn barycentric(c: [[f32; 3]; 3], p: [f32; 3]) -> [f32; 3] {
     [1.0 - v - w, v, w]
 }
 
+/// The first point along the segment `from`–`to` where it crosses one of
+/// `triangles`, and that triangle's normal turned to face `from`.
+pub fn first_crossing(
+    from: [f32; 3],
+    to: [f32; 3],
+    triangles: &[[[f32; 3]; 3]],
+) -> Option<([f32; 3], [f32; 3])> {
+    // Möller–Trumbore, both faces, the nearest crossing along the segment.
+    let way = sub(to, from);
+    triangles
+        .iter()
+        .filter_map(|&[a, b, c]| {
+            let (e1, e2) = (sub(b, a), sub(c, a));
+            let p = cross(way, e2);
+            let det = dot(e1, p);
+            if det.abs() < 1e-12 {
+                return None;
+            }
+            let s = sub(from, a);
+            let u = dot(s, p) / det;
+            let q = cross(s, e1);
+            let v = dot(way, q) / det;
+            let t = dot(e2, q) / det;
+            let inside = (0.0..=1.0).contains(&u) && v >= 0.0 && u + v <= 1.0;
+            (inside && (0.0..=1.0).contains(&t)).then(|| {
+                let normal = unit(cross(e1, e2));
+                let facing = if dot(normal, way) > 0.0 {
+                    scale(normal, -1.0)
+                } else {
+                    normal
+                };
+                (t, add(from, scale(way, t)), facing)
+            })
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, at, normal)| (at, normal))
+}
+
 #[cfg(feature = "probes")]
 pub use probes::probes;
 
@@ -624,9 +662,30 @@ mod probes {
         )
     }
 
+    fn crossing() -> Result<String, String> {
+        let quad = [
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0]],
+            [[0.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]],
+        ];
+        let through = first_crossing([0.5, 0.25, 1.0], [0.5, 0.25, -1.0], &quad);
+        let under = first_crossing([0.5, 0.25, -1.0], [0.5, 0.25, 1.0], &quad);
+        let misses = first_crossing([2.0, 2.0, 1.0], [2.0, 2.0, -1.0], &quad);
+        let good = |found: Option<([f32; 3], [f32; 3])>, up: f32| {
+            found.is_some_and(|(at, normal)| at[2].abs() < 1e-5 && normal[2] == up)
+        };
+        check(
+            good(through, 1.0) && good(under, -1.0) && misses.is_none(),
+            format!(
+                "down through {through:?} (want z 0, normal up), up through {under:?} \
+                 (normal down), beside {misses:?} (want None)"
+            ),
+        )
+    }
+
     /// The probes.
     pub fn probes() -> Checks {
         vec![
+            ("prop_hit_crossing", crossing()),
             ("debris_settles", debris_settles()),
             ("shatter_covers_once", covers_once()),
             ("shatter_same_everywhere", same_everywhere()),

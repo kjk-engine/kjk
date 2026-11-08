@@ -4,7 +4,7 @@
 //! synced or saved; every machine cuts the same pieces from the model's
 //! name and finds the rest itself.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
 use asset_odyssey::model::ModelIr;
@@ -16,13 +16,17 @@ use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use ragdoll::DebrisId;
 use ragdoll::shatter::{self, Piece, Plain};
-use sim::destruction::Class;
+use sim::destruction::{Class, Material, Size};
 use sim::look;
 
+use crate::body_marks;
+use crate::glow_shell::GlowMaterial;
 use crate::made::Made;
 use crate::material::{self, OdysseyMaterial, Surface};
 use crate::prop_breaks::{PropChanges, PropsSeen};
-use crate::scene::{MeshPart, SceneContent, SceneModel, base_mesh, game_to_bevy};
+use crate::scene::{DrawnBlades, MeshPart, SceneContent, SceneModel, base_mesh, game_to_bevy};
+use crate::script_fx::{HookVisual, HookVisuals, Place};
+use crate::shot_fx::BoltEnds;
 use crate::sim_host::{PresentedSnapshot, SceneSwap};
 
 /// How many pieces a prop is cut into, by size (small, medium, large).
@@ -43,6 +47,23 @@ const MAX_PIECES: usize = 256;
 /// away over `SHRINK_S`.
 const FADE_S: (f64, f64) = (10.0, 20.0);
 const SHRINK_S: f64 = 0.5;
+/// How far a small and a medium prop jolt from a blow (degrees), and how
+/// soon they settle (ms).
+const SHAKE_DEG: [f32; 2] = [6.0, 3.0];
+const SHAKE_MS: f32 = 150.0;
+/// A prop keeps its newest this many marks, each this wide (half-width,
+/// m, seeded between).
+const MARKS: usize = 8;
+const MARK_M: (f32, f32) = (0.08, 0.14);
+/// A blow throws this many shards (seeded between), this fast (m/s), gone
+/// within 2 s (ms until they shrink away).
+const SHARDS: (usize, usize) = (3, 6);
+const SHARD_SPEED: (f32, f32) = (2.0, 3.5);
+const SHARD_FADE_MS: f64 = 1500.0;
+/// A blade whose hilt is this near a prop's feet (m) may have struck it; a
+/// blow from this near is a fist's or a kick's.
+const BLADE_REACH_M: f32 = 3.0;
+const BLUNT_REACH_M: f32 = 3.0;
 
 /// A number from 0 to 1 (1 never) from `parts` and `salt`, the same on
 /// every machine: FNV-1a 64 of their bits, then splitmix64's finish.
@@ -140,13 +161,19 @@ pub(crate) struct Fracture {
 pub(crate) struct Fractures {
     ready: BTreeMap<String, Arc<Fracture>>,
     cutting: BTreeMap<String, Task<Fracture>>,
+    /// Each destructible prop's model's meshes that can be cut, and which
+    /// mesh each is (`cuttable`).
+    plains: BTreeMap<String, Arc<Cuttable>>,
 }
+
+/// A model's meshes that can be cut (model frame), and which mesh each is.
+type Cuttable = (Vec<Plain>, Vec<usize>);
 
 /// The meshes of `ir` that can be cut, in the model's frame (each node's
 /// rest transform applied), and which mesh each is: drawn, not skinned,
 /// dangly or lightmapped (a piece has no lightmap uvs); capped unless its
 /// surface is alpha-tested, blended or two-sided.
-fn plains(ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> (Vec<Plain>, Vec<usize>) {
+fn cuttable(ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> (Vec<Plain>, Vec<usize>) {
     ir.meshes
         .iter()
         .enumerate()
@@ -199,10 +226,11 @@ impl Fractures {
         if self.ready.contains_key(&name) || self.cutting.contains_key(&name) {
             return;
         }
-        let (meshes, numbers) = plains(ir, textures);
+        let cut = self.plains(ir, textures);
+        let numbers = cut.1.clone();
         let seed = shatter::seed_of(&name);
         let task = AsyncComputeTaskPool::get().spawn(async move {
-            let pieces = shatter::shatter(&meshes, count, seed);
+            let pieces = shatter::shatter(&cut.0, count, seed);
             let height = pieces
                 .iter()
                 .flat_map(|piece| &piece.hull)
@@ -232,6 +260,13 @@ impl Fractures {
                 self.ready.insert(name, Arc::new(fracture));
             }
         }
+    }
+
+    /// Model `ir`'s meshes that can be cut, made the first time.
+    fn plains(&mut self, ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> Arc<Cuttable> {
+        (self.plains.entry(ir.name.to_ascii_lowercase()))
+            .or_insert_with(|| Arc::new(cuttable(ir, textures)))
+            .clone()
     }
 
     fn get(&self, ir: &ModelIr) -> Option<&Arc<Fracture>> {
@@ -268,6 +303,41 @@ pub(crate) struct PropLooks {
     floor: bool,
     owed: BTreeMap<u32, Owed>,
     done: BTreeSet<u32>,
+    /// This frame's blows, by prop.
+    impacts: BTreeMap<u32, Impact>,
+    /// Each prop's marks (each one a stage entity or two), newest last.
+    marks: BTreeMap<u32, VecDeque<Vec<Entity>>>,
+    /// Props jolting from a blow.
+    jolts: BTreeMap<u32, Jolt>,
+}
+
+/// What struck a prop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Blow {
+    Bolt,
+    Blade,
+    Blunt,
+    Blast,
+}
+
+/// Where a blow landed on a prop (game space, metres), the way the prop's
+/// face there looks, and what struck.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Impact {
+    at: Vec3,
+    normal: Vec3,
+    blow: Blow,
+}
+
+/// A prop's root jolting from a blow: where it rests, the axis it tips
+/// about (its parent's space), since when (ms of `Time`), and its kind.
+struct Jolt {
+    root: Entity,
+    rest: Transform,
+    axis: Vec3,
+    since_ms: f64,
+    size: Size,
+    class: Class,
 }
 
 pub struct PropLooksPlugin;
@@ -278,9 +348,10 @@ impl Plugin for PropLooksPlugin {
             .init_resource::<PropLooks>()
             .add_systems(
                 PostUpdate,
-                (wrecks, fly)
+                (hits, wrecks, fly)
                     .chain()
                     .after(PropsSeen)
+                    .after(crate::shot_fx::ShotsSeen)
                     .run_if(resource_exists::<PresentedSnapshot>),
             );
     }
@@ -364,15 +435,14 @@ fn wrecks(
             Wreck::Flies => true,
         };
         if !looks.done.contains(&change.index) {
-            let from = blow_from(change.position, &changes.creatures);
-            looks.owed.insert(
-                change.index,
-                Owed {
-                    flies,
-                    from,
-                    blast: false,
-                },
-            );
+            let (from, blast) = match looks.impacts.get(&change.index) {
+                Some(impact) => (
+                    (impact.at + impact.normal).to_array(),
+                    impact.blow == Blow::Blast,
+                ),
+                None => (blow_from(change.position, &changes.creatures), false),
+            };
+            looks.owed.insert(change.index, Owed { flies, from, blast });
         }
     }
     let now_ms = time.elapsed_secs_f64() * 1000.0;
@@ -398,10 +468,7 @@ fn wrecks(
         let Ok(global) = globals.get(root) else {
             continue;
         };
-        // The model's place in game space (the scene's root turns game
-        // space to Bevy's).
-        let game =
-            Transform::from_matrix(Mat4::from_quat(game_to_bevy().inverse()) * global.to_matrix());
+        let game = in_game(global);
         let materials: BTreeMap<usize, Handle<OdysseyMaterial>> = (children.iter_descendants(root))
             .filter_map(|entity| parts.get(entity).ok())
             .map(|(part, material)| (part.0, material.0.clone()))
@@ -453,42 +520,377 @@ fn wrecks(
                 let (lo, hi) = FADE_S;
                 now_ms + (lo + (hi - lo) * f64::from(noise(&middle, 9))) * 1000.0
             });
-            let entity = commands
-                .spawn((
-                    Transform::from_rotation(game_to_bevy()) * game,
-                    Visibility::default(),
+            spawn_piece(
+                &mut commands,
+                &mut meshes,
+                (piece, &fracture.meshes, &materials),
+                (game, format!("{} piece {number}", ir.name)),
+                Flying {
+                    debris,
+                    born_ms: now_ms,
+                    kept: !small || stays,
+                    fade_ms,
+                },
+            );
+        }
+    }
+}
+
+/// The things that strike props as drawn this frame: blaster bolts' last
+/// runs, and lit blades (hilt, tip), game space.
+type Strikers<'w> = (Option<Res<'w, BoltEnds>>, Option<Res<'w, DrawnBlades>>);
+
+/// What a mark is made with: the meshes, the marks' looks and materials.
+type MarkMakers<'w> = (
+    ResMut<'w, Assets<Mesh>>,
+    Option<ResMut<'w, body_marks::Looks>>,
+    ResMut<'w, Assets<GlowMaterial>>,
+);
+
+/// The model's place in game space (the scene's root turns game space to
+/// Bevy's), from its root's.
+fn in_game(global: &GlobalTransform) -> Transform {
+    Transform::from_matrix(Mat4::from_quat(game_to_bevy().inverse()) * global.to_matrix())
+}
+
+/// The triangles of `plains` (model frame) placed by `game`.
+fn placed_triangles(plains: &[Plain], game: &Transform) -> Vec<[[f32; 3]; 3]> {
+    plains
+        .iter()
+        .flat_map(|plain| {
+            plain.indices.as_chunks::<3>().0.iter().map(|t| {
+                t.map(|v| {
+                    game.transform_point(Vec3::from_array(plain.positions[v as usize]))
+                        .to_array()
+                })
+            })
+        })
+        .collect()
+}
+
+/// Where a blow on a prop landed: a bolt's run or a blade crossing its own
+/// triangles (`triangles`, game space) first; else the point on its body
+/// box (standing at `feet`, of `size`) facing `from`, where the blow came
+/// from, a fist or kick when that is within reach, a blast or power
+/// otherwise.
+pub(crate) fn impact(
+    triangles: &[[[f32; 3]; 3]],
+    (bolts, blades): (&[[Vec3; 2]], &[[Vec3; 2]]),
+    (feet, size): (Vec3, Size),
+    from: Vec3,
+) -> Impact {
+    let crossing = |runs: &[[Vec3; 2]], blow| {
+        runs.iter().find_map(|[a, b]| {
+            let (at, normal) = shatter::first_crossing(a.to_array(), b.to_array(), triangles)?;
+            Some(Impact {
+                at: Vec3::from_array(at),
+                normal: Vec3::from_array(normal),
+                blow,
+            })
+        })
+    };
+    let near: Vec<[Vec3; 2]> = (blades.iter())
+        .filter(|[hilt, _]| hilt.distance(feet) <= BLADE_REACH_M)
+        .copied()
+        .collect();
+    if let Some(found) = crossing(bolts, Blow::Bolt).or_else(|| crossing(&near, Blow::Blade)) {
+        return found;
+    }
+    let half = rules::destruction::bodies::HALF_M[size as usize];
+    let height = rules::destruction::bodies::HEIGHT_M[size as usize];
+    let middle = feet + Vec3::Z * (height / 2.0);
+    let halves = Vec3::new(half, half, height / 2.0);
+    let way = (from - middle).try_normalize().unwrap_or(Vec3::Z);
+    // The face the way leaves the box by: its axis has the least room.
+    let (axis, reach) = (0..3)
+        .filter(|&i| way[i].abs() > 1e-4)
+        .map(|i| (i, halves[i] / way[i].abs()))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .unwrap_or((2, halves.z));
+    let mut normal = Vec3::ZERO;
+    normal[axis] = way[axis].signum();
+    let blow = if from.distance(feet) <= BLUNT_REACH_M {
+        Blow::Blunt
+    } else {
+        Blow::Blast
+    };
+    Impact {
+        at: middle + way * reach,
+        normal,
+        blow,
+    }
+}
+
+/// Materials that throw shards of themselves when struck (the rest spark
+/// or puff dust).
+fn throws_shards(material: Material) -> bool {
+    matches!(
+        material,
+        Material::Wood | Material::Ceramic | Material::Stone | Material::Plastic | Material::Debris
+    )
+}
+
+/// Blows on props: where each landed (kept for a break's pieces), and for a
+/// prop left standing, its impact there, shards of itself, a mark that
+/// stays and a jolt.
+#[allow(clippy::too_many_arguments)]
+fn hits(
+    mut commands: Commands,
+    (presented, swap, scene, made): (
+        Res<PresentedSnapshot>,
+        Res<SceneSwap>,
+        Res<SceneContent>,
+        Option<Res<Made>>,
+    ),
+    changes: Res<PropChanges>,
+    (mut fractures, mut looks): (ResMut<Fractures>, ResMut<PropLooks>),
+    scene_models: Query<(Entity, &SceneModel)>,
+    (globals, children, parts, transforms): (
+        Query<&GlobalTransform>,
+        Query<&Children>,
+        MeshParts,
+        Query<&Transform>,
+    ),
+    (bolts, blades): Strikers,
+    (mut meshes, mut mark_looks, mut glows): MarkMakers,
+    visuals: Option<ResMut<HookVisuals>>,
+    time: Res<Time>,
+) {
+    if looks.generation != swap.generation {
+        return;
+    }
+    looks.impacts.clear();
+    let made = made.as_deref();
+    let now_ms = time.elapsed_secs_f64() * 1000.0;
+    let newest = presented.1.last().map(|snapshot| &**snapshot);
+    let bolts = bolts.as_deref().map_or(&[][..], |bolts| &bolts.0);
+    let blades: Vec<[Vec3; 2]> = blades
+        .as_deref()
+        .map_or_else(Vec::new, |b| b.0.iter().flatten().copied().collect());
+    let mut sparked = Vec::new();
+    for change in &changes.changes {
+        let Some(was) = change.was else {
+            continue;
+        };
+        if change.now.1 <= was.1 {
+            continue;
+        }
+        let Some((model, root)) = model_of(change.index, (&scene, made), &scene_models) else {
+            continue;
+        };
+        let Ok(global) = globals.get(root) else {
+            continue;
+        };
+        let ir = &scene.0.models[model].ir;
+        let game = in_game(global);
+        let cut = fractures.plains(ir, &scene.0.textures);
+        let feet = Vec3::from_array(change.position);
+        let from = Vec3::from_array(blow_from(change.position, &changes.creatures));
+        let found = impact(
+            &placed_triangles(&cut.0, &game),
+            (bolts, &blades),
+            (feet, change.d.size),
+            from,
+        );
+        looks.impacts.insert(change.index, found);
+        if wreck(change.was, change.now) != Wreck::Standing {
+            continue;
+        }
+        sparked.push(HookVisual {
+            row: crate::prop_breaks::hit_row(change.d.material),
+            place: Place::At(found.at),
+        });
+        let materials: BTreeMap<usize, Handle<OdysseyMaterial>> = (children.iter_descendants(root))
+            .filter_map(|entity| parts.get(entity).ok())
+            .map(|(part, material)| (part.0, material.0.clone()))
+            .collect();
+        if throws_shards(change.d.material) {
+            let LooksWorld { world, floor } = looks.split();
+            crate::ragdolls::gather(world, floor, (&swap.level, newest), feet, feet.z);
+            let seed = u64::from(change.index) << 32 | u64::from(change.now.1);
+            let count = SHARDS.0
+                + (noise(&found.at.to_array(), seed) * (SHARDS.1 - SHARDS.0 + 1) as f32) as usize;
+            let near = game.compute_affine().inverse().transform_point3(found.at);
+            for (number, shard) in shatter::shards(&cut.0, near.to_array(), count, seed)
+                .iter()
+                .enumerate()
+            {
+                let middle = game.transform_point(Vec3::from_array(shard.middle));
+                let speed = SHARD_SPEED.0
+                    + (SHARD_SPEED.1 - SHARD_SPEED.0) * noise(&middle.to_array(), seed);
+                let velocity = (found.normal + Vec3::Z * 0.5).normalize_or(Vec3::Z) * speed;
+                let debris = world.debris(
+                    &shard.hull,
+                    game.translation.to_array(),
+                    game.rotation.to_array(),
+                    velocity.to_array(),
+                    spin(middle.to_array()),
+                );
+                spawn_piece(
+                    &mut commands,
+                    &mut meshes,
+                    (shard, &cut.1, &materials),
+                    (game, format!("{} shard {number}", ir.name)),
                     Flying {
                         debris,
                         born_ms: now_ms,
-                        kept: !small || stays,
-                        fade_ms,
+                        kept: false,
+                        fade_ms: Some(now_ms + SHARD_FADE_MS),
                     },
-                    Name::new(format!("{} piece {number}", ir.name)),
-                ))
-                .id();
-            for (source, plain) in &piece.meshes {
-                let Some(material) = fracture.meshes.get(*source).and_then(|m| materials.get(m))
-                else {
-                    continue;
-                };
-                let mut mesh = base_mesh(
-                    &plain.positions,
-                    &plain.normals,
-                    &plain.uvs,
-                    RenderAssetUsages::RENDER_WORLD,
                 );
-                mesh.insert_indices(Indices::U32(plain.indices.clone()));
-                let child = commands
-                    .spawn((
-                        Mesh3d(meshes.add(mesh)),
-                        MeshMaterial3d(material.clone()),
-                        Transform::IDENTITY,
-                        NotShadowCaster,
-                    ))
-                    .id();
-                commands.entity(entity).add_child(child);
             }
         }
+        if let Some(mark_looks) = mark_looks.as_deref_mut() {
+            let laid = lay_mark(
+                &mut commands,
+                (&mut meshes, mark_looks, &mut glows),
+                (ir, &children, &parts, &globals),
+                (root, found),
+                noise(&found.at.to_array(), u64::from(change.now.1)),
+            );
+            if !laid.is_empty() {
+                let marks = looks.marks.entry(change.index).or_default();
+                for gone in keep_newest(marks, laid).into_iter().flatten() {
+                    commands.entity(gone).try_despawn();
+                }
+            }
+        }
+        if shake(change.d.size, change.d.class, 0.0) > 0.0
+            && let Ok(rest) = transforms.get(root)
+        {
+            let away = Vec3::new(-found.normal.x, -found.normal.y, 0.0);
+            if let Some(axis) = Vec3::Z.cross(away).try_normalize() {
+                let rest = looks
+                    .jolts
+                    .get(&change.index)
+                    .map_or(*rest, |jolt| jolt.rest);
+                looks.jolts.insert(
+                    change.index,
+                    Jolt {
+                        root,
+                        rest,
+                        axis,
+                        since_ms: now_ms,
+                        size: change.d.size,
+                        class: change.d.class,
+                    },
+                );
+            }
+        }
+    }
+    if let Some(mut visuals) = visuals {
+        visuals.0.extend(sparked);
+    }
+}
+
+/// Lays a mark where `found` struck the model `ir` drawn under `root`, on
+/// each of its static meshes' own triangles there: a scorch (`body_marks`'
+/// burn) for every blow, glowing too for a blade. `turn` (0 to 1) turns it.
+/// The marks' entities (none if nothing was covered).
+fn lay_mark(
+    commands: &mut Commands,
+    (meshes, looks, glows): (
+        &mut Assets<Mesh>,
+        &mut body_marks::Looks,
+        &mut Assets<GlowMaterial>,
+    ),
+    (ir, children, parts, globals): (
+        &ModelIr,
+        &Query<&Children>,
+        &MeshParts,
+        &Query<&GlobalTransform>,
+    ),
+    (root, found): (Entity, Impact),
+    turn: f32,
+) -> Vec<Entity> {
+    let ray = -found.normal;
+    let size = MARK_M.0 + (MARK_M.1 - MARK_M.0) * turn;
+    let axes = body_marks::mark_axes(ray, turn * std::f32::consts::TAU, (size, size));
+    let stages: Vec<_> = (looks.stages(glows).into_iter())
+        .filter(|(_, glows)| !glows || found.blow == Blow::Blade)
+        .collect();
+    let mut laid = Vec::new();
+    for entity in children.iter_descendants(root) {
+        let (Ok((part, _)), Ok(global)) = (parts.get(entity), globals.get(entity)) else {
+            continue;
+        };
+        let Some(mesh) = ir
+            .meshes
+            .get(part.0)
+            .filter(|m| m.skin.is_none() && m.dangly.is_none())
+        else {
+            continue;
+        };
+        let game = in_game(global);
+        let at: Vec<Vec3> = (mesh.positions.iter())
+            .map(|&p| game.transform_point(Vec3::from_array(p)))
+            .collect();
+        let mut source = base_mesh(
+            &mesh.positions,
+            &mesh.normals,
+            &mesh.uv1,
+            RenderAssetUsages::default(),
+        );
+        source.insert_indices(Indices::U32(mesh.indices.clone()));
+        let Some(covered) = body_marks::gore(&source, &at, (found.at, ray), axes) else {
+            continue;
+        };
+        let covered = meshes.add(covered);
+        for (stage, glowing) in &stages {
+            let mut spawned = commands.spawn((
+                Mesh3d(covered.clone()),
+                MeshMaterial3d(stage.clone()),
+                Transform::IDENTITY,
+                NotShadowCaster,
+            ));
+            if *glowing {
+                spawned.insert(body_marks::Glowing);
+            }
+            let spawned = spawned.id();
+            commands.entity(entity).add_child(spawned);
+            laid.push(spawned);
+        }
+    }
+    laid
+}
+
+/// A piece (or shard) of a model, placed by `game`, in its source meshes'
+/// own materials (`numbers`: which mesh each cut one is), as `flying`.
+fn spawn_piece(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    (piece, numbers, materials): (&Piece, &[usize], &BTreeMap<usize, Handle<OdysseyMaterial>>),
+    (game, name): (Transform, String),
+    flying: Flying,
+) {
+    let entity = commands
+        .spawn((
+            Transform::from_rotation(game_to_bevy()) * game,
+            Visibility::default(),
+            flying,
+            Name::new(name),
+        ))
+        .id();
+    for (source, plain) in &piece.meshes {
+        let Some(material) = numbers.get(*source).and_then(|m| materials.get(m)) else {
+            continue;
+        };
+        let mut mesh = base_mesh(
+            &plain.positions,
+            &plain.normals,
+            &plain.uvs,
+            RenderAssetUsages::RENDER_WORLD,
+        );
+        mesh.insert_indices(Indices::U32(plain.indices.clone()));
+        let child = commands
+            .spawn((
+                Mesh3d(meshes.add(mesh)),
+                MeshMaterial3d(material.clone()),
+                Transform::IDENTITY,
+                NotShadowCaster,
+            ))
+            .id();
+        commands.entity(entity).add_child(child);
     }
 }
 
@@ -518,6 +920,15 @@ fn fly(
 ) {
     let now_ms = time.elapsed_secs_f64() * 1000.0;
     looks.world.step(time.delta_secs());
+    looks.jolts.retain(|_, jolt| {
+        let degrees = shake(jolt.size, jolt.class, (now_ms - jolt.since_ms) as f32);
+        let turned = Quat::from_axis_angle(jolt.axis, degrees.to_radians()) * jolt.rest.rotation;
+        commands.entity(jolt.root).try_insert(Transform {
+            rotation: turned,
+            ..jolt.rest
+        });
+        degrees > 0.0
+    });
     let mut live: Vec<(Entity, (u64, bool))> = Vec::new();
     for (entity, mut piece, mut transform) in &mut pieces {
         if let Some(id) = piece.debris {
@@ -556,6 +967,25 @@ fn fly(
     }
 }
 
+/// How far a small or medium prop jolts away from a blow (degrees), `since_ms`
+/// after it: 6 or 3 at once, nothing by 150 ms; large and damage-class props
+/// never move.
+pub(crate) fn shake(size: Size, class: Class, since_ms: f32) -> f32 {
+    let most = match (class, size) {
+        (Class::Damage, _) | (_, Size::Large) => return 0.0,
+        (_, Size::Small) => SHAKE_DEG[0],
+        (_, Size::Medium) => SHAKE_DEG[1],
+    };
+    most * (1.0 - since_ms / SHAKE_MS).clamp(0.0, 1.0)
+}
+
+/// Lays `mark` among a prop's `marks`, the newest last: past `MARKS` the
+/// oldest goes (returned, to be taken away).
+pub(crate) fn keep_newest<T>(marks: &mut VecDeque<T>, mark: T) -> Option<T> {
+    marks.push_back(mark);
+    (marks.len() > MARKS).then(|| marks.pop_front()).flatten()
+}
+
 #[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
     use sim::look;
@@ -581,7 +1011,39 @@ pub fn probes() -> sim::probe::Checks {
     let first = wreck(None, (look::DEAD, 20));
     let now = wreck(Some((look::DEFAULT, 3)), (look::DEAD, 20));
     let standing = wreck(None, (look::DEFAULT, 0));
+    let shakes = [
+        shake(Size::Small, Class::Break, 0.0),
+        shake(Size::Small, Class::Break, 150.0),
+        shake(Size::Medium, Class::Break, 0.0),
+        shake(Size::Large, Class::Break, 0.0),
+        shake(Size::Small, Class::Damage, 0.0),
+    ];
+    let mut marks = VecDeque::new();
+    let dropped: Vec<u32> = (1..=9)
+        .filter_map(|mark| keep_newest(&mut marks, mark))
+        .collect();
     vec![
+        (
+            "prop_hit_shake",
+            check(
+                shakes == [6.0, 0.0, 3.0, 0.0, 0.0],
+                format!(
+                    "small at 0 and 150 ms, medium, large, damage class: {shakes:?} \
+                     (want [6, 0, 3, 0, 0])"
+                ),
+            ),
+        ),
+        (
+            "prop_hit_marks_capped",
+            check(
+                dropped == [1] && marks.len() == 8 && marks.front() == Some(&2),
+                format!(
+                    "nine marks dropped {dropped:?} (want [1]), {} kept from {:?}",
+                    marks.len(),
+                    marks.front()
+                ),
+            ),
+        ),
         (
             "prop_pieces_base",
             check(

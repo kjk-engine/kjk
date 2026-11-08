@@ -49,6 +49,16 @@ const FLOOR_Z: f32 = 0.7;
 
 pub struct ShotFxPlugin;
 
+/// Where each blaster bolt that ended this frame ran last (game space,
+/// metres: from, and on past where it stopped), for the props it may have
+/// met (`prop_looks`).
+#[derive(Resource, Default)]
+pub(crate) struct BoltEnds(pub Vec<[Vec3; 2]>);
+
+/// The system that fills `BoltEnds`.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ShotsSeen;
+
 /// What the last snapshot showed: each bolt and when, each fighter's
 /// weapon timer; and the beams and ends seen.
 #[derive(Resource, Default)]
@@ -71,14 +81,17 @@ struct Shots {
 
 impl Plugin for ShotFxPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Shots>().add_systems(
-            PostUpdate,
-            shoot
+        app.init_resource::<Shots>()
+            .init_resource::<BoltEnds>()
+            .add_systems(
+                PostUpdate,
+                shoot
+                .in_set(ShotsSeen)
                 // Only in a session (the menu waits without one).
                 .run_if(resource_exists::<crate::sim_host::PresentedSnapshot>)
                 .after(bevy::transform::TransformSystems::Propagate)
                 .before(FightDrawn),
-        );
+            );
     }
 }
 
@@ -96,6 +109,7 @@ struct Out<'a> {
     cues: &'a mut Vec<Cue>,
     tracers: &'a mut Vec<Tracer>,
     kotor: Option<&'a WeaponSounds>,
+    ends: &'a mut Vec<[Vec3; 2]>,
 }
 
 impl Out<'_> {
@@ -123,8 +137,9 @@ fn shoot(
         Option<Res<crate::sim_host::OwnSeat>>,
         Query<&GlobalTransform, crate::lifecycle_view::SceneCamera>,
     ),
-    mut facts: ResMut<console::DumpFacts>,
+    (mut facts, mut ends): (ResMut<console::DumpFacts>, ResMut<BoltEnds>),
 ) {
+    ends.0.clear();
     let own = seat.map_or(sim::Seat(0), |seat| seat.0);
     let shots = &mut *shots;
     if swap.generation != shots.generation {
@@ -140,6 +155,7 @@ fn shoot(
         cues: &mut cues.0,
         tracers: &mut blasters.tracers,
         kotor: kotor.as_deref(),
+        ends: &mut ends.0,
     };
     for snapshot in &presented.1 {
         let me = cast::me(snapshot, own);
@@ -263,6 +279,7 @@ fn ended(
         shots.absorbed += 1;
         return;
     }
+    out.ends.push([from * UNIT, (to + way / UNIT) * UNIT]);
     let half = missile.half_size * UNIT;
     let extents = Extents {
         mins: [-half; 3],
