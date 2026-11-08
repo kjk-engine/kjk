@@ -201,7 +201,7 @@ pub(crate) fn gather(
                     format!("{}{}", ui::screens::key_mapping::PAD_RAW, chord.name())
                 }),
         );
-        let (left, right) = crate::pad::Sticks::of(sticks);
+        let (left, right) = (sticks.left, sticks.right);
         if stick.length() < left.length() {
             stick = left;
         }
