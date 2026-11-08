@@ -160,13 +160,20 @@ fn tally_mesh(
             });
         }
     }
-    let facts: Vec<&TextureFacts> = [&diffuse, &lightmap]
-        .into_iter()
-        .flatten()
-        .filter_map(|(_, resolved)| resolved.as_ref().map(|(facts, _, _)| facts))
-        .collect();
-    let surface = material::surface((mesh.transparency_hint, mesh.skin.is_some()), mesh.alpha, &facts);
+    fn facts_of<'a>(texture: &'a Option<(&str, Resolved)>) -> Option<&'a TextureFacts> {
+        let (_, resolved) = texture.as_ref()?;
+        resolved.as_ref().map(|(facts, _, _)| facts)
+    }
+    let (diffuse_facts, lightmap_facts) = (facts_of(&diffuse), facts_of(&lightmap));
+    let facts: Vec<&TextureFacts> = [diffuse_facts, lightmap_facts].into_iter().flatten().collect();
+    let hint = (mesh.transparency_hint, mesh.skin.is_some());
+    let surface = material::surface(hint, mesh.alpha, (diffuse_facts, &facts));
     tally.add(format!("surface {}", surface.name()), place);
+    if lightmap_facts.is_some_and(|facts| !facts.alpha)
+        && surface != material::surface(hint, mesh.alpha, (lightmap_facts, &facts))
+    {
+        tally.add("lightmapped, cut out by its diffuse's alpha", place);
+    }
     if surface == Surface::Additive && mesh.transparency_hint == 0 {
         tally.add("additive without hint (transparent pass: deviation)", place);
     }

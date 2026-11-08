@@ -716,11 +716,48 @@ fn weapon_alpha_without_txi_solid() {
                 .expect("the TGA decodes")
                 .facts;
             let drawn = weapon_surface(
-                surface((0, false), 1.0, &[&facts]),
+                surface((0, false), 1.0, (Some(&facts), &[&facts])),
                 &[&facts],
                 is_weapon_model(model),
             );
             assert_eq!(drawn, expected, "{model} with TXI {txi:?}");
+        }
+    }
+}
+
+/// A lightmapped mesh is cut out by its diffuse's alpha, whatever its
+/// lightmap's (`kjk_game::material::surface`): High Quality Skyboxes II's
+/// Taris building cards (`m02aa_10b`, DXT5 over a lightmap with none) drew
+/// their hidden black field and the author's mark. A lightmap's own alpha
+/// counts only when no diffuse loaded, as before. Needs `--features rig`;
+/// no installs (proposed 2026-11-08, not yet approved).
+#[test]
+fn lightmapped_cut_out_by_diffuse() {
+    #[cfg(not(feature = "rig"))]
+    println!("lightmapped_cut_out_by_diffuse skipped: run with --features rig");
+    #[cfg(feature = "rig")]
+    {
+        use asset_odyssey::texture::TextureFacts;
+        use kjk_game::material::{Surface, surface};
+
+        let with_alpha = TextureFacts {
+            alpha: true,
+            ..TextureFacts::default()
+        };
+        let without = TextureFacts::default();
+        for (diffuse, lightmap, expected) in [
+            (Some(&with_alpha), Some(&without), Surface::OpaqueAlpha),
+            (Some(&without), Some(&with_alpha), Surface::Opaque),
+            (Some(&with_alpha), None, Surface::OpaqueAlpha),
+            (None, Some(&with_alpha), Surface::OpaqueAlpha),
+            (None, Some(&without), Surface::Opaque),
+        ] {
+            let loaded: Vec<_> = [diffuse, lightmap].into_iter().flatten().collect();
+            assert_eq!(
+                surface((0, false), 1.0, (diffuse, &loaded)),
+                expected,
+                "diffuse {diffuse:?}, lightmap {lightmap:?}"
+            );
         }
     }
 }
