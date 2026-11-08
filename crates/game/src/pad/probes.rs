@@ -28,26 +28,81 @@ fn stick_rest() -> Result<String, String> {
     )
 }
 
-/// An axis first heard parked off its middle (a throttle) reads as the
-/// middle until it comes back there, then counts; one first heard in the
-/// middle (a gamepad's stick) counts at once, out to its edge; an axis not
-/// reported (a pad reconnecting) is heard afresh.
+/// A pad's world as play has it: bevy's input and `SticksPlugin`, fed the
+/// messages a controller sends.
+struct PadWorld(App);
+
+impl PadWorld {
+    fn new() -> PadWorld {
+        let mut app = App::new();
+        app.add_plugins((bevy::input::InputPlugin, SticksPlugin));
+        PadWorld(app)
+    }
+
+    fn plug(&mut self, pad: Entity, plugged: bool) {
+        use bevy::input::gamepad::{GamepadConnection, GamepadConnectionEvent};
+        let connection = if plugged {
+            GamepadConnection::Connected {
+                name: "probe".into(),
+                vendor_id: None,
+                product_id: None,
+            }
+        } else {
+            GamepadConnection::Disconnected
+        };
+        self.0
+            .world_mut()
+            .write_message(GamepadConnectionEvent::new(pad, connection));
+        self.0.update();
+    }
+
+    /// Moves `pad`'s right stick across to `x` for a frame; the right stick
+    /// play then takes.
+    fn across(&mut self, pad: Entity, x: f32) -> f32 {
+        use bevy::input::gamepad::{RawGamepadAxisChangedEvent, RawGamepadEvent};
+        self.0
+            .world_mut()
+            .write_message(RawGamepadEvent::Axis(RawGamepadAxisChangedEvent::new(
+                pad,
+                GamepadAxis::RightStickX,
+                x,
+            )));
+        self.0.update();
+        self.0
+            .world()
+            .get::<Sticks>(pad)
+            .map_or(f32::NAN, |sticks| sticks.right.x)
+    }
+}
+
+/// Through bevy's own pad messages: a throttle parked hard back from the
+/// frame after it connects (bevy starts every axis at 0) turns nothing,
+/// jittering; brought through the middle it counts; unplugged and plugged
+/// in again parked it turns nothing again. A gamepad's stick, its first
+/// change small, counts at once out to its edge.
 fn parked_axis() -> Result<String, String> {
-    let heard = |readings: &[Option<f32>]| {
-        let mut settle = Settle::default();
-        readings
-            .iter()
-            .map(|reading| settle.read(*reading, 0.15))
-            .collect::<Vec<f32>>()
-    };
-    let throttle = heard(&[Some(-1.0), Some(-0.98), Some(0.6), Some(0.05), Some(0.6)]);
-    let stick = heard(&[Some(0.02), Some(0.5), Some(1.0), Some(1.0)]);
-    let unplugged = heard(&[Some(0.0), None, Some(0.8)]);
+    let mut world = PadWorld::new();
+    let throttle = world.0.world_mut().spawn_empty().id();
+    let stick = world.0.world_mut().spawn_empty().id();
+    world.plug(throttle, true);
+    world.plug(stick, true);
+    let parked = [-1.0, -0.98].map(|x| world.across(throttle, x));
+    let used = [0.0, 0.6].map(|x| world.across(throttle, x));
+    world.plug(throttle, false);
+    world.plug(throttle, true);
+    let replugged = world.across(throttle, 0.6);
+    let moved = [0.1, 0.9].map(|x| world.across(stick, x));
+    let near = |a: f32, b: f32| (a - b).abs() < 1e-3;
     check(
-        throttle == [0.0, 0.0, 0.0, 0.05, 0.6]
-            && stick == [0.02, 0.5, 1.0, 1.0]
-            && unplugged == [0.0, 0.0, 0.0],
-        format!("throttle {throttle:?}, stick {stick:?}, unplugged {unplugged:?}"),
+        parked == [0.0, 0.0]
+            && near(used[0], 0.0)
+            && near(used[1], 0.6)
+            && replugged == 0.0
+            && near(moved[0], 0.1)
+            && near(moved[1], 0.9),
+        format!(
+            "throttle parked {parked:?}, through the middle {used:?}, replugged {replugged}; stick {moved:?}"
+        ),
     )
 }
 
