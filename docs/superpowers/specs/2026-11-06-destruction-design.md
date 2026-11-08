@@ -1,13 +1,14 @@
 # Environmental destruction — design
 
-2026-11-06. Owner: reclaimterrain. Status: second pass built 2026-11-08
-(props fly apart into pieces of their own models, hits land where they
-strike and leave marks, damage props crumple; workbenches intact):
+2026-11-06. Owner: reclaimterrain. Status: third pass built 2026-11-08
+(bolts meet every destructible prop as big as its model; damaged props
+lose chunks, hang torn panels, keep KOTOR's fire, smoke and sparks, and
+gather soot; no cracks, the games having no crack texture):
 `docs/COMBAT.md`, "Destruction". The second pass followed the owner's
 playtest of the prop hall: "Second pass: what breaking looks like"
-replaces "What breaking looks like" below where they differ. Third pass designed the same evening: see
-"Third pass: damage that reads, bolts that land". Rooms are
-still to come.
+replaces "What breaking looks like" below where they differ; "Third pass:
+damage that reads, bolts that land" replaces both where they differ.
+Rooms are still to come.
 
 Companion table: [`2026-11-06-destruction-props.csv`](2026-11-06-destruction-props.csv),
 every kind of placeable used in K1 and TSL (351 appearance rows, 6,437
