@@ -494,9 +494,14 @@ impl Surface {
 }
 
 /// A mesh's surface from its transparency hint and the facts of the
-/// textures that loaded (diffuse and lightmap), as xoreos combines them:
-/// alpha only when every texture has it (and `alphamean` is not 1), decal
-/// only when every texture is one; additive when any texture says so, with
+/// textures that loaded (diffuse and lightmap), as xoreos combines them,
+/// but for alpha: the diffuse's alpha is coverage (and `alphamean` not 1),
+/// whatever the lightmap's; a lightmap's own only when no diffuse loaded
+/// (Manaan's `m26mg_01a`, as before). xoreos asks every texture for alpha, so a
+/// lightmap (never with alpha) made a lightmapped mesh opaque; the game
+/// cuts it out by its diffuse (High Quality Skyboxes II's Taris building
+/// cards, `m02aa_10b`, lightmapped planes whose DXT5 hides a black field and
+/// the author's mark). Decal only when every texture is one; additive when any texture says so, with
 /// alpha or without, as KOTOR's executable reads a texture's TXI (xoreos
 /// only without). KOTOR meshes always carry a hint, so a hint above 1 or a
 /// decal makes a mesh transparent, but not a skinned one (`skinned`): a
@@ -512,13 +517,17 @@ impl Surface {
 /// is its bump's mask, not coverage: opaque, as reone has it (xoreos ignores the bump map and
 /// blends by it, so the Hutts and the rancor showed through); reone still
 /// discards its alpha-0 texels, which would leave pinholes, so none are.
-pub fn surface((hint, skinned): (u32, bool), mesh_alpha: f32, loaded: &[&TextureFacts]) -> Surface {
+pub fn surface(
+    (hint, skinned): (u32, bool),
+    mesh_alpha: f32,
+    (diffuse, loaded): (Option<&TextureFacts>, &[&TextureFacts]),
+) -> Surface {
     if loaded.is_empty() {
         return Surface::Opaque;
     }
-    let alpha = loaded
-        .iter()
-        .all(|facts| facts.alpha && facts.alpha_mean != Some(1.0));
+    let alpha = diffuse
+        .or(loaded.first().copied())
+        .is_some_and(|facts| facts.alpha && facts.alpha_mean != Some(1.0));
     let decal = loaded.iter().all(|facts| facts.decal);
     let additive = loaded
         .iter()

@@ -1052,16 +1052,17 @@ impl<'t> Spawner<'t> {
             tally.hidden += 1;
             return;
         }
-        let facts: Vec<_> = [part.texture.as_deref(), part.lightmap.as_deref()]
+        let facts_of = |name: Option<&str>| self.irs.get(name?).map(|texture| &texture.facts);
+        let diffuse = facts_of(part.texture.as_deref());
+        let facts: Vec<_> = [diffuse, facts_of(part.lightmap.as_deref())]
             .into_iter()
             .flatten()
-            .filter_map(|name| self.irs.get(name).map(|texture| &texture.facts))
             .collect();
         let surface = material::weapon_surface(
             material::surface(
                 (part.transparency_hint, part.skin.is_some()),
                 part.alpha,
-                &facts,
+                (diffuse, &facts),
             ),
             &facts,
             material::is_weapon_model(&placed.ir.name),
