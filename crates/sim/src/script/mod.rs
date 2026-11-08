@@ -439,12 +439,31 @@ pub struct FpRegeneration {
 /// whether each `tutorial.2da` row has words for its window (`Message_PC0`
 /// set: KOTOR shows no window for the rest); `feedbacktext.2da`'s strrefs;
 /// each `appearance.2da` row's `normalhead` (a `heads.2da` row; -1 blank),
-/// the head `DuplicateHeadAppearance` gives.
+/// the head `DuplicateHeadAppearance` gives; and each row's TSL
+/// `equipslotslocked`, the slots a body of it may not have filled or
+/// emptied by its player (`inventory::slots::locked`; K1's table has no
+/// such column: none locked).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Presentation {
     pub tutorials: Vec<bool>,
     pub feedback: Vec<u32>,
     pub heads: Vec<i16>,
+    pub locked: Vec<u32>,
+}
+
+/// The `appearance.2da` row of a body: the one a script changed it to
+/// (`look`, `ChangeObjectAppearance`), else its creature template's
+/// (`facts`), a player's persona's.
+pub fn body_row(
+    look: crate::combat::Look,
+    facts: Option<&crate::module::ObjectData>,
+    persona: Option<&crate::persona::Persona>,
+) -> Option<u16> {
+    look.appearance
+        .or(facts
+            .and_then(|facts| facts.body)
+            .map(|body| body.appearance))
+        .or(persona.map(|persona| persona.appearance))
 }
 
 /// The key of `weapondischarge.2da`'s rows every body shares
@@ -1089,6 +1108,15 @@ impl Library {
     /// The tables the presentation routines read.
     pub fn presentation(&self) -> &Presentation {
         &self.presentation
+    }
+
+    /// The slots a body of `appearance.2da` row `appearance` has locked
+    /// (`Presentation::locked`): TSL's one-handed Kreia's off hands.
+    pub fn locked_slots(&self, appearance: u16) -> u32 {
+        (self.presentation.locked)
+            .get(usize::from(appearance))
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Whether the game keeps influence (TSL).
@@ -1822,16 +1850,12 @@ impl View<'_> {
     /// to (`ChangeObjectAppearance`), else a creature's template's, a
     /// player's persona's.
     pub fn appearance(&self, id: ObjectId) -> Option<u16> {
-        let changed = (self.thing(id))
-            .and_then(|thing| thing.character.as_ref())
-            .and_then(|c| c.look.appearance);
-        if changed.is_some() {
-            return changed;
-        }
-        match self.facts(id).and_then(|facts| facts.body) {
-            Some(body) => Some(body.appearance),
-            None => Some(self.thing(id)?.persona.as_ref()?.appearance),
-        }
+        let thing = self.thing(id);
+        // Not a character: no script changed its body.
+        let look = (thing.and_then(|thing| thing.character.as_ref()))
+            .map_or(crate::combat::Look::default(), |c| c.look);
+        let persona = thing.and_then(|thing| thing.persona.as_ref());
+        body_row(look, self.facts(id), persona)
     }
 
     /// The script `id` runs for `hook`, if it names one: the module's, the
@@ -4191,12 +4215,7 @@ fn keep_npc(view: &View, state: &mut State, out: &Out, npc: u8) {
 /// stands now (`keep_npc`; TSL's `SaveNPCByObject`, any creature), if it
 /// stands here and `npc` is available.
 fn keep_creature(view: &View, state: &mut State, out: &Out, npc: u8, who: ObjectId) {
-    let mut worn = [0; crate::inventory::slots::COUNT as usize];
-    for (item, held) in state.items.held_by(who.0) {
-        if let Some(at) = held.slot.and_then(|slot| worn.get_mut(usize::from(slot))) {
-            *at = item;
-        }
-    }
+    let worn = worn_slots(state, who.0);
     let Some(slot) = state.party.available.get_mut(&npc) else {
         return;
     };
@@ -4214,7 +4233,57 @@ fn keep_creature(view: &View, state: &mut State, out: &Out, npc: u8, who: Object
             .map_or(HUNDREDTHS, |(now, _)| now.max(1) * HUNDREDTHS),
         fp: c.fp,
         worn: Some(worn),
+        look: c.look,
     });
+}
+
+/// The item `holder` wears in each slot (0: none), as the party table keeps
+/// it (`party::Kept::worn`).
+fn worn_slots(state: &State, holder: u32) -> [u32; crate::inventory::slots::COUNT as usize] {
+    let mut worn = [0; crate::inventory::slots::COUNT as usize];
+    for (item, held) in state.items.held_by(holder) {
+        if let Some(at) = held.slot.and_then(|slot| worn.get_mut(usize::from(slot))) {
+            *at = item;
+        }
+    }
+    worn
+}
+
+/// What the party table keeps of every available companion whose creature
+/// stands in `before` as the party leaves its module, in the party or not,
+/// as `keep_creature` keeps one (its sheet, else its template's in
+/// `objects`): TSL's executable writes each companion's whole creature into
+/// its table at a module change, so 107PER's Kreia, made one-handed beside
+/// the party and not in it, is spawned so on the Ebon Hawk.
+pub(crate) fn keep_standing(
+    state: &mut State,
+    before: &crate::snapshot::Snapshot,
+    objects: &crate::Instances,
+) {
+    let standing: Vec<(u8, &crate::snapshot::EntityState)> = (state.party.available.iter())
+        .filter_map(|(npc, slot)| {
+            let id = slot.object?;
+            let entity = before.entities.iter().find(|entity| entity.id.0 == id)?;
+            Some((*npc, entity))
+        })
+        .collect();
+    for (npc, entity) in standing {
+        let template = || objects.of_entity(entity).and_then(|facts| facts.sheet);
+        let (Some(fighter), Some(sheet)) = (entity.fighter, entity.sheet.or_else(template)) else {
+            continue;
+        };
+        let worn = worn_slots(state, entity.id.0);
+        if let Some(slot) = state.party.available.get_mut(&npc) {
+            slot.kept = Some(party::Kept {
+                from: entity.id.0,
+                sheet,
+                hp: fighter.whole_hp().max(1) * HUNDREDTHS,
+                fp: fighter.fp,
+                worn: Some(worn),
+                look: fighter.look,
+            });
+        }
+    }
 }
 
 /// Counts a run's instructions, its fault or its stop at the limit; the

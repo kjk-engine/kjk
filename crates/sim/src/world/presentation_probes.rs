@@ -309,6 +309,7 @@ fn library() -> crate::script::Library {
             tutorials,
             feedback: FEEDBACK.to_vec(),
             heads,
+            locked: Vec::new(),
         })
 }
 
