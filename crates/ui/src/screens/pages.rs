@@ -128,6 +128,18 @@ fn rules(slot: u8) -> u8 {
     }
 }
 
+/// Whether `slot` is one the member's body has locked (`mask`,
+/// `CharacterView::locked`; `sim::inventory::slots::locked`): a first-set
+/// hand locks its second-set hand too.
+fn locked(mask: u32, slot: u8) -> bool {
+    let bit = |slot: u8| 1u32.checked_shl(u32::from(slot)).unwrap_or(0);
+    mask & (bit(slot) | bit(rules(slot))) != 0
+}
+
+/// TSL's "You cannot equip or remove an item from this slot.", its equip
+/// screen's answer to a locked slot chosen.
+const LOCKED_SLOT: u32 = 125554;
+
 /// Whether the equip page dresses the party member it shows: the
 /// player's own, or one the bar marks (`MemberView::dresses`: the host's
 /// companions no seat plays, I30 P14).
@@ -294,6 +306,13 @@ impl Page for Equip {
                     .unwrap_or_else(|| empty.to_string()),
             ));
         }
+        // A locked slot's button in red, as TSL's equip screen draws it.
+        if let Some((.., slot)) = SLOTS.iter().find(|(_, button, ..)| *button == tag) {
+            return ControlState {
+                refused: locked(me.locked, *slot),
+                ..ControlState::default()
+            };
+        }
         match tag {
             EYE => match Equip::eye(vm).filter(|_| self.slot.is_none()) {
                 Some((_, hidden)) => image(Some(crate::icons::eye_texture(!hidden))),
@@ -372,6 +391,11 @@ impl Page for Equip {
         } else if let Some((_, button, .., slot)) =
             SLOTS.iter().find(|(_, button, ..)| *button == tag)
         {
+            // A locked slot does not open: TSL says why.
+            if locked(character(vm).locked, *slot) {
+                out.push(Intent::OpenFor("message_box", LOCKED_SLOT.to_string()));
+                return;
+            }
             self.slot = Some((button, *slot));
             self.chosen = None;
             self.pointed = 0;

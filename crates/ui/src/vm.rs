@@ -139,6 +139,9 @@ pub struct CharacterView {
     pub owned: Vec<Owned>,
     /// What it wears, by `INVENTORY_SLOT_*`.
     pub worn: Vec<(u8, Owned)>,
+    /// The slots its body has locked (`sim::inventory::slots::locked`'s
+    /// mask: TSL's one-handed Kreia's off hands).
+    pub locked: u32,
     /// The party's credits.
     pub credits: i32,
 }

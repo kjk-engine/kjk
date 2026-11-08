@@ -1946,6 +1946,47 @@ pub(super) fn equip_headgear_eye() -> Vec<Check> {
     })]
 }
 
+/// A body's locked slots on the equip page (TSL's one-handed Kreia, her off
+/// hands): their buttons in red, the main hand's not; one chosen opens no
+/// list but TSL's "You cannot equip or remove an item from this slot.", so
+/// Equip wears nothing there.
+pub(super) fn equip_locks_slots() -> Vec<Check> {
+    let blade = trask_owns(34, b"Blade", 1 << 4 | 1 << 5, false);
+    let (mut assets, mut vm) = trask_page(
+        "equip",
+        &[
+            "BTN_INV_WEAP_L",
+            "BTN_INV_WEAP_R",
+            "BTN_INV_WEAP_L2",
+            "BTN_EQUIP",
+        ],
+        vec![blade],
+        true,
+    );
+    assets.layouts.insert("confirm", confirm());
+    if let Some(me) = vm.character.as_mut() {
+        me.locked = 1 << 5;
+    }
+    let mut stack = opened("equip", &mut assets, &vm);
+    let red = ["BTN_INV_WEAP_L", "BTN_INV_WEAP_L2", "BTN_INV_WEAP_R"]
+        .map(|tag| stack.state_of(tag, &vm).is_some_and(|state| state.refused));
+    let raised = press(&mut stack, &mut assets, &vm, "BTN_INV_WEAP_L");
+    let told = stack.top().map(|screen| screen.0);
+    vec![check("equip_locks_slots", {
+        expect(&format!("red {red:?}"), red == [true, true, false])
+            .and_then(|()| {
+                expect(
+                    &format!("chosen: on top {told:?}, raised {raised:?}"),
+                    told == Some("message")
+                        && !raised
+                            .iter()
+                            .any(|intent| matches!(intent, Intent::Game(_))),
+                )
+            })
+            .map(|()| "both off hands red and refused with TSL's line, the main hand open".into())
+    })]
+}
+
 /// TSL's second weapon set on the equip page, in both games: its right
 /// slot lists what the first right hand takes and Equip wears it there
 /// (slot 18); it shows what is worn there; the swap button exchanges the

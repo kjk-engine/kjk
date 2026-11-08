@@ -127,8 +127,15 @@ pub(crate) fn may_dress(
 
 /// `who` as an equip's use limits ask of it (`properties::Wearer`): its
 /// feats and scores with what it wears and what runs on it, its alignment
-/// as this step leaves it; the module's game's rules.
-pub(crate) fn wearer(view: &View, state: &State, out: &Out, who: ObjectId) -> Wearer {
+/// as this step leaves it; the module's game's rules; the slots its body
+/// has locked.
+pub(crate) fn wearer(
+    library: &Library,
+    view: &View,
+    state: &State,
+    out: &Out,
+    who: ObjectId,
+) -> Wearer {
     let thing = view.thing(who);
     let character = thing.and_then(|thing| thing.character);
     let sheet = character.map(|character| crate::combat::Sheet {
@@ -151,6 +158,9 @@ pub(crate) fn wearer(view: &View, state: &State, out: &Out, who: ObjectId) -> We
             .map_or_else(String::new, |facts| facts.tag.clone()),
         tsl: crate::combat::passive::Game::named(&view.module.game)
             == crate::combat::passive::Game::Tsl,
+        locked: view
+            .appearance(who)
+            .map_or(0, |row| library.locked_slots(row)),
     }
 }
 
@@ -898,6 +908,21 @@ impl State {
         action: Action,
         limits: Limits,
     ) -> Result<(), Notice> {
+        // A slot its body has locked is neither filled nor emptied by its
+        // player (TSL's equip screen; what the hands' pairing moves on its
+        // own, as the game's own equipping does, is not held back).
+        let chosen = match action {
+            Action::Equip { slot, .. }
+            | Action::EquipOn { slot, .. }
+            | Action::Unequip(slot)
+            | Action::UnequipFrom { slot, .. } => Some(slot),
+            _ => None,
+        };
+        if matches!(limits, Limits::Kept)
+            && chosen.is_some_and(|slot| slots::locked(wearer.locked, slot))
+        {
+            return Err(Notice::Line(properties::refusals::LOCKED_SLOT));
+        }
         match action {
             Action::Equip { item, slot } | Action::EquipOn { item, slot, .. } => {
                 let (stack, facts) = self

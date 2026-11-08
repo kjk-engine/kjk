@@ -29,7 +29,7 @@ pub(super) fn seat_actions(
         };
         let done = match action {
             Action::Equip { .. } | Action::Unequip(_) => {
-                let wearer = script::items::wearer(view, state, out, player);
+                let wearer = script::items::wearer(library, view, state, out, player);
                 state
                     .wear(catalog, out, (player.0, &wearer), action.clone())
                     .inspect(|()| equipped(library, view, state, player, action))
@@ -38,7 +38,7 @@ pub(super) fn seat_actions(
             Action::EquipOn { who, .. } | Action::UnequipFrom { who, .. } => {
                 let (who, wearer) = (
                     ObjectId(*who),
-                    script::items::wearer(view, state, out, ObjectId(*who)),
+                    script::items::wearer(library, view, state, out, ObjectId(*who)),
                 );
                 script::items::may_dress(view, state, *seat, player, who)
                     .and_then(|()| state.wear(catalog, out, (who.0, &wearer), action.clone()))
@@ -198,7 +198,9 @@ pub(super) fn seat_actions(
                         .items
                         .get(item)
                         .filter(|held| held.slot.is_some())
-                        .map(|held| script::items::wearer(view, state, out, ObjectId(held.holder)));
+                        .map(|held| {
+                            script::items::wearer(library, view, state, out, ObjectId(held.holder))
+                        });
                     state.assemble(catalog, out, (*item, changes), wearer.as_ref())
                 })
             }

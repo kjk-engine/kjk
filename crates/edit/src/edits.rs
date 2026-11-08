@@ -242,6 +242,9 @@ impl Editor<'_> {
             player,
             tag: String::new(),
             tsl: passive::Game::named(game) == passive::Game::Tsl,
+            // The editor warns of limits rather than holding to them, and a
+            // locked slot is its player's limit only.
+            locked: 0,
         }
     }
 }

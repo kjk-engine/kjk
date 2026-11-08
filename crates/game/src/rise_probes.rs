@@ -3,7 +3,9 @@
 //! plays for a moment before jumping the body away (Taris's duel ring:
 //! `k_ptar_dueler_ud`'s loser), then none. Each frame posed as the cast
 //! poses one (`acting::Shows` over the body), with and without the body put
-//! back at rest first. And JA's nineteen deaths: each get-up's first frame,
+//! back at rest first. TSL's Handmaiden throwing her hood back (`offhood`)
+//! and standing on: the hood stays back (`cast::held_nodes`). And JA's
+//! nineteen deaths: each get-up's first frame,
 //! turned as the view turns it (`cast::getup_turn`), lies on the side the
 //! death left the body on, its head where the death's lies, its pelvis
 //! near.
@@ -14,7 +16,7 @@ use bevy::ecs::system::SystemState;
 use bevy::prelude::*;
 use sim::combat::idle::Acting;
 
-use crate::cast::{self, Rest};
+use crate::cast;
 use crate::probe_kit::{Checks, check, not_installed};
 use crate::{acting, viewer};
 
@@ -33,6 +35,7 @@ const ROOT_DUMMY: &str = "rootdummy";
 pub fn probes() -> Checks {
     vec![
         ("up from a lying clip", lying_clip_ends()),
+        ("a hood thrown back stays back", hood_stays_off()),
         ("get-ups start where deaths lie", getups_start_lying()),
     ]
 }
@@ -92,45 +95,128 @@ fn getups_start_lying() -> Result<String, String> {
     )
 }
 
+/// A body model, its scripted clips, the index of its node `node` and its
+/// rest pose, from `resolver`.
+fn body(
+    resolver: &vfs::resolver::Resolver,
+    game: vfs::Game,
+    (model, node): (&str, &str),
+) -> Result<Body, String> {
+    let ir = viewer::model(resolver, model)?.ok_or(format!("{model}: no model"))?;
+    let clips = viewer::scripted_clips(&mut BTreeMap::new(), resolver, (game, false), &ir)?;
+    let node = (ir.nodes.iter())
+        .position(|n| n.name.eq_ignore_ascii_case(node))
+        .ok_or(format!("{model}: no {node}"))?;
+    let pause = clips
+        .iter()
+        .find(|(animation, _)| *animation == acting::LOOPING_PAUSE)
+        .map(|(_, clip)| clip.clone());
+    let held = cast::held_nodes(&ir, pause.as_deref());
+    Ok(Body {
+        rest: cast::rest_of(&ir),
+        held,
+        placed: viewer::Placed::at(ir, [0.0; 3]),
+        clips,
+        node,
+    })
+}
+
+struct Body {
+    placed: viewer::Placed,
+    clips: Vec<(u16, std::sync::Arc<asset_odyssey::anim::AnimationIr>)>,
+    rest: Vec<(Option<usize>, Vec3, Quat)>,
+    /// `cast::held_nodes` by its standing clip.
+    held: Vec<bool>,
+    node: usize,
+}
+
+/// How each frame starts: posed over what the last left, from rest (all
+/// nodes, as before `cast::held_nodes`), or from rest but the held nodes.
+#[derive(Clone, Copy)]
+enum Start {
+    Stale,
+    Rest,
+    Held,
+}
+
 fn lying_clip_ends() -> Result<String, String> {
     let Some(index) = crate::k1_index() else {
         return Ok(not_installed(vfs::Game::Kotor1));
     };
     let resolver = crate::k1_open(&index, None)?;
-    let ir = viewer::model(&resolver, BODY)?.ok_or(format!("{BODY}: no model"))?;
-    let clips = viewer::scripted_clips(
-        &mut BTreeMap::new(),
-        &resolver,
-        (vfs::Game::Kotor1, false),
-        &ir,
-    )?;
-    let node = (ir.nodes.iter())
-        .position(|n| n.name.eq_ignore_ascii_case(ROOT_DUMMY))
-        .ok_or(format!("{BODY}: no {ROOT_DUMMY}"))?;
-    let rest = cast::rest_of(&ir);
-    let placed = viewer::Placed::at(ir, [0.0; 3]);
-    let lying = played(&placed, &clips, &rest, node, true, UP_MS - 500);
-    let [stale, afresh] =
-        [false, true].map(|at_rest| played(&placed, &clips, &rest, node, at_rest, END_MS));
+    let body = body(&resolver, vfs::Game::Kotor1, (BODY, ROOT_DUMMY))?;
+    let scene = |from, ms| {
+        let tilt = |world: &World, nodes: &[Entity]| leans(&body, world, nodes);
+        played(&body, (DEAD, 360_000, 100), from, ms, tilt)
+    };
+    let lying = scene(Start::Held, UP_MS - 500);
+    let [stale, afresh, held] =
+        [Start::Stale, Start::Rest, Start::Held].map(|from| scene(from, END_MS));
     check(
-        lying > 30.0 && stale > 20.0 && afresh < 1.0,
+        lying > 30.0 && stale > 20.0 && afresh < 1.0 && held < 1.0,
         format!(
-            "{ROOT_DUMMY} tilted {lying:.0}° lying; once up, {stale:.0}° posed over what the clips left, {afresh:.1}° posed from rest"
+            "{ROOT_DUMMY} tilted {lying:.0}° lying; once up, {stale:.0}° posed over what the clips left, {afresh:.1}° posed from rest, {held:.1}° from rest but the nodes its standing clip does not key"
         ),
     )
 }
 
-/// How far (degrees) the body's `node` leans from upright `ms` into the
-/// scene, posed each frame by the clips its scripts play over it (from
-/// rest first with `at_rest`).
+/// The Handmaiden's robe (TSL's `P_HandmaidenBB`, Atris's academy), its
+/// hood's middle and the dialog clip `Hood_Off` throws it back by
+/// (`creature::DIALOG_CLIPS`), its length.
+const ROBE: &str = "p_handmaidenbb";
+const HOOD: &str = "mhood_g";
+const HOOD_OFF: u16 = 10_565;
+const HOOD_OFF_MS: u32 = 1_533;
+
+/// A hood thrown back stays back (`cast::held_nodes`): `offhood` keys the
+/// robe's hood, its standing clip (the supermodel's `pause1`) does not, so
+/// KOTOR leaves the hood as `offhood` ended while she stands on; the body
+/// posed from rest each frame put it up again the moment the clip ended.
+fn hood_stays_off() -> Result<String, String> {
+    let installs = crate::discover();
+    let Some(install) = installs.get(vfs::Game::Kotor2) else {
+        return Ok(not_installed(vfs::Game::Kotor2));
+    };
+    let index = vfs::DirIndex::build(&install.data_root).map_err(|e| format!("{e:?}"))?;
+    let resolver = vfs::resolver::Resolver::open(
+        vfs::Game::Kotor2,
+        &index,
+        None,
+        vfs::resolver::TextureQuality::High,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let body = body(&resolver, vfs::Game::Kotor2, (ROBE, HOOD))?;
+    let thrown = |from| {
+        let turn = |world: &World, nodes: &[Entity]| {
+            world.get::<Transform>(nodes[body.node]).map_or(0.0, |t| {
+                t.rotation
+                    .angle_between(body.rest[body.node].2)
+                    .to_degrees()
+            })
+        };
+        played(&body, (HOOD_OFF, HOOD_OFF_MS, 360_000), from, END_MS, turn)
+    };
+    let [old, held] = [Start::Rest, Start::Held].map(thrown);
+    check(
+        body.held[body.node] && old < 1.0 && held > 20.0,
+        format!(
+            "{HOOD} turned {held:.0}° from its rest standing on after offhood, {old:.1}° when every node is posed from rest"
+        ),
+    )
+}
+
+/// The measure `measure` takes of the body `ms` into a scene where its
+/// scripts play `first` (an animation for its ms) from the start, then the
+/// standing clip from `UP_MS` for its ms, each frame posed by the clips
+/// over it as `from` starts it.
 fn played(
-    placed: &viewer::Placed,
-    clips: &[(u16, std::sync::Arc<asset_odyssey::anim::AnimationIr>)],
-    rest: &Rest,
-    node: usize,
-    at_rest: bool,
+    body: &Body,
+    (first, first_ms, standing_ms): (u16, u32, u32),
+    from: Start,
     ms: u64,
+    measure: impl Fn(&World, &[Entity]) -> f32,
 ) -> f32 {
+    let rest = &body.rest[..];
     let mut world = World::new();
     let nodes: Vec<Entity> = rest
         .iter()
@@ -140,21 +226,21 @@ fn played(
                 .id()
         })
         .collect();
-    let bound = acting::bind(placed, clips, &nodes);
+    let bound = acting::bind(&body.placed, &body.clips, &nodes);
     let mut shows = acting::Shows::default();
     let mut state: SystemState<Query<&mut Transform>> = SystemState::new(&mut world);
     for now in (0..=ms).step_by(FRAME_MS as usize) {
         let acting = if now < UP_MS {
             Acting {
-                animation: DEAD,
+                animation: first,
                 since: 0,
-                ms: 360_000,
+                ms: first_ms,
             }
         } else {
             Acting {
                 animation: PAUSE,
                 since: UP_MS,
-                ms: 100,
+                ms: standing_ms,
             }
         };
         let now = now as f64;
@@ -162,16 +248,24 @@ fn played(
         let Ok(mut transforms) = state.get_mut(&mut world) else {
             return f32::NAN;
         };
-        if at_rest {
-            cast::at_rest((&nodes, rest), &mut transforms);
+        match from {
+            Start::Stale => {}
+            Start::Rest => cast::at_rest((&nodes, rest, &[]), &mut transforms),
+            Start::Held => cast::at_rest((&nodes, rest, &body.held), &mut transforms),
         }
         for (clip, at, weight) in shows.shown(&bound, now, (0, None)) {
             clip.pose_over(at, weight, &mut transforms);
         }
     }
+    measure(&world, &nodes)
+}
+
+/// How far (degrees) the body's node leans from upright.
+fn leans(body: &Body, world: &World, nodes: &[Entity]) -> f32 {
+    let rest = &body.rest;
     // The node's up in the model's space, its ancestors turned by `turn`.
     let up = |turn: &dyn Fn(usize) -> Quat| {
-        let (mut model, mut at) = (Quat::IDENTITY, Some(node));
+        let (mut model, mut at) = (Quat::IDENTITY, Some(body.node));
         while let Some(index) = at {
             model = turn(index) * model;
             at = rest[index].0;

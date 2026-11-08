@@ -658,7 +658,8 @@ impl Limit {
 /// Who would wear an item, as its use limits ask: its alignment (0 dark
 /// to 100 light), classes (`classes.2da` rows, `u8::MAX` for none), race,
 /// subrace, feats, gender, scores, whether a player character and its tag;
-/// and whether TSL's rules are played.
+/// whether TSL's rules are played; and the slots its body has locked
+/// (`slots::locked`'s mask: TSL's one-handed Kreia's off hands).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Wearer {
     pub good_evil: u8,
@@ -671,6 +672,7 @@ pub struct Wearer {
     pub player: bool,
     pub tag: String,
     pub tsl: bool,
+    pub locked: u32,
 }
 
 /// The talk-table lines a refused equip shows, by the limit refused: K1's
@@ -684,6 +686,9 @@ pub mod refusals {
     pub const FEAT: u32 = crate::combat::passive::NOT_PROFICIENT;
     pub const GENDER: u32 = 47993;
     pub const ABILITY: u32 = 117590;
+    /// TSL's "You cannot equip or remove an item from this slot.": a
+    /// locked slot (`slots::locked`).
+    pub const LOCKED_SLOT: u32 = 125554;
 }
 
 impl Limit {

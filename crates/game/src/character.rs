@@ -543,6 +543,7 @@ fn view(
         feats,
         owned: carried,
         worn,
+        locked: wearer.map_or(0, |wearer| wearer.locked),
         credits: goods.gold,
         xp: 0,
         next_xp: None,
@@ -700,6 +701,10 @@ fn members(
             player: seat.is_some(),
             tag: data.map_or_else(String::new, |data| data.tag.clone()),
             tsl,
+            // As the sim weighs it (`script::items::wearer`): its body's row.
+            locked: sim::script::body_row(fighter.look, data, persona)
+                .zip(level.and_then(|level| level.scripts()))
+                .map_or(0, |(row, library)| library.locked_slots(row)),
         };
         let who = crate::headgear::who(instances.as_ref(), entity);
         party.push(Member {

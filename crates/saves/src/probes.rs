@@ -516,6 +516,7 @@ fn companions_items(level: &sim::Level, save: &sim::Save) -> Result<String, Stri
         hp: 100,
         fp: 50,
         worn: None,
+        look: sim::combat::Look::default(),
     });
     save.script.party.leader = Some(0);
     let story = Story::of(&save, level);

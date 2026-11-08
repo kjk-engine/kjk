@@ -430,6 +430,7 @@ impl Restore<'_> {
                                 hp: character.hp,
                                 fp: character.fp,
                                 worn: None,
+                                look: sim::combat::Look::default(),
                             });
                         }
                         from
