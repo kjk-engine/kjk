@@ -1897,6 +1897,55 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
     })]
 }
 
+/// The head slot's eye: kjk's own button in its top right corner, shown
+/// only while something is worn there; open while the headgear shows,
+/// struck through while hidden, and a press flips the member's setting.
+pub(super) fn equip_headgear_eye() -> Vec<Check> {
+    const SETTING: &str = "headgear.hidden.seat0";
+    const EYE: &str = "BTN_HEADGEAR";
+    let (mut assets, mut vm) = trask_page("equip", &["BTN_INV_HEAD"], Vec::new(), true);
+    let mask = trask_owns(40, b"Mask", 1, false);
+    if let Some(me) = vm.character.as_mut() {
+        me.headgear_setting = Some(SETTING.into());
+        me.worn = vec![(0, mask)];
+    }
+    let mut stack = opened("equip", &mut assets, &vm);
+    let drawn = |stack: &Stack, vm: &ViewModel| {
+        stack
+            .state_of(EYE, vm)
+            .and_then(|state| (!state.hidden).then_some(state.fill?))
+    };
+    let mut seen = Vec::new();
+    let mut told = Vec::new();
+    for hidden in [false, true] {
+        vm.settings.insert(SETTING.into(), hidden.to_string());
+        seen.push(drawn(&stack, &vm));
+        told.push(press(&mut stack, &mut assets, &vm, EYE));
+    }
+    let flips = told.iter().zip([true, false]).all(|(raised, wanted)| {
+        raised.contains(&Intent::Setting(SETTING.into(), wanted.to_string()))
+    });
+    let corner = (stack.extent_of("BTN_INV_HEAD"))
+        .zip(stack.extent_of(EYE))
+        .is_some_and(|(slot, eye)| {
+            eye.left + eye.width == slot.left + slot.width
+                && eye.top == slot.top
+                && eye.width < slot.width
+        });
+    if let Some(me) = vm.character.as_mut() {
+        me.worn.clear();
+    }
+    let bare = drawn(&stack, &vm);
+    let wanted = [Some("kjkeye_shown".into()), Some("kjkeye_hidden".into())];
+    vec![check("equip_headgear_eye", {
+        expect(&format!("icons {seen:?}"), seen == wanted)
+            .and_then(|()| expect(&format!("presses raised {told:?}"), flips))
+            .and_then(|()| expect("the eye in the head slot's top right corner", corner))
+            .and_then(|()| expect(&format!("with nothing worn {bare:?}"), bare.is_none()))
+            .map(|()| "the eye shows over worn headgear and flips its setting".into())
+    })]
+}
+
 /// A body's locked slots on the equip page (TSL's one-handed Kreia, her off
 /// hands): their buttons in red, the main hand's not; one chosen opens no
 /// list but TSL's "You cannot equip or remove an item from this slot.", so

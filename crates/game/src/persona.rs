@@ -249,21 +249,22 @@ fn classes(world: &SimWorld) -> Option<&sim::levels::Classes> {
 }
 
 /// The body `appearance` wearing `armour` is drawn with (`appearance.2da`,
-/// as a creature's: the armour's body variation and texture).
+/// as a creature's: the armour's body variation and texture), and the
+/// model of `headgear` (an item) on its head.
 pub fn wear(
     resolver: &Resolver,
     tables: &mut asset_odyssey::tables::Tables,
-    (appearance, armour): (u16, Option<String>),
+    (appearance, armour, headgear): crate::headgear::SeatLook,
 ) -> Option<crate::play::Wear> {
+    use asset_odyssey::creature;
     let source = crate::viewer::ResolverSource(resolver);
-    let look =
-        asset_odyssey::creature::resolve_appearance(&source, u32::from(appearance), armour, tables)
-            .ok()?;
-    let strides = asset_odyssey::creature::strides(&source, u32::from(appearance), tables);
+    let look = creature::resolve_appearance(&source, u32::from(appearance), armour, tables).ok()?;
+    let strides = creature::strides(&source, u32::from(appearance), tables);
     Some(crate::play::Wear {
         body: look.body,
         head: look.head?,
         texture: look.body_texture,
+        headgear: headgear.and_then(|item| creature::item_model_with(&source, &item, tables)),
         strides: strides.unwrap_or(crate::play::STRIDES),
     })
 }

@@ -62,7 +62,7 @@ pub struct Redress {
 pub struct Wardrobe {
     setup: Setup,
     /// Each look's body, read once (`None`: it does not resolve).
-    looks: BTreeMap<(u16, Option<String>), Option<Wear>>,
+    looks: BTreeMap<crate::headgear::SeatLook, Option<Wear>>,
     tables: asset_odyssey::tables::Tables,
     cache: Arc<Mutex<BTreeMap<String, Option<ModelIr>>>>,
     loading: BTreeMap<u8, (Wear, Task<Result<Dressed, String>>)>,
@@ -100,9 +100,15 @@ impl Wardrobe {
             .clear();
     }
 
-    /// Seat `seat`'s body as `snapshot` has it, if it has a persona.
-    fn wanted(&mut self, snapshot: &sim::Snapshot, seat: u8) -> Option<Wear> {
-        let worn = sim::persona::dressed(snapshot, sim::Seat(seat))?;
+    /// Seat `seat`'s body as `snapshot` has it, if it has a persona, its
+    /// headgear none while `hidden` (`headgear`).
+    fn wanted(
+        &mut self,
+        snapshot: &sim::Snapshot,
+        seat: u8,
+        hidden: crate::headgear::Hidden,
+    ) -> Option<Wear> {
+        let worn = crate::headgear::seat_look(snapshot, sim::Seat(seat), hidden)?;
         if let Some(look) = self.looks.get(&worn) {
             return look.clone();
         }
@@ -135,6 +141,7 @@ pub fn dress(
     mut assets: ModelAssets,
     mut commands: Commands,
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
+    settings: Option<Res<crate::settings::Settings>>,
 ) {
     let wardrobe = &mut *wardrobe;
     if wardrobe.setup.named {
@@ -142,6 +149,9 @@ pub fn dress(
     }
     wardrobe.enter(swap.level.name());
     let snapshot = presented.0.current();
+    let hidden = |who: &str| {
+        (settings.as_ref()).is_some_and(|settings| crate::headgear::hidden_in(settings, who))
+    };
     let dressed = wardrobe.setup.dressed.clone();
     let worn: Vec<Wear> = dressed
         .lock()
@@ -150,7 +160,7 @@ pub fn dress(
         .clone();
     for (seat, now) in worn.iter().enumerate() {
         let seat = seat as u8;
-        let Some(wanted) = wardrobe.wanted(snapshot, seat) else {
+        let Some(wanted) = wardrobe.wanted(snapshot, seat, &hidden) else {
             continue;
         };
         if wanted == *now {
@@ -202,7 +212,7 @@ pub fn dress(
         facts.0.insert(
             "wardrobe".into(),
             serde_json::json!({
-                "wears": worn.iter().map(|wear| format!("{} {} {:?}", wear.body, wear.head, wear.texture)).collect::<Vec<_>>(),
+                "wears": worn.iter().map(|wear| format!("{} {} {:?} {:?}", wear.body, wear.head, wear.texture, wear.headgear)).collect::<Vec<_>>(),
                 "loading": wardrobe.loading.keys().collect::<Vec<_>>(),
                 "dressings": wardrobe.dressings,
                 "notes": wardrobe.notes,

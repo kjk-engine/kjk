@@ -110,11 +110,19 @@ pub struct Departure {
     pub root: Entity,
 }
 
-/// What a disguised character's body is: the `appearance.2da` row its
-/// disguise makes it, the item in its body slot (a row of model type `B`
-/// dresses its body by it), and the head a script gave it (a `heads.2da`
-/// row; else the row's own).
-pub type Guise = (u16, Option<String>, Option<u8>);
+/// What a disguised character's body is.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Guise {
+    /// The `appearance.2da` row its disguise makes it.
+    pub appearance: u16,
+    /// The item in its body slot (a row of model type `B` dresses its body
+    /// by it).
+    pub armour: Option<String>,
+    /// The head a script gave it (a `heads.2da` row; else the row's own).
+    pub head: Option<u8>,
+    /// The item in its head slot, drawn on its head unless hidden.
+    pub headgear: Option<String>,
+}
 
 /// A disguise's body the scene has: its root and models, and how the views
 /// animate it.
@@ -308,18 +316,19 @@ impl Made {
 
     /// Starts reading the body of `guise` on the task pool, from the
     /// scene's module (`appearance.2da` and the models are the game's).
-    fn load_guise(
-        &self,
-        (row, armour, head): Guise,
-        level: &sim::Level,
-    ) -> Task<Result<Ready, String>> {
+    fn load_guise(&self, guise: Guise, level: &sim::Level) -> Task<Result<Ready, String>> {
         self.read(
             level,
-            format!("appearance {row}"),
+            format!("appearance {}", guise.appearance),
             |_, _| true,
             move |load, source, models| {
                 let at = ([0.0; 3], 0.0);
-                let body = (u32::from(row), armour.as_deref(), head);
+                let body = (
+                    u32::from(guise.appearance),
+                    guise.armour.as_deref(),
+                    guise.head,
+                    guise.headgear.as_deref(),
+                );
                 load.place_appearance(source, body, at, models)
             },
         )
@@ -684,6 +693,7 @@ pub fn track(
     mut commands: Commands,
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
     (mut tints, mut animated): (ResMut<MineTints>, ResMut<crate::scene::AnimatedMaterials>),
+    settings: Option<Res<crate::settings::Settings>>,
 ) {
     let made = &mut *made;
     if swap.generation != made.generation {
@@ -835,9 +845,12 @@ pub fn track(
             (scene, root),
             (&mut assets, &mut commands, &mut animated),
         );
+        let hidden = |who: &str| {
+            (settings.as_ref()).is_some_and(|settings| crate::headgear::hidden_in(settings, who))
+        };
         track_disguises(
             made,
-            (snapshot, &objects, level),
+            (snapshot, &objects, level, &hidden),
             (scene, root),
             (&mut lives, &mut assets, &mut commands, &mut animated),
         );
@@ -882,11 +895,12 @@ pub fn track(
                 "template": drawn.template,
                 "drawn": drawn.models.is_some(),
             })).collect::<Vec<_>>(),
-            "disguises": made.worn.iter().map(|(id, (row, armour, head))| serde_json::json!({
+            "disguises": made.worn.iter().map(|(id, guise)| serde_json::json!({
                 "id": id.0,
-                "appearance": row,
-                "armour": armour,
-                "head": head,
+                "appearance": guise.appearance,
+                "armour": guise.armour,
+                "head": guise.head,
+                "headgear": guise.headgear,
                 "drawn": made.disguise(*id).is_some(),
                 "loading": made.guises_loading.contains_key(id),
             })).collect::<Vec<_>>(),
@@ -976,8 +990,15 @@ fn spawned(
 /// with a head a script gave it, `DuplicateHeadAppearance`, its own
 /// appearance too); else, for a creature, its own appearance once what it
 /// wears on its body is not what its template put on it (the body the scene
-/// drew it in). None while it is drawn in its own body.
-fn guise(snapshot: &Snapshot, objects: &Instances, entity: &EntityState) -> Option<Guise> {
+/// drew it in), or what it is drawn wearing on its head is not
+/// (`headgear::drawn`: another item, or one its player hid). None while it
+/// is drawn in its own body.
+fn guise(
+    snapshot: &Snapshot,
+    objects: &Instances,
+    entity: &EntityState,
+    hidden: crate::headgear::Hidden,
+) -> Option<Guise> {
     let fighter = entity.fighter.as_ref();
     let look = fighter.map_or(sim::combat::Look::default(), |fighter| fighter.look);
     let facts = objects.of_entity(entity);
@@ -985,24 +1006,36 @@ fn guise(snapshot: &Snapshot, objects: &Instances, entity: &EntityState) -> Opti
     let body = snapshot
         .worn(entity.id.0, sim::inventory::slots::BODY)
         .map(str::to_ascii_lowercase);
+    let hides = crate::headgear::who(Some(objects), entity).is_some_and(|who| hidden(&who));
+    let headgear = crate::headgear::drawn(snapshot, entity, hides);
     let row = fighter
         .and_then(|fighter| fighter.effects.disguise(snapshot.time_ms))
         .or_else(|| crate::cast::sheet(entity, objects).gear.disguise)
         .or(look.appearance)
         .or_else(|| look.head.and_then(|_| own()));
+    let guise = |appearance, head| Guise {
+        appearance,
+        armour: body.clone(),
+        head,
+        headgear: headgear.clone(),
+    };
     if let Some(row) = row {
-        return Some((row, body, look.head));
+        return Some(guise(row, look.head));
     }
     // A player's own body is the wardrobe's to dress (`wardrobe`).
     if !matches!(entity.kind, Kind::Object(ObjectKind::Creature, _)) {
         return None;
     }
-    let composed = facts?
-        .inventory
-        .iter()
-        .find(|held| held.slot == Some(sim::inventory::slots::BODY))
-        .map(|held| held.template.to_ascii_lowercase());
-    (body != composed).then(|| Some((own()?, body, None)))?
+    let composed = |slot| {
+        facts?
+            .inventory
+            .iter()
+            .find(|held| held.slot == Some(slot))
+            .map(|held| held.template.to_ascii_lowercase())
+    };
+    use sim::inventory::slots;
+    let redressed = body != composed(slots::BODY) || headgear != composed(slots::HEAD);
+    redressed.then(|| Some(guise(own()?, None)))?
 }
 
 /// Disguises, each frame the scene has its root: the guise each character
@@ -1011,7 +1044,12 @@ fn guise(snapshot: &Snapshot, objects: &Instances, entity: &EntityState) -> Opti
 /// bodies of characters the snapshot no longer has go.
 fn track_disguises(
     made: &mut Made,
-    (snapshot, objects, level): (&Snapshot, &Instances, &sim::Level),
+    (snapshot, objects, level, hidden): (
+        &Snapshot,
+        &Instances,
+        &sim::Level,
+        crate::headgear::Hidden,
+    ),
     (scene, root): (&mut LoadedScene, Entity),
     (lives, assets, commands, animated): (
         &mut LiveBlades,
@@ -1028,7 +1066,7 @@ fn track_disguises(
                 Kind::Avatar(_) | Kind::Object(ObjectKind::Creature, _)
             )
         })
-        .filter_map(|entity| Some((entity.id, guise(snapshot, objects, entity)?)))
+        .filter_map(|entity| Some((entity.id, guise(snapshot, objects, entity, hidden)?)))
         .collect();
     let gone: Vec<(SimId, Guise)> = made
         .guises
@@ -1088,8 +1126,8 @@ fn track_disguises(
         info!(
             "disguise of #{} (appearance {}, wearing {:?}): {}",
             id.0,
-            guise.0,
-            guise.1,
+            guise.appearance,
+            guise.armour,
             if guised.is_some() {
                 "drawn"
             } else {

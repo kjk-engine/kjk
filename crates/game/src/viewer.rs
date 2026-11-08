@@ -1409,13 +1409,13 @@ impl CreatureLoad {
     }
 
     /// A creature of `appearance.2da` row `appearance` wearing `armour` (a
-    /// UTI) or nothing on its body, with the head of `heads.2da` row `head`
-    /// where one is given (else the row's own), as `place` places one of a
-    /// template.
+    /// UTI) or nothing on its body and `headgear` (a UTI) or nothing on its
+    /// head, with the head of `heads.2da` row `head` where one is given
+    /// (else the row's own), as `place` places one of a template.
     pub fn place_appearance(
         &mut self,
         (resolver, game): (&Resolver, Game),
-        (appearance, armour, head): (u32, Option<&str>, Option<u8>),
+        (appearance, armour, head, headgear): (u32, Option<&str>, Option<u8>, Option<&str>),
         (position, facing): ([f32; 3], f32),
         models: &mut Vec<Placed>,
     ) -> Result<Option<CreatureView>, String> {
@@ -1432,6 +1432,8 @@ impl CreatureLoad {
             look.head = (self.tables.get(&source, "heads"))
                 .and_then(|heads| heads.resref(usize::from(head), "head"));
         }
+        look.headgear =
+            headgear.and_then(|item| creature::item_model_with(&source, item, &mut self.tables));
         self.place_look(
             (resolver, game),
             (0, &name, look),
@@ -1576,12 +1578,20 @@ impl CreatureLoad {
         self.placed += 1;
         if let (Some(head), Some(hook), Some(hook_node)) = (&look.head, hook, hook_node) {
             match cached(loaded, resolver, head)? {
-                Some(ir) => models.push(Placed {
-                    attach: Some(hook),
-                    hook: Some((body_index, hook_node)),
-                    clip: idle.clone(),
-                    ..at(ir)
-                }),
+                Some(ir) => {
+                    models.push(Placed {
+                        attach: Some(hook),
+                        hook: Some((body_index, hook_node)),
+                        clip: idle.clone(),
+                        ..at(ir)
+                    });
+                    let head = models.len() - 1;
+                    if let Some(missing) =
+                        hang_headgear(loaded, resolver, models, head, look.headgear.as_deref())?
+                    {
+                        self.missing_models.push(missing);
+                    }
+                }
                 None => self.missing_models.push(head.clone()),
             }
         }
@@ -1729,6 +1739,36 @@ fn floor(resolver: &Resolver, room: &str, walkable: &[bool]) -> Result<Vec<[[f32
 }
 
 /// A model through a per-load cache.
+/// `headgear` (a model) hung on the head `models[head]` at its
+/// `gogglehook`, as reone hangs a mask: it follows that node, as a weapon
+/// follows its hand. Nothing for a head without the hook; the model's
+/// name when the install lacks it.
+pub fn hang_headgear(
+    cache: &mut BTreeMap<String, Option<ModelIr>>,
+    resolver: &Resolver,
+    models: &mut Vec<Placed>,
+    head: usize,
+    headgear: Option<&str>,
+) -> Result<Option<String>, String> {
+    let Some(name) = headgear else {
+        return Ok(None);
+    };
+    let Some(node) = models[head].ir.node_index(hooks::HEADGEAR_HOOK) else {
+        return Ok(None);
+    };
+    let Some(ir) = cached(cache, resolver, name)? else {
+        return Ok(Some(name.to_string()));
+    };
+    let on = &models[head];
+    let placed = Placed {
+        hook: Some((head, node)),
+        facing: on.facing,
+        ..Placed::at(ir, on.offset)
+    };
+    models.push(placed);
+    Ok(None)
+}
+
 pub fn cached(
     cache: &mut BTreeMap<String, Option<ModelIr>>,
     resolver: &Resolver,
