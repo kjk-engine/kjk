@@ -17,7 +17,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::mesh::Indices;
 use bevy::prelude::*;
 use ragdoll::shatter::{self, Piece, Plain};
-use sim::destruction::{Class, Destructible, Size};
+use sim::destruction::{Class, Destructible, Material, Size};
 use sim::look;
 
 use crate::made::Made;
@@ -40,6 +40,14 @@ const FLAT_SHARE: f32 = 1.0 / 3.0;
 const HANG_DEG: (f32, f32) = (25.0, 70.0);
 /// The chance that stage 2 drops the panel stage 1 left hanging.
 const FALLS: f32 = 0.5;
+/// The most lasting emitters lit, and how near a player they must be
+/// (metres): the nearest first.
+const MOST_EMITTERS: usize = 24;
+const EMITTERS_REACH_M: f32 = 30.0;
+/// How long a broken prop's base smokes (s, least and most).
+const BASE_SMOKE_S: (f64, f64) = (5.0, 10.0);
+/// How high over its feet a broken prop's base smokes (metres).
+const BASE_SMOKE_M: f32 = 0.2;
 
 /// A hanging panel's hinge: the two ends of the edge it turns about (model
 /// frame, metres), and how far it turned (degrees).
@@ -204,6 +212,120 @@ pub(crate) fn remaining(count: usize, gone: &BTreeSet<usize>) -> Vec<usize> {
     (0..count).filter(|i| !gone.contains(i)).collect()
 }
 
+/// What a lasting emitter on a damaged prop is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Kind {
+    Sparks,
+    Arcs,
+    Smoke,
+    Fire,
+    Dust,
+}
+
+/// A lasting emitter: its kind and the KOTOR model whose emitters it
+/// draws (an effect placeable's, `placeables.2da`), and whether that
+/// model's meshes and lights are left out (a fire pit's logs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Emitter {
+    pub kind: Kind,
+    pub model: &'static str,
+    pub bare: bool,
+}
+
+/// Each kind's emitter, from the effect placeables both games list as
+/// intact (`placeables.2da`, the same rows and models in K1 and TSL), whose
+/// models draw nothing but emitters unless said:
+const EMITTERS: [Emitter; 5] = [
+    // ElectricalSpark_small (31): `fx_star` flashes and `fx_spark`.
+    Emitter {
+        kind: Kind::Sparks,
+        model: "plc_esparksm",
+        bare: false,
+    },
+    // ElectricalSpark_large (30): the same, larger and wilder: arcing.
+    Emitter {
+        kind: Kind::Arcs,
+        model: "plc_esparklg",
+        bare: false,
+    },
+    // Smoke (100): two `fx_smoke` columns.
+    Emitter {
+        kind: Kind::Smoke,
+        model: "plc_smoke",
+        bare: false,
+    },
+    // Campfire (129): its `fx_fire` and `fx_smoke`, its logs and light
+    // left out (no placeable draws fire alone).
+    Emitter {
+        kind: Kind::Fire,
+        model: "plc_firepit2",
+        bare: true,
+    },
+    // Stone's dust: the games have no dust emitter; Smoke's pale
+    // `fx_smoke` stands in.
+    Emitter {
+        kind: Kind::Dust,
+        model: "plc_smoke",
+        bare: false,
+    },
+];
+
+/// The emitters a damaged prop of `material` keeps at `stage`, or a broken
+/// one's base (`broken`).
+pub(crate) fn emitters(material: Material, stage: u8, broken: bool) -> &'static [Emitter] {
+    const SPARKS: Emitter = EMITTERS[0];
+    const ARCS: Emitter = EMITTERS[1];
+    const SMOKE: Emitter = EMITTERS[2];
+    const FIRE: Emitter = EMITTERS[3];
+    const DUST: Emitter = EMITTERS[4];
+    const SMOKES: &[Emitter] = &[SMOKE];
+    if broken {
+        return SMOKES;
+    }
+    match (material, stage) {
+        (_, 0) => &[],
+        (Material::Electronic, 1) => &[SPARKS],
+        (Material::Electronic, _) => &[ARCS, SMOKE],
+        (Material::Metal | Material::Plastic, _) => SMOKES,
+        (Material::Wood | Material::Cloth | Material::Organic, 1) => SMOKES,
+        (Material::Wood | Material::Cloth | Material::Organic, _) => &[FIRE, SMOKE],
+        (Material::Stone | Material::Ceramic | Material::Debris, _) => &[DUST],
+    }
+}
+
+/// Of `candidates` (each emitter's key and how far it is from the nearest
+/// player, metres), the ones lit: within `reach_m`, nearest first, at most
+/// `most`.
+pub(crate) fn lit(candidates: &[(u32, f32)], most: usize, reach_m: f32) -> Vec<u32> {
+    let mut near: Vec<(u32, f32)> = (candidates.iter())
+        .filter(|(_, far)| *far <= reach_m)
+        .copied()
+        .collect();
+    near.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
+    near.into_iter().take(most).map(|(key, _)| key).collect()
+}
+
+/// The lasting emitters wanted on props this frame, for `script_fx` to
+/// draw: by prop and slot, the model (and whether bare) and where it stands
+/// (game space, metres). Empty again with every scene swap.
+#[derive(Resource, Default)]
+pub(crate) struct PropEmitters {
+    generation: u32,
+    pub wanted: BTreeMap<(u32, u8), (Emitter, Vec3)>,
+}
+
+impl PropEmitters {
+    /// For scene swap `generation`: one from another starts empty.
+    pub(crate) fn start(&mut self, generation: u32) {
+        if self.generation != generation {
+            *self = PropEmitters {
+                generation,
+                ..PropEmitters::default()
+            };
+        }
+    }
+}
+
 /// Each damaged prop as the sim has it and as drawn, for the scene swap
 /// they belong to.
 #[derive(Resource, Default)]
@@ -216,6 +338,8 @@ pub(crate) struct PropDamage {
     /// stands (game space, metres).
     wanted: BTreeMap<u32, (u8, Destructible, [f32; 3])>,
     drawn: BTreeMap<u32, Drawn>,
+    /// Broken props' bases smoking: until when (ms of `Time`) and where.
+    smoking: BTreeMap<u32, (f64, Vec3)>,
 }
 
 /// A damaged prop as drawn: its stage, its chunks, its hanging panels.
@@ -237,12 +361,16 @@ pub struct PropDamagePlugin;
 
 impl Plugin for PropDamagePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<PropDamage>().add_systems(
-            PostUpdate,
-            draw.after(crate::prop_looks::stages)
-                .before(crate::prop_looks::wrecks)
-                .run_if(resource_exists::<PresentedSnapshot>),
-        );
+        app.init_resource::<PropDamage>()
+            .init_resource::<PropEmitters>()
+            .add_systems(
+                PostUpdate,
+                (draw, emit)
+                    .chain()
+                    .after(crate::prop_looks::stages)
+                    .before(crate::prop_looks::wrecks)
+                    .run_if(resource_exists::<PresentedSnapshot>),
+            );
     }
 }
 
@@ -333,8 +461,17 @@ pub(crate) fn draw(
     if !looks.current(swap.generation) {
         return;
     }
+    let now_ms = time.elapsed_secs_f64() * 1000.0;
     for change in &changes.changes {
         if change.now.0 == look::DEAD {
+            damage.wanted.remove(&change.index);
+            // Broken while seen: its base smokes a while.
+            if change.was.is_some_and(|was| was.0 != look::DEAD) {
+                let (lo, hi) = BASE_SMOKE_S;
+                let seconds = lo + (hi - lo) * f64::from(noise(&change.position, 0x5304e));
+                let at = Vec3::from_array(change.position) + Vec3::Z * BASE_SMOKE_M;
+                (damage.smoking).insert(change.index, (now_ms + seconds * 1000.0, at));
+            }
             continue;
         }
         let stage = sim::destruction::stage(change.d, change.now.1);
@@ -348,7 +485,6 @@ pub(crate) fn draw(
     }
     let made = made.as_deref();
     let newest = presented.1.last().map(|snapshot| &**snapshot);
-    let now_ms = time.elapsed_secs_f64() * 1000.0;
     let due: Vec<(u32, u8, Destructible, [f32; 3])> = (damage.wanted.iter())
         .filter(|(index, (stage, ..))| damage.drawn.get(index).is_none_or(|d| d.stage < *stage))
         .map(|(&index, &(stage, d, feet))| (index, stage, d, feet))
@@ -481,6 +617,78 @@ pub(crate) fn draw(
     }
 }
 
+/// The lasting emitters wanted this frame (`PropEmitters`): each damaged
+/// prop's (`emitters`) at seeded points over the top of its model's box,
+/// each broken one's base smoking while it does; of them the nearest a
+/// player within reach, at most `MOST_EMITTERS`.
+#[allow(clippy::too_many_arguments)]
+fn emit(
+    (presented, swap, scene, made): (
+        Res<PresentedSnapshot>,
+        Res<SceneSwap>,
+        Res<SceneContent>,
+        Option<Res<Made>>,
+    ),
+    mut damage: ResMut<PropDamage>,
+    mut lasting: ResMut<PropEmitters>,
+    scene_models: Query<(Entity, &SceneModel)>,
+    globals: Query<&GlobalTransform>,
+    time: Res<Time>,
+) {
+    lasting.start(swap.generation);
+    let now_ms = time.elapsed_secs_f64() * 1000.0;
+    damage.smoking.retain(|_, (until, _)| *until > now_ms);
+    let made = made.as_deref();
+    let mut all: Vec<((u32, u8), Emitter, Vec3)> = Vec::new();
+    for (&index, &(stage, d, _)) in &damage.wanted {
+        let Some((model, root)) = model_of(index, (&scene, made), &scene_models) else {
+            continue;
+        };
+        let Ok(global) = globals.get(root) else {
+            continue;
+        };
+        let ir = &scene.0.models[model].ir;
+        let boxed = crate::prop_looks::Boxed::of(ir, d.size, in_game(global));
+        let seed = shatter::seed_of(&ir.name) ^ u64::from(index);
+        for (slot, emitter) in emitters(d.material, stage, false).iter().enumerate() {
+            let slot = slot as u8;
+            // Over the middle half of its top.
+            let roll = |salt: u64| noise(&[], seed ^ u64::from(slot) << 8 ^ salt) * 0.5 + 0.25;
+            let (lo, hi) = (boxed.min, boxed.max);
+            let top = Vec3::new(
+                lo.x + (hi.x - lo.x) * roll(1),
+                lo.y + (hi.y - lo.y) * roll(2),
+                hi.z,
+            );
+            all.push(((index, slot), *emitter, boxed.game.transform_point(top)));
+        }
+    }
+    for (&index, &(_, at)) in &damage.smoking {
+        let smoke = emitters(Material::Debris, 0, true)[0];
+        all.push(((index, u8::MAX), smoke, at));
+    }
+    let players: Vec<Vec3> = (presented.1.last().into_iter())
+        .flat_map(|snapshot| &snapshot.entities)
+        .filter(|entity| matches!(entity.kind, sim::Kind::Avatar(_)))
+        .map(|entity| Vec3::from(entity.position))
+        .collect();
+    let candidates: Vec<(u32, f32)> = (all.iter().enumerate())
+        .map(|(key, (_, _, at))| {
+            let far = (players.iter())
+                .map(|player| player.distance(*at))
+                .fold(f32::INFINITY, f32::min);
+            (key as u32, far)
+        })
+        .collect();
+    let chosen = lit(&candidates, MOST_EMITTERS, EMITTERS_REACH_M);
+    lasting.wanted = (chosen.into_iter())
+        .map(|key| {
+            let (slot, emitter, at) = all[key as usize];
+            (slot, (emitter, at))
+        })
+        .collect();
+}
+
 #[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
     use sim::probe::check;
@@ -550,6 +758,46 @@ pub fn probes() -> sim::probe::Checks {
             .iter()
             .all(|(i, _)| hangs(&set[*i], middle).is_some() && !chunks.gone.contains(i))
     };
+    let kinds_of = |material, stage, broken| -> Vec<Kind> {
+        emitters(material, stage, broken)
+            .iter()
+            .map(|e| e.kind)
+            .collect()
+    };
+    use Kind::*;
+    let kinds: Vec<(String, Vec<Kind>, Vec<Kind>)> = [
+        (Material::Electronic, 0, false, vec![]),
+        (Material::Electronic, 1, false, vec![Sparks]),
+        (Material::Electronic, 2, false, vec![Arcs, Smoke]),
+        (Material::Metal, 1, false, vec![Smoke]),
+        (Material::Metal, 2, false, vec![Smoke]),
+        (Material::Wood, 1, false, vec![Smoke]),
+        (Material::Cloth, 2, false, vec![Fire, Smoke]),
+        (Material::Organic, 2, false, vec![Fire, Smoke]),
+        (Material::Stone, 1, false, vec![Dust]),
+        (Material::Stone, 2, false, vec![Dust]),
+        (Material::Ceramic, 0, true, vec![Smoke]),
+    ]
+    .into_iter()
+    .map(|(material, stage, broken, want)| {
+        (
+            format!("{material:?} {stage} {broken}"),
+            kinds_of(material, stage, broken),
+            want,
+        )
+    })
+    .collect();
+    // 30 emitters, key k at k + 1 m, given out of order.
+    let candidates: Vec<(u32, f32)> = (0..30u32).rev().map(|k| (k, k as f32 + 1.0)).collect();
+    let capped = lit(&candidates, 24, 30.0);
+    let swap = |generation| {
+        let mut emitters = PropEmitters::default();
+        emitters.start(1);
+        emitters.wanted.insert((3, 0), (EMITTERS[0], Vec3::ZERO));
+        emitters.start(generation);
+        emitters.wanted.len()
+    };
+    let (left, kept) = (swap(2), swap(1));
     vec![
         (
             "damage_knocked_cumulative",
@@ -621,6 +869,33 @@ pub fn probes() -> sim::probe::Checks {
                 format!(
                     "broken after stage 2 ({} gone): throws {thrown:?} (want every piece not gone)",
                     first.gone.len()
+                ),
+            ),
+        ),
+        (
+            "emitters_by_material",
+            check(
+                kinds.iter().all(|(_, got, want)| got == want),
+                format!("material, stage, broken → kinds: {kinds:?}"),
+            ),
+        ),
+        (
+            "emitters_capped",
+            check(
+                capped.len() == 24
+                    && capped.iter().all(|key| *key < 24)
+                    && capped.windows(2).all(|pair| pair[0] < pair[1]),
+                format!(
+                    "of 30 candidates 1–30 m (keys by distance): {capped:?} (want the 24 nearest, nearest first)"
+                ),
+            ),
+        ),
+        (
+            "emitters_leave_with_area",
+            check(
+                left == 0 && kept == 1,
+                format!(
+                    "emitters wanted after a scene swap {left} (want 0); in the same scene {kept} (want 1)"
                 ),
             ),
         ),

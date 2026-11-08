@@ -253,6 +253,9 @@ pub fn sheet() -> Sheet {
         .fold(jedi.feats.with(feats::PROFICIENCY_ALL), |known, row| {
             known.with(*row)
         });
+    // The grenade button throws a frag grenade first: the prop hall's blast.
+    let mut picks = jedi.picks;
+    picks.pick_item(sim::combat::spells::ITEM_ABILITY_GRENADE_FRAGMENTATION);
     Sheet {
         level: 20,
         bab: 20,
@@ -261,6 +264,7 @@ pub fn sheet() -> Sheet {
         powers,
         feats: known,
         weapons: [jedi.weapons[0], None],
+        picks,
         ..jedi
     }
 }

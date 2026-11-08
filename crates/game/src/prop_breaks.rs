@@ -10,15 +10,14 @@
 //!   whose model has no `dead` clip flies apart into pieces of itself
 //!   (`prop_looks`), one that has plays its `die` and `dead` clips
 //!   (`own_fx`);
-//! - a prop that only shows damage keeps sparking (metal, electronics,
-//!   plastic) or puffing dust (the rest) once damaged, twice as often once
-//!   wrecked: `visualeffects.2da` has no lasting smoke, so its one-shot
-//!   impacts repeat.
+//! - a damaged prop's lasting smoke, sparks and fire are `prop_damage`'s,
+//!   from the games' own effect placeables (`visualeffects.2da` has no
+//!   lasting smoke).
 
 use std::collections::BTreeMap;
 
 use bevy::prelude::*;
-use sim::destruction::{Class, Destructible, Material, Size, stage};
+use sim::destruction::{Destructible, Material, Size};
 use sim::look;
 use sim::module::ObjectKind;
 
@@ -31,35 +30,20 @@ use crate::viewer::Plays;
 
 /// `visualeffects.2da` rows (both games'): blaster sparks
 /// (`VFX_COM_SPARKS_BLASTER`), the ground's splash
-/// (`VFX_COM_BLASTER_IMPACT_GROUND`), large sparks (`VFX_COM_SPARKS_LARGE`),
-/// a droid's explosions (`VFX_COM_DROID_EXPLOSION_1`, `_2`) and a frag
+/// (`VFX_COM_BLASTER_IMPACT_GROUND`), a droid's explosions (`VFX_COM_DROID_EXPLOSION_1`, `_2`) and a frag
 /// grenade's (`VFX_FNF_GRENADE_FRAGMENTATION`).
 const SPARKS: u16 = 4033;
 const SPLASH: u16 = 4032;
-const LARGE_SPARKS: u16 = 4003;
 const DROID_BURST: u16 = 4034;
 const DROID_BURST_LARGE: u16 = 4035;
 const FRAG_BURST: u16 = 3003;
 
 /// How high a prop's middle stands over its feet, by size (metres).
 const MIDDLE_M: [f32; 3] = [0.3, 0.6, 1.2];
-/// How often a damaged prop sparks or puffs (ms); a wrecked one twice as
-/// often; only while a player stands within `SMOULDER_REACH_M` of it.
-const SMOULDER_MS: f64 = 1600.0;
-const SMOULDER_REACH_M: f32 = 20.0;
-
-/// Whether a player of `players` (metres) stands within reach of `at`.
-pub(crate) fn watched(players: &[Vec3], at: Vec3) -> bool {
-    players
-        .iter()
-        .any(|player| player.distance(at) <= SMOULDER_REACH_M)
-}
-
 /// What a material looks and sounds like breaking.
 struct Looks {
-    /// A blow's impact; its lasting sparks or dust while damaged.
+    /// A blow's impact.
     hit: u16,
-    smoulder: u16,
     /// The burst at its middle by size.
     burst: [u16; 3],
     /// `placeableobjsnds.2da`'s destroyed sound of its kind.
@@ -81,13 +65,11 @@ fn looks(material: Material) -> Looks {
     match metallic {
         true => Looks {
             hit: SPARKS,
-            smoulder: LARGE_SPARKS,
             burst: METALLIC,
             destroyed,
         },
         false => Looks {
             hit: SPLASH,
-            smoulder: SPLASH,
             burst: EARTHY,
             destroyed,
         },
@@ -131,12 +113,11 @@ pub(crate) fn change(was: (u8, u16), now: (u8, u16)) -> Change {
 }
 
 /// What has been seen of each destructible prop, by object index: its look
-/// and lost hit points, when it next smoulders.
+/// and lost hit points.
 #[derive(Resource, Default)]
 struct Breaks {
     generation: u32,
     seen: BTreeMap<u32, (u8, u16)>,
-    smoulders: BTreeMap<u32, f64>,
 }
 
 /// A destructible prop first seen, or whose look or lost hit points
@@ -211,10 +192,6 @@ fn breaks(
     for snapshot in &presented.1 {
         let instances = sim::Instances::in_snapshot(&swap.level, snapshot);
         let now = snapshot.time_ms as f64;
-        let players: Vec<Vec3> = (snapshot.entities.iter())
-            .filter(|entity| matches!(entity.kind, sim::Kind::Avatar(_)))
-            .map(|entity| Vec3::from(entity.position))
-            .collect();
         seen.creatures = (snapshot.entities.iter())
             .filter(|entity| {
                 matches!(
@@ -254,37 +231,10 @@ fn breaks(
                 cues.0
                     .push(Cue::at(sound, middle / asset_ja::UNIT, now as f32));
             }
-            if watched(&players, middle) {
-                smoulder(&mut breaks.smoulders, index, d, state.damage, now, || {
-                    sparked.push(at(looks.smoulder, middle))
-                });
-            }
         }
     }
     if let Some(mut visuals) = visuals {
         visuals.0.extend(sparked);
-    }
-}
-
-/// A damage-only prop `d` of object `index` that has lost `damage`: at
-/// `now` (sim ms) its sparks or dust are due (`play`) once damaged, every
-/// `SMOULDER_MS`, twice as often once wrecked.
-fn smoulder(
-    due: &mut BTreeMap<u32, f64>,
-    index: u32,
-    d: Destructible,
-    damage: u16,
-    now: f64,
-    play: impl FnOnce(),
-) {
-    let stage = stage(d, damage);
-    if d.class != Class::Damage || stage == 0 {
-        return;
-    }
-    let next = due.entry(index).or_insert(now);
-    if now >= *next {
-        play();
-        *next = now + SMOULDER_MS / f64::from(stage);
     }
 }
 
@@ -326,26 +276,11 @@ pub fn probes() -> sim::probe::Checks {
             )
         })
         .collect();
-    let (near, far) = (Vec3::new(5.0, 0.0, 0.0), Vec3::new(50.0, 0.0, 0.0));
-    let watch = (
-        watched(&[near], Vec3::ZERO),
-        watched(&[far], Vec3::ZERO),
-        watched(&[], Vec3::ZERO),
-    );
-    vec![
-        (
-            "prop_break_changes",
-            sim::probe::check(
-                wrong.is_empty(),
-                format!("{} cases, wrong: {wrong:?}", cases.len()),
-            ),
+    vec![(
+        "prop_break_changes",
+        sim::probe::check(
+            wrong.is_empty(),
+            format!("{} cases, wrong: {wrong:?}", cases.len()),
         ),
-        (
-            "prop_smoulder_near",
-            sim::probe::check(
-                watch == (true, false, false),
-                format!("a player 5 m off, 50 m off, none: {watch:?} (want true, false, false)"),
-            ),
-        ),
-    ]
+    )]
 }
