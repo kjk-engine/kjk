@@ -19,8 +19,10 @@ mod auto;
 mod body;
 pub mod cut;
 pub mod humanoid;
+mod loops;
 #[cfg(feature = "probes")]
 pub mod probes;
+pub mod shatter;
 mod world;
 
 pub use body::{

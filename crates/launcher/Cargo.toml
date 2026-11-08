@@ -18,6 +18,7 @@ path = "src/kjk.rs"
 
 [dependencies]
 game.workspace = true
+ragdoll.workspace = true
 bevy.workspace = true
 clap.workspace = true
 vfs.workspace = true
