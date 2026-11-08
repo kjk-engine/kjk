@@ -247,24 +247,32 @@ pub fn sheet() -> Sheet {
 /// screen takes it off and swaps it as any other (K1's blue lightsaber).
 pub const SABER: &str = "g_w_lghtsbr01";
 
-/// Every hand weapon and every armour K1 has (`library`'s item templates a
-/// right hand holds or a body wears, but plot items), by template: what the
-/// arena's player carries, one of each, two of a gun the left hand takes too
-/// (a pistol, for a pair).
+/// Every hand weapon, armour and thrown grenade K1 has (`library`'s item
+/// templates a right hand holds, a body wears or the grenade button throws,
+/// but plot items), by template: what the arena's player carries, one of
+/// each, two of a gun the left hand takes too (a pistol, for a pair), a full
+/// stack of each grenade.
 pub fn gear(library: &sim::script::Library) -> Vec<(String, u16)> {
+    use sim::combat::grenades::{is_grenade, needs_launcher};
     use sim::inventory::slots::{BODY, LEFT_WEAPON, RIGHT_WEAPON};
     library
         .items()
         .iter()
         .filter(|item| !item.plot)
-        .filter(|item| {
-            item.weapon.is_some() && item.slots & 1 << RIGHT_WEAPON != 0
-                || item.slots & 1 << BODY != 0
-        })
-        .map(|item| {
+        .filter_map(|item| {
+            let thrown = item
+                .spell
+                .is_some_and(|spell| is_grenade(spell.row) && !needs_launcher(spell.row));
+            let held = item.weapon.is_some() && item.slots & 1 << RIGHT_WEAPON != 0
+                || item.slots & 1 << BODY != 0;
             let gun = item.weapon.is_some_and(|weapon| weapon.delivery.ranged());
             let pistol = gun && item.slots & 1 << LEFT_WEAPON != 0;
-            (item.template.clone(), 1 + u16::from(pistol))
+            let count = if thrown {
+                item.stacking.max(1)
+            } else {
+                1 + u16::from(pistol)
+            };
+            (thrown || held).then(|| (item.template.clone(), count))
         })
         .collect()
 }
