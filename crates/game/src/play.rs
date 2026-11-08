@@ -660,11 +660,16 @@ pub fn load_for(
                 }
             }
             if world.level().arena_rules().is_some() && !blaster {
-                world.wear_new_item(
-                    sim::Seat(0),
-                    crate::arena::SABER,
-                    sim::inventory::slots::RIGHT_WEAPON,
-                )?;
+                // A second saber in the left hand where the sheet holds two
+                // (`--class duelist@dual`).
+                use sim::inventory::slots::{LEFT_WEAPON, RIGHT_WEAPON};
+                let mut sabers = vec![(crate::arena::SABER, RIGHT_WEAPON)];
+                if options.sheet.weapons[1]
+                    .is_some_and(|w| matches!(w.delivery, sim::combat::Delivery::Saber(_)))
+                {
+                    sabers.push((crate::arena::LEFT_SABER, LEFT_WEAPON));
+                }
+                world.wear_new_items(sim::Seat(0), &sabers)?;
             }
             // A companion talked to (`--party`) is there once it joins; any
             // other is talked to first, as before.
