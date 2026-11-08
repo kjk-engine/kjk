@@ -254,6 +254,11 @@ pub struct ObjectData {
     /// show on it (`crate::destruction`): `None` for every other object and
     /// for one a guard keeps intact (`destruction::guarded`).
     pub destructible: Option<crate::destruction::Destructible>,
+    /// A destructible placeable's model's box at rest, meshes only (its own
+    /// frame, metres: what bolts, blows and blasts meet of it, turned by
+    /// `yaw`); `None` for every other object and for a model that draws
+    /// nothing. A fact found when the module loads, never saved.
+    pub model_box: Option<Bulk>,
     /// A door's or placeable's `Faction` (a `repute.2da` row: Tatooine's
     /// Sand People are a placeable's whose reputation scripts adjust); 0
     /// for creatures (their sheet's) and where the data has none.
@@ -667,6 +672,10 @@ impl ObjectData {
             out.u8(d.material as u8);
             out.u8(d.size as u8);
         }
+        if let Some(model_box) = &self.model_box {
+            out.string("model box");
+            model_box.encode(out);
+        }
         if let Some(body) = &self.body {
             out.string("body");
             body.encode(out);
@@ -775,6 +784,7 @@ impl ObjectData {
             hit_points: None,
             toughness: Toughness::default(),
             destructible: None,
+            model_box: None,
             faction: 0,
             body: None,
             map_note: None,

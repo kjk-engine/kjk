@@ -53,6 +53,7 @@ pub(crate) struct Tables<'a> {
     attacks: BTreeMap<String, Attacks>,
     rigs: BTreeMap<String, bool>,
     bulks: BTreeMap<String, Option<Bulk>>,
+    rests: BTreeMap<String, Option<Bulk>>,
 }
 
 /// A creature model's attacks (`Tables::attacks`).
@@ -71,6 +72,7 @@ impl<'a> Tables<'a> {
             attacks: BTreeMap::new(),
             rigs: BTreeMap::new(),
             bulks: BTreeMap::new(),
+            rests: BTreeMap::new(),
         }
     }
 
@@ -92,6 +94,25 @@ impl<'a> Tables<'a> {
         });
         self.bulks.insert(name.to_string(), bulk);
         bulk
+    }
+
+    /// Model `name`'s box at rest, its drawn meshes' only (no emitters,
+    /// lights or dummies), in its own frame: a destructible placeable's
+    /// `ObjectData::model_box`. `None` for a model that draws nothing and
+    /// for one that does not read; each model read once.
+    pub(crate) fn rest_box(&mut self, name: &str) -> Option<Bulk> {
+        if let Some(known) = self.rests.get(name) {
+            return *known;
+        }
+        let rest = self
+            .model(name)
+            .and_then(|ir| ir.rest_bounds())
+            .map(|b| Bulk {
+                min: [b[0], b[1], b[2]],
+                max: [b[3], b[4], b[5]],
+            });
+        self.rests.insert(name.to_string(), rest);
+        rest
     }
 
     /// Model `name`'s drawn box standing (`bulk`); a humanoid's only when
@@ -905,6 +926,7 @@ pub(crate) fn creature_template(tables: &mut Tables, template: &str) -> Option<O
         hit_points: None,
         toughness: sim::module::Toughness::default(),
         destructible: None,
+        model_box: None,
         faction: 0,
         body: None,
         map_note: None,
@@ -979,6 +1001,7 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
         }),
         toughness: crate::objects::toughness(asset_odyssey::module::Toughness::read(&[root])),
         destructible: None,
+        model_box: None,
         faction: root
             .int("Faction")
             .map_or(0, |faction| faction.clamp(0, 255) as u8),
@@ -988,6 +1011,13 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
         pitch_variation: 0.0,
         encounter: None,
     })
+}
+
+/// The box at rest of the model `placeables.2da` names for a placeable's
+/// appearance (`Tables::rest_box`).
+pub(crate) fn placeable_box(tables: &mut Tables, appearance: Option<i64>) -> Option<Bulk> {
+    let model = placeable_model(tables, appearance)?;
+    tables.rest_box(&model.to_ascii_lowercase())
 }
 
 /// The model `placeables.2da` names for a placeable's appearance.

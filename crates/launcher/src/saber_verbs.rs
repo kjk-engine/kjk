@@ -261,6 +261,7 @@ impl<'a> Duel<'a> {
                 min: metres([at[0] - half, at[1] - half, at[2] + motion::SOLE_Z]),
                 max: metres([at[0] + half, at[1] + half, at[2] + top]),
                 contents: Contents::BODY,
+                turn: None,
             },
             other: Other { entity, legs },
         });

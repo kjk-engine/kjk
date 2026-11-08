@@ -141,6 +141,7 @@ fn props_laid_out() -> Result<String, String> {
             yaw: 270.0,
             footprint: vec![[-0.5, -0.5, 0.0], [0.5, 0.5, 1.0]],
             destructible: None,
+            model_box: None,
         })
         .collect();
     let (mut world, rules) = arena_with(props.clone())?;

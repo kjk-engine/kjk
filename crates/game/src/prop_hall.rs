@@ -151,7 +151,8 @@ pub fn props(resolver: &Resolver, game: &str) -> Result<Vec<Prop>, String> {
     for kind in kinds(game) {
         let walkmesh = walkmesh_box(resolver, &table, kind.appearance);
         let half = room_of(kind.size) / 2.0;
-        let room = [walkmesh, model_box(resolver, &table, kind.appearance)]
+        let model = model_box(resolver, &table, kind.appearance);
+        let room = [walkmesh, model]
             .into_iter()
             .flatten()
             .reduce(union)
@@ -177,6 +178,7 @@ pub fn props(resolver: &Resolver, game: &str) -> Result<Vec<Prop>, String> {
             yaw: FACING,
             footprint: walkmesh.map_or_else(Vec::new, |[least, most]| vec![least, most]),
             destructible: sim::destruction::catalogue(game, kind.appearance),
+            model_box: model.map(|[min, max]| sim::module::Bulk { min, max }),
         });
         x += wide + GAP;
         row_depth = row_depth.max(deep);

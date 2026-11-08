@@ -13,7 +13,7 @@
 //! order, so the result depends on nothing but the state.
 
 use crate::brush::{self, Clip, Swept};
-use crate::{CollisionWorld, Contents, Extents, Level, Shape, Surface, Trace};
+use crate::{CollisionWorld, Contents, Extents, Level, Plane, Shape, Surface, Trace};
 
 /// One actor's box in the world (metres).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -25,6 +25,70 @@ pub struct Body {
     /// `Contents::BODY` for a living actor; what else a body is made of
     /// (a corpse that bolts pass through: none) is the caller's.
     pub contents: Contents,
+    /// The cosine and sine of the turn about the upright line through its
+    /// middle that the box `min`..`max` is met at (a prop's model's box at
+    /// its facing); `None` for one square to the axes.
+    pub turn: Option<[f32; 2]>,
+}
+
+impl Body {
+    /// The box square to the axes that holds it, turned.
+    pub fn reach(&self) -> ([f32; 3], [f32; 3]) {
+        let Some([cos, sin]) = self.turn else {
+            return (self.min, self.max);
+        };
+        let half = [
+            (self.max[0] - self.min[0]) * 0.5,
+            (self.max[1] - self.min[1]) * 0.5,
+        ];
+        let across = [
+            half[0] * cos.abs() + half[1] * sin.abs(),
+            half[0] * sin.abs() + half[1] * cos.abs(),
+        ];
+        let middle = self.middle();
+        (
+            [middle[0] - across[0], middle[1] - across[1], self.min[2]],
+            [middle[0] + across[0], middle[1] + across[1], self.max[2]],
+        )
+    }
+
+    fn middle(&self) -> [f32; 2] {
+        [
+            (self.min[0] + self.max[0]) * 0.5,
+            (self.min[1] + self.max[1]) * 0.5,
+        ]
+    }
+
+    /// `point` turned about its middle by `[cos, sin]`.
+    fn turned(&self, point: [f32; 3], [cos, sin]: [f32; 2]) -> [f32; 3] {
+        let [mx, my] = self.middle();
+        let (x, y) = (point[0] - mx, point[1] - my);
+        [mx + x * cos - y * sin, my + x * sin + y * cos, point[2]]
+    }
+
+    /// `point` (the world's) in its own frame, where `min`..`max` is square
+    /// to the axes.
+    fn own(&self, point: [f32; 3]) -> [f32; 3] {
+        match self.turn {
+            Some([cos, sin]) => self.turned(point, [cos, -sin]),
+            None => point,
+        }
+    }
+
+    /// `plane` (its own frame) in the world's.
+    fn world_plane(&self, plane: Plane) -> Plane {
+        let Some(turn) = self.turn else {
+            return plane;
+        };
+        let [cos, sin] = turn;
+        let [x, y, z] = plane.normal;
+        let normal = [x * cos - y * sin, x * sin + y * cos, z];
+        let on = self.turned(plane.normal.map(|n| n * plane.dist), turn);
+        Plane {
+            normal,
+            dist: (0..3).map(|i| normal[i] * on[i]).sum(),
+        }
+    }
 }
 
 /// A world with bodies in it.
@@ -85,9 +149,12 @@ impl Bodies<'_> {
         let reach = (extents.mins, extents.maxs);
         let mut moved = false;
         for body in self.bodies.iter().filter(|body| self.solid(body, mask)) {
-            if !crate::reaches(start, end, reach, &body.min, &body.max) {
+            let (least, most) = body.reach();
+            if !crate::reaches(start, end, reach, &least, &most) {
                 continue;
             }
+            // Met in its own frame (a swept box turned with it).
+            let (from, to) = (body.own(start), body.own(end));
             let clip = match round {
                 true => brush::clip_round(
                     [
@@ -96,16 +163,11 @@ impl Bodies<'_> {
                     ],
                     (body.max[0] - body.min[0]) * 0.5,
                     (body.min[2], body.max[2]),
-                    start,
-                    end,
+                    from,
+                    to,
                     &swept,
                 ),
-                false => brush::clip(
-                    &crate::brushes::axial(body.min, body.max),
-                    start,
-                    end,
-                    &swept,
-                ),
+                false => brush::clip(&crate::brushes::axial(body.min, body.max), from, to, &swept),
             };
             match clip {
                 Clip::Miss => {}
@@ -123,7 +185,7 @@ impl Bodies<'_> {
                 Clip::Hit { fraction, plane } => {
                     if fraction < trace.fraction {
                         trace.fraction = fraction;
-                        trace.plane = plane;
+                        trace.plane = body.world_plane(plane);
                         trace.contents = body.contents;
                         trace.surface = Surface::default();
                         trace.entity = Some(body.entity);
@@ -160,7 +222,10 @@ impl CollisionWorld for Bodies<'_> {
         self.bodies
             .iter()
             .filter(|body| self.solid(body, mask))
-            .filter(|body| (0..3).all(|i| point[i] >= body.min[i] && point[i] <= body.max[i]))
+            .filter(|body| {
+                let own = body.own(point);
+                (0..3).all(|i| own[i] >= body.min[i] && own[i] <= body.max[i])
+            })
             .fold(self.world.point_contents(point, mask), |all, body| {
                 all | body.contents
             })

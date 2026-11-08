@@ -100,6 +100,7 @@ impl Blades {
                 min: scale(*min, UNIT),
                 max: scale(*max, UNIT),
                 contents: Contents::BODY,
+                turn: None,
             })
     }
 }
