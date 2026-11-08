@@ -71,6 +71,10 @@ const DEPTH: (f32, f32) = (-10.0, 15.0);
 /// stands in; 3 mm sank under the skin's depth, KOTOR's shells stand
 /// 2 cm out (`glow_shell::PUSH_M`).
 const PUSH_M: f32 = 0.01;
+/// The soot round a prop's mark: its burn's key among the materials, and
+/// how opaque it is.
+const SOOT: &str = "soot";
+const SOOT_ALPHA: f32 = 0.35;
 const MOST_RECORDS: usize = 16;
 const ALL_RECORDS: usize = 500;
 /// A mark's size either side (units) and life (ms), each drawn between.
@@ -174,6 +178,23 @@ impl Looks {
         let image = self.images.get(texture)?.clone();
         let made = materials.add(GlowMaterial::mark(image, PUSH_M, surface));
         self.materials.insert(texture, made.clone());
+        Some(made)
+    }
+
+    /// Soot round a prop's mark (`prop_looks`): its burn, faint, pushed
+    /// off the surface less than the mark so the mark draws over it.
+    pub(crate) fn soot(
+        &mut self,
+        materials: &mut Assets<GlowMaterial>,
+    ) -> Option<Handle<GlowMaterial>> {
+        if let Some(made) = self.materials.get(SOOT) {
+            return Some(made.clone());
+        }
+        let image = self.images.get(BURN)?.clone();
+        let mut faint = GlowMaterial::mark(image, PUSH_M / 2.0, Surface::Blend);
+        faint.tint = Vec4::new(1.0, 1.0, 1.0, SOOT_ALPHA);
+        let made = materials.add(faint);
+        self.materials.insert(SOOT, made.clone());
         Some(made)
     }
 

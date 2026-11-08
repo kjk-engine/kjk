@@ -55,8 +55,10 @@ const SHAKE_DEG: [f32; 2] = [6.0, 3.0];
 const SHAKE_MS: f32 = 150.0;
 /// A prop keeps its newest this many marks, each this wide (half-width,
 /// m, seeded between).
-const MARKS: usize = 8;
+const MARKS: [usize; 2] = [8, 24];
 const MARK_M: (f32, f32) = (0.08, 0.14);
+/// How much wider a mark's soot is than the mark.
+const SOOT_SCALE: f32 = 3.0;
 /// A blow throws this many shards (seeded between), this fast (m/s), gone
 /// within 2 s (ms until they shrink away).
 const SHARDS: (usize, usize) = (3, 6);
@@ -67,7 +69,7 @@ const DENTS: [usize; 3] = [2, 2, 4];
 const DENT_RADIUS_M: [f32; 3] = [0.15, 0.15, 0.3];
 const DENT_DEPTH_M: [f32; 3] = [0.04, 0.04, 0.08];
 /// A prop's material at each damage stage (0, 1, 2 and on) is this dark.
-const DARKENED: [f32; 3] = [1.0, 0.75, 0.45];
+const DARKENED: [f32; 3] = [1.0, 0.9, 0.8];
 /// A mesh glowing more than this in any channel is a screen; a dead screen
 /// is this dark on top; a scarred one flickers every so often (ms, seeded
 /// between).
@@ -1006,7 +1008,10 @@ fn hits(
             );
             if !laid.is_empty() {
                 let marks = looks.marks.entry(change.index).or_default();
-                for gone in keep_newest(marks, laid).into_iter().flatten() {
+                for gone in keep_newest(marks, laid, change.d.class)
+                    .into_iter()
+                    .flatten()
+                {
                     commands.entity(gone).try_despawn();
                 }
             }
@@ -1060,10 +1065,16 @@ fn lay_mark(
     turn: f32,
 ) -> Vec<Entity> {
     let ray = -found.normal;
-    let size = MARK_M.0 + (MARK_M.1 - MARK_M.0) * turn;
-    let axes = body_marks::mark_axes(ray, turn * std::f32::consts::TAU, (size, size));
-    let stages: Vec<_> = (looks.stages(glows).into_iter())
-        .filter(|(_, glows)| !glows || found.blow == Blow::Blade)
+    let (size, soot) = mark_sizes(turn);
+    let spin = turn * std::f32::consts::TAU;
+    // The soot under it first, wide and faint, then its own stages.
+    let soot = looks.soot(glows).map(|made| ((made, false), soot));
+    let stages: Vec<_> = (soot.into_iter())
+        .chain(
+            (looks.stages(glows).into_iter())
+                .filter(|(_, glows)| !glows || found.blow == Blow::Blade)
+                .map(|stage| (stage, size)),
+        )
         .collect();
     let mut laid = Vec::new();
     for entity in children.iter_descendants(root) {
@@ -1088,11 +1099,21 @@ fn lay_mark(
             RenderAssetUsages::default(),
         );
         source.insert_indices(Indices::U32(mesh.indices.clone()));
-        let Some(covered) = body_marks::gore(&source, &at, (found.at, ray), axes) else {
-            continue;
-        };
-        let covered = meshes.add(covered);
-        for (stage, glowing) in &stages {
+        let mut covered: BTreeMap<u32, Handle<Mesh>> = BTreeMap::new();
+        for ((stage, glowing), across) in &stages {
+            let axes = body_marks::mark_axes(ray, spin, (*across, *across));
+            let key = across.to_bits();
+            let covered = match covered.get(&key) {
+                Some(made) => made.clone(),
+                None => {
+                    let Some(made) = body_marks::gore(&source, &at, (found.at, ray), axes) else {
+                        continue;
+                    };
+                    let made = meshes.add(made);
+                    covered.insert(key, made.clone());
+                    made
+                }
+            };
             let mut spawned = commands.spawn((
                 Mesh3d(covered.clone()),
                 MeshMaterial3d(stage.clone()),
@@ -1446,11 +1467,27 @@ pub(crate) fn shake(size: Size, class: Class, since_ms: f32) -> f32 {
     most * (1.0 - since_ms / SHAKE_MS).clamp(0.0, 1.0)
 }
 
-/// Lays `mark` among a prop's `marks`, the newest last: past `MARKS` the
-/// oldest goes (returned, to be taken away).
-pub(crate) fn keep_newest<T>(marks: &mut VecDeque<T>, mark: T) -> Option<T> {
+/// Lays `mark` among the `marks` of a prop of `class`, the newest last:
+/// past `kept_marks` the oldest goes (returned, to be taken away).
+pub(crate) fn keep_newest<T>(marks: &mut VecDeque<T>, mark: T, class: Class) -> Option<T> {
     marks.push_back(mark);
-    (marks.len() > MARKS).then(|| marks.pop_front()).flatten()
+    (marks.len() > kept_marks(class))
+        .then(|| marks.pop_front())
+        .flatten()
+}
+
+/// How many marks a prop of `class` keeps.
+pub(crate) fn kept_marks(class: Class) -> usize {
+    match class {
+        Class::Break => MARKS[0],
+        Class::Damage => MARKS[1],
+    }
+}
+
+/// A mark's size (metres across) turned `turn` (0 to 1), and its soot's.
+pub(crate) fn mark_sizes(turn: f32) -> (f32, f32) {
+    let size = MARK_M.0 + (MARK_M.1 - MARK_M.0) * turn;
+    (size, size * SOOT_SCALE)
 }
 
 /// The dents a damage-class prop of `size` has at `stage`, seeded by
@@ -1597,7 +1634,7 @@ pub fn probes() -> sim::probe::Checks {
     ];
     let mut marks = VecDeque::new();
     let dropped: Vec<u32> = (1..=9)
-        .filter_map(|mark| keep_newest(&mut marks, mark))
+        .filter_map(|mark| keep_newest(&mut marks, mark, Class::Break))
         .collect();
     let mesh = |self_illum: [f32; 3]| MeshIr {
         node: 0,
@@ -1773,10 +1810,10 @@ pub fn probes() -> sim::probe::Checks {
             ),
         ),
         (
-            "prop_stage_dark",
+            "prop_stage_darkened_subtle",
             check(
-                darks == [1.0, 0.75, 0.45, 0.45],
-                format!("stages 0-3 {darks:?} (want [1, 0.75, 0.45, 0.45])"),
+                darks == [1.0, 0.9, 0.8, 0.8],
+                format!("stages 0-3 {darks:?} (want [1, 0.9, 0.8, 0.8])"),
             ),
         ),
         (
@@ -1874,6 +1911,12 @@ fn fault_probes() -> sim::probe::Checks {
         upright(0.7, 0.8),
     ];
     let legs = base(&table, 0.8, 0.0);
+    let mut damage_marks = VecDeque::new();
+    let damage_dropped = (0..30)
+        .filter_map(|mark| keep_newest(&mut damage_marks, mark, Class::Damage))
+        .count();
+    let kept = (kept_marks(Class::Damage), kept_marks(Class::Break));
+    let sizes = [0.0, 0.5, 1.0].map(mark_sizes);
     // A lamp hung above the floor: nothing touches it, nothing low.
     let hung = [upright(1.0, 1.4), upright(0.6, 1.0), upright(1.4, 2.0)];
     let floating = base(&hung, 2.0, 0.0);
@@ -1898,6 +1941,26 @@ fn fault_probes() -> sim::probe::Checks {
         })
     });
     vec![
+        (
+            "marks_kept_by_class",
+            check(
+                kept == (24, 8) && damage_marks.len() == 24 && damage_dropped == 6,
+                format!(
+                    "damage, break keep {kept:?} (want (24, 8)); 30 marks on a damage prop kept {}, \
+                     dropped {damage_dropped} (want 24, 6)",
+                    damage_marks.len()
+                ),
+            ),
+        ),
+        (
+            "soot_under_mark",
+            check(
+                sizes
+                    .iter()
+                    .all(|(mark, soot)| (soot - 3.0 * mark).abs() < 1e-5),
+                format!("marks and their soot (m across): {sizes:?} (want soot 3× each)"),
+            ),
+        ),
         (
             "prop_pieces_base_legs",
             check(
