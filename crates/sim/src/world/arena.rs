@@ -53,6 +53,8 @@ pub struct Prop {
     pub yaw: f32,
     pub footprint: Vec<[f32; 3]>,
     pub destructible: Option<crate::destruction::Destructible>,
+    /// Its model's box at rest (`ObjectData::model_box`).
+    pub model_box: Option<crate::module::Bulk>,
 }
 
 impl Prop {
@@ -64,6 +66,7 @@ impl Prop {
             name: self.name.clone(),
             geometry: self.footprint.clone(),
             destructible: self.destructible,
+            model_box: self.model_box,
             hit_points: most.map(|most| (most, most)),
             ..ObjectData::unknown(&prop_template(self.appearance), self.at, self.yaw)
         }
@@ -99,6 +102,13 @@ impl Rules {
             }
             if let Some(d) = prop.destructible {
                 hasher.update(&[d.class as u8, d.material as u8, d.size as u8]);
+            }
+            for value in prop
+                .model_box
+                .iter()
+                .flat_map(|b| b.min.iter().chain(&b.max))
+            {
+                hasher.update(&value.to_le_bytes());
             }
         }
     }

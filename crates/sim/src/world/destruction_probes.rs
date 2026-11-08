@@ -11,7 +11,7 @@ use super::{Id, Object, SimWorld};
 use crate::combat::damage::{self, Source};
 use crate::combat::sheet::{Weapon, damage_types};
 use crate::destruction::{self, Class, Destructible, most_hp, worth};
-use crate::module::{ObjectData, ObjectKind, Placement, Toughness};
+use crate::module::{Bulk, ObjectData, ObjectKind, Placement, Toughness};
 use crate::probe::check;
 use crate::snapshot::{ObjectState, SimId};
 use crate::{StepReason, TickInput, WorldConfig};
@@ -300,6 +300,7 @@ fn made_chair() -> Result<String, String> {
         yaw: 270.0,
         footprint: vec![[-0.5, -0.5, 0.0], [0.5, 0.5, 1.0]],
         destructible: destruction::catalogue("k1", CHAIR),
+        model_box: Some(SIZED),
     }];
     let mut world = super::arena_probes::arena_with(props)?.0;
     // Laid out on the first steps.
@@ -378,8 +379,26 @@ fn arena_props_playing(
             yaw: 270.0,
             footprint: vec![[-0.4, -0.4, 0.0], [0.4, 0.4, 1.0]],
             destructible: destruction::catalogue("k1", row),
+            model_box: Some(SIZED),
         })
         .collect();
+    arena_laid(laid, config, edit)
+}
+
+/// The box every probe prop's model is taken to have unless one says
+/// (its own frame, metres).
+const SIZED: Bulk = Bulk {
+    min: [-0.4, -0.4, 0.0],
+    max: [0.4, 0.4, 1.2],
+};
+
+/// The arena with `laid` made, its seat set up by `config`: the world and
+/// each prop's id and number, in order.
+fn arena_laid(
+    laid: Vec<super::arena::Prop>,
+    config: WorldConfig,
+    edit: impl FnOnce(&mut crate::module::ModuleData),
+) -> Result<(SimWorld, Vec<(SimId, u32)>), String> {
     let mut world = super::arena_probes::arena_playing(laid.clone(), config, edit)?.0;
     for _ in 0..4 {
         let tick = world.tick() + 1;
@@ -530,9 +549,8 @@ fn wave_by_hand() -> Result<String, String> {
     )
 }
 
-/// What bolts meet of a jar, a chair and a panel: anyone's meets the jar
-/// and the chair, each as big as its size, and never the panel, which only
-/// shows damage (no lasting invisible column for bolts).
+/// What bolts meet of a jar, a chair and a panel: anyone's meets all three,
+/// the panel that only shows damage too, each as wide as its model's box.
 fn shot_bodies() -> Result<String, String> {
     let (mut world, ids) = arena_props(&[
         (JAR, [3.0, 4.0]),
@@ -545,12 +563,173 @@ fn shot_bodies() -> Result<String, String> {
         .map(|body| (SimId(body.entity & !super::BODY), body.max[0] - body.min[0]))
         .collect();
     let wide = |at: usize| met.iter().find(|(id, _)| *id == ids[at].0).map(|(_, w)| *w);
-    let (jar, chair, panel) = (wide(0), wide(1), wide(2));
+    let widths = [0, 1, 2].map(wide);
+    let want = SIZED.max[0] - SIZED.min[0];
     check(
-        jar.zip(chair).is_some_and(|(jar, chair)| jar < chair) && panel.is_none(),
+        widths
+            .iter()
+            .all(|w| w.is_some_and(|w| (w - want).abs() < 0.01)),
+        format!("bolts meet the jar, the chair and the panel {widths:?} m wide (want {want} each)"),
+    )
+}
+
+/// One prop of `row` alone in the arena at `at` (metres) facing `yaw` (the
+/// world's axes), its model's box `model_box`, colliding as nothing: the
+/// world and its id and number.
+fn lone_prop(
+    row: u16,
+    at: [f32; 3],
+    yaw: f32,
+    model_box: Option<Bulk>,
+) -> Result<(SimWorld, (SimId, u32)), String> {
+    let prop = super::arena::Prop {
+        appearance: row,
+        name: format!("prop {row}"),
+        at,
+        yaw,
+        footprint: Vec::new(),
+        destructible: destruction::catalogue("k1", row),
+        model_box,
+    };
+    let (world, ids) = arena_laid(vec![prop], WorldConfig::one_seat(), |_| {})?;
+    Ok((world, ids[0]))
+}
+
+/// What a bolt meets flying from `from` to `to` (off `at` on the world's
+/// axes, 1 m up, metres) among the props: the party's (`party`) or anyone's.
+fn bolt_meets(
+    world: &mut SimWorld,
+    party: bool,
+    at: [f32; 3],
+    [from, to]: [[f32; 2]; 2],
+) -> Option<SimId> {
+    use collision::CollisionWorld;
+    let mut query = world.world.query::<(&Id, &Object)>();
+    let bodies = super::objects::shot_bodies(query.iter(&world.world), party);
+    let point = |[x, y]: [f32; 2]| [at[0] + x, at[1] + y, at[2] + 1.0];
+    let met = world.level().with(None, |level| {
+        collision::Bodies::new(level, &bodies).trace(
+            point(from),
+            point(to),
+            &collision::Extents::POINT,
+            super::firing::SHOT,
+        )
+    });
+    met.entity
+        .filter(|entity| entity & super::BODY != 0)
+        .map(|entity| SimId(entity & !super::BODY))
+}
+
+/// A console facing 90° is met as its model's box turned: a bolt 0.35 m
+/// off its middle along its long side meets it (the party's and anyone's),
+/// one 0.35 m off across its depth passes, and the player's own pistol
+/// fired at it hurts it.
+fn bolt_meets_console() -> Result<String, String> {
+    let console = Bulk {
+        min: [-0.5, -0.2, 0.0],
+        max: [0.5, 0.2, 1.6],
+    };
+    let at = crate::determinism::ground_point(3.0, -4.0, 0.0);
+    let (mut world, (id, _)) = lone_prop(PANEL, at, 90.0, Some(console))?;
+    let along =
+        [true, false].map(|party| bolt_meets(&mut world, party, at, [[-1.5, 0.35], [1.5, 0.35]]));
+    let across = bolt_meets(&mut world, true, at, [[0.35, -1.5], [0.35, 1.5]]);
+    // The player's first bolt in an empty arena shows its line; the
+    // console stands on it 3 m out.
+    let (mut empty, _) = arena_laid(Vec::new(), WorldConfig::one_seat(), |_| {})?;
+    let (from, way) = shooting(&mut empty, |_| false).ok_or("the player fired no bolt")?;
+    let floor = crate::determinism::ground_point(0.0, 0.0, 0.0)[2];
+    let out = [0, 1].map(|axis| from[axis] + 3.0 * way[axis]);
+    let (mut world, (_, index)) = lone_prop(PANEL, [out[0], out[1], floor], 90.0, Some(console))?;
+    let hurt = |world: &mut SimWorld| object_of(world, index).is_some_and(|(s, _)| s.damage > 0);
+    let damaged = shooting(&mut world, hurt).is_some() && hurt(&mut world);
+    check(
+        along == [Some(id); 2] && across.is_none() && damaged,
         format!(
-            "bolts meet the jar {jar:?} m wide, the chair {chair:?}, the panel {panel:?} (want none)"
+            "bolts along the console's face met {along:?} (want {id:?} twice), across its \
+             depth {across:?} (want none); the player's pistol damaged it: {damaged} (want true)"
         ),
+    )
+}
+
+/// Seat 0's player firing its pistol until `done` (at most 400 steps of
+/// 8 ms): where its first bolt left from and its way across the floor
+/// (metres, the world's axes, unit length), if it fired any.
+fn shooting(
+    world: &mut SimWorld,
+    mut done: impl FnMut(&mut SimWorld) -> bool,
+) -> Option<([f32; 3], [f32; 2])> {
+    let command = crate::Command {
+        angles: crate::moves::view_angles(8.0, 0.0),
+        buttons: crate::buttons::ATTACK,
+        ..crate::Command::default()
+    };
+    let mut first = None;
+    for _ in 0..400 {
+        let mut input = TickInput::default();
+        input.insert(crate::input::Seat(0), command);
+        let tick = world.tick() + 1;
+        let snapshot = crate::step(world, tick, &input, 8, StepReason::Authority);
+        first = first.or_else(|| {
+            let bolt = snapshot.entities.iter().find_map(|entity| entity.missile)?;
+            let [x, y, _] = bolt.velocity;
+            let length = (x * x + y * y).sqrt();
+            Some((
+                crate::math::scale(bolt.base, collision::UNIT),
+                [x / length, y / length],
+            ))
+        });
+        if first.is_some() && done(world) {
+            break;
+        }
+    }
+    first
+}
+
+/// A flag 5 cm thick facing 45° stands in no shot that passes 0.2 m beside
+/// it, and stops one through it.
+fn bolt_passes_beside_flag() -> Result<String, String> {
+    let flag = Bulk {
+        min: [-0.5, -0.025, 0.0],
+        max: [0.5, 0.025, 1.5],
+    };
+    let at = crate::determinism::ground_point(3.0, -4.0, 0.0);
+    let (mut world, (id, _)) = lone_prop(CHAIR, at, 45.0, Some(flag))?;
+    let h = std::f32::consts::FRAC_1_SQRT_2;
+    // Along the flag, 0.2 m off it; and square through it.
+    let (off, along) = ([-0.2 * h, 0.2 * h], 3.0 * h);
+    let beside = bolt_meets(
+        &mut world,
+        false,
+        at,
+        [
+            [off[0] - along, off[1] - along],
+            [off[0] + along, off[1] + along],
+        ],
+    );
+    let through = bolt_meets(
+        &mut world,
+        false,
+        at,
+        [[2.0 * h, -2.0 * h], [-2.0 * h, 2.0 * h]],
+    );
+    check(
+        beside.is_none() && through == Some(id),
+        format!(
+            "a bolt beside the flag met {beside:?} (want none), through it {through:?} (want {id:?})"
+        ),
+    )
+}
+
+/// A destructible prop whose model draws nothing is met by no bolt.
+fn bolt_no_body() -> Result<String, String> {
+    let at = crate::determinism::ground_point(3.0, -4.0, 0.0);
+    let (mut world, _) = lone_prop(CHAIR, at, 270.0, None)?;
+    let met =
+        [true, false].map(|party| bolt_meets(&mut world, party, at, [[-3.0, 0.0], [3.0, 0.0]]));
+    check(
+        met == [None, None],
+        format!("bolts through a prop with no model box met {met:?} (want none)"),
     )
 }
 
@@ -774,6 +953,12 @@ pub fn probes() -> crate::probe::Checks {
         ("destruction_powers", powers()),
         ("destruction_wave_by_hand", wave_by_hand()),
         ("destruction_shot_bodies", shot_bodies()),
+        ("destruction_bolt_meets_console", bolt_meets_console()),
+        (
+            "destruction_bolt_passes_beside_flag",
+            bolt_passes_beside_flag(),
+        ),
+        ("destruction_bolt_no_body", bolt_no_body()),
         ("destruction_enemy_melee", enemy_melee()),
         ("destruction_enemy_melee_guarded", enemy_melee_guarded()),
     ]

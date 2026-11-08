@@ -930,6 +930,7 @@ fn doorway_punch() -> Result<String, String> {
         min: [35.2, 196.2, 6.9],
         max: [36.5, 197.4, 9.9],
         contents: collision::Contents::default(),
+        turn: None,
     };
     let faced: Vec<bool> = [0.0f32, 90.0, 175.3, 270.0]
         .into_iter()

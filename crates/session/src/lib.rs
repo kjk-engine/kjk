@@ -561,7 +561,13 @@ pub fn plan_with(
         .as_mut()
         .map(|library| std::mem::take(&mut library.named))
         .unwrap_or_else(BTreeSet::new);
-    objects::destructible(&mut data, &ir.areas[area], &request.game, &named);
+    objects::destructible(
+        &mut data,
+        &ir.areas[area],
+        &request.game,
+        &named,
+        &mut tables,
+    );
     let library = library.map(
         |library::Library {
              library,

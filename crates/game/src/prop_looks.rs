@@ -183,13 +183,21 @@ pub(crate) fn swept(trail: &[Vec<Option<[Vec3; 2]>>]) -> Vec<[Vec3; 2]> {
 }
 
 /// Whether the segment `a`–`b` passes through the box `min`–`max`.
-fn enters_box([a, b]: [Vec3; 2], min: Vec3, max: Vec3) -> bool {
+fn enters_box(segment: [Vec3; 2], min: Vec3, max: Vec3) -> bool {
+    meets_box(segment, min, max).is_some()
+}
+
+/// Where the segment `a`–`b` first meets the box `min`–`max`, if it does:
+/// the point and the outward normal of the face it comes in by (zero for a
+/// segment that starts inside).
+fn meets_box([a, b]: [Vec3; 2], min: Vec3, max: Vec3) -> Option<(Vec3, Vec3)> {
     let way = b - a;
     let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    let mut normal = Vec3::ZERO;
     for axis in 0..3 {
         if way[axis].abs() < 1e-6 {
             if a[axis] < min[axis] || a[axis] > max[axis] {
-                return false;
+                return None;
             }
             continue;
         }
@@ -197,10 +205,14 @@ fn enters_box([a, b]: [Vec3; 2], min: Vec3, max: Vec3) -> bool {
             (min[axis] - a[axis]) / way[axis],
             (max[axis] - a[axis]) / way[axis],
         );
-        lo = lo.max(t0.min(t1));
+        if t0.min(t1) > lo {
+            lo = t0.min(t1);
+            normal = Vec3::ZERO;
+            normal[axis] = -way[axis].signum();
+        }
         hi = hi.min(t0.max(t1));
     }
-    lo <= hi
+    (lo <= hi).then_some((a + way * lo, normal))
 }
 
 /// What a prop's look and lost hit points (`(look, damage)`) going from
@@ -693,15 +705,45 @@ fn placed_triangles(plains: &[Plain], game: &Transform) -> Vec<[[f32; 3]; 3]> {
         .collect()
 }
 
+/// How far short of a prop's box a bolt's run may end and still have
+/// ended on it (metres): where the sim's trace stops.
+const BOX_EDGE_M: f32 = 0.02;
+
+/// A prop's box as blows meet it: least and greatest corners in its
+/// model's frame, placed in game space by `game`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Boxed {
+    pub game: Transform,
+    pub min: Vec3,
+    pub max: Vec3,
+}
+
+impl Boxed {
+    /// Its model's box at rest (`ModelIr::rest_bounds`, as the sim meets
+    /// it), or one as big as its `size` where the model draws nothing.
+    pub(crate) fn of(ir: &ModelIr, size: Size, game: Transform) -> Boxed {
+        let (min, max) = match ir.rest_bounds() {
+            Some([x0, y0, z0, x1, y1, z1]) => (Vec3::new(x0, y0, z0), Vec3::new(x1, y1, z1)),
+            None => {
+                let half = rules::destruction::bodies::HALF_M[size as usize];
+                let height = rules::destruction::bodies::HEIGHT_M[size as usize];
+                (Vec3::new(-half, -half, 0.0), Vec3::new(half, half, height))
+            }
+        };
+        Boxed { game, min, max }
+    }
+}
+
 /// Where a blow on a prop landed: a bolt's run or a blade crossing its own
-/// triangles (`triangles`, game space) first; else the point on its body
-/// box (standing at `feet`, of `size`) facing `from`, where the blow came
-/// from: a blade's when one passed through the box, a fist or kick when
-/// that is within reach, a blast or power otherwise.
+/// triangles (`triangles`, game space) first; else a bolt's run ending on
+/// its box (`boxed`), the face it struck; else the point on the box facing
+/// `from`, where the blow came from: a blade's when one passed through the
+/// box, a fist or kick when that is within reach, a blast or power
+/// otherwise.
 pub(crate) fn impact(
     triangles: &[[[f32; 3]; 3]],
     (bolts, blades): (&[[Vec3; 2]], &[[Vec3; 2]]),
-    (feet, size): (Vec3, Size),
+    boxed: &Boxed,
     from: Vec3,
 ) -> Impact {
     let crossing = |runs: &[[Vec3; 2]], blow| {
@@ -714,6 +756,7 @@ pub(crate) fn impact(
             })
         })
     };
+    let feet = boxed.game.translation;
     let near: Vec<[Vec3; 2]> = (blades.iter())
         .filter(|[hilt, _]| hilt.distance(feet) <= BLADE_REACH_M)
         .copied()
@@ -721,12 +764,34 @@ pub(crate) fn impact(
     if let Some(found) = crossing(bolts, Blow::Bolt).or_else(|| crossing(&near, Blow::Blade)) {
         return found;
     }
-    let half = rules::destruction::bodies::HALF_M[size as usize];
-    let height = rules::destruction::bodies::HEIGHT_M[size as usize];
-    let middle = feet + Vec3::Z * (height / 2.0);
-    let halves = Vec3::new(half, half, height / 2.0);
-    let blade = (near.iter()).any(|&segment| enters_box(segment, middle - halves, middle + halves));
-    let way = (from - middle).try_normalize().unwrap_or(Vec3::Z);
+    let to_own = boxed.game.compute_affine().inverse();
+    let own = |[a, b]: [Vec3; 2]| [to_own.transform_point3(a), to_own.transform_point3(b)];
+    let to_game = |at: Vec3, normal: Vec3| {
+        (
+            boxed.game.transform_point(at),
+            (boxed.game.rotation * normal).normalize_or_zero(),
+        )
+    };
+    // A bolt's run that ended on the box (it stops where the sim's met it,
+    // a hair inside or short): the face it came in by.
+    let edge = Vec3::splat(BOX_EDGE_M);
+    let ended = bolts.iter().find_map(|&run| {
+        let (at, normal) = meets_box(own(run), boxed.min - edge, boxed.max + edge)?;
+        (normal != Vec3::ZERO).then_some((at, normal))
+    });
+    if let Some((at, normal)) = ended {
+        let (at, normal) = to_game(at + normal * BOX_EDGE_M * -1.0, normal);
+        return Impact {
+            at,
+            normal,
+            blow: Blow::Bolt,
+        };
+    }
+    let (middle, halves) = ((boxed.min + boxed.max) / 2.0, (boxed.max - boxed.min) / 2.0);
+    let blade = (near.iter()).any(|&segment| enters_box(own(segment), boxed.min, boxed.max));
+    let way = (to_own.transform_point3(from) - middle)
+        .try_normalize()
+        .unwrap_or(Vec3::Z);
     // The face the way leaves the box by: its axis has the least room.
     let (axis, reach) = (0..3)
         .filter(|&i| way[i].abs() > 1e-4)
@@ -742,11 +807,8 @@ pub(crate) fn impact(
     } else {
         Blow::Blast
     };
-    Impact {
-        at: middle + way * reach,
-        normal,
-        blow,
-    }
+    let (at, normal) = to_game(middle + way * reach, normal);
+    Impact { at, normal, blow }
 }
 
 /// Materials that throw shards of themselves when struck (the rest spark
@@ -831,7 +893,7 @@ fn hits(
         let found = impact(
             &placed_triangles(&cut.0, &game),
             (bolts, &blades),
-            (feet, change.d.size),
+            &Boxed::of(ir, change.d.size, game),
             from,
         );
         debug!(
@@ -1465,21 +1527,30 @@ pub fn probes() -> sim::probe::Checks {
         [[0.0, -0.5, 0.0], [0.0, 0.5, 1.0], [0.0, -0.5, 1.0]],
     ];
     let blade = |y: f32| Some([Vec3::new(-1.0, y, 0.5), Vec3::new(0.8, y, 0.5)]);
+    let medium = Boxed {
+        game: Transform::IDENTITY,
+        min: Vec3::new(-0.5, -0.5, 0.0),
+        max: Vec3::new(0.5, 0.5, 1.0),
+    };
     // A blade swung through it between two frames, beside it in both.
     // Each blow on that medium prop at the origin, from 1.5 m before it.
     let strike = |triangles: &[[[f32; 3]; 3]], blades: &[[Vec3; 2]]| {
-        impact(
-            triangles,
-            (&[], blades),
-            (Vec3::ZERO, Size::Medium),
-            Vec3::new(-1.5, 0.0, 0.5),
-        )
+        impact(triangles, (&[], blades), &medium, Vec3::new(-1.5, 0.0, 0.5))
     };
     let through = strike(&panel, &swept(&[vec![blade(-0.9)], vec![blade(0.9)]]));
     // A blade inside the prop's box that meets none of its triangles, and
     // the same blow with no blade about.
     let inside = [[Vec3::new(0.1, 0.1, 0.3), Vec3::new(0.3, 0.2, 0.9)]];
     let (boxed, fist) = (strike(&[], &inside), strike(&[], &[]));
+    // A console's box (1 m by 0.4 m) turned 90°: its back face is x = -0.2
+    // in game space. A bolt from 2 m off ends on it, missing its triangles.
+    let console = Boxed {
+        game: Transform::from_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)),
+        min: Vec3::new(-0.5, -0.2, 0.0),
+        max: Vec3::new(0.5, 0.2, 1.6),
+    };
+    let shot = [Vec3::new(-2.0, 0.1, 0.8), Vec3::new(-0.19, 0.1, 0.8)];
+    let bolted = impact(&[], (&[shot], &[]), &console, shot[0]);
     let first = wreck(None, (look::DEAD, 20));
     let now = wreck(Some((look::DEFAULT, 3)), (look::DEAD, 20));
     let standing = wreck(None, (look::DEFAULT, 0));
@@ -1616,6 +1687,19 @@ pub fn probes() -> sim::probe::Checks {
                     "a blade inside the box, no triangle met: {:?} (want Blade); no blade \
                      about: {:?} (want Blunt)",
                     boxed.blow, fist.blow
+                ),
+            ),
+        ),
+        (
+            "prop_hit_bolt_face",
+            check(
+                bolted.blow == Blow::Bolt
+                    && bolted.normal.distance(Vec3::NEG_X) < 1e-3
+                    && bolted.at.distance(Vec3::new(-0.2, 0.1, 0.8)) < 1e-3,
+                format!(
+                    "a bolt ending on a turned console's box: {:?} at {:.2?} facing {:.2?} \
+                     (want Bolt at [-0.20, 0.10, 0.80] facing -x)",
+                    bolted.blow, bolted.at, bolted.normal
                 ),
             ),
         ),

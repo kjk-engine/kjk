@@ -158,19 +158,21 @@ pub(super) fn bodies<'a>(objects: impl Iterator<Item = (&'a Id, &'a Object)>) ->
 }
 
 /// The bodies a bolt meets among `objects` (placeables): a party member's
-/// what it may bash or break, anyone else's the destructible props.
+/// what it may bash or break, anyone else's the destructible props. A
+/// destructible prop of either class is met as its model's box, so a flag
+/// stands in no shot wider than it is drawn; one whose model draws nothing
+/// is met by none.
 pub(super) fn shot_bodies<'a>(
     objects: impl Iterator<Item = (&'a Id, &'a Object)>,
     party: bool,
 ) -> Vec<Body> {
     let placeables = objects.filter(|(_, object)| object.kind == ObjectKind::Placeable);
-    let shows = |facts: &ObjectData| {
-        facts
-            .destructible
-            .is_some_and(|d| d.class == crate::destruction::Class::Damage)
-    };
     bodies_where(placeables, |object, facts| {
-        object.state.breakable(facts) && !shows(facts) && (party || facts.destructible.is_some())
+        let met = match facts.destructible {
+            Some(_) => facts.model_box.is_some(),
+            None => party,
+        };
+        met && object.state.breakable(facts)
     })
 }
 
@@ -201,6 +203,9 @@ fn bodies_where<'a>(
         .filter_map(|(id, object)| {
             let facts = object.facts.as_deref()?;
             keep(object, facts).then_some(())?;
+            if let (Some(_), Some(model_box)) = (facts.destructible, facts.model_box) {
+                return Some(turned_box(id, facts, &model_box));
+            }
             let (half, height) = match facts.destructible {
                 // A prop is met as big as it is.
                 Some(d) => (
@@ -216,11 +221,37 @@ fn bodies_where<'a>(
                 min: [x - half, y - half, z],
                 max: [x + half, y + half, z + height],
                 contents: Contents::BODY,
+                turn: None,
             })
         })
         .collect();
     all.sort_by_key(|body| body.entity);
     all
+}
+
+/// The body of `id`'s prop of `facts` as its model's box `model_box` (its
+/// own frame) stands, turned by its facing.
+fn turned_box(id: &Id, facts: &ObjectData, model_box: &crate::module::Bulk) -> Body {
+    let (sin, cos) = crate::math::sin_cos_deg(facts.yaw);
+    let [lx, ly] = [0, 1].map(|axis| (model_box.min[axis] + model_box.max[axis]) * 0.5);
+    let [x, y, z] = facts.position;
+    let middle = [x + lx * cos - ly * sin, y + lx * sin + ly * cos];
+    let half = [0, 1].map(|axis| (model_box.max[axis] - model_box.min[axis]) * 0.5);
+    Body {
+        entity: id.0.0 | BODY,
+        min: [
+            middle[0] - half[0],
+            middle[1] - half[1],
+            z + model_box.min[2],
+        ],
+        max: [
+            middle[0] + half[0],
+            middle[1] + half[1],
+            z + model_box.max[2],
+        ],
+        contents: Contents::BODY,
+        turn: Some([cos, sin]),
+    }
 }
 
 /// The objects among `objects` that may be bashed or broken which a blast

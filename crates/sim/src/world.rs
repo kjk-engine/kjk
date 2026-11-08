@@ -611,6 +611,7 @@ pub fn body(id: SimId, player: &MotionState, bulk: Option<&Bulk>) -> Body {
         min,
         max,
         contents: Contents::BODY,
+        turn: None,
     }
 }
 
@@ -723,6 +724,7 @@ fn made_bodies(id: SimId, object: &Object, at: [f32; 3], placed: usize) -> Vec<B
                 min,
                 max,
                 contents: Contents::SOLID,
+                turn: None,
             }
         })
         .collect()
