@@ -1,82 +1,91 @@
-# The stances and walks KOTOR's characters take from a mod's skeleton
-# (Movie Duels' per-character sequences, docs/SABER-RULES.md section 11)
-# when the setting `game.duel_stances` is `true` (docs/SKELETON.md, "Duel
+# The stances and walks KOTOR's characters take from a mod's skeletons
+# (Movie Duels' per-character looks, docs/SABER-RULES.md section 11) when
+# the setting `game.duel_stances` is `true` (docs/SKELETON.md, "Duel
 # stances"). View only: the sim's skeleton plays JA's sequences.
 #
 # While a character's blade is lit and the sim plays one of JA's ready
-# stances or walks (BOTH_STAND2, BOTH_SABERFAST_STANCE,
+# stances, their fidgets or walks (BOTH_STAND2, BOTH_STAND2IDLE1,
+# BOTH_STAND2IDLE2, BOTH_SABERFAST_STANCE,
 # BOTH_SABERSLOW_STANCE, BOTH_SABERDUAL_STANCE, BOTH_SABERSTAFF_STANCE,
 # BOTH_WALK2, BOTH_WALK_DUAL, BOTH_WALK_STAFF), its body plays the first of
-# these the stack's animation.cfg has:
+# these its row finds:
 #   - the sequence its row names for it outright (`sequences`);
 #   - JA's name with each of its row's `suffixes`, in order
-#     (BOTH_SABERDUAL_STANCE + "_MAUL" = BOTH_SABERDUAL_STANCE_MAUL).
-# None found, JA's plays. Without a mod folder none is found.
+#     (BOTH_SABERDUAL_STANCE + "_MAUL" = BOTH_SABERDUAL_STANCE_MAUL);
+#   - with a `skeleton`, JA's own name.
+# A row with a `skeleton` looks them up in that skeleton
+# (`models/players/<skeleton>/`, its `_humanoid.gla` and `animation.cfg`):
+# Movie Duels keeps each look as a skeleton of its own beside `_humanoid`,
+# the same names played its way. Without one, in the stack's own
+# `animation.cfg`. None found (no mod folder, a skeleton whose bones are
+# not the stack's), JA's plays.
 #
 # Rows: `[default]` for everyone without a row of their own; each
 # `[[character]]` by `templates` and `tags` (the creature's, any case, `*`
 # standing for any run of characters), or `player = true` for a seat's own
-# character. The first row that matches, of those with a sequence in the
-# stack, wins.
+# character. The first row that matches, of those that found a sequence,
+# wins.
+#
+# The skeletons are the ones Movie Duels gives its own models of these
+# characters (each model names its skeleton): its KOTOR Jedi and Sith
+# (Revan, Malak, Bastila, Jolee, Juhani, Kreia, Visas, the Exile, the dark
+# Jedi) stand as `_humanoid_kotor`, Sion and Nihilus as `_humanoid_md`,
+# Vandar as `_humanoid_yoda`. The companions it has no saber look for take
+# the nearest of its others.
 
 [default]
-suffixes = ["_KOTOR"]
+skeleton = "_humanoid_kotor"
 
 [[character]]
 name = "the player"
 player = true
-suffixes = ["_KOTOR"]
+skeleton = "_humanoid_kotor"
 
-# K1's Jedi companions.
+# K1's Jedi.
 [[character]]
 name = "Bastila Shan"
 templates = ["p_bastilla*"]
-suffixes = ["_KOTOR"]
+skeleton = "_humanoid_kotor"
 # Her double-bladed saber's stance, whatever style the sim gives her.
-sequences = { BOTH_STAND2 = "BOTH_SABERSTAFF_STANCE_KOTOR", BOTH_SABERSTAFF_STANCE = "BOTH_SABERSTAFF_STANCE_KOTOR" }
+sequences = { BOTH_STAND2 = "BOTH_SABERSTAFF_STANCE" }
 
 [[character]]
-name = "Jolee Bindo"
-templates = ["p_jolee*"]
-suffixes = ["_BEN", "_KOTOR"]
-
-[[character]]
-name = "Juhani"
-templates = ["p_juhani*"]
-suffixes = ["_REY", "_KOTOR"]
+name = "Master Vandar"
+tags = ["*vandar*"]
+skeleton = "_humanoid_yoda"
 
 # TSL's.
 [[character]]
-name = "Kreia"
-templates = ["p_kreia*"]
-suffixes = ["_PAL", "_KOTOR"]
+name = "Darth Sion"
+templates = ["n_darthsion*"]
+skeleton = "_humanoid_md"
+
+[[character]]
+name = "Darth Nihilus"
+templates = ["n_darthnihilus*"]
+skeleton = "_humanoid_md"
 
 [[character]]
 name = "Atton Rand"
 templates = ["p_atton*"]
-suffixes = ["_ANI", "_KOTOR"]
-
-[[character]]
-name = "Visas Marr"
-templates = ["p_visas*"]
-suffixes = ["_GALEN", "_KOTOR"]
+skeleton = "_humanoid_ani"
 
 [[character]]
 name = "Bao-Dur"
 templates = ["p_baodur*"]
-suffixes = ["_MACE", "_KOTOR"]
+skeleton = "_humanoid_mace"
 
 [[character]]
 name = "Mira"
 templates = ["p_mira*"]
-suffixes = ["_CAL", "_KOTOR"]
+skeleton = "_humanoid_cal"
 
 [[character]]
 name = "Brianna"
 templates = ["p_handmaiden*"]
-suffixes = ["_REY", "_KOTOR"]
+skeleton = "_humanoid_rey"
 
 [[character]]
 name = "Mical"
 templates = ["p_disciple*"]
-suffixes = ["_OBI", "_KOTOR"]
+skeleton = "_humanoid_obi"

@@ -5,10 +5,14 @@
 //!
 //! - **What:** while the sim's skeleton holds one of the ready stances or
 //!   walks a lit blade plays (`SWAPPED`), the drawn body plays the
-//!   character's own sequence instead, when the stack's `animation.cfg`
-//!   has it: the first of its row's named sequence and JA's name with each
-//!   of its row's suffixes (`BOTH_SABERDUAL_STANCE` + `_MAUL`). The table
-//!   is `data/duel_stances.toml`: rows by template or tag (`*` a
+//!   character's own sequence instead: the first its row finds of its named
+//!   sequence and JA's name with each of its suffixes
+//!   (`BOTH_SABERDUAL_STANCE` + `_MAUL`), looked up in the row's
+//!   `skeleton` (Movie Duels' `_humanoid_kotor`: a skeleton of its own
+//!   beside `_humanoid`, the same names played its way) or else in the
+//!   stack's own `animation.cfg`. A skeleton's frames are added after the
+//!   view's skeleton's own (`Borrowed`), when its bones are the same. The
+//!   table is `data/duel_stances.toml`: rows by template or tag (`*` a
 //!   wildcard), the player's own character, and a default row.
 //! - **How:** the sim's playback of JA's sequence is replayed over the
 //!   other one's frames from the same moment, at the same share of its
@@ -22,7 +26,8 @@
 
 use std::collections::BTreeMap;
 
-use fmt_ja::animation_cfg::Sequence;
+use fmt_ja::animation_cfg::{AnimationConfig, Sequence};
+use fmt_ja::ghoul2::Gla;
 use sim::combat::saber::blades::Shown;
 use sim::motion::Anim;
 use sim::skeleton::Playback;
@@ -34,10 +39,14 @@ pub const SETTING: &str = "game.duel_stances";
 /// The table, as shipped.
 const TABLE: &str = include_str!("../../../data/duel_stances.toml");
 
-/// The sim's sequences a lit blade stands or walks in
-/// (`sim::motion::weapon`): the ones a character's own may stand for.
-pub const SWAPPED: [Anim; 8] = [
+/// The sim's sequences a lit blade stands, fidgets or walks in
+/// (`sim::motion::weapon`, `sim::combat::idle`): the ones a character's
+/// own may stand for. The fidgets go with the stance, or a character in
+/// another's stance would snap back to JA's now and then.
+pub const SWAPPED: [Anim; 10] = [
     Anim::BOTH_STAND2,
+    Anim::BOTH_STAND2IDLE1,
+    Anim::BOTH_STAND2IDLE2,
     Anim::BOTH_SABERFAST_STANCE,
     Anim::BOTH_SABERSLOW_STANCE,
     Anim::BOTH_SABERDUAL_STANCE,
@@ -55,6 +64,9 @@ struct Row {
     tags: Vec<String>,
     player: bool,
     suffixes: Vec<String>,
+    /// The skeleton its sequences are looked up in (`_humanoid_kotor`, a
+    /// folder of `models/players/`), else the stack's own.
+    skeleton: Option<String>,
     /// JA's name (upper case) to the one drawn, over the suffixes.
     sequences: BTreeMap<String, String>,
 }
@@ -87,23 +99,41 @@ impl DuelStances {
         settings.get(SETTING).is_some_and(|value| value == "true")
     }
 
-    /// The shipped table against `sequences` (the stack's, by upper-case
-    /// name), with what it found said in `notes`.
-    pub fn load(sequences: &BTreeMap<String, Sequence>, notes: &mut Vec<String>) -> DuelStances {
-        match rows(TABLE) {
-            Ok(rows) => DuelStances::of(&rows, sequences, notes),
+    /// The shipped table against the stack (`files`; `sequences` its
+    /// `animation.cfg`'s, by upper-case name, played on `gla`), with what
+    /// it found said in `notes`; and `gla` with the frames the rows' own
+    /// skeletons lend it, when they lend any.
+    pub fn load(
+        files: &crate::viewer_ja::Files,
+        gla: &Gla,
+        sequences: &BTreeMap<String, Sequence>,
+        notes: &mut Vec<String>,
+    ) -> (DuelStances, Option<Gla>) {
+        let rows = match rows(TABLE) {
+            Ok(rows) => rows,
             Err(error) => {
                 notes.push(format!("data/duel_stances.toml: {error}"));
-                DuelStances::off()
+                return (DuelStances::off(), None);
             }
-        }
+        };
+        let mut borrowed = Borrowed::new(gla);
+        let stances = DuelStances::of(
+            &rows,
+            |row, name| match &row.skeleton {
+                Some(skeleton) => borrowed.take(files, skeleton, name),
+                None => sequences.get(name).cloned(),
+            },
+            notes,
+        );
+        notes.append(&mut borrowed.notes);
+        (stances, borrowed.extended)
     }
 
-    /// `rows` against `sequences`: a row none of whose sequences the stack
-    /// has is left out.
+    /// `rows`, each sequence looked up by `find` (a row, a name in upper
+    /// case): a row none of whose sequences is found is left out.
     fn of(
         rows: &[Row],
-        sequences: &BTreeMap<String, Sequence>,
+        mut find: impl FnMut(&Row, &str) -> Option<Sequence>,
         notes: &mut Vec<String>,
     ) -> DuelStances {
         let mut stances = DuelStances::default();
@@ -112,13 +142,16 @@ impl DuelStances {
                 .iter()
                 .filter_map(|&anim| {
                     let own = anim.name();
+                    // In a skeleton of its own, JA's name is its own look.
+                    let plain = row.skeleton.is_some().then(|| own.to_string());
                     let named = row.sequences.get(own).cloned();
                     let suffixed = row.suffixes.iter().map(|suffix| format!("{own}{suffix}"));
                     let found = named
                         .into_iter()
                         .chain(suffixed)
-                        .find_map(|name| sequences.get(&name.to_ascii_uppercase()))?;
-                    Some((anim, found.clone()))
+                        .chain(plain)
+                        .find_map(|name| find(row, &name.to_ascii_uppercase()))?;
+                    Some((anim, found))
                 })
                 .collect();
             let shown: Vec<String> = swaps
@@ -126,8 +159,11 @@ impl DuelStances {
                 .map(|(anim, sequence)| format!("{} as {}", anim.name(), sequence.name))
                 .collect();
             notes.push(format!(
-                "duel stances, {}: {}",
+                "duel stances, {}{}: {}",
                 row.name,
+                row.skeleton
+                    .as_ref()
+                    .map_or(String::new(), |skeleton| format!(" ({skeleton})")),
                 if shown.is_empty() {
                     "none in the stack".to_string()
                 } else {
@@ -179,6 +215,125 @@ impl DuelStances {
             .find(|(swapped, _)| *swapped == anim)
             .map(|(_, sequence)| sequence)
     }
+}
+
+/// The skeletons the rows look their sequences up in, each read once, and
+/// the view's skeleton with the frames taken from them added after its
+/// own (`extended`): a sequence taken is its frames there.
+struct Borrowed<'g> {
+    gla: &'g Gla,
+    extended: Option<Gla>,
+    /// By folder: its frames and `animation.cfg`, or none (said once).
+    read: BTreeMap<String, Option<Lender>>,
+    /// (folder, name) to the frames taken.
+    taken: BTreeMap<(String, String), Option<Sequence>>,
+    notes: Vec<String>,
+}
+
+impl<'g> Borrowed<'g> {
+    fn new(gla: &'g Gla) -> Borrowed<'g> {
+        Borrowed {
+            gla,
+            extended: None,
+            read: BTreeMap::new(),
+            taken: BTreeMap::new(),
+            notes: Vec::new(),
+        }
+    }
+
+    /// `skeleton`'s sequence `name` (upper case), its frames added to the
+    /// view's skeleton.
+    fn take(
+        &mut self,
+        files: &crate::viewer_ja::Files,
+        skeleton: &str,
+        name: &str,
+    ) -> Option<Sequence> {
+        let key = (skeleton.to_ascii_lowercase(), name.to_string());
+        if let Some(taken) = self.taken.get(&key) {
+            return taken.clone();
+        }
+        let (gla, notes) = (self.gla, &mut self.notes);
+        let lent = self
+            .read
+            .entry(key.0.clone())
+            .or_insert_with(|| {
+                lender(files, gla, &key.0)
+                    .inspect_err(|error| notes.push(format!("duel stances, {}: {error}", key.0)))
+                    .ok()
+            })
+            .as_ref();
+        let taken = lent.and_then(|(from, sequences)| {
+            let sequence = sequences.get(name)?;
+            let into = self.extended.get_or_insert_with(|| gla.clone());
+            append(into, from, sequence)
+        });
+        self.taken.insert(key, taken.clone());
+        taken
+    }
+}
+
+/// A skeleton that lends its frames, and its sequences by upper-case name.
+type Lender = (Gla, BTreeMap<String, Sequence>);
+
+/// The skeleton in `models/players/<folder>/` (its `_humanoid.gla`, or
+/// the one named as its folder) and its `animation.cfg`, when its bones
+/// are `gla`'s, in order.
+fn lender(files: &crate::viewer_ja::Files, gla: &Gla, folder: &str) -> Result<Lender, String> {
+    let base = format!("models/players/{folder}");
+    let (path, bytes) = ["_humanoid", folder]
+        .iter()
+        .map(|stem| format!("{base}/{stem}.gla"))
+        .find_map(|path| files.read(&path).map(|bytes| (path, bytes)))
+        .ok_or_else(|| format!("{base}: no skeleton"))?;
+    let lent = Gla::parse(&bytes).map_err(|error| format!("{path}: {error:?}"))?;
+    let same = lent.bones.len() == gla.bones.len()
+        && lent
+            .bones
+            .iter()
+            .zip(&gla.bones)
+            .all(|(a, b)| a.name.eq_ignore_ascii_case(&b.name));
+    if !same {
+        return Err(format!(
+            "{path}: its {} bones are not the skeleton's {}",
+            lent.bones.len(),
+            gla.bones.len()
+        ));
+    }
+    let cfg = files
+        .read(&format!("{base}/animation.cfg"))
+        .map(|bytes| AnimationConfig::parse(&bytes))
+        .ok_or_else(|| format!("{base}/animation.cfg: not found"))?;
+    let sequences = cfg
+        .sequences
+        .into_iter()
+        .map(|s| (s.name.to_ascii_uppercase(), s))
+        .collect();
+    Ok((lent, sequences))
+}
+
+/// `sequence`'s frames of `from` added after `into`'s own (the bone
+/// transforms they use with them): the sequence where they now are.
+fn append(into: &mut Gla, from: &Gla, sequence: &Sequence) -> Option<Sequence> {
+    let bones = into.bones.len();
+    let first = usize::try_from(sequence.first_frame).ok()?;
+    let count = usize::try_from(sequence.frame_count).ok()?;
+    let frames = from.frames.get(first * bones..(first + count) * bones)?;
+    let mut moved = BTreeMap::new();
+    for &index in frames {
+        let pool = into.pool.len() as u32;
+        let at = *moved.entry(index).or_insert_with(|| {
+            into.pool.push(from.pool[index as usize]);
+            pool
+        });
+        into.frames.push(at);
+    }
+    let start = into.frame_count;
+    into.frame_count += count;
+    Some(Sequence {
+        first_frame: i32::try_from(start).ok()?,
+        ..sequence.clone()
+    })
 }
 
 /// `shown` (the sim's playback of `own`) replayed over `other`'s frames
@@ -253,6 +408,10 @@ fn rows(text: &str) -> Result<Vec<Row>, String> {
         tags: strings(table.get("tags")),
         player: table.get("player").and_then(Item::as_bool).unwrap_or(false),
         suffixes: strings(table.get("suffixes")),
+        skeleton: table
+            .get("skeleton")
+            .and_then(Item::as_str)
+            .map(str::to_string),
         sequences: table
             .get("sequences")
             .and_then(Item::as_table_like)
@@ -286,9 +445,10 @@ fn rows(text: &str) -> Result<Vec<Row>, String> {
 }
 
 /// The duel stances' checks, without an install (`kjk sim probes`, group
-/// "duel stances"): the table reads, the wildcards match, a row finds the
-/// sequences the stack has and only those, and a swapped walk keeps the
-/// sim's moment and pace over the other frames.
+/// "duel stances"): the table reads, a skeleton's frames are lent after
+/// the view's own, the wildcards match, a row finds the sequences the
+/// stack has and only those, and a swapped walk keeps the sim's moment and
+/// pace over the other frames.
 #[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
     use sim::probe::check;
@@ -328,7 +488,7 @@ pub fn probes() -> sim::probe::Checks {
         suffixes: vec!["_MISSING".into(), "_TEST".into()],
         ..Row::default()
     };
-    let stances = DuelStances::of(&[test], &stack, &mut Vec::new());
+    let stances = DuelStances::of(&[test], |_, name| stack.get(name).cloned(), &mut Vec::new());
     let swaps: Vec<(&str, &str)> = stances
         .looks
         .iter()
@@ -344,8 +504,41 @@ pub fn probes() -> sim::probe::Checks {
     let replay = replayed(shown, Some(walk), &sequence("BOTH_WALK2_TEST", 700, 20)).playback;
     let kept = (replay.start_frame, replay.end_frame, replay.start_ms) == (700, 720, 1000)
         && (replay.speed - shown.playback.speed).abs() < 1e-4;
+    // Two frames of a two-bone skeleton lent to a one-frame one: added
+    // after its own, each bone's transform the lender's.
+    let skeleton = |frames: &[[u16; 7]]| Gla {
+        name: "probe".into(),
+        scale: 1.0,
+        bones: (0..2)
+            .map(|n| fmt_ja::ghoul2::Bone {
+                name: format!("bone{n}"),
+                flags: 0,
+                parent: n - 1,
+                base_pose: [[0.0; 4]; 3],
+                base_pose_inverse: [[0.0; 4]; 3],
+                children: Vec::new(),
+            })
+            .collect(),
+        frame_count: frames.len() / 2,
+        frames: (0..frames.len() as u32).collect(),
+        pool: frames.to_vec(),
+    };
+    let mut into = skeleton(&[[1; 7], [2; 7]]);
+    let from = skeleton(&[[3; 7], [4; 7], [5; 7], [6; 7], [7; 7], [8; 7]]);
+    let lent = append(&mut into, &from, &sequence("LENT", 1, 2));
+    let lent_frames: Vec<u16> = (0..into.frame_count * 2)
+        .map(|i| into.pool[into.frames[i] as usize][0])
+        .collect();
+    let lends = lent
+        .as_ref()
+        .is_some_and(|s| s.first_frame == 1 && s.frame_count == 2)
+        && lent_frames == [1, 2, 5, 6, 7, 8];
     vec![
         ("the shipped table reads", table),
+        (
+            "a skeleton's frames are lent after the view's own",
+            check(lends, format!("{lent:?}, frames {lent_frames:?}")),
+        ),
         (
             "wildcards match as written",
             check(

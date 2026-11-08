@@ -777,16 +777,7 @@ pub fn load_for(
                 }
             }
             if world.level().arena_rules().is_some() && !blaster {
-                // A second saber in the left hand where the sheet holds two
-                // (`--class duelist@dual`).
-                use sim::inventory::slots::{LEFT_WEAPON, RIGHT_WEAPON};
-                let mut sabers = vec![(crate::arena::SABER, RIGHT_WEAPON)];
-                if options.sheet.weapons[1]
-                    .is_some_and(|w| matches!(w.delivery, sim::combat::Delivery::Saber(_)))
-                {
-                    sabers.push((crate::arena::LEFT_SABER, LEFT_WEAPON));
-                }
-                world.wear_new_items(sim::Seat(0), &sabers)?;
+                world.wear_new_items(sim::Seat(0), &crate::arena::sabers(&options.sheet))?;
             }
             // A companion talked to (`--party`) is there once it joins; any
             // other is talked to first, as before.
@@ -1098,10 +1089,18 @@ fn load_ja(
         .map(|s| (s.name.to_ascii_uppercase(), s.clone()))
         .collect();
     // And the characters' own stances and walks, when asked for.
-    let duel = if crate::duel_stances::DuelStances::wanted(&stored) {
-        crate::duel_stances::DuelStances::load(&sequences, &mut notes)
+    // Frames they take from a mod's other skeletons are added to the
+    // view's own, which lives as long as the run.
+    let (duel, gla) = if crate::duel_stances::DuelStances::wanted(&stored) {
+        let (duel, lent) =
+            crate::duel_stances::DuelStances::load(files, gla, &sequences, &mut notes);
+        let gla: &'static fmt_ja::ghoul2::Gla = match lent {
+            Some(lent) => Box::leak(Box::new(lent)),
+            None => gla,
+        };
+        (duel, gla)
     } else {
-        crate::duel_stances::DuelStances::off()
+        (crate::duel_stances::DuelStances::off(), gla)
     };
     let rig = Rig {
         gla,
