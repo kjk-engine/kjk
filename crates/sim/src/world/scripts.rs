@@ -1588,7 +1588,8 @@ fn passes_on(
         .find(free)
 }
 
-/// The journal, the party's XP and the careers as everyone sees them, when
+/// The journal, the party's XP, the careers and the skill points left
+/// unspent as everyone sees them, when
 /// they moved; the kills' XP and the statuses kept until their time
 /// (`now_ms`) is up.
 fn show_progress(state: &State, now_ms: u64, progressed: &mut super::Progressed) {
@@ -1604,10 +1605,15 @@ fn show_progress(state: &State, now_ms: u64, progressed: &mut super::Progressed)
     shown
         .statuses
         .retain(|status| now_ms < status.at_ms + Status::KEPT_MS);
-    if shown.xp != xp || shown.journal != state.journal || shown.careers != state.careers {
+    if shown.xp != xp
+        || shown.journal != state.journal
+        || shown.careers != state.careers
+        || shown.unspent != state.unspent
+    {
         shown.journal.clone_from(&state.journal);
         shown.xp = xp;
         shown.careers.clone_from(&state.careers);
+        shown.unspent.clone_from(&state.unspent);
     }
 }
 
