@@ -102,6 +102,7 @@ mod probe_kit;
 mod progress;
 pub mod prop_breaks;
 mod prop_hall;
+pub mod prop_looks;
 mod ragdolls;
 pub mod report;
 mod rulebook_text;
