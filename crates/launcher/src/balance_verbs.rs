@@ -18,9 +18,10 @@
 //!   two creatures outside the party fight KOTOR's choreographed rounds
 //!   (`combat::rounds`), not the blades this measures; the seat's player
 //!   stands aside, neutral and unkillable.
-//! - **KOTOR's reference** (`reference`): each side's chance to hit, a
-//!   hit's damage and the attack rolls it needs to kill the other, from
-//!   the sheets fought with.
+//! - **KOTOR's reference** (`reference`): every attack KOTOR gives each
+//!   side a round (both hands, Flurry's, Speed's), each one's chance to hit
+//!   and damage, and the rounds it needs to kill the other, from the sheets
+//!   fought with.
 //! - **Powers**: the creatures cast as their minds choose; `--no-powers`
 //!   holds every talent (powers, grenades, medpacs, feat picks) by the
 //!   mind's own wait (`Mind::cast_after`), as the duel scenes do: a start
@@ -431,8 +432,9 @@ fn seat_command(bot: Option<&mut Bot>, last: &Snapshot, ids: [SimId; 2], tick_ms
 
 /// KOTOR's reference for a fight (`reference`): each side against the
 /// other with the sheets it started with, in the style it fought in, at
-/// the cadence its swings came (the fight's time over its swings), and the
-/// side KOTOR's rules favour (fewer attack rolls to kill).
+/// the cadence its swings came (the fight's time over its swings), with
+/// Speed's extra attacks as many as ran on average, and the side KOTOR's
+/// rules favour (fewer rounds to kill).
 fn kotor(start: &Snapshot, last: &Snapshot, ids: [SimId; 2], tally: &Tally, ms: u64, game: Game) -> Value {
     // The sheets fought with: as the fight ended (a script may have armed a
     // creature after it was made), else as it began.
@@ -457,10 +459,12 @@ fn kotor(start: &Snapshot, last: &Snapshot, ids: [SimId; 2], tally: &Tally, ms: 
         .map(|(side, (id, me, foe))| {
             let swings = u64::from(tally.sides[side].swings.max(1));
             let cadence = u32::try_from(ms / swings).unwrap_or(u32::MAX);
-            reference::reference(&me, style(id, &me), &foe, cadence, game)
+            let ticks = tally.ticks.max(1) as f64;
+            let speed = tally.sides[side].extra_attacks_sum as f64 / ticks;
+            reference::reference(&me, style(id, &me), &foe, cadence, speed, game)
         })
         .collect();
-    let (to_b, to_a) = (refs[0].kotor_blows_to_kill, refs[1].kotor_blows_to_kill);
+    let (to_b, to_a) = (refs[0].kotor_rounds_to_kill, refs[1].kotor_rounds_to_kill);
     let winner = if to_b < to_a {
         "a"
     } else if to_a < to_b {
@@ -804,23 +808,60 @@ fn summary(rules: SaberRules, records: &[&Value]) -> (Value, Vec<String>) {
 }
 
 /// The fights' KOTOR references averaged by side, and the side KOTOR's
-/// rules favour by them (fewer attack rolls to kill).
+/// rules favour by them (fewer rounds to kill).
 fn kotor_summary(records: &[&Value]) -> Value {
     let side = |name: &str| -> Value {
-        ["p", "hit", "landed", "cadence_ms", "foe_hp", "kotor_blows_to_kill", "kjk_landed_to_kill"]
+        let mut keys: serde_json::Map<_, _> = [
+            "p",
+            "hit",
+            "round",
+            "per_blow",
+            "landed",
+            "cadence_ms",
+            "foe_hp",
+            "kotor_rounds_to_kill",
+            "kjk_landed_to_kill",
+        ]
+        .iter()
+        .map(|key| {
+            let values: Vec<f64> = records
+                .iter()
+                .filter_map(|r| r["kotor"][name][key].as_f64())
+                .collect();
+            (key.to_string(), json!(mean(&values)))
+        })
+        .collect();
+        // The round's attacks over every fight (the style fought in and
+        // Speed's part differ): the same attack's counts added up, over the
+        // fights.
+        let mut attacks: Vec<Value> = Vec::new();
+        for attack in records
             .iter()
-            .map(|key| {
-                let values: Vec<f64> = records
+            .filter_map(|r| r["kotor"][name]["attacks"].as_array())
+            .flatten()
+        {
+            let same = |known: &&mut Value| {
+                ["hand", "p", "hit"]
                     .iter()
-                    .filter_map(|r| r["kotor"][name][key].as_f64())
-                    .collect();
-                (key.to_string(), json!(mean(&values)))
-            })
-            .collect::<serde_json::Map<_, _>>()
-            .into()
+                    .all(|key| known[key] == attack[key])
+            };
+            let count = attack["count"].as_f64().unwrap_or(0.0) / records.len().max(1) as f64;
+            match attacks.iter_mut().find(same) {
+                Some(known) => {
+                    known["count"] = json!(known["count"].as_f64().unwrap_or(0.0) + count);
+                }
+                None => {
+                    let mut new = attack.clone();
+                    new["count"] = json!(count);
+                    attacks.push(new);
+                }
+            }
+        }
+        keys.insert("attacks".into(), attacks.into());
+        keys.into()
     };
     let (a, b) = (side("a"), side("b"));
-    let rolls = |side: &Value| side["kotor_blows_to_kill"].as_f64().unwrap_or(f64::NAN);
+    let rolls = |side: &Value| side["kotor_rounds_to_kill"].as_f64().unwrap_or(f64::NAN);
     let winner = match (rolls(&a), rolls(&b)) {
         (to_b, to_a) if to_b < to_a => "a",
         (to_b, to_a) if to_a < to_b => "b",
@@ -834,15 +875,19 @@ fn table(s: &Value) -> Vec<String> {
     let f = |v: &Value| v.as_f64().unwrap_or(f64::NAN);
     let k = &s["kotor"];
     let kotor = format!(
-        "  kotor p a {:.2} b {:.2} | hit a {:.1} b {:.1} | landed (p×hit×pace) a {:.1} b {:.1} | rolls to kill a→b {:.1} b→a {:.1} | landed to kill a→b {:.1} b→a {:.1} | favours {}",
+        "  kotor p a {:.2} b {:.2} | hit a {:.1} b {:.1} | round a {:.1} b {:.1} | per blow a {:.1} b {:.1} | landed (p×hit×pace) a {:.1} b {:.1} | rounds to kill a→b {:.1} b→a {:.1} | landed to kill a→b {:.1} b→a {:.1} | favours {}",
         f(&k["a"]["p"]),
         f(&k["b"]["p"]),
         f(&k["a"]["hit"]),
         f(&k["b"]["hit"]),
+        f(&k["a"]["round"]),
+        f(&k["b"]["round"]),
+        f(&k["a"]["per_blow"]),
+        f(&k["b"]["per_blow"]),
         f(&k["a"]["landed"]),
         f(&k["b"]["landed"]),
-        f(&k["a"]["kotor_blows_to_kill"]),
-        f(&k["b"]["kotor_blows_to_kill"]),
+        f(&k["a"]["kotor_rounds_to_kill"]),
+        f(&k["b"]["kotor_rounds_to_kill"]),
         f(&k["a"]["kjk_landed_to_kill"]),
         f(&k["b"]["kjk_landed_to_kill"]),
         k["winner"].as_str().unwrap_or("?"),

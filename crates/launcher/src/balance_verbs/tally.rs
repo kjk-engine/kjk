@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 
 use serde::Serialize;
-use sim::combat::Fighter;
+use sim::combat::{Fighter, effects};
 use sim::combat::fighter::Outcome;
 use sim::combat::saber::duel::exchange::{Guard, Took};
 use sim::combat::saber::duel::meter;
@@ -54,6 +54,9 @@ pub(super) struct Side {
     pub power_casts: u32,
     /// Hundredths of the pool spent on ticks a power was cast or held.
     pub power_fp: i64,
+    /// Speed's extra attacks a round (`effects::extra_attacks`), summed
+    /// over the ticks.
+    pub extra_attacks_sum: i64,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -216,6 +219,7 @@ impl Tally {
         side.fatigued_ticks += u64::from(saber.duel.fatigued);
         side.force_pct_sum += i64::from(meter::force(f, pool));
         side.points_sum += i64::from(saber.duel.points);
+        side.extra_attacks_sum += i64::from(effects::extra_attacks(&f.force, &f.effects, now));
         let casting = f.last_command.buttons & POWERS != 0 || f.force.channel.is_some();
         let pressed = f.last_command.buttons & buttons::FORCE_POWER != 0;
         side.power_casts += u32::from(pressed && !was.pressed);
