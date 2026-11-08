@@ -1,7 +1,10 @@
 # Environmental destruction — design
 
 2026-11-06. Owner: reclaimterrain. Status: first pass built (props break and
-show damage; no flying chunks yet): `docs/COMBAT.md`, "Destruction".
+show damage; no flying chunks yet): `docs/COMBAT.md`, "Destruction". Second
+pass designed 2026-11-08 from the owner's playtest of the prop hall: see
+"Second pass: what breaking looks like", which replaces "What breaking looks
+like" below where they differ.
 
 Companion table: [`2026-11-06-destruction-props.csv`](2026-11-06-destruction-props.csv),
 every kind of placeable used in K1 and TSL (351 appearance rows, 6,437
@@ -226,6 +229,109 @@ Visuals, using KOTOR's own material only:
 7. Caps: at most a rule-set number of live flying chunks (start: 256); the
    oldest fade first.
 
+## Second pass: what breaking looks like (owner playtest 2026-11-08)
+
+The owner sliced and Force-pushed the prop hall's props and found the first
+pass wanting: broken props just vanished, damage-only props looked
+invincible, and no hit showed where it landed. Their four rules:
+
+1. **Big and wall-mounted things never split or vanish.** Large consoles,
+   wall panels, terminals, desks and machinery crumple instead: dents,
+   scorch, screens that flicker and die, sparks and smoke.
+2. **Workbenches and lab stations are intact.**
+3. **Every hit shows where it landed**, as that material takes it, and
+   leaves a mark that stays.
+4. **Nothing just disappears.** A breakable prop flies apart into pieces of
+   itself.
+
+### Classes, revised
+
+- **intact**, added: the workbenches and lab stations, `RepairTable1`,
+  `RepairTable2` (both games) and TSL's `Work_Table02`, and any further
+  row the owner names after the next playtest.
+- **damage** instead of **break**: the desks (`Desk1_office`, `Desk2_fancy`,
+  TSL's `Ex_Desk01`), the kiosks (`Kiosk1_food`, `Kiosk2_droidparts`,
+  `Kiosk3_plain`) and `LargeLocker`: big furniture that stands against a
+  wall. The rule from now on: **every electronic or large kind is damage,
+  never break**; a test pins it.
+
+### Where a hit lands (view only, no sim change)
+
+The sim keeps no point of impact (`Bash` has none), and none is added: a
+hit's point is looks-only, so each machine finds it itself when a prop's
+`ObjectState.damage` rises:
+
+- **Bolts:** the view's own bolt trace (`shot_fx`) already ends on the
+  prop (`Trace.entity`), with its point and normal: exact.
+- **Blades and fists:** the attacker's blade (or hand) segment as drawn,
+  against the prop's own triangles: the point where it first crosses them.
+- **Blasts and powers, and anything not found above:** the point on the
+  prop's body box facing whoever (or wherever the blast) it came from, the
+  nearest fighting creature in reach otherwise.
+
+### What a hit shows
+
+At that point, facing that normal:
+
+- **Shards of the prop itself**: three to six small pieces cut from the
+  prop's own mesh near the point, in its own texture, flung out along the
+  normal; they tumble, land and fade within 2 s. Wood, ceramic, stone,
+  plastic and debris throw shards; metal and electronics throw KOTOR's
+  sparks instead, plants and cloth its dust splash.
+- **KOTOR's impact effect for the material** (as the first pass, now at the
+  point, not the middle).
+- **A mark that stays**: a scorch for bolts and powers, a burn for sabers, a
+  dent's dark streak for blunt blows, drawn on the prop's own triangles as
+  `body_marks` draws on bodies, from `saber_marks`' textures. A prop keeps
+  its 8 newest marks; marks are looks-only (not synced, not saved).
+- **A shake**: small and medium props jolt away from the blow and settle
+  (0.15 s, a few degrees); large and damage-class props don't move.
+
+### Damage stages, drawn from the prop's own mesh
+
+The stage is `sim::destruction::stage`, already synced and saved, so every
+seat and every save shows the same stage. What each stage looks like is
+seeded from the model and the object, so it looks the same everywhere
+without sending anything:
+
+- **Scorch:** the prop's material darkens by stage (damaged/scarred ×0.75,
+  broken/wrecked ×0.45), on its own copy of the material.
+- **Dents (damage class):** at each stage, a few dents pressed into the
+  mesh at seeded points on its surface: vertices within the dent's radius
+  move inward along their normals, falling off to the rim. Large props get
+  more and wider dents. The prop's collision never changes.
+- **Screens (damage class):** a screen is a mesh that glows
+  (`self_illum` > 0) or animates its texture (a flipbook or a scrolling
+  UV). Scarred: it flickers. Wrecked: it goes dark (no glow, no
+  animation, darkened) with a burst of sparks as it dies, then keeps
+  sparking (the first pass's smoulder).
+- **Wrecked damage-class props** keep smoking or sparking as the first pass
+  does.
+
+### Breaking: pieces of itself
+
+- **Fracture, generated at load, in the view:** when a breakable prop's
+  model is loaded, a task off the main thread cuts its own mesh into pieces
+  (small 6, medium 10, large 16): seeded points inside its rest bounds, each
+  triangle to its nearest point, each piece's open edges closed by a fan cap
+  (the approach of `ragdoll::cut`) textured from the model's own texture.
+  Seeded from the model's name, so every machine cuts it the same, and
+  cached per model. This replaces the offline import pass of the first
+  design: the meshes are small and cutting them at load costs less than a
+  new cache format. (My call.)
+- **The base:** pieces whose middle is in the lowest quarter of the prop
+  stay where it stood as its wreck, drawn and never simulated.
+- **On break:** the other pieces fly from the blow (away from the hit, up
+  and out, harder for blasts) and tumble as rigid bodies against the room
+  in the ragdoll world (`ragdoll::World`, with the level faces it already
+  has). Pieces bigger than a fist stay where they settle for the visit;
+  smaller ones fade after 10–20 s. At most 256 flying pieces; the oldest
+  small ones fade first.
+- **A prop already broken when the area loads** (a save, a joiner, a module
+  come back to) shows its base only.
+- **Never** hidden outright any more, except a model that has no triangles
+  to cut.
+
 ## Rules for collision, nav and story
 
 - A **broken** prop becomes `ObjectState::GONE`-like for collision: bodies,
@@ -366,3 +472,8 @@ Steps 1 and 3 can run in parallel; 2 needs 1; 4 needs 2 and 3.
 - Scripted fights and cutscenes wreck their sets like anything else.
 - Guard misses are fixed by a new automatic rule before any per-module
   exception.
+- Second pass: hit points, shards, marks and shakes are looks-only, found by
+  each machine; fracture is cut at load in the view, not offline at import;
+  pieces bigger than a fist stay for the visit, not across saves (a save
+  shows the base); desks, kiosks and `LargeLocker` move to damage, and
+  every electronic or large kind is damage.
