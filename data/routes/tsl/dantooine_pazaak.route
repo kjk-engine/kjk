@@ -9,11 +9,13 @@
 # GameBanshee's Khoonda Plains).
 # Starts from the Khoonda Plains' checkpoint:
 #   kjk playthrough tsl @dantooine_plains data/routes/tsl/dantooine_pazaak.route --god
-# The party's own credits carry his table (250 a game), its losses paid
-# from what it won.
-# BLOCKER: they do not carry the armor game after two losses (1000 each;
-# the bot plays the opponents' own AI and loses about half), so a stand-in
-# brings the credits for it (SKIPPED.md).
+# BLOCKER: the party's own credits (about 2250 here) do not carry either
+# game: the bot wins half his table's games (250 each) and a third of his
+# armor games (1000 each), probe `pazaak_advice_wins`, so on them alone
+# one run in eight goes broke before his tenth win. Stand-ins bring the
+# credits instead, sized so luck blocks neither (SKIPPED.md): 7000 for the
+# table (broke before ten wins about 1 in 40000) and 30000 for the armor
+# game (thirty losses in a row about 1 in 400000).
 say Do you have any cards I could buy?
 use npc_pato
 talk
@@ -24,6 +26,7 @@ buy g_i_pazcard_022
 say Why are you so anxious to go?
 say I'm interested. Can I play for the armor components?
 say Let's go.
+gold 7000            # the table's stand-in (BLOCKER above)
 use npc_pato
 talk
 pazaak
@@ -32,7 +35,7 @@ say Let's play another game. # his end script starts the talk again
 talk
 pazaak
 end
-gold 10000           # the stand-in (BLOCKER above)
+gold 30000           # the armor game's stand-in (BLOCKER above)
 while npc_pato.b45=0 # the armor game, until won
 say Let's play for the armor components.
 say Let's play then.
