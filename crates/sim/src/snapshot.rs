@@ -2056,6 +2056,9 @@ pub struct Progress {
     /// The levels taken in play, by character id: its classes and levels
     /// in each (`State::careers`), what the level-up screen offers from.
     pub careers: std::collections::BTreeMap<u32, crate::levels::Career>,
+    /// The skill points each character left unspent at its levels, by id
+    /// (`State::unspent`): its next level-up offers them with its own.
+    pub unspent: std::collections::BTreeMap<u32, u8>,
     /// The XP the party's kills gave in the last `Kill::SHOWN_MS`, oldest
     /// first: KOTOR floats each over its dead.
     pub kills: Vec<Kill>,
@@ -2293,6 +2296,11 @@ impl Progress {
                 out.u8(*levels);
             }
         }
+        out.u32(self.unspent.len() as u32);
+        for (id, points) in &self.unspent {
+            out.u32(*id);
+            out.u8(*points);
+        }
         out.u32(self.kills.len() as u32);
         for kill in &self.kills {
             out.u32(kill.dead);
@@ -2330,6 +2338,20 @@ impl Progress {
             }
             careers.insert(id, career);
         }
+        let mut unspent = std::collections::BTreeMap::new();
+        if input.since(crate::since::snapshot::CLAUDE_BR8_ISSUE_209) {
+            for _ in 0..input.u32()? {
+                let at = input.at();
+                let id = input.u32()?;
+                if unspent
+                    .last_key_value()
+                    .is_some_and(|(last, _)| *last >= id)
+                {
+                    return Err(input.invalid("unspent id", at));
+                }
+                unspent.insert(id, input.u8()?);
+            }
+        }
         let kills = (0..input.u32()?)
             .map(|_| {
                 Ok(Kill {
@@ -2355,6 +2377,7 @@ impl Progress {
             journal,
             xp,
             careers,
+            unspent,
             kills,
             statuses,
             feedback,
