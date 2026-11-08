@@ -191,6 +191,8 @@ pub struct BodyRig {
     /// A seat's body's scripted clips (`acting::clips`), by constant: what
     /// the engine plays on a player (a mine's disarm).
     pub acted: Vec<(u16, Arc<AnimationIr>)>,
+    /// The nodes left as the last clip put them (`held_nodes`).
+    pub held: Vec<bool>,
 }
 
 impl BodyRig {
@@ -230,12 +232,22 @@ impl BodyRig {
             animation_scale: ir.animation_scale,
             gait: crate::gait::GaitClips::default(),
             acted: Vec::new(),
+            held: Vec::new(),
         }
     }
 
-    /// The body with its scripted clips.
+    /// The body with its scripted clips, its standing one telling which
+    /// nodes it holds (`held_nodes`).
     pub fn with_acted(self, acted: Vec<(u16, Arc<AnimationIr>)>) -> BodyRig {
-        BodyRig { acted, ..self }
+        let pause = acted
+            .iter()
+            .find(|(animation, _)| *animation == acting::LOOPING_PAUSE);
+        let held = held_nodes(self.ir, pause.map(|(_, clip)| &**clip));
+        BodyRig {
+            acted,
+            held,
+            ..self
+        }
     }
 
     /// The same body holding a blade JA's way in its right hand, and with
@@ -262,7 +274,10 @@ impl BodyRig {
         // The retargeter borrows its grips for as long as the run lasts.
         let grips: &'static [Grip] = Box::leak(grips.into_boxed_slice());
         let hold = self.gripping_hold(double, dual);
-        let gripped = BodyRig::with_grips(self.ir, rig, hold, grips);
+        let gripped = BodyRig {
+            held: self.held.clone(),
+            ..BodyRig::with_grips(self.ir, rig, hold, grips)
+        };
         Some(gripped.walking(self.gait.clone()))
     }
 
@@ -1341,6 +1356,8 @@ struct Clips {
     cycles: [f32; 2],
     cycled_ms: Option<f64>,
     rest: Vec<(Option<usize>, Vec3, Quat)>,
+    /// The nodes left as the last clip put them (`held_nodes`).
+    held: Vec<bool>,
     lean: Option<Lean>,
 }
 
@@ -2178,6 +2195,7 @@ impl Cast {
                 cycles: [0.0; 2],
                 cycled_ms: None,
                 rest: rest_of(&placed.ir),
+                held: held_nodes(&placed.ir, pause.as_deref()),
                 lean: Lean::new(view.ground_tilt),
             }))
         };
@@ -3109,13 +3127,32 @@ fn edit(
     }
 }
 
-/// Puts a body's nodes back at `rest` before it is posed afresh: what
-/// neither the frame's JA pose nor its clips key stands at rest, as KOTOR
-/// leaves a node no animation keys, never as a clip since ended left it (a
-/// lying clip's turn of the root dummy, which would tilt the whole body
-/// once it stands again). Only a node that moved is written.
-pub(crate) fn at_rest((nodes, rest): (&[Entity], &Rest), transforms: &mut Query<&mut Transform>) {
-    for (&entity, &(_, translation, rotation)) in nodes.iter().zip(rest) {
+/// Which of `ir`'s nodes a body leaves where the last clip keying them put
+/// them (`at_rest`): those its standing clip (`pause`) does not key. KOTOR
+/// writes only the nodes the playing clip keys (reone, xoreos), so a node
+/// its standing clip keys is set again whenever the body stands, and any
+/// other keeps the pose the last clip gave it: a robe's hood thrown back by
+/// `offhood` stays back until `onhood`. No standing clip: none.
+pub fn held_nodes(ir: &ModelIr, pause: Option<&AnimationIr>) -> Vec<bool> {
+    pause.map_or_else(Vec::new, |pause| {
+        pause.bind(ir).iter().map(Option::is_none).collect()
+    })
+}
+
+/// Puts a body's nodes back at `rest` before it is posed afresh, but those
+/// `held` (`held_nodes`): what neither the frame's JA pose nor its clips
+/// key stands at rest, as the standing clip KOTOR plays under them would
+/// set it, never as a clip since ended left it (a lying clip's turn of the
+/// root dummy, which would tilt the whole body once it stands again). Only
+/// a node that moved is written.
+pub(crate) fn at_rest(
+    (nodes, rest, held): (&[Entity], &Rest, &[bool]),
+    transforms: &mut Query<&mut Transform>,
+) {
+    for (index, (&entity, &(_, translation, rotation))) in nodes.iter().zip(rest).enumerate() {
+        if held.get(index).copied().unwrap_or(false) {
+            continue;
+        }
         // Looked up once: read through the handle, it is marked changed
         // only when written.
         if let Ok(mut t) = transforms.get_mut(entity)
@@ -3914,7 +3951,7 @@ fn place(
             if !pose {
                 return None;
             }
-            at_rest((&body.nodes, &rig.rest), transforms);
+            at_rest((&body.nodes, &rig.rest, &rig.held), transforms);
             let face = body.face.as_ref();
             if let Some(face) = face {
                 face.stand((ms, at.alive), transforms);
@@ -4160,7 +4197,7 @@ fn place(
                     .with_rotation(leans * Quat::from_rotation_z(faces.to_radians() - quarter));
             });
             if pose {
-                at_rest((&body.nodes, &clips.rest), transforms);
+                at_rest((&body.nodes, &clips.rest, &clips.held), transforms);
                 let playing = body.playing.as_mut();
                 let face = body.face.as_ref();
                 clips.pose(

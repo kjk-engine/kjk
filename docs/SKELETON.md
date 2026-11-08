@@ -183,14 +183,21 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   animates in the same step (TSL's medbay body, made lying dead) has the
   animation from its first snapshot.
 - Every posed body starts each frame from its model's rest pose
-  (`cast::at_rest`), then takes the JA pose and the clips over it: a node
-  the JA pose does not turn (`rootdummy`, which KOTOR's lying clips lay
-  down) stands at rest once no clip keys it, as KOTOR leaves a node no
-  animation keys. Before, it kept what the last clip left: Taris's duel
-  ring loser (`k_ptar_dueler_ud`: `ANIMATION_LOOPING_DEAD`, then
-  `ANIMATION_LOOPING_PAUSE` for 0.1 s and a jump to the lobby) stood 46°
-  aslant. Probe `up again` (`kjk sim probes --only "up again"`, K1's body
-  and clips).
+  (`cast::at_rest`), then takes the JA pose and the clips over it, but for
+  the nodes its standing clip (`pause1`) does not key (`cast::held_nodes`).
+  KOTOR writes only the nodes the playing clip keys (reone, xoreos): a
+  node the standing clip keys is set again whenever the body stands, any
+  other keeps what the last clip keying it left. So a node the JA pose
+  does not turn (`rootdummy`, which KOTOR's lying clips lay down) stands
+  at rest once no clip keys it; before, it kept what the last clip left:
+  Taris's duel ring loser (`k_ptar_dueler_ud`: `ANIMATION_LOOPING_DEAD`,
+  then `ANIMATION_LOOPING_PAUSE` for 0.1 s and a jump to the lobby) stood
+  46° aslant. And a robe's hood thrown back stays back: TSL's Handmaiden
+  at Atris's academy (`handmaiden.dlg`'s welcome, `Hood_Off`: `offhood`
+  keys `P_HandmaidenBB`'s hood, `pause1` does not) put it up again the
+  moment the clip ended while every node was posed from rest. Probe `up
+  again` (`kjk sim probes --only "up again"`: K1's body and clips, TSL's
+  robe).
 - In every conversation the line's pair turn their heads toward each
   other (`DIALOGUE.md`, "Lines"). While a conversation holds the world
   (scene mode), and only then:
