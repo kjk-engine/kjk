@@ -249,7 +249,11 @@ where they part, the choice is ours and named.
   resume after the pause ran lets the conversation go on as well, nothing
   else being left to resume it: a script's clear, a state or faction
   change's (`State::clear_queue`), a weapon swap's (probe
-  `resume_cleared_with_its_queue`). A walk-up with no way to the player (a
+  `resume_cleared_with_its_queue`). An attack queued before the resume
+  ends with its round, its attacker's rounds running in the conversation
+  as anyone's (their end unheard, `EVENTS.md`), so a line whose owner
+  spars as it pauses goes on (probe `resume_behind_an_attack`). A
+  walk-up with no way to the player (a
   player arrived past locked doors) fails at once, so the resume queued
   after it comes (`EVENTS.md`, action queues).
 - **Replies.** The player may answer while the line plays (it is cut),
@@ -467,7 +471,8 @@ restored when it ends.
   click, a door it walks into, and the queue's `Door`, `UseObject` and
   `Lock`, which end failed. It rolls no attack, power or throw but a
   `CutsceneAttack`'s (`scene::ROLLS`). Heartbeats, perception, combat
-  rounds and every queue run on.
+  rounds and every queue run on (those taking part in the conversation
+  hear no end of their rounds, `EVENTS.md`).
 - **Lines**: the turns at a line's start, its timing and
   pauses, its gestures and heads (above, "Lines", "Timing", "Gestures"),
   and its camera (the conversation screen, below).

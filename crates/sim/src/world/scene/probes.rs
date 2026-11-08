@@ -117,6 +117,7 @@ const PROBES: &[Probe] = &[
         "resume_cleared_with_its_queue",
         resume_cleared_with_its_queue,
     ),
+    ("resume_behind_an_attack", resume_behind_an_attack),
     ("unskippable_line", unskippable_line),
     ("alien_speech", alien_speech),
     ("play_animation_lengths", play_animation_lengths),
@@ -358,7 +359,7 @@ fn tagged(tag: &str) -> [Op; 3] {
 ///   resumes; `probe_pause_cleared` pauses, queues the resume and clears
 ///   its own queue; `probe_pause_then_clear` pauses, clears its own queue,
 ///   then waits 3 s and resumes; `probe_pause_long` pauses, waits 10 s and
-///   resumes;
+///   resumes; `probe_pause_spar` pauses, attacks the foe and resumes;
 ///   `probe_clear` clears its caller's queue (`ClearAllActions`) and
 ///   `probe_cancel` ends its caller's fight (`CancelCombat`);
 /// - `probe_bow_fast` bows at speed 2 and `probe_victory` cheers
@@ -428,6 +429,14 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
     let pause_then_clear =
         program(&[&[call(9, 0), call(21, 0)][..], &wait(3.0), &[call(11, 0)]].concat());
     let pause_long = program(&[&[call(9, 0)][..], &wait(10.0), &[call(11, 0)]].concat());
+    let pause_spar = program(
+        &[
+            &[call(9, 0), Op::Const(Const::Int(0))][..],
+            &tagged("foe"),
+            &[call(2, 2), call(11, 0)],
+        ]
+        .concat(),
+    );
     let play = |animation: u16, speed, seconds| {
         [
             Op::Const(Const::Float(seconds)),
@@ -597,6 +606,7 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_pause_cleared", pause_cleared),
             ("probe_pause_then_clear", pause_then_clear),
             ("probe_pause_long", pause_long),
+            ("probe_pause_spar", pause_spar),
             ("probe_clear", program(&[call(21, 0)])),
             (
                 "probe_cancel",
@@ -3967,6 +3977,21 @@ fn resume_cleared_with_its_queue() -> Found {
     check(
         seen == [(true, false); 2],
         format!("(played, paused) at 2 s, cleared and cancelled: {seen:?}"),
+    )
+}
+
+/// A conversation's owner told to fight as its line pauses: the talker's
+/// line pauses, attacks the foe a metre off and resumes, as a mod's
+/// restored `dan13_cort` has Garrum, its owner, spar with Tar'eelok. Taking
+/// part in the conversation, the talker hears no end of its rounds, but its
+/// rounds run: its attack lasts to the end of its round and the resume
+/// queued behind it comes. The line (1350 ms, a skip sent at 300 ms) is held
+/// while it attacks and has played by 5 s, not held for good.
+fn resume_behind_an_attack() -> Found {
+    let seen = after_pause("probe_pause_spar", None, &[1500, 5000])?;
+    check(
+        seen == [(false, true), (true, false)],
+        format!("(played, paused) at 1.5 s and 5 s: {seen:?}"),
     )
 }
 

@@ -1664,17 +1664,20 @@ fn door_speaks(view: &View, state: &mut State, changes: &[Change], doors: &[(Obj
     }
 }
 
-/// A creature's combat rounds (I22 C14): from when it is in combat, its
-/// end-of-round event every `ROUND_MS` while it lives and stays so. None
-/// while it holds a conversation (its owner, its player, the one speaking),
-/// as KOTOR's dialogue holds its creatures out of combat: Jorak Uln, in
-/// combat from the punishment his questions deal, ran `k_ai_master`'s round,
-/// whose `ClearAllActions` took the resume his scene had queued, and the
-/// conversation stayed paused for good.
+/// A creature's combat rounds (I22 C14): from when it is in combat, a round
+/// every `ROUND_MS` while it lives and stays so, each ending in its
+/// end-of-round event. One taking part in a conversation (its owner, its
+/// player, the one speaking) hears no end of its rounds, as KOTOR's
+/// dialogue holds its creatures out of combat: Jorak Uln, in combat from
+/// the punishment his questions deal, would run `k_ai_master`'s round,
+/// whose `ClearAllActions` takes the resume his scene queued. Its rounds
+/// run all the same, for a script's attack lasts to the end of its round
+/// (`Action::Attack`): a conversation's owner told to spar while its line
+/// pauses (Garrum on Tar'eelok, a mod's `dan13_cort`) ends its attack, and
+/// the resume queued behind it comes.
 fn rounds(view: &View, state: &mut State, life: &Life) {
     let id = life.id;
-    let talking = state.talk.with(id, view.host(&state.party)).is_some();
-    if !(life.creature && life.alive && life.in_combat) || talking {
+    if !(life.creature && life.alive && life.in_combat) {
         state.rounds.remove(&id.0);
         return;
     }
@@ -1682,7 +1685,10 @@ fn rounds(view: &View, state: &mut State, life: &Life) {
     let next = state.rounds.entry(id.0).or_insert(now + ROUND_MS);
     if now >= *next {
         *next = now + ROUND_MS;
-        raise(view, state, id, Hook::EndRound, None);
+        let talking = state.talk.with(id, view.host(&state.party)).is_some();
+        if !talking {
+            raise(view, state, id, Hook::EndRound, None);
+        }
     }
 }
 
