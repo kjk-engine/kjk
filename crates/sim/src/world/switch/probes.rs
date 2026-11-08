@@ -451,10 +451,19 @@ fn leads_while_switched() -> Result<String, String> {
     );
     lead(&mut world, made);
     let leader = world.script_state().party.leader;
+    let back = run(&mut world, 1, 0);
+    // The body the view follows and lists the party from (`Snapshot::body`)
+    // is the one seat 0 moves: the one led, then the one switched to.
+    let seen = |snapshot: &Snapshot| snapshot.body(Seat(0)).map(|body| body.id);
+    let (seen_led, seen_back) = (seen(&walked), seen(&back));
     check(
-        ran > 0.2 && stood < 0.05 && leader.is_none(),
+        ran > 0.2
+            && stood < 0.05
+            && leader.is_none()
+            && seen_led == Some(standing)
+            && seen_back == Some(made),
         format!(
-            "the one led ran {ran:.2} m, the one switched to moved {stood:.2} m; its portrait clicked, the leader {leader:?}"
+            "the one led ran {ran:.2} m, the one switched to moved {stood:.2} m; its portrait clicked, the leader {leader:?}; seat 0's body {seen_led:?} led, {seen_back:?} back"
         ),
     )
 }
