@@ -441,6 +441,25 @@ pub fn first_crossing(
         .map(|(_, at, normal)| (at, normal))
 }
 
+/// Presses a dent into a mesh: each vertex within `radius` of `centre`
+/// moves in against its normal by `depth × (1 − (d / radius)²)`, `d` its
+/// distance from `centre`.
+pub fn dent(
+    positions: &mut [[f32; 3]],
+    normals: &[[f32; 3]],
+    centre: [f32; 3],
+    radius: f32,
+    depth: f32,
+) {
+    for (p, n) in positions.iter_mut().zip(normals) {
+        let d = length(sub(*p, centre));
+        if d < radius {
+            let fall = 1.0 - (d / radius) * (d / radius);
+            *p = sub(*p, scale(*n, depth * fall));
+        }
+    }
+}
+
 #[cfg(feature = "probes")]
 pub use probes::probes;
 
@@ -682,9 +701,26 @@ mod probes {
         )
     }
 
+    fn dented() -> Result<String, String> {
+        // A flat 5 × 5 grid a metre across, facing up.
+        let mut grid: Vec<[f32; 3]> = (0..25)
+            .map(|i| [(i % 5) as f32 * 0.25, (i / 5) as f32 * 0.25, 0.0])
+            .collect();
+        let normals = vec![[0.0, 0.0, 1.0]; 25];
+        dent(&mut grid, &normals, [0.5, 0.5, 0.0], 0.5, 0.04);
+        let (centre, rim, far) = (grid[12][2], grid[2][2], grid[0][2]);
+        check(
+            (centre + 0.04).abs() < 1e-6 && rim == 0.0 && far == 0.0,
+            format!(
+                "the middle went to z {centre} (want -0.04), one at the radius {rim}, a corner {far} (want 0)"
+            ),
+        )
+    }
+
     /// The probes.
     pub fn probes() -> Checks {
         vec![
+            ("prop_stage_dent", dented()),
             ("prop_hit_crossing", crossing()),
             ("debris_settles", debris_settles()),
             ("shatter_covers_once", covers_once()),
