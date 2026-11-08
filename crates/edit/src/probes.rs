@@ -148,6 +148,7 @@ fn kept_away(save: &mut sim::Save) -> Result<crate::Who, String> {
         hp: i32::from(sheet.max_hp) * 100,
         fp: 0,
         worn: Some([0; sim::inventory::slots::COUNT as usize]),
+        look: sim::combat::Look::default(),
     });
     Ok(crate::Who::Away { npc: 0 })
 }

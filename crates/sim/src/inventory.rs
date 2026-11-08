@@ -84,6 +84,16 @@ pub mod slots {
         }
     }
 
+    /// Whether a body whose `appearance.2da` row's `equipslotslocked` is
+    /// `mask` (a bit for each slot, `1 << slot`) has `slot` locked: its
+    /// player may neither fill nor empty it (TSL's equip screen draws it
+    /// red and refuses to open it; scripts equip it all the same). A
+    /// first-set hand locks its second-set hand too, as TSL's screen does.
+    pub fn locked(mask: u32, slot: u8) -> bool {
+        let bit = |slot: u8| 1u32.checked_shl(u32::from(slot)).unwrap_or(0);
+        mask & (bit(slot) | bit(rules(slot))) != 0
+    }
+
     /// Whether an item equipped in `slot` is worn, its properties in force:
     /// all but the second set's (TSL's `EquipItem` applies no item
     /// properties for slots `0x40000`, `0x80000`).

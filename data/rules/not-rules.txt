@@ -345,6 +345,7 @@ crates/sim/src/inventory/properties.rs ALL_SAVES  # Property::Save's code for al
 crates/sim/src/inventory/properties.rs ANY  # a side limit row
 crates/sim/src/inventory/properties.rs CLASS  # dialog.tlk line
 crates/sim/src/inventory/properties.rs GENDER  # dialog.tlk line
+crates/sim/src/inventory/properties.rs LOCKED_SLOT  # dialog.tlk line
 crates/sim/src/inventory/properties.rs RACE  # dialog.tlk line
 crates/sim/src/inventory/properties.rs SIDE  # dialog.tlk line
 crates/sim/src/inventory/properties.rs WHOLLY_DARK  # a side limit row

@@ -1766,23 +1766,27 @@ fn item_uses() {
 /// items' scores, skills, saves, dodge defence, defence against a race and
 /// a bonus feat on a sheet, held by the caps, gone when taken off; use
 /// limits (a side's, K1's and TSL's "All", Proficiency All, a fitted
-/// crystal's light-side limit, a race's, an ability's); immunity to
-/// criticals; on-hit stun, a mind-immune target, death; regeneration every
-/// 6 s; a worn light lasting; TSL's upgrade slots; the encodings. The sim
-/// alone, no install.
+/// crystal's light-side limit, a race's, an ability's); a body's locked
+/// slots (TSL's one-handed Kreia: both off hands neither filled nor emptied
+/// by her player, her main hand as anyone's); immunity to criticals; on-hit
+/// stun, a mind-immune target, death; regeneration every 6 s; a worn light
+/// lasting; TSL's upgrade slots; the encodings. The sim alone, no install.
 #[test]
 fn item_properties() {
-    probed("item properties", &sim::inventory::probes::probes(), 26);
+    probed("item properties", &sim::inventory::probes::probes(), 27);
 }
 
 /// `SwitchPlayerCharacter` (K1's Leviathan, TSL's many): `sim::switch::probes`,
 /// a script switching the first seat to a companion made from its
-/// template, or as the party table kept it, the seat walking it, scripts
-/// seeing it, a switch back, saves, snapshots and prediction, a standing
-/// creature taken, a guest giving way; the sim alone.
+/// template, or as the party table kept it (its body too: TSL's one-handed
+/// Kreia), the seat walking it, scripts seeing it, a switch back, saves,
+/// snapshots and prediction, a standing creature taken, a guest giving way;
+/// a companion's body changed in the run that makes it (107PER's Kreia); a
+/// companion standing in a module left, not in the party, kept by the table
+/// as it stands, body and all; the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 17);
+    probed("switch", &sim::switch::probes(), 19);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and
