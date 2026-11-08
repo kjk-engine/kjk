@@ -26,8 +26,10 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #ifdef MOTION_VECTOR_PREPASS
-    // Bevy keeps them in UV units (current minus previous); in pixels:
-    let motion = prepass_motion_vector(in.position, 0u) * view.viewport.zw;
+    // Bevy keeps them in UV units of the frame drawn (current minus
+    // previous); in that frame's pixels (smaller than the window's under
+    // DLSS, `main_pass_viewport`):
+    let motion = prepass_motion_vector(in.position, 0u) * view.main_pass_viewport.zw;
     let shown = clamp(motion / (2.0 * REACH), vec2<f32>(-0.5), vec2<f32>(0.5)) + vec2<f32>(0.5);
     let still = select(0.0, 1.0, length(motion) < 0.1);
     return vec4<f32>(shown, still, 1.0);
