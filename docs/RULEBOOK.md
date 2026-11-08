@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `7d05c737e858ce8d`.
+Edition `03db003293357b37`.
 
 ## Contents
 
@@ -725,7 +725,7 @@ The penalties of feat attacks last one round.
 
 <a id="combat-timing-combat-ms"></a>**Combat Duration** = **8 seconds** (`8000 ms`) · `combat.timing.combat_ms`
 
-A character remains in combat for 8 seconds after it attacks or is hit. While in combat, its weapon stays drawn, Stealth Mode cannot be entered, and the battle music plays.
+A character remains in combat for 8 seconds after it attacks or is hit, and a creature in combat stays in it while it keeps its foe in sight and within the fight's reach. While in combat, its weapon stays drawn, Stealth Mode cannot be entered, and the battle music plays.
 
 <sub>Source: reone (the deactivation delay after the last round). Code: `sim::combat::COMBAT_MS`.</sub>
 
@@ -4127,6 +4127,10 @@ as much.
 A target that knows Force Push and stands with a free hand resists a
 throw of its own rank or lower. A target already on the ground is not
 thrown, and a strong enough push frees the Jedi from a Choke.
+
+What KOTOR's push does after its knockdown, such as the stun as the
+target gets up, happens once everyone the throw caught is on their feet
+again, or at KOTOR's own time if that comes first.
 
 <a id="force-push-aimed-reach"></a>**Force Push Range** = **13 meters** (`512 units`) · `force.push.aimed_reach`
 

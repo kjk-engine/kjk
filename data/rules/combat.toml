@@ -350,7 +350,7 @@ type = "u64"
 value = 8000
 unit = "ms"
 range = [0, 60000]
-summary = "A character remains in combat for {combat.timing.combat_ms:s} after it attacks or is hit. While in combat, its weapon stays drawn, Stealth Mode cannot be entered, and the battle music plays."
+summary = "A character remains in combat for {combat.timing.combat_ms:s} after it attacks or is hit, and a creature in combat stays in it while it keeps its foe in sight and within the fight's reach. While in combat, its weapon stays drawn, Stealth Mode cannot be entered, and the battle music plays."
 source = "reone (the deactivation delay after the last round)"
 see = "sim::combat::COMBAT_MS"
 
