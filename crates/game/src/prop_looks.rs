@@ -78,6 +78,11 @@ const FLICKER_MS: (f32, f32) = (80.0, 300.0);
 /// blow from this near is a fist's or a kick's.
 const BLADE_REACH_M: f32 = 3.0;
 const BLUNT_REACH_M: f32 = 3.0;
+/// How long the blades' places are kept to find where a swing met a prop
+/// (ms): the sim's hit may come a frame or two after the blade passed.
+const TRAIL_MS: f64 = 150.0;
+/// Segments laid between two frames of a blade, sweeping it.
+const SWEEP_STEPS: usize = 8;
 
 /// A number from 0 to 1 (1 never) from `parts` and `salt`, the same on
 /// every machine: FNV-1a 64 of their bits, then splitmix64's finish.
@@ -130,13 +135,72 @@ pub(crate) fn kept(volume: f32) -> bool {
     volume > KEPT_M3
 }
 
-/// Of the live pieces (`(born ms, kept)`), the ones to fade to bring them
-/// down to `cap`: the oldest unkept first, then the oldest kept.
-pub(crate) fn evict(live: &[(u64, bool)], cap: usize) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..live.len()).collect();
+/// How long a piece lasts: it fades after a while, stays for the visit, or
+/// is a broken prop's base (it stands as long as the prop is broken).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Lasts {
+    Fades,
+    Visit,
+    Base,
+}
+
+/// Of the live pieces (`(born ms, how long it lasts)`), the ones to fade to
+/// bring them down to `cap`: the oldest fading first, then the oldest kept;
+/// never a base (a broken prop must not vanish whole).
+pub(crate) fn evict(live: &[(u64, Lasts)], cap: usize) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..live.len())
+        .filter(|&i| live[i].1 != Lasts::Base)
+        .collect();
     order.sort_by_key(|&i| (live[i].1, live[i].0));
     order.truncate(live.len().saturating_sub(cap));
     order
+}
+
+/// Whether a prop's screens die in a burst of sparks as it is drawn at
+/// `stage` from `drawn`; `arrived`: first seen so (already wrecked when
+/// the area loaded).
+pub(crate) fn dies(drawn: u8, stage: u8, arrived: bool) -> bool {
+    !arrived && drawn < 2 && stage >= 2
+}
+
+/// The blade segments a blow may have come from: each frame's in `trail`
+/// (oldest first, each blade by its index), and between two frames in a
+/// row, the blade swept from one to the next.
+pub(crate) fn swept(trail: &[Vec<Option<[Vec3; 2]>>]) -> Vec<[Vec3; 2]> {
+    let mut segments: Vec<[Vec3; 2]> = trail.iter().flatten().flatten().copied().collect();
+    for pair in trail.windows(2) {
+        for (was, now) in pair[0].iter().zip(&pair[1]) {
+            let (Some([h0, t0]), Some([h1, t1])) = (was, now) else {
+                continue;
+            };
+            segments.extend((1..SWEEP_STEPS).map(|step| {
+                let k = step as f32 / SWEEP_STEPS as f32;
+                [h0.lerp(*h1, k), t0.lerp(*t1, k)]
+            }));
+        }
+    }
+    segments
+}
+
+/// Whether the segment `a`–`b` passes through the box `min`–`max`.
+fn enters_box([a, b]: [Vec3; 2], min: Vec3, max: Vec3) -> bool {
+    let way = b - a;
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    for axis in 0..3 {
+        if way[axis].abs() < 1e-6 {
+            if a[axis] < min[axis] || a[axis] > max[axis] {
+                return false;
+            }
+            continue;
+        }
+        let (t0, t1) = (
+            (min[axis] - a[axis]) / way[axis],
+            (max[axis] - a[axis]) / way[axis],
+        );
+        lo = lo.max(t0.min(t1));
+        hi = hi.min(t0.max(t1));
+    }
+    lo <= hi
 }
 
 /// What a prop's look and lost hit points (`(look, damage)`) going from
@@ -289,23 +353,31 @@ impl Fractures {
 }
 
 /// A piece of a broken prop as drawn: its body while it flies (`None`: a
-/// base piece, or one come to rest), when it came, whether it stays, when
+/// base piece, or one come to rest), when it came, how long it lasts, when
 /// it starts to fade (ms of `Time`).
 #[derive(Component)]
 pub(crate) struct Flying {
     debris: Option<DebrisId>,
     born_ms: f64,
-    kept: bool,
+    lasts: Lasts,
     fade_ms: Option<f64>,
 }
 
 /// A prop broken whose pieces are not out yet (its model or cut not ready),
 /// and whether they fly.
 #[derive(Debug, Clone, Copy)]
-struct Owed {
+pub(crate) struct Owed {
     flies: bool,
     from: [f32; 3],
     blast: bool,
+    size: Size,
+}
+
+impl Owed {
+    /// How many pieces its model is cut into.
+    pub(crate) fn pieces(&self) -> usize {
+        PIECES[self.size as usize]
+    }
 }
 
 /// The pieces' world (the level's faces around each break) and the props
@@ -323,8 +395,11 @@ pub(crate) struct PropLooks {
     marks: BTreeMap<u32, VecDeque<Vec<Entity>>>,
     /// Props jolting from a blow.
     jolts: BTreeMap<u32, Jolt>,
-    /// Each damaged prop's stage as the sim has it, and as drawn.
-    wanted: BTreeMap<u32, (u8, sim::destruction::Destructible, [f32; 3])>,
+    /// The blades as drawn these last frames (ms of `Time`), oldest first.
+    trail: VecDeque<(f64, Vec<Option<[Vec3; 2]>>)>,
+    /// Each damaged prop's stage as the sim has it (and whether it was
+    /// first seen so), and as drawn.
+    wanted: BTreeMap<u32, (u8, sim::destruction::Destructible, [f32; 3], bool)>,
     staged: BTreeMap<u32, Staged>,
 }
 
@@ -387,6 +462,7 @@ impl Plugin for PropLooksPlugin {
                 (hits, stages, wrecks, fly)
                     .chain()
                     .after(PropsSeen)
+                    .after(crate::scene::BladesDrawn)
                     .after(crate::shot_fx::ShotsSeen)
                     .run_if(resource_exists::<PresentedSnapshot>),
             );
@@ -478,7 +554,16 @@ fn wrecks(
                 ),
                 None => (blow_from(change.position, &changes.creatures), false),
             };
-            looks.owed.insert(change.index, Owed { flies, from, blast });
+            let size = change.d.size;
+            looks.owed.insert(
+                change.index,
+                Owed {
+                    flies,
+                    from,
+                    blast,
+                    size,
+                },
+            );
         }
     }
     let now_ms = time.elapsed_secs_f64() * 1000.0;
@@ -494,7 +579,7 @@ fn wrecks(
                 .cutting
                 .contains_key(&ir.name.to_ascii_lowercase())
             {
-                fractures.cut(ir, &scene.0.textures, PIECES[1]);
+                fractures.cut(ir, &scene.0.textures, owe.pieces());
             }
             continue;
         };
@@ -564,7 +649,11 @@ fn wrecks(
                 Flying {
                     debris,
                     born_ms: now_ms,
-                    kept: !small || stays,
+                    lasts: match (stays, small) {
+                        (true, _) => Lasts::Base,
+                        (false, true) => Lasts::Fades,
+                        (false, false) => Lasts::Visit,
+                    },
                     fade_ms,
                 },
             );
@@ -607,8 +696,8 @@ fn placed_triangles(plains: &[Plain], game: &Transform) -> Vec<[[f32; 3]; 3]> {
 /// Where a blow on a prop landed: a bolt's run or a blade crossing its own
 /// triangles (`triangles`, game space) first; else the point on its body
 /// box (standing at `feet`, of `size`) facing `from`, where the blow came
-/// from, a fist or kick when that is within reach, a blast or power
-/// otherwise.
+/// from: a blade's when one passed through the box, a fist or kick when
+/// that is within reach, a blast or power otherwise.
 pub(crate) fn impact(
     triangles: &[[[f32; 3]; 3]],
     (bolts, blades): (&[[Vec3; 2]], &[[Vec3; 2]]),
@@ -636,6 +725,7 @@ pub(crate) fn impact(
     let height = rules::destruction::bodies::HEIGHT_M[size as usize];
     let middle = feet + Vec3::Z * (height / 2.0);
     let halves = Vec3::new(half, half, height / 2.0);
+    let blade = (near.iter()).any(|&segment| enters_box(segment, middle - halves, middle + halves));
     let way = (from - middle).try_normalize().unwrap_or(Vec3::Z);
     // The face the way leaves the box by: its axis has the least room.
     let (axis, reach) = (0..3)
@@ -645,7 +735,9 @@ pub(crate) fn impact(
         .unwrap_or((2, halves.z));
     let mut normal = Vec3::ZERO;
     normal[axis] = way[axis].signum();
-    let blow = if from.distance(feet) <= BLUNT_REACH_M {
+    let blow = if blade {
+        Blow::Blade
+    } else if from.distance(feet) <= BLUNT_REACH_M {
         Blow::Blunt
     } else {
         Blow::Blast
@@ -700,9 +792,23 @@ fn hits(
     let now_ms = time.elapsed_secs_f64() * 1000.0;
     let newest = presented.1.last().map(|snapshot| &**snapshot);
     let bolts = bolts.as_deref().map_or(&[][..], |bolts| &bolts.0);
-    let blades: Vec<[Vec3; 2]> = blades
-        .as_deref()
-        .map_or_else(Vec::new, |b| b.0.iter().flatten().copied().collect());
+    looks.trail.push_back((
+        now_ms,
+        blades.as_deref().map_or_else(Vec::new, |b| b.0.clone()),
+    ));
+    while looks
+        .trail
+        .front()
+        .is_some_and(|(at, _)| now_ms - at > TRAIL_MS)
+    {
+        looks.trail.pop_front();
+    }
+    let frames: Vec<Vec<Option<[Vec3; 2]>>> = looks
+        .trail
+        .iter()
+        .map(|(_, blades)| blades.clone())
+        .collect();
+    let blades = swept(&frames);
     let mut sparked = Vec::new();
     for change in &changes.changes {
         let Some(was) = change.was else {
@@ -774,7 +880,7 @@ fn hits(
                     Flying {
                         debris,
                         born_ms: now_ms,
-                        kept: false,
+                        lasts: Lasts::Fades,
                         fade_ms: Some(now_ms + SHARD_FADE_MS),
                     },
                 );
@@ -981,24 +1087,25 @@ fn stages(
         }
         let stage = sim::destruction::stage(change.d, change.now.1);
         if stage > 0 && change.now.0 != look::DEAD {
-            looks
-                .wanted
-                .insert(change.index, (stage, change.d, change.position));
+            looks.wanted.insert(
+                change.index,
+                (stage, change.d, change.position, change.was.is_none()),
+            );
         }
     }
     let now_ms = time.elapsed_secs_f64() * 1000.0;
     let made = made.as_deref();
     let mut sparked = Vec::new();
-    let due: Vec<(u32, u8, sim::destruction::Destructible, [f32; 3])> = (looks.wanted.iter())
+    let due: Vec<(u32, u8, sim::destruction::Destructible, [f32; 3], bool)> = (looks.wanted.iter())
         .filter(|(index, (stage, ..))| {
             looks
                 .staged
                 .get(index)
                 .is_none_or(|drawn| drawn.stage < *stage)
         })
-        .map(|(&index, &(stage, d, feet))| (index, stage, d, feet))
+        .map(|(&index, &(stage, d, feet, arrived))| (index, stage, d, feet, arrived))
         .collect();
-    for (index, stage, d, feet) in due {
+    for (index, stage, d, feet, arrived) in due {
         let Some((model, root)) = model_of(index, (&scene, made), &scene_models) else {
             continue;
         };
@@ -1054,7 +1161,7 @@ fn stages(
             staged.meshes.len(),
             staged.meshes.iter().filter(|mesh| mesh.screen).count()
         );
-        let dies = staged.stage < 2 && stage >= 2;
+        let dies = dies(staged.stage, stage, arrived);
         staged.stage = stage;
         for mesh in &staged.meshes {
             let Some(mut material) = materials.get_mut(&mesh.copy) else {
@@ -1193,7 +1300,7 @@ fn fly(
         });
         degrees > 0.0
     });
-    let mut live: Vec<(Entity, (u64, bool))> = Vec::new();
+    let mut live: Vec<(Entity, (u64, Lasts))> = Vec::new();
     for (entity, mut piece, mut transform) in &mut pieces {
         if let Some(id) = piece.debris {
             if let Some((at, turn)) = looks.world.debris_pose(id) {
@@ -1220,10 +1327,10 @@ fn fly(
             transform.scale = Vec3::splat(left as f32);
         }
         if piece.fade_ms.is_none() || piece.fade_ms.is_some_and(|fade| fade > now_ms) {
-            live.push((entity, (piece.born_ms as u64, piece.kept)));
+            live.push((entity, (piece.born_ms as u64, piece.lasts)));
         }
     }
-    let ages: Vec<(u64, bool)> = live.iter().map(|(_, age)| *age).collect();
+    let ages: Vec<(u64, Lasts)> = live.iter().map(|(_, age)| *age).collect();
     for evicted in evict(&ages, MAX_PIECES) {
         if let Ok((_, mut piece, _)) = pieces.get_mut(live[evicted].0) {
             piece.fade_ms = Some(now_ms);
@@ -1325,13 +1432,54 @@ pub fn probes() -> sim::probe::Checks {
     let blast = fling([1.0, 0.0, 0.5], from, true);
     let speed = |v: [f32; 3]| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
     let live = [
-        (100, false),
-        (200, true),
-        (300, false),
-        (400, true),
-        (500, false),
+        (100, Lasts::Fades),
+        (200, Lasts::Visit),
+        (300, Lasts::Fades),
+        (400, Lasts::Visit),
+        (500, Lasts::Fades),
     ];
     let evicted = evict(&live, 3);
+    let bases = [
+        (100, Lasts::Base),
+        (200, Lasts::Base),
+        (300, Lasts::Visit),
+        (400, Lasts::Fades),
+    ];
+    let past_bases = evict(&bases, 1);
+    let bursts = [
+        dies(0, 2, true),
+        dies(0, 2, false),
+        dies(1, 3, false),
+        dies(2, 3, false),
+    ];
+    let owed = |size| Owed {
+        flies: true,
+        from: [0.0; 3],
+        blast: false,
+        size,
+    };
+    let counts = [Size::Small, Size::Medium, Size::Large].map(|size| owed(size).pieces());
+    // A panel standing on x = 0 (y -0.5 to 0.5, z 0 to 1), a medium prop.
+    let panel = [
+        [[0.0, -0.5, 0.0], [0.0, 0.5, 0.0], [0.0, 0.5, 1.0]],
+        [[0.0, -0.5, 0.0], [0.0, 0.5, 1.0], [0.0, -0.5, 1.0]],
+    ];
+    let blade = |y: f32| Some([Vec3::new(-1.0, y, 0.5), Vec3::new(0.8, y, 0.5)]);
+    // A blade swung through it between two frames, beside it in both.
+    // Each blow on that medium prop at the origin, from 1.5 m before it.
+    let strike = |triangles: &[[[f32; 3]; 3]], blades: &[[Vec3; 2]]| {
+        impact(
+            triangles,
+            (&[], blades),
+            (Vec3::ZERO, Size::Medium),
+            Vec3::new(-1.5, 0.0, 0.5),
+        )
+    };
+    let through = strike(&panel, &swept(&[vec![blade(-0.9)], vec![blade(0.9)]]));
+    // A blade inside the prop's box that meets none of its triangles, and
+    // the same blow with no blade about.
+    let inside = [[Vec3::new(0.1, 0.1, 0.3), Vec3::new(0.3, 0.2, 0.9)]];
+    let (boxed, fist) = (strike(&[], &inside), strike(&[], &[]));
     let first = wreck(None, (look::DEAD, 20));
     let now = wreck(Some((look::DEFAULT, 3)), (look::DEAD, 20));
     let standing = wreck(None, (look::DEFAULT, 0));
@@ -1422,6 +1570,55 @@ pub fn probes() -> sim::probe::Checks {
     let again = dents(7, 2, Size::Medium, &surface);
     let darks = [0, 1, 2, 3].map(darkened);
     vec![
+        (
+            "prop_pieces_evict_keeps_bases",
+            check(
+                past_bases == [3, 2],
+                format!(
+                    "two bases, one kept, one fading, cap 1: fades {past_bases:?} \
+                     (want [3, 2]: never a base)"
+                ),
+            ),
+        ),
+        (
+            "prop_stage_no_burst_on_arrival",
+            check(
+                bursts == [false, true, true, false],
+                format!(
+                    "wrecked when first seen, wrecked now, wrecked from damaged, wrecked \
+                     further: {bursts:?} (want [false, true, true, false])"
+                ),
+            ),
+        ),
+        (
+            "prop_pieces_count_by_size",
+            check(
+                counts == PIECES,
+                format!("owed small, medium, large cut into {counts:?} (want {PIECES:?})"),
+            ),
+        ),
+        (
+            "prop_hit_blade_swept",
+            check(
+                through.blow == Blow::Blade && through.at.x.abs() < 1e-4,
+                format!(
+                    "a blade swept through a panel between frames: {:?} at {:.2?} \
+                     (want Blade on the panel, x 0)",
+                    through.blow, through.at
+                ),
+            ),
+        ),
+        (
+            "prop_hit_blade_in_box",
+            check(
+                boxed.blow == Blow::Blade && fist.blow == Blow::Blunt,
+                format!(
+                    "a blade inside the box, no triangle met: {:?} (want Blade); no blade \
+                     about: {:?} (want Blunt)",
+                    boxed.blow, fist.blow
+                ),
+            ),
+        ),
         (
             "prop_stage_dents_same",
             check(
