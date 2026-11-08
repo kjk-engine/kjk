@@ -634,7 +634,7 @@ pub struct Settings {
 }
 
 /// Each setting the screens change, and its default.
-const DEFAULTS: [(&str, &str); 25] = [
+const DEFAULTS: [(&str, &str); 28] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -660,7 +660,15 @@ const DEFAULTS: [(&str, &str); 25] = [
     (DUEL_BARS, "false"),
     (DUEL_WARNING, "false"),
     (DUEL_SLOW_MOTION, "true"),
+    (crate::duel_stances::SETTING, "false"),
+    (HILT_SINGLE, ""),
+    (HILT_DOUBLE, ""),
 ];
+
+/// The hilts KOTOR's single- and double-bladed lightsabers are drawn with
+/// (`weapons::Sabers::with_hilts`): KOTOR's own when empty.
+const HILT_SINGLE: &str = "saber.hilt.single";
+const HILT_DOUBLE: &str = "saber.hilt.double";
 
 /// The key of Autosave (saving on each module entered, `sim_host::autosave`).
 pub(crate) const AUTOSAVE: &str = "game.autosave";
@@ -730,6 +738,7 @@ fn page_keys(page: &str) -> &'static [&'static str] {
             DUEL_WARNING,
             DUEL_SLOW_MOTION,
         ],
+        "options_sabers" => &[HILT_SINGLE, HILT_DOUBLE, crate::duel_stances::SETTING],
         "options_mouse" => &["mouse.sensitivity"],
         "options_controller" => &[
             "pad.sensitivity",
@@ -1036,7 +1045,7 @@ impl Settings {
 
     /// The settings as the screens show them: the saber rules held for the
     /// run in the setting's place.
-    fn shown(&self) -> BTreeMap<String, String> {
+    pub fn shown(&self) -> BTreeMap<String, String> {
         let mut shown = self.values.clone();
         if let Some(rules) = self.held_rules {
             shown.insert(SABER_RULES.into(), rules.name().into());

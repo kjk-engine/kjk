@@ -530,8 +530,7 @@ Running and checking:
   camera drawing to the window) and v-sync, with Cancel. Alt+Enter goes
   between a window and borderless. Applied at once and at the next start.
   The grass check box (`display.grass`, on) hides the area's grass without
-  rebuilding it. Greyed: shadows, texture quality, anisotropy, frame buffer
-  effects, soft shadows, the advanced sound page and the feedback list.
+  rebuilding it. Greyed: shadows, texture quality, anisotropy, soft shadows, the advanced sound page and the feedback list.
   `dump`'s `display` shows the window. The main page's unused auto-pause
   button is Debug: it starts the combat sandbox alone
   (`SessionIntent::Sandbox`, `COMBAT.md`); only the main menu opens that
@@ -555,6 +554,19 @@ Running and checking:
   are "Overhead duel bars" (`game.duel_bars`, off), "Unblockable warning"
   (`game.duel_warning`, off, as MD has it) and "Perfect-block slow-mo"
   (`game.duel_slow_motion`, on, the player's own perfect blocks alone; `settings::DuelOptions`).
+- The sabers' page ("Saber Options", ours, on the graphics page's
+  layout), opened by "Sabers" from the advanced graphics page in its unused
+  frame buffer box's place (the main page's autopause button is Debug):
+  "Hilt" and "Staff" step through the hilts
+  KOTOR's single- and double-bladed lightsabers are drawn with
+  (`saber.hilt.single`, `saber.hilt.double`: KOTOR's own, unset, the
+  default; Jedi Academy's `single_1`/`dual_1`; a few of Movie Duels':
+  Luke, Obi-Wan, Vader, Ahsoka, Dooku, the Darksaber; Bastila's staff,
+  Maul's, an Inquisitor's, Cal Kestis's; `docs/COMBAT.md`), and the box
+  "Movie Duels stances" (`game.duel_stances`, off; `docs/SKELETON.md`).
+  Both are read when a run loads; a hilt the install lacks leaves KOTOR's,
+  the run's notes say why. `kjk gui screen` draws a page with the saved
+  settings (`KJK_SETTINGS` names another file).
 
 The equip page: a slot chosen lists what the party carries that fits it,
 after "None" and, on a line of its own, what the slot holds marked

@@ -2,12 +2,15 @@
 //! `optgraphics`, `optgraphicsadv`, `optsound`, `optfeedback`), each a
 //! table of what its controls do: a check box, slider or stepped button
 //! bound to a setting, a button that opens another page, or greyed where
-//! the game has nothing behind it yet (texture quality, frame buffer
-//! effects, the feedback list, saves and levels for the world state). KOTOR 2's
+//! the game has nothing behind it yet (texture quality, the feedback
+//! list, saves and levels for the world state). KOTOR 2's
 //! pages (the skin) have two more check boxes: the graphics page's hidden,
 //! the gameplay page's the overhead duel bars'. The controller's
 //! page is ours, on the graphics page's layout, opened from the gameplay
-//! page in its unused auto level-up box's place. The gameplay page's
+//! page in its unused auto level-up box's place; so is the sabers' (the
+//! hilts KOTOR's lightsabers are drawn with, Movie Duels' stances), opened
+//! from the advanced graphics page in its unused frame buffer box's place.
+//! The gameplay page's
 //! difficulty, stepped by its arrows, picks the saber rules a session
 //! played here plays by (`docs/SABER-RULES.md`), and its unused check
 //! boxes are the duel modes' options. The main page's unused auto-pause
@@ -95,6 +98,31 @@ const SABER_RULES: &[(&str, &str)] = &[
     ("mda", strings::SABER_RULES_MDA),
 ];
 
+/// The hilts a single-bladed KOTOR lightsaber may be drawn with (a `.sab`
+/// name, `saber.hilt.single`): KOTOR's own, Jedi Academy's, and a few of
+/// Movie Duels' (`kjk sabers` lists them all; one the install lacks leaves
+/// KOTOR's, the run's notes say).
+const HILTS: &[(&str, &str)] = &[
+    ("", strings::HILT_KOTOR),
+    ("single_1", strings::HILT_JA),
+    ("luke_ep6", strings::HILT_LUKE),
+    ("obiwan_ep4", strings::HILT_OBI_WAN),
+    ("vader", strings::HILT_VADER),
+    ("ahsoka", strings::HILT_AHSOKA),
+    ("dooku", strings::HILT_DOOKU),
+    ("darksaber_reb", strings::HILT_DARKSABER),
+];
+
+/// The same for a double-bladed one (`saber.hilt.double`).
+const STAFFS: &[(&str, &str)] = &[
+    ("", strings::STAFF_KOTOR),
+    ("dual_1", strings::STAFF_JA),
+    ("bastila_staff", strings::STAFF_BASTILA),
+    ("dual_maul", strings::STAFF_MAUL),
+    ("inquisitor", strings::STAFF_INQUISITOR),
+    ("cal_staff", strings::STAFF_CAL),
+];
+
 /// Anti-aliasing: the samples a pixel takes.
 const SAMPLES: &[(&str, &str)] = &[
     ("1", strings::ANTI_ALIASING_OFF),
@@ -110,7 +138,7 @@ const DEAD_ZONES: &[(&str, &str)] = &[
     ("0.25", strings::DEAD_ZONE_LARGE),
 ];
 
-const PAGES: [Spec; 8] = [
+const PAGES: [Spec; 9] = [
     Spec {
         name: "options",
         layout: "optionsmain",
@@ -201,6 +229,32 @@ const PAGES: [Spec; 8] = [
         first: "SLI_GAMMA",
     },
     Spec {
+        name: "options_sabers",
+        layout: "optgraphics",
+        roles: &[
+            ("LBL_TITLE", Text(strings::SABER_OPTIONS)),
+            ("SLI_GAMMA", Hidden),
+            ("LBL_GAMMA", Hidden),
+            (
+                "BTN_RESOLUTION",
+                Cycle("saber.hilt.single", HILTS, Step::Shown),
+            ),
+            (
+                "BTN_ADVANCED",
+                Cycle("saber.hilt.double", STAFFS, Step::Shown),
+            ),
+            (
+                "CB_SHADOWS",
+                ToggleAs("game.duel_stances", strings::DUEL_STANCES),
+            ),
+            ("CB_GRASS", Hidden),
+            ("CB_FORCESPEED", Hidden),
+            ("BTN_DEFAULT", Defaults),
+            ("BTN_BACK", Back),
+        ],
+        first: "BTN_RESOLUTION",
+    },
+    Spec {
         name: "options_graphics",
         layout: "optgraphics",
         roles: &[
@@ -229,7 +283,7 @@ const PAGES: [Spec; 8] = [
                 Cycle("display.msaa", SAMPLES, Step::On),
             ),
             ("CB_VSYNC", Toggle("display.vsync")),
-            ("CB_FRAMEBUFF", Greyed),
+            ("CB_FRAMEBUFF", OpenAs("options_sabers", strings::SABERS)),
             ("BTN_TEXQUAL", Greyed),
             ("BTN_TEXQUALLEFT", Greyed),
             ("BTN_TEXQUALRIGHT", Greyed),

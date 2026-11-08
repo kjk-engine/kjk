@@ -1370,6 +1370,30 @@ pub(super) fn options() -> Vec<Check> {
             ],
         ),
     );
+    assets.layouts.insert(
+        "optgraphicsadv",
+        root(
+            640,
+            480,
+            vec![
+                check_box("CB_FRAMEBUFF", 0, 100),
+                linked("BTN_BACK", 1, 400, -1, -1),
+            ],
+        ),
+    );
+    assets.layouts.insert(
+        "optgraphics",
+        root(
+            640,
+            480,
+            vec![
+                linked("BTN_RESOLUTION", 0, 100, -1, -1),
+                linked("BTN_ADVANCED", 1, 140, -1, -1),
+                check_box("CB_SHADOWS", 2, 180),
+                linked("BTN_BACK", 3, 400, -1, -1),
+            ],
+        ),
+    );
     keymap_layouts(&mut assets);
     let vm = ViewModel {
         settings: [
@@ -1407,6 +1431,15 @@ pub(super) fn options() -> Vec<Check> {
         .map(|tag| press(&mut gameplay, &mut assets, &vm, tag));
     press(&mut gameplay, &mut assets, &vm, "CB_LEVELUP");
     let controller = gameplay.top().map(|screen| screen.0) == Some("options_controller");
+    // The sabers' page opens from the advanced graphics page's frame buffer
+    // box; its hilts step on from KOTOR's (unset) and its box turns the
+    // stances on.
+    let mut advanced = opened("options_graphics_advanced", &mut assets, &vm);
+    press(&mut advanced, &mut assets, &vm, "CB_FRAMEBUFF");
+    let sabers_open = advanced.top().map(|screen| screen.0) == Some("options_sabers");
+    let mut sabers = opened("options_sabers", &mut assets, &vm);
+    let picked = ["BTN_RESOLUTION", "BTN_ADVANCED", "CB_SHADOWS"]
+        .map(|tag| press(&mut sabers, &mut assets, &vm, tag));
     let mut keymap = opened("options_keymap", &mut assets, &vm);
     keymap.step(&mut assets, &vm, &keys(&[Key::Activate]));
     let entry_open = keymap.top().map(|screen| screen.0) == Some("key_entry");
@@ -1450,6 +1483,19 @@ pub(super) fn options() -> Vec<Check> {
                         setting("game.duel_slow_motion", "true"),
                     ]
                     && controller,
+            )
+        })
+        .and_then(|()| {
+            let setting = |key: &str, value: &str| vec![Intent::Setting(key.into(), value.into())];
+            expect(
+                &format!("the sabers' page and its hilts and stances: {sabers_open} {picked:?}"),
+                sabers_open
+                    && picked
+                        == [
+                            setting("saber.hilt.single", "single_1"),
+                            setting("saber.hilt.double", "dual_1"),
+                            setting("game.duel_stances", "true"),
+                        ],
             )
         })
         .and_then(|()| expect("a row opens the key entry", entry_open))
