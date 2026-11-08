@@ -7,8 +7,8 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
-use asset_odyssey::model::ModelIr;
-use asset_odyssey::texture::TextureIr;
+use asset_odyssey::model::{MeshIr, ModelIr};
+use asset_odyssey::texture::{TextureFacts, TextureIr};
 use bevy::asset::RenderAssetUsages;
 use bevy::light::NotShadowCaster;
 use bevy::mesh::Indices;
@@ -24,7 +24,9 @@ use crate::glow_shell::GlowMaterial;
 use crate::made::Made;
 use crate::material::{self, OdysseyMaterial, Surface};
 use crate::prop_breaks::{PropChanges, PropsSeen};
-use crate::scene::{DrawnBlades, MeshPart, SceneContent, SceneModel, base_mesh, game_to_bevy};
+use crate::scene::{
+    AnimatedMaterials, DrawnBlades, MeshPart, SceneContent, SceneModel, base_mesh, game_to_bevy,
+};
 use crate::script_fx::{HookVisual, HookVisuals, Place};
 use crate::shot_fx::BoltEnds;
 use crate::sim_host::{PresentedSnapshot, SceneSwap};
@@ -60,6 +62,18 @@ const MARK_M: (f32, f32) = (0.08, 0.14);
 const SHARDS: (usize, usize) = (3, 6);
 const SHARD_SPEED: (f32, f32) = (2.0, 3.5);
 const SHARD_FADE_MS: f64 = 1500.0;
+/// More dents at each damage stage, how wide and deep (m), by size.
+const DENTS: [usize; 3] = [2, 2, 4];
+const DENT_RADIUS_M: [f32; 3] = [0.15, 0.15, 0.3];
+const DENT_DEPTH_M: [f32; 3] = [0.04, 0.04, 0.08];
+/// A prop's material at each damage stage (0, 1, 2 and on) is this dark.
+const DARKENED: [f32; 3] = [1.0, 0.75, 0.45];
+/// A mesh glowing more than this in any channel is a screen; a dead screen
+/// is this dark on top; a scarred one flickers every so often (ms, seeded
+/// between).
+const SCREEN_GLOW: f32 = 0.1;
+const SCREEN_DEAD: f32 = 0.2;
+const FLICKER_MS: (f32, f32) = (80.0, 300.0);
 /// A blade whose hilt is this near a prop's feet (m) may have struck it; a
 /// blow from this near is a fist's or a kick's.
 const BLADE_REACH_M: f32 = 3.0;
@@ -309,6 +323,28 @@ pub(crate) struct PropLooks {
     marks: BTreeMap<u32, VecDeque<Vec<Entity>>>,
     /// Props jolting from a blow.
     jolts: BTreeMap<u32, Jolt>,
+    /// Each damaged prop's stage as the sim has it, and as drawn.
+    wanted: BTreeMap<u32, (u8, sim::destruction::Destructible, [f32; 3])>,
+    staged: BTreeMap<u32, Staged>,
+}
+
+/// A damaged prop as drawn: its stage, and each of its meshes' own
+/// material.
+struct Staged {
+    stage: u8,
+    meshes: Vec<StagedMesh>,
+}
+
+/// A damaged prop's mesh with its own copy of its material: the copy's
+/// tint and glow as the model has them, whether it is a screen, and when a
+/// scarred screen next flickers (ms of `Time`) and whether it is lit.
+struct StagedMesh {
+    copy: Handle<OdysseyMaterial>,
+    tint: Vec4,
+    self_illum: Vec4,
+    screen: bool,
+    next_ms: f64,
+    lit: bool,
 }
 
 /// What struck a prop.
@@ -348,7 +384,7 @@ impl Plugin for PropLooksPlugin {
             .init_resource::<PropLooks>()
             .add_systems(
                 PostUpdate,
-                (hits, wrecks, fly)
+                (hits, stages, wrecks, fly)
                     .chain()
                     .after(PropsSeen)
                     .after(crate::shot_fx::ShotsSeen)
@@ -692,6 +728,10 @@ fn hits(
             (feet, change.d.size),
             from,
         );
+        debug!(
+            "prop #{} ({}) struck by {:?} at {:.2?} facing {:.2?}",
+            change.index, ir.name, found.blow, found.at, found.normal
+        );
         looks.impacts.insert(change.index, found);
         if wreck(change.was, change.now) != Wreck::Standing {
             continue;
@@ -894,6 +934,230 @@ fn spawn_piece(
     }
 }
 
+/// What a damage stage is drawn with: the meshes, the materials and those
+/// that scroll or flip.
+type StageMakers<'w> = (
+    ResMut<'w, Assets<Mesh>>,
+    ResMut<'w, Assets<OdysseyMaterial>>,
+    Option<ResMut<'w, AnimatedMaterials>>,
+);
+
+/// Whether a clip of `ir`'s own moves node `node`.
+fn keyed(ir: &ModelIr, node: usize) -> bool {
+    let Some(name) = ir.nodes.get(node).map(|node| &node.name) else {
+        return false;
+    };
+    (ir.animations.iter().flat_map(|clip| &clip.tracks)).any(|track| {
+        track.node.eq_ignore_ascii_case(name)
+            && (track.positions.len() > 1 || track.orientations.len() > 1)
+    })
+}
+
+/// Damaged props drawn at their stage (`sim::destruction::stage`): their
+/// own copy of each material darkened; a damage-class one dented at seeded
+/// points of its static meshes and its screens flickering, then dead with
+/// a burst of sparks. Collision never changes.
+#[allow(clippy::too_many_arguments)]
+fn stages(
+    mut commands: Commands,
+    (swap, scene, made): (Res<SceneSwap>, Res<SceneContent>, Option<Res<Made>>),
+    changes: Res<PropChanges>,
+    (mut fractures, mut looks): (ResMut<Fractures>, ResMut<PropLooks>),
+    scene_models: Query<(Entity, &SceneModel)>,
+    (children, parts): (Query<&Children>, MeshParts),
+    (mut meshes, mut materials, mut animated): StageMakers,
+    visuals: Option<ResMut<HookVisuals>>,
+    time: Res<Time>,
+) {
+    if looks.generation != swap.generation {
+        return;
+    }
+    for change in &changes.changes {
+        if change.was.is_none() {
+            debug!(
+                "prop #{} ({:?}) stands at {:.1?}",
+                change.index, change.d, change.position
+            );
+        }
+        let stage = sim::destruction::stage(change.d, change.now.1);
+        if stage > 0 && change.now.0 != look::DEAD {
+            looks
+                .wanted
+                .insert(change.index, (stage, change.d, change.position));
+        }
+    }
+    let now_ms = time.elapsed_secs_f64() * 1000.0;
+    let made = made.as_deref();
+    let mut sparked = Vec::new();
+    let due: Vec<(u32, u8, sim::destruction::Destructible, [f32; 3])> = (looks.wanted.iter())
+        .filter(|(index, (stage, ..))| {
+            looks
+                .staged
+                .get(index)
+                .is_none_or(|drawn| drawn.stage < *stage)
+        })
+        .map(|(&index, &(stage, d, feet))| (index, stage, d, feet))
+        .collect();
+    for (index, stage, d, feet) in due {
+        let Some((model, root)) = model_of(index, (&scene, made), &scene_models) else {
+            continue;
+        };
+        let ir = &scene.0.models[model].ir;
+        let seed =
+            shatter::seed_of(&ir.name) ^ u64::from(index).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        let drawn: Vec<(Entity, usize, Handle<OdysseyMaterial>)> = (children
+            .iter_descendants(root))
+        .filter_map(|entity| {
+            let (part, material) = parts.get(entity).ok()?;
+            Some((entity, part.0, material.0.clone()))
+        })
+        .collect();
+        // Each mesh's own material, copied the first time.
+        let staged = looks.staged.entry(index).or_insert_with(|| {
+            let mut own = Vec::new();
+            for (entity, number, material) in &drawn {
+                let Some(copy) = materials.get(material).cloned() else {
+                    continue;
+                };
+                let (tint, self_illum) = (copy.params.tint, copy.params.self_illum);
+                let copy = materials.add(copy);
+                if let Some(animated) = animated.as_deref_mut() {
+                    animated.copied(material, &copy);
+                }
+                commands
+                    .entity(*entity)
+                    .try_insert(MeshMaterial3d(copy.clone()));
+                let mesh = &ir.meshes[*number];
+                let facts = mesh
+                    .texture
+                    .as_ref()
+                    .and_then(|name| scene.0.textures.get(name))
+                    .map(|t| &t.facts);
+                own.push(StagedMesh {
+                    copy,
+                    tint,
+                    self_illum,
+                    screen: d.class == Class::Damage && screen(mesh, facts),
+                    next_ms: now_ms,
+                    lit: true,
+                });
+            }
+            Staged {
+                stage: 0,
+                meshes: own,
+            }
+        });
+
+        debug!(
+            "prop #{index} ({}) at stage {stage}: {} meshes, {} screens",
+            ir.name,
+            staged.meshes.len(),
+            staged.meshes.iter().filter(|mesh| mesh.screen).count()
+        );
+        let dies = staged.stage < 2 && stage >= 2;
+        staged.stage = stage;
+        for mesh in &staged.meshes {
+            let Some(mut material) = materials.get_mut(&mesh.copy) else {
+                continue;
+            };
+            let dark = darkened(stage)
+                * if mesh.screen && stage >= 2 {
+                    SCREEN_DEAD
+                } else {
+                    1.0
+                };
+            material.params.tint = (mesh.tint.truncate() * dark).extend(mesh.tint.w);
+            if mesh.screen && stage >= 2 {
+                material.params.self_illum = Vec4::ZERO;
+                if let Some(animated) = animated.as_deref_mut() {
+                    animated.stop(mesh.copy.id());
+                }
+            }
+        }
+        if dies && staged.meshes.iter().any(|mesh| mesh.screen) {
+            let middle = Vec3::from_array(feet)
+                + Vec3::Z * rules::destruction::bodies::HEIGHT_M[d.size as usize] / 2.0;
+            sparked.push(HookVisual {
+                row: crate::prop_breaks::hit_row(Material::Electronic),
+                place: Place::At(middle),
+            });
+        }
+        if d.class != Class::Damage {
+            continue;
+        }
+        let cut = fractures.plains(ir, &scene.0.textures);
+        let pressed = dents(seed, stage, d.size, &cut.0);
+        for (entity, number, _) in &drawn {
+            let mesh = &ir.meshes[*number];
+            let Some(plain) = cut.1.iter().position(|n| n == number) else {
+                continue;
+            };
+            if !dentable(mesh, keyed(ir, mesh.node)) {
+                continue;
+            }
+            let ours: Vec<_> = pressed.iter().filter(|dent| dent.0 == plain).collect();
+            if ours.is_empty() {
+                continue;
+            }
+            // The dents are in the model's frame; the mesh is in its node's.
+            let world = ir
+                .nodes
+                .get(mesh.node)
+                .map_or(asset_odyssey::model::IDENTITY, |n| n.world);
+            let to_node = crate::scene::to_mat4(&world).inverse();
+            let mut positions = mesh.positions.clone();
+            for &&(_, centre, radius, depth) in &ours {
+                let local = to_node.transform_point3(Vec3::from_array(centre));
+                shatter::dent(
+                    &mut positions,
+                    &mesh.normals,
+                    local.to_array(),
+                    radius,
+                    depth,
+                );
+            }
+            let mut rebuilt = base_mesh(
+                &positions,
+                &mesh.normals,
+                &mesh.uv1,
+                RenderAssetUsages::RENDER_WORLD,
+            );
+            if mesh.lightmap.is_some() && mesh.uv2.len() == positions.len() {
+                rebuilt.insert_attribute(Mesh::ATTRIBUTE_UV_1, mesh.uv2.clone());
+            }
+            rebuilt.insert_indices(Indices::U32(mesh.indices.clone()));
+            commands
+                .entity(*entity)
+                .try_insert(Mesh3d(meshes.add(rebuilt)));
+        }
+    }
+    // Scarred screens flicker.
+    for (&index, staged) in &mut looks.staged {
+        if staged.stage != 1 {
+            continue;
+        }
+        for mesh in staged
+            .meshes
+            .iter_mut()
+            .filter(|mesh| mesh.screen && now_ms >= mesh.next_ms)
+        {
+            mesh.lit = !mesh.lit;
+            let roll = noise(&[mesh.next_ms as f32], u64::from(index));
+            mesh.next_ms = now_ms + f64::from(FLICKER_MS.0 + (FLICKER_MS.1 - FLICKER_MS.0) * roll);
+            if let Some(mut material) = materials.get_mut(&mesh.copy) {
+                material.params.self_illum = if mesh.lit {
+                    mesh.self_illum
+                } else {
+                    Vec4::ZERO
+                };
+            }
+        }
+    }
+    if let Some(mut visuals) = visuals {
+        visuals.0.extend(sparked);
+    }
+}
+
 /// The world and its floor flag, borrowed apart from the rest.
 struct LooksWorld<'a> {
     world: &'a mut ragdoll::World,
@@ -986,6 +1250,66 @@ pub(crate) fn keep_newest<T>(marks: &mut VecDeque<T>, mark: T) -> Option<T> {
     (marks.len() > MARKS).then(|| marks.pop_front()).flatten()
 }
 
+/// The dents a damage-class prop of `size` has at `stage`, seeded by
+/// `seed` (its model's and its own): `DENTS` more at each stage, at seeded
+/// points on the surface of `meshes` (model frame): which mesh, where, how
+/// wide and how deep (m). A later stage keeps the earlier ones.
+pub(crate) fn dents(
+    seed: u64,
+    stage: u8,
+    size: Size,
+    meshes: &[Plain],
+) -> Vec<(usize, [f32; 3], f32, f32)> {
+    let triangles: Vec<(usize, [u32; 3])> = (meshes.iter().enumerate())
+        .flat_map(|(m, plain)| {
+            plain
+                .indices
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .map(move |t| (m, *t))
+        })
+        .collect();
+    if triangles.is_empty() {
+        return Vec::new();
+    }
+    let size = size as usize;
+    let mut found = Vec::new();
+    for stage in 1..=stage {
+        for dent in 0..DENTS[size] {
+            let roll = |k: u8| noise(&[f32::from(stage), dent as f32, f32::from(k)], seed);
+            let pick = ((roll(0) * triangles.len() as f32) as usize).min(triangles.len() - 1);
+            let (m, t) = triangles[pick];
+            let corner = |i: usize| Vec3::from_array(meshes[m].positions[t[i] as usize]);
+            let (mut u, mut v) = (roll(1), roll(2));
+            if u + v > 1.0 {
+                (u, v) = (1.0 - u, 1.0 - v);
+            }
+            let at = corner(0) + (corner(1) - corner(0)) * u + (corner(2) - corner(0)) * v;
+            found.push((m, at.to_array(), DENT_RADIUS_M[size], DENT_DEPTH_M[size]));
+        }
+    }
+    found
+}
+
+/// Whether a mesh is a screen: it glows, or its texture scrolls or flips.
+pub(crate) fn screen(mesh: &MeshIr, facts: Option<&TextureFacts>) -> bool {
+    mesh.self_illum.iter().any(|&c| c > SCREEN_GLOW)
+        || mesh.uv_scroll.is_some()
+        || facts.is_some_and(|facts| facts.cycle.is_some())
+}
+
+/// Whether a mesh may be dented: not skinned, dangly or keyed by a clip
+/// (`keyed`), whose motion a rebuilt mesh would freeze or tear.
+pub(crate) fn dentable(mesh: &MeshIr, keyed: bool) -> bool {
+    !mesh.skinned && mesh.skin.is_none() && mesh.dangly.is_none() && !keyed
+}
+
+/// How dark a prop's material is at a damage stage.
+pub(crate) fn darkened(stage: u8) -> f32 {
+    DARKENED[usize::from(stage).min(DARKENED.len() - 1)]
+}
+
 #[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
     use sim::look;
@@ -1022,7 +1346,124 @@ pub fn probes() -> sim::probe::Checks {
     let dropped: Vec<u32> = (1..=9)
         .filter_map(|mark| keep_newest(&mut marks, mark))
         .collect();
+    let mesh = |self_illum: [f32; 3]| MeshIr {
+        node: 0,
+        positions: vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        normals: vec![[0.0, 0.0, 1.0]; 3],
+        uv1: vec![[0.0; 2]; 3],
+        uv2: Vec::new(),
+        indices: vec![0, 1, 2],
+        texture: Some("screen".into()),
+        lightmap: None,
+        transparency_hint: 0,
+        skinned: false,
+        self_illum,
+        alpha: 1.0,
+        ambient: [1.0; 3],
+        diffuse: [1.0; 3],
+        uv_scroll: None,
+        skin: None,
+        dangly: None,
+    };
+    let lit = screen(&mesh([0.5; 3]), None);
+    let dark = screen(&mesh([0.0; 3]), None);
+    let scrolls = screen(
+        &MeshIr {
+            uv_scroll: Some([1.0, 0.0]),
+            ..mesh([0.0; 3])
+        },
+        None,
+    );
+    let flips = screen(
+        &mesh([0.0; 3]),
+        Some(&TextureFacts {
+            cycle: Some((4, 8.0)),
+            ..TextureFacts::default()
+        }),
+    );
+    let skinned = MeshIr {
+        skin: Some(asset_odyssey::model::SkinIr {
+            joints: Vec::new(),
+            inverse_binds: Vec::new(),
+            rest_inverse_binds: Vec::new(),
+            vertex_joints: Vec::new(),
+            vertex_weights: Vec::new(),
+        }),
+        ..mesh([0.0; 3])
+    };
+    let dangly = MeshIr {
+        dangly: Some(asset_odyssey::model::DanglyIr {
+            displacement: 0.0,
+            tightness: 0.0,
+            period: 0.0,
+            constraints: Vec::new(),
+            rest: Vec::new(),
+        }),
+        ..mesh([0.0; 3])
+    };
+    let dentables = [
+        dentable(&mesh([0.0; 3]), false),
+        dentable(&skinned, false),
+        dentable(&dangly, false),
+        dentable(&mesh([0.0; 3]), true),
+    ];
+    let surface = [Plain {
+        positions: vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.0]],
+        normals: vec![[0.0, 0.0, 1.0]; 4],
+        uvs: vec![[0.0; 2]; 4],
+        indices: vec![0, 1, 2, 2, 1, 3],
+        capped: true,
+    }];
+    let (one, two) = (
+        dents(7, 1, Size::Medium, &surface),
+        dents(7, 2, Size::Medium, &surface),
+    );
+    let large = dents(7, 1, Size::Large, &surface);
+    let again = dents(7, 2, Size::Medium, &surface);
+    let darks = [0, 1, 2, 3].map(darkened);
     vec![
+        (
+            "prop_stage_dents_same",
+            check(
+                one.len() == 2
+                    && two.len() == 4
+                    && two.starts_with(&one)
+                    && two == again
+                    && large.len() == 4,
+                format!(
+                    "medium stage 1 {} dents (want 2), stage 2 {} holding stage 1's {} (want 4, true), \
+                     the same again {}, large stage 1 {} (want 4)",
+                    one.len(),
+                    two.len(),
+                    two.starts_with(&one),
+                    two == again,
+                    large.len()
+                ),
+            ),
+        ),
+        (
+            "prop_stage_screen",
+            check(
+                lit && !dark && scrolls && flips,
+                format!(
+                    "glowing {lit}, dark {dark}, scrolling {scrolls}, flipping {flips} (want true, false, true, true)"
+                ),
+            ),
+        ),
+        (
+            "prop_stage_skips_moving",
+            check(
+                dentables == [true, false, false, false],
+                format!("still, skinned, dangly, keyed: {dentables:?} (want only the still one)"),
+            ),
+        ),
+        (
+            "prop_stage_dark",
+            check(
+                darks == [1.0, 0.75, 0.45, 0.45],
+                format!("stages 0-3 {darks:?} (want [1, 0.75, 0.45, 0.45])"),
+            ),
+        ),
         (
             "prop_hit_shake",
             check(

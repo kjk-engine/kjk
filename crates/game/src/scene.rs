@@ -765,6 +765,12 @@ impl AnimatedMaterials {
         }
     }
 
+    /// Stops `material` scrolling and flipping: it keeps the frame it has.
+    pub fn stop(&mut self, material: AssetId<OdysseyMaterial>) {
+        self.scrolling.retain(|(id, _)| *id != material);
+        self.flipbooks.retain(|(id, ..)| *id != material);
+    }
+
     /// Drops the entries of materials that are gone.
     fn prune(&mut self, materials: &Assets<OdysseyMaterial>) {
         self.scrolling.retain(|(id, _)| materials.contains(*id));
