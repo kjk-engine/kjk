@@ -26,6 +26,7 @@ pub mod save {
     pub const MOD_ROUTINES: crate::Since = crate::Since(crate::Stored::Save, 76);
     pub const MOD_ROUTINES_2: crate::Since = crate::Since(crate::Stored::Save, 77);
     pub const CLAUDE_K1_ROUTINES: crate::Since = crate::Since(crate::Stored::Save, 78);
+    pub const CLAUDE_KREIA_HAND: crate::Since = crate::Since(crate::Stored::Save, 79);
     #[allow(unused_imports)]
     pub use crate::pending::since::save::*;
 }
@@ -46,6 +47,7 @@ pub mod snapshot {
     pub const CLAUDE_K1_ROUTINES: crate::Since = crate::Since(crate::Stored::Snapshot, 85);
     pub const BR_COMBAT: crate::Since = crate::Since(crate::Stored::Snapshot, 86);
     pub const CLAUDE_BR_TSL_STORY: crate::Since = crate::Since(crate::Stored::Snapshot, 87);
+    pub const CLAUDE_BR8_ISSUE_209: crate::Since = crate::Since(crate::Stored::Snapshot, 88);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }

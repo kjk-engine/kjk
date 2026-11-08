@@ -1,8 +1,0 @@
-# The level-up screen offers the skill points a character left unspent at
-# its levels before, added to the level's own, so the snapshot shows them.
-
-[formats]
-snapshot = "the story's progress shows the skill points each character left unspent (`Progress::unspent`)."
-
-[migrations]
-snapshot = "old saves read none shown: the first step shows those the scripts' state kept"
