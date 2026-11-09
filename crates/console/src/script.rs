@@ -32,6 +32,9 @@ pub enum Command {
     /// Frames drawn without the screens (`clean on`): no HUD, subtitles or
     /// conversation box over the world.
     Clean(bool),
+    /// Every blade's killing blow cuts a limb off (`sever every`), or as
+    /// often as the rulebook says again (`sever rule`): for filming.
+    SeverEvery(bool),
     /// Freezes animation time (scrolling textures, flip-books) at a number
     /// of seconds, or lets it run again (`anim run`), so shots repeat.
     Anim(Option<f32>),
@@ -162,6 +165,9 @@ impl fmt::Display for Command {
                 Ok(())
             }
             Command::Clean(on) => write!(f, "clean {}", if *on { "on" } else { "off" }),
+            Command::SeverEvery(every) => {
+                write!(f, "sever {}", if *every { "every" } else { "rule" })
+            }
             Command::Anim(Some(seconds)) => write!(f, "anim {seconds}"),
             Command::Anim(None) => f.write_str("anim run"),
             Command::Until(state) => write!(f, "wait {state}"),
@@ -335,6 +341,8 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
             ("campath", _) => return Err(error(CAMPATH_USAGE)),
             ("clean", [on @ ("on" | "off")]) => Command::Clean(*on == "on"),
             ("clean", _) => return Err(error("clean takes on or off")),
+            ("sever", [how @ ("every" | "rule")]) => Command::SeverEvery(*how == "every"),
+            ("sever", _) => return Err(error("sever takes every or rule")),
             ("camera", words) if words.len() == 5 || words.len() == 6 => {
                 let numbers: Vec<f32> = words.iter().filter_map(|word| word.parse().ok()).collect();
                 if numbers.len() != words.len() || numbers.iter().any(|n: &f32| !n.is_finite()) {
@@ -377,8 +385,8 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
                     [fps] => fps
                         .parse()
                         .ok()
-                        .filter(|fps| (1..=120).contains(fps))
-                        .ok_or_else(|| error("record: fps is 1 to 120"))?,
+                        .filter(|fps| (1..=240).contains(fps))
+                        .ok_or_else(|| error("record: fps is 1 to 240"))?,
                     _ => unreachable!("guarded"),
                 };
                 if to <= from {

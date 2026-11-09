@@ -68,6 +68,11 @@ pub struct CameraRequest(pub Option<CameraPose>);
 #[derive(Resource, Default, Debug)]
 pub struct CleanFrames(pub bool);
 
+/// Every blade's killing blow cuts a limb off (`sever every`), not as often
+/// as the rulebook says (`sever rule`): for filming.
+#[derive(Resource, Default, Debug)]
+pub struct EveryKillCuts(pub bool);
+
 /// States other plugins publish for `wait <state>` (`world`, `loading`).
 #[derive(Resource, Default, Debug)]
 pub struct States(pub BTreeMap<String, bool>);
@@ -133,6 +138,7 @@ impl Plugin for ConsolePlugin {
         .init_resource::<CameraRequest>()
         .init_resource::<CameraMotion>()
         .init_resource::<CleanFrames>()
+        .init_resource::<EveryKillCuts>()
         .init_resource::<AnimationTime>()
         .init_resource::<GameClock>()
         .init_resource::<States>()
@@ -279,10 +285,11 @@ fn run_queue(
     folder: Res<RunFolder>,
     target: Option<Res<CaptureTarget>>,
     mut facts: ResMut<DumpFacts>,
-    (mut camera, mut motion, mut clean): (
+    (mut camera, mut motion, mut clean, mut sever): (
         ResMut<CameraRequest>,
         ResMut<CameraMotion>,
         ResMut<CleanFrames>,
+        ResMut<EveryKillCuts>,
     ),
     mut animation: ResMut<AnimationTime>,
     (pipelines, states): (Res<Pipelines>, Res<States>),
@@ -376,6 +383,7 @@ fn run_queue(
                 };
             }
             Command::Clean(on) => clean.0 = *on,
+            Command::SeverEvery(every) => sever.0 = *every,
             Command::Ui(words) => screens.0.push(words.clone()),
             Command::Vfx(words) => visuals.0.push(words.clone()),
             Command::Arena(words) => arena.0.push(words.clone()),
@@ -479,6 +487,7 @@ fn run_queue(
         | Command::CamPath { .. }
         | Command::Follow(_)
         | Command::Clean(_)
+        | Command::SeverEvery(_)
         | Command::Anim(_)
         | Command::Clip
         | Command::Ui(_)

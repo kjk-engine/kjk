@@ -1,5 +1,6 @@
-//! Dismemberment: a blade's killing blow cuts a limb off about one time in
-//! three, as JA's saber cuts (`g_combat.c`'s rules, our numbers): the head,
+//! Dismemberment: a blade's killing blow cuts a limb off as often as the
+//! rulebook says (`combat.severing.chance`), every time while filming
+//! (`sever every`), as JA's saber cuts (`g_combat.c`'s rules, our numbers): the head,
 //! the waist (the body in half), an arm, the right hand or a leg, by where
 //! the blade landed. A lightsaber's, and (the owner's addition) any edged
 //! melee weapon's, a sword's or a vibroblade's; never a staff's or a baton's. View-side like the ragdoll it acts on:
@@ -39,9 +40,6 @@ use crate::cast::Rest;
 use crate::material::OdysseyMaterial;
 use crate::ragdolls::Doll;
 
-/// How often a blade's killing blow cuts (in a hundred): tuning, the
-/// owner's choice (KOTOR cuts nothing).
-const CHANCE: u64 = 33;
 /// How fast a severed limb leaves its body (m/s) and how hard it tumbles
 /// (rad/s).
 const THROW: f32 = 6.0;
@@ -111,9 +109,10 @@ fn roll(id: SimId, tick: u64, salt: u64) -> u64 {
 }
 
 /// The part a killing `hit` of an edge cuts off `template`'s body, if it
-/// cuts: one time in three (by the character and its killing hit).
-pub fn limb(template: &Template, hit: &Event, id: SimId) -> Option<usize> {
-    if roll(id, hit.tick, 1) % 100 >= CHANCE {
+/// cuts: as often as the rulebook says (by the character and its killing
+/// hit), or always (`every`, for filming).
+pub fn limb(template: &Template, hit: &Event, id: SimId, every: bool) -> Option<usize> {
+    if !every && roll(id, hit.tick, 1) % 100 >= rules::combat::severing::CHANCE {
         return None;
     }
     let parts = &template.parts;
