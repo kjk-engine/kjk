@@ -1577,6 +1577,24 @@ impl Engine<'_> {
         }
     }
 
+    /// The visuals put at a place that `gone`, destroyed with no delay, was
+    /// to carry (`ApplyEffectAtLocation` by a character) go to the party's
+    /// leader, as one from a trigger does: `gone` leaves the world before
+    /// the next step's pipeline would show them (Peragus' floating mine
+    /// sets off its blast, then destroys itself).
+    fn carry_off(&mut self, gone: ObjectId) {
+        let Some(leader) = self.view.party.first().copied().filter(|l| *l != gone) else {
+            return;
+        };
+        for applied in &mut self.state.applied {
+            let visual =
+                (applied.effect.leaves().iter()).all(|leaf| matches!(leaf, Effect::Visual { .. }));
+            if applied.target == gone && applied.at.is_some() && visual {
+                applied.target = leader;
+            }
+        }
+    }
+
     /// Changes the area's sound as this step's scripts leave it, and
     /// answers `then` of it.
     fn area_sound<T>(&mut self, change: impl FnOnce(&mut crate::snapshot::AreaSound) -> T) -> T {
@@ -5589,6 +5607,7 @@ impl Engine<'_> {
                     let ms = seconds_ms(float(args, 1));
                     if ms == 0 {
                         self.out.destroyed.push(item);
+                        self.carry_off(item);
                     }
                     self.out.changes.push(Change::Destroy {
                         who: item,

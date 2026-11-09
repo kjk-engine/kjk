@@ -1,5 +1,5 @@
 # The sim's hash moves on purpose (beyond the snapshot bump): why.
-sim = "each room keeps the clip scripts last played on it, so a script playing one room's clip no longer stops another's (104per's Harbinger)"
+sim = "each room keeps the clip scripts last played on it, so a script playing one room's clip no longer stops another's (104per's Harbinger); a visual a character puts at a place, then destroys itself with no delay, is carried by the party's leader, so it still shows (103per's floating mines)"
 
 [formats]
 snapshot = "the area's sound carries the clip scripts play on each room (`AreaSound::rooms`), not only the last one played."
