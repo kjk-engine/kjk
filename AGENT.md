@@ -57,7 +57,7 @@ merges it. What has gone wrong before, and the rule that prevents it:
   Chain them so a failure stops the commit. Write files with LF endings: a
   CRLF edit once failed the fmt check after it was committed.
 * **The sim hash and format versions are numbered at merge.** Never edit
-  `KJK_SIM_HASH` or a `VERSION` number on a branch: say the change in
+  `bumps/SIM_HASH` or a `VERSION` number on a branch: say the change in
   `bumps/<branch>.toml` (`sim = "why"`, `[formats] snapshot = "…"`) and
   the merge pins and numbers it (`bumps/README.md`). Say so in the report.
 * **Reserved numbers.** The parent hands each agent its `QUIRKS.md` numbers

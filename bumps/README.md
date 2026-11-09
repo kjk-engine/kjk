@@ -1,7 +1,8 @@
 # Bumps: numbered at merge
 
 A branch never edits a format's version number (KJKS, KJKV, KJKR, …) or
-the sim hash's pin (`KJK_SIM_HASH` in `ci.yml` and `manual.yml`). Two
+the sim hash's pin (`bumps/SIM_HASH`; it was in the workflows until the
+pin workflow's token proved unable to change them). Two
 branches doing so took the same numbers and fought over the same lines:
 111 re-pins, about a tenth of all commits, and 17 snapshot versions taken
 twice. Instead a branch says what it changes in a file of its own here,

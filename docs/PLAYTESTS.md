@@ -257,8 +257,8 @@ Tools for the second look:
   on several modules before and after, from a clean build of the base
   (`git worktree add`, its build folder seeded as `BUILD.md` says). No
   module may lose.
-- Gate before committing: fmt, clippy, approved tests with `KJK_SIM_HASH`
-  (`TESTS.md`). The sim hash moves only for a change on purpose.
+- Gate before committing: fmt, clippy, approved tests against the pinned
+  `bumps/SIM_HASH` (`TESTS.md`). The sim hash moves only for a change on purpose.
 - Log every blocker and its fate.
 
 ## Keeping the chain robust
