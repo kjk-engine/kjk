@@ -5524,7 +5524,7 @@ impl Engine<'_> {
                     .zip(u8::try_from(int(args, 1)).ok())
                     .is_some_and(|((held, facts), row)| {
                         facts
-                            .fitted(held.upgrades, &held.fitted, catalog)
+                            .fitted(held.upgrades, &held.fitted, catalog, &self.state.known)
                             .has_row(row)
                     }),
             ),

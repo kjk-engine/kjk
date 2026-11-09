@@ -994,7 +994,8 @@ impl State {
     }
 
     /// `known` for a module whose catalog is `next`, leaving one whose
-    /// catalog was `last`: the facts of every item in play `next` lacks.
+    /// catalog was `last`: the facts of every item in play `next` lacks,
+    /// and of every upgrade fitted to one (TSL's `Item::fitted`).
     pub(crate) fn carry_known(
         &mut self,
         last: &crate::inventory::Catalog,
@@ -1003,8 +1004,9 @@ impl State {
         let known = self
             .items
             .values()
-            .filter(|item| next.get(&item.template).is_none())
-            .filter_map(|item| self.item_facts(last, &item.template).cloned())
+            .flat_map(|item| std::iter::once(&item.template).chain(&item.fitted))
+            .filter(|template| next.get(template).is_none())
+            .filter_map(|template| self.item_facts(last, template).cloned())
             .map(|facts| (facts.template.clone(), facts))
             .collect();
         self.known = known;

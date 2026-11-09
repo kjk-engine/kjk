@@ -53,7 +53,10 @@ on the authority; a save carries it.
   reads an item in play reads its facts so (`inventory::facts_in_play`:
   the catalog's, else those kept), and the goods every seat sees carry
   them (`Goods::known`, `Goods::facts`): the equip page, a guest's too,
-  lists and wears the Exile's Peragus clothes on Telos. A story restore
+  lists and wears the Exile's Peragus clothes on Telos. The upgrades
+  fitted to an item (TSL's `Item::fitted`) are kept and read so too
+  (`ItemFacts::fitted`): one that is its module's own still counts on
+  the item carried out of it. A story restore
   keeps so the facts of the items the module restored in lacks.
 - **Sheets.** A creature's sheet is read without its items and dressed by
   them (`inventory::dress`): the weapons in its hands, its body armour's
