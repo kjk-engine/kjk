@@ -7,6 +7,7 @@ kjk --headless --cmds 'wait 60f; screenshot; quit'   # no window
 kjk --load quick                      # opens on a save (`quick`, `0001`, …), as the main menu loads it
 KJK_PERF=1 kjk --cmds '…'             # also writes a trace
 kjk play --mute …                     # no sound (or KJK_MUTE=1); the settings' volumes untouched
+kjk --reset-display                   # opens in a window: the settings' screen resolution put back
 KJK_MOVIES=1 kjk play --headless …    # movies played headless too (SOUND.md)
 kjk movie import k1 01a               # a movie made ours by ffmpeg, in the store
 kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model

@@ -669,6 +669,9 @@ fn page_keys(page: &str) -> &'static [&'static str] {
         "options_sound" => &["sound.music", "sound.voice", "sound.effects", "sound.movie"],
         "options_graphics" => &["display.gamma", "display.shadows", "display.grass"],
         "options_graphics_advanced" => &["display.vsync", "display.msaa", "display.soft_shadows"],
+        // The window's mode and size alone: a start that did not get going
+        // with them (`display::recover`), `kjk --reset-display`.
+        "display" => &["display.mode", "display.size"],
         _ => &[],
     }
 }
@@ -682,10 +685,7 @@ pub(crate) fn install_key(game: vfs::Game) -> String {
 /// (`KJK_KOTOR1`, …), read from the settings file alone: `discover` reads
 /// them before any app, and saves nothing.
 pub(crate) fn chosen_installs() -> std::collections::HashMap<String, String> {
-    let path = std::env::var_os("KJK_SETTINGS")
-        .map(PathBuf::from)
-        .or_else(|| folder().map(|folder| folder.join("settings.json")));
-    let values = path
+    let values = file()
         .and_then(|path| std::fs::read_to_string(path).ok())
         .and_then(|text| serde_json::from_str::<BTreeMap<String, String>>(&text).ok())
         .unwrap_or_else(BTreeMap::new);
@@ -701,6 +701,14 @@ pub(crate) fn chosen_installs() -> std::collections::HashMap<String, String> {
 /// The folder for this program's settings: the platform's own place.
 pub(crate) fn folder() -> Option<PathBuf> {
     store::kjk_folder(|name| std::env::var(name).ok())
+}
+
+/// The settings' file: the folder's `settings.json`, or the one
+/// `KJK_SETTINGS` names (scripted runs, tests).
+pub(crate) fn file() -> Option<PathBuf> {
+    std::env::var_os("KJK_SETTINGS")
+        .map(PathBuf::from)
+        .or_else(|| folder().map(|folder| folder.join("settings.json")))
 }
 
 impl Settings {
@@ -728,10 +736,11 @@ impl Settings {
     /// does not read is left for the defaults (and a warning). A file with
     /// no host id gets one, made at random and saved.
     pub fn load() -> Settings {
-        // `KJK_SETTINGS` names another file (scripted runs, tests).
-        let path = std::env::var_os("KJK_SETTINGS")
-            .map(PathBuf::from)
-            .or_else(|| folder().map(|folder| folder.join("settings.json")));
+        Settings::load_from(file())
+    }
+
+    /// `load` from the file at `path` (none: the defaults, kept nowhere).
+    pub(crate) fn load_from(path: Option<PathBuf>) -> Settings {
         let mut settings = Settings::defaults();
         let mut changed = false;
         if let Some(path) = &path
@@ -1104,7 +1113,16 @@ pub struct SettingsPlugin;
 
 impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
-        let settings = Settings::load();
+        let mut settings = Settings::load();
+        // A window's run whose last start did not get going with the
+        // display it tried opens in a window, and says so.
+        let windowed = !app
+            .world()
+            .get_resource::<crate::scene::Headless>()
+            .is_some_and(|headless| headless.0);
+        if windowed && let Some(reset) = crate::display::recover(&mut settings) {
+            app.insert_resource(reset);
+        }
         app.insert_resource(settings.keys())
             .insert_resource(settings.mouse())
             .insert_resource(settings.pads())

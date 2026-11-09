@@ -214,12 +214,14 @@ pub const NOTICE: &str =
 pub struct BackupFailed(pub String);
 
 /// On a player's main menu, tells of the last run that ended unexpectedly,
-/// once (`unexpected_end`, then `SEEN`), and of saves not backed up.
+/// once (`unexpected_end`, then `SEEN`), of saves not backed up, and of a
+/// display put back to a window (`display::recover`).
 pub(crate) fn notice(
     mut commands: bevy::prelude::Commands,
     player: bevy::prelude::Res<PlayerRun>,
     folder: bevy::prelude::Res<console::RunFolder>,
     backup: Option<bevy::prelude::Res<BackupFailed>>,
+    display: Option<bevy::prelude::Res<crate::display::DisplayReset>>,
     ui: Option<bevy::prelude::ResMut<crate::ui_view::Ui>>,
 ) {
     let Some(mut ui) = ui.filter(|_| player.0) else {
@@ -233,6 +235,9 @@ pub(crate) fn notice(
     }
     if let Some(backup) = backup {
         told.push(format!("The saves could not be backed up: {}", backup.0));
+    }
+    if let Some(display) = display {
+        told.push(display.notice());
     }
     if told.is_empty() {
         return;

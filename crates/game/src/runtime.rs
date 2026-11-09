@@ -285,6 +285,9 @@ pub fn run(options: RunOptions) -> AppExit {
     crate::launch_times::mark("app built");
     let exit = app.run();
     crate::crash::mark(&folder, crate::crash::ENDED);
+    if !options.headless && exit.is_success() {
+        crate::display::ended_well();
+    }
     if let Ok(games) = games.join() {
         add_games(&folder.join("manifest.json"), games);
     }
