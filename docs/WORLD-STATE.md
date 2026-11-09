@@ -82,7 +82,10 @@ on the authority; a save carries it.
   `Get/SetPlotFlag`, `Get/SetIdentified` and `SetItemNonEquippable` (a
   flag of the item's, `Item::non_equippable`, KJKS 69 and KJKV 56: a
   player's equip refused) on
-  items; `GetTag`,
+  items (`GetPlotFlag` of a door or placeable is its template's `Plot`,
+  which `SetPlotFlag` does not change: the Vulkar garage's "open all
+  security doors" passes over the plot doors to Kandon's bay, #226);
+  `GetTag`,
   `GetIsObjectValid` and `GetObjectType` know items.
 - **Items on the floor** (`CreateItemOnFloor`, `State::floor`): an item
   made at a location is an object of the area, held by it (`AREA`), its

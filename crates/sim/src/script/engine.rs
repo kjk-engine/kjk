@@ -5683,11 +5683,15 @@ impl Engine<'_> {
                 }),
                 None => 0,
             }),
+            // A door's or placeable's is its template's `Plot`: the Vulkar
+            // garage's "open all security doors" (`k_ptar_unlockdrs`) passes
+            // over the plot doors to Kandon's bay (#226).
             GetPlotFlag => truth(match self.state.items.get(&item.0) {
                 Some(held) => held.plot,
-                None => self
-                    .character(item)
-                    .is_some_and(|c| self.out.sheet(item, c.worn).flags & flags::PLOT != 0),
+                None => match self.character(item) {
+                    Some(c) => self.out.sheet(item, c.worn).flags & flags::PLOT != 0,
+                    None => view.facts(item).is_some_and(|facts| facts.toughness.plot),
+                },
             }),
             SetPlotFlag => {
                 if let Some(mut held) = self.state.items.get_mut(&item.0) {
