@@ -353,8 +353,7 @@ impl GunShape {
 /// (none for one hand); how far the wrist goes forward of where JA's pose
 /// has it (metres); a shot's kick up (degrees) and back (metres), how long
 /// it takes to peak and to settle (ms), and the share of it that lingers and
-/// how long that takes to settle (ms); how far it turns the camera up
-/// (degrees); its muzzle flash's colour, as a multiple of its model's; and
+/// how long that takes to settle (ms); its muzzle flash's colour, as a multiple of its model's; and
 /// its flash before the eyes.
 #[derive(Debug, Clone, Copy)]
 pub struct Handling {
@@ -365,7 +364,6 @@ pub struct Handling {
     pub rise_ms: f32,
     pub settle_ms: f32,
     pub tail: (f32, f32),
-    pub camera_degrees: f32,
     pub flash_tint: Vec3,
     pub eye_flash: EyeFlash,
 }
@@ -391,7 +389,6 @@ impl Handling {
         rise_ms: 1.0,
         settle_ms: 1.0,
         tail: (0.0, 1.0),
-        camera_degrees: 0.0,
         flash_tint: Vec3::ONE,
         eye_flash: EyeFlash {
             scale: crate::first_person::FLASH_SCALE,
@@ -436,16 +433,17 @@ pub fn handling(blaster: Blaster) -> Handling {
         Blaster::Repeater => (Some(0.45), 0.08),
         _ => (Some(0.5), 0.0),
     };
-    // Up (degrees), back (metres), rise and settle (ms), the kick's tail, the
-    // camera's turn (degrees); the flash's colour; its size and light.
-    let (kick_degrees, kick_back, rise_ms, settle_ms, tail, camera_degrees) = match blaster {
-        Blaster::Pistol => (3.0, 0.05, 30.0, 110.0, (0.35, 500.0), 0.15),
-        Blaster::Rifle => (0.8, 0.08, 40.0, 90.0, (0.45, 600.0), 0.25),
-        Blaster::Repeater => (0.6, 0.05, 20.0, 45.0, (0.5, 350.0), 0.12),
-        Blaster::Bowcaster => (1.5, 0.1, 50.0, 140.0, (0.45, 800.0), 0.4),
-        Blaster::Disruptor => (1.5, 0.12, 40.0, 150.0, (0.5, 900.0), 0.5),
-        Blaster::Ion => (1.0, 0.07, 40.0, 100.0, (0.45, 600.0), 0.2),
-        Blaster::Sonic => (1.5, 0.09, 35.0, 110.0, (0.4, 600.0), 0.35),
+    // Up (degrees), back (metres), rise and settle (ms), the kick's tail
+    // (the camera turns with the sim's kick, `sim::combat::bloom`); the
+    // flash's colour; its size and light.
+    let (kick_degrees, kick_back, rise_ms, settle_ms, tail) = match blaster {
+        Blaster::Pistol => (3.0, 0.05, 30.0, 110.0, (0.35, 500.0)),
+        Blaster::Rifle => (0.8, 0.08, 40.0, 90.0, (0.45, 600.0)),
+        Blaster::Repeater => (0.6, 0.05, 20.0, 45.0, (0.5, 350.0)),
+        Blaster::Bowcaster => (1.5, 0.1, 50.0, 140.0, (0.45, 800.0)),
+        Blaster::Disruptor => (1.5, 0.12, 40.0, 150.0, (0.5, 900.0)),
+        Blaster::Ion => (1.0, 0.07, 40.0, 100.0, (0.45, 600.0)),
+        Blaster::Sonic => (1.5, 0.09, 35.0, 110.0, (0.4, 600.0)),
     };
     let flash_tint = match blaster {
         Blaster::Pistol | Blaster::Rifle => Vec3::new(1.0, 0.4, 0.3),
@@ -471,7 +469,6 @@ pub fn handling(blaster: Blaster) -> Handling {
         rise_ms,
         settle_ms,
         tail,
-        camera_degrees,
         flash_tint,
         eye_flash: EyeFlash {
             scale,
