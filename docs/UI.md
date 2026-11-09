@@ -229,7 +229,12 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   prologue's bench with its own script and makes the tutorial's repair
   kit; UI probe `bench_screens`. Item names leave out TSL's sort keys in
   braces (`{cr 02}Crystal, Rubat`, `fmt_odyssey::tlk::unbraced`, as
-  conversations' lines do; UI probe `item_names_unbraced`). Not yet: the
+  conversations' lines do; UI probe `item_names_unbraced`), and so do
+  objects' names wherever a screen shows one (the target label, a
+  speaker, a container, the message log; `ui::strings::name`): a
+  designer's note such as TSL's "Lift Controls{to 002EBO}" stays in
+  `GetName`, as TSL's Mac executable strips it only as its screens set
+  the text (the target menu's name label among them). Not yet: the
   Accept button's text in breakdown mode, the executable's confirmations.
 
 Screens: main menu (Solo, Host, Join, Options, Exit); new or load (a new
@@ -447,7 +452,8 @@ line (`Intent::Answer`, into the command as the cinematic screen's; a
 under the replies, and its key leaves without reaching play
 (`Intent::Leave`; `swallow`). Each line starts its rows over. It
 opens and closes with the conversation (the screens over it stay), steps
-aside for a camera feed (a line with no text and a camera), and the
+aside for a camera feed (a line with a camera while it plays, one with
+no text until the next line), and the
 cinematic overlay keeps only the voice. A message longer than its box is
 cut.
 
@@ -797,7 +803,10 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   fail-to-open script and "Locked"), Security, Security with the best
   spike carried (owner, 2026-10-09: Open is the default; Security only
   for a body with ranks in it and not on a lock only its key opens, as
-  K1); an open door: Use (its `OnClick`), and before it Close (1582, the
+  K1). E on Open where Security is offered (the lock refuses it) moves the
+  choice to Security, so the next E picks the lock: the games' lessons ask
+  for a click on the Security icon, which play's crosshair has no cursor
+  for (#231); an open door: Use (its `OnClick`), and before it Close (1582, the
   open-door icon) where the player could open it again (not locked, not
   one only scripts open, not broken open, not leading out; nobody in its
   doorway, the host checks; its `OnClosed` runs). KOTOR offers nothing on

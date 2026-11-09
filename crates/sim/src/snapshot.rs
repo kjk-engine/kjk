@@ -71,7 +71,7 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// tail carries the minigame in play (`minigame::Course`); objects a
 /// sound's speed scripts fixed, how often they started it and how long
 /// their stop fades it (`ObjectState::pitch`, `plays`, `fade`). 34: the
-/// room clip a script plays (`AreaSound::room`). 35: the head carries the
+/// room clip a script plays (`AreaSound::rooms`). 35: the head carries the
 /// screen's fade as scripts, the engine and conversations' lines set it
 /// (`Fade`, with its lock and whether a line set it) and the engine's fade
 /// in at a module's beginning (`WorldFadeIn`). 36: the tail carries the
@@ -238,7 +238,19 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 88: the story's progress shows the skill points each character left unspent
 /// (`Progress::unspent`). Old saves: old saves read none shown: the first step
 /// shows those the scripts' state kept.
-pub const VERSION: u32 = 88 + crate::pending::SNAPSHOT;
+/// 89: the goods carry the facts of the items in play the module's catalog
+/// lacks (`Goods::known`), by template. Old saves: old saves read no known
+/// facts in the goods: the next step's goods carry them again from the script
+/// state.
+/// 90: the tail names TSL's puppets in the party (`puppets`), which follow the
+/// first seat but are no member the HUD lists or the leader key picks; the map
+/// page's return button carries why a return to the Ebon Hawk is refused
+/// (`Transit::refused`). Old saves: old saves read no puppets and no refusal:
+/// the next step finds both again.
+/// 91: the area's sound carries the clip scripts play on each room
+/// (`AreaSound::rooms`), not only the last one played. Old saves: old saves
+/// read as before: the one room clip's flag byte reads as a count of one.
+pub const VERSION: u32 = 91 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
@@ -496,14 +508,16 @@ pub fn room_key(name: &str) -> u32 {
 }
 
 /// The area's music, battle music and ambience as scripts set them, and
-/// the room clip one last played. Reset on each install (KOTOR keeps it
-/// per area: later).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// the clip scripts last played on each room, by room key (each room keeps
+/// its own: Peragus' `104per` loops the Harbinger's room while its flame
+/// vents take turns). Reset on each install (KOTOR keeps it per area:
+/// later).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AreaSound {
     pub music: Track,
     pub battle: Track,
     pub ambient: Track,
-    pub room: Option<RoomAnim>,
+    pub rooms: Vec<RoomAnim>,
 }
 
 impl AreaSound {
@@ -514,12 +528,34 @@ impl AreaSound {
             out.u16(track.night.unwrap_or(u16::MAX));
             out.u8(track.volume);
         }
-        out.u8(u8::from(self.room.is_some()));
-        if let Some(room) = self.room {
+        // A count, then the rooms (one room's was a flag, then it: the
+        // same bytes).
+        out.u8(u8::try_from(self.rooms.len()).expect("fewer room clips than 256"));
+        for room in &self.rooms {
             out.u32(room.room);
             out.u8(room.anim);
             out.u64(room.since_ms);
         }
+    }
+
+    /// Plays `clip` on its room, in place of the one the room played.
+    pub fn play_room(&mut self, clip: RoomAnim) {
+        match self
+            .rooms
+            .binary_search_by_key(&clip.room, |room| room.room)
+        {
+            Ok(at) => self.rooms[at] = clip,
+            Err(at) => self.rooms.insert(at, clip),
+        }
+    }
+
+    /// The clip scripts play on room `room` (`room_key`), if any.
+    pub fn room(&self, room: u32) -> Option<RoomAnim> {
+        (self
+            .rooms
+            .binary_search_by_key(&room, |clip| clip.room)
+            .ok())
+        .map(|at| self.rooms[at])
     }
 
     fn decode(input: &mut Reader) -> Result<AreaSound, DecodeError> {
@@ -532,19 +568,25 @@ impl AreaSound {
             })
         };
         let (music, battle, ambient) = (track()?, track()?, track()?);
-        let room = match input.u8()? {
-            0 => None,
-            _ => Some(RoomAnim {
+        let mut rooms: Vec<RoomAnim> = Vec::new();
+        for _ in 0..input.u8()? {
+            let at = input.at();
+            let room = RoomAnim {
                 room: input.u32()?,
                 anim: input.u8()?,
                 since_ms: input.u64()?,
-            }),
-        };
+            };
+            // By room, each once: one state, one encoding.
+            if rooms.last().is_some_and(|last| last.room >= room.room) {
+                return Err(input.invalid("room clip", at));
+            }
+            rooms.push(room);
+        }
         Ok(AreaSound {
             music,
             battle,
             ambient,
-            room,
+            rooms,
         })
     }
 }

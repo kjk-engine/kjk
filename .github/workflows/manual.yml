@@ -22,9 +22,6 @@ env:
   CARGO_TERM_COLOR: always
   # Each job builds once (as ci.yml).
   CARGO_INCREMENTAL: 0
-  # The same pin as ci.yml's (the approved test sim_determinism requires
-  # both to agree): every platform must reach it.
-  KJK_SIM_HASH: ca7506e0ead18612604e11c764ac3f11ff6027e9be196ede27375fea462a91dc
 
 jobs:
   platforms:
@@ -49,7 +46,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # The sim must reach the same state on every platform (Decision 3):
-      # sim_determinism requires KJK_SIM_HASH. No Bevy is built here; the
+      # sim_determinism requires bumps/SIM_HASH. No Bevy is built here; the
       # screenshot job builds and links kjk on each platform.
       - name: approved tests
         run: cargo test --release -p approved_tests

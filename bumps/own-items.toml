@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose: why.
-sim = "a module's own item templates are named for their module (two modules' g_i_datapad002 never stack), and a creature joining the party puts what it carries in the party's inventory (Mission's vibroblade)"

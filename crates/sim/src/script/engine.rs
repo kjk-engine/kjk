@@ -1577,10 +1577,29 @@ impl Engine<'_> {
         }
     }
 
+    /// The visuals put at a place that `gone`, destroyed with no delay, was
+    /// to carry (`ApplyEffectAtLocation` by a character) go to the party's
+    /// leader, as one from a trigger does: `gone` leaves the world before
+    /// the next step's pipeline would show them (Peragus' floating mine
+    /// sets off its blast, then destroys itself).
+    fn carry_off(&mut self, gone: ObjectId) {
+        let Some(leader) = self.view.party.first().copied().filter(|l| *l != gone) else {
+            return;
+        };
+        for applied in &mut self.state.applied {
+            let visual =
+                (applied.effect.leaves().iter()).all(|leaf| matches!(leaf, Effect::Visual { .. }));
+            if applied.target == gone && applied.at.is_some() && visual {
+                applied.target = leader;
+            }
+        }
+    }
+
     /// Changes the area's sound as this step's scripts leave it, and
     /// answers `then` of it.
     fn area_sound<T>(&mut self, change: impl FnOnce(&mut crate::snapshot::AreaSound) -> T) -> T {
-        let mut sound = self.out.area_sound.unwrap_or(self.view.area_sound);
+        let mut sound =
+            (self.out.area_sound.take()).unwrap_or_else(|| self.view.area_sound.clone());
         let answer = change(&mut sound);
         self.out.area_sound = Some(sound);
         answer
@@ -4005,13 +4024,13 @@ impl Engine<'_> {
                 part: 0,
             }),
             // A room's own clip (the turret's skybox, `scriptloop0<n>`),
-            // played by the view.
+            // played by the view; each room keeps the last one played on it.
             PlayRoomAnimation => {
                 let room = crate::snapshot::room_key(text(args, 0));
                 let anim = int(args, 1).clamp(0, 255) as u8;
                 let since_ms = self.view.now_ms;
                 self.area_sound(|area| {
-                    area.room = Some(crate::snapshot::RoomAnim {
+                    area.play_room(crate::snapshot::RoomAnim {
                         room,
                         anim,
                         since_ms,
@@ -4128,7 +4147,7 @@ impl Engine<'_> {
             MusicBackgroundGetDayTrack
             | MusicBackgroundGetNightTrack
             | MusicBackgroundGetBattleTrack => {
-                let area = self.out.area_sound.unwrap_or(view.area_sound);
+                let area = self.out.area_sound.as_ref().unwrap_or(&view.area_sound);
                 let row = match bound {
                     MusicBackgroundGetDayTrack => area.music.day,
                     MusicBackgroundGetNightTrack => area.music.night,
@@ -5524,7 +5543,7 @@ impl Engine<'_> {
                     .zip(u8::try_from(int(args, 1)).ok())
                     .is_some_and(|((held, facts), row)| {
                         facts
-                            .fitted(held.upgrades, &held.fitted, catalog)
+                            .fitted(held.upgrades, &held.fitted, catalog, &self.state.known)
                             .has_row(row)
                     }),
             ),
@@ -5588,6 +5607,7 @@ impl Engine<'_> {
                     let ms = seconds_ms(float(args, 1));
                     if ms == 0 {
                         self.out.destroyed.push(item);
+                        self.carry_off(item);
                     }
                     self.out.changes.push(Change::Destroy {
                         who: item,
@@ -5683,11 +5703,15 @@ impl Engine<'_> {
                 }),
                 None => 0,
             }),
+            // A door's or placeable's is its template's `Plot`: the Vulkar
+            // garage's "open all security doors" (`k_ptar_unlockdrs`) passes
+            // over the plot doors to Kandon's bay (#226).
             GetPlotFlag => truth(match self.state.items.get(&item.0) {
                 Some(held) => held.plot,
-                None => self
-                    .character(item)
-                    .is_some_and(|c| self.out.sheet(item, c.worn).flags & flags::PLOT != 0),
+                None => match self.character(item) {
+                    Some(c) => self.out.sheet(item, c.worn).flags & flags::PLOT != 0,
+                    None => view.facts(item).is_some_and(|facts| facts.toughness.plot),
+                },
             }),
             SetPlotFlag => {
                 if let Some(mut held) = self.state.items.get_mut(&item.0) {

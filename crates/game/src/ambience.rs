@@ -204,6 +204,9 @@ enum Ask {
         module: String,
         area: String,
     },
+    /// The module whose files later asks read, its area's sound already
+    /// read by the scene.
+    Module { game: String, module: String },
     /// More files, by resref, kept alike.
     Files(Keep, Vec<String>),
     /// Placeable templates' appearances (those play made).
@@ -289,7 +292,11 @@ fn line_sound(resolver: &Resolver, line: &str) -> Option<String> {
 fn got(resolver: &Resolver, name: String, keep: Keep) -> Got {
     let read = (|| {
         let file = match name.strip_prefix(LINE_FILE) {
-            Some(line) => line_sound(resolver, line).ok_or("no such line")?,
+            Some(line) => {
+                let sound = line_sound(resolver, line).ok_or("no such line")?;
+                info!(target: "sound", line, %sound, "sound-set line");
+                sound
+            }
             None => name.clone(),
         };
         let bytes = crate::sound::kotor_file(resolver, &file).ok_or("not found")?;
@@ -345,22 +352,16 @@ impl Worker {
                 let mut module: Option<Resolver> = None;
                 while let Ok(ask) = asked.recv() {
                     match ask {
+                        Ask::Module { game, module: name } => {
+                            module = open(&mut install, &game, &name);
+                        }
                         Ask::Area {
                             generation,
                             game,
                             module: name,
                             area,
                         } => {
-                            let Some(game) = Game::from_key(&game) else {
-                                continue;
-                            };
-                            if install.as_ref().is_none_or(|had| had.game != game) {
-                                install = opened(game);
-                            }
-                            let Some(install) = &install else {
-                                continue;
-                            };
-                            module = install.resolver(Some(&name)).ok();
+                            module = open(&mut install, &game, &name);
                             let Some(resolver) = &module else { continue };
                             if let Some(area) = preread(resolver, &name, &area) {
                                 let _ = told.send(Read::Area {
@@ -411,6 +412,16 @@ impl Worker {
 
 fn opened(game: Game) -> Option<Arc<Install>> {
     crate::installs::open(&crate::discover(), game).ok()
+}
+
+/// Module `name` of game `game` (a key), `install` made that game's first:
+/// `None` when either is not found.
+fn open(install: &mut Option<Arc<Install>>, game: &str, name: &str) -> Option<Resolver> {
+    let game = Game::from_key(game)?;
+    if install.as_ref().is_none_or(|had| had.game != game) {
+        *install = opened(game);
+    }
+    install.as_ref()?.resolver(Some(name)).ok()
 }
 
 /// The music's turn: playing a track (its bed's name), or resting until a
@@ -646,7 +657,11 @@ fn play(
         ambience.asked.clear();
         ambience.failed.clear();
         // The scene's own read when it is this area's (a swap without a
-        // new scene keeps the last one), else one asked of the thread.
+        // new scene keeps the last one), else one asked of the thread;
+        // either way the thread is told the module, as the files asked
+        // later are its (a TSL creature's sound-set row read in K1's
+        // table is another character's voice).
+        let worker = ambience.worker.as_ref().expect("started above");
         let carried = scene
             .as_ref()
             .and_then(|scene| scene.0.sound.as_ref())
@@ -655,18 +670,20 @@ fn play(
                     .as_ref()
                     .is_some_and(|module| read.module == module.name && read.area == module.area)
             });
-        match (carried, &module) {
-            (Some(read), _) => take(ambience, read.clone(), &mut added),
-            (None, Some(module)) => {
-                let worker = ambience.worker.as_ref().expect("started above");
-                let _ = worker.ask.send(Ask::Area {
+        if let Some(module) = &module {
+            let (game, name) = (module.game.clone(), module.name.clone());
+            let _ = worker.ask.send(match carried {
+                Some(_) => Ask::Module { game, module: name },
+                None => Ask::Area {
                     generation: swap.generation,
-                    game: module.game.clone(),
-                    module: module.name.clone(),
+                    game,
+                    module: name,
                     area: module.area.clone(),
-                });
-            }
-            (None, None) => {}
+                },
+            });
+        }
+        if let Some(read) = carried {
+            take(ambience, read.clone(), &mut added);
         }
     }
     let (Some(module), Some(_)) = (module, &ambience.area) else {
@@ -806,7 +823,7 @@ fn tracks(
     let Some((area, tables)) = &ambience.area else {
         return;
     };
-    let scripted = current.area_sound;
+    let scripted = &current.area_sound;
     let tracks = &area.tracks;
     let night = tracks.night;
     let music_file = minigame_music.or_else(|| {

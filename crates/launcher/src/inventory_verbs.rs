@@ -207,7 +207,7 @@ pub fn items(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             let of = |name: &str, fitted: u32| {
                 templates
                     .get(name)
-                    .map(|facts| facts.fitted(fitted, &[], &none))
+                    .map(|facts| facts.fitted(fitted, &[], &none, &Default::default()))
             };
             type Reads = fn(&sim::inventory::ItemFacts) -> bool;
             let read: [(&str, u32, Reads); 9] = [

@@ -65,6 +65,12 @@ pub struct Targeted {
     pub object: Option<u32>,
     pub choices: Vec<Choice>,
     pub selected: usize,
+    /// The object an Open was asked of while it offered Security (a lock
+    /// the body could pick): once it is the target again, the choice moves
+    /// to Security, so the use key's next press picks the lock. The games'
+    /// lessons (Trask's on the Endar Spire) ask for a click on the Security
+    /// icon, which play's crosshair has no cursor for (#231).
+    tried_lock: Option<u32>,
     hold: Hold,
     walk: Option<Walk>,
     reviving: Option<Reviving>,
@@ -185,7 +191,7 @@ fn revived(
     let revive = me.fighter?.fallen?.revive?;
     let by = snapshot.get(revive.by)?;
     Some(TargetView {
-        name: name_of(by, instances).into_bytes(),
+        name: ui::strings::name(&name_of(by, instances)),
         progress: Some(revive.done(snapshot.time_ms)),
         ..TargetView::default()
     })
@@ -355,7 +361,8 @@ fn target(
     let object = walking
         .or(reviving)
         .or_else(|| targeted.hold.update(picked, now));
-    if object != targeted.object {
+    let retargeted = object != targeted.object;
+    if retargeted {
         targeted.object = object;
         targeted.selected = 0;
     }
@@ -490,6 +497,17 @@ fn target(
         }
         return;
     };
+    // Security as offered here: a lock the body could pick.
+    let lock = choices
+        .iter()
+        .position(|choice| matches!(choice, Choice::Unlock { spike: None }));
+    if targeted.tried_lock == Some(index) {
+        match lock {
+            Some(lock) if retargeted => targeted.selected = lock,
+            Some(_) => {}
+            None => targeted.tried_lock = None,
+        }
+    }
     if turned != 0.0 && !choices.is_empty() {
         let step = if turned > 0.0 { -1 } else { 1 };
         let count = choices.len() as i64;
@@ -534,7 +552,13 @@ fn target(
                     target: foe.id.0,
                 }));
         }
-        _ => outgoing.0.extend(sim::target::ask(choice, index, kind)),
+        _ => {
+            outgoing.0.extend(sim::target::ask(choice, index, kind));
+            if let (Choice::Open, Some(lock)) = (choice, lock) {
+                targeted.tried_lock = Some(index);
+                targeted.selected = lock;
+            }
+        }
     };
     // E again while walking or reviving changes nothing, as a walk's
     // ignores it: a second press does not undo the first.
@@ -632,7 +656,7 @@ fn target(
         })
         .collect();
     ui.vm.target = Some(TargetView {
-        name: name.into_bytes(),
+        name: ui::strings::name(&name),
         hostile,
         hp,
         poisoned: object

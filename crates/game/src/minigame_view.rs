@@ -972,10 +972,12 @@ fn draw(
                 "blur": now.blur,
                 "offset": now.movers[0].offset[0],
                 "drift_share": now.drift_share(),
-                "room_clip": current
+                "room_clips": current
                     .area_sound
-                    .room
-                    .map(|room| (room.room, room.anim, room.since_ms)),
+                    .rooms
+                    .iter()
+                    .map(|room| (room.room, room.anim, room.since_ms))
+                    .collect::<Vec<_>>(),
                 "bank": drawn.things.first().and_then(|models| models.first()).map(|m| m.bank),
                 // Each follower: hit points, alive, the clips on it.
                 "movers": now.movers.iter().map(|mover| serde_json::json!([

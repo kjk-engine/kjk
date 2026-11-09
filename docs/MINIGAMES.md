@@ -113,7 +113,7 @@ unsaid; the day from hour 0 [verify]), `EndGame` (with its death screen,
 the turret's loss: the party's loss box),
 `PlayRoomAnimation` (a room's `scriptloop0<n>`, looping: the turret's
 skybox by `K_TURRET_SKYBOX`; kept with the area's script state as
-`AreaSound::room`, the room by its name's hash, and played by the view),
+`AreaSound::rooms`, each room by its name's hash, and played by the view),
 and
 `FloatToString` with no decimals keeps its point ("4."; the heartbeat cuts
 it off to name `camshake4`, `cDistL4`) [verify in the game].
