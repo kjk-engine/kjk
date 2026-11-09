@@ -405,11 +405,12 @@ fn arc(
         .collect()
 }
 
-/// A blaster's crosshair of `family` at the middle of `gui`, its gap `gap`
-/// layout pixels from the middle: a dot, then its strokes, each over its
-/// dark edge, two pixels wide at a 1080-high layout.
-pub fn reticle(gui: &Gui, family: Family, gap: f32) -> Vec<Quad> {
-    let (width, height) = gui.frame();
+/// A blaster's crosshair of `family` at the middle of a layout `frame`
+/// (width, height) big, its gap `gap` layout pixels from the middle: a dot,
+/// then its strokes, each over its dark edge, two pixels wide at a
+/// 1080-high layout.
+pub fn reticle(frame: (i32, i32), family: Family, gap: f32) -> Vec<Quad> {
+    let (width, height) = frame;
     let middle = [width as f32 / 2.0, height as f32 / 2.0];
     let scale = height as f32 / 1080.0;
     let thick = (2.0 * scale, scale);

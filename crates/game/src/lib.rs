@@ -109,6 +109,7 @@ mod probe_kit;
 mod progress;
 mod ragdolls;
 pub mod report;
+pub mod reticle_view;
 mod rulebook_text;
 pub use minigame_view::takes_view;
 pub use ragdolls::doll_fits;

@@ -1643,6 +1643,14 @@ fn draw(
         .me
         .filter(|_| !watching && talk.is_none())
         .and_then(|me| own_shooting(view, me));
+    // The own blaster's crosshair, through this frame's field of view.
+    if let Some(fire) = fire.as_deref_mut() {
+        fire.reticle = view
+            .me
+            .filter(|_| !watching && talk.is_none())
+            .and_then(|me| own_at(view, me))
+            .and_then(|(own, ms)| crate::reticle_view::of(own, &objects, ms, fov));
+    }
     let shaken = camera_turn(
         shaken,
         own.as_ref().map(|(s, _)| s),
@@ -1761,18 +1769,27 @@ fn camera_turn(
     [shaken[0] + kick[0], shaken[1] + kick[1]]
 }
 
-/// The own character's shooting as the own time shows it, and that time.
-fn own_shooting(view: &View, me: SimId) -> Option<(sim::combat::specials::Shooting, f64)> {
-    let own_ms = view.render_ms + view.own.shift;
-    let shown = view
-        .own
-        .history
+/// The own character as the own time shows it, and that time: a joined
+/// player's newest prediction by then, else (the host, one alone) the
+/// view's own snapshots at the view's time.
+fn own_at(view: &View, me: SimId) -> Option<(&sim::EntityState, f64)> {
+    let (history, ms) = if view.own.active {
+        (&view.own.history, view.render_ms + view.own.shift)
+    } else {
+        (&view.history, view.render_ms)
+    };
+    let shown = history
         .iter()
         .rev()
-        .find(|s| s.time_ms as f64 <= own_ms)
-        .or(view.own.history.first())?;
-    let fighter = cast::entity(shown, me)?.fighter.as_ref()?;
-    Some((fighter.shooting, own_ms))
+        .find(|s| s.time_ms as f64 <= ms)
+        .or(history.first())?;
+    Some((cast::entity(shown, me)?, ms))
+}
+
+/// The own character's shooting as the own time shows it, and that time.
+fn own_shooting(view: &View, me: SimId) -> Option<(sim::combat::specials::Shooting, f64)> {
+    let (own, ms) = own_at(view, me)?;
+    Some((own.fighter.as_ref()?.shooting, ms))
 }
 
 /// The probes of the camera's kick (`kjk sim probes --only "camera kick"`):

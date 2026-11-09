@@ -42,7 +42,7 @@ pub(super) fn all() -> Vec<Check> {
     let shapes: Vec<(Family, usize, usize, f32)> = FAMILIES
         .iter()
         .map(|&(family, strokes)| {
-            let quads = reticle(&gui, family, gap);
+            let quads = reticle(gui.frame(), family, gap);
             // The dot's two quads (its edge and itself) lie at the middle;
             // each stroke has an edge under it.
             let nearest = quads

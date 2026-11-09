@@ -1014,6 +1014,9 @@ pub struct ViewModel {
     pub transition: Option<Vec<u8>>,
     /// The crosshair shows (the game in play, its camera behind).
     pub crosshair: bool,
+    /// With a blaster in hand, the crosshair is its reticle in place of
+    /// the dot (`screens::hud::reticle`).
+    pub reticle: Option<ReticleView>,
     /// A bark in play (`screens::bark`).
     pub bark: Option<BarkView>,
     /// Words floating over creatures in play (`screens::floaty`).
@@ -1051,4 +1054,14 @@ pub struct ViewModel {
     /// (`screens::message::Pages`): a tutorial window's
     /// (`ShowTutorialWindow`), a datapad's words (`DisplayDatapad`).
     pub pages: Vec<Vec<u8>>,
+}
+
+/// A blaster's crosshair as play shows it: the gun's shape, the spread the
+/// next shot may stray by and the camera's vertical field of view (both
+/// degrees), from which the reticle's gap is drawn (`hud::gap_px`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ReticleView {
+    pub family: crate::screens::hud::Family,
+    pub cone: f32,
+    pub fov: f32,
 }
