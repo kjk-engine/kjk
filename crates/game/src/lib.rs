@@ -80,6 +80,7 @@ mod loot;
 mod made;
 mod map_view;
 pub mod material;
+mod menu_figure;
 mod merchant;
 mod message_log;
 #[cfg(feature = "probes")]

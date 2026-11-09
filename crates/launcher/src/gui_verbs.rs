@@ -356,8 +356,7 @@ pub fn sheet(discovery: &Discovery, game: &str, out: Option<PathBuf>) -> ExitCod
         let mut sheet = vec![0u8; (width * height * 4) as usize];
         let mut labels = DrawList {
             size: (width as f32, height as f32),
-            fill: false,
-            quads: Vec::new(),
+            ..DrawList::default()
         };
         for (at, name) in names.iter().enumerate() {
             let (column, row) = (at as u32 % COLUMNS, at as u32 / COLUMNS);

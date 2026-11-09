@@ -5,8 +5,10 @@
 //! from it) and, once its models are at hand, a camera of its own that
 //! draws them into it, on a render layer nothing else is on.
 //!
-//! - The main menu: the campaign's `mainmenu` model looping `default`, seen
-//!   from its `camerahook` node, 1.4 high each way (as reone frames the main menu).
+//! - The main menu: the model `menu_figure` picks (Malak, the story's Sith
+//!   Lord, the player's character on an empty stage) looping `default`,
+//!   with its smoke and mist, seen from its `camerahook` through the lens
+//!   the games' 3D screens share (`STAGE_FOV`), lit by its own lights.
 //! - A party member (the character sheet): its body and what hangs from it
 //!   (head, weapons) as the scene drew them, its standing clip, on the
 //!   sheet's stage `charrec_light` as reone builds it:
@@ -64,9 +66,6 @@ use crate::viewer::{self, Placed};
 
 /// The first render layer the views take, one each.
 const FIRST_LAYER: usize = 16;
-/// The main menu model's half height: it is framed 1.4 high each way from
-/// its `camerahook`. Our chosen size for the menu.
-const MENU_SCALE: f32 = 1.4;
 /// The character sheet's stage.
 const STAGE: &str = "charrec_light";
 /// The sheet's camera, as K1's executable has it: level at the stage's hook
@@ -83,7 +82,8 @@ const STAGE_HOOKS: [(&str, &str); 3] = [
     ("hk47", "camerahookh"),
     ("zaalbar", "camerahookz"),
 ];
-/// Seconds the stage's emitters run before it shows.
+/// Seconds the stage's emitters run before it shows, at least (a stage
+/// whose particles live longer runs until they are all out).
 const STAGE_WARM: f32 = 4.0;
 
 pub struct GuiScenePlugin;
@@ -154,6 +154,21 @@ struct Stage {
     emitters: Vec<(EmitterIr, Params, Matrix)>,
     textures: BTreeMap<String, TextureIr>,
     lights: Vec<GpuLight>,
+    /// The light the view's moving meshes take from every side.
+    ambient: [f32; 3],
+}
+
+impl Stage {
+    /// A stage of `lights` alone; none without lights (the view is lit
+    /// flat).
+    fn lit(lights: Vec<GpuLight>) -> Option<Stage> {
+        (!lights.is_empty()).then(|| Stage {
+            emitters: Vec::new(),
+            textures: BTreeMap::new(),
+            lights,
+            ambient: [0.0; 3],
+        })
+    }
 }
 
 /// A view's models and their textures, and how to see them.
@@ -258,29 +273,121 @@ fn framed(
     }
 }
 
-/// The main menu's model, read on the task pool.
+/// Seen from `eye` through the games' lens for their 3D screens,
+/// `STAGE_FOV` from top to bottom (KOTOR 2's main menu too: a capture of
+/// its 4:3 menu has its lines at layout rows 126 and 468, as ours).
+fn through_lens(eye: Mat4) -> Frame {
+    let reach = (STAGE_FOV.to_radians() / 2.0).tan();
+    Frame {
+        eye,
+        half: 1.0,
+        lens: Some(Lens {
+            distance: 1.0,
+            bottom: -reach,
+            top: reach,
+        }),
+    }
+}
+
+/// `stage` lighting a whole 3D screen (its room is the screen): its lights
+/// that only brighten the ambient become the view's ambient, whole, and the
+/// others reach every mesh of `models`, where the world's reach only the
+/// meshes whose origin they are near (the figure's stands on the floor,
+/// out of the key light's radius).
+fn lighting_all(stage: &mut Stage, models: &[Placed]) {
+    let (ambient, lights): (Vec<GpuLight>, Vec<GpuLight>) = std::mem::take(&mut stage.lights)
+        .into_iter()
+        .partition(|light| light.kind.x != 0);
+    stage.ambient = ambient
+        .iter()
+        .fold(Vec3::ZERO, |sum, light| {
+            sum + light.color_multiplier.truncate() * light.color_multiplier.w
+        })
+        .min(Vec3::ONE)
+        .to_array();
+    stage.lights = lights;
+    reaching_all(&mut stage.lights, models);
+}
+
+/// `lights` reaching every mesh of `models`.
+fn reaching_all(lights: &mut [GpuLight], models: &[Placed]) {
+    let origins: Vec<Vec3> = models
+        .iter()
+        .flat_map(|placed| {
+            let at = Mat4::from_translation(Vec3::from_array(placed.offset));
+            placed.ir.meshes.iter().map(move |mesh| {
+                at.transform_point3(to_mat4(&placed.ir.nodes[mesh.node].world).w_axis.truncate())
+            })
+        })
+        .collect();
+    for light in lights {
+        let at = light.position_radius.truncate();
+        let farthest = origins
+            .iter()
+            .map(|origin| origin.distance(at))
+            .fold(0.0, f32::max);
+        // Past the last tenth of its radius, where the world's fade begins.
+        light.position_radius.w = light.position_radius.w.max(farthest / 0.9);
+    }
+}
+
+/// The main menu's model (`menu_figure`: Malak, the story's Sith Lord, the
+/// player's character on the empty stage), looping its `default` clip, with
+/// its own smoke and mist and lit by its own lights, read on the task pool.
 fn main_menu(resolver: Resolver, game: Game) -> Task<Result<Ready, String>> {
     AsyncComputeTaskPool::get().spawn(async move {
-        let ir = viewer::model(&resolver, "mainmenu")?.ok_or("mainmenu.mdl: not found")?;
+        let figure = crate::menu_figure::of(game);
+        let name = &figure.model;
+        info!(target: "ui", model = name, exile = figure.exile.is_some(), "the main menu's figure");
+        let ir = viewer::model(&resolver, name)?.ok_or(format!("{name}.mdl: not found"))?;
         let mut cache = BTreeMap::new();
         let clip = viewer::clip(&mut cache, &resolver, game, &ir, "default")?;
-        let models = vec![Placed {
+        let mut models = vec![Placed {
             clip,
             ..Placed::at(ir, [0.0; 3])
         }];
-        let eye = node(&models, hooks::CAMERA_HOOK).ok_or("mainmenu.mdl: no camerahook")?;
+        let eye = node(&models, hooks::CAMERA_HOOK).ok_or(format!("{name}.mdl: no camerahook"))?;
+        if let Some(exile) = &figure.exile {
+            stand_exile((&resolver, game), exile, &mut models, &mut cache)?;
+        }
         let (textures, _) = viewer::textures(&resolver, &models);
+        let menu = &models[0].ir;
+        let default = menu.animations.iter().find(|clip| clip.name == "default");
+        let mut stage = stage_of(&resolver, menu, default);
+        lighting_all(&mut stage, &models);
         Ok(Ready {
             models,
             textures,
-            frame: Frame {
-                eye,
-                half: MENU_SCALE,
-                lens: None,
-            },
-            stage: None,
+            frame: through_lens(eye),
+            stage: Some(stage),
         })
     })
+}
+
+/// The player's character on the menu's empty stage: at its
+/// `cutscenedummy` (else its middle), facing −Y, body and head in the
+/// dark side's stance (`evil`), as KOTOR 2 stands its new Sith Lord.
+fn stand_exile(
+    (resolver, game): (&Resolver, Game),
+    exile: &crate::menu_figure::Exile,
+    models: &mut Vec<Placed>,
+    cache: &mut BTreeMap<String, Option<asset_odyssey::model::ModelIr>>,
+) -> Result<(), String> {
+    let at = node(models, "cutscenedummy")
+        .map_or(Vec3::ZERO, |dummy| dummy.transform_point3(Vec3::ZERO));
+    let first = models.len();
+    placed_body(
+        (resolver, game),
+        (exile.appearance, exile.armour.as_deref()),
+        (at.to_array(), -std::f32::consts::FRAC_PI_2),
+        models,
+    )?;
+    for model in &mut models[first..] {
+        if let Some(evil) = viewer::clip(cache, resolver, game, &model.ir, "evil")? {
+            model.clip = Some(evil);
+        }
+    }
+    Ok(())
 }
 
 /// A model by name (the galaxy map's planet), looping its `default` clip
@@ -309,11 +416,7 @@ fn model(resolver: Resolver, game: Game, name: String, aspect: f32) -> Task<Resu
             .iter()
             .map(|light| posed_light(ir, light, None))
             .collect();
-        let stage = (!lights.is_empty()).then(|| Stage {
-            emitters: Vec::new(),
-            textures: BTreeMap::new(),
-            lights,
-        });
+        let stage = Stage::lit(lights);
         Ok(Ready {
             models,
             textures,
@@ -524,11 +627,7 @@ fn made_figure(
                 half,
                 lens: None,
             },
-            stage: (!lights.is_empty()).then(|| Stage {
-                emitters: Vec::new(),
-                textures: BTreeMap::new(),
-                lights,
-            }),
+            stage: Stage::lit(lights),
         })
     })
 }
@@ -588,51 +687,55 @@ fn staged(
         let raised = (ready.models.first())
             .and_then(|body| body.ir.node(hooks::CAMERA_HOOK))
             .map_or(STAGE_RAISE, |own| at(&own.world).z);
-        let reach = (STAGE_FOV.to_radians() / 2.0).tan();
-        ready.frame = Frame {
-            eye: Mat4::from_translation(Vec3::Z * raised) * to_mat4(&hook.world),
-            half: 1.0,
-            lens: Some(Lens {
-                distance: 1.0,
-                bottom: -reach,
-                top: reach,
-            }),
-        };
+        let eye = Mat4::from_translation(Vec3::Z * raised) * to_mat4(&hook.world);
+        ready.frame = through_lens(eye);
         let pose = pose(alignment);
         let clip = stage.animations.iter().find(|clip| clip.name == pose);
-        let emitters: Vec<(EmitterIr, Params, Matrix)> = stage
-            .emitters
-            .iter()
-            .map(|emitter| {
-                let mut params = emitter.params;
-                let set = clip.and_then(|clip| {
-                    clip.settings
-                        .iter()
-                        .find(|set| set.node.eq_ignore_ascii_case(&emitter.name))
-                });
-                for (kind, values) in set.map_or(&[][..], |set| &set.keys) {
-                    params.set(*kind, values);
-                }
-                (emitter.clone(), params, stage.nodes[emitter.node].world)
-            })
-            .collect();
-        let textures = emitters
-            .iter()
-            .filter_map(|(emitter, ..)| emitter.texture.clone())
-            .filter_map(|name| Some((name.clone(), viewer::texture(&resolver, &name)?)))
-            .collect();
-        let lights = stage
-            .lights
-            .iter()
-            .map(|light| posed_light(&stage, light, clip))
-            .collect();
-        ready.stage = Some(Stage {
-            emitters,
-            textures,
-            lights,
-        });
+        ready.stage = Some(stage_of(&resolver, &stage, clip));
         Ok(ready)
     })
+}
+
+/// `stage`'s emitters and lights in the pose of `clip` (its rows set an
+/// emitter's parameters and a light's colour, radius and multiplier), and
+/// the emitters' textures.
+fn stage_of(
+    resolver: &Resolver,
+    stage: &asset_odyssey::model::ModelIr,
+    clip: Option<&asset_odyssey::anim::AnimationIr>,
+) -> Stage {
+    let emitters: Vec<(EmitterIr, Params, Matrix)> = stage
+        .emitters
+        .iter()
+        .map(|emitter| {
+            let mut params = emitter.params;
+            let set = clip.and_then(|clip| {
+                clip.settings
+                    .iter()
+                    .find(|set| set.node.eq_ignore_ascii_case(&emitter.name))
+            });
+            for (kind, values) in set.map_or(&[][..], |set| &set.keys) {
+                params.set(*kind, values);
+            }
+            (emitter.clone(), params, stage.nodes[emitter.node].world)
+        })
+        .collect();
+    let textures = emitters
+        .iter()
+        .filter_map(|(emitter, ..)| emitter.texture.clone())
+        .filter_map(|name| Some((name.clone(), viewer::texture(resolver, &name)?)))
+        .collect();
+    let lights = stage
+        .lights
+        .iter()
+        .map(|light| posed_light(stage, light, clip))
+        .collect();
+    Stage {
+        emitters,
+        textures,
+        lights,
+        ambient: [0.0; 3],
+    }
 }
 
 /// A stage light as its pose sets it (the clip's rows replace its colour,
@@ -776,6 +879,12 @@ fn drawn(ui: &Ui, window: Vec2, scale: f32) -> BTreeMap<u32, UVec2> {
             .filter(|quad| quad.texture.0 >= TextureId::SCENES)
         {
             let [_, _, width, height] = quad.rect;
+            // A wide view is the window's width (`DrawList::wide`).
+            let width = if layer.wide.contains(&quad.texture) {
+                window.x / fitted
+            } else {
+                width
+            };
             let pixels = Vec2::new(width, height) * fitted * scale;
             sizes.insert(quad.texture.0, pixels.round().as_uvec2().max(UVec2::ONE));
         }
@@ -815,15 +924,19 @@ fn want(
     let Some(gui) = ui.assets.as_ref() else {
         return;
     };
+    // A view put away: drawn again from its models when next wanted.
+    let put_away = |commands: &mut Commands, live: &mut Live| {
+        if let State::Shown { camera, root } = live.state {
+            commands.entity(camera).despawn();
+            commands.entity(root).despawn();
+        }
+        if !matches!(live.state, State::Failed) {
+            live.state = State::Idle;
+        }
+    };
     for (id, live) in &mut scenes.views {
         let Some(size) = wanted.get(id) else {
-            if let State::Shown { camera, root } = live.state {
-                commands.entity(camera).despawn();
-                commands.entity(root).despawn();
-            }
-            if !matches!(live.state, State::Failed) {
-                live.state = State::Idle;
-            }
+            put_away(&mut commands, live);
             continue;
         };
         let aspect = size.x as f32 / size.y as f32;
@@ -835,6 +948,9 @@ fn want(
                 height: size.y,
                 depth_or_array_layers: 1,
             });
+            // Its camera is made for the image's shape (a wide view's
+            // follows the window's).
+            put_away(&mut commands, live);
         }
         let Some(view) = gui.scene_of(TextureId(*id)) else {
             continue;
@@ -936,9 +1052,10 @@ fn spawn(commands: &mut Commands, live: &Live, ready: Ready, assets: &mut ModelA
         ))
         .id();
     let (images, mut stores) = assets.split();
-    // A staged figure is lit by its stage's lights alone (reone's GUI scenes
-    // have no ambient light); the other views flat.
-    let ambient = if stage.is_some() { [0.0; 3] } else { [1.0; 3] };
+    // A staged figure is lit by its stage's lights and ambient (none on
+    // the sheet: reone's GUI scenes have no ambient light); the other views
+    // flat.
+    let ambient = stage.as_ref().map_or([1.0; 3], |stage| stage.ambient);
     let aspect = images.get(&live.image).map_or(1.0, |image| {
         image.width() as f32 / image.height().max(1) as f32
     });
@@ -963,6 +1080,11 @@ fn spawn(commands: &mut Commands, live: &Live, ready: Ready, assets: &mut ModelA
             frame.eye.x_axis.truncate().normalize(),
             frame.eye.y_axis.truncate().normalize(),
         );
+        // Run long enough that its longest-lived particles are all out (the
+        // main menu's mist lives 10 s).
+        let warm = (stage.emitters.iter())
+            .map(|(_, params, _)| params.life)
+            .fold(STAGE_WARM, f32::max);
         let emitters = crate::emitter_view::spawn(
             commands,
             root,
@@ -970,7 +1092,7 @@ fn spawn(commands: &mut Commands, live: &Live, ready: Ready, assets: &mut ModelA
             &stage.textures,
             (images, stores.meshes, stores.materials),
             eye,
-            STAGE_WARM,
+            warm,
         );
         commands.entity(root).insert(emitters);
         let lights = stores

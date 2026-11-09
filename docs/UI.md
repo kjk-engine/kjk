@@ -80,7 +80,28 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
 - The inventory's and the store's filters sort items by kind
   (`vm::ItemKind`, from the template). An item row shows its icon in a
   square beside its name, as in KOTOR 2.
-- The main menu and loading screen show KOTOR 1's logos.
+- The main menu and loading screen show KOTOR 1's logos (the main menu
+  KOTOR 2's own in a KOTOR 2 campaign).
+- The main menu is in the game played last (`game::menu_figure`): the
+  newer of the newest save (one's own or a copy of a host's) and the note
+  every machine keeps beside the saves of the module it last played and
+  how its game was won (`played.json`, `saves::Played`), so a guest who
+  never saves is kept up to date too. A KOTOR 1 game's menu is in KOTOR
+  1's colours with Malak (`mainmenu`); a KOTOR 2 game's in its own with
+  the story's Sith Lord, as KOTOR 2 picks him from its global
+  `GBL_MAIN_SITH_LORD` (the newest save's: its story, else its world):
+  Sion (`mainmenu01`; its prologue sets 0), Nihilus (`mainmenu03`;
+  meeting Visas sets 2), Traya (`mainmenu02`) once on Malachor V, and
+  after a game won the player's own character standing in the dark
+  side's stance on the empty stage (`mainmenu05`) after a dark-side end,
+  Kreia (`mainmenu04`) after a light-side one. One showing
+  of Nihilus in eight has the Twi'lek dancers KOTOR 2 ships and never
+  shows (`mainmenu06`). The model's smoke and mist play and its lights
+  light it, its ambient-only lights as the view's ambient; seen from its
+  `camerahook` through the 3D screens' lens (`STAGE_FOV` top to bottom)
+  at the layout's scale, its view reaching the window's sides
+  (`ControlState::wide`). `KJK_MENU_FIGURE=<model>`
+  stands a model there whatever the saves say.
 - 3D views (`game::gui_scene`): a screen names one per control
   (`ui::vm::SceneView`: the main menu's turning model, the character
   page's party member, class select's six figures, the upgrade bench's
@@ -335,7 +356,9 @@ block of names rises through the list on black (`ListView::roll`, 40
 layout pixels a second [verify]), the music `credits` looping, then the
 main menu; Back goes there at once. The game's end without its death
 screen (`EndGame(FALSE)`) is the main menu at once, unless credits roll;
-both wait for the movies before them. With its death screen the game is
+both wait for the movies before them. A game won is noted beside the
+saves with each player's own character as it ended (`played.json`), for
+the main menu. With its death screen the game is
 lost: the fall's box (below).
 
 Pazaak (`pazaak_wager`, `pazaak_setup`, `pazaak_game`;

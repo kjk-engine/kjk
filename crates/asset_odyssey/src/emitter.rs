@@ -176,6 +176,8 @@ pub struct EmitterIr {
     /// The flipbook's columns and rows (at least 1 each).
     pub grid: [u32; 2],
     pub looped: bool,
+    /// Where it is drawn among its model's emitters: the lower first.
+    pub render_order: u16,
     pub params: Params,
 }
 
@@ -216,6 +218,7 @@ impl EmitterIr {
             texture: Some(word(&emitter.texture)).filter(|name| !name.is_empty() && name != "null"),
             grid: emitter.grid.map(|n| n.max(1)),
             looped: emitter.looped,
+            render_order: emitter.render_order,
             params,
         }
     }

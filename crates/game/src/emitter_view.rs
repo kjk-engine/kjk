@@ -57,7 +57,17 @@ pub(crate) fn spawn(
 ) -> Emitters {
     let mut images_by_name: BTreeMap<String, Handle<Image>> = BTreeMap::new();
     let mut drawn = Vec::new();
+    // Drawn by their render order, then as the model lists them
+    // (`OdysseyMaterial::emitted`).
+    let emitters: Vec<_> = emitters.into_iter().collect();
+    let mut order: Vec<usize> = (0..emitters.len()).collect();
+    order.sort_by_key(|at| (emitters[*at].0.render_order, *at));
+    let mut ranks = vec![0u32; emitters.len()];
+    for (rank, at) in order.into_iter().enumerate() {
+        ranks[at] = rank as u32;
+    }
     for (index, (emitter, params, to_model)) in emitters.into_iter().enumerate() {
+        let rank = ranks[index];
         if params.birthrate + params.random_birthrate <= 0.0 || params.life == 0.0 {
             continue;
         }
@@ -74,23 +84,26 @@ pub(crate) fn spawn(
             Blend::Lighten => Surface::Lighten,
             Blend::Normal | Blend::PunchThrough => Surface::BlendVertex,
         };
-        let material = materials.add(OdysseyMaterial::new(
-            Vec4::ONE,
-            texture,
-            None,
-            None,
-            surface,
-            &Lighting {
-                self_illum: [0.0; 3],
-                ambient: [1.0; 3],
-                diffuse: [1.0; 3],
-                alpha: 1.0,
-                is_static: false,
-                is_room: true,
-                fogged: false,
-            },
-            &AreaLight::ambient([1.0; 3]),
-        ));
+        let material = materials.add(
+            OdysseyMaterial::new(
+                Vec4::ONE,
+                texture,
+                None,
+                None,
+                surface,
+                &Lighting {
+                    self_illum: [0.0; 3],
+                    ambient: [1.0; 3],
+                    diffuse: [1.0; 3],
+                    alpha: 1.0,
+                    is_static: false,
+                    is_room: true,
+                    fogged: false,
+                },
+                &AreaLight::ambient([1.0; 3]),
+            )
+            .emitted(rank),
+        );
         let mesh = meshes.add(Batch::default().into_mesh());
         let child = commands
             .spawn((

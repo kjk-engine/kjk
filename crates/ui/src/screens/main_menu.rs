@@ -1,5 +1,6 @@
 //! The main menu, KOTOR 2's (`mainmenu8x6_p`; KOTOR 1's `mainmenu16x12`
-//! without the skin) with KOTOR 1's logos. Our entries take its first five
+//! without the skin), with KOTOR 1's logos in a KOTOR 1 campaign and its
+//! own in a KOTOR 2 one. Our entries take its first five
 //! buttons by place, top to bottom, whatever the layout named them for
 //! (new game, load, movies, music, options): Solo, Host, Join, Options,
 //! Exit. Every other button and list (exit, more games, a mod's, the
@@ -58,12 +59,16 @@ impl Screen for MainMenu {
                 ..ControlState::default()
             };
         }
+        let kotor2 = vm.session.campaign == Some(vfs::Game::Kotor2);
         match tag {
+            // KOTOR 2's own logo and corner (none) on its campaign's menu.
+            "LBL_GAMELOGO" | "LBL_BW" | "LBL_LUCAS" if kotor2 => ControlState::default(),
             "LBL_GAMELOGO" => image(Some(CAMPAIGN_LOGO.into())),
-            // KOTOR 1's menu model turning behind the menu, over the
-            // layout's backdrop.
+            // The campaign's menu model behind the menu, over the layout's
+            // backdrop (`gui_scene`).
             "LBL_3DVIEW" => ControlState {
                 scene: Some(SceneView::MainMenu),
+                wide: true,
                 ..ControlState::default()
             },
             "LBL_BW" => image(Some("lbl_bwlogo".into())),
