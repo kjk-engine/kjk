@@ -12,7 +12,10 @@
 //!   in the caller and on the thread, and the thread goes on;
 //! - the live world's ticks stepped beside the frames (`Beside`), a few
 //!   at a time on its thread and in the caller: the same snapshots as
-//!   stepping it directly, landing once each, and nothing with none sent.
+//!   stepping it directly, landing once each, and nothing with none sent;
+//! - a thread that dies with its job (as a panic in a step would): the
+//!   rewind fails, the steps come back as none, and the jobs after run in
+//!   the caller, the same as before. (The panics' messages are printed.)
 
 use std::sync::Arc;
 
@@ -87,6 +90,7 @@ fn job(base: &Arc<Snapshot>, level: &Level, full_from: u64, generation: u64) -> 
         to: base.tick + DEPTH,
         rate,
         full_from,
+        die: false,
     }
 }
 
@@ -242,6 +246,7 @@ pub fn probes() -> Probes {
         ),
     );
     probes.extend(beside(&base, &level));
+    probes.extend(dying(&base, &level, &direct_history, direct_hash));
     probes.check(
         "rewinds agree",
         "every way of making the rewind ends in one world",
@@ -287,6 +292,7 @@ fn beside(base: &Arc<Snapshot>, level: &Level) -> Probes {
                 generation: 7,
                 world: world.take().expect("home"),
                 ticks: chunk.to_vec(),
+                die: false,
             });
             let away = beside.away();
             if let Some(stepped) = beside.land() {
@@ -313,5 +319,89 @@ fn beside(base: &Arc<Snapshot>, level: &Level) -> Probes {
             ),
         );
     }
+    probes
+}
+
+/// Threads that die with their jobs: the rewinder's and the stepper's.
+fn dying(
+    base: &Arc<Snapshot>,
+    level: &Level,
+    direct_history: &[(u64, sim::EntityState, Bolts)],
+    direct_hash: sim::SnapshotHash,
+) -> Probes {
+    let mut probes = Probes::default();
+    let mut rebaser = Rebaser::new(RebaseOn::Thread);
+    let mut dies = job(base, level, 0, 30);
+    dies.die = true;
+    rebaser.start(dies);
+    let died = rebaser.wait();
+    rebaser.start(job(base, level, 0, 31));
+    let after = rebaser.wait();
+    let same = match after {
+        Some(Some(mut done)) => {
+            let (history, hash, _) = made(&mut done);
+            done.generation == 31 && history == direct_history && hash == direct_hash
+        }
+        _ => false,
+    };
+    probes.check(
+        "rewind thread dies",
+        "the job it dies with fails, and the next is made in the caller, the same as stepping directly",
+        matches!(died, Some(None)) && rebaser.lost && same && !rebaser.busy(),
+        format!(
+            "the job it died with failed: {}; lost: {}; the next the same: {same}; busy after: {}",
+            matches!(died, Some(None)),
+            rebaser.lost,
+            rebaser.busy()
+        ),
+    );
+
+    let mut beside = Beside::new(RebaseOn::Thread);
+    let world = || {
+        Box::new(
+            SimWorld::from_snapshot(base, level.clone())
+                .unwrap_or_else(|error| panic!("the base: {error}")),
+        )
+    };
+    let tick = base.tick + 1;
+    let mut input = TickInput::default();
+    input.insert(Seat(0), firing());
+    let ticks = vec![(tick, input, TickRate::default().msec(tick))];
+    beside.send(Steps {
+        generation: 1,
+        world: world(),
+        ticks: ticks.clone(),
+        die: true,
+    });
+    let lost_world = beside.land().is_none();
+    beside.send(Steps {
+        generation: 2,
+        world: world(),
+        ticks: ticks.clone(),
+        die: false,
+    });
+    let again = beside.land();
+    let mut direct = world();
+    let expected = step(
+        &mut direct,
+        tick,
+        &ticks[0].1,
+        ticks[0].2,
+        StepReason::Predict,
+    )
+    .hash();
+    let same = again.as_ref().is_some_and(|stepped| {
+        stepped.generation == 2 && stepped.snapshots.first().map(Snapshot::hash) == Some(expected)
+    });
+    probes.check(
+        "step thread dies",
+        "the steps it dies with come back as none (the world with them), and the next are stepped in the caller, the same as directly",
+        lost_world && beside.lost && same && !beside.away(),
+        format!(
+            "came back as none: {lost_world}; lost: {}; the next the same: {same}; away after: {}",
+            beside.lost,
+            beside.away()
+        ),
+    );
     probes
 }

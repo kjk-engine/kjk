@@ -175,6 +175,7 @@ impl Condition {
             hitches: frames.hitches,
             margins,
             rewinds: probes::Rewinds::default(),
+            kill_threads_at_us: None,
         }
     }
 }

@@ -88,9 +88,10 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   (`net_thread`) pumps the socket and links, so acks never wait for a
   frame. Every stepped hash goes to `hashes.txt`. The tick stepped beside
   the frame (`game::sim_worker`) is split there too, as the server keeps
-  it for its players' frames (its parts, check and hash: `Stepped::new`),
-  so the frame neither splits nor hashes it (issue 229); a tick a slow
-  frame steps itself is split when a frame first reads it. It says "listening on"
+  it for its players' frames when one can be made of it (its parts and
+  check: `Stepped::new_hashed`), and hashed, so the frame neither splits
+  nor hashes it (issue 229); a tick a slow frame steps itself is split
+  when a frame first reads it. It says "listening on"
   once its stage is loaded: `cargo xtask duo` and `refusals` join on that
   line (whole lines only, a line still being written is not read).
 - `kjk join <host>`: handshake, then the host's stage loads while the net
@@ -100,7 +101,9 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   (`game::sim_worker`):
   - **Its new ticks** go to a thread with the live world as the frame
     makes their commands, and land at the next frame's start: what it
-    shows of its own seat is a frame behind, as a host's is.
+    shows of its own seat is a frame behind, as a host's is, blended by
+    the predicted clock of the frame that made them against the newest
+    tick shown, so it trails the clock by a tick and a frame, evenly.
   - **A rewind** (`session::rebase`: the world restored from the newest
     host snapshot and stepped again to the tick made) runs on a thread of
     its own while frames go on, one at a time, and lands at a frame's
@@ -134,8 +137,11 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
     caller, a rewind landing a frame later as on a thread, so a seed
     still plays the same session byte for byte; `kjk net probes`
     ("rewinds") checks the rewind and the steps against stepping the
-    world directly, and `kjk net session` plays sessions with rewinds on
-    their thread and from every snapshot as before.
+    world directly, threads that die included, and `kjk net session`
+    plays sessions with rewinds on their thread (a clean link, `wan`'s, a
+    hold, the threads killed mid-session, a KOTOR module) and from every
+    snapshot as before. Every session checks that what a client shows of
+    its own seat never goes back in time while its clocks run.
 - **Through Steam** (`io::steam`, the `steam` feature, on by default):
   beside UDP, a host takes players through Steam's relayed messages
   (`ISteamNetworkingMessages`), so nobody forwards a port. The session's

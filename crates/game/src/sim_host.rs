@@ -998,7 +998,7 @@ struct Landed {
     input: TickInput,
     snapshot: Arc<Snapshot>,
     notices: Vec<(Seat, sim::notice::Notice)>,
-    split: Option<(net::codec::Stepped, sim::SnapshotHash)>,
+    hashed: Option<crate::sim_worker::Hashed>,
 }
 
 impl Authority {
@@ -1023,7 +1023,7 @@ impl Authority {
             input: stepped.input,
             snapshot,
             notices: stepped.notices,
-            split: stepped.split,
+            hashed: stepped.hashed,
         });
     }
 
@@ -1504,8 +1504,13 @@ fn advance(
                 }
             }
         }
-        match landed.split.clone() {
-            Some((split, hash)) => authority.solo.stepped_split(&landed.input, split, hash),
+        match landed.hashed.as_ref() {
+            Some(hashed) => authority.solo.stepped_hashed(
+                &landed.input,
+                &landed.snapshot,
+                hashed.hash,
+                hashed.split.clone(),
+            ),
             None => authority.solo.stepped(&landed.input, &landed.snapshot),
         }
     }
@@ -1973,12 +1978,16 @@ fn advance(
                     }
                 }
                 if beside && last_due == Some(tick) {
-                    let split = authority.solo.hosting();
+                    let hosting = authority.solo.hosting();
+                    let prepare = crate::sim_worker::Prepare {
+                        hash: hosting,
+                        split: hosting && authority.solo.sends_on(tick),
+                    };
                     Stepper::send(
                         &mut authority.world,
                         &mut authority.stepper,
                         (tick, input, msec),
-                        split,
+                        prepare,
                     );
                     break;
                 }

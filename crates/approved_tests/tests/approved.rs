@@ -2103,12 +2103,14 @@ fn net_codec() {
 }
 
 /// The sessions with tests of their own (`net_sessions` plays the rest).
-const OWN_SESSION_TESTS: [&str; 5] = [
+const OWN_SESSION_TESTS: [&str; 7] = [
     "hold",
     "reload",
     "lan_every_snapshot",
     "wan_rewinds_on_a_thread",
     "lan_rewinds_on_a_thread",
+    "hold_rewinds_on_a_thread",
+    "lan_rewind_threads_die",
 ];
 
 /// Whole sessions (`kjk net session`, no install): the determinism world's
@@ -2140,7 +2142,9 @@ fn net_sessions() {
 
 /// A joined player's rewinds (issue 229, added 2026-11-09): the sessions
 /// that make them on a thread beside the frames, as the game does (on a
-/// clean link and over `wan`'s), and from every snapshot, as before;
+/// clean link, over `wan`'s, through a 6 s hold, and with the threads
+/// dying mid-session, going on in the caller), and from every snapshot,
+/// as before;
 /// every binding check passing, each client rewinding and none failing
 /// to restore, and no own-avatar mismatch of an own command on the clean
 /// links (`prediction`). The rewinds on a thread land whenever the thread
@@ -2153,14 +2157,14 @@ fn net_rewinds() {
         .into_iter()
         .filter(|session| OWN_SESSION_TESTS[2..].contains(&session.setup.name.as_str()))
         .collect();
-    assert_eq!(played.len(), 3, "sessions went missing");
+    assert_eq!(played.len(), 5, "sessions went missing");
     for session in played {
         let (report, checks) = session_checks(session);
         for client in &report.clients {
             assert!(
-                client.stats.rewinds > 0 && client.stats.rewinds_failed == 0,
-                "every client rewinds, none failing: {} rewinds, {} failed",
-                client.stats.rewinds,
+                client.stats.rewinds_beside > 0 && client.stats.rewinds_failed == 0,
+                "every client rewinds while its frames go on, none failing: {} beside, {} failed",
+                client.stats.rewinds_beside,
                 client.stats.rewinds_failed
             );
         }

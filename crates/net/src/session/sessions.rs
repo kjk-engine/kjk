@@ -87,6 +87,7 @@ pub fn determinism(soak_minutes: u64) -> Vec<Session> {
         hitches: Hitches::default(),
         margins: Margins::default(),
         rewinds: Rewinds::default(),
+        kill_threads_at_us: None,
     };
     let wan = Setup {
         name: "wan".into(),
@@ -181,6 +182,25 @@ pub fn determinism(soak_minutes: u64) -> Vec<Session> {
         },
         ..wan.clone()
     };
+    // A hold (6 s, past the link's timeout) with the rewinds on a thread:
+    // one under way when the host holds is dropped, and prediction starts
+    // again from the held snapshot at the resume.
+    let hold_threaded = Setup {
+        name: "hold_rewinds_on_a_thread".into(),
+        seed: 15,
+        rewinds: threaded.rewinds,
+        ..hold.clone()
+    };
+    // The rewind and step threads die 5 s in, as a panic in a step would:
+    // each client goes on in the caller, its world made again from the
+    // newest snapshot, every check as on a clean link.
+    let threads_die = Setup {
+        name: "lan_rewind_threads_die".into(),
+        seed: 16,
+        rewinds: threaded.rewinds,
+        kill_threads_at_us: Some(5_000_000),
+        ..lan.clone()
+    };
     let threaded_clean = Setup {
         name: "lan_rewinds_on_a_thread".into(),
         seed: 14,
@@ -212,6 +232,8 @@ pub fn determinism(soak_minutes: u64) -> Vec<Session> {
         session(every, 6 * hz, None, Expect::Clean),
         session(threaded, 8 * hz, None, Expect::Lossy),
         session(threaded_clean, 6 * hz, None, Expect::Clean),
+        session(hold_threaded, 12 * hz, None, Expect::Clean),
+        session(threads_die, 6 * hz, None, Expect::Clean),
     ]
 }
 
@@ -476,16 +498,39 @@ fn client_checks(
     check(
         &format!("client {index} rewinds"),
         binding,
-        stats.rewinds > 0 && stats.rewinds_failed == 0,
+        stats.rewinds_beside > 0 && stats.rewinds_failed == 0,
         format!(
-            "{} rewinds (mean {:.1} ticks, deepest {}), {} for a world since replaced and dropped, {} that did not restore",
+            "{} rewinds ({} made while frames went on; mean {:.1} ticks, deepest {}), {} for a world since replaced and dropped, {} that did not restore, {} lost with their thread",
             stats.rewinds,
+            stats.rewinds_beside,
             stats.rewind_ticks as f64 / stats.rewinds.max(1) as f64,
             stats.rewind_max,
             stats.rewinds_dropped,
-            stats.rewinds_failed
+            stats.rewinds_failed,
+            stats.rewinds_lost
         ),
     );
+    check(
+        &format!("client {index} own time goes forward"),
+        binding,
+        client.view_backs == 0,
+        format!(
+            "{} frames showed its own seat earlier than the frame before (the most by {:.1} ms)",
+            client.view_backs, client.view_back_max_ms
+        ),
+    );
+    if report.threads_killed {
+        check(
+            &format!("client {index} threads died"),
+            binding,
+            client.threads_lost,
+            format!(
+                "its rewind and step threads died {:.1} s in and it went on in the caller: lost {}",
+                report.threads_killed_at_us as f64 / 1e6,
+                client.threads_lost
+            ),
+        );
+    }
     let own =
         stats.by_cause[Cause::OwnMissed as usize] + stats.by_cause[Cause::OwnDiffers as usize];
     let causes: Vec<String> = Cause::ALL

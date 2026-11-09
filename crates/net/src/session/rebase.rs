@@ -4,10 +4,11 @@
 //! client says (`Rebaser`): at once, in the caller (the probes, a session's
 //! first frame), or on a thread of its own beside the frames, so a frame
 //! never waits on it and the session's lock is never held across it. The
-//! client lands its result at a frame's start (`client::land`): the few
-//! ticks made meanwhile stepped on it, then it replaces the world that
-//! predicted them. A result made for a world since replaced (a hold, an
-//! install, a new session) carries an old generation and is dropped.
+//! client lands its result at a frame's start (`client::land`): it
+//! replaces the live world, and the next steps beside the frame (`Beside`)
+//! bring it to the tick made meanwhile. A result made for a world since
+//! replaced (a hold, an install, a new session) carries an old generation
+//! and is dropped.
 //!
 //! The step is the same call with the same input either way, so where the
 //! job runs changes when its result shows, never what it is.
@@ -105,6 +106,10 @@ pub(super) struct Job {
     pub rate: TickRate,
     /// Ticks from this one on get whole snapshots.
     pub full_from: u64,
+    /// The probes' way to make the thread making it die, as a panic in a
+    /// step would (`rewind_probes`).
+    #[cfg(feature = "probes")]
+    pub die: bool,
 }
 
 /// A rewind made.
@@ -124,6 +129,8 @@ pub(super) struct Done {
 
 /// Makes `job`: `None` when the snapshot does not restore in its level.
 pub(super) fn run(job: Job) -> Option<Done> {
+    #[cfg(feature = "probes")]
+    assert!(!job.die, "a rewind's thread dies (the probes asked)");
     let mut world = SimWorld::from_snapshot(&job.base, job.level).ok()?;
     if let Some(worked) = job.worked {
         world.use_worked_out(worked);
@@ -172,6 +179,9 @@ pub(super) struct Steps {
     pub generation: u64,
     pub world: Box<SimWorld>,
     pub ticks: Vec<(u64, TickInput, u32)>,
+    /// As `Job::die`.
+    #[cfg(feature = "probes")]
+    pub die: bool,
 }
 
 /// Those ticks stepped: the world, and a whole snapshot of each (the view
@@ -183,6 +193,8 @@ pub(super) struct Stepped {
 }
 
 fn step_all(mut job: Steps) -> Stepped {
+    #[cfg(feature = "probes")]
+    assert!(!job.die, "a step thread dies (the probes asked)");
     let snapshots = job
         .ticks
         .iter()

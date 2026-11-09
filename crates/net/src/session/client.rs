@@ -271,6 +271,12 @@ pub struct ClientStats {
     /// install) and dropped, and rewinds whose snapshot did not restore.
     pub rewinds_dropped: u64,
     pub rewinds_failed: u64,
+    /// Rewinds whose thread died with them (a panic in a step): the next
+    /// are made in the caller.
+    pub rewinds_lost: u64,
+    /// Rewinds made while frames went on (landed by `land`), not waited
+    /// for as the clocks started.
+    pub rewinds_beside: u64,
     /// Rewinds that moved the drawn avatar, and those that snapped.
     pub corrections: u64,
     pub snapped: u64,
@@ -367,6 +373,12 @@ struct Play {
     /// A rewind landed (`apply`), shown with the steps that bring its
     /// world to the tick made (`finish_rewind`).
     pending: Option<Pending>,
+    /// The predicted clock (µs on the tick timeline) when the frame sent
+    /// its steps beside, and when the frame whose steps landed did: what
+    /// is shown is blended by the latter, so it trails the clock by a
+    /// tick and a frame, evenly (`present`).
+    sent_clock: i64,
+    shown_clock: i64,
     /// The last tick commands were made for: the live world's once its
     /// steps land (`stepped`).
     made: u64,
@@ -402,6 +414,8 @@ impl Play {
             stepped: snapshot.tick,
             generation: next_generation(),
             pending: None,
+            sent_clock: 0,
+            shown_clock: 0,
             made: snapshot.tick,
             authority: snapshot.tick,
             first: u64::MAX,
@@ -500,6 +514,10 @@ struct Session {
     /// The oldest predicted tick the caller still reads whole
     /// (`set_view_from`).
     view_from: u64,
+    /// The probes asked the next rewind's and step's threads to die
+    /// (`Client::kill_threads`).
+    #[cfg(feature = "probes")]
+    die: (bool, bool),
     stats: ClientStats,
     /// The host's save copy coming in (I30 P17). A reconnect makes a new
     /// session, so a copy cut by a drop is gone whole.
@@ -835,6 +853,8 @@ impl Client {
             observed: 0,
             differs: false,
             view_from: 0,
+            #[cfg(feature = "probes")]
+            die: (false, false),
             stats: ClientStats::default(),
             copies: CopyAssembly::default(),
         }));
@@ -1151,6 +1171,7 @@ impl Client {
                 if let Some(play) = &mut session.play {
                     play.started = false;
                     play.generation = next_generation();
+                    play.pending = None;
                 }
                 self.events.push_back(ClientEvent::Resumed { tick });
             }
@@ -1337,10 +1358,11 @@ impl Client {
     // -----------------------------------------------------------------
     // Frames.
 
-    /// One frame at `now` with the input sampled for it: the clocks move
-    /// on, a new authority snapshot is predicted from, the ticks the
-    /// predicted clock passed are stepped (each with `input`), and their
-    /// commands queued. `None` until playing.
+    /// One frame at `now` with the input sampled for it: the last frame's
+    /// steps land, the clocks move on, a rewind lands or starts (`rebase`),
+    /// the ticks the predicted clock passed get their commands (each
+    /// `input`), queued, and go to be stepped beside the frame. `None`
+    /// until playing.
     pub fn frame(&mut self, now: NetTime, input: Command) -> Option<Frame<'_>> {
         let State::Connected(session) = &mut self.state else {
             return None;
@@ -1381,7 +1403,7 @@ impl Client {
                 rebase_if_due(session, now, self.config.rebase_every_us);
             }
             stepped = predict(session, now, input);
-            send_beside(session);
+            send_beside(session, now);
             present(session, now, elapsed);
         }
         let play = session.play.as_ref()?;
@@ -1439,6 +1461,25 @@ impl Client {
         if let State::Connected(session) = &mut self.state {
             session.view_from = tick;
         }
+    }
+
+    /// The probes' way to make the threads the next rewind and the next
+    /// steps run on die, as a panic in a step would: the client must go on,
+    /// rewinding and stepping in the caller, its world made again.
+    #[cfg(feature = "probes")]
+    pub fn kill_threads(&mut self) {
+        if self.config.rebase_on == RebaseOn::Thread
+            && let State::Connected(session) = &mut self.state
+        {
+            session.die = (true, true);
+        }
+    }
+
+    /// Whether a rewind's or a step's thread died (`kill_threads`, or a
+    /// panic in a step): those run in the caller from then on.
+    pub fn threads_lost(&self) -> bool {
+        self.session()
+            .is_some_and(|session| session.rebaser.lost || session.beside.lost)
     }
 
     /// The snapshots kept since the last call (`ClientConfig::keep`).
@@ -1568,6 +1609,12 @@ fn observe(session: &mut Session) {
     if tick <= session.observed || tick <= play.authority {
         return;
     }
+    // Its tick not stepped yet (steps land a frame late): compared once
+    // it is.
+    if tick > play.stepped {
+        session.fresh = true;
+        return;
+    }
     session.observed = tick;
     if own_id(&newest.snapshot, session.seat) != play.own_id {
         session.differs = true;
@@ -1675,6 +1722,8 @@ fn start_rebase(session: &mut Session, now: NetTime) {
         seat: session.seat,
         others,
         rate: session.rate,
+        #[cfg(feature = "probes")]
+        die: std::mem::take(&mut session.die.0),
     };
     session.rebaser.start(job);
     session.rebased_at = Some(now);
@@ -1688,20 +1737,47 @@ fn rebase_now(session: &mut Session, now: NetTime) {
     if session.rebaser.wait().is_some() {
         session.stats.rewinds_dropped += 1;
     }
-    start_rebase(session, now);
-    match session.rebaser.wait() {
-        Some(Some(done)) => apply(session, done, true),
-        Some(None) => session.stats.rewinds_failed += 1,
-        None => {}
+    // A thread that dies with the rewind: once more, in the caller.
+    for _ in 0..2 {
+        start_rebase(session, now);
+        let lost = session.rebaser.lost;
+        match session.rebaser.wait() {
+            Some(Some(done)) => return apply(session, done, true),
+            Some(None) => {
+                if failed(session, lost) {
+                    return;
+                }
+            }
+            None => return,
+        }
     }
 }
 
 /// Lands the rewind that finished, if any (`apply`).
 fn land(session: &mut Session) {
+    let lost = session.rebaser.lost;
     match session.rebaser.take() {
-        Some(Some(done)) => apply(session, done, false),
-        Some(None) => session.stats.rewinds_failed += 1,
+        Some(Some(done)) => {
+            session.stats.rewinds_beside += 1;
+            apply(session, done, false);
+        }
+        Some(None) => {
+            failed(session, lost);
+        }
         None => {}
+    }
+}
+
+/// Counts a rewind that came to nothing: its thread died with it (the
+/// rewinder was not `lost` before), or its snapshot did not restore.
+/// Whether it was the snapshot.
+fn failed(session: &mut Session, lost_before: bool) -> bool {
+    if session.rebaser.lost && !lost_before {
+        session.stats.rewinds_lost += 1;
+        false
+    } else {
+        session.stats.rewinds_failed += 1;
+        true
     }
 }
 
@@ -1813,10 +1889,17 @@ fn apply(session: &mut Session, done: Done, starting: bool) {
 
 /// Hands the live world its ticks not stepped yet (to the tick made), to
 /// step beside the frame; with none, a rewind waiting to be shown is shown.
-fn send_beside(session: &mut Session) {
+/// Nothing steps before the clocks start (after a resume: from the held
+/// snapshot, `rebase_now`).
+fn send_beside(session: &mut Session, now: NetTime) {
+    let clock = session.clocks.predicted_at(now);
     let Some(play) = session.play.as_mut() else {
         return;
     };
+    if !play.started {
+        return;
+    }
+    play.sent_clock = clock;
     if session.beside.away() || play.stepped >= play.made {
         if !session.beside.away() {
             finish_rewind(session, Vec::new());
@@ -1839,6 +1922,8 @@ fn send_beside(session: &mut Session) {
         generation: play.generation,
         world,
         ticks,
+        #[cfg(feature = "probes")]
+        die: std::mem::take(&mut session.die.1),
     });
 }
 
@@ -1848,6 +1933,9 @@ fn send_beside(session: &mut Session) {
 /// took the world with it: prediction starts again from the newest
 /// authority snapshot.
 fn land_beside(session: &mut Session, now: NetTime) {
+    if let Some(play) = session.play.as_mut() {
+        play.shown_clock = play.sent_clock;
+    }
     let away = session.beside.away();
     let Some(stepped) = session.beside.land() else {
         if away && let Some(play) = session.play.as_mut() {
@@ -2127,10 +2215,17 @@ fn present(session: &mut Session, now: NetTime, elapsed: i64) {
         return;
     }
     let rate = session.rate;
-    let predicted = session.clocks.predicted_at(now);
-    let (from, to) = (time_us(rate, play.made), time_us(rate, play.made + 1));
-    play.predicted
-        .set_alpha(((predicted - from) as f64 / (to - from).max(1) as f64) as f32);
+    // The ticks shown were stepped beside the last frame, from commands it
+    // made: blended by its clock against the newest tick shown, as the
+    // clock then stood against the tick it made. Against this frame's
+    // clock and tick the blend would move by the ticks made since, a
+    // tick back and forth from frame to frame; against the world's tick,
+    // by a landed rewind's until its steps show.
+    let shown = play.predicted.current().tick;
+    let (from, to) = (time_us(rate, shown), time_us(rate, shown + 1));
+    play.predicted.set_alpha(
+        ((play.shown_clock - from) as f64 / (to - from).max(1) as f64).clamp(0.0, 1.0) as f32,
+    );
 
     let remote = session.clocks.remote_at(now);
     let tick = tick_at(rate, remote);
