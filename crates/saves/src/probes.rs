@@ -260,6 +260,10 @@ pub fn story_probes() -> sim::probe::Checks {
             "story_restores_items_elsewhere",
             restores_items_elsewhere(&level, &save),
         ),
+        (
+            "story_restores_own_items",
+            restores_own_items(&level, &save),
+        ),
         ("story_restores_twins_left", restores_twins_left(&save)),
         ("story_restores_twins_here", restores_twins_here(&save)),
     ];
@@ -726,6 +730,48 @@ fn restores_items_elsewhere(level: &sim::Level, save: &sim::Save) -> Result<Stri
         found == (true, false) && none == (false, true),
         format!("(held, said lost) with the lookup {found:?}, without {none:?}"),
     )
+}
+
+/// An item of the module's own (`own_template`) in the party's pool,
+/// named in the story by its template and, as a story from before such
+/// items were named for their module has it, by its bare resref: each
+/// restored under the story's name, so the story comes back unchanged.
+fn restores_own_items(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
+    use sim::inventory::{Catalog, ItemFacts, own_template};
+    const RESREF: &str = "fixture_own";
+    let own = own_template(RESREF, "fixture_module");
+    if level.scripts().is_some() {
+        return Err("the sink has scripts of its own".into());
+    }
+    let catalog = Catalog::new([ItemFacts::plain(&own)]);
+    let level = level
+        .clone()
+        .with_scripts(sim::probe::library_of([], catalog));
+    let excluded: [Exclusion; 1] = [(
+        "the modules visited",
+        "the sink's level is given scripts by hand, which its modules' kept facts were not written with",
+        |story| story.visited.clear(),
+    )];
+    let mut out = Vec::new();
+    for name in [own.as_str(), RESREF] {
+        let mut story = Story::of(save, &level);
+        story
+            .items
+            .entry("party".into())
+            .or_default()
+            .push(story::StoryItem {
+                template: name.into(),
+                stack: 1,
+                ..story::StoryItem::default()
+            });
+        let named = |detail: String| format!("{name}: {detail}");
+        out.push(
+            round_trip(&story, &level, &excluded, &[])
+                .map(named)
+                .map_err(named)?,
+        );
+    }
+    Ok(out.join("; "))
 }
 
 /// The key of the first placement of `kind` in `level`.
