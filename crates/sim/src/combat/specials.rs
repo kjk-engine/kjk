@@ -248,6 +248,14 @@ pub struct Shooting {
     /// The hands the last shot left (bit 0 the right, bit 1 the left):
     /// the gun each view flashes and kicks.
     pub hands: u8,
+    /// The spread the last shots added (`combat::bloom`), thousandths of a
+    /// degree, as it stood at `fired_at`.
+    pub bloom_mdeg: u16,
+    /// The aim's kick (pitch, yaw), thousandths of a degree, as it stood at
+    /// `fired_at`; up is a smaller pitch.
+    pub kick_mdeg: [i16; 2],
+    /// When the last shot left (sim ms).
+    pub fired_at: u64,
 }
 
 impl Shooting {
@@ -268,6 +276,9 @@ impl Shooting {
         self.aiming = false;
         self.next_off = false;
         self.off_burst = false;
+        self.bloom_mdeg = 0;
+        self.kick_mdeg = [0; 2];
+        self.fired_at = 0;
     }
 
     /// The penalty to hit of the round after a special set at `now` a
@@ -301,6 +312,11 @@ impl Shooting {
         out.i8(defence);
         out.u64(until);
         out.u32(self.off_ms as u32);
+        out.u16(self.bloom_mdeg);
+        for axis in self.kick_mdeg {
+            out.u16(axis as u16);
+        }
+        out.u64(self.fired_at);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Shooting, DecodeError> {
@@ -311,6 +327,17 @@ impl Shooting {
         if flags > 63 {
             return Err(input.invalid("shooting flags", at));
         }
+        let exposed = (input.i8()?, input.i8()?, input.u64()?);
+        let off_ms = input.u32()? as i32;
+        // Saves before bloom read none: no shot in a save is mid-burst.
+        let (bloom_mdeg, kick_mdeg, fired_at) =
+            if input.since(crate::since::snapshot::FEAT_DYNAMIC_CROSSHAIR) {
+                let bloom = input.u16()?;
+                let kick = [input.u16()? as i16, input.u16()? as i16];
+                (bloom, kick, input.u64()?)
+            } else {
+                (0, [0; 2], 0)
+            };
         Ok(Shooting {
             charging_from,
             burst,
@@ -319,8 +346,11 @@ impl Shooting {
             next_off: flags & 4 != 0,
             hands: flags >> 3 & 3,
             off_burst: flags & 32 != 0,
-            exposed: (input.i8()?, input.i8()?, input.u64()?),
-            off_ms: input.u32()? as i32,
+            exposed,
+            off_ms,
+            bloom_mdeg,
+            kick_mdeg,
+            fired_at,
         })
     }
 }

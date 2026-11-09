@@ -41,6 +41,9 @@ pub mod rounds;
 pub mod saber;
 pub mod sheet;
 pub mod specials;
+pub mod bloom;
+#[cfg(feature = "probes")]
+pub mod bloom_probes;
 pub mod spells;
 pub mod troop;
 pub mod weapons;
