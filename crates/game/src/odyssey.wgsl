@@ -764,15 +764,19 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     var colour = lighting * base.rgb;
     if (params.flags & ENVMAP) != 0u {
-        // Reflection mapping as fixed function sets it up, done per
-        // fragment: the direction from the eye to the point, mirrored about
-        // the surface normal, both in eye space, picks the cube map's texel.
+        // Reflection mapping as KOTOR sets it up, done per fragment: the
+        // direction from the eye to the point, mirrored about the surface
+        // normal, picks the cube map's texel in the game's world (z up), not
+        // the eye's: its executable turns the eye-space reflection by the
+        // camera's orientation (a texture matrix). So a floor shows the
+        // top of its cube map at any camera angle, never the horizon.
         // The base texture's alpha masks the shine: an opaque texel has
         // none.
-        let eye_position = (view.view_from_world * vec4<f32>(in.world_position.xyz, 1.0)).xyz;
-        let eye_normal = normalize((view.view_from_world * vec4<f32>(in.world_normal, 0.0)).xyz);
-        let mirrored = reflect(normalize(eye_position), eye_normal);
-        let shine = textureSample(envmap_texture, envmap_sampler, mirrored).rgb;
+        let incident = normalize(in.world_position.xyz - view.world_position);
+        let mirrored = reflect(incident, normalize(in.world_normal));
+        // Bevy's world (y up) back to the game's (z up).
+        let lookup = vec3<f32>(mirrored.x, -mirrored.z, mirrored.y);
+        let shine = textureSample(envmap_texture, envmap_sampler, lookup).rgb;
         colour = min(colour + shine * (1.0 - texel.a), vec3<f32>(1.0));
     }
     if (params.flags & FOG) != 0u {
