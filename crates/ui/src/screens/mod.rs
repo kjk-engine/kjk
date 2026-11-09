@@ -252,3 +252,35 @@ pub(crate) fn stack_under(
         }
     }
 }
+
+/// `gui`'s control `tag` moved under the control `after`, `gap` below it and
+/// as wide as it (its focus links kept). Nothing without both.
+pub(crate) fn move_under(gui: &mut fmt_odyssey::gui::Gui, (tag, after): (&str, &str), gap: i32) {
+    let Some(after) = gui.find(after).map(|after| after.extent) else {
+        return;
+    };
+    if let Some(control) = gui.controls.iter_mut().find(|control| control.tag == tag) {
+        control.extent.top = after.top + after.height + gap;
+        control.extent.left = after.left;
+        control.extent.width = after.width;
+    }
+}
+
+/// `gui`'s control `tag` drawn as the control `like` is (its kind, borders
+/// and text style), kept where it is, as it is named and linked: a check
+/// box made a button. Nothing without both.
+pub(crate) fn look_like(gui: &mut fmt_odyssey::gui::Gui, (tag, like): (&str, &str)) {
+    let Some(like) = gui.find(like).cloned() else {
+        return;
+    };
+    if let Some(control) = gui.controls.iter_mut().find(|control| control.tag == tag) {
+        *control = fmt_odyssey::gui::Control {
+            id: control.id,
+            tag: std::mem::take(&mut control.tag),
+            parent: control.parent,
+            extent: control.extent,
+            moveto: control.moveto.take(),
+            ..like
+        };
+    }
+}

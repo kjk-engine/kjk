@@ -137,7 +137,7 @@ struct ThirdPerson {
     location: [f32; 3],
     shown: [f32; 3],
     side: f32,
-    /// How far the camera is into the gun's framing (0 to 1, `GUN_BLEND_MS`)
+    /// How far the camera is into the gun's framing (0 to 1, `GUN_IN_MS`, `GUN_OUT_MS`)
     /// and the framing it had this frame.
     gun: f32,
     framing: crate::camera_tune::Framing,
@@ -158,9 +158,11 @@ impl ThirdPerson {
     }
 }
 
-/// How long the camera takes into the gun's framing or out of it (ms), as
-/// Movie Duels' aiming camera.
-const GUN_BLEND_MS: f32 = 250.0;
+/// How long the camera takes into the gun's framing (ms; Movie Duels'
+/// aiming camera takes 250), and back out of it once the gun is put away,
+/// slower: the fight is over.
+const GUN_IN_MS: f32 = 300.0;
+const GUN_OUT_MS: f32 = 1200.0;
 
 /// How long the camera takes to move most (63%) of the way to a new
 /// shoulder (seconds): across in about a fifth of a second.
@@ -801,30 +803,23 @@ impl View {
         let walls = (&self.level, self.doors.as_deref());
         let trace = |from, to| stop_short(walls, from, to);
         // A gun readied in the watched hand (drawn for a fight, not only
-        // carried) takes the camera to the gun's framing
-        // and back, eased over `GUN_BLEND_MS`, undamped meanwhile (the
-        // blend eases it; damping it too trails and then snaps).
+        // carried) takes the camera to the gun's framing briskly, and once
+        // it is put away back at leisure (`GUN_IN_MS`, `GUN_OUT_MS`), eased
+        // in and out (smootherstep). The camera keeps following as damped
+        // throughout: no change of damping to snap at either end.
         let gun_out =
             self.tune.gun.is_some() && self.watched.is_some_and(|id| self.cast.gun_readied(id));
-        let step = if frame_ms > 0.0 {
-            frame_ms / GUN_BLEND_MS
-        } else {
-            1.0
-        };
         let blend = &mut self.camera.gun;
-        *blend = if gun_out {
-            (*blend + step).min(1.0)
-        } else {
-            (*blend - step).max(0.0)
+        *blend = match (gun_out, frame_ms > 0.0) {
+            (true, true) => (*blend + frame_ms / GUN_IN_MS).min(1.0),
+            (false, true) => (*blend - frame_ms / GUN_OUT_MS).max(0.0),
+            (out, false) => f32::from(u8::from(out)),
         };
-        let eased = *blend * *blend * (3.0 - 2.0 * *blend);
+        let t = *blend;
+        let eased = t * t * t * (t * (6.0 * t - 15.0) + 10.0);
         let own = self.tune.framing;
         let framing = own.toward(self.tune.gun.unwrap_or(own), eased);
-        let damps = if eased > 0.0 && eased < 1.0 {
-            (1.0, 1.0)
-        } else {
-            self.tune.tracking.damps()
-        };
+        let damps = self.tune.tracking.damps();
         self.camera.framing = framing;
         follow_camera(
             &mut self.camera,

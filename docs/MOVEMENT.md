@@ -140,11 +140,12 @@ walker going round a body it overlapped stopped and started step by step). `moti
   other headless runs keep JA's camera.
 - A gun readied in the watched character's hand (drawn for a fight,
   `weapons::armed`, not only carried or holstered) takes the camera to the
-  guns' own camera and back once it is put away, eased (smoothstep) over
-  250 ms and undamped meanwhile, as Movie Duels' aiming camera blends. The
+  guns' own camera in 300 ms and back in 1.2 s once it is put away, eased
+  in and out (smootherstep) and damped as ever, so neither end snaps
+  (Movie Duels' aiming camera takes 250 ms). The
   guns' camera has its own four sliders (`camera.gun.*`, its own page) and
   presets (Over the Shoulder by default, Close, KOTOR, Jedi Academy), or
-  Same as Melee for none. The zoom moves the range of the camera in use.
+  Default Camera for none (the camera page's). The zoom moves the range of the camera in use.
   The swap key (the middle mouse button) puts the shoulder on the other
   side, in either camera.
 - The shoulder moves the camera across its own line after the chase, traced

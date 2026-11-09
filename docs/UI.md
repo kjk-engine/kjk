@@ -545,10 +545,11 @@ Running and checking:
 - Settings live in the user's config folder (`KJK_SETTINGS` overrides it).
 - The options (`ui::screens::options`, a table per page): gameplay's
   inverted camera and its Camera page (ours, on TSL's unused second
-  reverse box; `optsound`'s layout: distance, height, shoulder and field of
+  reverse box, drawn as the Mouse Settings button is; `optsound`'s layout: distance, height, shoulder and field of
   view on its sliders, the preset on its Advanced button, and three copies
   of that button stacked under the sliders, `screens::stack_under`, for the
-  guns' camera (its own page, the same layout, `options_camera_guns`),
+  guns' camera (its own page, the same layout, `options_camera_guns`, its
+  preset button moved into the sliders' box),
   how closely the camera follows and the body's fade; `MOVEMENT.md`), the
   mouse's sensitivity and buttons, key mapping, the
   four volumes (`SOUND.md`), and the graphics (`game::display`):

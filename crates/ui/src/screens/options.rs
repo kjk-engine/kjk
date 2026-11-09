@@ -145,15 +145,39 @@ const GUN_CAMERAS: &[(&str, &str)] = &[
     ("custom", strings::GUN_CAMERA_CUSTOM),
 ];
 
-/// Buttons a page adds to its layout: copies of one of its buttons
-/// (`style`) stacked under a control (`after`), by page.
-const ADDED: [(&str, (&str, &str), &[&str]); 1] = [(
-    "options_camera",
-    ("BTN_ADVANCED", "SLI_MOVIE"),
-    &["BTN_GUN", "BTN_FOLLOW", "BTN_FADE"],
-)];
-/// The gap between them, and above the first (pixels).
-const ADDED_GAP: i32 = 5;
+/// How a page changes its layout.
+enum Reshape {
+    /// Copies of a button (`style`) stacked under a control (`after`).
+    Stack((&'static str, &'static str), &'static [&'static str]),
+    /// A control moved under another.
+    Under(&'static str, &'static str),
+    /// A control drawn as another is.
+    Like(&'static str, &'static str),
+}
+
+/// Each page's changes to its layout: the camera page's three buttons under
+/// its sliders, inside their box; the guns' page's preset there too, so it
+/// reads as the guns' own; the gameplay page's way to the camera page a
+/// framed button, as Mouse Settings is, not a check box.
+const RESHAPED: [(&str, Reshape); 3] = [
+    (
+        "options_camera",
+        Reshape::Stack(
+            ("BTN_ADVANCED", "SLI_MOVIE"),
+            &["BTN_GUN", "BTN_FOLLOW", "BTN_FADE"],
+        ),
+    ),
+    (
+        "options_camera_guns",
+        Reshape::Under("BTN_ADVANCED", "SLI_MOVIE"),
+    ),
+    (
+        "options_gameplay",
+        Reshape::Like("CB_REVERSE_INGAME", "BTN_MOUSE"),
+    ),
+];
+/// The gap between a moved or added control and the one above it (pixels).
+const RESHAPE_GAP: i32 = 5;
 
 const PAGES: [Spec; 10] = [
     Spec {
@@ -510,8 +534,16 @@ impl Screen for Page {
     }
 
     fn shape(&self, gui: &mut fmt_odyssey::gui::Gui) {
-        for (_, at, tags) in ADDED.iter().filter(|(page, ..)| *page == self.spec.name) {
-            crate::screens::stack_under(gui, *at, tags, ADDED_GAP);
+        for (_, reshape) in RESHAPED.iter().filter(|(page, _)| *page == self.spec.name) {
+            match reshape {
+                Reshape::Stack(at, tags) => {
+                    crate::screens::stack_under(gui, *at, tags, RESHAPE_GAP)
+                }
+                Reshape::Under(tag, after) => {
+                    crate::screens::move_under(gui, (tag, after), RESHAPE_GAP)
+                }
+                Reshape::Like(tag, like) => crate::screens::look_like(gui, (tag, like)),
+            }
         }
     }
 
