@@ -1095,6 +1095,11 @@ its event scripts off; `arena clear` takes its creatures): dark
 `arena@lev_m40ac`, lit `arena@end_m01ab`, e.g. `--headless --aim
 g_sithtroop01 --cmds 'wait world; arena clear; arena god; anim 0.3; arena
 spawn g_sithtroop01; arena spawn g_sithtroop01; record f 0.5 8 20; quit'`.
+The combat sandbox (`--stage sandbox`, the main menu options' Debug) is
+the same on the Star Forge's viewing platform (`sta_m45ad`, Malak's hall,
+arriving at `sta_way_player`) with none of its creatures: a dark floor lit
+in pools by the captive pods, trim and windows, where a fight's lights
+show; its keys on the arena's panel (`UI.md`).
 
 **Sounds** (`sound`; how they are heard: `SOUND.md`). What plays when:
 

@@ -12,7 +12,8 @@
 //! its feet at the start `RESPAWN_MS` after going down. Keys
 //! (`ArenaPlugin`): F2 calls in the chosen foe ahead of the player, F3
 //! chooses the next in `ROSTER`, F4 turns god mode on or off, F6 takes
-//! every foe away; a line at the top of the window says so.
+//! every foe away; a panel under the minimap says so
+//! (`ui::screens::arena_panel`).
 
 use std::sync::Arc;
 
@@ -23,6 +24,13 @@ use sim::combat::Sheet;
 
 /// The module whose plan lends the arena K1's data.
 pub const BASE_MODULE: &str = "end_m01aa";
+/// The combat sandbox (`kjk play --stage sandbox`, the main menu options'
+/// Debug): the arena's Jedi, keys and panel in the Star Forge's viewing
+/// platform (Malak's hall), a dark floor lit in pools by its pods, trim and
+/// windows, so a fight's lights show; arriving at the player's own mark.
+pub const SANDBOX: &str = "sandbox";
+pub const SANDBOX_MODULE: &str = "sta_m45ad";
+pub const SANDBOX_ARRIVAL: &str = "sta_way_player";
 /// Half the floor's side (metres), and its walls' height.
 const HALF: f32 = 18.0;
 const WALL: f32 = 4.0;
@@ -253,7 +261,7 @@ pub fn gear(library: &sim::script::Library) -> Vec<(String, u16)> {
         .collect()
 }
 
-/// The arena's keys and its line at the top of the window.
+/// The arena's keys and its panel.
 pub struct ArenaPlugin;
 
 /// The foe F2 calls in (`ROSTER`'s index).
@@ -347,16 +355,34 @@ fn keys(
             let id = crate::cast::me(current, own.0)?;
             current.get(id).map(|entity| entity.position)
         });
-    if swap.level.name() == crate::floor_arena::NAME
-        && let Some(ui) = ui.as_mut()
-    {
+    let Some(ui) = ui.as_mut() else {
+        return;
+    };
+    if swap.level.name() == crate::floor_arena::NAME {
         ui.vm.arena = Some(crate::floor_arena::line(me.unwrap_or([0.0; 3])).into_bytes());
-    } else if let Some(ui) = ui.as_mut() {
-        let line = format!(
-            "ARENA   F2 spawn {}   F3 next foe   F4 god mode {}   F6 clear   [ ] pick power, F cast",
-            ROSTER[chosen.foe].0,
-            if god { "ON" } else { "off" },
-        );
-        ui.vm.arena = Some(line.into_bytes());
+    } else {
+        ui.vm.arena_panel = Some(panel(ROSTER[chosen.foe].0, god));
+    }
+}
+
+/// The panel's title and rows (`ui::screens::arena_panel`): `foe` the one
+/// F2 calls in, `god` whether the player's body is in god mode.
+fn panel(foe: &str, god: bool) -> ui::vm::ArenaPanelView {
+    let row = |key: &str, words: &str, state: &str, on: bool| ui::vm::ArenaRow {
+        key: key.into(),
+        words: words.into(),
+        state: state.into(),
+        on,
+    };
+    ui::vm::ArenaPanelView {
+        title: b"COMBAT DEBUG".to_vec(),
+        rows: vec![
+            row("F2", "Spawn", foe, true),
+            row("F3", "Next foe", "", false),
+            row("F4", "God mode", if god { "ON" } else { "off" }, god),
+            row("F6", "Clear foes", "", false),
+            row("[ ]", "Pick power", "", false),
+            row("F", "Cast power", "", false),
+        ],
     }
 }
