@@ -721,6 +721,24 @@ pub struct PowerPickView {
     pub alpha: f32,
 }
 
+/// The combat arena's panel (`screens::arena_panel`): its title and a row
+/// per key, in the game's code page.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ArenaPanelView {
+    pub title: Vec<u8>,
+    pub rows: Vec<ArenaRow>,
+}
+
+/// A key of the arena's panel: the key, what it does, and its state (empty
+/// for none), bright when `on`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ArenaRow {
+    pub key: Vec<u8>,
+    pub words: Vec<u8>,
+    pub state: Vec<u8>,
+    pub on: bool,
+}
+
 /// Words floating over a creature's head (`screens::floaty`,
 /// `launcher::floaty_view`): a kill's XP over its dead.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -1003,9 +1021,12 @@ pub struct ViewModel {
     /// The Force power carousel, while the player picks a power
     /// (`screens::power_pick`).
     pub power_pick: Option<PowerPickView>,
-    /// The combat arena's line of keys at the top of the window, in the
-    /// arena (`screens::power_pick::line`).
+    /// The floors stage's line at the top of the window
+    /// (`screens::power_pick::line`).
     pub arena: Option<Vec<u8>>,
+    /// The combat arena's panel of keys under the minimap, in the arena
+    /// (`screens::arena_panel`).
+    pub arena_panel: Option<ArenaPanelView>,
     /// The status summaries up at the right edge, oldest first
     /// (`screens::status_summary`).
     pub summaries: Vec<SummaryView>,

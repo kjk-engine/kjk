@@ -34,7 +34,7 @@ runs.
 
 | test | checks |
 |---|---|
-| `sim_determinism` | `sim::determinism::run` (as `kjk sim determinism`): B to G agree, the proving ground's door opens, and the final hash is `KJK_SIM_HASH` from `ci.yml`, which must equal `manual.yml`'s, unless a bump file leaves it to the merge (`bumps/README.md`) |
+| `sim_determinism` | `sim::determinism::run` (as `kjk sim determinism`): B to G agree, the proving ground's door opens, and the final hash is the one pinned in `bumps/SIM_HASH`, unless a bump file leaves it to the merge (`bumps/README.md`) |
 | `old_saves_load` (proposed 2026-10-28) | every format fixture in `crates/approved_tests/saves` (`sim::fixtures`: the kitchen sink, a save built on the proving ground with no game's data, written at each pin that moves `save`, `snapshot` or `pack`) decodes on this build, re-encodes to the same save, and makes a world on the proving ground (re-stamped by the load, as the ground's digest moves with the code); the kitchen sink leaves no field at its start but those `sim::fixtures::LEFT_AT_START` names; a fixture exists at this build's versions unless a pending bump moves one; fixtures in `retired/` (from before a `breaking` bump) are refused by their version; the sim alone |
 | `stale_stamps_load` (proposed 2026-10-30) | every format fixture this build reads, its own level, its place and the module it left stamped with other data (`sim::Save::restamp`, part 3 of the save migrations design): `restamp` names its level with the old and new digests, the load makes a world whose place has the level's digest, `SimWorld::stale_stamp` names the module left, and the world walks back into it; the module left planned for one more player is still refused (`StashChanged`), and the save loaded in another level is refused; the sim alone |
 | `bump_files` (proposed 2026-10-28) | `bumps::parse_file`: a bump of a format saves hold (`save`, `snapshot`, `pack`) with neither a `[migrations]` line nor `breaking` is refused, as is a migration of a format not bumped or not stored; a network format bumped alone, a migrated bump and a breaking one pass; two pending bumps of one format get their versions in file-name order, by their names (`A_FIRST`, `B_LATER`: `sim::since`); no installs |
@@ -130,7 +130,7 @@ them on Windows and macOS on the 1st of each month and when started by hand.
   hand on a branch. Add `bumps/<branch>.toml` with `sim = "why"` (a
   snapshot bump moves it too); `sim_determinism` then checks every way
   agrees but leaves the hash to the merge, whose pin workflow writes it
-  into `ci.yml` and `manual.yml` (`bumps/README.md`).
+  into `bumps/SIM_HASH` (`bumps/README.md`).
 - A jolt ceiling, when an animation change moves a peak on purpose: read
   the new peaks (`--nocapture` prints them), check each sits on a cue or a
   landing (docs/SKELETON.md), and set the ceiling a little above.

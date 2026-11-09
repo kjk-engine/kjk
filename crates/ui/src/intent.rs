@@ -54,6 +54,10 @@ pub enum SessionIntent {
     /// load the save itself cannot make (`saves::Story::restore`); the save
     /// is not written over.
     Restore { save: String },
+    /// The combat sandbox (the game's `SANDBOX` stage: the arena's Jedi,
+    /// keys and panel in a partly lit KOTOR hall), played alone; the main
+    /// menu options' Debug button.
+    Sandbox,
     /// Back to the main menu.
     ToMenu,
 }

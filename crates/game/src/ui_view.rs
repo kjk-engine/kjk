@@ -680,6 +680,7 @@ fn step(
             transition_layer(ui, (size.x, size.y)),
             power_pick_layer(ui, (size.x, size.y)),
             arena_layer(ui, (size.x, size.y)),
+            arena_panel_layer(ui, (size.x, size.y)),
         ]
         .into_iter()
         .flatten()
@@ -910,8 +911,30 @@ fn power_pick_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     Some(ui::screens::power_pick::draw(&mut painter, pick, window))
 }
 
-/// The combat arena's line of keys for a window of `window` pixels, in
-/// the arena (`crate::arena`).
+/// The combat arena's panel of keys for a window of `window` pixels, in the
+/// arena (`crate::arena`): in the HUD's frame, under its minimap.
+fn arena_panel_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
+    let panel = ui.vm.arena_panel.clone()?;
+    let (hud, _) = hud_gui(ui, window)?;
+    let (wide, tall) = hud.frame();
+    let at = hud
+        .find(ui::screens::arena_panel::UNDER)
+        .map_or([8.0, 132.0], |map| {
+            let extent = &map.extent;
+            [extent.left as f32, (extent.top + extent.height) as f32]
+        });
+    let Ui { assets, stack, .. } = ui;
+    let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
+    Some(ui::screens::arena_panel::draw(
+        &mut painter,
+        &panel,
+        (wide as f32, tall as f32),
+        at,
+    ))
+}
+
+/// The floors stage's line for a window of `window` pixels
+/// (`crate::floor_arena`).
 fn arena_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let Ui {
         assets, vm, stack, ..

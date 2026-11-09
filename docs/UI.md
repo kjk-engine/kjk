@@ -539,7 +539,15 @@ Running and checking:
   rebuilding it. Greyed: shadows, texture quality, anisotropy, frame buffer
   effects, soft shadows, the advanced sound page, the feedback list,
   difficulty, auto level-up, autosave and the minigames' axis. `dump`'s
-  `display` shows the window.
+  `display` shows the window. The main page's unused auto-pause button is
+  Debug: it starts the combat sandbox alone (`SessionIntent::Sandbox`,
+  `COMBAT.md`); only the main menu opens that page.
+- The combat arena's panel (`ui::screens::arena_panel`), in every arena but
+  the floors stage: under the HUD's minimap in the HUD's frame, KOTOR 2's
+  rounded rim (its option buttons' `uibit_brdr_16wc`/`16we`) in the
+  campaign's colour over a dark fill, "COMBAT DEBUG", then a row per key
+  (the key in the highlight colour, what it does, its state at the right:
+  the foe F2 calls in, god mode bright when on).
 
 The equip page: a slot chosen lists what the party carries that fits it,
 after "None" and, on a line of its own, what the slot holds marked

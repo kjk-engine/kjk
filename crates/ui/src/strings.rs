@@ -17,6 +17,8 @@ pub const QUIT_TO_DESKTOP: &str = "Quit to the desktop";
 pub const BREAK: &str = "Take a break";
 pub const RESUME: &str = "Resume";
 pub const INVERT_CAMERA: &str = "Invert camera";
+/// The main menu options' way into the combat sandbox.
+pub const DEBUG: &str = "Debug";
 pub const CONTROLLER: &str = "Controller";
 pub const CONTROLLER_OPTIONS: &str = "Controller Options";
 pub const PRESS_KEY: &str = "Press a key or a mouse button. Escape cancels.";

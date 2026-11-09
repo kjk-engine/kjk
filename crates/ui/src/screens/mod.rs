@@ -1,6 +1,7 @@
 //! The game's screens, each a KOTOR layout and what its controls do, and
 //! the factory that opens them by name.
 
+pub mod arena_panel;
 pub mod bark;
 pub mod campaign;
 pub mod chargen;

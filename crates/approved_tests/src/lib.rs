@@ -57,28 +57,9 @@ pub fn discovery() -> Discovery {
     })
 }
 
-/// The sim hash both workflows pin (`KJK_SIM_HASH:` in `ci.yml` and
-/// `manual.yml`); an error when a file lacks it or they differ.
+/// The pinned sim hash (`bumps/SIM_HASH`).
 pub fn pinned_hash() -> Result<String, String> {
-    let mut pins = Vec::new();
-    for file in ["ci.yml", "manual.yml"] {
-        let path = workspace().join(".github/workflows").join(file);
-        let text = std::fs::read_to_string(&path)
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        let pin = text
-            .lines()
-            .find_map(|line| line.trim().strip_prefix("KJK_SIM_HASH:"))
-            .map(|hash| hash.trim().trim_matches('"').to_string())
-            .ok_or(format!("{file}: no KJK_SIM_HASH"))?;
-        pins.push((file, pin));
-    }
-    if pins[0].1 != pins[1].1 {
-        return Err(format!(
-            "the workflows pin different hashes: {} {}, {} {}",
-            pins[0].0, pins[0].1, pins[1].0, pins[1].1
-        ));
-    }
-    Ok(pins.remove(0).1)
+    bumps::pinned_hash(&workspace())
 }
 
 /// The branch's bump files that leave the hash's pin to the merge

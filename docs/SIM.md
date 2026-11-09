@@ -110,8 +110,8 @@ shared replays run between Windows, Linux and macOS machines.
 
 ## Cross-platform check
 The approved test `sim_determinism` (docs/TESTS.md) runs the same run as
-`kjk sim determinism` and requires its final hash to be `KJK_SIM_HASH`,
-pinned in `ci.yml` and `manual.yml`: on Linux at every push to main and
+`kjk sim determinism` and requires its final hash to be the one pinned in
+`bumps/SIM_HASH`: on Linux at every push to main and
 pull request (`cargo test --release -p approved_tests`, no Bevy), on Windows and macOS
 in the manual workflow, on the 1st of each month and when started by hand. When the sim changes on purpose, run
 `kjk sim determinism` on one machine and put its `final` hash in both files

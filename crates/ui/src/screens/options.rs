@@ -6,7 +6,9 @@
 //! effects, the feedback list, saves and levels for the world state). KOTOR 2's
 //! pages (the skin) have two more check boxes, hidden. The controller's
 //! page is ours, on the graphics page's layout, opened from the gameplay
-//! page in its unused difficulty button's place.
+//! page in its unused difficulty button's place. The main page's unused
+//! auto-pause button is Debug: the combat sandbox (only the main menu opens
+//! this page; play has its own, `options_in_game`).
 
 use fmt_odyssey::gui::Control;
 
@@ -33,6 +35,9 @@ enum Role {
     OpenAs(&'static str, &'static str),
     /// A label of the layout's, saying ours.
     Text(&'static str),
+    /// A button labelled ours that starts the combat sandbox
+    /// (`SessionIntent::Sandbox`).
+    Sandbox(&'static str),
     /// Shown, not usable yet.
     Greyed,
     Hidden,
@@ -75,7 +80,8 @@ pub struct Page {
 }
 
 use Role::{
-    Back, Cancel, Cycle, Defaults, Greyed, Hidden, Open, OpenAs, Slider, Text, Toggle, ToggleAs,
+    Back, Cancel, Cycle, Defaults, Greyed, Hidden, Open, OpenAs, Sandbox, Slider, Text, Toggle,
+    ToggleAs,
 };
 
 /// Anti-aliasing: the samples a pixel takes.
@@ -102,7 +108,7 @@ const PAGES: [Spec; 8] = [
             ("BTN_FEEDBACK", Open("options_feedback")),
             ("BTN_GRAPHICS", Open("options_graphics")),
             ("BTN_SOUND", Open("options_sound")),
-            ("BTN_AUTOPAUSE", Hidden),
+            ("BTN_AUTOPAUSE", Sandbox(strings::DEBUG)),
             ("BTN_BACK", Back),
         ],
         first: "BTN_GAMEPLAY",
@@ -319,7 +325,7 @@ impl Screen for Page {
                 value: Some(number(vm, key)),
                 ..ControlState::default()
             },
-            Some(OpenAs(_, label) | Text(label)) => ControlState {
+            Some(OpenAs(_, label) | Text(label) | Sandbox(label)) => ControlState {
                 text: Some(strings::bytes(label)),
                 ..ControlState::default()
             },
@@ -354,6 +360,10 @@ impl Screen for Page {
                 out.push(Intent::Setting(key.into(), choices[next].0.into()));
             }
             Some(Open(screen) | OpenAs(screen, _)) => out.push(Intent::Open(screen)),
+            Some(Sandbox(_)) => out.extend([
+                Intent::CloseAll,
+                Intent::Session(crate::intent::SessionIntent::Sandbox),
+            ]),
             Some(Back) => out.push(Intent::Close),
             Some(Cancel) => self.back(out),
             Some(Defaults) => out.push(Intent::Setting("reset".into(), self.spec.name.into())),
