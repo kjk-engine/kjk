@@ -71,3 +71,24 @@ value = true
 summary = "Whether, in TSL, the player's own character leaves the area while the player plays another: {party.switch.leaves_area_tsl}."
 source = "TSL's executable (at a switch it saves the player's creature and deletes it, and makes it again on the way back)"
 see = "sim::world::switch::leaves_area"
+
+[return_to_ship]
+title = "Returning to the Ebon Hawk"
+summary = """
+The map's return button takes the party to the Ebon Hawk and back, after a
+question. It refuses where the area keeps the party from leaving, while a
+party member stands more than {party.return_to_ship.together_m:bare} meters
+from the leader, and during combat.
+"""
+applies = ["kind:companion"]
+
+[return_to_ship.together_m]
+name = "Party Together"
+type = "f32"
+value = 30.0
+unit = "m"
+range = [0.0, 1000.0]
+summary = "The party may return to the Ebon Hawk only with every party member within {party.return_to_ship.together_m:bare} meters of the leader."
+source = "K1's executable (the map page's check, the distance squared against 900)"
+see = "sim::snapshot::Snapshot::transit_refusal"
+applies = ["kind:companion"]

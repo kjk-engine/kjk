@@ -686,3 +686,7 @@ crates/sim/src/script/minigame.rs ANSWERED  # the minigames' routines' names, a 
 crates/sim/src/script/rare.rs NO_METAMAGIC  # the executables' metamagic byte before a cast
 crates/sim/src/script/rare.rs TABLE_SLOTS  # the party table's size
 crates/sim/src/script/rare.rs BASE_DAMAGE  # nwscript's DAMAGE_FLAG_BASE_DAMAGE bit
+crates/sim/src/action.rs RETURN_TO_SHIP  # a player action's wire tag
+crates/sim/src/snapshot.rs APART  # a talk-table strref (the map page's refusal)
+crates/sim/src/snapshot.rs BARRED  # a talk-table strref (the map page's refusal)
+crates/sim/src/snapshot.rs FOES  # a talk-table strref (the map page's refusal)

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `bd834092d75f4376`.
+Edition `5cc33838e15f9692`.
 
 ## Contents
 
@@ -176,6 +176,7 @@ Edition `bd834092d75f4376`.
   - [Party Members by Player](#party-seats)
   - [Leaving an Area](#party-exits)
   - [Playing Another Character](#party-switch)
+  - [Returning to the Ebon Hawk](#party-return-to-ship)
 - [Stealth and Awareness](#stealth)
   - [Stealth Mode](#stealth-mode)
   - [Standing, Walking and Running](#stealth-pace)
@@ -6816,6 +6817,19 @@ Whether, in K1, the player's own character leaves the area while the player play
 Whether, in TSL, the player's own character leaves the area while the player plays another: true.
 
 <sub>Source: TSL's executable (at a switch it saves the player's creature and deletes it, and makes it again on the way back). Code: `sim::world::switch::leaves_area`.</sub>
+
+### <a id="party-return-to-ship"></a>Returning to the Ebon Hawk
+
+The map's return button takes the party to the Ebon Hawk and back, after a
+question. It refuses where the area keeps the party from leaving, while a
+party member stands more than 30 meters
+from the leader, and during combat.
+
+<a id="party-return-to-ship-together-m"></a>**Party Together** = **30 m** · `party.return_to_ship.together_m`
+
+The party may return to the Ebon Hawk only with every party member within 30 meters of the leader.
+
+<sub>Source: K1's executable (the map page's check, the distance squared against 900). Code: `sim::snapshot::Snapshot::transit_refusal`.</sub>
 
 ## <a id="stealth"></a>Stealth and Awareness
 

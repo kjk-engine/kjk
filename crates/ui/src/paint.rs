@@ -219,6 +219,9 @@ pub struct ControlState {
     pub pulsing: bool,
     /// Its text and border in red whether chosen or not (`Row::refused`).
     pub refused: bool,
+    /// Its text and border in the disabled colour while it still takes a
+    /// press (K1's map page's return button, refused: a press says why).
+    pub greyed: bool,
 }
 
 pub struct Painter<'a> {
@@ -632,7 +635,7 @@ impl<'a> Painter<'a> {
         state: &ControlState,
         base: Option<[f32; 3]>,
     ) -> [f32; 4] {
-        if state.disabled {
+        if state.disabled || state.greyed {
             return rgba(self.palette.disabled, 1.0);
         }
         let chosen = state.selected && control.kind != Kind::CheckBox;
@@ -679,7 +682,7 @@ impl<'a> Painter<'a> {
         self.pulsed |= state.pulsing;
         let alpha = if state.pulsing { self.pulsing } else { 1.0 };
         if let Some(border) = border {
-            let tint = if state.disabled {
+            let tint = if state.disabled || state.greyed {
                 self.palette.disabled
             } else if state.refused {
                 self.color(Some(RED))

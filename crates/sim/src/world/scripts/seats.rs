@@ -181,6 +181,21 @@ pub(super) fn seat_actions(
                 }
                 continue;
             }
+            // The map page's return to the Ebon Hawk, its question answered
+            // yes: the first seat's (the story is the host's), where the
+            // scripts let the button show and the area lets the party
+            // leave; the page checked the party together and no foe near
+            // (`Snapshot::transit_refusal`).
+            Action::ReturnToShip => {
+                if *seat == crate::world::LEADER_SEAT
+                    && state.return_button.0
+                    && !state.transit_barred(Some(view.module))
+                {
+                    let script = script::presentation::RETURN_TO_SHIP;
+                    state.pending.push(Pending::new(script, ObjectId::INVALID));
+                }
+                continue;
+            }
             Action::Fit {
                 item,
                 upgrade,

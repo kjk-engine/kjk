@@ -147,6 +147,7 @@ pub(crate) fn action(game: GameAction) -> Option<Action> {
         GameAction::ShowParty => Action::ShowParty,
         GameAction::ScreenOpened => Action::ScreenOpened,
         GameAction::SubScreen(page) => Action::SubScreen(page),
+        GameAction::ReturnToShip => Action::ReturnToShip,
         GameAction::Travel(planet) => Action::Travel(planet),
         GameAction::Break => Action::Break,
         GameAction::Resume => Action::Resume,

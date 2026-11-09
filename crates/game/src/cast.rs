@@ -598,18 +598,17 @@ pub fn worn_sheet(snapshot: &Snapshot, entity: &EntityState, level: &sim::Level)
 /// The party as `seat` sees it, as the bar, the HUD, the pages and their 3D
 /// view list it: its body (`Snapshot::body`: its avatar, the companion it
 /// drives, I31, or the one leading) first. The party's own order is the
-/// seat's own character while in the party, then the creatures that follow
-/// the seat, by id; it is turned to start at the body (as KOTOR's leader
+/// seat's own character while in the party, then the companions that follow
+/// the seat (`Snapshot::follows`: no TSL puppet, Bao-Dur's remote), by id;
+/// it is turned to start at the body (as KOTOR's leader
 /// key turns it), so the next after the body is the next to lead.
 pub fn party_of(snapshot: &Snapshot, seat: Seat) -> Vec<&EntityState> {
     let body = snapshot.body(seat);
     let own = snapshot.own(seat).filter(|own| snapshot.in_party(own));
-    let followers = snapshot.entities.iter().filter(|entity| {
-        matches!(entity.kind, Kind::Object(..))
-            && entity
-                .fighter
-                .is_some_and(|fighter| fighter.mind.leader == Some(seat))
-    });
+    let followers = snapshot
+        .entities
+        .iter()
+        .filter(|entity| snapshot.follows(entity, seat));
     let mut party: Vec<&EntityState> = own.into_iter().chain(followers).collect();
     if let Some(body) = body {
         match party.iter().position(|member| member.id == body.id) {

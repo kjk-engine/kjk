@@ -724,6 +724,8 @@ fn map_check() -> Result<String, String> {
         label: 38477,
         query: 42466,
         disabled: true,
+        // The area's transit disabled refuses the return to the Ebon Hawk.
+        refused: crate::snapshot::transit::BARRED,
     };
     check(
         jammed.screens.map_disabled
