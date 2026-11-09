@@ -3,11 +3,12 @@
 //! the next version, in the order the files reached `main`
 //! (`bumps::arrival`), with its line in
 //! the version's history; the files are taken away; then the sim hash is
-//! run and pinned in both workflows. A format saves hold that moved gets
+//! run and pinned. A format saves hold that moved gets
 //! its bump's named version in `crates/sim/src/since.rs`, its migration in
 //! the history (or, `breaking`, a line in `bumps/BREAKING.md`, its oldest
 //! version read raised and the fixtures before it retired), and a fixture
-//! at the new versions. The pin workflow commits the result after the
+//! at the new versions. The hash goes in `bumps/SIM_HASH`, not a workflow:
+//! the workflow's token may not change workflows. The pin workflow commits the result after the
 //! approved tests pass on it and puts it on the `pin` branch's pull request.
 
 use crate::{git, repo_root};
@@ -15,8 +16,6 @@ use std::fmt::Write as _;
 use std::path::Path;
 use std::process::Command;
 
-const WORKFLOWS: [&str; 2] = [".github/workflows/ci.yml", ".github/workflows/manual.yml"];
-const HASH_KEY: &str = "KJK_SIM_HASH:";
 const SINCE: &str = bumps::SINCE;
 const BREAKING: &str = "bumps/BREAKING.md";
 /// The format fixtures (`sim::fixtures::DIR`) and the order of the
@@ -79,7 +78,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         write_since(&root, &named)?;
     }
 
-    let before = pinned(&root)?;
+    let before = bumps::pinned_hash(&root)?;
     let after = sim_hash(&root)?;
     if !named.is_empty() {
         let fixture = cargo(&root, &["--bin", "save_fixture"])?;
@@ -89,21 +88,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             relative(&root, Path::new(fixture.trim()))
         ));
     }
-    for workflow in WORKFLOWS {
-        let path = root.join(workflow);
-        let text = read(&path)?;
-        let mut out = String::new();
-        for line in text.split_inclusive('\n') {
-            match line.trim_start().strip_prefix(HASH_KEY) {
-                Some(_) => {
-                    let indent = &line[..line.len() - line.trim_start().len()];
-                    writeln!(out, "{indent}{HASH_KEY} {after}").expect("a String takes writes");
-                }
-                None => out.push_str(line),
-            }
-        }
-        write(&path, &out)?;
-    }
+    write(&root.join(bumps::SIM_HASH), &format!("{after}\n"))?;
     let short = |hash: &str| hash.chars().take(8).collect::<String>();
     if before == after {
         lines.push(format!("the sim hash stays {}", short(&after)));
@@ -169,15 +154,6 @@ fn history(text: &str) -> String {
     out.push_str(&line);
     out.push('\n');
     out
-}
-
-fn pinned(root: &Path) -> Result<String, String> {
-    let path = root.join(WORKFLOWS[0]);
-    read(&path)?
-        .lines()
-        .find_map(|line| line.trim().strip_prefix(HASH_KEY))
-        .map(|hash| hash.trim().to_string())
-        .ok_or(format!("{}: no {HASH_KEY}", path.display()))
 }
 
 /// The pinned run's final hash, built with the bumps applied.

@@ -98,7 +98,7 @@ jolt ceilings, which need the game installs. Write files with LF endings.
   Checks you want while working are probes (`kjk sim probes`, `kjk combat …`,
   `kjk script …`), not new `#[test]`s.
 - **The sim is deterministic** and its final hash after a fixed run is
-  pinned as `KJK_SIM_HASH` in `.github/workflows/ci.yml` and `manual.yml`.
+  pinned in `bumps/SIM_HASH`.
   It moves only on purpose, and only the merge pins it: say why in
   `bumps/<branch>.toml` (`sim = "…"`) and in the pull request
   ([`bumps/README.md`](bumps/README.md)).
