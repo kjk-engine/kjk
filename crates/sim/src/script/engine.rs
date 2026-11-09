@@ -1580,7 +1580,8 @@ impl Engine<'_> {
     /// Changes the area's sound as this step's scripts leave it, and
     /// answers `then` of it.
     fn area_sound<T>(&mut self, change: impl FnOnce(&mut crate::snapshot::AreaSound) -> T) -> T {
-        let mut sound = self.out.area_sound.unwrap_or(self.view.area_sound);
+        let mut sound =
+            (self.out.area_sound.take()).unwrap_or_else(|| self.view.area_sound.clone());
         let answer = change(&mut sound);
         self.out.area_sound = Some(sound);
         answer
@@ -4005,13 +4006,13 @@ impl Engine<'_> {
                 part: 0,
             }),
             // A room's own clip (the turret's skybox, `scriptloop0<n>`),
-            // played by the view.
+            // played by the view; each room keeps the last one played on it.
             PlayRoomAnimation => {
                 let room = crate::snapshot::room_key(text(args, 0));
                 let anim = int(args, 1).clamp(0, 255) as u8;
                 let since_ms = self.view.now_ms;
                 self.area_sound(|area| {
-                    area.room = Some(crate::snapshot::RoomAnim {
+                    area.play_room(crate::snapshot::RoomAnim {
                         room,
                         anim,
                         since_ms,
@@ -4128,7 +4129,7 @@ impl Engine<'_> {
             MusicBackgroundGetDayTrack
             | MusicBackgroundGetNightTrack
             | MusicBackgroundGetBattleTrack => {
-                let area = self.out.area_sound.unwrap_or(view.area_sound);
+                let area = self.out.area_sound.as_ref().unwrap_or(&view.area_sound);
                 let row = match bound {
                     MusicBackgroundGetDayTrack => area.music.day,
                     MusicBackgroundGetNightTrack => area.music.night,

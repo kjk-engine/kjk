@@ -877,7 +877,7 @@ pub(super) fn scripts(
         travels: &travels,
         pazaak: &pazaak,
         watches: &watches,
-        area_sound: area.sound,
+        area_sound: area.sound.clone(),
         fade: area.fade,
         world_fade_in: area.world_fade_in,
         leads: &leads,

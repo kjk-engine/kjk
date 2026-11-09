@@ -138,8 +138,9 @@ lightning and how to see them).
   names no node of the model moves all of them (`AnimationIr::bind`:
   TSL's `p_kreiastunt` names its clips' root `p_kreiastunt01`).
 - A room's `scriptloopNN` clip a script plays on it (`PlayRoomAnimation`:
-  the snapshot's `AreaSound::room`, the room by `sim::room_key` of its
-  name, one at a time) loops from when it began, on the sim's clock, after
+  the snapshot's `AreaSound::rooms`, the room by `sim::room_key` of its
+  name, each room its own last one: `104per`'s Harbinger flies in while
+  its flame vents take turns) loops from when it began, on the sim's clock, after
   its `animloop`s, so its keys show over theirs: its nodes, its meshes'
   alpha and self-illumination, its emitters' values and `detonate`
   events, in every module (`own_fx`). Several rooms' emitters are keyed by
