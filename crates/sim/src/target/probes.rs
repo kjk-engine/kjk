@@ -329,6 +329,14 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             "a walk to talk, then nothing to talk to".into(),
         ),
     ));
+    // A walk to talk stops before a way out across its path (#255: C8-42
+    // knocked back behind the Crystal Cave's exit): it talks from there
+    // when the creature is in reach, is out of reach when not, and walks on
+    // where no way out lies ahead.
+    checks.push((
+        "walk_keeps_out_of_exits",
+        walk_keeps_out(&level, &feet, &axis),
+    ));
     // What stands just behind a wall: hidden from the crosshair and from
     // sight.
     let behind = thing(10, ObjectKind::Placeable, 0.15, 3.0, PLACEABLE_RADIUS, 3.2);
@@ -446,4 +454,83 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ),
     ));
     checks
+}
+
+/// A way out of the proving ground: the strip of the ground from `from` to
+/// `to` along its x axis (`ground_x`), across its whole width.
+struct Strip<'a> {
+    ground_x: &'a dyn Fn(Vec3) -> f32,
+    from: f32,
+    to: f32,
+}
+
+impl crate::walk::Ways for Strip<'_> {
+    fn door(&self, _index: u32) -> crate::ObjectState {
+        crate::ObjectState::default()
+    }
+
+    fn leads_out(&self, body: Vec3) -> bool {
+        (self.from..=self.to).contains(&(self.ground_x)(body))
+    }
+}
+
+/// `walk_keeps_out_of_exits`: a player at ground x `at` (running toward
+/// +x at `speed` units a second), sent to talk with a creature at x -2
+/// (reach `CONVERSATION_RANGE`, 4 m), a way out across the ground at
+/// `strip` (none: nowhere), its first stride.
+fn walk_keeps_out(
+    level: &Level,
+    feet: &dyn Fn(f32, f32) -> Vec3,
+    axis: &dyn Fn(Vec3) -> Vec3,
+) -> Result<String, String> {
+    let ex = axis(feet(1.0, 0.0));
+    let ground_x = |at: Vec3| {
+        let from = axis(at);
+        (from[0] * ex[0] + from[1] * ex[1]) / (ex[0] * ex[0] + ex[1] * ex[1])
+    };
+    let stride = |at: f32, speed: f32, strip: Option<(f32, f32)>| {
+        let ways = Strip {
+            ground_x: &ground_x,
+            from: strip.map_or(f32::MAX, |(from, _)| from),
+            to: strip.map_or(f32::MIN, |(_, to)| to),
+        };
+        let mut player =
+            crate::motion::MotionState::standing(math::scale(feet(at, 0.0), 1.0 / UNIT), 0.0);
+        let length = math::length([ex[0], ex[1], 0.0]);
+        player.velocity = [ex[0] / length * speed, ex[1] / length * speed, 0.0];
+        let spot = Spot::plain(feet(-2.0, 0.0), Choice::Talk, ObjectKind::Creature);
+        let mut walk = Walk::new(level, &ways, &player, 5, spot, Choice::Talk, 0);
+        walk.stride(level, &ways, &player, spot, 0)
+    };
+    let run = crate::motion::BASE_SPEED;
+    let cases = [
+        // In reach (3.8 m) with a way out 0.3 m ahead: talked to from here.
+        (-5.8, 0.0, Some((-5.5, -5.0)), "arrived"),
+        // Out of reach (5 m), the way out 0.4 m ahead: no walk through it.
+        (-7.0, 0.0, Some((-6.6, -6.4)), "unreachable"),
+        // The same walk with no way out ahead walks on.
+        (-7.0, 0.0, None, "steer"),
+        // A way out it stands in already (where it arrived) is not one it
+        // keeps out of: it walks on.
+        (-7.0, 0.0, Some((-7.5, -6.0)), "steer"),
+        // At a run, the way out 1.2 m ahead, within its slide: it lets the
+        // run slide to a stop before deciding, not out of reach yet.
+        (-7.0, run, Some((-5.8, -5.5)), "brake"),
+    ];
+    let got: Vec<&str> = cases
+        .iter()
+        .map(|&(at, speed, strip, _)| match stride(at, speed, strip) {
+            Stride::Arrived => "arrived",
+            Stride::Unreachable => "unreachable",
+            Stride::Steer(command) if command.forward == 0 && command.right == 0 => "brake",
+            Stride::Steer(_) => "steer",
+        })
+        .collect();
+    let want: Vec<&str> = cases.iter().map(|case| case.3).collect();
+    let what = format!("{got:?}");
+    if got == want {
+        Ok(what)
+    } else {
+        Err(format!("{what}, wanted {want:?}"))
+    }
 }

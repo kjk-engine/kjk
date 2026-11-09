@@ -845,15 +845,7 @@ impl Walk {
     ) -> Stride {
         let late = now_ms >= self.started_ms + WALK_MS;
         if Walk::near(player, spot) || self.no_nearer(player, spot, now_ms) {
-            // Arrived at a run, it stops first where the choice breaks off
-            // on its user moving: the slide would carry it past.
-            let moving = math::length([player.velocity[0], player.velocity[1], 0.0])
-                >= rules::movement::ground::STILL_BELOW;
-            if moving && stands_for(self.choice) && !late {
-                let [pitch, yaw, _] = player.view;
-                return Stride::Steer(crate::combat::mind::looking(player, pitch, yaw));
-            }
-            return Stride::Arrived;
+            return self.arrived(player, late);
         }
         if late || self.walker.stalls >= STALLS {
             return Stride::Unreachable;
@@ -861,11 +853,157 @@ impl Walk {
         if math::flat_distance(spot.at, self.toward) > MOVED {
             self.plan(level, ways, player, spot);
         }
-        Stride::Steer(if self.direct {
+        let command = if self.direct {
             crate::walk::toward(player, self.walker.goal)
         } else {
             self.walker.command(level, player, now_ms, ways)
-        })
+        };
+        // KOTOR's walk to a clicked target never leaves the area (only a
+        // click on the transition does): before a way out it stops, and,
+        // stopped, does the choice there if it reaches (C8-42 knocked back
+        // behind the Crystal Cave's exit on Dantooine, #255), else is out
+        // of reach. Stopped short by its run's slide, it walks on.
+        if leaves(ways, player, &command) {
+            if moving(player) {
+                self.walker.keep_headway(now_ms, player);
+                return Stride::Steer(still(player));
+            }
+            return if math::flat_distance(feet_of(player), spot.at) <= spot.reach {
+                self.arrived(player, late)
+            } else {
+                Stride::Unreachable
+            };
+        }
+        Stride::Steer(command)
+    }
+
+    /// The walk arrived: the choice is done, but a skill's use first stops
+    /// a run (the slide would carry its user past where it breaks off on
+    /// moving).
+    fn arrived(&self, player: &crate::motion::MotionState, late: bool) -> Stride {
+        if moving(player) && stands_for(self.choice) && !late {
+            return Stride::Steer(still(player));
+        }
+        Stride::Arrived
+    }
+}
+
+/// Whether `player` moves across the floor.
+fn moving(player: &crate::motion::MotionState) -> bool {
+    math::length([player.velocity[0], player.velocity[1], 0.0])
+        >= rules::movement::ground::STILL_BELOW
+}
+
+/// The command that lets `player`'s run slide to a stop, looking as it
+/// does.
+fn still(player: &crate::motion::MotionState) -> crate::Command {
+    let [pitch, yaw, _] = player.view;
+    crate::combat::mind::looking(player, pitch, yaw)
+}
+
+/// How far past where its run's slide would end (metres) a walk looks for a
+/// way out it is not to take.
+const EXIT_MARGIN_M: f32 = rules::targeting::walk::EXIT_MARGIN_M;
+/// How often along the way it looks (metres): a trigger may be thin.
+const EXIT_STEP_M: f32 = 0.25;
+
+/// Whether `command` (or, let go, its run's slide) would carry `player`
+/// into a way out `ways` keeps it from (`Ways::leads_out`), looked for
+/// every `EXIT_STEP_M` as far as the slide at its speed reaches and
+/// `EXIT_MARGIN_M` on: never one it stands in already (where it arrived),
+/// whose way the sim has taken or not.
+fn leaves(
+    ways: &dyn crate::walk::Ways,
+    player: &crate::motion::MotionState,
+    command: &crate::Command,
+) -> bool {
+    let body = math::scale(player.origin, UNIT);
+    if ways.leads_out(body) {
+        return false;
+    }
+    let speed = math::length([player.velocity[0], player.velocity[1], 0.0]);
+    let ahead = speed / crate::motion::FRICTION * UNIT + EXIT_MARGIN_M;
+    let steps = (ahead / EXIT_STEP_M).ceil() as usize;
+    let out_along = |way: [f32; 2]| {
+        let length = math::length([way[0], way[1], 0.0]);
+        length > f32::EPSILON
+            && (1..=steps).any(|step| {
+                let d = ahead * step as f32 / steps as f32;
+                ways.leads_out([
+                    body[0] + way[0] / length * d,
+                    body[1] + way[1] / length * d,
+                    body[2],
+                ])
+            })
+    };
+    let yaw = math::short_to_degrees(command.angles[1].wrapping_add(player.view_offset[1]));
+    let (ahead_of, side, _) = math::angle_vectors([0.0, yaw, 0.0]);
+    let (f, r) = (f32::from(command.forward), f32::from(command.right));
+    let driven = [ahead_of[0] * f + side[0] * r, ahead_of[1] * f + side[1] * r];
+    out_along(driven) || out_along([player.velocity[0], player.velocity[1]])
+}
+
+/// The ways a walk to target `object` keeps out of (`Walk::stride`), over
+/// the walk's own `ways`: every trigger and door of the snapshot that leads
+/// out of the module but the target itself.
+pub struct KeptIn<'a> {
+    ways: &'a dyn crate::walk::Ways,
+    level: &'a Level,
+    triggers: Vec<std::sync::Arc<crate::module::ObjectData>>,
+    doors: Vec<u32>,
+}
+
+impl<'a> KeptIn<'a> {
+    pub fn new(
+        level: &'a Level,
+        ways: &'a dyn crate::walk::Ways,
+        snapshot: &Snapshot,
+        object: u32,
+    ) -> Self {
+        let instances = Instances::in_snapshot(level, snapshot);
+        let (mut triggers, mut doors) = (Vec::new(), Vec::new());
+        for entity in &snapshot.entities {
+            let Kind::Object(kind, index) = entity.kind else {
+                continue;
+            };
+            let Some(facts) = instances
+                .facts(index)
+                .filter(|facts| facts.exit().is_some())
+            else {
+                continue;
+            };
+            match kind {
+                ObjectKind::Trigger => triggers.push(facts.clone()),
+                ObjectKind::Door if index != object => doors.push(index),
+                _ => {}
+            }
+        }
+        KeptIn {
+            ways,
+            level,
+            triggers,
+            doors,
+        }
+    }
+}
+
+impl crate::walk::Ways for KeptIn<'_> {
+    fn door(&self, index: u32) -> crate::ObjectState {
+        self.ways.door(index)
+    }
+
+    fn walls(&self, face: u32) -> bool {
+        self.ways.walls(face)
+    }
+
+    fn leads_out(&self, body: Vec3) -> bool {
+        self.triggers
+            .iter()
+            .any(|facts| self.level.in_trigger(facts, body))
+            || self
+                .doors
+                .iter()
+                .any(|&index| self.level.at_door(index, body))
     }
 }
 

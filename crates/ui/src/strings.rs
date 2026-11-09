@@ -50,15 +50,35 @@ pub const CAMERA_CUSTOM: &str = "Camera: Custom";
 pub const CAMERA_LAG_JA: &str = "Camera Follow: Loose";
 pub const CAMERA_LAG_TIGHT: &str = "Camera Follow: Tight";
 pub const CAMERA_LAG_OFF: &str = "Camera Follow: Locked";
+pub const CAMERA_HELP: &str = "How far back the third-person camera stands, how high, over which shoulder, how wide it sees and how closely it follows. Hold Left Alt to look around your character; = and - (or the wheel with Alt held) bring the camera closer or farther, into first person at the nearest.";
+pub const CAMERA_DISTANCE_HELP: &str = "How far behind your character the camera stands. At the nearest, one more step closer (=) looks through your character's eyes.";
+pub const CAMERA_HEIGHT_HELP: &str = "How high over your character's eyes the camera aims.";
+pub const CAMERA_SHOULDER_HELP: &str = "Moves the camera to the side: in the middle it stands straight behind your character, as in Jedi Academy; to the right it looks over the right shoulder. The middle mouse button swaps the side.";
+pub const CAMERA_FOV_HELP: &str =
+    "How wide the camera sees, in either camera. Jedi Academy's is 80.";
+pub const CAMERA_FOLLOW_HELP: &str = "How closely the camera follows your turns and moves: Loose trails a little behind as Jedi Academy's does, Locked stays fixed to your character.";
+pub const BODY_FADE_HELP: &str = "Fades your character when a wall pushes the camera close, so the camera never shows the inside of a head.";
+pub const CAMERA_PRESET_HELP: &str = "Sets the four sliders at once: Jedi Academy's camera, over the shoulder, KOTOR's, or close. Moving a slider makes it Custom.";
 pub const GUN_CAMERA_SHOULDER: &str = "Guns: Over the Shoulder";
 pub const GUN_CAMERA_CLOSE: &str = "Guns: Close";
 pub const GUN_CAMERA_KOTOR: &str = "Guns: KOTOR";
 pub const GUN_CAMERA_SAME: &str = "Guns: Same as Melee";
+pub const GUN_CAMERA_HELP: &str = "Where the camera goes while a gun is in your character's hand: over the shoulder, close or KOTOR's, easing there as you draw it and back as you put it away; Same as Melee keeps the camera above.";
 pub const BODY_FADE_ON: &str = "Body Fade Up Close: On";
 pub const BODY_FADE_OFF: &str = "Body Fade Up Close: Off";
 pub const ANTI_ALIASING_OFF: &str = "Anti-Aliasing: Off";
 pub const ANTI_ALIASING_2X: &str = "Anti-Aliasing: 2x";
 pub const ANTI_ALIASING_4X: &str = "Anti-Aliasing: 4x";
+/// The options pages' descriptions where a setting is ours, not KOTOR 2's
+/// (whose own come from its talk table).
+pub const INVERT_CAMERA_HELP: &str = "ON: Moving the mouse up turns the view downwards.\n\nOFF: Moving the mouse up turns the view upwards.";
+pub const AUTOSAVE_HELP: &str = "ON: The game saves each time you enter a new area.\nYou should still save often.\n\nOFF: Only your own saves are kept.";
+pub const CONTROLLER_HELP: &str =
+    "Look speed, stick dead zone, inverted look and vibration for a controller.";
+pub const LOOK_SPEED_HELP: &str = "Change how fast the right stick turns the view.";
+pub const DEAD_ZONE_HELP: &str = "How far a stick is pushed before it counts.\n\nA worn stick that drifts on its own needs a larger dead zone.";
+pub const ANTI_ALIASING_HELP: &str = "4x: for the best visual experience\n\n2x: a blend of game performance and visual quality\n\nOff: suggested for older video cards";
+pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing, V-Sync and soft shadows.";
 pub const TAKE_ALL: &str = "Take all (A)";
 /// The same while a pad plays: its hint bar names its button.
 pub const TAKE_ALL_PAD: &str = "Take all";

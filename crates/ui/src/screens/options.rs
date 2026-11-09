@@ -66,19 +66,33 @@ impl Role {
     }
 }
 
+/// What the description box (`LB_DESC`) says while a control has the
+/// focus, as KOTOR 2's pages do.
+#[derive(Clone, Copy)]
+enum Help {
+    /// KOTOR 2's own words: an entry of its talk table.
+    Told(u32),
+    /// Ours, where the setting is not KOTOR 2's.
+    Ours(&'static str),
+}
+
 struct Spec {
     name: &'static str,
     layout: &'static str,
     roles: &'static [(&'static str, Role)],
     first: &'static str,
+    help: &'static [(&'static str, Help)],
 }
 
 pub struct Page {
     spec: &'static Spec,
     /// The page's settings when it opened (`Cancel`).
     before: Vec<(&'static str, String)>,
+    /// The control with the focus (`Help`).
+    focus: Option<String>,
 }
 
+use Help::{Ours, Told};
 use Role::{
     Back, Cancel, Cycle, Defaults, Greyed, Hidden, Open, OpenAs, Sandbox, Slider, Text, Toggle,
     ToggleAs,
@@ -152,6 +166,7 @@ const PAGES: [Spec; 9] = [
             ("BTN_BACK", Back),
         ],
         first: "BTN_GAMEPLAY",
+        help: &[],
     },
     Spec {
         name: "options_gameplay",
@@ -163,8 +178,8 @@ const PAGES: [Spec; 9] = [
             ),
             ("CB_LEVELUP", Greyed),
             ("CB_AUTOSAVE", Toggle("game.autosave")),
-            ("CB_REVERSE", Greyed),
-            ("CB_DISABLEMOVE", Greyed),
+            ("CB_REVERSE", Hidden),
+            ("CB_DISABLEMOVE", Hidden),
             // TSL's second reverse box, unused: the camera's page.
             (
                 "CB_REVERSE_INGAME",
@@ -182,6 +197,15 @@ const PAGES: [Spec; 9] = [
             ("BTN_BACK", Back),
         ],
         first: "CB_INVERTCAM",
+        help: &[
+            ("CB_INVERTCAM", Ours(strings::INVERT_CAMERA_HELP)),
+            ("CB_AUTOSAVE", Ours(strings::AUTOSAVE_HELP)),
+            ("CB_LEVELUP", Told(42266)),
+            ("BTN_DIFFICULTY", Ours(strings::CONTROLLER_HELP)),
+            ("CB_REVERSE_INGAME", Ours(strings::CAMERA_HELP)),
+            ("BTN_KEYMAP", Told(48698)),
+            ("BTN_MOUSE", Told(48721)),
+        ],
     },
     Spec {
         name: "options_mouse",
@@ -194,6 +218,7 @@ const PAGES: [Spec; 9] = [
             ("BTN_BACK", Back),
         ],
         first: "SLI_MOUSESEN",
+        help: &[("SLI_MOUSESEN", Told(48721))],
     },
     Spec {
         name: "options_controller",
@@ -214,6 +239,12 @@ const PAGES: [Spec; 9] = [
             ("BTN_BACK", Back),
         ],
         first: "SLI_GAMMA",
+        help: &[
+            ("SLI_GAMMA", Ours(strings::LOOK_SPEED_HELP)),
+            ("BTN_RESOLUTION", Ours(strings::DEAD_ZONE_HELP)),
+            ("CB_SHADOWS", Told(42453)),
+            ("CB_GRASS", Told(42290)),
+        ],
     },
     Spec {
         name: "options_graphics",
@@ -229,6 +260,13 @@ const PAGES: [Spec; 9] = [
             ("BTN_BACK", Back),
         ],
         first: "SLI_GAMMA",
+        help: &[
+            ("SLI_GAMMA", Told(42310)),
+            ("BTN_RESOLUTION", Told(48707)),
+            ("CB_SHADOWS", Told(48708)),
+            ("CB_GRASS", Told(48709)),
+            ("BTN_ADVANCED", Ours(strings::ADVANCED_GRAPHICS_HELP)),
+        ],
     },
     Spec {
         name: "options_graphics_advanced",
@@ -257,6 +295,16 @@ const PAGES: [Spec; 9] = [
             ("BTN_BACK", Back),
         ],
         first: "BTN_ANTIALIAS",
+        help: &[
+            ("BTN_ANTIALIAS", Ours(strings::ANTI_ALIASING_HELP)),
+            ("BTN_ANTIALIASLEFT", Ours(strings::ANTI_ALIASING_HELP)),
+            ("BTN_ANTIALIASRIGHT", Ours(strings::ANTI_ALIASING_HELP)),
+            ("BTN_TEXQUAL", Told(48712)),
+            ("CB_FRAMEBUFF", Told(48714)),
+            ("BTN_ANISOTROPY", Told(48715)),
+            ("CB_SOFTSHADOWS", Told(48711)),
+            ("CB_VSYNC", Told(48716)),
+        ],
     },
     Spec {
         name: "options_sound",
@@ -271,6 +319,12 @@ const PAGES: [Spec; 9] = [
             ("BTN_BACK", Back),
         ],
         first: "SLI_MUSIC",
+        help: &[
+            ("SLI_MUSIC", Told(42311)),
+            ("SLI_VO", Told(42312)),
+            ("SLI_FX", Told(42313)),
+            ("SLI_MOVIE", Told(47921)),
+        ],
     },
     // Ours, on the sound page's layout: the camera's four sliders, its
     // preset, how closely it follows and whether the body fades near it.
@@ -301,6 +355,16 @@ const PAGES: [Spec; 9] = [
             ("BTN_BACK", Back),
         ],
         first: "SLI_MUSIC",
+        help: &[
+            ("SLI_MUSIC", Ours(strings::CAMERA_DISTANCE_HELP)),
+            ("SLI_VO", Ours(strings::CAMERA_HEIGHT_HELP)),
+            ("SLI_FX", Ours(strings::CAMERA_SHOULDER_HELP)),
+            ("SLI_MOVIE", Ours(strings::CAMERA_FOV_HELP)),
+            ("BTN_GUN", Ours(strings::GUN_CAMERA_HELP)),
+            ("BTN_FOLLOW", Ours(strings::CAMERA_FOLLOW_HELP)),
+            ("BTN_FADE", Ours(strings::BODY_FADE_HELP)),
+            ("BTN_ADVANCED", Ours(strings::CAMERA_PRESET_HELP)),
+        ],
     },
     Spec {
         name: "options_feedback",
@@ -311,6 +375,7 @@ const PAGES: [Spec; 9] = [
             ("BTN_BACK", Back),
         ],
         first: "BTN_BACK",
+        help: &[],
     },
 ];
 
@@ -324,7 +389,11 @@ pub fn page(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
         .filter_map(|key| Some((key, vm.settings.get(key)?.clone())))
         .collect();
     before.dedup();
-    Some(Box::new(Page { spec, before }))
+    Some(Box::new(Page {
+        spec,
+        before,
+        focus: None,
+    }))
 }
 
 impl Page {
@@ -334,6 +403,23 @@ impl Page {
             .iter()
             .find(|(control, _)| *control == tag)
             .map(|(_, role)| *role)
+    }
+
+    /// The description box's words for the focused control.
+    fn help(&self) -> ControlState {
+        let focus = self.focus.as_deref();
+        match self.spec.help.iter().find(|(tag, _)| Some(*tag) == focus) {
+            Some((_, Told(strref))) => ControlState {
+                strref: Some(*strref),
+                skin_strref: true,
+                ..ControlState::default()
+            },
+            Some((_, Ours(words))) => ControlState {
+                text: Some(strings::bytes(words)),
+                ..ControlState::default()
+            },
+            None => ControlState::default(),
+        }
     }
 }
 
@@ -384,6 +470,10 @@ impl Screen for Page {
         self.spec.layout
     }
 
+    fn focused(&mut self, tag: &str, _vm: &ViewModel) {
+        self.focus = Some(tag.to_string());
+    }
+
     fn shape(&self, gui: &mut fmt_odyssey::gui::Gui) {
         for (_, at, tags) in ADDED.iter().filter(|(page, ..)| *page == self.spec.name) {
             crate::screens::stack_under(gui, *at, tags, ADDED_GAP);
@@ -391,6 +481,9 @@ impl Screen for Page {
     }
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
+        if control.tag == "LB_DESC" {
+            return self.help();
+        }
         match self.role(&control.tag) {
             Some(Toggle(key)) => ControlState {
                 selected: on(vm, key),

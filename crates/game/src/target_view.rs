@@ -528,10 +528,12 @@ fn target(
             .unwrap_or(sim::ObjectState::default())
     };
     // The walk keeps off the placeables play made, as the sim's do.
-    let state = sim::walk::Walled {
+    let walled = sim::walk::Walled {
         doors: &doors,
         walled: made.of_snapshot(level, snapshot),
     };
+    // Nor does it leave the area by a way out but its target.
+    let state = sim::target::KeptIn::new(level, &walled, snapshot, index);
     // A walk is timed on the sim's clock, not the frame's.
     let sim_ms = snapshot.time_ms;
     // A target that no longer offers the walk's choice ends it.
