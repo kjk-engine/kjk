@@ -522,6 +522,30 @@ impl Solo {
         self.pump();
     }
 
+    /// `stepped` with the snapshot split and hashed already (on the step
+    /// thread, when hosting): the frame does neither (issue 229).
+    pub fn stepped_split(
+        &mut self,
+        input: &TickInput,
+        split: net::codec::Stepped,
+        hash: sim::SnapshotHash,
+    ) {
+        let now = self.now();
+        let tick = split.tick;
+        lock(&self.hosted).server.stepped_split(now, input, split);
+        if let Some(file) = &mut self.hashes {
+            let epoch = lock(&self.hosted).server.epoch();
+            let _ = writeln!(file, "{epoch} {tick} {hash}");
+        }
+        self.pump();
+    }
+
+    /// Whether this is a host players join over the network: its steps
+    /// are split for them beside the frame (`stepped_split`).
+    pub fn hosting(&self) -> bool {
+        self.net.is_some()
+    }
+
     /// A module starts to load: the client stops with the host. Actions
     /// held for a break's end name the old module's objects: dropped.
     pub fn installing(&mut self, request: &session::Request) {

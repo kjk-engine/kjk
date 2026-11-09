@@ -17,7 +17,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use net::session::clock::Margins;
-use net::session::probes::{self, ClientReport, Hitches, Joiner, Report, Scenario, Setup};
+use net::session::probes::{
+    self, ClientReport, Hitches, Joiner, Report, Rewinds, Scenario, Setup,
+};
 use net::session::sessions::{self, Expect, Session};
 use net::session::{Cause, InstallRequest, LevelRequest};
 use serde_json::json;
@@ -530,6 +532,7 @@ fn kotor_sessions(discovery: &vfs::Discovery) -> Result<Vec<Session>, String> {
         host_frame_us: 0,
         hitches: Hitches::default(),
         margins: Margins::default(),
+        rewinds: Rewinds::default(),
     };
     let late = Setup {
         name: "end_m01aa_late".into(),

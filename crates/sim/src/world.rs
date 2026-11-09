@@ -362,6 +362,13 @@ struct Bumped(Vec<(SimId, u32)>);
 #[derive(Resource, Default)]
 struct MadeFaces(Arc<[bool]>, walk::MadeWalls);
 
+/// What a world worked out and keeps across steps without it being state
+/// (`SimWorld::worked_out`), for another world in the same level.
+pub struct WorkedOut {
+    placed: Arc<[Arc<crate::module::ObjectData>]>,
+    faces: MadeFaces,
+}
+
 /// The players a script walks this step (a move it queued while they are
 /// held in a conversation, a cinematic's), their minds' commands in place
 /// of their seats' (`minds::think`). Not state.
@@ -774,6 +781,52 @@ impl SimWorld {
         }
         let faces = std::mem::take(&mut *old.world.resource_mut::<MadeFaces>());
         *self.world.resource_mut::<MadeFaces>() = faces;
+    }
+
+    /// A copy of what `keep_worked_out` takes over, for a world made from a
+    /// snapshot on another thread while this one goes on (a client's rewind
+    /// beside its frame, issue 229): `use_worked_out` puts it in.
+    pub fn worked_out(&self) -> WorkedOut {
+        let made = self.world.resource::<MadeFaces>();
+        WorkedOut {
+            placed: self.world.resource::<Static>().0.placed.clone(),
+            faces: MadeFaces(made.0.clone(), made.1.clone()),
+        }
+    }
+
+    /// `keep_worked_out` from a copy (`worked_out`), when both stand in the
+    /// same level.
+    pub fn use_worked_out(&mut self, worked: WorkedOut) {
+        let placed = self.world.resource::<Static>().0.placed.clone();
+        if Arc::ptr_eq(&placed, &worked.placed) {
+            *self.world.resource_mut::<MadeFaces>() = worked.faces;
+        }
+    }
+
+    /// One entity's state now, as the next snapshot will hold it: what a
+    /// rewind that makes no snapshot for a tick keeps of the seat's own body
+    /// (issue 229).
+    pub fn entity_state(&mut self, id: SimId) -> Option<EntityState> {
+        let time_ms = self.world.resource::<Clock>().time_ms;
+        let row = self.rows.iter(&self.world).find(|row| row.0.0 == id)?;
+        Some(state::entity_state(row, time_ms))
+    }
+
+    /// The missiles in flight now, as the next snapshot will hold them.
+    pub fn missiles(&mut self) -> Vec<EntityState> {
+        let time_ms = self.world.resource::<Clock>().time_ms;
+        self.rows
+            .iter(&self.world)
+            .filter(|row| row.10.is_some())
+            .map(|row| state::entity_state(row, time_ms))
+            .collect()
+    }
+
+    /// One tick as `step` takes it, with no snapshot made of the result: a
+    /// rewind's ticks that nothing will draw (issue 229). The world is the
+    /// same after it as after `step`.
+    pub fn advance_only(&mut self, tick: u64, input: &TickInput, msec: u32, reason: StepReason) {
+        self.advance(tick, input, msec, reason);
     }
 
     /// Seat `persona.seat`'s player is `persona` from now on (character

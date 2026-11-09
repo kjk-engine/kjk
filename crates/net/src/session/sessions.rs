@@ -27,8 +27,9 @@
 use sim::TickRate;
 
 use super::client::Cause;
+use super::client::RebaseOn;
 use super::clock::Margins;
-use super::probes::{self, Comeback, Cut, Hitches, Report, Scenario, Setup};
+use super::probes::{self, Comeback, Cut, Hitches, Report, Rewinds, Scenario, Setup};
 use crate::codec::{CLIENT_RING, SERVER_RING};
 use crate::handshake::Refusal;
 use crate::netem::Conditions;
@@ -85,6 +86,7 @@ pub fn determinism(soak_minutes: u64) -> Vec<Session> {
         host_frame_us: 0,
         hitches: Hitches::default(),
         margins: Margins::default(),
+        rewinds: Rewinds::default(),
     };
     let wan = Setup {
         name: "wan".into(),
@@ -156,6 +158,35 @@ pub fn determinism(soak_minutes: u64) -> Vec<Session> {
         seed: 9,
         ..lan.clone()
     };
+    // Rewinds from every snapshot, as before issue 229: the same checks.
+    let every = Setup {
+        name: "lan_every_snapshot".into(),
+        seed: 12,
+        rewinds: Rewinds {
+            every_us: 0,
+            ..Rewinds::default()
+        },
+        ..lan.clone()
+    };
+    // Rewinds on a thread, as the game makes them: each lands whenever the
+    // thread is done in wall time, many frames late in virtual time, with
+    // the ticks made meanwhile stepped on it. Its checks are the same; the
+    // session is not the same twice.
+    let threaded = Setup {
+        name: "wan_rewinds_on_a_thread".into(),
+        seed: 13,
+        rewinds: Rewinds {
+            on: RebaseOn::Thread,
+            ..Rewinds::default()
+        },
+        ..wan.clone()
+    };
+    let threaded_clean = Setup {
+        name: "lan_rewinds_on_a_thread".into(),
+        seed: 14,
+        rewinds: threaded.rewinds,
+        ..lan.clone()
+    };
     let hz = u64::from(TickRate::default().hz());
     let soak_install = soak.seconds * hz / 3;
     let session = |setup: Setup, install_at: u64, save: Option<u64>, expect: Expect| Session {
@@ -178,6 +209,9 @@ pub fn determinism(soak_minutes: u64) -> Vec<Session> {
         session(save_copy, 3 * hz + hz / 5, Some(3 * hz), Expect::Lossy),
         session(hold, 12 * hz, None, Expect::Clean),
         reloaded,
+        session(every, 6 * hz, None, Expect::Clean),
+        session(threaded, 8 * hz, None, Expect::Lossy),
+        session(threaded_clean, 6 * hz, None, Expect::Clean),
     ]
 }
 
@@ -437,6 +471,19 @@ fn client_checks(
                 .clock
                 .map_or("-".into(), |c| format!("{:.2}", c.delay)),
             client.clock.map_or(0, |c| c.jitter_us),
+        ),
+    );
+    check(
+        &format!("client {index} rewinds"),
+        binding,
+        stats.rewinds > 0 && stats.rewinds_failed == 0,
+        format!(
+            "{} rewinds (mean {:.1} ticks, deepest {}), {} for a world since replaced and dropped, {} that did not restore",
+            stats.rewinds,
+            stats.rewind_ticks as f64 / stats.rewinds.max(1) as f64,
+            stats.rewind_max,
+            stats.rewinds_dropped,
+            stats.rewinds_failed
         ),
     );
     let own =

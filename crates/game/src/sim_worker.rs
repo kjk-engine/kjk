@@ -41,15 +41,19 @@ impl DerefMut for WorldSlot {
     }
 }
 
-/// A tick stepped away: its input, its snapshot and the notices it raised.
+/// A tick stepped away: its input, its snapshot and the notices it raised;
+/// when hosting, the snapshot split as the server keeps it (its parts, its
+/// check and its hash), made there too, so the frame neither splits nor
+/// hashes it (issue 229).
 pub(crate) struct Stepped {
     pub msec: u32,
     pub input: TickInput,
     pub snapshot: Snapshot,
     pub notices: Vec<(Seat, Notice)>,
+    pub split: Option<(net::codec::Stepped, sim::SnapshotHash)>,
 }
 
-type Job = (Box<SimWorld>, u64, TickInput, u32);
+type Job = (Box<SimWorld>, u64, TickInput, u32, bool);
 type Done = (Box<SimWorld>, Stepped);
 
 /// The thread that steps the world, and whether it has it now.
@@ -67,14 +71,16 @@ impl Stepper {
         std::thread::Builder::new()
             .name("sim step".into())
             .spawn(move || {
-                for (mut world, tick, input, msec) in take {
+                for (mut world, tick, input, msec, split) in take {
                     let snapshot = step(&mut world, tick, &input, msec, StepReason::Authority);
                     let notices = world.take_notices();
+                    let split = split.then(|| net::codec::Stepped::new_hashed(&snapshot));
                     let stepped = Stepped {
                         msec,
                         input,
                         snapshot,
                         notices,
+                        split,
                     };
                     if give.send((world, stepped)).is_err() {
                         break;
@@ -90,18 +96,20 @@ impl Stepper {
     }
 
     /// Steps `slot`'s world to `tick` with `input` on the thread, taking it
-    /// from home until `land`.
+    /// from home until `land`; `split` splits its snapshot there too (a
+    /// host's, for its players: `Stepped::split`).
     pub(crate) fn send(
         slot: &mut WorldSlot,
         stepper: &mut Option<Stepper>,
         job: (u64, TickInput, u32),
+        split: bool,
     ) {
         let stepper = stepper.get_or_insert_with(Stepper::new);
         let world = slot.0.take().expect("the world is home to be sent");
         let (tick, input, msec) = job;
         stepper
             .jobs
-            .send((world, tick, input, msec))
+            .send((world, tick, input, msec, split))
             .expect("the sim's step thread runs");
         stepper.away = true;
     }

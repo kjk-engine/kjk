@@ -944,6 +944,12 @@ impl Server {
         self.keep_stepped(now, input, Stepped::shared(snapshot));
     }
 
+    /// `stepped` with a snapshot split already (`Stepped::new`, made on the
+    /// caller's step thread).
+    pub fn stepped_split(&mut self, now: NetTime, input: &TickInput, stepped: Stepped) {
+        self.keep_stepped(now, input, stepped);
+    }
+
     fn keep_stepped(&mut self, now: NetTime, input: &TickInput, stepped: Stepped) {
         let tick = stepped.tick;
         while self.applied.back().is_some_and(|(last, _)| *last >= tick) {

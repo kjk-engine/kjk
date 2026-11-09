@@ -189,6 +189,10 @@ pub fn connect(
             rejoin_us: REJOIN.as_micros() as u64,
             key,
             nonce_key: crate::solo::random_key(),
+            // Rewinds beside the frames, and not from every snapshot
+            // while this seat's body agrees (issue 229).
+            rebase_on: net::session::client::RebaseOn::Thread,
+            rebase_every_us: net::session::client::REBASE_EVERY_US,
             ..ClientConfig::default()
         },
     )
@@ -283,6 +287,7 @@ pub fn install(
         presented: first,
         fresh: Vec::new(),
         correction: [0.0; 3],
+        followed: None,
     });
     app.insert_resource(OwnSeat(seat));
     app.init_resource::<SelectedPower>();
@@ -585,8 +590,11 @@ pub(crate) fn advance(
         aim: camera_aim.0,
         ..command
     };
-    // The frame predicts with the client locked: the net thread waits.
+    // The frame makes its commands with the client locked (the net thread
+    // waits); the client steps no world in it (issue 229).
     let mut client = lock(&joined.joining.client);
+    // The view reads no prediction before the tick it last followed.
+    client.set_view_from(own.followed.unwrap_or(0));
     let span = info_span!("net.frame").entered();
     let frame = client.frame(now, command);
     drop(span);

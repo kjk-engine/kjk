@@ -174,6 +174,7 @@ impl Condition {
             host_frame_us: frames.host_us,
             hitches: frames.hitches,
             margins,
+            rewinds: probes::Rewinds::default(),
         }
     }
 }

@@ -18,7 +18,9 @@ use sim::{
     TickInput, TickRate, step,
 };
 
-use super::client::{Client, ClientConfig, ClientEvent, ClientStats, ClockView, Memory};
+use super::client::{
+    Client, ClientConfig, ClientEvent, ClientStats, ClockView, Memory, REBASE_EVERY_US, RebaseOn,
+};
 use super::clock::Margins;
 use super::msg::{
     ClockReport, Commands, CopyAssembly, Fragment, InstallRequest, LevelRequest, MAX_SAVE_PARTS,
@@ -101,6 +103,28 @@ pub struct Setup {
     pub hitches: Hitches,
     /// The clients' clock margins.
     pub margins: Margins,
+    /// Where the clients' rewinds run and how often.
+    pub rewinds: Rewinds,
+}
+
+/// Where a client's rewinds run and how often (`ClientConfig::rebase_on`,
+/// `rebase_every_us`): by default the game's cadence, in the caller, so a
+/// seed plays the same session byte for byte. On a thread, a rewind lands
+/// when the thread is done in wall time: the session's checks must hold
+/// however late that is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rewinds {
+    pub on: RebaseOn,
+    pub every_us: u64,
+}
+
+impl Default for Rewinds {
+    fn default() -> Self {
+        Rewinds {
+            on: RebaseOn::Caller,
+            every_us: REBASE_EVERY_US,
+        }
+    }
 }
 
 /// The second client's link cut both ways from `from_us` until `until_us`;
@@ -479,6 +503,8 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
         rejoin_us: if cut.is_some() { REJOIN_US } else { 0 },
         key: None,
         nonce_key: [7; 32],
+        rebase_on: setup.rewinds.on,
+        rebase_every_us: setup.rewinds.every_us,
     };
     let mut saves: Vec<Vec<u8>> = Vec::new();
     let mut installing_at: Option<NetTime> = None;

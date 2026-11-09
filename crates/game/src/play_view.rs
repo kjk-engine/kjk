@@ -831,16 +831,21 @@ impl View {
             format!("{} / {}", legs.name(), torso.name())
         };
         // What the ticks already shown played, before the new predictions
-        // replace them.
+        // replace them: only those a new one repeats (a rewind's).
         let followed = self.own.followed.unwrap_or(0);
+        let history = &self.own.history;
         let shown: BTreeMap<u64, _> = self
             .me
             .map(|me| {
-                self.own
-                    .history
+                own.fresh
                     .iter()
-                    .filter(|held| held.tick <= followed)
-                    .filter_map(|held| Some((held.tick, parts(held, me)?)))
+                    .filter(|fresh| fresh.tick <= followed)
+                    .filter_map(|fresh| {
+                        let at = history
+                            .binary_search_by_key(&fresh.tick, |held| held.tick)
+                            .ok()?;
+                        Some((fresh.tick, parts(&history[at], me)?))
+                    })
                     .collect()
             })
             .unwrap_or_else(BTreeMap::new);
@@ -1005,7 +1010,11 @@ type Pace<'w> = (
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn draw(
     presented: Res<PresentedSnapshot>,
-    (seat, own, mut contacts): (Res<OwnSeat>, Option<Res<OwnView>>, Option<ResMut<Contacts>>),
+    (seat, mut own, mut contacts): (
+        Res<OwnSeat>,
+        Option<ResMut<OwnView>>,
+        Option<ResMut<Contacts>>,
+    ),
     (mut rearms, mut retired, mut fire, mut made, mut wardrobe, mut fading): Handovers,
     swap: Res<SceneSwap>,
     request: Res<CameraRequest>,
@@ -1223,7 +1232,7 @@ fn draw(
     guns.0 = view.cast.guns();
     roots.0 = view.cast.roots();
     let target = crate::sim_host::view_ms(&presented.0);
-    if let Some(own) = &own {
+    if let Some(own) = own.as_deref() {
         view.take_own(own, target);
     }
     if !view.started {
@@ -1253,6 +1262,9 @@ fn draw(
         view.advance(next, frame);
     }
     own_remote.0 = view.own_remote(view.render_ms);
+    if let Some(own) = own.as_deref_mut() {
+        own.followed = view.own.followed;
+    }
     // Each figure's whooshes as its weapon sounds (`weapon_sounds`).
     if let Some(newest) = view.history.last() {
         let objects = Instances::in_snapshot(&view.level, newest);

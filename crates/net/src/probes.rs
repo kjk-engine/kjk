@@ -121,6 +121,7 @@ pub fn groups() -> Vec<Group> {
         ("mutation", || mutation(MUTATIONS)),
         ("save copies", crate::session::probes::copy_probes),
         ("seats", crate::session::probes::seat_probes),
+        ("rewinds", crate::session::rewind_probes::probes),
     ]
 }
 
