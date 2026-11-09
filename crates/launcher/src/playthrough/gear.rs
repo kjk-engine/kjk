@@ -141,7 +141,7 @@ pub(super) fn carried(snapshot: &Snapshot, template: &str) -> u32 {
     snapshot
         .goods
         .carried(sim::inventory::PARTY)
-        .filter(|(_, item)| item.template.eq_ignore_ascii_case(template))
+        .filter(|(_, item)| item.is(template))
         .map(|(_, item)| u32::from(item.stack.max(1)))
         .sum()
 }
@@ -159,7 +159,7 @@ pub(super) fn purchase(snapshot: &Snapshot, template: &str) -> Result<Option<Act
     snapshot
         .goods
         .carried(trade.store)
-        .find(|(_, item)| item.template.eq_ignore_ascii_case(template))
+        .find(|(_, item)| item.is(template))
         .map(|(item, _)| {
             Some(Action::Buy {
                 store: trade.store,
@@ -208,11 +208,11 @@ pub(super) fn fitted(world: &sim::SimWorld, snapshot: &Snapshot, named: &str, up
     let items = &world.script_state().items;
     items
         .iter()
-        .filter(|(_, item)| item.template.eq_ignore_ascii_case(&named))
+        .filter(|(_, item)| item.is(&named))
         .filter(|(_, item)| item.holder == me.0 || item.holder == sim::inventory::PARTY && item.slot.is_none())
         .min_by_key(|(id, item)| (item.holder != me.0, **id))
         .map(|(id, item)| {
-            let fitted = item.fitted.iter().any(|part| part.eq_ignore_ascii_case(upgrade));
+            let fitted = item.fitted.iter().any(|part| sim::inventory::names(part, upgrade));
             (*id, fitted)
         })
 }
@@ -225,7 +225,7 @@ pub(super) fn fitting(world: &sim::SimWorld, item: u32, upgrade: &str) -> Result
         .items
         .iter()
         .find(|(_, part)| {
-            part.holder == sim::inventory::PARTY && part.slot.is_none() && part.template.eq_ignore_ascii_case(upgrade)
+            part.holder == sim::inventory::PARTY && part.slot.is_none() && part.is(upgrade)
         })
         .map(|(part, _)| Action::Fit {
             item,
@@ -308,7 +308,7 @@ fn player(world: &sim::SimWorld, snapshot: &Snapshot) -> serde_json::Value {
 pub(super) fn wears(world: &sim::SimWorld, snapshot: &Snapshot, named: &str) -> bool {
     crate::cast::me(snapshot, Seat(0)).is_some_and(|me| {
         world.script_state().items.values().any(|item| {
-            item.holder == me.0 && item.slot.is_some() && item.template.eq_ignore_ascii_case(named)
+            item.holder == me.0 && item.slot.is_some() && item.is(named)
         })
     })
 }
@@ -331,7 +331,7 @@ pub(super) fn equip(world: &sim::SimWorld, snapshot: &Snapshot, named: Option<&s
     for (id, item) in items
         .iter()
         .filter(|(_, item)| item.holder == sim::inventory::PARTY)
-        .filter(|(_, item)| named.is_none_or(|named| item.template.eq_ignore_ascii_case(named)))
+        .filter(|(_, item)| named.is_none_or(|named| item.is(named)))
     {
         // Only what the player's race may wear (`ItemFacts::fits`), as the
         // equip screen lists.

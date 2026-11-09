@@ -1854,7 +1854,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                             .goods
                                             .carried(sim::inventory::PARTY)
                                             .find(|(_, item)| {
-                                                item.template.eq_ignore_ascii_case(template)
+                                                item.is(template)
                                             })
                                             .map(|(id, _)| id);
                                         match (taken, item) {
@@ -1900,7 +1900,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                             last.goods
                                                 .carried(sim::inventory::PARTY)
                                                 .find(|(_, item)| {
-                                                    item.template.eq_ignore_ascii_case(template)
+                                                    item.is(template)
                                                 })
                                                 .map(|(id, _)| id)
                                         });

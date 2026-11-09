@@ -4,7 +4,8 @@
 //! (`State::takes_in`); the script state alone, items of our own.
 //!
 //! - A module's own template is found by its resref and reads as that
-//!   module's: its template names the module.
+//!   module's: its template names the module. Its resref still names it
+//!   (`inventory::names`), as a route's `put tar05_synthodor` does.
 //! - Two modules' own datapads of one resref (K1's `g_i_datapad002`: Calo
 //!   Nord's journal, the Sith base's log) are two items, neither joining
 //!   the other, each with its own tag after the first module is left; two
@@ -14,7 +15,9 @@
 //!   out of a container), joining the party's stacks; what it wears stays
 //!   on it.
 
-use crate::inventory::{Catalog, ItemFacts, PARTY, module_of, own_template, resref_of, slots};
+use crate::inventory::{
+    Catalog, ItemFacts, PARTY, module_of, names, own_template, resref_of, slots,
+};
 use crate::probe::{Checks, check};
 use crate::script::State;
 
@@ -69,10 +72,14 @@ pub fn probes() -> Checks {
     let found = spaceport.get(DATAPAD).map(|facts| facts.template.clone());
     let own = found.as_deref().unwrap_or("");
     checks.push((
-        "a module's own template: found by its resref, named for its module",
+        "a module's own template: found by its resref, named for its module, named by its resref",
         check(
             resref_of(own) == DATAPAD
                 && module_of(own) == Some(TARIS_SPACEPORT)
+                && names(own, DATAPAD)
+                && names(own, &DATAPAD.to_ascii_uppercase())
+                && names(own, own)
+                && !names(own, "vibroblade")
                 && spaceport.get("vibroblade").is_some()
                 && resref_of("vibroblade") == "vibroblade"
                 && module_of("vibroblade").is_none(),

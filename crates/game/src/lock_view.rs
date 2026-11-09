@@ -94,7 +94,7 @@ fn send(
             snapshot
                 .goods
                 .carried(sim::inventory::PARTY)
-                .find(|(_, item)| item.template.eq_ignore_ascii_case(template))
+                .find(|(_, item)| item.is(template))
                 .map(|(id, _)| id)
         };
         let spike = match spike.as_deref().map(carried) {
