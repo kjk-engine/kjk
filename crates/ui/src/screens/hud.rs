@@ -301,6 +301,173 @@ pub fn crosshair(gui: &Gui) -> [Quad; 2] {
     ]
 }
 
+/// The shape of a blaster's crosshair: it tells the kind of gun apart, and
+/// its gap is the spread the next shot may stray by (`gap_px`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Family {
+    /// A dot and four bars: pistols and rifles.
+    Cross,
+    /// A dot and three bars, two up and one down: repeaters.
+    Prongs,
+    /// A dot and two arcs, left and right: bowcasters.
+    Brackets,
+    /// A dot and four long thin bars: disruptors.
+    Lines,
+    /// A dot and a ring broken in four: ion weapons.
+    Ring,
+    /// A dot and a ring of eight dashes: sonic weapons.
+    Dashes,
+}
+
+/// The smallest gap at a 1080-high layout (pixels): the bars stay clear of
+/// the dot when the spread is none.
+pub const MIN_GAP: f32 = 4.0;
+
+/// The gap a spread of `cone_deg` makes on a layout `layout_height` high,
+/// seen through a vertical field of view of `vfov_deg`: where a shot that
+/// strays the whole spread lands on the screen, never under `MIN_GAP`.
+pub fn gap_px(cone_deg: f32, vfov_deg: f32, layout_height: f32) -> f32 {
+    let half = layout_height / 2.0;
+    let gap = cone_deg.to_radians().tan() / (vfov_deg / 2.0).to_radians().tan() * half;
+    gap.max(MIN_GAP * layout_height / 1080.0)
+}
+
+/// A crosshair's light: white, a touch see-through.
+const RETICLE_LIGHT: [f32; 4] = [1.0, 1.0, 1.0, 0.9];
+/// The dark edge under each of its strokes, so it reads on bright ground.
+const RETICLE_EDGE: [f32; 4] = [0.0, 0.0, 0.0, 0.5];
+
+/// A stroke `width` wide from `from` to `to` pixels out of `middle`, turned
+/// `angle` radians clockwise from straight up, in `color`, over its dark
+/// edge one pixel (`scale`) wider all round: the edge first.
+pub fn stroke(
+    middle: [f32; 2],
+    (from, to): (f32, f32),
+    angle: f32,
+    (width, scale): (f32, f32),
+    color: [f32; 4],
+) -> [Quad; 2] {
+    let (sin, cos) = angle.sin_cos();
+    let reach = (from + to) / 2.0;
+    let centre = [middle[0] + sin * reach, middle[1] - cos * reach];
+    let bar = |width: f32, length: f32, color| Quad {
+        spin: angle,
+        ..Quad::solid(
+            [
+                centre[0] - width / 2.0,
+                centre[1] - length / 2.0,
+                width,
+                length,
+            ],
+            color,
+        )
+    };
+    let length = to - from;
+    let edge = [
+        RETICLE_EDGE[0],
+        RETICLE_EDGE[1],
+        RETICLE_EDGE[2],
+        RETICLE_EDGE[3] * color[3],
+    ];
+    [
+        bar(width + 2.0 * scale, length + 2.0 * scale, edge),
+        bar(width, length, color),
+    ]
+}
+
+/// An arc `radius` out of `middle`, from `start` to `end` degrees clockwise
+/// from straight up, as `pieces` short strokes along it.
+fn arc(
+    middle: [f32; 2],
+    radius: f32,
+    (start, end): (f32, f32),
+    pieces: usize,
+    (width, scale): (f32, f32),
+) -> Vec<Quad> {
+    let span = (end - start) / pieces as f32;
+    (0..pieces)
+        .flat_map(|piece| {
+            let at = (start + span * (piece as f32 + 0.5)).to_radians();
+            let long = radius * span.to_radians();
+            // Along the circle: a radial stroke turned a quarter, its middle
+            // on the circle.
+            let (sin, cos) = at.sin_cos();
+            let on = [middle[0] + sin * radius, middle[1] - cos * radius];
+            let turned = at + std::f32::consts::FRAC_PI_2;
+            stroke(
+                on,
+                (-long / 2.0, long / 2.0),
+                turned,
+                (width, scale),
+                RETICLE_LIGHT,
+            )
+        })
+        .collect()
+}
+
+/// A blaster's crosshair of `family` at the middle of `gui`, its gap `gap`
+/// layout pixels from the middle: a dot, then its strokes, each over its
+/// dark edge, two pixels wide at a 1080-high layout.
+pub fn reticle(gui: &Gui, family: Family, gap: f32) -> Vec<Quad> {
+    let (width, height) = gui.frame();
+    let middle = [width as f32 / 2.0, height as f32 / 2.0];
+    let scale = height as f32 / 1080.0;
+    let thick = (2.0 * scale, scale);
+    let gap = gap.max(MIN_GAP * scale);
+    let dot = 2.0 * scale;
+    let mut quads = vec![
+        Quad::solid(
+            [middle[0] - dot, middle[1] - dot, 2.0 * dot, 2.0 * dot],
+            RETICLE_EDGE,
+        ),
+        Quad::solid(
+            [middle[0] - dot / 2.0, middle[1] - dot / 2.0, dot, dot],
+            RETICLE_LIGHT,
+        ),
+    ];
+    let bars = |angles: &[f32], long: f32| -> Vec<Quad> {
+        angles
+            .iter()
+            .flat_map(|angle| {
+                stroke(
+                    middle,
+                    (gap, gap + long * scale),
+                    angle.to_radians(),
+                    thick,
+                    RETICLE_LIGHT,
+                )
+            })
+            .collect()
+    };
+    let arcs = |centres: &[f32], span: f32, pieces: usize| -> Vec<Quad> {
+        centres
+            .iter()
+            .flat_map(|at| {
+                arc(
+                    middle,
+                    gap,
+                    (at - span / 2.0, at + span / 2.0),
+                    pieces,
+                    thick,
+                )
+            })
+            .collect()
+    };
+    quads.extend(match family {
+        Family::Cross => bars(&[0.0, 90.0, 180.0, 270.0], 6.0),
+        Family::Prongs => bars(&[-60.0, 60.0, 180.0], 6.0),
+        Family::Brackets => arcs(&[90.0, 270.0], 80.0, 3),
+        Family::Lines => bars(&[0.0, 90.0, 180.0, 270.0], 14.0),
+        Family::Ring => arcs(&[45.0, 135.0, 225.0, 315.0], 60.0, 3),
+        Family::Dashes => arcs(
+            &[0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0],
+            20.0,
+            1,
+        ),
+    });
+    quads
+}
+
 /// The minimap's quads: the view's black, the area's picture over it and
 /// black over what is unexplored, under the layout; the arrow over it.
 #[derive(Debug, Clone, PartialEq)]

@@ -17,6 +17,7 @@ mod minimap;
 mod paint;
 mod party;
 mod pazaak;
+mod reticle;
 mod stack;
 mod status_summary;
 mod transition;
@@ -61,6 +62,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(clicks::all());
     checks.extend(vm_screens::all());
     checks.extend(hud::all());
+    checks.extend(reticle::all());
     checks.extend(minimap::all());
     checks.extend(map_page::all());
     checks.extend(bark::all());
