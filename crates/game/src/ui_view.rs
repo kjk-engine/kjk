@@ -1089,12 +1089,22 @@ fn card_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
 
 /// The screens' keys in a game: Escape (or gamepad Start) opens the menu
 /// at its options; I, J, M, P and K (a pad's Select, the inventory) open
-/// their screens, or switch the open tab to theirs, or close theirs.
+/// their screens, or switch the open tab to theirs, or close theirs, but
+/// not during a conversation.
 fn in_game(ui: &mut Ui, input: &mut ui::input::UiInput, actions: Option<&crate::pad::Actions>) {
     use ui::input::Key;
     if !ui.stack.is_open() && input.keys.contains(&Key::Back) {
         input.keys.retain(|key| *key != Key::Back);
         ui.stack.open("options_in_game", &ui.vm);
+    }
+    // A conversation takes the screen, as in KOTOR: no key opens a screen
+    // over it, and the map open when one begins closes (its return to the
+    // Ebon Hawk). A screen a script opens meanwhile (party selection) stays.
+    if ui.vm.dialog.is_some() {
+        if ui.stack.top().is_some_and(|top| top.0 == "map") {
+            ui.stack.clear();
+        }
+        return;
     }
     let Some(actions) = actions else {
         return;
