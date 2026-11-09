@@ -10,8 +10,8 @@
 //!   tags `K_COMPUTER_SPIKE`, `K_REPAIR_PART`, `GetNumStackedItems`);
 //!   `dialogue_view` keeps only the voice;
 //! - each new line starts the screen's rows over;
-//! - a camera feed (a line with no text and a camera) steps the screen
-//!   aside until the next line;
+//! - a camera feed (a line with a camera, while it plays; one with no
+//!   text until the next line) steps the screen aside;
 //! - while a camera feed shows, the feed's look is over the view
 //!   (`ui::screens::feed`), and a click or Enter skips its line;
 //! - it closes when the conversation ends, the screens over it staying;
@@ -97,7 +97,7 @@ fn view(
         return None;
     }
     let entry = dlg.entries.get(talk.entry as usize)?;
-    if entry.is_silent() && entry.camera_id != 0 {
+    if feeds(entry, talk) {
         return None;
     }
     let words = |node: Option<&fmt_odyssey::dlg::Node>| {
@@ -138,8 +138,17 @@ fn view(
     Some((computer, (talk.id, talk.entry, talk.shown_ms)))
 }
 
-/// Whether this player's computer conversation is on a camera feed (a line
-/// with no text and a camera).
+/// Whether a computer's line is on its camera feed: a line with a camera
+/// shows the camera's view while it plays (both games' live feed screen,
+/// `computercamera`, whose Enter cancels the feed back to the computer),
+/// one with no text until the next line. Peragus' shift console's camera
+/// lines carry their room's name and a 20 s delay.
+fn feeds(entry: &fmt_odyssey::dlg::Node, talk: &sim::script::dialogue::Conversation) -> bool {
+    entry.camera_id != 0 && (entry.is_silent() || talk.until_ms != u64::MAX)
+}
+
+/// Whether this player's computer conversation is on a camera feed
+/// (`feeds`).
 fn on_feed(
     snapshot: &sim::Snapshot,
     (seat, followed): (sim::Seat, Option<sim::SimId>),
@@ -157,7 +166,7 @@ fn on_feed(
             && dlg
                 .entries
                 .get(talk.entry as usize)
-                .is_some_and(|entry| entry.is_silent() && entry.camera_id != 0)
+                .is_some_and(|entry| feeds(entry, talk))
     })
 }
 

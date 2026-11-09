@@ -447,7 +447,8 @@ line (`Intent::Answer`, into the command as the cinematic screen's; a
 under the replies, and its key leaves without reaching play
 (`Intent::Leave`; `swallow`). Each line starts its rows over. It
 opens and closes with the conversation (the screens over it stay), steps
-aside for a camera feed (a line with no text and a camera), and the
+aside for a camera feed (a line with a camera while it plays, one with
+no text until the next line), and the
 cinematic overlay keeps only the voice. A message longer than its box is
 cut.
 

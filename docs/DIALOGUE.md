@@ -722,9 +722,12 @@ On screen (`docs/UI.md`): KOTOR's `computer.gui`, not the cinematic
 bars. A use whose trace hits nothing reaches the nearest usable
 placeable in front that speaks, within reach (2.5 m, in height too): the
 Endar Spire's panel, whose walkmesh neither stops the player nor the
-trace (not known why). A camera feed (a line with no text and a camera)
+trace (not known why). A camera feed (a line with a camera, while it
+plays; one with no text until the next line: both games' live feed
+screen, `computercamera`, whose Enter cancels it back to the computer)
 steps the screen aside to the area's camera (the conversation camera,
-below). Not yet: `ActionStartConversation`'s computer type for a
+below); Enter or a click ends the line. Peragus' shift console shows each
+room so for its line's 20 s, then the room's name and the replies. Not yet: `ActionStartConversation`'s computer type for a
 cinematic DLG, the Rakatan look (`ComputerType` 1), the full-window
 background (`1600x1200comp0`), items' skill bonuses.
 
