@@ -594,6 +594,7 @@ crates/sim/src/spawner.rs LEAST_STEP_M  # a guard on a body of no width
 crates/sim/src/spawner.rs TOP_UP_DRAWS  # a guard on a list the games never have
 crates/sim/src/stealth.rs KEY  # skills.2da keyability, where no library says
 crates/sim/src/stealth.rs NEEDS_RANKS  # skills.2da untrained, where no library says
+crates/sim/src/target.rs EXIT_STEP_M  # how finely a walk's look ahead is sampled: a trigger may be thin
 crates/sim/src/traps.rs DISARM  # KOTOR's animation id
 crates/sim/src/traps.rs RECOVER  # KOTOR's animation id
 crates/sim/src/traps.rs SET  # KOTOR's animation id

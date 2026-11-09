@@ -63,6 +63,26 @@ pub const STAFF_BASTILA: &str = "Staff: Bastila";
 pub const STAFF_MAUL: &str = "Staff: Maul";
 pub const STAFF_INQUISITOR: &str = "Staff: Inquisitor";
 pub const STAFF_CAL: &str = "Staff: Cal Kestis";
+/// The options pages' descriptions where a setting is ours, not KOTOR 2's
+/// (whose own come from its talk table).
+pub const INVERT_CAMERA_HELP: &str = "ON: Moving the mouse up turns the view downwards.\n\nOFF: Moving the mouse up turns the view upwards.";
+pub const AUTOSAVE_HELP: &str = "ON: The game saves each time you enter a new area.\nYou should still save often.\n\nOFF: Only your own saves are kept.";
+pub const CONTROLLER_HELP: &str =
+    "Look speed, stick dead zone, inverted look and vibration for a controller.";
+pub const LOOK_SPEED_HELP: &str = "Change how fast the right stick turns the view.";
+pub const DEAD_ZONE_HELP: &str = "How far a stick is pushed before it counts.\n\nA worn stick that drifts on its own needs a larger dead zone.";
+pub const ANTI_ALIASING_HELP: &str = "4x: for the best visual experience\n\n2x: a blend of game performance and visual quality\n\nOff: suggested for older video cards";
+pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing, V-Sync and soft shadows.";
+pub const SABERS_HELP: &str = "The rules lightsaber fights play by, their bars and warnings, and the hilts lightsabers are drawn with.";
+pub const SABER_RULES_HELP: &str = "Jedi Academy: blades block on their own, as in Jedi Academy.\n\nMovie Duels: hold the block button to parry; blocks and swings cost Force.\n\nMD Advanced: the same, paid from block points of their own, the Force kept for powers.\n\nA game hosted for others plays by the host's.";
+pub const DUEL_BARS_HELP: &str = "Under the Movie Duels rules, show each saber fighter's block-point and stamina bars over its head. Your own show by your portrait either way.";
+pub const DUEL_WARNING_HELP: &str =
+    "Under the Movie Duels rules, tint red a swing that only a perfect block stops.";
+pub const DUEL_SLOW_MOTION_HELP: &str = "Under the Movie Duels rules, slow time for a moment after your own perfect block. Only in a game played alone.";
+pub const DUEL_STANCES_HELP: &str =
+    "Draw Jedi in Movie Duels' stances and guards, from its install beside Jedi Academy's.";
+pub const HILT_HELP: &str = "The hilt single-bladed lightsabers are drawn with. Hilts other than KOTOR's come from Jedi Academy or Movie Duels.";
+pub const STAFF_HELP: &str = "The hilt double-bladed lightsabers are drawn with. Hilts other than KOTOR's come from Jedi Academy or Movie Duels.";
 pub const TAKE_ALL: &str = "Take all (A)";
 /// The same while a pad plays: its hint bar names its button.
 pub const TAKE_ALL_PAD: &str = "Take all";
@@ -111,6 +131,14 @@ pub fn bytes(text: &str) -> Vec<u8> {
     text.chars()
         .map(|character| u8::try_from(u32::from(character)).unwrap_or(b'?'))
         .collect()
+}
+
+/// An object's name as the game's screens show it (the target label, a
+/// speaker, a container, the message log): its bytes with what it holds in
+/// braces out, the designers' notes ("Lift Controls{to 002EBO}"). Scripts'
+/// `GetName` keeps them; only what is shown leaves them out.
+pub fn name(text: &str) -> Vec<u8> {
+    fmt_odyssey::tlk::unbraced(&bytes(text))
 }
 
 /// A conversation's reply as offered: `nth` (from 0) numbered from 1,

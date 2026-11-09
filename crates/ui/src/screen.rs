@@ -632,7 +632,18 @@ impl Stack {
         }
     }
 
+    /// A frame of the stack. Its words are KOTOR 2's size: a font pixel a
+    /// window pixel however large the window draws the frames
+    /// (`draw::scale`), as KOTOR 2 draws them; the conversation, barks and
+    /// the HUD keep theirs (drawn outside the stack).
     pub fn step(&mut self, assets: &mut dyn Assets, vm: &ViewModel, input: &UiInput) -> Frame {
+        assets.set_text_scale(1.0 / crate::draw::scale(input.window));
+        let frame = self.step_at(assets, vm, input);
+        assets.set_text_scale(1.0);
+        frame
+    }
+
+    fn step_at(&mut self, assets: &mut dyn Assets, vm: &ViewModel, input: &UiInput) -> Frame {
         self.clock += input.dt;
         let mut frame = Frame::default();
         self.load(assets, &mut frame, true);

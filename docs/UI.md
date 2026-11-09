@@ -18,7 +18,12 @@ KOTOR's own `.gui` layouts, drawn by our GUI runtime over the live world.
   size, a layout pixel a window point (two screen pixels on a Retina
   display), centred on whole pixels, and only scaled down in a window
   smaller than it (`draw::fit`); its fonts, borders and list rows keep
-  the sizes the layout gives them. The HUD's frame is the window, its
+  the sizes the layout gives them. Where the window draws a frame
+  larger (`draw::scale`), the menus' and pages' words stay at their
+  fonts' own size, a font pixel a window pixel (`Stack::step`,
+  `Textures::set_text_scale`, `Font::scaled`), as KOTOR 2 draws them at
+  1280 × 1024: the owner's call (2026-11-09, "a bit more elegant"). The
+  conversation, barks and the HUD keep the frame's scale. The HUD's frame is the window, its
   controls kept to their corners. The conversation's and a bark's frames
   are the window's shape at the layout's height, stretched to fill it
   (`draw::fill`, `DrawList::fill`; their sizes the owner's calls, below).
@@ -229,7 +234,12 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   prologue's bench with its own script and makes the tutorial's repair
   kit; UI probe `bench_screens`. Item names leave out TSL's sort keys in
   braces (`{cr 02}Crystal, Rubat`, `fmt_odyssey::tlk::unbraced`, as
-  conversations' lines do; UI probe `item_names_unbraced`). Not yet: the
+  conversations' lines do; UI probe `item_names_unbraced`), and so do
+  objects' names wherever a screen shows one (the target label, a
+  speaker, a container, the message log; `ui::strings::name`): a
+  designer's note such as TSL's "Lift Controls{to 002EBO}" stays in
+  `GetName`, as TSL's Mac executable strips it only as its screens set
+  the text (the target menu's name label among them). Not yet: the
   Accept button's text in breakdown mode, the executable's confirmations.
 
 Screens: main menu (Solo, Host, Join, Options, Exit); new or load (a new
@@ -325,6 +335,18 @@ K1 itself acts on one click (its list rows are buttons, a click on one
 buys, loads or takes); a click here points at a row and the double click
 acts, the owner's rule (UI streamlining). The console's `ui double LIST
 ROW` double-clicks a row (from 0) as the pointer does.
+
+**Check boxes and the options' descriptions** (`paint::check_mark`,
+`screens::options::Help`): a check box's mark (`uibit_checkbxon`, a pill
+on a square) is drawn at the row's left, half the row tall and three
+quarters as wide, in the row's words' colour, as KOTOR 2 at 1280 × 1024
+draws it (`context/artifacts/2026-11-09-k2-menu-refs/`); stretched over
+the row it was a wide ring. A border with no edges or corners is its
+fill alone, whatever its dimension (KOTOR 2's minus arrows declare 32 on
+a 28 button). Each options page's `LB_DESC` tells the focused control:
+KOTOR 2's own talk-table entry where the setting is KOTOR 2's, ours
+(`strings::*_HELP`) where it is not (anti-aliasing's steps, the
+controller's, autosave on each area).
 
 **Controls' sounds** (`ui::intent::GuiSound`, `game::ui_sounds`): K1's
 controls are made with `guisounds.2da`'s `Clicked_Default` (`gui_click`)
@@ -447,7 +469,8 @@ line (`Intent::Answer`, into the command as the cinematic screen's; a
 under the replies, and its key leaves without reaching play
 (`Intent::Leave`; `swallow`). Each line starts its rows over. It
 opens and closes with the conversation (the screens over it stay), steps
-aside for a camera feed (a line with no text and a camera), and the
+aside for a camera feed (a line with a camera while it plays, one with
+no text until the next line), and the
 cinematic overlay keeps only the voice. A message longer than its box is
 cut.
 
@@ -541,23 +564,23 @@ Running and checking:
   campaign's colour over a dark fill, "COMBAT DEBUG", then a row per key
   (the key in the highlight colour, what it does, its state at the right:
   the foe F2 calls in, god mode bright when on).
-- The gameplay page's duel options (`docs/SABER-RULES.md` sections 12 and
-  13), in KOTOR's unused controls: its difficulty and arrows step the
-  saber rules a session played here plays by (`game.saber_rules`: `ja`,
-  Jedi Academy's, the default; `md`, Movie Duels; `mda`, Movie Duels
-  Advanced; `kjk play` and `kjk host --saber-rules` hold another for one
-  run, unsaved, until the page changes it); the host sets them on its world
-  when the session starts, a save loads or the setting changes (the
-  recording begun anew, `inputs-<tick>.kjkr` keeping what came before), and
-  a guest plays by the host's, from its snapshots. The controller's page
-  opens from the auto level-up box's place; the check boxes below autosave
-  are "Overhead duel bars" (`game.duel_bars`, off), "Unblockable warning"
-  (`game.duel_warning`, off, as MD has it) and "Perfect-block slow-mo"
-  (`game.duel_slow_motion`, on, the player's own perfect blocks alone; `settings::DuelOptions`).
-- The sabers' page ("Saber Options", ours, on the graphics page's
-  layout), opened by "Sabers" from the advanced graphics page in its unused
-  frame buffer box's place (the main page's autopause button is Debug):
-  "Hilt" and "Staff" step through the hilts
+- The sabers' page ("Saber Options", ours, on the gameplay page's own
+  layout; `docs/SABER-RULES.md` sections 12 and 13), opened by "Sabers"
+  from the gameplay page in its unused reverse box's place (the gameplay
+  page's difficulty button opens the controller's page). Its difficulty and
+  arrows step the saber rules a session played here plays by
+  (`game.saber_rules`: `ja`, Jedi Academy's, the default; `md`, Movie
+  Duels; `mda`, Movie Duels Advanced; `kjk play` and `kjk host
+  --saber-rules` hold another for one run, unsaved, until the page changes
+  it); the host sets them on its world when the session starts, a save
+  loads or the setting changes (the recording begun anew,
+  `inputs-<tick>.kjkr` keeping what came before), and a guest plays by the
+  host's, from its snapshots. Its check boxes are "Overhead duel bars"
+  (`game.duel_bars`, off), "Unblockable warning" (`game.duel_warning`,
+  off, as MD has it), "Perfect-block slow-mo" (`game.duel_slow_motion`,
+  on, the player's own perfect blocks alone; `settings::DuelOptions`) and
+  "Movie Duels stances" (below), each with its description.
+  "Hilt" and "Staff" (the mouse and key mapping buttons) step through the hilts
   KOTOR's single- and double-bladed lightsabers are drawn with
   (`saber.hilt.single`, `saber.hilt.double`: KOTOR's own, unset, the
   default; Jedi Academy's `single_1`/`dual_1`; a few of Movie Duels':
@@ -851,7 +874,10 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   fail-to-open script and "Locked"), Security, Security with the best
   spike carried (owner, 2026-10-09: Open is the default; Security only
   for a body with ranks in it and not on a lock only its key opens, as
-  K1); an open door: Use (its `OnClick`), and before it Close (1582, the
+  K1). E on Open where Security is offered (the lock refuses it) moves the
+  choice to Security, so the next E picks the lock: the games' lessons ask
+  for a click on the Security icon, which play's crosshair has no cursor
+  for (#231); an open door: Use (its `OnClick`), and before it Close (1582, the
   open-door icon) where the player could open it again (not locked, not
   one only scripts open, not broken open, not leading out; nobody in its
   doorway, the host checks; its `OnClosed` runs). KOTOR offers nothing on

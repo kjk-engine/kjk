@@ -156,7 +156,15 @@ pub trait Textures {
     fn size(&self, id: TextureId) -> (u32, u32);
     /// Drawn adding (`blending additive` in its TXI).
     fn additive(&self, id: TextureId) -> bool;
+    /// A font at `text_scale` of its size.
     fn font(&mut self, source: Source, name: &str) -> Option<(TextureId, Arc<Font>)>;
+    /// The size `font` gives fonts, in layout pixels to a font pixel
+    /// (`set_text_scale`); 1 where it is not kept.
+    fn text_scale(&self) -> f32 {
+        1.0
+    }
+    /// Fonts from now on drawn `by` times their size (`Stack::step`).
+    fn set_text_scale(&mut self, _by: f32) {}
     /// A talk-table entry's text.
     fn text(&self, source: Source, strref: u32) -> Option<Vec<u8>>;
     /// Whether what `source` reads is recoloured to the campaign's colours

@@ -251,6 +251,16 @@ summary = "A target that moves more than {targeting.walk.moved:bare} meters make
 source = "ours"
 see = "sim::target::Walk::stride"
 
+[walk.exit_margin_m]
+name = "Exits on the Way"
+type = "f32"
+value = 0.5
+unit = "m"
+range = [0.0, 3.0]
+summary = "A walk to a target never takes the character out of the area: it stops before a door or exit that leads elsewhere (unless that door is the target) once the character's run, slid to a stop, would end within {targeting.walk.exit_margin_m:bare} meters of it. The action is performed there if the target is within reach, otherwise the walk is canceled."
+source = "KOTOR (a click on a creature or object never leaves the area; only a click on the transition does)"
+see = "sim::target::Walk::stride"
+
 [revive]
 title = "Reviving"
 summary = """

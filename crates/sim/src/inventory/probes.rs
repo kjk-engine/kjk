@@ -260,8 +260,8 @@ fn limits() -> Checks {
         ..pistol(Vec::new())
     };
     let catalog = Catalog::new([saber.clone()]);
-    let bare = saber.fitted(0, &[], &catalog);
-    let fitted = saber.fitted(1 << 24, &[], &catalog);
+    let bare = saber.fitted(0, &[], &catalog, &Default::default());
+    let fitted = saber.fitted(1 << 24, &[], &catalog, &Default::default());
     // Equipped as a player would: refused to the dark wearer, crystal fitted.
     let mut state = crate::script::State::default();
     let held = state
@@ -601,12 +601,14 @@ fn slots_fitted() -> Checks {
     let attack = held.as_ref().and_then(|held| {
         let facts = catalog.get("pistol")?;
         facts
-            .fitted(held.upgrades, &held.fitted, &catalog)
+            .fitted(held.upgrades, &held.fitted, &catalog, &state.known)
             .weapon
             .map(|weapon| {
                 (
                     weapon.attack_bonus,
-                    facts.fitted(0, &held.fitted, &catalog).has_row(38),
+                    facts
+                        .fitted(0, &held.fitted, &catalog, &state.known)
+                        .has_row(38),
                 )
             })
     });

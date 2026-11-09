@@ -100,6 +100,25 @@ impl Font {
         })
     }
 
+    /// The font drawn `by` times its size: every glyph, spacing and line.
+    pub fn scaled(&self, by: f32) -> Font {
+        Font {
+            texture: self.texture.clone(),
+            glyphs: self
+                .glyphs
+                .iter()
+                .map(|glyph| Glyph {
+                    width: glyph.width * by,
+                    height: glyph.height * by,
+                    ..glyph.clone()
+                })
+                .collect(),
+            height: self.height * by,
+            spacing_r: self.spacing_r * by,
+            spacing_b: self.spacing_b * by,
+        }
+    }
+
     pub fn glyph(&self, byte: u8) -> Option<&Glyph> {
         self.glyphs.get(usize::from(byte))
     }

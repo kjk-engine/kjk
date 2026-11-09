@@ -30,6 +30,23 @@ pub const DIR: &str = "bumps";
 /// The pinned bumps' named versions, under the repository's root.
 pub const SINCE: &str = "crates/sim/src/since.rs";
 
+/// The pinned sim hash, one line, under the repository's root: a plain file
+/// and not a workflow's, as the pin workflow's token may not change
+/// workflows.
+pub const SIM_HASH: &str = "bumps/SIM_HASH";
+
+/// The pinned sim hash (`SIM_HASH`) of the repository at `root`.
+pub fn pinned_hash(root: &Path) -> Result<String, String> {
+    let path = root.join(SIM_HASH);
+    let text =
+        std::fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let hash = text.trim();
+    if hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(format!("{}: {hash:?} is not a sim hash", path.display()));
+    }
+    Ok(hash.to_string())
+}
+
 /// A versioned format: its constant reads `N + crate::pending::<NAME>`,
 /// the bumps pending on the branch counted by the sim's build script.
 pub struct Format {

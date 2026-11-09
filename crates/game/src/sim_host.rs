@@ -1501,7 +1501,10 @@ fn autosave(
         Option<Res<crate::crash::PlayerRun>>,
         Option<Res<crate::settings::Settings>>,
     ),
-    showing: Option<Res<crate::movie_view::Showing>>,
+    (showing, swap): (
+        Option<Res<crate::movie_view::Showing>>,
+        Option<Res<SceneSwap>>,
+    ),
     own: Option<Res<OwnSeat>>,
     (made, from_story, mut commands): (
         Option<Res<crate::character::Made>>,
@@ -1514,9 +1517,11 @@ fn autosave(
         commands.remove_resource::<FromStory>();
     }
     // An arena's level is never saved (`saves::refusal`): none owed there.
+    // Read from the scene's level: the world itself may be away, being
+    // stepped (`sim_worker`), until `settle` below brings it home.
     let eligible = player.is_some_and(|player| player.0)
         && matches!(authority.source, Source::Live { .. })
-        && authority.world.level().arena_rules().is_none()
+        && swap.is_none_or(|swap| swap.level.arena_rules().is_none())
         && settings
             .is_some_and(|settings| settings.value(crate::settings::AUTOSAVE) == Some("true"));
     if due.observe(

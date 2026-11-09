@@ -128,6 +128,10 @@ pub struct GuiAssets {
     released: u32,
     names: BTreeMap<(Source, String), Option<TextureId>>,
     fonts: BTreeMap<(Source, String), Option<LoadedFont>>,
+    /// Fonts at `text_scale` (`Textures::set_text_scale`), by the scale's
+    /// bits; the unscaled ones are `fonts`.
+    scaled_fonts: BTreeMap<(Source, String, u32), Option<LoadedFont>>,
+    text_scale: f32,
 }
 
 type LoadedFont = (TextureId, Arc<Font>);
@@ -175,6 +179,8 @@ impl GuiAssets {
             released: 0,
             names: BTreeMap::new(),
             fonts: BTreeMap::new(),
+            scaled_fonts: BTreeMap::new(),
+            text_scale: 1.0,
         }
     }
 
@@ -219,7 +225,27 @@ impl GuiAssets {
         });
         self.fonts
             .retain(|(source, _), _| *source != Source::Campaign);
+        self.scaled_fonts
+            .retain(|(source, ..), _| *source != Source::Campaign);
         self.released += 1;
+    }
+
+    /// A font at its own size, read once.
+    fn own_font(&mut self, source: Source, name: &str) -> Option<LoadedFont> {
+        let key = (
+            self.side(source),
+            font_alias(&name.to_ascii_lowercase()).to_string(),
+        );
+        if let Some(known) = self.fonts.get(&key) {
+            return known.clone();
+        }
+        let font = self.load(key.0, &key.1, true).and_then(|(id, txi)| {
+            let (width, height) = self.size(id);
+            let font = Font::from_txi(&key.1, &txi, width, height).ok()?;
+            Some((id, Arc::new(font)))
+        });
+        self.fonts.insert(key, font.clone());
+        font
     }
 
     /// The game the screens' layouts and art come from.
@@ -810,20 +836,31 @@ impl Textures for GuiAssets {
     }
 
     fn font(&mut self, source: Source, name: &str) -> Option<(TextureId, Arc<Font>)> {
+        if self.text_scale == 1.0 {
+            return self.own_font(source, name);
+        }
         let key = (
             self.side(source),
             font_alias(&name.to_ascii_lowercase()).to_string(),
+            self.text_scale.to_bits(),
         );
-        if let Some(known) = self.fonts.get(&key) {
+        if let Some(known) = self.scaled_fonts.get(&key) {
             return known.clone();
         }
-        let font = self.load(key.0, &key.1, true).and_then(|(id, txi)| {
-            let (width, height) = self.size(id);
-            let font = Font::from_txi(&key.1, &txi, width, height).ok()?;
-            Some((id, Arc::new(font)))
-        });
-        self.fonts.insert(key, font.clone());
+        let by = self.text_scale;
+        let font = self
+            .own_font(source, name)
+            .map(|(id, font)| (id, Arc::new(font.scaled(by))));
+        self.scaled_fonts.insert(key, font.clone());
         font
+    }
+
+    fn text_scale(&self) -> f32 {
+        self.text_scale
+    }
+
+    fn set_text_scale(&mut self, by: f32) {
+        self.text_scale = by;
     }
 
     /// KOTOR 2's art over a KOTOR 1 campaign.

@@ -730,15 +730,16 @@ const MOVED: [(&str, &str); 3] = [
 /// What a page's Default button puts back.
 fn page_keys(page: &str) -> &'static [&'static str] {
     match page {
-        "options_gameplay" => &[
-            "camera.invert",
-            AUTOSAVE,
+        "options_gameplay" => &["camera.invert", AUTOSAVE],
+        "options_sabers" => &[
             SABER_RULES,
             DUEL_BARS,
             DUEL_WARNING,
             DUEL_SLOW_MOTION,
+            crate::duel_stances::SETTING,
+            HILT_SINGLE,
+            HILT_DOUBLE,
         ],
-        "options_sabers" => &[HILT_SINGLE, HILT_DOUBLE, crate::duel_stances::SETTING],
         "options_mouse" => &["mouse.sensitivity"],
         "options_controller" => &[
             "pad.sensitivity",

@@ -2,20 +2,18 @@
 //! `optgraphics`, `optgraphicsadv`, `optsound`, `optfeedback`), each a
 //! table of what its controls do: a check box, slider or stepped button
 //! bound to a setting, a button that opens another page, or greyed where
-//! the game has nothing behind it yet (texture quality, the feedback
-//! list, saves and levels for the world state). KOTOR 2's
-//! pages (the skin) have two more check boxes: the graphics page's hidden,
-//! the gameplay page's the overhead duel bars'. The controller's
+//! the game has nothing behind it yet (texture quality, frame buffer
+//! effects, the feedback list, saves and levels for the world state). KOTOR 2's
+//! pages (the skin) have two more check boxes, hidden. The controller's
 //! page is ours, on the graphics page's layout, opened from the gameplay
-//! page in its unused auto level-up box's place; so is the sabers' (the
-//! hilts KOTOR's lightsabers are drawn with, Movie Duels' stances), opened
-//! from the advanced graphics page in its unused frame buffer box's place.
-//! The gameplay page's
-//! difficulty, stepped by its arrows, picks the saber rules a session
-//! played here plays by (`docs/SABER-RULES.md`), and its unused check
-//! boxes are the duel modes' options. The main page's unused auto-pause
-//! button is Debug: the combat sandbox (only the main menu opens this
-//! page; play has its own, `options_in_game`).
+//! page in its unused difficulty button's place. The sabers' page is ours
+//! too, on the gameplay page's own layout, opened from that page's unused
+//! "reverse" box: its difficulty, stepped by its arrows, picks the saber
+//! rules a session played here plays by (`docs/SABER-RULES.md`), its check
+//! boxes the duel modes' options and Movie Duels' stances, its mouse and
+//! key mapping buttons the hilts KOTOR's lightsabers are drawn with. The main
+//! page's unused auto-pause button is Debug: the combat sandbox (only the
+//! main menu opens this page; play has its own, `options_in_game`).
 
 use fmt_odyssey::gui::Control;
 
@@ -73,19 +71,33 @@ impl Role {
     }
 }
 
+/// What the description box (`LB_DESC`) says while a control has the
+/// focus, as KOTOR 2's pages do.
+#[derive(Clone, Copy)]
+enum Help {
+    /// KOTOR 2's own words: an entry of its talk table.
+    Told(u32),
+    /// Ours, where the setting is not KOTOR 2's.
+    Ours(&'static str),
+}
+
 struct Spec {
     name: &'static str,
     layout: &'static str,
     roles: &'static [(&'static str, Role)],
     first: &'static str,
+    help: &'static [(&'static str, Help)],
 }
 
 pub struct Page {
     spec: &'static Spec,
     /// The page's settings when it opened (`Cancel`).
     before: Vec<(&'static str, String)>,
+    /// The control with the focus (`Help`).
+    focus: Option<String>,
 }
 
+use Help::{Ours, Told};
 use Role::{
     Back, Cancel, Cycle, Defaults, Greyed, Hidden, Open, OpenAs, Sandbox, Slider, Text, Toggle,
     ToggleAs,
@@ -151,6 +163,7 @@ const PAGES: [Spec; 9] = [
             ("BTN_BACK", Back),
         ],
         first: "BTN_GAMEPLAY",
+        help: &[],
     },
     Spec {
         name: "options_gameplay",
@@ -160,41 +173,32 @@ const PAGES: [Spec; 9] = [
                 "CB_INVERTCAM",
                 ToggleAs("camera.invert", strings::INVERT_CAMERA),
             ),
-            (
-                "CB_LEVELUP",
-                OpenAs("options_controller", strings::CONTROLLER),
-            ),
+            ("CB_LEVELUP", Greyed),
             ("CB_AUTOSAVE", Toggle("game.autosave")),
-            (
-                "CB_REVERSE_INGAME",
-                ToggleAs("game.duel_bars", strings::DUEL_BARS),
-            ),
-            (
-                "CB_REVERSE",
-                ToggleAs("game.duel_warning", strings::DUEL_WARNING),
-            ),
-            (
-                "CB_DISABLEMOVE",
-                ToggleAs("game.duel_slow_motion", strings::DUEL_SLOW_MOTION),
-            ),
+            ("CB_REVERSE", OpenAs("options_sabers", strings::SABERS)),
+            ("CB_DISABLEMOVE", Hidden),
+            ("CB_REVERSE_INGAME", Hidden),
             (
                 "BTN_DIFFICULTY",
-                Cycle("game.saber_rules", SABER_RULES, Step::Shown),
+                OpenAs("options_controller", strings::CONTROLLER),
             ),
-            (
-                "BTN_DIFFLEFT",
-                Cycle("game.saber_rules", SABER_RULES, Step::Back),
-            ),
-            (
-                "BTN_DIFFRIGHT",
-                Cycle("game.saber_rules", SABER_RULES, Step::On),
-            ),
+            ("BTN_DIFFLEFT", Hidden),
+            ("BTN_DIFFRIGHT", Hidden),
             ("BTN_KEYMAP", Open("options_keymap")),
             ("BTN_MOUSE", Open("options_mouse")),
             ("BTN_DEFAULT", Defaults),
             ("BTN_BACK", Back),
         ],
         first: "CB_INVERTCAM",
+        help: &[
+            ("CB_INVERTCAM", Ours(strings::INVERT_CAMERA_HELP)),
+            ("CB_AUTOSAVE", Ours(strings::AUTOSAVE_HELP)),
+            ("CB_LEVELUP", Told(42266)),
+            ("CB_REVERSE", Ours(strings::SABERS_HELP)),
+            ("BTN_DIFFICULTY", Ours(strings::CONTROLLER_HELP)),
+            ("BTN_KEYMAP", Told(48698)),
+            ("BTN_MOUSE", Told(48721)),
+        ],
     },
     Spec {
         name: "options_mouse",
@@ -207,6 +211,7 @@ const PAGES: [Spec; 9] = [
             ("BTN_BACK", Back),
         ],
         first: "SLI_MOUSESEN",
+        help: &[("SLI_MOUSESEN", Told(48721))],
     },
     Spec {
         name: "options_controller",
@@ -227,32 +232,65 @@ const PAGES: [Spec; 9] = [
             ("BTN_BACK", Back),
         ],
         first: "SLI_GAMMA",
+        help: &[
+            ("SLI_GAMMA", Ours(strings::LOOK_SPEED_HELP)),
+            ("BTN_RESOLUTION", Ours(strings::DEAD_ZONE_HELP)),
+            ("CB_SHADOWS", Told(42453)),
+            ("CB_GRASS", Told(42290)),
+        ],
     },
     Spec {
         name: "options_sabers",
-        layout: "optgraphics",
+        layout: "optgameplay",
         roles: &[
             ("LBL_TITLE", Text(strings::SABER_OPTIONS)),
-            ("SLI_GAMMA", Hidden),
-            ("LBL_GAMMA", Hidden),
             (
-                "BTN_RESOLUTION",
-                Cycle("saber.hilt.single", HILTS, Step::Shown),
+                "BTN_DIFFICULTY",
+                Cycle("game.saber_rules", SABER_RULES, Step::Shown),
             ),
             (
-                "BTN_ADVANCED",
-                Cycle("saber.hilt.double", STAFFS, Step::Shown),
+                "BTN_DIFFLEFT",
+                Cycle("game.saber_rules", SABER_RULES, Step::Back),
             ),
             (
-                "CB_SHADOWS",
+                "BTN_DIFFRIGHT",
+                Cycle("game.saber_rules", SABER_RULES, Step::On),
+            ),
+            ("CB_LEVELUP", ToggleAs("game.duel_bars", strings::DUEL_BARS)),
+            (
+                "CB_INVERTCAM",
+                ToggleAs("game.duel_warning", strings::DUEL_WARNING),
+            ),
+            (
+                "CB_AUTOSAVE",
+                ToggleAs("game.duel_slow_motion", strings::DUEL_SLOW_MOTION),
+            ),
+            (
+                "CB_REVERSE",
                 ToggleAs("game.duel_stances", strings::DUEL_STANCES),
             ),
-            ("CB_GRASS", Hidden),
-            ("CB_FORCESPEED", Hidden),
+            ("CB_DISABLEMOVE", Hidden),
+            ("CB_REVERSE_INGAME", Hidden),
+            ("BTN_MOUSE", Cycle("saber.hilt.single", HILTS, Step::Shown)),
+            (
+                "BTN_KEYMAP",
+                Cycle("saber.hilt.double", STAFFS, Step::Shown),
+            ),
             ("BTN_DEFAULT", Defaults),
             ("BTN_BACK", Back),
         ],
-        first: "BTN_RESOLUTION",
+        first: "BTN_DIFFICULTY",
+        help: &[
+            ("BTN_DIFFICULTY", Ours(strings::SABER_RULES_HELP)),
+            ("BTN_DIFFLEFT", Ours(strings::SABER_RULES_HELP)),
+            ("BTN_DIFFRIGHT", Ours(strings::SABER_RULES_HELP)),
+            ("CB_LEVELUP", Ours(strings::DUEL_BARS_HELP)),
+            ("CB_INVERTCAM", Ours(strings::DUEL_WARNING_HELP)),
+            ("CB_AUTOSAVE", Ours(strings::DUEL_SLOW_MOTION_HELP)),
+            ("CB_REVERSE", Ours(strings::DUEL_STANCES_HELP)),
+            ("BTN_MOUSE", Ours(strings::HILT_HELP)),
+            ("BTN_KEYMAP", Ours(strings::STAFF_HELP)),
+        ],
     },
     Spec {
         name: "options_graphics",
@@ -268,6 +306,13 @@ const PAGES: [Spec; 9] = [
             ("BTN_BACK", Back),
         ],
         first: "SLI_GAMMA",
+        help: &[
+            ("SLI_GAMMA", Told(42310)),
+            ("BTN_RESOLUTION", Told(48707)),
+            ("CB_SHADOWS", Told(48708)),
+            ("CB_GRASS", Told(48709)),
+            ("BTN_ADVANCED", Ours(strings::ADVANCED_GRAPHICS_HELP)),
+        ],
     },
     Spec {
         name: "options_graphics_advanced",
@@ -283,7 +328,7 @@ const PAGES: [Spec; 9] = [
                 Cycle("display.msaa", SAMPLES, Step::On),
             ),
             ("CB_VSYNC", Toggle("display.vsync")),
-            ("CB_FRAMEBUFF", OpenAs("options_sabers", strings::SABERS)),
+            ("CB_FRAMEBUFF", Greyed),
             ("BTN_TEXQUAL", Greyed),
             ("BTN_TEXQUALLEFT", Greyed),
             ("BTN_TEXQUALRIGHT", Greyed),
@@ -296,6 +341,16 @@ const PAGES: [Spec; 9] = [
             ("BTN_BACK", Back),
         ],
         first: "BTN_ANTIALIAS",
+        help: &[
+            ("BTN_ANTIALIAS", Ours(strings::ANTI_ALIASING_HELP)),
+            ("BTN_ANTIALIASLEFT", Ours(strings::ANTI_ALIASING_HELP)),
+            ("BTN_ANTIALIASRIGHT", Ours(strings::ANTI_ALIASING_HELP)),
+            ("BTN_TEXQUAL", Told(48712)),
+            ("CB_FRAMEBUFF", Told(48714)),
+            ("BTN_ANISOTROPY", Told(48715)),
+            ("CB_SOFTSHADOWS", Told(48711)),
+            ("CB_VSYNC", Told(48716)),
+        ],
     },
     Spec {
         name: "options_sound",
@@ -310,6 +365,12 @@ const PAGES: [Spec; 9] = [
             ("BTN_BACK", Back),
         ],
         first: "SLI_MUSIC",
+        help: &[
+            ("SLI_MUSIC", Told(42311)),
+            ("SLI_VO", Told(42312)),
+            ("SLI_FX", Told(42313)),
+            ("SLI_MOVIE", Told(47921)),
+        ],
     },
     Spec {
         name: "options_feedback",
@@ -320,6 +381,7 @@ const PAGES: [Spec; 9] = [
             ("BTN_BACK", Back),
         ],
         first: "BTN_BACK",
+        help: &[],
     },
 ];
 
@@ -333,7 +395,11 @@ pub fn page(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
         .filter_map(|key| Some((key, vm.settings.get(key)?.clone())))
         .collect();
     before.dedup();
-    Some(Box::new(Page { spec, before }))
+    Some(Box::new(Page {
+        spec,
+        before,
+        focus: None,
+    }))
 }
 
 impl Page {
@@ -343,6 +409,23 @@ impl Page {
             .iter()
             .find(|(control, _)| *control == tag)
             .map(|(_, role)| *role)
+    }
+
+    /// The description box's words for the focused control.
+    fn help(&self) -> ControlState {
+        let focus = self.focus.as_deref();
+        match self.spec.help.iter().find(|(tag, _)| Some(*tag) == focus) {
+            Some((_, Told(strref))) => ControlState {
+                strref: Some(*strref),
+                skin_strref: true,
+                ..ControlState::default()
+            },
+            Some((_, Ours(words))) => ControlState {
+                text: Some(strings::bytes(words)),
+                ..ControlState::default()
+            },
+            None => ControlState::default(),
+        }
     }
 }
 
@@ -393,7 +476,14 @@ impl Screen for Page {
         self.spec.layout
     }
 
+    fn focused(&mut self, tag: &str, _vm: &ViewModel) {
+        self.focus = Some(tag.to_string());
+    }
+
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
+        if control.tag == "LB_DESC" {
+            return self.help();
+        }
         match self.role(&control.tag) {
             Some(Toggle(key)) => ControlState {
                 selected: on(vm, key),

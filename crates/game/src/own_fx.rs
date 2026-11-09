@@ -11,7 +11,7 @@
 //!   reone's area plays every clip so named (looping, one over the other;
 //!   Manaan's swoop track flies its birds by two of them). The
 //!   `scriptloopNN` clip a script starts on it (`PlayRoomAnimation`, the
-//!   snapshot's `AreaSound::room`) loops from when it began, over them, in
+//!   snapshot's `AreaSound::rooms`, each room its own) loops from when it began, over them, in
 //!   every module: Peragus's sparks and ship smoke, the Ravager's flames,
 //!   the turret's skybox.
 //! - A placeable plays the clip its look picks (`sim::look`, its
@@ -464,7 +464,7 @@ fn pose(
     let (now, asked) = presented.map_or((0.0, None), |presented| {
         (
             crate::sim_host::view_ms(&presented.0),
-            presented.0.current().area_sound.room,
+            Some(presented.0.current().area_sound.clone()),
         )
     });
     let looped = |clip: &Arc<AnimationIr>, elapsed: f32| {
@@ -488,10 +488,13 @@ fn pose(
                 _,
             ) => {
                 // A script's clip loops from when it began, over the loops.
-                let script = asked.filter(|asked| asked.room == *room).and_then(|asked| {
-                    let since = ((now - asked.since_ms as f64).max(0.0) / 1000.0) as f32;
-                    Some(looped(scripted.get(&asked.anim)?, since))
-                });
+                let script = asked
+                    .as_ref()
+                    .and_then(|asked| asked.room(*room))
+                    .and_then(|asked| {
+                        let since = ((now - asked.since_ms as f64).max(0.0) / 1000.0) as f32;
+                        Some(looped(scripted.get(&asked.anim)?, since))
+                    });
                 loops
                     .iter()
                     .map(|clip| looped(clip, seconds))
@@ -752,7 +755,7 @@ fn script_room_clip_probe() -> Result<String, String> {
     let mut start = sim::SimWorld::new(sim::WorldConfig::one_seat(), sim::Level::arena())
         .map_err(|why| format!("{why:?}"))?
         .snapshot();
-    start.area_sound.room = Some(sim::RoomAnim {
+    start.area_sound.play_room(sim::RoomAnim {
         room: sim::room_key(room),
         anim,
         since_ms: 0,
