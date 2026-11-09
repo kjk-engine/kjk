@@ -1017,6 +1017,9 @@ pub struct ViewModel {
     /// With a blaster in hand, the crosshair is its reticle in place of
     /// the dot (`screens::hud::reticle`).
     pub reticle: Option<ReticleView>,
+    /// The mark a landed own blaster shot flashes about the crosshair, and
+    /// how long ago it came (ms; `screens::hud::hitmarker`).
+    pub hitmark: Option<(crate::screens::hud::Mark, f32)>,
     /// A bark in play (`screens::bark`).
     pub bark: Option<BarkView>,
     /// Words floating over creatures in play (`screens::floaty`).

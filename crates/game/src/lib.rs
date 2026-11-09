@@ -65,6 +65,7 @@ pub mod grunts;
 mod gui_scene;
 mod headgear;
 mod heat_haze;
+pub mod hitmarker_view;
 pub mod holdings;
 mod holster_view;
 mod hud;

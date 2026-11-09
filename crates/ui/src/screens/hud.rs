@@ -469,6 +469,68 @@ pub fn reticle(frame: (i32, i32), family: Family, gap: f32) -> Vec<Quad> {
     quads
 }
 
+/// What a blaster shot the player landed did, as the mark flashed about
+/// the crosshair shows it: the colour tells a hit from a strong one, a
+/// kill adds red ticks, a bolt a blade turned a grey mark.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mark {
+    Turned,
+    Hit,
+    Strong,
+    Kill { strong: bool },
+}
+
+/// How long a mark shows (ms), and how much of that it fades over.
+pub const MARK_SHOWN_MS: f32 = 140.0;
+const MARK_FADE_MS: f32 = 80.0;
+
+/// The mark of `mark` `age_ms` after it came, about a crosshair whose gap
+/// is `gap` at the middle of a layout `frame` big: four strokes on the
+/// diagonals outside the gap, growing a little and fading; none once
+/// `MARK_SHOWN_MS` has passed.
+pub fn hitmarker(frame: (i32, i32), mark: Mark, gap: f32, age_ms: f32) -> Vec<Quad> {
+    if !(0.0..=MARK_SHOWN_MS).contains(&age_ms) {
+        return Vec::new();
+    }
+    let (width, height) = frame;
+    let middle = [width as f32 / 2.0, height as f32 / 2.0];
+    let scale = height as f32 / 1080.0;
+    let grown = 1.0 + 0.15 * age_ms / MARK_SHOWN_MS;
+    let alpha = ((MARK_SHOWN_MS - age_ms) / MARK_FADE_MS).min(1.0);
+    let tint = |[r, g, b]: [f32; 3]| [r, g, b, alpha];
+    let (color, long) = match mark {
+        Mark::Turned => (MARK_GREY, 4.0),
+        Mark::Hit | Mark::Kill { strong: false } => (MARK_WHITE, 8.0),
+        Mark::Strong | Mark::Kill { strong: true } => (MARK_GOLD, 8.0),
+    };
+    let diagonals = [45.0f32, 135.0, 225.0, 315.0];
+    let ring = |(from, to): (f32, f32), color: [f32; 3]| -> Vec<Quad> {
+        diagonals
+            .iter()
+            .flat_map(|angle| {
+                stroke(
+                    middle,
+                    ((gap + from * scale) * grown, (gap + to * scale) * grown),
+                    angle.to_radians(),
+                    (2.0 * scale, scale),
+                    tint(color),
+                )
+            })
+            .collect()
+    };
+    let mut quads = ring((6.0, 6.0 + long), color);
+    if matches!(mark, Mark::Kill { .. }) {
+        quads.extend(ring((18.0, 24.0), MARK_RED));
+    }
+    quads
+}
+
+/// The marks' colours: a hit, a strong hit, a kill's ticks, a turned bolt.
+const MARK_WHITE: [f32; 3] = [1.0, 1.0, 1.0];
+const MARK_GOLD: [f32; 3] = [0.95, 0.72, 0.2];
+const MARK_RED: [f32; 3] = [0.85, 0.15, 0.1];
+const MARK_GREY: [f32; 3] = [0.6, 0.6, 0.6];
+
 /// The minimap's quads: the view's black, the area's picture over it and
 /// black over what is unexplored, under the layout; the arrow over it.
 #[derive(Debug, Clone, PartialEq)]

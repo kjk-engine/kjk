@@ -851,12 +851,19 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         .as_ref()
         .and_then(|hud| hud.as_ref())
         .map(|(gui, _)| ui::screens::hud::fitted(gui, window));
-    if let (Some(reticle), Some(frame), false) =
-        (ui.vm.reticle.filter(|_| ui.vm.crosshair), frame, banner)
-    {
-        let gap = ui::screens::hud::gap_px(reticle.cone, reticle.fov, frame.1 as f32);
-        out.quads
-            .extend(ui::screens::hud::reticle(frame, reticle.family, gap));
+    if let (Some(frame), true, false) = (frame, ui.vm.crosshair, banner) {
+        use ui::screens::hud::{MIN_GAP, gap_px, hitmarker, reticle};
+        let height = frame.1 as f32;
+        let gap = ui.vm.reticle.map_or(MIN_GAP * height / 1080.0, |shown| {
+            gap_px(shown.cone, shown.fov, height)
+        });
+        if let Some(shown) = ui.vm.reticle {
+            out.quads.extend(reticle(frame, shown.family, gap));
+        }
+        // A landed shot's mark about it (`hitmarker_view`).
+        if let Some((mark, age_ms)) = ui.vm.hitmark {
+            out.quads.extend(hitmarker(frame, mark, gap, age_ms));
+        }
     }
     Some(out)
 }

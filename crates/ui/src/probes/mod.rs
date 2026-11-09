@@ -10,6 +10,7 @@ mod draw;
 mod floaty;
 mod formats;
 mod galaxy;
+mod hitmarker;
 mod hud;
 mod map_page;
 mod menus;
@@ -63,6 +64,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(vm_screens::all());
     checks.extend(hud::all());
     checks.extend(reticle::all());
+    checks.extend(hitmarker::all());
     checks.extend(minimap::all());
     checks.extend(map_page::all());
     checks.extend(bark::all());
