@@ -768,10 +768,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         // direction from the eye to the point, mirrored about the surface
         // normal, picks the cube map's texel in the game's world (z up), not
         // the eye's: its executable turns the eye-space reflection by the
-        // camera's orientation (a texture matrix). So a floor shows the
-        // top of its cube map at any camera angle, never the horizon.
-        // The base texture's alpha masks the shine: an opaque texel has
-        // none.
+        // camera's orientation (a texture matrix). So a floor mirrors the
+        // part of its cube map above the horizon, as high as the eye looks
+        // down. The base texture's alpha masks the shine (one minus it
+        // weighs the cube's colour, added to the lit texel): an opaque
+        // texel has none.
         let incident = normalize(in.world_position.xyz - view.world_position);
         let mirrored = reflect(incident, normalize(in.world_normal));
         // Bevy's world (y up) back to the game's (z up).
