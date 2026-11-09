@@ -194,6 +194,8 @@ pub struct ControlState {
     pub shorter: Vec<Vec<u8>>,
     /// In place of the layout's text, a talk-table entry's.
     pub strref: Option<u32>,
+    /// `strref` is KOTOR 2's (the skin's talk table), not the campaign's.
+    pub skin_strref: bool,
     /// What the entry's tokens (`<CUSTOM0>`, by name without the brackets)
     /// read as.
     pub tokens: Vec<(&'static str, Vec<u8>)>,
@@ -361,7 +363,13 @@ impl<'a> Painter<'a> {
         out: &mut DrawList,
     ) {
         let [l, t, w, h] = rect;
-        let d = border.dimension.max(0) as f32;
+        // A border without edges or corners is its fill alone, whatever
+        // its dimension (KOTOR 2's minus arrows: 32 on a 28 button).
+        let d = if border.edge.is_empty() && border.corner.is_empty() {
+            0.0
+        } else {
+            border.dimension.max(0) as f32
+        };
         let (source, fill, fill_tint) = match fill {
             Some(picture) => (Source::Campaign, picture, [1.0, 1.0, 1.0, tint[3]]),
             None if border.color.is_some() => (self.source, border.fill.as_str(), tint),
@@ -562,15 +570,18 @@ impl<'a> Painter<'a> {
             _ => t,
         };
         let clip = [l, t, w, h.max(pitch)];
+        // On whole window pixels: a font pixel is `text_scale` of a layout
+        // pixel.
+        let grain = self.textures.text_scale();
+        let snap = |at: f32| (at / grain).round() * grain;
         for (row, line) in lines.iter().enumerate() {
             let width = font.measure(line);
-            let mut x = match alignment & align::ACROSS {
+            let mut x = snap(match alignment & align::ACROSS {
                 align::CENTRE => l + (w - width) / 2.0,
                 align::RIGHT => l + w - width,
                 _ => l,
-            }
-            .round();
-            let y = (top + row as f32 * pitch).round();
+            });
+            let y = snap(top + row as f32 * pitch);
             for &byte in line {
                 if let Some(glyph) = font.glyph(byte)
                     && glyph.width > 0.0
@@ -608,7 +619,12 @@ impl<'a> Painter<'a> {
 
     /// The state's talk-table entry, its tokens filled in.
     fn told(&self, state: &ControlState) -> Option<Vec<u8>> {
-        let words = self.textures.text(Source::Campaign, state.strref?)?;
+        let source = if state.skin_strref {
+            Source::Skin
+        } else {
+            Source::Campaign
+        };
+        let words = self.textures.text(source, state.strref?)?;
         Some(fill_tokens(words, &state.tokens))
     }
 
@@ -689,8 +705,17 @@ impl<'a> Painter<'a> {
             } else {
                 state.tint.unwrap_or_else(|| self.color(border.color))
             };
-            let border = border.clone();
-            self.frame(&border, state.fill.as_deref(), rect, rgba(tint, alpha), out);
+            let mut border = border.clone();
+            let (rect, tint) = match &control.text {
+                // KOTOR 2's mark is white art in its row's words' colour.
+                Some(text) if control.kind == Kind::CheckBox => {
+                    border.color.get_or_insert([1.0; 3]);
+                    let color = self.text_color(control, state, text.color);
+                    (self.check_mark(&border, rect), color)
+                }
+                _ => (rect, rgba(tint, alpha)),
+            };
+            self.frame(&border, state.fill.as_deref(), rect, tint, out);
         } else if let Some(fill) = &state.fill {
             self.image(Source::Campaign, fill, rect, rgba([1.0; 3], alpha), out);
         }
@@ -725,6 +750,21 @@ impl<'a> Painter<'a> {
                 .map_or(rect, |border| inner(rect, border));
             self.text(&font, &words, inner, text.alignment, color, out);
         }
+    }
+
+    /// Where a check box's mark goes in its row `rect`: at the row's left,
+    /// centred down it, half the row tall and three quarters as wide as
+    /// tall, the words across the row. KOTOR 2 at 1280 × 1024 draws
+    /// `uibit_checkbxon` (a 32 × 18 pill on 32 × 32) 24 × 19 pixels in a
+    /// 64-pixel row, nearly round; stretched over the row it is a wide
+    /// ring. A mark with edges keeps the row.
+    fn check_mark(&self, border: &Border, rect: [f32; 4]) -> [f32; 4] {
+        let [l, t, w, h] = rect;
+        if border.dimension > 0 && !border.edge.is_empty() {
+            return rect;
+        }
+        let tall = h / 2.0;
+        [l, t + (h - tall) / 2.0, (tall * 0.75).min(w), tall]
     }
 
     /// A slider's thumb, as thick as the slider, along it by its value: a
@@ -789,7 +829,7 @@ impl<'a> Painter<'a> {
             .list
             .is_none()
             .then(|| {
-                let words = self.told(state)?;
+                let words = state.text.clone().or_else(|| self.told(state))?;
                 Some(ListView {
                     rows: vec![Row {
                         text: words,

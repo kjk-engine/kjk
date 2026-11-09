@@ -18,7 +18,12 @@ KOTOR's own `.gui` layouts, drawn by our GUI runtime over the live world.
   size, a layout pixel a window point (two screen pixels on a Retina
   display), centred on whole pixels, and only scaled down in a window
   smaller than it (`draw::fit`); its fonts, borders and list rows keep
-  the sizes the layout gives them. The HUD's frame is the window, its
+  the sizes the layout gives them. Where the window draws a frame
+  larger (`draw::scale`), the menus' and pages' words stay at their
+  fonts' own size, a font pixel a window pixel (`Stack::step`,
+  `Textures::set_text_scale`, `Font::scaled`), as KOTOR 2 draws them at
+  1280 × 1024: the owner's call (2026-11-09, "a bit more elegant"). The
+  conversation, barks and the HUD keep the frame's scale. The HUD's frame is the window, its
   controls kept to their corners. The conversation's and a bark's frames
   are the window's shape at the layout's height, stretched to fill it
   (`draw::fill`, `DrawList::fill`; their sizes the owner's calls, below).
@@ -330,6 +335,18 @@ K1 itself acts on one click (its list rows are buttons, a click on one
 buys, loads or takes); a click here points at a row and the double click
 acts, the owner's rule (UI streamlining). The console's `ui double LIST
 ROW` double-clicks a row (from 0) as the pointer does.
+
+**Check boxes and the options' descriptions** (`paint::check_mark`,
+`screens::options::Help`): a check box's mark (`uibit_checkbxon`, a pill
+on a square) is drawn at the row's left, half the row tall and three
+quarters as wide, in the row's words' colour, as KOTOR 2 at 1280 × 1024
+draws it (`context/artifacts/2026-11-09-k2-menu-refs/`); stretched over
+the row it was a wide ring. A border with no edges or corners is its
+fill alone, whatever its dimension (KOTOR 2's minus arrows declare 32 on
+a 28 button). Each options page's `LB_DESC` tells the focused control:
+KOTOR 2's own talk-table entry where the setting is KOTOR 2's, ours
+(`strings::*_HELP`) where it is not (anti-aliasing's steps, the
+controller's, autosave on each area).
 
 **Controls' sounds** (`ui::intent::GuiSound`, `game::ui_sounds`): K1's
 controls are made with `guisounds.2da`'s `Clicked_Default` (`gui_click`)
