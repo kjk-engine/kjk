@@ -678,7 +678,7 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   bottom: the stamina next to it, the block points (MDA) beyond
   (`hud::duel_bars`, `HudView::duel`); with "Overhead duel bars" on,
   every other living saber user's lie over its head, the art turned a
-  quarter, 60 by 8 pixels each, filling rightward, the block points over
+  quarter, 60 by 6 pixels each, filling rightward, the block points over
   the stamina and touching: the upper in the vitality bar's art (sloped
   at its top corners), the lower in the Force bar's (`PB_FORCE1`'s
   `uibit_bar_fp_p`, sloped at its bottom ones), so the pair makes one

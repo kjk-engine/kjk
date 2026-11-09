@@ -121,8 +121,8 @@ pub(super) fn duel() -> Vec<Check> {
     .quads;
     let lies = lying.len() == 4
         && lying.iter().all(|quad| quad.turns == 1)
-        && lying[1].rect == [70.0, 74.0, 15.0, 8.0]
-        && lying[2].rect == [70.0, 82.0, 60.0, 8.0]
+        && lying[1].rect == [70.0, 78.0, 15.0, 6.0]
+        && lying[2].rect == [70.0, 84.0, 60.0, 6.0]
         && [lying[0].texture, lying[2].texture] == [art.texture, force.texture];
     let placed = placed && lies;
     vec![check(

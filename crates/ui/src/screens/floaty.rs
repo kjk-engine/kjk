@@ -39,7 +39,7 @@ pub const XP_COLOR: [f32; 3] = [0.95, 0.0, 0.85];
 
 /// A head's duel bars: each bar's length and thickness (pixels: the spec's
 /// 60 units at scale 1), and how far over the head the lowest stands.
-const BARS: [f32; 2] = [60.0, 8.0];
+const BARS: [f32; 2] = [60.0, 6.0];
 const BARS_OVER: f32 = 10.0;
 
 /// The art of a head's two duel bars, lying (`Stand::Lying`): the upper
