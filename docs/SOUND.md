@@ -183,7 +183,9 @@ the view's:
   `SoundSetFile`, a player's its persona's (`soundset.2da`
   `Player_<Female|Male>_W` by the portrait's sex: K1's `_B` sets have no
   recordings in the install; TSL's player has none); the SSF's strref
-  there, the talk table's sound for it. Voice only, no subtitle or bubble.
+  there, the talk table's sound for it, all read from the module's own
+  game (a log line `sound-set line` names each line's sound as it is
+  read). Voice only, no subtitle or bubble.
   The fight's grunts (`game::grunts`, `COMBAT.md` "Sounds") are such
   lines the view says itself, its own choice as the executable's client's.
 - **A conversation's voice** (`dialogue_view`): its line's VO in the
