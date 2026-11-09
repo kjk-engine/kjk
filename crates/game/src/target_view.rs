@@ -260,8 +260,12 @@ fn target(
     // The pad's LB with the D-pad's left and right turn it as the wheel.
     let cycled = actions.as_ref().map_or(0, |actions| actions.cycle);
     let turned: f32 = wheel.read().map(|event| event.y).sum::<f32>() - f32::from(cycled);
-    // An item key held has the wheel (`pick_view`).
-    let turned = if picking.is_some_and(|picking| picking.holding()) {
+    // An item key held has the wheel (`pick_view`), and the camera's orbit
+    // held zooms with it (`camera_tune`).
+    let orbiting = actions
+        .as_ref()
+        .is_some_and(|actions| actions.held(crate::settings::Action::Orbit));
+    let turned = if orbiting || picking.is_some_and(|picking| picking.holding()) {
         0.0
     } else {
         turned

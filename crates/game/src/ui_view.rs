@@ -415,11 +415,12 @@ fn requests(
         ResMut<crate::leader_view::Picked>,
         ResMut<crate::target_view::Pinned>,
     ),
-    (mut replies, mut called, mut watch, mut picking): (
+    (mut replies, mut called, mut watch, mut picking, mut orbit): (
         Option<ResMut<crate::dialogue_view::ReplyInput>>,
         Option<ResMut<crate::dialogue_view::Called>>,
         ResMut<crate::pazaak_view::WatchAsked>,
         ResMut<crate::pick_view::Picking>,
+        Option<ResMut<crate::camera_tune::Orbit>>,
     ),
 ) {
     use sim::script::dialogue::Pick;
@@ -449,6 +450,11 @@ fn requests(
             ["key" | "wheel", ..] => {
                 if !picking.script(&words) {
                     warn!(target: "console", "ui: {words:?} is no key or wheel request");
+                }
+            }
+            ["camera", what @ ..] => {
+                if !orbit.as_deref_mut().is_some_and(|orbit| orbit.script(what)) {
+                    warn!(target: "console", "ui camera: {what:?} is no orbit or zoom request");
                 }
             }
             ["script", what @ ..] => match crate::script_screens::parse(what) {

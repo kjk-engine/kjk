@@ -144,3 +144,111 @@ impl Screen for Layout {
 
     fn press(&mut self, _: &str, _: &ViewModel, _: &mut Vec<Intent>) {}
 }
+
+/// A copy of `gui`'s control `from`, tagged `tag`, one row's pitch below it
+/// (the gap above it, from the control over it in its column), its focus
+/// threaded between `from` and what `from` led down to. Nothing without
+/// `from`.
+pub(crate) fn copy_below(gui: &mut fmt_odyssey::gui::Gui, from: &str, tag: &str) {
+    let Some(original) = gui.find(from).cloned() else {
+        return;
+    };
+    let above = gui
+        .controls
+        .iter()
+        .filter(|control| control.extent.left == original.extent.left)
+        .map(|control| control.extent.top)
+        .filter(|top| *top < original.extent.top)
+        .max();
+    let pitch = above.map_or(original.extent.height, |top| original.extent.top - top);
+    let id = gui
+        .controls
+        .iter()
+        .map(|control| control.id)
+        .max()
+        .unwrap_or(0)
+        + 1;
+    let mut copy = fmt_odyssey::gui::Control {
+        id,
+        tag: tag.into(),
+        ..original.clone()
+    };
+    copy.extent.top += pitch;
+    if let Some(links) = copy.moveto.as_mut() {
+        links.up = original.id;
+    }
+    for control in &mut gui.controls {
+        let Some(links) = control.moveto.as_mut() else {
+            continue;
+        };
+        if control.id == original.id {
+            links.down = id;
+        } else if links.up == original.id {
+            links.up = id;
+        }
+    }
+    let at = gui
+        .controls
+        .iter()
+        .position(|control| control.tag == original.tag);
+    gui.controls
+        .insert(at.map_or(gui.controls.len(), |at| at + 1), copy);
+}
+
+/// Copies of `gui`'s control `style`, tagged `tags`, stacked under the
+/// control `after` with `gap` between them and as wide as it, focus
+/// threaded from `after` through them to what `after` led down to.
+/// Nothing without both.
+pub(crate) fn stack_under(
+    gui: &mut fmt_odyssey::gui::Gui,
+    (style, after): (&str, &str),
+    tags: &[&str],
+    gap: i32,
+) {
+    let (Some(style), Some(after)) = (gui.find(style).cloned(), gui.find(after).cloned()) else {
+        return;
+    };
+    let below = after.moveto.as_ref().map(|links| links.down);
+    let first = gui
+        .controls
+        .iter()
+        .map(|control| control.id)
+        .max()
+        .unwrap_or(0)
+        + 1;
+    let mut top = after.extent.top + after.extent.height + gap;
+    let mut up = after.id;
+    for (n, tag) in tags.iter().enumerate() {
+        let id = first + n as i32;
+        let mut copy = fmt_odyssey::gui::Control {
+            id,
+            tag: (*tag).into(),
+            ..style.clone()
+        };
+        copy.extent.top = top;
+        copy.extent.left = after.extent.left;
+        copy.extent.width = after.extent.width;
+        if let Some(links) = copy.moveto.as_mut() {
+            links.up = up;
+            links.down = if n + 1 < tags.len() {
+                id + 1
+            } else {
+                below.unwrap_or(id)
+            };
+        }
+        top += style.extent.height + gap;
+        up = id;
+        gui.controls.push(copy);
+    }
+    let last = up;
+    for control in &mut gui.controls {
+        let Some(links) = control.moveto.as_mut() else {
+            continue;
+        };
+        if control.id == after.id {
+            links.down = first;
+        } else if below == Some(control.id) && links.up == after.id {
+            links.up = last;
+        }
+    }
+}

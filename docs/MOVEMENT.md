@@ -127,6 +127,36 @@ walker going round a body it overlapped stopped and started step by step). `moti
   spine; `asset_ja::rig::Retargeter` poses the KOTOR body each frame.
 - Camera as JA's third-person view offset: range 80, aim 16 over the eye,
   target damp 0.5, camera damp 0.3 per 50 ms, a 4-unit box traced.
+- The camera options (`camera_tune`, Options → Gameplay → Camera) move
+  those: range 45 to 185 (no farther: `Command::aim` carries a camera's
+  line at most 63 units off JA's, 20° of lagging pitch at 185), aim point
+  −24 to 56 over the eye, a shoulder 40 units either side, field of view
+  60° to 110° in either camera (JA's `cg_fov`, across 4:3), follow Loose
+  (JA's damping) / Tight / Locked, and the own body fading when the camera is pressed within 28 units of the eye (by a wall;
+  not in headless runs that keep JA's camera).
+  Each slider's default is JA's number; presets set the four sliders:
+  Jedi Academy, Over the Shoulder, KOTOR (`camerastyle.2da`'s 3.2 m and
+  55°), Close. They stand in a window, or headless with `KJK_SETTINGS`;
+  other headless runs keep JA's camera.
+- The shoulder moves the camera across its own line after the chase, traced
+  from the aim point (a wall stops it short), so it neither goes through
+  walls nor feeds back into the damping (JA's `cg_thirdPersonHorzOffset`
+  does both; Movie Duels traces it the same way). Its crosshair line stays
+  parallel to the view: `Command::aim` carries the offset, so shots land
+  on the crosshair.
+- Zoom (`=` / `-`; the wheel while the orbit key is held; a pad's right
+  stick pushed up or down while R3 is held) steps the range 10 units; one
+  step in at the nearest goes into the own eyes, one out of them comes back
+  at the nearest.
+- Orbit (held Left Alt; a pad's R3 held; only while the third-person
+  camera has the view): the mouse or the stick turns the
+  camera around the character (pitch ±60° over the view), not the
+  character, which keeps facing and moving as before; no crosshair, the
+  command's aim on JA's line. Let go, the camera swings back behind in
+  about a sixth of a second (Movie Duels' meditation orbit). R3 tapped
+  without turning is Saber style, on its release. `ui camera orbit YAW
+  PITCH` / `ui camera orbit off` / `ui camera zoom N` do the same from a
+  run's commands, `ui set camera.KEY VALUE` sets an option.
 - Smoothed by default, `--quirks` to see them: Q-0016 (camera pulled into
   the player under low ceilings), Q-0017 (Ghoul2 re-blending from a frame,
   not the pose shown). Kept: Q-0018. The body snaps up steps as in JA's

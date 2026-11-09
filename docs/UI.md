@@ -510,7 +510,9 @@ Running and checking:
   as the next-Form key picks one), `ui portrait 2|3` (a click on the HUD's second
   or third portrait), `ui watch 2|3` (a click on that portrait's pazaak
   icon), `ui set KEY VALUE` (a setting changed as the options screens
-  change it: `ui set display.size 800x600`), and `ui script upgrade|levelup|party|death|credits|end|box
+  change it: `ui set display.size 800x600`), `ui camera orbit YAW PITCH`
+  / `ui camera orbit off` / `ui camera zoom STEPS` (the camera's orbit held
+  and turned there, let go, a zoom; `MOVEMENT.md`), and `ui script upgrade|levelup|party|death|credits|end|box
   <strref>|movie <name>|galaxy <planet> [<available> <selectable>]` (`party` lists no
   companions: `ui open party` in play shows the host's table; rows by commas,
   `ui script galaxy 3 1,3,4,5,6,7,9 3,4,5,6,7`) (a store opens
@@ -525,7 +527,12 @@ Running and checking:
   every layout of each install; `kjk gui sheet` makes a contact sheet.
 - Settings live in the user's config folder (`KJK_SETTINGS` overrides it).
 - The options (`ui::screens::options`, a table per page): gameplay's
-  inverted camera, the mouse's sensitivity and buttons, key mapping, the
+  inverted camera and its Camera page (ours, on TSL's unused second
+  reverse box; `optsound`'s layout: distance, height, shoulder and field of
+  view on its sliders, the preset on its Advanced button, and two copies of
+  that button stacked under the sliders, `screens::stack_under`, for how
+  closely the camera follows and the body's fade; `MOVEMENT.md`), the
+  mouse's sensitivity and buttons, key mapping, the
   four volumes (`SOUND.md`), and the graphics (`game::display`):
   brightness (a gamma over the whole frame in `ui_composite`, a half to
   twice, 1 in the middle), the screen resolution (`optresolution`: windows

@@ -106,6 +106,7 @@
 <circle class="dot" cx="825" cy="305" r="3"/>
 <text x="1000" y="410" class="main" text-anchor="start"><tspan class="key">Right stick</tspan>  Look and aim (held over: turns faster)</text>
 <text x="1000" y="428" class="sub" text-anchor="start">Click: saber style · LB+click: follow (watching) / end a join</text>
+<text x="1000" y="446" class="sub" text-anchor="start">Hold click: orbit the camera (stick up/down zooms)</text>
 <polyline class="lead" points="992,406 776,395"/>
 <circle class="dot" cx="776" cy="395" r="3"/>
 <polyline class="lead" points="645,302 645,560"/>

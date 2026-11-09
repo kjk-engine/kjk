@@ -258,6 +258,18 @@ fn hide_placed_gone(
     }
 }
 
+/// A copy of `material` that can be faded: an opaque surface blended.
+pub(crate) fn blended(material: &OdysseyMaterial) -> OdysseyMaterial {
+    let mut faded = material.clone();
+    if matches!(
+        faded.surface,
+        Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
+    ) {
+        faded.surface = Surface::Blend;
+    }
+    faded
+}
+
 /// `root`'s meshes each given a blended copy of its material: the copies,
 /// with the alpha each had.
 fn own_materials(
@@ -271,15 +283,9 @@ fn own_materials(
         let Ok(mut handle) = meshes.get_mut(entity) else {
             continue;
         };
-        let Some(mut faded) = materials.get(&handle.0).cloned() else {
+        let Some(faded) = materials.get(&handle.0).map(blended) else {
             continue;
         };
-        if matches!(
-            faded.surface,
-            Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
-        ) {
-            faded.surface = Surface::Blend;
-        }
         let was = faded.params.tint.w;
         handle.0 = materials.add(faded);
         own.push((handle.0.clone(), was));

@@ -30,6 +30,7 @@ mod blade_fx;
 mod blaster_view;
 mod body_marks;
 pub mod by_hand;
+pub mod camera_tune;
 pub mod cast;
 pub mod character;
 pub mod clip_events;

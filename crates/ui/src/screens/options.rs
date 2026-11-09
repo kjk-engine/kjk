@@ -99,7 +99,38 @@ const DEAD_ZONES: &[(&str, &str)] = &[
     ("0.25", strings::DEAD_ZONE_LARGE),
 ];
 
-const PAGES: [Spec; 8] = [
+/// The camera's presets (`camera_tune`): the four sliders at once.
+const CAMERA_PRESETS: &[(&str, &str)] = &[
+    ("ja", strings::CAMERA_JA),
+    ("shoulder", strings::CAMERA_SHOULDER_PRESET),
+    ("kotor", strings::CAMERA_KOTOR),
+    ("close", strings::CAMERA_CLOSE),
+    ("custom", strings::CAMERA_CUSTOM),
+];
+
+/// How closely the camera follows: JA's damping, a stiffer one, none.
+const CAMERA_FOLLOW: &[(&str, &str)] = &[
+    ("ja", strings::CAMERA_LAG_JA),
+    ("tight", strings::CAMERA_LAG_TIGHT),
+    ("off", strings::CAMERA_LAG_OFF),
+];
+
+const ON_OFF: &[(&str, &str)] = &[
+    ("true", strings::BODY_FADE_ON),
+    ("false", strings::BODY_FADE_OFF),
+];
+
+/// Buttons a page adds to its layout: copies of one of its buttons
+/// (`style`) stacked under a control (`after`), by page.
+const ADDED: [(&str, (&str, &str), &[&str]); 1] = [(
+    "options_camera",
+    ("BTN_ADVANCED", "SLI_MOVIE"),
+    &["BTN_FOLLOW", "BTN_FADE"],
+)];
+/// The gap between them, and above the first (pixels).
+const ADDED_GAP: i32 = 12;
+
+const PAGES: [Spec; 9] = [
     Spec {
         name: "options",
         layout: "optionsmain",
@@ -125,7 +156,11 @@ const PAGES: [Spec; 8] = [
             ("CB_AUTOSAVE", Toggle("game.autosave")),
             ("CB_REVERSE", Greyed),
             ("CB_DISABLEMOVE", Greyed),
-            ("CB_REVERSE_INGAME", Hidden),
+            // TSL's second reverse box, unused: the camera's page.
+            (
+                "CB_REVERSE_INGAME",
+                OpenAs("options_camera", strings::CAMERA),
+            ),
             (
                 "BTN_DIFFICULTY",
                 OpenAs("options_controller", strings::CONTROLLER),
@@ -228,6 +263,35 @@ const PAGES: [Spec; 8] = [
         ],
         first: "SLI_MUSIC",
     },
+    // Ours, on the sound page's layout: the camera's four sliders, its
+    // preset, how closely it follows and whether the body fades near it.
+    Spec {
+        name: "options_camera",
+        layout: "optsound",
+        roles: &[
+            ("LBL_TITLE", Text(strings::CAMERA_OPTIONS)),
+            ("LBL_MUSIC", Text(strings::CAMERA_DISTANCE)),
+            ("SLI_MUSIC", Slider("camera.range")),
+            ("LBL_VO", Text(strings::CAMERA_HEIGHT)),
+            ("SLI_VO", Slider("camera.height")),
+            ("LBL_FX", Text(strings::CAMERA_SHOULDER)),
+            ("SLI_FX", Slider("camera.shoulder")),
+            ("LBL_MOVIE", Text(strings::CAMERA_FOV)),
+            ("SLI_MOVIE", Slider("camera.fov")),
+            (
+                "BTN_FOLLOW",
+                Cycle("camera.tracking", CAMERA_FOLLOW, Step::Shown),
+            ),
+            ("BTN_FADE", Cycle("camera.body_fade", ON_OFF, Step::Shown)),
+            (
+                "BTN_ADVANCED",
+                Cycle("camera.preset", CAMERA_PRESETS, Step::Shown),
+            ),
+            ("BTN_DEFAULT", Defaults),
+            ("BTN_BACK", Back),
+        ],
+        first: "SLI_MUSIC",
+    },
     Spec {
         name: "options_feedback",
         layout: "optfeedback",
@@ -308,6 +372,12 @@ impl Screen for Page {
 
     fn layout(&self) -> &str {
         self.spec.layout
+    }
+
+    fn shape(&self, gui: &mut fmt_odyssey::gui::Gui) {
+        for (_, at, tags) in ADDED.iter().filter(|(page, ..)| *page == self.spec.name) {
+            crate::screens::stack_under(gui, *at, tags, ADDED_GAP);
+        }
     }
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
