@@ -191,7 +191,7 @@ fn revived(
     let revive = me.fighter?.fallen?.revive?;
     let by = snapshot.get(revive.by)?;
     Some(TargetView {
-        name: name_of(by, instances).into_bytes(),
+        name: ui::strings::name(&name_of(by, instances)),
         progress: Some(revive.done(snapshot.time_ms)),
         ..TargetView::default()
     })
@@ -656,7 +656,7 @@ fn target(
         })
         .collect();
     ui.vm.target = Some(TargetView {
-        name: name.into_bytes(),
+        name: ui::strings::name(&name),
         hostile,
         hp,
         poisoned: object

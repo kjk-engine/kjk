@@ -87,6 +87,14 @@ pub fn bytes(text: &str) -> Vec<u8> {
         .collect()
 }
 
+/// An object's name as the game's screens show it (the target label, a
+/// speaker, a container, the message log): its bytes with what it holds in
+/// braces out, the designers' notes ("Lift Controls{to 002EBO}"). Scripts'
+/// `GetName` keeps them; only what is shown leaves them out.
+pub fn name(text: &str) -> Vec<u8> {
+    fmt_odyssey::tlk::unbraced(&bytes(text))
+}
+
 /// A conversation's reply as offered: `nth` (from 0) numbered from 1,
 /// "1. …"; one that says nothing "[CONTINUE]".
 pub fn reply(nth: usize, words: &[u8]) -> Vec<u8> {
