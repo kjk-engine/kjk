@@ -105,6 +105,7 @@ const GROUPS: &[Group] = &[
     ("own items", sim::own_item_probes::probes),
     ("tsl workbench", crate::workbench_probes::probes),
     ("weapons view", crate::weapons::view_probes),
+    ("seat models", kjk_game::play::seat_probes),
     ("held states", kjk_game::held_probes::probes),
     ("up again", kjk_game::rise_probes::probes),
     ("clips", clips),

@@ -227,14 +227,14 @@ pub fn shown_ms(presented: &Presented, waited: Option<&Waited>) -> f64 {
 }
 
 /// A module installed and its scene swapped in: views that keep state
-/// across frames start over (`generation` counts the swaps), with the
-/// body's index in the new scene and the new level. Without a new scene
-/// (`scene` false: a joined player starting in the host's world, an
+/// across frames start over (`generation` counts the swaps), with each
+/// seat's body's index in the new scene and the new level. Without a new
+/// scene (`scene` false: a joined player starting in the host's world, an
 /// install with nothing to draw) what was spawned in the old one stays.
 #[derive(Resource)]
 pub struct SceneSwap {
     pub generation: u32,
-    pub body: Option<usize>,
+    pub body: Option<Vec<usize>>,
     pub level: Level,
     pub scene: bool,
 }
@@ -1677,8 +1677,8 @@ fn advance(
                 if let Some(scene) = prepared.scene {
                     let scene = match authority.lifecycle.as_ref().and_then(|l| l.body.clone()) {
                         Some(parts) => {
-                            let (scene, index) = crate::play::compose(Some(scene), &parts, None);
-                            body = Some(index);
+                            let (scene, bodies) = crate::play::compose(Some(scene), &parts, None);
+                            body = Some(bodies);
                             scene
                         }
                         None => scene,

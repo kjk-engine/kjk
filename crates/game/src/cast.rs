@@ -1584,12 +1584,11 @@ pub struct Guns(pub BTreeMap<SimId, [Option<(Entity, Vec3)>; 2]>);
 #[derive(Resource, Default)]
 pub struct BodyRoots(pub BTreeMap<SimId, Entity>);
 
-/// Where the players' bodies are among the scene's models: seat `s`'s at
-/// `first + s × stride`, for `seats` seats.
+/// Where the players' bodies are among the scene's models: each seat's as
+/// the scene was composed (`play::compose`), for `seats` seats.
 #[derive(Clone)]
 pub struct Bodies {
-    pub first: usize,
-    pub stride: usize,
+    pub at: Vec<usize>,
     pub seats: u8,
     /// Seats dressed again in this scene (`wardrobe`): their bodies now.
     pub dressed: BTreeMap<Seat, usize>,
@@ -1597,12 +1596,13 @@ pub struct Bodies {
 
 impl Bodies {
     fn of(&self, seat: Seat) -> Option<usize> {
-        (seat.0 < self.seats).then(|| {
-            self.dressed
-                .get(&seat)
-                .copied()
-                .unwrap_or(self.first + usize::from(seat.0) * self.stride)
-        })
+        if seat.0 >= self.seats {
+            return None;
+        }
+        self.dressed
+            .get(&seat)
+            .or_else(|| self.at.get(usize::from(seat.0)))
+            .copied()
     }
 }
 
@@ -1712,7 +1712,7 @@ impl Cast {
     }
 
     /// A new world: every character starts over, the players on their
-    /// bodies there (from `first_body` on). In the same scene (`kept`) each
+    /// bodies there (`bodies`, each seat's). In the same scene (`kept`) each
     /// takes the weapons it held when it is drawn again
     /// (`Holdings::reset`). Blades' indices returned to retire.
     /// Seat `seat`'s body model, in the scene's models.
@@ -1722,12 +1722,12 @@ impl Cast {
 
     pub fn reset(
         &mut self,
-        first_body: Option<usize>,
+        bodies: Option<&[usize]>,
         kept: bool,
         commands: &mut Commands,
     ) -> Vec<usize> {
-        if let Some(first) = first_body {
-            self.bodies.first = first;
+        if let Some(bodies) = bodies {
+            self.bodies.at = bodies.to_vec();
             self.bodies.dressed.clear();
         }
         // Another world's floors are found anew.
