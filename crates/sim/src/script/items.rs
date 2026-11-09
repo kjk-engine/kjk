@@ -761,7 +761,7 @@ impl State {
             .item_facts(catalog, &held.template)
             .ok_or(Notice::CannotUpgrade)?;
         if let Some(wearer) = wearer.filter(|_| worn && !facts.slot_kinds.is_empty()) {
-            let now = facts.fitted(held.upgrades, &held.fitted, catalog);
+            let now = facts.fitted(held.upgrades, &held.fitted, catalog, &self.known);
             let wears = passive::may_equip(&wearer.feats, &now.needs)
                 && properties::may_wear(&now.limits, wearer).is_ok();
             if !wears {
@@ -937,7 +937,7 @@ impl State {
                         // are its own.
                         Some((
                             carried.stack,
-                            facts.fitted(carried.upgrades, &carried.fitted, catalog),
+                            facts.fitted(carried.upgrades, &carried.fitted, catalog, &self.known),
                         ))
                     })
                     .filter(|(_, facts)| {
@@ -1076,7 +1076,7 @@ impl State {
             worn.iter()
                 .filter_map(|(slot, template, upgrades, fitted)| {
                     let facts = self.item_facts(catalog, template)?;
-                    Some((*slot, facts.fitted(*upgrades, fitted, catalog)))
+                    Some((*slot, facts.fitted(*upgrades, fitted, catalog, &self.known)))
                 })
                 .collect()
         };

@@ -229,7 +229,12 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   prologue's bench with its own script and makes the tutorial's repair
   kit; UI probe `bench_screens`. Item names leave out TSL's sort keys in
   braces (`{cr 02}Crystal, Rubat`, `fmt_odyssey::tlk::unbraced`, as
-  conversations' lines do; UI probe `item_names_unbraced`). Not yet: the
+  conversations' lines do; UI probe `item_names_unbraced`), and so do
+  objects' names wherever a screen shows one (the target label, a
+  speaker, a container, the message log; `ui::strings::name`): a
+  designer's note such as TSL's "Lift Controls{to 002EBO}" stays in
+  `GetName`, as TSL's Mac executable strips it only as its screens set
+  the text (the target menu's name label among them). Not yet: the
   Accept button's text in breakdown mode, the executable's confirmations.
 
 Screens: main menu (Solo, Host, Join, Options, Exit); new or load (a new

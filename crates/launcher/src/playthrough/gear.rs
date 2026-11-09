@@ -22,7 +22,7 @@ pub(super) fn other_weapon(world: &sim::SimWorld, snapshot: &Snapshot, ranged: b
             let facts = snapshot
                 .goods
                 .facts(catalog, &item.template)?
-                .fitted(item.upgrades, &item.fitted, catalog);
+                .fitted(item.upgrades, &item.fitted, catalog, &snapshot.goods.known);
             let weapon = facts.weapon.filter(|_| feats.is_none_or(|feats| feat_limits_met(&feats, &facts.limits)))?;
             Some((id, weapon, facts.needs.clone(), facts.slots))
         })
@@ -104,7 +104,7 @@ pub(super) fn named_item(world: &sim::SimWorld, snapshot: &Snapshot, named: &str
         .filter(|item| item.holder == sim::inventory::PARTY || item.holder == me.0)
         .filter_map(|item| {
             let facts = state.item_facts(catalog, &item.template)?;
-            let weapon = facts.fitted(item.upgrades, &item.fitted, catalog).weapon?;
+            let weapon = facts.fitted(item.upgrades, &item.fitted, catalog, &state.known).weapon?;
             matches!(weapon.delivery, sim::combat::sheet::Delivery::Saber(_)).then_some(())?;
             let twice_average = i32::from(weapon.dice) * (i32::from(weapon.die) + 1)
                 + i32::from(weapon.bonus_dice) * (i32::from(weapon.bonus_die) + 1)
