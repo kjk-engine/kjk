@@ -43,8 +43,8 @@ fn follows_shots() -> Result<String, String> {
     let rows: [(&str, &[u64], u64, f32); 4] = [
         ("one shot", &[1000], 1000, 0.3),
         ("twenty shots cap", &twenty, 2900, 3.0),
-        ("still resting", &[1000], 1120, 0.3),
-        ("rested away", &[1000], 1170, 0.0),
+        ("still resting", &[1000], 1450, 0.3),
+        ("rested away", &[1000], 1500, 0.0),
     ];
     let seen: Vec<(&str, f32, f32)> = rows
         .iter()
@@ -65,7 +65,10 @@ fn multiplies_stance() -> Result<String, String> {
     };
     let (wide, still) = (cone(1.4, 0.6, both), cone(1.4, 0.6, Stance::default()));
     let ok = (wide - 7.5).abs() < EPS && (still - 2.0).abs() < EPS;
-    check(ok, format!("moving in the air {wide} (7.5), still {still} (2.0)"))
+    check(
+        ok,
+        format!("moving in the air {wide} (7.5), still {still} (2.0)"),
+    )
 }
 
 fn kick_caps() -> Result<String, String> {
@@ -76,7 +79,10 @@ fn kick_caps() -> Result<String, String> {
         .map(|&(after, want)| (after, kick_at(&shooting, 1190 + after)[0], want))
         .collect();
     let ok = seen.iter().all(|(_, got, want)| (got - want).abs() < 0.01);
-    check(ok, format!("bowcaster pitch kick (ms after, got, want): {seen:?}"))
+    check(
+        ok,
+        format!("bowcaster pitch kick (ms after, got, want): {seen:?}"),
+    )
 }
 
 fn stays_inside() -> Result<String, String> {

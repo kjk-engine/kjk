@@ -2,6 +2,7 @@
 //! a shot meets.
 
 use super::*;
+use crate::combat::bloom;
 
 /// Weapons, in the characters' move order: each ranged weapon's cadence
 /// (`weapons::cadence`) with its trigger; a shot leaves the muzzle as
@@ -434,7 +435,24 @@ pub(super) fn fire(
             // line meets, a lit blade too (as its bolts do), from the muzzle (a
             // bolt) or the eye (a hitscan): the gun is below and beside the line
             // the screen's middle is on. A creature shoots along its view.
-            let (forward, ..) = math::angle_vectors(ps.view);
+            // A player's own shots bloom and kick (`combat::bloom`): the
+            // spread is the one its crosshair showed, and the kick turns the
+            // line it aims along, never the view it looks along.
+            let now = clock.time_ms;
+            let (kick, cone) = if creature {
+                ([0.0; 2], spec.spread)
+            } else {
+                let kick = bloom::kick_at(&fighter.shooting, now);
+                let cone = bloom::shot_cone(ps, &fighter.shooting, blaster, now);
+                let tune = bloom::tune(blaster);
+                let mut side =
+                    SimRng::new(clock.tick, u64::from(id.0.0) << 8 | 0x40 | u64::from(hand));
+                let side = side.range(-tune.kick_side, tune.kick_side);
+                bloom::on_shot(&mut fighter.shooting, &tune, now, side);
+                (kick, cone)
+            };
+            let aim_view = [ps.view[0] + kick[0], ps.view[1] + kick[1], ps.view[2]];
+            let (forward, ..) = math::angle_vectors(aim_view);
             let aimed_at = (avatar.is_some() || fighter.mind.driver.is_some()).then(|| {
                 let from = mind::crosshair(ps);
                 let end = math::mad(from, weapons::HITSCAN_RANGE, forward);
@@ -454,17 +472,24 @@ pub(super) fn fire(
                 // muzzle, is shot along the view.)
                 let origin = if spec.speed.is_some() { muzzle } else { eye };
                 let ahead = |point: &[f32; 3]| math::dot(math::sub(*point, origin), forward) > 0.0;
-                let mut view = aimed_at.filter(ahead).map_or(ps.view, |point| {
+                let mut view = aimed_at.filter(ahead).map_or(aim_view, |point| {
                     let (pitch, yaw) = mind::aim(origin, point);
                     [pitch, yaw, 0.0]
                 });
                 // The first of several shards flies true; the rest, and every
                 // bolt of a spraying weapon, spread.
-                if spec.spread > 0.0 && (shard > 0 || spec.shards == 1) {
+                // A player's strays inside a disc, as round as its crosshair;
+                // a creature's on each axis.
+                if cone > 0.0 && (shard > 0 || spec.shards == 1) {
                     let mut spread =
                         SimRng::new(clock.tick, u64::from(id.0.0) << 8 | u64::from(shard));
-                    view[0] += spread.range(-spec.spread, spec.spread);
-                    view[1] += spread.range(-spec.spread, spec.spread);
+                    let [pitch, yaw] = if creature {
+                        [spread.range(-cone, cone), spread.range(-cone, cone)]
+                    } else {
+                        bloom::disc(&mut spread, cone)
+                    };
+                    view[0] += pitch;
+                    view[1] += yaw;
                 }
                 // A creature's aim, wide at first and closing as it keeps a
                 // clear shot (JA's NPCs' `currentAim`).

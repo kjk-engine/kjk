@@ -73,6 +73,8 @@ const GROUPS: &[Group] = &[
     ("regeneration", sim::regen_probes::probes),
     ("weapon sets", sim::weapon_set_probes::probes),
     ("aim", sim::aim_probes::probes),
+    ("bloom", sim::combat::bloom_probes::probes),
+    ("bloom shots", sim::bloom_shot_probes::probes),
     ("bulks", sim::bulk_probes::probes),
     ("bulks in the games", bulks),
     ("dual pistols", sim::pair_probes::probes),

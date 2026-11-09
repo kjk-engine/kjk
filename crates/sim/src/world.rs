@@ -84,6 +84,12 @@ pub mod aim_probes;
 #[cfg(feature = "probes")]
 pub mod arrival_probes;
 #[cfg(feature = "probes")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "checks and traces set up their own cases on one machine"
+)]
+pub mod bloom_shot_probes;
+#[cfg(feature = "probes")]
 pub mod bulk_probes;
 #[cfg(feature = "probes")]
 pub mod effects_probes;

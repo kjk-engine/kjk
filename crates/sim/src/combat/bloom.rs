@@ -32,15 +32,42 @@ pub struct Stance {
 
 /// The bloom and kick of `blaster`.
 pub fn tune(blaster: Blaster) -> Tune {
-    use rules::weapons::{bowcaster, disruptor, ion, pistol, repeater, rifle, sonic};
     let ([per_shot, max, decay], rest_ms, [kick_up, kick_side]) = match blaster {
-        Blaster::Pistol => (pistol::BLOOM, pistol::BLOOM_REST_MS, pistol::KICK),
-        Blaster::Rifle => (rifle::BLOOM, rifle::BLOOM_REST_MS, rifle::KICK),
-        Blaster::Repeater => (repeater::BLOOM, repeater::BLOOM_REST_MS, repeater::KICK),
-        Blaster::Bowcaster => (bowcaster::BLOOM, bowcaster::BLOOM_REST_MS, bowcaster::KICK),
-        Blaster::Disruptor => (disruptor::BLOOM, disruptor::BLOOM_REST_MS, disruptor::KICK),
-        Blaster::Ion => (ion::BLOOM, ion::BLOOM_REST_MS, ion::KICK),
-        Blaster::Sonic => (sonic::BLOOM, sonic::BLOOM_REST_MS, sonic::KICK),
+        Blaster::Pistol => (
+            rules::weapons::pistol::BLOOM,
+            rules::weapons::pistol::BLOOM_REST_MS,
+            rules::weapons::pistol::KICK,
+        ),
+        Blaster::Rifle => (
+            rules::weapons::rifle::BLOOM,
+            rules::weapons::rifle::BLOOM_REST_MS,
+            rules::weapons::rifle::KICK,
+        ),
+        Blaster::Repeater => (
+            rules::weapons::repeater::BLOOM,
+            rules::weapons::repeater::BLOOM_REST_MS,
+            rules::weapons::repeater::KICK,
+        ),
+        Blaster::Bowcaster => (
+            rules::weapons::bowcaster::BLOOM,
+            rules::weapons::bowcaster::BLOOM_REST_MS,
+            rules::weapons::bowcaster::KICK,
+        ),
+        Blaster::Disruptor => (
+            rules::weapons::disruptor::BLOOM,
+            rules::weapons::disruptor::BLOOM_REST_MS,
+            rules::weapons::disruptor::KICK,
+        ),
+        Blaster::Ion => (
+            rules::weapons::ion::BLOOM,
+            rules::weapons::ion::BLOOM_REST_MS,
+            rules::weapons::ion::KICK,
+        ),
+        Blaster::Sonic => (
+            rules::weapons::sonic::BLOOM,
+            rules::weapons::sonic::BLOOM_REST_MS,
+            rules::weapons::sonic::KICK,
+        ),
     };
     Tune {
         per_shot,
@@ -84,7 +111,10 @@ pub fn settled(shooting: &Shooting, tune: &Tune, now: u64) -> f32 {
 pub fn cone(base: f32, bloom: f32, stance: Stance) -> f32 {
     let [moving, airborne, aiming] = rules::weapons::bloom::STANCE;
     let by = |on: bool, factor: f32| if on { factor } else { 1.0 };
-    (base + bloom) * by(stance.moving, moving) * by(stance.airborne, airborne) * by(stance.aiming, aiming)
+    (base + bloom)
+        * by(stance.moving, moving)
+        * by(stance.airborne, airborne)
+        * by(stance.aiming, aiming)
 }
 
 /// The aim's kick at `now`, pitch and yaw degrees.
@@ -116,8 +146,9 @@ pub fn on_shot(shooting: &mut Shooting, tune: &Tune, now: u64, side: f32) {
 /// The spread a player's next shot of `blaster` would have at `now`: what
 /// the crosshair shows.
 pub fn shot_cone(ps: &MotionState, shooting: &Shooting, blaster: Blaster, now: u64) -> f32 {
-    let _ = (ps, shooting, blaster, now);
-    0.0
+    let base = crate::combat::weapons::primary(blaster).spread;
+    let bloom = settled(shooting, &tune(blaster), now);
+    cone(base, bloom, stance(ps, shooting))
 }
 
 /// A point inside a disc of `radius`, evenly over its area.

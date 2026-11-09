@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `81c494acfbfbe288`.
+Edition `55a3fa0182bbbeaf`.
 
 ## Contents
 
@@ -42,6 +42,7 @@ Edition `81c494acfbfbe288`.
   - [Sonic Weapons](#weapons-sonic)
   - [Bolts in Flight](#weapons-flight)
   - [Unarmed Combat](#weapons-unarmed)
+  - [Bloom and Kick](#weapons-bloom)
 - [Feats](#feats)
   - [Weapon Training](#feats-weapon)
   - [Two-Weapon Fighting and Dueling](#feats-two-weapon)
@@ -907,6 +908,28 @@ A blaster pistol's bolt flies at 40.6 meters per second.
 
 <sub>Source: JA: projectile speed. Code: `sim::combat::weapons::primary`.</sub>
 
+<a id="weapons-pistol-bloom"></a>**Bloom** = **0.6° / 2.5° / 8°** (`0.6 / 2.5 / 8°`) · `weapons.pistol.bloom`
+
+per shot **0.6°** · most **2.5°** · fall per second **8°**
+
+Each shot of a blaster pistol adds 0.6 degrees of spread, up to 2.5; resting, it falls 8 degrees a second.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
+<a id="weapons-pistol-bloom-rest-ms"></a>**Bloom Rest** = **0.9 seconds** (`900 ms`) · `weapons.pistol.bloom_rest_ms`
+
+A blaster pistol's bloom starts to fall 0.9 seconds after its last shot.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
+<a id="weapons-pistol-kick"></a>**Kick** = **0.8° / 0.15°** (`0.8 / 0.15°`) · `weapons.pistol.kick`
+
+up **0.8°** · either side **0.15°**
+
+Each shot of a blaster pistol kicks the aim up 0.8 degrees and up to 0.15 to either side.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
 ### <a id="weapons-rifle"></a>Blaster Rifles
 
 Blaster rifles and carbines fire a steady stream of bolts. The alternate fire is Rapid Shot.
@@ -922,6 +945,28 @@ A blaster rifle fires once every 0.35 seconds.
 A blaster rifle's bolt flies at 58.4 meters per second.
 
 <sub>Source: JA: projectile speed. Code: `sim::combat::weapons::primary`.</sub>
+
+<a id="weapons-rifle-bloom"></a>**Bloom** = **0.3° / 3° / 6°** (`0.3 / 3 / 6°`) · `weapons.rifle.bloom`
+
+per shot **0.3°** · most **3°** · fall per second **6°**
+
+Each shot of a blaster rifle adds 0.3 degrees of spread, up to 3; resting, it falls 6 degrees a second.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
+<a id="weapons-rifle-bloom-rest-ms"></a>**Bloom Rest** = **0.45 seconds** (`450 ms`) · `weapons.rifle.bloom_rest_ms`
+
+A blaster rifle's bloom starts to fall 0.45 seconds after its last shot.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
+<a id="weapons-rifle-kick"></a>**Kick** = **0.35° / 0.2°** (`0.35 / 0.2°`) · `weapons.rifle.kick`
+
+up **0.35°** · either side **0.2°**
+
+Each shot of a blaster rifle kicks the aim up 0.35 degrees and up to 0.2 to either side.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
 ### <a id="weapons-repeater"></a>Repeating Blasters
 
@@ -953,6 +998,28 @@ A repeating blaster's bolt leaves the gun 0.3 meters forward of the eye, 0.11 me
 
 <sub>Source: JA: the repeater's muzzle offset. Code: `sim::combat::weapons::primary`.</sub>
 
+<a id="weapons-repeater-bloom"></a>**Bloom** = **0.12° / 2° / 4°** (`0.12 / 2 / 4°`) · `weapons.repeater.bloom`
+
+per shot **0.12°** · most **2°** · fall per second **4°**
+
+Each shot of a repeating blaster adds 0.12 degrees of spread, up to 2; resting, it falls 4 degrees a second.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
+<a id="weapons-repeater-bloom-rest-ms"></a>**Bloom Rest** = **0.2 seconds** (`200 ms`) · `weapons.repeater.bloom_rest_ms`
+
+A repeating blaster's bloom starts to fall 0.2 seconds after its last shot.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
+<a id="weapons-repeater-kick"></a>**Kick** = **0.2° / 0.25°** (`0.2 / 0.25°`) · `weapons.repeater.kick`
+
+up **0.2°** · either side **0.25°**
+
+Each shot of a repeating blaster kicks the aim up 0.2 degrees and up to 0.25 to either side.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
 ### <a id="weapons-bowcaster"></a>Bowcaster
 
 The bowcaster fires one slow, wide bolt with each pull of the trigger.
@@ -982,6 +1049,28 @@ forward **0.3 meters** · right **0.051 meters** · up **-0.15 meters**
 A bowcaster's bolt leaves the weapon 0.3 meters forward of the eye, 0.051 meters to the right and -0.15 meters up.
 
 <sub>Source: JA: the bowcaster's muzzle offset. Code: `sim::combat::weapons::primary`.</sub>
+
+<a id="weapons-bowcaster-bloom"></a>**Bloom** = **0.8° / 2° / 6°** (`0.8 / 2 / 6°`) · `weapons.bowcaster.bloom`
+
+per shot **0.8°** · most **2°** · fall per second **6°**
+
+Each shot of a bowcaster adds 0.8 degrees of spread, up to 2; resting, it falls 6 degrees a second.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
+<a id="weapons-bowcaster-bloom-rest-ms"></a>**Bloom Rest** = **1.1 seconds** (`1100 ms`) · `weapons.bowcaster.bloom_rest_ms`
+
+A bowcaster's bloom starts to fall 1.1 seconds after its last shot.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
+<a id="weapons-bowcaster-kick"></a>**Kick** = **1.2° / 0.2°** (`1.2 / 0.2°`) · `weapons.bowcaster.kick`
+
+up **1.2°** · either side **0.2°**
+
+Each shot of a bowcaster kicks the aim up 1.2 degrees and up to 0.2 to either side.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
 ### <a id="weapons-disruptor"></a>Disruptors
 
@@ -1013,6 +1102,28 @@ A disruptor's shot reaches 208.1 meters.
 
 <sub>Source: JA (the disruptor's range). Code: `sim::combat::weapons::HITSCAN_RANGE`.</sub>
 
+<a id="weapons-disruptor-bloom"></a>**Bloom** = **0° / 0° / 0°** (`0 / 0 / 0°`) · `weapons.disruptor.bloom`
+
+per shot **0°** · most **0°** · fall per second **0°**
+
+Each shot of a disruptor adds 0 degrees of spread, up to 0; resting, it falls 0 degrees a second.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
+<a id="weapons-disruptor-bloom-rest-ms"></a>**Bloom Rest** = **0 seconds** (`0 ms`) · `weapons.disruptor.bloom_rest_ms`
+
+A disruptor's bloom starts to fall 0 seconds after its last shot.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
+<a id="weapons-disruptor-kick"></a>**Kick** = **2° / 0.1°** (`2 / 0.1°`) · `weapons.disruptor.kick`
+
+up **2°** · either side **0.1°**
+
+Each shot of a disruptor kicks the aim up 2 degrees and up to 0.1 to either side.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
 ### <a id="weapons-ion"></a>Ion Weapons
 
 Ion blasters and ion rifles fire a wide bolt that passes through lightsaber blades.
@@ -1040,6 +1151,28 @@ An ion bolt strikes anything within 0.051 meters of its path.
 An ion bolt cannot be deflected by a lightsaber.
 
 <sub>Source: JA. Code: `sim::combat::weapons::primary`.</sub>
+
+<a id="weapons-ion-bloom"></a>**Bloom** = **0.5° / 2° / 6°** (`0.5 / 2 / 6°`) · `weapons.ion.bloom`
+
+per shot **0.5°** · most **2°** · fall per second **6°**
+
+Each shot of a ion blaster adds 0.5 degrees of spread, up to 2; resting, it falls 6 degrees a second.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
+<a id="weapons-ion-bloom-rest-ms"></a>**Bloom Rest** = **0.6 seconds** (`600 ms`) · `weapons.ion.bloom_rest_ms`
+
+A ion blaster's bloom starts to fall 0.6 seconds after its last shot.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
+<a id="weapons-ion-kick"></a>**Kick** = **0.6° / 0.15°** (`0.6 / 0.15°`) · `weapons.ion.kick`
+
+up **0.6°** · either side **0.15°**
+
+Each shot of a ion blaster kicks the aim up 0.6 degrees and up to 0.15 to either side.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
 ### <a id="weapons-sonic"></a>Sonic Weapons
 
@@ -1074,6 +1207,28 @@ Shards per shot: 5. Each deals an equal share of the shot's damage.
 A shard strikes anything within 0.025 meters of its path.
 
 <sub>Source: JA: projectile size. Code: `sim::combat::weapons::primary`.</sub>
+
+<a id="weapons-sonic-bloom"></a>**Bloom** = **0.4° / 2° / 6°** (`0.4 / 2 / 6°`) · `weapons.sonic.bloom`
+
+per shot **0.4°** · most **2°** · fall per second **6°**
+
+Each shot of a sonic weapon adds 0.4 degrees of spread, up to 2; resting, it falls 6 degrees a second.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
+<a id="weapons-sonic-bloom-rest-ms"></a>**Bloom Rest** = **0.8 seconds** (`800 ms`) · `weapons.sonic.bloom_rest_ms`
+
+A sonic weapon's bloom starts to fall 0.8 seconds after its last shot.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
+
+<a id="weapons-sonic-kick"></a>**Kick** = **1° / 0.3°** (`1 / 0.3°`) · `weapons.sonic.kick`
+
+up **1°** · either side **0.3°**
+
+Each shot of a sonic weapon kicks the aim up 1 degrees and up to 0.3 to either side.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
 ### <a id="weapons-flight"></a>Bolts in Flight
 
@@ -1115,6 +1270,37 @@ Critical threat range: 1 (1 is a roll of 20 alone, 2 is 19-20).
 An unarmed critical hit multiplies the damage roll by 2.
 
 <sub>Source: KOTOR's unarmed strike. Code: `sim::combat::sheet::Weapon::UNARMED`.</sub>
+
+### <a id="weapons-bloom"></a>Bloom and Kick
+
+A player's blaster grows less accurate the longer it keeps firing, and
+each shot kicks the aim up a little. Resting the trigger brings both back.
+The crosshair's gap shows the spread the next shot will have.
+
+The first shot after a rest flies true unless the weapon sprays. Creatures
+keep their own aim (see AI: Shot Spread).
+
+<a id="weapons-bloom-stance"></a>**Bloom by Stance** = **×1.5 / ×2.5 / ×0.25** (`×1.5 / 2.5 / 0.25`) · `weapons.bloom.stance`
+
+moving **×1.5** · in the air **×2.5** · aiming **×0.25**
+
+A shot's spread is multiplied by 1.5 while moving, 2.5 in the air and 0.25 while aiming a Sniper Shot.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::cone`.</sub>
+
+<a id="weapons-bloom-kick-limit"></a>**Kick Limit** = **4° / 12° / 80°** (`4 / 12 / 80°`) · `weapons.bloom.kick_limit`
+
+most **4°** · recovery per second **12°** · recovery after (ms) **80°**
+
+The kick lifts the aim at most 4 degrees, and settles back 12 degrees a second once 80 ms pass without a shot.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::on_shot`.</sub>
+
+<a id="weapons-bloom-moving-speed"></a>**Moving for Bloom** = **3.2 meters per second** (`125 units/s`) · `weapons.bloom.moving_speed`
+
+A character counts as moving for its spread above 3.2 meters per second, half the combat run.
+
+<sub>Source: kjk. Code: `sim::combat::bloom::stance`.</sub>
 
 ## <a id="feats"></a>Feats
 

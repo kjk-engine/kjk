@@ -456,7 +456,7 @@ see = "sim::combat::bloom::tune"
 [pistol.bloom_rest_ms]
 name = "Bloom Rest"
 type = "u32"
-value = 150
+value = 900
 unit = "ms"
 range = [0, 5000]
 summary = "A blaster pistol's bloom starts to fall {weapons.pistol.bloom_rest_ms:s} after its last shot."
@@ -484,7 +484,7 @@ see = "sim::combat::bloom::tune"
 [rifle.bloom_rest_ms]
 name = "Bloom Rest"
 type = "u32"
-value = 120
+value = 450
 unit = "ms"
 range = [0, 5000]
 summary = "A blaster rifle's bloom starts to fall {weapons.rifle.bloom_rest_ms:s} after its last shot."
@@ -512,7 +512,7 @@ see = "sim::combat::bloom::tune"
 [repeater.bloom_rest_ms]
 name = "Bloom Rest"
 type = "u32"
-value = 100
+value = 200
 unit = "ms"
 range = [0, 5000]
 summary = "A repeating blaster's bloom starts to fall {weapons.repeater.bloom_rest_ms:s} after its last shot."
@@ -540,7 +540,7 @@ see = "sim::combat::bloom::tune"
 [bowcaster.bloom_rest_ms]
 name = "Bloom Rest"
 type = "u32"
-value = 200
+value = 1100
 unit = "ms"
 range = [0, 5000]
 summary = "A bowcaster's bloom starts to fall {weapons.bowcaster.bloom_rest_ms:s} after its last shot."
@@ -596,7 +596,7 @@ see = "sim::combat::bloom::tune"
 [ion.bloom_rest_ms]
 name = "Bloom Rest"
 type = "u32"
-value = 150
+value = 600
 unit = "ms"
 range = [0, 5000]
 summary = "A ion blaster's bloom starts to fall {weapons.ion.bloom_rest_ms:s} after its last shot."
@@ -624,7 +624,7 @@ see = "sim::combat::bloom::tune"
 [sonic.bloom_rest_ms]
 name = "Bloom Rest"
 type = "u32"
-value = 200
+value = 800
 unit = "ms"
 range = [0, 5000]
 summary = "A sonic weapon's bloom starts to fall {weapons.sonic.bloom_rest_ms:s} after its last shot."
