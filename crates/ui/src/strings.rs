@@ -39,6 +39,16 @@ pub const DEAD_ZONE_LARGE: &str = "Stick Dead Zone: Large";
 pub const ANTI_ALIASING_OFF: &str = "Anti-Aliasing: Off";
 pub const ANTI_ALIASING_2X: &str = "Anti-Aliasing: 2x";
 pub const ANTI_ALIASING_4X: &str = "Anti-Aliasing: 4x";
+/// The options pages' descriptions where a setting is ours, not KOTOR 2's
+/// (whose own come from its talk table).
+pub const INVERT_CAMERA_HELP: &str = "ON: Moving the mouse up turns the view downwards.\n\nOFF: Moving the mouse up turns the view upwards.";
+pub const AUTOSAVE_HELP: &str = "ON: The game saves each time you enter a new area.\nYou should still save often.\n\nOFF: Only your own saves are kept.";
+pub const CONTROLLER_HELP: &str =
+    "Look speed, stick dead zone, inverted look and vibration for a controller.";
+pub const LOOK_SPEED_HELP: &str = "Change how fast the right stick turns the view.";
+pub const DEAD_ZONE_HELP: &str = "How far a stick is pushed before it counts.\n\nA worn stick that drifts on its own needs a larger dead zone.";
+pub const ANTI_ALIASING_HELP: &str = "4x: for the best visual experience\n\n2x: a blend of game performance and visual quality\n\nOff: suggested for older video cards";
+pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing, V-Sync and soft shadows.";
 pub const TAKE_ALL: &str = "Take all (A)";
 /// The same while a pad plays: its hint bar names its button.
 pub const TAKE_ALL_PAD: &str = "Take all";

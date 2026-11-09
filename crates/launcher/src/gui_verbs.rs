@@ -129,6 +129,13 @@ pub fn screen(
         for step in steps {
             match step.split_once(' ') {
                 Some(("press", tag)) => stack.press(tag),
+                Some(("set", setting)) => {
+                    let (key, value) = setting
+                        .split_once(' ')
+                        .ok_or(format!("{step}: set KEY VALUE"))?;
+                    vm.settings.insert(key.to_string(), value.to_string());
+                    stack.step(&mut assets, &vm, &quiet);
+                }
                 Some(("type", text)) => {
                     let typed = ui::input::UiInput {
                         text: text.to_string(),
