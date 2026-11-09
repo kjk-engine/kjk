@@ -49,7 +49,12 @@ on the authority; a save carries it.
   of its template has room joins it. An item carried into a module whose
   catalog lacks its template (one a module's own archive held: Gadon's
   papers) keeps its facts in the scripts' state (`State::known`, KJKV 16;
-  KOTOR's item keeps its own data), rebuilt at each install.
+  KOTOR's item keeps its own data), rebuilt at each install. Whatever
+  reads an item in play reads its facts so (`inventory::facts_in_play`:
+  the catalog's, else those kept), and the goods every seat sees carry
+  them (`Goods::known`, `Goods::facts`): the equip page, a guest's too,
+  lists and wears the Exile's Peragus clothes on Telos. A story restore
+  keeps so the facts of the items the module restored in lacks.
 - **Sheets.** A creature's sheet is read without its items and dressed by
   them (`inventory::dress`): the weapons in its hands, its body armour's
   defence and DEX cap, every worn item's guards and gear; what it carries gives the

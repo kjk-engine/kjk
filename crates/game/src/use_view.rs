@@ -155,7 +155,7 @@ fn dress(
         };
         let wearer = whom.unwrap_or(me.id.0);
         let action = if on {
-            let facts = catalog.and_then(|catalog| catalog.get(&template));
+            let facts = catalog.and_then(|catalog| snapshot.goods.facts(catalog, &template));
             let slot = if left {
                 let hand = sim::inventory::slots::LEFT_WEAPON;
                 facts

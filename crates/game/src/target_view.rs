@@ -136,7 +136,7 @@ fn worn_on_foes(
         .iter()
         .filter(|(_, item)| item.holder == body.id.0 && item.slot.is_some())
         .filter_map(|(id, item)| {
-            let facts = library.items().get(&item.template)?;
+            let facts = snapshot.goods.facts(library.items(), &item.template)?;
             let row = sim::script::items::spell_for(library, facts, sheet.race, false)?;
             let choice = Choice::Item {
                 item: *id,
@@ -367,7 +367,13 @@ fn target(
         snapshot
             .goods
             .carried(sim::inventory::PARTY)
-            .filter_map(|(id, item)| Some((catalog.get(&item.template)?.tools, id, item)))
+            .filter_map(|(id, item)| {
+                Some((
+                    snapshot.goods.facts(catalog, &item.template)?.tools,
+                    id,
+                    item,
+                ))
+            })
             .filter(|(tools, ..)| *tools > 0)
             .max_by_key(|(tools, ..)| *tools)
             .map(|(_, id, item)| (id, item.template.clone()))
@@ -379,8 +385,9 @@ fn target(
                 .goods
                 .carried(sim::inventory::PARTY)
                 .any(|(_, item)| {
-                    catalog
-                        .get(&item.template)
+                    snapshot
+                        .goods
+                        .facts(catalog, &item.template)
                         .is_some_and(|facts| facts.trap.is_some())
                 })
         });
@@ -581,7 +588,7 @@ fn target(
                 return None;
             };
             let icon = ui.assets.as_mut()?.item_ref(template)?.icon.clone();
-            Some((*item, icon, catalog?.get(template)?.name))
+            Some((*item, icon, snapshot.goods.facts(catalog?, template)?.name))
         })
         .collect();
     let look = |choice: Choice| match choice {
@@ -595,7 +602,7 @@ fn target(
             .unwrap_or(Vec::new())
     };
     let spike_name = spike.as_ref().and_then(|(_, template)| {
-        let name = catalog?.get(template)?.name;
+        let name = snapshot.goods.facts(catalog?, template)?.name;
         (name != u32::MAX).then(|| say(name))
     });
     let actions = choices

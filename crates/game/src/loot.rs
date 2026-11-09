@@ -313,7 +313,7 @@ fn show(
     let catalog = swap.level.scripts().map(|library| library.items());
     let most = |template: &str| {
         catalog
-            .and_then(|catalog| catalog.get(template))
+            .and_then(|catalog| snapshot.goods.facts(catalog, template))
             .map_or(1, |facts| facts.stacking)
     };
     // What the party may give (KOTOR's give mode lists the party's items but
