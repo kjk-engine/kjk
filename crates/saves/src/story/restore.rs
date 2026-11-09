@@ -539,6 +539,12 @@ impl Restore<'_> {
                     continue;
                 };
                 if let Some(mut kept) = self.state.items.get_mut(&made.0) {
+                    // A story from before a module's own items were named
+                    // for it names one by its bare resref: it keeps that
+                    // name, as the save's own item does.
+                    if sim::inventory::resref_of(&kept.template) == item.template {
+                        kept.template = item.template.clone();
+                    }
                     kept.charges = item.charges;
                     kept.upgrades = item.upgrades;
                     kept.fitted = item.fitted.clone();
