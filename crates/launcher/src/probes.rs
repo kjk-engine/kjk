@@ -1,9 +1,11 @@
 //! The view layers' checks the approved tests run, without a window
 //! (`docs/TESTS.md`): `grass_in_scenes`, `weather_in_scenes`,
 //! `particle_limits` and `script_room_clips`; the playthrough's chase
-//! (`harness_chase`); and watching a pazaak match (`pazaak_watch_view`).
+//! (`harness_chase`); watching a pazaak match (`pazaak_watch_view`); and a
+//! held node under a straightened spine (`held_node_straightened`).
 //! Built with the `probes` feature, as the checks are.
 
+pub use crate::cast::straighten_probes as straightened;
 pub use crate::dangly::probes as dangly;
 pub use crate::grass::probes as grass;
 pub use crate::model_fx::limit_probes as particle_limits;
