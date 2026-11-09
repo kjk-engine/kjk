@@ -639,6 +639,10 @@ pub struct OdysseyMaterial {
     /// it. Set for every model's mesh but decals (`scene`); effects' cards
     /// and particles are drawn from both sides.
     pub culled: bool,
+    /// An emitter's particles, and their place among their model's
+    /// emitters: drawn after every other surface, in that order
+    /// (`EMITTERS_LAST`).
+    pub emitted: Option<u32>,
 }
 
 impl OdysseyMaterial {
@@ -778,6 +782,7 @@ impl OdysseyMaterial {
             particles: NO_PARTICLES,
             surface,
             culled: false,
+            emitted: None,
         }
     }
 
@@ -803,12 +808,30 @@ impl OdysseyMaterial {
         self.culled = culled;
         self
     }
+
+    /// An emitter's particles', `rank`th among their model's emitters
+    /// (`emitted`).
+    pub fn emitted(mut self, rank: u32) -> OdysseyMaterial {
+        self.emitted = Some(rank);
+        self
+    }
 }
 
 /// `depth_bias` of a blended opaque surface (one that writes depth: this
 /// material's `OpaqueAlpha`, the grass): farther than anything in view,
 /// keeping their order among themselves.
 pub const OPAQUE_FIRST: f32 = -1.0e5;
+
+/// `depth_bias` of an emitter's particles: nearer than anything in view,
+/// so they are drawn after the meshes, as KOTOR draws its emitters after
+/// its models; the depth the meshes wrote still hides those behind them.
+/// A model's emitters then go in their rank's order (`EMITTER_STEP` apart,
+/// more than any distance in view), as KOTOR orders them, not by distance:
+/// two of the main menu's at one distance swapped as they were sorted, and
+/// the smoke in front of its figure came and went.
+pub const EMITTERS_LAST: f32 = 1.0e5;
+/// How far apart two ranks of emitters sort (`EMITTERS_LAST`).
+const EMITTER_STEP: f32 = 1.0e3;
 
 /// What a material's pipeline depends on: its blend and whether it writes
 /// depth. Surfaces that agree on both (opaque and env-masked opaque; blend
@@ -923,7 +946,9 @@ impl Material for OdysseyMaterial {
     fn depth_bias(&self) -> f32 {
         match self.surface {
             Surface::OpaqueAlpha => OPAQUE_FIRST,
-            _ => 0.0,
+            _ => self
+                .emitted
+                .map_or(0.0, |rank| EMITTERS_LAST + rank as f32 * EMITTER_STEP),
         }
     }
 
