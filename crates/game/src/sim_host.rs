@@ -1307,7 +1307,7 @@ pub fn autosave_probes() -> sim::probe::Checks {
 
 /// The autosave owed after each module installed (KOTOR's rule) and when a
 /// script asks for one, once a second until nothing refuses it: a player's game, solo or hosting (the
-/// host's world is the authority), live, with Autosave on.
+/// host's world is the authority), live, not an arena, with Autosave on.
 fn autosave(
     mut authority: ResMut<Authority>,
     mut due: Local<AutosaveDue>,
@@ -1327,8 +1327,10 @@ fn autosave(
     if restored {
         commands.remove_resource::<FromStory>();
     }
+    // An arena's level is never saved (`saves::refusal`): none owed there.
     let eligible = player.is_some_and(|player| player.0)
         && matches!(authority.source, Source::Live { .. })
+        && authority.world.level().arena_rules().is_none()
         && settings
             .is_some_and(|settings| settings.value(crate::settings::AUTOSAVE) == Some("true"));
     if due.observe(

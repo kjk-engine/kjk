@@ -180,6 +180,21 @@ pub fn refusal_probes() -> Vec<(&'static str, Result<String, String>)> {
             },
         ),
     ];
+    let rules = sim::arena::Rules {
+        respawn: [0.0; 3],
+        yaw: 0.0,
+        pit: -100.0,
+        respawn_ms: 3000,
+    };
+    let arena = refusal(&quiet, seat, &level.clone().with_arena(rules));
+    let arena_check = (
+        "refusal_arena",
+        if arena.as_deref() == Some(ARENA) {
+            Ok(format!("{arena:?}"))
+        } else {
+            Err(format!("{arena:?}"))
+        },
+    );
     cases
         .into_iter()
         .map(|(name, expect, change)| {
@@ -194,6 +209,7 @@ pub fn refusal_probes() -> Vec<(&'static str, Result<String, String>)> {
                 },
             )
         })
+        .chain([arena_check])
         .collect()
 }
 

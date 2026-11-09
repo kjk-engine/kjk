@@ -1099,7 +1099,9 @@ The combat sandbox (`--stage sandbox`, the main menu options' Debug) is
 the same on the Star Forge's viewing platform (`sta_m45ad`, Malak's hall,
 arriving at `sta_way_player`) with none of its creatures: a dark floor lit
 in pools by the captive pods, trim and windows, where a fight's lights
-show; its keys on the arena's panel (`UI.md`).
+show; its keys on the arena's panel (`UI.md`). No arena is saved: no
+autosave is owed there and every save is refused ("The combat arena is not
+saved.", `saves::refusal`), so a sandbox never takes the autosave's place.
 
 **Sounds** (`sound`; how they are heard: `SOUND.md`). What plays when:
 
