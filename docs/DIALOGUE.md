@@ -1102,7 +1102,9 @@ kjk play --stage end_m01aa --headless --moves '7s; 10s reply 1; 3s reply 1' \
 - `kjk play` writes `transcript.txt` in its run folder as the lines come
   (the host's own, each resolved against the level it was said in).
 - `--global NAME=NUMBER` (`kjk play`, `kjk dialogue run`) sets a script
-  global before the first step: a story's state by hand.
+  global before the first step: a story's state by hand. A global
+  `globalcat.2da` declares boolean is set as one (non-zero is TRUE):
+  `--global Tar_SummonGadon=1` opens Gadon's accelerator talk.
 
 ```bash
 # Trask, from his walk-up to "Okay." (answers just after each line ends)

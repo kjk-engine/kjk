@@ -70,6 +70,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("area_entered_by_the_party", entered_by_the_party()));
     checks.push(("guest_leads_its_acts", guest_leads()));
     checks.push(("guest_comings_are_a_pcs", guest_comings()));
+    checks.push(("guest_companion_pushes_in_scenes", guest_pushes()));
     checks.extend(kept_for_seats());
     match scenario() {
         Ok(ran) => {
@@ -846,6 +847,126 @@ fn guest_comings() -> Result<String, String> {
             && host == [Some(3); 2],
         format!(
             "seat 1 drives {driven:?} ({a:?}); came and went: its companion {guest:?}, the one nobody drives {nobody:?}, seat 0's own {host:?}"
+        ),
+    )
+}
+
+/// While a conversation holds the world, a story's script walks the first
+/// companion (`STORY`) to the second, standing past an idle bystander in its
+/// way. Seat 1 driving it or no one, it pushes the bystander aside, as
+/// KOTOR's walker does: only the party's leader pushes no one. Carth, a
+/// guest's, walked out of Hendar's gate (`k_ptar_opengate`), went round one
+/// outcast into the other, gave the walk up, and the scene waited for ever
+/// on him crossing the strip that closes the gate.
+fn guest_pushes() -> Result<String, String> {
+    /// The lane on the ground's axes (metres): where the first companion
+    /// starts, the bystander stands and the second companion waits; and
+    /// the steps the walk may take.
+    const FROM: [f32; 2] = [-2.0, -4.0];
+    const BYSTANDER: [f32; 2] = [-2.0, 0.0];
+    const GOAL: [f32; 2] = [-2.0, 4.0];
+    const STEPS: usize = 750;
+    let at = |[x, y]: [f32; 2]| crate::determinism::ground_point(x, y, 0.0);
+    // Bodies at `creaturespeed.2da`'s `NORMAL` row, which KOTOR's walker
+    // walks, on a navigation mesh over the lane.
+    let body = crate::module::Body {
+        appearance: 0,
+        size: 3,
+        movement: 4,
+        walk_mps: 1.7,
+        run_mps: 5.4,
+        head_arc_h: 0.0,
+        bag: 0,
+        destroy_ms: 0,
+        fade_ms: None,
+        bulk: None,
+    };
+    let push = |seats: u8| -> Result<(Option<Seat>, f32, f32, usize), String> {
+        let (level, numbers) = ground()?;
+        let mut data = (**level.module().ok_or("the ground has no module")?).clone();
+        if let Some(Placement::Own(first)) = data.placements.get_mut(numbers[0] as usize) {
+            first.body = Some(body);
+        }
+        let number = u32::try_from(data.placements.len()).map_err(|error| error.to_string())?;
+        let sheet = Sheet {
+            faction: crate::combat::sheet::factions::NEUTRAL,
+            ..Sheet::dev_soldier()
+        };
+        let tag = "probe_bystander";
+        data.placements.push(Placement::Own(ObjectData {
+            body: Some(body),
+            ..ObjectData::creature(tag, tag, at(BYSTANDER), sheet)
+        }));
+        let [p, q, r, t] = [[-4.5, -5.5], [-0.5, -5.5], [-0.5, 5.5], [-4.5, 5.5]].map(at);
+        let mut nav = collision::nav::NavMesh::build(
+            &[[p, q, r], [p, r, t]],
+            crate::walk::CLEARANCE * collision::UNIT,
+        );
+        if let Some(floor) = level.collision().level() {
+            nav.mark(floor);
+        }
+        let level = level.with_module(data).with_nav(nav);
+        let (mut world, _, [a, b]) = party_on((level, numbers), Guests::Companions, seats)?;
+        for (who, spot) in [(a, FROM), (b, GOAL)] {
+            let [x, y, _] = at(spot);
+            poke(&mut world, who, |_, ps| {
+                ps.origin[0] = x / collision::UNIT;
+                ps.origin[1] = y / collision::UNIT;
+            });
+        }
+        let stand: Vec<(u8, i8)> = (0..seats).map(|seat| (seat, 0)).collect();
+        let first = run(&mut world, &stand);
+        let driver = first
+            .get(a)
+            .and_then(|entity| entity.fighter)
+            .and_then(|f| f.mind.driver);
+        let bystander = first
+            .entities
+            .iter()
+            .find(|entity| entity.kind == Kind::Object(ObjectKind::Creature, number))
+            .map(|entity| entity.id)
+            .ok_or("no bystander")?;
+        let own = first.own(Seat(0)).map(|entity| entity.id);
+        let own = script_ncs::vm::ObjectId(own.ok_or("seat 0 has no own character")?.0);
+        let mut state = world.script_state().clone();
+        let talk = &mut state.talk;
+        let owner = script_ncs::vm::ObjectId(b.0);
+        talk.conversations
+            .push(crate::script::dialogue::Conversation {
+                id: talk.next,
+                dialog: "probe_scene".into(),
+                owner,
+                pc: own,
+                speaker: owner,
+                listener: own,
+                party: true,
+                paused: true,
+                until_ms: u64::MAX,
+                ..Default::default()
+            });
+        talk.next += 1;
+        world.set_script_state(state);
+        let story = Pending::new(STORY, script_ncs::vm::ObjectId(a.0));
+        scripts_of(&mut world).state.pending.push(story);
+        let mut last = first.clone();
+        for _ in 0..STEPS {
+            last = run(&mut world, &stand);
+        }
+        let short = last.get(a).zip(last.get(b)).map_or(f32::MAX, |(a, b)| {
+            crate::math::flat_distance(a.position, b.position)
+        });
+        let held = last.talk.conversations.len();
+        Ok((driver, moved(&first, &last, bystander), short, held))
+    };
+    let (alone, guest) = (push(1)?, push(2)?);
+    let walked = |(_, pushed, short, held): (Option<Seat>, f32, f32, usize)| {
+        pushed > 0.2 && short < 2.0 && held == 1
+    };
+    check(
+        alone.0.is_none() && guest.0 == Some(Seat(1)) && walked(alone) && walked(guest),
+        format!(
+            "no one's companion pushed the bystander {:.2} m and came within {:.2} m; seat {:?}'s {:.2} m and {:.2} m (conversations held {} and {})",
+            alone.1, alone.2, guest.0, guest.1, guest.2, alone.3, guest.3
         ),
     )
 }
