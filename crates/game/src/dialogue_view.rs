@@ -421,7 +421,7 @@ pub(crate) fn shown(
 }
 
 /// What `id` is called on the screens: its template's name, a player's
-/// persona's, else nothing.
+/// persona's, else nothing; without its braced notes (`ui::strings::name`).
 pub(crate) fn name_of(snapshot: &Snapshot, objects: &sim::Instances, id: ObjectId) -> Vec<u8> {
     let Some(entity) = snapshot.get(SimId(id.0)) else {
         return Vec::new();
@@ -436,7 +436,7 @@ pub(crate) fn name_of(snapshot: &Snapshot, objects: &sim::Instances, id: ObjectI
             }
             _ => None,
         });
-    named.map_or_else(Vec::new, |name| ui::strings::bytes(&name))
+    named.map_or_else(Vec::new, |name| ui::strings::name(&name))
 }
 
 /// The conversations asking the host in (R5), in order, as the host's card

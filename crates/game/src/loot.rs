@@ -303,7 +303,7 @@ fn show(
     let title = open.as_ref().and_then(|(index, ..)| {
         let facts = objects.get(*index)?;
         match sim::remains::bag_row(&facts.template) {
-            Some(_) => Some(ui::strings::bytes(&facts.name)),
+            Some(_) => Some(ui::strings::name(&facts.name)),
             None => ui
                 .assets
                 .as_mut()?

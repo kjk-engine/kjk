@@ -305,7 +305,7 @@ impl SimWorld {
             place: snapshot.place.clone(),
             pending: snapshot.transition.clone(),
             stash: snapshot.stash.clone(),
-            sound: snapshot.area_sound,
+            sound: snapshot.area_sound.clone(),
             fade: snapshot.fade,
             world_fade_in: snapshot.world_fade_in,
             video_effect: snapshot.video_effect,
@@ -508,7 +508,7 @@ impl SimWorld {
         let seats_held = self.world.resource::<SeatsHeld>().0;
         let module = self.world.resource::<Module>();
         let (area_sound, fade, world_fade_in, video_effect) = (
-            module.sound,
+            module.sound.clone(),
             module.fade,
             module.world_fade_in,
             module.video_effect,

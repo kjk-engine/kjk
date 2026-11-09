@@ -609,13 +609,17 @@ pub(super) fn all() -> Vec<Check> {
     .iter()
     .map(|raw| fmt_odyssey::tlk::unbraced(raw))
     .collect();
+    // And a designer's note out of an object's name (TSL's 001EBO lift), as
+    // the target label shows it.
+    let object = crate::strings::name("Lift Controls{to 002EBO}");
     let unbraced = check(
         "item_names_unbraced",
         expect(
-            &format!("{names:?}"),
-            names == [&b"Crystal, Rubat"[..], b"Pinpoint Scope", b"Medpac"],
+            &format!("{names:?} {object:?}"),
+            names == [&b"Crystal, Rubat"[..], b"Pinpoint Scope", b"Medpac"]
+                && object == b"Lift Controls",
         )
-        .map(|()| "sort keys in braces left out".into()),
+        .map(|()| "sort keys and object notes in braces left out".into()),
     );
     vec![
         benches(&mut assets),
