@@ -247,7 +247,10 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// page's return button carries why a return to the Ebon Hawk is refused
 /// (`Transit::refused`). Old saves: old saves read no puppets and no refusal:
 /// the next step finds both again.
-pub const VERSION: u32 = 90 + crate::pending::SNAPSHOT;
+/// 91: the area's sound carries the clip scripts play on each room
+/// (`AreaSound::rooms`), not only the last one played. Old saves: old saves
+/// read as before: the one room clip's flag byte reads as a count of one.
+pub const VERSION: u32 = 91 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

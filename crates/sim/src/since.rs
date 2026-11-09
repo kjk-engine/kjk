@@ -50,6 +50,7 @@ pub mod snapshot {
     pub const CLAUDE_BR8_ISSUE_209: crate::Since = crate::Since(crate::Stored::Snapshot, 88);
     pub const BR9_KNOWN: crate::Since = crate::Since(crate::Stored::Snapshot, 89);
     pub const BR9_PARTY: crate::Since = crate::Since(crate::Stored::Snapshot, 90);
+    pub const BR9B_TSL: crate::Since = crate::Since(crate::Stored::Snapshot, 91);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }
