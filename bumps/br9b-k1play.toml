@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose: why.
-sim = "GetPlotFlag reads a door's or placeable's template Plot, so scripts that pass over plot doors (the Vulkar garage's open-all-doors) leave them shut"
