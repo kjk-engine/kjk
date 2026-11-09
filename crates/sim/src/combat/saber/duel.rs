@@ -516,9 +516,11 @@ pub fn in_front(origin: Vec3, yaw: f32, from: Vec3) -> bool {
 /// (`docs/SABER-RULES.md` 2.2), as the weapon step sees it.
 #[derive(Debug, Clone, Copy)]
 pub struct Hold {
-    /// A lightsaber in hand (lit, or to be lit), not thrown.
+    /// A blade in hand (a lightsaber lit or to be lit, or a melee blade),
+    /// not thrown.
     pub blade: bool,
-    /// Its Jedi Defense tier.
+    /// Its defence level (`Kit::defence`): a lightsaber's Jedi Defense
+    /// tier, a melee blade's 1 when proficient with it.
     pub defence: u8,
     /// Its meter and Force (points, `meter::meter`).
     pub meter: i32,

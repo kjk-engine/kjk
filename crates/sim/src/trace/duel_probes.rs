@@ -5,7 +5,8 @@
 //! Force (MD); a high mishap count ends in a stagger and in a disarm (past
 //! the normal difficulty's guard); the meters refill and the mishaps fall,
 //! the Force slower with block held; a creature blocks of itself; a player
-//! turns bolts only holding block; a kick floors one not absorbing it; a
+//! turns bolts only holding block, a vibroblade parries blows but turns no
+//! bolt; a kick floors one not absorbing it; a
 //! creature's worn staff breaks, a player's never wears; two swings meeting lock; and under JA the block and
 //! kick keys change nothing.
 
@@ -256,33 +257,61 @@ fn creature_blocks() -> Result<String, String> {
 
 /// A pistol firing at a lit saber under MD: what lands with block held and
 /// without.
+/// A pistol shooting seat 1, a `kind` fighter holding `hold`, under MD:
+/// the bolts it deflected, the health it lost and the Force it paid.
+fn shot_at(kind: &str, hold: &str) -> Result<(usize, i32, i32), String> {
+    let text = format!(
+        "scenario probe\nrules md\nseed 7\n\
+         fighter 0 pistol x=0 hp=400\n\
+         fighter 1 {kind} x=200 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
+         begin\ntick 1 b1=attack\ntick 60\ntick 600 b0=attack {hold}\n"
+    );
+    let ticks = play(&text)?;
+    let them = fighters(&ticks, 1);
+    let (first, last) = (them.first().ok_or("none")?, them.last().ok_or("none")?);
+    // What deflecting paid (a bolt sent back that hurts its shooter
+    // gives a little back).
+    let paid: i32 = them.windows(2).map(|w| (w[0].fp - w[1].fp).max(0)).sum();
+    Ok((
+        count_events(&them, Outcome::Deflected),
+        first.hp - last.hp,
+        paid,
+    ))
+}
+
 fn bolts() -> Result<String, String> {
-    let shoot = |hold: &str| -> Result<(usize, i32, i32), String> {
-        let text = format!(
-            "scenario probe\nrules md\nseed 7\n\
-             fighter 0 pistol x=0 hp=400\n\
-             fighter 1 medium x=200 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
-             begin\ntick 1 b1=attack\ntick 60\ntick 600 b0=attack {hold}\n"
-        );
-        let ticks = play(&text)?;
-        let them = fighters(&ticks, 1);
-        let (first, last) = (them.first().ok_or("none")?, them.last().ok_or("none")?);
-        // What deflecting paid (a bolt sent back that hurts its shooter
-        // gives a little back).
-        let paid: i32 = them.windows(2).map(|w| (w[0].fp - w[1].fp).max(0)).sum();
-        Ok((
-            count_events(&them, Outcome::Deflected),
-            first.hp - last.hp,
-            paid,
-        ))
-    };
-    let (open, guarded) = (shoot("")?, shoot("h1=block")?);
+    let (open, guarded) = (shot_at("medium", "")?, shot_at("medium", "h1=block")?);
     check(
         guarded.0 > open.0 && guarded.1 < open.1 && guarded.2 > 0,
         format!(
             "md: without block {} deflected, {} health lost; holding block {} deflected, {} \
              health lost, {} Force paid (hundredths)",
             open.0, open.1, guarded.0, guarded.1, guarded.2
+        ),
+    )
+}
+
+/// A player's vibroblade under MDA: held in block it parries a saber's
+/// blows from its block points, as a lightsaber does; held against a
+/// pistol it turns no bolt (only lightsabers do).
+fn vibroblade_blocks() -> Result<String, String> {
+    let then = "tick 2000 b0=attack h1=block";
+    let blocker = fighters(
+        &play(&duel_of("mda", ["medium", "vibroblade"], "", then))?,
+        1,
+    );
+    let parried = count_events(&blocker, Outcome::Parried);
+    let points = (
+        blocker.first().ok_or("no ticks")?.saber.duel.points,
+        blocker.last().ok_or("no ticks")?.saber.duel.points,
+    );
+    let (deflected, lost, _) = shot_at("vibroblade", "h1=block")?;
+    check(
+        parried > 0 && points.1 < points.0 && deflected == 0 && lost > 0,
+        format!(
+            "mda: the vibroblade parries {parried} blows, block points {} -> {}; \
+             against bolts {deflected} deflected, {lost} health lost",
+            points.0, points.1
         ),
     )
 }
@@ -410,6 +439,7 @@ pub fn probes() -> Checks {
         ("meters_refill", refill()),
         ("creature_blocks", creature_blocks()),
         ("bolts_need_block", bolts()),
+        ("vibroblade_blocks", vibroblade_blocks()),
         ("kick_floors", kicked()),
         ("staff_breaks", staff_breaks()),
         ("player_staff_holds", player_staff_holds()),

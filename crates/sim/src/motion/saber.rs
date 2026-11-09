@@ -456,7 +456,7 @@ impl Move<'_, '_> {
             || fighter.hp <= duel::LAST_HEALTH
             || self.cmd.buttons & others != 0;
         let hold = duel::Hold {
-            blade: blade.saber && saber.thrown.is_none(),
+            blade: saber.thrown.is_none(),
             defence: arms.kit.defence(blade),
             meter: meter::meter(rules, fighter, pool),
             force: meter::force(fighter, pool),

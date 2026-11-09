@@ -124,7 +124,7 @@ name = "Meter to Block"
 type = "i32"
 value = 1
 unit = "points"
-summary = "The block button blocks only with at least {duel.meters.least} in the meter (and as much Force, under MDA too)."
+summary = "The block button blocks, with a lightsaber or a melee blade its holder is proficient with, only with at least {duel.meters.least} in the meter (and as much Force, under MDA too)."
 source = "docs/SABER-RULES.md 2.2"
 see = "sim::combat::saber::duel::can_hold"
 

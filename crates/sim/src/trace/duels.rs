@@ -269,6 +269,22 @@ fn lightsaber(row: u16) -> Weapon {
     )
 }
 
+/// A melee blade: the vibroblade of the test soldier (`Sheet::soldier`).
+fn vibroblade() -> Weapon {
+    Weapon::plain(
+        5,
+        1,
+        10,
+        (2, 2),
+        damage_types::SLASHING,
+        [
+            feats::PROFICIENCY_MELEE,
+            feats::WEAPON_FOCUS_MELEE,
+            feats::WEAPON_SPEC_MELEE,
+        ],
+    )
+}
+
 fn blaster(row: u16) -> Weapon {
     Weapon::plain(
         row,
@@ -300,6 +316,7 @@ fn setup(seat: u8, kind: &str, a: &[String]) -> Result<Setup, String> {
         "fast" | "medium" | "strong" => [Some(lightsaber(8)), None],
         "dual" => [Some(lightsaber(8)), Some(lightsaber(8))],
         "staff" => [Some(lightsaber(9)), None],
+        "vibroblade" => [Some(vibroblade()), None],
         "pistol" => [Some(blaster(12)), None],
         "ion" => [Some(blaster(15)), None],
         "rifle" => [Some(blaster(13)), None],
@@ -342,6 +359,9 @@ fn setup(seat: u8, kind: &str, a: &[String]) -> Result<Setup, String> {
     if proficient {
         sheet.feats.insert(feats::PROFICIENCY_LIGHTSABER);
         sheet.feats.insert(feats::PROFICIENCY_BLASTER);
+        if kind == "vibroblade" {
+            sheet.feats.insert(feats::PROFICIENCY_MELEE);
+        }
     }
     let lines: [&[u16]; 4] = [
         &feats::CRITICAL_STRIKE,

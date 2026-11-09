@@ -1042,7 +1042,8 @@ a save loaded into play takes the host's `game.saber_rules` again), and every nu
   of it); **MDA** (`SaberRules::DuelAdvanced`) from block points of their
   own (`Duel::points`), the Force left to the powers.
 - **The block button** (`holds::BLOCK`): a player blocks only while it holds
-  it (and may: `duel::can_hold`); attack pressed with it never swings but
+  it (and may: `duel::can_hold`; a lightsaber, or a melee blade it is
+  proficient with, which turns no bolts); attack pressed with it never swings but
   aims the block and opens the perfect window; held while running it
   sprints. Creatures block whenever they can. A blow is blocked from the
   front (`duel.block.cone`).

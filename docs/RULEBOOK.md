@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f9b8a39d675d79d5`.
+Edition `c941a53a8f68d5f8`.
 
 ## Contents
 
@@ -9651,7 +9651,7 @@ A full meter of block points under MDA: 100 count; every saber starts a fight wi
 
 <a id="duel-meters-least"></a>**Meter to Block** = **1 points** · `duel.meters.least`
 
-The block button blocks only with at least 1 points in the meter (and as much Force, under MDA too).
+The block button blocks, with a lightsaber or a melee blade its holder is proficient with, only with at least 1 points in the meter (and as much Force, under MDA too).
 
 <sub>Source: docs/SABER-RULES.md 2.2. Code: `sim::combat::saber::duel::can_hold`.</sub>
 
