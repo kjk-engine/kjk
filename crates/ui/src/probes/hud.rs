@@ -8,13 +8,14 @@ use super::paint::{Fake, button};
 use super::{Check, check, expect};
 use crate::draw::{DrawList, TextureId};
 use crate::paint::{Painter, Palette};
+use crate::screens::floaty::{OverheadArt, bars};
 use crate::screens::hud::{
-    BarArt, BusyMark, SWAP, Stand, anchor, backed, busy, busy_marks, crosshair, duel_bars,
-    effect_icons, meter, portrait_at, state, swap_at, watch_at,
+    BarArt, BusyMark, SWAP, anchor, backed, busy, busy_marks, crosshair, duel_bars, effect_icons,
+    portrait_at, state, swap_at, watch_at,
 };
 use crate::vm::{
-    Bar, Busy, DuelBars, EffectIcon, HudView, MemberView, RequestsView, TargetAction, TargetView,
-    ViewModel,
+    Bar, Busy, DuelBars, EffectIcon, HudView, MemberView, OverheadView, RequestsView, TargetAction,
+    TargetView, ViewModel,
 };
 
 fn at(gui: &Gui, tag: &str) -> Option<(i32, i32)> {
@@ -57,6 +58,7 @@ pub(super) fn duel() -> Vec<Check> {
     let gui = root(800, 600, vec![button("PB_VIT1", [700, 520, 64, 128], b"")]);
     let art = BarArt {
         texture: TextureId::WHITE,
+        uv: [29.0 / 64.0, 2.0 / 128.0, 49.0 / 64.0, 126.0 / 128.0],
         back: [0.0; 3],
     };
     let bar = |share| Bar {
@@ -94,11 +96,34 @@ pub(super) fn duel() -> Vec<Check> {
         && points_fill == [points[0], 584.0, points[2], 62.0]
         && both[3].uv[1] == 64.0 / 128.0
         && both[3].uv[3] == both[2].uv[3];
-    // Over a head the art lies on its side and fills rightward.
-    let lying = meter(art, &bar(0.25), [0.0, 0.0, 60.0, 6.0], Stand::Lying, 1.0);
-    let lies = lying.len() == 2
+    // Over a head the art lies on its side, filling rightward: the
+    // vitality bar's over the Force bar's, touching.
+    let force = BarArt {
+        texture: TextureId(1),
+        ..art
+    };
+    let head = OverheadView {
+        over: [0.5, 0.5],
+        alpha: 1.0,
+        bars: DuelBars {
+            points: Some(bar(0.25)),
+            stamina: bar(1.0),
+        },
+    };
+    let lying = bars(
+        &[head],
+        OverheadArt {
+            upper: art,
+            lower: force,
+        },
+        (200.0, 200.0),
+    )
+    .quads;
+    let lies = lying.len() == 4
         && lying.iter().all(|quad| quad.turns == 1)
-        && lying[1].rect == [0.0, 0.0, 15.0, 6.0];
+        && lying[1].rect == [70.0, 74.0, 15.0, 8.0]
+        && lying[2].rect == [70.0, 82.0, 60.0, 8.0]
+        && [lying[0].texture, lying[2].texture] == [art.texture, force.texture];
     let placed = placed && lies;
     vec![check(
         "hud_duel_bars",
@@ -112,7 +137,11 @@ pub(super) fn duel() -> Vec<Check> {
             ),
             placed && none.is_empty(),
         )
-        .map(|()| "K2's bar art left of the vitality bar, stamina next to it, cut to share".into()),
+        .map(|()| {
+            "K2's bar art left of the vitality bar, stamina next to it, cut to share; \
+             over a head a touching pair"
+                .into()
+        }),
     )]
 }
 

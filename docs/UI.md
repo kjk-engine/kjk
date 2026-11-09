@@ -678,8 +678,12 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   bottom: the stamina next to it, the block points (MDA) beyond
   (`hud::duel_bars`, `HudView::duel`); with "Overhead duel bars" on,
   every other living saber user's lie over its head, the art turned a
-  quarter (its rounded end up), 60 by 6 pixels, filling rightward, the
-  block points over the stamina, faded out from 10 to 25 m (under MD the
+  quarter, 60 by 8 pixels each, filling rightward, the block points over
+  the stamina and touching: the upper in the vitality bar's art (sloped
+  at its top corners), the lower in the Force bar's (`PB_FORCE1`'s
+  `uibit_bar_fp_p`, sloped at its bottom ones), so the pair makes one
+  rounded box (`floaty::OverheadArt`; a lone bar the upper art). They are
+  faded out from 10 to 25 m (under MD the
   upper bar is its Force, blue; `ui::screens::floaty::bars`,
   `ViewModel::overhead`). With "Unblockable
   warning" on, a character swinging what only a perfect block stops

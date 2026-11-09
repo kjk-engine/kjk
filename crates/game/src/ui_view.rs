@@ -876,7 +876,7 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
         ui::screens::hud::effects(&gui, vm, &mut painter, &mut out);
         ui::screens::hud::busy(&gui, vm, &mut painter, &mut out);
         ui::screens::hud::action_keys(&gui, vm, &mut painter, &mut out);
-        if let Some(art) = ui::screens::hud::BarArt::of(&gui, &mut painter) {
+        if let Some(art) = ui::screens::hud::BarArt::vitality(&gui, &mut painter) {
             ui::screens::hud::duel_bars(&gui, vm, art, &mut out);
         }
     }
@@ -900,13 +900,17 @@ fn floaty_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
         return None;
     }
     let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
-    // The duel bars wear the HUD's vitality bar art, in its layout's source.
+    // The duel bars wear the HUD's portrait bar art, in its layout's source.
     let art = hud
         .as_ref()
         .and_then(Option::as_ref)
         .and_then(|(gui, source)| {
+            use ui::screens::hud::BarArt;
             painter.source = *source;
-            ui::screens::hud::BarArt::of(gui, &mut painter)
+            Some(ui::screens::floaty::OverheadArt {
+                upper: BarArt::vitality(gui, &mut painter)?,
+                lower: BarArt::force(gui, &mut painter)?,
+            })
         });
     let mut out = match art {
         Some(art) => ui::screens::floaty::bars(&vm.overhead, art, window),

@@ -739,42 +739,57 @@ pub fn effects(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut DrawL
     }
 }
 
-/// The player's vitality bar, whose art the duel bars wear.
+/// The player's vitality and Force bars, whose art the duel bars wear.
 const VITALITY_BAR: &str = "PB_VIT1";
-/// Where KOTOR 2's portrait bar stands in its art (`uibit_bar_vp_p`, 64 ×
-/// 128): u0, v0, u1, v1 round the frame, which is rounded at its left
-/// (the end away from the portrait), opaque, round an inside a third
-/// opaque. The rest of the texture is clear.
-const BAR_UV: [f32; 4] = [29.0 / 64.0, 2.0 / 128.0, 49.0 / 64.0, 126.0 / 128.0];
+const FORCE_BAR: &str = "PB_FORCE1";
+/// Where KOTOR 2's portrait bars stand in their art (`uibit_bar_vp_p` and
+/// `uibit_bar_fp_p`, 64 × 128): u0, v0, u1, v1 round the frame, opaque,
+/// round an inside a third opaque, its corners sloped on the side away
+/// from the portrait (the vitality bar's left, the Force bar's right). The
+/// rest of each texture is clear.
+const VITALITY_UV: [f32; 4] = [29.0 / 64.0, 2.0 / 128.0, 49.0 / 64.0, 126.0 / 128.0];
+const FORCE_UV: [f32; 4] = [15.0 / 64.0, 2.0 / 128.0, 35.0 / 64.0, 126.0 / 128.0];
 /// A duel bar beside the portrait: its width (layout pixels; the vitality
 /// bar's is 12) and the gap between bars.
 const DUEL_WIDE: f32 = 7.0;
-pub(crate) const DUEL_GAP: f32 = 2.0;
+const DUEL_GAP: f32 = 2.0;
 
-/// The art the duel bars are drawn with, as the HUD's vitality bar is: its
-/// texture, and its backing's colour (the layout's border colour, as
-/// recoloured with the skin).
+/// The art a duel bar is drawn with, as one of the HUD's portrait bars is:
+/// its texture, where the bar stands in it (`VITALITY_UV`, `FORCE_UV`),
+/// and its backing's colour (the layout's border colour, as recoloured
+/// with the skin).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BarArt {
     pub texture: TextureId,
+    pub uv: [f32; 4],
     pub back: [f32; 3],
 }
 
 impl BarArt {
     /// The vitality bar's art in `gui` (the HUD's layout), drawn by
-    /// `painter` (its source the layout's).
-    pub fn of(gui: &Gui, painter: &mut Painter) -> Option<BarArt> {
-        let vitality = gui.find(VITALITY_BAR)?;
-        let fill = &vitality.progress.as_ref()?.fill;
+    /// `painter` (its source the layout's): sloped at its left.
+    pub fn vitality(gui: &Gui, painter: &mut Painter) -> Option<BarArt> {
+        BarArt::of(gui, painter, VITALITY_BAR, VITALITY_UV)
+    }
+
+    /// The Force bar's art, the vitality bar's mirror: sloped at its right.
+    pub fn force(gui: &Gui, painter: &mut Painter) -> Option<BarArt> {
+        BarArt::of(gui, painter, FORCE_BAR, FORCE_UV)
+    }
+
+    fn of(gui: &Gui, painter: &mut Painter, tag: &str, uv: [f32; 4]) -> Option<BarArt> {
+        let bar = gui.find(tag)?;
+        let fill = &bar.progress.as_ref()?.fill;
         let texture = painter.textures.texture(painter.source, fill)?;
-        let back = painter.color(vitality.border.as_ref().and_then(|border| border.color));
-        Some(BarArt { texture, back })
+        let back = painter.color(bar.border.as_ref().and_then(|border| border.color));
+        Some(BarArt { texture, uv, back })
     }
 }
 
 /// How a duel bar stands: upright, filling up from its bottom (beside a
 /// portrait, as KOTOR 2's own bars), or lying, filling rightward (over a
-/// head; the art turned a quarter, its rounded end up).
+/// head; the art turned a quarter clockwise, so the vitality bar's sloped
+/// side is up and the Force bar's down).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Stand {
     Upright,
@@ -790,10 +805,10 @@ pub fn meter(art: BarArt, bar: &Bar, rect: [f32; 4], stand: Stand, alpha: f32) -
         Stand::Upright => 0,
         Stand::Lying => 1,
     };
-    let [u0, v0, u1, v1] = BAR_UV;
+    let [u0, v0, u1, v1] = art.uv;
     let [r, g, b] = art.back;
     let mut quads = vec![Quad {
-        uv: BAR_UV,
+        uv: art.uv,
         turns,
         ..Quad::image(rect, art.texture, [r, g, b, alpha])
     }];
@@ -828,7 +843,7 @@ pub fn duel_bars(gui: &Gui, vm: &ViewModel, art: BarArt, out: &mut DrawList) {
     };
     // The vitality bar's frame within its control, as its art places it.
     let [left, top, width, height] = rect_of(vitality);
-    let [u0, v0, _, v1] = BAR_UV;
+    let [u0, v0, _, v1] = VITALITY_UV;
     let (frame_left, frame_top) = (left + width * u0, top + height * v0);
     let tall = height * (v1 - v0);
     for (nth, bar) in [Some(&bars.stamina), bars.points.as_ref()]
