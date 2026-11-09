@@ -11,10 +11,12 @@
 //!
 //! The duel bars over saber users' heads (`bars`, `docs/SABER-RULES.md`
 //! section 12) are drawn under the words, in the window's pixels, centred
-//! over the head, faded with distance.
+//! over the head, faded with distance: KOTOR 2's portrait bar art (the
+//! HUD's vitality bar's) lying on its side, thin.
 
 use crate::draw::DrawList;
 use crate::paint::Painter;
+use crate::screens::hud::{BarArt, DUEL_GAP, Stand, meter};
 use crate::skin::Source;
 use crate::vm::{FloatyView, OverheadView};
 use fmt_odyssey::gui::align;
@@ -34,26 +36,35 @@ const RING_AT: [[f32; 2]; 4] = [[-1.0, 1.0], [1.0, 1.0], [1.0, -1.0], [-1.0, -1.
 pub const XP_LINE: u32 = 38551;
 pub const XP_COLOR: [f32; 3] = [0.95, 0.0, 0.85];
 
-/// A head's duel bars: each bar's width and height (pixels: the spec's 60
-/// units at scale 1), and how far over the head the lowest stands.
-const BARS: [f32; 2] = [60.0, 4.0];
+/// A head's duel bars: each bar's length and thickness (pixels: the spec's
+/// 60 units at scale 1), and how far over the head the lowest stands.
+const BARS: [f32; 2] = [60.0, 6.0];
 const BARS_OVER: f32 = 10.0;
 
 /// The duel bars over saber users' heads (`overhead`) for a window of
-/// `window` pixels.
-pub fn bars(overhead: &[OverheadView], window: (f32, f32)) -> DrawList {
+/// `window` pixels, in the HUD's portrait bar art (`art`) lying down,
+/// filling rightward: the block points (MDA) over the stamina.
+pub fn bars(overhead: &[OverheadView], art: BarArt, window: (f32, f32)) -> DrawList {
     let mut out = DrawList {
         size: window,
         ..DrawList::default()
     };
+    let [wide, thick] = BARS;
     for head in overhead {
-        let rows = 1 + usize::from(head.bars.points.is_some());
-        let tall = rows as f32 * (BARS[1] + crate::screens::hud::DUEL_GAP);
         let [x, y] = [head.over[0] * window.0, head.over[1] * window.1];
-        let at = [x - BARS[0] / 2.0, y - BARS_OVER - tall];
-        out.quads.extend(crate::screens::hud::bars_at(
-            &head.bars, at, BARS, head.alpha,
-        ));
+        let rows = [head.bars.points.as_ref(), Some(&head.bars.stamina)];
+        let shown = rows.iter().flatten().count();
+        let top = y - BARS_OVER - shown as f32 * (thick + DUEL_GAP);
+        for (nth, bar) in rows.into_iter().flatten().enumerate() {
+            let rect = [
+                x - wide / 2.0,
+                top + nth as f32 * (thick + DUEL_GAP),
+                wide,
+                thick,
+            ];
+            out.quads
+                .extend(meter(art, bar, rect, Stand::Lying, head.alpha));
+        }
     }
     out
 }

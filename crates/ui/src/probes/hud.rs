@@ -6,11 +6,11 @@ use fmt_odyssey::gui::{Border, Control, Gui, Rect};
 use super::menus::root;
 use super::paint::{Fake, button};
 use super::{Check, check, expect};
-use crate::draw::DrawList;
+use crate::draw::{DrawList, TextureId};
 use crate::paint::{Painter, Palette};
 use crate::screens::hud::{
-    BusyMark, SWAP, anchor, backed, busy, busy_marks, crosshair, duel_bars, effect_icons,
-    portrait_at, state, swap_at, watch_at,
+    BarArt, BusyMark, SWAP, Stand, anchor, backed, busy, busy_marks, crosshair, duel_bars,
+    effect_icons, meter, portrait_at, state, swap_at, watch_at,
 };
 use crate::vm::{
     Bar, Busy, DuelBars, EffectIcon, HudView, MemberView, RequestsView, TargetAction, TargetView,
@@ -48,11 +48,17 @@ pub(super) fn swap_button() -> Vec<Check> {
     )]
 }
 
-/// The player's duel bars (`duel_bars`): left of its vitality bar, level
-/// with its top, block points over stamina, each on its shade and filled
-/// to its share; none without them.
+/// The player's duel bars (`duel_bars`): KOTOR 2's portrait bar art
+/// upright left of the vitality bar's frame, as tall and level with it,
+/// thinner, the stamina next to it and the block points beyond; each its
+/// backing, then its fill cut to its share from the bottom (the art's
+/// lower part, not squeezed); none without them.
 pub(super) fn duel() -> Vec<Check> {
-    let gui = root(800, 600, vec![button("PB_VIT1", [700, 520, 6, 70], b"")]);
+    let gui = root(800, 600, vec![button("PB_VIT1", [700, 520, 64, 128], b"")]);
+    let art = BarArt {
+        texture: TextureId::WHITE,
+        back: [0.0; 3],
+    };
     let bar = |share| Bar {
         share,
         color: [1.0; 4],
@@ -66,28 +72,47 @@ pub(super) fn duel() -> Vec<Check> {
     };
     let drawn = |vm: &ViewModel| {
         let mut out = DrawList::default();
-        duel_bars(&gui, vm, &mut out);
-        out.quads.iter().map(|quad| quad.rect).collect::<Vec<_>>()
+        duel_bars(&gui, vm, art, &mut out);
+        out.quads
     };
     let both = drawn(&with(Some(DuelBars {
         points: Some(bar(0.5)),
         stamina: bar(1.0),
     })));
     let none = drawn(&with(None));
-    let [points, stamina] =
-        [both.get(1), both.get(3)].map(|rect| rect.copied().unwrap_or([0.0; 4]));
+    let rect = |nth: usize| both.get(nth).map_or([0.0; 4], |quad| quad.rect);
+    let [stamina, stamina_fill, points, points_fill] = [0, 1, 2, 3].map(rect);
+    // The vitality bar's frame in its 64 × 128 control: x 729, y 522 to 646.
+    let framed = |[left, top, wide, tall]: [f32; 4]| {
+        top == 522.0 && tall == 124.0 && wide < 12.0 && left + wide < 729.0
+    };
     let placed = both.len() == 4
-        && points[0] + points[2] * 2.0 < 700.0
-        && points[1] == 520.0
-        && stamina[1] > points[1] + points[3]
-        && stamina[2] == 2.0 * points[2];
+        && framed(stamina)
+        && framed(points)
+        && points[0] + points[2] < stamina[0]
+        && stamina_fill == stamina
+        && points_fill == [points[0], 584.0, points[2], 62.0]
+        && both[3].uv[1] == 64.0 / 128.0
+        && both[3].uv[3] == both[2].uv[3];
+    // Over a head the art lies on its side and fills rightward.
+    let lying = meter(art, &bar(0.25), [0.0, 0.0, 60.0, 6.0], Stand::Lying, 1.0);
+    let lies = lying.len() == 2
+        && lying.iter().all(|quad| quad.turns == 1)
+        && lying[1].rect == [0.0, 0.0, 15.0, 6.0];
+    let placed = placed && lies;
     vec![check(
         "hud_duel_bars",
         expect(
-            &format!("{both:?}, without {none:?}"),
+            &format!(
+                "{:?}, without {}",
+                both.iter()
+                    .map(|quad| (quad.rect, quad.uv))
+                    .collect::<Vec<_>>(),
+                none.len()
+            ),
             placed && none.is_empty(),
         )
-        .map(|()| "left of the vitality bar, block points over stamina".into()),
+        .map(|()| "K2's bar art left of the vitality bar, stamina next to it, cut to share".into()),
     )]
 }
 

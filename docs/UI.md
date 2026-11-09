@@ -667,13 +667,21 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   a saber user's duel bars: its block points under MDA (red, purple, dark
   purple and magenta as they rise; flashing when few are left) over its
   stamina, the mishap count turned upside down (grey; flashing green,
-  blue, magenta, then red as the count climbs). The player's own stand
-  left of its portrait's vitality bar, level with its top
-  (`hud::duel_bars`, `HudView::duel`; and over the fight HUD's bars where
-  KOTOR's is not drawn); with "Overhead duel bars" on, every other living
-  saber user's stand over its head, 60 pixels wide, faded out from 10 to
-  25 m (under MD the upper bar is its Force, blue;
-  `ui::screens::floaty::bars`, `ViewModel::overhead`). With "Unblockable
+  blue, magenta, then red as the count climbs). They wear KOTOR 2's
+  portrait bar art, the vitality bar's own (its layout's `PB_VIT1`
+  progress art, `uibit_bar_vp_p`: a framed bar rounded at one end over a
+  third-clear inside): its backing in the layout's border colour (as the
+  skin recolours it), then the bar's colour over its share, the art cut to
+  the share rather than squeezed (`hud::meter`, `BarArt`). The player's
+  own stand upright left of its portrait's vitality bar, as tall and
+  level with its frame but 7 pixels wide to its 12, filling up from the
+  bottom: the stamina next to it, the block points (MDA) beyond
+  (`hud::duel_bars`, `HudView::duel`); with "Overhead duel bars" on,
+  every other living saber user's lie over its head, the art turned a
+  quarter (its rounded end up), 60 by 6 pixels, filling rightward, the
+  block points over the stamina, faded out from 10 to 25 m (under MD the
+  upper bar is its Force, blue; `ui::screens::floaty::bars`,
+  `ViewModel::overhead`). With "Unblockable
   warning" on, a character swinging what only a perfect block stops
   (`Duel::warn`) wears a red shell, as the stealth field's
   (`stealth_view::follow`), never the player's own, nor one in stealth,

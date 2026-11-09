@@ -876,7 +876,9 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
         ui::screens::hud::effects(&gui, vm, &mut painter, &mut out);
         ui::screens::hud::busy(&gui, vm, &mut painter, &mut out);
         ui::screens::hud::action_keys(&gui, vm, &mut painter, &mut out);
-        ui::screens::hud::duel_bars(&gui, vm, &mut out);
+        if let Some(art) = ui::screens::hud::BarArt::of(&gui, &mut painter) {
+            ui::screens::hud::duel_bars(&gui, vm, art, &mut out);
+        }
     }
     if vm.crosshair {
         out.quads.extend(ui::screens::hud::crosshair(&gui));
@@ -888,13 +890,31 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
 /// while there are any (`ui::screens::floaty`).
 fn floaty_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let Ui {
-        assets, vm, stack, ..
+        assets,
+        vm,
+        stack,
+        hud,
+        ..
     } = ui;
     if vm.floaties.is_empty() && vm.overhead.is_empty() {
         return None;
     }
     let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
-    let mut out = ui::screens::floaty::bars(&vm.overhead, window);
+    // The duel bars wear the HUD's vitality bar art, in its layout's source.
+    let art = hud
+        .as_ref()
+        .and_then(Option::as_ref)
+        .and_then(|(gui, source)| {
+            painter.source = *source;
+            ui::screens::hud::BarArt::of(gui, &mut painter)
+        });
+    let mut out = match art {
+        Some(art) => ui::screens::floaty::bars(&vm.overhead, art, window),
+        None => DrawList {
+            size: window,
+            ..DrawList::default()
+        },
+    };
     let words = ui::screens::floaty::draw(&mut painter, &vm.floaties, window);
     out.quads.extend(words.quads);
     Some(out)
