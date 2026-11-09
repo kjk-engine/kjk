@@ -346,6 +346,23 @@ fn dangly_spring() {
     probed("dangly spring", &kjk::probes::dangly(), 7);
 }
 
+/// A head held level over a leaning spine with a weapon out
+/// (`kjk::probes::straightened`), on a skeleton made here: a node beside
+/// the head that no standing clip keys (a woman's lower neck), which the
+/// pose turns afresh each frame but never moves, posed alike 2000 times at
+/// 400 fps, is set alike every frame and stays on the chest (each frame's
+/// straightening once built on the last, a shoulder drawn metres out at a
+/// high frame rate: issue 238), and with the weapon away it stands at rest.
+/// Needs `--features rig`; no installs.
+/// (proposed 2026-11-09)
+#[test]
+fn held_node_straightened() {
+    #[cfg(not(feature = "rig"))]
+    println!("held_node_straightened skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("held node straightened", &kjk::probes::straightened(), 3);
+}
+
 /// TSL's rain and snow held round the camera (`kjk::probes::weather`): the
 /// six copies stand on a hexagon of 4.5 m round the camera's ground point,
 /// one ahead, one behind and four at the sides 5 m higher, turning with the

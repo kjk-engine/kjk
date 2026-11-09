@@ -3415,7 +3415,12 @@ impl Spine {
     /// hands and what they hold stay where the pose put them (the drawn
     /// blade on the sim's). Else the shoulders ride on the chest, and the
     /// upper arms keep the way the pose swings them.
-    fn straighten(&self, share: f32, keep: bool, transforms: &mut Query<&mut Transform>) {
+    fn straighten(
+        &self,
+        share: f32,
+        keep: bool,
+        transforms: &mut Query<&mut Transform>,
+    ) -> Vec<Set> {
         let affine = |transforms: &Query<&mut Transform>, entity: Entity| {
             transforms
                 .get(entity)
@@ -3450,7 +3455,7 @@ impl Spine {
         let mut rest = self.base_rest;
         for joint in &self.joints {
             let Ok(own) = transforms.get(joint.node).map(|t| t.rotation) else {
-                return;
+                return Vec::new();
             };
             let parent_up = (world * rest.inverse()) * Vec3::Z;
             rest *= joint.rest;
@@ -3466,18 +3471,55 @@ impl Spine {
             world *= turned;
         }
         let after = chain(transforms);
+        let mut set = Vec::new();
         for (entity, collar, stood) in stood {
-            match collar {
-                None => {
-                    let set = Transform::from_matrix(Mat4::from(after.inverse() * stood));
-                    edit(transforms, entity, |t| *t = set);
-                }
+            let Ok(&from) = transforms.get(entity) else {
+                continue;
+            };
+            let written = match collar {
+                None => Transform::from_matrix(Mat4::from(after.inverse() * stood)),
                 Some(collar) => {
                     let on = turn(after * affine(transforms, collar));
-                    let set = (on.inverse() * turn(stood)).normalize();
-                    edit(transforms, entity, |t| t.rotation = set);
+                    from.with_rotation((on.inverse() * turn(stood)).normalize())
                 }
-            }
+            };
+            edit(transforms, entity, |t| *t = written);
+            set.push(Set {
+                node: entity,
+                from,
+                written,
+            });
+        }
+        set
+    }
+}
+
+/// A node the spine's straightening set (`Spine::straighten`): as it stood
+/// before, and as written. A node the body's pose leaves as it is (one its
+/// standing clip does not key, `held_nodes`, such as a woman's lower neck)
+/// is put back as it stood (`Head::turn`) before it is set again, or each
+/// frame's setting would build on the last: the frames, not the time, ran
+/// it up (issue 238, a shoulder drawn metres out at a high frame rate).
+struct Set {
+    node: Entity,
+    from: Transform,
+    written: Transform,
+}
+
+impl Set {
+    /// Puts back, part by part, what still stands as it was written: a
+    /// pose may write a node's turn afresh and leave its place (the
+    /// retargeted pose turns the nodes that carry others, never moves them),
+    /// so its place goes back though its turn is the pose's.
+    fn undo(&self, t: &mut Transform) {
+        if t.translation == self.written.translation {
+            t.translation = self.from.translation;
+        }
+        if t.rotation == self.written.rotation {
+            t.rotation = self.from.rotation;
+        }
+        if t.scale == self.written.scale {
+            t.scale = self.from.scale;
         }
     }
 }
@@ -3592,7 +3634,7 @@ impl HeadBone {
         hold: Hold,
         (share, crouch): (f32, f32),
         transforms: &mut Query<&mut Transform>,
-    ) {
+    ) -> Vec<Set> {
         let read = |transforms: &Query<&mut Transform>| -> Vec<Quat> {
             (self.above.iter())
                 .map(|&e| transforms.get(e).map_or(Quat::IDENTITY, |t| t.rotation))
@@ -3604,7 +3646,7 @@ impl HeadBone {
         };
         let (chest, chest_rest) = self.chest;
         let Some(chest_now) = rotations.get(..=chest).map(product) else {
-            return;
+            return Vec::new();
         };
         let lean = ((chest_now * chest_rest.inverse()) * Vec3::Z)
             .dot(Vec3::Z)
@@ -3617,29 +3659,34 @@ impl HeadBone {
         let upright = ((none - lean) / (none - whole)).clamp(0.0, 1.0).max(crouch);
         let weight = share.clamp(0.0, 1.0) * upright;
         if weight <= 0.0 {
-            return;
+            return Vec::new();
         }
         // The spine straightened first, so the neck turns the less; a
         // weapon in hand keeps the arms where the pose holds it.
-        if let Some(spine) = &self.spine {
-            spine.straighten(SPINE_SHARE * weight, hold.armed, transforms);
-            rotations = read(transforms);
-        }
+        let set = match &self.spine {
+            Some(spine) => {
+                let set = spine.straighten(SPINE_SHARE * weight, hold.armed, transforms);
+                rotations = read(transforms);
+                set
+            }
+            None => Vec::new(),
+        };
         let above = product(&rotations);
         let Ok(own) = transforms.get(self.node).map(|t| t.rotation) else {
-            return;
+            return set;
         };
         let heading = match hold.heading {
             Some(heading) => Quat::from_rotation_z(heading),
             None => match twist_about_up(above * own * self.rest.inverse()) {
                 Some(heading) => heading,
-                None => return,
+                None => return set,
             },
         };
         let local = (above.inverse() * heading * self.rest).normalize();
         edit(transforms, self.node, |t| {
             t.rotation = t.rotation.slerp(local, weight).normalize();
         });
+        set
     }
 }
 
@@ -3652,6 +3699,8 @@ struct Head {
     yaw: f32,
     ms: Option<f64>,
     turned: Option<(Quat, Quat)>,
+    /// The nodes the spine's straightening set last (`Spine::straighten`).
+    set: Vec<Set>,
     /// How much of the level hold (`HeadBone::level`) has let go since its
     /// body died (0 alive, 1 dead `LEVEL_FADE_S` and more).
     let_go: f32,
@@ -3719,6 +3768,11 @@ impl Head {
             let share = hold.share * (1.0 - self.let_go);
             (share > 0.0).then_some((hold, (share, self.crouch)))
         });
+        // What the straightening set that no pose wrote since stands as it
+        // stood before it, so it is straightened from there.
+        for set in std::mem::take(&mut self.set) {
+            edit(transforms, set.node, |t| set.undo(t));
+        }
         if self.yaw.abs() < 0.01 && self.turned.is_none() && level.is_none() {
             return;
         }
@@ -3732,7 +3786,7 @@ impl Head {
         };
         edit(transforms, entity, |t| t.rotation = from);
         if let Some((hold, shares)) = level {
-            bone.level(hold, shares, transforms);
+            self.set = bone.level(hold, shares, transforms);
         }
         if self.yaw.abs() >= 0.01 {
             let turn = Quat::from_rotation_z(self.yaw.to_radians());
@@ -3744,6 +3798,119 @@ impl Head {
             .map(|t| (t.rotation, from))
             .filter(|(written, from)| written != from);
     }
+}
+
+/// A head held level over a leaning spine with a weapon out, on a skeleton
+/// made here (`kjk::probes::straightened`, issue 238): the spine's two
+/// joints, the head on its top, and beside the head a node no standing
+/// clip keys (`held_nodes`, a woman's lower neck), which each frame's pose
+/// turns afresh but never moves. Posed alike 2000 times at 2.5 ms a frame
+/// (400 fps), the held node is set alike every frame, no further out than the
+/// first frame set it, where each setting once built on the last until it
+/// stood a metre out; and
+/// with the weapon put away it stands where it stood before.
+#[cfg(feature = "probes")]
+pub fn straighten_probes() -> crate::probe_kit::Checks {
+    use crate::probe_kit::check;
+    use asset_odyssey::model::NodeIr;
+    use bevy::ecs::system::SystemState;
+
+    let mut ir = crate::course::model_of("body", Vec::new());
+    let root = ir.nodes[0].clone();
+    for (name, parent, z) in [
+        (hooks::TORSO, 0, 1.0),
+        (hooks::UPPER_TORSO, 1, 0.3),
+        (hooks::HEAD, 2, 0.3),
+        ("necklwr_g", 2, 0.28),
+        ("neck_g", 4, 0.03),
+    ] {
+        ir.nodes.push(NodeIr {
+            name: name.into(),
+            parent: Some(parent),
+            translation: [0.0, 0.0, z],
+            ..root.clone()
+        });
+    }
+    let (held, neck) = (4, 5);
+    let mut world = World::new();
+    let nodes: Vec<Entity> = (ir.nodes.iter())
+        .map(|node| {
+            let at = Transform::from_translation(Vec3::from_array(node.translation));
+            world.spawn(at).id()
+        })
+        .collect();
+    let Some(bone) = head_bone((&ir, &nodes), None) else {
+        return vec![("head bone", Err("none found".into()))];
+    };
+    let rest = Vec3::from_array(ir.nodes[held].translation);
+    let mut state: SystemState<Query<&mut Transform>> = SystemState::new(&mut world);
+    let mut head = Head::default();
+    let lean = [
+        Quat::from_rotation_x(15f32.to_radians()),
+        Quat::from_rotation_x(10f32.to_radians()),
+    ];
+    let mut frame = |n: u32, armed: bool, world: &mut World| -> Transform {
+        let Ok(mut transforms) = state.get_mut(world) else {
+            return Transform::IDENTITY;
+        };
+        // The pose: the spine leant, the held node and the neck turned, the
+        // held node's place left as it is.
+        for (node, turn) in [(1, lean[0]), (2, lean[1]), (held, Quat::IDENTITY)] {
+            edit(&mut transforms, nodes[node], |t| t.rotation = turn);
+        }
+        edit(&mut transforms, nodes[neck], |t| {
+            t.rotation = Quat::IDENTITY
+        });
+        let hold = Hold {
+            heading: None,
+            share: 1.0,
+            alive: true,
+            crouched: false,
+            armed,
+        };
+        head.turn(
+            (None, f64::from(n) * 2.5),
+            Some(hold),
+            &bone,
+            &mut transforms,
+        );
+        transforms
+            .get(nodes[held])
+            .copied()
+            .unwrap_or(Transform::IDENTITY)
+    };
+    let first = frame(0, true, &mut world);
+    let last = (1..2000).fold(first, |_, n| frame(n, true, &mut world));
+    let put_away = frame(2000, false, &mut world);
+    let out = |t: Transform| t.translation.distance(rest);
+    vec![
+        (
+            "a held node set alike every frame",
+            check(
+                first.translation.abs_diff_eq(last.translation, 1e-5)
+                    && first.rotation.abs_diff_eq(last.rotation, 1e-5),
+                format!("frame 1 {first:?}, frame 2000 {last:?}"),
+            ),
+        ),
+        (
+            "a held node stays on the chest",
+            check(
+                out(first) > 0.0 && out(last) <= out(first) + 1e-5,
+                format!(
+                    "{} m from its rest after 2000 frames, {} m after the first",
+                    out(last),
+                    out(first)
+                ),
+            ),
+        ),
+        (
+            "a held node back as it stood once the weapon is away",
+            check(
+                put_away.translation.distance(rest) < 1e-5,
+                format!("at {:?} (rest {rest:?})", put_away.translation),
+            ),
+        ),
+    ]
 }
 
 /// How far (degrees, to the left, within `arc` of it) a body standing at
