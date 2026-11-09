@@ -44,6 +44,7 @@
 //! welcome it is a join like the first.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use sim::{
     Command, EntityState, Kind, Level, Presented, Seat, SimId, SimWorld, Snapshot, SnapshotHash,
@@ -113,11 +114,14 @@ pub struct ClientConfig {
 
 /// Snapshots since the last `take_snapshots`: the host's, rebuilt, and
 /// this side's predictions, each in the order made (a rewind's re-steps
-/// repeat ticks: the later one replaces the earlier).
+/// repeat ticks: the later one replaces the earlier). The predictions are
+/// the ones `Frame::predicted` presents, shared: a rewind re-steps a tick
+/// for each tick of the lead, and copying each to hand it on cost as much
+/// as making it (issue 229).
 #[derive(Debug, Clone, Default)]
 pub struct Kept {
-    pub rebuilt: Vec<Snapshot>,
-    pub predicted: Vec<Snapshot>,
+    pub rebuilt: Vec<Arc<Snapshot>>,
+    pub predicted: Vec<Arc<Snapshot>>,
 }
 
 /// What happened, for the caller.
@@ -670,7 +674,7 @@ impl Client {
         self.session()?
             .ring
             .newest()
-            .map(|rebuilt| &rebuilt.snapshot)
+            .map(|rebuilt| &*rebuilt.snapshot)
     }
 
     fn end(&mut self, why: Refusal) {
@@ -1077,7 +1081,7 @@ impl Client {
                 };
                 let before = tick
                     .and_then(|tick| session.ring.get(tick))
-                    .map(|rebuilt| rebuilt.snapshot.clone());
+                    .map(|rebuilt| (*rebuilt.snapshot).clone());
                 session.running = false;
                 session.install = Some(Install {
                     before,
@@ -1094,7 +1098,7 @@ impl Client {
                 session.running = false;
                 let held = tick
                     .and_then(|tick| session.ring.get(tick))
-                    .map(|rebuilt| rebuilt.snapshot.clone());
+                    .map(|rebuilt| (*rebuilt.snapshot).clone());
                 if let (Some(held), Some(play)) = (held, session.play.as_mut()) {
                     play.hold(held);
                 }
@@ -1596,11 +1600,11 @@ fn reconcile(session: &mut Session, starting: bool) {
     let alpha = play.predicted.alpha();
     let previous = play.predicted.previous();
     play.predicted = if play.made == tick && previous.tick + 1 == tick {
-        let mut shown = Presented::new(previous.clone());
-        shown.push(snapshot);
+        let mut shown = Presented::shared(play.predicted.previous_shared().clone());
+        shown.push_shared(snapshot);
         shown
     } else {
-        Presented::new(snapshot)
+        Presented::shared(snapshot)
     };
     let depth = play.made - tick;
     for at in tick + 1..=play.made {
@@ -1613,10 +1617,11 @@ fn reconcile(session: &mut Session, starting: bool) {
             StepReason::Predict,
         );
         remember(play, &snapshot);
+        let snapshot = Arc::new(snapshot);
         if let Some(kept) = &mut session.kept {
             kept.predicted.push(snapshot.clone());
         }
-        play.predicted.push(snapshot);
+        play.predicted.push_shared(snapshot);
     }
     play.predicted.set_alpha(alpha);
     while play.history.front().is_some_and(|(at, ..)| *at < tick) {
@@ -1735,10 +1740,11 @@ fn make(
             StepReason::Predict,
         );
         remember(play, &snapshot);
+        let snapshot = Arc::new(snapshot);
         if let Some(kept) = &mut session.kept {
             kept.predicted.push(snapshot.clone());
         }
-        play.predicted.push(snapshot);
+        play.predicted.push_shared(snapshot);
         play.made = tick;
         stepped += 1;
     }
@@ -1865,8 +1871,8 @@ fn present(session: &mut Session, now: NetTime, elapsed: i64) {
         (Some(a), Some(b)) => {
             play.starving = false;
             if play.remote_pair != (a.tick, b.tick) {
-                let mut shown = Presented::new(a.snapshot.clone());
-                shown.push(b.snapshot.clone());
+                let mut shown = Presented::shared(a.snapshot.clone());
+                shown.push_shared(b.snapshot.clone());
                 play.remote = shown;
                 play.remote_pair = (a.tick, b.tick);
             }
@@ -1882,14 +1888,14 @@ fn present(session: &mut Session, now: NetTime, elapsed: i64) {
                 session.clocks.starve(now);
             }
             if play.remote_pair != (newest.tick, newest.tick) {
-                play.remote = Presented::new(newest.snapshot.clone());
+                play.remote = Presented::shared(newest.snapshot.clone());
                 play.remote_pair = (newest.tick, newest.tick);
             }
             play.remote.set_alpha(1.0);
         }
         (None, Some(oldest)) => {
             if play.remote_pair != (oldest.tick, oldest.tick) {
-                play.remote = Presented::new(oldest.snapshot.clone());
+                play.remote = Presented::shared(oldest.snapshot.clone());
                 play.remote_pair = (oldest.tick, oldest.tick);
             }
             play.remote.set_alpha(1.0);

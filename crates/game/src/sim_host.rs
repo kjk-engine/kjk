@@ -152,7 +152,7 @@ pub struct SelectedPower(pub u8);
 #[derive(Resource)]
 pub struct OwnView {
     pub presented: Presented,
-    pub fresh: Vec<Snapshot>,
+    pub fresh: Vec<Arc<Snapshot>>,
     pub correction: [f32; 3],
 }
 

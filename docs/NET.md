@@ -90,7 +90,14 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   line (whole lines only, a line still being written is not read).
 - `kjk join <host>`: handshake, then the host's stage loads while the net
   thread answers; its own avatar and camera predicted, every other player
-  and creature from the host's snapshots at the remote view.
+  and creature from the host's snapshots at the remote view. Each new
+  host snapshot (one a frame, below 62 fps) restores the world and
+  re-steps the whole lead, about 16 ticks at 80 ms RTT, each tick a full
+  snapshot; the frame's lead grows with its longest recent frame, so a
+  costly re-step feeds itself. The host's snapshots and the predictions
+  are handed to the view shared, never copied: copying each cost as much
+  as making it, and the Taris Undercity (`tar_m04aa`) at 80 ms RTT ran a
+  guest at 9–15 fps, ~30 ticks a rewind; shared, 37–53 fps (issue 229).
 - **Through Steam** (`io::steam`, the `steam` feature, on by default):
   beside UDP, a host takes players through Steam's relayed messages
   (`ISteamNetworkingMessages`), so nobody forwards a port. The session's
