@@ -287,11 +287,8 @@ type Body = (
 /// module the player goes to: one for each seat.
 #[derive(Clone)]
 pub struct BodyScene {
-    /// Each seat's models (body, head, weapons), as many for every seat.
-    pub models: Vec<Vec<Placed>>,
-    /// Which of a seat's models are the weapons in its right and left
-    /// weapon slots.
-    pub weapons: [Option<usize>; 2],
+    /// Each seat's models and its weapons among them, as the run loaded.
+    pub models: Vec<SeatModels>,
     pub seats: u8,
     /// With every saber shader the blades may use.
     pub textures: BTreeMap<String, TextureIr>,
@@ -305,25 +302,37 @@ pub struct BodyScene {
 }
 
 /// What each seat wears, and the seats dressed again since the run loaded
-/// (`wardrobe`): their models (as `BodyScene::models` has a seat's) and
-/// textures, which the next module's scene is composed with.
+/// (`wardrobe`): their models and textures, which the next module's scene
+/// is composed with.
 #[derive(Default)]
 pub struct Redressed {
     pub wears: Vec<Wear>,
-    pub models: BTreeMap<u8, Vec<Placed>>,
+    pub models: BTreeMap<u8, SeatModels>,
     pub textures: BTreeMap<String, TextureIr>,
 }
 
+/// A seat's models (body, head, any headgear, then the weapons in its
+/// hands) and which of them are the weapons in its right and left weapon
+/// slots. Each seat's own: a body with headgear has a model more than one
+/// without, so its weapons stand elsewhere (a mask worn by one seat and not
+/// another, put on, or hidden by its player's choice, `headgear`).
+#[derive(Clone)]
+pub struct SeatModels {
+    pub models: Vec<Placed>,
+    pub weapons: [Option<usize>; 2],
+}
+
 /// A module's scene (or none, for the course) with a body for each seat
-/// after it (seat `s`'s at `index + s × body.models.len()`), each head
-/// hooked to its body, and the course's model last: the scene to draw, and
-/// the first body's index in it. Every character's weapons are readied to
-/// be held, their blades to be lit (`weapons::arm`).
+/// after it, each head hooked to its body, and the course's model last:
+/// the scene to draw, and each seat's body's index in it. Every
+/// character's weapons are readied to be held, their blades to be lit
+/// (`weapons::arm`); a seat's are the weapons hung in its own models
+/// (`place_seats`).
 pub fn compose(
     module: Option<LoadedScene>,
     body: &BodyScene,
     course: Option<&(ModelIr, Vec<(String, TextureIr)>)>,
-) -> (LoadedScene, usize) {
+) -> (LoadedScene, Vec<usize>) {
     let dressed = body
         .dressed
         .lock()
@@ -383,29 +392,12 @@ pub fn compose(
         );
         arms.insert(Owner::Creature(view.object), held);
     }
-    let index = models.len();
-    for seat in 0..body.seats.max(1) {
-        let first = models.len();
-        let seat_models = dressed
-            .models
-            .get(&seat)
-            .unwrap_or(&body.models[usize::from(seat) % body.models.len().max(1)]);
-        for placed in seat_models {
-            let mut placed = placed.clone();
-            // Hooks name the seat's own models (the headgear its head).
-            if let Some((on, _)) = &mut placed.hook {
-                *on += first;
-            }
-            models.push(placed);
-        }
-        let held = weapons::arm(
-            &mut models,
-            &mut blades,
-            body.weapons.map(|slot| slot.map(|model| first + model)),
-            &body.sabers,
-            &mut notes,
-        );
+    let mut bodies = Vec::new();
+    let seated = place_seats(&mut models, &body.models, &dressed, body.seats);
+    for (seat, (first, held)) in (0..).zip(seated) {
+        let held = weapons::arm(&mut models, &mut blades, held, &body.sabers, &mut notes);
         arms.insert(Owner::Seat(seat), held);
+        bodies.push(first);
     }
     if let Some((ir, course_textures)) = course {
         textures.extend(course_textures.iter().cloned());
@@ -448,7 +440,131 @@ pub fn compose(
         weather,
         sound,
     };
-    (scene, index)
+    (scene, bodies)
+}
+
+/// The seats' models put after `models`, one seat after another (at least
+/// one): each as it was dressed again (`dressed`), else as the run loaded
+/// it (`loaded`, seat by seat), its head, headgear and weapons hooked to
+/// its own body. Each seat's body's index, and its weapons' (right, left).
+fn place_seats(
+    models: &mut Vec<Placed>,
+    loaded: &[SeatModels],
+    dressed: &Redressed,
+    seats: u8,
+) -> Vec<(usize, [Option<usize>; 2])> {
+    (0..seats.max(1))
+        .map(|seat| {
+            let first = models.len();
+            let own = dressed
+                .models
+                .get(&seat)
+                .or_else(|| loaded.get(usize::from(seat) % loaded.len().max(1)));
+            let Some(own) = own else {
+                return (first, [None, None]);
+            };
+            models.extend(own.models.iter().cloned().map(|mut placed| {
+                if let Some((on, _)) = &mut placed.hook {
+                    *on += first;
+                }
+                placed
+            }));
+            (
+                first,
+                own.weapons.map(|slot| slot.map(|model| first + model)),
+            )
+        })
+        .collect()
+}
+
+/// How a scene composes the seats (`kjk sim probes --only "seat
+/// models"`), on models made here: a seat dressed again with a model fewer
+/// than it loaded with (its mask hidden by its player, issue 228) holds
+/// the weapons hung in its own models, not the models where the loaded
+/// body had them (once a vibroblade in the right hand and the loaded
+/// pistol left hanging there, held by no one); the next seat's body comes
+/// after it, and every hook is to its own seat's models.
+#[cfg(feature = "probes")]
+pub fn seat_probes() -> sim::probe::Checks {
+    use asset_odyssey::model::NodeIr;
+    use sim::probe::check;
+    let model = |name: &str| crate::course::model_of(name, Vec::new());
+    let mut body = model("body");
+    for hand in weapons::WEAPON_NODES {
+        body.nodes.push(NodeIr {
+            name: hand.into(),
+            parent: Some(0),
+            ..body.nodes[0].clone()
+        });
+    }
+    let guns = [Some(model("pistol")), Some(model("vibroblade"))];
+    // Body, head, headgear hooked to the head (`viewer::hang_headgear`),
+    // then the weapons in the body's hands, as `dress` and `hang` make them.
+    let seat = |headgear: bool| {
+        let mut models = vec![
+            Placed::at(body.clone(), [0.0; 3]),
+            Placed {
+                hook: Some((0, 0)),
+                ..Placed::at(model("head"), [0.0; 3])
+            },
+        ];
+        if headgear {
+            models.push(Placed {
+                hook: Some((1, 0)),
+                ..Placed::at(model("mask"), [0.0; 3])
+            });
+        }
+        let weapons = hang(&mut models, &guns, None);
+        SeatModels { models, weapons }
+    };
+    let loaded = [seat(true), seat(true)];
+    let mut dressed = Redressed::default();
+    dressed.models.insert(0, seat(false));
+    let mut models = vec![Placed::at(model("room"), [0.0; 3])];
+    let seated = place_seats(&mut models, &loaded, &dressed, 2);
+    let name = |index: Option<usize>| {
+        index
+            .and_then(|i| models.get(i))
+            .map(|p| p.ir.name.as_str())
+    };
+    let held: Vec<[Option<&str>; 2]> = seated.iter().map(|(_, held)| held.map(name)).collect();
+    let firsts: Vec<usize> = seated.iter().map(|(first, _)| *first).collect();
+    let bodies_named = firsts
+        .iter()
+        .all(|&first| name(Some(first)) == Some("body"));
+    // Each seat's models hook to its own: from its body to the next's.
+    let ends: Vec<usize> = firsts
+        .iter()
+        .skip(1)
+        .copied()
+        .chain([models.len()])
+        .collect();
+    let hooked_home = firsts.iter().zip(&ends).all(|(&first, &end)| {
+        models[first..end]
+            .iter()
+            .filter_map(|placed| placed.hook)
+            .all(|(on, _)| (first..end).contains(&on))
+    });
+    let want = [Some("pistol"), Some("vibroblade")];
+    vec![
+        (
+            "dressed seat holds its own weapons",
+            check(
+                held.iter().all(|seat| *seat == want),
+                format!("each seat's right and left: {held:?}"),
+            ),
+        ),
+        (
+            "seats after each other",
+            check(
+                firsts == [1, 5] && bodies_named && hooked_home,
+                format!(
+                    "the bodies at {firsts:?} of {} models (a body each: {bodies_named}); every hook to its own seat's: {hooked_home}",
+                    models.len()
+                ),
+            ),
+        ),
+    ]
 }
 
 pub fn load(discovery: &Discovery, options: &Options) -> Result<Loaded, String> {
@@ -704,7 +820,6 @@ pub fn load_for(
     )?;
     let (mut textures, mut missing) = (BTreeMap::new(), Vec::new());
     let (mut seat_models, mut body_rigs) = (Vec::new(), Vec::new());
-    let mut seat_held = Vec::new();
     for wear in &wears {
         let ja = wear.body.eq_ignore_ascii_case("ja");
         let (mut body_models, found, lost, body_rig): Body = if ja {
@@ -729,23 +844,18 @@ pub fn load_for(
             textures.extend(found);
             missing.extend(lost);
         }
-        seat_models.push(body_models);
-        seat_held.push(held);
+        seat_models.push(SeatModels {
+            models: body_models,
+            weapons: held,
+        });
         body_rigs.extend(body_rig);
     }
     crate::launch_times::record("bodies", bodies_started.elapsed().as_secs_f64() * 1000.0);
-    // Every seat's models must line up (`compose`: seat `s` at `first + s
-    // × stride`, the weapons at the same places).
-    let stride = seat_models.first().map_or(0, Vec::len);
-    let held = seat_held.first().copied().unwrap_or([None, None]);
-    if seat_models.iter().any(|models| models.len() != stride)
-        || seat_held.iter().any(|seat| *seat != held)
-    {
-        return Err(
-            "--body: the seats' bodies differ in their models or weapon hands (ja \
-             and KOTOR bodies do not mix)"
-                .to_string(),
-        );
+    // The seats take the KOTOR bodies' rigs in turn
+    // (`PlayViewSetup::body_rigs`); JA's own model has none.
+    let ja = |wear: &Wear| wear.body.eq_ignore_ascii_case("ja");
+    if wears.iter().any(ja) && !wears.iter().all(ja) {
+        return Err("--body: ja and KOTOR bodies do not mix".to_string());
     }
     textures.extend(blade_textures.clone());
     missing.extend(lost_blade_textures);
@@ -777,7 +887,6 @@ pub fn load_for(
     let label: Vec<&str> = wears.iter().map(|wear| wear.body.as_str()).collect();
     let body = BodyScene {
         models: seat_models,
-        weapons: held,
         seats,
         textures,
         missing,
@@ -795,7 +904,7 @@ pub fn load_for(
         weapons: weapon_models,
         named: !options.bodies.is_empty(),
     };
-    let (scene, body_index) = compose(
+    let (scene, bodies) = compose(
         stage.scene.take().map(|scene| *scene),
         &body,
         stage.model.as_ref(),
@@ -839,8 +948,7 @@ pub fn load_for(
         seat: sim::Seat(options.seat),
     };
     let view = PlayViewSetup {
-        body: body_index,
-        stride,
+        bodies,
         seats,
         rig,
         body_rigs,
@@ -1086,9 +1194,6 @@ pub(crate) struct Dressed {
     pub acted: Vec<(u16, Arc<asset_odyssey::anim::AnimationIr>)>,
 }
 
-/// A dressed KOTOR body's models: the body, its head and its headgear.
-const SEAT_MODELS: usize = 3;
-
 /// `wear`'s body (in its texture) standing at `at`, dressed.
 pub(crate) fn dress(
     resolver: &Resolver,
@@ -1123,15 +1228,6 @@ pub(crate) fn dress(
         },
     ];
     let absent = viewer::hang_headgear(cache, resolver, &mut models, 1, wear.headgear.as_deref())?;
-    // A bare head keeps the headgear's place, empty: every seat's body is
-    // as many models, its weapons at the same places (`compose`), whoever
-    // wears a mask.
-    if models.len() < SEAT_MODELS {
-        models.push(Placed::at(
-            crate::course::model_of("headgear", Vec::new()),
-            at,
-        ));
-    }
     let (textures, mut missing) = viewer::textures(resolver, models.iter());
     missing.extend(absent.map(|name| format!("{name}.mdl")));
     Ok(Dressed {

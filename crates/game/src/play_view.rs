@@ -100,10 +100,8 @@ pub enum CameraMode {
 /// What the view draws with: the JA skeleton and its sequences, the play
 /// body and its retargeting, and the level to keep the camera out of.
 pub struct PlayViewSetup {
-    /// The first seat's body's index among the scene's models; each seat
-    /// has one, `stride` models (body and head) after the last.
-    pub body: usize,
-    pub stride: usize,
+    /// Each seat's body's index among the scene's models.
+    pub bodies: Vec<usize>,
     pub seats: u8,
     pub rig: Rig,
     /// Each seat's body lined up with JA's skeleton (the seats take them in
@@ -488,8 +486,7 @@ pub fn install(app: &mut World, setup: PlayViewSetup) {
             cast: Cast::new(
                 setup.rig,
                 cast::Bodies {
-                    first: setup.body,
-                    stride: setup.stride,
+                    at: setup.bodies,
                     seats: setup.seats,
                     dressed: BTreeMap::new(),
                 },
@@ -806,7 +803,7 @@ impl View {
     /// retire.
     fn reset(&mut self, swap: &SceneSwap, commands: &mut Commands) -> Vec<usize> {
         self.generation = swap.generation;
-        let retired = self.cast.reset(swap.body, !swap.scene, commands);
+        let retired = self.cast.reset(swap.body.as_deref(), !swap.scene, commands);
         self.level = swap.level.clone();
         self.history.clear();
         self.followed = None;

@@ -264,10 +264,13 @@ fn spawn(
             .entry(name.clone())
             .or_insert_with(|| texture.clone());
     }
-    // As a scene composes a seat: the weapons in the new body's hands.
-    crate::play::hang(&mut models, &setup.weapons, None);
+    // As a scene composes a seat: the weapons in the new body's hands,
+    // where its own models put them.
+    let weapons = crate::play::hang(&mut models, &setup.weapons, None);
     let mut dressed = setup.dressed.lock().unwrap_or_else(PoisonError::into_inner);
-    dressed.models.insert(seat, models);
+    dressed
+        .models
+        .insert(seat, crate::play::SeatModels { models, weapons });
     dressed.textures.extend(textures);
     if let Some(now) = dressed.wears.get_mut(usize::from(seat)) {
         *now = wear.clone();

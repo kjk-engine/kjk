@@ -516,8 +516,8 @@ pub(crate) fn advance(
                 if let Some(scene) = prepared.scene {
                     let scene = match joined.lifecycle.as_ref().and_then(|l| l.body.clone()) {
                         Some(parts) => {
-                            let (scene, index) = crate::play::compose(Some(scene), &parts, None);
-                            body = Some(index);
+                            let (scene, bodies) = crate::play::compose(Some(scene), &parts, None);
+                            body = Some(bodies);
                             scene
                         }
                         None => scene,
