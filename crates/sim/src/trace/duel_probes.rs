@@ -6,7 +6,7 @@
 //! the normal difficulty's guard); the meters refill and the mishaps fall,
 //! the Force slower with block held; a creature blocks of itself; a player
 //! turns bolts only holding block; a kick floors one not absorbing it; a
-//! worn staff breaks; two swings meeting lock; and under JA the block and
+//! creature's worn staff breaks, a player's never wears; two swings meeting lock; and under JA the block and
 //! kick keys change nothing.
 
 use super::duels::play;
@@ -302,19 +302,43 @@ fn kicked() -> Result<String, String> {
     )
 }
 
-/// A strong-style attacker against a staff held in block, already worn
-/// to 90 (MDA): the hilt wears through and breaks, and fights on with one
-/// blade.
+/// The most a blocker's hilt wore over `ticks`, how often it parried, and
+/// the tick it broke.
+fn wore(ticks: &[Fighter]) -> (u16, usize, Option<usize>) {
+    let worn = ticks.iter().map(|f| f.saber.duel.wear).max().unwrap_or(0);
+    let broke = ticks.iter().position(|f| f.saber.duel.broken);
+    (worn, count_events(ticks, Outcome::Parried), broke)
+}
+
+/// A strong-style attacker against a creature's staff already worn to 90
+/// (MDA): the hilt wears through and breaks, and fights on with one blade.
 fn staff_breaks() -> Result<String, String> {
-    let then = "duel 1 wear=90\ntick 3000 b0=attack h1=block";
-    let blocker = fighters(&play(&duel_of("mda", ["strong", "staff"], "", then))?, 1);
-    let worn = blocker.iter().map(|f| f.saber.duel.wear).max().unwrap_or(0);
-    let broke = blocker.iter().position(|f| f.saber.duel.broken);
+    let text = "scenario probe\nrules mda\nseed 7\n\
+                fighter 0 strong x=0 defence=2 tiers=2 fp=100 hp=400\n\
+                creature staff x=45 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
+                begin\nduel c0 wear=90\ntick 3000 b0=attack c0=0\n";
+    let them: Vec<Fighter> = play(text)?.iter().filter_map(creature).collect();
+    let (worn, parried, broke) = wore(&them);
     check(
         broke.is_some(),
         format!(
-            "mda: the staff wears from 90 to {worn}, breaking at tick {}",
+            "mda: the creature's staff wears from 90 to {worn} over {parried} parries, breaking at tick {}",
             broke.map_or("never".into(), |at| at.to_string())
+        ),
+    )
+}
+
+/// The same against a player's staff held in block: a player's hilt never
+/// wears (`duel.wear.who`, creatures' only).
+fn player_staff_holds() -> Result<String, String> {
+    let then = "duel 1 wear=90\ntick 3000 b0=attack h1=block";
+    let blocker = fighters(&play(&duel_of("mda", ["strong", "staff"], "", then))?, 1);
+    let (worn, parried, broke) = wore(&blocker);
+    check(
+        parried > 0 && worn == 90 && broke.is_none(),
+        format!(
+            "mda: the player's staff parries {parried} times and stays at {worn}, broken {}",
+            broke.is_some()
         ),
     )
 }
@@ -388,6 +412,7 @@ pub fn probes() -> Checks {
         ("bolts_need_block", bolts()),
         ("kick_floors", kicked()),
         ("staff_breaks", staff_breaks()),
+        ("player_staff_holds", player_staff_holds()),
         ("locks_md", locks("md")),
         ("locks_mda", locks("mda")),
         ("ja_unchanged", ja_still()),

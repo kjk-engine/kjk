@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `daf1be3f2aa19744`.
+Edition `2fe8bb76216a78b4`.
 
 ## Contents
 
@@ -10533,13 +10533,13 @@ A lock's loser can do nothing for its loss and 500 ms more.
 
 ### <a id="duel-wear"></a>Saber Wear
 
-Blocks wear a double-bladed lightsaber's hilt; worn through, it breaks and fights on with one blade.
+Blocks wear a creature's double-bladed lightsaber; worn through, it breaks and fights on with one blade. A player's never wears.
 
-<a id="duel-wear-who"></a>**Saber Wear** = **2** · `duel.wear.who`
+<a id="duel-wear-who"></a>**Saber Wear** = **1** · `duel.wear.who`
 
-Whose sabers wear (2): 0 nobody's, 1 creatures', 2 everyone's.
+Whose sabers wear (1): 0 nobody's, 1 creatures', 2 everyone's.
 
-<sub>Source: docs/SABER-RULES.md 9.1 (everyone by default). Code: `sim::combat::saber::duel::meter::wear`.</sub>
+<sub>Source: docs/SABER-RULES.md 9.1 (everyone by default); kjk wears creatures' only, as a player's hilt has no repair. Code: `sim::combat::saber::duel::meter::wear`.</sub>
 
 <a id="duel-wear-gains"></a>**Wear by Blow** = **4 / 2 / 1** · `duel.wear.gains`
 

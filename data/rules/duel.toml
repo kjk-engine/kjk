@@ -1262,15 +1262,15 @@ see = "sim::world::sabers"
 
 [wear]
 title = "Saber Wear"
-summary = "Blocks wear a double-bladed lightsaber's hilt; worn through, it breaks and fights on with one blade."
+summary = "Blocks wear a creature's double-bladed lightsaber; worn through, it breaks and fights on with one blade. A player's never wears."
 
 [wear.who]
 name = "Saber Wear"
 type = "u8"
-value = 2
+value = 1
 range = [0, 2]
 summary = "Whose sabers wear ({duel.wear.who}): 0 nobody's, 1 creatures', 2 everyone's."
-source = "docs/SABER-RULES.md 9.1 (everyone by default)"
+source = "docs/SABER-RULES.md 9.1 (everyone by default); kjk wears creatures' only, as a player's hilt has no repair"
 see = "sim::combat::saber::duel::meter::wear"
 
 [wear.gains]
