@@ -1,9 +1,0 @@
-# The sim's hash moves on purpose (beyond the snapshot bump): why.
-sim = "the snapshot names TSL's puppets in the party, and the map page's return to the Ebon Hawk runs k_sup_gohawk"
-
-[formats]
-snapshot = "the tail names TSL's puppets in the party (`puppets`), which follow the first seat but are no member the HUD lists or the leader key picks; the map page's return button carries why a return to the Ebon Hawk is refused (`Transit::refused`)."
-replay = "a player may return to the Ebon Hawk from the map page (`Action::ReturnToShip`, code 60)."
-
-[migrations]
-snapshot = "old saves read no puppets and no refusal: the next step finds both again"
