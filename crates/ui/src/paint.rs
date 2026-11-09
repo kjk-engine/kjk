@@ -204,6 +204,9 @@ pub struct ControlState {
     pub list: Option<ListView>,
     /// A 3D view over the control's fill (the game renders it).
     pub scene: Option<crate::vm::SceneView>,
+    /// The 3D view reaches the window's sides past the layout's, at the
+    /// layout's scale (the main menu's smoke and mist across a wide window).
+    pub wide: bool,
     /// A colour in place of the layout's: its text's, its border's, a
     /// bar's fill.
     pub tint: Option<[f32; 3]>,
@@ -697,6 +700,9 @@ impl<'a> Painter<'a> {
                 texture,
                 ..Quad::solid(rect, [1.0; 4])
             });
+            if state.wide {
+                out.wide.push(texture);
+            }
         }
         match control.kind {
             Kind::ListBox => self.list(control, state, out),

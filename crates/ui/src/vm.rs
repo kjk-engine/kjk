@@ -14,6 +14,8 @@ pub struct SessionView {
     pub error: Option<String>,
     /// The build ("kjk v0.1.0 (ab12cd34)"), in the main menu's corner.
     pub version: String,
+    /// The game whose data the screens read (none: no screens).
+    pub campaign: Option<vfs::Game>,
 }
 
 /// An action a key does, and the key it is on.

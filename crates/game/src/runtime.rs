@@ -315,7 +315,16 @@ fn screen_assets() -> Result<GuiAssets, String> {
         .take();
     match opening.map(JoinHandle::join) {
         Some(Ok(opened)) => opened,
-        _ => campaign_screens(vfs::Game::Kotor1).or_else(|_| campaign_screens(vfs::Game::Kotor2)),
+        // The main menu in the newest save's game (`menu_figure`), else
+        // KOTOR 1's.
+        _ => {
+            let first = crate::menu_figure::newest_campaign().unwrap_or(vfs::Game::Kotor1);
+            let other = match first {
+                vfs::Game::Kotor2 => vfs::Game::Kotor1,
+                _ => vfs::Game::Kotor2,
+            };
+            campaign_screens(first).or_else(|_| campaign_screens(other))
+        }
     }
 }
 
@@ -334,6 +343,7 @@ pub fn set_campaign(ui: &mut crate::ui_view::Ui, campaign: vfs::Game) {
             info!(target: "ui", campaign = campaign.key(), "the screens read its data");
             assets.set_campaign(campaign, index, base);
             ui.vm.chargen = None;
+            ui.vm.session.campaign = Some(campaign);
         }
         Err(why) => warn!(target: "ui", campaign = campaign.key(), %why, "the screens stay"),
     }
