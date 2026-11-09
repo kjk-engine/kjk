@@ -147,6 +147,7 @@ pub(crate) fn action(game: GameAction) -> Option<Action> {
         GameAction::ShowParty => Action::ShowParty,
         GameAction::ScreenOpened => Action::ScreenOpened,
         GameAction::SubScreen(page) => Action::SubScreen(page),
+        GameAction::ReturnToShip => Action::ReturnToShip,
         GameAction::Travel(planet) => Action::Travel(planet),
         GameAction::Break => Action::Break,
         GameAction::Resume => Action::Resume,
@@ -312,7 +313,7 @@ fn show(
     let catalog = swap.level.scripts().map(|library| library.items());
     let most = |template: &str| {
         catalog
-            .and_then(|catalog| catalog.get(template))
+            .and_then(|catalog| snapshot.goods.facts(catalog, template))
             .map_or(1, |facts| facts.stacking)
     };
     // What the party may give (KOTOR's give mode lists the party's items but

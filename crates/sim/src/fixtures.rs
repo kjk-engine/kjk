@@ -133,6 +133,12 @@ fn fill(save: &mut Save, ground: &Level) {
     });
     snapshot.leading = snapshot.entities.first().map(|entity| entity.id);
     snapshot.solo = true;
+    snapshot.puppets = snapshot
+        .entities
+        .last()
+        .map(|entity| entity.id)
+        .into_iter()
+        .collect();
     snapshot.personas.push(crate::persona::Persona {
         seat: crate::Seat(0),
         appearance: 91,
@@ -359,6 +365,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         screens: _,
         remotes: _,
         standing: _,
+        puppets: _,
         shared: _,
         authority: _,
         next_id: _,
@@ -367,8 +374,8 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         tick, time_ms, place, entities, transition, stash, area_sound, fade,
         world_fade_in, video_effect, talk, goods, spawned, roster, progress, personas,
         seats_held, lost, in_combat, paused_by, ready, kept, leading, solo, minigame,
-        pazaak, explored, visuals, departing, screens, remotes, standing, shared,
-        authority, next_id,
+        pazaak, explored, visuals, departing, screens, remotes, standing, puppets,
+        shared, authority, next_id,
     );
     let State {
         numbers: _,

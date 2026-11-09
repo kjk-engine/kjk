@@ -1268,6 +1268,11 @@ pub struct Snapshot {
     /// alike. The scripts' state is the save's truth; this is made again
     /// each step.
     pub standing: crate::module::Adjustments,
+    /// TSL's puppets in the party (`script::party::Party::puppet_creatures`:
+    /// Bao-Dur's remote), by body: they follow the first seat but are no
+    /// party member it lists or leads (`follows`). Made each step from the
+    /// scripts' party table.
+    pub puppets: Vec<SimId>,
     pub(crate) shared: SimRng,
     pub(crate) authority: SimRng,
     pub(crate) next_id: u32,
@@ -1415,6 +1420,50 @@ impl Snapshot {
     /// companion leads is.
     pub fn in_party(&self, entity: &EntityState) -> bool {
         crate::world::party_member(entity) && !self.benched(entity)
+    }
+
+    /// Why the map page's return to the Ebon Hawk is refused now, as K1's
+    /// executable checks it each time the page shows (`Transit::refused`):
+    /// the area keeps the party from leaving (`barred`: its transit
+    /// disabled, or the area unescapable), a party member stands farther
+    /// from the leader than the rule, or a foe is near (`in_combat`, the
+    /// executable's hostile creature that sees a party member [verify]); 0
+    /// for none.
+    pub fn transit_refusal(&self, barred: bool) -> u32 {
+        use rules::party::return_to_ship::TOGETHER_M;
+        let leader = self.body(crate::world::LEADER_SEAT);
+        let apart = leader.is_some_and(|leader| {
+            self.entities
+                .iter()
+                .filter(|entity| self.in_party(entity) && !self.puppets.contains(&entity.id))
+                .any(|entity| {
+                    let d: f32 = (0..3)
+                        .map(|axis| (entity.position[axis] - leader.position[axis]).powi(2))
+                        .sum();
+                    d > TOGETHER_M * TOGETHER_M
+                })
+        });
+        if barred {
+            transit::BARRED
+        } else if apart {
+            transit::APART
+        } else if self.in_combat {
+            transit::FOES
+        } else {
+            0
+        }
+    }
+
+    /// Whether `entity` is a companion following `seat`'s player: one the
+    /// party lists and its leader key or a portrait may make lead. A puppet
+    /// follows too but is none (`puppets`), as TSL's party table keeps its
+    /// puppets apart from its members.
+    pub fn follows(&self, entity: &EntityState, seat: Seat) -> bool {
+        matches!(entity.kind, Kind::Object(..))
+            && entity
+                .fighter
+                .is_some_and(|fighter| fighter.mind.leader == Some(seat))
+            && !self.puppets.contains(&entity.id)
     }
 
     /// The template of what character `holder` wears in `slot`
@@ -1819,6 +1868,10 @@ impl Snapshot {
             out.u8(b);
             out.u16(by as u16);
         }
+        out.u8(u8::try_from(self.puppets.len()).expect("fewer than 256 puppets"));
+        for puppet in &self.puppets {
+            out.u32(puppet.0);
+        }
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -1980,6 +2033,14 @@ impl Snapshot {
                 standing.insert((a, b), by);
             }
         }
+        // Older snapshots carried none: the next step makes them again from
+        // the scripts' party table.
+        let mut puppets: Vec<SimId> = Vec::new();
+        if input.since(crate::since::snapshot::BR9_PARTY) {
+            for _ in 0..input.u8()? {
+                puppets.push(SimId(input.u32()?));
+            }
+        }
         let stash = match stash {
             Some(stash) => stash.clone(),
             None => Stash::read(&mut input)?,
@@ -2025,6 +2086,7 @@ impl Snapshot {
             screens,
             remotes,
             standing,
+            puppets,
             shared,
             authority,
             next_id,
@@ -2130,14 +2192,25 @@ pub mod cannot_equip {
 
 /// The map page's return button as the scripts leave it: whether it may
 /// show (`SetReturnStrref`'s `bShow`), its label and its confirm box's
-/// question (strrefs; 0 none), and whether the area keeps the party from
-/// leaving (`SetDisableTransit`, the ARE's `DisableTransit`).
+/// question (strrefs; 0 none), whether the area keeps the party from
+/// leaving (`SetDisableTransit`, the ARE's `DisableTransit`), and why the
+/// step found a return refused (`Snapshot::transit_refusal`; 0 none).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Transit {
     pub show: bool,
     pub label: u32,
     pub query: u32,
     pub disabled: bool,
+    pub refused: u32,
+}
+
+/// K1's map page's refusals of the return to the Ebon Hawk (talk-table
+/// strrefs): the area keeps the party here, the party is apart, foes are
+/// near.
+pub mod transit {
+    pub const BARRED: u32 = 38451;
+    pub const APART: u32 = 38452;
+    pub const FOES: u32 = 38462;
 }
 
 impl Screens {
@@ -2147,6 +2220,7 @@ impl Screens {
             label,
             query,
             disabled,
+            refused,
         } = self.transit;
         out.u8(u8::from(self.map_disabled)
             | u8::from(show) << 1
@@ -2154,6 +2228,7 @@ impl Screens {
             | u8::from(self.bao_dur_met) << 3);
         out.u32(label);
         out.u32(query);
+        out.u32(refused);
     }
 
     fn decode(input: &mut Reader) -> Result<Screens, DecodeError> {
@@ -2170,6 +2245,11 @@ impl Screens {
                 disabled: flags & 4 != 0,
                 label: input.u32()?,
                 query: input.u32()?,
+                // Older snapshots carried none: the next step finds it again.
+                refused: match input.since(crate::since::snapshot::BR9_PARTY) {
+                    true => input.u32()?,
+                    false => 0,
+                },
             },
         })
     }

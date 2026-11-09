@@ -1877,13 +1877,14 @@ impl Checker<'_> {
         // punched). A slot holding its template's own stack (a template
         // equips an item of `StackSize` 5) is the game's data, a note.
         let catalog = self.library.items().clone();
-        for item in world.script_state().items.values() {
+        let state = world.script_state();
+        for item in state.items.values() {
             if item.slot.is_none() || item.stack <= 1 {
                 continue;
             }
             let who = self.name(item.holder);
             let detail = format!("{who}: {} x{}", item.template, item.stack);
-            let own = catalog.get(&item.template).map_or(1, |facts| facts.stack);
+            let own = state.item_facts(&catalog, &item.template).map_or(1, |facts| facts.stack);
             match item.stack > own {
                 true => self.fail(5, "a carried stack is worn in one slot", &Where::out_of_line(), detail),
                 false => self.note(5, "a template wears its item's own stack", &Where::out_of_line(), detail),

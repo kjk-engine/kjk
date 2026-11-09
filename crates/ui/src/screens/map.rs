@@ -11,10 +11,13 @@
 use fmt_odyssey::gui::{Control, Gui};
 
 use crate::draw::{Quad, TextureId, Textures};
-use crate::intent::Intent;
+use crate::intent::{GameAction, Intent};
 use crate::paint::{ControlState, Painter, rect_of};
-use crate::screens::tab::{Page, disabled, enabled, hidden, image};
+use crate::screen::{Screen, ScreenId};
+use crate::screens::message::Message;
+use crate::screens::tab::{Page, disabled, enabled, hidden, image, text};
 use crate::skin::Source;
+use crate::strings;
 use crate::vm::{FogView, MapNoteView, MapView, ViewModel};
 
 /// A note's mark, and the chosen one's (layout pixels square).
@@ -225,18 +228,34 @@ impl Page for Map {
             },
             "BTN_UP" | "BTN_DOWN" => enabled(notes.len() > 1),
             // Labelled as the scripts set it (`SetReturnStrref`), or hidden
-            // where they turned it off; still greyed: no return to the
-            // Ebon Hawk yet.
+            // where they turned it off; greyed while the return is refused,
+            // as K1's map page colours it, a press then saying why.
             "BTN_RETURN" if vm.map.as_ref().is_some_and(|map| map.return_hidden) => hidden(),
-            "BTN_RETURN" => ControlState {
-                strref: vm.map.as_ref().and_then(|map| map.return_button),
-                ..disabled()
+            "BTN_RETURN" => match vm
+                .map
+                .as_ref()
+                .and_then(|map| Some((map.return_button?, map)))
+            {
+                Some((label, map)) => ControlState {
+                    strref: Some(label),
+                    greyed: map.return_refused != 0,
+                    ..ControlState::default()
+                },
+                None => disabled(),
             },
             _ => ControlState::default(),
         }
     }
 
-    fn press(&mut self, tag: &str, vm: &ViewModel, _: &mut Vec<Intent>) {
+    fn press(&mut self, tag: &str, vm: &ViewModel, out: &mut Vec<Intent>) {
+        if tag == "BTN_RETURN" {
+            let shown = vm
+                .map
+                .as_ref()
+                .filter(|map| map.return_button.is_some() && !map.return_hidden);
+            out.extend(shown.map(returning));
+            return;
+        }
         let count = vm.map.as_ref().map_or(0, |map| map.notes.len()).max(1);
         let chosen = self.chosen(count);
         self.chosen = match tag {
@@ -279,5 +298,66 @@ impl Page for Map {
         if let Some((n, _)) = nearest {
             self.chosen = n;
         }
+    }
+}
+
+/// The return button pressed: why the return is refused, in a message box,
+/// else its question (`ReturnConfirm`), as K1's map page asks it.
+fn returning(map: &MapView) -> Intent {
+    match map.return_refused {
+        0 => Intent::OpenFor(RETURN_CONFIRM, map.return_query.to_string()),
+        why => Intent::OpenFor("message_box", why.to_string()),
+    }
+}
+
+const RETURN_CONFIRM: &str = "return_confirm";
+
+/// The map page's question before the party returns to the Ebon Hawk
+/// (`confirm`, the strref `SetReturnStrref` gave): OK goes, the in-game
+/// screens closing, Cancel goes back to the map.
+pub struct ReturnConfirm {
+    asked: Message,
+}
+
+impl ReturnConfirm {
+    pub fn new(query: &str) -> Option<ReturnConfirm> {
+        Some(ReturnConfirm {
+            asked: Message::strref(query.parse().ok()?, Vec::new()),
+        })
+    }
+}
+
+impl Screen for ReturnConfirm {
+    fn id(&self) -> ScreenId {
+        ScreenId(RETURN_CONFIRM)
+    }
+
+    fn layout(&self) -> &str {
+        "confirm"
+    }
+
+    fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
+        match control.tag.as_str() {
+            "LB_MESSAGE" => self.asked.state(control, vm),
+            "BTN_OK" => text(strings::OK),
+            "BTN_CANCEL" => text(strings::CANCEL),
+            _ => ControlState::default(),
+        }
+    }
+
+    fn press(&mut self, tag: &str, _: &ViewModel, out: &mut Vec<Intent>) {
+        match tag {
+            "BTN_OK" => out.extend([Intent::Game(GameAction::ReturnToShip), Intent::CloseAll]),
+            "BTN_CANCEL" => out.push(Intent::Close),
+            _ => {}
+        }
+    }
+
+    fn first_focus(&self) -> Option<&str> {
+        Some("BTN_CANCEL")
+    }
+
+    fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
+        self.asked.fit(gui, textures, source);
     }
 }

@@ -440,6 +440,20 @@ impl ItemSpell {
     }
 }
 
+/// The facts of an item in play of template `template`: the module's
+/// `catalog`'s, else those `known` keeps from the module the item came from
+/// (a module's own template, carried out of it: `State::known`). Every
+/// reader of an item in play looks it up so; a template asked of the
+/// install (a store's stock, a script's `CreateItemOnObject`) asks the
+/// catalog alone.
+pub fn facts_in_play<'a>(
+    catalog: &'a Catalog,
+    known: &'a BTreeMap<String, ItemFacts>,
+    template: &str,
+) -> Option<&'a ItemFacts> {
+    catalog.get(template).or_else(|| known.get(template))
+}
+
 /// The item templates scripts may make, by lowercase resref: every one the
 /// game has where the install lists them, else those its module's objects
 /// carry and its scripts name. A module's own (`own_template`) is found by
@@ -681,6 +695,10 @@ pub struct Goods {
     /// What `ChangeItemCost` multiplied the values of a base item's items by
     /// (`baseitems.2da` row, multiplier), in row order; the rest are 1.
     pub costs: Vec<(u16, f32)>,
+    /// The facts of the items in play the module's catalog lacks, by
+    /// template (`State::known`): every seat reads an item carried out of
+    /// its module as the authority does (`Goods::facts`).
+    pub known: BTreeMap<String, ItemFacts>,
 }
 
 /// Where an item lies on an area's floor (`CreateItemOnFloor`): metres,
@@ -714,6 +732,12 @@ impl Goods {
             .iter()
             .filter(move |(_, item)| item.holder == holder && item.slot.is_none())
             .map(|(id, item)| (*id, item))
+    }
+
+    /// The facts of item template `template` in play, `catalog` being the
+    /// module's (`facts_in_play`).
+    pub fn facts<'a>(&'a self, catalog: &'a Catalog, template: &str) -> Option<&'a ItemFacts> {
+        facts_in_play(catalog, &self.known, template)
     }
 
     /// The trade player `player` has under way.
@@ -754,6 +778,10 @@ impl Goods {
         for (row, multiplier) in &self.costs {
             out.u16(*row);
             out.f32(*multiplier);
+        }
+        out.u32(self.known.len() as u32);
+        for facts in self.known.values() {
+            crate::pack::encode_item(facts, out);
         }
     }
 
@@ -797,12 +825,27 @@ impl Goods {
                 costs.push((row, input.f32()?));
             }
         }
+        let mut known = BTreeMap::new();
+        if input.since(crate::since::snapshot::BR9_KNOWN) {
+            for _ in 0..input.u32()? {
+                let at = input.at();
+                let facts = crate::pack::decode_item(input)?;
+                if known
+                    .last_key_value()
+                    .is_some_and(|(last, _)| *last >= facts.template)
+                {
+                    return Err(input.invalid("goods known order", at));
+                }
+                known.insert(facts.template.clone(), facts);
+            }
+        }
         Ok(Goods {
             gold,
             items,
             trades,
             floor,
             costs,
+            known,
         })
     }
 }

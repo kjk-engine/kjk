@@ -621,6 +621,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 let mut made = sim::walk::MadeWalls::default();
                 // A travel picked (met the step after, its notice sent).
                 let mut travelled = false;
+                // The map's return: opened (its screen script asked), then
+                // pressed.
+                let mut returning = 0u8;
                 // An `exit` taken out by another way than its own (`takes`):
                 // that way and where it led.
                 let mut astray: Option<String> = None;
@@ -1165,6 +1168,32 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             }
                         }
                         Goal::Solo(on) => met = world.script_state().party.solo == *on,
+                        // The map opened (its screen script labels the
+                        // button), then pressed and answered yes as its page
+                        // allows (`Transit::refused`); met once asked.
+                        Goal::ReturnToShip if talking.is_none() => {
+                            let transit = last.screens.transit;
+                            match returning {
+                                0 => {
+                                    acts.push(Action::ScreenOpened);
+                                    returning = 1;
+                                }
+                                1 if transit.label == 0 => {}
+                                1 if !transit.show || transit.refused != 0 => {
+                                    held = vec![format!(
+                                        "the map's return is refused (shown {}, refused {})",
+                                        transit.show, transit.refused
+                                    )];
+                                    break;
+                                }
+                                1 => {
+                                    acts.push(Action::ReturnToShip);
+                                    returning = 2;
+                                }
+                                _ => met = true,
+                            }
+                        }
+                        Goal::ReturnToShip => {}
                         // Pressed once out of a conversation (as the HUD's
                         // stealth button is), held a step; not met a second
                         // later, refused (the game's line is in the

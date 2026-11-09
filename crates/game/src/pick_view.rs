@@ -341,7 +341,7 @@ pub fn kinds(
             .iter()
             .filter(|(_, item)| item.holder == PARTY || item.holder == body.0)
             .filter_map(|(_, item)| {
-                let facts = catalog.get(&item.template)?;
+                let facts = snapshot.goods.facts(catalog, &item.template)?;
                 facts.ready(item.slot.is_some()).then_some((
                     item.uses(facts),
                     facts,

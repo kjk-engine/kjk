@@ -253,19 +253,31 @@ pub fn in_sight(level: &Level, states: Option<&[u8]>, from: Vec3, to: Vec3, inde
     crate::world::unobstructed(&trace) || trace.entity == Some(index)
 }
 
+/// `in_sight`, or the line gets within `SIGHT_SLACK` of `to`: a point on or
+/// just inside the object's own body, the bench it stands on or the wall it
+/// is fixed to does not hide it, while a wall in front still does. The
+/// crosshair picks by it (`seen`), and a use goes by it (`uses::may_use`),
+/// so what the crosshair offers to use is used: the Ebon Hawk's lift
+/// controls, flush with the wall, were offered and never used (issue 237).
+pub fn in_sight_near(
+    level: &Level,
+    states: Option<&[u8]>,
+    from: Vec3,
+    to: Vec3,
+    index: u32,
+) -> bool {
+    let trace = level.line(states, from, to);
+    crate::world::unobstructed(&trace)
+        || trace.entity == Some(index)
+        || (!trace.start_solid && math::length(math::sub(to, trace.end)) <= SIGHT_SLACK)
+}
+
 /// Whether `candidate` is in sight of `from` (metres) for the crosshair: the
-/// line to its middle or its top gets within `SIGHT_SLACK` of it, so that
-/// a point on or just inside the object's own body, or on the bench it
-/// stands on, does not hide it (Peragus' consoles), while a wall in front
-/// still does.
+/// line to its middle or its top (`in_sight_near`, Peragus' consoles).
 fn seen(level: &Level, states: Option<&[u8]>, from: Vec3, candidate: &Candidate) -> bool {
-    [0.5, 1.0].into_iter().any(|share| {
-        let to = candidate.up(share);
-        let trace = level.line(states, from, to);
-        crate::world::unobstructed(&trace)
-            || trace.entity == Some(candidate.index)
-            || (!trace.start_solid && math::length(math::sub(to, trace.end)) <= SIGHT_SLACK)
-    })
+    [0.5, 1.0]
+        .into_iter()
+        .any(|share| in_sight_near(level, states, from, candidate.up(share), candidate.index))
 }
 
 /// Where along `look` (metres from its start) it enters `candidate`'s

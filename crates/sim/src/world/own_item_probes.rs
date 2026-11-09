@@ -14,6 +14,10 @@
 //!   vibroblade, unmarked `Dropable` on her template, may still come back
 //!   out of a container), joining the party's stacks; what it wears stays
 //!   on it.
+//! - A module's own wearable carried out of it (TSL's Peragus clothes on
+//!   Telos): the sim puts it on, and every seat's goods (`Goods::facts`, as
+//!   the equip page and the walkthrough harness read them) know its slots,
+//!   through the wire too, though the module entered has no template of it.
 
 use crate::inventory::{
     Catalog, ItemFacts, PARTY, module_of, names, own_template, resref_of, slots,
@@ -68,6 +72,8 @@ pub fn probes() -> Checks {
     let mut checks = Checks::new();
     let spaceport = catalog(TARIS_SPACEPORT, "tar_calojournal");
     let base = catalog(SITH_BASE, "tar09_techlog");
+
+    checks.push(carried_out());
 
     let found = spaceport.get(DATAPAD).map(|facts| facts.template.clone());
     let own = found.as_deref().unwrap_or("");
@@ -145,4 +151,64 @@ pub fn probes() -> Checks {
         ),
     ));
     checks
+}
+
+/// A module's own body item carried out of it, worn in the next module.
+fn carried_out() -> (&'static str, Result<String, String>) {
+    let mut clothes = item(&own_template("fore01", TARIS_SPACEPORT), "fore01", 1);
+    clothes.slots = 1 << slots::BODY;
+    let spaceport = catalog(TARIS_SPACEPORT, "tar_calojournal").with(Catalog::new([clothes]));
+    let base = catalog(SITH_BASE, "tar09_techlog");
+    let mut state = State::default();
+    let made = state.make_item(&spaceport, "fore01", PARTY, 1, None);
+    state.carry_known(&spaceport, &base);
+    let id = made.map_or(0, |id| id.0);
+    let template = state
+        .items
+        .get(&id)
+        .map_or_else(String::new, |item| item.template.clone());
+    let goods = state.goods(&[], [], &[], SITH_BASE);
+    let mut out = crate::wire::Writer::default();
+    goods.encode(&mut out);
+    let wired = crate::inventory::Goods::decode(&mut crate::wire::Reader::new("goods", &out.0));
+    let slots_of = |goods: &crate::inventory::Goods| {
+        goods.facts(&base, &template).map_or(0, |facts| facts.slots)
+    };
+    let seen = [slots_of(&goods), wired.as_ref().map_or(0, slots_of)];
+    let wearer = crate::inventory::properties::Wearer {
+        good_evil: crate::combat::sheet::NEUTRAL,
+        classes: [0, u8::MAX],
+        race: crate::combat::sheet::races::HUMAN,
+        subrace: 0,
+        feats: Default::default(),
+        gender: 0,
+        abilities: [10; 6],
+        player: true,
+        tag: String::new(),
+        tsl: true,
+        locked: 0,
+    };
+    let put_on = crate::action::Action::Equip {
+        item: id,
+        slot: slots::BODY,
+    };
+    let worn = state.wear(
+        &base,
+        &mut crate::script::Out::default(),
+        (1, &wearer),
+        put_on,
+    );
+    let slot = state.items.get(&id).and_then(|item| item.slot);
+    (
+        "a module's own wearable carried out of it: worn, and every seat's goods know its slots",
+        check(
+            base.get(&template).is_none()
+                && seen == [1 << slots::BODY; 2]
+                && worn.is_ok()
+                && slot == Some(slots::BODY),
+            format!(
+                "{template}: the goods' slots {seen:?} (sent and read back), worn {worn:?} in {slot:?}"
+            ),
+        ),
+    )
 }

@@ -405,8 +405,8 @@ const PREVIEWED: [u8; 3] = [
 /// facts with its upgrades fitted).
 fn previews(sheet: &Sheet, goods: &Goods, me: u32, item: &Item, catalog: &Catalog) -> Vec<Preview> {
     let facts = |item: &Item| {
-        catalog
-            .get(&item.template)
+        goods
+            .facts(catalog, &item.template)
             .map(|facts| facts.fitted(item.upgrades, &item.fitted, catalog))
     };
     let Some(candidate) = facts(item) else {
@@ -496,7 +496,7 @@ fn view(
             // As the sim weighs an equip (`State::wear_with`): the item's
             // facts with its upgrades fitted.
             let facts = catalog.and_then(|catalog| {
-                let facts = catalog.get(&item.template)?;
+                let facts = goods.facts(catalog, &item.template)?;
                 Some(facts.fitted(item.upgrades, &item.fitted, catalog))
             });
             let rules = facts.as_ref().zip(wearer);
@@ -824,10 +824,10 @@ fn upgrade_slots(
     catalog: &Catalog,
     item: &Item,
 ) -> Option<Vec<UpgradeSlot>> {
-    let facts = catalog.get(&item.template)?;
+    let facts = goods.facts(catalog, &item.template)?;
     let carried: Vec<(u32, &sim::inventory::ItemFacts)> = goods
         .carried(PARTY)
-        .filter_map(|(id, held)| Some((id, catalog.get(&held.template)?)))
+        .filter_map(|(id, held)| Some((id, goods.facts(catalog, &held.template)?)))
         .collect();
     let mut slots = Vec::new();
     let recolours =
@@ -1006,7 +1006,7 @@ fn show(
                         .find(|(id, _)| *id == owned.item),
                 )
                 .and_then(|(race, (_, item))| {
-                    let facts = library.items().get(&item.template)?;
+                    let facts = snapshot.goods.facts(library.items(), &item.template)?;
                     (facts.slots == 0)
                         .then(|| sim::script::items::spell_for(library, facts, race, true))
                         .flatten()

@@ -156,6 +156,7 @@ impl State {
                 .iter()
                 .map(|(row, multiplier)| (*row, *multiplier))
                 .collect(),
+            known: self.known.clone(),
         }
     }
 

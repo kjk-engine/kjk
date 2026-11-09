@@ -149,6 +149,9 @@ pub enum GameAction {
     /// The in-game page shown now (`SUBSCREEN_ID_*`, 0 as they close): the
     /// host runs the game's screen-change script (`k_pend_screenchg`).
     SubScreen(u8),
+    /// The map page's return to the Ebon Hawk, its question answered yes:
+    /// the host runs the game's transit script (`k_sup_gohawk`).
+    ReturnToShip,
     /// The galaxy map's Accept: travel to a planet (`planetary.2da` row).
     Travel(u8),
     /// Call a break (P10).

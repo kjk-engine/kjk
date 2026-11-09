@@ -165,6 +165,7 @@ impl SimWorld {
             departing: Vec::new(),
             screens: Default::default(),
             remotes: Vec::new(),
+            puppets: Vec::new(),
             standing: Default::default(),
             shared: SimRng::new(config.seed, 0),
             authority,
@@ -532,14 +533,20 @@ impl SimWorld {
         let script_state = &self.world.resource::<scripts::Scripts>().state;
         let leading = lent(&script_state.party);
         let solo = script_state.party.solo;
+        let puppets = script_state
+            .party
+            .puppet_creatures()
+            .map(|(_, body)| SimId(body))
+            .collect();
         let standing = script_state.reputation.clone();
-        let screens = script_state.screens(
-            self.world
-                .resource::<Static>()
-                .0
-                .module()
-                .map(|module| &**module),
-        );
+        let module = self
+            .world
+            .resource::<Static>()
+            .0
+            .module()
+            .map(|module| &**module);
+        let screens = script_state.screens(module);
+        let barred = script_state.transit_barred(module);
         let in_combat = self.world.resource::<InCombat>().0;
         let party = self.world.resource::<party::PartyState>();
         let (paused_by, ready) = (party.paused_by, party.ready.clone());
@@ -551,7 +558,7 @@ impl SimWorld {
             .into_iter()
             .map(|row| entity_state(row, time_ms))
             .collect();
-        Snapshot {
+        let mut snapshot = Snapshot {
             tick,
             time_ms,
             place,
@@ -583,10 +590,13 @@ impl SimWorld {
             screens,
             remotes: self.world.resource::<remote::Remotes>().0.clone(),
             standing,
+            puppets,
             shared,
             authority,
             next_id,
             seats_held,
-        }
+        };
+        snapshot.screens.transit.refused = snapshot.transit_refusal(barred);
+        snapshot
     }
 }
