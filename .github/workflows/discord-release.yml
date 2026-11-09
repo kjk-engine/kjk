@@ -3,7 +3,8 @@
 # the draft has been looked over. The channel's webhook is the repository
 # secret DISCORD_RELEASES_WEBHOOK; without it (a fork) nothing is posted.
 # The variable DISCORD_RELEASE_ROLE, a role's id, is pinged when set. The
-# message is .github/discord-release.jq.
+# message is .github/discord-release.jq; a pre-release (release.yml run by
+# hand on a branch, or a `v…-rc.1` tag) is announced too, its title marked.
 name: discord release
 
 on:
