@@ -389,6 +389,26 @@ impl Cursor<'_> {
         (0..count).map(|i| self.f32(offset + i * 4)).collect()
     }
 
+    /// `len` floats of a controller from `start` in its node's controller
+    /// data (read from `offset`, `data`). The games load a model whose
+    /// controller rows run past that data's count (a player's TSL refused
+    /// `c_drdprot` here, and with it the Harbinger's crew quarters): they
+    /// index the data from its start without checking the count, so the
+    /// rows read on into the floats the file holds after it, as here.
+    /// `None` only when they run past the file's end.
+    fn controller_floats(
+        &self,
+        data: &[f32],
+        offset: usize,
+        start: usize,
+        len: usize,
+    ) -> Option<Vec<f32>> {
+        match data.get(start..start + len) {
+            Some(within) => Some(within.to_vec()),
+            None => self.f32s(offset + start * 4, len).ok(),
+        }
+    }
+
     /// A count read from the file, capped at how many `each`-byte records
     /// the file has room for: a capacity to reserve, not a promise.
     fn room(&self, count: usize, each: usize) -> usize {
@@ -443,14 +463,14 @@ impl Cursor<'_> {
             } else {
                 usize::from(columns) * if bezier { 3 } else { 1 }
             };
-            let times = data
-                .get(time..time + rows)
-                .ok_or_else(|| unsupported(format!("controller {kind} times outside its data")))?
-                .to_vec();
-            let values = data
-                .get(value..value + rows * per_row)
-                .ok_or_else(|| unsupported(format!("controller {kind} values outside its data")))?
-                .to_vec();
+            let (Some(times), Some(values)) = (
+                self.controller_floats(&data, data_offset, time, rows),
+                self.controller_floats(&data, data_offset, value, rows * per_row),
+            ) else {
+                // Rows past the end of the file: the games would read
+                // whatever memory follows; this controller animates nothing.
+                continue;
+            };
             controllers.push(Controller {
                 kind,
                 columns,
