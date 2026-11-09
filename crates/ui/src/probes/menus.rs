@@ -1356,6 +1356,17 @@ pub(super) fn options() -> Vec<Check> {
             ],
         ),
     );
+    assets.layouts.insert(
+        "optionsmain",
+        root(
+            640,
+            480,
+            vec![
+                linked("BTN_AUTOPAUSE", 0, 100, -1, -1),
+                linked("BTN_BACK", 1, 400, -1, -1),
+            ],
+        ),
+    );
     keymap_layouts(&mut assets);
     let vm = ViewModel {
         settings: [
@@ -1405,6 +1416,11 @@ pub(super) fn options() -> Vec<Check> {
         )
         .intents;
     let entry_closed = keymap.top().map(|screen| screen.0) == Some("options_keymap");
+    let mut main = opened("options", &mut assets, &vm);
+    let debug_label = main
+        .state_of("BTN_AUTOPAUSE", &vm)
+        .and_then(|state| state.text);
+    let debug = press(&mut main, &mut assets, &vm, "BTN_AUTOPAUSE");
     vec![check("options_pages", {
         expect(
             &format!("right from 0.5: {slid:?}"),
@@ -1428,7 +1444,15 @@ pub(super) fn options() -> Vec<Check> {
                     && entry_closed,
             )
         })
-        .map(|()| "sliders, check boxes, greyed, keys".into())
+        .and_then(|()| {
+            expect(
+                &format!("the main page's Debug closes the menus, starts the sandbox: {debug_label:?} {debug:?}"),
+                debug_label == Some(crate::strings::bytes(crate::strings::DEBUG))
+                    && debug == vec![Intent::Session(SessionIntent::Sandbox)]
+                    && main.top().is_none(),
+            )
+        })
+        .map(|()| "sliders, check boxes, greyed, keys, Debug".into())
     })]
 }
 

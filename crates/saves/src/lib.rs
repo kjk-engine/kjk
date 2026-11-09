@@ -576,7 +576,9 @@ fn parse_meta(text: &str) -> Result<(Meta, Option<copies::Received>), String> {
 }
 
 /// Why the game cannot be saved now, as KOTOR refuses (its rules beside
-/// these, a module loading and a movie, are the host's to know): `seat`'s
+/// these, a module loading and a movie, are the host's to know), and on an
+/// arena's level (the combat arena or sandbox: a test bed, never a game to
+/// keep; a save there would take the autosave's place): `seat`'s
 /// body is down, a conversation is under way, the party is in combat
 /// (`Snapshot::in_combat`, the one test), a break holds, a ready check
 /// waits at an exit (`paused_by`, `ready`: the party's calls) or a minigame
@@ -618,7 +620,9 @@ pub fn refusal(snapshot: &sim::Snapshot, seat: sim::Seat, level: &sim::Level) ->
             .and_then(|guest| snapshot.body(guest))
             .map(|body| body.id.0)
     });
-    if down {
+    if level.arena_rules().is_some() {
+        Some(ARENA.into())
+    } else if down {
         Some("You cannot save while you are down.".into())
     } else if let Some(theirs) = talking {
         let words = "You cannot save during a conversation.";
@@ -642,6 +646,8 @@ pub fn refusal(snapshot: &sim::Snapshot, seat: sim::Seat, level: &sim::Level) ->
 
 /// KOTOR's refusal during a minigame.
 const MINIGAME: &str = "You cannot save during a minigame.";
+/// What an arena's level refuses a save with (`refusal`).
+const ARENA: &str = "The combat arena is not saved.";
 
 #[cfg(feature = "probes")]
 mod probes;
