@@ -789,7 +789,10 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   fail-to-open script and "Locked"), Security, Security with the best
   spike carried (owner, 2026-10-09: Open is the default; Security only
   for a body with ranks in it and not on a lock only its key opens, as
-  K1); an open door: Use (its `OnClick`), and before it Close (1582, the
+  K1). E on Open where Security is offered (the lock refuses it) moves the
+  choice to Security, so the next E picks the lock: the games' lessons ask
+  for a click on the Security icon, which play's crosshair has no cursor
+  for (#231); an open door: Use (its `OnClick`), and before it Close (1582, the
   open-door icon) where the player could open it again (not locked, not
   one only scripts open, not broken open, not leading out; nobody in its
   doorway, the host checks; its `OnClosed` runs). KOTOR offers nothing on
