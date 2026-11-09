@@ -1348,10 +1348,12 @@ fn own_items() {
 /// again never comes back; a destroyed container does not open; a
 /// destroyed beast strikes no more and is no one's target; a destroyed
 /// creature does not block the way; a mid-fade snapshot round-trips and
-/// loads; each run twice ends the same. The sim alone.
+/// loads; each run twice ends the same. Proposed 2026-11-09, awaiting the
+/// owner: the player's own character, destroyed by a script, stays (K1's
+/// Bek base night destroys it while a companion leads). The sim alone.
 #[test]
 fn destroy_fades() {
-    probed("destroys", &sim::destroys::probes(), 13);
+    probed("destroys", &sim::destroys::probes(), 14);
 }
 
 /// Using an object (`docs/UI.md`): a seat's

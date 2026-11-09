@@ -15,7 +15,9 @@
 //! after, while it is still drawn; one destroying the fading one again
 //! changes nothing (its fade never goes back). A snapshot taken mid-fade
 //! round-trips, the delayed one in it carrying how it will depart, and a
-//! world loaded from it is the same.
+//! world loaded from it is the same. The player's own character, destroyed
+//! by its own script, stays (K1's Bek base destroys party members 1 and 2,
+//! the player among them while a companion leads).
 //!
 //! The fight run: a beast fighting a dummy, destroyed with a fade once it
 //! has struck, strikes no more and is no one's target. The walk run: the
@@ -258,6 +260,16 @@ pub fn probes() -> Checks {
             ),
         ),
         (
+            "player_not_destroyed",
+            check(
+                ran.last
+                    .entities
+                    .iter()
+                    .any(|entity| matches!(entity.kind, Kind::Avatar(_))),
+                "the player destroyed by its own script: still in the world".into(),
+            ),
+        ),
+        (
             "mid_fade_round_trip",
             check(ran.round_trip.is_ok(), format!("{:?}", ran.round_trip)),
         ),
@@ -405,6 +417,7 @@ fn scripts() -> crate::script::Library {
         CATALOG,
         [
             ("probe_no_fade", destroys(&me, &[Some((0.0, 1, 0.0))])),
+            ("probe_player", destroys(&me, &[Some((0.0, 1, 0.0))])),
             ("probe_delayed", destroys(&me, &[Some((0.5, 0, 1.0))])),
             ("probe_plain", destroys(&me, &[None])),
             ("probe_prop", destroys(&by_tag(PROP), &[None])),
@@ -564,6 +577,7 @@ fn scenario() -> Result<Ran, String> {
                 ("probe_prop", player),
                 ("probe_twice", ids[4]),
                 ("probe_box", player),
+                ("probe_player", player),
             ] {
                 run(&mut world, script, caller);
             }
