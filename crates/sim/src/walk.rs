@@ -293,10 +293,16 @@ impl MadeWalls {
 
 /// What a walk plans through: the doors (each object's state by its
 /// placement, `passable`) and the faces it keeps off (`route_round`): the
-/// faces under the placeables play made (`MadeWalls`).
+/// faces under the placeables play made (`MadeWalls`); and the ways out
+/// of the module a walk to a target stops before (`target::KeptIn`).
 pub trait Ways {
     fn door(&self, index: u32) -> ObjectState;
     fn walls(&self, _face: u32) -> bool {
+        false
+    }
+    /// Whether a body at `body` (metres, its movement box's origin) stands
+    /// in a way out the walk is not to take.
+    fn leads_out(&self, _body: Vec3) -> bool {
         false
     }
 }

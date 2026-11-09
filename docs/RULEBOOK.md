@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `858272f7c38c2ff3`.
+Edition `81c494acfbfbe288`.
 
 ## Contents
 
@@ -9021,6 +9021,12 @@ A walk to a target is canceled after it is blocked 3 times.
 A target that moves more than 1 meters makes the character find a new path to it.
 
 <sub>Source: ours. Code: `sim::target::Walk::stride`.</sub>
+
+<a id="targeting-walk-exit-margin-m"></a>**Exits on the Way** = **0.5 m** · `targeting.walk.exit_margin_m`
+
+A walk to a target never takes the character out of the area: it stops before a door or exit that leads elsewhere (unless that door is the target) once the character's run, slid to a stop, would end within 0.5 meters of it. The action is performed there if the target is within reach, otherwise the walk is canceled.
+
+<sub>Source: KOTOR (a click on a creature or object never leaves the area; only a click on the transition does). Code: `sim::target::Walk::stride`.</sub>
 
 ### <a id="targeting-revive"></a>Reviving
 
