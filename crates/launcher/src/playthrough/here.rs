@@ -772,7 +772,7 @@ pub(super) fn holder_of(here: &Here, state: &sim::script::State, template: &str)
     state
         .items
         .values()
-        .filter(|item| item.holder != sim::inventory::PARTY && item.template.eq_ignore_ascii_case(template))
+        .filter(|item| item.holder != sim::inventory::PARTY && item.is(template))
         .find_map(|item| {
             let entity = here.snapshot.get(sim::SimId(item.holder))?;
             match entity.kind {

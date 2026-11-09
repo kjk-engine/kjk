@@ -818,6 +818,13 @@ pub const FIRST_ITEM: u32 = 0x7c00_0000;
 /// leader's in scripts' eyes (`GetItemPossessor`).
 pub const PARTY: u32 = 0x7e00_0003;
 
+/// Whether `name` (case aside) names an item of `template`: the template,
+/// or the resref of a module's own (`own_template`), as a route or a
+/// script's resref names it.
+pub fn names(template: &str, name: &str) -> bool {
+    template.eq_ignore_ascii_case(name) || resref_of(template).eq_ignore_ascii_case(name)
+}
+
 /// An item in play: its template, who holds it (an object id, or
 /// `PARTY`), the slot it is equipped in, its stack and charges, what
 /// scripts set on it, and whether it never runs out (a store's).
@@ -843,6 +850,11 @@ pub struct Item {
 }
 
 impl Item {
+    /// Whether `name` names it (`names`).
+    pub fn is(&self, name: &str) -> bool {
+        names(&self.template, name)
+    }
+
     /// How many uses it has left (`ItemFacts::uses_left`).
     pub fn uses(&self, facts: &ItemFacts) -> u16 {
         facts.uses_left(self.stack, self.charges)

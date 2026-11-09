@@ -419,7 +419,7 @@ fn carried(world: &sim::SimWorld, templates: &[(String, u16)]) -> Vec<String> {
             let count: u32 = state
                 .items
                 .values()
-                .filter(|item| item.holder == sim::inventory::PARTY && &item.template == template)
+                .filter(|item| item.holder == sim::inventory::PARTY && item.is(template))
                 .map(|item| u32::from(item.stack))
                 .sum();
             format!("-- the party carries {count} {template}")
