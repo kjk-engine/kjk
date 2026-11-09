@@ -405,9 +405,11 @@ pub(super) fn move_actors(
         } else {
             command_for(&inputs.0, seat, &player.0, &fighting.0, clock.time_ms)
         };
+        // The rules this body plays by: JA's in a scene (`saber_rules`).
+        let rules = scene_held.saber_rules(&talking.0, id.0, rules.0);
         // JA has no block or kick button: their bits are dropped, so a
         // fighter's kept command is JA's own.
-        if !rules.0.duel() {
+        if !rules.duel() {
             command.holds = 0;
         }
         // A creature its appearance gives no movement (`moverate` NOMOVE,
@@ -562,7 +564,7 @@ pub(super) fn move_actors(
             rng: &mut rolls,
             enemy,
             at_rest,
-            rules: rules.0,
+            rules,
         };
         // A made box it stands in (made where it stood) holds it not: it
         // walks out of it.

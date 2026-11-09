@@ -1084,20 +1084,24 @@ pub(super) fn think(
         if world_held && in_party && !decided {
             command.buttons &= !super::scene::ROLLS;
         }
-        if rules.0.duel() && Kit::of(&me).blade(fighter.hand).is_some() {
+        // In a scene its script moves it, by JA's rules (`saber_rules`).
+        let saber_rules = scene_held.saber_rules(&talking.0, id.0, rules.0);
+        if saber_rules.duel() && Kit::of(&me).blade(fighter.hand).is_some() {
             let saber_foe = seen
                 .iter()
                 .filter(|entry| hostile(entry) && matches!(entry.arms, pace::Arms::Saber { .. }))
                 .map(|entry| distance(&entry.ps))
                 .min_by(f32::total_cmp);
             let mind = Duelling {
-                rules: rules.0,
+                rules: saber_rules,
                 me: id.0,
                 target: target.as_ref(),
                 saber_foe,
                 now,
             };
             mind.fence(fighter, ps, &mut command);
+        } else {
+            fighter.saber.duel.stance = false;
         }
         fighter.last_command = command;
     }
@@ -1107,7 +1111,8 @@ pub(super) fn think(
 /// its mind has chosen: it backs away from a foe's kata near it; under
 /// MDA, near a saber user it holds a block stance (its ground, facing it:
 /// still parrying and attacking), and idle with no saber user near and
-/// its block points low it meditates for more, now and then.
+/// its block points low it meditates for more, now and then. Not in a
+/// scene (`scene::Held::saber_rules`).
 struct Duelling<'a> {
     rules: crate::combat::saber::SaberRules,
     me: SimId,

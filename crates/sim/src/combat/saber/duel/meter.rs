@@ -196,8 +196,6 @@ pub struct Rest {
     pub shaken: bool,
     /// In a rage's recovery.
     pub recovering: bool,
-    /// In a scene.
-    pub scene: bool,
 }
 
 /// One step of a saber user's duel meters at `now` (`docs/SABER-RULES.md`
@@ -205,15 +203,10 @@ pub struct Rest {
 /// (`refill::TICK_MS`: fatigue lifted, a crouching player's extra Force
 /// and calm, the Force a held block lets through, a busy creature's Force
 /// held); the block points' refill; the mishaps' decay; a hilt mending;
-/// the sprint's fuel; a scene's refill.
+/// the sprint's fuel. Not in a scene (`scene`).
 pub fn refill(rules: SaberRules, f: &mut Fighter, pool: u16, rest: Rest, now: u64) {
     settle(rules, f, pool);
-    if rest.player && rest.scene && !f.saber.duel.scened {
-        f.saber.duel.points = meters::POINTS_MAX;
-        earn_force(f, pool, i32::from(meters::POINTS_MAX));
-        f.saber.duel.mishap = mishap::SCENE;
-    }
-    f.saber.duel.scened = rest.scene;
+    f.saber.duel.scened = false;
     let calm = rest.on_ground && !rest.floored && !rest.busy && !rest.running;
     if now >= f.saber.duel.tick_at {
         f.saber.duel.tick_at = now + refill::TICK_MS;
@@ -242,6 +235,21 @@ pub fn refill(rules: SaberRules, f: &mut Fighter, pool: u16, rest: Rest, now: u6
     decay(f, rest, now);
     mend(&mut f.saber.duel, now);
     fuel(&mut f.saber.duel, rest, now);
+}
+
+/// A step of a fighter in a scene, which plays by KOTOR's rules under every
+/// saber mode (`world::scene::Held::saber_rules`): its duel meters stand
+/// still, a player's set full and calm as the scene starts, as Movie Duels
+/// sets them at a cutscene's start (`docs/SABER-RULES.md` 1.3). Its Force
+/// is KOTOR's and is left as it is: a conversation refills no one's.
+pub fn scene(f: &mut Fighter, player: bool) {
+    let duel = &mut f.saber.duel;
+    if player && !duel.scened {
+        duel.points = meters::POINTS_MAX;
+        duel.mishap = mishap::SCENE;
+    }
+    duel.scened = true;
+    duel.warn = false;
 }
 
 /// The block points' refill (`docs/SABER-RULES.md` 1.3): a player's a

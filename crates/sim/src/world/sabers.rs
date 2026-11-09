@@ -383,6 +383,27 @@ impl Step<'_> {
         !self.level.friendly_fire().spares(relation)
     }
 
+    /// The rules `at`'s blade plays by: the session's, JA's in a scene
+    /// (`scene::Held::saber_rules`).
+    fn own_rules(&self, at: usize) -> SaberRules {
+        if self.men[at].scene {
+            SaberRules::Ja
+        } else {
+            self.rules
+        }
+    }
+
+    /// The rules a meeting of `a` and `b` plays by: JA's when either is in
+    /// a scene (KOTOR's rounds there, the same under every rule set), else
+    /// the session's.
+    fn pair_rules(&self, a: usize, b: usize) -> SaberRules {
+        if self.men[a].scene || self.men[b].scene {
+            SaberRules::Ja
+        } else {
+            self.rules
+        }
+    }
+
     /// Two players lock only in a duel: with friendly fire full (a
     /// delegated decision standing for JA's duel). No one in a scene locks.
     fn may_lock(&self, a: usize, b: usize) -> bool {
@@ -583,7 +604,10 @@ impl Step<'_> {
             point: Some(blow.point),
             direction: Some(blow.direction),
         });
-        if self.rules.own_meter() {
+        let confirms = self
+            .find(victim)
+            .map_or(self.own_rules(at), |d| self.pair_rules(at, d));
+        if confirms.own_meter() {
             self.confirmed(at, victim);
         }
     }
@@ -624,7 +648,8 @@ impl Step<'_> {
                 // Judged from where the attacker stands (QUIRKS.md Q-0084).
                 let attacker = self.find(blow.by);
                 let from = attacker.map_or(blow.point, |a| self.men[a].ps.origin);
-                let guard = (saw && self.rules.duel()).then(|| self.duel_guard(d, from));
+                let rules = attacker.map_or(self.own_rules(d), |a| self.pair_rules(a, d));
+                let guard = (saw && rules.duel()).then(|| self.duel_guard(d, from));
                 let blocking = match guard {
                     Some(guard) => guard != crate::combat::saber::duel::exchange::Guard::None,
                     None => saw && self.blocks(d, from, Against::Blade),
@@ -722,17 +747,18 @@ impl Step<'_> {
                 let view = self.view(a);
                 // Blade against blade (a super-break's win cuts through, but
                 // under a duel mode, which decides it, `duel_turned`), unless
-                // the blow gets past it (`turned`).
-                let duel = self.rules.duel();
-                let met = (duel || !power::final_break_won(torso.anim))
+                // the blow gets past it (`turned`). A meeting with one in a
+                // scene plays by JA's rules (`pair_rules`).
+                let broke_through = power::final_break_won(torso.anim);
+                let met = (self.own_rules(a).duel() || !broke_through)
                     .then(|| self.meets(a, &blade, view))
                     .flatten();
                 if let Some((d, point)) = met {
-                    if duel {
+                    if self.pair_rules(a, d).duel() {
                         if self.duel_turned(a, d, point, true) {
                             continue;
                         }
-                    } else if self.turned(a, d, point) {
+                    } else if !broke_through && self.turned(a, d, point) {
                         self.clash(a, d, point, true);
                         continue;
                     }
@@ -914,8 +940,9 @@ impl Step<'_> {
                 .sum(crate::combat::effects::Modifies::AssuredHit, self.now)
                 > 0;
             // Under a duel mode a swing made with block held harms no one,
-            // and a body that blocks it decides it (`duel_turned`).
-            if self.rules.duel() {
+            // and a body that blocks it decides it (`duel_turned`); with one
+            // in a scene, JA's rules (`pair_rules`).
+            if self.pair_rules(a, d).duel() {
                 let blocking = self.men[a].f.saber.duel.block_held;
                 if blocking || (!assured && self.foes(a, d) && self.duel_turned(a, d, point, false))
                 {
@@ -1356,7 +1383,8 @@ impl Step<'_> {
     fn end_lock(&mut self, w: usize, l: usize, victory: bool, strength: i32) {
         let now = self.now;
         let banked = self.men[w].f.saber.lock.map_or(0, |mine| mine.hits);
-        let super_break = if self.rules.duel() {
+        let duel = self.pair_rules(w, l).duel();
+        let super_break = if duel {
             victory && self.duel_super_break(l, strength)
         } else {
             lock::super_breaks(strength, banked, self.rng)
@@ -1389,7 +1417,7 @@ impl Step<'_> {
         }
         let from = self.men[w].ps.origin;
         let to = self.men[l].ps.origin;
-        if victory && self.rules.duel() {
+        if victory && duel {
             if self.men[l].f.alive() {
                 self.duel_lock_won(w, l, strength);
             }
@@ -1492,7 +1520,7 @@ impl Step<'_> {
         if !self.foes(a, d) || self.men[d].ps.flags & motion::motion_flags::KNOCKBACK_HOLD != 0 {
             return;
         }
-        if self.rules.duel() && self.men[d].saber_out() {
+        if self.pair_rules(a, d).duel() && self.men[d].saber_out() {
             self.duel_kicked(a, d, kick);
             return;
         }
@@ -1661,7 +1689,8 @@ impl Step<'_> {
         };
         t.hit_until = self.now + throw::HIT_EVERY_MS;
         let (thrower, weapon) = (self.men[a].id, self.men[a].delivery());
-        let parried = if self.rules.duel() {
+        let duel = self.pair_rules(a, d).duel();
+        let parried = if duel {
             self.duel_guard(d, t.at) != crate::combat::saber::duel::exchange::Guard::None
         } else {
             self.blocks(d, t.at, Against::Thrown)
@@ -1681,7 +1710,7 @@ impl Step<'_> {
             t.turn_back(self.now);
             return;
         }
-        if self.rules.duel() && self.men[d].saber_out() {
+        if duel && self.men[d].saber_out() {
             self.duel_thrown_hit(d);
         }
         let man = &self.men[a];

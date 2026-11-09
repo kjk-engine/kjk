@@ -133,7 +133,7 @@ impl Man {
 
 impl Step<'_> {
     /// Step 4 under a duel mode: every blade wielder's duel upkeep (see the
-    /// module documentation).
+    /// module documentation); in a scene, its meters held (`meter::scene`).
     pub(super) fn duel_upkeep(&mut self) {
         let (rules, now) = (self.rules, self.now);
         let rewards = self.rewards();
@@ -145,6 +145,11 @@ impl Step<'_> {
         for at in 0..self.men.len() {
             let man = &self.men[at];
             if man.blade().is_none() || !man.f.alive() {
+                continue;
+            }
+            if man.scene {
+                let player = man.avatar;
+                meter::scene(&mut self.men[at].f, player);
                 continue;
             }
             let saber = &man.f.saber;
@@ -167,7 +172,6 @@ impl Step<'_> {
                     || mv.parry()
                     || saber.blocked != Blocked::None,
                 recovering: man.f.force.recover_until > now,
-                scene: man.scene,
             };
             let man = &mut self.men[at];
             let pool = man.pool();
@@ -189,8 +193,8 @@ impl Step<'_> {
     }
 
     /// Who earns from the blows that landed on the step before: each
-    /// weapon's hit on a foe, by its striker (a blade wielder), and whether
-    /// it killed.
+    /// weapon's hit on a foe, by its striker (a blade wielder, neither in a
+    /// scene: KOTOR's rules pay no meter), and whether it killed.
     fn rewards(&self) -> Vec<(usize, bool)> {
         let last = self.tick.saturating_sub(1);
         let mut out = Vec::new();
@@ -206,7 +210,10 @@ impl Step<'_> {
                 let Some(at) = event.by.and_then(|by| self.find(by)) else {
                     continue;
                 };
-                if self.men[at].blade().is_some() && self.foes(at, d) {
+                if self.men[at].blade().is_some()
+                    && self.foes(at, d)
+                    && self.pair_rules(at, d).duel()
+                {
                     out.push((at, !victim.f.alive()));
                 }
             }

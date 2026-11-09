@@ -1055,12 +1055,20 @@ a save loaded into play takes the host's `game.saber_rules` again), and every nu
   block's rewards and MDA's riposte, the lock chance by the setting.
 - **The meters' upkeep** (`duel::meter::refill`): block points, the Force
   held while block is held, fatigue, mishaps falling, a worn staff's hilt,
-  sprint fuel, a scene's refill, kills' and hits' rewards.
+  sprint fuel, kills' and hits' rewards.
+- **Scenes** (`scene::Held::saber_rules`): a fighter in a scene plays by
+  JA's rules whatever the setting, and a blow, kick, lock or thrown saber
+  between two fighters by JA's when either is in one. A scene's fight is
+  its script's (KOTOR's rounds), played out alike under JA, MD and MDA: no
+  meter spent, refilled or rewarded, no stance, no Force held or given (a
+  player's block points full and calm as one starts, its Force untouched;
+  `meter::scene`). Probes `scene_fights_same_by_rules`,
+  `mda_scene_takes_no_stance`.
 - **Bolts** (`world::sabers::duel::bolt_block`), **kicks with any weapon**
   (`holds::KICK`), **attack fakes** (attack and use), **saber wear** (a
   double-bladed saber breaks to one blade), **lock executions**.
 - **Creatures** (`world::minds`): under MDA a block stance in reach and
-  meditation for block points; they back away from a kata.
+  meditation for block points; they back away from a kata. Not in a scene.
 
 ```bash
 kjk sim probes --only "duel rules"   # perfect, held, mishaps, refill, creatures, bolts, kicks, JA untouched

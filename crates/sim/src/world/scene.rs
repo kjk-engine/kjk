@@ -9,6 +9,7 @@ use bevy_ecs::prelude::*;
 use script_ncs::vm::ObjectId;
 
 use super::{Avatar, Id, Talking, acting_body};
+use crate::combat::saber::SaberRules;
 use crate::input::{Seat, buttons};
 use crate::script::dialogue::Told;
 use crate::snapshot::SimId;
@@ -65,6 +66,18 @@ impl Held {
     /// (a co-op guest's, a creature's own) is never JA's.
     pub(crate) fn scene(&self, talking: &Told, id: SimId) -> bool {
         self.world || self.talks(talking, id)
+    }
+
+    /// The saber rules `id` plays by: the session's (`rules`), but JA's in
+    /// a scene (`scene`), whatever the session's. A scene's fight is its
+    /// script's, played out by KOTOR's rounds the same under every rule
+    /// set, as Movie Duels' NPCs take no guard in a cutscene.
+    pub(crate) fn saber_rules(&self, talking: &Told, id: SimId, rules: SaberRules) -> SaberRules {
+        if self.scene(talking, id) {
+            SaberRules::Ja
+        } else {
+            rules
+        }
     }
 }
 

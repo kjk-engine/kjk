@@ -19,7 +19,12 @@ pub(super) fn fly(
     clock: Res<Clock>,
     level: Res<Static>,
     inputs: Res<Inputs>,
-    (blades, rules): (Res<sabers::Blades>, Res<super::Rules>),
+    (blades, rules, scene, talking): (
+        Res<sabers::Blades>,
+        Res<super::Rules>,
+        Res<super::scene::Held>,
+        Res<super::Talking>,
+    ),
     mut streams: ResMut<Streams>,
     (mut hits, mut battering): (ResMut<Hits>, ResMut<objects::Battering>),
     mut scripts: ResMut<scripts::Scripts>,
@@ -172,10 +177,12 @@ pub(super) fn fly(
                         hold.tick,
                     )
             });
+            // Its target's rules: JA's in a scene (`saber_rules`).
+            let rules = scene.saber_rules(&talking.0, hold.target, rules.0);
             let fate = saw
                 .then(|| {
                     sabers::bolt_block(
-                        (rules.0, avatar.is_some()),
+                        (rules, avatar.is_some()),
                         &mut fighting.0,
                         &player.0,
                         &sheet,
@@ -264,8 +271,9 @@ pub(super) fn fly(
                 let shooter = find(bolt.owner).map(|by| origins[by].1);
                 let (_, avatar, object, sheet, player, fighting) = &mut actors[at_target];
                 let sheet = sheet_of(*sheet, *object);
+                let rules = scene.saber_rules(&talking.0, target, rules.0);
                 let fate = sabers::bolt_block(
-                    (rules.0, avatar.is_some()),
+                    (rules, avatar.is_some()),
                     &mut fighting.0,
                     &player.0,
                     &sheet,

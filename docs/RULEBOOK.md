@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `c941a53a8f68d5f8`.
+Edition `2ea7c486889ce5c4`.
 
 ## Contents
 
@@ -10257,9 +10257,9 @@ A kill or a rewarded hit takes a count of 10 count or more down to 5 count (not 
 
 <a id="duel-mishap-scene"></a>**Scene Calm** = **1 count** · `duel.mishap.scene`
 
-A player's meter is full and its mishaps 1 count once a scene holds it.
+A scene plays by KOTOR's rules under every saber mode, as JA's: no duel meter is spent, refilled or rewarded in it, no creature takes a stance, and blows, parries and bolts go as under JA. A player's block points are full and its mishaps 1 count once a scene holds it; its Force, KOTOR's, is left as it is.
 
-<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+<sub>Source: docs/SABER-RULES.md 1.3; kjk: a conversation refills no Force. Code: `sim::combat::saber::duel::meter::scene, sim::world::scene::Held::saber_rules`.</sub>
 
 ### <a id="duel-ladder"></a>Bounce Ladder
 
@@ -10657,7 +10657,7 @@ How creatures with sabers fight under the duel modes: they block whenever they c
 
 a blade's length **1 meter** · times the body's half width **0.038 meters** · and **0.41 meters** · left beyond **0.81 meters**
 
-Under MDA a creature within a blade's length (40 units), 1.5 units body half widths and 16 units of a saber user takes a block stance facing it, until 32 units farther; it holds its ground only within that reach, and steps back in when pushed past it, so its swings still land. A creature with no straight way to its foe, going round to it, takes no stance.
+Under MDA a creature within a blade's length (40 units), 1.5 units body half widths and 16 units of a saber user takes a block stance facing it, until 32 units farther; it holds its ground only within that reach, and steps back in when pushed past it, so its swings still land. A creature with no straight way to its foe, going round to it, takes no stance, nor does one in a scene (see Scene Calm).
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
 

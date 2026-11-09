@@ -74,6 +74,9 @@ struct Person {
     alive: bool,
     /// Where its model is drawn, if JA does not pose it (`world::body`).
     bulk: Option<crate::module::Bulk>,
+    /// The rules its blades play by (`scene::Held::saber_rules`): the duel
+    /// modes hold the Force while block is held, and sprint.
+    rules: crate::combat::saber::SaberRules,
 }
 
 impl Person {
@@ -246,7 +249,12 @@ pub(super) fn force(
     mut ordered: ResMut<super::scripts::Ordered>,
     mut let_go: ResMut<super::scripts::LetGo>,
     scripts: Res<super::scripts::Scripts>,
-    (history, rules): (Res<super::history::History>, Res<super::Rules>),
+    (history, rules, held, talking): (
+        Res<super::history::History>,
+        Res<super::Rules>,
+        Res<super::scene::Held>,
+        Res<super::Talking>,
+    ),
     objects: Query<&Object>,
     mut actors: Query<(
         &Id,
@@ -294,6 +302,7 @@ pub(super) fn force(
                 ps: player.0,
                 alive: fighting.0.alive(),
                 bulk: super::object_bulk(*object).copied(),
+                rules: held.saber_rules(&talking.0, id.0, rules.0),
             }
         })
         .collect();
@@ -356,7 +365,6 @@ pub(super) fn force(
         tick: clock.tick,
         msec: clock.msec,
         authority: clock.reason != StepReason::Predict,
-        rules: rules.0,
     };
     // The dead let go first, so no victim of theirs stays held a step.
     for at in 0..people.len() {
@@ -497,9 +505,6 @@ struct Cast<'a, 'b> {
     tick: u64,
     msec: u32,
     authority: bool,
-    /// The rules the blades play by (the duel modes hold the Force while
-    /// block is held, and sprint).
-    rules: crate::combat::saber::SaberRules,
 }
 
 impl Cast<'_, '_> {
@@ -1892,8 +1897,10 @@ impl Cast<'_, '_> {
             fighter.fake_until = 0;
         }
         let over = fighter.effects.sum(Modifies::ForcePoints, now).max(0);
+        let duel = self.person(at).rules.duel();
+        let fighter = &mut self.fighters[at];
         let state = &fighter.saber.duel;
-        let duel_held = self.rules.duel()
+        let duel_held = duel
             && (state.block_held
                 || state.force_at > now
                 || crate::combat::saber::duel::unblockable(fighter.saber.current_move));
@@ -1921,7 +1928,7 @@ impl Cast<'_, '_> {
                 // and a busy creature do.
                 let paused = fighter.force.pausing(now)
                     || fighter.saber.in_special()
-                    || (fighter.saber.flying() && !self.rules.duel())
+                    || (fighter.saber.flying() && !duel)
                     || duel_held;
                 force::regenerate(&mut fighter.force, &mut fighter.fp, pool, paused, now);
             }
@@ -1967,7 +1974,7 @@ impl Cast<'_, '_> {
             speed *= ja::GRIPPED_SCALE[usize::from(speeding)];
         }
         // The duel modes' sprint (block held while running).
-        if self.rules.duel() && self.fighters[at].saber.duel.sprint {
+        if duel && self.fighters[at].saber.duel.sprint {
             speed *= rules::duel::sprint::SPEED;
         }
         let body = &mut self.bodies[at];
