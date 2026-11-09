@@ -61,7 +61,6 @@ const STEP_MS: f64 = 1000.0 / 60.0;
 /// JA's `cg_fov` 80 across a 4:3 screen, as a vertical field of view.
 const FOV_DEGREES: f32 = 64.94;
 const CAMERA_BOX: f32 = 4.0;
-const CAMERA_BACK_OFF: f32 = 80.0;
 /// The steepest the camera looks down or up at its target (degrees): the
 /// view's own pitch limit (`follow_camera`).
 const STEEPEST: f32 = 80.0;
@@ -69,9 +68,8 @@ const STEEPEST: f32 = 80.0;
 /// heading (`ThirdPerson::last_yaw`): straight over or under it, any is
 /// noise.
 const LEVEL_NEAR: f32 = 1.0;
-const AIM_ABOVE_EYE: f32 = sim::combat::mind::CROSSHAIR_ABOVE_EYE;
-const AIM_DAMP: f32 = 0.5;
-const PLACE_DAMP: f32 = 0.3;
+/// The camera's range, aim point and damping are the options'
+/// (`camera_tune::CameraTune`, JA's by default).
 const DAMP_INTERVAL_MS: f32 = 50.0;
 /// How many frames the frame-time figures cover.
 const FRAMES_KEPT: usize = 240;
@@ -130,14 +128,47 @@ pub struct PlayViewSetup {
 /// Its systems; a session comes in with `install`.
 pub struct PlayViewPlugin;
 
-/// JA's third-person camera (units, degrees).
+/// JA's third-person camera (units, degrees): the aim point and the place
+/// it chases, and where the camera is shown, moved aside from that place
+/// by the shoulder as it eases to the options' (`side`).
 #[derive(Default)]
 struct ThirdPerson {
     target: [f32; 3],
     location: [f32; 3],
+    shown: [f32; 3],
+    side: f32,
+    /// How far the camera is into the gun's framing (0 to 1, `GUN_IN_MS`, `GUN_OUT_MS`)
+    /// and the framing it had this frame.
+    gun: f32,
+    framing: crate::camera_tune::Framing,
     last_yaw: f32,
     started: bool,
 }
+
+impl ThirdPerson {
+    /// Where the camera looks: from its place at its aim point, keeping its
+    /// heading when straight over or under it.
+    fn looking(&self) -> [f32; 3] {
+        let along: [f32; 3] = std::array::from_fn(|i| self.target[i] - self.location[i]);
+        let mut angles = angles::look_angles(along);
+        if along[0].hypot(along[1]) < LEVEL_NEAR {
+            angles[1] = self.last_yaw;
+        }
+        angles
+    }
+}
+
+/// How long the camera takes into the gun's framing (ms; Movie Duels'
+/// aiming camera takes 250), and back out of it once the gun is put away,
+/// slower: the fight is over.
+const GUN_IN_MS: f32 = 300.0;
+const GUN_OUT_MS: f32 = 1200.0;
+
+/// How long the camera takes to move most (63%) of the way to a new
+/// shoulder (seconds): across in about a fifth of a second.
+const SIDE_EASE: f32 = 0.07;
+/// Nearer than this (units) to the shoulder asked for, the camera is there.
+const SIDE_DONE: f32 = 0.05;
 
 /// Where the crosshair looks this frame (the third-person camera's ray,
 /// metres), none while a conversation or a fixed camera has the view
@@ -194,6 +225,18 @@ struct View {
     render_ms: f64,
     started: bool,
     camera: ThirdPerson,
+    /// The camera the options ask for, and its turn around the watched
+    /// character while the orbit key is held (yaw, pitch over the view).
+    tune: crate::camera_tune::CameraTune,
+    /// Whether the player's options stand (`tune`, the zoom): in a window,
+    /// or a headless run named a settings file; else JA's camera.
+    tuned: bool,
+    orbit: [f32; 2],
+    /// The shoulder swapped to the other side (`Action::SwapShoulder`).
+    swapped: bool,
+    /// The third-person camera had the view last frame: the own player's,
+    /// no conversation's, the own eyes' or a fixed one's.
+    following: bool,
     first: FirstPerson,
     /// A `camera` command took the camera: it stays where it was put.
     fixed: bool,
@@ -374,6 +417,7 @@ impl Plugin for PlayViewPlugin {
             .init_resource::<OwnBody>()
             .init_resource::<OwnRemote>()
             .init_resource::<Aim>()
+            .init_resource::<crate::camera_tune::OwnNear>()
             .init_resource::<first_person::Eyes>()
             .add_systems(Update, own_body.run_if(resource_exists::<View>))
             .add_systems(
@@ -500,6 +544,11 @@ pub fn install(app: &mut World, setup: PlayViewSetup) {
             render_ms: 0.0,
             started: false,
             camera: ThirdPerson::default(),
+            tune: crate::camera_tune::CameraTune::default(),
+            tuned: windowed,
+            orbit: [0.0; 2],
+            swapped: false,
+            following: false,
             first: FirstPerson::default(),
             fixed: false,
             trace,
@@ -590,19 +639,25 @@ fn chase(ideal: [f32; 3], old: [f32; 3], keep: f32) -> [f32; 3] {
 /// lags sideways as well.
 fn follow_camera(
     camera: &mut ThirdPerson,
-    at: &cast::Blended,
+    (at, framing, damps, orbit): (
+        &cast::Blended,
+        &crate::camera_tune::Framing,
+        (f32, f32),
+        [f32; 2],
+    ),
     quirks: bool,
     frame_ms: f32,
     trace: &dyn Fn([f32; 3], [f32; 3]) -> [f32; 3],
 ) {
-    let pitch = at.view[0].clamp(-STEEPEST, STEEPEST);
-    let yaw = at.view[1];
+    let pitch = (at.view[0] + orbit[1]).clamp(-STEEPEST, STEEPEST);
+    let yaw = at.view[1] + orbit[0];
     let (ahead, _, _) = sim::math::angle_vectors([pitch, yaw, at.view[2]]);
     let [x, y, z] = at.origin;
     let focus = [x, y, z + at.state.eye_height];
-    let aim = [focus[0], focus[1], focus[2] + AIM_ABOVE_EYE];
+    let aim = [focus[0], focus[1], focus[2] + framing.height];
     let backed_from = if quirks { aim } else { trace(focus, aim) };
-    let place: [f32; 3] = std::array::from_fn(|i| backed_from[i] - CAMERA_BACK_OFF * ahead[i]);
+    let place: [f32; 3] = std::array::from_fn(|i| backed_from[i] - framing.range * ahead[i]);
+    let (aim_damp, place_damp) = damps;
     // From an aim point out to a place: straight, as JA traces it; or
     // level first and then up or down, so a ceiling stops the rise but not
     // the way back.
@@ -655,12 +710,12 @@ fn follow_camera(
         }
     };
 
-    let keep = (1.0 - AIM_DAMP).powf(intervals);
+    let keep = (1.0 - aim_damp).powf(intervals);
     let target = straighten(chase(aim, camera.target, keep), aim);
     camera.target = trace(focus, target);
 
     let p = pitch.abs() / 115.0;
-    let mut damp = (1.0 - PLACE_DAMP) * p * p + PLACE_DAMP;
+    let mut damp = (1.0 - place_damp) * p * p + place_damp;
     if stiffness > 0.0 {
         damp += (1.0 - damp) * stiffness;
     }
@@ -747,13 +802,58 @@ impl View {
         };
         let walls = (&self.level, self.doors.as_deref());
         let trace = |from, to| stop_short(walls, from, to);
+        // A gun readied in the watched hand (drawn for a fight, not only
+        // carried) takes the camera to the gun's framing briskly, and once
+        // it is put away back at leisure (`GUN_IN_MS`, `GUN_OUT_MS`), eased
+        // in and out (smootherstep). The camera keeps following as damped
+        // throughout: no change of damping to snap at either end.
+        let gun_out =
+            self.tune.gun.is_some() && self.watched.is_some_and(|id| self.cast.gun_readied(id));
+        let blend = &mut self.camera.gun;
+        *blend = match (gun_out, frame_ms > 0.0) {
+            (true, true) => (*blend + frame_ms / GUN_IN_MS).min(1.0),
+            (false, true) => (*blend - frame_ms / GUN_OUT_MS).max(0.0),
+            (out, false) => f32::from(u8::from(out)),
+        };
+        let t = *blend;
+        let eased = t * t * t * (t * (6.0 * t - 15.0) + 10.0);
+        let own = self.tune.framing;
+        let framing = own.toward(self.tune.gun.unwrap_or(own), eased);
+        let damps = self.tune.tracking.damps();
+        self.camera.framing = framing;
         follow_camera(
             &mut self.camera,
-            &at,
+            (&at, &framing, damps, self.orbit),
             self.cast.rig.quirks,
             frame_ms,
             &trace,
         );
+        // The shoulder moves the camera across its own line after the
+        // chase, traced from the aim point so a wall beside it stops it
+        // short; what it looks along stays as the chase left it. The swap
+        // key puts it on the other side.
+        let shoulder = if self.swapped {
+            -framing.shoulder
+        } else {
+            framing.shoulder
+        };
+        let camera = &mut self.camera;
+        let ease = 1.0 - (-frame_ms / 1000.0 / SIDE_EASE).exp();
+        let left = shoulder - camera.side;
+        // The last of the way taken at once: the side reaches what was asked.
+        camera.side = if frame_ms <= 0.0 || left.abs() < SIDE_DONE {
+            shoulder
+        } else {
+            camera.side + left * ease
+        };
+        let (t, l) = (camera.target, camera.location);
+        camera.shown = if camera.side == 0.0 {
+            l
+        } else {
+            let (_, right, _) = sim::math::angle_vectors(camera.looking());
+            let aside = std::array::from_fn(|i| l[i] + camera.side * right[i]);
+            trace(t, aside)
+        };
     }
 
     /// The seat's remote droid at `ms`: from its own predictions while
@@ -808,7 +908,12 @@ impl View {
         self.history.clear();
         self.followed = None;
         self.started = false;
-        self.camera = ThirdPerson::default();
+        // The shoulder stays where it was: a new module does not slide it in.
+        self.camera = ThirdPerson {
+            side: self.camera.side,
+            gun: self.camera.gun,
+            ..ThirdPerson::default()
+        };
         self.first.restart();
         self.me = None;
         self.watched = None;
@@ -953,27 +1058,89 @@ fn follow_keys(
     }
 }
 
-/// The view key (`Action::View`, F1 unless rebound) turns between the own
-/// eyes and JA's camera; the settings keep the choice.
+/// The camera's orbit taken, and its options while the player's options
+/// stand (`View::tuned`, `camera_tune`); the zoom asked for moves the
+/// camera's range, past its nearest into the own eyes and back out of
+/// them. The view key (`Action::View`, F1 unless rebound) turns between
+/// the own eyes and JA's camera. The settings keep the choices.
+#[allow(clippy::too_many_arguments)]
 fn view_keys(
     actions: Option<Res<crate::pad::Actions>>,
     screens: Option<Res<crate::ui_view::UiOpen>>,
-    settings: Option<ResMut<crate::settings::Settings>>,
+    mut tune: Option<ResMut<crate::camera_tune::CameraTune>>,
+    orbit: Option<ResMut<crate::camera_tune::Orbit>>,
+    ui: Option<ResMut<crate::ui_view::Ui>>,
+    mut settings: Option<ResMut<crate::settings::Settings>>,
     mut view: ResMut<View>,
 ) {
+    if let Some(tune) = tune.as_deref().filter(|_| view.tuned) {
+        view.tune = *tune;
+    }
+    let zoom = orbit.map_or(0.0, |mut orbit| {
+        orbit.free = view.following;
+        view.orbit = [orbit.yaw, orbit.pitch];
+        view.swapped = orbit.swapped;
+        let zoom = orbit.take_zoom();
+        if view.tuned { zoom } else { 0.0 }
+    });
     let Some(actions) = actions else {
         return;
     };
-    if screens.is_some_and(|open| open.0) || !actions.pressed(crate::settings::Action::View) {
+    if screens.is_some_and(|open| open.0) {
         return;
     }
-    view.camera_mode = match view.camera_mode {
-        CameraMode::Third => CameraMode::First,
-        CameraMode::First => CameraMode::Third,
+    let mut first = view.camera_mode == CameraMode::First;
+    // The zoom moves the range of the camera in use: the guns' while one
+    // is readied (most of the way into their framing), else the camera's own.
+    let range = if view.camera.gun >= 0.5 && view.tune.gun.is_some() {
+        crate::camera_tune::GUN_RANGE_KEY
+    } else {
+        crate::camera_tune::RANGE_KEY
+    };
+    let mut ranged = None;
+    match view.camera_mode {
+        CameraMode::Third if zoom != 0.0 => {
+            let now = settings.as_ref().and_then(|settings| settings.value(range));
+            match crate::camera_tune::zoomed(now, zoom) {
+                Some(share) => ranged = Some(share).filter(|share| Some(share.as_str()) != now),
+                None => first = true,
+            }
+        }
+        CameraMode::First if zoom < 0.0 => {
+            first = false;
+            ranged = Some(crate::camera_tune::NEAREST.to_string());
+        }
+        _ => {}
+    }
+    if actions.pressed(crate::settings::Action::View) {
+        first = match view.camera_mode {
+            CameraMode::Third => true,
+            CameraMode::First => false,
+            _ => first,
+        };
+    }
+    // Kept at once (the view runs after the screens' settings are taken),
+    // the camera and the screens' copy brought up to date.
+    if let (Some(share), Some(settings)) = (ranged, settings.as_mut()) {
+        settings.apply(range, &share);
+        view.tune = settings.camera();
+        if let Some(tune) = tune.as_mut() {
+            **tune = view.tune;
+        }
+        if let Some(mut ui) = ui {
+            settings.shown(&mut ui);
+        }
+    }
+    let mode = match view.camera_mode {
+        CameraMode::Third | CameraMode::First if first => CameraMode::First,
+        CameraMode::Third | CameraMode::First => CameraMode::Third,
         other => other,
     };
-    if let Some(mut settings) = settings {
-        settings.keep_first_person(view.camera_mode == CameraMode::First);
+    if mode != view.camera_mode {
+        view.camera_mode = mode;
+        if let Some(settings) = settings.as_mut() {
+            settings.keep_first_person(first);
+        }
     }
 }
 
@@ -1027,10 +1194,14 @@ fn draw(
         Query<&GlobalTransform>,
         Family,
     ),
-    (mut lives, mut sim_blades, (mut aim, mut camera_aim), watching): (
+    (mut lives, mut sim_blades, (mut aim, mut camera_aim, mut near), watching): (
         ResMut<LiveBlades>,
         Option<ResMut<SimBlades>>,
-        (ResMut<Aim>, ResMut<crate::sim_host::CameraAim>),
+        (
+            ResMut<Aim>,
+            ResMut<crate::sim_host::CameraAim>,
+            ResMut<crate::camera_tune::OwnNear>,
+        ),
         Option<ResMut<crate::dialogue_view::Watching>>,
     ),
     mut cameras: Query<(Entity, &mut Projection), SceneCamera>,
@@ -1046,8 +1217,10 @@ fn draw(
     mut commands: Commands,
 ) {
     let view = &mut *view;
-    // No ray until the camera is placed this frame.
+    // No ray, nor a camera near the own body, until it is placed this frame.
     aim.0 = None;
+    near.0 = None;
+    view.following = false;
     if request.is_changed() && !request.is_added() {
         view.fixed = true;
     }
@@ -1388,9 +1561,14 @@ fn draw(
     let watching = view.watched != view.me;
     // Knight and Master Speed widen the view (`script_fx::OwnScreen`); a
     // screen shake turns it.
-    let fov = screen
-        .as_ref()
-        .map_or(FOV_DEGREES, |screen| screen.fov(FOV_DEGREES, ms));
+    // The framing the camera had this frame (the options' before it moved).
+    let framing = if view.camera.started {
+        view.camera.framing
+    } else {
+        view.tune.framing
+    };
+    let wide = framing.vertical_fov(FOV_DEGREES);
+    let fov = screen.as_ref().map_or(wide, |screen| screen.fov(wide, ms));
     let shaken = screen
         .and_then(|screen| screen.shake)
         .map_or([0.0; 2], |shake| {
@@ -1467,6 +1645,26 @@ fn draw(
         .and_then(|me| view.cast.figure(me))
         .map_or(0.0, cast::Figure::camera_kick);
     let shaken = [shaken[0] - kicked, shaken[1]];
+    // The third-person camera's nearness to the own eye, for the own body's
+    // fade (`camera_tune::fade_near`), while that camera has the view.
+    // While the player's options stand (a headless run keeps JA's camera,
+    // its body whole).
+    let following = talk.is_none()
+        && first.is_none()
+        && !view.fixed
+        && !watching
+        && view.camera_mode == CameraMode::Third;
+    view.following = following;
+    near.0 = view.me.filter(|_| following && view.tuned).map(|me| {
+        let eye = [
+            at.origin[0],
+            at.origin[1],
+            at.origin[2] + at.state.eye_height,
+        ];
+        let shown = view.camera.shown;
+        let apart: [f32; 3] = std::array::from_fn(|i| shown[i] - eye[i]);
+        (me, sim::math::dot(apart, apart).sqrt())
+    });
     aim.0 = place_camera(
         view,
         (talk, first),
@@ -2913,18 +3111,16 @@ fn place_camera(
         (None, None, CameraMode::Third | CameraMode::First) => {
             let (t, l) = (view.camera.target, view.camera.location);
             let mut look: [f32; 3] = std::array::from_fn(|i| t[i] - l[i]);
-            let from = l.map(|x| x * UNIT);
-            let mut angles = angles::look_angles(look);
-            if look[0].hypot(look[1]) < LEVEL_NEAR {
-                angles[1] = view.camera.last_yaw;
-            }
-            if sim::math::normalize(&mut look) > 0.0 {
+            let from = view.camera.shown.map(|x| x * UNIT);
+            // Turned around the character, the camera aims at nothing:
+            // the attacks go where the character faces.
+            if sim::math::normalize(&mut look) > 0.0 && view.orbit == [0.0; 2] {
                 aim = Some(sim::target::Look {
                     from,
                     forward: look,
                 });
             }
-            (from, angles, fov)
+            (from, view.camera.looking(), fov)
         }
         (None, None, CameraMode::Side(distance)) => (
             [soles.x + distance, soles.y, soles.z + 1.5],

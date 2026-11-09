@@ -113,7 +113,73 @@ const DEAD_ZONES: &[(&str, &str)] = &[
     ("0.25", strings::DEAD_ZONE_LARGE),
 ];
 
-const PAGES: [Spec; 8] = [
+/// The camera's presets (`camera_tune`): the four sliders at once.
+const CAMERA_PRESETS: &[(&str, &str)] = &[
+    ("ja", strings::CAMERA_JA),
+    ("shoulder", strings::CAMERA_SHOULDER_PRESET),
+    ("kotor", strings::CAMERA_KOTOR),
+    ("close", strings::CAMERA_CLOSE),
+    ("custom", strings::CAMERA_CUSTOM),
+];
+
+/// How closely the camera follows: JA's damping, a stiffer one, none.
+const CAMERA_FOLLOW: &[(&str, &str)] = &[
+    ("ja", strings::CAMERA_LAG_JA),
+    ("tight", strings::CAMERA_LAG_TIGHT),
+    ("off", strings::CAMERA_LAG_OFF),
+];
+
+const ON_OFF: &[(&str, &str)] = &[
+    ("true", strings::BODY_FADE_ON),
+    ("false", strings::BODY_FADE_OFF),
+];
+
+/// Where the camera goes while a gun is in hand: a preset's framing, or
+/// the camera's own.
+const GUN_CAMERAS: &[(&str, &str)] = &[
+    ("shoulder", strings::GUN_CAMERA_SHOULDER),
+    ("close", strings::GUN_CAMERA_CLOSE),
+    ("kotor", strings::GUN_CAMERA_KOTOR),
+    ("ja", strings::GUN_CAMERA_JA),
+    ("same", strings::GUN_CAMERA_SAME),
+    ("custom", strings::GUN_CAMERA_CUSTOM),
+];
+
+/// How a page changes its layout.
+enum Reshape {
+    /// Copies of a button (`style`) stacked under a control (`after`).
+    Stack((&'static str, &'static str), &'static [&'static str]),
+    /// A control moved under another.
+    Under(&'static str, &'static str),
+    /// A control drawn as another is.
+    Like(&'static str, &'static str),
+}
+
+/// Each page's changes to its layout: the camera page's three buttons under
+/// its sliders, inside their box; the guns' page's preset there too, so it
+/// reads as the guns' own; the gameplay page's way to the camera page a
+/// framed button, as Mouse Settings is, not a check box.
+const RESHAPED: [(&str, Reshape); 3] = [
+    (
+        "options_camera",
+        Reshape::Stack(
+            ("BTN_ADVANCED", "SLI_MOVIE"),
+            &["BTN_GUN", "BTN_FOLLOW", "BTN_FADE"],
+        ),
+    ),
+    (
+        "options_camera_guns",
+        Reshape::Under("BTN_ADVANCED", "SLI_MOVIE"),
+    ),
+    (
+        "options_gameplay",
+        Reshape::Like("CB_REVERSE_INGAME", "BTN_MOUSE"),
+    ),
+];
+/// The gap between a moved or added control and the one above it (pixels).
+const RESHAPE_GAP: i32 = 5;
+
+const PAGES: [Spec; 10] = [
     Spec {
         name: "options",
         layout: "optionsmain",
@@ -140,7 +206,11 @@ const PAGES: [Spec; 8] = [
             ("CB_AUTOSAVE", Toggle("game.autosave")),
             ("CB_REVERSE", Hidden),
             ("CB_DISABLEMOVE", Hidden),
-            ("CB_REVERSE_INGAME", Hidden),
+            // TSL's second reverse box, unused: the camera's page.
+            (
+                "CB_REVERSE_INGAME",
+                OpenAs("options_camera", strings::CAMERA),
+            ),
             (
                 "BTN_DIFFICULTY",
                 OpenAs("options_controller", strings::CONTROLLER),
@@ -158,6 +228,7 @@ const PAGES: [Spec; 8] = [
             ("CB_AUTOSAVE", Ours(strings::AUTOSAVE_HELP)),
             ("CB_LEVELUP", Told(42266)),
             ("BTN_DIFFICULTY", Ours(strings::CONTROLLER_HELP)),
+            ("CB_REVERSE_INGAME", Ours(strings::CAMERA_HELP)),
             ("BTN_KEYMAP", Told(48698)),
             ("BTN_MOUSE", Told(48721)),
         ],
@@ -281,6 +352,79 @@ const PAGES: [Spec; 8] = [
             ("SLI_MOVIE", Told(47921)),
         ],
     },
+    // Ours, on the sound page's layout: the camera's four sliders, its
+    // preset, how closely it follows and whether the body fades near it.
+    Spec {
+        name: "options_camera",
+        layout: "optsound",
+        roles: &[
+            ("LBL_TITLE", Text(strings::CAMERA_OPTIONS)),
+            ("LBL_MUSIC", Text(strings::CAMERA_DISTANCE)),
+            ("SLI_MUSIC", Slider("camera.range")),
+            ("LBL_VO", Text(strings::CAMERA_HEIGHT)),
+            ("SLI_VO", Slider("camera.height")),
+            ("LBL_FX", Text(strings::CAMERA_SHOULDER)),
+            ("SLI_FX", Slider("camera.shoulder")),
+            ("LBL_MOVIE", Text(strings::CAMERA_FOV)),
+            ("SLI_MOVIE", Slider("camera.fov")),
+            (
+                "BTN_FOLLOW",
+                Cycle("camera.tracking", CAMERA_FOLLOW, Step::Shown),
+            ),
+            ("BTN_FADE", Cycle("camera.body_fade", ON_OFF, Step::Shown)),
+            (
+                "BTN_GUN",
+                OpenAs("options_camera_guns", strings::GUN_CAMERA),
+            ),
+            (
+                "BTN_ADVANCED",
+                Cycle("camera.preset", CAMERA_PRESETS, Step::Shown),
+            ),
+            ("BTN_DEFAULT", Defaults),
+            ("BTN_BACK", Back),
+        ],
+        first: "SLI_MUSIC",
+        help: &[
+            ("SLI_MUSIC", Ours(strings::CAMERA_DISTANCE_HELP)),
+            ("SLI_VO", Ours(strings::CAMERA_HEIGHT_HELP)),
+            ("SLI_FX", Ours(strings::CAMERA_SHOULDER_HELP)),
+            ("SLI_MOVIE", Ours(strings::CAMERA_FOV_HELP)),
+            ("BTN_GUN", Ours(strings::GUN_CAMERA_HELP)),
+            ("BTN_FOLLOW", Ours(strings::CAMERA_FOLLOW_HELP)),
+            ("BTN_FADE", Ours(strings::BODY_FADE_HELP)),
+            ("BTN_ADVANCED", Ours(strings::CAMERA_PRESET_HELP)),
+        ],
+    },
+    // Ours, the same layout: the guns' camera, while one is readied.
+    Spec {
+        name: "options_camera_guns",
+        layout: "optsound",
+        roles: &[
+            ("LBL_TITLE", Text(strings::GUN_CAMERA_OPTIONS)),
+            ("LBL_MUSIC", Text(strings::CAMERA_DISTANCE)),
+            ("SLI_MUSIC", Slider("camera.gun.range")),
+            ("LBL_VO", Text(strings::CAMERA_HEIGHT)),
+            ("SLI_VO", Slider("camera.gun.height")),
+            ("LBL_FX", Text(strings::CAMERA_SHOULDER)),
+            ("SLI_FX", Slider("camera.gun.shoulder")),
+            ("LBL_MOVIE", Text(strings::CAMERA_FOV)),
+            ("SLI_MOVIE", Slider("camera.gun.fov")),
+            (
+                "BTN_ADVANCED",
+                Cycle("camera.gun", GUN_CAMERAS, Step::Shown),
+            ),
+            ("BTN_DEFAULT", Defaults),
+            ("BTN_BACK", Back),
+        ],
+        first: "SLI_MUSIC",
+        help: &[
+            ("SLI_MUSIC", Ours(strings::CAMERA_DISTANCE_HELP)),
+            ("SLI_VO", Ours(strings::CAMERA_HEIGHT_HELP)),
+            ("SLI_FX", Ours(strings::CAMERA_SHOULDER_HELP)),
+            ("SLI_MOVIE", Ours(strings::CAMERA_FOV_HELP)),
+            ("BTN_ADVANCED", Ours(strings::GUN_CAMERA_HELP)),
+        ],
+    },
     Spec {
         name: "options_feedback",
         layout: "optfeedback",
@@ -387,6 +531,20 @@ impl Screen for Page {
 
     fn focused(&mut self, tag: &str, _vm: &ViewModel) {
         self.focus = Some(tag.to_string());
+    }
+
+    fn shape(&self, gui: &mut fmt_odyssey::gui::Gui) {
+        for (_, reshape) in RESHAPED.iter().filter(|(page, _)| *page == self.spec.name) {
+            match reshape {
+                Reshape::Stack(at, tags) => {
+                    crate::screens::stack_under(gui, *at, tags, RESHAPE_GAP)
+                }
+                Reshape::Under(tag, after) => {
+                    crate::screens::move_under(gui, (tag, after), RESHAPE_GAP)
+                }
+                Reshape::Like(tag, like) => crate::screens::look_like(gui, (tag, like)),
+            }
+        }
     }
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {

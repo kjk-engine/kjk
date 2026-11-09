@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use ui::intent::Intent;
 use ui::vm::KeyRow;
 
+use crate::camera_tune;
 use crate::display::{Display, DisplayMode};
 use crate::sound::Volumes;
 use crate::ui_view::{Ui, UiIntents};
@@ -70,6 +71,15 @@ pub enum Action {
     Ready,
     /// Turn between the own eyes and JA's camera (`play_view::CameraMode`).
     View,
+    /// The camera a step closer or farther (`camera_tune::zoomed`); past
+    /// the nearest, the own eyes.
+    ZoomIn,
+    ZoomOut,
+    /// Held: the mouse (a pad's right stick) turns the camera around the
+    /// character, not the character (`camera_tune::Orbit`).
+    Orbit,
+    /// The camera's shoulder to the other side.
+    SwapShoulder,
     /// Leave the conversation while it is unlocked (R6, `dialogue_view`).
     LeaveTalk,
     /// The host lets the first guest asking in join, or ends that
@@ -82,7 +92,7 @@ pub enum Action {
 
 /// Each action: its settings name, its label, its default key or mouse
 /// button, and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 44] = [
+pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 48] = [
     (
         Action::Forward,
         "forward",
@@ -349,6 +359,34 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 44] = [
         "view",
         "First person",
         Input::Key(KeyCode::F1),
+        false,
+    ),
+    (
+        Action::ZoomIn,
+        "zoom_in",
+        "Camera closer",
+        Input::Key(KeyCode::Equal),
+        false,
+    ),
+    (
+        Action::ZoomOut,
+        "zoom_out",
+        "Camera farther",
+        Input::Key(KeyCode::Minus),
+        false,
+    ),
+    (
+        Action::Orbit,
+        "orbit",
+        "Look around (hold)",
+        Input::Key(KeyCode::AltLeft),
+        false,
+    ),
+    (
+        Action::SwapShoulder,
+        "swap_shoulder",
+        "Swap camera shoulder",
+        Input::Mouse(MouseButton::Middle),
         false,
     ),
     (
@@ -627,6 +665,12 @@ const DEFAULTS: [(&str, &str); 21] = [
     (AUTOSAVE, "true"),
 ];
 
+/// The camera's options page (`camera_tune`): its Default puts every camera
+/// setting back.
+pub(crate) const CAMERA_PAGE: &str = "options_camera";
+/// The guns' camera page: its Default puts their camera back.
+pub(crate) const GUN_CAMERA_PAGE: &str = "options_camera_guns";
+
 /// The key of Autosave (saving on each module entered, `sim_host::autosave`).
 pub(crate) const AUTOSAVE: &str = "game.autosave";
 
@@ -715,6 +759,8 @@ impl Settings {
     fn default_values() -> BTreeMap<String, String> {
         let mut values: BTreeMap<String, String> = DEFAULTS
             .iter()
+            .copied()
+            .chain(camera_tune::defaults())
             .map(|(key, value)| (key.to_string(), value.to_string()))
             .collect();
         for (_, name, _, key, _) in ACTIONS {
@@ -803,6 +849,24 @@ impl Settings {
     /// the pad's chords, `pad`) back. Keys must name a key a binding may
     /// use, chords a chord (or `none`).
     pub fn apply(&mut self, key: &str, value: &str) {
+        // A camera's preset sets its sliders (Custom, the cycle's last, and
+        // the guns' Same as Melee move none); a slider moved names its
+        // camera's preset again.
+        if let Some(profile) = camera_tune::preset_of(key) {
+            for (name, share) in profile.preset_values(value).into_iter().flatten() {
+                self.values.insert(name.into(), share.into());
+            }
+            self.values.insert(key.into(), value.into());
+            self.save();
+            return;
+        }
+        if let Some(profile) = camera_tune::slider_of(key) {
+            self.values.insert(key.into(), value.into());
+            let preset = profile.preset_named(|name| self.value(name));
+            self.values.insert(profile.preset.into(), preset.into());
+            self.save();
+            return;
+        }
         let defaults = Settings::default_values();
         match (key, value) {
             ("reset", "keys") => {
@@ -814,6 +878,16 @@ impl Settings {
             ("reset", "pad") => {
                 for (_, name, ..) in ACTIONS {
                     self.values.remove(&format!("pad.{name}"));
+                }
+            }
+            ("reset", page @ (CAMERA_PAGE | GUN_CAMERA_PAGE)) => {
+                let reset: Vec<_> = if page == CAMERA_PAGE {
+                    camera_tune::camera_defaults().collect()
+                } else {
+                    camera_tune::GUNS.defaults().collect()
+                };
+                for (name, default) in reset {
+                    self.values.insert(name.into(), default.into());
                 }
             }
             ("reset", page) => {
@@ -927,6 +1001,11 @@ impl Settings {
         self.values.get("camera.view").is_some_and(|v| v == "first")
     }
 
+    /// The third-person camera the options ask for.
+    pub fn camera(&self) -> camera_tune::CameraTune {
+        camera_tune::CameraTune::from_settings(|key| self.value(key))
+    }
+
     /// Keeps whether the player looks through its own eyes.
     pub fn keep_first_person(&mut self, first: bool) {
         self.apply("camera.view", if first { "first" } else { "third" });
@@ -1026,10 +1105,13 @@ const STICK: [Action; 5] = [
 /// The actions that may keep one binding, as the defaults have them: their
 /// moments never meet (a ready check's Ready and a join request's Accept;
 /// following while watching and ending a join request) or a screen takes
-/// one (Leave, on a conversation or a watched pazaak table). A rebinding
-/// swaps with any other action on the binding asked for.
-pub(crate) const SHARES: [[Action; 2]; 4] = [
+/// one (Leave, on a conversation or a watched pazaak table), or a tap is
+/// one and a hold the other (a pad's R3: Saber style tapped, the camera's
+/// orbit held, `pad::TAP_ON_ORBIT`). A rebinding swaps with any other
+/// action on the binding asked for.
+pub(crate) const SHARES: [[Action; 2]; 5] = [
     [Action::SaberStyle, Action::LeaveTalk],
+    [Action::SaberStyle, Action::Orbit],
     [Action::Crouch, Action::LeaveTalk],
     [Action::Ready, Action::AcceptCall],
     [Action::Follow, Action::EndCall],
@@ -1130,6 +1212,7 @@ impl Plugin for SettingsPlugin {
             .insert_resource(settings.volumes())
             .insert_resource(settings.display())
             .insert_resource(settings.shadows())
+            .insert_resource(settings.camera())
             .insert_resource(settings)
             .add_systems(Startup, show)
             .add_systems(Update, apply.after(crate::ui_view::Stepped));
@@ -1139,9 +1222,16 @@ impl Plugin for SettingsPlugin {
 /// The settings as the screens show them.
 fn show(settings: Res<Settings>, ui: Option<ResMut<Ui>>) {
     if let Some(mut ui) = ui {
-        ui.vm.settings = settings.values.clone();
-        ui.vm.keys = settings.rows();
-        ui.vm.pad_keys = settings.pad_rows();
+        settings.shown(&mut ui);
+    }
+}
+
+impl Settings {
+    /// `ui`'s copy of the settings brought up to date.
+    pub(crate) fn shown(&self, ui: &mut Ui) {
+        ui.vm.settings = self.values.clone();
+        ui.vm.keys = self.rows();
+        ui.vm.pad_keys = self.pad_rows();
     }
 }
 
@@ -1152,10 +1242,11 @@ fn apply(
     mut keys: ResMut<KeyMap>,
     mut mouse: ResMut<MouseFeel>,
     (mut pads, mut pad): (ResMut<crate::pad::PadMap>, ResMut<crate::pad::PadFeel>),
-    (mut volumes, mut display, mut shadows): (
+    (mut volumes, mut display, mut shadows, mut camera): (
         ResMut<Volumes>,
         ResMut<Display>,
         ResMut<crate::shadows::ShadowSettings>,
+        ResMut<camera_tune::CameraTune>,
     ),
     ui: Option<ResMut<Ui>>,
 ) {
@@ -1176,10 +1267,9 @@ fn apply(
         volumes.set_if_neq(settings.volumes());
         display.set_if_neq(settings.display());
         shadows.set_if_neq(settings.shadows());
+        camera.set_if_neq(settings.camera());
         if let Some(mut ui) = ui {
-            ui.vm.settings = settings.values.clone();
-            ui.vm.keys = settings.rows();
-            ui.vm.pad_keys = settings.pad_rows();
+            settings.shown(&mut ui);
         }
     }
 }
