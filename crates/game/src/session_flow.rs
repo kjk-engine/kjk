@@ -382,6 +382,16 @@ fn prepare(intent: SessionIntent) -> Receiver<Progress> {
                     )
                 })
             }
+            SessionIntent::Sandbox => {
+                status("Loading the combat sandbox".into());
+                solo_options(crate::arena::SANDBOX).and_then(|options| {
+                    let options = play::Options {
+                        sheet: crate::arena::sheet(),
+                        ..options
+                    };
+                    play::load(&discovery, &options)
+                })
+            }
             SessionIntent::ToMenu => Err("not a session".into()),
         };
         let _ = sender.send(Progress::Ready(Box::new(result)));
@@ -485,6 +495,9 @@ fn start(
                     SessionIntent::Restore { save: id } => {
                         let module = ui.vm.saves.iter().find(|save| save.id == *id);
                         module.map(|save| format!("load_{}", save.module))
+                    }
+                    SessionIntent::Sandbox => {
+                        Some(format!("load_{}", crate::arena::SANDBOX_MODULE))
                     }
                     SessionIntent::Solo { save, campaign, .. }
                     | SessionIntent::Host { save, campaign, .. } => {

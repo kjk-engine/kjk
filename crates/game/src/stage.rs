@@ -300,6 +300,15 @@ impl Stage {
             "ring" => Ok(Stage::ring(anims, seats)),
             "arena" => Stage::arena(discovery, crate::arena::BASE_MODULE, anims, seats),
             crate::floor_arena::NAME => Stage::floors(discovery, anims, seats),
+            crate::arena::SANDBOX => Stage::module_arena(
+                discovery,
+                crate::arena::SANDBOX_MODULE,
+                arrival.or(Some(crate::arena::SANDBOX_ARRIVAL)),
+                anims,
+                scene,
+                seats,
+            )
+            .map(Stage::without_creatures),
             _ if let Some(base) = name.strip_prefix("arena:") => {
                 Stage::arena(discovery, base, anims, seats)
             }
@@ -314,6 +323,24 @@ impl Stage {
     /// `allies` turned (`with_factions`) before its first install.
     pub fn with_factions(mut self, hostile: &[String], allies: &[String]) -> Stage {
         self.level = with_factions(&self.level, hostile, allies);
+        if let Some(plan) = &mut self.plan {
+            plan.level = self.level.clone();
+        }
+        self
+    }
+
+    /// The stage with none of its module's own creatures: an empty floor
+    /// to call foes onto (the sandbox; Malak waits in his hall otherwise).
+    pub fn without_creatures(mut self) -> Stage {
+        let Some(module) = self.level.module() else {
+            return self;
+        };
+        let mut data = module.as_ref().clone();
+        data.placements.retain(|placement| match placement {
+            sim::module::Placement::Own(object) => object.kind != sim::module::ObjectKind::Creature,
+            sim::module::Placement::Template { .. } => false,
+        });
+        self.level = self.level.clone().with_module(data);
         if let Some(plan) = &mut self.plan {
             plan.level = self.level.clone();
         }

@@ -10,7 +10,9 @@ pub(crate) struct PlayArgs {
     /// The stage: `course`, `duel` (two players facing off), a KOTOR 1
     /// module such as `end_m01aa`, `arena` (the grey-box arena), or
     /// `arena@MODULE`, the arena's Jedi and keys on a real area (lit
-    /// `end_m01ab`, dark `lev_m40ac`: the combat lights' test beds)
+    /// `end_m01ab`, dark `lev_m40ac`: the combat lights' test beds), or
+    /// `sandbox`, the same in the Star Forge's partly lit hall (the main
+    /// menu options' Debug)
     #[arg(long, default_value = "course")]
     stage: String,
     /// On a module stage: arrive at this door or waypoint (by tag)
@@ -253,6 +255,7 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         // The arena's own Jedi unless another class is asked for.
         sheet: match if stage == "arena"
             || stage == "floors"
+            || stage == kjk_game::arena::SANDBOX
             || stage.starts_with("arena:")
             || stage.starts_with("arena@")
         {
