@@ -529,9 +529,9 @@ Running and checking:
 - The options (`ui::screens::options`, a table per page): gameplay's
   inverted camera and its Camera page (ours, on TSL's unused second
   reverse box; `optsound`'s layout: distance, height, shoulder and field of
-  view on its sliders, the preset on its Advanced button, and two copies of
-  that button stacked under the sliders, `screens::stack_under`, for how
-  closely the camera follows and the body's fade; `MOVEMENT.md`), the
+  view on its sliders, the preset on its Advanced button, and three copies
+  of that button stacked under the sliders, `screens::stack_under`, for the
+  guns' framing, how closely the camera follows and the body's fade; `MOVEMENT.md`), the
   mouse's sensitivity and buttons, key mapping, the
   four volumes (`SOUND.md`), and the graphics (`game::display`):
   brightness (a gamma over the whole frame in `ui_composite`, a half to

@@ -1772,6 +1772,13 @@ impl Cast {
             .collect()
     }
 
+    /// Whether `id` has a gun in hand.
+    pub fn gun_in_hand(&self, id: SimId) -> bool {
+        self.holdings
+            .wielded(id)
+            .is_some_and(|wielded| wielded.guns().iter().any(Option::is_some))
+    }
+
     /// Every drawn character's body root (`BodyRoots`).
     pub fn roots(&self) -> BTreeMap<SimId, Entity> {
         self.members

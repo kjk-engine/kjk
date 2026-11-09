@@ -79,6 +79,9 @@ const SLIDERS: [&Slider; 4] = [&RANGE, &HEIGHT, &SHOULDER, &FOV];
 pub(crate) const PRESET: &str = "camera.preset";
 pub(crate) const TRACKING: &str = "camera.tracking";
 pub(crate) const BODY_FADE: &str = "camera.body_fade";
+/// Where the camera goes while a gun is in hand: a preset's framing, or
+/// `same` for the camera's own.
+pub(crate) const GUN: &str = "camera.gun";
 
 /// The presets: each one's name and where it puts the range, height,
 /// shoulder and field of view sliders.
@@ -98,7 +101,7 @@ const PRESETS: [(&str, [&str; 4]); 4] = [
 ];
 
 /// Every camera setting and its default, for the settings' table.
-pub(crate) const DEFAULTS: [(&str, &str); 7] = [
+pub(crate) const DEFAULTS: [(&str, &str); 8] = [
     (PRESET, "ja"),
     (RANGE.key, RANGE.default),
     (HEIGHT.key, HEIGHT.default),
@@ -106,6 +109,7 @@ pub(crate) const DEFAULTS: [(&str, &str); 7] = [
     (FOV.key, FOV.default),
     (TRACKING, "ja"),
     (BODY_FADE, "true"),
+    (GUN, "shoulder"),
 ];
 
 /// How closely the camera follows: JA's damping, a stiffer one, or none.
@@ -138,9 +142,9 @@ impl Tracking {
     }
 }
 
-/// The camera the options ask for (units, degrees).
-#[derive(Resource, Debug, Clone, Copy, PartialEq)]
-pub struct CameraTune {
+/// Where the camera stands and how wide it sees (units, degrees).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Framing {
     pub range: f32,
     /// The aim point over the eye.
     pub height: f32,
@@ -148,6 +152,46 @@ pub struct CameraTune {
     pub shoulder: f32,
     /// Across a 4:3 screen.
     pub fov: f32,
+}
+
+impl Framing {
+    /// The sliders at `shares` (range, height, shoulder, field of view).
+    fn at(shares: [f32; 4]) -> Framing {
+        let [range, height, shoulder, fov] = std::array::from_fn(|i| SLIDERS[i].value(shares[i]));
+        Framing {
+            range,
+            height,
+            shoulder,
+            fov,
+        }
+    }
+
+    /// `share` of the way from `self` to `to`.
+    pub fn toward(self, to: Framing, share: f32) -> Framing {
+        let mix = |a: f32, b: f32| a + (b - a) * share;
+        Framing {
+            range: mix(self.range, to.range),
+            height: mix(self.height, to.height),
+            shoulder: mix(self.shoulder, to.shoulder),
+            fov: mix(self.fov, to.fov),
+        }
+    }
+
+    /// The field of view up and down (degrees) for a view whose JA field
+    /// of view (80) is `ja_vertical`: JA's across 4:3 as this framing has
+    /// it.
+    pub fn vertical_fov(&self, ja_vertical: f32) -> f32 {
+        let vertical = |across: f32| ((across / 2.0).to_radians().tan() * 0.75).atan() * 2.0;
+        ja_vertical * vertical(self.fov) / vertical(JA_FOV)
+    }
+}
+
+/// The camera the options ask for.
+#[derive(Resource, Debug, Clone, Copy, PartialEq)]
+pub struct CameraTune {
+    pub framing: Framing,
+    /// While a gun is in the watched character's hand (none: `framing`).
+    pub gun: Option<Framing>,
     pub tracking: Tracking,
     pub body_fade: bool,
 }
@@ -167,21 +211,19 @@ impl CameraTune {
                 .unwrap_or_else(|| slider.default_share())
                 .clamp(0.0, 1.0)
         };
+        // A preset's framing (`same` is none: the camera's own).
+        let preset = |name: &str| {
+            let set = preset_values(name)?;
+            Some(Framing::at(
+                set.map(|(_, share)| share.parse().unwrap_or(0.0)),
+            ))
+        };
         CameraTune {
-            range: RANGE.value(share(&RANGE)),
-            height: HEIGHT.value(share(&HEIGHT)),
-            shoulder: SHOULDER.value(share(&SHOULDER)),
-            fov: FOV.value(share(&FOV)),
+            framing: Framing::at(SLIDERS.map(share)),
+            gun: preset(value(GUN).unwrap_or("shoulder")),
             tracking: Tracking::named(value(TRACKING).unwrap_or("ja")),
             body_fade: value(BODY_FADE).is_none_or(|on| on != "false"),
         }
-    }
-
-    /// The field of view up and down (degrees) for a view whose JA field
-    /// of view (80) is `ja_vertical`: JA's across 4:3 as this tune has it.
-    pub fn vertical_fov(&self, ja_vertical: f32) -> f32 {
-        let vertical = |across: f32| ((across / 2.0).to_radians().tan() * 0.75).atan() * 2.0;
-        ja_vertical * vertical(self.fov) / vertical(JA_FOV)
     }
 }
 
@@ -250,6 +292,8 @@ pub struct Orbit {
     /// frame): the orbit key does nothing in the own eyes, a conversation
     /// or a fixed camera.
     pub(crate) free: bool,
+    /// The shoulder on the other side (`Action::SwapShoulder`).
+    pub(crate) swapped: bool,
     zoom: f32,
     /// A run's commands hold the orbit, turning to this yaw and pitch
     /// (`script`).
@@ -345,6 +389,7 @@ pub(crate) fn steer(mut input: CameraInput, time: Res<Time>, mut orbit: ResMut<O
     };
     orbit.zoom += f32::from(u8::from(actions.pressed(Action::ZoomIn)))
         - f32::from(u8::from(actions.pressed(Action::ZoomOut)));
+    orbit.swapped ^= actions.pressed(Action::SwapShoulder);
     // The wheel zooms with the orbit key held in either camera (out of the
     // own eyes too); the camera turns around only in the third person's.
     let key = actions.held(Action::Orbit);

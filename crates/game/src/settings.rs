@@ -78,6 +78,8 @@ pub enum Action {
     /// Held: the mouse (a pad's right stick) turns the camera around the
     /// character, not the character (`camera_tune::Orbit`).
     Orbit,
+    /// The camera's shoulder to the other side.
+    SwapShoulder,
     /// Leave the conversation while it is unlocked (R6, `dialogue_view`).
     LeaveTalk,
     /// The host lets the first guest asking in join, or ends that
@@ -90,7 +92,7 @@ pub enum Action {
 
 /// Each action: its settings name, its label, its default key or mouse
 /// button, and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 47] = [
+pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 48] = [
     (
         Action::Forward,
         "forward",
@@ -378,6 +380,13 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 47] = [
         "orbit",
         "Look around (hold)",
         Input::Key(KeyCode::AltLeft),
+        false,
+    ),
+    (
+        Action::SwapShoulder,
+        "swap_shoulder",
+        "Swap camera shoulder",
+        Input::Mouse(MouseButton::Middle),
         false,
     ),
     (

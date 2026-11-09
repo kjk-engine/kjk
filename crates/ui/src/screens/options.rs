@@ -120,15 +120,24 @@ const ON_OFF: &[(&str, &str)] = &[
     ("false", strings::BODY_FADE_OFF),
 ];
 
+/// Where the camera goes while a gun is in hand: a preset's framing, or
+/// the camera's own.
+const GUN_CAMERAS: &[(&str, &str)] = &[
+    ("shoulder", strings::GUN_CAMERA_SHOULDER),
+    ("close", strings::GUN_CAMERA_CLOSE),
+    ("kotor", strings::GUN_CAMERA_KOTOR),
+    ("same", strings::GUN_CAMERA_SAME),
+];
+
 /// Buttons a page adds to its layout: copies of one of its buttons
 /// (`style`) stacked under a control (`after`), by page.
 const ADDED: [(&str, (&str, &str), &[&str]); 1] = [(
     "options_camera",
     ("BTN_ADVANCED", "SLI_MOVIE"),
-    &["BTN_FOLLOW", "BTN_FADE"],
+    &["BTN_GUN", "BTN_FOLLOW", "BTN_FADE"],
 )];
 /// The gap between them, and above the first (pixels).
-const ADDED_GAP: i32 = 12;
+const ADDED_GAP: i32 = 5;
 
 const PAGES: [Spec; 9] = [
     Spec {
@@ -283,6 +292,7 @@ const PAGES: [Spec; 9] = [
                 Cycle("camera.tracking", CAMERA_FOLLOW, Step::Shown),
             ),
             ("BTN_FADE", Cycle("camera.body_fade", ON_OFF, Step::Shown)),
+            ("BTN_GUN", Cycle("camera.gun", GUN_CAMERAS, Step::Shown)),
             (
                 "BTN_ADVANCED",
                 Cycle("camera.preset", CAMERA_PRESETS, Step::Shown),

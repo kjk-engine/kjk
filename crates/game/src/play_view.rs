@@ -137,6 +137,10 @@ struct ThirdPerson {
     location: [f32; 3],
     shown: [f32; 3],
     side: f32,
+    /// How far the camera is into the gun's framing (0 to 1, `GUN_BLEND_MS`)
+    /// and the framing it had this frame.
+    gun: f32,
+    framing: crate::camera_tune::Framing,
     last_yaw: f32,
     started: bool,
 }
@@ -153,6 +157,10 @@ impl ThirdPerson {
         angles
     }
 }
+
+/// How long the camera takes into the gun's framing or out of it (ms), as
+/// Movie Duels' aiming camera.
+const GUN_BLEND_MS: f32 = 250.0;
 
 /// How long the camera takes to move most (63%) of the way to a new
 /// shoulder (seconds): across in about a fifth of a second.
@@ -222,6 +230,8 @@ struct View {
     /// or a headless run named a settings file; else JA's camera.
     tuned: bool,
     orbit: [f32; 2],
+    /// The shoulder swapped to the other side (`Action::SwapShoulder`).
+    swapped: bool,
     /// The third-person camera had the view last frame: the own player's,
     /// no conversation's, the own eyes' or a fixed one's.
     following: bool,
@@ -535,6 +545,7 @@ pub fn install(app: &mut World, setup: PlayViewSetup) {
             tune: crate::camera_tune::CameraTune::default(),
             tuned: windowed,
             orbit: [0.0; 2],
+            swapped: false,
             following: false,
             first: FirstPerson::default(),
             fixed: false,
@@ -626,7 +637,12 @@ fn chase(ideal: [f32; 3], old: [f32; 3], keep: f32) -> [f32; 3] {
 /// lags sideways as well.
 fn follow_camera(
     camera: &mut ThirdPerson,
-    (at, tune, orbit): (&cast::Blended, &crate::camera_tune::CameraTune, [f32; 2]),
+    (at, framing, damps, orbit): (
+        &cast::Blended,
+        &crate::camera_tune::Framing,
+        (f32, f32),
+        [f32; 2],
+    ),
     quirks: bool,
     frame_ms: f32,
     trace: &dyn Fn([f32; 3], [f32; 3]) -> [f32; 3],
@@ -636,10 +652,10 @@ fn follow_camera(
     let (ahead, _, _) = sim::math::angle_vectors([pitch, yaw, at.view[2]]);
     let [x, y, z] = at.origin;
     let focus = [x, y, z + at.state.eye_height];
-    let aim = [focus[0], focus[1], focus[2] + tune.height];
+    let aim = [focus[0], focus[1], focus[2] + framing.height];
     let backed_from = if quirks { aim } else { trace(focus, aim) };
-    let place: [f32; 3] = std::array::from_fn(|i| backed_from[i] - tune.range * ahead[i]);
-    let (aim_damp, place_damp) = tune.tracking.damps();
+    let place: [f32; 3] = std::array::from_fn(|i| backed_from[i] - framing.range * ahead[i]);
+    let (aim_damp, place_damp) = damps;
     // From an aim point out to a place: straight, as JA traces it; or
     // level first and then up or down, so a ceiling stops the rise but not
     // the way back.
@@ -784,22 +800,53 @@ impl View {
         };
         let walls = (&self.level, self.doors.as_deref());
         let trace = |from, to| stop_short(walls, from, to);
+        // A gun in the watched hand takes the camera to the gun's framing
+        // and back, eased over `GUN_BLEND_MS`, undamped meanwhile (the
+        // blend eases it; damping it too trails and then snaps).
+        let gun_out =
+            self.tune.gun.is_some() && self.watched.is_some_and(|id| self.cast.gun_in_hand(id));
+        let step = if frame_ms > 0.0 {
+            frame_ms / GUN_BLEND_MS
+        } else {
+            1.0
+        };
+        let blend = &mut self.camera.gun;
+        *blend = if gun_out {
+            (*blend + step).min(1.0)
+        } else {
+            (*blend - step).max(0.0)
+        };
+        let eased = *blend * *blend * (3.0 - 2.0 * *blend);
+        let own = self.tune.framing;
+        let framing = own.toward(self.tune.gun.unwrap_or(own), eased);
+        let damps = if eased > 0.0 && eased < 1.0 {
+            (1.0, 1.0)
+        } else {
+            self.tune.tracking.damps()
+        };
+        self.camera.framing = framing;
         follow_camera(
             &mut self.camera,
-            (&at, &self.tune, self.orbit),
+            (&at, &framing, damps, self.orbit),
             self.cast.rig.quirks,
             frame_ms,
             &trace,
         );
         // The shoulder moves the camera across its own line after the
         // chase, traced from the aim point so a wall beside it stops it
-        // short; what it looks along stays as the chase left it.
+        // short; what it looks along stays as the chase left it. The swap
+        // key puts it on the other side.
+        let shoulder = if self.swapped {
+            -framing.shoulder
+        } else {
+            framing.shoulder
+        };
         let camera = &mut self.camera;
         let ease = 1.0 - (-frame_ms / 1000.0 / SIDE_EASE).exp();
-        let left = self.tune.shoulder - camera.side;
+        let left = shoulder - camera.side;
         // The last of the way taken at once: the side reaches what was asked.
         camera.side = if frame_ms <= 0.0 || left.abs() < SIDE_DONE {
-            self.tune.shoulder
+            shoulder
         } else {
             camera.side + left * ease
         };
@@ -868,6 +915,7 @@ impl View {
         // The shoulder stays where it was: a new module does not slide it in.
         self.camera = ThirdPerson {
             side: self.camera.side,
+            gun: self.camera.gun,
             ..ThirdPerson::default()
         };
         self.first.restart();
@@ -1035,6 +1083,7 @@ fn view_keys(
     let zoom = orbit.map_or(0.0, |mut orbit| {
         orbit.free = view.following;
         view.orbit = [orbit.yaw, orbit.pitch];
+        view.swapped = orbit.swapped;
         let zoom = orbit.take_zoom();
         if view.tuned { zoom } else { 0.0 }
     });
@@ -1510,7 +1559,13 @@ fn draw(
     let watching = view.watched != view.me;
     // Knight and Master Speed widen the view (`script_fx::OwnScreen`); a
     // screen shake turns it.
-    let wide = view.tune.vertical_fov(FOV_DEGREES);
+    // The framing the camera had this frame (the options' before it moved).
+    let framing = if view.camera.started {
+        view.camera.framing
+    } else {
+        view.tune.framing
+    };
+    let wide = framing.vertical_fov(FOV_DEGREES);
     let fov = screen.as_ref().map_or(wide, |screen| screen.fov(wide, ms));
     let shaken = screen
         .and_then(|screen| screen.shake)
