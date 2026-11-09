@@ -539,11 +539,16 @@ fn sheltered(
 }
 
 /// The scene's characters' feet (their bodies' roots), the nearest the
-/// player first.
+/// player first: only the bodies drawn, so none is left where a creature
+/// gone, not come yet or hidden stood.
 fn gather_feet(
     scene: Option<Res<crate::scene::SceneContent>>,
     own: Option<Res<crate::play_view::OwnBody>>,
-    models: Query<(&crate::scene::SceneModel, &GlobalTransform)>,
+    models: Query<(
+        &crate::scene::SceneModel,
+        &GlobalTransform,
+        &InheritedVisibility,
+    )>,
     focus: Res<Focus>,
     mut feet: ResMut<Feet>,
 ) {
@@ -560,8 +565,8 @@ fn gather_feet(
     feet.0.extend(
         models
             .iter()
-            .filter(|(model, _)| bodies.contains(&model.index))
-            .map(|(_, transform)| transform.translation()),
+            .filter(|(model, _, shown)| shown.get() && bodies.contains(&model.index))
+            .map(|(_, transform, _)| transform.translation()),
     );
     let at = focus.feet;
     feet.0
