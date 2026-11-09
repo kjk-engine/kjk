@@ -345,7 +345,13 @@ pub(crate) fn steer(mut input: CameraInput, time: Res<Time>, mut orbit: ResMut<O
     };
     orbit.zoom += f32::from(u8::from(actions.pressed(Action::ZoomIn)))
         - f32::from(u8::from(actions.pressed(Action::ZoomOut)));
-    orbit.held = orbit.free && actions.held(Action::Orbit);
+    // The wheel zooms with the orbit key held in either camera (out of the
+    // own eyes too); the camera turns around only in the third person's.
+    let key = actions.held(Action::Orbit);
+    if key {
+        orbit.zoom += wheel;
+    }
+    orbit.held = orbit.free && key;
     if orbit.held {
         let grabbed = input
             .cursors
@@ -367,7 +373,7 @@ pub(crate) fn steer(mut input: CameraInput, time: Res<Time>, mut orbit: ResMut<O
             });
         orbit.yaw = around(orbit.yaw - mouse.x - actions.turn.x);
         orbit.pitch = (orbit.pitch + mouse.y).clamp(-ORBIT_PITCH, ORBIT_PITCH);
-        orbit.zoom += wheel - actions.turn.y * PAD_ZOOM;
+        orbit.zoom -= actions.turn.y * PAD_ZOOM;
         return;
     }
     let back = (time.delta_secs() * ORBIT_RETURN).min(1.0);
