@@ -140,33 +140,12 @@ pub struct TextureIr {
     pub cube: bool,
     pub frames: usize,
     pub facts: TextureFacts,
-    /// A cube map's six faces (each a mip chain like `mips`), after the
-    /// face fix-up; empty otherwise.
+    /// A cube map's six faces (each a mip chain like `mips`), as stored;
+    /// empty otherwise.
     pub faces: Vec<Vec<Vec<u8>>>,
     /// A flip-book's frames (each a mip chain like `mips`; the first is
     /// `mips`); empty otherwise.
     pub frame_mips: Vec<Vec<Vec<u8>>>,
-}
-
-/// Quarter turns for each cube map face, counted after faces 0 and 1 have
-/// swapped places: the games store the faces in this orientation.
-const CUBE_TURNS: [usize; 6] = [1, 3, 0, 2, 2, 0];
-
-/// Turns a square `n` by `n` RGBA8 image a quarter turn `steps` times
-/// (modulo 4), in place. Each turn sends the texel at row `r`, column `c`
-/// to row `c`, column `n - 1 - r`.
-fn rotate90(data: &mut [u8], n: usize, steps: usize) {
-    let mut scratch = vec![0u8; data.len()];
-    for _ in 0..steps % 4 {
-        for r in 0..n {
-            for c in 0..n {
-                let from = (r * n + c) * 4;
-                let to = (c * n + (n - 1 - r)) * 4;
-                scratch[to..to + 4].copy_from_slice(&data[from..from + 4]);
-            }
-        }
-        data.copy_from_slice(&scratch);
-    }
 }
 
 impl TextureIr {
@@ -194,20 +173,16 @@ impl TextureIr {
             Some(mips)
         };
         let mips = layer(0)?;
+        // A cube map's faces go up as stored, in their stored order and
+        // rows: so stored, every cube the games ship (the Upper City's
+        // skyline, the Hawk's bay, the Endar Spire's halls, Onderon's) reads
+        // as one seamless view of the game's world, Z up (+X, -X, +Y, -Y,
+        // then the sky, then the ground), which is how the shader looks
+        // them up.
         let mut faces = Vec::new();
         if texture.cube && texture.layers.len() == 6 {
             for index in 0..6 {
                 faces.push(layer(index)?);
-            }
-            faces.swap(0, 1);
-            for (face, turns) in faces.iter_mut().zip(CUBE_TURNS) {
-                for (level, data) in face.iter_mut().enumerate() {
-                    let n = texture.layers[0][level].width;
-                    if n != texture.layers[0][level].height {
-                        return None;
-                    }
-                    rotate90(data, n, turns);
-                }
             }
         }
         let mut frame_mips = Vec::new();

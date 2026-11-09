@@ -360,14 +360,22 @@ impl ItemFacts {
 
     /// As an item's upgrades leave it: K1's `upgrades` fitted (rows as
     /// bits, `Item::upgrades`: its own properties of those rows) and TSL's
-    /// `fitted` (`Item::fitted`: the upgrade items' properties, from
-    /// `catalog`).
-    pub fn fitted(&self, upgrades: u32, fitted: &[String], catalog: &Catalog) -> ItemFacts {
+    /// `fitted` (`Item::fitted`: the upgrade items' properties, looked up
+    /// as items in play are, in `catalog` else `known`: `facts_in_play`).
+    pub fn fitted(
+        &self,
+        upgrades: u32,
+        fitted: &[String],
+        catalog: &Catalog,
+        known: &BTreeMap<String, ItemFacts>,
+    ) -> ItemFacts {
         let k1 = self
             .upgrades
             .iter()
             .filter(|upgrade| has_upgrade(upgrades, upgrade.row));
-        let tsl = fitted.iter().filter_map(|template| catalog.get(template));
+        let tsl = fitted
+            .iter()
+            .filter_map(|template| facts_in_play(catalog, known, template));
         let mut more = Vec::new();
         let mut rows = 0;
         for (properties, of) in k1

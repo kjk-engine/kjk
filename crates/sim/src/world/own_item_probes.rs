@@ -18,6 +18,9 @@
 //!   Telos): the sim puts it on, and every seat's goods (`Goods::facts`, as
 //!   the equip page and the walkthrough harness read them) know its slots,
 //!   through the wire too, though the module entered has no template of it.
+//! - A module's own upgrade fitted to an item (TSL's `Item::fitted`), the
+//!   item carried out of the module: the upgrade still counts
+//!   (`ItemFacts::fitted` looks it up as items in play are).
 
 use crate::inventory::{
     Catalog, ItemFacts, PARTY, module_of, names, own_template, resref_of, slots,
@@ -74,6 +77,7 @@ pub fn probes() -> Checks {
     let base = catalog(SITH_BASE, "tar09_techlog");
 
     checks.push(carried_out());
+    checks.push(fitted_carried_out());
 
     let found = spaceport.get(DATAPAD).map(|facts| facts.template.clone());
     let own = found.as_deref().unwrap_or("");
@@ -209,6 +213,45 @@ fn carried_out() -> (&'static str, Result<String, String>) {
             format!(
                 "{template}: the goods' slots {seen:?} (sent and read back), worn {worn:?} in {slot:?}"
             ),
+        ),
+    )
+}
+
+/// A module's own upgrade fitted to a shared item, carried out of it.
+fn fitted_carried_out() -> (&'static str, Result<String, String>) {
+    /// The `itempropdef.2da` row the upgrade brings.
+    const ROW: u8 = 38;
+    let mut lens = item(&own_template("u_lens", TARIS_SPACEPORT), "u_lens", 1);
+    lens.rows = 1 << ROW;
+    let spaceport = catalog(TARIS_SPACEPORT, "tar_calojournal").with(Catalog::new([lens]));
+    let base = catalog(SITH_BASE, "tar09_techlog");
+    let mut state = State::default();
+    let made = state.make_item(&spaceport, "vibroblade", PARTY, 1, None);
+    let id = made.map_or(0, |id| id.0);
+    let own = spaceport
+        .get("u_lens")
+        .map_or_else(String::new, |facts| facts.template.clone());
+    if let Some(mut held) = state.items.get_mut(&id) {
+        held.fitted.push(own.clone());
+    }
+    state.carry_known(&spaceport, &base);
+    let counted = |catalog: &Catalog| {
+        state.items.get(&id).is_some_and(|held| {
+            state
+                .item_facts(catalog, &held.template)
+                .is_some_and(|facts| {
+                    facts
+                        .fitted(held.upgrades, &held.fitted, catalog, &state.known)
+                        .has_row(ROW)
+                })
+        })
+    };
+    let seen = [counted(&spaceport), counted(&base)];
+    (
+        "a module's own upgrade fitted, the item carried out of its module: still counted",
+        check(
+            base.get(&own).is_none() && seen == [true; 2],
+            format!("{own} fitted, counted in its module and out of it: {seen:?}"),
         ),
     )
 }

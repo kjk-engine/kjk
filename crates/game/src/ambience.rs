@@ -806,7 +806,7 @@ fn tracks(
     let Some((area, tables)) = &ambience.area else {
         return;
     };
-    let scripted = current.area_sound;
+    let scripted = &current.area_sound;
     let tracks = &area.tracks;
     let night = tracks.night;
     let music_file = minigame_music.or_else(|| {

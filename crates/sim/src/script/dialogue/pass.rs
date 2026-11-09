@@ -481,12 +481,18 @@ impl Step<'_> {
         // with the console's own dialog, TSL's 3C-FD at the Ebon Hawk's
         // security console; the Endar Spire's `k_pend_comp07` talks to
         // `GetLastUsedBy()`, whoever used it).
-        let mut pcs = view.pcs(&self.state.party);
+        let characters = view.pcs(&self.state.party);
+        let mut pcs = characters.clone();
         pcs.extend(self.host());
         let guests = (view.seats.iter()).filter(|(seat, _)| *seat != crate::world::LEADER_SEAT.0);
         pcs.extend(guests.map(|&(_, body)| body));
         let companion = self.state.party.creatures().any(|body| body == with.0);
-        let (owner, pc) = if pcs.contains(&who) && with != ObjectId::INVALID {
+        // A companion a guest drives asking a player's character (K1's
+        // `k_trg_partyinit`: Carth's `ActionStartConversation(GetFirstPC())`)
+        // owns it and says its own lines, as one no seat drives does.
+        let (owner, pc) = if characters.contains(&with) && !characters.contains(&who) {
+            (who, with)
+        } else if pcs.contains(&who) && with != ObjectId::INVALID {
             (with, who)
         } else if pcs.contains(&with) {
             (who, with)

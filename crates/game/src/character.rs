@@ -407,7 +407,7 @@ fn previews(sheet: &Sheet, goods: &Goods, me: u32, item: &Item, catalog: &Catalo
     let facts = |item: &Item| {
         goods
             .facts(catalog, &item.template)
-            .map(|facts| facts.fitted(item.upgrades, &item.fitted, catalog))
+            .map(|facts| facts.fitted(item.upgrades, &item.fitted, catalog, &goods.known))
     };
     let Some(candidate) = facts(item) else {
         return Vec::new();
@@ -497,7 +497,7 @@ fn view(
             // facts with its upgrades fitted.
             let facts = catalog.and_then(|catalog| {
                 let facts = goods.facts(catalog, &item.template)?;
-                Some(facts.fitted(item.upgrades, &item.fitted, catalog))
+                Some(facts.fitted(item.upgrades, &item.fitted, catalog, &goods.known))
             });
             let rules = facts.as_ref().zip(wearer);
             Owned {
