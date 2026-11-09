@@ -127,6 +127,33 @@ release → Run workflow) it makes the packages as the run's artifacts and
 no Release. Each package is built on its own runner: macOS on Apple
 silicon, Windows and Linux on x86-64 (Ubuntu 22.04's glibc).
 
+#### Pre-releases
+
+A build for testers, from any branch, goes on a **pre-release**: GitHub
+marks it as one and never as the Latest release, so a player who goes to
+the Releases page still finds the last real one. There are two ways:
+
+- **From a branch, as it is**: Actions → release → Run workflow, pick the
+  branch, tick **pre-release**. The packages are named by `git describe`
+  as always (`kjk-v0.13.0-17-gabc1234-windows-x86_64.zip`), and the draft
+  is titled `kjk v0.13.0-17-gabc1234 (<branch>)`. Its tag,
+  `pre-<branch>-v0.13.0-17-gabc1234` (`/` and other odd characters in
+  the branch's name made `-`), is made at the run's commit when the draft
+  is published. It never starts with `v`, so `git describe --match 'v*'`
+  never names a later build after it. Running it again on the same commit fails while that draft or
+  pre-release is there: delete the draft (it has no tag yet) first.
+- **A version's candidate**: a `v…` tag with a suffix (`v0.14.0-rc.1`,
+  `v0.14.0-beta.2`), pushed by the owner like any release tag, on any
+  branch. It is drafted as a pre-release; the app's version is still the
+  numbers (0.14.0).
+
+Either way it is a draft that the owner reviews and publishes, as a
+release is. Publishing it announces it on Discord, its title marked
+"(pre-release)", but does **not** upload it to Nexus: the page's files
+are the players' releases (`nexus-release.yml` skips a pre-release; run
+it by hand with the tag to upload one anyway). A pre-release skips
+"Before the tag": its saves are not checked against earlier releases'.
+
 Each package job also attests its package (`actions/attest-build-provenance`):
 a Sigstore-signed record, kept in the public transparency log, that the
 file with this SHA-256 was built by `release.yml` in this repository at

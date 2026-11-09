@@ -4,7 +4,8 @@
 # key is the repository secret NEXUS_API_KEY; without it (a fork) nothing is
 # uploaded. Which file on the page each OS's package updates is the variable
 # (or secret) NEXUS_FILE_<PLATFORM>; .github/nexus-upload.sh says more. A
-# new platform's package needs its line below. Run by hand with
+# new platform's package needs its line below. A pre-release is not
+# uploaded: the page's files are the players' releases. Run by hand with
 # a tag, it uploads that Release's packages again.
 name: nexus release
 
@@ -26,6 +27,7 @@ concurrency:
 
 jobs:
   upload:
+    if: github.event_name != 'release' || !github.event.release.prerelease
     runs-on: ubuntu-latest
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}

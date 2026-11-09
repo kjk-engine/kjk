@@ -1,8 +1,11 @@
 # The player's packages (docs/RELEASE.md). A `v*` tag, which only the owner
 # pushes, builds and attests them (build provenance) and puts them on a
 # draft Release with SHA256SUMS; the
-# owner reviews the draft and publishes it. Run by hand, it builds the same
-# packages as the run's artifacts and makes no Release.
+# owner reviews the draft and publishes it; a tag with a suffix
+# (`v0.14.0-rc.1`) is drafted as a pre-release. Run by hand, it builds the
+# same packages as the run's artifacts and makes no Release, unless
+# "pre-release" is ticked: then the branch it ran on gets a draft
+# pre-release, tagged `pre-<branch>-<git describe>` when published.
 #
 # One package for each OS: macOS on Apple silicon (no Intel build), Windows
 # and Linux on x86-64 (Linux on Ubuntu 22.04's older glibc, so it runs on
@@ -14,6 +17,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      prerelease:
+        description: Also draft a pre-release of this branch
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -123,11 +131,17 @@ jobs:
   release:
     name: draft release
     needs: [package]
-    if: always() && startsWith(github.ref, 'refs/tags/v')
+    if: always() && (startsWith(github.ref, 'refs/tags/v') || inputs.prerelease)
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      # A pre-release is named by `git describe`, as its packages are.
+      - uses: actions/checkout@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           path: packages
@@ -151,8 +165,26 @@ jobs:
               echo "::warning::no $label package: it is not on the draft"
             fi
           done
-          notes="Unsigned builds for $built. Read README.txt in the package first; SHA256SUMS lists each file's checksum; \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\` proves a package was built by this repository's release workflow."
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            # A branch's pre-release: its tag is made at this commit when the
+            # draft is published, and never starts with `v`, so it is not taken
+            # for a release (`git describe --match 'v*'`) or start this workflow.
+            version=$(git describe --tags --match 'v*' --always)
+            slug=$(printf %s "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
+            tag="pre-$slug-$version"
+            title="kjk $version ($GITHUB_REF_NAME)"
+            intro="A pre-release of the branch \`$GITHUB_REF_NAME\` at ${GITHUB_SHA:0:7}, for testing: not a release, and not checked against earlier releases' saves as a release is. "
+            how=(--target "$GITHUB_SHA" --prerelease)
+          else
+            tag=$GITHUB_REF_NAME
+            title="kjk $tag"
+            intro=""
+            how=(--verify-tag)
+            # `v0.14.0-rc.1`, `v0.14.0-beta`: a pre-release of a version.
+            case $tag in *-*) how+=(--prerelease) ;; esac
+          fi
+          notes="${intro}Unsigned builds for $built. Read README.txt in the package first; SHA256SUMS lists each file's checksum; \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\` proves a package was built by this repository's release workflow."
           [ -z "$missing" ] || notes+=" The $missing build is not here yet."
-          gh release create "$GITHUB_REF_NAME" packages/* \
-            --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
-            --title "kjk $GITHUB_REF_NAME" --notes "$notes"
+          gh release create "$tag" packages/* \
+            --repo "$GITHUB_REPOSITORY" --draft "${how[@]}" \
+            --title "$title" --notes "$notes"
