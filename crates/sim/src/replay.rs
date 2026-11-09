@@ -53,7 +53,9 @@ const MAGIC: &[u8; 4] = b"KJKR";
 /// action code, 58).
 /// 40: a seat may tell the in-game page it shows (`Action::SubScreen`, a new
 /// action code, 59).
-const VERSION: u32 = 40 + crate::pending::REPLAY;
+/// 41: a player may return to the Ebon Hawk from the map page
+/// (`Action::ReturnToShip`, code 60).
+const VERSION: u32 = 41 + crate::pending::REPLAY;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordedTick {

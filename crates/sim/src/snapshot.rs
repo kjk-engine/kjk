@@ -238,7 +238,16 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 88: the story's progress shows the skill points each character left unspent
 /// (`Progress::unspent`). Old saves: old saves read none shown: the first step
 /// shows those the scripts' state kept.
-pub const VERSION: u32 = 88 + crate::pending::SNAPSHOT;
+/// 89: the goods carry the facts of the items in play the module's catalog
+/// lacks (`Goods::known`), by template. Old saves: old saves read no known
+/// facts in the goods: the next step's goods carry them again from the script
+/// state.
+/// 90: the tail names TSL's puppets in the party (`puppets`), which follow the
+/// first seat but are no member the HUD lists or the leader key picks; the map
+/// page's return button carries why a return to the Ebon Hawk is refused
+/// (`Transit::refused`). Old saves: old saves read no puppets and no refusal:
+/// the next step finds both again.
+pub const VERSION: u32 = 90 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
