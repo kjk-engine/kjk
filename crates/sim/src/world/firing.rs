@@ -296,6 +296,7 @@ pub(super) fn fire(
         };
         // A gun put away fires not: the press raises it first (`move_body`).
         if fighter.weapon_away(clock.time_ms) {
+            fighter.shooting.clear_bloom();
             continue;
         }
         // A pistol in each hand: each gun its own (`combat::pair`).
@@ -373,6 +374,10 @@ pub(super) fn fire(
             }
             [shot.map(|shot| (shot, fighter.hand)), None]
         };
+        // The spread and kick the crosshair showed for this step: both guns
+        // of a pair firing at once leave by it, the bloom of the first not
+        // yet on the second (`combat::bloom`).
+        let step_shooting = fighter.shooting;
         for (shot, hand) in fired.into_iter().flatten() {
             let mut weapon = weapon;
             let blaster = if pair {
@@ -442,8 +447,8 @@ pub(super) fn fire(
             let (kick, cone) = if creature {
                 ([0.0; 2], spec.spread)
             } else {
-                let kick = bloom::kick_at(&fighter.shooting, now);
-                let cone = bloom::shot_cone(ps, &fighter.shooting, blaster, now);
+                let kick = bloom::kick_at(&step_shooting, now);
+                let cone = bloom::shot_cone(ps, &step_shooting, blaster, now);
                 let tune = bloom::tune(blaster);
                 let mut side =
                     SimRng::new(clock.tick, u64::from(id.0.0) << 8 | 0x40 | u64::from(hand));

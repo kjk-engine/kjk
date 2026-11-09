@@ -276,6 +276,12 @@ impl Shooting {
         self.aiming = false;
         self.next_off = false;
         self.off_burst = false;
+        self.clear_bloom();
+    }
+
+    /// The bloom and kick gone (`combat::bloom`): a gun out of hand, or put
+    /// away, comes back true.
+    pub fn clear_bloom(&mut self) {
         self.bloom_mdeg = 0;
         self.kick_mdeg = [0; 2];
         self.fired_at = 0;
