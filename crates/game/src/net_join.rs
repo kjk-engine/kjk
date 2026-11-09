@@ -617,7 +617,7 @@ pub(crate) fn advance(
         frozen.0 = on_break;
     }
     let kept = client.take_snapshots();
-    presented.1 = kept.rebuilt.into_iter().map(Arc::new).collect();
+    presented.1 = kept.rebuilt;
     own.fresh = kept.predicted;
     if let Some(file) = &mut joined.rebuilt {
         for (epoch, tick, hash) in client.take_audit() {

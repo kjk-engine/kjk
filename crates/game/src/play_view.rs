@@ -866,7 +866,7 @@ impl View {
                 .history
                 .partition_point(|held| held.tick < snapshot.tick);
             self.own.history.truncate(keep);
-            self.own.history.push(Arc::new(snapshot.clone()));
+            self.own.history.push(snapshot.clone());
         }
         let own_target = crate::sim_host::view_ms(&own.presented);
         self.own.shift = own_target - target;
