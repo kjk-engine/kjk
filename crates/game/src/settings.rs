@@ -668,6 +668,8 @@ const DEFAULTS: [(&str, &str); 21] = [
 /// The camera's options page (`camera_tune`): its Default puts every camera
 /// setting back.
 pub(crate) const CAMERA_PAGE: &str = "options_camera";
+/// The guns' camera page: its Default puts their camera back.
+pub(crate) const GUN_CAMERA_PAGE: &str = "options_camera_guns";
 
 /// The key of Autosave (saving on each module entered, `sim_host::autosave`).
 pub(crate) const AUTOSAVE: &str = "game.autosave";
@@ -757,7 +759,8 @@ impl Settings {
     fn default_values() -> BTreeMap<String, String> {
         let mut values: BTreeMap<String, String> = DEFAULTS
             .iter()
-            .chain(&crate::camera_tune::DEFAULTS)
+            .copied()
+            .chain(camera_tune::defaults())
             .map(|(key, value)| (key.to_string(), value.to_string()))
             .collect();
         for (_, name, _, key, _) in ACTIONS {
@@ -846,6 +849,24 @@ impl Settings {
     /// the pad's chords, `pad`) back. Keys must name a key a binding may
     /// use, chords a chord (or `none`).
     pub fn apply(&mut self, key: &str, value: &str) {
+        // A camera's preset sets its sliders (Custom, the cycle's last, and
+        // the guns' Same as Melee move none); a slider moved names its
+        // camera's preset again.
+        if let Some(profile) = camera_tune::preset_of(key) {
+            for (name, share) in profile.preset_values(value).into_iter().flatten() {
+                self.values.insert(name.into(), share.into());
+            }
+            self.values.insert(key.into(), value.into());
+            self.save();
+            return;
+        }
+        if let Some(profile) = camera_tune::slider_of(key) {
+            self.values.insert(key.into(), value.into());
+            let preset = profile.preset_named(|name| self.value(name));
+            self.values.insert(profile.preset.into(), preset.into());
+            self.save();
+            return;
+        }
         let defaults = Settings::default_values();
         match (key, value) {
             ("reset", "keys") => {
@@ -859,24 +880,15 @@ impl Settings {
                     self.values.remove(&format!("pad.{name}"));
                 }
             }
-            ("reset", CAMERA_PAGE) => {
-                for (name, default) in crate::camera_tune::DEFAULTS {
+            ("reset", page @ (CAMERA_PAGE | GUN_CAMERA_PAGE)) => {
+                let reset: Vec<_> = if page == CAMERA_PAGE {
+                    camera_tune::camera_defaults().collect()
+                } else {
+                    camera_tune::GUNS.defaults().collect()
+                };
+                for (name, default) in reset {
                     self.values.insert(name.into(), default.into());
                 }
-            }
-            // A preset sets its sliders; Custom (the cycle's last) moves
-            // none.
-            (camera_tune::PRESET, preset) => {
-                for (name, value) in camera_tune::preset_values(preset).into_iter().flatten() {
-                    self.values.insert(name.into(), value.into());
-                }
-                self.values.insert(key.into(), preset.into());
-            }
-            (slider, value) if camera_tune::is_slider(slider) => {
-                self.values.insert(slider.into(), value.into());
-                let preset = camera_tune::preset_named(|name| self.value(name));
-                self.values
-                    .insert(camera_tune::PRESET.into(), preset.into());
             }
             ("reset", page) => {
                 for name in page_keys(page) {

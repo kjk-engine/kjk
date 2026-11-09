@@ -800,11 +800,12 @@ impl View {
         };
         let walls = (&self.level, self.doors.as_deref());
         let trace = |from, to| stop_short(walls, from, to);
-        // A gun in the watched hand takes the camera to the gun's framing
+        // A gun readied in the watched hand (drawn for a fight, not only
+        // carried) takes the camera to the gun's framing
         // and back, eased over `GUN_BLEND_MS`, undamped meanwhile (the
         // blend eases it; damping it too trails and then snaps).
         let gun_out =
-            self.tune.gun.is_some() && self.watched.is_some_and(|id| self.cast.gun_in_hand(id));
+            self.tune.gun.is_some() && self.watched.is_some_and(|id| self.cast.gun_readied(id));
         let step = if frame_ms > 0.0 {
             frame_ms / GUN_BLEND_MS
         } else {
@@ -1094,7 +1095,13 @@ fn view_keys(
         return;
     }
     let mut first = view.camera_mode == CameraMode::First;
-    let range = crate::camera_tune::RANGE_KEY;
+    // The zoom moves the range of the camera in use: the guns' while one
+    // is readied (most of the way into their framing), else the camera's own.
+    let range = if view.camera.gun >= 0.5 && view.tune.gun.is_some() {
+        crate::camera_tune::GUN_RANGE_KEY
+    } else {
+        crate::camera_tune::RANGE_KEY
+    };
     let mut ranged = None;
     match view.camera_mode {
         CameraMode::Third if zoom != 0.0 => {

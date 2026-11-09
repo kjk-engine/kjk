@@ -100,17 +100,105 @@ const PRESETS: [(&str, [&str; 4]); 4] = [
     ("close", ["0.05", "0.45", "0.70", FOV.default]),
 ];
 
+/// The guns' range slider's setting (the zoom moves it while a gun is
+/// readied).
+pub(crate) const GUN_RANGE_KEY: &str = "camera.gun.range";
+
+/// A camera's four sliders and the preset they are named by: the camera's
+/// own (melee, empty hands) and the guns'.
+pub(crate) struct Profile {
+    pub(crate) preset: &'static str,
+    keys: [&'static str; 4],
+    defaults: [&'static str; 4],
+}
+
+pub(crate) const MELEE: Profile = Profile {
+    preset: PRESET,
+    keys: [RANGE.key, HEIGHT.key, SHOULDER.key, FOV.key],
+    defaults: PRESETS[0].1,
+};
+
+/// Over the shoulder by default.
+pub(crate) const GUNS: Profile = Profile {
+    preset: GUN,
+    keys: [
+        GUN_RANGE_KEY,
+        "camera.gun.height",
+        "camera.gun.shoulder",
+        "camera.gun.fov",
+    ],
+    defaults: PRESETS[1].1,
+};
+
+const PROFILES: [&Profile; 2] = [&MELEE, &GUNS];
+
+/// The guns' preset that turns their framing off: the camera's own.
+const SAME: &str = "same";
+
+impl Profile {
+    /// Its framing as `value` reads its sliders (each unset its default).
+    fn framing<'a>(&self, value: &impl Fn(&str) -> Option<&'a str>) -> Framing {
+        Framing::at(std::array::from_fn(|i| {
+            value(self.keys[i])
+                .and_then(|text| text.parse::<f32>().ok())
+                .unwrap_or_else(|| self.defaults[i].parse().unwrap_or(0.0))
+                .clamp(0.0, 1.0)
+        }))
+    }
+
+    /// Its settings and their defaults.
+    pub(crate) fn defaults(&self) -> impl Iterator<Item = (&'static str, &'static str)> {
+        let preset = PRESETS.iter().find(|(_, shares)| *shares == self.defaults);
+        let named = preset.map_or("custom", |(name, _)| name);
+        std::iter::once((self.preset, named)).chain(self.keys.into_iter().zip(self.defaults))
+    }
+
+    /// The settings `name`'s preset sets: its sliders (none for a name no
+    /// preset has).
+    pub(crate) fn preset_values(&self, name: &str) -> Option<[(&'static str, &'static str); 4]> {
+        let (_, shares) = PRESETS.iter().find(|(preset, _)| *preset == name)?;
+        Some(std::array::from_fn(|i| (self.keys[i], shares[i])))
+    }
+
+    /// The preset its sliders as `value` reads them match, `custom` when
+    /// none does.
+    pub(crate) fn preset_named<'a>(&self, value: impl Fn(&str) -> Option<&'a str>) -> &'static str {
+        let near = |key: &str, share: &str| {
+            let set = value(key).and_then(|set| set.parse::<f32>().ok());
+            set.is_some_and(|set| (set - share.parse::<f32>().unwrap_or(-1.0)).abs() < 0.005)
+        };
+        PRESETS
+            .iter()
+            .find(|(_, shares)| (0..4).all(|i| near(self.keys[i], shares[i])))
+            .map_or("custom", |(name, _)| name)
+    }
+}
+
+/// The profile whose preset setting `key` is.
+pub(crate) fn preset_of(key: &str) -> Option<&'static Profile> {
+    PROFILES.into_iter().find(|profile| profile.preset == key)
+}
+
+/// The profile one of whose sliders `key` is (moving one names its preset
+/// again).
+pub(crate) fn slider_of(key: &str) -> Option<&'static Profile> {
+    PROFILES
+        .into_iter()
+        .find(|profile| profile.keys.contains(&key))
+}
+
+/// The camera page's settings and their defaults: the camera's own
+/// profile, how it follows, the body's fade.
+pub(crate) fn camera_defaults() -> impl Iterator<Item = (&'static str, &'static str)> {
+    MELEE
+        .defaults()
+        .chain([(TRACKING, "ja"), (BODY_FADE, "true")])
+}
+
 /// Every camera setting and its default, for the settings' table.
-pub(crate) const DEFAULTS: [(&str, &str); 8] = [
-    (PRESET, "ja"),
-    (RANGE.key, RANGE.default),
-    (HEIGHT.key, HEIGHT.default),
-    (SHOULDER.key, SHOULDER.default),
-    (FOV.key, FOV.default),
-    (TRACKING, "ja"),
-    (BODY_FADE, "true"),
-    (GUN, "shoulder"),
-];
+pub(crate) fn defaults() -> impl Iterator<Item = (&'static str, &'static str)> {
+    camera_defaults().chain(GUNS.defaults())
+}
 
 /// How closely the camera follows: JA's damping, a stiffer one, or none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -205,57 +293,13 @@ impl Default for CameraTune {
 impl CameraTune {
     /// From the settings `value` reads (none: each default).
     pub fn from_settings<'a>(value: impl Fn(&str) -> Option<&'a str>) -> CameraTune {
-        let share = |slider: &Slider| {
-            value(slider.key)
-                .and_then(|text| text.parse::<f32>().ok())
-                .unwrap_or_else(|| slider.default_share())
-                .clamp(0.0, 1.0)
-        };
-        // A preset's framing (`same` is none: the camera's own).
-        let preset = |name: &str| {
-            let set = preset_values(name)?;
-            Some(Framing::at(
-                set.map(|(_, share)| share.parse().unwrap_or(0.0)),
-            ))
-        };
         CameraTune {
-            framing: Framing::at(SLIDERS.map(share)),
-            gun: preset(value(GUN).unwrap_or("shoulder")),
+            framing: MELEE.framing(&value),
+            gun: (value(GUN) != Some(SAME)).then(|| GUNS.framing(&value)),
             tracking: Tracking::named(value(TRACKING).unwrap_or("ja")),
             body_fade: value(BODY_FADE).is_none_or(|on| on != "false"),
         }
     }
-}
-
-/// The settings a preset's choice sets: its four sliders (none for a name
-/// no preset has).
-pub(crate) fn preset_values(name: &str) -> Option<[(&'static str, &'static str); 4]> {
-    let (_, values) = PRESETS.iter().find(|(preset, _)| *preset == name)?;
-    Some(std::array::from_fn(|i| (SLIDERS[i].key, values[i])))
-}
-
-/// Whether `key` is one of the camera's sliders (moving one names the
-/// preset again, `preset_named`).
-pub(crate) fn is_slider(key: &str) -> bool {
-    SLIDERS.iter().any(|slider| slider.key == key)
-}
-
-/// The preset whose sliders `value` reads match, `custom` when none does.
-pub(crate) fn preset_named<'a>(value: impl Fn(&str) -> Option<&'a str>) -> &'static str {
-    PRESETS
-        .iter()
-        .find(|(name, _)| {
-            preset_values(name).is_some_and(|wanted| {
-                wanted.iter().all(|(key, share)| {
-                    value(key)
-                        .and_then(|set| set.parse::<f32>().ok())
-                        .is_some_and(|set| {
-                            (set - share.parse::<f32>().unwrap_or(-1.0)).abs() < 0.005
-                        })
-                })
-            })
-        })
-        .map_or("custom", |(name, _)| name)
 }
 
 /// The range slider's share after a zoom `steps` in (out below 0): a

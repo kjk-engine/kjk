@@ -548,7 +548,8 @@ Running and checking:
   reverse box; `optsound`'s layout: distance, height, shoulder and field of
   view on its sliders, the preset on its Advanced button, and three copies
   of that button stacked under the sliders, `screens::stack_under`, for the
-  guns' framing, how closely the camera follows and the body's fade; `MOVEMENT.md`), the
+  guns' camera (its own page, the same layout, `options_camera_guns`),
+  how closely the camera follows and the body's fade; `MOVEMENT.md`), the
   mouse's sensitivity and buttons, key mapping, the
   four volumes (`SOUND.md`), and the graphics (`game::display`):
   brightness (a gamma over the whole frame in `ui_composite`, a half to

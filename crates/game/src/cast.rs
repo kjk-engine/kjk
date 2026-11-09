@@ -794,6 +794,9 @@ pub struct Figure {
     held_ms: Option<f64>,
     /// Its hand grips a blade (a saber's or a melee weapon's) as posed.
     blade: bool,
+    /// Its weapons readied for a fight as last steered (`weapons::armed`,
+    /// alive), not only carried.
+    readied: bool,
     /// The last of its deflections seen (its event's sequence), and the
     /// held blade's flick across the newest: since when (ms) and where
     /// (game space, metres).
@@ -856,6 +859,7 @@ impl Figure {
             held: 0.0,
             held_ms: None,
             blade: false,
+            readied: false,
             deflected: None,
             flick: None,
             head: Head::default(),
@@ -1772,11 +1776,14 @@ impl Cast {
             .collect()
     }
 
-    /// Whether `id` has a gun in hand.
-    pub fn gun_in_hand(&self, id: SimId) -> bool {
-        self.holdings
-            .wielded(id)
-            .is_some_and(|wielded| wielded.guns().iter().any(Option::is_some))
+    /// Whether `id` has a gun readied: drawn for a fight, not only carried
+    /// or holstered.
+    pub fn gun_readied(&self, id: SimId) -> bool {
+        self.figure(id).is_some_and(|figure| figure.readied)
+            && self
+                .holdings
+                .wielded(id)
+                .is_some_and(|wielded| wielded.guns().iter().any(Option::is_some))
     }
 
     /// Every drawn character's body root (`BodyRoots`).
@@ -2773,6 +2780,7 @@ impl Cast {
                 .wielded(id)
                 .map_or([None; 2], Wielded::holsters);
             let readied = armed && at.alive;
+            member.figure.readied = readied;
             let drawn = if holsters.iter().any(Option::is_some) {
                 Some(member.figure.drawing.step(readied, ms))
             } else {

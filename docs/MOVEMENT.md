@@ -138,12 +138,15 @@ walker going round a body it overlapped stopped and started step by step). `moti
   Jedi Academy, Over the Shoulder, KOTOR (`camerastyle.2da`'s 3.2 m and
   55°), Close. They stand in a window, or headless with `KJK_SETTINGS`;
   other headless runs keep JA's camera.
-- A gun in the watched character's hand takes the camera to the guns'
-  framing (`camera.gun`: Over the Shoulder by default, Close, KOTOR, or Same
-  as Melee for none) and back once it is put away, eased (smoothstep) over
-  250 ms and undamped meanwhile, as Movie Duels' aiming camera blends; melee
-  and empty hands keep the sliders' framing. The swap key (the middle mouse
-  button) puts the shoulder on the other side, in either framing.
+- A gun readied in the watched character's hand (drawn for a fight,
+  `weapons::armed`, not only carried or holstered) takes the camera to the
+  guns' own camera and back once it is put away, eased (smoothstep) over
+  250 ms and undamped meanwhile, as Movie Duels' aiming camera blends. The
+  guns' camera has its own four sliders (`camera.gun.*`, its own page) and
+  presets (Over the Shoulder by default, Close, KOTOR, Jedi Academy), or
+  Same as Melee for none. The zoom moves the range of the camera in use.
+  The swap key (the middle mouse button) puts the shoulder on the other
+  side, in either camera.
 - The shoulder moves the camera across its own line after the chase, traced
   from the aim point (a wall stops it short), so it neither goes through
   walls nor feeds back into the damping (JA's `cg_thirdPersonHorzOffset`

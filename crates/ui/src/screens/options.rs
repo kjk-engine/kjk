@@ -140,7 +140,9 @@ const GUN_CAMERAS: &[(&str, &str)] = &[
     ("shoulder", strings::GUN_CAMERA_SHOULDER),
     ("close", strings::GUN_CAMERA_CLOSE),
     ("kotor", strings::GUN_CAMERA_KOTOR),
+    ("ja", strings::GUN_CAMERA_JA),
     ("same", strings::GUN_CAMERA_SAME),
+    ("custom", strings::GUN_CAMERA_CUSTOM),
 ];
 
 /// Buttons a page adds to its layout: copies of one of its buttons
@@ -153,7 +155,7 @@ const ADDED: [(&str, (&str, &str), &[&str]); 1] = [(
 /// The gap between them, and above the first (pixels).
 const ADDED_GAP: i32 = 5;
 
-const PAGES: [Spec; 9] = [
+const PAGES: [Spec; 10] = [
     Spec {
         name: "options",
         layout: "optionsmain",
@@ -346,7 +348,10 @@ const PAGES: [Spec; 9] = [
                 Cycle("camera.tracking", CAMERA_FOLLOW, Step::Shown),
             ),
             ("BTN_FADE", Cycle("camera.body_fade", ON_OFF, Step::Shown)),
-            ("BTN_GUN", Cycle("camera.gun", GUN_CAMERAS, Step::Shown)),
+            (
+                "BTN_GUN",
+                OpenAs("options_camera_guns", strings::GUN_CAMERA),
+            ),
             (
                 "BTN_ADVANCED",
                 Cycle("camera.preset", CAMERA_PRESETS, Step::Shown),
@@ -364,6 +369,36 @@ const PAGES: [Spec; 9] = [
             ("BTN_FOLLOW", Ours(strings::CAMERA_FOLLOW_HELP)),
             ("BTN_FADE", Ours(strings::BODY_FADE_HELP)),
             ("BTN_ADVANCED", Ours(strings::CAMERA_PRESET_HELP)),
+        ],
+    },
+    // Ours, the same layout: the guns' camera, while one is readied.
+    Spec {
+        name: "options_camera_guns",
+        layout: "optsound",
+        roles: &[
+            ("LBL_TITLE", Text(strings::GUN_CAMERA_OPTIONS)),
+            ("LBL_MUSIC", Text(strings::CAMERA_DISTANCE)),
+            ("SLI_MUSIC", Slider("camera.gun.range")),
+            ("LBL_VO", Text(strings::CAMERA_HEIGHT)),
+            ("SLI_VO", Slider("camera.gun.height")),
+            ("LBL_FX", Text(strings::CAMERA_SHOULDER)),
+            ("SLI_FX", Slider("camera.gun.shoulder")),
+            ("LBL_MOVIE", Text(strings::CAMERA_FOV)),
+            ("SLI_MOVIE", Slider("camera.gun.fov")),
+            (
+                "BTN_ADVANCED",
+                Cycle("camera.gun", GUN_CAMERAS, Step::Shown),
+            ),
+            ("BTN_DEFAULT", Defaults),
+            ("BTN_BACK", Back),
+        ],
+        first: "SLI_MUSIC",
+        help: &[
+            ("SLI_MUSIC", Ours(strings::CAMERA_DISTANCE_HELP)),
+            ("SLI_VO", Ours(strings::CAMERA_HEIGHT_HELP)),
+            ("SLI_FX", Ours(strings::CAMERA_SHOULDER_HELP)),
+            ("SLI_MOVIE", Ours(strings::CAMERA_FOV_HELP)),
+            ("BTN_ADVANCED", Ours(strings::GUN_CAMERA_HELP)),
         ],
     },
     Spec {
