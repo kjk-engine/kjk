@@ -1795,6 +1795,7 @@ fn own_shooting(view: &View, me: SimId) -> Option<(sim::combat::specials::Shooti
 /// The probes of the camera's kick (`kjk sim probes --only "camera kick"`):
 /// it turns with the sim's kick of the own aim, on top of a shake; with no
 /// own aim to follow (watching, talking) only the shake turns it.
+#[cfg(feature = "probes")]
 pub fn kick_probes() -> sim::probe::Checks {
     let shooting = sim::combat::specials::Shooting {
         kick_mdeg: [-1200, 300],

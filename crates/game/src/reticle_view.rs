@@ -58,6 +58,7 @@ pub fn of(own: &EntityState, objects: &Instances, own_ms: f64, fov: f32) -> Opti
 
 /// The probes (`kjk sim probes --only "reticle view"`): each blaster's
 /// shape, and the gap widening at once and narrowing by easing.
+#[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
     let shapes = [
         (Blaster::Pistol, Family::Cross),

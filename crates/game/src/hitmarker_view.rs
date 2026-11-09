@@ -130,6 +130,7 @@ impl Marks {
 }
 
 /// The probes (`kjk sim probes --only hitmarkers`).
+#[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
     use sim::combat::sheet::Blaster;
     use sim::combat::{Event, Location};
