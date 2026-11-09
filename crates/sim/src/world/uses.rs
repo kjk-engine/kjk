@@ -135,7 +135,7 @@ pub fn closable(facts: &ObjectData, state: &crate::snapshot::ObjectState) -> boo
 /// within the verb's reach across the floor (a door's also within
 /// `target::door_point_reach` of its action point on the player's side,
 /// where KOTOR uses it from) and `HEIGHT_REACH_M` in
-/// height, and its eye in sight of the target (`target::in_sight`, doors
+/// height, and its eye in sight of the target (`target::in_sight_near`, doors
 /// as `states` has them). A creature is talked to within reach across the
 /// floor whatever stands between and however far above or below, as
 /// KOTOR's conversation action asks only that its speaker come within
@@ -171,7 +171,7 @@ pub(super) fn may_use(
     }
     let mut eye = me;
     eye[2] += player.eye_height * UNIT;
-    crate::target::in_sight(level, states, eye, target.middle, target.index)
+    crate::target::in_sight_near(level, states, eye, target.middle, target.index)
 }
 
 /// What the step's uses tell the scripts.

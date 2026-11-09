@@ -65,9 +65,9 @@ name = "Sight Slack"
 value = 0.05
 unit = "m"
 range = [0.0, 0.14]
-summary = "An object is in sight when the line to its middle or its top gets within {targeting.pick.sight_slack:bare} meters of it: a console's own body, or the bench it stands on, does not hide it."
+summary = "An object is in sight when the line to its middle or its top gets within {targeting.pick.sight_slack:bare} meters of it: a console's own body, or the bench it stands on, does not hide it. A use's line of sight to what it uses takes the same slack, so a panel flush with its wall that the crosshair offers is used."
 source = "ours (under the 0.15 m a wall must hide what stands behind it)"
-see = "sim::target::seen"
+see = "sim::target::in_sight_near"
 
 [volumes]
 title = "Target Size"

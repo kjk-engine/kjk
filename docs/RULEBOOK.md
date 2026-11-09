@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `5cc33838e15f9692`.
+Edition `858272f7c38c2ff3`.
 
 ## Contents
 
@@ -8906,9 +8906,9 @@ An object at the character's feet must be in sight of eyes 1.6 meters above the 
 
 <a id="targeting-pick-sight-slack"></a>**Sight Slack** = **0.05 m** · `targeting.pick.sight_slack`
 
-An object is in sight when the line to its middle or its top gets within 0.05 meters of it: a console's own body, or the bench it stands on, does not hide it.
+An object is in sight when the line to its middle or its top gets within 0.05 meters of it: a console's own body, or the bench it stands on, does not hide it. A use's line of sight to what it uses takes the same slack, so a panel flush with its wall that the crosshair offers is used.
 
-<sub>Source: ours (under the 0.15 m a wall must hide what stands behind it). Code: `sim::target::seen`.</sub>
+<sub>Source: ours (under the 0.15 m a wall must hide what stands behind it). Code: `sim::target::in_sight_near`.</sub>
 
 ### <a id="targeting-volumes"></a>Target Size
 
