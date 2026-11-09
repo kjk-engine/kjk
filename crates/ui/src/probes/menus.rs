@@ -1897,6 +1897,65 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
     })]
 }
 
+/// An off hand's list (K1's pairing, `Owned::unpaired`): a weapon that does
+/// not go with the main hand's is red, and its description says why, so
+/// it is not taken for a proficiency missing (Discord, 2026-11-08: a
+/// soldier's short sword red in the left hand, the right hand empty).
+pub(super) fn equip_tells_off_hand() -> Vec<Check> {
+    use crate::vm::Owned;
+    let hands = 1 << 4 | 1 << 5;
+    let sword = Owned {
+        unpaired: [true, false],
+        ..trask_owns(40, b"Short Sword", hands, false)
+    };
+    // The left hand's list and its description's first row, with `right`
+    // worn in the right hand.
+    let shown = |right: Option<Owned>| {
+        let (mut assets, mut vm) = trask_page(
+            "equip",
+            &["BTN_INV_WEAP_L", "LB_DESC"],
+            vec![sword.clone()],
+            true,
+        );
+        if let Some(me) = vm.character.as_mut() {
+            me.worn = right.into_iter().map(|owned| (4, owned)).collect();
+        }
+        let mut stack = opened("equip", &mut assets, &vm);
+        press(&mut stack, &mut assets, &vm, "BTN_INV_WEAP_L");
+        let red = stack
+            .state_of("LB_ITEMS", &vm)
+            .and_then(|state| state.list)
+            .is_some_and(|list| list.rows.iter().any(|row| row.refused));
+        let told = stack
+            .state_of("LB_DESC", &vm)
+            .and_then(|state| state.list)
+            .and_then(|list| list.rows.first().cloned())
+            .filter(|row| row.refused)
+            .map(|row| String::from_utf8_lossy(&row.text).into_owned());
+        (red, told)
+    };
+    let rifle = trask_owns(41, b"Blaster Rifle", 1 << 4, false);
+    let cases = [
+        (None, "Off hand: equip a weapon in the right hand first"),
+        (
+            Some(rifle),
+            "Off hand: only a one-handed weapon of the right hand's kind",
+        ),
+    ];
+    vec![check("equip_tells_off_hand", {
+        cases
+            .into_iter()
+            .try_for_each(|(right, wanted)| {
+                let (red, told) = shown(right);
+                expect(
+                    &format!("red {red}, told {told:?}, wanted {wanted:?}"),
+                    red && told.is_some_and(|told| told.starts_with(wanted)),
+                )
+            })
+            .map(|()| "an off hand's unpaired weapon red, and why told for both kinds".into())
+    })]
+}
+
 /// The head slot's eye: kjk's own button in its top right corner, shown
 /// only while something is worn there; open while the headgear shows,
 /// struck through while hidden, and a press flips the member's setting.

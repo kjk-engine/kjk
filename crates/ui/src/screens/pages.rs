@@ -95,6 +95,31 @@ fn preview_lines(me: &CharacterView, then: &Preview) -> Vec<u8> {
     lines.into_bytes()
 }
 
+/// Each weapon set's hands, main and off (`INVENTORY_SLOT_*`).
+const HANDS: [[u8; 2]; 2] = [[4, 5], [18, 19]];
+
+/// Why `owned` is red in `slot`'s list: why the member may not wear it
+/// (`Owned::refused`), else, in an off hand's (K1's), that it does not go
+/// with its main hand's weapon (`Owned::unpaired`), which the games show
+/// only by the red row: a remaster's line, so it is not taken for a
+/// proficiency the member has.
+fn why_red(me: &CharacterView, slot: u8, owned: &Owned) -> Option<Vec<u8>> {
+    if let Some(refused) = &owned.refused {
+        return Some(refused.clone());
+    }
+    let set = HANDS.iter().position(|[_, off]| *off == slot)?;
+    if !owned.unpaired[set] {
+        return None;
+    }
+    let main = HANDS[set][0];
+    let line: &[u8] = if me.worn.iter().any(|(at, _)| *at == main) {
+        b"Off hand: only a one-handed weapon of the right hand's kind (melee or ranged)"
+    } else {
+        b"Off hand: equip a weapon in the right hand first"
+    };
+    Some(line.to_vec())
+}
+
 fn vitality(me: &CharacterView) -> String {
     format!("{}/{}", me.hp.0, me.hp.1)
 }
@@ -282,8 +307,16 @@ impl Page for Equip {
                         owned.previews.iter().find(|preview| preview.slot == slot)
                     })
                     .map_or(Vec::new(), |then| preview_lines(&me, then));
-                let refused = item.as_ref().and_then(|owned| owned.refused.as_deref());
-                return described_refused(item.as_ref().map(|owned| &owned.entry), &lead, refused);
+                // Why only for a row that would put it on.
+                let refused = match (&listed, self.slot) {
+                    (Some(Listed::Carried(owned)), Some((_, slot))) => why_red(&me, slot, owned),
+                    _ => item.as_ref().and_then(|owned| owned.refused.clone()),
+                };
+                return described_refused(
+                    item.as_ref().map(|owned| &owned.entry),
+                    &lead,
+                    refused.as_deref(),
+                );
             }
             if under_desc_box(control) {
                 return hidden();
@@ -333,14 +366,11 @@ impl Page for Equip {
                     name: b"None".to_vec(),
                     ..Entry::default()
                 };
-                let slot = self.slot.map(|(_, slot)| slot);
-                let off_hand = [5, 19].iter().position(|left| Some(*left) == slot);
+                let slot = self.slot.map_or(u8::MAX, |(_, slot)| slot);
                 // In red, as both games' `CSWGuiInGameItemEntry::SetCanUse`
                 // draws one the member may not wear, or (K1's) an off hand's
                 // that does not go with its main hand's weapon.
-                let refused = |owned: &Owned| {
-                    owned.refused.is_some() || off_hand.is_some_and(|set| owned.unpaired[set])
-                };
+                let refused = |owned: &Owned| why_red(&me, slot, owned).is_some();
                 let (entries, red): (Vec<Entry>, Vec<bool>) = self
                     .listed(&me)
                     .into_iter()
