@@ -95,18 +95,28 @@ impl Story {
             ..WorldConfig::one_seat()
         };
         let mut fresh = SimWorld::new(config, level.clone()).map_err(|error| error.to_string())?;
+        let mut state = fresh.script_state().clone();
+        // The story's items the module's catalog lacks, as the lookup has
+        // them: known, as an item carried out of its module is.
+        state.known = self
+            .items
+            .values()
+            .flatten()
+            .filter(|item| {
+                level
+                    .scripts()
+                    .and_then(|library| library.items().get(&item.template))
+                    .is_none()
+            })
+            .filter_map(|item| items(&item.template))
+            .map(|facts| (facts.template.clone(), facts))
+            .collect();
         let mut restore = Restore {
             story: self,
             level,
             catalog: level.scripts().map(|library| library.items()),
-            elsewhere: Catalog::new(self.items.values().flatten().filter_map(|item| {
-                let here = level
-                    .scripts()
-                    .and_then(|library| library.items().get(&item.template));
-                here.is_none().then(|| items(&item.template)).flatten()
-            })),
             snapshot: fresh.snapshot(),
-            state: fresh.script_state().clone(),
+            state,
             holders: BTreeMap::from([("party".to_string(), PARTY)]),
             members: Vec::new(),
             personas: Vec::new(),
@@ -194,8 +204,6 @@ struct Restore<'a> {
     story: &'a Story,
     level: &'a sim::Level,
     catalog: Option<&'a Catalog>,
-    /// The story's items the module's catalog lacks, as the lookup has them.
-    elsewhere: Catalog,
     snapshot: Snapshot,
     state: State,
     /// The id each holder the story names has here (`Story::items`).
@@ -219,7 +227,7 @@ impl Restore<'_> {
         };
         let items = self.story.items.get(label).into_iter().flatten();
         items
-            .filter_map(|item| Some((item.slot?, catalog.get(&item.template)?)))
+            .filter_map(|item| Some((item.slot?, self.state.item_facts(catalog, &item.template)?)))
             .collect()
     }
 
@@ -509,6 +517,8 @@ impl Restore<'_> {
     /// Each holder's items, as the story lists them.
     fn items(&mut self) {
         let story = self.story;
+        let none = Catalog::default();
+        let catalog = self.catalog.unwrap_or(&none);
         for (label, items) in &story.items {
             let Some(&holder) = self.holders.get(label) else {
                 self.lost.push(format!(
@@ -518,13 +528,9 @@ impl Restore<'_> {
                 continue;
             };
             for item in items {
-                let make = |state: &mut State, catalog: &Catalog| {
-                    state.make_item(catalog, &item.template, holder, item.stack, item.slot)
-                };
-                let made = self
-                    .catalog
-                    .and_then(|catalog| make(&mut self.state, catalog))
-                    .or_else(|| make(&mut self.state, &self.elsewhere));
+                let made =
+                    self.state
+                        .make_item(catalog, &item.template, holder, item.stack, item.slot);
                 let Some(made) = made else {
                     self.lost.push(format!(
                         "{label}: item {}, not among this module's items or the install's",

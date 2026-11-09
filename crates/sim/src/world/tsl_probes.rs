@@ -1048,6 +1048,63 @@ fn puppets() -> Result<String, String> {
     )
 }
 
+/// The leader key and the HUD's portraits past a puppet (`party_probes`).
+pub fn party_probes() -> Checks {
+    vec![("puppet_never_leads", puppet_never_leads())]
+}
+
+/// A puppet in the party follows the first seat but is no companion it
+/// lists or leads (TSL's party table keeps its puppets apart from its
+/// members): the snapshot names it (`Snapshot::puppets`), `follows` leaves
+/// it out while its owner is in, and the first seat leading through it
+/// changes nothing, where leading through its owner makes the owner lead.
+/// After 231TEL's crash, Bao-Dur leading, the HUD listed his remote second,
+/// so the leader key picked it every time and the lead never moved on.
+fn puppet_never_leads() -> Result<String, String> {
+    let (mut world, _) = world()?;
+    step(&mut world);
+    run(&mut world, "probe_puppet");
+    step(&mut world);
+    let snapshot = step(&mut world);
+    let party = world.script_state().party.clone();
+    let puppet = party
+        .puppet_creatures()
+        .map(|(_, body)| SimId(body))
+        .next()
+        .ok_or("no puppet joined")?;
+    let owner = party
+        .available
+        .get(&(OTHER as u8))
+        .and_then(|npc| npc.object)
+        .map(SimId)
+        .ok_or("no companion")?;
+    let follows = |id: SimId| {
+        snapshot
+            .get(id)
+            .is_some_and(|entity| snapshot.follows(entity, Seat(0)))
+    };
+    let listed = snapshot.puppets == [puppet] && follows(owner) && !follows(puppet);
+    let mut lead = |body: SimId| {
+        let mut input = TickInput::default();
+        input.insert(Seat(0), crate::input::Command::default());
+        input.act(Seat(0), crate::action::Action::Lead(body));
+        let tick = world.tick() + 1;
+        crate::step(&mut world, tick, &input, MSEC, StepReason::Authority).leading
+    };
+    let by_puppet = lead(puppet);
+    let by_owner = lead(owner);
+    check(
+        listed && by_puppet.is_none() && by_owner == Some(owner),
+        format!(
+            "puppets {:?} (the remote {puppet:?}), the owner follows {}, the puppet {}; \
+             led through the puppet {by_puppet:?}, through its owner {by_owner:?}",
+            snapshot.puppets,
+            follows(owner),
+            follows(puppet),
+        ),
+    )
+}
+
 /// The duel rules an equip breaks, as the executable tests them.
 fn forfeits() -> Result<String, String> {
     use crate::combat::sheet::{Delivery, SaberShape};

@@ -42,6 +42,9 @@ pub(super) enum Goal {
     Leader(u8),
     /// Solo mode on or off.
     Solo(bool),
+    /// The map page's return to the Ebon Hawk (or from it back), as a
+    /// player opens the map and presses it: blocked where the page refuses.
+    ReturnToShip,
     /// Stealth mode on or off for the body the player leads (the stealth
     /// button pressed, once).
     Stealth(bool),
@@ -320,6 +323,7 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                     a.and_then(|gold| gold.parse::<i32>().ok())
                         .ok_or(format!("{part}: sell GOLD"))?,
                 ),
+                "return" => Goal::ReturnToShip,
                 "solo" => Goal::Solo(match a {
                     Some("on") => true,
                     Some("off") => false,

@@ -49,7 +49,12 @@ on the authority; a save carries it.
   of its template has room joins it. An item carried into a module whose
   catalog lacks its template (one a module's own archive held: Gadon's
   papers) keeps its facts in the scripts' state (`State::known`, KJKV 16;
-  KOTOR's item keeps its own data), rebuilt at each install.
+  KOTOR's item keeps its own data), rebuilt at each install. Whatever
+  reads an item in play reads its facts so (`inventory::facts_in_play`:
+  the catalog's, else those kept), and the goods every seat sees carry
+  them (`Goods::known`, `Goods::facts`): the equip page, a guest's too,
+  lists and wears the Exile's Peragus clothes on Telos. A story restore
+  keeps so the facts of the items the module restored in lacks.
 - **Sheets.** A creature's sheet is read without its items and dressed by
   them (`inventory::dress`): the weapons in its hands, its body armour's
   defence and DEX cap, every worn item's guards and gear; what it carries gives the
@@ -672,7 +677,11 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   click or leader key (`Action::Lead`, by the member's body, the player's
   own character the player again; `game::leader_view`), or by number
   (`Action::SetLeader`, `u8::MAX` the player again; a route's `leader`).
-  Another seat's pick changes nothing: the party table is the host's. It
+  Another seat's pick changes nothing: the party table is the host's. A
+  TSL puppet (Bao-Dur's remote) follows the first seat but is no member
+  the HUD lists or the key picks (`Snapshot::puppets`, `follows`): the
+  table keeps puppets apart from its members, so leading through one
+  changes nothing. It
   is party member 0 and
   `GetPartyLeader` (TSL). The first seat's commands move the leading
   companion's body, as KOTOR's player controls whom it switches to
@@ -1161,10 +1170,18 @@ minimap and the map page"):
   `DisableTransit` (its ARE's, `ModuleData::disable_transit`, until a
   script's `SetDisableTransit`, kept by module in the scripts' state) and
   the return button `SetReturnStrref` set ride in the snapshot's tail
-  (`Snapshot::screens`, KJKS 63); the page labels its button so, greyed:
-  returning to the Ebon Hawk (`k_sup_gohawk` behind a confirm box with the
-  query strref, refused with 38451 here, 38452 with the party apart,
-  38462 with a foe in sight) is not built yet.
+  (`Snapshot::screens`, KJKS 63); the page labels its button so. Each
+  step finds why the return to the Ebon Hawk is refused, as K1's map page
+  checks it (`Snapshot::transit_refusal`, `Transit::refused`): 38451 where
+  the area keeps the party (its transit disabled, or `SetAreaUnescapable`;
+  the executable's own check is the ARE's `Unescapable`), 38452 with a
+  party member farther than `party.return_to_ship.together_m` from the
+  leader, 38462 in combat (the executable's hostile creature that sees a
+  party member [verify]). Refused, the button is greyed and a press says
+  why; else a press asks its question (the query strref) and yes sends
+  `Action::ReturnToShip`, on which the host runs `k_sup_gohawk` with no
+  caller (K1's; TSL has none). The script takes the party to the Ebon
+  Hawk, or from it back where it left (a route's `return`).
 
 ## Bodies scripts change (`combat::Look`)
 

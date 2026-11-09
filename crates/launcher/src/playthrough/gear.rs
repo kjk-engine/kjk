@@ -19,8 +19,9 @@ pub(super) fn other_weapon(world: &sim::SimWorld, snapshot: &Snapshot, ranged: b
         .goods
         .carried(sim::inventory::PARTY)
         .filter_map(|(id, item)| {
-            let facts = catalog
-                .get(&item.template)?
+            let facts = snapshot
+                .goods
+                .facts(catalog, &item.template)?
                 .fitted(item.upgrades, &item.fitted, catalog);
             let weapon = facts.weapon.filter(|_| feats.is_none_or(|feats| feat_limits_met(&feats, &facts.limits)))?;
             Some((id, weapon, facts.needs.clone(), facts.slots))
@@ -96,13 +97,13 @@ pub(super) fn named_item(world: &sim::SimWorld, snapshot: &Snapshot, named: &str
     }
     let catalog = world.level().scripts()?.items();
     let me = crate::cast::me(snapshot, Seat(0))?;
-    world
-        .script_state()
+    let state = world.script_state();
+    state
         .items
         .values()
         .filter(|item| item.holder == sim::inventory::PARTY || item.holder == me.0)
         .filter_map(|item| {
-            let facts = catalog.get(&item.template)?;
+            let facts = state.item_facts(catalog, &item.template)?;
             let weapon = facts.fitted(item.upgrades, &item.fitted, catalog).weapon?;
             matches!(weapon.delivery, sim::combat::sheet::Delivery::Saber(_)).then_some(())?;
             let twice_average = i32::from(weapon.dice) * (i32::from(weapon.die) + 1)
@@ -126,7 +127,7 @@ pub(super) fn sale(world: &sim::SimWorld, snapshot: &Snapshot, kept: &[u16]) -> 
         .goods
         .carried(sim::inventory::PARTY)
         .filter(|(_, item)| trade.terms.buys && !item.plot)
-        .filter_map(|(id, item)| catalog.get(&item.template).map(|facts| (facts, id)))
+        .filter_map(|(id, item)| snapshot.goods.facts(catalog, &item.template).map(|facts| (facts, id)))
         .filter(|(facts, _)| facts.combat_row().is_none() && !kept.contains(&facts.base_item))
         .map(|(facts, id)| (facts.cost, id))
         .max()
@@ -321,7 +322,8 @@ pub(super) fn equip(world: &sim::SimWorld, snapshot: &Snapshot, named: Option<&s
         return Vec::new();
     };
     let race = snapshot.get(me).and_then(|e| e.sheet).map(|sheet| sheet.race);
-    let items = &world.script_state().items;
+    let state = world.script_state();
+    let items = &state.items;
     let mut worn: u32 = items
         .values()
         .filter(|item| item.holder == me.0)
@@ -335,9 +337,8 @@ pub(super) fn equip(world: &sim::SimWorld, snapshot: &Snapshot, named: Option<&s
     {
         // Only what the player's race may wear (`ItemFacts::fits`), as the
         // equip screen lists.
-        let slots = library
-            .items()
-            .get(&item.template)
+        let slots = state
+            .item_facts(library.items(), &item.template)
             .filter(|facts| race.is_none_or(|race| facts.fits(race)))
             .map_or(0, |facts| facts.slots);
         if named.is_some() {

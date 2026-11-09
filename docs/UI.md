@@ -703,10 +703,14 @@ black either side). On it:
   chosen one half again as large, the highlight colour. `LBL_MapNote`
   holds its words; `BTN_UP` and `BTN_DOWN` choose the one before and after,
   round, greyed with fewer than two, and a click on a note's mark chooses
-  it (`Screen::click`, a click on no control). Return to the Ebon Hawk
-  stays greyed, labelled as `k_sup_guiopen` set it (`SetReturnStrref`, run
-  on the host each time this player opens an in-game screen:
-  `Action::ScreenOpened`); a click on the HUD's minimap opens the page
+  it (`Screen::click`, a click on no control). Return to the Ebon Hawk is
+  labelled as `k_sup_guiopen` set it (`SetReturnStrref`, run on the host
+  each time this player opens an in-game screen: `Action::ScreenOpened`),
+  greyed with no label; while the return is refused (`Transit::refused`)
+  it is greyed yet takes a press, which says why in a message box, as
+  K1's map page does; else a press asks the label's question
+  (`return_confirm`) and OK sends `Action::ReturnToShip`, the in-game
+  screens closing; a click on the HUD's minimap opens the page
   (KOTOR's `BTN_MINIMAP`);
 - the player's arrow where it stands (the skin's `mm_barrow_p`, else the
   campaign's `mm_barrow`; 32 px [verify]), turned as the minimap's.

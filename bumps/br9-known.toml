@@ -1,0 +1,8 @@
+# The sim's hash moves on purpose (beyond the snapshot bump): why.
+sim = "the goods every seat sees carry the facts of items carried out of their module (a module's own template), so the equip page and the harness read them as the sim does"
+
+[formats]
+snapshot = "the goods carry the facts of the items in play the module's catalog lacks (`Goods::known`), by template."
+
+[migrations]
+snapshot = "old saves read no known facts in the goods: the next step's goods carry them again from the script state"

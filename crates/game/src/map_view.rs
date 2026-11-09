@@ -105,8 +105,9 @@ pub(crate) fn page(
     let area = assets
         .template_name(&module.area, fmt_odyssey::ResType::ARE)
         .unwrap_or_else(|| module.area.as_bytes().to_vec());
-    let return_button = return_button(&snapshot.screens.transit);
-    let return_hidden = return_hidden(&snapshot.screens.transit);
+    let transit = &snapshot.screens.transit;
+    let (return_button, return_hidden) = (return_button(transit), return_hidden(transit));
+    let (return_query, return_refused) = (transit.query, transit.refused);
     // A jammed map (TSL's `DisableMap`) shows static in place of the
     // picture [verify: whether KOTOR draws the markers over it].
     if snapshot.screens.map_disabled {
@@ -119,6 +120,8 @@ pub(crate) fn page(
             used: 1.0,
             return_button,
             return_hidden,
+            return_query,
+            return_refused,
             ..MapView::default()
         });
     }
@@ -127,6 +130,8 @@ pub(crate) fn page(
             area,
             return_button,
             return_hidden,
+            return_query,
+            return_refused,
             ..MapView::default()
         });
     };
@@ -164,6 +169,8 @@ pub(crate) fn page(
         fog,
         return_button,
         return_hidden,
+        return_query,
+        return_refused,
     })
 }
 
@@ -171,8 +178,9 @@ pub(crate) fn page(
 const STATIC: &str = "lbl_static";
 
 /// The map page's return button's label, as `SetReturnStrref` (run by
-/// `k_sup_guiopen` as the screen opened) left it, whether it may be used or
-/// not ("Transit Disabled" is a label too); none where none was set.
+/// `k_sup_guiopen` as the screen opened) left it, whether the return is
+/// refused or not ("Transit Disabled" is a label too); none where none was
+/// set.
 fn return_button(transit: &sim::Transit) -> Option<u32> {
     (transit.label != 0).then_some(transit.label)
 }

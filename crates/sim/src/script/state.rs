@@ -984,14 +984,13 @@ impl State {
         }
     }
 
-    /// An item template's facts: the module's catalog's, else those kept
-    /// from the module its item came from (`known`).
-    pub(crate) fn item_facts<'a>(
+    /// An item template's facts in play (`inventory::facts_in_play`).
+    pub fn item_facts<'a>(
         &'a self,
         catalog: &'a crate::inventory::Catalog,
         template: &str,
     ) -> Option<&'a crate::inventory::ItemFacts> {
-        catalog.get(template).or_else(|| self.known.get(template))
+        crate::inventory::facts_in_play(catalog, &self.known, template)
     }
 
     /// `known` for a module whose catalog is `next`, leaving one whose

@@ -30,9 +30,20 @@ pub const SUMMARY_CLOSED: &str = "k_align_movie";
 /// Spire's tutorial reads the page (`GetSubScreenID`).
 pub const SCREEN_CHANGED: &str = "k_pend_screenchg";
 
+/// The script K1's map page runs, with no caller, as the player answers
+/// yes to its return button's question (`Action::ReturnToShip`): it takes
+/// the party to the Ebon Hawk, or from it back where the party left. TSL
+/// has none.
+pub const RETURN_TO_SHIP: &str = "k_sup_gohawk";
+
 /// The scripts the engine runs of its own accord, which a module's library
 /// gathers whoever names them.
-pub const ENGINE_SCRIPTS: [&str; 3] = [SCREEN_OPENED, SUMMARY_CLOSED, SCREEN_CHANGED];
+pub const ENGINE_SCRIPTS: [&str; 4] = [
+    SCREEN_OPENED,
+    SUMMARY_CLOSED,
+    SCREEN_CHANGED,
+    RETURN_TO_SHIP,
+];
 
 /// A combat round and a turn, in seconds, as both games' executables count
 /// them (`TimeConversions`, not `nwscript.nss`'s; a turn in rounds).
@@ -103,8 +114,17 @@ impl State {
                 label,
                 query,
                 disabled,
+                refused: 0,
             },
         }
+    }
+
+    /// Whether the area keeps the party from leaving by the map page's
+    /// return button: its transit disabled (`screens`), or the area made
+    /// unescapable (`SetAreaUnescapable`), which K1's executable checks.
+    pub fn transit_barred(&self, module: Option<&ModuleData>) -> bool {
+        self.screens(module).transit.disabled
+            || module.is_some_and(|module| self.unescapable.contains(&key(&module.name)))
     }
 
     /// Takes back into a state made with nothing what `snapshot` tells of
@@ -121,6 +141,7 @@ impl State {
             label,
             query,
             disabled,
+            ..
         } = screens.transit;
         self.return_button = (show, label, query);
         if let Some(module) = module.filter(|module| module.disable_transit != disabled) {

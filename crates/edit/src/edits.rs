@@ -125,8 +125,9 @@ impl<'a> Editor<'a> {
     pub fn set_stack(&mut self, id: u32, stack: u16) -> Result<(), String> {
         let item = self.save.script.items.get(&id).ok_or(no_item(id))?;
         let most = self
-            .catalog
-            .get(&item.template)
+            .save
+            .script
+            .item_facts(self.catalog, &item.template)
             .map_or(1, |facts| facts.stacking.max(1));
         if !(1..=most).contains(&stack) {
             return Err(format!("{} stacks 1 to {most}, not {stack}", item.template));
@@ -164,8 +165,9 @@ impl Editor<'_> {
             .ok_or(no_item(item))?
             .template;
         let facts = self
-            .catalog
-            .get(template)
+            .save
+            .script
+            .item_facts(self.catalog, template)
             .ok_or(format!("no item {template:?} in the install"))?;
         let keeping = self.keeping(who)?;
         let wearer = self.wearer(keeping.holder, &keeping.sheet, keeping.player);

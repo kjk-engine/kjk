@@ -392,8 +392,9 @@ pub fn compose(
             .unwrap_or(&body.models[usize::from(seat) % body.models.len().max(1)]);
         for placed in seat_models {
             let mut placed = placed.clone();
-            if let Some((0, node)) = placed.hook {
-                placed.hook = Some((first, node));
+            // Hooks name the seat's own models (the headgear its head).
+            if let Some((on, _)) = &mut placed.hook {
+                *on += first;
             }
             models.push(placed);
         }
@@ -1085,6 +1086,9 @@ pub(crate) struct Dressed {
     pub acted: Vec<(u16, Arc<asset_odyssey::anim::AnimationIr>)>,
 }
 
+/// A dressed KOTOR body's models: the body, its head and its headgear.
+const SEAT_MODELS: usize = 3;
+
 /// `wear`'s body (in its texture) standing at `at`, dressed.
 pub(crate) fn dress(
     resolver: &Resolver,
@@ -1119,6 +1123,15 @@ pub(crate) fn dress(
         },
     ];
     let absent = viewer::hang_headgear(cache, resolver, &mut models, 1, wear.headgear.as_deref())?;
+    // A bare head keeps the headgear's place, empty: every seat's body is
+    // as many models, its weapons at the same places (`compose`), whoever
+    // wears a mask.
+    if models.len() < SEAT_MODELS {
+        models.push(Placed::at(
+            crate::course::model_of("headgear", Vec::new()),
+            at,
+        ));
+    }
     let (textures, mut missing) = viewer::textures(resolver, models.iter());
     missing.extend(absent.map(|name| format!("{name}.mdl")));
     Ok(Dressed {

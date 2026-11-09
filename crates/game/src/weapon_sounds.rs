@@ -347,7 +347,10 @@ impl WeaponSounds {
             .and_then(|set| set.0.clone());
         own.or_else(|| {
             let template = armour(struck, snapshot)?;
-            let base = catalog?.get(&template.to_ascii_lowercase())?.base_item;
+            let base = snapshot
+                .goods
+                .facts(catalog?, &template.to_ascii_lowercase())?
+                .base_item;
             self.armour_types.get(usize::from(base)).cloned().flatten()
         })
         .unwrap_or_else(|| WORN.to_string())

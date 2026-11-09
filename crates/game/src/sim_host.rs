@@ -459,7 +459,10 @@ struct Authority {
     lifecycle: Option<Lifecycle>,
     job: Option<Job>,
     /// Transitions that failed to plan, as (module, arrival): not asked
-    /// for again.
+    /// for again while the step still asks for one, so a player pressing
+    /// into a door does not reload it every step. A step that asks for none
+    /// (the player stepped off the exit) forgets them: the door is tried
+    /// again when it is walked into again (`forget_declined`).
     declined: Vec<(String, Option<String>)>,
     installs: Vec<Installed>,
     generation: u32,
@@ -1016,6 +1019,14 @@ impl Authority {
             snapshot,
             notices: stepped.notices,
         });
+    }
+
+    /// A step stepped that asks for no transition: the ones that failed
+    /// before may be asked for again.
+    fn forget_declined(&mut self, transition: Option<&sim::Transition>) {
+        if transition.is_none() {
+            self.declined.clear();
+        }
     }
 
     /// Starts planning `request` on a thread of its own, if the session
@@ -1819,6 +1830,7 @@ fn advance(
     if let Some(landed) = landed {
         stepped += 1;
         let transition = landed.snapshot.transition.clone();
+        authority.forget_declined(transition.as_ref());
         presented.1.push(landed.snapshot);
         if let Some(transition) = transition
             && let Some(lifecycle) = &authority.lifecycle
@@ -2013,6 +2025,7 @@ fn advance(
         let (input, snapshot) = snapshot;
         stepped += 1;
         let transition = snapshot.transition.clone();
+        authority.forget_declined(transition.as_ref());
         let snapshot = Arc::new(snapshot);
         authority.solo.stepped(&input, &snapshot);
         presented.1.push(snapshot.clone());

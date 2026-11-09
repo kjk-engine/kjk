@@ -11,6 +11,7 @@ use super::minimap::{SECOND, are};
 use super::paint::{Fake, button};
 use super::{Check, check, expect, near};
 use crate::draw::Quad;
+use crate::intent::Intent;
 use crate::paint::{Painter, Palette};
 use crate::screens::map::Map;
 use crate::screens::tab::Page;
@@ -57,6 +58,8 @@ fn vm(notes: &[([f32; 2], &str)]) -> ViewModel {
             }),
             return_button: None,
             return_hidden: false,
+            return_query: 0,
+            return_refused: 0,
         }),
         ..ViewModel::default()
     }
@@ -201,30 +204,60 @@ fn chosen() -> Check {
     )
 }
 
-/// The return button: greyed and unlabelled where no script set it,
-/// labelled and greyed where one did, hidden where one turned it off
+/// The return button: greyed and unlabelled where no script set it;
+/// labelled where one did, live while the return may go and greyed while
+/// it is refused (`sim::Transit::refused`), a press asking its question or
+/// saying why (K1's map page); hidden where one turned it off
 /// (`SetReturnStrref`'s `bShow`).
 fn return_button() -> Check {
-    let page = Map::default();
-    let state = |label: Option<u32>, hidden: bool| {
+    let mut page = Map::default();
+    let mut state = |label: Option<u32>, refused: u32, hidden: bool| {
         let mut shown = vm(&[]);
         if let Some(map) = shown.map.as_mut() {
             (map.return_button, map.return_hidden) = (label, hidden);
+            (map.return_query, map.return_refused) = (32227, refused);
         }
         let state = page.state(&button("BTN_RETURN", [0, 0, 1, 1], b""), &shown);
-        (state.hidden, state.disabled, state.strref)
+        let mut pressed = Vec::new();
+        page.press("BTN_RETURN", &shown, &mut pressed);
+        let asked = match pressed.as_slice() {
+            [Intent::OpenFor(screen, strref)] => Some((*screen, strref.clone())),
+            _ => None,
+        };
+        (
+            state.hidden,
+            state.disabled,
+            state.greyed,
+            state.strref,
+            asked,
+        )
     };
     let seen = [
-        state(None, false),
-        state(Some(42), false),
-        state(Some(42), true),
+        state(None, 0, false),
+        state(Some(42), 0, false),
+        state(Some(42), 38452, false),
+        state(Some(42), 0, true),
     ];
+    let asked = |screen: &'static str, strref: &str| Some((screen, strref.to_string()));
     check(
         "map_page_return_button",
         expect(
-            &format!("(hidden, greyed, label): {seen:?}"),
-            seen[0] == (false, true, None) && seen[1] == (false, true, Some(42)) && seen[2].0,
+            &format!("(hidden, disabled, greyed, label, pressed): {seen:?}"),
+            (seen[0].0, seen[0].1, seen[0].3) == (false, true, None)
+                && seen[1]
+                    == (
+                        false,
+                        false,
+                        false,
+                        Some(42),
+                        asked("return_confirm", "32227"),
+                    )
+                && seen[2] == (false, false, true, Some(42), asked("message_box", "38452"))
+                && seen[3].0,
         )
-        .map(|()| "greyed unset, labelled when set, hidden when turned off".into()),
+        .map(|()| {
+            "greyed unset; labelled when set, asking, or greyed saying why; hidden when turned off"
+                .into()
+        }),
     )
 }

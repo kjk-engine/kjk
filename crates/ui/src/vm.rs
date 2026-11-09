@@ -303,11 +303,17 @@ pub struct MapView {
     /// What the party has explored of it, where the area keeps that.
     pub fog: Option<FogView>,
     /// The return button's label (a strref) as the scripts set it
-    /// (`SetReturnStrref`); the button stays greyed.
+    /// (`SetReturnStrref`); greyed without one.
     pub return_button: Option<u32>,
     /// Whether a script turned the return button off (`SetReturnStrref`'s
     /// `bShow` false).
     pub return_hidden: bool,
+    /// The question its press asks before the party returns to the Ebon
+    /// Hawk (a strref, `SetReturnStrref`'s), and why the return is refused
+    /// now (a strref, `sim::Transit::refused`; 0 none): the button greyed,
+    /// a press says why.
+    pub return_query: u32,
+    pub return_refused: u32,
 }
 
 /// What the party has explored of an area's map: its cells across and

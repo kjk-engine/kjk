@@ -175,6 +175,10 @@ struct Cli {
     /// `KJK_MUTE=1` does the same
     #[arg(long, global = true)]
     mute: bool,
+    /// Open in a window of the default size: the settings' screen
+    /// resolution put back (when a display setting stops the game starting)
+    #[arg(long, global = true)]
+    reset_display: bool,
 }
 
 fn parse_size(text: &str) -> Result<(u32, u32), String> {
@@ -555,6 +559,9 @@ pub fn run() -> ExitCode {
     }
     #[cfg(target_os = "linux")]
     linux_environment();
+    if cli.reset_display {
+        kjk_game::display::reset();
+    }
     // The runs that play (a module, the menu, a session) read the installs:
     // opened on threads now, they are read while the rest starts.
     if matches!(

@@ -295,6 +295,7 @@ pub(super) fn containers(
             | Action::Cast { .. }
             | Action::ScreenOpened
             | Action::SubScreen(_)
+            | Action::ReturnToShip
             | Action::Forfeit
             | Action::Arena(_) => continue,
             Action::Close(_) => {

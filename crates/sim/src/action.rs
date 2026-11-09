@@ -196,6 +196,12 @@ pub enum Action {
     /// seat turns to another, the host runs `k_pend_screenchg`, as both
     /// games' `CGuiInGame` does, which reads it (`GetSubScreenID`).
     SubScreen(u8),
+    /// The first seat's player, the map page's return button pressed and
+    /// its question answered yes: the host runs `k_sup_gohawk` with no
+    /// caller, as KOTOR's map page does, which takes the party to the Ebon
+    /// Hawk and back (`script::presentation::transit_refused` first, as the
+    /// page checked it).
+    ReturnToShip,
     /// Quit the TSL swoop race playing (its pause screen's quit: the global
     /// `GBL_QUIT_SWOOP` set, which the race's heartbeat reads). The first
     /// seat's.
@@ -357,6 +363,7 @@ const LEVEL_UP_ON: u8 = 56;
 const NEXT_FEAT: u8 = 57;
 const PICK_ITEM: u8 = 58;
 const SUB_SCREEN: u8 = 59;
+const RETURN_TO_SHIP: u8 = 60;
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -562,6 +569,7 @@ impl Action {
                 out.u8(SUB_SCREEN);
                 out.u8(*page);
             }
+            Action::ReturnToShip => out.u8(RETURN_TO_SHIP),
             Action::Arena(order) => {
                 out.u8(ARENA);
                 match order {
@@ -717,6 +725,7 @@ impl Action {
             }
             FORFEIT => Action::Forfeit,
             SUB_SCREEN => Action::SubScreen(input.u8()?),
+            RETURN_TO_SHIP => Action::ReturnToShip,
             ARENA => {
                 let at = input.at();
                 Action::Arena(match input.u8()? {
@@ -782,6 +791,7 @@ impl Action {
             | Action::Cast { .. }
             | Action::ScreenOpened
             | Action::SubScreen(_)
+            | Action::ReturnToShip
             | Action::Forfeit
             | Action::Arena(_) => None,
         }
