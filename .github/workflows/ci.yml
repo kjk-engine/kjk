@@ -37,11 +37,9 @@ env:
   # (Cargo.toml) would only slow it and fill the rust cache.
   CARGO_INCREMENTAL: 0
   # The sim must reach the same state on every platform (Decision 3): the
-  # approved test sim_determinism requires this hash, here and in
-  # manual.yml. Branches never edit it: a bump file says the sim moves, and
-  # the merge pins it (bumps/README.md, pin.yml); `git log --grep "Pinned
-  # at merge"` is its history.
-  KJK_SIM_HASH: ca7506e0ead18612604e11c764ac3f11ff6027e9be196ede27375fea462a91dc
+  # approved test sim_determinism requires the hash pinned in
+  # bumps/SIM_HASH. Branches never edit it: a bump file says the sim moves,
+  # and the merge pins it (bumps/README.md, pin.yml).
 
 jobs:
   # The approved tests and clippy are jobs of their own, side by side:
