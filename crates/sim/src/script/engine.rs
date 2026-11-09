@@ -1577,10 +1577,29 @@ impl Engine<'_> {
         }
     }
 
+    /// The visuals put at a place that `gone`, destroyed with no delay, was
+    /// to carry (`ApplyEffectAtLocation` by a character) go to the party's
+    /// leader, as one from a trigger does: `gone` leaves the world before
+    /// the next step's pipeline would show them (Peragus' floating mine
+    /// sets off its blast, then destroys itself).
+    fn carry_off(&mut self, gone: ObjectId) {
+        let Some(leader) = self.view.party.first().copied().filter(|l| *l != gone) else {
+            return;
+        };
+        for applied in &mut self.state.applied {
+            let visual =
+                (applied.effect.leaves().iter()).all(|leaf| matches!(leaf, Effect::Visual { .. }));
+            if applied.target == gone && applied.at.is_some() && visual {
+                applied.target = leader;
+            }
+        }
+    }
+
     /// Changes the area's sound as this step's scripts leave it, and
     /// answers `then` of it.
     fn area_sound<T>(&mut self, change: impl FnOnce(&mut crate::snapshot::AreaSound) -> T) -> T {
-        let mut sound = self.out.area_sound.unwrap_or(self.view.area_sound);
+        let mut sound =
+            (self.out.area_sound.take()).unwrap_or_else(|| self.view.area_sound.clone());
         let answer = change(&mut sound);
         self.out.area_sound = Some(sound);
         answer
@@ -4005,13 +4024,13 @@ impl Engine<'_> {
                 part: 0,
             }),
             // A room's own clip (the turret's skybox, `scriptloop0<n>`),
-            // played by the view.
+            // played by the view; each room keeps the last one played on it.
             PlayRoomAnimation => {
                 let room = crate::snapshot::room_key(text(args, 0));
                 let anim = int(args, 1).clamp(0, 255) as u8;
                 let since_ms = self.view.now_ms;
                 self.area_sound(|area| {
-                    area.room = Some(crate::snapshot::RoomAnim {
+                    area.play_room(crate::snapshot::RoomAnim {
                         room,
                         anim,
                         since_ms,
@@ -4128,7 +4147,7 @@ impl Engine<'_> {
             MusicBackgroundGetDayTrack
             | MusicBackgroundGetNightTrack
             | MusicBackgroundGetBattleTrack => {
-                let area = self.out.area_sound.unwrap_or(view.area_sound);
+                let area = self.out.area_sound.as_ref().unwrap_or(&view.area_sound);
                 let row = match bound {
                     MusicBackgroundGetDayTrack => area.music.day,
                     MusicBackgroundGetNightTrack => area.music.night,
@@ -5588,6 +5607,7 @@ impl Engine<'_> {
                     let ms = seconds_ms(float(args, 1));
                     if ms == 0 {
                         self.out.destroyed.push(item);
+                        self.carry_off(item);
                     }
                     self.out.changes.push(Change::Destroy {
                         who: item,
