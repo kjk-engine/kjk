@@ -19,7 +19,10 @@ ready check: `PARTY.md`; the party's fall: `FALLING.md`.
 - The companion stays a creature (`Kind::Object`): its mind's `driver`
   names the seat and the world derives `Avatar(seat)`, so moving, Use,
   containers, locks and exits are its seat's. A story's script or a
-  conversation still moves it (`Mind::steered`, predicted as a creature);
+  conversation still moves it (`Mind::steered`, predicted as a creature),
+  and it pushes idle bystanders aside on KOTOR's walker as an undriven
+  companion does: only the party's leader pushes no one (Hendar's gate,
+  probe `guest_companion_pushes_in_scenes`);
   its own AI hooks do not (`Engine::own_ai_on_driven`), nor the code they
   defer, assign or queue for it (`Delayed::ai`: K1's `k_ai_master` attacks
   through it, which took a guest's companion off its player whenever
