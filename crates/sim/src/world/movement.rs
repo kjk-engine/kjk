@@ -482,8 +482,13 @@ pub(super) fn move_actors(
         };
         // The bodies its walk may run into; a creature walking pushes aside
         // the idle ones not hostile to it, the party leader none (KOTOR's).
+        // A companion a guest drives is no leader: it pushes as it would
+        // with no one driving it (Carth, walked out of Hendar's gate, gave
+        // the walk up between the two outcasts at its sides, and the scene
+        // waited on him for ever).
         let me = routed.then(|| side_of(id.0, avatar, &fighting.0, &sheet_of(sheet, object)));
-        let pusher = avatar.is_none() && leads.is_none();
+        let leader = avatar.is_some_and(|avatar| avatar.0 == LEADER_SEAT) || leads.is_some();
+        let pusher = !leader && (avatar.is_none() || object.is_some());
         let space = personal_space(object);
         let mets: Vec<walk::Met> = bodies
             .iter()

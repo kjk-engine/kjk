@@ -291,8 +291,12 @@ on the authority; a save carries it.
   the snapshot no longer draws it. Of two destroys of one object, the
   sooner is kept (in one step too); one already departing is out of the
   world, so a destroy cannot find it, and a dead body fading out (below)
-  keeps its fade to its end. Probes: `kjk sim probes destroys`
-  (approved test `destroy_fades`).
+  keeps its fade to its end. A player's own character is never
+  destroyed: K1's Bek base night (`k_ptar_racecs0`) destroys party
+  members 1 and 2, the player among them while a companion leads, and
+  its conversation, held with the player, would end there on a black
+  screen. Probes: `kjk sim probes destroys` (approved test
+  `destroy_fades`).
 - **Remains** (`world::remains`; KOTOR's body bags, read from the K1
   and TSL executables). A creature dead outside the party is taken away
   after its appearance's `destroyobjectdelay` (`items.remains.destroy_ms`

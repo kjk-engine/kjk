@@ -5574,12 +5574,17 @@ impl Engine<'_> {
                     self.state.destroy_item(self.out, item);
                 } else if let Some(thing) = view.thing(item).filter(|thing| {
                     !(thing.character.is_some() && self.state.kept.contains(&item.0))
+                        && !view.party.contains(&item)
                 }) {
                     // A creature `SetIsDestroyable(FALSE)` keeps is not
                     // destroyed: TSL's `CSWSCreature::EventHandler` passes
                     // the destroy event over for one not destroyable
                     // (506OND's `a_end_game` destroys Tobin's body, then
                     // raises him for Kreia's scene) [verify in K1's exe].
+                    // Nor is a player's own character, as the Aurora
+                    // engines never destroy a player: Gadon's night in the
+                    // Bek base (`k_ptar_racecs0`) destroys party members 1
+                    // and 2, the player among them while a companion leads.
                     let ms = seconds_ms(float(args, 1));
                     if ms == 0 {
                         self.out.destroyed.push(item);

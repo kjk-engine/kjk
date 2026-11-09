@@ -280,14 +280,25 @@ pub fn parse_global(text: &str) -> Result<(String, i32), String> {
     Ok((name.trim().to_string(), value))
 }
 
-/// Sets script globals (`SetGlobalNumber`'s) in `world`'s scripts.
+/// Sets script globals in `world`'s scripts: `SetGlobalBoolean`'s for
+/// those `globalcat.2da` declares boolean (non-zero is TRUE),
+/// `SetGlobalNumber`'s for the rest.
 pub fn set_globals(world: &mut sim::SimWorld, globals: &[(String, i32)]) {
     if globals.is_empty() {
         return;
     }
+    let boolean = |name: &str| {
+        world.level().module().is_some_and(|module| {
+            module.globals.get(&sim::script::key(name)) == Some(&sim::module::Global::Boolean)
+        })
+    };
     let mut state = world.script_state().clone();
     for (name, value) in globals {
-        sim::script::set_global(&mut state.numbers, name, *value);
+        if boolean(name) {
+            sim::script::set_global(&mut state.booleans, name, *value != 0);
+        } else {
+            sim::script::set_global(&mut state.numbers, name, *value);
+        }
     }
     world.set_script_state(state);
 }
