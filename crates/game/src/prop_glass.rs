@@ -105,7 +105,7 @@ struct Cut {
     shards: Vec<Piece>,
     numbers: Vec<usize>,
     faces: Vec<Vec3>,
-    drawn: OnceLock<Vec<Vec<(usize, Handle<Mesh>)>>>,
+    drawn: OnceLock<Vec<crate::prop_looks::PieceMeshes>>,
 }
 
 impl Cut {
@@ -149,7 +149,7 @@ impl Cut {
 
     /// Shard `number`'s meshes, each about the shard's middle, with the
     /// glass mesh it is of (by its place in `numbers`).
-    fn meshes_of(&self, meshes: &mut Assets<Mesh>, number: usize) -> Vec<(usize, Handle<Mesh>)> {
+    fn meshes_of(&self, meshes: &mut Assets<Mesh>, number: usize) -> crate::prop_looks::PieceMeshes {
         let drawn = self.drawn.get_or_init(|| {
             (self.shards.iter())
                 .map(|shard| {
@@ -172,7 +172,7 @@ impl Cut {
                 })
                 .collect()
         });
-        drawn.get(number).cloned().unwrap_or_default()
+        drawn.get(number).cloned().unwrap_or_else(Vec::new)
     }
 }
 
@@ -304,7 +304,10 @@ fn shatter(
             }
         }
         if !live {
-            debug!("prop #{index} ({}): first seen with its glass gone", ir.name);
+            debug!(
+                "prop #{index} ({}): first seen with its glass gone",
+                ir.name
+            );
             continue;
         }
         let Ok(global) = globals.get(root) else {
@@ -367,7 +370,8 @@ fn shatter(
             .map(|shard| game.transform_point(Vec3::from_array(shard.middle)))
             .collect();
         let middle = middles.iter().sum::<Vec3>() / middles.len().max(1) as f32;
-        cues.0.push(Cue::at(SOUND.to_string(), units(middle), sound_ms));
+        cues.0
+            .push(Cue::at(SOUND.to_string(), units(middle), sound_ms));
         let step = (middles.len() / BURSTS).max(1);
         for at in middles.iter().step_by(step).take(BURSTS) {
             bursts.0.push(Burst {
@@ -457,22 +461,46 @@ pub fn probes() -> sim::probe::Checks {
     let cases: [(&str, bool, bool); 6] = [
         (
             "kolto tank's tank",
-            glass_by(1.0, Some("plc_koltoglass"), "mesh30", Surface::Blend, &[&plain]),
+            glass_by(
+                1.0,
+                Some("plc_koltoglass"),
+                "mesh30",
+                Surface::Blend,
+                &[&plain],
+            ),
             true,
         ),
         (
             "windscreen",
-            glass_by(1.0, Some("plc_spdrwin01"), "glass03", Surface::OpaqueEnvMasked, &[&plain]),
+            glass_by(
+                1.0,
+                Some("plc_spdrwin01"),
+                "glass03",
+                Surface::OpaqueEnvMasked,
+                &[&plain],
+            ),
             true,
         ),
         (
             "see-through tube",
-            glass_by(1.0, Some("plc_kolpuz"), "cylinder50", Surface::Blend, &[&plain]),
+            glass_by(
+                1.0,
+                Some("plc_kolpuz"),
+                "cylinder50",
+                Surface::Blend,
+                &[&plain],
+            ),
             true,
         ),
         (
             "screen (a decal)",
-            glass_by(1.0, Some("plc_swscrn01"), "swpscreen01", Surface::Blend, &[&decal]),
+            glass_by(
+                1.0,
+                Some("plc_swscrn01"),
+                "swpscreen01",
+                Surface::Blend,
+                &[&decal],
+            ),
             false,
         ),
         (
@@ -482,7 +510,13 @@ pub fn probes() -> sim::probe::Checks {
         ),
         (
             "metal",
-            glass_by(1.0, Some("plc_koltank"), "mesh01", Surface::Opaque, &[&plain]),
+            glass_by(
+                1.0,
+                Some("plc_koltank"),
+                "mesh01",
+                Surface::Opaque,
+                &[&plain],
+            ),
             false,
         ),
     ];

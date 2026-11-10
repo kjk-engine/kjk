@@ -44,7 +44,11 @@ fn only_class() -> Option<String> {
 /// comma list), if it is told some: a few kinds side by side to film.
 fn only_rows() -> Option<Vec<u16>> {
     let rows = std::env::var("KJK_PROP_HALL_ROWS").ok()?;
-    Some(rows.split(',').filter_map(|row| row.trim().parse().ok()).collect())
+    Some(
+        rows.split(',')
+            .filter_map(|row| row.trim().parse().ok())
+            .collect(),
+    )
 }
 
 /// How far in from the doorway the first row stands (metres).
@@ -183,7 +187,10 @@ pub fn props(resolver: &Resolver, game: &str) -> Result<Vec<Prop>, String> {
         .filter(|kind| only.as_deref().is_none_or(|class| kind.class == class))
         .filter(|kind| (rows.as_ref()).is_none_or(|rows| rows.contains(&kind.appearance)))
         .collect();
-    for kind in kinds.iter().flat_map(|kind| std::iter::repeat_n(kind, copies)) {
+    for kind in kinds
+        .iter()
+        .flat_map(|kind| std::iter::repeat_n(kind, copies))
+    {
         let walkmesh = walkmesh_box(resolver, &table, kind.appearance);
         let half = room_of(kind.size) / 2.0;
         let model = model_box(resolver, &table, kind.appearance);

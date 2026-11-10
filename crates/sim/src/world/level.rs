@@ -336,7 +336,10 @@ impl Level {
             made.yaw.to_bits(),
             made.holds.clone(),
         );
-        let mut known = self.made.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut known = self
+            .made
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         known
             .entry(key)
             .or_insert_with(|| {

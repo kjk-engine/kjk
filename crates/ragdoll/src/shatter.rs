@@ -496,7 +496,9 @@ impl Plain {
         let longest = |out: &Plain, t: [u32; 3]| {
             let c = corners(out, t);
             let lengths = [0, 1, 2].map(|k| length(sub(c[(k + 1) % 3], c[k])));
-            let k = (0..3).max_by(|&a, &b| lengths[a].total_cmp(&lengths[b])).unwrap_or(0);
+            let k = (0..3)
+                .max_by(|&a, &b| lengths[a].total_cmp(&lengths[b]))
+                .unwrap_or(0);
             (lengths[k].to_bits(), k, t)
         };
         let mut heap: std::collections::BinaryHeap<(u32, usize, [u32; 3])> =
@@ -549,7 +551,10 @@ impl Plain {
 /// is seen from both as it tumbles) and never capped (glass is thin).
 pub fn glass(meshes: &[Plain], count: usize, seed: u64) -> Vec<Piece> {
     let most = GLASS_TRIANGLES / meshes.len().max(1);
-    let fine: Vec<Plain> = meshes.iter().map(|m| m.split_to(GLASS_EDGE, most)).collect();
+    let fine: Vec<Plain> = meshes
+        .iter()
+        .map(|m| m.split_to(GLASS_EDGE, most))
+        .collect();
     let area = |c: [[f32; 3]; 3]| length(cross(sub(c[1], c[0]), sub(c[2], c[0]))) * 0.5;
     // Every triangle with the area before it, to pick points by area.
     let mut laid: Vec<(f32, usize, [u32; 3])> = Vec::new();
@@ -574,7 +579,10 @@ pub fn glass(meshes: &[Plain], count: usize, seed: u64) -> Vec<Piece> {
             if u + v > 1.0 {
                 (u, v) = (1.0 - u, 1.0 - v);
             }
-            add(c[0], add(scale(sub(c[1], c[0]), u), scale(sub(c[2], c[0]), v)))
+            add(
+                c[0],
+                add(scale(sub(c[1], c[0]), u), scale(sub(c[2], c[0]), v)),
+            )
         })
         .collect();
     let mut cells = vec![vec![Vec::new(); fine.len()]; points.len()];
@@ -942,7 +950,12 @@ mod probes {
     /// from the same seed.
     fn glass_breaks_small() -> Result<String, String> {
         let pane = Plain {
-            positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+            positions: vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, 1.0],
+                [0.0, 0.0, 1.0],
+            ],
             normals: vec![[0.0, -1.0, 0.0]; 4],
             uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
             indices: vec![0, 1, 2, 0, 2, 3],
@@ -961,7 +974,11 @@ mod probes {
             .fold(0.0f32, f32::max);
         let capped = (shards.iter()).any(|shard| shard.meshes.iter().any(|(_, m)| m.capped));
         check(
-            shards.len() >= 10 && (area - 2.0).abs() < 1e-3 && widest < 0.7 && !capped && shards == again,
+            shards.len() >= 10
+                && (area - 2.0).abs() < 1e-3
+                && widest < 0.7
+                && !capped
+                && shards == again,
             format!(
                 "{} shards (want 10 or more), area {area:.4} (want 2: both sides), widest {widest:.2} m (want under 0.7), capped {capped}, same again {}",
                 shards.len(),

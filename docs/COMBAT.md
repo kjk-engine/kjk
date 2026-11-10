@@ -403,6 +403,50 @@ smokes 5–10 s. At most 24 burn at once, the nearest a player within 30 m
 (`script_fx` draws them as lasting effects). Collision never changes.
 Probes: `kjk sim probes --only 'prop looks,prop damage,shatter'`.
 
+**Glass** (`game::prop_glass`). A destructible prop's glass is the meshes
+that show at rest and are see-through (blended, not a decal: a screen or
+a painted light is no glass), or whose node or texture says glass (a
+landspeeder's windscreen, drawn opaque with a reflection): a kolto tank's
+tank, a kolto harvester's or a medical canister's tube. It is never cut
+into the prop's pieces. At the first blow that hurts the prop (its
+damage, synced, so every seat and every save agrees) its glass is gone:
+cut once per model (`shatter::glass`: triangles split longest edge first
+until none is over 12 cm, then gathered round seeded points on the glass,
+16 a square metre, 8 to 96), the shards burst from the blow and from the
+prop's middle with JA's glass burst (`effects/chunks/glassbreak.efx`) and
+crash (`sound/effects/glassbreak1.wav`), fall on simple arcs to the floor
+the prop stands on, bounce, slide, lie flat on a side and shrink away
+after 2.5 to 5 s, at most 256 at once. The rest of the prop breaks or
+wears as its material does; a prop first seen hurt shows no glass and
+throws none. Probes `glass_breaks_small`, `prop_glass_found`.
+
+**Cost.** Pieces are cheap to throw: each piece's collider is the convex
+hull of at most 26 of its points (the farthest along each direction to a
+cube's faces, edges and corners), made with the cut off the main thread
+and shared by every copy of the model, and each piece's meshes are made
+the first time any copy breaks and drawn by every one after. Measured on
+2026-11-10 (RTX 4070 Ti SUPER, 1920×1080, v-sync off): 256 pieces thrown
+at once cost 1.1 ms on the main thread (12.8 ms when every hull was built
+then), their worst step 2.6 ms (4.3 ms); fifteen props broken by a Force
+Wave in the hall packed with six of every breakable kind keep frames at
+5.5 ms (p99 under 11 ms); five glass props shattering at once, 3.8 ms.
+The prop systems' worst single frame is under half a millisecond each.
+`KJK_PROP_HALL_COPIES=N` packs the arena's prop hall with N of each kind,
+`KJK_PROP_HALL_CLASS=break` lays one class, `KJK_PROP_HALL_ROWS=63,165`
+lays only those `placeables.2da` rows, centred before the doorway; each
+dump's `destruction` tells the pieces drawn, the bodies moving and the
+pieces' world's steps since the last.
+
+**Co-op.** What broke, each prop's damage stage and its glass are the
+sim's (`ObjectState`), so every seat agrees and nothing is sent that was
+not before (the player's bytes down with the hall wrecked and without:
+281.7 and 282.9 KB). The pieces, the chunks knocked off, the base and the
+glass's shards are cut alike on every machine from the model's name;
+where they fly is each machine's own, from the blow as it drew it, so a
+piece may land a little elsewhere; marks are each machine's own too. A
+player joining after props broke sees their bases and their glass gone,
+nothing flying.
+
 The numbers are the rulebook's chapter Destruction
 (`data/rules/destruction.toml`). Probes: `kjk sim probes --only
 destruction`.

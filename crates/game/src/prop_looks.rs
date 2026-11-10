@@ -14,8 +14,8 @@ use bevy::light::NotShadowCaster;
 use bevy::mesh::Indices;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
-use ragdoll::{DebrisId, DebrisShape};
 use ragdoll::shatter::{self, Piece, Plain};
+use ragdoll::{DebrisId, DebrisShape};
 use sim::destruction::{Class, Material, Size};
 use sim::look;
 
@@ -290,9 +290,8 @@ type Cuttable = (Vec<Plain>, Vec<usize>, Vec<(usize, Plain)>);
 /// alpha-tested, blended or two-sided. Its glass is apart: it breaks as
 /// glass (`prop_glass`), not into the prop's pieces.
 fn cuttable(ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> Cuttable {
-    let drawn = |mesh: &&MeshIr| {
-        mesh.texture.is_some() && !mesh.indices.is_empty() && mesh.alpha > 0.0
-    };
+    let drawn =
+        |mesh: &&MeshIr| mesh.texture.is_some() && !mesh.indices.is_empty() && mesh.alpha > 0.0;
     let lightmapped =
         |mesh: &MeshIr| mesh.lightmap.is_some() && mesh.uv2.len() == mesh.positions.len();
     let plain_only = ir
@@ -330,7 +329,10 @@ fn cuttable(ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> Cuttable {
             indices: mesh.indices.clone(),
             capped: matches!(surface, Surface::Opaque | Surface::OpaqueEnvMasked) && !open,
         };
-        let node = ir.nodes.get(mesh.node).map_or("", |node| node.name.as_str());
+        let node = ir
+            .nodes
+            .get(mesh.node)
+            .map_or("", |node| node.name.as_str());
         if crate::prop_glass::is_glass(mesh, node, surface, &facts) {
             cut.2.push((number, plain));
         } else {
@@ -750,7 +752,11 @@ pub(crate) fn lay_pieces(
         });
         spawn_piece(
             commands,
-            (&fracture.meshes_of(meshes, number), &fracture.meshes, materials),
+            (
+                &fracture.meshes_of(meshes, number),
+                &fracture.meshes,
+                materials,
+            ),
             (game, format!("{name} piece {number}")),
             Flying {
                 debris,
@@ -1014,7 +1020,10 @@ fn hits(
         let from = Vec3::from_array(blow_from(change.position, &changes.creatures));
         let found = impact(
             // Its glass too: a blade meets the glass before what is behind.
-            &placed_triangles(cut.0.iter().chain(cut.2.iter().map(|(_, glass)| glass)), &game),
+            &placed_triangles(
+                cut.0.iter().chain(cut.2.iter().map(|(_, glass)| glass)),
+                &game,
+            ),
             (bolts, &blades),
             &Boxed::of(ir, change.d.size, game),
             from,
@@ -1239,7 +1248,7 @@ impl Fracture {
                 .map(|piece| made_meshes(meshes, piece))
                 .collect()
         });
-        drawn.get(number).cloned().unwrap_or_default()
+        drawn.get(number).cloned().unwrap_or_else(Vec::new)
     }
 }
 
@@ -1248,7 +1257,11 @@ impl Fracture {
 /// `flying`.
 fn spawn_piece(
     commands: &mut Commands,
-    (parts, numbers, materials): (&PieceMeshes, &[usize], &BTreeMap<usize, Handle<OdysseyMaterial>>),
+    (parts, numbers, materials): (
+        &PieceMeshes,
+        &[usize],
+        &BTreeMap<usize, Handle<OdysseyMaterial>>,
+    ),
     (game, name): (Transform, String),
     flying: Flying,
 ) {
@@ -1267,7 +1280,11 @@ fn spawn_piece(
 /// material (`numbers`: which mesh each cut one is), casting no shadow.
 pub(crate) fn piece_meshes(
     commands: &mut Commands,
-    (parts, numbers, materials): (&PieceMeshes, &[usize], &BTreeMap<usize, Handle<OdysseyMaterial>>),
+    (parts, numbers, materials): (
+        &PieceMeshes,
+        &[usize],
+        &BTreeMap<usize, Handle<OdysseyMaterial>>,
+    ),
     entity: Entity,
 ) {
     for (source, mesh) in parts {

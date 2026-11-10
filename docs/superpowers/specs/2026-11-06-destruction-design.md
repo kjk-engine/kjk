@@ -1,6 +1,6 @@
 # Environmental destruction — design
 
-2026-11-06. Owner: reclaimterrain. Status: third pass built 2026-11-08
+2026-11-06. Owner: reclaimterrain. Status: fourth pass built 2026-11-10 (glass, cost, co-op; below); third pass built 2026-11-08
 (bolts meet every destructible prop as big as its model; damaged props
 lose chunks, hang torn panels, keep KOTOR's fire, smoke and sparks, and
 gather soot; no cracks, the games having no crack texture):
@@ -399,6 +399,31 @@ of it is synced.
   pieces in the lowest quarter **or touching the floor** (lowest point
   within 5 cm of it), and always at least the lowest piece.
 - A piece despawned twice (`Entity despawned` warning): despawn once.
+
+## Fourth pass: glass, cost, co-op (owner, 2026-11-10)
+
+The owner asked for three things: glass that breaks as glass, only the
+glass part of a prop; destruction stress-tested and made as cheap and
+simple as it can be; and co-op checked for what each seat sees.
+
+- **Glass** is found from the data, not listed: a mesh that shows at rest
+  and is see-through (blended, not a decal), or whose node or texture is
+  named glass. A survey of every destructible kind in both games' halls
+  found it on the kolto tank, the kolto harvesters, TSL's medical
+  canister and the landspeeder; the other blended meshes were invisible
+  helpers (rest alpha 0) and screens (decals). It goes at the first blow
+  that hurts the prop, in small shards of itself with JA's glass burst and
+  sound; the rest of the prop is cut without it. Shards fall on simple
+  arcs, not through the pieces' physics: they are many and short-lived.
+- **Cost**: the stress test is the prop hall packed (`KJK_PROP_HALL_*`).
+  Its idle frame had nothing to do with destruction: every view rebuilt
+  each made prop's facts each frame (fixed: `Level::made_facts`, 22.8 to
+  8.6 ms). Breaking itself was cheap but for building each piece's hull
+  as it flew (now made once per model, at most 26 points, with the cut).
+- **Co-op**: checked with `cargo xtask duo` under 50 ms delay, jitter and
+  2% loss: no snapshot differed, both seats broke the same props into the
+  same pieces and bases, and their settled frames differ in 0.16% of
+  pixels (smoke). Flight is each machine's own, as designed.
 
 ## Rules for collision, nav and story
 

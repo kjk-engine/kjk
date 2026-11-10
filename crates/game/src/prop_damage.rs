@@ -624,7 +624,11 @@ pub(crate) fn draw(
                 .id();
             piece_meshes(
                 &mut commands,
-                (&fracture.meshes_of(&mut meshes, number), &fracture.meshes, &materials),
+                (
+                    &fracture.meshes_of(&mut meshes, number),
+                    &fracture.meshes,
+                    &materials,
+                ),
                 panel,
             );
             drawn.hangers.push(panel);
