@@ -4,8 +4,9 @@
 //! player, else the one nearest the crosshair within `CONE_DEGREES` and in
 //! sight, else the nearest within `containers::REACH` in front of the
 //! player (JA's camera sits high behind: what lies at the character's feet
-//! is far below the crosshair). A target holds `HOLD_MS` after nothing
-//! picks it, so it does not flicker at an edge.
+//! is far below the crosshair). A placeable with action points is in sight
+//! where its use would be (`seen_at_action_point`). A target holds
+//! `HOLD_MS` after nothing picks it, so it does not flicker at an edge.
 //!
 //! Targetable: doors but static ones (a door leading out is one too),
 //! useable placeables (one hung up a wall, as a door's panel, picked where
@@ -109,11 +110,29 @@ pub struct Candidate {
     /// passes through): one at its heels or inside its body, between it and
     /// the camera, takes no look meant past it.
     pub ahead: bool,
+    /// A placeable's action points in the world (metres), at most two
+    /// (`ObjectData::action_points`): where a use from beside it looks
+    /// (`uses::Target::aimed`), so the crosshair sees it there too.
+    pub points: [Option<Vec3>; 2],
 }
 
 impl Candidate {
     fn middle(&self) -> Vec3 {
         self.up(0.5)
+    }
+
+    /// Where a use by a player with its feet at `user` (metres) looks at
+    /// this placeable: `uses::ACTION_SIGHT_M` above its action point
+    /// nearest the player, as `uses::Target::aimed` aims; `None` without
+    /// action points.
+    fn action_sight(&self, user: Vec3) -> Option<Vec3> {
+        let far = |p: &Vec3| math::length(math::sub(*p, user));
+        let point = self
+            .points
+            .iter()
+            .flatten()
+            .min_by(|a, b| far(a).total_cmp(&far(b)))?;
+        Some([point[0], point[1], point[2] + crate::uses::ACTION_SIGHT_M])
     }
 
     /// The point of its axis `share` of the way up its volume.
@@ -158,6 +177,7 @@ pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<
                     radius: BODY_RADIUS,
                     height: BODY_HEIGHT,
                     ahead: false,
+                    points: [None; 2],
                 });
             }
             let Kind::Object(kind, index) = entity.kind else {
@@ -186,6 +206,7 @@ pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<
                         radius: TRAP_RADIUS,
                         height: TRAP_HEIGHT,
                         ahead: false,
+                        points: [None; 2],
                     });
                 }
                 _ => return None,
@@ -205,8 +226,12 @@ pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<
                 }
                 _ => (radius, height),
             };
+            let mut points = [None; 2];
             if kind == ObjectKind::Placeable {
                 (feet[2], height) = hung(level, feet, height);
+                for (slot, point) in points.iter_mut().zip(facts.action_points(feet)) {
+                    *slot = Some(point);
+                }
             }
             Some(Candidate {
                 index,
@@ -215,6 +240,7 @@ pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<
                 radius,
                 height,
                 ahead: kind == ObjectKind::Creature && crate::world::party_member(entity),
+                points,
             })
         })
         .collect()
@@ -272,12 +298,46 @@ pub fn in_sight_near(
         || (!trace.start_solid && math::length(math::sub(to, trace.end)) <= SIGHT_SLACK)
 }
 
-/// Whether `candidate` is in sight of `from` (metres) for the crosshair: the
-/// line to its middle or its top (`in_sight_near`, Peragus' consoles).
-fn seen(level: &Level, states: Option<&[u8]>, from: Vec3, candidate: &Candidate) -> bool {
+/// Whether `candidate` is in sight of `from` (metres) for the crosshair of a
+/// player with its feet at `user`: the line to its middle or its top
+/// (`in_sight_near`, Peragus' consoles), or the line a use looks along
+/// (`seen_at_action_point`).
+fn seen(
+    level: &Level,
+    states: Option<&[u8]>,
+    from: Vec3,
+    user: Vec3,
+    candidate: &Candidate,
+) -> bool {
+    body_seen(level, states, from, candidate)
+        || seen_at_action_point(level, states, from, user, candidate)
+}
+
+/// Whether the line from `from` (metres) to `candidate`'s middle or its top
+/// is clear (`in_sight_near`).
+fn body_seen(level: &Level, states: Option<&[u8]>, from: Vec3, candidate: &Candidate) -> bool {
     [0.5, 1.0]
         .into_iter()
         .any(|share| in_sight_near(level, states, from, candidate.up(share), candidate.index))
+}
+
+/// Whether the line from `from` to where a use by a player with its feet at
+/// `user` looks at `candidate` (`Candidate::action_sight`) is clear. A use
+/// goes by that line (`uses::may_use`), so the crosshair offers what is
+/// used from its action point though a solid stands round its body: the
+/// force cage round Lonna Vash's body on Korriban, which a player could
+/// search only by jumping over the cage. One with its action point behind
+/// a wall stays hidden.
+fn seen_at_action_point(
+    level: &Level,
+    states: Option<&[u8]>,
+    from: Vec3,
+    user: Vec3,
+    candidate: &Candidate,
+) -> bool {
+    candidate
+        .action_sight(user)
+        .is_some_and(|to| in_sight_near(level, states, from, to, candidate.index))
 }
 
 /// Where along `look` (metres from its start) it enters `candidate`'s
@@ -347,9 +407,12 @@ pub fn pick(
             let at = if trace.fraction < 1.0 && trace.entity == Some(candidate.index) {
                 solid
             } else {
-                // A volume poking through a wall is not hit through it.
-                enters(look, candidate)
-                    .filter(|t| *t <= solid && seen(level, states, look.from, candidate))?
+                // A volume poking through a wall is not hit through it, but
+                // one used from an action point in sight is.
+                enters(look, candidate).filter(|t| {
+                    (*t <= solid && body_seen(level, states, look.from, candidate))
+                        || seen_at_action_point(level, states, look.from, looker.feet, candidate)
+                })?
             };
             Some((at, candidate.index))
         })
@@ -365,7 +428,7 @@ pub fn pick(
         .filter_map(|candidate| {
             let to = math::sub(candidate.middle(), look.from);
             let cos = math::dot(to, look.forward) / math::length(to).max(1e-6);
-            (cos >= cone && seen(level, states, look.from, candidate))
+            (cos >= cone && seen(level, states, look.from, looker.feet, candidate))
                 .then_some((cos, candidate.index))
         })
         .max_by(|a, b| a.0.total_cmp(&b.0));
@@ -378,7 +441,7 @@ pub fn pick(
     candidates
         .iter()
         .filter(clear)
-        .filter(|candidate| seen(level, states, eyes, candidate))
+        .filter(|candidate| seen(level, states, eyes, looker.feet, candidate))
         .filter_map(|candidate| {
             crate::containers::ahead(looker.feet, looker.facing, candidate.feet)
                 .map(|distance| (distance, candidate.index))
@@ -1133,4 +1196,4 @@ impl Hold {
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
-pub use probes::probes;
+pub use probes::{action_point_probes, probes};
