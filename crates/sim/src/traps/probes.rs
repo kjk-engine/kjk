@@ -1,7 +1,7 @@
 //! The probes of `traps` (`kjk sim probes`; the approved test
 //! `traps_lifecycle`).
 
-use super::{Laid, Outcome, TrapRow, blast_strength, blasts, door_kit};
+use super::{Laid, Outcome, TrapRow, blast_strength, blastable, blasts, lock_kit};
 
 fn check(ok: bool, what: String) -> Result<String, String> {
     if ok { Ok(what) } else { Err(what) }
@@ -211,17 +211,38 @@ fn facts() -> Vec<(&'static str, Result<String, String>)> {
     ]
 }
 
-/// TSL's mines on doors, the rules: the exe's strength table, the blast's
-/// sum, the kit a player sets.
+/// TSL's mines on locks, the rules: the exe's strength table, the blast's
+/// sum on a door and on a placeable, the kit a player sets, and which
+/// objects take one.
 fn door_mines() -> Vec<(&'static str, Result<String, String>)> {
     let strengths = [3, 4, 5, 12, 20, 26, 27].map(blast_strength);
-    let sums = [blasts(0, 0, 1), blasts(7, 3, 26), blasts(-1, 0, 21)];
+    let sums = [(0, 0, 1), (7, 3, 26), (-1, 0, 21)].map(|(d, s, dc)| blasts(d, s, dc, true));
+    // A placeable's lock takes a twentieth of Demolitions, not a half.
+    let placeable =
+        [(19, 3, 23), (40, 0, 22), (40, 0, 23)].map(|(d, s, dc)| blasts(d, s, dc, false));
     let kits = [
-        door_kit(0, 30, [3, 4, 5, 20]),
-        door_kit(0, 1, [5, 3, 4]),
-        door_kit(0, 40, [3, 4]),
-        door_kit(0, 1, []),
+        lock_kit(0, 30, true, [3, 4, 5, 20]),
+        lock_kit(0, 1, true, [5, 3, 4]),
+        lock_kit(0, 40, true, [3, 4]),
+        lock_kit(0, 1, true, []),
+        lock_kit(40, 29, true, [4, 5]),
+        lock_kit(40, 29, false, [4, 5]),
     ];
+    let object = |kind, not_blastable| {
+        let mut facts = crate::module::ObjectData::unknown("lock", [0.0; 3], 0.0);
+        facts.kind = kind;
+        facts.toughness.not_blastable = not_blastable;
+        facts
+    };
+    use crate::module::ObjectKind::{Creature, Door, Placeable};
+    let takes = [
+        (Door, false, true),
+        (Placeable, false, true),
+        (Door, false, false),
+        (Placeable, true, true),
+        (Creature, false, true),
+    ]
+    .map(|(kind, not_blastable, locked)| blastable(&object(kind, not_blastable), locked));
     vec![
         (
             "door_mine_strength",
@@ -238,10 +259,24 @@ fn door_mines() -> Vec<(&'static str, Result<String, String>)> {
             ),
         ),
         (
+            "placeable_mine_blast",
+            check(
+                placeable == [(23, true), (22, true), (22, false)],
+                format!("{placeable:?}"),
+            ),
+        ),
+        (
             "door_mine_kit",
             check(
-                kits == [Some(20), Some(3), Some(4), None],
+                kits == [Some(20), Some(3), Some(4), None, Some(4), Some(5)],
                 format!("{kits:?}"),
+            ),
+        ),
+        (
+            "mine_lock_takes",
+            check(
+                takes == [true, true, false, false, false],
+                format!("{takes:?}"),
             ),
         ),
     ]
@@ -257,6 +292,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     all.extend(crate::world::traps::probes::skill_uses());
     all.extend(crate::world::traps::probes::choices());
     all.extend(crate::world::traps::probes::laying());
+    all.extend(crate::world::traps::probes::lock_mines());
     all.extend(crate::world::traps::probes::routines());
     all.extend(crate::world::traps::probes::races());
     all

@@ -239,20 +239,54 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             format!("{opened_only:?}"),
         ),
     ));
-    // TSL's mine on a door: offered on a shut door (a key-only one too)
-    // where the party carries one, not on an open door.
-    let mined = [(&key_only, shut), (&locked_door, open)].map(|(facts, state)| {
+    // TSL's mine on a lock: offered on a locked door (a key-only one too)
+    // and a locked placeable, container or not, where the party carries
+    // one; not on an unlocked door or container, an open door, nor a lock
+    // its data marks `NotBlastable`.
+    let not_blastable = crate::module::ObjectData {
+        toughness: crate::module::Toughness {
+            not_blastable: true,
+            ..crate::module::Toughness::default()
+        },
+        ..locked_door.clone()
+    };
+    let (locked_box, locked_thing, unlocked_box, unlocked_door) = (
+        made(place, Opens::Locked, true, ""),
+        made(place, Opens::Locked, false, ""),
+        made(place, Opens::Yes, true, ""),
+        made(door, Opens::Yes, false, ""),
+    );
+    let mined = [
+        (door, &key_only, shut),
+        (door, &locked_door, open),
+        (door, &unlocked_door, shut),
+        (door, &not_blastable, shut),
+        (place, &locked_box, shut),
+        (place, &locked_thing, shut),
+        (place, &unlocked_box, shut),
+    ]
+    .map(|(kind, facts, state)| {
         let demolitions = crate::target::Demolitions {
             recover: false,
-            door_mine: true,
+            lock_mine: true,
         };
-        choices(door, facts, state, false, None, Some(demolitions))
+        choices(kind, facts, state, false, None, Some(demolitions))
     });
     checks.push((
         "target_mine_offered",
         check(
-            mined == [vec![Open, Mine], vec![Use]]
-                && ask(Mine, 7, door) == Some(crate::action::Action::Mine(7)),
+            mined
+                == [
+                    vec![Open, Mine],
+                    vec![Use],
+                    vec![Open],
+                    vec![Open],
+                    vec![Open, Mine],
+                    vec![Use, Mine],
+                    vec![Open],
+                ]
+                && ask(Mine, 7, door) == Some(crate::action::Action::Mine(7))
+                && ask(Mine, 7, place) == Some(crate::action::Action::Mine(7)),
             format!("{mined:?}"),
         ),
     ));

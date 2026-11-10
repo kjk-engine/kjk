@@ -262,20 +262,26 @@ A trapped door or object goes off when it is opened or used.
 applies = ["kind:mine"]
 
 [door_mines]
-title = "Mines on Doors"
+title = "Mines on Locks"
 summary = """
-In TSL, a mine can be set on a locked door. No die is rolled, even in
-combat. {traps.door_mines.blast_ms:s} later the mine blasts the lock:
+In TSL, a mine can be set on a locked door or placeable, unless its data
+marks it not blastable. No die is rolled, even in combat.
+{traps.door_mines.blast_ms:s} later the mine blasts the lock:
 {traps.door_mines.blast_base:bare} + the setter's Demolitions ÷
-{traps.door_mines.demolitions_divisor:bare} + the mine's blast strength,
-against the lock's DC. A blasted door opens
-{traps.door_mines.open_after_ms:s} later, unlocked.
+{traps.door_mines.demolitions_divisor:bare} (a door) or ÷
+{traps.door_mines.placeable_divisor:bare} (a placeable) + the mine's blast
+strength, against the lock's DC. A blasted placeable is unlocked at once;
+a blasted door opens, unlocked, {traps.door_mines.open_after_ms:s} later.
 """
 detail = """
 A player sets the weakest mine that opens the lock, or else the strongest.
-A mine removed before it goes off does nothing.
+A mine removed before it goes off does nothing. The engine's blast hurts
+nothing and draws nothing: the mine just goes, and what shows is the
+object's own unlock script's (Peragus's damaged cylinders make their smoke
+there). Only a door's blast is told in the log; a placeable's tells its
+setter "You triggered a Mine!", as the original does.
 """
-applies = ["kind:mine", "skill:Demolitions", "kind:door"]
+applies = ["kind:mine", "skill:Demolitions", "kind:door", "kind:container"]
 
 [door_mines.blast_ms]
 name = "Blast Time"
@@ -318,6 +324,16 @@ summary = "A mine's blast against a lock adds the setter's Demolitions ÷ {traps
 source = "TSL's executable (line 128535)"
 see = "sim::traps::blasts"
 applies = ["kind:mine", "skill:Demolitions"]
+
+[door_mines.placeable_divisor]
+name = "Demolitions Bonus on a Placeable"
+type = "i16"
+value = 20
+range = [1, 40]
+summary = "A mine's blast against a placeable's lock adds the setter's Demolitions ÷ {traps.door_mines.placeable_divisor:bare}, rounded down."
+source = "TSL's executable (its placeable events)"
+see = "sim::traps::blasts"
+applies = ["kind:mine", "skill:Demolitions", "kind:container"]
 
 [door_mines.strength]
 name = "Blast Strength"

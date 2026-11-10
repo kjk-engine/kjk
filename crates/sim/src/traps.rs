@@ -182,12 +182,23 @@ pub fn best_kit(rows: impl IntoIterator<Item = u8>) -> Option<u8> {
         .max_by_key(|row| (row % 3, *row))
 }
 
-/// TSL's mine on a door (its exe's set-mine action and door events): set
-/// never rolled (in combat too), it blasts the lock `BLAST_MS` later, and a
-/// blasted door opens `OPEN_AFTER_MS` after that, unlocked, even a plot
-/// door (no `NotBlastable` is read).
+/// TSL's mine on a lock (its exe's set-mine action and door and placeable
+/// events): set never rolled (in combat too), it blasts the lock `BLAST_MS`
+/// later; a blasted lock opens at once, and a blasted door swings open
+/// `OPEN_AFTER_MS` after that. The blast itself hurts nothing and runs no
+/// trap script.
 pub const BLAST_MS: u64 = rules::traps::door_mines::BLAST_MS;
 pub const OPEN_AFTER_MS: u64 = rules::traps::door_mines::OPEN_AFTER_MS;
+
+/// Whether a mine may be set on `facts`' lock, `locked` now: a locked door
+/// or placeable its data does not mark `NotBlastable` (both exes' menus
+/// list mines only then; the blast reads neither again).
+pub fn blastable(facts: &crate::module::ObjectData, locked: bool) -> bool {
+    use crate::module::ObjectKind;
+    matches!(facts.kind, ObjectKind::Door | ObjectKind::Placeable)
+        && locked
+        && !facts.toughness.not_blastable
+}
 
 /// A kit's blast strength against a lock, by its `traps.2da` row: TSL's
 /// exe's table for rows 4 to 26 (`door_mines::STRENGTH`), none for the
@@ -200,25 +211,34 @@ pub fn blast_strength(row: u8) -> u8 {
 }
 
 /// A blast on a lock: the sum (`door_mines::BLAST_BASE`, the setter's
-/// Demolitions over `door_mines::DEMOLITIONS_DIVISOR`, rounded toward zero,
+/// Demolitions over `door_mines::DEMOLITIONS_DIVISOR` on a door, over
+/// `door_mines::PLACEABLE_DIVISOR` on a placeable, rounded toward zero,
 /// and the mine's strength) and whether it reaches the lock's open DC
-/// (TSL's line 128535 shows it).
-pub fn blasts(demolitions: i16, strength: u8, dc: u8) -> (i16, bool) {
-    let sum = door_mines::BLAST_BASE
-        + demolitions / door_mines::DEMOLITIONS_DIVISOR
-        + i16::from(strength);
+/// (TSL's line 128535 shows a door's).
+pub fn blasts(demolitions: i16, strength: u8, dc: u8, door: bool) -> (i16, bool) {
+    let divisor = if door {
+        door_mines::DEMOLITIONS_DIVISOR
+    } else {
+        door_mines::PLACEABLE_DIVISOR
+    };
+    let sum = door_mines::BLAST_BASE + demolitions / divisor + i16::from(strength);
     (sum, sum >= i16::from(dc))
 }
 
-/// The kit a player sets on a door with lock DC `dc`: the weakest whose
-/// blast opens it, else the strongest (TSL's menu lists each kit; the
-/// choice is the player's there).
-pub fn door_kit(demolitions: i16, dc: u8, rows: impl IntoIterator<Item = u8>) -> Option<u8> {
+/// The kit a player sets on a lock with DC `dc` (a door's, `door`): the
+/// weakest whose blast opens it, else the strongest (TSL's menu lists each
+/// kit; the choice is the player's there).
+pub fn lock_kit(
+    demolitions: i16,
+    dc: u8,
+    door: bool,
+    rows: impl IntoIterator<Item = u8>,
+) -> Option<u8> {
     let rows: Vec<u8> = rows.into_iter().collect();
     let key = |row: &u8| (blast_strength(*row), *row);
     let opens = rows
         .iter()
-        .filter(|row| blasts(demolitions, blast_strength(**row), dc).1)
+        .filter(|row| blasts(demolitions, blast_strength(**row), dc, door).1)
         .min_by_key(|row| key(row));
     opens
         .or_else(|| rows.iter().max_by_key(|row| key(row)))

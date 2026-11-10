@@ -30,11 +30,15 @@
 //! decides: a mine made (a trigger of its row's template,
 //! `traps::laid_template`), the layer's and its faction's, its DCs from the
 //! check, seen by the party, the kit used up; a failure keeps the kit.
-//! TSL's mines on doors: a seat's `Action::Mine` on a door sets a kit there
-//! (`traps::door_kit`) over `traps::LAY_MS`, never rolling; set, the mine
-//! stands at the door and `traps::BLAST_MS` later blasts its lock
-//! (`traps::blasts`, told as TSL's line 128535); a blasted door, plot or
-//! not, is unlocked and opens `traps::OPEN_AFTER_MS` after that.
+//! TSL's mines on locks: a seat's `Action::Mine` on a locked door or
+//! placeable that takes one (`traps::blastable`) sets a kit there
+//! (`traps::lock_kit`) over `traps::LAY_MS`, never rolling; set, the mine
+//! stands at the object and `traps::BLAST_MS` later blasts its lock
+//! (`traps::blasts`; a door's told as TSL's line 128535, a placeable's
+//! setter told "You triggered a Mine!" as the exe does). A blasted lock,
+//! plot or not, runs its `OnUnlock` at once (the setter its last unlocker):
+//! a placeable is unlocked then, a door unlocked and opened
+//! `traps::OPEN_AFTER_MS` after that.
 //!
 //! A trap taken away in a step (sprung, disarmed, recovered) is spent for
 //! the rest of it: no second spring, no use resolved on it.
@@ -561,12 +565,14 @@ fn make_mine(
     Some(id)
 }
 
-/// TSL's mine set on door `index` asked by a seat (`Action::Mine`): the
-/// kit a player would pick (`traps::door_kit`), set by `user` within reach
-/// with Demolitions over `traps::LAY_MS`; refused outside TSL, on a door
-/// already mined, or with no kit.
+/// TSL's mine set on lock `index` asked by a seat (`Action::Mine`): the
+/// kit a player would pick (`traps::lock_kit`), set by `user` within reach
+/// with Demolitions over `traps::LAY_MS`; refused outside TSL, while the
+/// player is restricted (`SetPlayerRestrictMode`: TSL's menu lists no mine
+/// then), on a lock that takes none (`traps::blastable`) or already mined,
+/// or with no kit.
 #[allow(clippy::too_many_arguments)]
-fn begin_door_mine(
+fn begin_lock_mine(
     view: &View,
     library: &Library,
     state: &mut State,
@@ -576,20 +582,22 @@ fn begin_door_mine(
     tell: ObjectId,
     index: u32,
 ) {
-    let door = super::locks::lock_of(view, index)
-        .filter(|(_, facts)| facts.kind == crate::module::ObjectKind::Door);
+    let target = super::locks::lock_of(view, index)
+        .filter(|(target, facts)| crate::traps::blastable(facts, target.locked == Some(true)));
     let demolitions = total(library, user, skills::DEMOLITIONS);
     let kits = kits(state, library.items());
-    let (Some((door, facts)), Some(demolitions)) = (door, demolitions) else {
+    let (Some((target, facts)), Some(demolitions)) = (target, demolitions) else {
         return refuse(out, tell);
     };
     let dc = facts.lock.as_ref().map_or(0, |lock| lock.open_dc);
-    let kit = crate::traps::door_kit(demolitions, dc, kits.iter().map(|(_, row)| *row))
+    let door = facts.kind == crate::module::ObjectKind::Door;
+    let kit = crate::traps::lock_kit(demolitions, dc, door, kits.iter().map(|(_, row)| *row))
         .and_then(|best| kits.iter().find(|(_, row)| *row == best));
     let Some(&(item, _)) = kit.filter(|_| {
         view.module.game == "tsl"
+            && !state.party.restrict
             && !state.skill_uses.contains_key(&seat.0)
-            && !state.door_mines.contains_key(&door.id.0)
+            && !state.door_mines.contains_key(&target.id.0)
     }) else {
         return refuse(out, tell);
     };
@@ -602,7 +610,7 @@ fn begin_door_mine(
         SkillUse {
             kind: UseKind::MineDoor,
             by: user.id.0,
-            object: door.id.0,
+            object: target.id.0,
             tool: Some(item),
             from: user.position,
             until: view.now_ms + crate::traps::LAY_MS,
@@ -617,9 +625,9 @@ fn begin_door_mine(
     );
 }
 
-/// A mine set on a door done: the set check, never rolled; on a success the
-/// kit used up, the mine made at the door and its blast to come
-/// (`blasts`). Whether the party's goods changed.
+/// A mine set on a lock done: the set check, never rolled; on a success the
+/// kit used up, the mine made at the door or placeable and its blast to
+/// come (`blasts`). Whether the party's goods changed.
 #[allow(clippy::too_many_arguments)]
 fn mine_door(
     view: &View,
@@ -686,11 +694,12 @@ fn mine_door(
     true
 }
 
-/// The mines set on doors whose time came: a blast on the lock
+/// The mines set on locks whose time came: a blast on the lock
 /// (`traps::blasts`, by the Demolitions its setter had as it set it, the
-/// mine's `TrapState::owner_demolitions`), told to the setter's
-/// player, the mine taken away; a blasted door unlocked and opened
-/// `traps::OPEN_AFTER_MS` later, by itself (no opener). A mine no longer
+/// mine's `TrapState::owner_demolitions`), told to the setter's player, the
+/// mine taken away. A blasted lock's `OnUnlock` runs at once, the setter
+/// its last unlocker; a placeable's lock is undone then, a door's
+/// `traps::OPEN_AFTER_MS` later, as it opens by itself (no opener). A mine no longer
 /// there when its time comes (recovered, disarmed, set off) blasts nothing.
 fn blasts(view: &View, state: &mut State, out: &mut Out) {
     let due: Vec<(u32, crate::script::DoorMine)> = state
@@ -701,22 +710,22 @@ fn blasts(view: &View, state: &mut State, out: &mut Out) {
         .collect();
     for (id, mine) in due {
         state.door_mines.remove(&id);
-        let Some((door, facts)) = view
+        let Some((target, facts)) = view
             .thing(ObjectId(id))
-            .and_then(|door| Some((door, door.facts.as_deref()?)))
+            .and_then(|target| Some((target, target.facts.as_deref()?)))
         else {
             continue;
         };
         if mine.open_at.is_some() {
             out.changes.push(Change::Lock {
-                door: door.id,
+                door: target.id,
                 locked: false,
             });
-            if door.open == Some(0) {
+            if target.open == Some(0) {
                 out.changes.push(Change::Door {
-                    door: door.id,
+                    door: target.id,
                     open: true,
-                    by: door.id,
+                    by: target.id,
                 });
             }
             continue;
@@ -730,23 +739,39 @@ fn blasts(view: &View, state: &mut State, out: &mut Out) {
             .get(&laid.0)
             .map_or(0, |kept| i16::from(kept.owner_demolitions));
         let dc = facts.lock.as_ref().map_or(0, |lock| lock.open_dc);
-        let (sum, success) = crate::traps::blasts(demolitions, mine.strength, dc);
-        out.notices.push((
-            Some(ObjectId(mine.setter)),
+        let door = facts.kind == crate::module::ObjectKind::Door;
+        let (sum, success) = crate::traps::blasts(demolitions, mine.strength, dc, door);
+        let setter = ObjectId(mine.setter);
+        let told = if door {
             Notice::Blast {
                 sum,
                 demolitions,
                 strength: mine.strength,
                 dc,
                 success,
-            },
-        ));
+            }
+        } else {
+            Notice::Line(lines::MINE_TRIGGERED)
+        };
+        out.notices.push((Some(setter), told));
         gone(out, laid);
-        if success {
+        if !success {
+            continue;
+        }
+        state
+            .last
+            .insert((target.id.0, last::UNLOCKED), mine.setter);
+        super::scripts::raise(view, state, target.id, crate::script::Hook::Unlock, None);
+        if door {
             let open_at = Some(view.now_ms + crate::traps::OPEN_AFTER_MS);
             state
                 .door_mines
                 .insert(id, crate::script::DoorMine { open_at, ..mine });
+        } else {
+            out.changes.push(Change::Lock {
+                door: target.id,
+                locked: false,
+            });
         }
     }
 }
@@ -795,7 +820,7 @@ pub(crate) fn skill_uses(
             Action::Disarm(index) => (UseKind::Disarm, index),
             Action::Recover(index) => (UseKind::Recover, index),
             Action::Mine(index) => {
-                begin_door_mine(view, library, state, out, *seat, user, tell, index);
+                begin_lock_mine(view, library, state, out, *seat, user, tell, index);
                 continue;
             }
             Action::Unlock { object, spike } => {

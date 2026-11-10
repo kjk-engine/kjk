@@ -367,6 +367,8 @@ pub struct Toughness {
     pub plot: bool,
     /// `Min1HP`: it is hurt down to 1 hit point and no further.
     pub min_one_hp: bool,
+    /// `NotBlastable`: no mine may be set on its lock.
+    pub not_blastable: bool,
 }
 
 impl Toughness {
@@ -382,6 +384,7 @@ impl Toughness {
             hardness: field("Hardness").map_or(0, |value| value.clamp(0, 255) as u8),
             plot: flag("Plot"),
             min_one_hp: flag("Min1HP"),
+            not_blastable: flag("NotBlastable"),
         }
     }
 }

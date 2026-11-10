@@ -430,8 +430,8 @@ pub enum Choice {
     /// A trap the party detected: disarmed, or recovered for its kit.
     Disarm,
     Recover,
-    /// TSL's: a mine the party carries set on a shut door, to blast its
-    /// lock (`Action::Mine`).
+    /// TSL's: a mine the party carries set on a locked door or placeable,
+    /// to blast its lock (`Action::Mine`).
     Mine,
 }
 
@@ -446,11 +446,11 @@ pub struct Security {
 /// What the character choosing brings to a mine: offered only with ranks in
 /// Demolitions (K1's menu asks the skill's use as it does Security's), with
 /// whether the mine's row has a kit to recover (`recover`) and, in TSL,
-/// whether the party carries a kit to set on a shut door (`door_mine`).
+/// whether the party carries a kit to set on a lock (`lock_mine`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Demolitions {
     pub recover: bool,
-    pub door_mine: bool,
+    pub lock_mine: bool,
 }
 
 /// What may be done to an object of `kind` with `facts` in `state`: a
@@ -462,7 +462,8 @@ pub struct Demolitions {
 /// hostile that speaks (a conversation or a dialogue hook) talked to; by a
 /// character with `demolitions`, a disarmable trap the party detected
 /// disarmed, or recovered where its row has a kit, and in TSL a mine set on
-/// a shut door where the party carries one. Nothing else.
+/// a locked door or placeable a mine may blast (`traps::blastable`) where
+/// the party carries one. Nothing else.
 pub fn choices(
     kind: ObjectKind,
     facts: &crate::module::ObjectData,
@@ -471,9 +472,9 @@ pub fn choices(
     security: Option<Security>,
     demolitions: Option<Demolitions>,
 ) -> Vec<Choice> {
-    let Demolitions { recover, door_mine } = demolitions.unwrap_or(Demolitions {
+    let Demolitions { recover, lock_mine } = demolitions.unwrap_or(Demolitions {
         recover: false,
-        door_mine: false,
+        lock_mine: false,
     });
     let skilled = demolitions.is_some();
     let locked = state.locked(facts.opens);
@@ -486,18 +487,22 @@ pub fn choices(
         }
         all
     };
-    let shut_door = |mut all: Vec<Choice>| {
-        all.extend((skilled && door_mine).then_some(Choice::Mine));
+    let mined = |mut all: Vec<Choice>| {
+        all.extend(
+            (skilled && lock_mine && crate::traps::blastable(facts, locked))
+                .then_some(Choice::Mine),
+        );
         all
     };
     match kind {
-        ObjectKind::Door if locked && state.state == 0 => shut_door(unlock()),
-        ObjectKind::Door if state.state == 0 => shut_door(vec![Choice::Open]),
+        ObjectKind::Door if locked && state.state == 0 => mined(unlock()),
+        ObjectKind::Door if state.state == 0 => vec![Choice::Open],
         ObjectKind::Door if crate::uses::closable(facts, &state) => {
             vec![Choice::Close, Choice::Use]
         }
         ObjectKind::Door => vec![Choice::Use],
-        ObjectKind::Placeable if facts.container && locked => unlock(),
+        ObjectKind::Placeable if facts.container && locked => mined(unlock()),
+        ObjectKind::Placeable if locked => mined(vec![Choice::Use]),
         ObjectKind::Placeable if facts.container => vec![Choice::Open],
         ObjectKind::Placeable => vec![Choice::Use],
         ObjectKind::Trigger
