@@ -473,6 +473,8 @@ pub fn dent(
 const GLASS_EDGE: f32 = 0.12;
 /// The most triangles a model's glass is split into.
 const GLASS_TRIANGLES: usize = 4096;
+/// How many points on the glass each shard's middle is chosen from.
+const GLASS_CANDIDATES: usize = 8;
 
 impl Plain {
     /// The mesh with its triangles split at their longest edge, the
@@ -569,22 +571,34 @@ pub fn glass(meshes: &[Plain], count: usize, seed: u64) -> Vec<Piece> {
         return Vec::new();
     }
     let mut dice = Dice(seed);
-    let points: Vec<[f32; 3]> = (0..count.max(1))
-        .map(|_| {
-            let pick = dice.unit() * total;
-            let at = laid.partition_point(|(before, ..)| *before < pick);
-            let (_, m, t) = laid[at.min(laid.len() - 1)];
-            let c = corners(&fine[m], t);
-            let (mut u, mut v) = (dice.unit(), dice.unit());
-            if u + v > 1.0 {
-                (u, v) = (1.0 - u, 1.0 - v);
-            }
-            add(
-                c[0],
-                add(scale(sub(c[1], c[0]), u), scale(sub(c[2], c[0]), v)),
-            )
-        })
-        .collect();
+    let mut on_glass = || {
+        let pick = dice.unit() * total;
+        let at = laid.partition_point(|(before, ..)| *before < pick);
+        let (_, m, t) = laid[at.min(laid.len() - 1)];
+        let c = corners(&fine[m], t);
+        let (mut u, mut v) = (dice.unit(), dice.unit());
+        if u + v > 1.0 {
+            (u, v) = (1.0 - u, 1.0 - v);
+        }
+        add(
+            c[0],
+            add(scale(sub(c[1], c[0]), u), scale(sub(c[2], c[0]), v)),
+        )
+    };
+    // Spread out: of a few points on the glass, the one farthest from those
+    // already chosen, so no shard is a sliver along an edge.
+    let mut points: Vec<[f32; 3]> = Vec::with_capacity(count.max(1));
+    for _ in 0..count.max(1) {
+        let gap = |p: &[f32; 3]| {
+            (points.iter())
+                .map(|q| dot(sub(*p, *q), sub(*p, *q)))
+                .fold(f32::INFINITY, f32::min)
+        };
+        let best = (0..GLASS_CANDIDATES)
+            .map(|_| on_glass())
+            .max_by(|a, b| gap(a).total_cmp(&gap(b)));
+        points.extend(best);
+    }
     let mut cells = vec![vec![Vec::new(); fine.len()]; points.len()];
     for (m, mesh) in fine.iter().enumerate() {
         for &t in triangles(mesh) {
