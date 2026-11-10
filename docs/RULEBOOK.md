@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `adbb46c342ff938a`.
+Edition `3788167b2fa2c0ab`.
 
 ## Contents
 
@@ -192,7 +192,7 @@ Edition `adbb46c342ff938a`.
   - [Recover Mine](#traps-recover)
   - [Set Mine](#traps-lay)
   - [Triggering Mines](#traps-springing)
-  - [Mines on Doors](#traps-door-mines)
+  - [Mines on Locks](#traps-door-mines)
 - [Doors, Locks and Bashing](#interaction)
   - [Skill Checks](#interaction-checks)
   - [Locks and Security](#interaction-security)
@@ -7410,17 +7410,23 @@ a creature of the owner's faction never does. A creature carrying the
 mine's key disarms it instead. A one-shot mine is removed once it goes off.
 A trapped door or object goes off when it is opened or used.
 
-### <a id="traps-door-mines"></a>Mines on Doors
+### <a id="traps-door-mines"></a>Mines on Locks
 
-In TSL, a mine can be set on a locked door. No die is rolled, even in
-combat. 3 seconds later the mine blasts the lock:
+In TSL, a mine can be set on a locked door or placeable, unless its data
+marks it not blastable. No die is rolled, even in combat.
+3 seconds later the mine blasts the lock:
 20 + the setter's Demolitions ÷
-2 + the mine's blast strength,
-against the lock's DC. A blasted door opens
-1 second later, unlocked.
+2 (a door) or ÷
+20 (a placeable) + the mine's blast
+strength, against the lock's DC. A blasted placeable is unlocked at once;
+a blasted door opens, unlocked, 1 second later.
 
 A player sets the weakest mine that opens the lock, or else the strongest.
-A mine removed before it goes off does nothing.
+A mine removed before it goes off does nothing. The engine's blast hurts
+nothing and draws nothing: the mine just goes, and what shows is the
+object's own unlock script's (Peragus's damaged cylinders make their smoke
+there). Only a door's blast is told in the log; a placeable's tells its
+setter "You triggered a Mine!", as the original does.
 
 <a id="traps-door-mines-blast-ms"></a>**Blast Time** = **3 seconds** (`3000 ms`) · `traps.door_mines.blast_ms`
 
@@ -7445,6 +7451,12 @@ A mine's blast against a lock starts at 20.
 A mine's blast against a lock adds the setter's Demolitions ÷ 2, rounded down.
 
 <sub>Source: TSL's executable (line 128535). Code: `sim::traps::blasts`.</sub>
+
+<a id="traps-door-mines-placeable-divisor"></a>**Demolitions Bonus on a Placeable** = **20** · `traps.door_mines.placeable_divisor`
+
+A mine's blast against a placeable's lock adds the setter's Demolitions ÷ 20, rounded down.
+
+<sub>Source: TSL's executable (its placeable events). Code: `sim::traps::blasts`.</sub>
 
 <a id="traps-door-mines-strength"></a>**Blast Strength** = **3 / 9 / 0 / 3 / 9 / 0 / 0 / 0 / 0 / 0 / 0 / 3 / 9 / 0 / 0 / 9 / 12 / 9 / 12 / 0 / 0 / 9 / 12** · `traps.door_mines.strength`
 

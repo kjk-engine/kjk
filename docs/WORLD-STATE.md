@@ -1042,8 +1042,9 @@ Stealth XP is not raised yet.
 - **A level** of a class it has (`Classes::take`): most HP + hit die + CON
   modifier (at least 1) + Toughness's and Master Toughness's 1 each and
   Wookiee Toughness's 2 (TSL's II and III 3 and 4; `combat::passive`),
-  most FP + force die (what the companions' templates hold: Carth 44 =
-  4 × 11, Bastila's FP 18 = 3 × 6; the templates' `MaxHitPoints` hold
+  the sheet's FP + force die (what the companions' templates hold: Carth
+  44 = 4 × 11, Bastila's FP 18 = 3 × 6; the most FP adds the abilities'
+  share on top, `Sheet::force_points`; the templates' `MaxHitPoints` hold
   Toughness already: Trask 36 = 30 + 3 + 3, Juhani, HK-47, Canderous, by
   `kjk combat feats k1`), a feat learnt there what learning it gives once
   (Toughness and Master Toughness 1 HP for each earlier level, Force
@@ -1080,7 +1081,7 @@ Stealth XP is not raised yet.
   stats).
 - **The story's own changes** (TSL's routines, `script::force`): an
   ability's base score (`AdjustCreatureAttributes`, Constitution moving the
-  hit points, Wisdom a Force user's FP), a skill's rank
+  hit points; Wisdom's moves a Force user's most FP by itself), a skill's rank
   (`AdjustCreatureSkills`), the base saves (`Modify…SavingThrowBase`, the
   templates' `fortbonus`, `refbonus`, `willbonus`), bonus Force points
   (`BonusForcePoints`), a power granted (`GrantSpell`) and the Form in use

@@ -139,8 +139,8 @@ pub enum Action {
     Disarm(ObjectIndex),
     /// Recover it: disarm it and keep its kit (10 harder).
     Recover(ObjectIndex),
-    /// Set the party's strongest mine on a door within reach, to blast its
-    /// lock (TSL's; `world::traps`).
+    /// Set a mine the party carries on a locked door or placeable within
+    /// reach, to blast its lock (TSL's; `world::traps`).
     Mine(ObjectIndex),
     /// Put the weapon in hand away (the holster key): the seat's body's,
     /// the companion leading's for the first seat, until it attacks or

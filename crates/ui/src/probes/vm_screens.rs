@@ -548,6 +548,25 @@ pub(super) fn all() -> Vec<Check> {
     let first = levelup.focused().map(str::to_string);
     presses(&mut levelup, &mut assets, &vm, &["BTN_STEPNAME1"]);
     let floor = levelup.hidden("STR_MINUS_BTN", &vm);
+    let title = levelup
+        .state_of("MAIN_TITLE_LBL", &vm)
+        .and_then(|state| state.strref);
+    // Creation's 18 is no ceiling levelling up (Bastila's Dexterity).
+    let eighteen = ViewModel {
+        character: Some(CharacterView {
+            abilities: [14, 18, 12, 10, 10, 10],
+            ..CharacterView::default()
+        }),
+        ..vm.clone()
+    };
+    let mut past = opened("levelup", &mut assets, &eighteen);
+    presses(
+        &mut past,
+        &mut assets,
+        &eighteen,
+        &["BTN_STEPNAME1", "DEX_PLUS_BTN"],
+    );
+    let past_eighteen = words(&past, &eighteen, "DEX_POINTS_BTN");
     // Recommended is the creation's: greyed levelling up, and inert.
     presses(&mut levelup, &mut assets, &vm, &["BTN_RECOMMENDED"]);
     let kept_scores = (
@@ -741,6 +760,18 @@ pub(super) fn all() -> Vec<Check> {
             )
         })
         .and_then(|()| expect("a score cannot go below what it was", floor))
+        .and_then(|()| {
+            expect(
+                &format!("titled Level Up: {title:?}"),
+                title == Some(1071),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("18 raised to 19 levelling up: {past_eighteen:?}"),
+                past_eighteen == "19",
+            )
+        })
         .and_then(|()| {
             expect(
                 &format!("one point, one raise: {raised:?}"),

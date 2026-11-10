@@ -19,7 +19,8 @@ pub(super) enum Goal {
     Unlock(Target, Option<String>),
     /// A lock struck until it breaks.
     Bash(Target),
-    /// A mine set on a door until it stands open (TSL).
+    /// A mine set on a door until it stands open, or on a placeable until
+    /// it is unlocked (TSL).
     Mine(Target),
     /// The mine the party sees nearest a place disarmed (Demolitions) from
     /// where the player stands, tried again until it is gone; recovered

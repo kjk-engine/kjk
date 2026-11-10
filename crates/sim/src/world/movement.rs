@@ -541,6 +541,13 @@ pub(super) fn move_actors(
                 &level.0, &player.0, walker, speed, clock.msec, run, space, &mets, &ways,
             )
         });
+        // Alive, out of a fight and still: what may stand `tucked` below.
+        let at_ease = fighting.0.alive()
+            && fighting.0.target.is_none()
+            && fighting.0.combat_until <= clock.time_ms
+            && command.forward == 0
+            && command.right == 0
+            && command.up == 0;
         let kit = Kit::of(&sheet_of(sheet, object));
         let mut rolls = SimRng::new(clock.tick, u64::from(id.0.0));
         let enemy = fighting
@@ -607,6 +614,29 @@ pub(super) fn move_actors(
                     world.trace(from, below, &feet, Contents::SOLID | Contents::PLAYER_CLIP);
                 !trace.start_solid && trace.fraction >= 1.0
             });
+        // KOTOR's walker is a point: a creature standing still out of a
+        // fight where its box is buried in the level's drawn furniture but
+        // the walker has room and a floor (`tucked`) stays there, standing as
+        // the walker holds it, rather than move_body's unburying lifting it
+        // a step and out onto what buries it (TSL's Jedi Council, placed at
+        // their chairs to sit, stood on the seats, #277).
+        let stepped = stepped.or_else(|| {
+            (avatar.is_none()
+                && !floorless
+                && at_ease
+                && level.0.with(states.as_deref(), |world| {
+                    tucked(world, player.0.origin, player.0.maxs_z)
+                }))
+            .then(|| walk::Stepped {
+                origin: player.0.origin,
+                velocity: [0.0; 3],
+                yaw: motion::view_of(command.angles, player.0.view_offset)[1],
+                legs: motion::Anim::BOTH_STAND1,
+                bumped: None,
+                door: None,
+                pushed: None,
+            })
+        });
         // One KOTOR's walker moved last step and no longer walking stops
         // dead, as KOTOR's bodies carry no momentum.
         if stepped.is_none() && player.0.flags & motion::motion_flags::CARRIED != 0 {
@@ -1044,6 +1074,31 @@ pub(crate) fn standing_clear(
         Contents::PLAYER_SOLID,
     );
     !trace.start_solid && trace.fraction >= 1.0
+}
+
+/// Whether a body standing at `origin` (units, its top `maxs_z` units over
+/// it) is buried in `world` where KOTOR's walker stands: its box starts in
+/// the level's solid (a chair it was put at to sit), while a point a body
+/// high (`install::WALKER_HALF_WIDTH_M` across, as a jump's place is
+/// tested) is free there over a walkable floor within a step below.
+pub(crate) fn tucked(world: &dyn CollisionWorld, origin: [f32; 3], maxs_z: f32) -> bool {
+    let at = scale(origin, UNIT);
+    let half = motion::HALF_WIDTH * UNIT;
+    let body = Extents {
+        mins: [-half, -half, motion::SOLE_Z * UNIT],
+        maxs: [half, half, maxs_z * UNIT],
+    };
+    if !world.trace(at, at, &body, Contents::PLAYER_SOLID).all_solid {
+        return false;
+    }
+    let point = crate::install::WALKER_HALF_WIDTH_M;
+    let walker = Extents {
+        mins: [-point, -point, motion::SOLE_Z * UNIT],
+        maxs: [point, point, maxs_z * UNIT],
+    };
+    let below = [at[0], at[1], at[2] - motion::STEP_HEIGHT * UNIT];
+    let floor = world.trace(at, below, &walker, Contents::PLAYER_SOLID);
+    !floor.start_solid && floor.fraction < 1.0 && floor.plane.normal[2] >= motion::WALKABLE_NORMAL_Z
 }
 
 /// This step's faces under the placeables play made (`MadeFaces`).

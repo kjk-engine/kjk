@@ -165,6 +165,8 @@ pub use world::switch;
 pub use world::talk_end_probes;
 #[cfg(feature = "probes")]
 pub use world::tsl_probes;
+#[cfg(feature = "probes")]
+pub use world::tucked_probes;
 pub use world::uses;
 #[cfg(feature = "probes")]
 pub use world::weapon_set_probes;

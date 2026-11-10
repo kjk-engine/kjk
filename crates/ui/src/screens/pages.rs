@@ -189,6 +189,9 @@ pub struct Equip {
     pointed: usize,
     /// The headgear eye has the focus: its tip shows.
     eye_focused: bool,
+    /// The slot whose list the list's cursor last stood in: each slot's
+    /// list (one list control) opens with its cursor at the top.
+    cursor_in: Option<u8>,
 }
 
 /// The eye in the head slot's top right corner (a remaster's, kjk's own
@@ -489,6 +492,11 @@ impl Page for Equip {
 
     fn primary(&self, list: &str) -> Option<&'static str> {
         (list == "LB_ITEMS").then_some("BTN_EQUIP")
+    }
+
+    fn lists_anew(&mut self) -> bool {
+        let slot = self.slot.map(|(_, slot)| slot);
+        std::mem::replace(&mut self.cursor_in, slot) != slot
     }
 
     /// The slots, else, while a slot's list is open over them, the list.

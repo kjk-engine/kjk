@@ -534,9 +534,51 @@ fn rules() -> Checks {
         ),
         reduction(),
         levels(),
+        most_force_points(),
         chart(),
         power_chart(),
     ]
+}
+
+/// A Force user's most FP as both games work it out (`Sheet::force_points`),
+/// on Darth Malak's numbers (level 20, a template's 35, WIS 15, CHA 20):
+/// K1 adds the Wisdom and Charisma modifiers a level (175), TSL Wisdom's
+/// alone with its bonus (35 + 2 × 20 + 10); a Wisdom item counts at once; a
+/// low score never takes it under the level; anyone else has none.
+fn most_force_points() -> (&'static str, Result<String, String>) {
+    let jedi = |wisdom: u8, charisma: u8, tsl: bool| {
+        let mut sheet = Sheet::dev_soldier();
+        sheet.level = 20;
+        sheet.max_fp = 35;
+        sheet.abilities[Ability::Wisdom as usize] = wisdom;
+        sheet.abilities[Ability::Charisma as usize] = charisma;
+        if tsl {
+            sheet.flags |= crate::combat::sheet::flags::TSL;
+            sheet.bonus_fp = 10;
+        }
+        sheet.force_points()
+    };
+    let none = Sheet {
+        level: 20,
+        ..Sheet::dev_soldier()
+    };
+    let seen = [
+        jedi(15, 20, false),
+        jedi(17, 20, false),
+        jedi(15, 20, true),
+        jedi(3, 3, false),
+        none.force_points(),
+    ];
+    (
+        "most_force_points",
+        check(
+            seen == [175, 195, 85, 20, 0],
+            format!(
+                "K1 {}, WIS 17 {}, TSL {}, low scores {}, a soldier {}",
+                seen[0], seen[1], seen[2], seen[3], seen[4]
+            ),
+        ),
+    )
 }
 
 /// Improved and Wookiee Toughness on a KOTOR attack's whole points, and

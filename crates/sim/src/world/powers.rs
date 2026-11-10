@@ -1067,7 +1067,7 @@ impl Cast<'_, '_> {
         if !self.authority {
             return;
         }
-        let max_fp = self.person(at).sheet.max_fp;
+        let max_fp = self.person(at).sheet.force_points();
         let fighter = &mut self.fighters[at];
         fighter.fp = (fighter.fp + points(count, max_fp)).min(i32::from(max_fp) * 100);
     }

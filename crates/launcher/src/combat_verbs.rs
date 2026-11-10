@@ -61,7 +61,7 @@ pub fn roster(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             object.template,
             sheet.level,
             sheet.max_hp,
-            sheet.max_fp,
+            sheet.force_points(),
             sheet.defence(),
             sheet.faction,
             if hostile { " HOSTILE" } else { "" },
@@ -111,7 +111,7 @@ pub fn roster(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
         }
         rows.push(serde_json::json!({
             "index": index, "tag": object.tag, "template": object.template,
-            "level": sheet.level, "max_hp": sheet.max_hp, "max_fp": sheet.max_fp,
+            "level": sheet.level, "max_hp": sheet.max_hp, "max_fp": sheet.force_points(),
             "defence": sheet.defence(), "faction": sheet.faction, "hostile": hostile,
             "weapons": weapons, "flags": sheet.flags, "race": sheet.race,
             "guards": guards, "versus": versus,

@@ -496,7 +496,7 @@ impl Kit {
                 row,
                 cost: rules::saber_throw::out::COST,
             }),
-            max_fp: sheet.max_fp,
+            max_fp: sheet.force_points(),
             pool: sheet.pool(),
         }
     }

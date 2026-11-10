@@ -36,6 +36,10 @@ pub trait Page: Send + Sync {
     fn first_focus(&self) -> Option<&str> {
         None
     }
+    /// Its lists show other rows than when last asked (`Screen::lists_anew`).
+    fn lists_anew(&mut self) -> bool {
+        false
+    }
     fn quads(&self, _gui: &Gui, _vm: &ViewModel, _painter: &mut Painter) -> Vec<Quad> {
         Vec::new()
     }
@@ -119,6 +123,10 @@ impl<P: Page> Screen for Tab<P> {
 
     fn first_focus(&self) -> Option<&str> {
         self.page.first_focus()
+    }
+
+    fn lists_anew(&mut self) -> bool {
+        self.page.lists_anew()
     }
 
     fn quads(&self, gui: &Gui, vm: &ViewModel, painter: &mut Painter) -> Vec<Quad> {

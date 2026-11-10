@@ -746,7 +746,7 @@ pub(super) fn hurt(
                     assessed.damage,
                     target_sheet.max_hp,
                     fighting.0.fp,
-                    target_sheet.max_fp,
+                    target_sheet.force_points(),
                 );
                 assessed.damage -= prevented;
                 fighting.0.fp -= paid;

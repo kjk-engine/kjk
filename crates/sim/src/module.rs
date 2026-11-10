@@ -134,7 +134,8 @@ impl Lock {
 }
 
 /// What stands between a blow and a door's or placeable's hit points
-/// (`Hardness`, `Plot`, `Min1HP`).
+/// (`Hardness`, `Plot`, `Min1HP`), and between a mine and its lock
+/// (`NotBlastable`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Toughness {
     /// Whole points taken off every blow.
@@ -143,6 +144,8 @@ pub struct Toughness {
     pub plot: bool,
     /// Hurt down to 1 hit point and no further: it never breaks.
     pub min_one_hp: bool,
+    /// TSL's: no mine may be set on its lock (`traps::blastable`).
+    pub not_blastable: bool,
 }
 
 /// Whether blows may break `facts` open (KOTOR's Bash), `locked` and with
@@ -651,11 +654,15 @@ impl ObjectData {
                 hardness,
                 plot,
                 min_one_hp,
+                not_blastable,
             } = self.toughness;
             out.string("toughness");
             out.u8(hardness);
             out.u8(u8::from(plot));
             out.u8(u8::from(min_one_hp));
+            if not_blastable {
+                out.string("not blastable");
+            }
         }
         if let Some(body) = &self.body {
             out.string("body");

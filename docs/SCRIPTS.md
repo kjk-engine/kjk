@@ -476,8 +476,9 @@ the games' own compiled scripts; nothing of them is in the repo.
   character in the status summary as its executable does, QUIRKS.md
   Q-0247), the story's stat changes on the stored sheet
   (`AdjustCreatureAttributes`: the score a byte that wraps, Q-0250, a
-  Constitution change moving the most and the current hit points, a
-  Wisdom one a Force user's most FP, by the modifier's change a level;
+  Constitution change moving the most and the current hit points by the
+  modifier's change a level; a Force user's most FP follows Wisdom by
+  itself, `Sheet::force_points`;
   `AdjustCreatureSkills`, none below 0, Q-0251;
   `Modify…SavingThrowBase`: the sheet's `fortbonus`, `refbonus`,
   `willbonus`, read from templates too), `GetSkillRankBase`,

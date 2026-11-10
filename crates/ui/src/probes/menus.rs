@@ -2070,6 +2070,47 @@ pub(super) fn equip_locks_slots() -> Vec<Check> {
     })]
 }
 
+/// Each slot's list opens with its cursor at the top, though the slots
+/// share one list (#269, #270): a pad scrolled far down the right hand's
+/// list of every gun and sword, then in the shorter left hand's list, chose
+/// nothing with A and crashed the game with Up. Here the left hand's list
+/// takes its first row with A, Up stays in it, and Equip wears that row.
+pub(super) fn equip_lists_open_at_top() -> Vec<Check> {
+    use crate::intent::GameAction;
+    let (right, both) = (1 << 4, 1 << 4 | 1 << 5);
+    let owned = (0..8)
+        .map(|n| trask_owns(40 + n, b"Rifle", right, false))
+        .chain([
+            trask_owns(50, b"Vibrosword", both, false),
+            trask_owns(51, b"Pistol", both, false),
+        ])
+        .collect();
+    let (mut assets, vm) = trask_page(
+        "equip",
+        &["BTN_INV_WEAP_R", "BTN_INV_WEAP_L", "BTN_BACK", "BTN_EQUIP"],
+        owned,
+        true,
+    );
+    let mut stack = opened("equip", &mut assets, &vm);
+    press(&mut stack, &mut assets, &vm, "BTN_INV_WEAP_R");
+    press(&mut stack, &mut assets, &vm, "LB_ITEMS");
+    stack.step(&mut assets, &vm, &keys(&[Key::Down; 9]));
+    press(&mut stack, &mut assets, &vm, "BTN_BACK");
+    press(&mut stack, &mut assets, &vm, "BTN_INV_WEAP_L");
+    press(&mut stack, &mut assets, &vm, "LB_ITEMS");
+    stack.step(&mut assets, &vm, &keys(&[Key::Up, Key::Activate]));
+    let raised = press(&mut stack, &mut assets, &vm, "BTN_EQUIP");
+    let wanted = Intent::Game(GameAction::Equip {
+        who: 7,
+        item: 50,
+        slot: 5,
+    });
+    vec![check("equip_lists_open_at_top", {
+        expect(&format!("raised {raised:?}"), raised.contains(&wanted))
+            .map(|()| "the left hand's list opens at its top after the right's end".into())
+    })]
+}
+
 /// TSL's second weapon set on the equip page, in both games: its right
 /// slot lists what the first right hand takes and Equip wears it there
 /// (slot 18); it shows what is worn there; the swap button exchanges the

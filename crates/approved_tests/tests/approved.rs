@@ -1798,6 +1798,14 @@ fn downed_and_revive() {
     probed("falls", &sim::falls::probes(), 19);
 }
 
+/// A creature put at a chair, its box buried in it where KOTOR's walker
+/// stands free on the floor, stands there rather than being lifted onto
+/// it: `sim::tucked_probes` (TSL's Jedi Council seated, #277).
+#[test]
+fn tucked_at_furniture() {
+    probed("tucked", &sim::tucked_probes::probes(), 4);
+}
+
 /// The party members nobody plays follow and fight beside the body played:
 /// `sim::party_fights_probes`, owner's request.
 #[test]

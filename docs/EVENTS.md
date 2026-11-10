@@ -151,7 +151,13 @@ travels in saves and recordings (`script::State`).
 ## Action queues (`script::actions`)
 - `Action…` appends to the caller's queue (not while `SetCommandable`
   FALSE); `ClearAllActions` empties it (pending `DelayCommand`s stay);
-  `AssignCommand` runs its code for the target after the running script.
+  `AssignCommand` runs its code for the target after the running script,
+  with the tick's deferred code; what a conversation's reply assigns runs
+  before the next line's script (a reply opening a door by the door's own
+  `ActionOpenDoor` puts the opening in its queue before the next line
+  queues its pause behind it, issue 278), and what a last reply assigns
+  runs once the conversation is over (a conversation it starts is not
+  refused as begun during the one ending).
 - Each step the front action runs and the next starts once it is done
   (16 a step at most): code (`ActionDoCommand`) runs; waits (`ActionWait`,
   `ActionPlayAnimation`'s time, the object playing it meanwhile: SKELETON.md,

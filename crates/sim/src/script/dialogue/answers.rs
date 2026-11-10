@@ -40,6 +40,7 @@ impl Step<'_> {
         }
         self.progress(node);
         self.node_fade(&node.fade);
+        let assigned = self.out.assigned.len();
         for call in [&node.script, &node.script2] {
             self.call(call, id, owner, pc);
         }
@@ -52,7 +53,12 @@ impl Step<'_> {
             })
             .map(|link| link.index);
         match next {
-            Some(entry) => self.show(id, entry),
+            // What the reply's scripts assigned is queued before the next
+            // line's script queues its own (`Step::run_assigned`).
+            Some(entry) => {
+                self.run_assigned(assigned);
+                self.show(id, entry);
+            }
             None => self.end(id, false),
         }
     }

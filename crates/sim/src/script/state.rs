@@ -258,7 +258,8 @@ pub struct State {
     pub traps: BTreeMap<u32, TrapState>,
     /// The skills each seat is using on a trap (`world::traps`), by seat.
     pub skill_uses: BTreeMap<u8, SkillUse>,
-    /// TSL's mines set on doors, by the door's id (`world::traps`).
+    /// TSL's mines set on locks, by the door's or placeable's id
+    /// (`world::traps`).
     pub door_mines: BTreeMap<u32, DoorMine>,
     /// When the creatures last looked for traps (sim ms, `world::traps`).
     pub last_detect_ms: u64,
@@ -346,7 +347,7 @@ pub enum UseKind {
     Recover,
     Lay,
     Unlock,
-    /// TSL's mine set on a door (`world::traps`).
+    /// TSL's mine set on a lock (`world::traps`).
     MineDoor,
 }
 
@@ -360,9 +361,10 @@ impl UseKind {
     ];
 }
 
-/// A mine set on a door (TSL, `world::traps`): who set it, the mine laid
-/// at the door (its id), the kit's blast strength, when it blasts the lock
-/// (sim ms), and when the door then opens, once it blasted it.
+/// A mine set on a lock (TSL, `world::traps`): who set it, the mine laid
+/// at the door or placeable (its id), the kit's blast strength, when it
+/// blasts the lock (sim ms), and when a door then opens, once it blasted
+/// it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DoorMine {
     pub setter: u32,

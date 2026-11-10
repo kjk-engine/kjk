@@ -671,8 +671,14 @@ and companions alike, in combat or out by the game's own rows:
 
 ## Stamina and feat specials (`combat::specials`)
 One second bar (`Sheet::pool`): a Force user's FP, anyone else's stamina,
-100 + 10 × CON modifier, refilling as FP does (20 s). It pays the saber
-specials and the blaster feat specials, 15% each (one a 3 s round
+100 + 10 × CON modifier. A Force user's most FP is worked out each time
+as both games do (`Sheet::force_points`): its sheet's own (the force dice
+of its levels, a template's `ForcePoints`) + the Wisdom modifier a level,
+in K1 the Charisma modifier a level too, + TSL's bonus, at least its
+level (Darth Malak's template holds 35 and his most is 175; his script
+drains a captive Jedi once his FP fall to 50 or his HP to 100). Both
+refill alike (20 s). The bar pays the saber specials
+and the blaster feat specials, 15% each (one a 3 s round
 sustained). The alternate button takes the special chosen for that type of
 gun (`combat::picks`: the next-feat key, a creature's script), until then
 the one the gun suits (else another known): **Power Blast** (pistols; JA's Bryar charge): hold up to
