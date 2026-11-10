@@ -231,8 +231,11 @@ pub fn measure(frames: &[Frame], staff: bool, still: bool) -> Vec<Worst> {
                 ms: first,
             };
             for (i, frame) in frames.iter().enumerate() {
+                // A NaN becomes the worst and stays it, so a measure that
+                // breaks is seen rather than hidden.
                 if let Some(value) = value(check, frames, i, s)
-                    && value > worst.value
+                    && !worst.value.is_nan()
+                    && (value.is_nan() || value > worst.value)
                 {
                     worst.value = value;
                     worst.ms = frame.ms;
@@ -294,13 +297,16 @@ fn ends([hilt, tip]: [[f32; 3]; 2]) -> (Vec3, Vec3) {
     (Vec3::from_array(hilt), Vec3::from_array(tip))
 }
 
+/// The largest of `values`, or NaN if any is NaN (`f32::max` would drop it).
 fn largest(values: impl Iterator<Item = f32>) -> Option<f32> {
-    values.reduce(f32::max)
+    values.reduce(|a, b| if a.is_nan() || a >= b { a } else { b })
 }
 
-/// What the drawn body adds over the scaled reference, never below 0.
+/// What the drawn body adds over the scaled reference, never below 0. A NaN
+/// stays NaN (`f32::max` would make it 0).
 fn added(drawn: f32, reference: f32) -> f32 {
-    (drawn - reference).max(0.0)
+    let more = drawn - reference;
+    if more < 0.0 { 0.0 } else { more }
 }
 
 /// The time from frame `a` to frame `b` in seconds, where it is long enough
@@ -337,10 +343,10 @@ fn depth((hilt, tip): (Vec3, Vec3), capsules: &[((Vec3, Vec3), f32)]) -> f32 {
         return 0.0;
     }
     let start = hilt + (tip - hilt) * (IN_HAND / length);
-    capsules
+    let depths = capsules
         .iter()
-        .map(|&((a, b), radius)| radius - segments_apart((start, tip), (a, b)))
-        .fold(0.0, f32::max)
+        .map(|&((a, b), radius)| radius - segments_apart((start, tip), (a, b)));
+    largest(depths).map_or(0.0, |deepest| added(deepest, 0.0))
 }
 
 /// The shortest distance between segments `p` and `q` (Ericson, Real-Time

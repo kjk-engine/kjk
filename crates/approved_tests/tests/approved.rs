@@ -777,8 +777,9 @@ mod audit {
         });
         near("stillness", worst(&drifting, Check::Stillness), 0.4);
 
-        // Two frames at the same moment, the blade spinning and the left
-        // hand moving: no check fails or gives NaN.
+        // Two frames at the same moment, then a blade of no length, with
+        // the blade spinning and the left hand moving. The checks keep a NaN
+        // as their worst, so no check may give one here.
         let mut repeated: Vec<Frame> = spun
             .iter()
             .zip(&drifting)
@@ -788,6 +789,7 @@ mod audit {
             })
             .collect();
         repeated[3].ms = repeated[2].ms;
+        repeated[4].blades = vec![blade(HAND, HAND, [HAND, HAND], 0.0)];
         for w in measure(&repeated, true, true) {
             println!("repeated moment {}: {}", w.check.name(), w.value);
             assert!(w.value.is_finite(), "{}: {}", w.check.name(), w.value);
