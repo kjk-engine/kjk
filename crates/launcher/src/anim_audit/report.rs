@@ -1,20 +1,24 @@
 //! The audit's results: `cases.json` (each case, how to run it again, and
 //! each state's worst values), `report.md` (the failing rows, worst first,
-//! and every state's values), and the comparison with an earlier run
-//! (`--against`).
+//! and every state's values), the clips of the worst failing rows
+//! (`--clips`), and the comparison with an earlier run (`--against`).
 
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use serde::{Deserialize, Serialize};
 
-use super::cases::{Case, Rules};
+use super::cases::{self, Case, Rules};
 use super::checks::{Check, Worst};
 
 /// The file of every case and its values, in the output folder.
 pub const CASES: &str = "cases.json";
 /// The report's file, in the output folder.
 pub const REPORT: &str = "report.md";
+/// The folder of the clips of the worst failing rows (`film`), in the
+/// output folder.
+pub const CLIPS: &str = "clips";
 
 /// A value rises by more than this share of its check's limit to count as
 /// worse against an earlier run.
@@ -114,8 +118,237 @@ pub fn write(out: &Path, records: &[Record]) -> Result<(), String> {
     let cases = out.join(CASES);
     std::fs::write(&cases, json).map_err(|error| format!("{}: {error}", cases.display()))?;
     let report = out.join(REPORT);
-    std::fs::write(&report, markdown(records))
+    std::fs::write(&report, markdown(records, &out.join(CLIPS)))
         .map_err(|error| format!("{}: {error}", report.display()))
+}
+
+/// One failing row: a check's worst value in a state of a case, over its
+/// limit or not a number.
+pub struct Row<'a> {
+    pub record: &'a Record,
+    pub state: &'a StateRecord,
+    pub worst: &'a WorstRecord,
+}
+
+impl Row<'_> {
+    /// The file name of the row's clip, when the row is `rank`th of the
+    /// failing rows (from 0). The rank comes first, so the clips sort worst
+    /// first.
+    pub fn clip(&self, rank: usize) -> String {
+        format!(
+            "{:02}-{}-{}-{}.gif",
+            rank + 1,
+            self.record.name.replace(' ', "-"),
+            self.state.state,
+            self.worst.check
+        )
+    }
+}
+
+/// The failing rows of `records`, worst first by how many times its limit
+/// each value is. A NaN counts as the worst of all.
+pub fn failing(records: &[Record]) -> Vec<Row<'_>> {
+    let mut rows: Vec<Row> = records
+        .iter()
+        .flat_map(|record| {
+            record.states.iter().flat_map(move |state| {
+                state
+                    .worst
+                    .iter()
+                    .filter(|worst| worst.fails())
+                    .map(move |worst| Row {
+                        record,
+                        state,
+                        worst,
+                    })
+            })
+        })
+        .collect();
+    rows.sort_by(|a, b| times_limit(b.worst).total_cmp(&times_limit(a.worst)));
+    rows
+}
+
+/// How many times its limit a worst value is. A value that is not a
+/// number is infinitely many times it, so it sorts first.
+fn times_limit(worst: &WorstRecord) -> f32 {
+    let times = worst.value / worst.limit;
+    if times.is_nan() { f32::INFINITY } else { times }
+}
+
+/// `film` films this many of the worst failing rows.
+const FILMED: usize = 20;
+/// A clip starts this long before its row's moment (ms), rounded down to a
+/// step of the case's run.
+const BEFORE_MS: u64 = 500;
+/// A clip ends this long after its row's moment (ms).
+const AFTER_MS: u64 = 1000;
+/// The frames a clip records in each second of game time.
+const RECORD_FPS: u32 = 60;
+/// The gif's frames each second. Against `RECORD_FPS`, the gif plays the
+/// game 6 times slower.
+const GIF_FPS: u32 = 10;
+/// The gif's width in pixels. Its height keeps the frames' shape.
+const GIF_WIDTH: u32 = 640;
+/// The name a clip's `record` commands give its frames, before their part
+/// and number (`clip-a-0000.png`).
+const FRAME_NAME: &str = "clip";
+
+/// Gifs of the `FILMED` worst failing rows of `records`, into `out/clips`.
+/// Each row's case is run again with the sim's and JA's blades drawn beside
+/// the drawn one (`--sim-blades`) and the camera beside the duelist
+/// (`--camera side`), and records from `BEFORE_MS` before the row's moment
+/// to `AFTER_MS` after it. A clip that fails is told and left out. The clips
+/// of an earlier run into `out` are removed first, so that the report links
+/// none that shows another row.
+pub fn film(exe: &Path, out: &Path, records: &[Record]) -> Result<(), String> {
+    let clips = out.join(CLIPS);
+    let _ = std::fs::remove_dir_all(&clips);
+    std::fs::create_dir_all(&clips).map_err(|error| format!("{}: {error}", clips.display()))?;
+    let rows: Vec<(String, Row)> = failing(records)
+        .into_iter()
+        .enumerate()
+        .take(FILMED)
+        .map(|(rank, row)| (row.clip(rank), row))
+        .collect();
+    eprintln!("anim audit: filming {} clips", rows.len());
+    let made = cases::at_once(&rows, |(clip, row)| {
+        let made = film_row(exe, out, row, clip);
+        match &made {
+            Ok(()) => eprintln!("anim audit: clip {clip}"),
+            Err(why) => eprintln!("anim audit: clip {clip} failed: {why}"),
+        }
+        made.is_ok()
+    });
+    eprintln!(
+        "anim audit: {} of {} clips made in {}",
+        made.iter().filter(|made| **made).count(),
+        rows.len(),
+        clips.display()
+    );
+    Ok(())
+}
+
+/// The gif `clip` of `row`, into `out/clips`. The run's own files are in
+/// `out/runs/clip-<name>`. Its frames are taken out of the run's folder in
+/// order, made into the gif by `ffmpeg`, and removed.
+fn film_row(exe: &Path, out: &Path, row: &Row, clip: &str) -> Result<(), String> {
+    let io = |what: &Path, error: std::io::Error| format!("{}: {error}", what.display());
+    let stem = clip.strip_suffix(".gif").unwrap_or(clip);
+    let dir = out.join("runs").join(format!("clip-{stem}"));
+    std::fs::create_dir_all(&dir).map_err(|error| io(&dir, error))?;
+    let moment = row.worst.ms.max(0.0) as u64;
+    let from = cases::step_floor(moment.saturating_sub(BEFORE_MS));
+    let to = moment + AFTER_MS;
+    let mut cmds = cases::steps(from);
+    cmds.extend(recording(from, to));
+    cmds.push("quit".to_string());
+    let mut args = with_value(&row.record.args, "--cmds", cmds.join(";"));
+    args = with_value(
+        &args,
+        "--audit-log",
+        dir.join("frames.jsonl").display().to_string(),
+    );
+    args.extend(["--sim-blades", "--camera", "side"].map(String::from));
+    let stderr = dir.join("stderr.log");
+    cases::run_kjk(exe, &args, &row.record.env, &stderr)?;
+    let log = std::fs::read_to_string(&stderr).map_err(|error| io(&stderr, error))?;
+    let run = crate::tour::run_folder(&log).ok_or("the run named no run folder")?;
+    let mut shots: Vec<PathBuf> = std::fs::read_dir(&run)
+        .map_err(|error| io(&run, error))?
+        .filter_map(|entry| Some(entry.ok()?.path()))
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    name.starts_with(&format!("{FRAME_NAME}-")) && name.ends_with(".png")
+                })
+        })
+        .collect();
+    // The parts sort in their order (`clip-a-…` before `clip-b-…`), and
+    // their frames by number.
+    shots.sort();
+    if shots.is_empty() {
+        return Err(format!("{} has no frame of the clip", run.display()));
+    }
+    let frames = dir.join("frames");
+    let _ = std::fs::remove_dir_all(&frames);
+    std::fs::create_dir_all(&frames).map_err(|error| io(&frames, error))?;
+    for (number, shot) in shots.iter().enumerate() {
+        let frame = frames.join(format!("frame-{number:04}.png"));
+        // The run's folder may be on another disk, where a rename fails.
+        if std::fs::rename(shot, &frame).is_err() {
+            std::fs::copy(shot, &frame).map_err(|error| io(shot, error))?;
+        }
+    }
+    let made = gif(&frames, &out.join(CLIPS).join(clip));
+    let _ = std::fs::remove_dir_all(&frames);
+    made
+}
+
+/// The `--cmds` that record from `from` to `to` (ms of the run) at
+/// `RECORD_FPS`. The case's run holsters the blade once the world has
+/// reached `cases::holster_ms`. A recording across that moment does the
+/// same. It records up to the moment, steps to it and holsters, then
+/// records on as a second part.
+fn recording(from: u64, to: u64) -> Vec<String> {
+    let record = |part: &str, from: u64, to: u64| {
+        format!(
+            "record {FRAME_NAME}-{part} {} {} {RECORD_FPS}",
+            from as f64 / 1000.0,
+            to as f64 / 1000.0
+        )
+    };
+    match cases::holster_ms() {
+        Some(holster) if from < holster && holster < to => {
+            let mut cmds = vec![record("a", from, holster)];
+            cmds.extend(cases::step(holster));
+            cmds.push("ui holster".to_string());
+            cmds.push(record("b", holster, to));
+            cmds
+        }
+        _ => vec![record("a", from, to)],
+    }
+}
+
+/// `args` with the value after `flag` set to `value`, or with both added at
+/// the end when `flag` is not among them.
+fn with_value(args: &[String], flag: &str, value: String) -> Vec<String> {
+    let mut args = args.to_vec();
+    match args.iter().position(|arg| arg == flag) {
+        Some(at) if at + 1 < args.len() => args[at + 1] = value,
+        _ => args.extend([flag.to_string(), value]),
+    }
+    args
+}
+
+/// The gif `gif` of the numbered frames in `frames` (`frame-0000.png`), at
+/// `GIF_FPS` and `GIF_WIDTH`, with a palette made from the frames.
+fn gif(frames: &Path, gif: &Path) -> Result<(), String> {
+    let filter =
+        format!("scale={GIF_WIDTH}:-2:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse");
+    let output = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-loglevel",
+            "error",
+            "-framerate",
+            &GIF_FPS.to_string(),
+        ])
+        .arg("-i")
+        .arg(frames.join("frame-%04d.png"))
+        .args(["-vf", &filter, "-loop", "0"])
+        .arg(gif)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("ffmpeg: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "ffmpeg: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
 }
 
 /// A check's value as the report writes it: whole numbers for the checks
@@ -129,27 +362,16 @@ fn shown(value: f32, limit: f32) -> String {
 }
 
 /// The report's text. The failed runs come first. The failing rows follow,
-/// worst first by how many times its limit each value is, then every
-/// state's values. A state with no frame counts as a failing row.
-fn markdown(records: &[Record]) -> String {
+/// worst first (`failing`), then every state's values. A state with no
+/// frame counts as a failing row. A failing row whose clip is in `clips`
+/// links it.
+fn markdown(records: &[Record], clips: &Path) -> String {
     let mut text = String::from("# Saber animation audit\n\n");
     let failed: Vec<&Record> = records
         .iter()
         .filter(|record| record.failed.is_some())
         .collect();
-    let mut failing: Vec<(&Record, &StateRecord, &WorstRecord)> = records
-        .iter()
-        .flat_map(|record| {
-            record.states.iter().flat_map(move |state| {
-                state
-                    .worst
-                    .iter()
-                    .filter(|worst| worst.fails())
-                    .map(move |worst| (record, state, worst))
-            })
-        })
-        .collect();
-    failing.sort_by(|a, b| (b.2.value / b.2.limit).total_cmp(&(a.2.value / a.2.limit)));
+    let failing = failing(records);
     let unmeasured: Vec<(&Record, &StateRecord, &str)> = records
         .iter()
         .flat_map(|record| record.states.iter().map(move |state| (record, state)))
@@ -171,16 +393,29 @@ fn markdown(records: &[Record]) -> String {
         }
     }
     text.push_str("## Failing rows\n\n");
-    text.push_str("| Case | State | Check | Value | Limit | ms |\n|---|---|---|---|---|---|\n");
+    text.push_str(
+        "| Case | State | Check | Value | Limit | ms | Clip |\n|---|---|---|---|---|---|---|\n",
+    );
     for (record, state, why) in &unmeasured {
-        let _ = writeln!(text, "| {} | {} | {why} | | | |", record.name, state.state);
-    }
-    for (record, state, worst) in &failing {
         let _ = writeln!(
             text,
-            "| {} | {} | {} | {} | {} | {:.0} |",
-            record.name,
-            state.state,
+            "| {} | {} | {why} | | | | |",
+            record.name, state.state
+        );
+    }
+    for (rank, row) in failing.iter().enumerate() {
+        let clip = row.clip(rank);
+        let link = if clips.join(&clip).is_file() {
+            format!("[gif]({CLIPS}/{clip})")
+        } else {
+            String::new()
+        };
+        let worst = row.worst;
+        let _ = writeln!(
+            text,
+            "| {} | {} | {} | {} | {} | {:.0} | {link} |",
+            row.record.name,
+            row.state.state,
             worst.check,
             shown(worst.value, worst.limit),
             shown(worst.limit, worst.limit),
