@@ -63,8 +63,11 @@ const fn shifted(button: GamepadButton) -> Chord {
 /// and abilities have no chord of their own; the two hands, quick load,
 /// the view, a break (the menu's too) and the bug report stay the
 /// keyboard's. LB with the D-pad's left and right turns the target's
-/// action (`CYCLE`), as KOTOR's pad does.
-const PAD: [(Action, Chord); 28] = {
+/// action (`CYCLE`), as KOTOR's pad does. The right stick's click is both
+/// Saber style and the camera's orbit: held, it orbits (and its stick
+/// pushed up or down zooms); tapped, it changes the style as it is let go
+/// (`TAP_ON_ORBIT`).
+const PAD: [(Action, Chord); 29] = {
     use GamepadButton::*;
     [
         (Action::Attack, alone(RightTrigger2)),
@@ -77,6 +80,7 @@ const PAD: [(Action, Chord); 28] = {
         (Action::Power, alone(RightTrigger)),
         (Action::Stealth, alone(LeftThumb)),
         (Action::SaberStyle, alone(RightThumb)),
+        (Action::Orbit, alone(RightThumb)),
         (Action::NextPower, alone(DPadUp)),
         (Action::PreviousPower, alone(DPadDown)),
         (Action::Medpac, alone(DPadLeft)),
@@ -97,6 +101,10 @@ const PAD: [(Action, Chord); 28] = {
         (Action::Block, shifted(RightTrigger2)),
     ]
 };
+
+/// The action that shares the orbit's chord (`PAD`): it fires as the chord
+/// is let go, unless the stick turned the camera meanwhile.
+const TAP_ON_ORBIT: Action = Action::SaberStyle;
 
 /// The chords that answer a join request, beside `PAD`'s Ready and Follow
 /// (an action has one chord there).
@@ -779,6 +787,18 @@ type Bound<'w> = (
     Res<'w, crate::scene::Headless>,
 );
 
+/// What `sample` keeps from frame to frame: the stick's boost, whether the
+/// screens had the pad, the last flick, a pick's step under way, and
+/// whether each pad's stick turned the camera while the orbit's chord was
+/// held.
+type Kept<'s> = (
+    Local<'s, f32>,
+    Local<'s, bool>,
+    Local<'s, IVec2>,
+    Local<'s, bool>,
+    Local<'s, BTreeMap<Entity, bool>>,
+);
+
 /// Reads this frame's `Actions` (after bevy's input, before play). The
 /// screens have the pad while one of `Busy` is up (a screen, a
 /// conversation, a movie).
@@ -786,17 +806,12 @@ type Bound<'w> = (
 pub(crate) fn sample(
     desk: Desk,
     (key_map, pad_map, feel, headless): Bound,
-    mut gamepads: Query<(&mut Gamepad, &Sticks)>,
+    mut gamepads: Query<(Entity, &mut Gamepad, &Sticks)>,
     taken: crate::leader_view::Busy,
     time: Res<Time>,
     mut actions: ResMut<Actions>,
     mut presses: ResMut<PadPresses>,
-    (mut boost, mut was_busy, mut flicked, mut stepping): (
-        Local<f32>,
-        Local<bool>,
-        Local<IVec2>,
-        Local<bool>,
-    ),
+    (mut boost, mut was_busy, mut flicked, mut stepping, mut orbited): Kept,
     picking: Option<Res<crate::pick_view::Picking>>,
 ) {
     if headless.0 {
@@ -811,7 +826,7 @@ pub(crate) fn sample(
     // Let go by the screens: what is still held reads as up until released
     // (LB stays: it is no action, and a held shift carries on).
     if *was_busy && !menus {
-        for (mut pad, _) in &mut gamepads {
+        for (_, mut pad, _) in &mut gamepads {
             let held: Vec<GamepadButton> = pad
                 .digital()
                 .get_pressed()
@@ -868,7 +883,11 @@ pub(crate) fn sample(
     presses.pressed.clear();
     let mut pushed = IVec2::ZERO;
     let mut look = Vec2::ZERO;
-    for (pad, sticks) in &gamepads {
+    // The action sharing the orbit's chord, if one does (`TAP_ON_ORBIT`).
+    let tap = pad_map
+        .chord(Action::Orbit)
+        .filter(|orbit| pad_map.chord(TAP_ON_ORBIT) == Some(*orbit));
+    for (entity, pad, sticks) in &gamepads {
         let (left, right) = (sticks.left, sticks.right);
         let used = pad.digital().get_just_pressed().next().is_some()
             || rest(left, feel.dead) != Vec2::ZERO
@@ -900,11 +919,24 @@ pub(crate) fn sample(
             if *stepping && chord.button == PICK_STEP {
                 continue;
             }
+            // The tap on the orbit's chord fires as it is let go (below).
+            let on_release = *action == TAP_ON_ORBIT && tap == Some(*chord);
             next.held |= u64::from(pad.pressed(chord.button)) * bit(*action);
-            next.pressed |= u64::from(pad.just_pressed(chord.button)) * bit(*action);
+            next.pressed |= u64::from(pad.just_pressed(chord.button) && !on_release) * bit(*action);
         }
         if menus {
             continue;
+        }
+        if let Some(orbit) = tap {
+            // Each pad's own hold: whether its stick turned the camera.
+            let turned = orbited.entry(entity).or_default();
+            if pad.just_pressed(orbit.button) {
+                *turned = false;
+            }
+            *turned |= pad.pressed(orbit.button) && rest(right, feel.dead) != Vec2::ZERO;
+            if orbit.shifted == shift && pad.just_released(orbit.button) && !*turned {
+                next.pressed |= bit(TAP_ON_ORBIT);
+            }
         }
         for (chord, step) in CYCLE.iter().filter(|(chord, _)| chord.shifted == shift) {
             next.cycle += step * i8::from(pad.just_pressed(chord.button));
@@ -919,7 +951,7 @@ pub(crate) fn sample(
         }
     }
 
-    *stepping = *stepping && gamepads.iter().any(|(pad, _)| pad.pressed(PICK_STEP));
+    *stepping = *stepping && gamepads.iter().any(|(_, pad, _)| pad.pressed(PICK_STEP));
     presses.flick = IVec2::select(pushed.cmpne(*flicked), pushed, IVec2::ZERO);
     *flicked = pushed;
 

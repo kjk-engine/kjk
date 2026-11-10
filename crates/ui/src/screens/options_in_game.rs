@@ -80,53 +80,9 @@ impl Page for OptionsInGame {
         Some("BTN_GAMEPLAY")
     }
 
-    /// `BTN_QUIT`'s copy one button's pitch below it (the gap above it,
-    /// from the button over it), its focus threaded between Quit and what
-    /// Quit led down to.
+    /// `BTN_QUIT`'s copy one button's pitch below it (`copy_below`).
     fn shape(&self, gui: &mut Gui) {
-        let Some(quit) = gui.find("BTN_QUIT").cloned() else {
-            return;
-        };
-        let above = gui
-            .controls
-            .iter()
-            .filter(|control| control.extent.left == quit.extent.left)
-            .map(|control| control.extent.top)
-            .filter(|top| *top < quit.extent.top)
-            .max();
-        let pitch = above.map_or(quit.extent.height, |top| quit.extent.top - top);
-        let id = gui
-            .controls
-            .iter()
-            .map(|control| control.id)
-            .max()
-            .unwrap_or(0)
-            + 1;
-        let mut desktop = Control {
-            id,
-            tag: DESKTOP.into(),
-            ..quit.clone()
-        };
-        desktop.extent.top += pitch;
-        if let Some(links) = desktop.moveto.as_mut() {
-            links.up = quit.id;
-        }
-        for control in &mut gui.controls {
-            let Some(links) = control.moveto.as_mut() else {
-                continue;
-            };
-            if control.id == quit.id {
-                links.down = id;
-            } else if links.up == quit.id {
-                links.up = id;
-            }
-        }
-        let at = gui
-            .controls
-            .iter()
-            .position(|control| control.tag == quit.tag);
-        gui.controls
-            .insert(at.map_or(gui.controls.len(), |at| at + 1), desktop);
+        crate::screens::copy_below(gui, "BTN_QUIT", DESKTOP);
     }
 }
 

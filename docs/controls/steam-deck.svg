@@ -131,6 +131,7 @@
 <circle class="dot" cx="1194" cy="262" r="3"/>
 <text x="1290" y="435" class="main" text-anchor="start"><tspan class="key">Right stick</tspan>  Look and aim</text>
 <text x="1290" y="453" class="sub" text-anchor="start">R3: saber style · L1+R3: follow / end a join</text>
+<text x="1290" y="471" class="sub" text-anchor="start">Hold R3: orbit the camera (stick up/down zooms)</text>
 <polyline class="lead" points="1282,431 1104,292"/>
 <circle class="dot" cx="1104" cy="292" r="3"/>
 <text x="1290" y="495" class="main" text-anchor="start"><tspan class="key">Right trackpad</tspan>  Menu pointer (Steam)</text>

@@ -104,7 +104,7 @@ pub fn screen(
         let mut assets = crate::runtime::skinned(GuiAssets::open(discovery, game)?, discovery)?;
         // The settings as play shows them (`KJK_SETTINGS` names another).
         let mut vm = ui::vm::ViewModel {
-            settings: kjk_game::settings::Settings::load().shown(),
+            settings: kjk_game::settings::Settings::load().values_shown(),
             movie_duels: discovery
                 .get(Game::JediAcademy)
                 .is_some_and(vfs::Install::movie_duels),

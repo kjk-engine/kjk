@@ -593,7 +593,7 @@ impl Plugin for SimHostPlugin {
     fn build(&self, app: &mut App) {
         // The keys and the pads play reads (`pad::Actions`), with or
         // without the screens (`kjk sim view` drives seat 0 by them).
-        app.add_plugins(crate::pad::PadPlugin)
+        app.add_plugins((crate::pad::PadPlugin, crate::camera_tune::CameraTunePlugin))
             .init_resource::<Waited>()
             .init_resource::<CameraAim>()
             .init_resource::<ReloadRequest>()
@@ -796,6 +796,7 @@ pub(crate) struct PlayerInput<'w, 's> {
     showing: Option<Res<'w, crate::movie_view::Showing>>,
     feel: Option<Res<'w, MouseFeel>>,
     picking: Option<Res<'w, crate::pick_view::Picking>>,
+    orbit: Option<Res<'w, crate::camera_tune::Orbit>>,
 }
 
 /// A frame's `PlayerInput`.
@@ -843,9 +844,11 @@ impl PlayerInput<'_, '_> {
                 Vec2::new(motion.delta.x, up * motion.delta.y) * MOUSE_DEGREES * feel.scale
             });
         let pad = actions.map_or(Vec2::ZERO, |actions| actions.turn);
+        // The orbit held turns the camera, not the player (`camera_tune`).
+        let orbiting = self.orbit.as_ref().is_some_and(|orbit| orbit.held);
         Read {
             // The mouse while it holds the cursor, the stick while it turns.
-            turn: (!headless && !self.movie_up() && (grabbed || pad != Vec2::ZERO))
+            turn: (!headless && !self.movie_up() && !orbiting && (grabbed || pad != Vec2::ZERO))
                 .then_some(mouse + pad),
             actions,
         }
