@@ -294,6 +294,17 @@ fn weapon_holdings() {
     }
 }
 
+/// The fight's grunts (`kjk_game::grunts::probes`): the odds, the lines,
+/// and each character's grunts kept `combat.grunts.gap_ms` apart, a gap
+/// started only by a grunt heard (#265). Needs `--features rig`; no installs.
+#[test]
+fn grunts() {
+    #[cfg(not(feature = "rig"))]
+    println!("grunts skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("grunts", &kjk_game::grunts::probes(), 7);
+}
+
 /// Watching a pazaak match on screen (`kjk::probes::pazaak_watch`, R9a):
 /// the host watching the match a guest's companion plays sees its table,
 /// and whatever it clicks or keys there sends no move; its Leave and the
