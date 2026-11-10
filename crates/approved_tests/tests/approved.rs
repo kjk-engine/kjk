@@ -609,7 +609,9 @@ mod rig {
 /// drawn blade 0.2 m from the sim's outside and inside contact, a staff's
 /// off hand 0.2 m from its hilt line, a hand jolted 0.25 m for one frame, a
 /// hand moving 0.4 m/s, and two frames at the same moment. The audit's
-/// script labels each frame with its state by the frame's moment. Needs
+/// script (`kjk::anim_audit::cases`) gets a lead-in wherever its blade
+/// would be put away, and a case's run is cut into its states without the
+/// lead-ins, a state without a lit blade unmeasured but the holster. Needs
 /// `--features rig` (kjk's library); no installs.
 #[test]
 fn anim_audit_checks() {
@@ -618,22 +620,119 @@ fn anim_audit_checks() {
     #[cfg(feature = "rig")]
     {
         audit::checks();
-        audit::labels();
+        audit::states();
     }
 }
 
 #[cfg(feature = "rig")]
 mod audit {
-    use kjk::anim_audit::cases::{SCRIPT, label};
+    use kjk::anim_audit::cases::{Body, Case, HOLSTER, Rules, SCRIPT, Weapon, label, timeline};
     use kjk::anim_audit::checks::{Check, measure};
+    use kjk::anim_audit::report::{self, Record};
     use kjk::anim_audit::{Blade, Frame};
 
-    /// The script stands for 2 s and walks for 2 s, so a frame 4.5 s after
-    /// the script's start is in its third state, the run.
-    pub fn labels() {
-        let labelled = label(SCRIPT, 4500.0);
-        println!("4500 ms: {labelled:?}");
-        assert_eq!(labelled, Some("run"));
+    /// The script's run and its states. A fight lasts 8 s after an attack,
+    /// so a 2 s lead-in (an attack, then the stance) comes before `stand`,
+    /// before `run` (which would end 8 s after the first) and before
+    /// `block_walk_l` (8 s after the attack held in `block_stand_aim`). A
+    /// frame in a lead-in is in no state. The blade is lit on every frame
+    /// but those of `walk` and `holster`, so `walk` is unmeasured and
+    /// `holster` is measured. A NaN worst survives `cases.json` and fails.
+    pub fn states() {
+        let (moves, spans) = timeline(SCRIPT);
+        assert_eq!(moves.len(), SCRIPT.len() + 3, "three lead-ins: {moves:?}");
+        let labelled = [
+            (1000.0, None),
+            (2500.0, Some("stand")),
+            (5999.0, Some("walk")),
+            (7000.0, None),
+            (8500.0, Some("run")),
+            (19000.0, None),
+            (20500.0, Some("block_walk_l")),
+            (30500.0, Some(HOLSTER)),
+            (33499.0, Some("ignite")),
+            (33500.0, None),
+        ];
+        for (ms, expected) in labelled {
+            let found = label(SCRIPT, ms);
+            println!("{ms} ms: {found:?}");
+            assert_eq!(found, expected, "at {ms} ms");
+        }
+
+        let unlit = |ms: f64| matches!(label(SCRIPT, ms), Some("walk" | HOLSTER));
+        let ahead = [HAND, [0.3, 1.3, 1.0]];
+        let drawn = frames(1400, |i| {
+            let blades = if unlit(i as f64 * 25.0) {
+                Vec::new()
+            } else {
+                vec![blade(ahead[0], ahead[1], ahead, 0.0)]
+            };
+            frame(i, false, blades)
+        });
+        let case = Case {
+            stance: "ja".to_string(),
+            weapon: Weapon::Single,
+            body: Body::Male,
+            rules: Rules::Ja,
+        };
+        let states = case.measured(drawn);
+        assert_eq!(states.len(), spans.len());
+        for (span, state) in spans.iter().zip(&states) {
+            assert_eq!(state.state, span.label);
+            assert_eq!(
+                state.frames as u64,
+                (span.to - span.from) / 25,
+                "{}",
+                span.label
+            );
+        }
+        // The script's own 27.5 s at 25 ms a frame, the lead-ins' left out.
+        let counted: usize = states.iter().map(|state| state.frames).sum();
+        assert_eq!(counted, 1100);
+        let of = |name: &str| {
+            let found = states.iter().find(|state| state.state == name);
+            found.unwrap_or_else(|| panic!("no state {name}"))
+        };
+        let (stand, walk, holster) = (of("stand"), of("walk"), of(HOLSTER));
+        println!(
+            "stand {} lit, walk {} lit (no lit blade: {}), holster {} lit with {} checks",
+            stand.lit_frames,
+            walk.lit_frames,
+            walk.no_lit_blade,
+            holster.lit_frames,
+            holster.worst.len()
+        );
+        assert_eq!(stand.lit_frames, stand.frames);
+        assert!(stand.worst.iter().all(|worst| worst.value == 0.0));
+        assert!(walk.no_lit_blade && walk.lit_frames == 0 && walk.worst.is_empty());
+        assert!(!walk.fallback);
+        assert!(!holster.no_lit_blade && holster.lit_frames == 0 && !holster.worst.is_empty());
+
+        // A broken measure's NaN is written to `cases.json`, read back as
+        // NaN, and listed in `report.md` as failing.
+        let mut states = states;
+        states[0].worst[0].value = f32::NAN;
+        let record = Record {
+            case,
+            name: "nan case".to_string(),
+            args: Vec::new(),
+            env: Default::default(),
+            failed: None,
+            states,
+        };
+        let out = std::env::temp_dir().join(format!("kjk-audit-nan-{}", std::process::id()));
+        std::fs::create_dir_all(&out).expect("a scratch folder");
+        report::write(&out, &[record]).expect("the report writes");
+        let read = report::read(&out.join(report::CASES)).expect("cases.json reads back");
+        let markdown = std::fs::read_to_string(out.join(report::REPORT)).expect("report.md");
+        let _ = std::fs::remove_dir_all(&out);
+        let value = read[0].states[0].worst[0].value;
+        println!("NaN read back as {value}");
+        assert!(value.is_nan());
+        assert!(
+            markdown.contains("| nan case | stand | grip | NaN |"),
+            "{markdown}"
+        );
     }
 
     /// The body every frame stands in, by its KOTOR node, its JA bone and

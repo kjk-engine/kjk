@@ -121,8 +121,8 @@ pub struct Case {
 /// `--moves` segment, still). A still state is one in which the hands
 /// should not move (`Check::Stillness`). The blade is holstered at the
 /// start of `holster` (`HOLSTER`, through `--cmds "ui holster"`), and the
-/// attack held in `ignite` lights it again. The script starts after
-/// `LEAD_IN`.
+/// attack held in `ignite` lights it again. `LEAD_IN` is played before a
+/// state where the blade would be put away (`timeline`).
 pub const SCRIPT: &[(&str, &str, bool)] = &[
     ("stand", "2s", true),
     ("walk", "2s w walk", false),
@@ -142,14 +142,21 @@ pub const SCRIPT: &[(&str, &str, bool)] = &[
     ("ignite", "1.5s attack", false),
 ];
 
-/// The state at whose start the blade is holstered.
-const HOLSTER: &str = "holster";
+/// The state at whose start the blade is holstered. It is the one state
+/// that may have no lit blade (`StateRecord::no_lit_blade`).
+pub const HOLSTER: &str = "holster";
 
-/// The `--moves` segments played before `SCRIPT`, not measured. The
-/// duelist comes in with the blade put away, and KOTOR draws a weapon only
-/// in a fight. An attack lights the blade and starts a fight, and the
-/// swing is back in the stance before `stand` starts.
+/// The `--moves` segments played before a state that needs them, not
+/// measured. The duelist comes in with the blade put away, and KOTOR draws
+/// a weapon only in a fight. An attack lights the blade and starts a fight,
+/// and the swing is back in the stance before the next state starts.
 const LEAD_IN: &str = "1.2s attack; 0.8s";
+
+/// A fight lasts `combat.timing.combat_ms` (8 s) after the last attack,
+/// and then the blade is put away. A state that would end later than this
+/// after the last attack gets `LEAD_IN` before it, 2 s inside the fight's
+/// end.
+const LIT_FOR_MS: u64 = 6000;
 
 /// The step of game time each run is held at, one after another (ms). A
 /// run's drawn moments then follow the game's time and not the machine's
@@ -162,44 +169,68 @@ const RUN_LIMIT: Duration = Duration::from_secs(400);
 /// How many runs play at the same time.
 const AT_ONCE: usize = 4;
 
-/// How long `segments` last (ms). The segments are this module's own, each
-/// a duration and its words, so they parse.
+/// How long `segments` last (ms).
 fn length_ms(segments: &str) -> u64 {
-    sim::moves::Script::parse(segments).map_or(0, |parsed| parsed.length_ms())
+    sim::moves::Script::parse(segments)
+        .expect("the audit's own segments parse")
+        .length_ms()
 }
 
-/// One state of a script and the moments it spans (ms from the script's
-/// start, from its own start to the next state's start).
-struct Span {
-    label: &'static str,
-    from: u64,
-    to: u64,
-    still: bool,
+/// Whether `segment` holds the attack button, which starts or renews a
+/// fight.
+fn attacks(segment: &str) -> bool {
+    segment.split_whitespace().any(|word| word == "attack")
 }
 
-/// The spans of `script`'s states, one after another from 0 ms.
-fn spans(script: &[(&'static str, &'static str, bool)]) -> Vec<Span> {
-    let mut from = 0;
-    script
-        .iter()
-        .map(|&(label, segment, still)| {
-            let to = from + length_ms(segment);
-            let span = Span {
-                label,
-                from,
-                to,
-                still,
-            };
-            from = to;
-            span
-        })
-        .collect()
+/// One state of a script and the moments of the run it spans (ms, from its
+/// own start to its end).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Span {
+    pub label: &'static str,
+    pub from: u64,
+    pub to: u64,
+    pub still: bool,
 }
 
-/// The label of the state of `script` that runs at `ms` after the script's
-/// start, or none before its start and after its end.
+/// A run of `script`: its `--moves` segments, `LEAD_IN` among them where a
+/// state needs it, and the spans of its states, which skip the lead-ins. A
+/// state that does not attack gets `LEAD_IN` before it when no attack came
+/// before it, or when it would end more than `LIT_FOR_MS` after the last
+/// attack. An attack is counted from its segment's start.
+pub fn timeline(script: &[(&'static str, &'static str, bool)]) -> (Vec<&'static str>, Vec<Span>) {
+    let lead_in = length_ms(LEAD_IN);
+    let mut moves = Vec::new();
+    let mut spans = Vec::new();
+    let mut at = 0;
+    let mut last_attack: Option<u64> = None;
+    for &(label, segment, still) in script {
+        let length = length_ms(segment);
+        let lit_through = last_attack.is_some_and(|attack| at + length <= attack + LIT_FOR_MS);
+        if !attacks(segment) && !lit_through {
+            moves.push(LEAD_IN);
+            last_attack = Some(at);
+            at += lead_in;
+        }
+        if attacks(segment) {
+            last_attack = Some(at);
+        }
+        moves.push(segment);
+        spans.push(Span {
+            label,
+            from: at,
+            to: at + length,
+            still,
+        });
+        at += length;
+    }
+    (moves, spans)
+}
+
+/// The label of the state of `script` that runs at `ms` of its run, or none
+/// in a lead-in and after the script's end.
 pub fn label(script: &[(&'static str, &'static str, bool)], ms: f64) -> Option<&'static str> {
-    spans(script)
+    timeline(script)
+        .1
         .into_iter()
         .find(|span| (span.from as f64..span.to as f64).contains(&ms))
         .map(|span| span.label)
@@ -285,16 +316,12 @@ impl Case {
     /// The `kjk` arguments of the case's run, writing its frames into
     /// `dir`.
     fn args(&self, dir: &Path) -> Vec<String> {
-        let moves: Vec<&str> = std::iter::once(LEAD_IN)
-            .chain(SCRIPT.iter().map(|(_, segment, _)| *segment))
-            .collect();
-        let lead_in = length_ms(LEAD_IN);
-        let spans = spans(SCRIPT);
-        let end = lead_in + spans.last().map_or(0, |span| span.to);
+        let (moves, spans) = timeline(SCRIPT);
+        let end = spans.last().map_or(0, |span| span.to);
         let holster = spans
             .iter()
             .find(|span| span.label == HOLSTER)
-            .map(|span| lead_in + span.from);
+            .map(|span| span.from);
         // The game's time is held at 0 from the start, then at each step
         // in turn, to half a second past the script's end so its last
         // state is drawn to its end.
@@ -349,11 +376,13 @@ impl Case {
 
     /// The case's states measured on `drawn`, its run's frames. A moment
     /// the run drew more than once (while the game's time was held at it)
-    /// keeps its last frame. A state with no frame has no worst values.
-    /// With the stances on, a state in which the drawn body never plays
-    /// another sequence than the sim's is a fallback: the skeleton lacks
-    /// that state's sequence, so JA's played.
-    fn measured(&self, mut drawn: Vec<super::Frame>) -> Vec<StateRecord> {
+    /// keeps its last frame. A state with no frame has no worst values. A
+    /// state but `HOLSTER` whose frames have no lit blade has none either,
+    /// as every blade check would pass it unmeasured. With the stances on,
+    /// a state with a lit blade in which the drawn body never plays another
+    /// sequence than the sim's is a fallback: the skeleton lacks that
+    /// state's sequence, so JA's played.
+    pub fn measured(&self, mut drawn: Vec<super::Frame>) -> Vec<StateRecord> {
         drawn.sort_by(|a, b| a.ms.total_cmp(&b.ms));
         let mut frames: Vec<super::Frame> = Vec::with_capacity(drawn.len());
         for frame in drawn {
@@ -362,15 +391,19 @@ impl Case {
                 _ => frames.push(frame),
             }
         }
-        let lead_in = length_ms(LEAD_IN);
-        spans(SCRIPT)
+        timeline(SCRIPT)
+            .1
             .into_iter()
             .map(|span| {
-                let at = |ms: u64| (lead_in + ms) as f64;
-                let first = frames.partition_point(|frame| frame.ms < at(span.from));
-                let last = frames.partition_point(|frame| frame.ms < at(span.to));
+                let first = frames.partition_point(|frame| frame.ms < span.from as f64);
+                let last = frames.partition_point(|frame| frame.ms < span.to as f64);
                 let in_state = &frames[first..last];
-                let worst = if in_state.is_empty() {
+                let lit_frames = in_state
+                    .iter()
+                    .filter(|frame| frame.blades.iter().any(|blade| !blade.growing))
+                    .count();
+                let no_lit_blade = !in_state.is_empty() && lit_frames == 0 && span.label != HOLSTER;
+                let worst = if in_state.is_empty() || no_lit_blade {
                     Vec::new()
                 } else {
                     measure(in_state, self.weapon == Weapon::Staff, span.still)
@@ -378,7 +411,11 @@ impl Case {
                 StateRecord {
                     state: span.label.to_string(),
                     frames: in_state.len(),
-                    fallback: self.stances_on() && !in_state.iter().any(|frame| frame.swapped),
+                    lit_frames,
+                    no_lit_blade,
+                    fallback: self.stances_on()
+                        && lit_frames > 0
+                        && !in_state.iter().any(|frame| frame.swapped),
                     worst: worst.into_iter().map(Into::into).collect(),
                 }
             })

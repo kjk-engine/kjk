@@ -34,12 +34,20 @@ pub struct Record {
     pub states: Vec<StateRecord>,
 }
 
-/// One state of a case: how many frames it has, whether the skeleton
-/// lacked its sequence so JA's played (`fallback`), and each check's worst.
+/// One state of a case: how many frames it has and how many of them hold a
+/// lit blade, whether the skeleton lacked its sequence so JA's played
+/// (`fallback`), and each check's worst.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StateRecord {
     pub state: String,
     pub frames: usize,
+    /// The frames with at least one blade lit and not growing.
+    #[serde(default)]
+    pub lit_frames: usize,
+    /// The state has frames, but none with a lit blade, and it is not the
+    /// holster (`cases::HOLSTER`). It has no worst values and fails.
+    #[serde(default)]
+    pub no_lit_blade: bool,
     pub fallback: bool,
     pub worst: Vec<WorstRecord>,
 }
@@ -48,6 +56,9 @@ pub struct StateRecord {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WorstRecord {
     pub check: String,
+    /// A value that is not a finite number (a measure that broke) is kept
+    /// as `null` and read back as NaN.
+    #[serde(with = "not_finite_as_null")]
     pub value: f32,
     pub limit: f32,
     pub ms: f64,
@@ -64,9 +75,29 @@ impl From<Worst> for WorstRecord {
     }
 }
 
+/// A value written as a number when it is finite, else as `null`, which is
+/// read back as NaN. JSON has no NaN, and serde_json writes one as `null`
+/// that it cannot read back as a number.
+mod not_finite_as_null {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(value: &f32, serializer: S) -> Result<S::Ok, S::Error> {
+        if value.is_finite() {
+            serializer.serialize_some(value)
+        } else {
+            serializer.serialize_none()
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f32, D::Error> {
+        Ok(Option::<f32>::deserialize(deserializer)?.unwrap_or(f32::NAN))
+    }
+}
+
 impl WorstRecord {
+    /// Over the limit, or not a number: a NaN fails.
     fn fails(&self) -> bool {
-        self.value > self.limit
+        self.value.is_nan() || self.value > self.limit
     }
 }
 
@@ -119,18 +150,18 @@ fn markdown(records: &[Record]) -> String {
         })
         .collect();
     failing.sort_by(|a, b| (b.2.value / b.2.limit).total_cmp(&(a.2.value / a.2.limit)));
-    let empty: Vec<(&Record, &StateRecord)> = records
+    let unmeasured: Vec<(&Record, &StateRecord, &str)> = records
         .iter()
         .flat_map(|record| record.states.iter().map(move |state| (record, state)))
-        .filter(|(_, state)| state.frames == 0)
+        .filter_map(|(record, state)| Some((record, state, unmeasured(state)?)))
         .collect();
     let _ = writeln!(
         text,
-        "{} cases. {} runs failed. {} rows fail their check's limit, and {} states have no frame.\n",
+        "{} cases. {} runs failed. {} rows fail their check's limit, and {} states have no frame or no lit blade.\n",
         records.len(),
         failed.len(),
         failing.len(),
-        empty.len()
+        unmeasured.len()
     );
     if !failed.is_empty() {
         text.push_str("## Failed runs\n\n");
@@ -141,12 +172,8 @@ fn markdown(records: &[Record]) -> String {
     }
     text.push_str("## Failing rows\n\n");
     text.push_str("| Case | State | Check | Value | Limit | ms |\n|---|---|---|---|---|---|\n");
-    for (record, state) in &empty {
-        let _ = writeln!(
-            text,
-            "| {} | {} | no frame | | | |",
-            record.name, state.state
-        );
+    for (record, state, why) in &unmeasured {
+        let _ = writeln!(text, "| {} | {} | {why} | | | |", record.name, state.state);
     }
     for (record, state, worst) in &failing {
         let _ = writeln!(
@@ -165,11 +192,11 @@ fn markdown(records: &[Record]) -> String {
          not apply to the state. A fallback state is one in which the skeleton lacks the \
          sequence, so JA's own played.\n\n",
     );
-    text.push_str("| Case | State | Frames | Fallback |");
+    text.push_str("| Case | State | Frames | Lit | Fallback |");
     for check in Check::ALL {
         let _ = write!(text, " {} |", check.name());
     }
-    text.push_str("\n|---|---|---|---|");
+    text.push_str("\n|---|---|---|---|---|");
     text.push_str(&"---|".repeat(Check::ALL.len()));
     text.push('\n');
     for record in records {
@@ -177,8 +204,8 @@ fn markdown(records: &[Record]) -> String {
             let fallback = if state.fallback { "yes" } else { "" };
             let _ = write!(
                 text,
-                "| {} | {} | {} | {fallback} |",
-                record.name, state.state, state.frames
+                "| {} | {} | {} | {} | {fallback} |",
+                record.name, state.state, state.frames, state.lit_frames
             );
             for check in Check::ALL {
                 let cell = match state.worst.iter().find(|w| w.check == check.name()) {
@@ -196,9 +223,26 @@ fn markdown(records: &[Record]) -> String {
     text
 }
 
+/// Why a state was not measured: it has no frame, or no lit blade.
+fn unmeasured(state: &StateRecord) -> Option<&'static str> {
+    if state.frames == 0 {
+        Some("no frame")
+    } else if state.no_lit_blade {
+        Some("no lit blade")
+    } else {
+        None
+    }
+}
+
+/// Whether two values are the same, NaN being the same as NaN.
+fn same(a: f32, b: f32) -> bool {
+    a == b || (a.is_nan() && b.is_nan())
+}
+
 /// What got worse in `new` against `old`, a line each, for the cases both
 /// have. A case whose run failed now and passed before is worse, and so is
-/// a state that had frames and has none. A check's value is worse when it
+/// a state that had frames and has none, or had lit frames and has no lit
+/// blade. A check's value is worse when it
 /// passed and now fails, or when it rose by more than `WORSE_SHARE` of its
 /// limit. Under JA's rules any change of a value at all counts.
 pub fn worse(old: &[Record], new: &[Record]) -> Vec<String> {
@@ -223,6 +267,13 @@ pub fn worse(old: &[Record], new: &[Record]) -> Vec<String> {
                 lines.push(format!("{}, {}: no frame now", record.name, state.state));
                 continue;
             }
+            if was.lit_frames > 0 && state.no_lit_blade {
+                lines.push(format!(
+                    "{}, {}: no lit blade now",
+                    record.name, state.state
+                ));
+                continue;
+            }
             for worst in &state.worst {
                 let Some(earlier) = was.worst.iter().find(|w| w.check == worst.check) else {
                     continue;
@@ -236,7 +287,7 @@ pub fn worse(old: &[Record], new: &[Record]) -> Vec<String> {
                     shown(worst.value, worst.limit),
                     shown(worst.limit, worst.limit)
                 );
-                if ja && worst.value != earlier.value {
+                if ja && !same(worst.value, earlier.value) {
                     lines.push(format!("{row}, changed under JA's rules"));
                 } else if !earlier.fails() && worst.fails() {
                     lines.push(format!("{row}, fails now"));
