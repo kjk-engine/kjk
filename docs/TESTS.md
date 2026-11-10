@@ -29,9 +29,9 @@ counter checks and `weapon_alpha_without_txi_solid` approved
 moved aside in `guests_drive_companions`; `area_music_waits_its_delay`,
 `placeable_facing_is_its_front`, `steps_down_where_it_can_walk`,
 `doorway_legs_pass_the_jamb`, `shown_names` and `dir_index_follows_links`
-approved 2026-11-11; `kept_companion_drawn` proposed 2026-11-11, awaiting
-the owner);
-`cargo xtask publish-check` refuses tests anywhere else. All 109
+approved 2026-11-11; `anim_audit_checks` proposed 2026-11-10 and
+`kept_companion_drawn` proposed 2026-11-11, both awaiting the owner);
+`cargo xtask publish-check` refuses tests anywhere else. All 110
 are in `tests/approved.rs` and call library code (no window). The save
 editor's `save_edits` is built only with `--features editor` and run by
 `editor.yml` when the editor or the saves change, never by `ci.yml` or a
@@ -130,6 +130,7 @@ runs.
 | `body_dressed_by_armour` | `sim::player_probes::dressing`: `sim::persona::dressed` is the persona's appearance in the body armour worn (none, a robe put on, taken off; none for a seat with no character); with a K1 install (else skipped), `appearance.2da` dresses rows 137 and 92 as `pmbam`/`pmbama01` and `pfbam`/`pfbama01` bare, `pmbbm`/`pmbbm01` and `pfbbm`/`pfbbm01` in `g_a_clothes01` |
 | `rulebook` (proposed 2026-10-24, awaiting the owner) | `rules::audit::problems` is empty and `docs/RULEBOOK.md` is `rules::page::markdown()`: the page is the book as `cargo xtask rulebook` writes it, every rule in `data/rules/*.toml` is read by some crate's code (by its whole path, or its module after a `use`), and every literal constant in `crates/sim` (its probes aside) is a rule's alias or listed in `data/rules/not-rules.txt`, each line there naming one that exists; no install |
 | `timeline_jolt_ceilings` | every `kjk rig c --moves <timeline>` timeline's top jolt stays under its ceiling (`CEILINGS`); needs JA and KOTOR installs and `--features rig` (kjk's library, which builds Bevy), else skipped with a message |
+| `anim_audit_checks` (proposed 2026-11-10) | `kjk::anim_audit::checks::measure`, the saber animation audit's checks, on frames made there. A standing body holds a blade in its right hand, and JA's reference stands where it does. A blade whose hilt sits 0.10 m from the hand gives a Grip of 0.10 m. A blade passing 0.05 m deep into the torso gives a SelfCut of 0.05 m while the reference blade is clear of the body, and 0 while the reference blade is as deep. A blade turning a full circle in 0.25 s while the reference blade is still gives a Spin of at least 1400 degrees per second. A growing blade 1 m from the hand gives a Grip of 0. A drawn blade 0.2 m from the sim's blade gives a ContactGap of 0 outside contact and 0.2 m in contact. The blade held cleanly in the hand gives 0 on every check, the staff's and the still stance's included. Needs `--features rig` (kjk's library), no installs, else skipped with a message |
 
 ## Running
 ```bash
