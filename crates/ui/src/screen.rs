@@ -1205,7 +1205,11 @@ impl Entry {
             return false;
         };
         let fitted = self.fitted(gui, textures, vm, &tag);
-        let at = self.lists.get(&tag).copied().unwrap_or(Cursor::default());
+        // A cursor the list has shrunk under (its rows changed since it
+        // moved) steps from the list's last row.
+        let mut at = self.lists.get(&tag).copied().unwrap_or(Cursor::default());
+        at.row = at.row.min(count.saturating_sub(1));
+        at.first = at.first.min(at.row);
         let cells = self.cells(gui, vm, &tag, at.row);
         let next_cells = |row: usize| self.cells(gui, vm, &tag, row);
         let (next, cell) = match key {
