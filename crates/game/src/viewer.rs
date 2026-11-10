@@ -48,6 +48,9 @@ pub struct Placed {
     pub hook_local: Option<Matrix>,
     /// The clip to loop, with the clips of the model's supermodel chain.
     pub clip: Option<Arc<AnimationIr>>,
+    /// The cube map the object is drawn with where its meshes' textures
+    /// name none (a creature's body and head: `creature::EnvMap`).
+    pub envmap: Option<String>,
 }
 
 impl Placed {
@@ -62,6 +65,7 @@ impl Placed {
             hook: None,
             hook_local: None,
             clip: None,
+            envmap: None,
         }
     }
 }
@@ -272,6 +276,9 @@ pub struct LoadedScene {
     /// A module's sound, read with it for the world's first frame
     /// (`ambience`); `None` where nothing plays it.
     pub sound: Option<crate::ambience::Preread>,
+    /// The area's `DefaultEnvMap`: the env map of a body whose appearance
+    /// asks for the area's (`creature::EnvMap::AreaDefault`).
+    pub default_envmap: Option<String>,
 }
 
 /// What an area's weather goes by (`weather`).
@@ -907,7 +914,9 @@ pub(crate) fn textures<'m>(
     // texture still gives a blade in a colour JA lacks its colour
     // (`BladeSpec::own`).
     let mut names: Vec<String> = Vec::new();
+    let mut objects_envmaps = Vec::new();
     for placed in models {
+        objects_envmaps.extend(placed.envmap.clone());
         names.extend(
             placed
                 .ir
@@ -922,10 +931,11 @@ pub(crate) fn textures<'m>(
     for name in &names {
         load(name, &mut textures);
     }
-    // Env maps the loaded textures' TXI names.
+    // Env maps the loaded textures' TXI names, and the objects'.
     let envmaps: Vec<String> = textures
         .values()
         .filter_map(|texture: &TextureIr| texture.facts.envmap.clone())
+        .chain(objects_envmaps)
         .collect();
     for name in &envmaps {
         load(name, &mut textures);
@@ -966,6 +976,7 @@ pub fn stand_in(scene: &LoadedScene, name: &str) -> String {
         .textures
         .values()
         .any(|texture| texture.facts.envmap.as_deref() == Some(name))
+        || (scene.models.iter()).any(|placed| placed.envmap.as_deref() == Some(name))
     {
         uses.insert("no env map");
     }
@@ -993,6 +1004,7 @@ pub fn load_model(
         hook: None,
         hook_local: None,
         clip: None,
+        envmap: None,
     }];
     let (textures, missing) = textures(&resolver, &models);
     Ok(LoadedScene {
@@ -1001,6 +1013,7 @@ pub fn load_model(
         textures,
         missing,
         missing_body_textures: Vec::new(),
+        default_envmap: None,
         entry: None,
         missing_models: Vec::new(),
         rooms: Vec::new(),
@@ -1143,6 +1156,7 @@ pub fn module_scene(
                     hook: None,
                     hook_local: None,
                     clip: None,
+                    envmap: None,
                 });
                 Some(models.len() - 1)
             }
@@ -1166,7 +1180,10 @@ pub fn module_scene(
     laps.lap("rooms");
     // Doors and placeables at their GIT position and bearing (as xoreos places them): doors in their rest pose, placeables posed by
     // their state's clip with their emitters (`own_fx`).
-    let mut creatures = CreatureLoad::default();
+    let mut creatures = CreatureLoad {
+        default_envmap: area.default_envmap.clone(),
+        ..CreatureLoad::default()
+    };
     let loaded = &mut creatures.models;
     let mut instances = 0;
     let mut doors = Vec::new();
@@ -1244,6 +1261,7 @@ pub fn module_scene(
                     hook: None,
                     hook_local: None,
                     clip: None,
+                    envmap: None,
                 });
                 instances += 1;
             }
@@ -1284,6 +1302,7 @@ pub fn module_scene(
     laps.lap("textures");
     missing.extend(creatures.missing_body_textures.iter().cloned());
     Ok(LoadedScene {
+        default_envmap: creatures.default_envmap,
         missing_body_textures: creatures.missing_body_textures,
         instances,
         creatures: creatures.placed,
@@ -1374,6 +1393,8 @@ pub(crate) struct CreatureLoad {
     pub missing_body_textures: Vec<String>,
     /// One line per creature: models and hook positions (for checking).
     pub notes: Vec<String>,
+    /// The area's `DefaultEnvMap` (`creature::EnvMap::AreaDefault`).
+    pub default_envmap: Option<String>,
 }
 
 impl CreatureLoad {
@@ -1588,8 +1609,11 @@ impl CreatureLoad {
             facing: turn,
             ..Placed::at(ir, position)
         };
+        // Its body and head take its env map, its weapons do not.
+        let envmap = look.envmap.resolve(self.default_envmap.as_deref());
         models.push(Placed {
             clip: idle.clone(),
+            envmap: envmap.clone(),
             ..at(body)
         });
         self.placed += 1;
@@ -1600,6 +1624,7 @@ impl CreatureLoad {
                         attach: Some(hook),
                         hook: Some((body_index, hook_node)),
                         clip: idle.clone(),
+                        envmap,
                         ..at(ir)
                     });
                     let head = models.len() - 1;

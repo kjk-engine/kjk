@@ -2449,6 +2449,65 @@ fn body_dressed_by_armour() {
     );
 }
 
+/// A creature's body and head take `appearance.2da`'s `envmap` as KOTOR's
+/// executable applies it (`asset_odyssey::creature::EnvMap`): a cube map
+/// by name, else the area's ARE `DefaultEnvMap` (`DEFAULT`, or an empty
+/// cell), none where that is empty; the scene then draws their textures as
+/// it draws one whose TXI names that env map, its alpha the env map's mask
+/// rather than see-through (a mod's armour showed through itself). With a
+/// K1 install (else skipped): a Sith soldier (row 28) and a war droid (66)
+/// name `CM_BareMetal`, the red spider droid (437) `Gunmetal`, a player's
+/// body (137) the area's, and the Endar Spire's areas have none (proposed
+/// 2026-11-10, not yet approved).
+#[test]
+fn creature_env_maps() {
+    use asset_odyssey::creature::EnvMap;
+    let named = |name: &str| EnvMap::Named(name.to_string());
+    for (cell, area, map) in [
+        (Some("cm_baremetal"), None, Some("cm_baremetal")),
+        (Some("cm_baremetal"), Some("cm_area"), Some("cm_baremetal")),
+        (Some("default"), Some("cm_area"), Some("cm_area")),
+        (None, Some("cm_area"), Some("cm_area")),
+        (Some("DEFAULT"), None, None),
+        (None, Some(""), None),
+    ] {
+        let envmap = EnvMap::of_cell(cell.map(str::to_string));
+        assert_eq!(
+            envmap.resolve(area),
+            map.map(str::to_string),
+            "{cell:?} in {area:?}"
+        );
+    }
+    let discovery = discovery();
+    if discovery.get(vfs::Game::Kotor1).is_none() {
+        println!("K1's env maps skipped: no KOTOR install (set KJK_KOTOR1 in .env)");
+        return;
+    }
+    let source = module_source(&discovery, vfs::Game::Kotor1, "end_m01aa").expect("it opens");
+    let mut tables = asset_odyssey::tables::Tables::default();
+    let seen = [28, 66, 437, 137].map(|appearance| {
+        asset_odyssey::creature::resolve_appearance(&source, appearance, None, &mut tables)
+            .expect("the appearance resolves")
+            .envmap
+    });
+    assert_eq!(
+        seen,
+        [
+            named("cm_baremetal"),
+            named("cm_baremetal"),
+            named("gunmetal"),
+            EnvMap::AreaDefault,
+        ]
+    );
+    let module = asset_odyssey::module::ModuleIr::build("end_m01aa", &source).expect("it builds");
+    assert!(
+        module
+            .areas
+            .iter()
+            .all(|area| area.default_envmap.is_none())
+    );
+}
+
 /// The rulebook (`data/rules/`, proposed 2026-10-24): `docs/RULEBOOK.md`
 /// is the page `cargo xtask rulebook` writes from it; every rule is read by
 /// the code; every literal constant in `crates/sim` is a rule's alias or
