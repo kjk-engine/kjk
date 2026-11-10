@@ -67,6 +67,16 @@ const JA_BONES: [&str; 15] = [
     "rhumerus", "lfemurYZ", "rfemurYZ", "ltibia", "rtibia", "ltalus", "rtalus",
 ];
 
+/// The bone of `JA_BONES` that stands for the KOTOR `node`, if the log
+/// follows that node. Both head nodes stand for `cranium`.
+pub fn ja_bone(node: &str) -> Option<&'static str> {
+    let index = AUDITED.iter().position(|audited| *audited == node)?;
+    // `headhook` comes right after `head_g` and has no bone of its own, so
+    // it and every node after it are one place further on than their bones.
+    let hook = AUDITED.iter().position(|audited| *audited == "headhook");
+    Some(JA_BONES[hook.map_or(index, |hook| if index >= hook { index - 1 } else { index })])
+}
+
 /// One drawn frame of the player's figure.
 #[derive(Debug, Clone, Serialize)]
 pub struct AuditFrame {

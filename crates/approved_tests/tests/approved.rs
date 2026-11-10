@@ -603,10 +603,13 @@ mod rig {
 }
 
 /// The saber animation audit's checks (`kjk::anim_audit::checks`) on frames
-/// made here: a hilt 0.10 m from its hand, a blade 0.05 m deep in the torso
-/// with the reference blade clear or as deep, a blade turning 360° in
-/// 0.25 s, a growing blade, and a drawn blade 0.2 m from the sim's outside
-/// and inside contact. Needs `--features rig` (kjk's library); no installs.
+/// made here: a hilt 0.10 m from its hand with the reference's in its hand
+/// or as far, a blade 0.05 m deep in the torso with the reference blade
+/// clear or as deep, a blade turning 360° in 0.25 s, a growing blade, a
+/// drawn blade 0.2 m from the sim's outside and inside contact, a staff's
+/// off hand 0.2 m from its hilt line, a hand jolted 0.25 m for one frame, a
+/// hand moving 0.4 m/s, and two frames at the same moment. Needs
+/// `--features rig` (kjk's library); no installs.
 #[test]
 fn anim_audit_checks() {
     #[cfg(not(feature = "rig"))]
@@ -674,16 +677,27 @@ mod audit {
         }
     }
 
-    /// The worst of `check` over `frames`.
+    /// Frame `frame` with its drawn `node` moved `by`.
+    fn moved(mut frame: Frame, node: &str, by: [f32; 3]) -> Frame {
+        let at = frame.nodes.get_mut(node).expect("a node of the body");
+        *at = [at[0] + by[0], at[1] + by[1], at[2] + by[2]];
+        frame
+    }
+
+    /// The worst of `check` over `frames`, every check applying.
     fn worst(frames: &[Frame], check: Check) -> f32 {
-        let worst = measure(frames, false, false);
+        let worst = measure(frames, true, true);
         let found = worst.iter().find(|w| w.check == check);
         found.unwrap_or_else(|| panic!("no {}", check.name())).value
     }
 
     fn near(what: &str, measured: f32, expected: f32) {
         println!("{what}: {measured:.4} (expected {expected})");
-        assert!((measured - expected).abs() <= 0.001, "{what}: {measured}");
+        let tolerance = 0.001 * expected.abs().max(1.0);
+        assert!(
+            (measured - expected).abs() <= tolerance,
+            "{what}: {measured}"
+        );
     }
 
     pub fn checks() {
@@ -691,11 +705,24 @@ mod audit {
         let ahead = [HAND, [0.3, 1.3, 1.0]];
         let held = |i| frame(i, false, vec![blade(ahead[0], ahead[1], ahead, 0.0)]);
 
-        let off_hand = [0.4, 0.3, 1.0];
-        let gripped = frames(4, |i| {
-            frame(i, false, vec![blade(off_hand, [0.4, 1.3, 1.0], ahead, 0.0)])
-        });
-        near("grip", worst(&gripped, Check::Grip), 0.10);
+        // The drawn hilt 0.10 m from the hand, the reference's in its hand
+        // or as far from it.
+        let off_hand = [[0.4, 0.3, 1.0], [0.4, 1.3, 1.0]];
+        let gripped = |reference| {
+            frames(4, |i| {
+                frame(
+                    i,
+                    false,
+                    vec![blade(off_hand[0], off_hand[1], reference, 0.0)],
+                )
+            })
+        };
+        near("grip", worst(&gripped(ahead), Check::Grip), 0.10);
+        near(
+            "grip, reference as far",
+            worst(&gripped(off_hand), Check::Grip),
+            0.0,
+        );
 
         // Through the torso's capsule (radius 0.16 about x = y = 0), 0.11 m
         // from its axis: 0.05 m deep.
@@ -751,6 +778,48 @@ mod audit {
             worst(&gapped(true), Check::ContactGap),
             0.2,
         );
+        // A staff along x, 0.2 m from the off hand at (-0.3, 0.3, 1.0),
+        // while the reference's passes through that hand.
+        let staff = frames(4, |i| {
+            let reference = [[0.3, 0.3, 1.0], [-1.3, 0.3, 1.0]];
+            frame(
+                i,
+                false,
+                vec![blade([0.3, 0.5, 1.0], [-1.3, 0.5, 1.0], reference, 0.0)],
+            )
+        });
+        near("two hands", worst(&staff, Check::TwoHands), 0.2);
+
+        // The right hand jolted 0.25 m for one frame of 25 ms: 2 × 0.25 m
+        // / (0.025 s)² at that frame.
+        let jolted = frames(5, |i| {
+            let by = if i == 2 { 0.25 } else { 0.0 };
+            moved(held(i), "rhand_g", [by, 0.0, 0.0])
+        });
+        near("pops", worst(&jolted, Check::Pops), 800.0);
+
+        // The left hand moving 0.01 m every 25 ms, the reference's still.
+        let drifting = frames(5, |i| {
+            moved(held(i), "lhand_g", [0.01 * i as f32, 0.0, 0.0])
+        });
+        near("stillness", worst(&drifting, Check::Stillness), 0.4);
+
+        // Two frames at the same moment, the blade spinning and the left
+        // hand moving: no check fails or gives NaN.
+        let mut repeated: Vec<Frame> = spun
+            .iter()
+            .zip(&drifting)
+            .map(|(spun, drifting)| Frame {
+                nodes: drifting.nodes.clone(),
+                ..spun.clone()
+            })
+            .collect();
+        repeated[3].ms = repeated[2].ms;
+        for w in measure(&repeated, true, true) {
+            println!("repeated moment {}: {}", w.check.name(), w.value);
+            assert!(w.value.is_finite(), "{}: {}", w.check.name(), w.value);
+        }
+
         // The held blade alone is clean on every check.
         for w in measure(&frames(4, held), true, true) {
             near(w.check.name(), w.value, 0.0);

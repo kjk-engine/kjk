@@ -22,7 +22,7 @@ macro_rules! outln {
 pub mod acting;
 mod aim_fx;
 mod ambience;
-mod anim_audit_log;
+pub mod anim_audit_log;
 pub mod arena;
 mod armory;
 mod bark_view;

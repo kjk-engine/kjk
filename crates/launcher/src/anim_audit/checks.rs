@@ -10,12 +10,15 @@
 
 use bevy::math::Vec3;
 
+use kjk_game::anim_audit_log::ja_bone;
+
 use super::{Blade, Frame};
 
 /// One check of the audit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Check {
-    /// The distance from each blade's drawn hilt to the hand gripping it.
+    /// How much farther each blade's drawn hilt is from the hand gripping
+    /// it than the reference's hilt is from the reference's hand.
     Grip,
     /// How much farther the off hand is from a staff's hilt line than the
     /// reference's off hand is from its own. Counted only while the
@@ -86,24 +89,19 @@ pub struct Worst {
     pub ms: f64,
 }
 
-/// A body part as the drawn body's KOTOR node and as the reference's JA
-/// bone. These are the pairs of the log's `AUDITED`.
-type Part = (&'static str, &'static str);
-
-const PELVIS: Part = ("pelvis_g", "pelvis");
-const TORSO: Part = ("torsoupr_g", "thoracic");
-const LEFT_HAND: Part = ("lhand_g", "lhand");
-const HANDS: [Part; 2] = [LEFT_HAND, ("rhand_g", "rhand")];
-const FEET: [Part; 2] = [("lfoot_g", "ltalus"), ("rfoot_g", "rtalus")];
+// The body parts the checks use, by the drawn body's KOTOR node. The
+// reference's JA bone for each is the log's (`ja_bone`).
+const PELVIS: &str = "pelvis_g";
+const TORSO: &str = "torsoupr_g";
+const LEFT_HAND: &str = "lhand_g";
+const HANDS: [&str; 2] = [LEFT_HAND, "rhand_g"];
+const FEET: [&str; 2] = ["lfoot_g", "rfoot_g"];
 /// Each upper leg, from its hip to its knee.
-const LEGS: [(Part, Part); 2] = [
-    (("lthigh_g", "lfemurYZ"), ("lshin_g", "ltibia")),
-    (("rthigh_g", "rfemurYZ"), ("rshin_g", "rtibia")),
-];
-/// The drawn body has no head node. Its head hangs on `headhook`, and its
-/// centre is `HEAD_ABOVE_HOOK` above it. The reference's head is centred on
-/// `cranium`.
-const HEAD: Part = ("headhook", "cranium");
+const LEGS: [(&str, &str); 2] = [("lthigh_g", "lshin_g"), ("rthigh_g", "rshin_g")];
+/// The reference's head is centred on the bone that stands for `head_g`. The drawn body has no `head_g`. Its head hangs on `headhook`,
+/// and its centre is `HEAD_ABOVE_HOOK` above it.
+const HEAD: &str = "head_g";
+const HEAD_HOOK: &str = "headhook";
 const HEAD_ABOVE_HOOK: f32 = 0.12;
 
 const HEAD_RADIUS: f32 = 0.11;
@@ -127,20 +125,23 @@ enum Side {
 }
 
 impl Side {
-    fn node(self, frame: &Frame, (node, bone): Part) -> Option<Vec3> {
+    /// The place of the body part the KOTOR `node` names on this side.
+    fn node(self, frame: &Frame, node: &str) -> Option<Vec3> {
         let found = match self {
             Side::Drawn => frame.nodes.get(node),
-            Side::Reference => frame.ref_nodes.get(bone),
+            Side::Reference => frame.ref_nodes.get(ja_bone(node)?),
         };
         found.copied().map(Vec3::from_array)
     }
 
     fn head(self, frame: &Frame) -> Option<Vec3> {
-        let above = match self {
-            Side::Drawn => HEAD_ABOVE_HOOK,
-            Side::Reference => 0.0,
-        };
-        Some(self.node(frame, HEAD)? + Vec3::Z * above)
+        match self {
+            Side::Drawn => {
+                let hook = frame.nodes.get(HEAD_HOOK).copied().map(Vec3::from_array);
+                Some(hook? + Vec3::Z * HEAD_ABOVE_HOOK)
+            }
+            Side::Reference => self.node(frame, HEAD),
+        }
     }
 
     /// The blade's hilt and tip on this side.
@@ -182,7 +183,8 @@ impl Side {
 
 /// The size of the drawn body against the reference's: the median length
 /// from pelvis to upper torso of the drawn body over the frames, divided by
-/// the reference's. It is 1 when either is missing from every frame.
+/// the reference's. It is 1 when either is missing from every frame or has
+/// no length.
 pub fn scale(frames: &[Frame]) -> f32 {
     let length = |side: Side| {
         let lengths = frames
@@ -191,7 +193,9 @@ pub fn scale(frames: &[Frame]) -> f32 {
         median(lengths.collect())
     };
     match (length(Side::Drawn), length(Side::Reference)) {
-        (Some(drawn), Some(reference)) if reference > f32::EPSILON => drawn / reference,
+        (Some(drawn), Some(reference)) if drawn > f32::EPSILON && reference > f32::EPSILON => {
+            drawn / reference
+        }
         _ => 1.0,
     }
 }
@@ -245,12 +249,7 @@ fn value(check: Check, frames: &[Frame], i: usize, s: f32) -> Option<f32> {
     let frame = &frames[i];
     let before = i.checked_sub(1).map(|j| &frames[j]);
     match check {
-        Check::Grip => largest(lit(frame).map(|blade| {
-            Side::Drawn
-                .blade(blade)
-                .0
-                .distance(Vec3::from_array(blade.hand))
-        })),
+        Check::Grip => largest(lit(frame).map(|blade| grip(frame, blade, s))),
         Check::TwoHands => two_hands(frame, s),
         Check::SelfCut => largest(lit(frame).map(|blade| {
             let depth = |side: Side| depth(side.blade(blade), &side.capsules(frame));
@@ -265,6 +264,25 @@ fn value(check: Check, frames: &[Frame], i: usize, s: f32) -> Option<f32> {
         })),
         Check::ContactGap => None,
     }
+}
+
+/// Grip of one blade: how much farther the drawn hilt is from the drawn
+/// hand gripping it than the reference hilt is from the same hand's JA
+/// bone, scaled. The hand node sits at the wrist, so neither distance is 0
+/// in a good grip. The gripping hand is the drawn hand node nearest the
+/// blade's `hand`. Without that hand on the reference, its distance is 0.
+fn grip(frame: &Frame, blade: &Blade, s: f32) -> f32 {
+    let hand = Vec3::from_array(blade.hand);
+    let drawn = Side::Drawn.blade(blade).0.distance(hand);
+    let gripping = HANDS
+        .into_iter()
+        .filter_map(|node| Some((node, Side::Drawn.node(frame, node)?.distance(hand))))
+        .min_by(|a, b| a.1.total_cmp(&b.1));
+    let reference = gripping.and_then(|(node, _)| {
+        let bone = Side::Reference.node(frame, node)?;
+        Some(Side::Reference.blade(blade).0.distance(bone))
+    });
+    added(drawn, s * reference.unwrap_or(0.0))
 }
 
 /// The frame's blades that are not growing or shrinking.
@@ -390,7 +408,10 @@ fn spin(a: &Frame, b: &Frame) -> Option<f32> {
             let (hilt, tip) = side.blade(blade);
             (tip - hilt).normalize_or_zero()
         };
-        direction(from).angle_between(direction(to)).to_degrees() / dt
+        // `angle_between` divides by the lengths, so a zero direction gives
+        // NaN. The angle from the cross and the dot products is 0 there.
+        let (from, to) = (direction(from), direction(to));
+        from.cross(to).length().atan2(from.dot(to)).to_degrees() / dt
     };
     largest(lit(b).filter_map(|to| {
         let from = lit(a).find(|from| from.slot == to.slot)?;
@@ -406,7 +427,7 @@ fn spin(a: &Frame, b: &Frame) -> Option<f32> {
 fn stillness(a: &Frame, b: &Frame, s: f32) -> Option<f32> {
     let dt = step(a, b)?;
     let speed =
-        |side: Side, hand: Part| Some(side.node(b, hand)?.distance(side.node(a, hand)?) / dt);
+        |side: Side, hand: &str| Some(side.node(b, hand)?.distance(side.node(a, hand)?) / dt);
     largest(HANDS.into_iter().filter_map(|hand| {
         let reference = speed(Side::Reference, hand).unwrap_or(0.0);
         Some(added(speed(Side::Drawn, hand)?, s * reference))
