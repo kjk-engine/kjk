@@ -45,7 +45,8 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   grows only for misses of commands the client made, not for ticks it
   skipped after a long frame. `kjk net margins` measures what each margin
   buys (host and player stepping in frames, hitches). Prediction restores the newest
-  snapshot and steps again; own-avatar mismatches are logged by cause.
+  snapshot and steps again (beside the frames, see `kjk join` below);
+  own-avatar mismatches are logged by cause.
 - The own character (`play_view`): a prediction that changes what its legs
   or torso play at a tick already shown (the host's hit, parry or bounce,
   which the client never predicts) is a rewrite (`play.own_rewrites` in a
@@ -85,19 +86,62 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   `check_failures`) without costing a rebuild a tick.
 - `kjk host`: the same for `--seats`, listening on UDP 29170; a net thread
   (`net_thread`) pumps the socket and links, so acks never wait for a
-  frame. Every stepped hash goes to `hashes.txt`. It says "listening on"
+  frame. Every stepped hash goes to `hashes.txt`. The tick stepped beside
+  the frame (`game::sim_worker`) is split there too, as the server keeps
+  it for its players' frames when one can be made of it (its parts and
+  check: `Stepped::new_hashed`), and hashed, so the frame neither splits
+  nor hashes it (issue 229); a tick a slow frame steps itself is split
+  when a frame first reads it. It says "listening on"
   once its stage is loaded: `cargo xtask duo` and `refusals` join on that
   line (whole lines only, a line still being written is not read).
 - `kjk join <host>`: handshake, then the host's stage loads while the net
   thread answers; its own avatar and camera predicted, every other player
-  and creature from the host's snapshots at the remote view. Each new
-  host snapshot (one a frame, below 62 fps) restores the world and
-  re-steps the whole lead, about 16 ticks at 80 ms RTT, each tick a full
-  snapshot; the frame's lead grows with its longest recent frame, so a
-  costly re-step feeds itself. The host's snapshots and the predictions
-  are handed to the view shared, never copied: copying each cost as much
-  as making it, and the Taris Undercity (`tar_m04aa`) at 80 ms RTT ran a
-  guest at 9–15 fps, ~30 ticks a rewind; shared, 37–53 fps (issue 229).
+  and creature from the host's snapshots at the remote view. A guest's
+  frame steps no world (issue 229), as a host's does not
+  (`game::sim_worker`):
+  - **Its new ticks** go to a thread with the live world as the frame
+    makes their commands, and land at the next frame's start: what it
+    shows of its own seat is a frame behind, as a host's is, blended by
+    the predicted clock of the frame that made them against the newest
+    tick shown, so it trails the clock by a tick and a frame, evenly.
+  - **A rewind** (`session::rebase`: the world restored from the newest
+    host snapshot and stepped again to the tick made) runs on a thread of
+    its own while frames go on, one at a time, and lands at a frame's
+    start: its world replaces the live one, and the next steps bring it to
+    the tick made. What it changes is shown with them, its correction
+    too, so the view never meets a world behind the one it drew. A rewind
+    made for a world since replaced (a hold, a resume, an install) is
+    dropped by its generation.
+  - **When**: at once when this seat's body as predicted differs from the
+    host's at a snapshot's tick (or a body was taken or lost), else at
+    most every `REBASE_EVERY_US` (32 ms). Each snapshot is compared as it
+    comes, as before; what the host changed that the body has not met
+    yet reaches the predicted world that much later at most.
+  - **Snapshots**: a rewind makes whole snapshots only from the oldest
+    own tick the view still reads (`Client::set_view_from`); before it,
+    this seat's body and the bolts in flight, which the next snapshot is
+    compared with. The host's snapshots and the predictions are handed to
+    the view shared, never copied.
+  - The session's lock is held for none of it: the net thread stamps
+    datagrams as they arrive, so the round trip and the lead are not
+    lengthened by frames. Before, each snapshot rewound on the frame,
+    under the lock, and the lead grows with the longest recent frame, so
+    a costly rewind fed itself: the Taris Undercity (`tar_m04aa`) at
+    80 ms RTT ran a guest at 9–15 fps. Measured there (2026-11-09, host
+    and guest on one machine, 1080p): solo 254 fps, the guest 198 at
+    80 ms RTT and 198 at 150, the host 177; solo with a second game
+    running beside it, as each side of a co-op pair has here, about 200.
+  - A thread that dies (a panic in a step) is not waited on: its rewinds
+    run in the caller from then on, and a live world lost with its steps
+    is made again from the newest snapshot. The probes run both in the
+    caller, a rewind landing a frame later as on a thread, so a seed
+    still plays the same session byte for byte; `kjk net probes`
+    ("rewinds") checks the rewind and the steps against stepping the
+    world directly, threads that die included, and `kjk net session`
+    plays sessions with rewinds on their thread (a clean link, `wan`'s, a
+    hold, the threads killed mid-session, a KOTOR module) and from every
+    snapshot as before. Every session checks that what a client shows of
+    its own seat never goes back in time while its clocks run.
 - **Through Steam** (`io::steam`, the `steam` feature, on by default):
   beside UDP, a host takes players through Steam's relayed messages
   (`ISteamNetworkingMessages`), so nobody forwards a port. The session's

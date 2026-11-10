@@ -114,6 +114,23 @@ impl Stepped {
         }
     }
 
+    /// `new`, with the snapshot's hash (`Snapshot::hash`) its check is made
+    /// from: a host's step thread splits each tick for its players and its
+    /// `hashes.txt` at once (issue 229).
+    pub fn new_hashed(snapshot: &Snapshot) -> (Stepped, SnapshotHash) {
+        let parts = snapshot.split();
+        let hash = parts.hash();
+        let check = Check::of(&hash);
+        let stepped = Stepped {
+            tick: snapshot.tick,
+            split: Arc::new(Split {
+                snapshot: Mutex::new(None),
+                done: OnceLock::from((Arc::new(parts), check)),
+            }),
+        };
+        (stepped, hash)
+    }
+
     /// A shared snapshot, split when its parts or check are first read.
     pub fn shared(snapshot: Arc<Snapshot>) -> Stepped {
         Stepped {

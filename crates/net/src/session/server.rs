@@ -944,6 +944,20 @@ impl Server {
         self.keep_stepped(now, input, Stepped::shared(snapshot));
     }
 
+    /// `stepped` with a snapshot split already (`Stepped::new_hashed`,
+    /// made on the caller's step thread).
+    pub fn stepped_split(&mut self, now: NetTime, input: &TickInput, stepped: Stepped) {
+        self.keep_stepped(now, input, stepped);
+    }
+
+    /// Whether a frame can be made of `tick` (its players' snapshots go
+    /// every `ServerConfig::every` ticks at the most, every multiple of it
+    /// when the link is poor): the ticks worth splitting before one asks.
+    /// A tick no frame reads is kept unsplit, and the ring drops it first.
+    pub fn sends_on(&self, tick: u64) -> bool {
+        tick.is_multiple_of(u64::from(self.config.every.clamp(1, MAX_EVERY)))
+    }
+
     fn keep_stepped(&mut self, now: NetTime, input: &TickInput, stepped: Stepped) {
         let tick = stepped.tick;
         while self.applied.back().is_some_and(|(last, _)| *last >= tick) {

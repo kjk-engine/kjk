@@ -522,6 +522,44 @@ impl Solo {
         self.pump();
     }
 
+    /// `stepped` with the snapshot hashed already, and split when a frame
+    /// can be made of it (on the step thread, when hosting): the frame does
+    /// neither (issue 229).
+    pub fn stepped_hashed(
+        &mut self,
+        input: &TickInput,
+        snapshot: &Arc<Snapshot>,
+        hash: sim::SnapshotHash,
+        split: Option<net::codec::Stepped>,
+    ) {
+        let now = self.now();
+        let tick = snapshot.tick;
+        {
+            let mut hosted = lock(&self.hosted);
+            match split {
+                Some(split) => hosted.server.stepped_split(now, input, split),
+                None => hosted.server.stepped_shared(now, input, snapshot.clone()),
+            }
+        }
+        if let Some(file) = &mut self.hashes {
+            let epoch = lock(&self.hosted).server.epoch();
+            let _ = writeln!(file, "{epoch} {tick} {hash}");
+        }
+        self.pump();
+    }
+
+    /// Whether this is a host players join over the network: its steps
+    /// are hashed for `hashes.txt`, and split for them, beside the frame
+    /// (`stepped_hashed`).
+    pub fn hosting(&self) -> bool {
+        self.net.is_some()
+    }
+
+    /// Whether a frame can be made of `tick` (`Server::sends_on`).
+    pub fn sends_on(&self, tick: u64) -> bool {
+        lock(&self.hosted).server.sends_on(tick)
+    }
+
     /// A module starts to load: the client stops with the host. Actions
     /// held for a break's end name the old module's objects: dropped.
     pub fn installing(&mut self, request: &session::Request) {

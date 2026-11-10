@@ -147,13 +147,17 @@ pub struct SelectedPower(pub u8);
 /// A joined player's own predictions (only in `kjk join`): its avatar and
 /// the camera are drawn from these, ahead of the host's snapshots in
 /// `PresentedSnapshot` by the round trip and the remote delay; `fresh` has
-/// every prediction made this frame (a rewind's re-steps too), and
+/// every prediction made this frame (a rewind's from `followed` on), and
 /// `correction` (units) is added to the avatar as drawn.
 #[derive(Resource)]
 pub struct OwnView {
     pub presented: Presented,
     pub fresh: Vec<Arc<Snapshot>>,
     pub correction: [f32; 3],
+    /// The last predicted tick the view followed (`play_view`): it reads
+    /// none before it, so a rewind makes whole snapshots from it on only
+    /// (`Client::set_view_from`, issue 229).
+    pub followed: Option<u64>,
 }
 
 pub struct SimHostPlugin(Mutex<Option<SimSetup>>);
@@ -997,6 +1001,7 @@ struct Landed {
     input: TickInput,
     snapshot: Arc<Snapshot>,
     notices: Vec<(Seat, sim::notice::Notice)>,
+    hashed: Option<crate::sim_worker::Hashed>,
 }
 
 impl Authority {
@@ -1021,6 +1026,7 @@ impl Authority {
             input: stepped.input,
             snapshot,
             notices: stepped.notices,
+            hashed: stepped.hashed,
         });
     }
 
@@ -1506,7 +1512,15 @@ fn advance(
                 }
             }
         }
-        authority.solo.stepped(&landed.input, &landed.snapshot);
+        match landed.hashed.as_ref() {
+            Some(hashed) => authority.solo.stepped_hashed(
+                &landed.input,
+                &landed.snapshot,
+                hashed.hash,
+                hashed.split.clone(),
+            ),
+            None => authority.solo.stepped(&landed.input, &landed.snapshot),
+        }
     }
     // The first frame keeps the starting snapshot for the views.
     if authority.frames > 0 {
@@ -1972,10 +1986,16 @@ fn advance(
                     }
                 }
                 if beside && last_due == Some(tick) {
+                    let hosting = authority.solo.hosting();
+                    let prepare = crate::sim_worker::Prepare {
+                        hash: hosting,
+                        split: hosting && authority.solo.sends_on(tick),
+                    };
                     Stepper::send(
                         &mut authority.world,
                         &mut authority.stepper,
                         (tick, input, msec),
+                        prepare,
                     );
                     break;
                 }
