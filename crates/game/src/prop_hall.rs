@@ -32,6 +32,14 @@ fn copies() -> usize {
         .unwrap_or(1)
         .max(1)
 }
+
+/// The one class the hall lays (`KJK_PROP_HALL_CLASS`: `break` or
+/// `damage`), if it is told one: all that breaks, packed, for the stress
+/// test.
+fn only_class() -> Option<String> {
+    std::env::var("KJK_PROP_HALL_CLASS").ok()
+}
+
 /// How far in from the doorway the first row stands (metres).
 const FIRST_ROW: f32 = 5.0;
 /// The most room a model's bounding box may ask for across (metres): some
@@ -163,7 +171,10 @@ pub fn props(resolver: &Resolver, game: &str) -> Result<Vec<Prop>, String> {
     let mut props = Vec::new();
     let copies = copies();
     let gap = if copies > 1 { PACKED_GAP } else { GAP };
-    let kinds = kinds(game);
+    let only = only_class();
+    let kinds: Vec<Kind> = (kinds(game).into_iter())
+        .filter(|kind| only.as_deref().is_none_or(|class| kind.class == class))
+        .collect();
     for kind in kinds.iter().flat_map(|kind| std::iter::repeat_n(kind, copies)) {
         let walkmesh = walkmesh_box(resolver, &table, kind.appearance);
         let half = room_of(kind.size) / 2.0;
