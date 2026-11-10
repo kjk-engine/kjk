@@ -2580,12 +2580,26 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     // or nothing, a walk stalled on and on: a fight's chase
                     // stepped up onto a steep lip above Kashyyyk's walkway,
                     // that the way down from slides along.)
+                    // Only a body ahead, on the side of the player its walk
+                    // makes for, holds the walk up. Companions are solid
+                    // (issue 280) and follow a step behind: counted as in the
+                    // way, they kept the walk from being planned past what
+                    // wedged it (Nar Shaddaa's refugee quad, a door's jamb).
+                    let ahead = |at: [f32; 3]| {
+                        walker.as_ref().and_then(|w| w.waypoint).is_none_or(|aim| {
+                            let aim = aim.map(|v| v * UNIT);
+                            let to_aim = [aim[0] - me.position[0], aim[1] - me.position[1]];
+                            let to_body = [at[0] - me.position[0], at[1] - me.position[1]];
+                            to_aim[0] * to_body[0] + to_aim[1] * to_body[1] > 0.0
+                        })
+                    };
                     let body_in_way = last.entities.iter().any(|e| {
                         e.id != me.id
                             && e.id != avatar.id
                             && (e.fighter.is_some_and(|f| f.alive())
                                 || matches!(e.kind, sim::Kind::Object(ObjectKind::Placeable, _)))
                             && flat(e.position, me.position) <= BODY_M
+                            && ahead(e.position)
                     });
                     if let Some(w) = walker.as_ref()
                         && (w.stalls > 2 && (body_in_way || unwedges >= 2) || w.stalls > LOST_STALLS)

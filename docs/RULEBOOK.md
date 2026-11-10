@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `1a5bf2191e829e69`.
+Edition `fa780e34922f0310`.
 
 ## Contents
 
@@ -9105,7 +9105,7 @@ The floor beyond a doorway is checked every 0.25 meters.
 
 first **0.15 meters** · second **0.3 meters** · third **0.46 meters** · fourth **0.61 meters** · fifth **0.81 meters** · sixth **1 meter** · seventh **1.2 meters** · eighth **1.4 meters** · ninth **1.6 meters**
 
-A path corner a character does not fit at, such as a pillar, a pipe or the foot of a leaning wall, is moved to the nearest spot from 0.15 meters to 1.6 meters away, in eight directions, where it fits and the floor leads straight there.
+A path corner a character does not fit at, such as a pillar, a pipe or the foot of a leaning wall, is moved to the nearest spot from 0.15 meters to 1.6 meters away, in eight directions, where it fits and the floor leads straight there. A straight stretch of a path that a character's body does not pass, such as beside a doorway whose floor runs on under the wall, is moved sideways by the same steps.
 
 <sub>Source: ours (Nar Shaddaa's landing pad: the floor runs 1.3 m under a slanting wall). Code: `sim::walk::clear`.</sub>
 
