@@ -1,8 +1,8 @@
 //! KOTOR's HUD (`mipc28x6`, KOTOR 2's `mipc28x6_p` with the skin), drawn
 //! under the screens in play and not a screen: nothing on it takes the
-//! focus. Its controls keep to the window's corners as the game places
-//! them: a control whose left is in the frame's right half moves with the
-//! right edge, one whose top is in the lower half with the bottom.
+//! focus. It is placed as KOTOR 2 places it on any window (`place`): the
+//! layout is stretched to the window, and then each control is narrowed
+//! towards the window's side it stands on, so that it keeps its shape.
 //!
 //! It shows the player's portrait, vitality and Force bars (the Force bar
 //! only for a character with Force points), the action slots (a slot's
@@ -36,10 +36,11 @@
 //! ready check's banner is its own layer (`banner`), in the combat
 //! message's place.
 
-use fmt_odyssey::gui::{Control, Gui, align};
+use fmt_odyssey::gui::{Control, Gui, Rect, align};
 
 use crate::draw::{DrawList, Quad, Textures};
 use crate::paint::{ControlState, Painter, rect_of};
+use crate::screen::{is_picture, stretched};
 use crate::screens::tab::hidden;
 use crate::skin::Source;
 use crate::vm::{Busy, HudView, KeyLabel, MemberView, MinimapView, TargetView, ViewModel};
@@ -190,44 +191,183 @@ fn block_reach(gui: &Gui) -> (i32, i32) {
         })
 }
 
-/// `gui` placed for a window of `window` pixels: its frame the window
-/// (`fitted`), each control moved with the edges of its quadrant.
-pub fn anchor(gui: &mut Gui, window: (f32, f32)) {
-    let (width, height) = gui.frame();
-    let (wide, tall) = fitted(gui, window);
-    let (dx, dy) = (wide - width, tall - height);
-    fn place(control: &mut Control, half: (i32, i32), by: (i32, i32)) {
-        let shift = (
-            if control.extent.left >= half.0 {
-                by.0
-            } else {
-                0
-            },
-            if control.extent.top >= half.1 {
-                by.1
-            } else {
-                0
-            },
-        );
-        shift_all(control, shift);
-        for child in &mut control.children {
-            place(child, half, by);
+/// The HUD controls KOTOR 2 narrows about the window's middle, by prefix:
+/// the combat queue, its backings and its clear buttons, and the action
+/// description and its backing. It narrows every other control towards a
+/// side of the window (`Narrowing::side`).
+const MIDDLE: [&str; 4] = ["LBL_QUEUE", "LBL_COMBATBG", "BTN_CLEAR", "LBL_ACTIONDESC"];
+
+/// The band across the middle of the window's lower half, in shares of the
+/// window's width, where KOTOR 2 narrows an edge about the window's middle
+/// instead of towards a side.
+const MIDDLE_BAND: [f32; 2] = [0.4375, 0.5625];
+
+/// The point KOTOR 2 narrows an edge of a HUD control towards.
+#[derive(Clone, Copy)]
+enum Side {
+    Left,
+    Middle,
+    Right,
+}
+
+/// How KOTOR 2's executable narrows the HUD's controls after it has
+/// stretched the layout to a frame `frame` big (`place`).
+struct Narrowing {
+    frame: (f32, f32),
+    /// The layout's shape (4:3) over the frame's: 1 in a 4:3 window, 0.75
+    /// at 16:9, more than 1 in a window narrower than 4:3. It is also the
+    /// stretch down over the stretch across.
+    by: f32,
+}
+
+impl Narrowing {
+    /// The side an edge at `x` is narrowed towards. `y` is the height of the
+    /// control's end that the edge belongs to: its top for its left edge,
+    /// its bottom for its right edge. `middle` says the control is one KOTOR
+    /// 2 always narrows about the middle (`MIDDLE`).
+    fn side(&self, x: f32, y: f32, middle: bool) -> Side {
+        let (wide, tall) = self.frame;
+        let banded = y >= tall / 2.0 && (MIDDLE_BAND[0]..=MIDDLE_BAND[1]).contains(&(x / wide));
+        if middle || banded {
+            Side::Middle
+        } else if x < wide / 2.0 {
+            Side::Left
+        } else {
+            Side::Right
         }
     }
-    fn shift_all(control: &mut Control, (dx, dy): (i32, i32)) {
-        control.extent.left += dx;
-        control.extent.top += dy;
+
+    /// Where an edge at `x` goes when it is narrowed towards `side`.
+    fn towards(&self, x: f32, side: Side) -> f32 {
+        let wide = self.frame.0;
+        match side {
+            Side::Left => x * self.by,
+            Side::Middle => wide / 2.0 + (x - wide / 2.0) * self.by,
+            Side::Right => wide - (wide - x) * self.by,
+        }
+    }
+
+    /// `rect`, already stretched, with its left and right edges moved as
+    /// KOTOR 2 moves them. Its top and height stay as the stretch left them.
+    fn narrowed(&self, rect: &mut Rect, middle: bool) {
+        let edge = |x: i32, y: i32| {
+            let (x, y) = (x as f32, y as f32);
+            self.towards(x, self.side(x, y, middle)).round() as i32
+        };
+        let left = edge(rect.left, rect.top);
+        let right = edge(rect.left + rect.width, rect.top + rect.height);
+        rect.left = left;
+        rect.width = right - left;
+    }
+
+    /// `placed` (a picture narrowed by `narrowed` from `stretched`) made
+    /// `width` wide, so that it keeps its shape. KOTOR 2's narrowing already
+    /// keeps the shape of a picture whose two edges go towards the same
+    /// point, but it widens one whose edges go different ways, such as one
+    /// that spans the window's middle. The picture stays pinned where its
+    /// centre is narrowed towards: its left edge stays put on the left, its
+    /// right edge on the right, and its centre in the middle.
+    fn in_shape(&self, placed: &mut Rect, stretched: Rect, width: f32, middle: bool) {
+        let centre = (
+            stretched.left as f32 + stretched.width as f32 / 2.0,
+            stretched.top as f32 + stretched.height as f32 / 2.0,
+        );
+        let width = width.round() as i32;
+        placed.left = match self.side(centre.0, centre.1, middle) {
+            Side::Left => placed.left,
+            Side::Right => placed.left + placed.width - width,
+            Side::Middle => {
+                (self.towards(centre.0, Side::Middle) - width as f32 / 2.0).round() as i32
+            }
+        };
+        placed.width = width;
+    }
+}
+
+/// `control`, with its list's rows and its scrollbar, moved by `dx` across
+/// and `dy` down.
+fn shift_all(control: &mut Control, (dx, dy): (i32, i32)) {
+    control.extent.left += dx;
+    control.extent.top += dy;
+    for inner in control
+        .proto
+        .as_deref_mut()
+        .into_iter()
+        .chain(control.scrollbar.as_deref_mut())
+    {
+        shift_all(inner, (dx, dy));
+    }
+}
+
+/// `gui` (the HUD's layout) placed for a window of `window` pixels, in a
+/// frame that is the window at kjk's scale (`fitted`).
+///
+/// This is KOTOR 2's placement. KOTOR 2's executable first stretches the
+/// HUD's 800 × 600 layout to the window, as it does every screen: each
+/// control's left and width are multiplied by the window's width over 800,
+/// and its top and height by the window's height over 600. Aspyr's version
+/// then narrows each control on a window of any other shape than 4:3. It
+/// moves the control's left and right edges, each on its own, by the
+/// window's shape over 4:3 (0.75 at 16:9) towards a point. An edge in the
+/// window's left half goes towards the left side, and one in its right half
+/// towards the right side. An edge whose end lies in the window's lower half
+/// and within the middle eighth of its width (`MIDDLE_BAND`) goes towards
+/// the window's middle, and so do both edges of the combat queue and the
+/// action description (`MIDDLE`). The heights are left as stretched. A
+/// control in one half of the window therefore keeps its shape, at the
+/// window's height over 600 times its size in the layout, and stays as far
+/// from its side of the window, in the same measure. At 4:3 nothing moves.
+///
+/// With `pictures` (the game's own layout, with the Interface option
+/// "Maintain image aspect ratio" on), each picture (`screen::is_picture`)
+/// also keeps its shape where KOTOR 2's narrowing would widen it
+/// (`Narrowing::in_shape`). That is kjk's deliberate change, the same one
+/// the menus make. A mod's layout is placed as KOTOR 2 places it, with no
+/// picture kept in shape.
+///
+/// kjk's Interface option "Menu width" does not narrow the HUD: the HUD
+/// always spans the window, as KOTOR 2's does.
+///
+/// Then kjk's own placement: the target block stands at the top centre, and
+/// the chosen action's words beneath it.
+///
+/// Returns how much the layout was stretched down: the frame's height over
+/// the layout's. Every piece in one half of the window is that many times
+/// its size in the layout.
+pub fn place(gui: &mut Gui, window: (f32, f32), pictures: bool) -> f32 {
+    let (width, height) = gui.frame();
+    let (wide, tall) = fitted(gui, window);
+    let by = (wide as f32 / width as f32, tall as f32 / height as f32);
+    let narrowing = Narrowing {
+        frame: (wide as f32, tall as f32),
+        by: by.1 / by.0,
+    };
+    /// `pictures` is false inside a list's rows and scrollbar, which are
+    /// never pictures.
+    fn walk(control: &mut Control, by: (f32, f32), narrowing: &Narrowing, pictures: bool) {
+        let read = control.extent;
+        let middle = MIDDLE.iter().any(|prefix| control.tag.starts_with(prefix));
+        stretched(&mut control.extent, by);
+        let stretched = control.extent;
+        narrowing.narrowed(&mut control.extent, middle);
+        if pictures && is_picture(control, read) {
+            let width = read.width as f32 * by.1;
+            narrowing.in_shape(&mut control.extent, stretched, width, middle);
+        }
+        for inner in &mut control.children {
+            walk(inner, by, narrowing, pictures);
+        }
         for inner in control
             .proto
             .as_deref_mut()
             .into_iter()
             .chain(control.scrollbar.as_deref_mut())
         {
-            shift_all(inner, (dx, dy));
+            walk(inner, by, narrowing, false);
         }
     }
     for control in &mut gui.controls {
-        place(control, (width / 2, height / 2), (dx, dy));
+        walk(control, by, &narrowing, pictures);
     }
     // The target block to the top centre, its words beneath it.
     let centre = wide / 2;
@@ -251,9 +391,10 @@ pub fn anchor(gui: &mut Gui, window: (f32, f32)) {
     gui.extent.top = 0;
     gui.extent.width = wide;
     gui.extent.height = tall;
+    by.1
 }
 
-/// Where the target block ends in `gui` (placed by `anchor`): the bottom
+/// Where the target block ends in `gui` (placed by `place`): the bottom
 /// of its words, else of the block itself (layout pixels).
 pub fn block_bottom(gui: &Gui) -> i32 {
     gui.controls
@@ -291,7 +432,7 @@ pub fn shaped(gui: &Gui, window: (f32, f32)) -> (i32, i32) {
 }
 
 /// The crosshair: a light dot ringed dark at the middle of `gui` (placed
-/// by `anchor`).
+/// by `place`).
 pub fn crosshair(gui: &Gui) -> [Quad; 2] {
     let (width, height) = gui.frame();
     let (x, y) = (width as f32 / 2.0, height as f32 / 2.0);
@@ -552,8 +693,11 @@ impl Minimap {
     }
 }
 
-/// The minimap of `view` in `gui` (placed by `anchor`; its own art read
-/// from `source`): the area's picture at its own size, moved so the
+/// The minimap of `view` in `gui` (placed by `place`, which stretched it
+/// down by `stretch`; its own art read from `source`): the area's picture
+/// at its own size times `stretch`, so that the minimap's view shows as
+/// much of the area in any window as in KOTOR 2's 800 × 600 layout. The
+/// picture is moved so the
 /// player's place is at `LBL_MAPVIEW`'s centre and clipped to it, and
 /// `LBL_ARROW`'s texture at its size at the centre, turned; the cells the
 /// party has not explored dark over the picture's used part (`map::fog`; its
@@ -563,6 +707,7 @@ impl Minimap {
 pub fn minimap(
     gui: &Gui,
     view: &MinimapView,
+    stretch: f32,
     textures: &mut dyn Textures,
     source: Source,
 ) -> Option<Minimap> {
@@ -579,6 +724,7 @@ pub fn minimap(
         Some((quad, [width as f32, height as f32]))
     };
     let (picture, [width, height]) = image(Source::Campaign, &view.picture)?;
+    let (width, height) = (width * stretch, height * stretch);
     let [across, down] = view.at;
     let picture = Quad {
         rect: [
@@ -714,7 +860,7 @@ fn companion(tag: &str) -> Option<(usize, &'static str)> {
 }
 
 /// The companion (its body, `MemberView::id`) whose portrait is at
-/// `point` (layout pixels of `gui`, placed by `anchor`): the second or
+/// `point` (layout pixels of `gui`, placed by `place`): the second or
 /// third portrait, when shown (KOTOR's click there makes that one lead).
 pub fn portrait_at(gui: &Gui, vm: &ViewModel, [x, y]: [f32; 2]) -> Option<u32> {
     (1..=2usize)
@@ -728,7 +874,7 @@ pub fn portrait_at(gui: &Gui, vm: &ViewModel, [x, y]: [f32; 2]) -> Option<u32> {
         .and_then(|place| Some(vm.party.get(place)?.id))
 }
 
-/// Whether `point` (layout pixels of `gui`, placed by `anchor`) is on the
+/// Whether `point` (layout pixels of `gui`, placed by `place`) is on the
 /// minimap, when it shows: KOTOR's click there (`BTN_MINIMAP`) opens the
 /// map page.
 pub fn minimap_at(gui: &Gui, vm: &ViewModel, point: [f32; 2]) -> bool {
@@ -741,7 +887,7 @@ pub fn minimap_at(gui: &Gui, vm: &ViewModel, point: [f32; 2]) -> bool {
 /// The weapon swap button (TSL's, `CSWGuiMainInterface::OnSwapWeaponsPressed`).
 pub const SWAP: &str = "BTN_SWAPWEAPONS";
 
-/// Whether `point` (layout pixels of `gui`, placed by `anchor`) is on the
+/// Whether `point` (layout pixels of `gui`, placed by `place`) is on the
 /// weapon swap button, shown while the HUD has a character.
 pub fn swap_at(gui: &Gui, vm: &ViewModel, point: [f32; 2]) -> bool {
     vm.hud.is_some()
@@ -816,7 +962,7 @@ fn placed_marks(gui: &Gui, vm: &ViewModel) -> Vec<(usize, Busy, [f32; 4])> {
         .collect()
 }
 
-/// The busy icons over `gui`'s portraits (placed by `anchor`): the
+/// The busy icons over `gui`'s portraits (placed by `place`): the
 /// player's own (`HudView::busy`, `LBL_CHAR1`) and its companions'
 /// (`MemberView::busy`, `LBL_CHAR2` and `3`), each at its portrait's top
 /// right. On the host's screen (a request card up) a guest asking it in

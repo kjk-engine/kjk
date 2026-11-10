@@ -61,8 +61,9 @@ pub struct Ui {
     pub(crate) layers: Vec<DrawList>,
     /// The console's `nav`, `type` and `back`, for this frame's step.
     scripted: Vec<Vec<String>>,
-    /// KOTOR's HUD layout, once read (none: it does not read).
-    hud: Option<Option<(fmt_odyssey::gui::Gui, ui::skin::Source)>>,
+    /// KOTOR's HUD layout, once read (none: it does not read), where it was
+    /// read from, and whether it is the game's own rather than a mod's.
+    hud: Option<Option<(fmt_odyssey::gui::Gui, ui::skin::Source, bool)>>,
     /// The bark bubble's layout, the same way.
     bark: Option<Option<ui::screens::bark::Bubble>>,
     /// The conversation screen's layout, the same way.
@@ -97,6 +98,8 @@ pub struct Ui {
 struct HudDrawn {
     window: (f32, f32),
     scale_factor: f32,
+    /// Whether the HUD's pictures keep their shape (`hud_pictures`).
+    pictures: bool,
     hud: Option<ui::vm::HudView>,
     party: Vec<ui::vm::MemberView>,
     target: Option<ui::vm::TargetView>,
@@ -142,7 +145,7 @@ impl Ui {
     }
 }
 
-/// How many window pixels a pixel of the HUD's frame takes (`hud::anchor`
+/// How many window pixels a pixel of the HUD's frame takes (`hud::place`
 /// fits the frame to the window at kjk's scale).
 fn hud_scale(hud: &fmt_odyssey::gui::Gui, window: (f32, f32)) -> f32 {
     let (width, height) = hud.frame();
@@ -832,22 +835,35 @@ fn step(
     states.0.insert("ui".into(), open.0);
 }
 
-/// KOTOR's HUD layout placed for a window of `window` pixels, and where it
-/// was read from, when it reads.
-fn hud_gui(ui: &mut Ui, window: (f32, f32)) -> Option<(fmt_odyssey::gui::Gui, ui::skin::Source)> {
+/// Whether the HUD's pictures keep their shape (`hud::place`): the HUD is
+/// the game's own layout, not a mod's, and "Maintain image aspect ratio" is
+/// on. False while the HUD has not been read.
+fn hud_pictures(ui: &Ui) -> bool {
+    let own = matches!(ui.hud, Some(Some((_, _, true))));
+    own && ui::draw::image_aspect(&ui.vm.settings)
+}
+
+/// KOTOR's HUD layout placed for a window of `window` pixels, where it was
+/// read from, and how much it was stretched down (`hud::place`), when it
+/// reads.
+fn hud_gui(
+    ui: &mut Ui,
+    window: (f32, f32),
+) -> Option<(fmt_odyssey::gui::Gui, ui::skin::Source, f32)> {
+    use ui::screens::hud::{LAYOUT, backed, place};
     let assets = ui.assets.as_mut()?;
-    let (mut gui, source) = ui
-        .hud
-        .get_or_insert_with(|| {
-            let (mut gui, source) = assets.screen_layout(ui::screens::hud::LAYOUT).ok()?;
-            if let Ok(campaign) = assets.layout(ui::screens::hud::LAYOUT) {
-                ui::screens::hud::backed(&mut gui, &campaign);
-            }
-            Some((gui, source))
-        })
-        .clone()?;
-    ui::screens::hud::anchor(&mut gui, window);
-    Some((gui, source))
+    ui.hud.get_or_insert_with(|| {
+        let (mut gui, source) = assets.screen_layout(LAYOUT).ok()?;
+        let own = !ui::assets::Assets::layout_is_mod(assets, LAYOUT, source);
+        if let Ok(campaign) = assets.layout(LAYOUT) {
+            backed(&mut gui, &campaign);
+        }
+        Some((gui, source, own))
+    });
+    let pictures = hud_pictures(ui);
+    let (mut gui, source, _) = ui.hud.clone().flatten()?;
+    let stretch = place(&mut gui, window, pictures);
+    Some((gui, source, stretch))
 }
 
 /// What a click on the HUD is on.
@@ -865,7 +881,7 @@ enum HudClick {
 /// What the click at `point` (window pixels) on the HUD is on, if anything.
 fn hud_click(ui: &mut Ui, window: (f32, f32), point: [f32; 2]) -> Option<HudClick> {
     use ui::screens::hud;
-    let (gui, _) = hud_gui(ui, window)?;
+    let (gui, ..) = hud_gui(ui, window)?;
     let (width, height) = gui.frame();
     let (scale, [left, top]) = fit(window, (width as f32, height as f32));
     let at = [(point[0] - left) / scale, (point[1] - top) / scale];
@@ -890,6 +906,7 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
     let from = HudDrawn {
         window,
         scale_factor: ui.scale_factor,
+        pictures: hud_pictures(ui),
         hud: vm.hud.clone(),
         party: vm.party.clone(),
         target: vm.target.clone(),
@@ -910,13 +927,13 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         }
     };
     // A blaster's reticle over the HUD as kept: its gap changes as it
-    // fires, the HUD under it seldom. Placed in the HUD's frame as anchored
-    // (`hud::anchor` fits it to the window).
+    // fires, the HUD under it seldom. Placed in the HUD's frame as placed
+    // (`hud::place` fits it to the window).
     let frame = ui
         .hud
         .as_ref()
         .and_then(|hud| hud.as_ref())
-        .map(|(gui, _)| ui::screens::hud::fitted(gui, window));
+        .map(|(gui, ..)| ui::screens::hud::fitted(gui, window));
     if let (Some(frame), true, false) = (frame, ui.vm.crosshair, banner) {
         use ui::screens::hud::{MIN_GAP, gap_px, hitmarker, reticle};
         let height = frame.1 as f32;
@@ -936,10 +953,10 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
 
 /// KOTOR's HUD drawn afresh (`hud_layer`), and whether anything in it
 /// pulses. Its text and borders are KOTOR 2's size in the display's
-/// physical pixels (`Ui::sized`); where its pieces stand is kjk's own
-/// (`hud::anchor`).
+/// physical pixels (`Ui::sized`). Its pieces stand where KOTOR 2 places
+/// them, with kjk's target block at the top centre (`hud::place`).
 fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, bool)> {
-    let (gui, source) = hud_gui(ui, window)?;
+    let (gui, source, stretch) = hud_gui(ui, window)?;
     ui.sized(window, hud_scale(&gui, window), |ui, pixel| {
         let Ui {
             assets, vm, stack, ..
@@ -952,7 +969,7 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
             .as_ref()
             .and_then(|hud| hud.minimap.as_ref())
             .filter(|_| !banner)
-            .and_then(|view| ui::screens::hud::minimap(&gui, view, assets, source));
+            .and_then(|view| ui::screens::hud::minimap(&gui, view, stretch, assets, source));
         out.quads
             .extend(minimap.iter().flat_map(ui::screens::hud::Minimap::under));
         let mut painter = ui::paint::Painter::new(assets, stack.palette);
@@ -1015,7 +1032,7 @@ fn power_pick_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
 /// arena (`crate::arena`): in the HUD's frame, under its minimap.
 fn arena_panel_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let panel = ui.vm.arena_panel.clone()?;
-    let (hud, _) = hud_gui(ui, window)?;
+    let (hud, ..) = hud_gui(ui, window)?;
     let (wide, tall) = hud.frame();
     let at = hud
         .find(ui::screens::arena_panel::UNDER)
@@ -1049,7 +1066,7 @@ fn arena_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
 /// out and the layout reads (`ui::screens::transition`).
 fn transition_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let words = ui.vm.transition.clone()?;
-    let (hud, _) = hud_gui(ui, window)?;
+    let (hud, ..) = hud_gui(ui, window)?;
     let below = ui::screens::hud::block_bottom(&hud);
     ui.sized(window, hud_scale(&hud, window), |ui, pixel| {
         let Ui {
@@ -1083,7 +1100,7 @@ fn summary_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     if ui.vm.summaries.is_empty() {
         return None;
     }
-    let (hud, _) = hud_gui(ui, window)?;
+    let (hud, ..) = hud_gui(ui, window)?;
     let (width, height) = hud.frame();
     let (scale, [_, top]) = fit(window, (width as f32, height as f32));
     let below = hud

@@ -51,7 +51,7 @@ pub fn words(name: &[u8]) -> Vec<u8> {
 }
 
 /// `gui` (the layout as read) placed in a frame of `frame` layout pixels
-/// (the HUD's, `hud::anchor`): centred across it, its top `GAP` below
+/// (the HUD's, `hud::place`): centred across it, its top `GAP` below
 /// `below`.
 pub fn place(gui: &Gui, frame: (i32, i32), below: i32) -> Gui {
     let (left, top) = ((frame.0 - gui.extent.width) / 2, below + GAP);

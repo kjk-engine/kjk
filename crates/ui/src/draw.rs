@@ -224,6 +224,13 @@ impl MenuWidth {
 /// stretched, `false` stretches them as KOTOR 2 does (`screen::stretch`).
 pub const IMAGE_ASPECT: &str = "display.image_aspect";
 
+/// Whether "Maintain image aspect ratio" is on in `settings`. It is on
+/// unless the setting says `false`, so an unset setting keeps pictures in
+/// shape.
+pub fn image_aspect(settings: &std::collections::BTreeMap<String, String>) -> bool {
+    settings.get(IMAGE_ASPECT).map(String::as_str) != Some("false")
+}
+
 /// Where a layout of `size` sits in a window: enlarged by the window's
 /// `scale`, or less so it still fits, centred on whole pixels. Returns the
 /// scale and the layout's top left in window pixels.

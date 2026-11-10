@@ -30,7 +30,7 @@ use fmt_odyssey::gui::{Control, Gui, Kind, Rect};
 
 use crate::assets::Assets;
 use crate::draw::{
-    DrawList, IMAGE_ASPECT, MenuWidth, Quad, SmallFonts, Textures, fit, window_to_layout,
+    DrawList, MenuWidth, Quad, SmallFonts, Textures, fit, image_aspect, window_to_layout,
 };
 use crate::edit::EditBox;
 use crate::input::{Key, UiInput};
@@ -310,7 +310,7 @@ impl Placement {
         Placement {
             window,
             width: setting(MenuWidth::SETTING).map_or(MenuWidth::default(), MenuWidth::named),
-            pictures: setting(IMAGE_ASPECT) != Some("false"),
+            pictures: image_aspect(&vm.settings),
         }
     }
 
@@ -476,14 +476,6 @@ fn full_screen(gui: &Gui) -> bool {
 /// placement: KOTOR 2 centres its popups and scales the size of only four
 /// of them, which this does not copy.
 fn stretch(gui: &mut Gui, placed: Placement, own: bool) {
-    fn stretched(rect: &mut Rect, by: (f32, f32)) {
-        let edge = |at: i32, by: f32| (at as f32 * by).round() as i32;
-        let (right, bottom) = (rect.left + rect.width, rect.top + rect.height);
-        rect.left = edge(rect.left, by.0);
-        rect.top = edge(rect.top, by.1);
-        rect.width = edge(right, by.0) - rect.left;
-        rect.height = edge(bottom, by.1) - rect.top;
-    }
     /// `pictures` the extents of the layout's pictures as read; `None` for
     /// a list's rows and scrollbar, which are never pictures.
     fn walk(control: &mut Control, by: (f32, f32), pictures: Option<&[Rect]>) {
@@ -520,6 +512,18 @@ fn stretch(gui: &mut Gui, placed: Placement, own: bool) {
     }
 }
 
+/// `rect` multiplied across by `by.0` and down by `by.1`, as KOTOR 2
+/// stretches a layout. Each edge is rounded to a whole pixel on its own, so
+/// that controls which meet in the layout still meet when stretched.
+pub(crate) fn stretched(rect: &mut Rect, by: (f32, f32)) {
+    let edge = |at: i32, by: f32| (at as f32 * by).round() as i32;
+    let (right, bottom) = (rect.left + rect.width, rect.top + rect.height);
+    rect.left = edge(rect.left, by.0);
+    rect.top = edge(rect.top, by.1);
+    rect.width = edge(right, by.0) - rect.left;
+    rect.height = edge(bottom, by.1) - rect.top;
+}
+
 /// `extent` grown about its centre by `by` pixels of the layout as read on
 /// every side, at the layout's `stretch` (`Grow`).
 pub(crate) fn grown_extent(extent: Rect, by: f32, stretch: (f32, f32)) -> Rect {
@@ -553,7 +557,7 @@ const STRIP: i32 = 2;
 ///
 /// A bordered box, a list, a button with tiled edges and words, a label of
 /// words and a strip of art stay stretched.
-fn is_picture(control: &Control, read: Rect) -> bool {
+pub(crate) fn is_picture(control: &Control, read: Rect) -> bool {
     let worded = control
         .text
         .as_ref()

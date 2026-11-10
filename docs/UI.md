@@ -23,8 +23,13 @@ KOTOR's own `.gui` layouts, drawn by our GUI runtime over the live world.
   fonts' own size, a font pixel a window pixel (`Stack::step`,
   `Textures::set_text_scale`, `Font::scaled`), as KOTOR 2 draws them at
   1280 × 1024: the owner's call (2026-11-09, "a bit more elegant"). The
-  conversation, barks and the HUD keep the frame's scale. The HUD's frame is the window, its
-  controls kept to their corners. The conversation's and a bark's frames
+  conversation, barks and the HUD keep the frame's scale. The HUD's frame is the window, and
+  its controls are placed as KOTOR 2 places them (`ui::screens::hud::place`). The layout is
+  stretched to the window. Then Aspyr's rule narrows each control towards the side of the
+  window it stands on, by the window's shape over 4:3, so that each piece keeps its shape.
+  The combat queue and the action description narrow towards the middle instead. kjk keeps
+  the target block at the top centre. With "Maintain image aspect ratio" on, a picture of
+  the game's own HUD that the rule would widen keeps its shape too. The conversation's and a bark's frames
   are the window's shape at the layout's height, stretched to fill it
   (`draw::fill`, `DrawList::fill`; their sizes the owner's calls, below).
   Crisp: a texture is read Catmull-Rom where enlarged and from its
