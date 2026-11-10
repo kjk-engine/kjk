@@ -345,7 +345,25 @@ fn hash_file(path: &Path) -> io::Result<String> {
 /// Fingerprints one install. `cache` is the cache file to read and rewrite,
 /// or `None` to hash every file.
 pub fn fingerprint(game: Game, index: &DirIndex, cache: Option<&Path>) -> io::Result<Fingerprint> {
-    compute(game, index, cache, true).map(|print| print.expect("hashing never gives up"))
+    compute(game, index, cache, Scope::All, &mut |_, _| {})
+        .map(|print| print.expect("hashing never gives up"))
+}
+
+/// The fingerprint of the world groups alone (`world_group`), all a join
+/// compares (`Fingerprint::world` gives the same as from `fingerprint`):
+/// a few hundred files where the whole install has tens of thousands (the
+/// voices, sounds and movies), so a player's first join does not hash
+/// gigabytes it never compares. `progress` hears the bytes hashed so far
+/// and the bytes to hash, as they go; the cache is kept as it goes too, so
+/// a join given up half way picks up where it stopped.
+pub fn world_fingerprint(
+    game: Game,
+    index: &DirIndex,
+    cache: &Path,
+    progress: &mut dyn FnMut(u64, u64),
+) -> io::Result<Fingerprint> {
+    compute(game, index, Some(cache), Scope::World, progress)
+        .map(|print| print.expect("hashing never gives up"))
 }
 
 /// The fingerprint from the cache alone, or `None` when any covered file is
@@ -355,22 +373,46 @@ pub fn fingerprint_cached(
     index: &DirIndex,
     cache: &Path,
 ) -> io::Result<Option<Fingerprint>> {
-    compute(game, index, Some(cache), false)
+    compute(game, index, Some(cache), Scope::Cached, &mut |_, _| {})
+}
+
+/// Which files a fingerprint reads, and whether it hashes the ones the
+/// cache does not hold.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    /// Every covered file, hashed when the cache lacks it.
+    All,
+    /// Every covered file, from the cache alone.
+    Cached,
+    /// The world groups' files, hashed when the cache lacks them.
+    World,
+}
+
+/// Bytes hashed between two writes of the cache.
+const CACHE_EVERY: u64 = 256 << 20;
+
+/// Whether the file at `key` (`workshop/<id>/…` for an item's) is in one of
+/// the world groups.
+fn in_world(game: Game, key: &str) -> bool {
+    let in_item = key
+        .strip_prefix("workshop/")
+        .and_then(|rest| rest.split_once('/'))
+        .map(|(_, rest)| rest);
+    let key = in_item.unwrap_or(key);
+    world_group(game, key.split_once('/').map_or(key, |(first, _)| first))
 }
 
 fn compute(
     game: Game,
     index: &DirIndex,
     cache: Option<&Path>,
-    hash_missing: bool,
+    scope: Scope,
+    progress: &mut dyn FnMut(u64, u64),
 ) -> io::Result<Option<Fingerprint>> {
     let old = match cache {
         Some(path) => load_cache(path),
         None => BTreeMap::new(),
     };
-    let mut new = BTreeMap::new();
-    let (mut hashed, mut cached, mut bytes) = (0, 0, 0);
-    let mut lines = Vec::new();
     let items = index.workshop().iter().flat_map(|item| {
         let label = item.label();
         item.files
@@ -378,44 +420,79 @@ fn compute(
             .filter(|(key, _)| covered_in_item(key))
             .map(move |(key, path)| (format!("{label}/{key}"), path))
     });
-    let files = index
+    let mut files = Vec::new();
+    for (key, path) in index
         .iter()
         .filter(|(key, _)| covered(game, key))
         .map(|(key, path)| (key.to_string(), path))
-        .chain(items);
-    for (key, path) in files {
-        let key = key.as_str();
+        .chain(items)
+        .filter(|(key, _)| scope != Scope::World || in_world(game, key))
+    {
         let meta = std::fs::metadata(path)?;
         let modified = meta
             .modified()?
             .duration_since(UNIX_EPOCH)
             .map_or(0, |since| since.as_nanos());
-        let hash = match old.get(key) {
-            Some(row) if row.size == meta.len() && row.modified == modified => {
+        let hash = old
+            .get(&key)
+            .filter(|row| row.size == meta.len() && row.modified == modified)
+            .map(|row| row.hash.clone());
+        if hash.is_none() && scope == Scope::Cached {
+            return Ok(None);
+        }
+        files.push((key, path, meta.len(), modified, hash));
+    }
+    let to_hash: u64 = files
+        .iter()
+        .filter(|file| file.4.is_none())
+        .map(|file| file.2)
+        .sum();
+    // The cache keeps the rows of the files not read (yet); a whole
+    // fingerprint, once done, drops those of files gone.
+    let mut rows = old;
+    let (mut hashed, mut cached, mut bytes) = (0, 0, 0);
+    let (mut done, mut unsaved) = (0, 0);
+    let mut lines = Vec::new();
+    for (key, path, size, modified, hash) in files {
+        let hash = match hash {
+            Some(hash) => {
                 cached += 1;
-                row.hash.clone()
+                hash
             }
-            _ if !hash_missing => return Ok(None),
-            _ => {
+            None => {
                 hashed += 1;
-                hash_file(path)?
+                let hash = hash_file(path)?;
+                done += size;
+                unsaved += size;
+                progress(done, to_hash);
+                hash
             }
         };
-        bytes += meta.len();
-        lines.push((key.to_string(), format!("{key}\t{}\t{hash}\n", meta.len())));
-        new.insert(
-            key.to_string(),
+        bytes += size;
+        lines.push((key.clone(), format!("{key}\t{size}\t{hash}\n")));
+        rows.insert(
+            key,
             CacheRow {
-                size: meta.len(),
+                size,
                 modified,
                 hash,
             },
         );
+        if let Some(cache) = cache
+            && unsaved >= CACHE_EVERY
+        {
+            unsaved = 0;
+            save_cache(cache, &rows)?;
+        }
+    }
+    if scope == Scope::All {
+        let read: BTreeSet<&str> = lines.iter().map(|(key, _)| key.as_str()).collect();
+        rows.retain(|key, _| read.contains(key.as_str()));
     }
     if let Some(cache) = cache
         && hashed > 0
     {
-        save_cache(cache, &new)?;
+        save_cache(cache, &rows)?;
     }
 
     let header = format!("{VERSION}\ngame {}\n", game.key());

@@ -58,7 +58,11 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
 - Installs: clients plan in parallel, commit locally, `check_after`;
   the world resumes when all loaded or after 30 s (a late loader catches
   up). Each `Installer` keeps built areas (`session::AreaCache`).
-- Ending: a disconnect goes in three packets (`HostQuit`, `Left`).
+- Ending: a disconnect goes in three packets (`HostQuit`, `Left`). A
+  player whose session ends (the host quit or removed it, refused the
+  world built here) goes back to the main menu, which says why
+  (`net_join::leave_ended`, `kjk --notice` across the restart); scripted
+  and headless runs go on to their script's end.
 - Coming back: a player whose link times out joins again by itself with
   its seat's token (`ClientConfig::rejoin_us`; `kjk join` tries 45 s,
   from the same socket), told so on screen. The host keeps a timed-out
@@ -160,7 +164,16 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   without it, and so does the release (`cargo xtask dist`, docs/RELEASE.md),
   which ships no Valve code.
 - Refused players are told why: another build, "your k1 override folder
-  differs from the host's", "the host's 3 seats are all taken".
+  differs from the host's", "the host's 3 seats are all taken". The data
+  compared is each game's world groups alone
+  (`vfs::fingerprint::world_fingerprint`: ~850 files and 4 GB for all
+  three games, not the 34,000 files and 9 GB of the voices, sounds and
+  movies too), hashed once and cached as it goes, the loading screen
+  counting it in tenths. `dialog.tlk` is not compared (Aspyr's Mac table
+  differs from Windows' in lines no level reads); the lines a level's
+  scripts read are in its digest, so a guest whose table differs there
+  (another language, a community patch) is refused once its level is
+  built, told its scripts or `dialog.tlk` differ (issue 261).
 - Each run writes `net.json` (with the net feel's 250 ms samples);
   `KJK_PERF=1` adds `net.*` spans and counters to `trace.json`. Measured
   (`end_m01aa`'s fight, 100 ms RTT): ~60 KB/s down (97 before packing),

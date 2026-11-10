@@ -199,6 +199,8 @@ pub(crate) fn run(args: HostArgs, size: (u32, u32)) -> ExitCode {
         password: args.password.as_deref(),
         made: None,
         steam: args.steam,
+        // The log has it; stdout says only the end (`hashed … files`).
+        status: &|_| {},
     };
     launch(
         args.cmds.as_deref().unwrap_or(""),

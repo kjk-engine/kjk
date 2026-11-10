@@ -1262,7 +1262,7 @@ impl Client {
         let world = match SimWorld::from_snapshot(&snapshot, level.clone()) {
             Ok(world) => world,
             Err(error) => {
-                self.leave(now, Refusal::Level(error.to_string()));
+                self.leave(now, Refusal::Level(other_world(&error)));
                 return;
             }
         };
@@ -1558,6 +1558,29 @@ fn next_nonce(key: &[u8; 32], nonce: u64) -> u64 {
         .finalize();
     let bytes: [u8; 8] = hash.as_bytes()[..8].try_into().unwrap_or([1; 8]);
     u64::from_le_bytes(bytes)
+}
+
+/// Why the host's state does not go into the level built here, in words a
+/// player can act on. The level already passed the host's checks (the
+/// module's facts, collision, animations and navigation for a module; the
+/// whole digest for a stage), so a module of the same name that still
+/// differs reads the rest of its data differently: its scripts, or the
+/// game text they read (`dialog.tlk`), which the join's data check leaves
+/// out (`vfs::fingerprint::world_group`).
+pub fn other_world(error: &sim::InstallError) -> String {
+    match error {
+        sim::InstallError::WrongLevel { snapshot, level }
+            if snapshot == level && !level.is_empty() =>
+        {
+            format!(
+                "{level} is built from other game data here than on the host: its scripts, \
+                 or the game text they read (dialog.tlk), differ. Another language or a mod \
+                 (a community patch or build) on one machine does that: both players need \
+                 the same game, language and mods"
+            )
+        }
+        other => other.to_string(),
+    }
 }
 
 /// The seat commands kept for `tick`.

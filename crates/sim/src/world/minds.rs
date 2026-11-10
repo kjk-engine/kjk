@@ -7,8 +7,9 @@
 //! **Observe**, on its look ticks (every `LOOK_EVERY_MS`, each creature
 //! at its own moment): the nearest hostile character it can see, or the
 //! one it has (its script's attack first: `ActionAttack`, I22 C14) while
-//! that one lives, stays hostile, within the fight's reach (`ranges.2da`
-//! PartyCombat; a script's however far) and in sight; where
+//! that one lives, stays hostile (a script's need not be), within the
+//! fight's reach (`ranges.2da` PartyCombat; a script's however far) and in
+//! sight; where
 //! it last saw it. In a level the games' scripts run, no mind picks a foe
 //! itself: only its script's, or the one it is fighting while the fight
 //! lasts. **Choose** its task (`ai::Task`).
@@ -457,9 +458,16 @@ pub(super) fn think(
         // Observe.
         let looking = (now + u64::from(id.0.0) * 37) % LOOK_EVERY_MS < u64::from(clock.msec);
         // A script's attack (C14: `ActionAttack`) names the one it keeps
-        // while it lives and stays hostile, however far (KOTOR's attack
-        // walks to its target); else the one it had, within the fight's
-        // reach.
+        // while it lives, however far (KOTOR's attack walks to its target),
+        // hostile or not: both games' script attack asks no standing, nor
+        // does the attack as it runs (Taris's Undercity, `k_ptar_repsoldie`:
+        // the rakghouls set on the cured soldier stood idle where a mod's
+        // factions left him no enemy of theirs; his death never came, and
+        // the conversation it resumes held the player for good). Never
+        // itself, and a talent's target only while hostile: a talent used
+        // on oneself or an ally is no attack (Korriban's Uthar, buffing
+        // himself as the exam's fight began, fought himself). Else the one
+        // it had while it stays hostile, within the fight's reach.
         let intent = scripts.state.intents.get(&id.0.0);
         // A party member nobody plays, out of a scene and not moved by a
         // script, joins a fight the party is in when its script names no
@@ -493,7 +501,11 @@ pub(super) fn think(
             .or(kept)
             .and_then(|target| seen.binary_search_by_key(&target, |entry| entry.id).ok())
             .map(|at| &seen[at])
-            .filter(|entry| hostile(entry) && (intent.is_some() || distance(&entry.ps) <= reach));
+            .filter(|entry| match intent {
+                Some(intent) if intent.talent.is_none() => entry.alive && entry.id != id.0,
+                Some(_) => hostile(entry),
+                None => hostile(entry) && distance(&entry.ps) <= reach,
+            });
         // A script's attack keeps its target out of sight too, walking to
         // it, as KOTOR's attack does (reone's follows it until in range): a
         // Star Forge freezer told to attack lost the player behind a

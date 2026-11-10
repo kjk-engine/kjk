@@ -677,6 +677,30 @@ pub(crate) fn advance(
     facts.0.insert("net".into(), joined.facts.clone());
 }
 
+/// A player's session that ended (the host quit or removed this player,
+/// refused the world built here, gave its seat away) goes back to the main
+/// menu, which says why: nothing is played here any more, and the view
+/// would stay on its last frame, or on black when it never had the host's
+/// world (issue 261). Scripted and headless runs go on to their script's
+/// end, the session's end in their log and `net.json`.
+pub(crate) fn leave_ended(
+    joined: Res<Joined>,
+    player: Option<Res<crate::crash::PlayerRun>>,
+    mut exit: MessageWriter<AppExit>,
+    mut left: Local<bool>,
+) {
+    let Some(why) = joined.ended.as_deref() else {
+        return;
+    };
+    if *left || !player.is_some_and(|player| player.0) {
+        return;
+    }
+    *left = true;
+    info!(target: "session", "back to the main menu: the session ended");
+    crate::session_flow::back_to_menu_saying(format!("The session ended: {why}."));
+    exit.write(AppExit::Success);
+}
+
 /// The run ends: the host is told this player left (straight through the
 /// socket: the network's conditions would hold the packets past the
 /// process's end), the rebuilt hashes are flushed, and the last report

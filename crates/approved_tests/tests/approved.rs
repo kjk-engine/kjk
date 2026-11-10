@@ -1522,7 +1522,8 @@ fn stealth_spot() {
 /// dummy, lands blows of its creature weapon at its attack's hit moment, a
 /// round apart; its rounds run (`ScriptEndRound`) and the dummy hears it was
 /// attacked (`ScriptAttacked`); a humanoid with empty hands punches with
-/// its fists instead; two runs end the same. The sim alone.
+/// its fists instead; set on a dummy of its own faction its attack lands
+/// all the same; two runs end the same. The sim alone.
 #[test]
 fn beast_strikes() {
     probed("strike", &sim::strikes::probes(), 8);
