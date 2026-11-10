@@ -25,6 +25,7 @@ const GROUPS: &[Group] = &[
     ("battle music", kjk_game::battle_music::probes),
     ("pad", kjk_game::pad::probes),
     ("camera sizes", kjk_game::display::probes),
+    ("ui material", kjk_game::ui_material::probes),
     ("item_keys", kjk_game::pick_view::probes),
     ("bindings", kjk_game::settings::binding_probes),
     ("flinch", kjk_game::acting::flinch_probes),

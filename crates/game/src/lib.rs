@@ -160,7 +160,7 @@ mod terminal;
 pub mod transcript;
 mod ui_composite;
 mod ui_input;
-mod ui_material;
+pub mod ui_material;
 mod ui_sounds;
 mod ui_view;
 mod use_view;

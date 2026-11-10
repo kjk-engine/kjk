@@ -22,7 +22,123 @@ pub struct UiMaterialPlugin;
 impl Plugin for UiMaterialPlugin {
     fn build(&self, app: &mut App) {
         load_internal_asset!(app, SHADER, "ui.wgsl", Shader::from_wgsl);
-        app.add_plugins(MaterialPlugin::<UiMaterial>::default());
+        app.add_plugins(MaterialPlugin::<UiMaterial>::default())
+            .add_systems(Last, rebind);
+    }
+}
+
+/// Marks a material changed when the image it samples changes, so that the
+/// material is prepared again with the image's new texture.
+///
+/// Bevy prepares a material's bindings once, with the GPU texture its image
+/// has at that moment. When the image changes later, Bevy makes a new GPU
+/// texture for it, but the material keeps sampling the old one. A 3D view's
+/// image (`gui_scene`) is resized whenever the window is, and its camera then
+/// draws into the new texture. Without this system the screens went on
+/// showing the view's last frame from before the resize, so the main menu's
+/// figure and smoke stood still.
+fn rebind(mut images: MessageReader<AssetEvent<Image>>, mut materials: ResMut<Assets<UiMaterial>>) {
+    let changed: Vec<AssetId<Image>> = images
+        .read()
+        .filter_map(|event| match event {
+            AssetEvent::Modified { id } => Some(*id),
+            _ => None,
+        })
+        .collect();
+    if changed.is_empty() {
+        return;
+    }
+    let stale: Vec<AssetId<UiMaterial>> = materials
+        .iter()
+        .filter(|(_, material)| {
+            (material.texture.as_ref()).is_some_and(|texture| changed.contains(&texture.id()))
+        })
+        .map(|(id, _)| id)
+        .collect();
+    for id in stale {
+        if let Some(material) = materials.get_mut(id) {
+            material.into_inner();
+        }
+    }
+}
+
+/// The probes of the screens' material (`kjk sim probes`, group "ui
+/// material").
+#[cfg(feature = "probes")]
+pub fn probes() -> sim::probe::Checks {
+    vec![("a_resized_view_is_sampled_anew", resized_view_sampled())]
+}
+
+/// A 3D view's image resized, as the window's resize does: the material
+/// sampling it is changed, so it is prepared again with the new texture,
+/// and a material sampling another image is left alone. Without `rebind`
+/// neither changes (the cause of the frozen main menu, shown so the probe
+/// can still see it).
+#[cfg(feature = "probes")]
+fn resized_view_sampled() -> Result<String, String> {
+    use bevy::ecs::message::Messages;
+    use bevy::render::render_resource::Extent3d;
+
+    // Whether the view's material and the other material changed.
+    let changed = |rebinds: bool| -> Result<(bool, bool), String> {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>()
+            .init_asset::<UiMaterial>();
+        if rebinds {
+            app.add_systems(Last, rebind);
+        }
+        let mut images = app.world_mut().resource_mut::<Assets<Image>>();
+        let (view, other) = (images.add(Image::default()), images.add(Image::default()));
+        let mut materials = app.world_mut().resource_mut::<Assets<UiMaterial>>();
+        let mut sampling = |texture: Handle<Image>| {
+            materials.add(UiMaterial {
+                params: UiParams::default(),
+                texture: Some(texture),
+                additive: false,
+            })
+        };
+        let (of_view, of_other) = (sampling(view.clone()), sampling(other));
+        app.update();
+        app.update();
+        let mut cursor = app
+            .world()
+            .resource::<Messages<AssetEvent<UiMaterial>>>()
+            .get_cursor_current();
+        app.world_mut()
+            .resource_mut::<Assets<Image>>()
+            .get_mut(&view)
+            .ok_or("the view's image is gone")?
+            .resize(Extent3d {
+                width: 1920,
+                height: 1080,
+                depth_or_array_layers: 1,
+            });
+        app.update();
+        app.update();
+        let messages = app.world().resource::<Messages<AssetEvent<UiMaterial>>>();
+        let modified: Vec<AssetId<UiMaterial>> = cursor
+            .read(messages)
+            .filter_map(|event| match event {
+                AssetEvent::Modified { id } => Some(*id),
+                _ => None,
+            })
+            .collect();
+        Ok((
+            modified.contains(&of_view.id()),
+            modified.contains(&of_other.id()),
+        ))
+    };
+    match (changed(true)?, changed(false)?) {
+        ((true, false), (false, false)) => Ok(
+            "the material sampling the resized view is prepared again; the other material is \
+             left alone; without the rebind neither would change"
+                .into(),
+        ),
+        (with, without) => Err(format!(
+            "(view's material changed, other material changed): with the rebind {with:?}, \
+             without it {without:?}"
+        )),
     }
 }
 

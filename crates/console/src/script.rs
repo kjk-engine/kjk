@@ -56,6 +56,9 @@ pub enum Command {
     Clip,
     /// Waits until the game's time is this many ms past the clip's start.
     ClipAt(f64),
+    /// Resizes a headless run's frame to a width and a height in pixels
+    /// (`size 1920 1080`), as a player resizing the game's window would.
+    Size(u32, u32),
     /// Ends the run with success.
     Quit,
     /// Panics, to prove what a crash leaves in the run's folder.
@@ -88,6 +91,7 @@ const CLIP_USAGE: &str = "clip takes a name, seconds of game time and fps";
 const CLIP_FPS: u32 = 12;
 
 const CAMERA_USAGE: &str = "camera takes five or six numbers: x y z yaw pitch [fov]";
+const SIZE_USAGE: &str = "size takes a width and a height in pixels, each from 1 to 8192";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CameraPose {
@@ -156,6 +160,7 @@ impl fmt::Display for Command {
             }) => write!(f, "video {name} (clipped)"),
             Command::Clip => f.write_str("clip"),
             Command::ClipAt(ms) => write!(f, "clip at {ms} ms"),
+            Command::Size(width, height) => write!(f, "size {width} {height}"),
             Command::Quit => f.write_str("quit"),
             Command::Crash => f.write_str("crash"),
         }
@@ -250,6 +255,14 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
             ("dump", [name]) => Command::Dump(
                 file_stem(name).ok_or_else(|| error("names use letters, digits, '-' and '_'"))?,
             ),
+            ("size", [width, height]) => {
+                let side = |word: &str| word.parse::<u32>().ok().filter(|n| (1..=8192).contains(n));
+                match (side(width), side(height)) {
+                    (Some(width), Some(height)) => Command::Size(width, height),
+                    _ => return Err(error(SIZE_USAGE)),
+                }
+            }
+            ("size", _) => return Err(error(SIZE_USAGE)),
             ("quit", []) => Command::Quit,
             ("crash", []) => Command::Crash,
             ("ui", words) if !words.is_empty() => {
