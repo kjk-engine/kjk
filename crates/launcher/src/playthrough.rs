@@ -290,9 +290,22 @@ const BODY_M: f32 = 1.2;
 const BACKING_MS: u64 = 2500;
 
 /// How near (metres) the route's first corner is for a walk stuck off its
-/// line to step back to it, and for how long (ms).
+/// line to step back to it, and for how long (ms); how far on towards its
+/// corner a walk wedged again walls the floor (`wedged_at`).
 const UNWEDGE_M: f32 = 1.5;
 const UNWEDGE_MS: u64 = 1000;
+
+/// The floor a walk wedged at `at` making for `aim` (units) walls
+/// (`TurnedBack::wedged`): `UNWEDGE_M` on towards it, past what the box
+/// stops against, short of where it stands.
+fn wedged_at(at: [f32; 3], aim: [f32; 3]) -> [f32; 3] {
+    let way = [aim[0] - at[0], aim[1] - at[1], 0.0];
+    let length = sim::math::flat_length(way);
+    if length <= f32::EPSILON {
+        return at;
+    }
+    sim::math::mad(at, UNWEDGE_M / UNIT / length, way)
+}
 
 /// How near (metres, across) the floor a player off the navigation mesh
 /// steps back onto is to be straight under it (on a body's head, a prop),
@@ -2566,6 +2579,19 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         && (w.stalls > 2 && (body_in_way || unwedges >= 2) || w.stalls > LOST_STALLS)
                         && now >= backing_until + BACKING_MS * 2
                     {
+                        // Stepped back to its corner twice and wedged again,
+                        // nothing in its way: the floor on towards its corner
+                        // is walled, so the way is planned past what holds it
+                        // (Malachor's south buried ship: a drawn rock over
+                        // the floor, the Exile's walk to Console@2 backing
+                        // off and stepping back to the same corner for 100 s).
+                        if !body_in_way
+                            && unwedges >= 2
+                            && let Some(aim) = w.waypoint
+                            && turned_back.wedged(wedged_at(player.origin, aim))
+                        {
+                            turned_back.wall(&here);
+                        }
                         unwedges = 0;
                         backing_until = now + BACKING_MS;
                         backing_side = -backing_side;

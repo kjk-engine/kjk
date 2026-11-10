@@ -436,7 +436,8 @@ const TALK_RINGS: [f32; 4] = [0.4, 0.55, 0.7, 0.8];
 /// stood (`sim::walk::faces_under_body`), walled too: KOTOR's planner keeps
 /// its lines off creatures, so a walk takes another way past one standing in
 /// a gap (Moza in Chodo's office, where the way out ran between him and a
-/// wall, gone round and planned back through him for good). And the
+/// wall, gone round and planned back through him for good). And the spots
+/// a walk wedged short of its corner (`wedged`), walled the same way. And the
 /// triggers leading out of the module that the goal's way out does not take
 /// (`keep_off_exits`, with the way out they were chosen for), walled too. Of
 /// one level: another's are dropped.
@@ -529,6 +530,26 @@ impl TurnedBack {
         count == ROUNDS_TO_WALL
     }
 
+    /// A walk wedged short of its corner, `at` (units) the floor on its line
+    /// that its box gets no nearer: walled at once, as a body gone round
+    /// twice is, so the way is planned past it. The navigation mesh runs on
+    /// under a drawn rock its walker passes as a point, a box not (Malachor's
+    /// south buried ship). Whether it is newly walled.
+    pub(super) fn wedged(&mut self, at: [f32; 3]) -> bool {
+        let same = |was: [f32; 3]| flat(was.map(|v| v * UNIT), at.map(|v| v * UNIT)) <= SAME_SPOT_M;
+        match self.rounded.iter_mut().find(|(was, _)| same(*was)) {
+            Some((_, count)) if *count >= ROUNDS_TO_WALL => false,
+            Some((_, count)) => {
+                *count = ROUNDS_TO_WALL;
+                true
+            }
+            None => {
+                self.rounded.push((at, ROUNDS_TO_WALL));
+                true
+            }
+        }
+    }
+
     /// The goal's way out this step, `way_out` (an `exit`'s or a `to`'s
     /// own): the triggers leading out of the module that it does not take
     /// (`takes`) are walled, as `exit_ahead` holds the player back from them,
@@ -557,8 +578,8 @@ impl TurnedBack {
     }
 
     /// The faces under the triggers that turned the player back, the exits
-    /// kept off (`keep_off_exits`) and the bodies walled (`went_round`), made
-    /// anew.
+    /// kept off (`keep_off_exits`) and the bodies and wedges walled
+    /// (`went_round`, `wedged`), made anew.
     pub(super) fn wall(&mut self, here: &Here) {
         let mut walled = Vec::new();
         let kept_off = self.exits.iter().flat_map(|(_, exits)| exits);
