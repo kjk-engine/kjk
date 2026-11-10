@@ -83,17 +83,30 @@ pub fn collision() -> BrushWorld {
         .with(cuboid([px1, py0, -PIT_DEPTH], [px1 + 0.5, py1, -1.0]))
         .with(cuboid([px0, py0 - 0.5, -PIT_DEPTH], [px1, py0, -1.0]))
         .with(cuboid([px0, py1, -PIT_DEPTH], [px1, py1 + 0.5, -1.0]))
-        .with(cuboid([px0, py0, -PIT_DEPTH - 1.0], [px1, py1, -PIT_DEPTH]))
-        // The walls.
-        .with(cuboid([-HALF - 0.5, -HALF, 0.0], [-HALF, HALF, WALL]))
-        .with(cuboid([HALF, -HALF, 0.0], [HALF + 0.5, HALF, WALL]))
-        .with(cuboid([-HALF - 0.5, -HALF - 0.5, 0.0], [HALF + 0.5, -HALF, WALL]))
-        .with(cuboid([-HALF - 0.5, HALF, 0.0], [HALF + 0.5, HALF + 0.5, WALL]))
-        .with(Brush::ramp(RAMP.0, RAMP.1, 1, false));
+        .with(cuboid([px0, py0, -PIT_DEPTH - 1.0], [px1, py1, -PIT_DEPTH]));
+    for (min, max) in WALLS {
+        world = world.with(cuboid(min, max));
+    }
+    world = world.with(Brush::ramp(RAMP.0, RAMP.1, 1, false));
     for (min, max) in SOLIDS {
         world = world.with(cuboid(min, max));
     }
     world
+}
+
+/// The arena's walls (min, max corners, metres).
+const WALLS: [([f32; 3], [f32; 3]); 4] = [
+    ([-HALF - 0.5, -HALF, 0.0], [-HALF, HALF, WALL]),
+    ([HALF, -HALF, 0.0], [HALF + 0.5, HALF, WALL]),
+    ([-HALF - 0.5, -HALF - 0.5, 0.0], [HALF + 0.5, -HALF, WALL]),
+    ([-HALF - 0.5, HALF, 0.0], [HALF + 0.5, HALF + 0.5, WALL]),
+];
+
+/// The boxes that hide what is behind them (min, max corners, metres):
+/// the walls, what stands on the floor, and the box the ramp fills. A
+/// camera placed to film a body checks its view against them.
+pub fn sight_blocks() -> impl Iterator<Item = ([f32; 3], [f32; 3])> {
+    WALLS.into_iter().chain(SOLIDS).chain([RAMP])
 }
 
 /// The floor's walkable faces as a navigation mesh: half-metre squares of

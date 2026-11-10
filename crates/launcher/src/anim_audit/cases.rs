@@ -14,6 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use super::checks::measure;
+use super::io;
 use super::report::{self, Record, StateRecord};
 
 /// The saber or sabers the duelist carries.
@@ -161,7 +162,7 @@ const LIT_FOR_MS: u64 = 6000;
 /// The step of game time each run is held at, one after another (ms). A
 /// run's drawn moments then follow the game's time and not the machine's
 /// pace, so two runs of a case draw the same frames.
-const STEP_MS: u64 = 25;
+pub const STEP_MS: u64 = 25;
 
 /// How long a run may take before it is stopped and counted as failed.
 const RUN_LIMIT: Duration = Duration::from_secs(400);
@@ -228,7 +229,7 @@ pub fn timeline(script: &[(&'static str, &'static str, bool)]) -> (Vec<&'static 
 
 /// The moment of `SCRIPT`'s run at which the blade is holstered (ms), the
 /// start of `HOLSTER`.
-pub fn holster_ms() -> Option<u64> {
+fn holster_ms() -> Option<u64> {
     timeline(SCRIPT)
         .1
         .into_iter()
@@ -239,26 +240,21 @@ pub fn holster_ms() -> Option<u64> {
 /// The `--cmds` that step a run of `SCRIPT` to `until` (ms). The game's
 /// time is held at 0 from the start, then at each `STEP_MS` step in turn up
 /// to `until`, and each step is waited for. The blade is holstered once the
-/// world has reached `holster_ms`.
-pub fn steps(until: u64) -> Vec<String> {
+/// world has reached `holster_ms`. After each step, and after the holster
+/// at its step, come the commands `after` gives for the step's moment (ms).
+pub fn steps(until: u64, mut after: impl FnMut(u64) -> Vec<String>) -> Vec<String> {
     let holster = holster_ms();
     let mut cmds = vec!["anim 0".to_string()];
+    cmds.extend(after(0));
     for ms in (STEP_MS..=until).step_by(STEP_MS as usize) {
-        cmds.extend(step(ms));
+        cmds.push(format!("anim {}", ms as f64 / 1000.0));
+        cmds.push("wait arrived".to_string());
         if holster == Some(ms) {
             cmds.push("ui holster".to_string());
         }
+        cmds.extend(after(ms));
     }
     cmds
-}
-
-/// The `--cmds` that hold the game's time at `ms` and wait until the world
-/// has reached it.
-pub fn step(ms: u64) -> [String; 2] {
-    [
-        format!("anim {}", ms as f64 / 1000.0),
-        "wait arrived".to_string(),
-    ]
 }
 
 /// `ms` rounded down to a whole `STEP_MS` step, which `steps` can reach.
@@ -360,7 +356,7 @@ impl Case {
         let end = spans.last().map_or(0, |span| span.to);
         // The steps go on to half a second past the script's end, so its
         // last state is drawn to its end.
-        let mut cmds = steps(end + 500);
+        let mut cmds = steps(end + 500, |_| Vec::new());
         cmds.push("quit".to_string());
         let mut args: Vec<String> = [
             "--mute",
@@ -410,15 +406,8 @@ impl Case {
     /// a state with a lit blade in which the drawn body never plays another
     /// sequence than the sim's is a fallback: the skeleton lacks that
     /// state's sequence, so JA's played.
-    pub fn measured(&self, mut drawn: Vec<super::Frame>) -> Vec<StateRecord> {
-        drawn.sort_by(|a, b| a.ms.total_cmp(&b.ms));
-        let mut frames: Vec<super::Frame> = Vec::with_capacity(drawn.len());
-        for frame in drawn {
-            match frames.last_mut() {
-                Some(last) if last.ms == frame.ms => *last = frame,
-                _ => frames.push(frame),
-            }
-        }
+    pub fn measured(&self, drawn: Vec<super::Frame>) -> Vec<StateRecord> {
+        let frames = super::distinct(drawn);
         timeline(SCRIPT)
             .1
             .into_iter()
@@ -539,7 +528,7 @@ fn audit(args: &AuditArgs) -> Result<ExitCode, String> {
     let records = run_all(&exe, &ja, &out, &chosen);
     report::write(&out, &records)?;
     if args.clips {
-        report::film(&exe, &out, &records)?;
+        super::clips::film(&exe, &out, &records)?;
         // Written again so that its rows link the clips.
         report::write(&out, &records)?;
     }
@@ -657,12 +646,9 @@ fn played(
     dir: &Path,
     record: &Record,
 ) -> Result<Vec<StateRecord>, String> {
-    let io = |what: &Path, error: std::io::Error| format!("{}: {error}", what.display());
     std::fs::create_dir_all(dir).map_err(|error| io(dir, error))?;
     let settings = dir.join(SETTINGS);
-    let text = case
-        .settings()
-        .map_err(|error| io(&settings, std::io::Error::other(error)))?;
+    let text = case.settings().map_err(|error| io(&settings, error))?;
     std::fs::write(&settings, text).map_err(|error| io(&settings, error))?;
     let frames = dir.join(FRAMES);
     // A frames file left by an earlier run into the same folder must not
@@ -672,7 +658,7 @@ fn played(
     run_kjk(exe, &record.args, &record.env, &stderr_path)?;
     let text = std::fs::read_to_string(&frames)
         .map_err(|error| format!("no audit log: {}{}", io(&frames, error), tail(&stderr_path)))?;
-    let parsed = super::parse(&text).map_err(|error| io(&frames, std::io::Error::other(error)))?;
+    let parsed = super::parse(&text).map_err(|error| io(&frames, error))?;
     if parsed.is_empty() {
         return Err(format!("the audit log has no frame{}", tail(&stderr_path)));
     }
@@ -688,7 +674,6 @@ pub fn run_kjk(
     env: &BTreeMap<String, String>,
     stderr_path: &Path,
 ) -> Result<(), String> {
-    let io = |what: &Path, error: std::io::Error| format!("{}: {error}", what.display());
     let stderr = std::fs::File::create(stderr_path).map_err(|error| io(stderr_path, error))?;
     let mut child = Command::new(exe)
         .args(args)
