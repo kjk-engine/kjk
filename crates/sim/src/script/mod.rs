@@ -14,8 +14,9 @@
 //!   then for each player `Mod_OnClientEntr` (the module) and the area's
 //!   `OnEnter` (the area), the player the entering object;
 //! - `DelayCommand` runs its code when due; `AssignCommand` runs its code
-//!   for the target as the running script ends, before any other script
-//!   of the tick (`Step::run_assigned`); `ActionDoCommand` queues it;
+//!   for the target with the tick's deferred code, after the running
+//!   script (and before the next line of a conversation whose reply
+//!   assigned it, `Step::run_assigned`); `ActionDoCommand` queues it;
 //!   `ExecuteScript` runs at once, nested.
 //!
 //! A routine without a binding here is a gap: it returns its type's empty
@@ -2708,14 +2709,11 @@ impl Step<'_> {
             depth: 0,
         };
         engine.trace(&format!("{what} {script} for {}", name(caller)));
-        let assigned = engine.out.assigned.len();
         let outcome = match code {
             Some(deferred) => vm::resume(program, routines, caller, deferred, &mut engine),
             None => vm::run(program, routines, caller, &mut engine),
         };
-        let returned = finish(self.report, script, outcome);
-        self.run_assigned(assigned);
-        returned
+        finish(self.report, script, outcome)
     }
 
     /// Runs deferred code `due` for its caller, with what its deferral
@@ -2738,13 +2736,16 @@ impl Step<'_> {
     }
 
     /// Runs the code `AssignCommand` handed out since `from` (of
-    /// `Out::assigned`), and what that code assigns in turn: KOTOR runs it
-    /// for its target as the assigning script ends, before the next script
-    /// of the same moment. A conversation's reply script that opens a door
-    /// by the door's own `ActionOpenDoor` puts the opening in the door's
-    /// queue before the next line's script queues the door's pause and
-    /// wait behind it (K1's Taris sewers, `k_ptar_misunlock` then
-    /// `k_ptar_zaalrun`: the door opens as its shot begins, issue 278).
+    /// `Out::assigned`), and what that code assigns in turn, now rather
+    /// than with the next tick's deferred code: what a reply's scripts
+    /// assign is in its targets' queues before the next line's script runs.
+    /// K1's Taris sewers: Mission's door opens itself (`k_ptar_misunlock`)
+    /// before the next line's `k_ptar_zaalrun` queues the door's pause and
+    /// 4 s wait, so it opens as that line's shot begins (issue 278). A
+    /// reply that ends its conversation leaves its code to the next tick,
+    /// the conversation over by then: the chieftain's conversation that
+    /// Tatooine's guard's last reply assigns (`k_ptat_chieftalk`) is not
+    /// refused as begun while the guard's still holds the world.
     fn run_assigned(&mut self, from: usize) {
         while self.runs < RUNS_PER_STEP && from < self.out.assigned.len() {
             let order = self.out.assigned.remove(from);

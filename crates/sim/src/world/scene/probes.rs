@@ -175,7 +175,8 @@ const PROBES: &[Probe] = &[
     ("blocked_by_door", blocked_by_door),
     ("dead_open_no_door", dead_open_no_door),
     ("party_waits_for_door", party_waits_for_door),
-    ("assigned_before_next_script", assigned_before_next_script),
+    ("assigned_before_next_line", assigned_before_next_line),
+    ("assigned_after_last_reply", assigned_after_last_reply),
     ("walk_off_mesh_ends", walk_off_mesh_ends),
     ("door_goal_ends", door_goal_ends),
     ("stepped_walk_stalls", stepped_walk_stalls),
@@ -344,7 +345,10 @@ fn tagged(tag: &str) -> [Op; 3] {
 ///   with the first PC;
 /// - `probe_attack_buddy`, `probe_attack_dummy` and `probe_attack_pc`
 ///   attack the companion, the dummy and the first PC (`ActionAttack`);
-/// - `probe_open` opens the gate (`ActionOpenDoor`);
+/// - `probe_open` opens the gate (`ActionOpenDoor`); `probe_assign_open`
+///   assigns the talker that (`AssignCommand`), `probe_assign_converse`
+///   assigns it a conversation with the first PC, and `probe_wait_4s`
+///   waits 4 s (`ActionWait`);
 /// - `probe_cutscene` is a scene's hit on the dummy for `SCENE_DAMAGE`
 ///   (`CutsceneAttack`), naming no animation; `probe_cutscene_shot` the
 ///   same naming K1's rifle shot (`SHOT_ROW`), `probe_cutscene_kill` that
@@ -524,21 +528,21 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
         .op(call(27, 2))
         .op(Op::Retn);
     let made_converse = asm.build();
-    // `AssignCommand(GetObjectByTag("gate"), ActionOpenDoor(
-    // GetObjectByTag("gate")))`, as K1's `k_ptar_misunlock` has Mission's
-    // door open itself.
-    let mut asm = script_ncs::probes::Asm::default();
-    asm.op(Op::StoreState { bp: 0, sp: 0 })
-        .to(Op::Jmp, "assign");
-    for op in &open {
-        asm.op(op.clone());
-    }
-    asm.op(Op::Retn).label("assign");
-    for op in tagged("gate") {
-        asm.op(op);
-    }
-    asm.op(call(27, 2)).op(Op::Retn);
-    let assign_open = asm.build();
+    // `AssignCommand(GetObjectByTag("talker"), <action>)`.
+    let assign_talker = |action: &[Op]| {
+        let mut asm = script_ncs::probes::Asm::default();
+        asm.op(Op::StoreState { bp: 0, sp: 0 })
+            .to(Op::Jmp, "assign");
+        for op in action {
+            asm.op(op.clone());
+        }
+        asm.op(Op::Retn).label("assign");
+        for op in tagged("talker") {
+            asm.op(op);
+        }
+        asm.op(call(27, 2)).op(Op::Retn);
+        asm.build()
+    };
     let dialogues: BTreeMap<String, Dlg> = [(dialog.to_string(), talk)].into();
     // K1's `creaturespeed.2da` rows `PLAYER` and `DEFAULT`.
     let rates = crate::script::MoveRates {
@@ -568,7 +572,11 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
                 ]),
             ),
             ("probe_open", program(&open)),
-            ("probe_assign_open", assign_open),
+            ("probe_assign_open", assign_talker(&open)),
+            (
+                "probe_assign_converse",
+                assign_talker(&converse_to(&first_pc, 0, 0)),
+            ),
             ("probe_wait_4s", program(&wait(4.0))),
             ("probe_blocked", program(&[])),
             ("probe_area_exit", program(&[])),
@@ -5976,29 +5984,66 @@ fn party_waits_for_door() -> Found {
     )
 }
 
-/// Code `AssignCommand` hands out runs as its script ends, before the next
-/// script of the step: one script assigns the gate its own opening, the
-/// next queues the gate a 4 s wait, both in one step, and the gate opens
-/// at once, not after the wait (a reply's `k_ptar_misunlock`, then the next
-/// line's `k_ptar_zaalrun` pausing the door's conversation, issue 278).
-fn assigned_before_next_script() -> Found {
-    let mut ground = Ground::staged(1, Stage::default())?;
-    let host = ground.body(0)?;
-    let gate = ground.object(GATE)?;
+/// The talker's conversation begun, its "Again." running `again` and the
+/// line it leads back to running `line`, "Goodbye." running `goodbye`.
+fn scripted_talk(again: &str, line: &str, goodbye: &str) -> Result<Ground, String> {
+    let stage = talk_with(|talk| {
+        talk.replies[usize::from(AGAIN)].script.script = again.into();
+        talk.replies[usize::from(GOODBYE)].script.script = goodbye.into();
+        talk.entries[0].script.script = line.into();
+    });
+    let mut ground = Ground::staged(1, stage)?;
+    ground.cutscene()?;
+    Ok(ground)
+}
+
+/// What a reply assigns is queued before the next line's script queues
+/// its own: "Again." assigns the talker the gate's opening, the line it
+/// leads back to queues the talker a 4 s wait, and the talker's queue
+/// holds the opening ahead of that wait (K1's `k_ptar_misunlock`, then
+/// the next line's `k_ptar_zaalrun` pausing the door's conversation,
+/// issue 278).
+fn assigned_before_next_line() -> Found {
+    use crate::script::actions::Action as Queued;
+    let mut ground = scripted_talk("probe_assign_open", "probe_wait_4s", "")?;
+    // The first showing's wait cleared: only the answer's step queues.
+    ground.replies_up();
+    let talker = ground.object(TALKER)?.0;
     let mut state = ground.world.script_state().clone();
-    for (script, caller) in [("probe_assign_open", host), ("probe_wait_4s", gate)] {
-        state
-            .pending
-            .push(crate::script::Pending::new(script, ObjectId(caller.0)));
-    }
+    state.actions.remove(&talker);
     ground.world.set_script_state(state);
-    let opened = (0..steps(1000)).position(|_| {
+    ground.answer(Pick::Reply(AGAIN));
+    let queue: Vec<&str> = (ground.world.script_state().actions.get(&talker))
+        .into_iter()
+        .flatten()
+        .map(|queued| match queued.action {
+            Queued::Door { .. } => "open",
+            Queued::Wait { .. } => "wait",
+            _ => "other",
+        })
+        .collect();
+    check(
+        queue == ["open", "wait"],
+        format!("the talker's queue after the answer: {queue:?} (want the opening first)"),
+    )
+}
+
+/// What a conversation's last reply assigns runs once it is over: "Goodbye."
+/// assigns the talker a conversation with the first PC, and it begins
+/// rather than being refused as begun while the one ending holds the
+/// world (Tatooine's guard's last reply, `k_ptat_chieftalk`, has the
+/// chieftain speak).
+fn assigned_after_last_reply() -> Found {
+    let mut ground = scripted_talk("", "", "probe_assign_converse")?;
+    ground.answer(Pick::Reply(GOODBYE));
+    let ended = ground.last.talk.conversations.is_empty();
+    let again = (0..steps(2000)).position(|_| {
         ground.step();
-        !ground.gate_shut()
+        !ground.last.talk.conversations.is_empty()
     });
     check(
-        opened.is_some(),
-        format!("the gate opened at step {opened:?} (none within 1 s: behind its wait)"),
+        again.is_some(),
+        format!("the first ended at once {ended}; the talker's began at step {again:?}"),
     )
 }
 
