@@ -67,6 +67,7 @@ use fmt_ja::animation_cfg::Sequence;
 use fmt_ja::ghoul2::Gla;
 use script_ncs::vm::ObjectId;
 use sim::combat::idle::Acting;
+use sim::combat::saber::{Blocked, SaberRules, SaberState};
 use sim::combat::sheet::{Blaster, Sheet};
 use sim::combat::{Delivery, Fighter, Location, Weapon};
 use sim::module::ObjectKind;
@@ -801,6 +802,9 @@ pub struct Figure {
     /// How much its gripping hands reach for the sim's blades
     /// (`reach_share`), as of when (sim ms).
     reach: (f32, Option<f64>),
+    /// How much its gripping hands turn the drawn blades the sim's way
+    /// under the duel rules (`turn_share`), as of when (sim ms).
+    turn: (f32, Option<f64>),
     /// How far its blade at rest is held up before its eyes (`place`), as
     /// of when.
     held: f32,
@@ -872,6 +876,7 @@ impl Figure {
             breath: stance::Breath::default(),
             off_hand: OffHand::default(),
             reach: (1.0, None),
+            turn: (1.0, None),
             held: 0.0,
             held_ms: None,
             blade: false,
@@ -1338,19 +1343,31 @@ impl Figure {
     /// (`cuts`), eased over `REACH_EASE_S`; `STANCE_REACH` while it stands in
     /// one of JA's held stances (`holding`), eased in over `STANCE_EASE_S`;
     /// none otherwise (a start, a return, a transition, a flip, a run:
-    /// nothing is cut, and JA's arm is the truth). The blades always turn
-    /// the sim's way.
+    /// nothing is cut, and JA's arm is the truth). How far the blades turn
+    /// the sim's way is `turn_share`'s.
     fn reach_share(&mut self, ms: f64) -> f32 {
-        let (share, was) = self.reach;
-        let seconds = was.map_or(1.0, |was| ((ms - was) / 1000.0).clamp(0.0, 0.25) as f32);
         let (target, ease) = match (self.cuts, self.holding) {
             (true, _) => (1.0, REACH_EASE_S),
             (false, true) => (STANCE_REACH, STANCE_EASE_S),
             (false, false) => (0.0, REACH_EASE_S),
         };
-        let share = crate::gait::ease(share, target, seconds / ease);
-        self.reach = (share, Some(ms));
-        share
+        eased(&mut self.reach, (target, ease), ms)
+    }
+
+    /// How much its gripping hands turn the drawn blades the sim's way
+    /// (`Reach::turn`) at `ms` under the duel rules. While the blade is in
+    /// contact (`contact`) they turn all the way at once, so the drawn blade
+    /// is where the sim's can hit from the first frame. Out of contact the
+    /// turn eases away over `REACH_EASE_S` and the drawn pose keeps its own
+    /// turn: the view may play another pose than the sim (a duel stance, a
+    /// held block's parry), and the sim's blade points as JA's sequence
+    /// holds it.
+    fn turn_share(&mut self, contact: bool, ms: f64) -> f32 {
+        if contact {
+            self.turn = (1.0, Some(ms));
+            return 1.0;
+        }
+        eased(&mut self.turn, (0.0, REACH_EASE_S), ms)
     }
 
     /// Its hand grips a blade as last posed.
@@ -2852,6 +2869,7 @@ impl Cast {
         let newest = history.last().map(|newest| &**newest);
         let fought = fought(newest);
         let held = newest.is_some_and(Snapshot::holds_world);
+        let rules = newest.map_or(SaberRules::Ja, |newest| newest.saber_rules);
         let states = newest.and_then(|newest| level.states_in(newest));
         self.note_unequipped(newest, level);
         self.note_talking(newest, level);
@@ -2965,7 +2983,7 @@ impl Cast {
                         armed,
                         reach,
                     ),
-                    (held, look, drawn),
+                    (held, look, drawn, rules),
                     talking(&self.talking, id),
                     self.holdings.wielded(id),
                     transforms,
@@ -4142,6 +4160,30 @@ fn view_axes(at: &Blended) -> [Vec3; 3] {
     [forward, right, up].map(Vec3::from_array)
 }
 
+/// A share eased toward `target` over `ease` seconds from its value as of
+/// when (`share`, sim ms) to `ms`, then kept as of `ms`. The first one goes
+/// straight to the target.
+fn eased(share: &mut (f32, Option<f64>), (target, ease): (f32, f32), ms: f64) -> f32 {
+    let (value, was) = *share;
+    let seconds = was.map_or(1.0, |was| ((ms - was) / 1000.0).clamp(0.0, 0.25) as f32);
+    let value = crate::gait::ease(value, target, seconds / ease);
+    *share = (value, Some(ms));
+    value
+}
+
+/// The blade can touch something at `now` (sim ms): the saber move cuts
+/// (`cuts`, `Figure::cuts`), or `saber` is blocked (a parry meeting a
+/// blow), in a saber lock (`lock`, or `lock_until` not yet passed) or inside
+/// a bolt block (`bolt_block_until` not yet passed). The move's own
+/// `blocking` is not read: JA's ready stance blocks wide too, so it would
+/// mark every lit frame.
+pub fn in_contact(cuts: bool, saber: &SaberState, now: u64) -> bool {
+    cuts || saber.blocked != Blocked::None
+        || saber.lock.is_some()
+        || saber.lock_until > now
+        || saber.bolt_block_until > now
+}
+
 /// Puts a body where its character stands and, with `pose`, poses it, a
 /// hand gripping a blade (while `armed`) reaching for it in `reach`
 /// (`asset_ja::rig::Reach`) with the blades `wielded` holds, a gun out held
@@ -4158,7 +4200,9 @@ fn view_axes(at: &Blended) -> [Vec3; 3] {
 /// aimed) is KOTOR's own clip on its model, its JA pose not made. With no
 /// conversation under way, it is drawn as it was before scene mode (S7).
 /// A droid or beast that leans with the floor stands on `floor`
-/// (`ground_lean`).
+/// (`ground_lean`). Under the duel rules (`rules`) a gripping hand turns its
+/// blade the sim's way only while the blade is in contact
+/// (`Figure::turn_share`).
 #[allow(clippy::too_many_arguments)]
 fn place(
     Member {
@@ -4170,7 +4214,7 @@ fn place(
     at: &Blended,
     (soles, ms, eye, floor): (Vec3, f64, Option<Vec3>, Option<Floor>),
     (pose, armed, reach): (bool, bool, &[(Blade, Hand)]),
-    (world_held, look, drawn): (bool, Option<(Vec3, f32)>, Option<DrawPose>),
+    (world_held, look, drawn, rules): (bool, Option<(Vec3, f32)>, Option<DrawPose>, SaberRules),
     talking: Option<Acting>,
     wielded: Option<&Wielded>,
     transforms: &mut Query<&mut Transform>,
@@ -4342,6 +4386,16 @@ fn place(
             // first along the sim's first; held before the eyes at rest.
             let mut reached = Vec::new();
             let share = figure.reach_share(ms);
+            // Under JA's rules the blades always turn the sim's way.
+            let turn = if rules.duel() {
+                let contact = at
+                    .fighter
+                    .as_ref()
+                    .is_some_and(|f| in_contact(figure.cuts, &f.saber, ms.max(0.0) as u64));
+                figure.turn_share(contact, ms)
+            } else {
+                1.0
+            };
             for hand in [Hand::Right, Hand::Left]
                 .into_iter()
                 .filter(|_| gripping.is_some())
@@ -4361,7 +4415,7 @@ fn place(
                     to_model * (muzzle - soles),
                     to_model * Vec3::from_array(first.direction),
                 );
-                let (mut most, mut free) = (asset_ja::rig::REACH, 0.0);
+                let (mut most, mut free, mut turn) = (asset_ja::rig::REACH, 0.0, turn);
                 if let Some(held) = &held {
                     let (hilt, rise) = held(hand);
                     let w = figure.held;
@@ -4369,6 +4423,8 @@ fn place(
                     direction = direction.normalize_or_zero().lerp(rise, w);
                     most += (BLADE_REACH - most) * w;
                     free = w;
+                    // The blade held before the eyes points where it is held.
+                    turn += (1.0 - turn) * w;
                 }
                 reached.push(Reach {
                     grip: hand as usize,
@@ -4378,6 +4434,7 @@ fn place(
                     along,
                     share,
                     most,
+                    turn,
                     free,
                 });
             }

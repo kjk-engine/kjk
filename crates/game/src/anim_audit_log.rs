@@ -31,7 +31,6 @@ use std::sync::Arc;
 use bevy::prelude::*;
 use collision::UNIT;
 use serde::Serialize;
-use sim::combat::saber::Blocked;
 use sim::skeleton::Hand;
 use sim::{SimId, Snapshot};
 
@@ -95,11 +94,7 @@ pub struct AuditFrame {
     pub swapped: bool,
     /// The saber move cuts (`Figure::cuts`).
     pub cuts: bool,
-    /// The blade can touch something: the saber move cuts, or the
-    /// snapshot's saber is blocked (`blocked`), in a saber lock (`lock`, or
-    /// `lock_until` not yet passed) or inside a bolt block
-    /// (`bolt_block_until` not yet passed). The move's own `blocking` is not
-    /// read.
+    /// The blade can touch something (`cast::in_contact`).
     pub contact: bool,
     /// The saber rules in play (`ja` or `mda`).
     pub rules: String,
@@ -184,11 +179,7 @@ fn frame(
     let sim = [player.legs.anim.name(), player.torso.anim.name()];
     let saber = &fighter.saber;
     let now = at_ms.max(0.0) as u64;
-    let contact = figure.cuts()
-        || saber.blocked != Blocked::None
-        || saber.lock.is_some()
-        || saber.lock_until > now
-        || saber.bolt_block_until > now;
+    let contact = cast::in_contact(figure.cuts(), saber, now);
     let origin = cast::blended_for(history, id, ms, own)?.origin;
     let placed = sim_blades::ja_placed(origin);
     let posed = figure.ja_points(at_ms, &ja_bones());
