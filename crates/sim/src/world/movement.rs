@@ -83,10 +83,11 @@ pub(super) fn hold_talkers(
 /// in seat order, then creatures in id order (`command_for`). Doors stand as
 /// their states have them, and every living character is a body others
 /// run into, moved before the next character's move (as JA links each
-/// client after its move) — except that party members pass through each
-/// other with friendly fire off (a delegated decision: JA's players all
-/// collide, which in co-op KOTOR's doorways would only get in the way). The
-/// dead and the downed meet only the level and what play made (`lying`).
+/// client after its move). With friendly fire off, a party member a
+/// conversation holds or a script walks passes through the party's other
+/// members. A character stuck against another for long enough walks
+/// through it until the two have parted (`jams`). The dead and the downed
+/// meet only the level and what play made (`lying`).
 ///
 /// Each character's move runs its weapon step too (`motion::Arms`): its
 /// weapon changes, knockdowns and saber moves, whose checks see the other
@@ -231,6 +232,34 @@ pub(super) fn move_actors(
         })
         .collect();
     pushable.sort_by_key(|(id, ..)| *id);
+    // Who walks through whom (`jams`), and each living character's side,
+    // by id: two characters fighting each other never walk through each
+    // other, nor two of the party dueling (friendly fire on).
+    let mut jams = Jams::of(
+        actors
+            .iter()
+            .map(|(id, .., player, _)| (id.0.0 | BODY, &player.0.jam)),
+    );
+    let mut sides: Vec<(SimId, Side)> = actors
+        .iter()
+        .filter(|(.., fighting)| fighting.0.alive())
+        .map(|(id, avatar, object, sheet, _, fighting)| {
+            let side = side_of(id.0, *avatar, &fighting.0, &sheet_of(*sheet, *object));
+            (id.0, side)
+        })
+        .collect();
+    sides.sort_by_key(|(id, _)| *id);
+    let duels = level.0.friendly_fire != FriendlyFire::Off;
+    let standing = level
+        .0
+        .module()
+        .map(|module| module.repute.with(&scripts.state.reputation));
+    let side = |who: SimId| {
+        sides
+            .binary_search_by_key(&who, |(id, _)| *id)
+            .ok()
+            .map(|at| sides[at].1)
+    };
     // The party's bodies playing by KOTOR's rules now (`scene::Held::scene`),
     // standing, by id: those `spaced` keeps apart.
     let mut scene_party: Vec<Spaced> = actors
@@ -471,15 +500,28 @@ pub(super) fn move_actors(
         }
         fighting.0.last_command = command;
         let own = id.0.0 | BODY;
-        // With friendly fire on (a duel), the party collides too.
-        let passes = level.0.friendly_fire == FriendlyFire::Off;
+        // The party is solid to itself, as KOTOR's is (issue 280). With
+        // friendly fire off, a party member that a conversation holds, or
+        // that a script has ordered to move or attack, passes through the
+        // party's other members, as before. KOTOR's walker gives a walk up
+        // on a body it cannot go round, and a scene would then wait on it
+        // for ever.
+        let ordered = scripts.state.goals.contains_key(&id.0.0);
+        let passes = !duels && party && (held || script_walk || ordered);
+        // Those it has parted from since it walked through them are solid
+        // again (`jams`); the dead walk through no one.
+        let my_box = blocking(id.0, &player.0, object);
+        let living: &[Body] = if fighting.0.alive() { &everyone } else { &[] };
+        jams.release(own, &mut player.0.jam, &my_box, living);
         let bodies = if !fighting.0.alive() {
             lying
-        } else if passes && party {
+        } else if passes {
             &outside
         } else {
             &everyone
         };
+        let met = jams.meets(own, bodies);
+        let bodies = met.as_ref();
         // The bodies its walk may run into; a creature walking pushes aside
         // the idle ones not hostile to it, the party leader none (KOTOR's).
         // A companion a guest drives is no leader: it pushes as it would
@@ -717,6 +759,35 @@ pub(super) fn move_actors(
                 },
             );
         }
+        // Whom it ran into this step (`jams`): the body KOTOR's walker
+        // bumped into, or one move_body touched while its command moved it
+        // at a crawl. Kept on for long enough, it walks through that one.
+        let my_side = side(id.0);
+        let may = |entity: u32| {
+            let theirs = side(SimId(entity & !BODY));
+            my_side.zip(theirs).is_some_and(|(mine, theirs)| {
+                crate::module::relation(standing, mine, theirs) != Relation::Hostile
+                    && !(duels && mine.party && theirs.party)
+            })
+        };
+        // What move_body touched: the bodies its traces stopped at, and those
+        // it stood in or (a seat's player) touched, which held it off.
+        let ran_into = match &stepped {
+            Some(stepped) => stepped.bumped.map(|who| who.0 | BODY).filter(|e| may(*e)),
+            None => jams::blocked_by(
+                fighting.0.alive() && (command.forward != 0 || command.right != 0),
+                math::flat_distance(before, player.0.origin),
+                clock.msec,
+                &touches
+                    .iter()
+                    .copied()
+                    .chain(inside.entities())
+                    .collect::<Vec<_>>(),
+                player.0.jam.by,
+                may,
+            ),
+        };
+        jams.ran_into(own, &mut player.0.jam, ran_into, clock.msec);
         // A body its walk carries on plays its walk or run: KOTOR's movement
         // replaces what a script or a line played on it, as reone's creature
         // takes its move clip and plays no other while it moves. A death's
@@ -945,6 +1016,12 @@ pub(crate) fn met_as(mine: &Body, seated: bool) -> Body {
 }
 
 impl Inside<'_> {
+    /// The entities of the bodies the move stood inside (or, a seat's
+    /// player, touched), which `hold_off` holds it off rather than a trace.
+    pub(crate) fn entities(&self) -> impl Iterator<Item = u32> + '_ {
+        self.centres.iter().map(|(_, entity)| *entity)
+    }
+
     /// A move from `before` that took `ps` deeper into a body it stood
     /// inside (nearer its centre) keeps only its part round that body (the
     /// part toward its centre taken off), when `clear` lets a box go there
@@ -1142,9 +1219,10 @@ struct Spaced {
 /// none stands within another's personal space. KOTOR's creatures never
 /// come nearer each other than their two personal spaces, the party's
 /// included (its walkers bump or push aside every creature they meet,
-/// Q-0267); ours walk through each other with friendly fire off
-/// (`bodies_pass`), so two companions following can stand inside each
-/// other when a conversation stops them (Mission and Carth, issue 41). In a
+/// Q-0267). Ours can still stand inside each other when a conversation
+/// stops them: one walked through the other after being stuck against it
+/// (`jams`), or two companions were put on one spot (Mission and Carth,
+/// issue 41). In a
 /// scene, where KOTOR's rules hold, the one of each such pair is pushed
 /// aside as KOTOR's walker pushes an idle creature it meets
 /// (`walk::pushed_aside`): straight out from the other, past their two

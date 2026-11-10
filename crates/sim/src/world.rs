@@ -151,6 +151,10 @@ mod bolts;
 mod firing;
 mod harm;
 mod interaction;
+#[cfg(feature = "probes")]
+pub mod jam_probes;
+mod jams;
+use jams::Jams;
 mod level;
 mod movement;
 mod state;
@@ -1200,11 +1204,12 @@ pub fn party_member(entity: &EntityState) -> bool {
             .is_some_and(|f| f.mind.leader.is_some() || f.mind.driver.is_some())
 }
 
-/// Whether two characters' bodies pass through each other as `move_actors`
-/// moves them: both of the party, with friendly fire off. A walk goes round
-/// only the bodies it would run into (`walk::Walker::around`): a party's
-/// walk that stepped aside from its own companions stood stuck between
-/// them and a wall it could have walked through them past.
+/// Whether a walk leaves another character's body out of the ones it goes
+/// round (`walk::Walker::around`): both of the party, with friendly fire
+/// off. A party's walk that stepped aside from its own companions stood
+/// stuck between them and a wall. Since the party is solid to itself
+/// (`move_actors`), such a walk runs into the companion instead, and
+/// walks through it once stuck for long enough (`jams`).
 pub fn bodies_pass(level: &Level, mine: bool, theirs: bool) -> bool {
     mine && theirs && level.friendly_fire == FriendlyFire::Off
 }

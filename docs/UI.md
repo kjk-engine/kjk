@@ -840,8 +840,8 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   companion is a target whoever drives it, its AI or another player
   (owner, 2026-10-30: as KOTOR's party members are clicked and talked to),
   but only clear ahead of the player, more than its own radius in front
-  (it follows at the heels and the party's bodies pass through each
-  other: one there is not picked by a look past it); never the body the
+  (it follows at the heels and can stand close to the player: one there
+  is not picked by a look past it); never the body the
   player itself plays; seats' avatars standing are not (no conversation).
   Its Dialog runs its dialogue hook as any creature's (K1's
   `k_hen_dialogue01` through `k_ai_master`, TSL's `k_hen_kreiadlg`, …),

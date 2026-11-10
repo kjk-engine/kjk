@@ -453,9 +453,9 @@ restored when it ends.
 - **Walks**: a body walking a route moves on KOTOR's walker at its
   `creaturespeed.2da` rates (`MOVEMENT.md`, `NAV.md`).
 - **Spaces**: the party keeps its personal spaces, as KOTOR's creatures
-  always do. Its bodies pass through each other out of a scene (friendly
-  fire off), so two companions can stand inside each other when a
-  conversation stops them; one of each such pair standing (a companion
+  always do. Two companions can still stand inside each other when a
+  conversation stops them (one walked through the other after being stuck
+  against it, `MOVEMENT.md`); one of each such pair standing (a companion
   before a seat's player) is pushed aside as KOTOR's walker pushes an idle
   creature it meets, out to their two `perspace`s and the push's margin
   (`world::movement::spaced`, `walk::pushed_aside`).

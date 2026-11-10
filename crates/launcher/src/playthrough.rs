@@ -3071,7 +3071,11 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
 /// What the harness's click on an object asks for a goal, as E takes the
 /// target block's first choice (`sim::target::choices`): a creature is
 /// talked to, a lock picked for `unlock`, a container opened for `put`.
-/// None for what takes no click (a trigger).
+/// None for what takes no click (a trigger). A door is clicked open, never
+/// shut: a route's walker uses a door to go through it. Its click can land
+/// a step after its key opened the door, and it then shut the door again
+/// (the Endar Spire's end_door19, with Trask standing clear of the doorway
+/// behind the player, closed on the way his scene's walk takes).
 fn click(goal: &Goal, data: &ObjectData, state: sim::ObjectState) -> Option<sim::target::Choice> {
     use sim::target::Choice;
     match (goal, data.kind) {
@@ -3085,6 +3089,10 @@ fn click(goal: &Goal, data: &ObjectData, state: sim::ObjectState) -> Option<sim:
             sim::target::choices(data.kind, data, state, false, None, None)
                 .first()
                 .copied()
+                .map(|choice| match (data.kind, choice) {
+                    (ObjectKind::Door, Choice::Close) => Choice::Open,
+                    _ => choice,
+                })
         }
         _ => None,
     }

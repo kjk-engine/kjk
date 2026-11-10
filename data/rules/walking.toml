@@ -258,6 +258,55 @@ summary = "If the first spot is blocked, a pushed character is placed in the nea
 source = "ours"
 see = "sim::walk::pushed_aside"
 
+[jam]
+title = "Getting Unstuck"
+applies = ["kind:creature", "kind:companion", "kind:player"]
+summary = """
+Characters are solid to each other: the player, the companions and every
+other character. A character that keeps running into another character for
+{walking.jam.stuck_ms:s} walks through that character until the two have
+parted, and then the two are solid to each other again. Two characters
+fighting each other never walk through each other.
+"""
+detail = """
+A character counts as running into another while it is trying to move,
+touches that character, and moves slower than {walking.jam.crawl_mps}. A
+step in which it moves freely, or touches someone else, starts the count
+again. The two have parted once a gap of {walking.jam.parted_m} lies
+between their boxes. A party member that a conversation holds, or that a
+script has ordered to move or attack, passes through the party's other
+members, as before, so a scene never waits on one of them standing in
+another's way.
+"""
+
+[jam.stuck_ms]
+name = "Stuck Against a Character"
+type = "u32"
+value = 1000
+unit = "ms"
+range = [100, 10000]
+summary = "A character that keeps running into another character for {walking.jam.stuck_ms:s} walks through it until the two have parted."
+source = "the owner's design, 2026-11-10 (issue 280)"
+see = "sim::world::jams::Jams::ran_into"
+
+[jam.crawl_mps]
+name = "Blocked Speed"
+value = 0.5
+unit = "m/s"
+range = [0.0, 2.0]
+summary = "A character trying to move that touches another character and moves slower than {walking.jam.crawl_mps} is running into it."
+source = "ours"
+see = "sim::world::jams::blocked_by"
+
+[jam.parted_m]
+name = "Parted"
+value = 0.1
+unit = "m"
+range = [0.0, 1.0]
+summary = "Two characters walking through each other are solid to each other again once {walking.jam.parted_m} lies between them."
+source = "ours"
+see = "sim::world::jams::Jams::release"
+
 [searches]
 title = "Finding the Floor"
 summary = """
