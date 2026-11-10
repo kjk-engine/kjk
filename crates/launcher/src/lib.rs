@@ -10,6 +10,9 @@
 #[macro_use]
 extern crate kjk_game;
 
+// The saber animation audit's frames and checks, public for the approved
+// test `anim_audit_checks`.
+pub mod anim_audit;
 // The commands that take the most flags, each with its own: a new flag
 // touches its command's file alone.
 mod cli_host;

@@ -602,6 +602,162 @@ mod rig {
     }
 }
 
+/// The saber animation audit's checks (`kjk::anim_audit::checks`) on frames
+/// made here: a hilt 0.10 m from its hand, a blade 0.05 m deep in the torso
+/// with the reference blade clear or as deep, a blade turning 360° in
+/// 0.25 s, a growing blade, and a drawn blade 0.2 m from the sim's outside
+/// and inside contact. Needs `--features rig` (kjk's library); no installs.
+#[test]
+fn anim_audit_checks() {
+    #[cfg(not(feature = "rig"))]
+    println!("anim_audit_checks skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    audit::checks();
+}
+
+#[cfg(feature = "rig")]
+mod audit {
+    use kjk::anim_audit::checks::{Check, measure};
+    use kjk::anim_audit::{Blade, Frame};
+
+    /// The body every frame stands in, by its KOTOR node, its JA bone and
+    /// its place. The reference stands where the drawn body does (scale 1).
+    const BODY: [(&str, &str, [f32; 3]); 11] = [
+        ("pelvis_g", "pelvis", [0.0, 0.0, 1.0]),
+        ("torsoupr_g", "thoracic", [0.0, 0.0, 1.5]),
+        ("lthigh_g", "lfemurYZ", [-0.1, 0.0, 0.95]),
+        ("rthigh_g", "rfemurYZ", [0.1, 0.0, 0.95]),
+        ("lshin_g", "ltibia", [-0.1, 0.0, 0.5]),
+        ("rshin_g", "rtibia", [0.1, 0.0, 0.5]),
+        ("lfoot_g", "ltalus", [-0.1, 0.0, 0.1]),
+        ("rfoot_g", "rtalus", [0.1, 0.0, 0.1]),
+        ("lhand_g", "lhand", [-0.3, 0.3, 1.0]),
+        ("rhand_g", "rhand", HAND),
+        // The drawn head hangs 0.12 m above `headhook`, JA's at `cranium`.
+        ("headhook", "cranium", [0.0, 0.0, 1.6]),
+    ];
+    const HAND: [f32; 3] = [0.3, 0.3, 1.0];
+
+    /// `n` frames, 25 ms apart, each made by `make` from its index.
+    fn frames(n: usize, make: impl Fn(usize) -> Frame) -> Vec<Frame> {
+        (0..n).map(make).collect()
+    }
+
+    /// Frame `i` of the standing body, holding `blades` in its right hand.
+    fn frame(i: usize, contact: bool, blades: Vec<Blade>) -> Frame {
+        Frame {
+            ms: i as f64 * 25.0,
+            contact,
+            nodes: BODY
+                .iter()
+                .map(|(node, _, at)| (node.to_string(), *at))
+                .collect(),
+            ref_nodes: BODY
+                .iter()
+                .map(|(_, bone, at)| (bone.to_string(), *at))
+                .collect(),
+            blades,
+            ..Frame::default()
+        }
+    }
+
+    /// A blade drawn from `hilt` to `tip`, JA's from `reference`, and the
+    /// sim's `gap` away from the drawn one along x.
+    fn blade(hilt: [f32; 3], tip: [f32; 3], reference: [[f32; 3]; 2], gap: f32) -> Blade {
+        let shift = |p: [f32; 3]| [p[0] + gap, p[1], p[2]];
+        Blade {
+            drawn: [hilt, tip],
+            reference,
+            sim: [shift(hilt), shift(tip)],
+            hand: HAND,
+            ..Blade::default()
+        }
+    }
+
+    /// The worst of `check` over `frames`.
+    fn worst(frames: &[Frame], check: Check) -> f32 {
+        let worst = measure(frames, false, false);
+        let found = worst.iter().find(|w| w.check == check);
+        found.unwrap_or_else(|| panic!("no {}", check.name())).value
+    }
+
+    fn near(what: &str, measured: f32, expected: f32) {
+        println!("{what}: {measured:.4} (expected {expected})");
+        assert!((measured - expected).abs() <= 0.001, "{what}: {measured}");
+    }
+
+    pub fn checks() {
+        // A blade held out ahead, clear of the body, its hilt in the hand.
+        let ahead = [HAND, [0.3, 1.3, 1.0]];
+        let held = |i| frame(i, false, vec![blade(ahead[0], ahead[1], ahead, 0.0)]);
+
+        let off_hand = [0.4, 0.3, 1.0];
+        let gripped = frames(4, |i| {
+            frame(i, false, vec![blade(off_hand, [0.4, 1.3, 1.0], ahead, 0.0)])
+        });
+        near("grip", worst(&gripped, Check::Grip), 0.10);
+
+        // Through the torso's capsule (radius 0.16 about x = y = 0), 0.11 m
+        // from its axis: 0.05 m deep.
+        let deep = [[-0.6, 0.11, 1.25], [0.6, 0.11, 1.25]];
+        let cut = |reference| {
+            frames(4, |i| {
+                frame(i, false, vec![blade(deep[0], deep[1], reference, 0.0)])
+            })
+        };
+        near(
+            "self-cut, reference clear",
+            worst(&cut(ahead), Check::SelfCut),
+            0.05,
+        );
+        near(
+            "self-cut, reference as deep",
+            worst(&cut(deep), Check::SelfCut),
+            0.0,
+        );
+
+        // A full turn in 0.25 s, ten steps of 36°, the reference still.
+        let spun = frames(11, |i| {
+            let angle = (i as f32 * 36.0).to_radians();
+            let tip = [HAND[0] + angle.cos(), HAND[1] + angle.sin(), HAND[2]];
+            frame(i, false, vec![blade(HAND, tip, ahead, 0.0)])
+        });
+        let spin = worst(&spun, Check::Spin);
+        println!("spin: {spin:.0} °/s");
+        assert!(spin >= 1400.0, "spin {spin}");
+
+        let growing = frames(4, |i| {
+            let far = [HAND[0] + 1.0, HAND[1], HAND[2]];
+            let blade = Blade {
+                growing: true,
+                ..blade(far, [far[0], far[1] + 1.0, far[2]], ahead, 0.0)
+            };
+            frame(i, false, vec![blade])
+        });
+        near("growing grip", worst(&growing, Check::Grip), 0.0);
+
+        let gapped = |contact| {
+            frames(4, |i| {
+                frame(i, contact, vec![blade(ahead[0], ahead[1], ahead, 0.2)])
+            })
+        };
+        near(
+            "gap outside contact",
+            worst(&gapped(false), Check::ContactGap),
+            0.0,
+        );
+        near(
+            "gap in contact",
+            worst(&gapped(true), Check::ContactGap),
+            0.2,
+        );
+        // The held blade alone is clean on every check.
+        for w in measure(&frames(4, held), true, true) {
+            near(w.check.name(), w.value, 0.0);
+        }
+    }
+}
+
 /// The script VM's probes (`kjk script probes`): programs written here,
 /// each instruction family, routine arguments and defaults, deferred
 /// code, faults. With a KOTOR install, every compiled script in every
