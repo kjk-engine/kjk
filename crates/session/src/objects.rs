@@ -77,6 +77,7 @@ pub(crate) fn toughness(read: asset_odyssey::module::Toughness) -> Toughness {
         hardness: read.hardness,
         plot: read.plot,
         min_one_hp: read.min_one_hp,
+        not_blastable: read.not_blastable,
     }
 }
 

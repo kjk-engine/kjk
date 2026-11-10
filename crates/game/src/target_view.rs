@@ -406,7 +406,7 @@ fn target(
             .max_by_key(|(tools, ..)| *tools)
             .map(|(_, id, item)| (id, item.template.clone()))
     });
-    // TSL's mine on a door, where the party carries a kit.
+    // TSL's mine on a lock, where the party carries a kit.
     let mine = level.module().is_some_and(|module| module.game == "tsl")
         && catalog.is_some_and(|catalog| {
             snapshot
@@ -478,7 +478,7 @@ fn target(
             security,
             demolitions.then(|| sim::target::Demolitions {
                 recover: row.as_ref().is_some_and(|row| !row.kit.is_empty()),
-                door_mine: mine,
+                lock_mine: mine,
             }),
         );
         let name = match &row {

@@ -66,10 +66,11 @@ int GetIsNeutral(object oTarget, object oSource);
 "#;
 
 /// Scripts that tell the player one word.
-const SAYS: [(&str, &str); 3] = [
+const SAYS: [(&str, &str); 4] = [
     ("probe_sprung", "sprung"),
     ("probe_disarmed", "disarmed"),
     ("probe_gate_sprung", "gate sprung"),
+    ("probe_unlocked", "unlocked"),
 ];
 
 fn library() -> crate::script::Library {
@@ -349,6 +350,17 @@ fn world_set(
     seats: u8,
     set_dc: u8,
 ) -> Result<crate::world::SimWorld, String> {
+    world_shaped(script, sheet, seats, set_dc, |_| {})
+}
+
+/// `world_set`, its module then changed by `shape`.
+fn world_shaped(
+    script: &str,
+    sheet: Sheet,
+    seats: u8,
+    set_dc: u8,
+    shape: impl FnOnce(&mut crate::module::ModuleData),
+) -> Result<crate::world::SimWorld, String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
     let Some(Placement::Own(gate)) = data.placements.first_mut() else {
@@ -410,6 +422,7 @@ fn world_set(
             })
             .collect(),
     };
+    shape(&mut data);
     let level = ground.with_module(data).with_scripts(library());
     crate::world::SimWorld::new(
         crate::WorldConfig {
@@ -943,7 +956,7 @@ pub(crate) fn choices() -> Vec<(&'static str, Result<String, String>)> {
     let offer = |state, recover: Option<bool>| {
         let demolitions = recover.map(|recover| crate::target::Demolitions {
             recover,
-            door_mine: false,
+            lock_mine: false,
         });
         choices(ObjectKind::Trigger, &facts, state, true, None, demolitions)
     };
@@ -1201,6 +1214,163 @@ pub(crate) fn laying() -> Vec<(&'static str, Result<String, String>)> {
         ))
     });
     checks
+}
+
+/// Where the lock-mine probe's containers stand, by the gate.
+const CHESTS_AT: [[f32; 2]; 4] = [[-1.2, 1.5], [-1.2, -1.5], [-2.2, 1.2], [-2.2, -1.2]];
+
+/// The proving ground made TSL's, its gate locked (open DC 22, no trap),
+/// four containers by it: locked against DC 20, locked against DC 21,
+/// locked but `NotBlastable`, and unlocked; each runs `probe_unlocked` as
+/// it is unlocked. The player is the soldier with Demolitions 10 and one
+/// minor frag kit (blast strength 0).
+fn lock_world() -> Result<crate::world::SimWorld, String> {
+    use crate::module::{Lock, Opens, Toughness};
+    let unlocked = || vec![("OnUnlock".to_string(), "probe_unlocked".to_string())];
+    let mut world = world_shaped("probe_sprung", skilled(0, 10), 1, 15, |data| {
+        data.game = "tsl".into();
+        if let Some(Placement::Own(gate)) = data.placements.first_mut() {
+            gate.trap = None;
+            gate.opens = Opens::Locked;
+            gate.lock = Some(Lock {
+                open_dc: 22,
+                ..Lock::default()
+            });
+            gate.scripts = unlocked();
+        }
+        let chest = |at: usize, dc: u8, opens, not_blastable| ObjectData {
+            kind: ObjectKind::Placeable,
+            container: true,
+            opens,
+            lock: Some(Lock {
+                open_dc: dc,
+                ..Lock::default()
+            }),
+            toughness: Toughness {
+                not_blastable,
+                ..Toughness::default()
+            },
+            scripts: unlocked(),
+            ..ObjectData::unknown("chest", floor_at(CHESTS_AT[at]), 0.0)
+        };
+        data.placements.extend(
+            [
+                chest(0, 20, Opens::Locked, false),
+                chest(1, 21, Opens::Locked, false),
+                chest(2, 20, Opens::Locked, true),
+                chest(3, 20, Opens::Yes, false),
+            ]
+            .map(Placement::Own),
+        );
+    })?;
+    give_kits(&mut world, 1);
+    Ok(world)
+}
+
+/// What a mine set on object `index` came to: the kit used, what its
+/// setter was told ("blast" with success, "triggered" or "refused"),
+/// whether `OnUnlock` ran, and the object locked and open after.
+#[derive(Debug, PartialEq)]
+struct Blasted {
+    kit_used: bool,
+    told: Option<&'static str>,
+    on_unlock: bool,
+    locked: bool,
+    open: bool,
+}
+
+fn blasted(index: u32) -> Result<Blasted, String> {
+    use crate::world::locks::lines;
+    let steps =
+        (crate::traps::LAY_MS + crate::traps::BLAST_MS + crate::traps::OPEN_AFTER_MS) / 8 + 10;
+    let mut world = lock_world()?;
+    let done = stretch(
+        &mut world,
+        1,
+        steps,
+        BY_GATE,
+        &[(Seat(0), Action::Mine(index))],
+    );
+    let told = done.notices.iter().find_map(|(_, notice)| match notice {
+        Notice::Blast { success: true, .. } => Some("blast succeeded"),
+        Notice::Blast { success: false, .. } => Some("blast failed"),
+        Notice::Line(lines::MINE_TRIGGERED) => Some("triggered"),
+        Notice::Line(lines::CANNOT_USE_SKILL) => Some("refused"),
+        _ => None,
+    });
+    let instances = crate::Instances::in_snapshot(world.level(), &done.last);
+    let opens = instances.get(index).ok_or("no such object")?.opens;
+    let state = done
+        .last
+        .entities
+        .iter()
+        .find_map(|entity| match entity.kind {
+            crate::Kind::Object(_, i) if i == index => entity.object,
+            _ => None,
+        })
+        .ok_or("no state")?;
+    Ok(Blasted {
+        kit_used: !world
+            .script_state()
+            .items
+            .values()
+            .any(|item| item.template == "g_i_trapkit004"),
+        told,
+        on_unlock: said(&done.notices, "unlocked"),
+        locked: state.locked(opens),
+        open: state.state != 0,
+    })
+}
+
+/// TSL's mines on locks (`world::traps::blasts`): set on the locked gate
+/// it blasts it (20 + 10/2 against 22, line 128535), its `OnUnlock` runs and
+/// it opens; on a container it blasts by a twentieth of Demolitions
+/// (20 + 0: DC 20 is unlocked, DC 21 holds; the setter told "You triggered
+/// a Mine!" either way); refused on a `NotBlastable` lock and an unlocked
+/// one, the kit kept.
+pub(crate) fn lock_mines() -> Vec<(&'static str, Result<String, String>)> {
+    let first_chest = 6;
+    let outcome = |kit_used, told, on_unlock, locked, open| Blasted {
+        kit_used,
+        told: Some(told),
+        on_unlock,
+        locked,
+        open,
+    };
+    let cases = [
+        (
+            "lock_mine_door",
+            GATE,
+            outcome(true, "blast succeeded", true, false, true),
+        ),
+        (
+            "lock_mine_container",
+            first_chest,
+            outcome(true, "triggered", true, false, false),
+        ),
+        (
+            "lock_mine_container_holds",
+            first_chest + 1,
+            outcome(true, "triggered", false, true, false),
+        ),
+        (
+            "lock_mine_not_blastable",
+            first_chest + 2,
+            outcome(false, "refused", false, true, false),
+        ),
+        (
+            "lock_mine_unlocked",
+            first_chest + 3,
+            outcome(false, "refused", false, false, false),
+        ),
+    ];
+    cases
+        .into_iter()
+        .map(|(name, index, want)| {
+            let got = blasted(index).map(|got| check(got == want, format!("{got:?}")));
+            (name, got.and_then(|checked| checked))
+        })
+        .collect()
 }
 
 /// `stretch`, the ally at `ally`.

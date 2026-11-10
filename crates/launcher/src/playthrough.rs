@@ -1822,9 +1822,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     {
                                         command = walking()
                                     }
-                                    // A mine set on the door, again while
-                                    // none stands set on it, until it
-                                    // stands open (blasted).
+                                    // A mine set on the door or placeable,
+                                    // again while none stands set on it,
+                                    // until a door stands open or a
+                                    // placeable is unlocked (blasted).
                                     Goal::Mine(_) => {
                                         command = facing(&player, at);
                                         let set = here.entity(index).is_some_and(|e| {
@@ -1836,7 +1837,11 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                             input.act(Seat(0), Action::Mine(index));
                                             pressed_at = now.max(1);
                                         }
-                                        met = object_of(&here, index).state != 0;
+                                        let state = object_of(&here, index);
+                                        met = match data.as_deref() {
+                                            Some(d) if d.kind == ObjectKind::Placeable => !state.locked(d.opens),
+                                            _ => state.state != 0,
+                                        };
                                     }
                                     // Struck with what is in hand, as a
                                     // player attacks it, until it breaks

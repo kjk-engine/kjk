@@ -293,6 +293,7 @@ fn scenario() -> Result<Ran, String> {
             hardness,
             plot,
             min_one_hp,
+            ..Toughness::default()
         };
         data.placements.extend(
             [
