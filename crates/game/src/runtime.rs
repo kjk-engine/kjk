@@ -164,7 +164,11 @@ pub fn run(options: RunOptions) -> AppExit {
         .insert_resource(CaptureTarget::PrimaryWindow);
     }
     laps.lap("engine (window, render device)");
-    app.add_plugins((ScenePlugin, crate::executors::ExecutorsPlugin));
+    app.add_plugins((
+        crate::render_backend::RenderBackendPlugin,
+        ScenePlugin,
+        crate::executors::ExecutorsPlugin,
+    ));
     if thunder {
         // Its mixer first, so the plugin opens no menu one.
         crate::sound::install(app.world_mut(), crate::sound::Bank::default());
