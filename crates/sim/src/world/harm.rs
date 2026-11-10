@@ -24,7 +24,7 @@ pub(super) fn hurt(
     mut battering: ResMut<objects::Battering>,
     mut notices: ResMut<crate::notice::Notices>,
     mut module: ResMut<Module>,
-    (scene_held, talking): (Res<scene::Held>, Res<Talking>),
+    (scene_held, talking, saber_rules): (Res<scene::Held>, Res<Talking>, Res<super::Rules>),
     mut states_ended: ResMut<scripts::StatesEnded>,
     benched: Query<(&Benched, &PlayerSheet)>,
     mut actors: Query<(
@@ -881,10 +881,13 @@ pub(super) fn hurt(
             && resolved.damage > 0
             && clock.time_ms >= fighting.0.pain_until
         {
-            // A blade's graze flinches by the chance alone
-            // (`rules::combat::flinch::BLADE_SHARE`).
+            // Under the duel modes a blade's graze flinches by the chance
+            // alone (`rules::combat::flinch::BLADE_SHARE`); JA's every blade
+            // blow flinches, and a scene plays by JA's.
             let cut = match hit.source {
-                Source::Weapon { share, .. } => share >= rules::combat::flinch::BLADE_SHARE,
+                Source::Weapon { share, .. } if saber_rules.0.duel() && !scene => {
+                    share >= rules::combat::flinch::BLADE_SHARE
+                }
                 _ => true,
             };
             let chance = death::pain_chance(

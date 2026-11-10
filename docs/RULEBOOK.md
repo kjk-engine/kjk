@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `2ae1cdc411333c93`.
+Edition `7f8bbc7a27cdb7fd`.
 
 ## Contents
 
@@ -726,7 +726,7 @@ The penalties of feat attacks last one round.
 
 <a id="combat-timing-combat-ms"></a>**Combat Duration** = **8 seconds** (`8000 ms`) · `combat.timing.combat_ms`
 
-A character remains in combat for 8 seconds after it attacks or is hit, and a creature in combat stays in it while it keeps its foe in sight and within the fight's reach. While in combat, its weapon stays drawn, Stealth Mode cannot be entered, and the battle music plays.
+A character remains in combat for 8 seconds after it attacks or is hit. While in combat, its weapon stays drawn, Stealth Mode cannot be entered, and the battle music plays.
 
 <sub>Source: reone (the deactivation delay after the last round). Code: `sim::combat::COMBAT_MS`.</sub>
 
@@ -739,7 +739,8 @@ Switching weapons during combat takes 1 second. Outside of combat, the switch is
 ### <a id="combat-flinch"></a>Flinching
 
 A creature that is hit may flinch, losing its next action until it
-recovers. A surprised creature, or one cut by a blade (not a graze), always flinches.
+recovers. A surprised creature, or one struck by a blade, always flinches
+(under the duel saber rules, only a cut, not a graze).
 Otherwise the chance grows with the creature's wounds and the size of the
 hit, and a hit that takes more than half of its maximum vitality points
 always causes a flinch. Droids flinch only when surprised or struck by a
@@ -757,7 +758,7 @@ A creature's chance to flinch from a hit is divided by 2.
 
 <a id="combat-flinch-blade-share"></a>**Blade Flinch Cut** = **60%** (`600 ‰`) · `combat.flinch.blade_share`
 
-A blade's blow makes its target flinch for certain only when it carries at least 60% of a full cut; a lighter graze flinches by the chance above.
+Under the MD and MDA saber rules a blade's blow makes its target flinch for certain only when it carries at least 60% of a full cut; a lighter graze flinches by the chance above.
 
 Two blades or a double-bladed weapon land more, lighter cuts than one blade, each blade's pass a graze: without this their foe would flinch at every one and hardly swing back.
 
@@ -3094,7 +3095,7 @@ Damage follows the time between blows, so faster swings alone add little: this i
 
 Staff **100%** · Dual **60%**
 
-Blows of the staff style also carry 100% of the double-bladed weapon's other end's own attack, and blows of the dual style 60% of the off hand's, each at its own chance to hit.
+Under the MD and MDA saber rules, blows of the staff style also carry 100% of the double-bladed weapon's other end's own attack, and blows of the dual style 60% of the off hand's, each at its own chance to hit.
 
 Both blades of a swing share one blow, so the second blade's attack rides on it as KOTOR's second attack a round. Two-Weapon Fighting's penalties to hit apply to each hand. A pair's quicker, longer cuts land more often than a staff's, so its share is less.
 
@@ -4146,10 +4147,6 @@ as much.
 A target that knows Force Push and stands with a free hand resists a
 throw of its own rank or lower. A target already on the ground is not
 thrown, and a strong enough push frees the Jedi from a Choke.
-
-What KOTOR's push does after its knockdown, such as the stun as the
-target gets up, happens once everyone the throw caught is on their feet
-again, or at KOTOR's own time if that comes first.
 
 <a id="force-push-aimed-reach"></a>**Force Push Range** = **13 meters** (`512 units`) · `force.push.aimed_reach`
 

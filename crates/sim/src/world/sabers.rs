@@ -578,12 +578,15 @@ impl Step<'_> {
         let Some(at) = self.find(blow.by) else {
             return;
         };
+        let rules = self
+            .find(victim)
+            .map_or(self.own_rules(at), |d| self.pair_rules(at, d));
         let man = &self.men[at];
         let swung = |hand: u8| man.kit.swing(blow.style, in_hand(&man.sheet, &man.f, hand));
-        // Both blades out: the second's own attack (`damage::Second`), the
-        // pair's other hand, the staff's other end.
+        // Both blades out under the duel modes: the second's own attack
+        // (`damage::Second`), the pair's other hand, the staff's other end.
         let second = (blow.style.second_attack())
-            .filter(|_| man.f.saber.thrown.is_none())
+            .filter(|_| rules.duel() && man.f.saber.thrown.is_none())
             .map(|share| damage::Second {
                 weapon: match blow.style {
                     Style::Dual => swung(1 - blow.hand.min(1)),

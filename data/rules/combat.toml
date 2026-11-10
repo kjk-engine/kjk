@@ -368,7 +368,8 @@ see = "sim::combat::SWAP_MS"
 title = "Flinching"
 summary = """
 A creature that is hit may flinch, losing its next action until it
-recovers. A surprised creature, or one cut by a blade (not a graze), always flinches.
+recovers. A surprised creature, or one struck by a blade, always flinches
+(under the duel saber rules, only a cut, not a graze).
 Otherwise the chance grows with the creature's wounds and the size of the
 hit, and a hit that takes more than half of its maximum vitality points
 always causes a flinch. Droids flinch only when surprised or struck by a
@@ -397,7 +398,7 @@ type = "u16"
 value = 600
 unit = "‰"
 range = [0, 1000]
-summary = "A blade's blow makes its target flinch for certain only when it carries at least {combat.flinch.blade_share:pct} of a full cut; a lighter graze flinches by the chance above."
+summary = "Under the MD and MDA saber rules a blade's blow makes its target flinch for certain only when it carries at least {combat.flinch.blade_share:pct} of a full cut; a lighter graze flinches by the chance above."
 detail = "Two blades or a double-bladed weapon land more, lighter cuts than one blade, each blade's pass a graze: without this their foe would flinch at every one and hardly swing back."
 source = "ours, measured with `kjk combat balance` (a double wielder's foe against a single blade's)"
 see = "sim::combat::death::pain_chance"

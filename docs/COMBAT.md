@@ -158,10 +158,10 @@ kill, Q-0044) → Min1HP floor. Integer hundredths, saturating;
 dice from the `authority` stream. A death picks JA's death animation
 (`combat::death`) and move_body goes limp; a creature that lives may flinch
 (JA's NPC pain odds at medium skill; always to a blade, a saber's as JA's,
-a sword's or vibroblade's too: the owner's balance of 2026-10-15; but a
-blade's graze, a blow of less than `flinch.blade_share` of a cut, only by
-the odds, else a pair's or a staff's lighter cuts kept its foe from ever
-swinging back), doing nothing new until it has played.
+a sword's or vibroblade's too: the owner's balance of 2026-10-15; but
+under the duel modes a blade's graze, a blow of less than
+`flinch.blade_share` of a cut, only by the odds, else a pair's or a staff's
+lighter cuts kept its foe from ever swinging back; JA's flinch stays), doing nothing new until it has played.
 
 A death KOTOR stages is KOTOR's own instead (`death::in_place`): one in
 a scene (`scene::Held::scene`: a conversation holds the world, or the
@@ -978,14 +978,14 @@ is instant.
   the fast, its blows counting more pace (`Kit::paced`); the dual and staff
   styles carry the line chosen for them (`combat::picks`), none until one
   is. Both blades of a dual or staff swing share its one roll's budget, so
-  each blow also carries the second blade's own attack (`damage::Second`:
+  under the duel modes each blow also carries the second blade's own attack (`damage::Second`:
   the off hand's weapon or the staff's other end, its own roll at its own
   chance to hit, two-weapon fighting's penalty for each hand), KOTOR's
   second attack a round: the staff's whole, the pair's 60%
   (`Style::second_attack`; a pair's quicker, longer cuts land more often).
   Before it a pair or a staff dealt about what one blade does where KOTOR
-  has 1.3 to 1.7 times (`kjk combat balance`, 2026-11-08), under JA as
-  under the duel modes. `kjk combat duel --only feat_worth` measures each. Kicks (`saber::kick`): 2 or 3 JA
+  has 1.3 to 1.7 times (`kjk combat balance`, 2026-11-08). JA's blows
+  carry no second attack: under JA nothing differs from before. `kjk combat duel --only feat_worth` measures each. Kicks (`saber::kick`): 2 or 3 JA
   points, a toss, a 700 ms knockdown for the busy and the bladeless.
 - **Blocks** (`saber::defence`): a holder not attacking turns blows
   within its arc, and the blow it meets is held (no crush of a block by
