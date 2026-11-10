@@ -27,7 +27,7 @@ counter checks and `weapon_alpha_without_txi_solid` approved
 2026-11-07; `startup_files`, `characters_solid_and_unstuck` and
 `crosshair_action_points` approved 2026-11-10, with the second companion
 moved aside in `guests_drive_companions`);
-`cargo xtask publish-check` refuses tests anywhere else. All ninety-six
+`cargo xtask publish-check` refuses tests anywhere else. All 102
 are in `tests/approved.rs` and call library code (no window). The save
 editor's `save_edits` is built only with `--features editor` and run by
 `editor.yml` when the editor or the saves change, never by `ci.yml` or a
