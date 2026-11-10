@@ -40,6 +40,13 @@ fn only_class() -> Option<String> {
     std::env::var("KJK_PROP_HALL_CLASS").ok()
 }
 
+/// The `placeables.2da` rows the hall lays alone (`KJK_PROP_HALL_ROWS`, a
+/// comma list), if it is told some: a few kinds side by side to film.
+fn only_rows() -> Option<Vec<u16>> {
+    let rows = std::env::var("KJK_PROP_HALL_ROWS").ok()?;
+    Some(rows.split(',').filter_map(|row| row.trim().parse().ok()).collect())
+}
+
 /// How far in from the doorway the first row stands (metres).
 const FIRST_ROW: f32 = 5.0;
 /// The most room a model's bounding box may ask for across (metres): some
@@ -171,9 +178,10 @@ pub fn props(resolver: &Resolver, game: &str) -> Result<Vec<Prop>, String> {
     let mut props = Vec::new();
     let copies = copies();
     let gap = if copies > 1 { PACKED_GAP } else { GAP };
-    let only = only_class();
+    let (only, rows) = (only_class(), only_rows());
     let kinds: Vec<Kind> = (kinds(game).into_iter())
         .filter(|kind| only.as_deref().is_none_or(|class| kind.class == class))
+        .filter(|kind| (rows.as_ref()).is_none_or(|rows| rows.contains(&kind.appearance)))
         .collect();
     for kind in kinds.iter().flat_map(|kind| std::iter::repeat_n(kind, copies)) {
         let walkmesh = walkmesh_box(resolver, &table, kind.appearance);
@@ -209,6 +217,15 @@ pub fn props(resolver: &Resolver, game: &str) -> Result<Vec<Prop>, String> {
         });
         x += wide + gap;
         row_depth = row_depth.max(deep);
+    }
+    // A few kinds told by row stand centred before the doorway, to film.
+    if rows.is_some()
+        && let (Some(first), Some(last)) = (props.first(), props.last())
+    {
+        let shift = -(first.at[0] + last.at[0]) / 2.0;
+        for prop in &mut props {
+            prop.at[0] += shift;
+        }
     }
     Ok(props)
 }
