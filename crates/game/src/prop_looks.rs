@@ -493,12 +493,45 @@ struct Jolt {
     class: Class,
 }
 
+/// What the pieces cost since the last dump (`destruction` in its facts):
+/// the frames, the pieces' world's steps (ms: total, worst), and the most
+/// pieces drawn and bodies moving in a frame.
+#[derive(Resource, Default)]
+struct Cost {
+    frames: u32,
+    step_ms: (f64, f64),
+    pieces: usize,
+    moving: usize,
+}
+
+impl Cost {
+    fn add(&mut self, step_ms: f64, pieces: usize, moving: usize) {
+        self.frames += 1;
+        self.step_ms = (self.step_ms.0 + step_ms, self.step_ms.1.max(step_ms));
+        self.pieces = self.pieces.max(pieces);
+        self.moving = self.moving.max(moving);
+    }
+
+    /// The facts, and the window started over.
+    fn facts(&mut self) -> serde_json::Value {
+        let cost = std::mem::take(self);
+        serde_json::json!({
+            "frames": cost.frames,
+            "step_ms_mean": cost.step_ms.0 / f64::from(cost.frames.max(1)),
+            "step_ms_max": cost.step_ms.1,
+            "pieces_max": cost.pieces,
+            "moving_max": cost.moving,
+        })
+    }
+}
+
 pub struct PropLooksPlugin;
 
 impl Plugin for PropLooksPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Fractures>()
             .init_resource::<PropLooks>()
+            .init_resource::<Cost>()
             .add_systems(
                 PostUpdate,
                 (start_over, hits, stages, wrecks, fly)
@@ -1451,9 +1484,16 @@ fn fly(
     mut looks: ResMut<PropLooks>,
     mut pieces: Query<(Entity, &mut Flying, &mut Transform)>,
     time: Res<Time>,
+    (mut cost, mut facts): (ResMut<Cost>, ResMut<console::DumpFacts>),
 ) {
     let now_ms = time.elapsed_secs_f64() * 1000.0;
+    let stepped = std::time::Instant::now();
     looks.world.step(time.delta_secs());
+    let step_ms = stepped.elapsed().as_secs_f64() * 1000.0;
+    cost.add(step_ms, pieces.iter().len(), looks.world.counts().1);
+    if facts.wanted() {
+        facts.0.insert("destruction".into(), cost.facts());
+    }
     looks.jolts.retain(|_, jolt| {
         let degrees = shake(jolt.size, jolt.class, (now_ms - jolt.since_ms) as f32);
         let turned = Quat::from_axis_angle(jolt.axis, degrees.to_radians()) * jolt.rest.rotation;

@@ -19,6 +19,19 @@ const CATALOGUE: &str = include_str!("../../../data/destruction/props.csv");
 
 /// The room between props, and between them and the hall's walls (metres).
 const GAP: f32 = 2.0;
+/// The room between props when each kind stands more than once (metres):
+/// packed, for a blast to catch many.
+const PACKED_GAP: f32 = 0.4;
+
+/// How many of each kind the hall lays (`KJK_PROP_HALL_COPIES`, 1 by
+/// default): more make it destruction's stress test.
+fn copies() -> usize {
+    std::env::var("KJK_PROP_HALL_COPIES")
+        .ok()
+        .and_then(|copies| copies.parse().ok())
+        .unwrap_or(1)
+        .max(1)
+}
 /// How far in from the doorway the first row stands (metres).
 const FIRST_ROW: f32 = 5.0;
 /// The most room a model's bounding box may ask for across (metres): some
@@ -148,7 +161,10 @@ pub fn props(resolver: &Resolver, game: &str) -> Result<Vec<Prop>, String> {
     let [[x0, y0], [x1, y1]] = HALL;
     let (mut x, mut y, mut row_depth) = (x0 + GAP, y0 + FIRST_ROW, 0.0f32);
     let mut props = Vec::new();
-    for kind in kinds(game) {
+    let copies = copies();
+    let gap = if copies > 1 { PACKED_GAP } else { GAP };
+    let kinds = kinds(game);
+    for kind in kinds.iter().flat_map(|kind| std::iter::repeat_n(kind, copies)) {
         let walkmesh = walkmesh_box(resolver, &table, kind.appearance);
         let half = room_of(kind.size) / 2.0;
         let model = model_box(resolver, &table, kind.appearance);
@@ -160,7 +176,7 @@ pub fn props(resolver: &Resolver, game: &str) -> Result<Vec<Prop>, String> {
         let [least, most] = turned(room);
         let (wide, deep) = (most[0] - least[0], most[1] - least[1]);
         if x + wide > x1 - GAP {
-            (x, y, row_depth) = (x0 + GAP, y + row_depth + GAP, 0.0);
+            (x, y, row_depth) = (x0 + GAP, y + row_depth + gap, 0.0);
         }
         if y + deep > y1 - GAP {
             return Err(format!(
@@ -180,7 +196,7 @@ pub fn props(resolver: &Resolver, game: &str) -> Result<Vec<Prop>, String> {
             destructible: sim::destruction::catalogue(game, kind.appearance),
             model_box: model.map(|[min, max]| sim::module::Bulk { min, max }),
         });
-        x += wide + GAP;
+        x += wide + gap;
         row_depth = row_depth.max(deep);
     }
     Ok(props)
