@@ -19,7 +19,6 @@ use audio::{
 };
 use bevy::prelude::*;
 use console::{DumpDue, DumpFacts, GameClock, RunFolder};
-use fmt_odyssey::ResType;
 use sim::{Seat, SimId};
 use store::{Key, Store};
 use vfs::resolver::Resolver;
@@ -66,20 +65,9 @@ pub fn load(
     bank
 }
 
-/// A KOTOR sound's file by resref: a WAV of the install's layers, else of
-/// a stream folder (music, sounds, voices), as the games look them up.
+/// A KOTOR sound's file by resref (`Resolver::sound`).
 pub fn kotor_file(resolver: &Resolver, resref: &str) -> Option<Vec<u8>> {
-    let wav = ResType::WAV;
-    let location = resolver.find(resref, wav).map(|found| found.location);
-    location
-        .or_else(|| {
-            resolver
-                .streams
-                .iter()
-                .find_map(|layer| layer.resources.get(&(resref.to_ascii_lowercase(), wav)))
-        })?
-        .read()
-        .ok()
+    resolver.sound(resref)?.read().ok()
 }
 
 impl Bank {

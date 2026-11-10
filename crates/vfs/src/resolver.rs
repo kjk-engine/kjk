@@ -713,6 +713,21 @@ impl Resolver {
         })
     }
 
+    /// A sound by resref as the games look one up: a WAV of the layers,
+    /// else of any stream folder (music, sounds, voices), there a WAV or an
+    /// MP3 (`stream`; a mod's new tracks are MP3s, TSLRCM's
+    /// `mus_a_arriv.mp3`).
+    pub fn sound(&self, resref: &str) -> Option<&Location> {
+        let wav = ResType::WAV;
+        self.find(resref, wav)
+            .map(|found| found.location)
+            .or_else(|| {
+                self.streams
+                    .iter()
+                    .find_map(|layer| self.stream(&layer.name, resref, wav))
+            })
+    }
+
     /// A voiced line's WAV: K1's `streamwaves`, TSL's `streamvoice`.
     pub fn voice(&self, resref: &str) -> Option<&Location> {
         let wav = ResType::WAV;

@@ -9,9 +9,12 @@ the mixer starts each then. What plays when: the fight's in `COMBAT.md`,
 - **Files** through `vfs`, decoded once at load; nothing is copied out.
   Names are JA's code's; one missing as a WAV is read as the MP3 of that
   name, as JA does (most of JA's sounds are MP3s). KOTOR's are `k1/<resref>`
-  (`sound::kotor_file`: a WAV of the install's layers, else of any stream
-  folder, as the games look them up; `audio::Clip::kotor`: bytes before a
-  `RIFF` passed over (the ambience's whole MP3 frame, `FF F3 60 C4`), an
+  (`sound::kotor_file`, `Resolver::sound`: a WAV of the install's layers,
+  else of any stream folder, there a WAV or an MP3 of the name (a mod's
+  new tracks, TSLRCM's), as the games look them up; one that does not read
+  is warned of once, as is a music row `ambientmusic.2da` lacks;
+  `audio::Clip::kotor`: bytes before a `RIFF` passed over (the ambience's
+  whole MP3 frame, `FF F3 60 C4`), an
   MP3 behind an empty `data` chunk taken out, IMA ADPCM decoded block by
   block by `fmt_odyssey::wav::Ima`).
 - **Beds are streamed** (`audio::Stream`): music, ambience and a movie's

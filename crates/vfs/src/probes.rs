@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use fmt_odyssey::ResType;
 
-use crate::resolver::{Resolver, TextureQuality};
+use crate::resolver::{Location, Resolver, TextureQuality};
 use crate::{DirIndex, Game, WorkshopFolder};
 
 /// One resource of an archive written here: its name, type and bytes.
@@ -576,7 +576,8 @@ fn workshop_module_rims() -> Result<String, String> {
 
 /// `dialog.tlk`, movies and each stream folder's files are the last
 /// item's that has them, the game folder's when none has; an item's `.mp3`
-/// is the sound of its name as a `.wav` is.
+/// is the sound of its name as a `.wav` is, to the stream folder and to a
+/// sound asked for by name (`Resolver::sound`, the music's lookup).
 fn workshop_talk_and_streams() -> Result<String, String> {
     let files = [
         ("dialog.tlk", b"game".to_vec()),
@@ -616,6 +617,11 @@ fn workshop_talk_and_streams() -> Result<String, String> {
             .transpose()
             .map_err(|error| error.to_string())?;
         let mut got = vec![format!("dialog.tlk={}", talk.unwrap_or_else(|| "-".into()))];
+        let text = |found: Option<&Location>| match found.map(Location::read) {
+            Some(Ok(bytes)) => String::from_utf8_lossy(&bytes).into_owned(),
+            Some(Err(error)) => error.to_string(),
+            None => "-".into(),
+        };
         for (folder, name, restype) in [
             ("streammusic", "a", ResType::WAV),
             ("streammusic", "b", ResType::WAV),
@@ -623,16 +629,10 @@ fn workshop_talk_and_streams() -> Result<String, String> {
             ("streammusic", "d", ResType::WAV),
             ("movies", "m", ResType::BIK),
         ] {
-            let bytes = base
-                .stream(folder, name, restype)
-                .map(|location| location.read());
-            let text = match bytes {
-                Some(Ok(bytes)) => String::from_utf8_lossy(&bytes).into_owned(),
-                Some(Err(error)) => error.to_string(),
-                None => "-".into(),
-            };
-            got.push(format!("{folder}/{name}={text}"));
+            let found = text(base.stream(folder, name, restype));
+            got.push(format!("{folder}/{name}={found}"));
         }
+        got.push(format!("sound c={}", text(base.sound("c"))));
         Ok(got)
     });
     remove(&written);
@@ -644,6 +644,7 @@ fn workshop_talk_and_streams() -> Result<String, String> {
         "streammusic/c=w2",
         "streammusic/d=game",
         "movies/m=w2",
+        "sound c=w2",
     ];
     if got == expected {
         Ok(got.join(", "))
