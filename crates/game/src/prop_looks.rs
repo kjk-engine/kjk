@@ -309,7 +309,11 @@ fn cuttable(ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> (Vec<Plain>
                 .iter()
                 .filter_map(|name| textures.get(name).map(|texture| &texture.facts))
                 .collect();
-            let surface = material::surface((mesh.transparency_hint, false), mesh.alpha, &facts);
+            let surface = material::surface(
+                (mesh.transparency_hint, false),
+                mesh.alpha,
+                (facts.first().copied(), &facts),
+            );
             let open = facts.iter().any(|facts| facts.two_sided || facts.decal);
             let plain = Plain {
                 positions: ir.placed(mesh, &rest, &mesh.positions, 1.0),
