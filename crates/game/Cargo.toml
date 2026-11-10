@@ -38,6 +38,7 @@ ragdoll.workspace = true
 session.workspace = true
 rules.workspace = true
 net.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 # The duel stances' table (`data/duel_stances.toml`).
 toml_edit = { version = "0.25", default-features = false, features = ["parse"] }

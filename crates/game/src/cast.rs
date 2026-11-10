@@ -784,6 +784,13 @@ pub struct Figure {
     /// sequences for JA's.
     duel: Option<Option<u16>>,
     duel_shown: [bool; 2],
+    /// The names of the sequences its legs and torso play as last steered
+    /// from the sim's skeleton: the sim's own, or the ones `duel_swap` put
+    /// in their place. None while it is not steered that way.
+    shown: Option<[String; 2]>,
+    /// `duel_swap` put another sequence in place of a part at the last
+    /// step.
+    swapped: bool,
     /// Its saber move cuts (an attack, a special, a parry; not a start, a
     /// return, a transition or none): only then do the hands reach for the
     /// sim's blades in full (`reach_share`).
@@ -859,6 +866,8 @@ impl Figure {
             holding: false,
             duel: None,
             duel_shown: [false; 2],
+            shown: None,
+            swapped: false,
             cuts: false,
             breath: stance::Breath::default(),
             off_hand: OffHand::default(),
@@ -1075,8 +1084,14 @@ impl Figure {
                 let way = crate::duel_stances::Quadrant::of(command.forward, command.right);
                 (f.saber.duel.aimed, way)
             });
-            let duel = self.duel_swap(rig, &mut parts, lit, guard);
-            if duel.contains(&true) {
+            let swaps = self.duel_swap(rig, &mut parts, lit, guard);
+            let duel = swaps.map(|swap| swap.is_some());
+            self.swapped = duel.contains(&true);
+            let names = [0, 1].map(|part| swaps[part].unwrap_or(parts[part].anim.name()));
+            if self.shown_parts() != Some(names) {
+                self.shown = Some(names.map(String::from));
+            }
+            if self.swapped {
                 // Its own stance moves; JA's held pose does not breathe.
                 self.holding = false;
             }
@@ -1091,6 +1106,8 @@ impl Figure {
             return;
         }
         self.adopted = [None; 2];
+        self.shown = None;
+        self.swapped = false;
         self.away = away;
         let torso = if away {
             (p.legs.anim, p.legs.flip)
@@ -1143,17 +1160,18 @@ impl Figure {
     /// walks on, replayed over the sequence its look draws for it
     /// (`duel_stances`), while its blade is `lit`; under a held block
     /// (`guard`: whether aimed, where its holder moves) over the block's
-    /// pose, the legs walking on: which parts were.
-    fn duel_swap(
+    /// pose, the legs walking on: the name of the sequence each part plays
+    /// instead, for the parts that were.
+    fn duel_swap<'r>(
         &self,
-        rig: &Rig,
+        rig: &'r Rig,
         parts: &mut [sim::combat::saber::blades::Shown; 2],
         lit: bool,
         guard: Option<(bool, Option<crate::duel_stances::Quadrant>)>,
-    ) -> [bool; 2] {
+    ) -> [Option<&'r str>; 2] {
         use crate::duel_stances::DuelStances;
         let look = self.duel.flatten().filter(|_| lit);
-        let mut swapped = [false; 2];
+        let mut swapped = [None; 2];
         for (part, (shown, swapped)) in parts.iter_mut().zip(&mut swapped).enumerate() {
             let guarded = guard
                 .filter(|_| lit && DuelStances::guarded(shown.anim))
@@ -1162,7 +1180,7 @@ impl Figure {
             if let Some(other) = guarded.or_else(|| rig.duel.swap(look, shown.anim)) {
                 let own = rig.sequences.get(shown.anim.name());
                 *shown = crate::duel_stances::replayed(*shown, own, other);
-                *swapped = true;
+                *swapped = Some(other.name.as_str());
             }
         }
         swapped
@@ -1338,6 +1356,35 @@ impl Figure {
     /// Its hand grips a blade as last posed.
     pub fn blade(&self) -> bool {
         self.blade
+    }
+
+    /// The names of the sequences its legs and torso play, as last steered
+    /// from the sim's skeleton, after `duel_swap`. None while it is not
+    /// steered that way (dead, or drawn the cgame's way).
+    pub fn shown_parts(&self) -> Option<[&str; 2]> {
+        self.shown
+            .as_ref()
+            .map(|[legs, torso]| [legs.as_str(), torso.as_str()])
+    }
+
+    /// `duel_swap` put another sequence in place of a part at the last step.
+    pub fn swapped(&self) -> bool {
+        self.swapped
+    }
+
+    /// Its saber move cuts at the last step (`reach_share`).
+    pub fn cuts(&self) -> bool {
+        self.cuts
+    }
+
+    /// Where each of JA's bones `names` (any case) is in the JA pose at
+    /// `ms` (model space, metres), for the bones the skeleton has.
+    pub fn ja_points<'n>(&self, ms: f64, names: &[&'n str]) -> Vec<(&'n str, Vec3)> {
+        let pose = self.pose(ms);
+        names
+            .iter()
+            .filter_map(|&name| Some((name, self.g2.bone_point(&pose, self.g2.bone(name)?))))
+            .collect()
     }
 
     /// When its snapshots first said it was dead (sim ms).
