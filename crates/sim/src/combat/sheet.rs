@@ -679,15 +679,26 @@ impl Sheet {
         }
     }
 
-    /// Its most FP (`GetMaxForcePoints`): the sheet's with TSL's bonus
-    /// (`bonus_fp`, a plain add as its executable makes it), never below 0.
-    /// The bonus counts only for a Force user: anyone else's bar is
-    /// stamina (`pool`).
+    /// Its most FP (`GetMaxForcePoints`), worked out as both executables
+    /// do each time it is asked: the sheet's own (`max_fp`: the force dice
+    /// its levels rolled, a template's `ForcePoints`, Force Sensitive's)
+    /// plus the Wisdom modifier a level, and in K1 the Charisma modifier a
+    /// level too (TSL counts Wisdom alone), plus TSL's bonus (`bonus_fp`);
+    /// never below its level. So an ability raised, by a level or an
+    /// item, moves it at once, as it does there. It counts only for a
+    /// Force user: anyone else's bar is stamina (`pool`).
     pub fn force_points(&self) -> u16 {
         if self.max_fp == 0 {
             return 0;
         }
-        (i32::from(self.max_fp) + i32::from(self.bonus_fp)).clamp(0, i32::from(u16::MAX)) as u16
+        let mut per_level = self.modifier(Ability::Wisdom);
+        if self.flags & flags::TSL == 0 {
+            per_level += self.modifier(Ability::Charisma);
+        }
+        let level = i32::from(self.level);
+        (i32::from(self.max_fp) + per_level * level + i32::from(self.bonus_fp))
+            .max(level)
+            .clamp(0, i32::from(u16::MAX)) as u16
     }
 
     /// The weapon in the right hand, else fists.

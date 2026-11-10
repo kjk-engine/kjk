@@ -235,11 +235,11 @@ impl Engine<'_> {
             ),
             // The base score moved as a byte (it wraps); Constitution's
             // change moves the most hit points and the hit points with it,
-            // Wisdom's a Force user's most FP, each by the modifier's change
-            // a level.
+            // by the modifier's change a level (a Force user's most FP
+            // follows Wisdom by itself: `Sheet::force_points`).
             AdjustCreatureAttributes => {
                 let who = object(args, 0);
-                let (Some(ability), Some((c, mut sheet))) = (
+                let (Some(ability), Some((_, mut sheet))) = (
                     usize::try_from(int(args, 1))
                         .ok()
                         .and_then(|at| Ability::ALL.get(at).copied()),
@@ -251,19 +251,15 @@ impl Engine<'_> {
                 let score = &mut sheet.abilities[ability as usize];
                 *score = score.wrapping_add(int(args, 2) as u8);
                 let by = (sheet.modifier(ability) - before) * i32::from(sheet.level);
-                let moved = |most: u16| (i32::from(most) + by).clamp(0, i32::from(u16::MAX)) as u16;
                 let mut hp = None;
-                match ability {
-                    Ability::Constitution => {
-                        sheet.max_hp = moved(sheet.max_hp).max(1);
-                        hp = self
-                            .view
-                            .thing(who)
-                            .and_then(|thing| thing.hp)
-                            .map(|(hp, _)| (hp + by).clamp(1, i32::from(sheet.max_hp)) as u16);
-                    }
-                    Ability::Wisdom if c.worn.max_fp > 0 => sheet.max_fp = moved(sheet.max_fp),
-                    _ => {}
+                if ability == Ability::Constitution {
+                    sheet.max_hp =
+                        (i32::from(sheet.max_hp) + by).clamp(1, i32::from(u16::MAX)) as u16;
+                    hp = self
+                        .view
+                        .thing(who)
+                        .and_then(|thing| thing.hp)
+                        .map(|(hp, _)| (hp + by).clamp(1, i32::from(sheet.max_hp)) as u16);
                 }
                 self.out.changes.push(Change::Sheet { who, sheet });
                 if let Some(hp) = hp {
