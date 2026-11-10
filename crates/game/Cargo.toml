@@ -46,6 +46,12 @@ winit = { version = "0.30", default-features = false }
 tracing-chrome.workspace = true
 rfd.workspace = true
 
+# OpenGL for graphics cards with no Vulkan or DX12 driver
+# (`src/render_backend.rs`). wgpu is the version Bevy draws with. macOS has
+# no OpenGL in wgpu, and Metal always works there.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+wgpu = { version = "29.0.3", default-features = false, features = ["gles"] }
+
 [features]
 # Hosting and joining through Steam as well as by address (`net/steam`).
 steam = ["net/steam"]
