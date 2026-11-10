@@ -100,12 +100,14 @@ pub enum Source {
     /// A weapon's attack: the weapon, the attack's cadence (its refire or
     /// move time, ms), the share of the attack this hit carries in
     /// thousandths (a flechette shard a fifth) and whether it hit an area
-    /// (splash, cones).
+    /// (splash, cones). A blow of two blades out (the dual and staff
+    /// styles) carries the `second` blade's own attack too (`Second`).
     Weapon {
         weapon: Weapon,
         cadence_ms: u32,
         share: u16,
         area: bool,
+        second: Option<Second>,
     },
     /// A power's JA points (a point is 1% of the target's maximum) and up
     /// to `extra` more by the roll (lightning's 1 or 2), whether it hit an
@@ -381,6 +383,73 @@ pub fn chance(attacker: &Sheet, weapon: &Weapon, target: &Sheet) -> i64 {
     margin(attack, defence)
 }
 
+/// The second blade's attack a blow of two blades out carries: KOTOR's
+/// second attack a round, the off hand's weapon or the double-bladed one's
+/// other end, at its own roll and chance to hit, `share` thousandths of it
+/// (`saber_moves.styles.second_attack`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Second {
+    pub weapon: Weapon,
+    pub share: u16,
+}
+
+/// One weapon attack as it landed (`weapon_attack`).
+#[derive(Debug, Clone, Copy)]
+struct Attack {
+    /// Its damage in hundredths, before the pace and the share.
+    centi: i64,
+    crit: bool,
+    /// Its damage type row.
+    row: Option<usize>,
+    /// The target's guards took all of it.
+    guarded: bool,
+}
+
+/// `weapon`'s attack on `target` under the margin model (C1): the hit
+/// landed (its blade or bolt met the body), its size the chance KOTOR's
+/// roll would have hit; a mighty attacker's roll `MIGHTY_TIMES` over.
+fn weapon_attack(
+    weapon: &Weapon,
+    attacker: Option<&Sheet>,
+    target: &Sheet,
+    mighty: bool,
+    sneak: u8,
+    game: Game,
+    rng: &mut SimRng,
+) -> Attack {
+    let odds = attacker.map(|sheet| odds(sheet, weapon, target));
+    let p = odds.map_or(1000, |(attack, defence)| margin(attack, defence));
+    let roll = weapon_roll(weapon, attacker, &mut stream_die(rng));
+    let roll = if mighty {
+        roll.saturating_mul(MIGHTY_TIMES)
+    } else {
+        roll
+    };
+    let d20 = i64::from(rng.below(rules::interaction::checks::DIE)) + 1;
+    let confirm = attacker
+        .zip(odds)
+        .map(|(sheet, odds)| confirming(sheet, odds));
+    let crit = critical(d20, weapon, target, confirm, &mut || {
+        i64::from(rng.below(rules::interaction::checks::DIE)) + 1
+    });
+    let (hurt, row) = weapon_damage(
+        weapon,
+        attacker,
+        target,
+        roll,
+        crit,
+        sneak,
+        game,
+        &mut stream_die(rng),
+    );
+    Attack {
+        centi: hurt * 100 * p / 1000,
+        crit,
+        row,
+        guarded: hurt == 0,
+    }
+}
+
 /// The pace factor for an attack of `cadence_ms`, in thousandths (C2).
 pub fn pace(cadence_ms: u32) -> i64 {
     PACE * i64::from(cadence_ms) * 1000 / ROUND_MS as i64
@@ -510,41 +579,28 @@ pub fn assess(
             weapon,
             cadence_ms,
             share: part,
+            second,
             ..
         } => {
-            // The margin model (C1): the hit landed (its blade or bolt met
-            // the body), its size the chance KOTOR's roll would have hit.
-            let odds = attacker.map(|sheet| odds(sheet, &weapon, target));
-            let p = odds.map_or(1000, |(attack, defence)| margin(attack, defence));
-            let roll = weapon_roll(&weapon, attacker, &mut stream_die(rng));
-            let roll = if mighty {
-                roll.saturating_mul(MIGHTY_TIMES)
-            } else {
-                roll
+            let attack = |weapon: &Weapon, rng: &mut SimRng| {
+                weapon_attack(weapon, attacker, target, mighty, blow.sneak, game, rng)
             };
-            let d20 = i64::from(rng.below(rules::interaction::checks::DIE)) + 1;
-            let confirm = attacker
-                .zip(odds)
-                .map(|(sheet, odds)| confirming(sheet, odds));
-            let crit = critical(d20, &weapon, target, confirm, &mut || {
-                i64::from(rng.below(rules::interaction::checks::DIE)) + 1
+            let main = attack(&weapon, rng);
+            let more = second.map(|second| {
+                let more = attack(&second.weapon, rng);
+                Attack {
+                    centi: more.centi * i64::from(second.share) / 1000,
+                    ..more
+                }
             });
-            if crit {
+            if main.crit || more.is_some_and(|more| more.crit) {
                 outcome = Outcome::Critical;
             }
-            let (hurt, row) = weapon_damage(
-                &weapon,
-                attacker,
-                target,
-                roll,
-                crit,
-                blow.sneak,
-                game,
-                &mut stream_die(rng),
-            );
-            damage_type = row.map(|row| row as u8);
-            guarded = hurt == 0;
-            let centi = (hurt * 100 * p / 1000).saturating_mul(pace(cadence_ms)) / 1000;
+            damage_type = main.row.map(|row| row as u8);
+            guarded = main.guarded && more.is_none_or(|more| more.guarded);
+            let centi = (main.centi + more.map_or(0, |more| more.centi))
+                .saturating_mul(pace(cadence_ms))
+                / 1000;
             (
                 centi.saturating_mul(i64::from(part)) / 1000,
                 !matches!(weapon.delivery, Delivery::Saber(_)),

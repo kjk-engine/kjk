@@ -872,6 +872,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             CombatVerb::DuelLag { seconds, seeds } => {
                 duel_lag_verbs::duel_lag(&discover(), seconds, seeds)
             }
+            CombatVerb::Balance(options) => balance_verbs::balance(&discover(), &options),
         },
         Verb::Net { verb } => match verb {
             NetVerb::Probes => net_verbs::probes(),
@@ -1342,6 +1343,12 @@ pub(crate) enum CombatVerb {
         #[arg(long, default_value_t = 4)]
         seeds: u64,
     },
+    /// Saber duel balance: many fights of two fighters on the arena's
+    /// floor, stepped headless under each saber rule set, side a played by
+    /// the creature AI or a bot with a player's controls; win rates, time
+    /// to kill, swings, hits, blocks by kind, mishaps, kicks, locks and
+    /// meters per matchup and rules, and every fight in `facts.json`
+    Balance(balance_verbs::Options),
 }
 
 #[derive(Subcommand)]

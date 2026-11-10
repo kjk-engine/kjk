@@ -96,6 +96,9 @@ pub struct CharacterView {
     /// The setting that hides what it wears on its head (the equip page's
     /// eye); none for a character the choice cannot be kept for.
     pub headgear_setting: Option<String>,
+    /// The setting its own Movie Duels stance is kept in (the character
+    /// page's Stance); none for a character the choice cannot be kept for.
+    pub stance_setting: Option<String>,
     /// Its class (`classes.2da` row) when its template says (a
     /// companion's); the level-up screen's class.
     pub class_row: Option<u8>,
@@ -562,6 +565,35 @@ pub struct HudView {
     pub busy: Option<Busy>,
     /// A poison runs in the character: its vitality bar drawn green.
     pub poisoned: bool,
+    /// Its duel meters, while a duel mode is played and it holds a saber
+    /// (`screens::hud::duel_bars`).
+    pub duel: Option<DuelBars>,
+}
+
+/// A saber user's duel meters as bars (`docs/SABER-RULES.md` section 12):
+/// its block points, and its stamina (the mishap count turned upside down).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DuelBars {
+    pub points: Option<Bar>,
+    pub stamina: Bar,
+}
+
+/// A bar: how full (0 to 1) and its colour, its alpha dimmed while it
+/// flashes off.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Bar {
+    pub share: f32,
+    pub color: [f32; 4],
+}
+
+/// The duel bars over a saber user's head (`screens::floaty::bars`): the
+/// point over it, as shares of the window across and down, and how faded
+/// with distance (1 near, 0 gone).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct OverheadView {
+    pub over: [f32; 2],
+    pub alpha: f32,
+    pub bars: DuelBars,
 }
 
 /// The HUD's minimap: the area's picture (`lbl_map<area>`), where the
@@ -965,6 +997,13 @@ pub struct ViewModel {
     pub combat_log: Vec<String>,
     /// Each setting by its key (`mouse.sensitivity` = `0.5`).
     pub settings: std::collections::BTreeMap<String, String>,
+    /// Movie Duels is installed beside Jedi Academy: the sabers' page
+    /// offers its saber rules, hilts and stances (greyed without it).
+    pub movie_duels: bool,
+    /// The Movie Duels skeletons a character may be given a stance from
+    /// on the character page (`CharacterView::stance_setting`), by folder,
+    /// and the name each shows; none without it.
+    pub stances: Vec<(String, String)>,
     pub keys: Vec<KeyRow>,
     /// The pad's bindings (`key` a chord's name, `LB+South`; empty unbound),
     /// on the key mapping's controller tab.
@@ -1024,6 +1063,9 @@ pub struct ViewModel {
     pub bark: Option<BarkView>,
     /// Words floating over creatures in play (`screens::floaty`).
     pub floaties: Vec<FloatyView>,
+    /// The duel bars over saber users' heads, with the option on
+    /// (`screens::floaty::bars`).
+    pub overhead: Vec<OverheadView>,
     /// The Force power carousel, while the player picks a power
     /// (`screens::power_pick`).
     pub power_pick: Option<PowerPickView>,

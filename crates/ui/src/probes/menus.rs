@@ -1351,8 +1351,15 @@ pub(super) fn options() -> Vec<Check> {
             vec![
                 check_box("CB_INVERTCAM", 0, 100),
                 check_box("CB_LEVELUP", 1, 140),
+                check_box("CB_AUTOSAVE", 2, 180),
+                check_box("CB_REVERSE", 5, 220),
+                linked("BTN_DIFFICULTY", 6, 60, -1, -1),
+                linked("BTN_DIFFLEFT", 3, 60, -1, -1),
+                linked("BTN_DIFFRIGHT", 4, 60, -1, -1),
                 linked("BTN_KEYMAP", 12, 300, -1, -1),
+                linked("BTN_MOUSE", 13, 340, -1, -1),
                 linked("BTN_BACK", 10, 400, -1, -1),
+                super::vm_screens::label("LB_DESC", 440),
             ],
         ),
     );
@@ -1367,6 +1374,19 @@ pub(super) fn options() -> Vec<Check> {
             ],
         ),
     );
+    assets.layouts.insert(
+        "optgraphics",
+        root(
+            640,
+            480,
+            vec![
+                linked("BTN_RESOLUTION", 0, 100, -1, -1),
+                linked("BTN_ADVANCED", 1, 140, -1, -1),
+                check_box("CB_SHADOWS", 2, 180),
+                linked("BTN_BACK", 3, 400, -1, -1),
+            ],
+        ),
+    );
     keymap_layouts(&mut assets);
     let vm = ViewModel {
         settings: [
@@ -1375,6 +1395,7 @@ pub(super) fn options() -> Vec<Check> {
         ]
         .into_iter()
         .collect(),
+        movie_duels: true,
         keys: vec![crate::vm::KeyRow {
             action: "forward".into(),
             label: "Forward".into(),
@@ -1401,6 +1422,67 @@ pub(super) fn options() -> Vec<Check> {
         .state_of("CB_LEVELUP", &vm)
         .is_some_and(|state| state.disabled);
     let inverted = press(&mut gameplay, &mut assets, &vm, "CB_INVERTCAM");
+    // The gameplay page opens the controller's page from its difficulty
+    // button and the sabers' from its reverse box.
+    let opens = ["BTN_DIFFICULTY", "CB_REVERSE"].map(|tag| {
+        let mut page = opened("options_gameplay", &mut assets, &vm);
+        press(&mut page, &mut assets, &vm, tag);
+        page.top().map(|screen| screen.0)
+    });
+    // On the sabers' page the rules step both ways from JA's (unset) to
+    // MDA, the only other (Movie Duels' plain mode is not offered), a
+    // box turns a duel option on, the hilts step on from KOTOR's (unset)
+    // and a box turns the stances on.
+    let mut sabers = opened("options_sabers", &mut assets, &vm);
+    let picked = [
+        "BTN_DIFFRIGHT",
+        "BTN_DIFFLEFT",
+        "CB_AUTOSAVE",
+        "BTN_MOUSE",
+        "BTN_KEYMAP",
+        "CB_REVERSE",
+    ]
+    .map(|tag| press(&mut sabers, &mut assets, &vm, tag));
+    // Without Movie Duels installed: MDA saved is shown and played as JA's,
+    // the rules and stances greyed and stepping nowhere, the hilts
+    // stepping among KOTOR's and JA's own (a Movie Duels hilt saved shown
+    // as KOTOR's), the rules' description saying why.
+    let bare = ViewModel {
+        settings: [
+            ("game.saber_rules", "mda"),
+            ("saber.hilt.single", "luke_ep6"),
+            ("saber.hilt.double", "dual_1"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect(),
+        ..ViewModel::default()
+    };
+    let mut plain = opened("options_sabers", &mut assets, &bare);
+    let stepped = [
+        "BTN_DIFFRIGHT",
+        "BTN_DIFFLEFT",
+        "CB_REVERSE",
+        "BTN_MOUSE",
+        "BTN_KEYMAP",
+    ]
+    .map(|tag| press(&mut plain, &mut assets, &bare, tag));
+    let greyed_bare = [
+        "BTN_DIFFICULTY",
+        "BTN_DIFFLEFT",
+        "BTN_DIFFRIGHT",
+        "CB_REVERSE",
+    ]
+    .iter()
+    .all(|tag| plain.state_of(tag, &bare).is_some_and(|state| state.greyed));
+    let shown_bare = ["BTN_DIFFICULTY", "BTN_MOUSE"]
+        .map(|tag| plain.state_of(tag, &bare).and_then(|state| state.text));
+    press(&mut plain, &mut assets, &bare, "BTN_DIFFICULTY");
+    let needs = crate::strings::bytes(crate::strings::NEEDS_MOVIE_DUELS);
+    let told_bare = plain
+        .state_of("LB_DESC", &bare)
+        .and_then(|state| state.text)
+        .is_some_and(|text| text.starts_with(&needs));
     let mut keymap = opened("options_keymap", &mut assets, &vm);
     keymap.step(&mut assets, &vm, &keys(&[Key::Activate]));
     let entry_open = keymap.top().map(|screen| screen.0) == Some("key_entry");
@@ -1434,6 +1516,51 @@ pub(super) fn options() -> Vec<Check> {
                 inverted == vec![Intent::Setting("camera.invert".into(), "true".into())],
             )
         })
+        .and_then(|()| {
+            expect(
+                &format!("the controller's and sabers' pages open: {opens:?}"),
+                opens == [Some("options_controller"), Some("options_sabers")],
+            )
+        })
+        .and_then(|()| {
+            let setting = |key: &str, value: &str| vec![Intent::Setting(key.into(), value.into())];
+            expect(
+                &format!("the sabers' page: rules, a duel option, hilts, stances: {picked:?}"),
+                picked
+                    == [
+                        setting("game.saber_rules", "mda"),
+                        setting("game.saber_rules", "mda"),
+                        setting("game.duel_slow_motion", "true"),
+                        setting("saber.hilt.single", "single_1"),
+                        setting("saber.hilt.double", "dual_1"),
+                        setting("game.duel_stances", "true"),
+                    ],
+            )
+        })
+        .and_then(|()| {
+            let setting = |key: &str, value: &str| vec![Intent::Setting(key.into(), value.into())];
+            let bytes = crate::strings::bytes;
+            expect(
+                &format!(
+                    "without Movie Duels: rules and stances still, hilts JA's own, greyed, shown JA's, told why: {stepped:?} {greyed_bare} {shown_bare:?} {told_bare}"
+                ),
+                stepped
+                    == [
+                        vec![],
+                        vec![],
+                        vec![],
+                        setting("saber.hilt.single", "single_1"),
+                        setting("saber.hilt.double", ""),
+                    ]
+                    && greyed_bare
+                    && shown_bare
+                        == [
+                            Some(bytes(crate::strings::SABER_RULES_JA)),
+                            Some(bytes(crate::strings::HILT_KOTOR)),
+                        ]
+                    && told_bare,
+            )
+        })
         .and_then(|()| expect("a row opens the key entry", entry_open))
         .and_then(|()| {
             expect(
@@ -1452,7 +1579,7 @@ pub(super) fn options() -> Vec<Check> {
                     && main.top().is_none(),
             )
         })
-        .map(|()| "sliders, check boxes, greyed, keys, Debug".into())
+        .map(|()| "sliders, check boxes, greyed, stepped choices, keys, Debug".into())
     })]
 }
 
@@ -2026,6 +2153,99 @@ pub(super) fn equip_headgear_eye() -> Vec<Check> {
             .and_then(|()| expect("the eye in the head slot's top right corner", corner))
             .and_then(|()| expect(&format!("with nothing worn {bare:?}"), bare.is_none()))
             .map(|()| "the eye shows over worn headgear and flips its setting".into())
+    })]
+}
+
+/// The character page's Stance: kjk's own button beside Close, as wide as
+/// the member's view reaches; with Movie Duels' stances offered and on,
+/// it shows the member's pick and a press steps it on (its row's, then
+/// each skeleton, back to its row's); without them, greyed, a press doing
+/// nothing; hidden for a member the choice cannot be kept for.
+pub(super) fn character_stance() -> Vec<Check> {
+    use crate::vm::CharacterView;
+    const SETTING: &str = "saber.stance.seat0";
+    const STANCE: &str = "BTN_STANCE";
+    let mut assets = Fake::new();
+    assets.layouts.insert("top", bar());
+    let controls = vec![
+        button("BTN_EXIT", [75, 516, 120, 28], b"Close"),
+        button("LBL_3DCHAR", [84, 134, 310, 360], b""),
+    ];
+    assets.layouts.insert("character", root(800, 600, controls));
+    let mut vm = ViewModel {
+        character: Some(CharacterView {
+            stance_setting: Some(SETTING.into()),
+            ..CharacterView::default()
+        }),
+        movie_duels: true,
+        stances: [
+            ("_humanoid_kotor", "KOTOR Jedi"),
+            ("_humanoid_obi", "Obi-Wan"),
+        ]
+        .map(|(folder, name)| (folder.to_string(), name.to_string()))
+        .to_vec(),
+        settings: [("game.duel_stances", "true")]
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .into(),
+        ..ViewModel::default()
+    };
+    let mut stack = opened("character", &mut assets, &vm);
+    let shown = |stack: &Stack, vm: &ViewModel| {
+        stack.state_of(STANCE, vm).map(|state| {
+            let words = String::from_utf8_lossy(&state.text.unwrap_or(Vec::new())).into_owned();
+            (words, state.greyed, state.hidden)
+        })
+    };
+    let mut steps = Vec::new();
+    for set in ["", "_humanoid_kotor", "_humanoid_obi"] {
+        vm.settings.insert(SETTING.into(), set.into());
+        steps.push((
+            shown(&stack, &vm),
+            press(&mut stack, &mut assets, &vm, STANCE),
+        ));
+    }
+    let picked = |words: &str, next: &str| {
+        (
+            Some((format!("Stance: {words}"), false, false)),
+            vec![Intent::Setting(SETTING.into(), next.into())],
+        )
+    };
+    let wanted = vec![
+        picked("Its Own", "_humanoid_kotor"),
+        picked("KOTOR Jedi", "_humanoid_obi"),
+        picked("Obi-Wan", ""),
+    ];
+    vm.settings
+        .insert("game.duel_stances".into(), "false".into());
+    let off = (
+        shown(&stack, &vm),
+        press(&mut stack, &mut assets, &vm, STANCE),
+    );
+    if let Some(me) = vm.character.as_mut() {
+        me.stance_setting = None;
+    }
+    let unkept = shown(&stack, &vm).is_some_and(|(_, _, hidden)| hidden);
+    let beside = (stack.extent_of("BTN_EXIT"))
+        .zip(stack.extent_of(STANCE))
+        .is_some_and(|(close, stance)| {
+            stance.top == close.top
+                && stance.left > close.left + close.width
+                && stance.left + stance.width == 84 + 310
+        });
+    vec![check("character_stance", {
+        expect(
+            &format!("picks shown and stepped {steps:?}"),
+            steps == wanted,
+        )
+        .and_then(|()| {
+            expect(
+                &format!("off: greyed, a press doing nothing {off:?}"),
+                off == (Some(("Stance: Its Own".into(), true, false)), vec![]),
+            )
+        })
+        .and_then(|()| expect("hidden for a member not kept", unkept))
+        .and_then(|()| expect("beside Close, to the member's view's edge", beside))
+        .map(|()| "a member's stance shown and stepped, greyed without Movie Duels' stances".into())
     })]
 }
 

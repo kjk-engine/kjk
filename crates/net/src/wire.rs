@@ -36,8 +36,9 @@ use std::fmt;
 pub const MAGIC: [u8; 4] = *b"KJKN";
 /// The handshake's protocol version; a host refuses any other
 /// (`Refusal::Protocol`). 3: commands carry the crosshair line
-/// (`Command::aim`), their mask a varint.
-pub const PROTOCOL_VERSION: u16 = 3;
+/// (`Command::aim`), their mask a varint. 4: and the duel modes' held
+/// bits (`Command::holds`).
+pub const PROTOCOL_VERSION: u16 = 4;
 /// The protocol generation in every session packet's kind byte (high
 /// nibble). Never 4: see the module docs.
 pub const GENERATION: u8 = 1;

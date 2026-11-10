@@ -1,0 +1,1450 @@
+[chapter]
+title = "Duel Saber Rules"
+order = 88
+summary = """The rules the blades play by when a session picks the duel mode, Movie Duels Advanced (MDA), instead of JA's: the block button, block points, perfect blocks, mishaps and fatigue (`docs/SABER-RULES.md`)."""
+detail = """
+A "meter" below is the block points. The Force, where a rule names it, is
+counted in hundredths of the pool (a point is 1% of it). Every rule here is
+read only under the duel mode; JA's rules are untouched by this chapter.
+"""
+
+[meters]
+title = "Meters"
+summary = """What a saber user's blocks are paid from: block points of their own, so the Force pool is left to the powers."""
+
+[meters.points_max]
+name = "Block Points"
+type = "u8"
+value = 100
+unit = "count"
+range = [10, 255]
+summary = """A full meter of block points: {duel.meters.points_max}; every saber starts a fight with it full."""
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 1"
+see = "sim::combat::saber::duel::Duel::FRESH"
+applies = ["kind:lightsaber"]
+
+[slow_motion]
+title = "Perfect-Block Slow Motion"
+summary = """With the "Perfect-block slow-mo" option on (on by default), the player's own perfect block slows the world for a moment. Only in a game played alone: a session of more than one player never slows."""
+
+[slow_motion.scale]
+name = "Slow-Motion Pace"
+type = "f32"
+value = 0.3
+unit = "×"
+range = [0.05, 1.0]
+summary = """The world runs at {duel.slow_motion.scale:bare} of its pace while a perfect block slows it."""
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 3"
+see = "game::sim_host::Slowed"
+applies = ["kind:lightsaber"]
+
+[slow_motion.ms]
+name = "Slow-Motion Time"
+type = "u32"
+value = 200
+unit = "ms"
+range = [0, 2000]
+summary = """A perfect block slows the world for {duel.slow_motion.ms} of real time."""
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 3"
+see = "game::sim_host::Slowed"
+applies = ["kind:lightsaber"]
+
+[hud]
+title = "Duel Bars"
+summary = """What the HUD shows of the duel meters while the duel mode is played: block points and stamina, by the player's own bars and, with the "Overhead duel bars" option, over every saber user's head."""
+
+[hud.stamina_steps]
+name = "Stamina Steps"
+type = "u8"
+value = 16
+range = [1, 255]
+summary = """The stamina bar is the mishap count turned upside down: full at none, losing one {duel.hud.stamina_steps:bare}th for each mishap."""
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md sections 1.1 and 12"
+see = "game::duel_view::stamina"
+applies = ["kind:lightsaber"]
+
+[hud.lamps]
+name = "Stamina Warnings"
+type = "u8"
+value = [2, 6, 10, 12]
+labels = ["green", "blue", "magenta", "red"]
+range = [0, 15]
+summary = """The stamina bar flashes once the mishap count is above {duel.hud.lamps[0]:bare} (green), above {duel.hud.lamps[1]:bare} (blue), above {duel.hud.lamps[2]:bare} (magenta) and above {duel.hud.lamps[3]:bare} (red, where swings tire)."""
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md sections 5.4 and 12"
+see = "game::duel_view::stamina"
+applies = ["kind:lightsaber"]
+
+[hud.lamp_ms]
+name = "Stamina Flash"
+type = "u32"
+value = 600
+unit = "ms"
+range = [100, 5000]
+summary = """A flashing stamina bar goes off and on again every {duel.hud.lamp_ms}."""
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 12"
+see = "game::duel_view::stamina"
+applies = ["kind:lightsaber"]
+
+[hud.gauge_bands]
+name = "Block Point Colours"
+type = "u8"
+value = [20, 50, 75]
+labels = ["red under", "purple under", "dark purple under"]
+unit = "points"
+range = [0, 255]
+summary = """The block-point bar is red under {duel.hud.gauge_bands[0]:bare} points, purple under {duel.hud.gauge_bands[1]:bare}, dark purple under {duel.hud.gauge_bands[2]:bare}, and bright magenta above."""
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 12"
+see = "game::duel_view::points"
+applies = ["kind:lightsaber"]
+
+[hud.gauge_flash]
+name = "Block Points Low"
+type = "u8"
+value = 7
+unit = "points"
+range = [0, 255]
+summary = """Under {duel.hud.gauge_flash:bare} block points the bar flashes, off and on every {duel.hud.gauge_flash_ms}."""
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 12"
+see = "game::duel_view::points"
+applies = ["kind:lightsaber"]
+
+[hud.gauge_flash_ms]
+name = "Block Points Flash"
+type = "u32"
+value = 400
+unit = "ms"
+range = [100, 5000]
+summary = """A low block-point bar goes off and on again every {duel.hud.gauge_flash_ms}."""
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 12"
+see = "game::duel_view::points"
+applies = ["kind:lightsaber"]
+
+[meters.least]
+name = "Meter to Block"
+type = "i32"
+value = 1
+unit = "points"
+summary = "The block button blocks, with a lightsaber or a melee blade its holder is proficient with, only with at least {duel.meters.least} in the meter (and as much Force)."
+source = "docs/SABER-RULES.md 2.2"
+see = "sim::combat::saber::duel::can_hold"
+
+[meters.run_least]
+name = "Running Block"
+type = "i32"
+value = 5
+unit = "points"
+summary = "Holding block while running sprints only with at least {duel.meters.run_least} in the meter."
+source = "docs/SABER-RULES.md 2.2"
+see = "sim::combat::saber::duel::can_hold"
+
+[meters.fatigued]
+name = "Fatigue Mark"
+type = "i32"
+value = 20
+unit = "%"
+summary = "At or under {duel.meters.fatigued} of the Force pool a saber user is fatigued: it cannot block lunges or spins, a player gets up from a fall without the Force, and a creature cannot absorb kicks. It recovers once the pool is above it again."
+source = "docs/SABER-RULES.md 1.4"
+see = "sim::combat::saber::duel::meter::settle"
+
+[meters.fatigued_drain]
+name = "Spent Mark"
+type = "i32"
+value = 10
+unit = "points"
+summary = "A cost that leaves the meter at or under {duel.meters.fatigued_drain} makes its payer fatigued too."
+source = "docs/SABER-RULES.md 1.4"
+see = "sim::combat::saber::duel::meter::spend"
+
+[meters.drained]
+name = "Drained Mark"
+type = "i32"
+value = 20
+unit = "points"
+summary = "A cost that leaves the meter under {duel.meters.drained} drains its payer: it cannot block lunges or spins until the meter is above it again."
+source = "docs/SABER-RULES.md 1.4"
+see = "sim::combat::saber::duel::meter::spend"
+
+[meters.drained_points]
+name = "Drained Points"
+type = "i32"
+value = 10
+unit = "points"
+summary = "A saber user with block points under {duel.meters.drained_points} is drained, and is no more once they are above it."
+source = "docs/SABER-RULES.md 1.4"
+see = "sim::combat::saber::duel::meter::settle"
+
+[costs]
+title = "Costs"
+summary = "What starting a move costs."
+
+[costs.swing]
+name = "Swing Cost"
+type = "i32"
+value = 1
+unit = "points"
+summary = "A player starting a plain swing pays {duel.costs.swing} from the meter."
+source = "docs/SABER-RULES.md 1.2"
+see = "sim::combat::saber::duel::meter::started"
+
+[costs.pair_knockaway]
+name = "Two-Blade Knockaway"
+type = "i32"
+value = 2
+unit = "points"
+summary = "A creature starting a knockaway with a staff or a pair pays {duel.costs.pair_knockaway}."
+source = "docs/SABER-RULES.md 1.2"
+see = "sim::combat::saber::duel::meter::started"
+
+[costs.parry]
+name = "Parry Cost"
+type = "i32"
+value = 1
+unit = "points"
+summary = "A creature starting a parry or a knockaway with one blade pays {duel.costs.parry} block point."
+source = "docs/SABER-RULES.md 1.2"
+see = "sim::combat::saber::duel::meter::started"
+
+[master]
+title = "Masters"
+summary = """KOTOR's masters of the blade: a character with Master Jedi Defense, or of level {duel.master.level} or more. They pay less for their blocks and get their block points back sooner. A Jedi on the way takes part of it: nothing at Jedi Defense, half at Advanced Jedi Defense."""
+
+[master.defense]
+name = "Master's Defense"
+type = "u8"
+value = 3
+summary = "The tier of the Jedi Defense feats that makes its holder a master: {duel.master.defense} (Master Jedi Defense)."
+source = "ours: the spec's master classes as KOTOR's top blocking feat"
+see = "sim::combat::saber::duel::master"
+
+[master.level]
+name = "Master's Level"
+type = "u8"
+value = 20
+summary = "A character of level {duel.master.level} or more is a master whatever its feats (KOTOR's last level, the duellists its stories end on)."
+source = "ours: the spec's master classes as KOTOR's levels"
+see = "sim::combat::saber::duel::master"
+
+[master.saber_share]
+name = "Master's Block Price"
+type = "i32"
+value = 80
+unit = "%"
+summary = "A master pays {duel.master.saber_share} of what blocking a blade costs (rounded, at least a point)."
+source = "docs/SABER-RULES.md 1.2"
+see = "sim::combat::saber::duel::meter::price"
+
+[master.bolt_share]
+name = "Master's Deflection Price"
+type = "i32"
+value = 60
+unit = "%"
+summary = "A master pays {duel.master.bolt_share} of what turning a bolt costs (rounded, at least a point)."
+source = "docs/SABER-RULES.md 1.2"
+see = "sim::combat::saber::duel::meter::price"
+
+[master.wait_share]
+name = "Master's Recovery"
+type = "u64"
+value = 80
+unit = "%"
+summary = "A master's block points come back after {duel.master.wait_share} of the usual wait."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::refill"
+
+[refill]
+title = "Refill"
+summary = "How the meters come back."
+
+[refill.tick_ms]
+name = "Refill Tick"
+type = "u64"
+value = 100
+unit = "ms"
+summary = "A player's block points come back a point every {duel.refill.tick_ms} while it walks or stands and neither swings nor blocks."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::refill"
+
+[refill.gain]
+name = "Refill Point"
+type = "i32"
+value = 1
+unit = "points"
+summary = "Each refill tick gives {duel.refill.gain} (and takes a crouching player's mishaps down as many)."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::refill"
+
+[refill.slow_ms]
+name = "Refill Wait"
+type = "u64"
+value = 2000
+unit = "ms"
+summary = "The next block point waits {duel.refill.slow_ms} longer when the points are above {duel.refill.slow_above}, the saber is away or the player stands idle."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::refill"
+
+[refill.slow_above]
+name = "Refill Slows"
+type = "i32"
+value = 75
+unit = "points"
+summary = "Above {duel.refill.slow_above} block points the refill slows."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::refill"
+
+[refill.crouch]
+name = "Crouched Refill"
+type = "i32"
+value = 2
+unit = "points"
+summary = "A player crouching gains {duel.refill.crouch} more each tick, Force and block points, and its mishaps fall a step."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::refill"
+
+[refill.force_hold_ms]
+name = "Block Holds the Force"
+type = "u64"
+value = 2000
+unit = "ms"
+summary = "While block is held the Force comes back a point every {duel.refill.force_hold_ms}, and only that long after it is let go."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::refill"
+
+[refill.creature_busy_ms]
+name = "Busy Creature's Force"
+type = "u64"
+value = 2000
+unit = "ms"
+summary = "A creature's Force waits {duel.refill.creature_busy_ms} after it throws its saber."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::refill"
+
+[refill.creature_every_ms]
+name = "Creature's Refill"
+type = "u64"
+value = 1000
+unit = "ms"
+summary = "A creature with its saber lit gains {duel.refill.creature_gain} block point every {duel.refill.creature_every_ms}, not while staggered, down or just after a block."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::refill"
+
+[refill.creature_gain]
+name = "Creature's Gain"
+type = "i32"
+value = 1
+unit = "points"
+summary = "What a creature's refill gives each time: {duel.refill.creature_gain}."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::refill"
+
+[gains]
+title = "Gains"
+summary = "What fighting well gives back."
+
+[gains.perfect]
+name = "Perfect Block Reward"
+type = "i32"
+value = 15
+unit = "points"
+summary = "A perfect block gives its blocker {duel.gains.perfect}."
+source = "docs/SABER-RULES.md 3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[gains.disarmed]
+name = "Disarmed"
+type = "i32"
+value = 20
+unit = "points"
+summary = "A fighter disarmed gets {duel.gains.disarmed} block points back, and so does one so spent a block would disarm it but who keeps its saber."
+source = "docs/SABER-RULES.md 1.3, 4.6"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[gains.kill]
+name = "Kill Reward"
+type = "i32"
+value = 10
+unit = "points"
+summary = "A kill gives a saber user {duel.gains.kill} ({duel.gains.kill_blocking} to a player holding block)."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::rewarded"
+
+[gains.kill_blocking]
+name = "Kill While Blocking"
+type = "i32"
+value = 5
+unit = "points"
+summary = "A kill made with block held gives only {duel.gains.kill_blocking}."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::rewarded"
+
+[gains.hurt_lethal]
+name = "Lethal Hit Reward"
+type = "i32"
+value = 5
+unit = "points"
+summary = "At the easy and normal difficulties a player's killing hit gives {duel.gains.hurt_lethal} more."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::rewarded"
+
+[gains.hurt]
+name = "Hit Reward"
+type = "i32"
+value = 3
+unit = "points"
+summary = "At the easy and normal difficulties a player's hit gives {duel.gains.hurt} ({duel.gains.hurt_blocking} with block held)."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::rewarded"
+
+[gains.hurt_blocking]
+name = "Hit While Blocking"
+type = "i32"
+value = 2
+unit = "points"
+summary = "A hit or killing hit made with block held gives {duel.gains.hurt_blocking}."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::rewarded"
+
+[gains.hurt_easiest]
+name = "Rewarded Difficulties"
+type = "usize"
+value = 1
+summary = "Hits are rewarded at the difficulties up to {duel.gains.hurt_easiest} (0 the easiest)."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::rewarded"
+
+[gains.kick]
+name = "Kick Reward"
+type = "i32"
+value = 2
+unit = "points"
+summary = "A kick that lands gives its kicker {duel.gains.kick}."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::world::sabers"
+
+[gains.fake_parried]
+name = "Fake Parried"
+type = "i32"
+value = 10
+unit = "points"
+summary = "Parrying an attack fake with a perfect or a creature's block gives {duel.gains.fake_parried} Force (1% of the pool a point), in both modes."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[gains.spam]
+name = "Blocked Creature's Refill"
+type = "i32"
+value = [20, 10]
+labels = ["at or under the low mark", "above it"]
+unit = "points"
+summary = "A creature whose swing a held block stops gets {duel.gains.spam[0]} back when at or under {duel.gains.spam_low}, else {duel.gains.spam[1]}."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[gains.spam_low]
+name = "Blocked Creature's Low Mark"
+type = "i32"
+value = 20
+unit = "points"
+summary = "At or under {duel.gains.spam_low} a blocked creature gets the larger refill."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[gains.thrown_disarm]
+name = "Disarmed by a Throw"
+type = "i32"
+value = 10
+unit = "points"
+summary = "A fighter a thrown saber disarms gets {duel.gains.thrown_disarm} block points back."
+source = "docs/SABER-RULES.md 4.7"
+see = "sim::world::sabers"
+
+[perfect]
+title = "Perfect Block"
+summary = "Pressing attack with block held opens a short window; a blow met inside it is blocked perfectly."
+
+[perfect.window_ms]
+name = "Perfect Window"
+type = "u64"
+value = [250, 150, 50]
+labels = ["easy", "normal", "difficult"]
+unit = "ms"
+summary = "The perfect window lasts {duel.perfect.window_ms[0]} on easy, {duel.perfect.window_ms[1]} on normal and {duel.perfect.window_ms[2]} on difficult."
+source = "docs/SABER-RULES.md 3"
+see = "sim::combat::saber::duel::window"
+
+[perfect.attacker_cost]
+name = "Perfectly Blocked Cost"
+type = "i32"
+value = [10, 20]
+labels = ["player", "creature"]
+unit = "points"
+summary = "A swing perfectly blocked costs a player {duel.perfect.attacker_cost[0]} and a creature {duel.perfect.attacker_cost[1]}."
+source = "docs/SABER-RULES.md 3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[perfect.attacker_mishap]
+name = "Perfectly Blocked Mishaps"
+type = "i32"
+value = [5, 10]
+labels = ["player", "creature"]
+unit = "count"
+summary = "A swing perfectly blocked adds {duel.perfect.attacker_mishap[0]} mishaps to a player and {duel.perfect.attacker_mishap[1]} to a creature."
+source = "docs/SABER-RULES.md 3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[perfect.blocker_mishap]
+name = "Perfect Block Calm"
+type = "i32"
+value = 5
+unit = "count"
+summary = "A perfect block takes {duel.perfect.blocker_mishap} mishaps off its blocker."
+source = "docs/SABER-RULES.md 3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[perfect.roll_from]
+name = "Perfectly Blocked Roll"
+type = "u8"
+value = 13
+unit = "count"
+summary = "A perfectly blocked attacker with {duel.perfect.roll_from} mishaps or more rolls for a mishap; one with fewer is staggered."
+source = "docs/SABER-RULES.md 3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[perfect.riposte_freeze_ms]
+name = "Riposte Freeze"
+type = "i32"
+value = 350
+unit = "ms"
+summary = "A perfectly blocked attacker is held {duel.perfect.riposte_freeze_ms} and its chain ends."
+source = "docs/SABER-RULES.md 3"
+see = "sim::world::sabers"
+
+[perfect.riposte_ms]
+name = "Riposte Window"
+type = "u64"
+value = 500
+unit = "ms"
+summary = "A perfect blocker's next attack within {duel.perfect.riposte_ms} plays quicker."
+source = "docs/SABER-RULES.md 3"
+see = "sim::world::sabers"
+
+[perfect.riposte_time]
+name = "Riposte Pace"
+type = "f32"
+value = 0.87
+unit = "×"
+summary = "A riposte takes {duel.perfect.riposte_time} of its swing's time."
+source = "docs/SABER-RULES.md 3"
+see = "sim::combat::saber::duel::play_speed"
+
+[perfect.held_long_ms]
+name = "Held Too Long"
+type = "u64"
+value = 3000
+unit = "ms"
+summary = "Block and attack held together {duel.perfect.held_long_ms} or more make turning bolts cost twice as much."
+source = "docs/SABER-RULES.md 2.5"
+see = "sim::combat::saber::duel::shots::cost"
+
+[block]
+title = "Blocks"
+summary = "What a block of a blade costs and plays, by how the blocker blocks. A creature parries only the blows KOTOR's attack roll misses (the attacker's attack bonus against its defence, as under JA); a player blocks by its button."
+
+[block.low]
+name = "Low Meter"
+type = "i32"
+value = 20
+unit = "points"
+summary = "A blocker with {duel.block.low} or less in the meter is knocked aside by the blow (paying {duel.block.low_cost})."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.lowest]
+name = "Spent Meter"
+type = "i32"
+value = 10
+unit = "points"
+summary = "A blocker with {duel.block.lowest} or less is disarmed (a player) or rolls for a mishap (a creature); an unblockable blow disarms one under it."
+source = "docs/SABER-RULES.md 4.1, 4.2"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.low_cost]
+name = "Knocked Aside Cost"
+type = "i32"
+value = 4
+unit = "points"
+summary = "Being knocked aside by a blow costs {duel.block.low_cost}."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.weary_parry]
+name = "Weary Parry"
+type = "i32"
+value = 50
+unit = "points"
+summary = "A blocker holding block with {duel.block.weary_parry} or less parries wearily."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.creature_bands]
+name = "Creature's Parries"
+type = "i32"
+value = [40, 75]
+labels = ["weary up to", "plain up to"]
+unit = "points"
+summary = "A creature parries wearily up to {duel.block.creature_bands[0]}, plainly up to {duel.block.creature_bands[1]}, and well above."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.held]
+name = "Held Block Cost"
+type = "i32"
+value = [5, 0]
+labels = ["player", "creature"]
+unit = "points"
+summary = "A block held costs a player {duel.block.held[0]}; with attack too it costs anyone {duel.block.held[0]}."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.creature_parry]
+name = "Creature's Parry Cost"
+type = "i32"
+value = [2, 3, 10]
+labels = ["weary", "plain", "good"]
+unit = "points"
+summary = "A creature's weary parry costs {duel.block.creature_parry[0]}, a plain one {duel.block.creature_parry[1]}, a good one {duel.block.creature_parry[2]}."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.player_good]
+name = "Player's Good Parry"
+type = "i32"
+value = 3
+unit = "points"
+summary = "A player's good parry costs {duel.block.player_good}."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.unblocked]
+name = "Unblocked Cost"
+type = "i32"
+value = 10
+unit = "points"
+summary = "A blade met by one not blocking costs it {duel.block.unblocked} (a player only)."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.kata]
+name = "Kata Clash"
+type = "i32"
+value = 10
+unit = "points"
+summary = "A kata meeting a swing staggers the other side and takes {duel.block.kata} block points from it, or disarms it under {duel.block.lowest}."
+source = "docs/SABER-RULES.md 4.4"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.thrown]
+name = "Thrown Saber Taken"
+type = "i32"
+value = [20, 10]
+labels = ["disarmed under", "else costs"]
+unit = "points"
+summary = "A thrown saber not parried disarms one under {duel.block.thrown[0]} in the meter, and knocks anyone else aside for {duel.block.thrown[1]}."
+source = "docs/SABER-RULES.md 4.7"
+see = "sim::world::sabers"
+
+[block.unblockable]
+name = "Unblockable Cost"
+type = "i32"
+value = 10
+unit = "points"
+summary = "An unblockable blow not perfectly blocked knocks its blocker aside for {duel.block.unblockable}, and still harms it."
+source = "docs/SABER-RULES.md 4.2"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.creature_heavy]
+name = "Creature's Heavy Block"
+type = "i32"
+value = [75, 12, 20]
+labels = ["meter from", "attacker's mishaps from", "chance %"]
+summary = "A creature with {duel.block.creature_heavy[0]} or more in its meter staggers an attacker of {duel.block.creature_heavy[1]} mishaps or more {duel.block.creature_heavy[2]}% of the time."
+source = "docs/SABER-RULES.md 4.3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.cone]
+name = "Blocking Arc"
+type = "f32"
+value = 0.3
+summary = "A blow is blocked only from in front: the flat way to the attacker within {duel.block.cone} of the facing (a dot product)."
+source = "docs/SABER-RULES.md 2.6"
+see = "sim::combat::saber::duel::in_front"
+
+[block.fallback]
+name = "Creature's Lucky Parry"
+type = "u32"
+value = 50
+unit = "‰"
+summary = "A creature a blow takes from aside still parries it {duel.block.fallback} times in 1000 for each step of difficulty."
+source = "docs/SABER-RULES.md 2.6"
+see = "sim::world::sabers"
+
+[block.creature_guard_until]
+name = "Creature Stops Parrying"
+type = "u8"
+value = 12
+unit = "count"
+summary = "A creature swinging keeps parrying until its mishaps reach {duel.block.creature_guard_until}."
+source = "docs/SABER-RULES.md 10"
+see = "sim::world::sabers"
+
+[hits]
+title = "Hits"
+summary = "A blow that lands hurries its striker's next swing."
+
+[hits.confirm]
+name = "Hit Confirm"
+type = "f32"
+value = 0.5
+unit = "×"
+summary = "A blow that lands leaves its striker {duel.hits.confirm} of its weapon's wait, at least {duel.hits.confirm_least}; one on a foe winding up a swing cancels it."
+source = "docs/SABER-RULES.md 4.7"
+see = "sim::world::sabers"
+
+[hits.confirm_least]
+name = "Hit Confirm Floor"
+type = "i32"
+value = 50
+unit = "ms"
+summary = "The least wait a hit-confirm leaves: {duel.hits.confirm_least}."
+source = "docs/SABER-RULES.md 4.7"
+see = "sim::world::sabers"
+
+[mishap]
+title = "Mishaps"
+summary = "The mishap count: swings and lost exchanges pile it up, and it ends in bounces, staggers and disarms."
+
+[mishap.max]
+name = "Most Mishaps"
+type = "u8"
+value = 15
+unit = "count"
+summary = "The mishap count runs from 0 to {duel.mishap.max}."
+source = "docs/SABER-RULES.md 5.1"
+see = "sim::combat::saber::duel::meter::rise"
+
+[mishap.swing]
+name = "Swing Mishap"
+type = "i32"
+value = 1
+unit = "count"
+summary = "Every swing started adds {duel.mishap.swing}."
+source = "docs/SABER-RULES.md 5.1"
+see = "sim::combat::saber::duel::meter::started"
+
+[mishap.fake]
+name = "Fake Mishap"
+type = "i32"
+value = 1
+unit = "count"
+summary = "An attack fake adds {duel.mishap.fake}, on every other swing of a chain (never for a pair)."
+source = "docs/SABER-RULES.md 6.2"
+see = "sim::motion"
+
+[mishap.fake_every]
+name = "Fakes Counted"
+type = "u8"
+value = 2
+summary = "A fake counts on every {duel.mishap.fake_every}nd swing of a chain."
+source = "docs/SABER-RULES.md 6.2"
+see = "sim::motion"
+
+[mishap.blocked]
+name = "Blocked Mishap"
+type = "i32"
+value = 3
+unit = "count"
+summary = "A swing blocked, or clashing, adds {duel.mishap.blocked}; a block takes {duel.mishap.block} off its blocker."
+source = "docs/SABER-RULES.md 5.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[mishap.block]
+name = "Block Calm"
+type = "i32"
+value = 3
+unit = "count"
+summary = "A block takes {duel.mishap.block} mishaps off its blocker."
+source = "docs/SABER-RULES.md 5.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[mishap.creature_active]
+name = "Creature Blocked Hard"
+type = "i32"
+value = 5
+unit = "count"
+summary = "A creature whose swing meets block and attack held adds {duel.mishap.creature_active} more."
+source = "docs/SABER-RULES.md 4.1"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[mishap.fake_parried]
+name = "Fake Parried"
+type = "i32"
+value = [2, 4]
+labels = ["the faker gains", "the parrier loses"]
+unit = "count"
+summary = "A fake parried adds {duel.mishap.fake_parried[0]} to its faker and takes {duel.mishap.fake_parried[1]} off its parrier."
+source = "docs/SABER-RULES.md 4.3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[mishap.guard_broken]
+name = "Fake Breaks a Guard"
+type = "i32"
+value = 3
+unit = "count"
+summary = "A fake that breaks a guard takes {duel.mishap.guard_broken} off its faker."
+source = "docs/SABER-RULES.md 4.3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[mishap.run_rise]
+name = "Running Mishaps"
+type = "i32"
+value = 2
+unit = "×"
+summary = "Running multiplies a rise in mishaps by {duel.mishap.run_rise} and divides a fall by as much."
+source = "docs/SABER-RULES.md 5.1"
+see = "sim::combat::saber::duel::meter::rise"
+
+[mishap.decay_ms]
+name = "Mishap Decay"
+type = "u64"
+value = 1000
+unit = "ms"
+summary = "Mishaps fall every {duel.mishap.decay_ms} while a fighter stands free on the ground and does not hold block."
+source = "docs/SABER-RULES.md 5.5"
+see = "sim::combat::saber::duel::meter::refill"
+
+[mishap.decay]
+name = "Mishaps Lost"
+type = "i32"
+value = [1, 2]
+labels = ["usually", "a player above the fast mark"]
+unit = "count"
+summary = "Each fall takes {duel.mishap.decay[0]}, or {duel.mishap.decay[1]} from a player above {duel.mishap.fast_above}."
+source = "docs/SABER-RULES.md 5.5"
+see = "sim::combat::saber::duel::meter::refill"
+
+[mishap.fast_above]
+name = "Attack Fatigue"
+type = "u8"
+value = 12
+unit = "count"
+summary = "Above {duel.mishap.fast_above} mishaps a fighter is in attack fatigue: a player's mishaps fall twice as fast, and with the duel attack speed its swings slow."
+source = "docs/SABER-RULES.md 5.4"
+see = "sim::combat::saber::duel::meter::refill"
+
+[mishap.reset]
+name = "Reward Calm"
+type = "u8"
+value = [10, 5]
+labels = ["from", "to"]
+unit = "count"
+summary = "A kill or a rewarded hit takes a count of {duel.mishap.reset[0]} or more down to {duel.mishap.reset[1]} (not for a player holding block)."
+source = "docs/SABER-RULES.md 1.3"
+see = "sim::combat::saber::duel::meter::rewarded"
+
+[mishap.scene]
+name = "Scene Calm"
+type = "u8"
+value = 1
+unit = "count"
+summary = "A scene plays by KOTOR's rules under every saber mode, as JA's: no duel meter is spent, refilled or rewarded in it, no creature takes a stance, and blows, parries and bolts go as under JA. A player's block points are full and its mishaps {duel.mishap.scene} once a scene holds it; its Force, KOTOR's, is left as it is."
+source = "docs/SABER-RULES.md 1.3; kjk: a conversation refills no Force"
+see = "sim::combat::saber::duel::meter::scene, sim::world::scene::Held::saber_rules"
+
+[ladder]
+title = "Bounce Ladder"
+summary = "What a blocked attacker plays, by its mishaps."
+
+[ladder.rungs]
+name = "Rungs"
+type = "u8"
+value = [5, 12, 15]
+labels = ["small bounce", "heavy stagger", "mishap roll"]
+unit = "count"
+summary = "A blocked attacker with {duel.ladder.rungs[0]} or more mishaps bounces, with {duel.ladder.rungs[1]} or more a player is staggered (a creature bounces and calms to {duel.ladder.creature_reset[0]}), at {duel.ladder.rungs[2]} a player rolls for a mishap (a creature does {duel.ladder.creature_top_roll}% of the time, else is staggered, and calms to {duel.ladder.creature_reset[1]})."
+source = "docs/SABER-RULES.md 5.2"
+see = "sim::combat::saber::duel::exchange::ladder"
+
+[ladder.creature_reset]
+name = "Creature's Calm"
+type = "u8"
+value = [5, 1]
+labels = ["heavy rung", "top rung"]
+unit = "count"
+summary = "A creature's mishaps fall to {duel.ladder.creature_reset[0]} on the heavy rung and {duel.ladder.creature_reset[1]} on the top one."
+source = "docs/SABER-RULES.md 5.2"
+see = "sim::combat::saber::duel::exchange::ladder"
+
+[ladder.creature_top_roll]
+name = "Creature's Top Roll"
+type = "i32"
+value = 20
+unit = "%"
+summary = "A creature at the top rung rolls for a mishap {duel.ladder.creature_top_roll}% of the time."
+source = "docs/SABER-RULES.md 5.2"
+see = "sim::combat::saber::duel::exchange::ladder"
+
+[roll]
+title = "Mishap Roll"
+summary = "A roll of one to {duel.roll.sides} at or under the mishaps hits."
+
+[roll.sides]
+name = "Mishap Die"
+type = "i32"
+value = 15
+summary = "The mishap roll's die has {duel.roll.sides} sides: a mishap count of as many is certain."
+source = "docs/SABER-RULES.md 5.3"
+see = "sim::combat::saber::duel::exchange::mishap"
+
+[roll.attacker_disarm]
+name = "Attacker's Disarm"
+type = "i32"
+value = 50
+unit = "%"
+summary = "An attacker's mishap disarms it {duel.roll.attacker_disarm}% of the time, else staggers it; a creature is staggered instead of disarmed {duel.roll.creature_spared}% of the time."
+source = "docs/SABER-RULES.md 5.3"
+see = "sim::combat::saber::duel::exchange::mishap"
+
+[roll.creature_spared]
+name = "Creature Spared"
+type = "i32"
+value = 20
+unit = "%"
+summary = "A creature's disarm becomes a stagger {duel.roll.creature_spared}% of the time."
+source = "docs/SABER-RULES.md 5.3"
+see = "sim::combat::saber::duel::exchange::mishap"
+
+[roll.blocker_stagger]
+name = "Blocker's Stagger"
+type = "i32"
+value = [50, 25]
+labels = ["anyone", "a creature after"]
+unit = "%"
+summary = "A blocker's mishap staggers it {duel.roll.blocker_stagger[0]}% of the time; otherwise a creature is staggered {duel.roll.blocker_stagger[1]}% of the time and else disarmed, a player disarmed."
+source = "docs/SABER-RULES.md 5.3"
+see = "sim::combat::saber::duel::exchange::mishap"
+
+[disarm]
+title = "Disarms"
+summary = "A saber knocked out of the hand flies up; the easy difficulties guard against the first."
+
+[disarm.speed]
+name = "Disarm Toss"
+type = "f32"
+value = 350.0
+unit = "units/s"
+summary = "A disarmed saber is thrown up at {duel.disarm.speed}."
+source = "docs/SABER-RULES.md 4.6"
+see = "sim::world::sabers"
+
+[disarm.guard_ms]
+name = "Disarm Guard"
+type = "u64"
+value = [10000, 8000, 0]
+labels = ["easy", "normal", "difficult"]
+unit = "ms"
+summary = "A first disarm is refused and guards for {duel.disarm.guard_ms[0]} on easy, {duel.disarm.guard_ms[1]} on normal; one after the guard (within as long again) takes the saber. None on difficult."
+source = "docs/SABER-RULES.md 4.6"
+see = "sim::combat::saber::duel::guarded"
+
+[difficulty]
+title = "Difficulty"
+summary = "The difficulty the duel mode's rules are read at."
+
+[difficulty.level]
+name = "Duel Difficulty"
+type = "usize"
+value = 1
+range = [0, 2]
+summary = "The duel mode plays at KOTOR's normal difficulty ({duel.difficulty.level}: 0 easy, 2 difficult), as the sim has no difficulty setting yet."
+source = "ours: KOTOR's Normal, what play here matches (`GetGameDifficulty`)"
+see = "sim::combat::saber::duel::window"
+
+[speed]
+title = "Duel Attack Speed"
+summary = "The duel mode's slower swings, an option off by default."
+
+[speed.option]
+name = "Duel Attack Speed"
+type = "bool"
+value = false
+summary = "Whether saber swings play at the duel mode's paces, by style and slower when weary or bounced: {duel.speed.option}."
+source = "docs/SABER-RULES.md 6.4 (off by default)"
+see = "sim::combat::saber::duel::play_speed"
+
+[speed.styles]
+name = "Style Pace"
+type = "f32"
+value = [1.1, 1.0, 0.95, 0.9, 0.9]
+labels = ["fast", "medium", "strong", "dual", "staff"]
+unit = "×"
+summary = "With the option, swings play at these paces by style: fast {duel.speed.styles[0]}, medium {duel.speed.styles[1]}, strong {duel.speed.styles[2]}, dual {duel.speed.styles[3]}, staff {duel.speed.styles[4]}."
+source = "docs/SABER-RULES.md 6.4"
+see = "sim::combat::saber::duel::play_speed"
+
+[speed.bounces]
+name = "Bounce Pace"
+type = "f32"
+value = [0.85, 0.9, 0.65, 0.55, 0.85]
+labels = ["blocked", "parried", "staggered", "perfectly blocked", "attack fatigue"]
+unit = "×"
+summary = "With the option, a bounce plays at these paces by why it bounced: blocked {duel.speed.bounces[0]}, parried {duel.speed.bounces[1]}, staggered {duel.speed.bounces[2]}, perfectly blocked {duel.speed.bounces[3]}; a swing in attack fatigue at {duel.speed.bounces[4]}."
+source = "docs/SABER-RULES.md 6.4"
+see = "sim::combat::saber::duel::play_speed"
+
+[bolts]
+title = "Bolts"
+summary = "Under the duel mode a player turns bolts only while holding block, paying for each; a creature turns them as under JA (its Jedi Defense and Deflect, facing them, a pause between bolts below Master Jedi Defense), paying for each."
+
+[bolts.base]
+name = "Deflection Cost"
+type = "f32"
+value = 1.0
+unit = "points"
+summary = "Turning a bolt costs {duel.bolts.base}, more by how the blocker moves."
+source = "docs/SABER-RULES.md 7.2"
+see = "sim::combat::saber::duel::shots::cost"
+
+[bolts.adds]
+name = "Deflection Extras"
+type = "f32"
+value = [10.0, 5.0, 10.0, 2.0]
+labels = ["Force speed", "running", "in the air", "walking"]
+unit = "points"
+summary = "Added to a deflection's cost: {duel.bolts.adds[0]} with Force speed, {duel.bolts.adds[1]} running, {duel.bolts.adds[2]} in the air, {duel.bolts.adds[3]} walking."
+source = "docs/SABER-RULES.md 7.2"
+see = "sim::combat::saber::duel::shots::cost"
+
+[bolts.times]
+name = "Deflection Factors"
+type = "f32"
+value = [1.5, 1.5, 2.5, 2.0, 0.5, 2.0]
+labels = ["broken parry", "kicking", "running player", "in the air", "in the air with a pair", "block and attack held long"]
+unit = "×"
+summary = "Then multiplied: a broken parry {duel.bolts.times[0]}, a kick {duel.bolts.times[1]}, a running player {duel.bolts.times[2]}, in the air {duel.bolts.times[3]} ({duel.bolts.times[4]} with a pair), block and attack held long {duel.bolts.times[5]}."
+source = "docs/SABER-RULES.md 7.2"
+see = "sim::combat::saber::duel::shots::cost"
+
+[bolts.aimed]
+name = "Aimed Deflection"
+type = "f32"
+value = 2.0
+unit = "×"
+summary = "Turning a bolt back at its shooter (block and attack held) costs {duel.bolts.aimed} as much."
+source = "docs/SABER-RULES.md 7.3"
+see = "sim::combat::saber::duel::shots::cost"
+
+[bolts.wild]
+name = "Wild Deflection"
+type = "i32"
+value = [12, 7]
+labels = ["anyone", "a master"]
+unit = "points"
+summary = "A bolt meeting a blade not blocking is turned wildly and costs {duel.bolts.wild[0]} ({duel.bolts.wild[1]} for a master)."
+source = "docs/SABER-RULES.md 7.4"
+see = "sim::world::sabers"
+
+[bolts.wild_spread]
+name = "Wild Spread"
+type = "f32"
+value = 0.4
+summary = "A wild deflection strays up to {duel.bolts.wild_spread} on each axis of its way."
+source = "docs/SABER-RULES.md 7.4"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.scatter]
+name = "Deflection Scatter"
+type = "f32"
+value = [1.0, 3.0, 3.0, 5.0]
+labels = ["least", "most", "spent least", "spent most"]
+unit = "°"
+summary = "A bolt turned toward the crosshair strays {duel.bolts.scatter[0]} to {duel.bolts.scatter[1]} ({duel.bolts.scatter[2]} to {duel.bolts.scatter[3]} under {duel.bolts.bands_scatter[0]} points), each way; backing away with the meter full enough, at most {duel.bolts.back_scatter}."
+source = "docs/SABER-RULES.md 7.3"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.back_scatter]
+name = "Backing Scatter"
+type = "f32"
+value = 1.0
+unit = "°"
+summary = "A bolt turned while backing away strays at most {duel.bolts.back_scatter}."
+source = "docs/SABER-RULES.md 7.3"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.head]
+name = "Aimed at the Head"
+type = "f32"
+value = [4.0, 16.0, 4.0]
+labels = ["sideways", "below", "above"]
+unit = "units"
+summary = "A bolt turned back at its shooter goes for the head, up to {duel.bolts.head[0]} to a side, {duel.bolts.head[1]} below or {duel.bolts.head[2]} above."
+source = "docs/SABER-RULES.md 7.3"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.head_height]
+name = "Head Height"
+type = "f32"
+value = 26.0
+unit = "units"
+summary = "A shooter's head is {duel.bolts.head_height} above its origin."
+source = "JA's eye height"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.bands_scatter]
+name = "Deflection Steadiness"
+type = "i32"
+value = [25, 50]
+labels = ["spent under", "steady from"]
+unit = "points"
+summary = "A blocker under {duel.bolts.bands_scatter[0]} block points strays its bolts more; one with {duel.bolts.bands_scatter[1]} or more strays them little while backing away."
+source = "docs/SABER-RULES.md 7.3"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.chest]
+name = "Chest Height"
+type = "f32"
+value = 0.5
+unit = "×"
+summary = "A creature turns a bolt at its shooter's chest, {duel.bolts.chest} of the way up to the head."
+source = "docs/SABER-RULES.md 7.3"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.aimed_spread]
+name = "Aimed Spread"
+type = "f32"
+value = [0.1, 0.3]
+labels = ["steady", "spent"]
+summary = "A bolt aimed back strays up to {duel.bolts.aimed_spread[0]} on each axis of its way while the blade moves or the meter is low, {duel.bolts.aimed_spread[1]} when spent."
+source = "docs/SABER-RULES.md 7.3"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.aimed_from]
+name = "Aimed Steadiness"
+type = "i32"
+value = 50
+unit = "points"
+summary = "With {duel.bolts.aimed_from} in the meter and the blade still, a bolt aimed back does not stray."
+source = "docs/SABER-RULES.md 7.3"
+see = "sim::combat::saber::duel::shots::aim"
+
+[bolts.bands]
+name = "Deflection Poses"
+type = "i32"
+value = [15, 25]
+labels = ["knocked aside under", "parried well from"]
+unit = "points"
+summary = "Under {duel.bolts.bands[0]} a blocker is knocked aside by the bolt it turns; from {duel.bolts.bands[1]} it parries it."
+source = "docs/SABER-RULES.md 7.5"
+see = "sim::world::sabers"
+
+[locks]
+title = "Saber Locks"
+summary = "How often blades lock, and what winning one can do."
+
+[locks.setting]
+name = "Saber Locks"
+type = "i32"
+value = 1
+range = [0, 3]
+summary = "How often clashing blades lock: 0 never, 1 rarely, 2 sometimes, 3 often; each try locks {duel.locks.setting} times in {duel.locks.odds_of}."
+source = "docs/SABER-RULES.md 8.1 (Rarely by default)"
+see = "sim::world::sabers"
+
+[locks.odds_of]
+name = "Lock Die"
+type = "i32"
+value = 5
+summary = "The lock setting is rolled against a die of {duel.locks.odds_of}."
+source = "docs/SABER-RULES.md 8.1"
+see = "sim::world::sabers"
+
+[locks.executions]
+name = "Lock Executions"
+type = "bool"
+value = true
+summary = "Whether a won lock can end in a super break or an execution: {duel.locks.executions}."
+source = "docs/SABER-RULES.md 8.3 (on by default)"
+see = "sim::world::sabers"
+
+[locks.strength_above]
+name = "Strong Win"
+type = "i32"
+value = 3
+summary = "A lock won with more strength than {duel.locks.strength_above} may break or execute."
+source = "docs/SABER-RULES.md 8.3"
+see = "sim::world::sabers"
+
+[locks.rolls]
+name = "Lock Rolls"
+type = "i32"
+value = [10, 25, 2, 10]
+labels = ["super break", "execution", "offence", "disarm"]
+summary = "A super break needs a roll from 0 to {duel.locks.rolls[0]} under the strength, an execution one from 0 to {duel.locks.rolls[1]} and the winner's offence over one of 1 to {duel.locks.rolls[2]}; a disarm one from 0 to {duel.locks.rolls[3]}."
+source = "docs/SABER-RULES.md 8.3"
+see = "sim::world::sabers"
+
+[locks.downgrade]
+name = "Masters Hold"
+type = "i32"
+value = 80
+unit = "%"
+summary = "A super break against a master is a plain break {duel.locks.downgrade}% of the time."
+source = "docs/SABER-RULES.md 8.3"
+see = "sim::world::sabers"
+
+[locks.weak]
+name = "Weak Loser"
+type = "i32"
+value = [25, 10, 50]
+labels = ["player", "player's last", "creature"]
+unit = "%"
+summary = "An execution takes a player at {duel.locks.weak[1]}% of its health or less (and under {duel.locks.weak[0]}%), a creature that is no master or at {duel.locks.weak[2]}% or less."
+source = "docs/SABER-RULES.md 8.3"
+see = "sim::world::sabers"
+
+[locks.two_handed]
+name = "Two Blades Hold"
+type = "i32"
+value = 2
+summary = "A loser with a staff or a pair is {duel.locks.two_handed} harder to disarm, and a staff keeps its saber half the time."
+source = "docs/SABER-RULES.md 8.3"
+see = "sim::world::sabers"
+
+[locks.stun_ms]
+name = "Lock Loss Stun"
+type = "i32"
+value = 500
+unit = "ms"
+summary = "A lock's loser can do nothing for its loss and {duel.locks.stun_ms} more."
+source = "docs/SABER-RULES.md 8.3"
+see = "sim::world::sabers"
+
+[wear]
+title = "Saber Wear"
+summary = "Blocks wear a creature's double-bladed lightsaber; worn through, it breaks and fights on with one blade. A player's never wears."
+
+[wear.who]
+name = "Saber Wear"
+type = "u8"
+value = 1
+range = [0, 2]
+summary = "Whose sabers wear ({duel.wear.who}): 0 nobody's, 1 creatures', 2 everyone's."
+source = "docs/SABER-RULES.md 9.1 (everyone by default); kjk wears creatures' only, as a player's hilt has no repair"
+see = "sim::combat::saber::duel::meter::wear"
+
+[wear.gains]
+name = "Wear by Blow"
+type = "u16"
+value = [4, 2, 1]
+labels = ["heavy", "medium", "other"]
+summary = "A blocked swing wears the blocker's hilt {duel.wear.gains[0]} for a strong style, a special or an unblockable blow, {duel.wear.gains[1]} for the medium style, {duel.wear.gains[2]} for the rest; a perfect block wears nothing."
+source = "docs/SABER-RULES.md 9.1"
+see = "sim::combat::saber::duel::meter::wear"
+
+[wear.times]
+name = "Wear Factors"
+type = "f32"
+value = [1.5, 2.0]
+labels = ["attacker in a rage", "blocker spent"]
+unit = "×"
+summary = "Wear is {duel.wear.times[0]} as much from a raging attacker and {duel.wear.times[1]} on a blocker at {duel.wear.low} block points or less (rounded up)."
+source = "docs/SABER-RULES.md 9.1"
+see = "sim::combat::saber::duel::meter::wear"
+
+[wear.low]
+name = "Spent Blocker"
+type = "i32"
+value = 20
+unit = "points"
+summary = "At {duel.wear.low} block points or less a blocker's hilt wears faster."
+source = "docs/SABER-RULES.md 9.1"
+see = "sim::combat::saber::duel::meter::wear"
+
+[wear.levels]
+name = "Wear Levels"
+type = "u16"
+value = [75, 100]
+labels = ["cracked above", "breaks at"]
+summary = "Above {duel.wear.levels[0]} a hilt is cracked and never mends below it; at {duel.wear.levels[1]} it breaks once its swing ends."
+source = "docs/SABER-RULES.md 9.1"
+see = "sim::combat::saber::duel::meter::wear"
+
+[wear.mend_ms]
+name = "Hilt Mends"
+type = "u64"
+value = [8000, 1000]
+labels = ["after", "a point every"]
+unit = "ms"
+summary = "{duel.wear.mend_ms[0]} after its last wear a hilt mends a point every {duel.wear.mend_ms[1]}."
+source = "docs/SABER-RULES.md 9.1"
+see = "sim::combat::saber::duel::meter::refill"
+
+[wear.push]
+name = "Break Push"
+type = "f32"
+value = 150.0
+unit = "units/s"
+summary = "A breaking saber pushes its holder back at {duel.wear.push} and staggers it."
+source = "docs/SABER-RULES.md 9.1"
+see = "sim::world::sabers"
+
+[kicks]
+title = "Kicks"
+summary = "Under the duel mode the kick key kicks with any weapon; a kick is absorbed or floors."
+
+[kicks.least]
+name = "Kick Absorbed"
+type = "i32"
+value = 35
+unit = "points"
+summary = "A player holding block, walking and facing the kick absorbs it with {duel.kicks.least} block points and as much Force or more and fewer than {duel.kicks.mishap_below} mishaps."
+source = "docs/SABER-RULES.md 9.2"
+see = "sim::world::sabers"
+
+[kicks.mishap_below]
+name = "Kick Absorb Mishaps"
+type = "u8"
+value = 10
+unit = "count"
+summary = "At {duel.kicks.mishap_below} mishaps or more no kick is absorbed."
+source = "docs/SABER-RULES.md 9.2"
+see = "sim::world::sabers"
+
+[kicks.stagger_above]
+name = "Kick Stagger"
+type = "i32"
+value = 50
+unit = "points"
+summary = "An absorbed kick staggers one with more than {duel.kicks.stagger_above} in the meter, else makes it stumble."
+source = "docs/SABER-RULES.md 9.2"
+see = "sim::world::sabers"
+
+[kicks.drains]
+name = "Kick Drains"
+type = "i32"
+value = [2, 5]
+labels = ["absorbed", "taken"]
+unit = "points"
+summary = "A kick takes {duel.kicks.drains[0]} block points absorbed, {duel.kicks.drains[1]} taken."
+source = "docs/SABER-RULES.md 9.2"
+see = "sim::world::sabers"
+
+[kicks.creature_guard_ms]
+name = "Creature's Kick Guard"
+type = "u64"
+value = 5000
+unit = "ms"
+summary = "A creature kicked down absorbs the kicks of the next {duel.kicks.creature_guard_ms} unless fatigued."
+source = "docs/SABER-RULES.md 9.2"
+see = "sim::world::sabers"
+
+[kicks.down_ms]
+name = "Kicked Down"
+type = "u64"
+value = [300, 1500]
+labels = ["player", "creature"]
+unit = "ms"
+summary = "A kick not absorbed floors its victim {duel.kicks.down_ms[0]} longer for a player, {duel.kicks.down_ms[1]} for a creature, and its saber goes out."
+source = "docs/SABER-RULES.md 9.2"
+see = "sim::world::sabers"
+
+[kicks.saber_off]
+name = "Saber Knocked Out"
+type = "i32"
+value = 20
+unit = "%"
+summary = "A creature absorbing a kick has its saber switched off {duel.kicks.saber_off}% of the time."
+source = "docs/SABER-RULES.md 9.2"
+see = "sim::world::sabers"
+
+[npc]
+title = "Creatures"
+summary = "How creatures with sabers fight under the duel mode: they block whenever they can, hold a block stance in reach and meditate for block points."
+
+[npc.stance]
+name = "Block Stance"
+type = "f32"
+value = [40.0, 1.5, 16.0, 32.0]
+labels = ["a blade's length", "times the body's half width", "and", "left beyond"]
+unit = "units"
+summary = "A creature within a blade's length ({duel.npc.stance[0]}), {duel.npc.stance[1]} body half widths and {duel.npc.stance[2]} of a saber user takes a block stance facing it, until {duel.npc.stance[3]} farther; it holds its ground only within that reach, and steps back in when pushed past it, so its swings still land. A creature with no straight way to its foe, going round to it, takes no stance, nor does one in a scene (see Scene Calm)."
+source = "docs/SABER-RULES.md 10"
+see = "sim::world::minds"
+
+[npc.retreat]
+name = "Backs Off a Kata"
+type = "f32"
+value = 128.0
+unit = "units"
+summary = "A creature within {duel.npc.retreat} of a foe playing a kata backs away."
+source = "docs/SABER-RULES.md 10"
+see = "sim::world::minds"
+
+[npc.meditate]
+name = "Meditation"
+type = "i32"
+value = [30, 25]
+labels = ["under", "gains"]
+unit = "points"
+summary = "An idle creature under {duel.npc.meditate[0]} block points, with no saber user within {duel.npc.meditate_far}, meditates for {duel.npc.meditate[1]}."
+source = "docs/SABER-RULES.md 10"
+see = "sim::world::minds"
+
+[npc.meditate_far]
+name = "Meditation Distance"
+type = "f32"
+value = 256.0
+unit = "units"
+summary = "A saber user must be {duel.npc.meditate_far} away for a creature to meditate."
+source = "docs/SABER-RULES.md 10"
+see = "sim::world::minds"
+
+[npc.meditate_ms]
+name = "Meditation Wait"
+type = "u64"
+value = [15000, 25000]
+labels = ["least", "most"]
+unit = "ms"
+summary = "A creature meditates again {duel.npc.meditate_ms[0]} to {duel.npc.meditate_ms[1]} later."
+source = "docs/SABER-RULES.md 10"
+see = "sim::world::minds"
+
+[sprint]
+title = "Sprint"
+summary = "Block held while running sprints, on fuel of its own."
+
+[sprint.fuel]
+name = "Sprint Fuel"
+type = "u8"
+value = [100, 15, 17, 10]
+labels = ["full", "needs above", "a start under", "costs"]
+summary = "Sprint fuel runs to {duel.sprint.fuel[0]}; a sprint needs more than {duel.sprint.fuel[1]}, and one started under {duel.sprint.fuel[2]} costs {duel.sprint.fuel[3]} more."
+source = "docs/SABER-RULES.md 2.4"
+see = "sim::combat::saber::duel::meter::refill"
+
+[sprint.every_ms]
+name = "Fuel Pace"
+type = "u64"
+value = [150, 150, 75, 250]
+labels = ["burnt sprinting", "back standing", "back crouching", "back when low"]
+unit = "ms"
+summary = "Sprinting burns a point every {duel.sprint.every_ms[0]}; it comes back a point every {duel.sprint.every_ms[1]} ({duel.sprint.every_ms[2]} crouching, {duel.sprint.every_ms[3]} while low)."
+source = "docs/SABER-RULES.md 2.4"
+see = "sim::combat::saber::duel::meter::refill"
+
+[sprint.speed]
+name = "Sprint Speed"
+type = "f32"
+value = 1.6
+unit = "×"
+summary = "A sprint runs {duel.sprint.speed} times as fast."
+source = "docs/SABER-RULES.md 2.4"
+see = "sim::world::powers"

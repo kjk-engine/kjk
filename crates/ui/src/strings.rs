@@ -73,6 +73,34 @@ pub const BODY_FADE_OFF: &str = "Body Fade Up Close: Off";
 pub const ANTI_ALIASING_OFF: &str = "Anti-Aliasing: Off";
 pub const ANTI_ALIASING_2X: &str = "Anti-Aliasing: 2x";
 pub const ANTI_ALIASING_4X: &str = "Anti-Aliasing: 4x";
+/// The saber rules a session plays by, and the duel modes' options.
+pub const SABER_RULES_JA: &str = "Sabers: Jedi Academy";
+pub const SABER_RULES_MDA: &str = "Sabers: MD Advanced";
+pub const DUEL_BARS: &str = "Overhead duel bars";
+pub const DUEL_WARNING: &str = "Unblockable warning";
+pub const DUEL_SLOW_MOTION: &str = "Perfect-block slow-mo";
+pub const SABERS: &str = "Sabers";
+pub const SABER_OPTIONS: &str = "Saber Options";
+pub const DUEL_STANCES: &str = "Movie Duels stances";
+/// The character page's Stance (`pages::Character`).
+pub const STANCE: &str = "Stance";
+pub const STANCE_OWN: &str = "Its Own";
+pub const STANCE_HELP: &str = "This character's Movie Duels stance: how it stands, fidgets, walks and guards with its blade lit. For the look alone, in your game only; kept in your settings.";
+pub const STANCE_NEEDS: &str = "Needs Movie Duels stances: Movie Duels installed beside Jedi Academy, and Movie Duels stances on (Options, Gameplay, Sabers).";
+pub const HILT_KOTOR: &str = "Hilt: KOTOR's";
+pub const HILT_JA: &str = "Hilt: Jedi Academy's";
+pub const HILT_LUKE: &str = "Hilt: Luke (ROTJ)";
+pub const HILT_OBI_WAN: &str = "Hilt: Obi-Wan (ANH)";
+pub const HILT_VADER: &str = "Hilt: Vader";
+pub const HILT_AHSOKA: &str = "Hilt: Ahsoka";
+pub const HILT_DOOKU: &str = "Hilt: Dooku";
+pub const HILT_DARKSABER: &str = "Hilt: Darksaber";
+pub const STAFF_KOTOR: &str = "Staff: KOTOR's";
+pub const STAFF_JA: &str = "Staff: Jedi Academy's";
+pub const STAFF_BASTILA: &str = "Staff: Bastila";
+pub const STAFF_MAUL: &str = "Staff: Maul";
+pub const STAFF_INQUISITOR: &str = "Staff: Inquisitor";
+pub const STAFF_CAL: &str = "Staff: Cal Kestis";
 /// The options pages' descriptions where a setting is ours, not KOTOR 2's
 /// (whose own come from its talk table).
 pub const INVERT_CAMERA_HELP: &str = "ON: Moving the mouse up turns the view downwards.\n\nOFF: Moving the mouse up turns the view upwards.";
@@ -83,6 +111,20 @@ pub const LOOK_SPEED_HELP: &str = "Change how fast the right stick turns the vie
 pub const DEAD_ZONE_HELP: &str = "How far a stick is pushed before it counts.\n\nA worn stick that drifts on its own needs a larger dead zone.";
 pub const ANTI_ALIASING_HELP: &str = "4x: for the best visual experience\n\n2x: a blend of game performance and visual quality\n\nOff: suggested for older video cards";
 pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing, V-Sync and soft shadows.";
+pub const SABERS_HELP: &str = "The rules lightsaber fights play by, their bars and warnings, and the hilts lightsabers are drawn with.";
+pub const SABER_RULES_HELP: &str = "Jedi Academy: blades block on their own, as in Jedi Academy.\n\nMD Advanced: Movie Duels' rules. Hold the block button to parry and to turn bolts; a block pressed just as a blow lands is perfect. Blocks and swings cost block points of their own, the Force kept for powers.\n\nA game hosted for others plays by the host's.";
+pub const DUEL_BARS_HELP: &str = "Under the Movie Duels rules, show each saber fighter's block-point and stamina bars over its head. Your own show by your portrait either way.";
+pub const DUEL_WARNING_HELP: &str =
+    "Under the Movie Duels rules, tint red a swing that only a perfect block stops.";
+pub const DUEL_SLOW_MOTION_HELP: &str = "Under the Movie Duels rules, slow time for a moment after your own perfect block. Only in a game played alone.";
+pub const DUEL_STANCES_HELP: &str =
+    "Draw Jedi in Movie Duels' stances and guards, from its install beside Jedi Academy's.";
+/// What the sabers' page says of Movie Duels' choices without it.
+pub const NEEDS_MOVIE_DUELS: &str = "Needs Movie Duels installed beside Jedi Academy.";
+pub const MOVIE_DUELS_HILTS: &str =
+    "Movie Duels' hilts need Movie Duels installed beside Jedi Academy.";
+pub const HILT_HELP: &str = "The hilt single-bladed lightsabers are drawn with. Hilts other than KOTOR's come from Jedi Academy or Movie Duels.";
+pub const STAFF_HELP: &str = "The hilt double-bladed lightsabers are drawn with. Hilts other than KOTOR's come from Jedi Academy or Movie Duels.";
 pub const TAKE_ALL: &str = "Take all (A)";
 /// The same while a pad plays: its hint bar names its button.
 pub const TAKE_ALL_PAD: &str = "Take all";

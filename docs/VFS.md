@@ -12,6 +12,7 @@ kjk check k1|tsl|ja                # every archive parsed; typed problems; exit 
 kjk ls k1 'm01aa.*' --module end_m01aa [--shadowed]
 kjk extract k1 m01aa.git --module end_m01aa   # to kjk-artifacts/extract/<game>/
 kjk fingerprint [game] [--no-cache]
+kjk sabers ['vader*']              # JA's .sab blocks after precedence
 ```
 
 An install's folder is named by `KJK_KOTOR1`, `KJK_KOTOR2` or `KJK_JA`, in
@@ -101,6 +102,47 @@ The references this was measured against are credited in `NOTICE`.
 loose files in `base/` are below every PK3. Within one PK3 the later entry of
 a name wins.
 
+### A mod folder (Movie Duels)
+
+A JA mod such as Movie Duels installs as a folder of its own beside
+`base/` (`GameData/MD/`), holding PK3s and perhaps loose files. Movie
+Duels' is found by itself: an `MD` folder beside `base/` (any case)
+holding its archives (`MD_*.pk3`) is read without a setting
+(`Install::ja_mod_folder`, `Install::movie_duels`). Another folder is read
+only when named, and a name wins over the found one: `KJK_JA_MOD=MD` in the
+environment or `.env`, or the setting `ja.mod` (`settings.json`), the
+variable winning. The name is one folder beside `base/`, in any case (not
+`base`, no separators); one that is not there is said by `kjk games` and
+the log, and `base/` alone is played. `kjk games` and the run's log say the
+folder read and whether it is Movie Duels.
+
+The engine adds a mod folder after `base/` the way it adds `base/`: the
+folder's loose files, then its PK3s in the same sort over them. So,
+lowest first: `base/`'s loose files, `base/`'s PK3s, the mod's loose files,
+the mod's PK3s. Every name a mod holds beats `base/`'s, a loose one too.
+The game's own libraries and settings a mod folder ships (its
+`jampgamex86.dll`, its `.cfg`s at the root) are not data, as in `base/`.
+
+`kjk check ja` prints each folder's load order, `kjk ls ja` names a mod
+archive by its folder (`md/zz_md.pk3`, `md/ (loose)`), and `kjk sabers`
+lists every `.sab` block the stack reads, the mod's ~170 hilts with
+`base/`'s (a saber two files name is read from the first file by path,
+as `viewer_ja::saber_and_hilt` searches; the listing marks the other
+hidden). A run reads the mod's folder for two things alone, both the
+view's: the hilts KOTOR's lightsabers may be drawn with (a hilt `base/`
+has is read from `base/`) and the characters' stances' own skeletons
+(`game.duel_stances`). Everything else reads `base/` alone
+(`viewer_ja::Files::base`, `JaStack::base`): the sim's body, skeleton,
+`animation.cfg`, hands and blades, and the view's body, effects, powers,
+blades and sounds. Movie Duels has a `_humanoid` skeleton and
+`animation.cfg` of its own over `base/`'s (`md/MD_Assets2.pk3`); read, they
+changed the sim's animation table. The probe `kjk sim probes --only "mod
+apart"` builds the table with the mod folder and without and finds the
+same digest (skipped where JA has no Movie Duels beside it).
+
+Nothing of a mod is shipped or copied: kjk reads the player's own
+install, as it reads `base/`.
+
 ## Reads
 
 A resource whose span runs past its file's end is an error before anything
@@ -110,7 +152,10 @@ inflates to at most its directory size.
 ## Fingerprint
 
 BLAKE3 over every file the resolvers read (not saves, configs or exes), with
-one digest per top-level folder so a mismatch names what differs. Workshop
+one digest per top-level folder so a mismatch names what differs. A JA
+mod folder is not covered: the world is built from `base/` alone, so a
+host with Movie Duels and a guest without it share a world (each draws
+its own hilts and stances). Workshop
 items' files are covered under `workshop/<id>/` (`covered_in_item`), with
 the items' order; co-op compares each item's world files as one group
 (`workshop/<id>`, in id order). An item's digest has the items loaded
