@@ -125,9 +125,15 @@ not carry them (an install with nothing to draw) reads them on a thread of
 the view's:
 
 - **Music**: `ambientmusic.2da` row `MusicDay` (`MusicNight` in an area
-  that is night), column `resource`, from a stream folder; played through,
-  then again `MusicDelay` ms after it ends (5 s on the Endar Spire). Row 0
-  is none.
+  that is night), column `resource`, from a stream folder. It first plays
+  `MusicDelay` ms after the player enters the area, by a module change or
+  a load alike (5 s on the Endar Spire, 120 s in Manaan's areas). It plays
+  through, then again `MusicDelay` ms after it ends. This is the timing of
+  K1's executable (`asset_odyssey::sound::Song`, issue 291). The
+  last area's music stops at a module change: it never carries over, even
+  when the next area names the same track. A script's
+  `MusicBackgroundPlay` starts the music at once, during a wait too, and a
+  new track (`MusicBackgroundChangeDay`) starts at once. Row 0 is none.
 - **Battle music** (`game::battle_music`; neither reference plays it, the
   rule is K1's executable's, 2026-10-24): while the area's battle flag is
   up, the area's `MusicBattle` row loops, faded in over 1.5 s; the music
