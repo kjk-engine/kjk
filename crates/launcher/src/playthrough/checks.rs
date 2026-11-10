@@ -789,7 +789,8 @@ pub(super) fn shut_doors(base: &Snapshot, level: &sim::Level) -> sim::probe::Che
 /// end, through it. A trigger the player stood in while talking and was
 /// jumped out of turned it back; one it walked out of did not. A body gone
 /// round twice where it stands is walled and the way keeps clear of it; one
-/// that moved between rounds is not. A walk approached off the mesh makes for the floor it would from the mesh
+/// that moved between rounds is not; so is the floor ahead of a walk wedged
+/// short of its corner (`TurnedBack::wedged`). A walk approached off the mesh makes for the floor it would from the mesh
 /// (`Here::approach`). A walk to a way out keeps off one leading elsewhere
 /// (`TurnedBack::keep_off_exits`), and a body sliding into that one, driven
 /// another way, is held back (`exit_ahead`).
@@ -973,17 +974,14 @@ pub fn wall_probes() -> sim::probe::Checks {
     // (0, 4) and then a metre on: the first's faces are walled and the way
     // keeps a body's pass from it; the second, moved, is not; nor a hostile
     // one gone round twice at (0, -4) (a storm beast on Malachor).
-    let walled_body = {
-        let mut turned = TurnedBack::default();
-        let (body, moving, foe) = (origin(0.0, 0.0), origin(0.0, 4.0), origin(0.0, -4.0));
-        let once = turned.went_round(body, false);
-        let moved = turned.went_round(moving, false) || turned.went_round(origin(1.0, 4.0), false);
-        let hostile = turned.went_round(foe, true) || turned.went_round(foe, true);
-        let twice = turned.went_round(body, false);
+    // How near (metres) the way from `from` to `to`, planned round what
+    // `turned` walls, comes to `spot` (units), sampled every 10 cm.
+    let nearest = |turned: &mut TurnedBack, spot: [f32; 3]| {
         turned.wall(&Here::new(&level, &snapshot, &BTreeSet::new()));
         let refused = BTreeSet::new();
         let here = Here::new(&level, &snapshot, &refused).walled(&turned.walled);
-        let nearest = here.route(from, to, true).map(|corners| {
+        let spot = spot.map(|v| v * UNIT);
+        here.route(from, to, true).map(|corners| {
             std::iter::once(from)
                 .chain(corners)
                 .collect::<Vec<_>>()
@@ -993,18 +991,49 @@ pub fn wall_probes() -> sim::probe::Checks {
                     let steps = (flat(a, b) / 0.1).ceil().max(1.0) as usize;
                     (0..=steps).map(move |k| {
                         let t = k as f32 / steps as f32;
-                        flat([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, 0.0], [0.0; 3])
+                        flat([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, 0.0], spot)
                     })
                 })
                 .fold(f32::MAX, f32::min)
-        });
-        let pass = 2.0 * sim::motion::HALF_WIDTH * UNIT;
+        })
+    };
+    let pass = 2.0 * sim::motion::HALF_WIDTH * UNIT;
+    let walled_body = {
+        let mut turned = TurnedBack::default();
+        let (body, moving, foe) = (origin(0.0, 0.0), origin(0.0, 4.0), origin(0.0, -4.0));
+        let once = turned.went_round(body, false);
+        let moved = turned.went_round(moving, false) || turned.went_round(origin(1.0, 4.0), false);
+        let hostile = turned.went_round(foe, true) || turned.went_round(foe, true);
+        let twice = turned.went_round(body, false);
+        let nearest = nearest(&mut turned, body);
         let detail = format!(
             "walled after one round {once}, a moved body {moved}, a hostile one {hostile}, after two {twice}; the way's nearest to it {nearest:?} m"
         );
         (
             "walk_walls_a_body_gone_round_twice_where_it_stands",
             if !once && !moved && !hostile && twice && nearest.is_some_and(|m| m >= pass) {
+                Ok(detail)
+            } else {
+                Err(detail)
+            },
+        )
+    };
+    // A walk wedged at (-1.5, 0) making for a corner at (8, 0): the floor
+    // `UNWEDGE_M` on towards it is walled at once, once, and the way keeps a
+    // body's pass from it (Malachor's south buried ship, a drawn rock).
+    let wedged = {
+        let mut turned = TurnedBack::default();
+        let spot = super::wedged_at(origin(-1.5, 0.0), to);
+        let first = turned.wedged(spot);
+        let again = turned.wedged(spot);
+        let nearest = nearest(&mut turned, spot);
+        let detail = format!(
+            "walled at {:?}: first {first}, again {again}; the way's nearest to it {nearest:?} m",
+            spot.map(|v| v * UNIT)
+        );
+        (
+            "walk_walls_the_floor_where_it_wedged",
+            if first && !again && nearest.is_some_and(|m| m >= pass) {
                 Ok(detail)
             } else {
                 Err(detail)
@@ -1088,6 +1117,7 @@ pub fn wall_probes() -> sim::probe::Checks {
         rounds,
         used,
         walled_body,
+        wedged,
         kept_off,
         guarded,
         routed("walk_goes_round_a_trigger_that_turned_it_back", 5.0, true),
@@ -1115,16 +1145,31 @@ pub fn wall_probes() -> sim::probe::Checks {
 /// `actions`, behind what it does first (Bastila's surrender on the Unknown
 /// World: her fake cast, then her talk).
 pub(super) fn talk_coming(actions: &BTreeMap<u32, Vec<sim::script::actions::Queued>>, party: &[u32]) -> bool {
-    actions.values().flatten().any(|queued| {
-        matches!(
-            queued.action,
-            sim::script::actions::Action::Converse { with, .. } if party.contains(&with.0)
-        )
-    })
+    talk_behind(actions, party).is_some()
+}
+
+/// How few actions a creature does first before a conversation with one of
+/// `party` its `actions` hold; none queued, none. Fewer than before is a
+/// `talk` coming nearer: Mandalore's shuttle scene, its start deferred half a
+/// second behind his jump to the shuttle, when his heartbeat's patrol of the
+/// camp comes in that half second, waits for the whole patrol.
+pub(super) fn talk_behind(actions: &BTreeMap<u32, Vec<sim::script::actions::Queued>>, party: &[u32]) -> Option<usize> {
+    actions
+        .values()
+        .filter_map(|queue| {
+            queue.iter().position(|queued| {
+                matches!(
+                    queued.action,
+                    sim::script::actions::Action::Converse { with, .. } if party.contains(&with.0)
+                )
+            })
+        })
+        .min()
 }
 
 /// A fight's quiet waits on a conversation with the party queued behind a
-/// creature's other actions, not on one with someone else.
+/// creature's other actions, not on one with someone else; a `talk` waits
+/// on one coming nearer (`nearer_probes`).
 pub fn quiet_probes() -> sim::probe::Checks {
     use sim::script::actions::{Action, Queued};
     let queued = |with: u32| {
@@ -1158,7 +1203,52 @@ pub fn quiet_probes() -> sim::probe::Checks {
         let detail = format!("a conversation coming {coming}");
         (name, if coming == want { Ok(detail) } else { Err(detail) })
     })
+    .chain(nearer_probes())
     .collect()
+}
+
+/// A `talk` waits on a conversation queued behind a creature's other
+/// actions while they get done: one behind two, then behind one, is nearer;
+/// behind the same one, or another's, is not.
+fn nearer_probes() -> sim::probe::Checks {
+    use sim::script::actions::{Action, Queued};
+    let queue = |ahead: usize, with: u32| {
+        let wait = Queued {
+            action: Action::Hold { talk: None },
+            started_ms: None,
+        };
+        let talk = Queued {
+            action: Action::Converse {
+                with: ObjectId(with),
+                dialog: String::new(),
+                asker: None,
+                cue: None,
+            },
+            started_ms: None,
+        };
+        let mut queued = vec![wait; ahead];
+        queued.push(talk);
+        BTreeMap::from([(7, queued)])
+    };
+    [
+        ("talk_nearer_as_the_actions_before_it_end", queue(2, 1), queue(1, 1), true),
+        ("talk_no_nearer_behind_the_same_actions", queue(1, 1), queue(1, 1), false),
+        ("talk_with_others_never_nearer", queue(2, 9), queue(1, 9), false),
+    ]
+    .into_iter()
+    .map(|(name, before, after, want)| {
+        let (was, is) = (talk_behind(&before, &[0, 1]), talk_behind(&after, &[0, 1]));
+        let nearer = nearer(was, is);
+        let detail = format!("behind {was:?} then {is:?}: nearer {nearer}");
+        (name, if nearer == want { Ok(detail) } else { Err(detail) })
+    })
+    .collect()
+}
+
+/// Whether a conversation queued behind `is` actions is nearer than when it
+/// was behind `was`.
+pub(super) fn nearer(was: Option<usize>, is: Option<usize>) -> bool {
+    is.zip(was).is_some_and(|(is, was)| is < was)
 }
 
 /// A use waits on a foe fighting a companion more than `STRAY_M` from the
