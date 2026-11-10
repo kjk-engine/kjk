@@ -94,7 +94,11 @@ pub struct AuditFrame {
     pub swapped: bool,
     /// The saber move cuts (`Figure::cuts`).
     pub cuts: bool,
-    /// The blade can touch something (`cast::in_contact`).
+    /// The blade can touch something (`cast::in_contact`). The log reads
+    /// the fighter from the last snapshot at or before the figure's own
+    /// moment, while the view's turn of the drawn blade
+    /// (`Figure::turn_share`) reads it from the first snapshot at or after
+    /// it. The two can be one snapshot apart.
     pub contact: bool,
     /// The saber rules in play (`ja` or `mda`).
     pub rules: String,

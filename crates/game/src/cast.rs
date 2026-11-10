@@ -117,6 +117,11 @@ const SHOT_AIM_MS: f64 = 150.0;
 /// swings are (an attack lasts about 0.3 s), the arm solved smoothly all
 /// the while (`rig::bend`).
 const REACH_EASE_S: f32 = 0.08;
+/// Seconds a gripping hand takes, under the duel rules, to turn the drawn
+/// blade fully the sim's way as a block, a bolt deflection or a saber lock
+/// begins (`Figure::turn_share`): two or three frames, as these have no
+/// lead-in to turn over.
+const CONTACT_EASE_S: f32 = 0.03;
 /// Seconds a gripping hand takes to settle into a held stance's reach:
 /// longer, the stance's pose coming in after a return (at `REACH_EASE_S`
 /// the hand snapped up to `asset_ja::rig::REACH` across the chest).
@@ -1356,18 +1361,26 @@ impl Figure {
 
     /// How much its gripping hands turn the drawn blades the sim's way
     /// (`Reach::turn`) at `ms` under the duel rules. While the blade is in
-    /// contact (`contact`) they turn all the way at once, so the drawn blade
-    /// is where the sim's can hit from the first frame. Out of contact the
-    /// turn eases away over `REACH_EASE_S` and the drawn pose keeps its own
-    /// turn: the view may play another pose than the sim (a duel stance, a
-    /// held block's parry), and the sim's blade points as JA's sequence
-    /// holds it.
-    fn turn_share(&mut self, contact: bool, ms: f64) -> f32 {
-        if contact {
-            self.turn = (1.0, Some(ms));
-            return 1.0;
-        }
-        eased(&mut self.turn, (0.0, REACH_EASE_S), ms)
+    /// contact (`contact`) they turn all the way, eased in over
+    /// `CONTACT_EASE_S`. During an attack's lead-in (a start or a transition,
+    /// `lead_ms` of it left) they ease in so they reach all the way as the
+    /// lead-in ends: the drawn blade is where the sim's cuts from the cut's
+    /// first frame. Otherwise the turn eases away over `REACH_EASE_S` and
+    /// the drawn pose keeps its own turn: the view may play another pose
+    /// than the sim (a duel stance, a held block's parry), and the sim's
+    /// blade points as JA's sequence holds it.
+    fn turn_share(&mut self, (contact, lead_ms): (bool, Option<f32>), ms: f64) -> f32 {
+        let (target, ease) = match (contact, lead_ms) {
+            (true, _) => (1.0, CONTACT_EASE_S),
+            // The rest of the turn spread over the rest of the lead-in, at
+            // least as long as a contact's ease.
+            (false, Some(left)) => {
+                let rest = (1.0 - self.turn.0).max(f32::EPSILON);
+                (1.0, (left / 1000.0 / rest).max(CONTACT_EASE_S))
+            }
+            (false, None) => (0.0, REACH_EASE_S),
+        };
+        eased(&mut self.turn, (target, ease), ms)
     }
 
     /// Its hand grips a blade as last posed.
@@ -4388,11 +4401,15 @@ fn place(
             let share = figure.reach_share(ms);
             // Under JA's rules the blades always turn the sim's way.
             let turn = if rules.duel() {
-                let contact = at
-                    .fighter
-                    .as_ref()
-                    .is_some_and(|f| in_contact(figure.cuts, &f.saber, ms.max(0.0) as u64));
-                figure.turn_share(contact, ms)
+                let saber = at.fighter.as_ref().map(|f| &f.saber);
+                let contact =
+                    saber.is_some_and(|saber| in_contact(figure.cuts, saber, ms.max(0.0) as u64));
+                // An attack's lead-in lasts as long as the torso's timer
+                // holds its move.
+                let lead = saber
+                    .filter(|saber| saber.current_move.start() || saber.current_move.transition())
+                    .map(|_| at.state.torso.timer.max(0) as f32);
+                figure.turn_share((contact, lead), ms)
             } else {
                 1.0
             };
@@ -4424,7 +4441,7 @@ fn place(
                     most += (BLADE_REACH - most) * w;
                     free = w;
                     // The blade held before the eyes points where it is held.
-                    turn += (1.0 - turn) * w;
+                    turn = 1.0 - (1.0 - turn) * (1.0 - w);
                 }
                 reached.push(Reach {
                     grip: hand as usize,
