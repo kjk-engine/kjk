@@ -106,6 +106,12 @@ walker going round a body it overlapped stopped and started step by step). `moti
   and a creature placed over a room the game gives no walkable face (the
   cutscene modules' soldiers) stands where it was placed instead of
   falling forever.
+- A creature (not a player) standing still out of a fight whose box is
+  buried in the level, where KOTOR's walker (a point a body high) has room
+  over a floor within a step, stands there as the walker holds it
+  (`world::movement::tucked`), not unburied by move_body: TSL's Jedi
+  Council, put at their chairs to sit, had been lifted a step and out
+  onto the seats (#277). `kjk sim probes tucked`.
 - Units: JA's inches and seconds, JA's numbers. `Move::trace` converts at
   the collision boundary (× `collision::UNIT`, the fraction back, the stop
   recomputed in units); snapshots show metres. Velocity snaps to whole
