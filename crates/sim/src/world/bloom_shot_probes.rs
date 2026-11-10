@@ -10,7 +10,10 @@
 //! - two pistols firing at once (a Power Blast's bolt from each gun on one
 //!   step) both stay within the spread shown for that step;
 //! - a gun put away mid-bloom comes back true: the first shot after it is
-//!   drawn again shows no bloom.
+//!   drawn again shows no bloom;
+//! - a companion leading the party (`world::lent`, a portrait click) shoots
+//!   as its player: to the crosshair, blooming, within the spread shown,
+//!   never with a creature's wandering aim.
 
 use super::{Fighting, SimWorld};
 use crate::combat::bloom::{kick_at, shot_cone};
@@ -44,6 +47,7 @@ pub fn probes() -> Checks {
         ),
         ("two_pistols_at_once_within_spread", at_once()),
         ("holstered_gun_comes_back_true", holstered()),
+        ("led_companion_shoots_as_its_player", led()),
     ]
 }
 
@@ -88,7 +92,6 @@ fn pressing(buttons: u16) -> Command {
 struct Range {
     world: SimWorld,
     blaster: Blaster,
-    tick: u64,
     before: Option<(MotionState, Shooting)>,
     shots: Vec<Shot>,
 }
@@ -101,29 +104,27 @@ impl Range {
             ..WorldConfig::one_seat()
         };
         let world = SimWorld::new(config, level).map_err(|error| error.to_string())?;
-        Ok(Range {
+        Ok(Range::on(world, blaster))
+    }
+
+    /// `world`'s seat 0 shooting `blaster` from the body it acts through.
+    fn on(world: SimWorld, blaster: Blaster) -> Range {
+        Range {
             world,
             blaster,
-            tick: 0,
             before: None,
             shots: Vec::new(),
-        })
+        }
     }
 
     /// `ms` of steps with `command`, or until `count` bolts in all.
     fn run(&mut self, ms: u32, command: Command, count: usize) -> Result<(), String> {
         for _ in 0..ms / MSEC {
-            self.tick += 1;
+            let tick = self.world.tick() + 1;
             let mut input = TickInput::default();
             input.insert(Seat(0), command);
-            let snapshot = crate::step(
-                &mut self.world,
-                self.tick,
-                &input,
-                MSEC,
-                StepReason::Authority,
-            );
-            let me = snapshot.own(Seat(0)).ok_or("no player")?;
+            let snapshot = crate::step(&mut self.world, tick, &input, MSEC, StepReason::Authority);
+            let me = snapshot.body(Seat(0)).ok_or("no player")?;
             let ps = me.player.ok_or("no body")?;
             let fighter = me.fighter.as_ref().ok_or("no fighter")?;
             if let Some((was, shooting)) = self.before {
@@ -190,6 +191,46 @@ fn truthful(blaster: Blaster, pair: bool) -> Result<String, String> {
     check(
         strays.is_empty() && last > first,
         format!("{blaster:?}: spread {first:.2}° → {last:.2}°; strays past it: {strays:?}"),
+    )
+}
+
+/// The second companion leading the party with its pair of pistols drawn,
+/// seat 0 holding the trigger: its bolts go to the crosshair within the
+/// spread shown, and the spread grows.
+fn led() -> Result<String, String> {
+    use super::drivers::probes::{party_world, poke, run, scripts_of};
+    let (mut world, _, [_, led]) = party_world(super::Guests::Avatars, 1)?;
+    scripts_of(&mut world).state.party.leader = Some(1);
+    poke(&mut world, led, |fighter, _| fighter.sheath = Sheath::Fight);
+    let first = run(&mut world, &[(0, 0)]);
+    let body = first.body(Seat(0)).map(|entity| entity.id);
+    let mut sheets = world.world.query::<(
+        &super::Id,
+        Option<&super::PlayerSheet>,
+        Option<&super::Object>,
+    )>();
+    let delivery = sheets
+        .iter(&world.world)
+        .find(|(id, ..)| id.0 == led)
+        .and_then(|(_, sheet, object)| super::sheet_of(sheet, object).weapons[0])
+        .map(|weapon| weapon.delivery);
+    let Some(Delivery::Blaster(blaster)) = delivery else {
+        return Err(format!("the companion holds {delivery:?}"));
+    };
+    let mut range = Range::on(world, blaster);
+    range.run(30_000, pressing(buttons::ATTACK), 12)?;
+    let shots = &range.shots;
+    let strays = range.strays();
+    let (first, last) = (
+        shots.first().map(|shot| shot.cone),
+        shots.last().map(|shot| shot.cone),
+    );
+    check(
+        body == Some(led) && shots.len() >= 12 && strays.is_empty() && last > first,
+        format!(
+            "seat 0 acts through {body:?} (led {led:?}), {} bolts, spread {first:?} → {last:?}; strays past it: {strays:?}",
+            shots.len()
+        ),
     )
 }
 

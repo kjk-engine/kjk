@@ -36,6 +36,7 @@ pub(super) fn fire(
     mut commands: Commands,
 ) {
     let states = door_states(&level.0, &objects);
+    let lent = super::lent(&scripts.state.party);
     spent.0.clear();
     // An item whose row has an impact script is cast, its script doing what
     // it does (`combat::items::press`).
@@ -308,8 +309,10 @@ pub(super) fn fire(
         let special = specials::Special::of(&sheet, blaster);
         let spec = weapons::primary(blaster);
         // A creature's mind spaces its shots (`combat::troop`): their damage
-        // keeps to that pace (C2), and they spread by its aim.
-        let creature = avatar.is_none() && fighter.mind.driver.is_none();
+        // keeps to that pace (C2), and they spread by its aim. A body a seat
+        // plays (its avatar, a companion it drives, the one leading the
+        // party) shoots as its player.
+        let creature = avatar.is_none() && fighter.mind.driver.is_none() && lent != Some(id.0);
         let troop = fighter.mind.troop;
         let paced = (creature && troop.pace_ms > 0).then_some(troop.pace_ms);
         // A scene's attacker (`CutsceneAttack`, a passive attack) fires the
@@ -458,7 +461,7 @@ pub(super) fn fire(
             };
             let aim_view = [ps.view[0] + kick[0], ps.view[1] + kick[1], ps.view[2]];
             let (forward, ..) = math::angle_vectors(aim_view);
-            let aimed_at = (avatar.is_some() || fighter.mind.driver.is_some()).then(|| {
+            let aimed_at = (!creature).then(|| {
                 let from = mind::crosshair(ps);
                 let end = math::mad(from, weapons::HITSCAN_RANGE, forward);
                 let seen: Vec<Body> = bodies.iter().copied().chain(blades.bodies(id.0)).collect();

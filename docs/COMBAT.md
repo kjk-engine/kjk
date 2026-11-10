@@ -1212,7 +1212,10 @@ moment; the view the player looks along (its command's angles) is never
 turned, so a burst leaves no drift. Both are kept on `Shooting`
 (`bloom_mdeg`, `kick_mdeg`, `fired_at`: thousandths of a degree, so the
 state stays exact) and carried in snapshots; older saves read none. A pair
-of pistols blooms and kicks as one gun. Creatures keep JA's aim
+of pistols blooms and kicks as one gun. A body a seat plays shoots this
+way: its avatar, a companion it drives, and the companion leading the party
+(`world::lent`, a portrait click), which shot along its view with a
+creature's wandering aim before. Creatures keep JA's aim
 (`combat::troop`). The probes `kjk sim probes --only "bloom,bloom shots"`
 check the maths and that no bolt strays past the spread the crosshair
 showed for it.
