@@ -733,12 +733,29 @@ pub fn texture_facts(
 
 /// The texture the games would pick for a name: the highest layer's TPC or
 /// TGA, TPC first within a layer (`Resolver::find_any`).
+/// One that is there but does not read is warned of, once a name, and
+/// drawn as a missing one.
 pub(crate) fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
     let loose = resolver
         .find(name, ResType::TXI)
         .and_then(|found| found.location.read().ok())
         .map(|bytes| Txi::parse(&bytes));
-    TextureIr::from_texture(&resolver.texture(name)?, loose.as_ref())
+    let parsed = resolver.read_texture(name)?;
+    let decoded =
+        (parsed.as_ref().ok()).and_then(|texture| TextureIr::from_texture(texture, loose.as_ref()));
+    if decoded.is_none() {
+        static WARNED: std::sync::Mutex<BTreeSet<String>> = std::sync::Mutex::new(BTreeSet::new());
+        let mut warned = WARNED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if warned.insert(name.to_string()) {
+            let why = parsed
+                .err()
+                .unwrap_or_else(|| "a level does not decode".into());
+            warn!("texture {name} does not read, drawn as missing: {why}");
+        }
+    }
+    decoded
 }
 
 pub fn model(resolver: &Resolver, name: &str) -> Result<Option<ModelIr>, String> {
