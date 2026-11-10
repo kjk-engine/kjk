@@ -253,7 +253,10 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 92: shooting carries its bloom, kick and last shot's time (`combat::bloom`).
 /// Old saves: old saves read no bloom and no kick: no shot in a save is
 /// mid-burst.
-pub const VERSION: u32 = 92 + crate::pending::SNAPSHOT;
+/// 93: a body keeps the character it keeps running into and those it walks
+/// through (`MotionState::jam`). Old saves: old saves read an empty `jam`:
+/// nobody is running into anyone, and nobody walks through anyone.
+pub const VERSION: u32 = 93 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
