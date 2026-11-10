@@ -19,6 +19,8 @@
 //! - `clock`: the client's two timelines and how they are steered;
 //! - `probes`: whole sessions over `io::SimNet` in virtual time, the
 //!   evidence `kjk net session` runs;
+//! - `rebase`: a client's rewind as a job, made in the caller or on a
+//!   thread beside the frames (issue 229); `rewind_probes` its evidence;
 //! - `sessions`: the sessions it plays on the determinism world and the
 //!   checks every session's report must pass.
 
@@ -27,6 +29,9 @@ pub mod clock;
 pub mod msg;
 #[cfg(feature = "probes")]
 pub mod probes;
+mod rebase;
+#[cfg(feature = "probes")]
+pub mod rewind_probes;
 pub mod server;
 #[cfg(feature = "probes")]
 pub mod sessions;

@@ -870,12 +870,38 @@ kjk play --stage tar_m02aa --arrive wp_01_03 --headless --moves '1s; 4s w; 3s' \
 
 `dump` shows `minimap`: the picture, the player's place on it, the turn.
 
+## The crosshair and hit marks
+
+- **The reticle** (`ui::screens::hud::reticle`, `game::reticle_view`):
+  with a blaster in hand the crosshair is its reticle, its shape by the
+  gun (a cross for pistols and rifles, three prongs for repeaters, two
+  brackets for bowcasters, long lines for disruptors, a broken ring for
+  ion weapons, a ring of dashes for sonic weapons), thin white strokes on
+  a dark edge. Its gap is the spread the next shot may stray by
+  (`sim::combat::bloom::shot_cone`) as it lands on the screen through the
+  camera's field of view (`hud::gap_px`), so it widens as the trigger
+  stays held and closes after a rest: wider at once, narrower eased
+  (`reticle_view::ease`). A gun holstered or lowered out of a fight
+  (`reticle_view::drawn`), a melee weapon, and aiming a disruptor's Sniper
+  Shot show the dot alone. It is drawn over the HUD as kept, in the HUD's frame as anchored,
+  so a changing gap never redraws the HUD.
+- **Hit marks** (`hud::hitmarker`, `game::hitmarker_view`): each blaster
+  shot of the player's own that lands flashes four strokes on the
+  diagonals outside the reticle, growing a little and fading: white for a
+  hit, gold for a critical or an assured one, a kill four red ticks
+  further out, a bolt a blade parried or deflected a short grey mark. A
+  blade's, a power's or a grenade's hit marks nothing. Several in one step
+  (a flechette's shards) are one mark, the strongest. Probes:
+  `kjk gui probes` (`reticle_shapes`, `reticle_gap_matches_fov`,
+  `hitmarker_fades`) and `kjk sim probes --only "reticle view,hitmarkers"`.
+
 ## Targeting and use
 
 KOTOR's click on a door, container or creature, made for the JA camera:
 
 - **The target** (`sim::target`, render side, `game::target_view`):
-  what the crosshair (a dot at the screen's middle) rests on within 10 m
+  what the crosshair (at the screen's middle: a dot, or with a blaster in
+  hand its reticle, below) rests on within 10 m
   of the player and in sight, else the nearest within 4° of it and in
   sight, else the nearest within 2.5 m in front and in sight of the
   player's eyes (what lies at the character's feet). It holds 0.2 s.

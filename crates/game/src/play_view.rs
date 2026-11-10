@@ -963,16 +963,21 @@ impl View {
             format!("{} / {}", legs.name(), torso.name())
         };
         // What the ticks already shown played, before the new predictions
-        // replace them.
+        // replace them: only those a new one repeats (a rewind's).
         let followed = self.own.followed.unwrap_or(0);
+        let history = &self.own.history;
         let shown: BTreeMap<u64, _> = self
             .me
             .map(|me| {
-                self.own
-                    .history
+                own.fresh
                     .iter()
-                    .filter(|held| held.tick <= followed)
-                    .filter_map(|held| Some((held.tick, parts(held, me)?)))
+                    .filter(|fresh| fresh.tick <= followed)
+                    .filter_map(|fresh| {
+                        let at = history
+                            .binary_search_by_key(&fresh.tick, |held| held.tick)
+                            .ok()?;
+                        Some((fresh.tick, parts(&history[at], me)?))
+                    })
                     .collect()
             })
             .unwrap_or_else(BTreeMap::new);
@@ -1199,7 +1204,11 @@ type Pace<'w> = (
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn draw(
     presented: Res<PresentedSnapshot>,
-    (seat, own, mut contacts): (Res<OwnSeat>, Option<Res<OwnView>>, Option<ResMut<Contacts>>),
+    (seat, mut own, mut contacts): (
+        Res<OwnSeat>,
+        Option<ResMut<OwnView>>,
+        Option<ResMut<Contacts>>,
+    ),
     (mut rearms, mut retired, mut fire, mut made, mut wardrobe, mut fading): Handovers,
     swap: Res<SceneSwap>,
     request: Res<CameraRequest>,
@@ -1423,7 +1432,7 @@ fn draw(
     guns.0 = view.cast.guns();
     roots.0 = view.cast.roots();
     let target = crate::sim_host::view_ms(&presented.0);
-    if let Some(own) = &own {
+    if let Some(own) = own.as_deref() {
         view.take_own(own, target);
     }
     if !view.started {
@@ -1453,6 +1462,9 @@ fn draw(
         view.advance(next, frame);
     }
     own_remote.0 = view.own_remote(view.render_ms);
+    if let Some(own) = own.as_deref_mut() {
+        own.followed = view.own.followed;
+    }
     // Each figure's whooshes as its weapon sounds (`weapon_sounds`).
     if let Some(newest) = view.history.last() {
         let objects = Instances::in_snapshot(&view.level, newest);
@@ -1664,14 +1676,25 @@ fn draw(
         view.first.show(&mut visibility);
     }
     eyes.0 = view.me.filter(|_| first.is_some());
-    // The own gun's shots turn the view up a touch; as a shake does, not
-    // where it aims. Up is a smaller pitch.
-    let kicked = view
+    // The own gun's kick turns the view with the line its shots leave
+    // along (`sim::combat::bloom`).
+    let own = view
         .me
         .filter(|_| !watching && talk.is_none())
-        .and_then(|me| view.cast.figure(me))
-        .map_or(0.0, cast::Figure::camera_kick);
-    let shaken = [shaken[0] - kicked, shaken[1]];
+        .and_then(|me| own_shooting(view, me));
+    // The own blaster's crosshair, through this frame's field of view.
+    if let Some(fire) = fire.as_deref_mut() {
+        fire.reticle = view
+            .me
+            .filter(|_| !watching && talk.is_none())
+            .and_then(|me| own_at(view, me))
+            .and_then(|(own, ms)| crate::reticle_view::of(own, &objects, ms, fov));
+    }
+    let shaken = camera_turn(
+        shaken,
+        own.as_ref().map(|(s, _)| s),
+        own.map_or(0.0, |(_, ms)| ms),
+    );
     // The third-person camera's nearness to the own eye, for the own body's
     // fade (`camera_tune::fade_near`), while that camera has the view.
     // While the player's options stand (a headless run keeps JA's camera,
@@ -1769,6 +1792,74 @@ fn draw(
             }),
         );
     }
+}
+
+/// The camera's turn: the screen's shake, and the own aim's kick
+/// (`sim::combat::bloom`) at `own_ms`, so the screen's middle stays on the
+/// line the shots leave along. Up is a smaller pitch, in both.
+fn camera_turn(
+    shaken: [f32; 2],
+    own: Option<&sim::combat::specials::Shooting>,
+    own_ms: f64,
+) -> [f32; 2] {
+    let kick = own.map_or([0.0; 2], |shooting| {
+        sim::combat::bloom::kick_at(shooting, own_ms.max(0.0) as u64)
+    });
+    [shaken[0] + kick[0], shaken[1] + kick[1]]
+}
+
+/// The own character as the own time shows it, and that time: a joined
+/// player's newest prediction by then, else (the host, one alone) the
+/// view's own snapshots at the view's time.
+fn own_at(view: &View, me: SimId) -> Option<(&sim::EntityState, f64)> {
+    let (history, ms) = if view.own.active {
+        (&view.own.history, view.render_ms + view.own.shift)
+    } else {
+        (&view.history, view.render_ms)
+    };
+    let shown = history
+        .iter()
+        .rev()
+        .find(|s| s.time_ms as f64 <= ms)
+        .or(history.first())?;
+    Some((cast::entity(shown, me)?, ms))
+}
+
+/// The own character's shooting as the own time shows it, and that time.
+fn own_shooting(view: &View, me: SimId) -> Option<(sim::combat::specials::Shooting, f64)> {
+    let (own, ms) = own_at(view, me)?;
+    Some((own.fighter.as_ref()?.shooting, ms))
+}
+
+/// The probes of the camera's kick (`kjk sim probes --only "camera kick"`):
+/// it turns with the sim's kick of the own aim, on top of a shake; with no
+/// own aim to follow (watching, talking) only the shake turns it.
+#[cfg(feature = "probes")]
+pub fn kick_probes() -> sim::probe::Checks {
+    let shooting = sim::combat::specials::Shooting {
+        kick_mdeg: [-1200, 300],
+        fired_at: 5000,
+        ..Default::default()
+    };
+    let kicked = camera_turn([0.5, -0.25], Some(&shooting), 5000.0);
+    let alone = camera_turn([0.5, -0.25], None, 5000.0);
+    let near = |a: [f32; 2], b: [f32; 2]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-4);
+    vec![
+        (
+            "camera_takes_sim_kick",
+            sim::probe::check(
+                near(kicked, [-0.7, 0.05]),
+                format!("{kicked:?} (want [-0.7, 0.05])"),
+            ),
+        ),
+        (
+            "camera_without_own_aim",
+            sim::probe::check(
+                near(alone, [0.5, -0.25]),
+                format!("{alone:?} (want the shake)"),
+            ),
+        ),
+    ]
 }
 
 /// Hands `combat_fx` the own shots and bolts found since the last frame,

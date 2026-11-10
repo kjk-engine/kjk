@@ -250,7 +250,10 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 91: the area's sound carries the clip scripts play on each room
 /// (`AreaSound::rooms`), not only the last one played. Old saves: old saves
 /// read as before: the one room clip's flag byte reads as a count of one.
-pub const VERSION: u32 = 91 + crate::pending::SNAPSHOT;
+/// 92: shooting carries its bloom, kick and last shot's time (`combat::bloom`).
+/// Old saves: old saves read no bloom and no kick: no shot in a save is
+/// mid-burst.
+pub const VERSION: u32 = 92 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

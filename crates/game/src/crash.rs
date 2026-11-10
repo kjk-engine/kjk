@@ -213,8 +213,10 @@ pub const NOTICE: &str =
 #[derive(Resource, Debug)]
 pub struct BackupFailed(pub String);
 
-/// On a player's main menu, tells of the last run that ended unexpectedly,
-/// once (`unexpected_end`, then `SEEN`), of saves not backed up, and of a
+/// On the main menu, tells why the game came back to it, when it was told
+/// (`session_flow::back_to_menu_saying`, any run given `kjk --notice`);
+/// and on a player's, of the last run that ended unexpectedly, once
+/// (`unexpected_end`, then `SEEN`), of saves not backed up, and of a
 /// display put back to a window (`display::recover`).
 pub(crate) fn notice(
     mut commands: bevy::prelude::Commands,
@@ -224,20 +226,22 @@ pub(crate) fn notice(
     display: Option<bevy::prelude::Res<crate::display::DisplayReset>>,
     ui: Option<bevy::prelude::ResMut<crate::ui_view::Ui>>,
 ) {
-    let Some(mut ui) = ui.filter(|_| player.0) else {
+    let Some(mut ui) = ui else {
         return;
     };
-    let mut told = Vec::new();
-    if let Some(previous) = unexpected_end(&crate::runtime::runs(), &folder.0) {
-        mark(&previous, SEEN);
-        told.push(NOTICE.to_string());
-        commands.insert_resource(crate::report::CrashedRun(previous));
-    }
-    if let Some(backup) = backup {
-        told.push(format!("The saves could not be backed up: {}", backup.0));
-    }
-    if let Some(display) = display {
-        told.push(display.notice());
+    let mut told: Vec<String> = crate::session_flow::take_notice().into_iter().collect();
+    if player.0 {
+        if let Some(previous) = unexpected_end(&crate::runtime::runs(), &folder.0) {
+            mark(&previous, SEEN);
+            told.push(NOTICE.to_string());
+            commands.insert_resource(crate::report::CrashedRun(previous));
+        }
+        if let Some(backup) = backup {
+            told.push(format!("The saves could not be backed up: {}", backup.0));
+        }
+        if let Some(display) = display {
+            told.push(display.notice());
+        }
     }
     if told.is_empty() {
         return;

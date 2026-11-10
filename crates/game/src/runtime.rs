@@ -243,6 +243,7 @@ pub fn run(options: RunOptions) -> AppExit {
                 crate::arena::ArenaPlugin,
                 crate::floaty_view::FloatyViewPlugin,
                 crate::duel_view::DuelViewPlugin,
+                crate::hitmarker_view::HitmarkerViewPlugin,
                 crate::message_log::MessageLogPlugin,
             ),
             crate::party_calls::PartyCallsPlugin,

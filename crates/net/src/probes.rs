@@ -121,6 +121,7 @@ pub fn groups() -> Vec<Group> {
         ("mutation", || mutation(MUTATIONS)),
         ("save copies", crate::session::probes::copy_probes),
         ("seats", crate::session::probes::seat_probes),
+        ("rewinds", crate::session::rewind_probes::probes),
     ]
 }
 
@@ -965,6 +966,26 @@ pub fn handshake() -> Probes {
             outcome_text(&outcome),
         );
     }
+    // The host's state refused by the level built here under the same
+    // module's name (issue 261): the player is told which data to match.
+    let same = sim::InstallError::WrongLevel {
+        snapshot: "tar_m02aa".to_string(),
+        level: "tar_m02aa".to_string(),
+    };
+    let other = sim::InstallError::WrongLevel {
+        snapshot: "tar_m02aa".to_string(),
+        level: "tar_m03aa".to_string(),
+    };
+    let said = crate::session::client::other_world(&same);
+    probes.check(
+        "handshake: refusal level (same module, other data)",
+        "a level of the host's module name that refuses its state says the scripts or dialog.tlk \
+         differ, and another module is said as before",
+        said.contains("tar_m02aa")
+            && said.contains("dialog.tlk")
+            && crate::session::client::other_world(&other) == other.to_string(),
+        said,
+    );
 
     // A client of another version, and a host of another version.
     let (here, newer) = (PROTOCOL_VERSION, PROTOCOL_VERSION + 1);

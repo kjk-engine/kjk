@@ -349,6 +349,64 @@ fn override_fingerprint() -> Result<String, String> {
     Ok(told.join("; "))
 }
 
+/// A join hashes the world groups alone (`world_fingerprint`): the same
+/// world as the whole fingerprint's, its voices, movies and talk table
+/// never read, the progress told up to all of it, and a second join
+/// hashing nothing, its cache kept beside the whole fingerprint's rows.
+fn world_fingerprint_reads_world() -> Result<String, String> {
+    use crate::fingerprint::{fingerprint, world_fingerprint};
+    let files = [
+        ("chitin.key", empty_key()),
+        ("modules/m01.rim", archive(b"RIM V1.0", &[])),
+        ("override/a.ncs", b"a".to_vec()),
+        ("dialog.tlk", b"talk".to_vec()),
+        ("movies/intro.bik", b"movie".to_vec()),
+        ("streamvoice/a/b.wav", b"voice".to_vec()),
+    ];
+    let root = install("fp-world", &files)?;
+    let cache = std::env::temp_dir().join("kjk-probe-fp-world.cache");
+    let _ = std::fs::remove_file(&cache);
+    let found = (|| -> Result<String, String> {
+        let index = DirIndex::build(&root).map_err(|error| error.to_string())?;
+        let whole = fingerprint(Game::Kotor2, &index, None).map_err(|error| error.to_string())?;
+        let mut told = Vec::new();
+        let join = |told: &mut Vec<(u64, u64)>| {
+            world_fingerprint(Game::Kotor2, &index, &cache, &mut |done, total| {
+                told.push((done, total))
+            })
+            .map_err(|error| error.to_string())
+        };
+        let first = join(&mut told)?;
+        if first.world() != whole.world() {
+            return Err("the world groups alone are another world".into());
+        }
+        if first.hashed != 3 || first.files != 3 {
+            return Err(format!(
+                "hashed {} of {} files, not the 3 world files",
+                first.hashed, first.files
+            ));
+        }
+        match told.last() {
+            Some((done, total)) if done == total && *total > 0 => {}
+            last => return Err(format!("progress ended at {last:?}")),
+        }
+        let mut again = Vec::new();
+        let second = join(&mut again)?;
+        if second.hashed != 0 || !again.is_empty() {
+            return Err(format!("a second join hashed {} files", second.hashed));
+        }
+        Ok(format!(
+            "{} of {} files hashed, progress told {} times",
+            first.hashed,
+            whole.files,
+            told.len()
+        ))
+    })();
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_file(&cache);
+    found
+}
+
 /// Runs one case on an install with Workshop items: each name resolved
 /// in `m01`, compared with what TSL picks.
 fn workshop_case(
@@ -808,6 +866,10 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ("ranks_between_archives", ranks_between_archives()),
         ("override_subfolders", override_subfolders()),
         ("override_fingerprint", override_fingerprint()),
+        (
+            "world_fingerprint_reads_world",
+            world_fingerprint_reads_world(),
+        ),
         ("workshop_override_and_mods", workshop_override_and_mods()),
         ("workshop_module_rims", workshop_module_rims()),
         ("workshop_talk_and_streams", workshop_talk_and_streams()),

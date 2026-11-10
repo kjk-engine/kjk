@@ -67,6 +67,7 @@ pub mod grunts;
 mod gui_scene;
 mod headgear;
 mod heat_haze;
+pub mod hitmarker_view;
 pub mod holdings;
 mod holster_view;
 mod hud;
@@ -111,6 +112,7 @@ mod probe_kit;
 mod progress;
 mod ragdolls;
 pub mod report;
+pub mod reticle_view;
 mod rulebook_text;
 pub use minigame_view::takes_view;
 pub use ragdolls::doll_fits;
@@ -274,6 +276,8 @@ pub struct HostSpec<'a> {
     /// Steam friends join too (through Steam's relays, no port opened),
     /// where Steam is running.
     pub steam: bool,
+    /// Where what takes a while is told (the loading screen's line).
+    pub status: &'a (dyn Fn(String) + Sync),
 }
 
 /// A hosted session ready to run: listening, its stage loaded, its
@@ -325,7 +329,7 @@ pub fn host_session(
     let games: Vec<Game> = std::iter::once(Game::JediAcademy)
         .chain(module_game)
         .collect();
-    let credentials = solo::credentials("host", world_data(discovery, &games)?);
+    let credentials = solo::credentials("host", world_data(discovery, &games, spec.status)?);
     if solo::dirty() {
         outln!(
             "a dirty build ({}): only the same dirty build can join",
@@ -386,11 +390,14 @@ fn beside_steam(socket: net::io::Socket) -> net::io::Socket {
 }
 
 /// The world data (`Fingerprint::world`) of each of `games` this machine
-/// has, for a session's credentials. The fingerprint cache is used: the
-/// first time hashes the data (seconds), later only what changed.
+/// has, for a session's credentials: its world groups' files alone
+/// (`world_fingerprint`). The fingerprint cache is used: the first time
+/// hashes them (seconds on a fast disk, minutes on a slow one, which
+/// `status` tells as it goes), later only what changed.
 fn world_data(
     discovery: &vfs::Discovery,
     games: &[Game],
+    status: &dyn Fn(String),
 ) -> Result<Vec<net::handshake::GameFingerprint>, String> {
     games
         .iter()
@@ -400,10 +407,39 @@ fn world_data(
             let game = install.game;
             let opened = installs::open(discovery, game)
                 .map_err(|error| format!("{}: {error}", install.data_root.display()))?;
-            let print =
-                vfs::fingerprint::fingerprint(game, &opened.index, Some(&fingerprint_cache(game)))
-                    .map_err(|error| format!("fingerprinting {}: {error}", game.key()))?;
+            // Told in tenths, so the loading screen shows it moving.
+            let mut told = None;
+            let mut progress = |done: u64, total: u64| {
+                let tenth = (done * 10).checked_div(total).unwrap_or(10);
+                if told != Some(tenth) {
+                    told = Some(tenth);
+                    bevy::log::info!(target: "session", game = game.key(), done, total, "checking the game data");
+                    let name = match game {
+                        Game::Kotor1 => "KOTOR",
+                        Game::Kotor2 => "KOTOR 2",
+                        Game::JediAcademy => "Jedi Academy",
+                    };
+                    status(format!(
+                        "Checking the {name} game data (only the first time): {}%",
+                        tenth * 10
+                    ));
+                }
+            };
+            let print = vfs::fingerprint::world_fingerprint(
+                game,
+                &opened.index,
+                &fingerprint_cache(game),
+                &mut progress,
+            )
+            .map_err(|error| format!("fingerprinting {}: {error}", game.key()))?;
             if print.hashed > 0 {
+                bevy::log::info!(
+                    target: "session",
+                    game = game.key(),
+                    files = print.hashed,
+                    seconds = started.elapsed().as_secs_f64(),
+                    "hashed the game data (cached from now on)"
+                );
                 outln!(
                     "{}: hashed {} files of its data in {:.1} s (cached from now on)",
                     game.key(),
@@ -432,6 +468,8 @@ pub struct JoinSpec<'a> {
     pub sim_blades: bool,
     pub plan_delay: std::time::Duration,
     pub trace: Option<&'a std::path::Path>,
+    /// Where what takes a while is told (the loading screen's line).
+    pub status: &'a (dyn Fn(String) + Sync),
 }
 
 /// A joined session ready to run: the host answered, its stage loaded
@@ -447,7 +485,8 @@ pub fn join_session(
         .iter()
         .map(|install| install.game)
         .collect();
-    let credentials = solo::credentials(spec.name, world_data(discovery, &games)?);
+    let credentials = solo::credentials(spec.name, world_data(discovery, &games, spec.status)?);
+    (spec.status)(format!("Connecting to {}", spec.host));
     if solo::dirty() {
         outln!(
             "a dirty build ({}): only the same dirty build can host",

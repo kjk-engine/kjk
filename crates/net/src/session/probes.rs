@@ -18,7 +18,9 @@ use sim::{
     TickInput, TickRate, step,
 };
 
-use super::client::{Client, ClientConfig, ClientEvent, ClientStats, ClockView, Memory};
+use super::client::{
+    Client, ClientConfig, ClientEvent, ClientStats, ClockView, Memory, REBASE_EVERY_US, RebaseOn,
+};
 use super::clock::Margins;
 use super::msg::{
     ClockReport, Commands, CopyAssembly, Fragment, InstallRequest, LevelRequest, MAX_SAVE_PARTS,
@@ -35,6 +37,12 @@ use crate::netem::Conditions;
 use crate::probes::quietly;
 use crate::wire::{self, Class, HEADER_LEN, frame};
 use crate::{NetTime, Peer};
+
+/// How far behind the next tick a client's view reads its predictions
+/// whole (`Client::set_view_from`), as a game's view about does.
+const VIEW_BEHIND: u64 = 4;
+/// Going back less than this (ms) is rounding.
+const VIEW_BACK_MS: f64 = 0.5;
 
 /// What a session is played in and with.
 pub trait Scenario {
@@ -101,6 +109,31 @@ pub struct Setup {
     pub hitches: Hitches,
     /// The clients' clock margins.
     pub margins: Margins,
+    /// Where the clients' rewinds run and how often.
+    pub rewinds: Rewinds,
+    /// Every client's rewind and step threads die at this time (µs), as a
+    /// panic in a step would (`Client::kill_threads`): it must go on.
+    pub kill_threads_at_us: Option<u64>,
+}
+
+/// Where a client's rewinds run and how often (`ClientConfig::rebase_on`,
+/// `rebase_every_us`): by default the game's cadence, in the caller, so a
+/// seed plays the same session byte for byte. On a thread, a rewind lands
+/// when the thread is done in wall time: the session's checks must hold
+/// however late that is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rewinds {
+    pub on: RebaseOn,
+    pub every_us: u64,
+}
+
+impl Default for Rewinds {
+    fn default() -> Self {
+        Rewinds {
+            on: RebaseOn::Caller,
+            every_us: REBASE_EVERY_US,
+        }
+    }
 }
 
 /// The second client's link cut both ways from `from_us` until `until_us`;
@@ -163,6 +196,13 @@ pub struct ClientReport {
     /// The longest from the host's `installing` to this client's
     /// `Installing` event, µs: how long a save copy held an install up.
     pub install_delay_max_us: u64,
+    /// Its rewind or step thread died (`Setup::kill_threads_at_us`): the
+    /// rest ran in the caller.
+    pub threads_lost: bool,
+    /// Frames that showed its own seat at an earlier sim time than the
+    /// frame before while the clocks ran, and the most by which (ms).
+    pub view_backs: u64,
+    pub view_back_max_ms: f64,
 }
 
 /// One run of a client's clocks, from a start (a join, a resume) to the
@@ -196,6 +236,9 @@ pub struct Sample {
 /// What a session did.
 pub struct Report {
     pub name: String,
+    /// The clients' threads were told to die, and when (µs).
+    pub threads_killed: bool,
+    pub threads_killed_at_us: u64,
     pub seconds: u64,
     pub ticks: u64,
     pub installs: u64,
@@ -283,6 +326,13 @@ struct Player {
     old_left: Option<Refusal>,
     copies: Vec<Vec<u8>>,
     install_delay_max_us: u64,
+    /// Its threads were told to die (`Setup::kill_threads_at_us`).
+    killed: bool,
+    /// The sim time last shown of its own seat (ms), the frames that
+    /// showed an earlier one, and the most by which.
+    view_last: Option<f64>,
+    view_backs: u64,
+    view_back_max_ms: f64,
 }
 
 /// A client's clocks stop (an install, a new start, the end).
@@ -453,6 +503,10 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
                 old_left: None,
                 copies: Vec::new(),
                 install_delay_max_us: 0,
+                killed: false,
+                view_last: None,
+                view_backs: 0,
+                view_back_max_ms: 0.0,
             }
         })
         .collect();
@@ -479,6 +533,8 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
         rejoin_us: if cut.is_some() { REJOIN_US } else { 0 },
         key: None,
         nonce_key: [7; 32],
+        rebase_on: setup.rewinds.on,
+        rebase_every_us: setup.rewinds.every_us,
     };
     let mut saves: Vec<Vec<u8>> = Vec::new();
     let mut installing_at: Option<NetTime> = None;
@@ -777,6 +833,7 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
                     ClientEvent::Playing { .. } => {
                         stop(&mut player.start, &mut player.starts, now);
                         player.start = Some(now);
+                        player.view_last = None;
                         player.starts.push(Start {
                             lasted_us: 0,
                             converged_us: None,
@@ -821,7 +878,39 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
                 });
                 let command = command.unwrap_or(Command::default());
                 player.last_angles = command.angles;
-                let _ = client.frame(now, command);
+                if setup
+                    .kill_threads_at_us
+                    .is_some_and(|at| now.0 >= at && !player.killed)
+                {
+                    player.killed = true;
+                    client.kill_threads();
+                }
+                // As a view does: whole snapshots from a few ticks back,
+                // this seat's body alone before (`Client::set_view_from`).
+                if let Some(next) = client.next_tick() {
+                    client.set_view_from(next.saturating_sub(VIEW_BEHIND));
+                }
+                let shown = client.frame(now, command).map(|frame| {
+                    let (previous, current) =
+                        (frame.predicted.previous(), frame.predicted.current());
+                    previous.time_ms as f64
+                        + f64::from(frame.predicted.alpha())
+                            * (current.time_ms as f64 - previous.time_ms as f64)
+                });
+                // While the clocks run, what is shown of this seat goes
+                // forward, never back (a rewind moves where, not when).
+                match (shown, client.clock().is_some()) {
+                    (Some(at), true) => {
+                        if let Some(last) = player.view_last
+                            && at + VIEW_BACK_MS < last
+                        {
+                            player.view_backs += 1;
+                            player.view_back_max_ms = player.view_back_max_ms.max(last - at);
+                        }
+                        player.view_last = Some(at);
+                    }
+                    _ => player.view_last = None,
+                }
                 if let (Some(view), Some(start), Some(run)) =
                     (client.clock(), player.start, player.starts.last_mut())
                 {
@@ -959,11 +1048,16 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
                 copies: player.copies.clone(),
                 install_delay_max_us: player.install_delay_max_us,
                 holds: player.holds,
+                threads_lost: client.is_some_and(Client::threads_lost),
+                view_backs: player.view_backs,
+                view_back_max_ms: player.view_back_max_ms,
             }
         })
         .collect();
     Report {
         name: setup.name.clone(),
+        threads_killed: setup.kill_threads_at_us.is_some(),
+        threads_killed_at_us: setup.kill_threads_at_us.unwrap_or(0),
         seconds: setup.seconds,
         ticks: recordings
             .iter()

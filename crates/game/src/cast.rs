@@ -768,8 +768,6 @@ pub struct Figure {
     shown_torso: Option<(Anim, bool)>,
     shot_ms: [Option<f64>; 2],
     shot_before_ms: [Option<f64>; 2],
-    /// How far its last shot turns the camera up now (degrees, `gun_aim`).
-    camera_kick: f32,
     /// Its gun put away, the torso playing the legs' part (`follow`).
     away: bool,
     /// How far each hand's gun is held up and aimed (`gun_aim`), as of
@@ -854,7 +852,6 @@ impl Figure {
             shown_torso: None,
             shot_ms: [None; 2],
             shot_before_ms: [None; 2],
-            camera_kick: 0.0,
             away: false,
             aim: [0.0; 2],
             drawing: crate::draw_anim::Drawing::default(),
@@ -1341,12 +1338,6 @@ impl Figure {
     /// Its hand grips a blade as last posed.
     pub fn blade(&self) -> bool {
         self.blade
-    }
-
-    /// How far its gun's last shot turns the camera up as last posed
-    /// (degrees).
-    pub fn camera_kick(&self) -> f32 {
-        self.camera_kick
     }
 
     /// When its snapshots first said it was dead (sim ms).
@@ -3334,7 +3325,6 @@ fn gun_aim(
             [figure.shot_before_ms[last], None],
         )
     };
-    figure.camera_kick = 0.0;
     let shooting = shots
         .iter()
         .flatten()
@@ -3375,7 +3365,6 @@ fn gun_aim(
             let gap = befores[hand].map(|before| (shot - before) as f32);
             handling.kick((ms - shot) as f32, gap)
         });
-        figure.camera_kick = figure.camera_kick.max(handling.camera_degrees * kick);
         // The barrel aims at the shot's way `CONVERGE` units out, where the
         // bolt drawn from the muzzle meets it (`combat_fx::Path`); what
         // shoots nothing, along the view. A pair's left gun from its own

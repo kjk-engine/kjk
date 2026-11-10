@@ -116,7 +116,9 @@ camera stands, its own eyes in first person (`mind::aim_for`,
 `sim_host::CameraAim`); the player state keeps it, so every client draws
 the shot along the same line; a lit blade too, and a thrown saber
 steers by it), from the muzzle or the eye, a creature's along its view;
-spread from a hash of tick, shooter and shard; under prediction only the players
+spread from a hash of tick, shooter and shard (a player's within a disc of
+its bloomed spread, aimed along its kicked line, below; a creature's on
+each axis, by its aim); under prediction only the players
 fire) → `sabers` (below) → `strikes` (beasts' attacks and fists, below;
 under prediction only the players') → `fly`
 (bolts traced every tick against level,
@@ -147,7 +149,10 @@ knockback timer; none when the share refuses it, QUIRKS Q-0031) → the share
 more) by friendly fire, plot never, a neutral outsider not by the party's
 attacks nor by any blast or area, but by anyone else's aimed ones (the
 outsider its attacker's target; a swing or bolt meant for another passes
-harmless, as KOTOR's attack lands on its target alone):
+harmless, as KOTOR's attack lands on its target alone; a faction friend
+that a creature outside the party has for its target is hurt the same way,
+as KOTOR's attack and damage ask no standing: a script's `ActionAttack` on
+an ally):
 KOTOR's areas take the caster's enemies, Tatooine's 8-HP banthas live
 through the Sand People's grenades and gaffi sticks [verify]) → at least one hundredth when it harms →
 then, in `hurt`: Knight and Master Speed's extra attacks (× 2 or 3 on a
@@ -340,8 +345,9 @@ users and a lagging player swinging among them, 150 ms: 2–6 µs).
 
 ## Minds (`combat::ai`, the step in `world::minds`)
 A creature observes on its look ticks (every 200 ms): where the games'
-scripts run, the one its script attacks (`ActionAttack`, however far) or
-the one it fights while the fight lasts (within `ranges.2da`'s
+scripts run, the one its script attacks (`ActionAttack`, however far,
+hostile or not: both games' script attack asks no standing) or the
+hostile it fights while the fight lasts (within `ranges.2da`'s
 PartyCombat); on a stage without scripts, the nearest visible hostile
 within its `PerceptionRange` sight. Hostile is `module::relation`'s. Its
 task: **Engage** (gunners stand and fire
@@ -1217,8 +1223,9 @@ hand under the barrel at the foregrip read from the model, each shot
 kicking up and back by its blaster (`weapons::handling`). A kick is a shove:
 before the eyes it moves the gun back along the barrel with little lift, and
 part of it lingers past the next shot (a kick rising from what the last
-left). It also turns the camera up a touch, in either camera, not where it
-aims, plays its flash tinted its bolt's colour, and bigger before the eyes,
+left). The camera turns with the sim's kick of the aim (below), in either
+camera, so the screen's middle stays on the line the shots leave along; it
+plays its flash tinted its bolt's colour, and bigger before the eyes,
 held at its brightest for two frames (`weapons::EyeFlash`). While a gun is
 put
 away the torso plays the legs' part. Drawing it blends the torso up in
@@ -1252,6 +1259,30 @@ predictions at own time, at once; everyone else's from the snapshots. A
 power needs a module (its cost is `spells.2da`'s): none casts on the duel
 floor. Dumps count the frames drawn (`force_fx.lightning_frames`,
 `grip_frames`, `distortion_frames`).
+
+**Bloom and kick (`sim::combat::bloom`, the rulebook's Weapons: Bloom
+and Kick).** A player's blaster (or a body a seat drives) grows less
+accurate as its trigger stays held: each shot adds its weapon's bloom to
+the spread the next may stray by, up to its most; once its rest has passed
+without a shot the bloom falls away, so a pause a little longer than one
+refire brings the first shot after it back true (a spraying weapon keeps
+its own spread under the bloom). Walking adds a little spread and running
+more, however rested the gun (`weapons.bloom.pace_spread`); being off the
+ground widens the whole, and crouching and aiming a Sniper Shot narrow it. A shot strays evenly inside a disc of
+that spread, round as the crosshair that shows it, never in its corners.
+Each shot also kicks the line it aims along up, and a little to a side
+drawn from the tick, to a limit, settling back once no shot has come for a
+moment; the view the player looks along (its command's angles) is never
+turned, so a burst leaves no drift. Both are kept on `Shooting`
+(`bloom_mdeg`, `kick_mdeg`, `fired_at`: thousandths of a degree, so the
+state stays exact) and carried in snapshots; older saves read none. A pair
+of pistols blooms and kicks as one gun. A body a seat plays shoots this
+way: its avatar, a companion it drives, and the companion leading the party
+(`world::lent`, a portrait click), which shot along its view with a
+creature's wandering aim before. Creatures keep JA's aim
+(`combat::troop`). The probes `kjk sim probes --only "bloom,bloom shots"`
+check the maths and that no bolt strays past the spread the crosshair
+showed for it.
 
 ```bash
 kjk play --stage end_m01aa --arrive wp_end_weld01_02 --hostile end_sith2 \

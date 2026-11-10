@@ -47,8 +47,8 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use sim::{
-    Command, EntityState, Kind, Level, Presented, Seat, SimId, SimWorld, Snapshot, SnapshotHash,
-    StepReason, TickInput, TickRate, step,
+    Command, EntityState, Level, Presented, Seat, SimId, SimWorld, Snapshot, SnapshotHash,
+    TickInput, TickRate,
 };
 
 use super::clock::{Clocks, Margins, tick_at, time_us};
@@ -56,6 +56,8 @@ use super::msg::{
     ClockReport, Commands, CopyAssembly, Fragment, InstallRequest, LevelRequest, MAX_COMMANDS,
     Message, Payload, Welcome,
 };
+pub use super::rebase::RebaseOn;
+use super::rebase::{self, Beside, Bolts, Done, Job, Rebaser, Steps};
 use crate::codec::{CLIENT_RING, Check, ClientRing, CodecError, FrameHeader, Rebuilt};
 use crate::handshake::{self, Credentials, Refusal};
 use crate::link::{self, Link};
@@ -80,6 +82,15 @@ const OWN: usize = 128;
 /// confirmed a frame or two before, so a few frames' worth do, not a
 /// network's `CLIENT_RING` (each holds a decoded snapshot).
 const IN_PROCESS_RING: usize = 16;
+/// How often a rewind starts while this seat's predicted body agrees with
+/// the host's, µs (`ClientConfig::rebase_every_us`, the game's): one that
+/// differs, or a body taken or lost, starts one with the next frame. A
+/// rewind re-steps the whole lead, and the host sends a snapshot every
+/// other tick; rewinding from each kept a core busy in a crowded module
+/// (issue 229). What the host changes that this seat's body has not met
+/// yet (a door a script opened) reaches the predicted world this much
+/// later at most; whatever reaches the body differs at once.
+pub const REBASE_EVERY_US: u64 = 32_000;
 /// Mismatches logged in full (all are counted).
 const LOGGED: usize = 64;
 /// The correction's half-life, µs, and the distance it snaps beyond
@@ -104,6 +115,13 @@ pub struct ClientConfig {
     /// How long after a timeout the client tries to join again with its
     /// seat's token (0: a timeout ends the session).
     pub rejoin_us: u64,
+    /// Where rewinds run (`rebase`): in the caller, or on a thread beside
+    /// the frames (the game).
+    pub rebase_on: RebaseOn,
+    /// The least time between rewinds while the predicted body agrees
+    /// with the host's (`REBASE_EVERY_US`); 0 rewinds from every new
+    /// snapshot.
+    pub rebase_every_us: u64,
     /// The host's join password, proved in each handshake.
     pub key: Option<handshake::JoinKey>,
     /// A random secret from the caller that each rejoin's nonce is made
@@ -249,6 +267,16 @@ pub struct ClientStats {
     pub rewinds: u64,
     pub rewind_ticks: u64,
     pub rewind_max: u64,
+    /// Rewinds made for a world since replaced (a hold, a resume, an
+    /// install) and dropped, and rewinds whose snapshot did not restore.
+    pub rewinds_dropped: u64,
+    pub rewinds_failed: u64,
+    /// Rewinds whose thread died with them (a panic in a step): the next
+    /// are made in the caller.
+    pub rewinds_lost: u64,
+    /// Rewinds made while frames went on (landed by `land`), not waited
+    /// for as the clocks started.
+    pub rewinds_beside: u64,
     /// Rewinds that moved the drawn avatar, and those that snapped.
     pub corrections: u64,
     pub snapped: u64,
@@ -313,7 +341,7 @@ pub struct Frame<'a> {
     pub remote: &'a Presented,
     /// Added to this seat's avatar and the camera as drawn (units).
     pub correction: [f32; 3],
-    /// Ticks predicted this frame.
+    /// Ticks this frame made commands for (stepped beside it).
     pub stepped: u64,
 }
 
@@ -332,35 +360,27 @@ struct Install {
     level: Option<Level>,
 }
 
-/// Bolts in flight by who fired them: creatures (only the host's minds
-/// fire, so prediction has none of theirs but those it restored), and
-/// players.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct Bolts {
-    creatures: u32,
-    players: u32,
-}
-
-impl Bolts {
-    fn of(snapshot: &Snapshot) -> Bolts {
-        let mut bolts = Bolts::default();
-        for entity in &snapshot.entities {
-            let Some(missile) = entity.missile else {
-                continue;
-            };
-            match snapshot.get(missile.owner).map(|owner| owner.kind) {
-                Some(Kind::Avatar(_)) => bolts.players += 1,
-                _ => bolts.creatures += 1,
-            }
-        }
-        bolts
-    }
-}
-
 /// Prediction and presentation, once loaded.
 struct Play {
-    world: SimWorld,
-    /// The last tick commands were made for (and the world's tick).
+    /// The live world, home between frames' steps (`Beside`): away while
+    /// it steps beside a frame, none once lost with a step thread.
+    world: Option<Box<SimWorld>>,
+    /// The tick the live world stands at: `made` once its steps land.
+    stepped: u64,
+    /// Which world this is: a rewind or a step made for another (since
+    /// replaced or held) is dropped (`rebase`).
+    generation: u64,
+    /// A rewind landed (`apply`), shown with the steps that bring its
+    /// world to the tick made (`finish_rewind`).
+    pending: Option<Pending>,
+    /// The predicted clock (µs on the tick timeline) when the frame sent
+    /// its steps beside, and when the frame whose steps landed did: what
+    /// is shown is blended by the latter, so it trails the clock by a
+    /// tick and a frame, evenly (`present`).
+    sent_clock: i64,
+    shown_clock: i64,
+    /// The last tick commands were made for: the live world's once its
+    /// steps land (`stepped`).
     made: u64,
     /// The authority tick the world was last restored from.
     authority: u64,
@@ -390,7 +410,12 @@ struct Play {
 impl Play {
     fn new(world: SimWorld, snapshot: &Snapshot, seat: Seat) -> Play {
         Play {
-            world,
+            world: Some(Box::new(world)),
+            stepped: snapshot.tick,
+            generation: next_generation(),
+            pending: None,
+            sent_clock: 0,
+            shown_clock: 0,
             made: snapshot.tick,
             authority: snapshot.tick,
             first: u64::MAX,
@@ -422,12 +447,7 @@ impl Play {
     /// it was made with (the host rewinds its shots by it), and the others'
     /// last.
     fn input(&self, seat: Seat, tick: u64) -> TickInput {
-        let mut input = self.others.clone();
-        if let Some((command, lag)) = self.own_entry(tick) {
-            input.insert(seat, command);
-            input.set_view_lag(seat, lag);
-        }
-        input
+        rebase::tick_input(&self.others, seat, self.own_entry(tick))
     }
 
     /// The host holds its world at `held`: what this player sees until it
@@ -436,21 +456,14 @@ impl Play {
     /// from it at the resume.
     fn hold(&mut self, held: Snapshot) {
         let tick = held.tick;
+        self.generation = next_generation();
+        self.pending = None;
         self.own.retain(|(at, ..)| *at <= tick);
         self.history.retain(|(at, ..)| *at <= tick);
         self.made = self.made.min(tick);
         self.remote_pair = (tick, tick);
         self.remote = Presented::new(held.clone());
         self.predicted = Presented::new(held);
-    }
-
-    /// Where this seat's avatar is drawn (metres).
-    fn shown(&self) -> Option<[f32; 3]> {
-        let id = self.own_id?;
-        self.predicted
-            .entities()
-            .find(|entity| entity.id == id)
-            .map(|entity| entity.position)
     }
 }
 
@@ -489,6 +502,22 @@ struct Session {
     confirmed_sent: Option<u64>,
     last_frame: Option<NetTime>,
     kept: Option<Kept>,
+    /// The rewind under way (`rebase`), when the last one started, the
+    /// newest authority tick compared with prediction, and whether it
+    /// differed since.
+    rebaser: Rebaser,
+    /// The live world's new ticks, stepped beside the frames.
+    beside: Beside,
+    rebased_at: Option<NetTime>,
+    observed: u64,
+    differs: bool,
+    /// The oldest predicted tick the caller still reads whole
+    /// (`set_view_from`).
+    view_from: u64,
+    /// The probes asked the next rewind's and step's threads to die
+    /// (`Client::kill_threads`).
+    #[cfg(feature = "probes")]
+    die: (bool, bool),
     stats: ClientStats,
     /// The host's save copy coming in (I30 P17). A reconnect makes a new
     /// session, so a copy cut by a drop is gone whole.
@@ -818,6 +847,14 @@ impl Client {
             confirmed_sent: None,
             last_frame: None,
             kept: self.config.keep.then(Kept::default),
+            rebaser: Rebaser::new(self.config.rebase_on),
+            beside: Beside::new(self.config.rebase_on),
+            rebased_at: None,
+            observed: 0,
+            differs: false,
+            view_from: 0,
+            #[cfg(feature = "probes")]
+            die: (false, false),
             stats: ClientStats::default(),
             copies: CopyAssembly::default(),
         }));
@@ -1133,6 +1170,8 @@ impl Client {
                 session.clocks.restart();
                 if let Some(play) = &mut session.play {
                     play.started = false;
+                    play.generation = next_generation();
+                    play.pending = None;
                 }
                 self.events.push_back(ClientEvent::Resumed { tick });
             }
@@ -1223,7 +1262,7 @@ impl Client {
         let world = match SimWorld::from_snapshot(&snapshot, level.clone()) {
             Ok(world) => world,
             Err(error) => {
-                self.leave(now, Refusal::Level(error.to_string()));
+                self.leave(now, Refusal::Level(other_world(&error)));
                 return;
             }
         };
@@ -1319,10 +1358,11 @@ impl Client {
     // -----------------------------------------------------------------
     // Frames.
 
-    /// One frame at `now` with the input sampled for it: the clocks move
-    /// on, a new authority snapshot is predicted from, the ticks the
-    /// predicted clock passed are stepped (each with `input`), and their
-    /// commands queued. `None` until playing.
+    /// One frame at `now` with the input sampled for it: the last frame's
+    /// steps land, the clocks move on, a rewind lands or starts (`rebase`),
+    /// the ticks the predicted clock passed get their commands (each
+    /// `input`), queued, and go to be stepped beside the frame. `None`
+    /// until playing.
     pub fn frame(&mut self, now: NetTime, input: Command) -> Option<Frame<'_>> {
         let State::Connected(session) = &mut self.state else {
             return None;
@@ -1337,6 +1377,7 @@ impl Client {
             session.clocks.rtt_us = link.rtt_us as i64;
             session.clocks.rtt_min_us = link.rtt_min_us as i64;
         }
+        land_beside(session, now);
         let started = session.play.as_ref()?.started;
         let mut stepped = 0;
         if session.running {
@@ -1352,14 +1393,17 @@ impl Client {
                     self.events
                         .push_back(ClientEvent::Playing { tick: play.made });
                 }
-                reconcile(session, true);
+                rebase_now(session, now);
             } else if started {
                 session.clocks.advance(now, elapsed);
+                land(session);
                 if session.fresh {
-                    reconcile(session, false);
+                    observe(session);
                 }
+                rebase_if_due(session, now, self.config.rebase_every_us);
             }
             stepped = predict(session, now, input);
+            send_beside(session, now);
             present(session, now, elapsed);
         }
         let play = session.play.as_ref()?;
@@ -1406,6 +1450,36 @@ impl Client {
             correction: play.correction,
             stepped,
         })
+    }
+
+    /// The oldest predicted tick the caller still reads whole: a rewind
+    /// makes whole snapshots (`Kept::predicted`) from it on, and keeps only
+    /// this seat's body for the ticks before (0, the default: every tick).
+    /// The last two ticks made are always whole: `Frame::predicted`
+    /// presents them.
+    pub fn set_view_from(&mut self, tick: u64) {
+        if let State::Connected(session) = &mut self.state {
+            session.view_from = tick;
+        }
+    }
+
+    /// The probes' way to make the threads the next rewind and the next
+    /// steps run on die, as a panic in a step would: the client must go on,
+    /// rewinding and stepping in the caller, its world made again.
+    #[cfg(feature = "probes")]
+    pub fn kill_threads(&mut self) {
+        if self.config.rebase_on == RebaseOn::Thread
+            && let State::Connected(session) = &mut self.state
+        {
+            session.die = (true, true);
+        }
+    }
+
+    /// Whether a rewind's or a step's thread died (`kill_threads`, or a
+    /// panic in a step): those run in the caller from then on.
+    pub fn threads_lost(&self) -> bool {
+        self.session()
+            .is_some_and(|session| session.rebaser.lost || session.beside.lost)
     }
 
     /// The snapshots kept since the last call (`ClientConfig::keep`).
@@ -1486,6 +1560,29 @@ fn next_nonce(key: &[u8; 32], nonce: u64) -> u64 {
     u64::from_le_bytes(bytes)
 }
 
+/// Why the host's state does not go into the level built here, in words a
+/// player can act on. The level already passed the host's checks (the
+/// module's facts, collision, animations and navigation for a module; the
+/// whole digest for a stage), so a module of the same name that still
+/// differs reads the rest of its data differently: its scripts, or the
+/// game text they read (`dialog.tlk`), which the join's data check leaves
+/// out (`vfs::fingerprint::world_group`).
+pub fn other_world(error: &sim::InstallError) -> String {
+    match error {
+        sim::InstallError::WrongLevel { snapshot, level }
+            if snapshot == level && !level.is_empty() =>
+        {
+            format!(
+                "{level} is built from other game data here than on the host: its scripts, \
+                 or the game text they read (dialog.tlk), differ. Another language or a mod \
+                 (a community patch or build) on one machine does that: both players need \
+                 the same game, language and mods"
+            )
+        }
+        other => other.to_string(),
+    }
+}
+
 /// The seat commands kept for `tick`.
 fn seat_commands_at(held: &VecDeque<(u64, TickInput)>, tick: u64) -> Option<&TickInput> {
     let at = held.binary_search_by_key(&tick, |(held, _)| *held).ok()?;
@@ -1498,33 +1595,55 @@ fn own_id(snapshot: &Snapshot, seat: Seat) -> Option<SimId> {
     snapshot.body(seat).map(|entity| entity.id)
 }
 
-/// Restores the world from the newest authority snapshot and predicts
-/// again to the predicted tick, first comparing this seat's avatar as
-/// predicted for that tick with the host's.
-fn reconcile(session: &mut Session, starting: bool) {
+/// A number no other world of this process has (`Play::generation`).
+fn next_generation() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The other seats' commands the host used at `tick` (what prediction
+/// repeats for them), and this seat's.
+fn others_at(session: &Session, tick: u64) -> (TickInput, Option<Command>) {
+    let all = seat_commands_at(&session.seat_commands, tick)
+        .cloned()
+        .unwrap_or(TickInput::default());
+    let mut others = TickInput::default();
+    for (seat, command) in all.iter() {
+        if seat != session.seat {
+            others.insert(seat, *command);
+        }
+    }
+    (others, all.get(session.seat).copied())
+}
+
+/// Compares this seat's avatar as predicted for the newest authority
+/// snapshot's tick with the host's, once a tick: the counts, and whether
+/// a rewind is wanted with the next frame (`Session::differs`): the body
+/// differs, or the seat took or lost one.
+fn observe(session: &mut Session) {
     session.fresh = false;
-    let Some(play) = session.play.as_mut() else {
+    let Some(play) = session.play.as_ref() else {
         return;
     };
     let Some(newest) = session.ring.newest() else {
         return;
     };
     let tick = newest.tick;
-    if tick <= play.authority && !starting {
+    if tick <= session.observed || tick <= play.authority {
         return;
     }
-    let commands = seat_commands_at(&session.seat_commands, tick);
-    let mut others = commands.cloned().unwrap_or(TickInput::default());
-    let used_here = others.get(session.seat).copied();
-    let mut others_now = TickInput::default();
-    for (seat, command) in others.iter() {
-        if seat != session.seat {
-            others_now.insert(seat, *command);
-        }
+    // Its tick not stepped yet (steps land a frame late): compared once
+    // it is.
+    if tick > play.stepped {
+        session.fresh = true;
+        return;
     }
-    others = others_now;
-
-    // Exact-match accounting of this seat's avatar at `tick`.
+    session.observed = tick;
+    if own_id(&newest.snapshot, session.seat) != play.own_id {
+        session.differs = true;
+        return;
+    }
+    let (others, used_here) = others_at(session, tick);
     let predicted = play
         .history
         .binary_search_by_key(&tick, |(at, ..)| *at)
@@ -1550,6 +1669,7 @@ fn reconcile(session: &mut Session, starting: bool) {
             .map(|at| &newest.parts.entities[at].1);
         session.stats.compared += 1;
         if host.is_none_or(|host| *host != Snapshot::record(&predicted)) {
+            session.differs = true;
             let missed = session
                 .misses
                 .iter()
@@ -1571,86 +1691,358 @@ fn reconcile(session: &mut Session, starting: bool) {
             }
         }
     }
+}
 
-    let shown = play.shown();
-    let snapshot = newest.snapshot.clone();
-    let Some(level) = session.level.clone() else {
+/// Starts a rewind from the newest authority snapshot when one is due:
+/// none under way, the snapshot newer than the world's base, and the body
+/// differing (`observe`) or `every_us` passed since the last began.
+fn rebase_if_due(session: &mut Session, now: NetTime, every_us: u64) {
+    if session.rebaser.busy() {
+        return;
+    }
+    let (Some(play), Some(newest)) = (session.play.as_ref(), session.ring.newest()) else {
         return;
     };
-    let Ok(mut world) = SimWorld::from_snapshot(&snapshot, level) else {
+    if newest.tick <= play.authority {
+        return;
+    }
+    let due = session.differs
+        || every_us == 0
+        || session
+            .rebased_at
+            .is_none_or(|at| now.since(at) >= every_us);
+    if due {
+        start_rebase(session, now);
+    }
+}
+
+/// Gives the rewinder its job: the world from the newest authority
+/// snapshot, stepped again to the tick made.
+fn start_rebase(session: &mut Session, now: NetTime) {
+    let (Some(play), Some(newest), Some(level)) = (
+        session.play.as_ref(),
+        session.ring.newest(),
+        session.level.clone(),
+    ) else {
         return;
     };
-    world.keep_worked_out(&mut play.world);
-    play.world = world;
+    let base = newest.snapshot.clone();
+    let (others, _) = others_at(session, base.tick);
+    let job = Job {
+        generation: play.generation,
+        own_id: own_id(&base, session.seat),
+        own: play
+            .own
+            .iter()
+            .filter(|(at, ..)| *at > base.tick)
+            .copied()
+            .collect(),
+        to: play.made,
+        full_from: session.view_from.min(play.made.saturating_sub(1)),
+        worked: play.world.as_deref().map(SimWorld::worked_out),
+        base,
+        level,
+        seat: session.seat,
+        others,
+        rate: session.rate,
+        #[cfg(feature = "probes")]
+        die: std::mem::take(&mut session.die.0),
+    };
+    session.rebaser.start(job);
+    session.rebased_at = Some(now);
+    session.differs = false;
+}
+
+/// The clocks (re)started: prediction starts from the newest authority
+/// snapshot now, whatever was under way.
+fn rebase_now(session: &mut Session, now: NetTime) {
+    session.fresh = false;
+    if session.rebaser.wait().is_some() {
+        session.stats.rewinds_dropped += 1;
+    }
+    // A thread that dies with the rewind: once more, in the caller.
+    for _ in 0..2 {
+        start_rebase(session, now);
+        let lost = session.rebaser.lost;
+        match session.rebaser.wait() {
+            Some(Some(done)) => return apply(session, done, true),
+            Some(None) => {
+                if failed(session, lost) {
+                    return;
+                }
+            }
+            None => return,
+        }
+    }
+}
+
+/// Lands the rewind that finished, if any (`apply`).
+fn land(session: &mut Session) {
+    let lost = session.rebaser.lost;
+    match session.rebaser.take() {
+        Some(Some(done)) => {
+            session.stats.rewinds_beside += 1;
+            apply(session, done, false);
+        }
+        Some(None) => {
+            failed(session, lost);
+        }
+        None => {}
+    }
+}
+
+/// Counts a rewind that came to nothing: its thread died with it (the
+/// rewinder was not `lost` before), or its snapshot did not restore.
+/// Whether it was the snapshot.
+fn failed(session: &mut Session, lost_before: bool) -> bool {
+    if session.rebaser.lost && !lost_before {
+        session.stats.rewinds_lost += 1;
+        false
+    } else {
+        session.stats.rewinds_failed += 1;
+        true
+    }
+}
+
+/// A rewind landed and not shown yet (`Play::pending`).
+struct Pending {
+    base: Arc<Snapshot>,
+    /// Its whole snapshots, from the view's tick on.
+    snapshots: Vec<Arc<Snapshot>>,
+    /// How far this seat's body moved in it, at the tick it reached
+    /// (units), when it did not start prediction or switch the body.
+    moved: Option<[f32; 3]>,
+}
+
+/// A rewind made from `done.base` replaces the live world, at the tick it
+/// reached; the next steps beside the frame bring it to the tick made.
+/// This seat's predictions from the base to that tick are its at once;
+/// what it shows (its snapshots, the correction) waits for those steps,
+/// so the view never meets a world behind the one it drew
+/// (`finish_rewind`). One made for another world is dropped.
+fn apply(session: &mut Session, done: Done, starting: bool) {
+    let Some(play) = session.play.as_mut() else {
+        return;
+    };
+    if done.generation != play.generation {
+        session.stats.rewinds_dropped += 1;
+        return;
+    }
+    let tick = done.base.tick;
+    let reached = done.made;
     // The seat took a body, or lost it (I30 P2–P5): what was predicted of
     // the old one compares with nothing, and the new one is drawn where it
     // is, uncorrected.
-    let id = own_id(&snapshot, session.seat);
-    let switched = id != play.own_id;
+    let switched = done.own_id != play.own_id;
+    // Where the body was predicted at the tick reached, before and now.
+    let at = |history: &VecDeque<(u64, EntityState, Bolts)>| {
+        history
+            .iter()
+            .find(|(at, ..)| *at == reached)
+            .map(|(_, entity, _)| entity.position)
+    };
+    let before = at(&play.history);
+    let after = done
+        .history
+        .iter()
+        .find(|(at, ..)| *at == reached)
+        .map(|(_, entity, _)| entity.position)
+        .or_else(|| {
+            (reached == tick)
+                .then(|| done.own_id.and_then(|id| done.base.get(id)))
+                .flatten()
+                .map(|entity| entity.position)
+        });
+    let moved = match (before, after) {
+        (Some(before), Some(after)) if !starting && !switched => {
+            Some(std::array::from_fn(|axis| {
+                (before[axis] - after[axis]) * UNITS_PER_METRE
+            }))
+        }
+        _ => None,
+    };
+    let mut world = done.world;
+    if let Some(old) = play.world.as_deref_mut() {
+        world.keep_worked_out(old);
+    }
+    play.world = Some(world);
+    play.stepped = reached;
     if switched {
         play.history.clear();
-        play.own_id = id;
+        play.own_id = done.own_id;
         play.correction = [0.0; 3];
     }
-    play.others = others;
+    play.others = done.others;
     play.authority = tick;
-    play.made = play.made.max(tick);
-    // The same two ticks as before, blended the same: only a real
-    // difference moves what is drawn.
-    let alpha = play.predicted.alpha();
-    let previous = play.predicted.previous();
-    play.predicted = if play.made == tick && previous.tick + 1 == tick {
-        let mut shown = Presented::shared(play.predicted.previous_shared().clone());
-        shown.push_shared(snapshot);
-        shown
-    } else {
-        Presented::shared(snapshot)
-    };
-    let depth = play.made - tick;
-    for at in tick + 1..=play.made {
-        let input = play.input(session.seat, at);
-        let snapshot = step(
-            &mut play.world,
-            at,
-            &input,
-            session.rate.msec(at),
-            StepReason::Predict,
-        );
-        remember(play, &snapshot);
-        let snapshot = Arc::new(snapshot);
-        if let Some(kept) = &mut session.kept {
-            kept.predicted.push(snapshot.clone());
-        }
-        play.predicted.push_shared(snapshot);
+    play.made = play.made.max(reached);
+    // This seat's body from the base to the tick reached is the rewind's;
+    // past it, what was predicted until the steps replace it.
+    let mut history: VecDeque<_> = play
+        .history
+        .iter()
+        .filter(|(at, ..)| *at == tick)
+        .copied()
+        .collect();
+    history.extend(done.history);
+    history.extend(
+        play.history
+            .iter()
+            .filter(|(at, ..)| *at > reached)
+            .copied(),
+    );
+    while history.len() > OWN {
+        history.pop_front();
     }
-    play.predicted.set_alpha(alpha);
-    while play.history.front().is_some_and(|(at, ..)| *at < tick) {
-        play.history.pop_front();
-    }
+    play.history = history;
+    play.pending = Some(Pending {
+        base: done.base,
+        snapshots: done.snapshots,
+        moved,
+    });
     let keep_from = tick.min(session.acked_through);
     while play.own.front().is_some_and(|(at, ..)| *at <= keep_from) {
         play.own.pop_front();
     }
+    let depth = play.made - tick;
     let stats = &mut session.stats;
     stats.rewinds += 1;
     stats.rewind_ticks += depth;
     stats.rewind_max = stats.rewind_max.max(depth);
-    if let (Some(before), Some(after)) = (shown, play.shown())
-        && !starting
-        && !switched
-    {
-        let moved: [f32; 3] =
-            std::array::from_fn(|axis| (before[axis] - after[axis]) * UNITS_PER_METRE);
-        if moved != [0.0; 3] {
-            stats.corrections += 1;
-            let error: [f32; 3] = std::array::from_fn(|axis| play.correction[axis] + moved[axis]);
-            let length = error.iter().map(|e| e * e).sum::<f32>().sqrt();
-            if length > SNAP_UNITS {
-                stats.snapped += 1;
-                play.correction = [0.0; 3];
-            } else {
-                play.correction = error;
+}
+
+/// Hands the live world its ticks not stepped yet (to the tick made), to
+/// step beside the frame; with none, a rewind waiting to be shown is shown.
+/// Nothing steps before the clocks start (after a resume: from the held
+/// snapshot, `rebase_now`).
+fn send_beside(session: &mut Session, now: NetTime) {
+    let clock = session.clocks.predicted_at(now);
+    let Some(play) = session.play.as_mut() else {
+        return;
+    };
+    if !play.started {
+        return;
+    }
+    play.sent_clock = clock;
+    if session.beside.away() || play.stepped >= play.made {
+        if !session.beside.away() {
+            finish_rewind(session, Vec::new());
+        }
+        return;
+    }
+    let Some(world) = play.world.take() else {
+        return;
+    };
+    let ticks = (play.stepped + 1..=play.made)
+        .map(|tick| {
+            (
+                tick,
+                play.input(session.seat, tick),
+                session.rate.msec(tick),
+            )
+        })
+        .collect();
+    session.beside.send(Steps {
+        generation: play.generation,
+        world,
+        ticks,
+        #[cfg(feature = "probes")]
+        die: std::mem::take(&mut session.die.1),
+    });
+}
+
+/// The steps sent beside the last frame, home: the world, this seat's body
+/// at each tick, and what is shown. Steps made for another world bring
+/// nothing but the world, which a rewind replaces. A step thread that died
+/// took the world with it: prediction starts again from the newest
+/// authority snapshot.
+fn land_beside(session: &mut Session, now: NetTime) {
+    if let Some(play) = session.play.as_mut() {
+        play.shown_clock = play.sent_clock;
+    }
+    let away = session.beside.away();
+    let Some(stepped) = session.beside.land() else {
+        if away && let Some(play) = session.play.as_mut() {
+            play.world = None;
+            if play.started && session.running {
+                rebase_now(session, now);
             }
+        }
+        return;
+    };
+    let Some(play) = session.play.as_mut() else {
+        return;
+    };
+    if stepped.generation != play.generation {
+        // Kept only while this world has none (a hold's): a rewind
+        // replaces it before anything steps it again.
+        if play.world.is_none() {
+            if let Some(last) = stepped.snapshots.last() {
+                play.stepped = last.tick;
+            }
+            play.world = Some(stepped.world);
+        }
+        return;
+    }
+    play.world = Some(stepped.world);
+    let mut landed = Vec::with_capacity(stepped.snapshots.len());
+    for snapshot in stepped.snapshots {
+        play.stepped = snapshot.tick;
+        remember(play, &snapshot);
+        landed.push(Arc::new(snapshot));
+    }
+    finish_rewind(session, landed);
+}
+
+/// Shows the new predictions: a rewind's waiting (`Play::pending`) and the
+/// steps that followed it, together, its correction with them; or the
+/// steps alone.
+fn finish_rewind(session: &mut Session, landed: Vec<Arc<Snapshot>>) {
+    let Some(play) = session.play.as_mut() else {
+        return;
+    };
+    let Some(pending) = play.pending.take() else {
+        for snapshot in landed {
+            if let Some(kept) = &mut session.kept {
+                kept.predicted.push(snapshot.clone());
+            }
+            play.predicted.push_shared(snapshot);
+        }
+        return;
+    };
+    let tick = pending.base.tick;
+    let mut shown = pending.snapshots;
+    shown.extend(landed);
+    // The same two ticks as before, blended the same: only a real
+    // difference moves what is drawn.
+    let alpha = play.predicted.alpha();
+    let pair = |a: &Arc<Snapshot>, b: &Arc<Snapshot>| {
+        let mut presented = Presented::shared(a.clone());
+        presented.push_shared(b.clone());
+        presented
+    };
+    play.predicted = match shown.as_slice() {
+        [] if play.predicted.previous().tick + 1 == tick => {
+            pair(play.predicted.previous_shared(), &pending.base)
+        }
+        [] => Presented::shared(pending.base.clone()),
+        [only] if only.tick == tick + 1 => pair(&pending.base, only),
+        [only] => Presented::shared(only.clone()),
+        [.., previous, current] => pair(previous, current),
+    };
+    play.predicted.set_alpha(alpha);
+    if let Some(kept) = &mut session.kept {
+        kept.predicted.extend(shown);
+    }
+    if let Some(moved) = pending.moved.filter(|moved| *moved != [0.0; 3]) {
+        let stats = &mut session.stats;
+        stats.corrections += 1;
+        let error: [f32; 3] = std::array::from_fn(|axis| play.correction[axis] + moved[axis]);
+        let length = error.iter().map(|e| e * e).sum::<f32>().sqrt();
+        if length > SNAP_UNITS {
+            stats.snapped += 1;
+            play.correction = [0.0; 3];
+        } else {
+            play.correction = error;
         }
     }
 }
@@ -1673,8 +2065,8 @@ fn remember(play: &mut Play, snapshot: &Snapshot) {
     }
 }
 
-/// Steps the ticks the predicted clock passed, one command each, and
-/// queues the commands the host has not acked. The ticks stepped.
+/// Makes the commands of the ticks the predicted clock passed, one each,
+/// and queues the ones the host has not acked. The ticks made.
 fn predict(session: &mut Session, now: NetTime, input: Command) -> u64 {
     let Some(play) = session.play.as_mut() else {
         return 0;
@@ -1699,10 +2091,11 @@ fn predict(session: &mut Session, now: NetTime, input: Command) -> u64 {
     make(session, target, skip_to, input, offset, Some(remote))
 }
 
-/// Steps prediction to `target`, `input` as this seat's command for each
+/// Makes prediction's commands to `target`, `input` as this seat's for each
 /// tick after `skip_to` (made with the predicted clock `offset` ahead of
 /// local time, while remote time stood at `remote`: its view lag), and
-/// queues every command the host has not acked. The ticks stepped.
+/// queues every command the host has not acked; the ticks are stepped
+/// beside the frame (`send_beside`). The ticks made.
 fn make(
     session: &mut Session,
     target: u64,
@@ -1731,20 +2124,6 @@ fn make(
             play.offsets[(tick % 64) as usize] = (tick, offset);
             session.stats.commands += 1;
         }
-        let tick_input = play.input(session.seat, tick);
-        let snapshot = step(
-            &mut play.world,
-            tick,
-            &tick_input,
-            rate.msec(tick),
-            StepReason::Predict,
-        );
-        remember(play, &snapshot);
-        let snapshot = Arc::new(snapshot);
-        if let Some(kept) = &mut session.kept {
-            kept.predicted.push(snapshot.clone());
-        }
-        play.predicted.push_shared(snapshot);
         play.made = tick;
         stepped += 1;
     }
@@ -1859,10 +2238,17 @@ fn present(session: &mut Session, now: NetTime, elapsed: i64) {
         return;
     }
     let rate = session.rate;
-    let predicted = session.clocks.predicted_at(now);
-    let (from, to) = (time_us(rate, play.made), time_us(rate, play.made + 1));
-    play.predicted
-        .set_alpha(((predicted - from) as f64 / (to - from).max(1) as f64) as f32);
+    // The ticks shown were stepped beside the last frame, from commands it
+    // made: blended by its clock against the newest tick shown, as the
+    // clock then stood against the tick it made. Against this frame's
+    // clock and tick the blend would move by the ticks made since, a
+    // tick back and forth from frame to frame; against the world's tick,
+    // by a landed rewind's until its steps show.
+    let shown = play.predicted.current().tick;
+    let (from, to) = (time_us(rate, shown), time_us(rate, shown + 1));
+    play.predicted.set_alpha(
+        ((play.shown_clock - from) as f64 / (to - from).max(1) as f64).clamp(0.0, 1.0) as f32,
+    );
 
     let remote = session.clocks.remote_at(now);
     let tick = tick_at(rate, remote);

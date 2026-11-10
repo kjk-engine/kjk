@@ -174,6 +174,9 @@ pub struct OwnFire {
     /// The own character at own time, as its newest prediction by then has
     /// it (its Force effects show from it).
     pub own: Option<sim::EntityState>,
+    /// The own blaster's crosshair as the own time shows it, before easing
+    /// (`reticle_view::of`).
+    pub reticle: Option<ui::vm::ReticleView>,
 }
 
 /// Where an own bolt is in its life.

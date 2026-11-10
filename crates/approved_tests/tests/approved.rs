@@ -1522,7 +1522,8 @@ fn stealth_spot() {
 /// dummy, lands blows of its creature weapon at its attack's hit moment, a
 /// round apart; its rounds run (`ScriptEndRound`) and the dummy hears it was
 /// attacked (`ScriptAttacked`); a humanoid with empty hands punches with
-/// its fists instead; two runs end the same. The sim alone.
+/// its fists instead; set on a dummy of its own faction its attack lands
+/// all the same; two runs end the same. The sim alone.
 #[test]
 fn beast_strikes() {
     probed("strike", &sim::strikes::probes(), 8);
@@ -2104,17 +2105,28 @@ fn net_codec() {
     probed("codec runs", &checks, 7);
 }
 
+/// The sessions with tests of their own (`net_sessions` plays the rest).
+const OWN_SESSION_TESTS: [&str; 7] = [
+    "hold",
+    "reload",
+    "lan_every_snapshot",
+    "wan_rewinds_on_a_thread",
+    "lan_rewinds_on_a_thread",
+    "hold_rewinds_on_a_thread",
+    "lan_rewind_threads_die",
+];
+
 /// Whole sessions (`kjk net session`, no install): the determinism world's
 /// `lan`, `wan`, a one-minute `soak`, `hostile`, `reconnect`, `restart`
-/// and `save_copy` (`hold` and `reload` are their own tests) played over a
-/// `SimNet`, every binding check passing; and a million corrupted session
-/// encodings through their decoders, none panicking.
+/// and `save_copy` (`hold`, `reload` and the rewinds' are their own tests)
+/// played over a `SimNet`, every binding check passing; and a million
+/// corrupted session encodings through their decoders, none panicking.
 #[test]
 fn net_sessions() {
     use net::session::sessions;
     let played: Vec<sessions::Session> = sessions::determinism(1)
         .into_iter()
-        .filter(|session| !["hold", "reload"].contains(&session.setup.name.as_str()))
+        .filter(|session| !OWN_SESSION_TESTS.contains(&session.setup.name.as_str()))
         .collect();
     assert_eq!(played.len(), 7, "sessions went missing");
     std::thread::scope(|scope| {
@@ -2129,6 +2141,41 @@ fn net_sessions() {
     let mutations = net::session::probes::decoder_mutations(1_000_000, 5);
     assert_eq!(mutations.tried, 1_000_000, "corrupted encodings tried");
     assert_eq!(mutations.panics, 0, "corrupted encodings that panicked");
+}
+
+/// A joined player's rewinds (issue 229, added 2026-11-09): the sessions
+/// that make them on a thread beside the frames, as the game does (on a
+/// clean link, over `wan`'s, through a 6 s hold, and with the threads
+/// dying mid-session, going on in the caller), and from every snapshot,
+/// as before;
+/// every binding check passing, each client rewinding and none failing
+/// to restore, and no own-avatar mismatch of an own command on the clean
+/// links (`prediction`). The rewinds on a thread land whenever the thread
+/// is done in wall time, so those sessions are not the same twice; their
+/// checks are.
+#[test]
+fn net_rewinds() {
+    use net::session::sessions;
+    let played: Vec<sessions::Session> = sessions::determinism(1)
+        .into_iter()
+        .filter(|session| OWN_SESSION_TESTS[2..].contains(&session.setup.name.as_str()))
+        .collect();
+    assert_eq!(played.len(), 5, "sessions went missing");
+    for session in played {
+        let (report, checks) = session_checks(session);
+        for client in &report.clients {
+            assert!(
+                client.stats.rewinds_beside > 0 && client.stats.rewinds_failed == 0,
+                "every client rewinds while its frames go on, none failing: {} beside, {} failed",
+                client.stats.rewinds_beside,
+                client.stats.rewinds_failed
+            );
+        }
+        assert!(
+            checks.iter().any(|name| name.ends_with("rewinds")),
+            "the rewinds are checked"
+        );
+    }
 }
 
 /// `session` played over a `SimNet`; every binding check of it passes

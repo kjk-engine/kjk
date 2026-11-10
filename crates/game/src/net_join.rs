@@ -189,6 +189,10 @@ pub fn connect(
             rejoin_us: REJOIN.as_micros() as u64,
             key,
             nonce_key: crate::solo::random_key(),
+            // Rewinds beside the frames, and not from every snapshot
+            // while this seat's body agrees (issue 229).
+            rebase_on: net::session::client::RebaseOn::Thread,
+            rebase_every_us: net::session::client::REBASE_EVERY_US,
             ..ClientConfig::default()
         },
     )
@@ -283,6 +287,7 @@ pub fn install(
         presented: first,
         fresh: Vec::new(),
         correction: [0.0; 3],
+        followed: None,
     });
     app.insert_resource(OwnSeat(seat));
     app.init_resource::<SelectedPower>();
@@ -585,8 +590,11 @@ pub(crate) fn advance(
         aim: camera_aim.0,
         ..command
     };
-    // The frame predicts with the client locked: the net thread waits.
+    // The frame makes its commands with the client locked (the net thread
+    // waits); the client steps no world in it (issue 229).
     let mut client = lock(&joined.joining.client);
+    // The view reads no prediction before the tick it last followed.
+    client.set_view_from(own.followed.unwrap_or(0));
     let span = info_span!("net.frame").entered();
     let frame = client.frame(now, command);
     drop(span);
@@ -667,6 +675,30 @@ pub(crate) fn advance(
             "bytes_down": link.map(|l| l.bytes_received),
     });
     facts.0.insert("net".into(), joined.facts.clone());
+}
+
+/// A player's session that ended (the host quit or removed this player,
+/// refused the world built here, gave its seat away) goes back to the main
+/// menu, which says why: nothing is played here any more, and the view
+/// would stay on its last frame, or on black when it never had the host's
+/// world (issue 261). Scripted and headless runs go on to their script's
+/// end, the session's end in their log and `net.json`.
+pub(crate) fn leave_ended(
+    joined: Res<Joined>,
+    player: Option<Res<crate::crash::PlayerRun>>,
+    mut exit: MessageWriter<AppExit>,
+    mut left: Local<bool>,
+) {
+    let Some(why) = joined.ended.as_deref() else {
+        return;
+    };
+    if *left || !player.is_some_and(|player| player.0) {
+        return;
+    }
+    *left = true;
+    info!(target: "session", "back to the main menu: the session ended");
+    crate::session_flow::back_to_menu_saying(format!("The session ended: {why}."));
+    exit.write(AppExit::Success);
 }
 
 /// The run ends: the host is told this player left (straight through the
