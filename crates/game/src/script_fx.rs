@@ -1219,6 +1219,7 @@ fn spawn(
         view.sounds.clear();
     }
     let wanted = (props.as_deref()).and_then(|props| props.wanted_in(swap.generation));
+    let lit = props.as_deref().is_some_and(|props| props.lights);
     let keys: BTreeSet<(u32, u8)> = wanted
         .into_iter()
         .flat_map(|wanted| wanted.keys().copied())
@@ -1290,7 +1291,7 @@ fn spawn(
                 until: Some(u64::MAX),
                 source: None,
                 kept: Some(Keeper::Prop(index, slot)),
-                glows: true,
+                glows: lit,
             });
         }
     }

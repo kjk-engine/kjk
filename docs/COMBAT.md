@@ -437,6 +437,19 @@ lays only those `placeables.2da` rows, centred before the doorway; each
 dump's `destruction` tells the pieces drawn, the bodies moving and the
 pieces' world's steps since the last.
 
+**Detail** (`display.debris`: Advanced Graphics Options, "Destruction
+Detail", on KOTOR's texture quality row; `prop_looks::detail`). How much
+of breaking each machine draws, for one that cannot afford it all. Full
+draws everything. Low throws only the pieces bigger than a fist (96 at
+once), no shards from hits, a third of the glass's shards (64 at once),
+and 8 lasting fires and smokes, none lighting the room. Off throws
+nothing: a broken prop shows its wreck, chunks knocked off are simply
+gone, glass goes with its crash and no shards, and nothing keeps
+burning. What broke, how damaged it is and whether its glass is gone are
+the sim's, the same at every level and on every seat, so players in one
+session may each choose their own. Probes `prop_detail_setting`,
+`prop_detail_levels`.
+
 **Co-op.** What broke, each prop's damage stage and its glass are the
 sim's (`ObjectState`), so every seat agrees and nothing is sent that was
 not before (the player's bytes down with the hall wrecked and without:

@@ -105,6 +105,13 @@ const SAMPLES: &[(&str, &str)] = &[
     ("4", strings::ANTI_ALIASING_4X),
 ];
 
+/// How much of breaking props is drawn (`display.debris`).
+const DEBRIS: &[(&str, &str)] = &[
+    ("full", strings::DEBRIS_FULL),
+    ("low", strings::DEBRIS_LOW),
+    ("off", strings::DEBRIS_OFF),
+];
+
 /// How far a pad's stick is pushed before it counts (a share of its
 /// reach; worn sticks drift further).
 const DEAD_ZONES: &[(&str, &str)] = &[
@@ -309,9 +316,16 @@ const PAGES: [Spec; 10] = [
             ),
             ("CB_VSYNC", Toggle("display.vsync")),
             ("CB_FRAMEBUFF", Greyed),
-            ("BTN_TEXQUAL", Greyed),
-            ("BTN_TEXQUALLEFT", Greyed),
-            ("BTN_TEXQUALRIGHT", Greyed),
+            // KOTOR's texture quality row: destruction's detail.
+            ("BTN_TEXQUAL", Cycle("display.debris", DEBRIS, Step::Shown)),
+            (
+                "BTN_TEXQUALLEFT",
+                Cycle("display.debris", DEBRIS, Step::Back),
+            ),
+            (
+                "BTN_TEXQUALRIGHT",
+                Cycle("display.debris", DEBRIS, Step::On),
+            ),
             ("BTN_ANISOTROPY", Greyed),
             ("BTN_ANISOTROPYLEFT", Greyed),
             ("BTN_ANISOTROPYRIGHT", Greyed),
@@ -325,7 +339,9 @@ const PAGES: [Spec; 10] = [
             ("BTN_ANTIALIAS", Ours(strings::ANTI_ALIASING_HELP)),
             ("BTN_ANTIALIASLEFT", Ours(strings::ANTI_ALIASING_HELP)),
             ("BTN_ANTIALIASRIGHT", Ours(strings::ANTI_ALIASING_HELP)),
-            ("BTN_TEXQUAL", Told(48712)),
+            ("BTN_TEXQUAL", Ours(strings::DEBRIS_HELP)),
+            ("BTN_TEXQUALLEFT", Ours(strings::DEBRIS_HELP)),
+            ("BTN_TEXQUALRIGHT", Ours(strings::DEBRIS_HELP)),
             ("CB_FRAMEBUFF", Told(48714)),
             ("BTN_ANISOTROPY", Told(48715)),
             ("CB_SOFTSHADOWS", Told(48711)),

@@ -86,6 +86,65 @@ const TRAIL_MS: f64 = 150.0;
 /// Segments laid between two frames of a blade, sweeping it.
 const SWEEP_STEPS: usize = 8;
 
+/// What a destruction detail level (`display::Debris`) draws: whether
+/// pieces fly at all and the small ones too, how many pieces at most,
+/// whether hits throw shards, every how many of the glass's shards burst
+/// (0: none) and how many at most, whether the glass glints, how many
+/// lasting emitters burn at most and whether they light what is near.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Detail {
+    pub flies: bool,
+    pub small_pieces: bool,
+    pub most_pieces: usize,
+    pub shards: bool,
+    pub glass_every: usize,
+    pub most_glass: usize,
+    pub glass_burst: bool,
+    pub emitters: usize,
+    pub lights: bool,
+}
+
+/// What `display`'s destruction detail draws (all of it with no display:
+/// a headless check).
+pub(crate) fn detail(display: Option<&crate::display::Display>) -> Detail {
+    use crate::display::Debris;
+    match display.map_or(Debris::Full, |display| display.debris) {
+        Debris::Full => Detail {
+            flies: true,
+            small_pieces: true,
+            most_pieces: MAX_PIECES,
+            shards: true,
+            glass_every: 1,
+            most_glass: 256,
+            glass_burst: true,
+            emitters: 24,
+            lights: true,
+        },
+        Debris::Low => Detail {
+            flies: true,
+            small_pieces: false,
+            most_pieces: 96,
+            shards: false,
+            glass_every: 3,
+            most_glass: 64,
+            glass_burst: true,
+            emitters: 8,
+            lights: false,
+        },
+        Debris::Off => Detail {
+            flies: false,
+            small_pieces: false,
+            most_pieces: MAX_PIECES,
+            shards: false,
+            glass_every: 0,
+            most_glass: 0,
+            glass_burst: false,
+            emitters: 0,
+            lights: false,
+        },
+    }
+}
+
 /// A number from 0 to 1 (1 never) from `parts` and `salt`, the same on
 /// every machine: FNV-1a 64 of their bits, then splitmix64's finish.
 pub(crate) fn noise(parts: &[f32], salt: u64) -> f32 {
@@ -613,7 +672,9 @@ pub(crate) fn wrecks(
     mut meshes: ResMut<Assets<Mesh>>,
     time: Res<Time>,
     damage: Option<Res<crate::prop_damage::PropDamage>>,
+    display: Option<Res<crate::display::Display>>,
 ) {
+    let detail = detail(display.as_deref());
     fractures.collect();
     let made = made.as_deref();
     for change in &changes.changes {
@@ -629,7 +690,7 @@ pub(crate) fn wrecks(
         let flies = match wreck(change.was, change.now) {
             Wreck::Standing => continue,
             Wreck::BaseOnly => false,
-            Wreck::Flies => true,
+            Wreck::Flies => detail.flies,
         };
         if !looks.done.contains(&change.index) {
             let (from, blast) = looks
@@ -703,7 +764,7 @@ pub(crate) fn wrecks(
             (&swap.level, newest),
             (&fracture, &out),
             (game, &ir.name, &materials),
-            (owe.from, owe.blast),
+            (owe.from, owe.blast, detail),
             now_ms,
         );
     }
@@ -713,7 +774,7 @@ pub(crate) fn wrecks(
 /// base) of model `name` at `game` in its meshes' `materials`: those that
 /// stay stand, the rest are thrown as debris by a blow from `from` (a
 /// `blast`) into the pieces' world, gathered round them from `level`; the
-/// small ones fade.
+/// small ones fade, or are not thrown at all where `detail` leaves them out.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lay_pieces(
     commands: &mut Commands,
@@ -722,7 +783,7 @@ pub(crate) fn lay_pieces(
     level: (&sim::Level, Option<&sim::Snapshot>),
     (fracture, out): (&Fracture, &[(usize, bool)]),
     (game, name, materials): (Transform, &str, &BTreeMap<usize, Handle<OdysseyMaterial>>),
-    (from, blast): ([f32; 3], bool),
+    (from, blast, detail): ([f32; 3], bool, Detail),
     now_ms: f64,
 ) {
     if out.iter().any(|&(_, stays)| !stays) {
@@ -746,6 +807,9 @@ pub(crate) fn lay_pieces(
             )
         });
         let small = !kept(piece.volume);
+        if small && !stays && !detail.small_pieces {
+            continue;
+        }
         let fade_ms = (small && !stays).then(|| {
             let (lo, hi) = FADE_S;
             now_ms + (lo + (hi - lo) * f64::from(noise(&middle, 9))) * 1000.0
@@ -973,7 +1037,9 @@ fn hits(
         Option<Res<crate::prop_damage::PropDamage>>,
     ),
     time: Res<Time>,
+    display: Option<Res<crate::display::Display>>,
 ) {
+    let detail = detail(display.as_deref());
     if looks.generation != swap.generation {
         return;
     }
@@ -1044,7 +1110,7 @@ fn hits(
             .filter_map(|entity| parts.get(entity).ok())
             .map(|(part, material)| (part.0, material.0.clone()))
             .collect();
-        if throws_shards(change.d.material) {
+        if detail.shards && throws_shards(change.d.material) {
             let LooksWorld { world, floor } = looks.split();
             crate::ragdolls::gather(world, floor, (&swap.level, newest), feet, feet.z);
             let seed = u64::from(change.index) << 32 | u64::from(change.now.1);
@@ -1548,6 +1614,7 @@ fn fly(
     mut pieces: Query<(Entity, &mut Flying, &mut Transform)>,
     time: Res<Time>,
     (mut cost, mut facts): (ResMut<Cost>, ResMut<console::DumpFacts>),
+    display: Option<Res<crate::display::Display>>,
 ) {
     let now_ms = time.elapsed_secs_f64() * 1000.0;
     let stepped = std::time::Instant::now();
@@ -1597,7 +1664,7 @@ fn fly(
         }
     }
     let ages: Vec<(u64, Lasts)> = live.iter().map(|(_, age)| *age).collect();
-    for evicted in evict(&ages, MAX_PIECES) {
+    for evicted in evict(&ages, detail(display.as_deref()).most_pieces) {
         if let Ok((_, mut piece, _)) = pieces.get_mut(live[evicted].0) {
             piece.fade_ms = Some(now_ms);
         }
@@ -2032,6 +2099,7 @@ pub fn probes() -> sim::probe::Checks {
     ]
     .into_iter()
     .chain(fault_probes())
+    .chain(detail_probes())
     .collect()
 }
 
@@ -2048,6 +2116,64 @@ fn upright(low: f32, high: f32) -> Piece {
 
 /// The playtest log's faults: legged furniture's legs stand, a floating set
 /// keeps its lowest piece, and a plant is cut.
+/// The destruction detail: the setting reads back, each level draws no
+/// more than the one above it, and off throws, bursts and burns nothing.
+#[cfg(feature = "probes")]
+fn detail_probes() -> sim::probe::Checks {
+    use crate::display::Debris;
+    use sim::probe::check;
+    let mut settings = crate::settings::Settings::defaults();
+    let mut read = vec![settings.display().debris];
+    for value in ["low", "off", "full"] {
+        settings.apply("display.debris", value);
+        read.push(settings.display().debris);
+    }
+    let at = |debris: Debris| {
+        detail(Some(&crate::display::Display {
+            debris,
+            ..crate::display::Display::default()
+        }))
+    };
+    let levels = [Debris::Full, Debris::Low, Debris::Off].map(at);
+    let no_more = levels.windows(2).all(|pair| {
+        let (above, below) = (pair[0], pair[1]);
+        (below.flies <= above.flies)
+            && (below.small_pieces <= above.small_pieces)
+            && (below.shards <= above.shards)
+            && (below.glass_burst <= above.glass_burst)
+            && (below.lights <= above.lights)
+            && below.emitters <= above.emitters
+            && below.most_glass <= above.most_glass
+            && (below.glass_every == 0 || below.glass_every >= above.glass_every)
+    });
+    let off = levels[2];
+    let quiet = !off.flies
+        && !off.shards
+        && !off.glass_burst
+        && off.glass_every == 0
+        && off.emitters == 0
+        && !off.lights;
+    vec![
+        (
+            "prop_detail_setting",
+            check(
+                read == [Debris::Full, Debris::Low, Debris::Off, Debris::Full],
+                format!("default, low, off, full read {read:?}"),
+            ),
+        ),
+        (
+            "prop_detail_levels",
+            check(
+                no_more && quiet && detail(None) == levels[0],
+                format!(
+                    "each level no more than the one above: {no_more}; off quiet: {quiet}; none is full: {}",
+                    detail(None) == levels[0]
+                ),
+            ),
+        ),
+    ]
+}
+
 #[cfg(feature = "probes")]
 fn fault_probes() -> sim::probe::Checks {
     use sim::probe::check;

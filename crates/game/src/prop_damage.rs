@@ -328,6 +328,8 @@ pub(crate) type Wanted = BTreeMap<(u32, u8), (Emitter, Vec3)>;
 pub(crate) struct PropEmitters {
     generation: u32,
     pub wanted: Wanted,
+    /// Their glows light what is near (`prop_looks::Detail::lights`).
+    pub lights: bool,
 }
 
 impl PropEmitters {
@@ -482,7 +484,9 @@ pub(crate) fn draw(
     (globals, children, parts): (Query<&GlobalTransform>, Query<&Children>, MeshParts),
     mut meshes: ResMut<Assets<Mesh>>,
     time: Res<Time>,
+    display: Option<Res<crate::display::Display>>,
 ) {
+    let detail = crate::prop_looks::detail(display.as_deref());
     if damage.generation != swap.generation {
         *damage = PropDamage {
             generation: swap.generation,
@@ -634,7 +638,11 @@ pub(crate) fn draw(
             drawn.hangers.push(panel);
         }
         drawn.stage = stage;
-        let flies: Vec<(usize, bool)> = chunks.flies.iter().map(|&i| (i, false)).collect();
+        // Knocked off all the same; seen flying only when the detail says.
+        let flies: Vec<(usize, bool)> = (chunks.flies.iter())
+            .filter(|_| detail.flies)
+            .map(|&i| (i, false))
+            .collect();
         drawn.chunks = chunks;
         if flies.is_empty() {
             continue;
@@ -652,7 +660,7 @@ pub(crate) fn draw(
             (&swap.level, newest),
             (&fracture, &flies),
             (in_game(global), &ir.name, &materials),
-            (from, blast),
+            (from, blast, detail),
             now_ms,
         );
     }
@@ -675,8 +683,11 @@ fn emit(
     scene_models: Query<(Entity, &SceneModel)>,
     globals: Query<&GlobalTransform>,
     time: Res<Time>,
+    display: Option<Res<crate::display::Display>>,
 ) {
     lasting.start(swap.generation);
+    let detail = crate::prop_looks::detail(display.as_deref());
+    lasting.lights = detail.lights;
     let now_ms = time.elapsed_secs_f64() * 1000.0;
     damage.smoking.retain(|_, (until, _)| *until > now_ms);
     let made = made.as_deref();
@@ -721,7 +732,11 @@ fn emit(
             (key as u32, far)
         })
         .collect();
-    let chosen = lit(&candidates, MOST_EMITTERS, EMITTERS_REACH_M);
+    let chosen = lit(
+        &candidates,
+        MOST_EMITTERS.min(detail.emitters),
+        EMITTERS_REACH_M,
+    );
     lasting.wanted = (chosen.into_iter())
         .map(|key| {
             let (slot, emitter, at) = all[key as usize];

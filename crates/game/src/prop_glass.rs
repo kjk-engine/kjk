@@ -7,6 +7,10 @@
 //! lie flat and fade. The rest of the prop breaks or wears as its material
 //! does (`prop_looks`, `prop_damage`), which never cut its glass.
 //!
+//! How much of it is drawn follows the destruction detail
+//! (`prop_looks::Detail`): every shard, a third, or none (the glass simply
+//! goes); the crash is heard at every level.
+//!
 //! Shards fall on their own simple arcs to the floor the prop stands on,
 //! not through the pieces' physics: there are many, they are thin and they
 //! last seconds. Looks-only: nothing here is synced or saved.
@@ -149,7 +153,11 @@ impl Cut {
 
     /// Shard `number`'s meshes, each about the shard's middle, with the
     /// glass mesh it is of (by its place in `numbers`).
-    fn meshes_of(&self, meshes: &mut Assets<Mesh>, number: usize) -> crate::prop_looks::PieceMeshes {
+    fn meshes_of(
+        &self,
+        meshes: &mut Assets<Mesh>,
+        number: usize,
+    ) -> crate::prop_looks::PieceMeshes {
         let drawn = self.drawn.get_or_init(|| {
             (self.shards.iter())
                 .map(|shard| {
@@ -259,7 +267,9 @@ fn shatter(
     mut meshes: ResMut<Assets<Mesh>>,
     (mut cues, mut bursts): (ResMut<Cues>, ResMut<Bursts>),
     time: Res<Time>,
+    display: Option<Res<crate::display::Display>>,
 ) {
+    let detail = crate::prop_looks::detail(display.as_deref());
     if glass.generation != swap.generation {
         glass.generation = swap.generation;
         glass.gone.clear();
@@ -319,7 +329,10 @@ fn shatter(
             .unwrap_or((blow_from(feet, &changes.creatures), false));
         let from = Vec3::from_array(from);
         let axis = game.translation;
-        for (number, shard) in cut.shards.iter().enumerate() {
+        // As many of its shards as the detail draws (`Detail::glass_every`).
+        let drawn = (cut.shards.iter().enumerate())
+            .filter(|(number, _)| detail.glass_every > 0 && number % detail.glass_every == 0);
+        for (number, shard) in drawn {
             let at = game.transform_point(Vec3::from_array(shard.middle));
             let roll = |salt: u64| noise(&at.to_array(), salt ^ u64::from(index));
             let away = (at - from).normalize_or(Vec3::Z);
@@ -373,7 +386,8 @@ fn shatter(
         cues.0
             .push(Cue::at(SOUND.to_string(), units(middle), sound_ms));
         let step = (middles.len() / BURSTS).max(1);
-        for at in middles.iter().step_by(step).take(BURSTS) {
+        let glints = if detail.glass_burst { BURSTS } else { 0 };
+        for at in middles.iter().step_by(step).take(glints) {
             bursts.0.push(Burst {
                 effect: BURST,
                 at: units(*at),
@@ -398,7 +412,9 @@ fn fall(
     mut commands: Commands,
     mut shards: Query<(Entity, &mut Shard, &mut Transform)>,
     time: Res<Time>,
+    display: Option<Res<crate::display::Display>>,
 ) {
+    let most = MOST.min(crate::prop_looks::detail(display.as_deref()).most_glass);
     let now_ms = time.elapsed_secs_f64() * 1000.0;
     let dt = time.delta_secs().min(0.1);
     let mut live: Vec<(f64, Entity)> = Vec::new();
@@ -437,9 +453,9 @@ fn fall(
             live.push((shard.born_ms, entity));
         }
     }
-    if live.len() > MOST {
+    if live.len() > most {
         live.sort_by(|a, b| a.0.total_cmp(&b.0));
-        for &(_, entity) in &live[..live.len() - MOST] {
+        for &(_, entity) in &live[..live.len() - most] {
             if let Ok((_, mut shard, _)) = shards.get_mut(entity) {
                 shard.fade_ms = now_ms;
             }

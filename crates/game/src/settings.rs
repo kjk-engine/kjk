@@ -641,7 +641,7 @@ pub struct Settings {
 }
 
 /// Each setting the screens change, and its default.
-const DEFAULTS: [(&str, &str); 21] = [
+const DEFAULTS: [(&str, &str); 22] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -655,6 +655,7 @@ const DEFAULTS: [(&str, &str); 21] = [
     ("sound.movie", "1.00"),
     ("display.gamma", "0.50"),
     ("display.grass", "true"),
+    ("display.debris", "full"),
     ("display.mode", "window"),
     ("display.size", ""),
     ("display.vsync", "true"),
@@ -712,7 +713,12 @@ fn page_keys(page: &str) -> &'static [&'static str] {
         ],
         "options_sound" => &["sound.music", "sound.voice", "sound.effects", "sound.movie"],
         "options_graphics" => &["display.gamma", "display.shadows", "display.grass"],
-        "options_graphics_advanced" => &["display.vsync", "display.msaa", "display.soft_shadows"],
+        "options_graphics_advanced" => &[
+            "display.vsync",
+            "display.msaa",
+            "display.soft_shadows",
+            "display.debris",
+        ],
         // The window's mode and size alone: a start that did not get going
         // with them (`display::recover`), `kjk --reset-display`.
         "display" => &["display.mode", "display.size"],
@@ -1054,6 +1060,7 @@ impl Settings {
             },
             gamma: crate::display::gamma(self.fraction("display.gamma", 0.5)),
             grass: get("display.grass") != "false",
+            debris: crate::display::Debris::named(get("display.debris")),
         }
     }
 

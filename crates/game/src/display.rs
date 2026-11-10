@@ -76,6 +76,39 @@ pub struct Display {
     pub gamma: f32,
     /// The area's grass is drawn (`grass::option`).
     pub grass: bool,
+    /// How much of breaking props is drawn (`Debris`).
+    pub debris: Debris,
+}
+
+/// How much of breaking props is drawn (`display.debris`): their pieces
+/// flying, the shards a hit throws, glass bursting, and lasting fire and
+/// smoke, for a machine that cannot afford them all. What broke, how
+/// damaged it is and whether its glass is gone are the sim's, the same at
+/// every level and on every seat; each machine draws them as it chooses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Debris {
+    /// All of it.
+    #[default]
+    Full,
+    /// Only the pieces bigger than a fist fly, fewer at once, no shards
+    /// from hits, a third of the glass's shards, fewer fires and none
+    /// lighting the room.
+    Low,
+    /// Nothing flies: a broken prop shows its wreck, its glass is gone at
+    /// once, and nothing keeps burning.
+    Off,
+}
+
+impl Debris {
+    /// The level a setting's value names (`full`, `low`, `off`); full for
+    /// any other.
+    pub fn named(name: &str) -> Debris {
+        match name {
+            "low" => Debris::Low,
+            "off" => Debris::Off,
+            _ => Debris::Full,
+        }
+    }
 }
 
 impl Default for Display {
@@ -87,6 +120,7 @@ impl Default for Display {
             samples: 4,
             gamma: 1.0,
             grass: true,
+            debris: Debris::Full,
         }
     }
 }
