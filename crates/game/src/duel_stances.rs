@@ -148,6 +148,13 @@ fn offered(files: &crate::viewer_ja::Files) -> Vec<String> {
     folders
 }
 
+/// The skeletons offered for picking, by folder, in the Jedi Academy
+/// install that `discovery` finds (`offered`).
+pub fn offered_folders(discovery: &vfs::Discovery) -> Result<Vec<String>, String> {
+    let stack = crate::viewer_ja::stack(discovery)?;
+    Ok(offered(&crate::viewer_ja::Files::new(&stack)))
+}
+
 /// The table, as shipped.
 const TABLE: &str = include_str!("../../../data/duel_stances.toml");
 

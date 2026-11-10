@@ -347,6 +347,12 @@ enum Command {
         #[arg(long)]
         headless: bool,
     },
+    /// The saber animations measured headless against Movie Duels' poses
+    /// on JA's skeleton
+    Anim {
+        #[command(subcommand)]
+        verb: AnimVerb,
+    },
     /// Decode a texture (tpc, else tga) and write its first mip as PNG.
     Texture {
         /// k1 or tsl
@@ -437,6 +443,14 @@ enum Command {
         #[arg(long)]
         out: Option<std::path::PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+enum AnimVerb {
+    /// Plays every saber case (each Movie Duels stance, weapon and body,
+    /// under MDA and JA's rules) in the arena and writes each state's worst
+    /// values to `cases.json` and `report.md`
+    Audit(anim_audit::cases::AuditArgs),
 }
 
 #[derive(Subcommand)]
@@ -706,6 +720,9 @@ pub fn run() -> ExitCode {
                 }
             }
         }
+        Some(Command::Anim {
+            verb: AnimVerb::Audit(args),
+        }) => anim_audit::cases::run(&args),
         Some(Command::Games) => games(),
         Some(Command::Modules { game, module }) => {
             modules::run(&discover(), &game, module.as_deref())

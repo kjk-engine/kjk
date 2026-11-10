@@ -1,11 +1,15 @@
-//! The saber animation audit: reads the frames `kjk play --audit-log PATH`
-//! writes (`kjk_game::anim_audit_log`) and measures them (`checks`).
+//! The saber animation audit (`kjk anim audit`): runs its cases (`cases`),
+//! reads the frames `kjk play --audit-log PATH` writes
+//! (`kjk_game::anim_audit_log`), measures them (`checks`) and reports them
+//! (`report`).
 
 use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
+pub mod cases;
 pub mod checks;
+pub mod report;
 
 /// One drawn frame of the player's figure, as `AuditFrame` writes it. Every
 /// place is in game space, in metres.

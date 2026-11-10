@@ -568,20 +568,33 @@ mod rig {
 /// clear or as deep, a blade turning 360° in 0.25 s, a growing blade, a
 /// drawn blade 0.2 m from the sim's outside and inside contact, a staff's
 /// off hand 0.2 m from its hilt line, a hand jolted 0.25 m for one frame, a
-/// hand moving 0.4 m/s, and two frames at the same moment. Needs
+/// hand moving 0.4 m/s, and two frames at the same moment. The audit's
+/// script labels each frame with its state by the frame's moment. Needs
 /// `--features rig` (kjk's library); no installs.
 #[test]
 fn anim_audit_checks() {
     #[cfg(not(feature = "rig"))]
     println!("anim_audit_checks skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
-    audit::checks();
+    {
+        audit::checks();
+        audit::labels();
+    }
 }
 
 #[cfg(feature = "rig")]
 mod audit {
+    use kjk::anim_audit::cases::{SCRIPT, label};
     use kjk::anim_audit::checks::{Check, measure};
     use kjk::anim_audit::{Blade, Frame};
+
+    /// The script stands for 2 s and walks for 2 s, so a frame 4.5 s after
+    /// the script's start is in its third state, the run.
+    pub fn labels() {
+        let labelled = label(SCRIPT, 4500.0);
+        println!("4500 ms: {labelled:?}");
+        assert_eq!(labelled, Some("run"));
+    }
 
     /// The body every frame stands in, by its KOTOR node, its JA bone and
     /// its place. The reference stands where the drawn body does (scale 1).
